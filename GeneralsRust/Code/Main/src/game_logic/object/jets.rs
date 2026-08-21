@@ -42,6 +42,22 @@ pub struct HostJetAi {
     pub takeoff_max_lift: f32,
     pub takeoff_runway_end: Option<[f32; 3]>,
     pub takeoff_runway_dist: f32,
+    /// C++ `JetOrHeliTaxiState` TAXI_FROM_HANGAR / TAXI_TO_TAKEOFF.
+    #[serde(default)]
+    pub taxi_to_takeoff: bool,
+    /// Runway-head waypoint used to start PauseBeforeTakeoff.
+    #[serde(default)]
+    pub takeoff_runway_start: Option<[f32; 3]>,
+    /// C++ `m_waitedForTaxiID` was-in-line latch captured at taxi start.
+    #[serde(default)]
+    pub takeoff_waited_for_taxi: bool,
+    /// C++ RETURNING_FOR_LANDING / LANDING / TAXI_FROM_LANDING.
+    /// 0 none, 1 fly to approach, 2 land runway, 3 taxi to parking.
+    #[serde(default)]
+    pub rtb_landing_phase: u8,
+    /// C++ `m_afterburnerSound.isCurrentlyPlaying`.
+    #[serde(default)]
+    pub afterburner_sound_playing: bool,
     /// C++ lock-on drawable world position.
     pub lockon_pos: Option<[f32; 3]>,
     pub lockon_hidden: bool,
@@ -72,6 +88,11 @@ pub const JET_TAKEOFF_PAUSE_MS: u32 = 500;
 pub const JET_TAKEOFF_PAUSE_FRAMES: u32 = 15;
 pub const JET_LOCKON_TICK_SOUND: &str = "LockonTickSound";
 pub const JET_AFTERBURNER_SOUND: &str = "Afterburner";
+pub const JET_RTB_PHASE_APPROACH: u8 = 1;
+pub const JET_RTB_PHASE_LANDING: u8 = 2;
+pub const JET_RTB_PHASE_TAXI: u8 = 3;
+/// C++ `TheAudio->removeAudioEvent` counterpart for Afterburner.
+pub const JET_AFTERBURNER_SOUND_STOP: &str = "AfterburnerStop";
 
 impl Object {
     /// C++ JetSlowDeathBehavior residual begin.
@@ -542,6 +563,54 @@ impl Object {
         changed && enable
     }
 
+    /// C++ `JetAIUpdate::update` JETEXHAUST: velocity > 0 AND ALLOW_AIR_LOCO.
+    fn stamp_jet_exhaust(&mut self) {
+        let bit = crate::game_logic::host_enum_table_residual::jetexhaust_model_bit();
+        if bit >= 128 {
+            return;
+        }
+        let speed = self.movement.velocity.length();
+        if speed > 0.0 && self.jet_allows_air_loco() {
+            self.model_condition_bits |= 1u128 << bit;
+        } else {
+            self.model_condition_bits &= !(1u128 << bit);
+        }
+    }
+
+    /// C++ TAXI_FROM_HANGAR / TAXI_TO_TAKEOFF: afterburners stay off.
+    pub fn arm_jet_taxi_to_takeoff(
+        &mut self,
+        runway_start: Vec3,
+        runway_end: Vec3,
+        runway_dist: f32,
+        waited_for_taxi: bool,
+    ) {
+        self.jet_ai.taxi_to_takeoff = true;
+        self.jet_ai.takeoff_in_progress = false;
+        self.jet_ai.takeoff_pause_armed = false;
+        self.jet_ai.takeoff_runway_start = Some([runway_start.x, runway_start.y, runway_start.z]);
+        self.jet_ai.takeoff_runway_end = Some([runway_end.x, runway_end.y, runway_end.z]);
+        self.jet_ai.takeoff_runway_dist = runway_dist.max(1.0);
+        self.jet_ai.takeoff_waited_for_taxi = waited_for_taxi;
+        self.apply_taxiing_locomotor_set();
+        let _ = self.enable_jet_afterburners(false);
+    }
+
+    pub fn jet_reached_runway_head(&self) -> bool {
+        if !self.jet_ai.taxi_to_takeoff {
+            return false;
+        }
+        let Some(start) = self.jet_ai.takeoff_runway_start else {
+            return self.movement.path.is_empty()
+                || self.movement.current_path_index >= self.movement.path.len();
+        };
+        let start = Vec3::new(start[0], start[1], start[2]);
+        let pos = self.get_position();
+        let dx = pos.x - start.x;
+        let dz = pos.z - start.z;
+        dx * dx + dz * dz <= 12.0 * 12.0
+    }
+
     pub fn begin_jet_runway_takeoff(
         &mut self,
         now: u32,
@@ -606,6 +675,9 @@ impl Object {
         }
         self.apply_airborne_locomotor_set();
         let _ = self.enable_jet_afterburners(false);
+        self.jet_ai.taxi_to_takeoff = false;
+        self.jet_ai.takeoff_runway_start = None;
+        self.jet_ai.takeoff_waited_for_taxi = false;
     }
 
     pub fn jet_should_transfer_runway(&self, now: u32) -> bool {
@@ -630,6 +702,7 @@ impl Object {
             let _ = self.enable_jet_afterburners(true);
         }
         let _ = self.tick_jet_takeoff_lift(now);
+        self.stamp_jet_exhaust();
         self.position_jet_lockon(now);
 
         if self.status.attacking {

@@ -1006,6 +1006,8 @@ pub struct PresentationUnitCatalogEntry {
     pub command_set_name: String,
     /// Wave 1055: host control-group residual (0..9, -1 = none) for dual group numerals.
     pub hotkey_group: i8,
+    /// Live host beacon Drawable caption residual for EditBeaconText.
+    pub caption: String,
 }
 
 pub struct InGameUI {

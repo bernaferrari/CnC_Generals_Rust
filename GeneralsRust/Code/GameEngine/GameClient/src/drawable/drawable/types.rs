@@ -239,6 +239,8 @@ pub struct DrawableOverlayData {
     pub veterancy_level: u8,
     /// Caption text to display (matches C++ m_captionDisplayString).
     pub caption: Option<String>,
+    /// World pose for C++ `Drawable::drawCaption` worldToScreen center.
+    pub caption_world: Option<[f32; 3]>,
     /// Whether this drawable should have 2D overlay drawn this frame.
     pub visible: bool,
     /// C++ `drawHealthBar` actually drew this frame (selected/hover + ShowObjectHealth).

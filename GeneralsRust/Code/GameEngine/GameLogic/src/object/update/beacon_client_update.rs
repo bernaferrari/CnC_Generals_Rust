@@ -276,7 +276,7 @@ impl BeaconClientUpdateModule {
         })
     }
 
-    fn resolve_smoke_template_with_lookup(
+    pub fn resolve_smoke_template_with_lookup(
         color: Color,
         mut template_exists: impl FnMut(&str) -> bool,
     ) -> Option<(String, Option<Color>)> {

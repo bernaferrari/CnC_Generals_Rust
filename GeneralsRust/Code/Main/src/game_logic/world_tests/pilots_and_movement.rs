@@ -3053,6 +3053,463 @@ fn steal_cash_hack_rejects_non_lotus_and_non_cash_targets() {
     assert!(!game_logic.honesty_steal_cash_ok());
 }
 
+/// C++ StealCashHack withdraws/deposits controlling players, not first faction slot.
+#[test]
+fn steal_cash_hack_uses_controlling_players_not_faction_slot() {
+    let mut game_logic = GameLogic::new();
+    ensure_test_black_lotus_template(&mut game_logic);
+    ensure_test_structure_template(&mut game_logic);
+    ensure_test_player_for_team(&mut game_logic, Team::China);
+    ensure_test_player_for_team(&mut game_logic, Team::GLA);
+    let mut china_bystander = Player::new(11, Team::China, "ChinaBystander", true);
+    china_bystander.resources.supplies = 9_000;
+    game_logic.add_player(china_bystander);
+    let mut gla_victim = Player::new(12, Team::GLA, "GlaVictim", true);
+    gla_victim.resources.supplies = 5_000;
+    game_logic.add_player(gla_victim);
+    if let Some(slot) = game_logic.get_player_mut(2) {
+        slot.resources.supplies = 1;
+    }
+
+    let lotus_id = game_logic
+        .create_object(
+            "ChinaInfantryBlackLotus",
+            Team::China,
+            Vec3::new(100.0, 0.0, 0.0),
+        )
+        .expect("lotus");
+    let target_id = game_logic
+        .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("supply");
+    if let Some(lotus) = game_logic.host_object_mut(lotus_id) {
+        lotus.owner_player_id = Some(1);
+    }
+    if let Some(target) = game_logic.host_object_mut(target_id) {
+        target.owner_player_id = Some(12);
+    }
+
+    game_logic.queue_command(crate::command_system::GameCommand {
+        command_type: crate::command_system::CommandType::StealCashHack { target_id },
+        player_id: 1,
+        command_id: 1,
+        timestamp: std::time::SystemTime::now(),
+        selected_units: vec![lotus_id],
+        modifier_keys: crate::command_system::ModifierKeys::default(),
+    });
+    game_logic.process_commands();
+    {
+        let lotus = game_logic.host_object_mut(lotus_id).expect("lotus");
+        lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
+        lotus.set_ai_state(AIState::SpecialAbility);
+        lotus.target = Some(target_id);
+    }
+    game_logic.update_ai(&[lotus_id, target_id], 1.0 / 60.0);
+    game_logic.update_ai(&[lotus_id, target_id], 1.0);
+    game_logic.update_ai(&[lotus_id, target_id], 7.0);
+    game_logic.update_ai(&[lotus_id, target_id], 6.0);
+
+    let china_caster = game_logic.get_player(1).expect("china caster").resources.supplies;
+    let china_other = game_logic.get_player(11).expect("china other").resources.supplies;
+    let gla_slot = game_logic.get_player(2).expect("gla slot").resources.supplies;
+    let gla_owner = game_logic.get_player(12).expect("gla owner").resources.supplies;
+    assert_eq!(
+        china_other, 9_000,
+        "same-faction bystander must not bank Lotus steal"
+    );
+    assert_eq!(gla_slot, 1, "first GLA slot must not be the victim");
+    assert_eq!(gla_owner, 4_000, "building owner must lose 1000");
+    assert!(
+        china_caster >= 1_000,
+        "Lotus controller must receive the steal (have {china_caster})"
+    );
+}
+
+/// C++ update/continuePreparation abort Lotus steal when the target cloaks.
+#[test]
+fn leftover_lotus_prep_aborts_when_target_stealthed() {
+    use crate::game_logic::host_hero_abilities::LeftoverSaPhase;
+    let mut game_logic = GameLogic::new();
+    ensure_test_black_lotus_template(&mut game_logic);
+    ensure_test_structure_template(&mut game_logic);
+    ensure_test_player_for_team(&mut game_logic, Team::China);
+    ensure_test_player_for_team(&mut game_logic, Team::GLA);
+    {
+        let victim = game_logic.get_player_mut_by_team(Team::GLA).expect("gla");
+        victim.resources.supplies = 5_000;
+    }
+    let lotus_id = game_logic
+        .create_object(
+            "ChinaInfantryBlackLotus",
+            Team::China,
+            Vec3::new(100.0, 0.0, 0.0),
+        )
+        .expect("lotus");
+    let target_id = game_logic
+        .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("supply");
+    game_logic.queue_command(crate::command_system::GameCommand {
+        command_type: crate::command_system::CommandType::StealCashHack { target_id },
+        player_id: 1,
+        command_id: 1,
+        timestamp: std::time::SystemTime::now(),
+        selected_units: vec![lotus_id],
+        modifier_keys: crate::command_system::ModifierKeys::default(),
+    });
+    game_logic.process_commands();
+    {
+        let lotus = game_logic.host_object_mut(lotus_id).expect("lotus");
+        lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
+        lotus.set_ai_state(AIState::SpecialAbility);
+        lotus.target = Some(target_id);
+    }
+    game_logic.update_ai(&[lotus_id, target_id], 1.0);
+    game_logic.update_ai(&[lotus_id, target_id], 7.0);
+    let phase = game_logic
+        .hero_abilities()
+        .leftover_channel(lotus_id)
+        .map(|ch| ch.phase);
+    assert_eq!(phase, Some(LeftoverSaPhase::Preparing), "must be mid-prep");
+    if let Some(target) = game_logic.host_object_mut(target_id) {
+        target.set_status_stealthed(true);
+        target.set_status_detected(false);
+    }
+    game_logic.update_ai(&[lotus_id, target_id], 0.2);
+    assert_eq!(
+        game_logic.hero_abilities().cash_stolen_total, 0,
+        "stealthed target must abort Lotus steal"
+    );
+    let phase = game_logic
+        .hero_abilities()
+        .leftover_channel(lotus_id)
+        .map(|ch| ch.phase);
+    assert!(
+        phase != Some(LeftoverSaPhase::Preparing),
+        "prep must pack or end after stealth abort, got {phase:?}"
+    );
+}
+
+/// C++ startUnpacking stamps UNPACKING and plays UnpackSound.
+#[test]
+fn leftover_lotus_unpack_sets_model_and_unpack_sound() {
+    use crate::game_logic::host_enum_table_residual::unpacking_model_bit;
+    use crate::game_logic::host_hero_abilities::{LeftoverSaPhase, LOTUS_UNPACK_SOUND};
+    let mut game_logic = GameLogic::new();
+    ensure_test_black_lotus_template(&mut game_logic);
+    ensure_test_structure_template(&mut game_logic);
+    ensure_test_player_for_team(&mut game_logic, Team::China);
+    ensure_test_player_for_team(&mut game_logic, Team::GLA);
+    let lotus_id = game_logic
+        .create_object(
+            "ChinaInfantryBlackLotus",
+            Team::China,
+            Vec3::new(100.0, 0.0, 0.0),
+        )
+        .expect("lotus");
+    let target_id = game_logic
+        .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("supply");
+    game_logic.queue_command(crate::command_system::GameCommand {
+        command_type: crate::command_system::CommandType::StealCashHack { target_id },
+        player_id: 1,
+        command_id: 1,
+        timestamp: std::time::SystemTime::now(),
+        selected_units: vec![lotus_id],
+        modifier_keys: crate::command_system::ModifierKeys::default(),
+    });
+    game_logic.process_commands();
+    {
+        let lotus = game_logic.host_object_mut(lotus_id).expect("lotus");
+        lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
+        lotus.set_ai_state(AIState::SpecialAbility);
+        lotus.target = Some(target_id);
+    }
+    game_logic.queued_audio_events.clear();
+    game_logic.update_ai(&[lotus_id, target_id], 1.0);
+    game_logic.update_ai(&[lotus_id, target_id], 1.0);
+    let lotus = game_logic.host_object(lotus_id).expect("lotus");
+    assert_ne!(
+        lotus.model_condition_bits & (1u128 << unpacking_model_bit()),
+        0,
+        "Lotus unpack must set MODELCONDITION_UNPACKING"
+    );
+    assert!(
+        game_logic
+            .queued_audio_events
+            .iter()
+            .any(|event| event.event_type == LOTUS_UNPACK_SOUND),
+        "Lotus unpack must queue BlackLotusUnpack"
+    );
+    assert_eq!(
+        game_logic
+            .hero_abilities()
+            .leftover_channel(lotus_id)
+            .map(|ch| ch.phase),
+        Some(LeftoverSaPhase::Unpacking)
+    );
+}
+
+/// C++ initiateIntentToDoSpecialPower onExit siblings — no leftover hot-swap.
+#[test]
+fn leftover_sa_hot_swap_aborts_in_flight_channel() {
+    use crate::game_logic::host_hero_abilities::{LeftoverSaKind, LeftoverSaPhase};
+    let mut game_logic = GameLogic::new();
+    ensure_test_black_lotus_template(&mut game_logic);
+    ensure_test_structure_template(&mut game_logic);
+    ensure_test_tank_template(&mut game_logic);
+    ensure_test_player_for_team(&mut game_logic, Team::China);
+    ensure_test_player_for_team(&mut game_logic, Team::GLA);
+    let lotus_id = game_logic
+        .create_object(
+            "ChinaInfantryBlackLotus",
+            Team::China,
+            Vec3::new(100.0, 0.0, 0.0),
+        )
+        .expect("lotus");
+    let supply_id = game_logic
+        .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("supply");
+    let tank_id = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
+        .expect("tank");
+    game_logic.queue_command(crate::command_system::GameCommand {
+        command_type: crate::command_system::CommandType::StealCashHack {
+            target_id: supply_id,
+        },
+        player_id: 1,
+        command_id: 1,
+        timestamp: std::time::SystemTime::now(),
+        selected_units: vec![lotus_id],
+        modifier_keys: crate::command_system::ModifierKeys::default(),
+    });
+    game_logic.process_commands();
+    {
+        let lotus = game_logic.host_object_mut(lotus_id).expect("lotus");
+        lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
+        lotus.set_ai_state(AIState::SpecialAbility);
+        lotus.target = Some(supply_id);
+    }
+    game_logic.update_ai(&[lotus_id, supply_id], 1.0);
+    game_logic.update_ai(&[lotus_id, supply_id], 1.0);
+    assert_eq!(
+        game_logic
+            .hero_abilities()
+            .leftover_channel(lotus_id)
+            .map(|ch| ch.kind),
+        Some(LeftoverSaKind::StealCash)
+    );
+    game_logic.queue_command(crate::command_system::GameCommand {
+        command_type: crate::command_system::CommandType::DisableVehicleHack {
+            target_id: tank_id,
+        },
+        player_id: 1,
+        command_id: 2,
+        timestamp: std::time::SystemTime::now(),
+        selected_units: vec![lotus_id],
+        modifier_keys: crate::command_system::ModifierKeys::default(),
+    });
+    game_logic.process_commands();
+    assert!(
+        game_logic
+            .hero_abilities()
+            .leftover_channel(lotus_id)
+            .is_none(),
+        "new leftover SA must onExit the in-flight steal channel"
+    );
+    {
+        let lotus = game_logic.host_object_mut(lotus_id).expect("lotus");
+        lotus.set_position(Vec3::new(10.0, 0.0, 0.0));
+        lotus.set_ai_state(AIState::SpecialAbility);
+        lotus.target = Some(tank_id);
+    }
+    game_logic.update_ai(&[lotus_id, tank_id], 1.0);
+    let kind = game_logic
+        .hero_abilities()
+        .leftover_channel(lotus_id)
+        .map(|ch| ch.kind);
+    assert!(
+        kind != Some(LeftoverSaKind::StealCash),
+        "hot-swap must not keep the steal leftover timer, got {kind:?}"
+    );
+    let _ = LeftoverSaPhase::Facing;
+}
+
+/// C++ FlipOwnerAfterUnpacking rotates +PI when unpack completes.
+#[test]
+fn leftover_burton_flips_180_after_unpack() {
+    use crate::game_logic::ChargePlantAbilityMetadata;
+    let mut game_logic = GameLogic::new();
+    ensure_test_structure_template(&mut game_logic);
+    ensure_test_player_for_team(&mut game_logic, Team::USA);
+    ensure_test_player_for_team(&mut game_logic, Team::GLA);
+    let mut burton = ThingTemplate::new("AmericaInfantryColonelBurton");
+    burton
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    burton.charge_plant_abilities.push(ChargePlantAbilityMetadata {
+        special_power_template: "SpecialAbilityColonelBurtonTimedCharges".into(),
+        unpack_time_ms: 200,
+        pack_time_ms: 0,
+        pack_unpack_variation_factor: 0.0,
+        flee_range_after_completion: 0.0,
+        flip_object_after_unpacking: true,
+        flip_object_after_packing: false,
+    });
+    game_logic
+        .templates
+        .insert("AmericaInfantryColonelBurton".into(), burton);
+    let burton_id = game_logic
+        .create_object(
+            "AmericaInfantryColonelBurton",
+            Team::USA,
+            Vec3::new(2.0, 0.0, 0.0),
+        )
+        .expect("burton");
+    let target_id = game_logic
+        .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("bldg");
+    let facing_before = game_logic
+        .host_object(burton_id)
+        .expect("burton")
+        .get_orientation();
+    game_logic.queue_pending_special_ability(
+        burton_id,
+        crate::game_logic::PendingSpecialAbility::PlantTimedDemoCharge { target_id },
+    );
+    if let Some(burton) = game_logic.host_object_mut(burton_id) {
+        burton.set_ai_state(AIState::SpecialAbility);
+        burton.target = Some(target_id);
+    }
+    game_logic.update_ai(&[burton_id, target_id], 1.0 / 30.0);
+    game_logic.update_ai(&[burton_id, target_id], 0.3);
+    let facing_after = game_logic
+        .host_object(burton_id)
+        .expect("burton")
+        .get_orientation();
+    let delta = (facing_after - facing_before).abs();
+    let flipped = (delta - std::f32::consts::PI).abs() < 0.05
+        || (delta - std::f32::consts::TAU).abs() < 0.05
+        || (delta - 0.0).abs() > 2.5;
+    assert!(
+        flipped,
+        "Burton must rotate ~PI after unpack (before={facing_before} after={facing_after})"
+    );
+}
+
+/// C++ markSpecialPowerTriggered is startPreparation, not click.
+#[test]
+fn tank_hunter_tnt_does_not_consume_cooldown_at_click() {
+    use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+    use crate::game_logic::{SpecialPowerModuleKind, SpecialPowerModuleMetadata};
+    let mut game_logic = GameLogic::new();
+    ensure_test_structure_template(&mut game_logic);
+    ensure_test_player_for_team(&mut game_logic, Team::China);
+    ensure_test_player_for_team(&mut game_logic, Team::GLA);
+    let mut hunter = ThingTemplate::new("ChinaInfantryTankHunter");
+    hunter
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    hunter.special_power_modules.push(SpecialPowerModuleMetadata {
+        source_index: 0,
+        module_tag: None,
+        module_kind: SpecialPowerModuleKind::SpecialAbility,
+        special_power_template: "SpecialAbilityTankHunterTNTAttack".into(),
+        special_power_template_id: 1,
+        command_power: Some(SpecialPowerType::TankHunterTnt),
+        reload_time_frames: 225,
+        required_science: None,
+        public_timer: false,
+        shared_n_sync: false,
+        shortcut_power: false,
+        update_module_starts_attack: true,
+        starts_paused: false,
+        scripted_special_power_only: false,
+    });
+    game_logic
+        .templates
+        .insert("ChinaInfantryTankHunter".into(), hunter);
+    let hunter_id = game_logic
+        .create_object(
+            "ChinaInfantryTankHunter",
+            Team::China,
+            Vec3::new(200.0, 0.0, 0.0),
+        )
+        .expect("hunter");
+    let target_id = game_logic
+        .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("bldg");
+    game_logic.queue_command(GameCommand {
+        command_type: CommandType::DoSpecialPower {
+            power_type: SpecialPowerType::TankHunterTnt,
+            target: PowerTarget::Object(target_id),
+        },
+        player_id: 1,
+        command_id: 1,
+        timestamp: std::time::SystemTime::now(),
+        selected_units: vec![hunter_id],
+        modifier_keys: crate::command_system::ModifierKeys::default(),
+    });
+    game_logic.process_commands();
+    let hunter = game_logic.host_object(hunter_id).expect("hunter");
+    assert!(
+        !hunter
+            .special_power_cooldowns
+            .contains_key(&SpecialPowerType::TankHunterTnt),
+        "TNT must not start reload at click"
+    );
+}
+
+/// C++ killSpecialObjects laser case locks PRIMARY temporarily.
+#[test]
+fn leftover_laser_abort_resets_primary_weapon_lock() {
+    use crate::game_logic::WeaponLockType;
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    ensure_test_player_for_team(&mut game_logic, Team::USA);
+    ensure_test_player_for_team(&mut game_logic, Team::GLA);
+    let mut md = ThingTemplate::new("AmericaInfantryMissileDefender");
+    md.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    game_logic
+        .templates
+        .insert("AmericaInfantryMissileDefender".into(), md);
+    let md_id = game_logic
+        .create_object(
+            "AmericaInfantryMissileDefender",
+            Team::USA,
+            Vec3::new(0.0, 0.0, 0.0),
+        )
+        .expect("md");
+    let tgt_id = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+        .expect("tgt");
+    {
+        let md = game_logic.host_object_mut(md_id).expect("md");
+        md.weapon = Some(crate::game_logic::Weapon {
+            damage: 10.0,
+            range: 200.0,
+            ..crate::game_logic::Weapon::default()
+});
+        md.secondary_weapon = md.weapon.clone();
+        let _ = md.set_weapon_lock(1, WeaponLockType::LockedTemporarily);
+    }
+    assert!(game_logic.activate_missile_defender_laser_guided(md_id, tgt_id));
+    if let Some(tgt) = game_logic.host_object_mut(tgt_id) {
+        tgt.set_status_stealthed(true);
+        tgt.set_status_detected(false);
+    }
+    game_logic.update_ai(&[md_id, tgt_id], 1.0 / 30.0);
+    let md = game_logic.host_object(md_id).expect("md");
+    assert_eq!(
+        md.weapon_lock_slot, 0,
+        "laser abort must lock PRIMARY"
+    );
+    assert_eq!(md.weapon_lock_type, WeaponLockType::LockedTemporarily);
+}
+
+
 /// Residual: Black Lotus DisableVehicleHack walks to enemy vehicle → DISABLED_HACKED.
 #[test]
 fn disable_vehicle_hack_command_disables_after_reach() {
@@ -3405,7 +3862,7 @@ fn ecm_jam_spawns_disable_stream_laser() {
             reload_time: 0.1,
             last_fire_time: -10.0,
             ..Weapon::default()
-        });
+});
         // One 24 SUBDUAL_VEHICLE pulse fills this bar (ActiveBody.cpp:1292).
         o.health.current = 20.0;
         o.health.maximum = 20.0;
@@ -3471,7 +3928,7 @@ fn ecm_jam_residual_jams_enemy_weapons_in_radius() {
             reload_time: 0.1,
             last_fire_time: -10.0,
             ..Weapon::default()
-        });
+});
         if id == enemy_id {
             // One 24 SUBDUAL_VEHICLE pulse fills the bar (ActiveBody.cpp:1292).
             unit.health.current = 20.0;
@@ -3606,7 +4063,7 @@ fn ecm_jam_residual_out_of_range_then_in_range() {
             range: 120.0,
             last_fire_time: -5.0,
             ..Weapon::default()
-        });
+});
         enemy.health.current = 20.0;
         enemy.health.maximum = 20.0;
         enemy.max_health = 20.0;

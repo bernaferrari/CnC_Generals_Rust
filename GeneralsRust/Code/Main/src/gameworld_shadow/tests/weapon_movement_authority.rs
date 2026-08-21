@@ -30,19 +30,19 @@ fn weapon_slots_tertiary_never_aliases_primary_and_ammo_writeback() {
             reload_time: 1.0,
             last_fire_time: 0.2,
             ..Weapon::default()
-        });
+});
         o.tertiary_weapon = Some(Weapon {
             clip_size: 4,
             ammo: Some(3),
             reload_time: 2.5,
             last_fire_time: 9.0,
             ..Weapon::default()
-        });
+});
         o.mine_clearing_primary_weapon = Some(Weapon {
             clip_size: 1,
             ammo: Some(1),
             ..Weapon::default()
-        });
+});
     }
 
     let mut shadow = GameWorldShadow::new(64);

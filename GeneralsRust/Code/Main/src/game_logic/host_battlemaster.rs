@@ -335,7 +335,9 @@ pub fn battlemaster_weapon(has_uranium: bool, in_horde: bool, has_nationalism: b
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-    }
+                reloading_clip: false,
+            last_bonus_rof: 0.0,
+}
 }
 
 /// Splash residual damage at distance from impact.

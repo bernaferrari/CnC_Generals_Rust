@@ -152,6 +152,45 @@ fn parse_weather_definition(ini: &mut INI) -> INIResult<()> {
     Ok(())
 }
 
+/// C++ `AABoxClass` X/Y used to clip the snow emitter cube
+/// (`W3DSnow.cpp:345-363`). Horizontal plane is C++ Z-up X/Y
+/// (leftover Y-up X/Z).
+#[derive(Debug, Clone, Copy)]
+pub struct SnowVisibleBoxXy {
+    pub center_x: f32,
+    pub center_y: f32,
+    pub extent_x: f32,
+    pub extent_y: f32,
+}
+
+/// C++ `W3DSnowManager::renderAsQuads` view-space offsets
+/// `(-0.5,0.5,0)*m_quadSize` and matching UVs. `right`/`up` are camera
+/// axes in the same world space as `center`.
+#[must_use]
+pub fn camera_facing_quad_corners(
+    center: [f32; 3],
+    right: [f32; 3],
+    up: [f32; 3],
+    quad_size: f32,
+) -> [([f32; 3], [f32; 2]); 4] {
+    let offsets = [
+        ([-0.5, 0.5], [0.0, 0.0]),
+        ([-0.5, -0.5], [0.0, 1.0]),
+        ([0.5, -0.5], [1.0, 1.0]),
+        ([0.5, 0.5], [1.0, 0.0]),
+    ];
+    offsets.map(|([ox, oy], uv)| {
+        (
+            [
+                center[0] + (right[0] * ox + up[0] * oy) * quad_size,
+                center[1] + (right[1] * ox + up[1] * oy) * quad_size,
+                center[2] + (right[2] * ox + up[2] * oy) * quad_size,
+            ],
+            uv,
+        )
+    })
+}
+
 #[derive(Debug)]
 pub struct SnowManager {
     starting_heights: Vec<f32>,
@@ -279,6 +318,16 @@ impl SnowManager {
     ///
     /// `camera` is `[x, y_up, z]`. C++ uses Z-up (`x, y, z_up`).
     pub fn flake_positions_y_up(&self, camera: [f32; 3]) -> Vec<[f32; 3]> {
+        self.flake_positions_y_up_clipped(camera, None)
+    }
+
+    /// Same centers as [`Self::flake_positions_y_up`], clipped to the
+    /// terrain-and-sky visible AABB like `W3DSnow.cpp:345-366`.
+    pub fn flake_positions_y_up_clipped(
+        &self,
+        camera: [f32; 3],
+        visible_xy: Option<SnowVisibleBoxXy>,
+    ) -> Vec<[f32; 3]> {
         const MAXIMUM_CAMERA_DISTANCE: i32 = 100_000;
         if !self.is_visible {
             return Vec::new();
@@ -298,11 +347,38 @@ impl SnowManager {
         let half = (self.box_dimensions / spacing * 0.5).floor() as i32;
         let cube_center_x = (cam_x / spacing).floor() as i32;
         let cube_center_y = (cam_y_cpp / spacing).floor() as i32;
-        let origin_x = cube_center_x - half;
-        let origin_y = cube_center_y - half;
-        let dim_x = cube_center_x + half;
-        let dim_y = cube_center_y + half;
-        if dim_x <= origin_x || dim_y <= origin_y {
+        let mut origin_x = cube_center_x - half;
+        let mut origin_y = cube_center_y - half;
+        let mut dim_x = cube_center_x + half;
+        let mut dim_y = cube_center_y + half;
+
+        // C++ W3DSnow.cpp:347-366 — expand by sine amplitude + quad radius,
+        // then clip the emitter cube to the terrain-and-sky AABB so flakes
+        // do not keep falling under the ground.
+        if let Some(bbox) = visible_xy {
+            let expand = self.amplitude + self.quad_size;
+            let min_x = bbox.center_x - (bbox.extent_x + expand);
+            let min_y = bbox.center_y - (bbox.extent_y + expand);
+            let max_x = bbox.center_x + (bbox.extent_x + expand);
+            let max_y = bbox.center_y + (bbox.extent_y + expand);
+            if (origin_x as f32) * spacing < min_x {
+                origin_x = (min_x / spacing).floor() as i32;
+            }
+            if (origin_y as f32) * spacing < min_y {
+                origin_y = (min_y / spacing).floor() as i32;
+            }
+            if (dim_x as f32) * spacing > max_x {
+                dim_x = (max_x / spacing).floor() as i32;
+            }
+            if (dim_y as f32) * spacing > max_y {
+                dim_y = (max_y / spacing).floor() as i32;
+            }
+        }
+        if (dim_y - origin_y) < 0 || (dim_x - origin_x) < 0 {
+            return Vec::new();
+        }
+        let total = (dim_y - origin_y) * (dim_x - origin_x);
+        if total <= 0 {
             return Vec::new();
         }
 
@@ -310,9 +386,7 @@ impl SnowManager {
         let camera_offset = cam_z_cpp.rem_euclid(self.box_dimensions);
         let height_traveled = self.time * self.velocity + camera_offset;
 
-        let mut flakes = Vec::with_capacity(
-            ((dim_x - origin_x).max(0) as usize) * ((dim_y - origin_y).max(0) as usize),
-        );
+        let mut flakes = Vec::with_capacity(total as usize);
         for y in origin_y..dim_y {
             for x in origin_x..dim_x {
                 let noise_x = (x + MAXIMUM_CAMERA_DISTANCE) & (SNOW_NOISE_X as i32 - 1);
@@ -439,5 +513,106 @@ mod tests {
         let flakes = snow.flake_positions_y_up([0.0, 10.0, 0.0]);
         assert_eq!(flakes.len(), 50 * 50);
         assert!(flakes.iter().any(|p| p[0].abs() > 0.01 || p[2].abs() > 0.01));
+    }
+
+    #[test]
+    fn reset_restores_script_visibility() {
+        let mut snow = SnowManager::new();
+        snow.set_visible(false);
+        snow.reset();
+        assert!(
+            snow.is_visible(),
+            "C++ SnowManager::reset restores m_isVisible=TRUE"
+        );
+    }
+
+    #[test]
+    fn flake_positions_clip_to_terrain_visible_box() {
+        let _ = initialize_snow_manager();
+        let settings = ensure_weather_setting();
+        {
+            let mut guard = settings.write().unwrap_or_else(|e| e.into_inner());
+            guard.snow_enabled = true;
+            guard.snow_box_dimensions = 50.0;
+            guard.snow_box_density = 1.0;
+            guard.snow_amplitude = 0.0;
+            guard.snow_quad_size = 0.0;
+        }
+        let mut snow = SnowManager::new();
+        snow.init();
+        snow.set_visible(true);
+        let unclipped = snow.flake_positions_y_up([0.0, 10.0, 0.0]);
+        assert_eq!(unclipped.len(), 50 * 50);
+
+        let clipped = snow.flake_positions_y_up_clipped(
+            [0.0, 10.0, 0.0],
+            Some(SnowVisibleBoxXy {
+                center_x: 0.0,
+                center_y: 0.0,
+                extent_x: 5.0,
+                extent_y: 5.0,
+            }),
+        );
+        assert!(
+            clipped.len() < unclipped.len(),
+            "terrain AABB must shrink the emitter cube, got {} vs {}",
+            clipped.len(),
+            unclipped.len()
+        );
+        assert!(!clipped.is_empty(), "on-screen box still emits flakes");
+
+        let culled = snow.flake_positions_y_up_clipped(
+            [0.0, 10.0, 0.0],
+            Some(SnowVisibleBoxXy {
+                center_x: 10_000.0,
+                center_y: 10_000.0,
+                extent_x: 1.0,
+                extent_y: 1.0,
+            }),
+        );
+        assert!(
+            culled.is_empty(),
+            "emitter cube fully outside the visible box must emit nothing"
+        );
+    }
+
+    #[test]
+    fn camera_facing_quads_are_not_world_axis_cards() {
+        let corners = camera_facing_quad_corners(
+            [0.0, 10.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 0.8, 0.6],
+            1.0,
+        );
+        // C++ half-size is 0.5 * quadSize, not ±quadSize.
+        let top_left = corners[0].0;
+        assert!((top_left[0] + 0.5).abs() < 1e-5);
+        assert!((top_left[1] - 10.4).abs() < 1e-5);
+        assert!((top_left[2] - 0.3).abs() < 1e-5);
+        // A world-axis XY card keeps constant Z. Camera-facing with tilted
+        // up must change Z across the quad.
+        let zs: Vec<f32> = corners.iter().map(|c| c.0[2]).collect();
+        assert!(
+            zs.iter().any(|z| (*z - zs[0]).abs() > 1e-4),
+            "billboard must not be a constant-Z world card, zs={zs:?}"
+        );
+        assert_eq!(corners[0].1, [0.0, 0.0]);
+        assert_eq!(corners[1].1, [0.0, 1.0]);
+        assert_eq!(corners[2].1, [1.0, 1.0]);
+        assert_eq!(corners[3].1, [1.0, 0.0]);
+    }
+
+    #[test]
+    fn game_client_reset_source_resets_snow_manager() {
+        let init = include_str!("core/game_client/impl_init.rs");
+        let reset_fn = init
+            .split("pub fn reset(&mut self)")
+            .nth(1)
+            .and_then(|rest| rest.split("pub fn init_savegame_counter_bridge").next())
+            .unwrap_or(init);
+        assert!(
+            reset_fn.contains("get_snow_manager") && reset_fn.contains("guard.reset()"),
+            "C++ GameClient::reset calls TheSnowManager->reset()"
+        );
     }
 }

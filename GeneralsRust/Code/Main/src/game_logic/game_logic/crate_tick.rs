@@ -153,6 +153,8 @@ pub struct AudioEventRequest {
     pub position: Option<Vec3>,      // 3D world position
     pub priority: u8,                // 0-255 (higher = more important)
     pub is_looping: bool,            // false = fire-and-forget, true = continuous
+    /// C++ `TheAudio->removeAudioEvent` — stop a previously queued looping event.
+    pub stop: bool,
 }
 
 impl AudioEventRequest {
@@ -163,6 +165,7 @@ impl AudioEventRequest {
             position: None,
             priority: 128,
             is_looping: false,
+            stop: false,
         }
     }
 
@@ -183,6 +186,11 @@ impl AudioEventRequest {
 
     pub fn looping(mut self) -> Self {
         self.is_looping = true;
+        self
+    }
+
+    pub fn stopping(mut self) -> Self {
+        self.stop = true;
         self
     }
 }

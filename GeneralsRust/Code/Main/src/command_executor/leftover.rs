@@ -501,9 +501,8 @@ impl<'a> CommandExecutor<'a> {
             let _ = self
                 .game_logic
                 .unit_command_set_order_target(unit_id, Some(mine_id));
-            // C++ WorkerAIUpdate.cpp:1043-1050: drop carried boxes when clearing mines.
-            self.game_logic
-                .drop_worker_supply_boxes_for_mine_clear(unit_id);
+            // C++ drops boxes only while already isClearingMines (aiDoCommand tail).
+            // Initial order is not attacking yet — apply_dozer_ai_do_command handles the tail.
             if self.path_to_goal_with_state(unit_id, mpos, AIState::Moving) {
                 any = true;
             }
@@ -692,6 +691,10 @@ impl<'a> CommandExecutor<'a> {
                     any = true;
                     continue;
                 }
+                if is_aircraft {
+                    self.game_logic
+                        .try_aircraft_land_for_repair(unit_id, target_id);
+                }
                 if self.begin_support_order(unit_id, target_id, target_pos, AIState::SeekingRepair)
                 {
                     any = true;
@@ -874,8 +877,9 @@ impl<'a> CommandExecutor<'a> {
         };
 
         if !text.is_empty() {
-            live_beacon_set_caption(beacon_id, text);
+            live_beacon_set_caption(self.game_logic, beacon_id, text);
         }
+        live_beacon_note_pulse_frame(beacon_id, self.game_logic.frame);
 
         let allied_or_observer = match local_id {
             Some(local) => {
@@ -894,27 +898,39 @@ impl<'a> CommandExecutor<'a> {
         };
 
         if allied_or_observer {
-            let alert = localization::localize("GUI:BeaconPlaced", "Beacon placed");
+            let placer_name = self
+                .game_logic
+                .get_player(player_id)
+                .map(|p| p.name.clone())
+                .unwrap_or_else(|| "Player".to_string());
+            let alert = localization::localize_with_args(
+                "GUI:BeaconPlaced",
+                "{player} placed a beacon",
+                &[("player", placer_name.as_str())],
+            )
+            .replace("%s", &placer_name);
             self.game_logic
                 .queue_radar_message_at(alert, pos, RadarKind::Generic);
             self.game_logic
                 .queue_audio_event(AudioEventRequest::new(translate_audio_event(
                     "BeaconPlaced",
                 )));
+            crate::game_logic::host_radar::host_create_radar_event(
+                pos,
+                game_engine::common::system::radar::RadarEventType::Information,
+            );
             self.game_logic.try_eva_beacon_detected(player_id);
-        } else {
-            live_beacon_hide(beacon_id);
-        }
-
-        // Keep the leftover manager + presentation note (Wave 210 residual).
-        if let Ok(mut manager) = get_beacon_manager().lock() {
-            let coord = LogicCoord3D::new(pos.x, pos.y, pos.z);
-            manager.place_beacon(player_id as i32, coord, current_frame());
-            if !text.is_empty() {
-                manager.set_beacon_text(player_id as i32, &coord, AsciiString::from(text));
+            if let Ok(mut manager) = get_beacon_manager().lock() {
+                let coord = LogicCoord3D::new(pos.x, pos.y, pos.z);
+                manager.place_beacon(player_id as i32, coord, current_frame());
+                if !text.is_empty() {
+                    manager.set_beacon_text(player_id as i32, &coord, AsciiString::from(text));
+                }
             }
+            self.game_logic.note_beacon_placed(pos);
+        } else {
+            live_beacon_hide(self.game_logic, beacon_id);
         }
-        self.game_logic.note_beacon_placed(pos);
         CommandResult::Success
     }
 
@@ -925,6 +941,7 @@ impl<'a> CommandExecutor<'a> {
     ) -> CommandResult {
         // C++ GameLogicDispatch.cpp:1675-1727 MSG_REMOVE_BEACON:
         // owner destroys selected beacon objects; local non-owner hides them.
+        // Retail is strictly selection-driven: empty / non-beacon selection is a no-op.
         let local_id = self
             .game_logic
             .get_players()
@@ -932,12 +949,7 @@ impl<'a> CommandExecutor<'a> {
             .find(|p| p.is_local)
             .map(|p| p.id);
         let mut any = false;
-        let ids: Vec<ObjectId> = if selected.is_empty() {
-            host_player_beacon_ids(self.game_logic, player_id)
-        } else {
-            selected.to_vec()
-        };
-        for id in ids {
+        for &id in selected {
             if !host_object_is_beacon(self.game_logic, id) {
                 continue;
             }
@@ -945,34 +957,29 @@ impl<'a> CommandExecutor<'a> {
                 .game_logic
                 .host_object(id)
                 .and_then(|o| o.owner_player_id);
+            let pos = self.game_logic.host_object(id).map(|o| o.get_position());
             if owner == Some(player_id) {
+                if let Some(pos) = pos {
+                    self.game_logic.note_beacon_removed_at(pos);
+                }
                 self.game_logic.destroy_object(id);
                 live_beacon_clear(id);
                 any = true;
             } else if local_id == Some(player_id) {
-                live_beacon_hide(id);
+                live_beacon_hide(self.game_logic, id);
                 any = true;
             }
         }
 
+        if !any {
+            return CommandResult::InvalidCommand;
+        }
         if let Ok(mut manager) = get_beacon_manager().lock() {
-            if manager.remove_latest_beacon(player_id as i32) {
-                any = true;
-            }
+            let _ = manager.remove_latest_beacon(player_id as i32);
         }
-        if any {
-            let alert = localization::localize("hud.beacon.removed", "Beacon removed");
-            self.game_logic.queue_radar_message(alert);
-            self.game_logic
-                .queue_audio_event(AudioEventRequest::new(translate_audio_event(
-                    "Beacon_Removed",
-                )));
-            // Wave 211: keep host beacon list in sync for presentation freeze.
-            self.game_logic.note_beacon_removed_latest();
-            CommandResult::Success
-        } else {
-            CommandResult::InvalidCommand
-        }
+        // C++ MSG_REMOVE_BEACON is silent: no audio, no InGameUI/radar message.
+        // Wave 211: note_beacon_removed_latest replaced by per-id note_beacon_removed_at.
+        CommandResult::Success
     }
 
     pub(super) fn execute_set_beacon_text(
@@ -995,9 +1002,9 @@ impl<'a> CommandExecutor<'a> {
                 // Owner sets captions; empty still clears locally-selected beacons.
             }
             if text.is_empty() {
-                live_beacon_clear_caption(id);
+                live_beacon_clear_caption(self.game_logic, id);
             } else {
-                live_beacon_set_caption(id, text);
+                live_beacon_set_caption(self.game_logic, id, text);
             }
             any = true;
         }
@@ -1106,19 +1113,6 @@ fn host_count_player_beacons(logic: &GameLogic, player_id: u32, template_name: &
         .count() as i32
 }
 
-fn host_player_beacon_ids(logic: &GameLogic, player_id: u32) -> Vec<ObjectId> {
-    logic
-        .host_objects()
-        .iter()
-        .filter_map(|(id, obj)| {
-            (obj.owner_player_id == Some(player_id)
-                && obj.is_alive()
-                && obj.template_name.to_ascii_lowercase().contains("beacon"))
-            .then_some(*id)
-        })
-        .collect()
-}
-
 /// C++ KINDOF_BRIDGE / KINDOF_BRIDGE_TOWER residual for repair reject.
 fn host_object_is_bridge_or_tower(obj: &crate::game_logic::Object) -> bool {
     let name = obj.template_name.to_ascii_lowercase();
@@ -1187,6 +1181,8 @@ fn host_kill_player(logic: &mut GameLogic, player_id: u32) {
 struct LiveBeaconClientState {
     hidden: HashSet<u32>,
     captions: HashMap<u32, String>,
+    last_pulse: HashMap<u32, u32>,
+    smoke: HashMap<u32, u32>,
 }
 
 fn live_beacon_client_state() -> &'static std::sync::Mutex<LiveBeaconClientState> {
@@ -1195,21 +1191,50 @@ fn live_beacon_client_state() -> &'static std::sync::Mutex<LiveBeaconClientState
     &STATE
 }
 
-fn live_beacon_hide(id: ObjectId) {
+/// C++ BeaconClientUpdate defaults live on leftover `BeaconClientUpdateModuleData`.
+
+fn live_beacon_note_pulse_frame(id: ObjectId, frame: u32) {
     if let Ok(mut state) = live_beacon_client_state().lock() {
-        state.hidden.insert(id.0);
+        state.last_pulse.insert(id.0, frame);
     }
 }
 
-fn live_beacon_set_caption(id: ObjectId, text: &str) {
+fn live_beacon_hide(logic: &mut GameLogic, id: ObjectId) {
+    let pos = logic.host_object(id).map(|o| o.get_position());
+    if let Some(obj) = logic.host_object_mut(id) {
+        // C++ BeaconClientUpdate::hideBeacon: setDrawableHidden + no shadows.
+        obj.drawable_hidden = true;
+    }
+    if let Some(pos) = pos {
+        logic.note_beacon_removed_at(pos);
+    }
+    let smoke_id = live_beacon_client_state()
+        .lock()
+        .ok()
+        .and_then(|mut s| {
+            s.hidden.insert(id.0);
+            s.smoke.remove(&id.0)
+        });
+    if let Some(smoke_id) = smoke_id {
+        logic.combat_particles_mut().deactivate(smoke_id);
+    }
+}
+
+fn live_beacon_set_caption(logic: &mut GameLogic, id: ObjectId, text: &str) {
     if let Ok(mut state) = live_beacon_client_state().lock() {
         state.captions.insert(id.0, text.to_string());
     }
+    if let Some(obj) = logic.host_object_mut(id) {
+        obj.name = text.to_string();
+    }
 }
 
-fn live_beacon_clear_caption(id: ObjectId) {
+fn live_beacon_clear_caption(logic: &mut GameLogic, id: ObjectId) {
     if let Ok(mut state) = live_beacon_client_state().lock() {
         state.captions.remove(&id.0);
+    }
+    if let Some(obj) = logic.host_object_mut(id) {
+        obj.name = obj.template_name.clone();
     }
 }
 
@@ -1217,6 +1242,8 @@ fn live_beacon_clear(id: ObjectId) {
     if let Ok(mut state) = live_beacon_client_state().lock() {
         state.hidden.remove(&id.0);
         state.captions.remove(&id.0);
+        state.last_pulse.remove(&id.0);
+        state.smoke.remove(&id.0);
     }
 }
 
@@ -1228,12 +1255,130 @@ pub fn host_beacon_is_hidden(id: ObjectId) -> bool {
         .unwrap_or(false)
 }
 
+/// C++ hidden drawable has no world or minimap presence.
+/// `host_beacons` is position-only, so presentation matches hide by pose.
+pub fn host_beacon_position_is_hidden(logic: &GameLogic, pos: Vec3) -> bool {
+    const MATCH: f32 = 3.0; // beacon_manager BEACON_MATCH_THRESHOLD
+    logic.host_objects().values().any(|obj| {
+        obj.template_name.to_ascii_lowercase().contains("beacon")
+            && (host_beacon_is_hidden(obj.id) || obj.drawable_hidden)
+            && (obj.get_position() - pos).length() <= MATCH
+    })
+}
+
 /// C++ Drawable::getCaptionText residual for live beacons.
 pub fn host_beacon_caption(id: ObjectId) -> Option<String> {
     live_beacon_client_state()
         .lock()
         .ok()
         .and_then(|s| s.captions.get(&id.0).cloned())
+}
+
+/// C++ ControlBar.cpp update — count < MaxBeaconsPerPlayer.
+pub fn host_local_player_can_place_beacon(logic: &GameLogic, player_id: u32) -> bool {
+    let Some(player) = logic.get_player(player_id) else {
+        return false;
+    };
+    if !player.is_alive {
+        return false;
+    }
+    let template_name = host_beacon_template_name(logic, player_id, player.team);
+    host_count_player_beacons(logic, player_id, &template_name) < host_max_beacons_per_player()
+}
+
+/// C++ BeaconClientUpdate::clientUpdate — house-color smoke + yellow pulse.
+pub fn tick_live_beacon_client_updates(logic: &mut GameLogic) {
+    use gamelogic::helpers::TheParticleSystemManager;
+    use gamelogic::object::update::{BeaconClientUpdateModule, BeaconClientUpdateModuleData};
+
+    let frame = logic.frame;
+    let pulse_data = BeaconClientUpdateModuleData::default();
+    let pulse_seconds = pulse_data.radar_pulse_duration as f32 / 30.0;
+    let beacons: Vec<(ObjectId, glam::Vec3, bool, u32)> = logic
+        .host_objects()
+        .iter()
+        .filter_map(|(id, obj)| {
+            if !obj.is_alive() || !obj.template_name.to_ascii_lowercase().contains("beacon") {
+                return None;
+            }
+            let hidden = obj.drawable_hidden || host_beacon_is_hidden(*id);
+            let owner = obj.owner_player_id.unwrap_or(0);
+            Some((*id, obj.get_position(), hidden, owner))
+        })
+        .collect();
+    for (id, pos, hidden, owner) in beacons {
+        let smoke_missing = live_beacon_client_state()
+            .lock()
+            .map(|s| !s.smoke.contains_key(&id.0))
+            .unwrap_or(true);
+        if smoke_missing {
+            let rgb = logic
+                .get_player(owner)
+                .map(|p| p.color_rgb)
+                .unwrap_or((255, 255, 255));
+            let color = gamelogic::common::Color::rgb(rgb.0, rgb.1, rgb.2);
+            let (template, tint) = BeaconClientUpdateModule::resolve_smoke_template_with_lookup(
+                color,
+                |name| {
+                    TheParticleSystemManager::get()
+                        .and_then(|m| m.find_template(name))
+                        .is_some()
+                },
+            )
+            .unwrap_or_else(|| {
+                (
+                    format!("BeaconSmoke{:02X}{:02X}{:02X}", rgb.0, rgb.1, rgb.2),
+                    Some(color),
+                )
+            });
+            if let Some(smoke_id) = logic.combat_particles_mut().attach_named_to_object(
+                id,
+                pos,
+                frame,
+                &template,
+            ) {
+                if let Some(tint) = tint {
+                    if let Some(client_id) = logic
+                        .combat_particles()
+                        .get(smoke_id)
+                        .and_then(|e| e.client_system_id)
+                    {
+                        if let Some(mgr) = TheParticleSystemManager::get() {
+                            mgr.tint_particle_system_all_colors(client_id, tint);
+                        }
+                    }
+                }
+                if let Ok(mut state) = live_beacon_client_state().lock() {
+                    state.smoke.insert(id.0, smoke_id);
+                }
+                if hidden {
+                    logic.combat_particles_mut().deactivate(smoke_id);
+                }
+            }
+        }
+        if hidden {
+            continue;
+        }
+        let should_pulse = {
+            let Ok(mut state) = live_beacon_client_state().lock() else {
+                continue;
+            };
+            let last = state.last_pulse.entry(id.0).or_insert(frame);
+            if frame > *last + pulse_data.frames_between_radar_pulses {
+                *last = frame;
+                true
+            } else {
+                false
+            }
+        };
+        if should_pulse {
+            crate::game_logic::host_radar::host_create_radar_event_for(
+                pos,
+                game_engine::common::system::radar::RadarEventType::BeaconPulse,
+                pulse_seconds,
+            );
+        }
+    }
 }
 
 impl GameLogic {
@@ -1296,6 +1441,43 @@ impl GameLogic {
         }
     }
 
+    /// C++ `DozerAIUpdate` / `WorkerAIUpdate::aiDoCommand` head
+    /// (DozerAIUpdate.cpp:2326, WorkerAIUpdate.cpp:946):
+    /// every command clears `MODELCONDITION_ACTIVELY_CONSTRUCTING`.
+    pub fn dozer_clear_actively_constructing_on_command(&mut self, dozer_id: ObjectId) {
+        if let Some(obj) = self.objects.get_mut(&dozer_id) {
+            if obj.is_kind_of(KindOf::Dozer) || obj.is_kind_of(KindOf::Worker) {
+                obj.set_actively_constructing(false);
+            }
+        }
+    }
+
+    /// C++ `aiDoCommand` default arm (DozerAIUpdate.cpp:2386-2387,
+    /// WorkerAIUpdate.cpp:990-991): `CMD_FROM_PLAYER` cancels
+    /// `getCurrentTask()` so idle `isBuildMostImportant` does not
+    /// auto-resume an interrupted scaffold. Repair/ResumeConstruction
+    /// do not call this. Parked pending slots stay when current is
+    /// invalid (AI move-away). Does not clear `builder_id`.
+    pub fn dozer_cancel_current_task_from_player(&mut self, dozer_id: ObjectId) {
+        let Some(obj) = self.objects.get(&dozer_id) else {
+            return;
+        };
+        if !obj.is_alive()
+            || !(obj.is_kind_of(KindOf::Dozer) || obj.is_kind_of(KindOf::Worker))
+        {
+            return;
+        }
+        let current_is_repair = matches!(obj.ai_state, AIState::Repairing);
+        let current_is_build = matches!(obj.ai_state, AIState::Constructing);
+        if !current_is_repair && !current_is_build {
+            return;
+        }
+        self.dozer_internal_task_complete(dozer_id, current_is_repair);
+        if let Some(obj) = self.objects.get_mut(&dozer_id) {
+            obj.set_actively_constructing(false);
+        }
+    }
+
     fn dozer_most_recent_pending_task(&self, dozer_id: ObjectId) -> Option<(bool, ObjectId)> {
         let obj = self.objects.get(&dozer_id)?;
         let mut best: Option<(u32, bool, ObjectId)> = None;
@@ -1317,6 +1499,9 @@ impl GameLogic {
     /// C++ idle `isBuildMostImportant` / `isRepairMostImportant` (DozerAIUpdate.cpp:1314).
     /// Call only while the dozer is Idle. Returns true if a pending task was resumed.
     pub fn dozer_idle_resume_pending_build(&mut self, dozer_id: ObjectId) -> bool {
+        if self.worker_is_acting_as_supply_truck(dozer_id) {
+            return false;
+        }
         let Some(obj) = self.objects.get(&dozer_id) else {
             return false;
         };
@@ -1593,12 +1778,12 @@ mod leftover_dispatch_tests {
                 damage: 1.0,
                 range: 10.0,
                 ..crate::game_logic::Weapon::default()
-            });
+});
             unit.secondary_weapon = Some(crate::game_logic::Weapon {
                 damage: 5.0,
                 range: 20.0,
                 ..crate::game_logic::Weapon::default()
-            });
+});
             unit.active_weapon_slot = 0;
         }
         let result = CommandExecutor::new(&mut logic, 0)
@@ -1644,7 +1829,6 @@ mod leftover_dispatch_tests {
         logic.process_commands();
         assert!(logic.get_player(0).unwrap().logical_retaliation_mode_enabled);
     }
-
     #[test]
     fn self_destruct_transfers_to_living_ally() {
         let mut logic = GameLogic::new();
@@ -1793,6 +1977,164 @@ mod leftover_dispatch_tests {
     }
 
     #[test]
+    fn enemy_place_hides_drawable_and_skips_host_beacons() {
+        let mut logic = GameLogic::new();
+        logic
+            .get_players_mut()
+            .insert(0, Player::new(0, Team::USA, "Local", true));
+        let mut enemy = Player::new(1, Team::GLA, "Enemy", false);
+        enemy.alliance_team = 2;
+        logic.get_players_mut().insert(1, enemy);
+        logic.get_players_mut().get_mut(&0).unwrap().alliance_team = 1;
+        let result = CommandExecutor::new(&mut logic, 1)
+            .execute_command(command(
+                1,
+                CommandType::PlaceBeacon {
+                    location: Vec3::new(30.0, 0.0, 40.0),
+                    text: String::new(),
+                },
+                vec![],
+            ))
+            .expect("exec");
+        assert_eq!(result, CommandResult::Success);
+        let id = logic
+            .host_objects()
+            .iter()
+            .find(|(_, o)| o.template_name.to_ascii_lowercase().contains("beacon"))
+            .map(|(id, _)| *id)
+            .expect("beacon");
+        assert!(host_beacon_is_hidden(id));
+        assert!(logic.host_object(id).unwrap().drawable_hidden);
+        assert!(
+            logic.host_beacons().is_empty(),
+            "enemy hide must not freeze onto host_beacons"
+        );
+    }
+
+    #[test]
+    fn remove_beacon_empty_selection_is_noop_and_silent() {
+        let mut logic = GameLogic::new();
+        logic
+            .get_players_mut()
+            .insert(0, Player::new(0, Team::USA, "P0", true));
+        CommandExecutor::new(&mut logic, 0)
+            .execute_command(command(
+                0,
+                CommandType::PlaceBeacon {
+                    location: Vec3::new(8.0, 0.0, 9.0),
+                    text: String::new(),
+                },
+                vec![],
+            ))
+            .unwrap();
+        let before = logic
+            .host_objects()
+            .values()
+            .filter(|o| o.template_name.to_ascii_lowercase().contains("beacon"))
+            .count();
+        let audio_before = logic.queued_audio_events.len();
+        let result = CommandExecutor::new(&mut logic, 0)
+            .execute_command(command(0, CommandType::RemoveBeacon, vec![]))
+            .expect("exec");
+        assert_eq!(result, CommandResult::InvalidCommand);
+        let after = logic
+            .host_objects()
+            .values()
+            .filter(|o| o.template_name.to_ascii_lowercase().contains("beacon"))
+            .count();
+        assert_eq!(before, after);
+        assert_eq!(logic.queued_audio_events.len(), audio_before);
+    }
+
+    #[test]
+    fn remove_selected_beacon_is_silent() {
+        let mut logic = GameLogic::new();
+        logic
+            .get_players_mut()
+            .insert(0, Player::new(0, Team::USA, "P0", true));
+        CommandExecutor::new(&mut logic, 0)
+            .execute_command(command(
+                0,
+                CommandType::PlaceBeacon {
+                    location: Vec3::new(8.0, 0.0, 9.0),
+                    text: String::new(),
+                },
+                vec![],
+            ))
+            .unwrap();
+        let id = logic
+            .host_objects()
+            .iter()
+            .find(|(_, o)| o.template_name.to_ascii_lowercase().contains("beacon"))
+            .map(|(id, _)| *id)
+            .expect("beacon");
+        let audio_before = logic.queued_audio_events.len();
+        let result = CommandExecutor::new(&mut logic, 0)
+            .execute_command(command(0, CommandType::RemoveBeacon, vec![id]))
+            .expect("exec");
+        assert_eq!(result, CommandResult::Success);
+        assert_eq!(logic.queued_audio_events.len(), audio_before);
+        assert!(logic.host_object(id).is_none() || !logic.host_object(id).unwrap().is_alive());
+    }
+
+    #[test]
+    fn beacon_client_update_pulses_after_frequency() {
+        let mut logic = GameLogic::new();
+        logic
+            .get_players_mut()
+            .insert(0, Player::new(0, Team::USA, "P0", true));
+        CommandExecutor::new(&mut logic, 0)
+            .execute_command(command(
+                0,
+                CommandType::PlaceBeacon {
+                    location: Vec3::new(11.0, 0.0, 12.0),
+                    text: String::new(),
+                },
+                vec![],
+            ))
+            .unwrap();
+        tick_live_beacon_client_updates(&mut logic);
+        logic.frame = logic.frame.saturating_add(31);
+        tick_live_beacon_client_updates(&mut logic);
+        let radar = game_engine::common::system::radar::get_radar_system()
+            .read()
+            .expect("radar");
+        assert!(
+            radar
+                .get_active_events()
+                .iter()
+                .any(|e| e.event_type
+                    == game_engine::common::system::radar::RadarEventType::BeaconPulse
+                    || e.event_type
+                        == game_engine::common::system::radar::RadarEventType::Information),
+            "visible beacon must pulse or have place INFORMATION"
+        );
+    }
+
+    #[test]
+    fn place_beacon_button_greys_at_max() {
+        let mut logic = GameLogic::new();
+        logic
+            .get_players_mut()
+            .insert(0, Player::new(0, Team::USA, "P0", true));
+        assert!(host_local_player_can_place_beacon(&logic, 0));
+        let max = host_max_beacons_per_player().max(1);
+        for i in 0..max {
+            CommandExecutor::new(&mut logic, 0)
+                .execute_command(command(
+                    0,
+                    CommandType::PlaceBeacon {
+                        location: Vec3::new(i as f32 * 5.0, 0.0, 0.0),
+                        text: String::new(),
+                    },
+                    vec![],
+                ))
+                .unwrap();
+        }
+        assert!(!host_local_player_can_place_beacon(&logic, 0));
+    }
+
+    #[test]
     fn repair_mid_build_keeps_pending_build_and_idle_resumes() {
         // C++ DozerAIUpdate.cpp:1948 newTask slots + 1314 isBuildMostImportant.
         use crate::game_logic::ThingTemplate;
@@ -1872,6 +2214,75 @@ mod leftover_dispatch_tests {
         assert_eq!(dz.ai_state, AIState::Constructing);
         assert_eq!(dz.target, Some(scaffold));
         assert_eq!(dz.dozer_task_build_target, Some(scaffold));
+    }
+
+    #[test]
+    fn player_stop_cancels_current_build_so_idle_does_not_resume() {
+        // hq-msoee: C++ Worker/Dozer aiDoCommand default arm cancels
+        // getCurrentTask() on CMD_FROM_PLAYER Stop/Move/Attack/Dock.
+        use crate::game_logic::ThingTemplate;
+        let mut logic = GameLogic::new();
+        logic.frame = 10;
+        logic
+            .get_players_mut()
+            .insert(0, Player::new(0, Team::USA, "P0", true));
+        let mut dozer_tpl = ThingTemplate::new("DozerCancelBuild");
+        dozer_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Dozer)
+            .add_kind_of(KindOf::Worker)
+            .set_health(300.0);
+        logic
+            .templates
+            .insert("DozerCancelBuild".into(), dozer_tpl);
+        let mut bld = ThingTemplate::new("ScaffoldCancelBuild");
+        bld.add_kind_of(KindOf::Structure).set_health(500.0);
+        logic.templates.insert("ScaffoldCancelBuild".into(), bld);
+        let dozer = logic
+            .create_object_for_player("DozerCancelBuild", 0, Vec3::ZERO)
+            .expect("dozer");
+        let scaffold = logic
+            .create_object_for_player("ScaffoldCancelBuild", 0, Vec3::new(20.0, 0.0, 0.0))
+            .expect("scaffold");
+        {
+            let sc = logic.host_object_mut(scaffold).expect("sc");
+            sc.status.under_construction = true;
+            sc.builder_id = Some(dozer);
+        }
+        logic.dozer_new_task_build(dozer, scaffold);
+        if let Some(dz) = logic.host_object_mut(dozer) {
+            dz.target = Some(scaffold);
+            dz.set_ai_state(AIState::Constructing);
+            dz.set_actively_constructing(true);
+        }
+        let result = CommandExecutor::new(&mut logic, 0)
+            .execute_command(command(0, CommandType::Stop, vec![dozer]))
+            .expect("exec");
+        assert_eq!(result, CommandResult::Success);
+        {
+            let dz = logic.host_object(dozer).expect("dz");
+            assert_eq!(
+                dz.dozer_task_build_target, None,
+                "hq-msoee: player Stop must cancel current BUILD slot"
+            );
+        }
+        {
+            let sc = logic.host_object(scaffold).expect("sc");
+            assert_eq!(
+                sc.builder_id,
+                Some(dozer),
+                "C++ cancelTask does not clear builder_id"
+            );
+            assert!(sc.status.under_construction);
+        }
+        if let Some(dz) = logic.host_object_mut(dozer) {
+            dz.set_ai_state(AIState::Idle);
+        }
+        assert!(
+            !logic.dozer_idle_resume_pending_build(dozer),
+            "hq-msoee: cancelled BUILD must not auto-resume"
+        );
     }
 
     #[test]
@@ -1965,6 +2376,126 @@ mod leftover_dispatch_tests {
         assert!(
             logic.dozer_idle_resume_pending_build(dozer),
             "hq-gkpuk: idle isBuildMostImportant must resume a brand-new pad"
+        );
+    }
+
+    #[test]
+    fn gather_cancels_build_and_blocks_idle_resume_while_supply() {
+        // hq-5nio2: gather enters exclusive AS_SUPPLY_TRUCK.
+        use crate::game_logic::{SupplyTruckState, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic.frame = 22;
+        logic
+            .get_players_mut()
+            .insert(0, Player::new(0, Team::GLA, "P0", true));
+        let mut worker_tpl = ThingTemplate::new("GLAWorkerGatherCancel");
+        worker_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Dozer)
+            .add_kind_of(KindOf::Worker)
+            .add_kind_of(KindOf::Harvester)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("GLAWorkerGatherCancel".into(), worker_tpl);
+        let mut pile = ThingTemplate::new("SupplyWarehouseGather");
+        pile.add_kind_of(KindOf::Harvestable)
+            .add_kind_of(KindOf::Structure)
+            .set_health(200.0);
+        logic.templates.insert("SupplyWarehouseGather".into(), pile);
+        let mut bld = ThingTemplate::new("ScaffoldGatherCancel");
+        bld.add_kind_of(KindOf::Structure).set_health(500.0);
+        logic.templates.insert("ScaffoldGatherCancel".into(), bld);
+        let worker = logic
+            .create_object_for_player("GLAWorkerGatherCancel", 0, Vec3::ZERO)
+            .expect("worker");
+        let warehouse = logic
+            .create_object_for_player("SupplyWarehouseGather", 0, Vec3::new(40.0, 0.0, 0.0))
+            .expect("wh");
+        let scaffold = logic
+            .create_object_for_player("ScaffoldGatherCancel", 0, Vec3::new(80.0, 0.0, 0.0))
+            .expect("scaffold");
+        {
+            let sc = logic.host_object_mut(scaffold).expect("sc");
+            sc.status.under_construction = true;
+            sc.builder_id = Some(worker);
+        }
+        logic.dozer_new_task_build(worker, scaffold);
+        if let Some(w) = logic.host_object_mut(worker) {
+            w.target = Some(scaffold);
+            w.set_ai_state(AIState::Constructing);
+        }
+        let result = CommandExecutor::new(&mut logic, 0)
+            .execute_command(command(
+                0,
+                CommandType::Gather {
+                    target_id: warehouse,
+                },
+                vec![worker],
+            ))
+            .expect("exec");
+        assert_eq!(result, CommandResult::Success);
+        {
+            let w = logic.host_object(worker).expect("w");
+            assert!(
+                w.dozer_task_build_target.is_none(),
+                "hq-5nio2: gather must cancel current BUILD"
+            );
+            assert_eq!(w.ai_state, AIState::Gathering);
+        }
+        if let Some(w) = logic.host_object_mut(worker) {
+            w.set_ai_state(AIState::Idle);
+            w.supply_truck_state = SupplyTruckState::Regrouping;
+        }
+        assert!(
+            !logic.dozer_idle_resume_pending_build(worker),
+            "hq-5nio2: AS_SUPPLY_TRUCK must not run idle dozer resume"
+        );
+    }
+
+    #[test]
+    fn mine_clear_order_keeps_boxes_until_already_attacking() {
+        // hq-6je29: initial clear-mines does not drop; mid-attack command does.
+        use crate::game_logic::ThingTemplate;
+        let mut logic = GameLogic::new();
+        logic.frame = 8;
+        logic
+            .get_players_mut()
+            .insert(0, Player::new(0, Team::GLA, "P0", true));
+        let mut worker_tpl = ThingTemplate::new("GLAWorkerMineBox");
+        worker_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Dozer)
+            .add_kind_of(KindOf::Worker)
+            .add_kind_of(KindOf::Harvester)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("GLAWorkerMineBox".into(), worker_tpl);
+        let worker = logic
+            .create_object_for_player("GLAWorkerMineBox", 0, Vec3::ZERO)
+            .expect("worker");
+        if let Some(w) = logic.host_object_mut(worker) {
+            w.set_stored_supplies(75);
+            w.set_weapon_set_mine_clearing_detail(true);
+        }
+        logic.drop_worker_supply_boxes_for_mine_clear(worker);
+        assert_eq!(
+            logic.host_object(worker).unwrap().stored_resources.supplies,
+            75,
+            "hq-6je29: initial order is not isClearingMines"
+        );
+        if let Some(w) = logic.host_object_mut(worker) {
+            w.set_ai_state(AIState::Attacking);
+            w.status.attacking = true;
+        }
+        logic.drop_worker_supply_boxes_for_mine_clear(worker);
+        assert_eq!(
+            logic.host_object(worker).unwrap().stored_resources.supplies,
+            0,
+            "hq-6je29: mid-attack command drops boxes"
         );
     }
 }

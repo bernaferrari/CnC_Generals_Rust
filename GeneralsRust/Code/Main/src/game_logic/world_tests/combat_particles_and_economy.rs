@@ -4157,7 +4157,7 @@ fn garrison_residual_fire_from_garrison_damages_nearby_enemy() {
             reload_time: 0.1,
             last_fire_time: -10.0,
             ..Weapon::default()
-        });
+});
         unit.target = Some(bunker_id);
         unit.set_contained_by(Some(bunker_id));
         unit.set_ai_state(AIState::Garrisoned);

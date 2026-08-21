@@ -361,6 +361,8 @@ impl BasicDrawable {
         max_garrison: u8,
         disabled: bool,
         is_carbomb: bool,
+        bomb_type: u8,
+        bomb_timer_seconds: u32,
         weapon_bonus_enthusiastic: bool,
         orientation: f32,
         show_healing: bool,
@@ -389,6 +391,8 @@ impl BasicDrawable {
         self.presentation_max_garrison = max_garrison;
         self.presentation_disabled = disabled;
         self.presentation_is_carbomb = is_carbomb;
+        self.presentation_bomb_type = bomb_type;
+        self.presentation_bomb_timer_seconds = bomb_timer_seconds;
         self.presentation_weapon_bonus_enthusiastic = weapon_bonus_enthusiastic;
         self.presentation_show_healing = show_healing;
         self.presentation_healing_icon_type = healing_icon_type;

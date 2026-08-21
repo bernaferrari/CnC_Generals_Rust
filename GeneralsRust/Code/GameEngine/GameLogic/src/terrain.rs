@@ -2762,15 +2762,57 @@ impl TerrainLogic {
         self.bridge_list_head = Some(new_bridge);
     }
 
-    /// Add a landmark bridge to logic from an existing object.
-    /// Reference: C++ TerrainLogic::addLandmarkBridgeToLogic()
+    /// Add a landmark bridge from object geometry (live host + leftover Object).
     ///
-    /// Landmark bridges are placed as objects in the map and need to be
-    /// registered with the terrain system for pathfinding and height queries.
-    pub fn add_landmark_bridge_to_logic(&mut self, bridge_obj: &Object) {
-        let bridge_info = Self::bridge_info_from_object(bridge_obj);
-        let template_name = bridge_obj.get_template().get_name().clone();
+    /// C++ `TerrainLogic::addLandmarkBridgeToLogic` + `Bridge::Bridge(Object*)`
+    /// derive the four deck corners from position / orientation / major+minor
+    /// radius, then register the span with the pathfinder.
+    pub fn add_landmark_bridge_from_geometry(
+        &mut self,
+        position: Coord3D,
+        angle: Real,
+        halfsize_x: Real,
+        halfsize_y: Real,
+        bridge_object_id: ObjectID,
+        template_name: AsciiString,
+    ) {
+        if bridge_object_id != crate::common::INVALID_ID {
+            let mut exists = false;
+            self.for_each_bridge(|bridge| {
+                if bridge.get_bridge_info().bridge_object_id == bridge_object_id {
+                    exists = true;
+                }
+            });
+            if exists {
+                return;
+            }
+        }
+        let bridge_info = Self::bridge_info_from_parts(
+            position,
+            angle,
+            halfsize_x,
+            halfsize_y,
+            bridge_object_id,
+        );
         self.add_bridge_to_logic(bridge_info, template_name);
+    }
+
+    /// Add a landmark bridge to logic from an existing leftover object.
+    /// Reference: C++ TerrainLogic::addLandmarkBridgeToLogic()
+    pub fn add_landmark_bridge_to_logic(&mut self, bridge_obj: &Object) {
+        self.add_landmark_bridge_from_geometry(
+            *bridge_obj.get_position(),
+            bridge_obj.get_orientation(),
+            bridge_obj.get_geometry_info().get_major_radius(),
+            bridge_obj.get_geometry_info().get_minor_radius(),
+            bridge_obj.get_id(),
+            bridge_obj.get_template().get_name().clone(),
+        );
+    }
+
+    /// C++ `TerrainLogic` water-grid enable flag after `newMap`.
+    pub fn is_water_grid_enabled(&self) -> bool {
+        self.water_grid_enabled
     }
 
     /// Delete a specific bridge from the terrain system.
@@ -4050,6 +4092,30 @@ mod tests {
     }
 
     #[test]
+    fn add_landmark_bridge_from_geometry_registers_deck() {
+        let mut terrain = TerrainLogic::new();
+        terrain.add_landmark_bridge_from_geometry(
+            Coord3D::new(10.0, 20.0, 5.0),
+            0.0,
+            6.0,
+            2.0,
+            42,
+            AsciiString::from("TsingMaLandmarkBridge"),
+        );
+        let bridge = terrain
+            .find_bridge_at(&Coord3D::new(10.0, 20.0, 5.0))
+            .expect("landmark deck must register");
+        let info = bridge.get_bridge_info();
+        assert_eq!(info.bridge_object_id, 42);
+        assert_eq!(info.from_left, Coord3D::new(4.0, 22.0, 5.0));
+        assert_eq!(info.from_right, Coord3D::new(4.0, 18.0, 5.0));
+        assert_eq!(info.to_left, Coord3D::new(16.0, 22.0, 5.0));
+        assert_eq!(info.to_right, Coord3D::new(16.0, 18.0, 5.0));
+        assert_eq!(info.bridge_width, 4.0);
+        assert!((bridge.get_bridge_height(&Coord3D::new(10.0, 20.0, 0.0), None) - 5.0).abs() < 0.01);
+    }
+
+    #[test]
     fn bridge_info_from_parts_matches_expected_rectangle() {
         let bridge_info = TerrainLogic::bridge_info_from_parts(
             Coord3D::new(10.0, 20.0, 3.0),
@@ -4124,6 +4190,26 @@ mod tests {
         assert!(!loaded);
 
         let _ = std::fs::remove_file(&map_path);
+    }
+
+    #[test]
+    fn new_map_enables_water_grid_when_waveguide1_exists() {
+        let mut terrain = TerrainLogic::new();
+        terrain.add_waypoint_from_map(&MapWaypoint {
+            id: 1,
+            name: "WaveGuide1".to_string(),
+            location: crate::system::map_loader::Coord3D::new(20.0, 20.0, 5.0),
+            path_label1: String::new(),
+            path_label2: String::new(),
+            path_label3: String::new(),
+            bi_directional: false,
+        });
+        assert!(!terrain.is_water_grid_enabled());
+        terrain.new_map(false);
+        assert!(
+            terrain.is_water_grid_enabled(),
+            "C++ TerrainLogic::newMap enables the water grid when WaveGuide1 is present"
+        );
     }
 
     #[test]

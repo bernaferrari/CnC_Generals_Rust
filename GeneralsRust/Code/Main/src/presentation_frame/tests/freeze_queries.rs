@@ -678,7 +678,7 @@ fn upgrades_object_type_freeze_from_host() {
             can_target_air: true,
             can_target_ground: true,
             ..Default::default()
-        });
+});
         obj.mine_data = Some(HostMineData::new(HostMineKind::LandMine));
     }
     let frame = PresentationFrame::build_from_logic(&logic, 0);
@@ -814,7 +814,7 @@ fn weapon_and_stealth_freeze_from_host() {
             can_target_air: false,
             can_target_ground: true,
             ..Default::default()
-        });
+});
         obj.status.stealthed = true;
         obj.status.detected = false;
         obj.status.attacking = true;

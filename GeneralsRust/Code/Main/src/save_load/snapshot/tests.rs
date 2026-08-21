@@ -778,7 +778,9 @@ fn snapshot_restore_preserves_secondary_weapon_and_active_slot() {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-    };
+                reloading_clip: false,
+            last_bonus_rof: 0.0,
+};
     let secondary = Weapon {
         damage: 80.0,
         range: 90.0,
@@ -794,7 +796,9 @@ fn snapshot_restore_preserves_secondary_weapon_and_active_slot() {
         pre_attack_delay: 0.1,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-    };
+                reloading_clip: false,
+            last_bonus_rof: 0.0,
+};
 
     {
         let unit = source
@@ -888,7 +892,9 @@ fn snapshot_restore_preserves_secondary_only_weapon_slot() {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-    };
+                reloading_clip: false,
+            last_bonus_rof: 0.0,
+};
     {
         let unit = source.host_object_mut(id).expect("unit");
         unit.weapon = None;
@@ -924,13 +930,13 @@ fn snapshot_weapon_layout_helpers_round_trip() {
         damage: 10.0,
         range: 50.0,
         ..Weapon::default()
-    };
+};
     let secondary = Weapon {
         damage: 99.0,
         range: 40.0,
         last_fire_time: 1.5,
         ..Weapon::default()
-    };
+};
 
     // Both slots
     let mut obj = Object::new(ThingTemplate::new("T"), ObjectId(1), Team::USA);
@@ -960,19 +966,19 @@ fn snapshot_weapon_layout_preserves_tertiary_slot_and_active_identity() {
         damage: 10.0,
         range: 100.0,
         ..Weapon::default()
-    };
+};
     let secondary = Weapon {
         damage: 20.0,
         range: 120.0,
         ..Weapon::default()
-    };
+};
     let tertiary = Weapon {
         damage: 30.0,
         range: 200.0,
         last_fire_time: 4.0,
         ammo: Some(19),
         ..Weapon::default()
-    };
+};
     let mut object = Object::new(ThingTemplate::new("ThreeSlotUnit"), ObjectId(7), Team::USA);
     object.weapon = Some(primary);
     object.secondary_weapon = Some(secondary);
@@ -1007,19 +1013,19 @@ fn snapshot_restore_preserves_tertiary_weapon_and_permanent_lock() {
         last_fire_time: 3.5,
         ammo: Some(18),
         ..Weapon::default()
-    };
+};
     {
         let object = source.host_object_mut(id).expect("source object");
         object.weapon = Some(Weapon {
             damage: 7.0,
             range: 100.0,
             ..Weapon::default()
-        });
+});
         object.secondary_weapon = Some(Weapon {
             damage: 17.0,
             range: 100.0,
             ..Weapon::default()
-        });
+});
         object.tertiary_weapon = Some(tertiary.clone());
         assert!(object.set_weapon_lock(2, WeaponLockType::LockedPermanently));
     }
@@ -1072,7 +1078,7 @@ fn save_file_roundtrip_preserves_secondary_weapon() {
             range: 100.0,
             last_fire_time: 1.0,
             ..Weapon::default()
-        });
+});
         unit.secondary_weapon = Some(Weapon {
             damage: 55.0,
             range: 80.0,
@@ -1080,7 +1086,7 @@ fn save_file_roundtrip_preserves_secondary_weapon() {
             last_fire_time: 4.5,
             ammo: Some(2),
             ..Weapon::default()
-        });
+});
         unit.active_weapon_slot = 1;
     }
 
@@ -1138,12 +1144,12 @@ fn snapshot_roundtrip_stages_primary_and_secondary_barrel_cursors() {
             damage: 10.0,
             range: 100.0,
             ..Weapon::default()
-        });
+});
         object.secondary_weapon = Some(Weapon {
             damage: 20.0,
             range: 80.0,
             ..Weapon::default()
-        });
+});
         object.weapon_barrel_states[0].current_barrel = 2;
         object.weapon_barrel_states[0].shots_left_on_barrel = 1;
         object.weapon_barrel_states[1].current_barrel = 1;

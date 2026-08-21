@@ -57,6 +57,8 @@ impl InGameUI {
             self.expire_oldest_hint(HintType::Move);
         }
 
+        let start_msg = MsgCoord3D::new(start.x, start.y, start.z);
+        let end_msg = MsgCoord3D::new(end.x, end.y, end.z);
         self.hints.push(HintData {
             hint_type: HintType::Move,
             start,
@@ -65,6 +67,8 @@ impl InGameUI {
             source_id,
             lifetime_frames: MOVE_HINT_LIFETIME_FRAMES,
         });
+        // View::draw_view reads TheInGameUI::get_hints(), not this instance store.
+        TheInGameUI::create_move_hint(start_msg, end_msg, source_id);
     }
 
     /// C++ InGameUI.cpp:2176-2179 — intentionally empty.

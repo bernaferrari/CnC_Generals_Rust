@@ -635,6 +635,220 @@ pub fn drawable_status_tint_rgb(
     }
 }
 
+/// C++ `DARK_GRAY_DISABLED_COLOR`.
+pub const TINT_DISABLED_COLOR: [f32; 3] = [-0.5, -0.5, -0.5];
+/// C++ `SUBDUAL_DAMAGE_COLOR`.
+pub const TINT_SUBDUAL_COLOR: [f32; 3] = [-0.2, -0.2, 0.8];
+/// C++ `FRENZY_COLOR`.
+pub const TINT_FRENZY_COLOR: [f32; 3] = [0.2, -0.2, -0.2];
+/// C++ `FRENZY_COLOR_INFANTRY`.
+pub const TINT_FRENZY_COLOR_INFANTRY: [f32; 3] = [0.0, -0.7, -0.7];
+/// C++ disabled/frenzy TintEnvelope attack+decay frames (1s @ 30 FPS).
+pub const TINT_DISABLED_ATTACK_FRAMES: u32 = 30;
+/// C++ subdual TintEnvelope attack+decay frames (5s @ 30 FPS).
+pub const TINT_SUBDUAL_ATTACK_FRAMES: u32 = 150;
+
+const TINT_KIND_NONE: u8 = 0;
+const TINT_KIND_DISABLED: u8 = 1;
+const TINT_KIND_SUBDUAL: u8 = 2;
+const TINT_KIND_FRENZY: u8 = 3;
+const TINT_ENV_REST: u8 = 0;
+const TINT_ENV_ATTACK: u8 = 1;
+const TINT_ENV_SUSTAIN: u8 = 2;
+const TINT_ENV_DECAY: u8 = 3;
+const TINT_FADE_EPS: f32 = 1.0e-5;
+
+/// C++ `Object::setDisabledUntil` tint exceptions: HELD / SCRIPT_DISABLED / UNMANNED
+/// do not set `TINT_STATUS_DISABLED`. Every other disable type does.
+pub fn drawable_disabled_dark_tint(
+    emp: bool,
+    hacked: bool,
+    paralyzed: bool,
+    underpowered: bool,
+    freefall: bool,
+    subdued: bool,
+    default: bool,
+    script_underpowered: bool,
+) -> bool {
+    emp || hacked
+        || paralyzed
+        || underpowered
+        || freefall
+        || subdued
+        || default
+        || script_underpowered
+}
+
+fn tint_kind(disabled_dark: bool, subdual: bool, frenzy: bool) -> u8 {
+    if disabled_dark {
+        TINT_KIND_DISABLED
+    } else if subdual {
+        TINT_KIND_SUBDUAL
+    } else if frenzy {
+        TINT_KIND_FRENZY
+    } else {
+        TINT_KIND_NONE
+    }
+}
+
+fn tint_peak(kind: u8, infantry: bool) -> [f32; 3] {
+    match kind {
+        TINT_KIND_DISABLED => TINT_DISABLED_COLOR,
+        TINT_KIND_SUBDUAL => TINT_SUBDUAL_COLOR,
+        TINT_KIND_FRENZY if infantry => TINT_FRENZY_COLOR_INFANTRY,
+        TINT_KIND_FRENZY => TINT_FRENZY_COLOR,
+        _ => [0.0, 0.0, 0.0],
+    }
+}
+
+fn tint_attack_frames(kind: u8) -> u32 {
+    if kind == TINT_KIND_SUBDUAL {
+        TINT_SUBDUAL_ATTACK_FRAMES
+    } else {
+        TINT_DISABLED_ATTACK_FRAMES
+    }
+}
+
+fn vec_len(v: [f32; 3]) -> f32 {
+    (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt()
+}
+
+fn vec_sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+}
+
+fn vec_add(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+}
+
+fn vec_scale(v: [f32; 3], s: f32) -> [f32; 3] {
+    [v[0] * s, v[1] * s, v[2] * s]
+}
+
+#[derive(Clone, Copy)]
+struct HostTintEnvelope {
+    current: [f32; 3],
+    peak: [f32; 3],
+    attack_rate: [f32; 3],
+    decay_rate: [f32; 3],
+    state: u8,
+    last_kind: u8,
+    last_frame: u32,
+    seen: bool,
+}
+
+impl Default for HostTintEnvelope {
+    fn default() -> Self {
+        Self {
+            current: [0.0; 3],
+            peak: [0.0; 3],
+            attack_rate: [0.0; 3],
+            decay_rate: [0.0; 3],
+            state: TINT_ENV_REST,
+            last_kind: TINT_KIND_NONE,
+            last_frame: 0,
+            seen: false,
+        }
+    }
+}
+
+impl HostTintEnvelope {
+    fn play(&mut self, peak: [f32; 3], attack_frames: u32, decay_frames: u32) {
+        self.peak = peak;
+        let attack = 1.0 / attack_frames.max(1) as f32;
+        self.attack_rate = vec_scale(vec_sub(peak, self.current), attack);
+        self.decay_rate = vec_scale(peak, -1.0 / decay_frames.max(1) as f32);
+        self.state = TINT_ENV_ATTACK;
+        if vec_len(vec_sub(self.current, peak)) <= TINT_FADE_EPS {
+            self.state = TINT_ENV_SUSTAIN;
+        }
+    }
+
+    fn release(&mut self) {
+        self.state = TINT_ENV_DECAY;
+    }
+
+    fn update(&mut self) {
+        match self.state {
+            TINT_ENV_REST => {
+                self.current = [0.0; 3];
+            }
+            TINT_ENV_DECAY => {
+                let decay_len = vec_len(self.decay_rate);
+                let current_len = vec_len(self.current);
+                if decay_len > current_len || current_len <= TINT_FADE_EPS {
+                    self.state = TINT_ENV_REST;
+                    self.current = [0.0; 3];
+                } else {
+                    self.current = vec_add(self.decay_rate, self.current);
+                }
+            }
+            TINT_ENV_ATTACK => {
+                let delta = vec_sub(self.current, self.peak);
+                let delta_len = vec_len(delta);
+                if vec_len(self.attack_rate) > delta_len || delta_len <= TINT_FADE_EPS {
+                    self.state = TINT_ENV_SUSTAIN;
+                    self.current = self.peak;
+                } else {
+                    self.current = vec_add(self.attack_rate, self.current);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+thread_local! {
+    static TINT_ENVELOPES: std::cell::RefCell<std::collections::HashMap<u32, HostTintEnvelope>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// C++ `Drawable::updateDrawable` TintEnvelope sample for the live mesh pass.
+pub fn sample_drawable_status_tint(
+    object_id: u32,
+    logic_frame: u32,
+    disabled_dark: bool,
+    subdual: bool,
+    frenzy: bool,
+    infantry: bool,
+) -> [f32; 3] {
+    let kind = tint_kind(disabled_dark, subdual, frenzy);
+    TINT_ENVELOPES.with(|map| {
+        let mut map = map.borrow_mut();
+        let env = map.entry(object_id).or_default();
+        if !env.seen || env.last_kind != kind {
+            if kind == TINT_KIND_NONE {
+                if env.seen {
+                    env.release();
+                }
+            } else {
+                let frames = tint_attack_frames(kind);
+                env.play(tint_peak(kind, infantry), frames, frames);
+            }
+            env.last_kind = kind;
+        }
+        let steps = if !env.seen {
+            1
+        } else if logic_frame > env.last_frame {
+            (logic_frame - env.last_frame).min(300)
+        } else {
+            0
+        };
+        for _ in 0..steps {
+            env.update();
+        }
+        env.last_frame = logic_frame;
+        env.seen = true;
+        env.current
+    })
+}
+
+#[cfg(test)]
+pub fn reset_drawable_tint_envelopes() {
+    TINT_ENVELOPES.with(|map| map.borrow_mut().clear());
+}
+
+
 #[cfg(test)]
 mod stealth_grant_tests {
     use super::{
@@ -754,6 +968,68 @@ mod stealth_grant_tests {
         assert!(!is_live_stealth_black_market(
             false, false, true, false, false, false
         ));
+    }
+
+
+    #[test]
+    fn unmanned_does_not_dark_tint_underpowered_does() {
+        assert!(!super::drawable_disabled_dark_tint(
+            false, false, false, false, false, false, false, false
+        ));
+        assert!(super::drawable_disabled_dark_tint(
+            false, false, false, true, false, false, false, false
+        ));
+        assert!(super::drawable_disabled_dark_tint(
+            false, false, true, false, false, false, false, false
+        ));
+        assert!(super::drawable_disabled_dark_tint(
+            false, false, false, false, true, false, false, false
+        ));
+        assert!(super::drawable_disabled_dark_tint(
+            false, false, false, false, false, true, false, false
+        ));
+        assert!(super::drawable_disabled_dark_tint(
+            false, false, false, false, false, false, true, false
+        ));
+        assert!(super::drawable_disabled_dark_tint(
+            false, false, false, false, false, false, false, true
+        ));
+    }
+
+    #[test]
+    fn status_tint_envelope_ramps_disabled_then_releases() {
+        super::reset_drawable_tint_envelopes();
+        let first = super::sample_drawable_status_tint(9001, 0, true, false, false, false);
+        assert!(first[0] < -0.01 && first[0] > -0.5);
+        let mut color = first;
+        for frame in 1..=30 {
+            color = super::sample_drawable_status_tint(9001, frame, true, false, false, false);
+        }
+        assert!((color[0] + 0.5).abs() < 0.02);
+        assert!((color[1] + 0.5).abs() < 0.02);
+        let mut faded = color;
+        for frame in 31..=61 {
+            faded = super::sample_drawable_status_tint(9001, frame, false, false, false, false);
+        }
+        assert!(faded[0].abs() < 0.05);
+        assert!(faded[1].abs() < 0.05);
+        assert!(faded[2].abs() < 0.05);
+    }
+
+    #[test]
+    fn subdual_envelope_uses_150_frame_attack() {
+        super::reset_drawable_tint_envelopes();
+        let early = super::sample_drawable_status_tint(9002, 0, false, true, false, false);
+        assert!(early[2] > 0.0 && early[2] < 0.8);
+        let mut color = early;
+        for frame in 1..=30 {
+            color = super::sample_drawable_status_tint(9002, frame, false, true, false, false);
+        }
+        assert!(color[2] < 0.79, "subdual must not finish in 1s");
+        for frame in 31..=150 {
+            color = super::sample_drawable_status_tint(9002, frame, false, true, false, false);
+        }
+        assert!((color[2] - 0.8).abs() < 0.03);
     }
 
 }

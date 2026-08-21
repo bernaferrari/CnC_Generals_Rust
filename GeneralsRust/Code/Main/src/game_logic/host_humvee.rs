@@ -287,7 +287,9 @@ pub fn humvee_gun_weapon() -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-    }
+                reloading_clip: false,
+            last_bonus_rof: 0.0,
+}
 }
 
 /// Build residual Humvee ground TOW secondary weapon (post Upgrade_AmericaTOWMissile).
@@ -307,7 +309,9 @@ pub fn humvee_ground_tow_weapon() -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-    }
+                reloading_clip: false,
+            last_bonus_rof: 0.0,
+}
 }
 
 /// Build residual Humvee air TOW tertiary weapon (bound as secondary when air).
@@ -327,7 +331,9 @@ pub fn humvee_air_tow_weapon() -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-    }
+                reloading_clip: false,
+            last_bonus_rof: 0.0,
+}
 }
 
 /// Residual ground TOW splash damage at distance from impact.

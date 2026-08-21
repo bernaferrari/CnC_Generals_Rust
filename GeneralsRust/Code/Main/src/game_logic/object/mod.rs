@@ -542,6 +542,9 @@ pub struct Object {
     /// C++ ThingTemplate CrushableLevel residual (default 255 = uncrushable).
     #[serde(default = "default_crushable_level")]
     pub crushable_level: u8,
+    /// C++ `findModule("SquishCollide")` residual (Object.cpp:1133).
+    #[serde(default)]
+    pub has_squish_collide: bool,
     /// C++ BodyModule front crushed residual.
     #[serde(default)]
     pub front_crushed: bool,
@@ -2796,13 +2799,18 @@ pub use barrels::WeaponBarrelState;
 pub use damage::{prime_live_damage_context, set_pending_damage_status_type};
 pub use visual::ObjectVisualInfo;
 pub use stealth::{
-    drawable_explicit_fade_opacity, drawable_status_tint_rgb, friendly_stealth_pulse_opacity,
-    is_live_stealth_black_market, order_idle_enemies_on_reveal, DRAWABLE_FADE_IN,
-    DRAWABLE_FADE_NONE, DRAWABLE_FADE_OUT, SOUND_STEALTH_OFF, SOUND_STEALTH_ON,
+    drawable_disabled_dark_tint, drawable_explicit_fade_opacity, drawable_status_tint_rgb,
+    friendly_stealth_pulse_opacity, is_live_stealth_black_market, order_idle_enemies_on_reveal,
+    sample_drawable_status_tint, DRAWABLE_FADE_IN, DRAWABLE_FADE_NONE, DRAWABLE_FADE_OUT,
+    SOUND_STEALTH_OFF, SOUND_STEALTH_ON, TINT_DISABLED_ATTACK_FRAMES, TINT_DISABLED_COLOR,
+    TINT_FRENZY_COLOR, TINT_FRENZY_COLOR_INFANTRY, TINT_SUBDUAL_ATTACK_FRAMES, TINT_SUBDUAL_COLOR,
 };
+#[cfg(test)]
+pub use stealth::reset_drawable_tint_envelopes;
 pub use jets::{
-    HostJetAi, HostJetPendingResume, JetAiTickAction, JET_AFTERBURNER_SOUND, JET_LOCKON_TICK_SOUND,
-    STEALTH_FIGHTER_LOCKON_TIME_FRAMES,
+    HostJetAi, HostJetPendingResume, JetAiTickAction, JET_AFTERBURNER_SOUND,
+    JET_AFTERBURNER_SOUND_STOP, JET_LOCKON_TICK_SOUND, JET_RTB_PHASE_APPROACH,
+    JET_RTB_PHASE_LANDING, JET_RTB_PHASE_TAXI, STEALTH_FIGHTER_LOCKON_TIME_FRAMES,
 };
 
 

@@ -270,7 +270,7 @@ fn run_basic_faction_flow(human_team: Team) {
             reload_time: 0.0,
             projectile_speed: 0.0,
             ..Weapon::default()
-        });
+});
     }
 
     let supplies_before_sell = game_logic
@@ -505,7 +505,7 @@ fn mini_skirmish_playable_flow_smoke() {
             reload_time: 0.0,
             projectile_speed: 0.0,
             ..Weapon::default()
-        });
+});
     }
 
     let save_dir = TempDir::new().expect("smoke save temp dir should be created");

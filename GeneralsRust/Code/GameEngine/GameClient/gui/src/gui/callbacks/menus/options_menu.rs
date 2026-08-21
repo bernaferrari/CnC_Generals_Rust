@@ -345,8 +345,13 @@ impl OptionPreferences {
     }
 
     pub fn get_scroll_factor(&self) -> f32 {
-        let factor = self.get_int_clamped("ScrollFactor", 50, 0, 100);
-        factor as f32 / 100.0
+        if self.preferences.contains_key("ScrollFactor") {
+            let factor = self.get_int_clamped("ScrollFactor", 50, 0, 100);
+            factor as f32 / 100.0
+        } else {
+            // C++ missing key → TheGlobalData->m_keyboardDefaultScrollFactor
+            game_engine::common::global_data::read().keyboard_default_scroll_factor
+        }
     }
 
     pub fn save_camera_in_replays(&self) -> bool {
@@ -728,6 +733,18 @@ impl OptionsMenuController {
         self.send_delay = self.preferences.get_send_delay();
         self.use_camera = self.preferences.use_camera_in_replays();
         self.save_camera = self.preferences.save_camera_in_replays();
+        let (ini_draw, ini_move) =
+            game_engine::common::ini::ini_in_game_ui::get_in_game_ui_settings()
+                .map(|s| (s.draw_rmb_scroll_anchor, s.move_rmb_scroll_anchor))
+                .unwrap_or((false, false));
+        self.draw_anchor = game_engine::common::user_preferences::scroll_anchor_pref_enabled(
+            self.preferences.get("DrawScrollAnchor").map(String::as_str),
+            ini_draw,
+        );
+        self.move_anchor = game_engine::common::user_preferences::scroll_anchor_pref_enabled(
+            self.preferences.get("MoveScrollAnchor").map(String::as_str),
+            ini_move,
+        );
         self.language_filter = self.preferences.get_language_filter();
 
         self.music_volume = self.preferences.get_music_volume() as i32;
@@ -983,7 +1000,10 @@ impl OptionsMenuController {
         self.alternate_mouse = false;
         self.retaliation = true;
         self.double_click_attack_move = false;
-        self.scroll_speed = 50;
+        self.scroll_speed = (game_engine::common::global_data::read()
+            .keyboard_default_scroll_factor
+            * 100.0)
+            .round() as i32;
         self.music_volume = 60;
         self.sfx_volume = 55;
         self.voice_volume = 70;

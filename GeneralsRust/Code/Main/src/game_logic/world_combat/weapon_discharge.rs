@@ -228,7 +228,7 @@ mod tests {
             damage: 1.0,
             range: 100.0,
             ..Weapon::default()
-        });
+});
         assert!(object.set_weapon_barrel_count_for_slot(0, 3));
         object.weapon_barrel_states[0].current_barrel = 2;
         object.weapon_barrel_states[0].shots_left_on_barrel = 1;

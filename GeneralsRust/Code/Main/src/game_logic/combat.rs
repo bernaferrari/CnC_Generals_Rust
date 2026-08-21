@@ -1054,7 +1054,9 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             pre_attack_delay: 0.0,
             splash_radius: p.splash_radius,
             suspend_fx_frame: 0,
-        };
+                    reloading_clip: false,
+            last_bonus_rof: 0.0,
+};
         let pid = combat.fire_projectile_ex(
             p.shooter_pos,
             target_pos,
@@ -2402,7 +2404,7 @@ mod tests {
             range: 200.0,
             projectile_speed: 40.0,
             ..Weapon::default()
-        };
+};
         combat.fire_projectile(
             Vec3::new(0.0, 5.0, 0.0),
             Vec3::new(80.0, 5.0, 0.0),
@@ -2475,7 +2477,7 @@ mod tests {
             range: 200.0,
             projectile_speed: 200.0,
             ..Weapon::default()
-        };
+};
         combat.fire_projectile(
             Vec3::new(0.0, 5.0, 0.0),
             Vec3::new(30.0, 5.0, 0.0),
@@ -2546,7 +2548,7 @@ mod tests {
             projectile_speed: 500.0,
             splash_radius: 15.0,
             ..Weapon::default()
-        };
+};
         combat.fire_projectile(
             Vec3::new(0.0, 5.0, 0.0),
             Vec3::new(20.0, 5.0, 0.0),
@@ -2622,7 +2624,7 @@ mod tests {
             projectile_speed: 500.0,
             splash_radius: 10.0,
             ..Weapon::default()
-        };
+};
         combat.fire_projectile(
             Vec3::new(0.0, 5.0, 0.0),
             Vec3::new(20.0, 5.0, 0.0),
@@ -2692,7 +2694,7 @@ mod tests {
             range: 200.0,
             projectile_speed: 0.0, // instant residual
             ..Weapon::default()
-        };
+};
         combat.fire_projectile(
             Vec3::new(0.0, 5.0, 0.0),
             Vec3::new(50.0, 5.0, 0.0),
@@ -2753,7 +2755,7 @@ mod tests {
             can_target_air: true,
             can_target_ground: false,
             ..Weapon::default()
-        };
+};
         // Aim at stale point (origin line); target will drift +Z so ballistic would miss.
         combat.fire_projectile_ex(
             Vec3::new(0.0, 0.0, 0.0),
@@ -2836,7 +2838,9 @@ mod tests {
                 pre_attack_delay: 0.0,
                 splash_radius: 0.0,
                 suspend_fx_frame: 0,
-            },
+                        reloading_clip: false,
+            last_bonus_rof: 0.0,
+},
             shooter,
             Some(target),
             0.0,
@@ -2972,7 +2976,7 @@ mod tests {
             splash_radius: 10.0,
             projectile_speed: 0.0,
             ..Weapon::default()
-        };
+};
         let pid = combat.fire_projectile_ex(
             Vec3::ZERO,
             Vec3::new(5.0, 0.0, 0.0),
@@ -3022,7 +3026,7 @@ mod tests {
             splash_radius: 20.0,
             projectile_speed: 0.0,
             ..Weapon::default()
-        };
+};
         let pid = combat.fire_projectile_ex(
             Vec3::ZERO,
             Vec3::new(5.0, 0.0, 0.0),
@@ -3098,7 +3102,7 @@ mod tests {
             splash_radius: 20.0,
             projectile_speed: 0.0,
             ..Weapon::default()
-        };
+};
         let pid = combat.fire_projectile_ex(
             Vec3::ZERO,
             Vec3::new(4.0, 0.0, 0.0),
@@ -3147,7 +3151,7 @@ mod tests {
             splash_radius: 10.0,
             projectile_speed: 0.0,
             ..Weapon::default()
-        };
+};
         let pid = combat.fire_projectile_ex(
             Vec3::ZERO,
             Vec3::new(15.0, 0.0, 0.0),
@@ -3218,7 +3222,7 @@ mod tests {
             splash_radius: 20.0,
             projectile_speed: 0.0,
             ..Weapon::default()
-        };
+};
         let pid = combat.fire_projectile_ex(
             Vec3::ZERO,
             Vec3::new(3.0, 0.0, 0.0),
@@ -3278,7 +3282,7 @@ mod tests {
             splash_radius: 20.0,
             projectile_speed: 0.0,
             ..Weapon::default()
-        };
+};
         let pid = combat.fire_projectile_ex(
             Vec3::ZERO,
             Vec3::new(3.0, 0.0, 0.0),
@@ -3351,7 +3355,7 @@ mod tests {
             damage: 50.0,
             projectile_speed: 500.0,
             ..Weapon::default()
-        };
+};
         // No structure collide residual (laser-like).
         let pid = combat.fire_projectile_ex(
             Vec3::new(0.0, 5.0, 0.0),

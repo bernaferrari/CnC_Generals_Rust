@@ -74,6 +74,8 @@ pub struct TranslatorCatalogEntry {
     pub command_set_name: String,
     /// Wave 1055: host control-group residual (0..9, -1 = none).
     pub hotkey_group: i8,
+    /// Live host beacon Drawable caption residual for EditBeaconText.
+    pub caption: String,
 }
 
 #[derive(Debug, Clone, Default)]

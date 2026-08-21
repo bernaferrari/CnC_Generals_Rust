@@ -426,9 +426,20 @@ impl UnitRenderInput {
             engine_bridged: ro.engine_bridged,
             fow_visibility: ro.fow_visibility,
             presentation_opacity: 1.0,
-            status_tint: crate::game_logic::drawable_status_tint_rgb(
-                ro.disabled_emp || ro.disabled_hacked || ro.disabled_unmanned,
-                ro.gaining_subdual || ro.disabled_subdued,
+            status_tint: crate::game_logic::sample_drawable_status_tint(
+                ro.id.0,
+                0,
+                crate::game_logic::drawable_disabled_dark_tint(
+                    ro.disabled_emp,
+                    ro.disabled_hacked,
+                    ro.disabled_paralyzed,
+                    ro.disabled_underpowered,
+                    ro.disabled_freefall,
+                    ro.disabled_subdued,
+                    ro.disabled_default,
+                    ro.disabled_script_underpowered,
+                ),
+                ro.gaining_subdual,
                 ro.weapon_bonus_frenzy,
                 matches!(ro.object_type, PresentationObjectType::Infantry),
             ),
@@ -466,6 +477,23 @@ impl UnitRenderInput {
         input.world_is_snow = world_is_snow;
         input.world_is_night = world_is_night;
         input.logic_frame = logic_frame;
+        input.status_tint = crate::game_logic::sample_drawable_status_tint(
+            ro.id.0,
+            logic_frame,
+            crate::game_logic::drawable_disabled_dark_tint(
+                ro.disabled_emp,
+                ro.disabled_hacked,
+                ro.disabled_paralyzed,
+                ro.disabled_underpowered,
+                ro.disabled_freefall,
+                ro.disabled_subdued,
+                ro.disabled_default,
+                ro.disabled_script_underpowered,
+            ),
+            ro.gaining_subdual,
+            ro.weapon_bonus_frenzy,
+            matches!(ro.object_type, PresentationObjectType::Infantry),
+        );
         input.resolve_draw_models_for_frozen_conditions();
         input
     }
@@ -875,11 +903,9 @@ impl UnitRenderInput {
                 bits &= !(1u128 << para_b);
             }
             let jet_b = jetexhaust_model_bit();
-            let jet_moving = matches!(self.object_type, PresentationObjectType::Aircraft)
-                && (self.moving || self.velocity.length_squared() > 1e-4 || self.airborne_target);
-            if jet_moving {
-                bits |= 1u128 << jet_b;
-            } else {
+            // C++ JetAIUpdate::update owns JETEXHAUST (velocity>0 && ALLOW_AIR_LOCO).
+            // Do not invent exhaust from ground taxi or zero-velocity hover.
+            if !matches!(self.object_type, PresentationObjectType::Aircraft) {
                 bits &= !(1u128 << jet_b);
             }
             // Wave 517: slot-aware USING_WEAPON_A/B/C (preserve B/C when active).
@@ -968,7 +994,7 @@ impl UnitRenderInput {
                 bits |= 1u128 << arm_b;
             }
         }
-        // Wave 519: exploded flail/bounce and jet-afterburner residual bits.
+        // Wave 519: exploded flail/bounce residual bits.
         {
             use crate::game_logic::host_enum_table_residual::{
                 exploded_bouncing_model_bit, exploded_flailing_model_bit, jetafterburner_model_bit,
@@ -978,7 +1004,7 @@ impl UnitRenderInput {
             let bounce_b = exploded_bouncing_model_bit();
             let splat_b = splatted_model_bit();
             let jet_ab = jetafterburner_model_bit();
-            for b in [flail_b, bounce_b, splat_b, jet_ab] {
+            for b in [flail_b, bounce_b, splat_b] {
                 bits &= !(1u128 << b);
             }
             // Shockwave: airborne => flailing; bounce allowed mid-air => bouncing; grounded after airborne => splatted residual.
@@ -993,11 +1019,7 @@ impl UnitRenderInput {
                     bits |= 1u128 << flail_b;
                 }
             }
-            // `model_condition_bits` already contains the authoritative
-            // PowerPlantUpdate state.  In particular, m_extended becomes
-            // true at the start of C++ extension, so rebuilding these flags
-            // from `power_plant_rods_extended` would incorrectly skip the
-            // POWER_PLANT_UPGRADING phase.
+            // Keep live JETAFTERBURNER from PauseBeforeTakeoff; crash still forces it.
             if self.jet_slow_death_active {
                 bits |= 1u128 << jet_ab;
             }
@@ -1714,8 +1736,11 @@ mod tests {
     }
 
     #[test]
-    fn status_tint_uses_disabled_then_subdual_then_frenzy() {
-        use crate::game_logic::{GameLogic, Player, Team, ThingTemplate};
+    fn status_tint_gate_skips_unmanned_and_tints_underpowered() {
+        use crate::game_logic::{
+            reset_drawable_tint_envelopes, GameLogic, Player, Team, ThingTemplate,
+        };
+        reset_drawable_tint_envelopes();
         let mut logic = GameLogic::new();
         logic.add_player(Player::new(0, Team::USA, "Local", true));
         let mut template = ThingTemplate::new("AmericaTankCrusader");
@@ -1730,20 +1755,50 @@ mod tests {
                 glam::Vec3::new(2.0, 0.0, 2.0),
             )
             .expect("tank");
-        {
-            let o = logic.host_object_mut(id).expect("tank obj");
-            o.status.disabled_emp = true;
-        }
-        let emp = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0)
-            .unit_render_inputs()
-            .into_iter()
-            .find(|u| u.id == id)
-            .expect("emp input");
-        assert_eq!(emp.status_tint, [-0.5, -0.5, -0.5]);
 
         {
             let o = logic.host_object_mut(id).expect("tank obj");
-            o.status.disabled_emp = false;
+            o.status.disabled_unmanned = true;
+        }
+        let unmanned = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0)
+            .unit_render_inputs()
+            .into_iter()
+            .find(|u| u.id == id)
+            .expect("unmanned input");
+        assert_eq!(unmanned.status_tint, [0.0, 0.0, 0.0]);
+
+        reset_drawable_tint_envelopes();
+        {
+            let o = logic.host_object_mut(id).expect("tank obj");
+            o.status.disabled_unmanned = false;
+            o.status.disabled_underpowered = true;
+        }
+        let underpowered = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0)
+            .unit_render_inputs()
+            .into_iter()
+            .find(|u| u.id == id)
+            .expect("underpowered input");
+        assert!(underpowered.status_tint[0] < -0.01);
+        assert!(underpowered.status_tint[0] > -0.5);
+
+        reset_drawable_tint_envelopes();
+        {
+            let o = logic.host_object_mut(id).expect("tank obj");
+            o.status.disabled_underpowered = false;
+            o.status.disabled_subdued = true;
+        }
+        let subdued = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0)
+            .unit_render_inputs()
+            .into_iter()
+            .find(|u| u.id == id)
+            .expect("subdued input");
+        assert!(subdued.status_tint[0] < -0.01, "DISABLED_SUBDUED is dark gray");
+        assert!(subdued.status_tint[2] < 0.0);
+
+        reset_drawable_tint_envelopes();
+        {
+            let o = logic.host_object_mut(id).expect("tank obj");
+            o.status.disabled_subdued = false;
             o.subdual_damage = 10.0;
         }
         let subdual = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0)
@@ -1751,8 +1806,9 @@ mod tests {
             .into_iter()
             .find(|u| u.id == id)
             .expect("subdual input");
-        assert_eq!(subdual.status_tint, [-0.2, -0.2, 0.8]);
+        assert!(subdual.status_tint[2] > 0.01);
 
+        reset_drawable_tint_envelopes();
         {
             let o = logic.host_object_mut(id).expect("tank obj");
             o.subdual_damage = 0.0;
@@ -1763,6 +1819,148 @@ mod tests {
             .into_iter()
             .find(|u| u.id == id)
             .expect("frenzy input");
-        assert_eq!(frenzy.status_tint, [0.2, -0.2, -0.2]);
+        assert!(frenzy.status_tint[0] > 0.0);
     }
+
+    #[test]
+    fn detected_stealth_drops_blob_shadow() {
+        use crate::game_logic::host_upgrades::HostCamoStealthLook;
+        use crate::game_logic::{GameLogic, Player, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "Local", true));
+        let mut template = ThingTemplate::new("GLAInfantryJarmenKell");
+        template.set_health(100.0);
+        logic
+            .templates
+            .insert("GLAInfantryJarmenKell".into(), template);
+        let id = logic
+            .create_object(
+                "GLAInfantryJarmenKell",
+                Team::GLA,
+                glam::Vec3::new(4.0, 0.0, 4.0),
+            )
+            .expect("kell");
+        {
+            let o = logic.host_object_mut(id).expect("kell obj");
+            o.status.stealthed = true;
+            o.status.detected = true;
+            o.camo_stealth_look = HostCamoStealthLook::VisibleDetected as u8;
+        }
+        let input = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0)
+            .unit_render_inputs()
+            .into_iter()
+            .find(|u| u.id == id)
+            .expect("detected input");
+        assert!(!input.shadows_enabled);
+    }
+
+    #[test]
+    fn own_mines_freeze_zero_friendly_opacity() {
+        use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "Local", true));
+        let mut template = ThingTemplate::new("ChinaStandardMine");
+        template.set_health(10.0);
+        template.add_kind_of(KindOf::Mine);
+        logic
+            .templates
+            .insert("ChinaStandardMine".into(), template);
+        let id = logic
+            .create_object(
+                "ChinaStandardMine",
+                Team::USA,
+                glam::Vec3::new(6.0, 0.0, 6.0),
+            )
+            .expect("mine");
+        {
+            let o = logic.host_object_mut(id).expect("mine obj");
+            o.mine_data = Some(crate::game_logic::host_mines::HostMineData::land_mine());
+            o.apply_mine_innate_stealth();
+        }
+        let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0);
+        let object = frame
+            .objects
+            .iter()
+            .find(|o| o.id == id)
+            .expect("mine object");
+        assert!(object.friendly_stealth_opacity.abs() < 1e-5);
+        let input = frame
+            .unit_render_inputs()
+            .into_iter()
+            .find(|u| u.id == id)
+            .expect("mine input");
+        assert!(input.presentation_opacity.abs() < 1e-5);
+    }
+
+    #[test]
+    fn sticky_and_carbomb_overlay_follow_cpp_gates() {
+        use crate::game_logic::host_mines::HostMineData;
+        use crate::game_logic::{GameLogic, Player, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "Local", true));
+        logic.add_player(Player::new(1, Team::GLA, "Enemy", false));
+        let mut car = ThingTemplate::new("CivilianCar");
+        car.set_health(100.0);
+        logic.templates.insert("CivilianCar".into(), car);
+        let mut charge = ThingTemplate::new("TNTStickyBomb");
+        charge.set_health(10.0);
+        logic.templates.insert("TNTStickyBomb".into(), charge);
+
+        let local_car = logic
+            .create_object("CivilianCar", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
+            .expect("local car");
+        {
+            let o = logic.host_object_mut(local_car).expect("local car obj");
+            o.owner_player_id = Some(0);
+            o.weapon_set_carbomb = true;
+            o.status.is_carbomb = true;
+        }
+        let enemy_car = logic
+            .create_object("CivilianCar", Team::GLA, glam::Vec3::new(2.0, 0.0, 2.0))
+            .expect("enemy car");
+        {
+            let o = logic.host_object_mut(enemy_car).expect("enemy car obj");
+            o.owner_player_id = Some(1);
+            o.weapon_set_carbomb = true;
+            o.status.is_carbomb = true;
+        }
+        let target = logic
+            .create_object("CivilianCar", Team::GLA, glam::Vec3::new(3.0, 0.0, 3.0))
+            .expect("target");
+        let timed = logic
+            .create_object(
+                "TNTStickyBomb",
+                Team::USA,
+                glam::Vec3::new(3.0, 0.0, 3.0),
+            )
+            .expect("timed");
+        {
+            let o = logic.host_object_mut(timed).expect("timed obj");
+            o.mine_data = Some(HostMineData::timed_demo_charge(0).with_attach(target));
+        }
+        let remote = logic
+            .create_object(
+                "TNTStickyBomb",
+                Team::USA,
+                glam::Vec3::new(4.0, 0.0, 4.0),
+            )
+            .expect("remote");
+        {
+            let o = logic.host_object_mut(remote).expect("remote obj");
+            o.mine_data = Some(HostMineData::remote_demo_charge().with_attach(target));
+        }
+
+        let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0);
+        let local = frame.objects.iter().find(|o| o.id == local_car).unwrap();
+        let enemy = frame.objects.iter().find(|o| o.id == enemy_car).unwrap();
+        let timed_o = frame.objects.iter().find(|o| o.id == timed).unwrap();
+        let remote_o = frame.objects.iter().find(|o| o.id == remote).unwrap();
+        assert!(local.weapon_set_carbomb);
+        assert!(enemy.weapon_set_carbomb);
+        assert_eq!(timed_o.bomb_type, 1);
+        assert!(timed_o.bomb_timer_seconds > 0);
+        assert_eq!(remote_o.bomb_type, 2);
+        assert_eq!(remote_o.bomb_timer_seconds, 0);
+    }
+
 }

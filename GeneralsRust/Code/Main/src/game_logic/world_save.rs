@@ -91,6 +91,9 @@ impl GameLogic {
         object_id: ObjectId,
         ability: PendingSpecialAbility,
     ) {
+        if Self::leftover_sa_exclusive_pending(ability) {
+            self.abort_leftover_sa_channel_on_new_order(object_id);
+        }
         self.pending_special_abilities.insert(object_id, ability);
     }
 
@@ -665,6 +668,7 @@ impl GameLogic {
 
     /// C++ addBridge classifyCells + classifyMap pinch + zone rebuild on the live host grid.
     pub(super) fn stamp_live_bridge_decks_and_zones(&mut self) {
+        self.register_landmark_bridges_from_spawned_objects();
         self.ensure_generic_bridge_objects();
         self.pathfinding_system.grid.pinch_tighten_cliffs();
         if let Ok(terrain) = gamelogic::terrain::get_terrain_logic().read() {
@@ -739,6 +743,211 @@ impl GameLogic {
             .set_health(health);
         self.templates.insert(name.to_string(), t);
     }
+
+    fn host_object_is_landmark_bridge(obj: &super::Object) -> bool {
+        if obj.is_kind_of(KindOf::BridgeTower) {
+            return false;
+        }
+        let n = obj.template_name.to_ascii_lowercase();
+        if n.contains("tower")
+            || n.contains("scaffold")
+            || n.eq_ignore_ascii_case("genericbridge")
+            || n.contains("waterwave")
+        {
+            return false;
+        }
+        leftover_template_is_landmark_bridge(&obj.template_name)
+            || obj.is_kind_of(KindOf::LandmarkBridge)
+            || obj.get_template().is_kind_of(KindOf::LandmarkBridge)
+            || obj.is_kind_of(KindOf::Bridge)
+            || n.contains("landmark")
+    }
+
+    /// Safety net for objects not in `spawned_map_object_ids` (side builds).
+    pub(crate) fn register_landmark_bridges_from_spawned_objects(&mut self) {
+        let jobs: Vec<(ObjectId, String)> = self
+            .objects
+            .values()
+            .filter(|obj| Self::host_object_is_landmark_bridge(obj))
+            .map(|obj| (obj.id, obj.template_name.clone()))
+            .collect();
+        for (id, template_name) in jobs {
+            self.register_landmark_bridge_object(id, &template_name);
+        }
+    }
+
+    /// C++ GameLogic.cpp:1640-1688 post-map-load landmark-bridge pass.
+    /// `thingTemplate->isBridge()` / `KINDOF_LANDMARK_BRIDGE` map objects
+    /// become leftover TerrainLogic spans via `addLandmarkBridgeToLogic`.
+    pub(crate) fn register_spawned_landmark_bridges(
+        &mut self,
+        objects: &[super::script_loader::PlacedObject],
+        spawned_object_ids: &[(ObjectId, usize)],
+    ) {
+        let jobs: Vec<(ObjectId, String)> = spawned_object_ids
+            .iter()
+            .filter_map(|&(id, index)| {
+                let placed = objects.get(index)?;
+                let name = placed.template.as_str();
+                if self.template_is_landmark_bridge(name, id) {
+                    Some((id, name.to_string()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for (id, template_name) in jobs {
+            self.register_landmark_bridge_object(id, &template_name);
+        }
+    }
+
+    fn template_is_landmark_bridge(&self, template_name: &str, object_id: ObjectId) -> bool {
+        if leftover_template_is_landmark_bridge(template_name) {
+            return true;
+        }
+        if let Some(tmpl) = self.templates.get(template_name) {
+            if tmpl.is_kind_of(KindOf::LandmarkBridge) {
+                return true;
+            }
+        }
+        self.objects.get(&object_id).is_some_and(|obj| {
+            obj.is_kind_of(KindOf::LandmarkBridge)
+                || obj
+                    .get_template()
+                    .is_kind_of(KindOf::LandmarkBridge)
+        })
+    }
+
+    fn register_landmark_bridge_object(&mut self, id: ObjectId, template_name: &str) {
+        if leftover_bridge_info_for_object(id.0).is_some() {
+            return;
+        }
+        let Some(obj) = self.objects.get(&id) else {
+            return;
+        };
+        let pos = obj.get_position();
+        let leftover_pos = gamelogic::common::Coord3D::new(pos.x, pos.z, pos.y);
+        let angle = obj.get_orientation();
+        let (half_x, half_y) = landmark_bridge_half_sizes(template_name, obj);
+        let team = obj.team;
+        if let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() {
+            terrain.add_landmark_bridge_from_geometry(
+                leftover_pos,
+                angle,
+                half_x,
+                half_y,
+                id.0,
+                gamelogic::common::AsciiString::from(template_name),
+            );
+        }
+        let Some(info) = leftover_bridge_info_for_object(id.0) else {
+            return;
+        };
+        self.bridge_behavior.register_span(
+            id,
+            Vec3::new(info.from_left.x, info.from_left.z, info.from_left.y),
+            Vec3::new(info.from_right.x, info.from_right.z, info.from_right.y),
+            Vec3::new(info.to_left.x, info.to_left.z, info.to_left.y),
+            Vec3::new(info.to_right.x, info.to_right.z, info.to_right.y),
+        );
+        self.create_landmark_bridge_towers(id, team, angle, &info);
+    }
+
+    /// C++ `Bridge::Bridge(Object*)` creates four targetable tower objects.
+    fn create_landmark_bridge_towers(
+        &mut self,
+        bridge_id: ObjectId,
+        team: Team,
+        bridge_angle: f32,
+        info: &gamelogic::terrain::BridgeInfo,
+    ) {
+        let Some(roads) = game_engine::common::ini::try_get_terrain_roads() else {
+            return;
+        };
+        let Some(bridge_tmpl) = leftover_bridge_template_name(bridge_id.0)
+            .and_then(|name| roads.find_bridge(&name).cloned())
+            .or_else(|| {
+                self.objects
+                    .get(&bridge_id)
+                    .and_then(|obj| roads.find_bridge(&obj.template_name).cloned())
+            })
+        else {
+            return;
+        };
+        drop(roads);
+
+        let mut width = gamelogic::common::Coord3D::new(
+            info.to_left.x - info.to_right.x,
+            info.to_left.y - info.to_right.y,
+            0.0,
+        );
+        let len = (width.x * width.x + width.y * width.y).sqrt();
+        if len > f32::EPSILON {
+            width.x /= len;
+            width.y /= len;
+        }
+        let corners = [
+            info.from_left,
+            info.from_right,
+            info.to_left,
+            info.to_right,
+        ];
+        let mut tower_ids = [0u32; 4];
+        for (index, corner) in corners.iter().enumerate() {
+            let name = bridge_tmpl.tower_object_name[index].as_str();
+            if name.is_empty() {
+                continue;
+            }
+            let mut offset = gamelogic::path::PATHFIND_CELL_SIZE_F * 0.5;
+            if let Some(factory) =
+                game_engine::common::thing::thing_factory::try_get_thing_factory()
+            {
+                if let Some(factory) = factory.as_ref() {
+                    if let Some(tower_tmpl) = factory.find_template(name, false) {
+                        let radius = tower_tmpl.get_template_geometry_info().major_radius();
+                        if radius > 0.0 {
+                            offset = radius;
+                        }
+                    }
+                }
+            }
+            let sign = if index == 0 || index == 2 { 1.0 } else { -1.0 };
+            let leftover_pos = gamelogic::common::Coord3D::new(
+                corner.x + width.x * offset * sign,
+                corner.y + width.y * offset * sign,
+                corner.z,
+            );
+            let host_pos = Vec3::new(leftover_pos.x, leftover_pos.z, leftover_pos.y);
+            let Some(tower_id) = self.create_object(name, team, host_pos) else {
+                continue;
+            };
+            let tower_angle = if index < 2 {
+                bridge_angle + std::f32::consts::PI
+            } else {
+                bridge_angle
+            };
+            if let Some(tower) = self.objects.get_mut(&tower_id) {
+                tower.set_orientation(tower_angle);
+            }
+            tower_ids[index] = tower_id.0;
+        }
+        if let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() {
+            terrain.for_each_bridge_mut(|bridge| {
+                if bridge.get_bridge_info().bridge_object_id != bridge_id.0 {
+                    return;
+                }
+                for (index, tower_id) in tower_ids.iter().copied().enumerate() {
+                    if tower_id == 0 {
+                        continue;
+                    }
+                    if let Some(which) = gamelogic::common::BridgeTowerType::from_index(index) {
+                        bridge.set_tower_object_id(tower_id, which);
+                    }
+                }
+            });
+        }
+    }
+
 
 
     /// C++ AIFollowWaypointPathExact residual — use waypoints as-is (no A* smoothing).
@@ -1530,6 +1739,16 @@ impl GameLogic {
         let Some(unit) = self.objects.get_mut(&unit_id) else {
             return false;
         };
+        // C++ privateFollowPathAppend → privateFollowPath:
+        // getStateMachine()->clear() exits Attack/Guard so a queued waypoint
+        // abandons the latched target. Without this, Moving + leftover target
+        // keeps firing / resumes the attack.
+        unit.set_guard_position(None);
+        unit.set_guard_target(None);
+        unit.end_guard_retaliate();
+        unit.hunting = false;
+        unit.stop_attack();
+        unit.is_attack_path = false;
         unit.movement.path = appended;
         unit.movement.target_position = Some(waypoint);
         crate::game_logic::host_move_log::record(
@@ -1911,6 +2130,8 @@ impl GameLogic {
         if let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() {
             terrain.reset();
             terrain.load_map_data(map_data);
+            // C++ GameLogic.cpp:1629 TheTerrainLogic->newMap after load.
+            terrain.new_map(false);
         }
         self.copy_crate_water_into_host_terrain();
         log::info!(
@@ -2148,6 +2369,8 @@ impl GameLogic {
                 Ok(mut terrain) => {
                     terrain.reset();
                     terrain.load_map_data(map_data);
+                    // C++ GameLogic.cpp:1629 TheTerrainLogic->newMap after load.
+                    terrain.new_map(false);
                     log::info!(
                         "Fast legacy runtime sync terrain write finished for '{}' in {:.2}s",
                         map_path.display(),
@@ -3177,7 +3400,9 @@ impl GameLogic {
                             }
                         }
                         report_progress(0.80, "World objects spawned");
-                        self.spawned_map_object_ids = spawned_object_ids;
+                        let spawned_ids = spawned_object_ids;
+                        self.spawned_map_object_ids = spawned_ids.clone();
+                        self.register_spawned_landmark_bridges(objects, &spawned_ids);
                         // Wave 831: SidesList build-list faction bases (skirmish armies).
                         let side_spawned =
                             self.spawn_side_build_list(&meta.side_builds, &map_player_to_team);
@@ -3540,6 +3765,69 @@ impl GameLogic {
     }
 }
 
+fn leftover_template_is_landmark_bridge(template_name: &str) -> bool {
+    let n = template_name.to_ascii_lowercase();
+    if n.contains("landmarkbridge") || n.contains("landmark_bridge") {
+        return true;
+    }
+    let Some(guard) = game_engine::common::thing::thing_factory::try_get_thing_factory() else {
+        return false;
+    };
+    let Some(factory) = guard.as_ref() else {
+        return false;
+    };
+    let Some(tmpl) = factory.find_template(template_name, false) else {
+        return false;
+    };
+    tmpl.is_bridge()
+        || tmpl.is_kind_of_mask(
+            game_engine::common::system::kind_of::KindOfMask::LANDMARK_BRIDGE.bits(),
+        )
+}
+
+fn landmark_bridge_half_sizes(template_name: &str, obj: &Object) -> (f32, f32) {
+    if let Some(guard) = game_engine::common::thing::thing_factory::try_get_thing_factory() {
+        if let Some(factory) = guard.as_ref() {
+            if let Some(tmpl) = factory.find_template(template_name, false) {
+                let geometry = tmpl.get_template_geometry_info();
+                let half_x = geometry.major_radius();
+                let half_y = geometry.minor_radius();
+                if half_x > 0.0 && half_y > 0.0 {
+                    return (half_x, half_y);
+                }
+            }
+        }
+    }
+    let geom = &obj.thing.template.geometry_info;
+    if geom.authored && geom.major_radius > 0.0 && geom.minor_radius > 0.0 {
+        return (geom.major_radius, geom.minor_radius);
+    }
+    let radius = obj.selection_radius.max(20.0);
+    (radius, (radius * 0.25).max(8.0))
+}
+
+fn leftover_bridge_info_for_object(object_id: u32) -> Option<gamelogic::terrain::BridgeInfo> {
+    let terrain = gamelogic::terrain::get_terrain_logic().read().ok()?;
+    let mut found = None;
+    terrain.for_each_bridge(|bridge| {
+        if bridge.get_bridge_info().bridge_object_id == object_id {
+            found = Some(bridge.get_bridge_info().clone());
+        }
+    });
+    found
+}
+
+fn leftover_bridge_template_name(object_id: u32) -> Option<String> {
+    let terrain = gamelogic::terrain::get_terrain_logic().read().ok()?;
+    let mut found = None;
+    terrain.for_each_bridge(|bridge| {
+        if bridge.get_bridge_info().bridge_object_id == object_id {
+            found = Some(bridge.get_bridge_template_name().as_str().to_string());
+        }
+    });
+    found
+}
+
 /// Presentation identity for C++ `W3DBridge::load` (`W3DBridgeBuffer.cpp:182-191`).
 /// Unit-separated so map template names stay unambiguous.
 pub(crate) fn encode_authored_bridge_visual(
@@ -3803,5 +4091,87 @@ mod authored_bridge_snapshot_tests {
         assert!(encoded.contains("BridgeTowerToRight"));
         assert!(!encoded.contains("StoneBridge"));
         assert!(!encoded.contains("Granite"));
+    }
+}
+
+#[cfg(test)]
+mod landmark_bridge_and_new_map_tests {
+    use super::*;
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use glam::Vec3;
+
+    #[test]
+    fn leftover_new_map_enables_water_grid_for_waveguide1() {
+        let mut map_data = gamelogic::system::map_loader::MapData::new();
+        map_data.waypoints.push(gamelogic::system::map_loader::MapWaypoint {
+            id: 1,
+            name: "WaveGuide1".to_string(),
+            location: gamelogic::system::map_loader::Coord3D::new(20.0, 20.0, 5.0),
+            path_label1: String::new(),
+            path_label2: String::new(),
+            path_label3: String::new(),
+            bi_directional: false,
+        });
+        let mut terrain = gamelogic::terrain::TerrainLogic::new();
+        terrain.load_map_data(map_data);
+        assert!(!terrain.is_water_grid_enabled());
+        terrain.new_map(false);
+        assert!(terrain.is_water_grid_enabled());
+    }
+
+    #[test]
+    fn load_map_data_sites_call_leftover_new_map() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/game_logic/world_save.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        assert!(
+            prod.matches("terrain.new_map(false)").count() >= 2,
+            "both leftover load_map_data sites must call TerrainLogic::newMap"
+        );
+        assert!(prod.contains("register_spawned_landmark_bridges"));
+        assert!(prod.contains("add_landmark_bridge_from_geometry"));
+    }
+
+    #[test]
+    fn landmark_bridge_object_registers_leftover_deck() {
+        {
+            let mut terrain = gamelogic::terrain::get_terrain_logic()
+                .write()
+                .expect("terrain");
+            terrain.reset();
+        }
+        let mut logic = GameLogic::new();
+        let mut tmpl = ThingTemplate::new("TsingMaLandmarkBridge");
+        tmpl.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::LandmarkBridge)
+            .add_kind_of(KindOf::Bridge)
+            .set_health(400.0);
+        tmpl.geometry_info.authored = true;
+        tmpl.geometry_info.major_radius = 6.0;
+        tmpl.geometry_info.minor_radius = 2.0;
+        logic.templates.insert("TsingMaLandmarkBridge".into(), tmpl);
+        let id = logic
+            .create_object(
+                "TsingMaLandmarkBridge",
+                Team::Neutral,
+                Vec3::new(10.0, 5.0, 20.0),
+            )
+            .expect("spawn landmark");
+        logic.register_landmark_bridges_from_spawned_objects();
+
+        let info = leftover_bridge_info_for_object(id.0).expect("leftover span");
+        assert_eq!(info.bridge_object_id, id.0);
+        assert!((info.bridge_width - 4.0).abs() < 0.01);
+        assert!(logic.bridge_behavior.span(id).is_some());
+        let deck = gamelogic::terrain::get_terrain_logic()
+            .read()
+            .ok()
+            .and_then(|tl| tl.host_deck_height_at(10.0, 20.0));
+        assert!(
+            deck.is_some_and(|z| (z - 5.0).abs() < 0.05),
+            "deck height must come from leftover landmark span, got {deck:?}"
+        );
     }
 }

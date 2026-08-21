@@ -231,6 +231,10 @@ impl GameLogic {
                     obj.record_host_movement();
                     continue;
                 }
+                if obj.is_rappelling() {
+                    // C++ AIRappelState owns Z; handleBehaviorZ must not snap to Y=0.
+                    continue;
+                }
                 if obj.waiting_for_path {
                     // C++ queueForPath: locomotor does not integrate until Path is installed.
                     obj.movement.velocity = Vec3::ZERO;

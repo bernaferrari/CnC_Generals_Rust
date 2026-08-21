@@ -212,10 +212,237 @@ impl GameLogic {
         (timings, variation)
     }
 
+    pub(crate) fn leftover_sa_exclusive_pending(ability: PendingSpecialAbility) -> bool {
+        matches!(
+            ability,
+            PendingSpecialAbility::StealCashHack { .. }
+                | PendingSpecialAbility::DisableVehicleHack { .. }
+                | PendingSpecialAbility::PlantTimedDemoCharge { .. }
+                | PendingSpecialAbility::PlantRemoteDemoCharge { .. }
+                | PendingSpecialAbility::PlantBoobyTrap { .. }
+        )
+    }
 
-    fn abort_leftover_sa_channel_on_new_order(&mut self, object_id: ObjectId) {
+    fn leftover_sa_target_is_ally(&self, object_id: ObjectId, target_id: ObjectId) -> bool {
+        use gamelogic::common::Relationship;
+        let Some(source) = self.objects.get(&object_id) else {
+            return false;
+        };
+        let Some(target) = self.objects.get(&target_id) else {
+            return false;
+        };
+        matches!(
+            self.object_relationship(source, target),
+            Relationship::Allies
+        )
+    }
+
+    fn leftover_sa_target_stealthed_undetected(&self, target_id: ObjectId) -> bool {
+        self.objects
+            .get(&target_id)
+            .is_some_and(|target| target.status.stealthed && !target.status.detected)
+    }
+
+    fn leftover_sa_within_abort_range(
+        &self,
+        object_id: ObjectId,
+        target_id: ObjectId,
+        abort_range: f32,
+    ) -> bool {
+        const HUGE: f32 = 10_000_000.0;
+        if !abort_range.is_finite() || abort_range >= HUGE {
+            return true;
+        }
+        let Some(source) = self.objects.get(&object_id) else {
+            return false;
+        };
+        let Some(target) = self.objects.get(&target_id) else {
+            return false;
+        };
+        let edge = crate::game_logic::host_hero_abilities::leftover_bounding_sphere_2d(
+            source.get_position(),
+            source.selection_radius,
+            target.get_position(),
+            target.selection_radius,
+        );
+        crate::game_logic::host_hero_abilities::leftover_within_abort_range(edge, abort_range)
+    }
+
+    fn leftover_sa_should_abort_prep(
+        &self,
+        object_id: ObjectId,
+        target_id: ObjectId,
+        kind: crate::game_logic::host_hero_abilities::LeftoverSaKind,
+        abort_range: f32,
+    ) -> bool {
+        use crate::game_logic::host_hero_abilities::LeftoverSaKind;
+        let Some(target) = self.objects.get(&target_id) else {
+            return true;
+        };
+        if !target.is_alive() || target.status.destroyed {
+            return true;
+        }
+        if !self.leftover_sa_within_abort_range(object_id, target_id, abort_range) {
+            return true;
+        }
+        let stealthed = self.leftover_sa_target_stealthed_undetected(target_id);
+        match kind {
+            LeftoverSaKind::StealCash | LeftoverSaKind::DisableVehicle => {
+                stealthed || self.leftover_sa_target_is_ally(object_id, target_id)
+            }
+            LeftoverSaKind::PlantTimed | LeftoverSaKind::PlantRemote => stealthed,
+            LeftoverSaKind::LaserGuided => false,
+        }
+    }
+
+    fn leftover_sa_set_pack_model(
+        &mut self,
+        object_id: ObjectId,
+        unpacking: bool,
+        packing: bool,
+        firing_a: bool,
+    ) {
+        use crate::game_logic::host_enum_table_residual::{
+            firing_a_model_bit, packing_model_bit, unpacking_model_bit,
+        };
+        let Some(object) = self.objects.get_mut(&object_id) else {
+            return;
+        };
+        let before = object.model_condition_bits;
+        object.model_condition_bits &= !(1u128 << unpacking_model_bit());
+        object.model_condition_bits &= !(1u128 << packing_model_bit());
+        object.model_condition_bits &= !(1u128 << firing_a_model_bit());
+        if unpacking {
+            object.model_condition_bits |= 1u128 << unpacking_model_bit();
+        }
+        if packing {
+            object.model_condition_bits |= 1u128 << packing_model_bit();
+        }
+        if firing_a {
+            object.model_condition_bits |= 1u128 << firing_a_model_bit();
+        }
+        if object.model_condition_bits != before {
+            object.record_host_model_condition();
+        }
+    }
+
+    fn leftover_sa_queue_pack_unpack_sound(
+        &mut self,
+        object_id: ObjectId,
+        kind: crate::game_logic::host_hero_abilities::LeftoverSaKind,
+        packing: bool,
+    ) {
+        use crate::game_logic::host_hero_abilities::LeftoverSaKind;
+        if !matches!(
+            kind,
+            LeftoverSaKind::StealCash | LeftoverSaKind::DisableVehicle
+        ) {
+            return;
+        }
+        let name = if packing {
+            crate::game_logic::host_hero_abilities::LOTUS_PACK_SOUND
+        } else {
+            crate::game_logic::host_hero_abilities::LOTUS_UNPACK_SOUND
+        };
+        self.queue_audio_event(
+            AudioEventRequest::new(name)
+                .with_object(object_id)
+                .with_priority(150),
+        );
+    }
+
+    fn leftover_sa_flip_orientation(&mut self, object_id: ObjectId) {
+        if let Some(object) = self.objects.get_mut(&object_id) {
+            object.set_orientation(object.get_orientation() + std::f32::consts::PI);
+        }
+    }
+
+    fn leftover_sa_consume_prep_charge(
+        &mut self,
+        object_id: ObjectId,
+        kind: crate::game_logic::host_hero_abilities::LeftoverSaKind,
+    ) -> bool {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::host_hero_abilities::LeftoverSaKind;
+        let required = match kind {
+            LeftoverSaKind::StealCash => Some(SpecialPowerType::BlackLotusStealCash),
+            LeftoverSaKind::DisableVehicle => Some(SpecialPowerType::BlackLotusDisableVehicle),
+            _ => None,
+        };
+        if let Some(power) = required {
+            return self.consume_special_power_charge_for(object_id, &power);
+        }
+        let candidates: &[SpecialPowerType] = match kind {
+            LeftoverSaKind::PlantTimed => &[
+                SpecialPowerType::TankHunterTnt,
+                SpecialPowerType::BurtonTimedCharges,
+                SpecialPowerType::DemoRebelTimedCharges,
+                SpecialPowerType::DemoKellTimedCharges,
+                SpecialPowerType::DemoKellStickyCharges,
+                SpecialPowerType::BattleBusDemoTrapRollout,
+            ],
+            LeftoverSaKind::PlantRemote => &[
+                SpecialPowerType::BurtonRemoteCharges,
+                SpecialPowerType::DemoKellRemoteCharges,
+            ],
+            _ => return true,
+        };
+        let Some(power) = self.objects.get(&object_id).and_then(|object| {
+            candidates
+                .iter()
+                .find(|power| {
+                    object
+                        .thing
+                        .template
+                        .special_power_module_for_command(power)
+                        .is_some()
+                })
+                .cloned()
+        }) else {
+            return true;
+        };
+        self.consume_special_power_charge_for(object_id, &power)
+    }
+
+    fn leftover_begin_unpacking(
+        &mut self,
+        object_id: ObjectId,
+        target_id: ObjectId,
+        kind: crate::game_logic::host_hero_abilities::LeftoverSaKind,
+        unpack_ms: u32,
+    ) {
+        use crate::game_logic::host_hero_abilities::{LeftoverSaChannel, LeftoverSaPhase};
+        self.leftover_sa_set_pack_model(object_id, true, false, false);
+        self.leftover_sa_queue_pack_unpack_sound(object_id, kind, false);
+        self.hero_abilities.set_leftover_channel(
+            object_id,
+            LeftoverSaChannel::new(kind, target_id, LeftoverSaPhase::Unpacking, unpack_ms),
+        );
+    }
+
+    fn leftover_finish_unpack(
+        &mut self,
+        object_id: ObjectId,
+        timings: &crate::game_logic::host_hero_abilities::LeftoverSaTimings,
+    ) {
+        self.leftover_sa_set_pack_model(object_id, false, false, false);
+        if timings.flip_after_unpack {
+            self.leftover_sa_flip_orientation(object_id);
+        }
+    }
+
+    fn leftover_reset_laser_primary(&mut self, object_id: ObjectId) {
+        if let Some(object) = self.objects.get_mut(&object_id) {
+            let _ = object.set_weapon_lock(0, crate::game_logic::WeaponLockType::LockedTemporarily);
+        }
+    }
+
+
+
+    pub(crate) fn abort_leftover_sa_channel_on_new_order(&mut self, object_id: ObjectId) {
         self.leftover_kill_special_objects(object_id);
         self.hero_abilities.take_leftover_channel(object_id);
+        self.leftover_sa_set_pack_model(object_id, false, false, false);
         if let Some(object) = self.objects.get_mut(&object_id) {
             object.set_status_using_ability(false);
         }
@@ -353,7 +580,14 @@ impl GameLogic {
         }
     }
 
-    fn leftover_kill_special_objects(&mut self, producer_id: ObjectId) {
+    pub(crate) fn leftover_kill_special_objects(&mut self, producer_id: ObjectId) {
+        let laser = self
+            .hero_abilities
+            .leftover_channel(producer_id)
+            .is_some_and(|channel| {
+                channel.kind
+                    == crate::game_logic::host_hero_abilities::LeftoverSaKind::LaserGuided
+            });
         let stale: Vec<ObjectId> = self
             .objects
             .iter()
@@ -377,6 +611,9 @@ impl GameLogic {
         if let Some(mut channel) = self.hero_abilities.leftover_channel(producer_id).copied() {
             channel.special_object_id = None;
             self.hero_abilities.set_leftover_channel(producer_id, channel);
+        }
+        if laser {
+            self.leftover_reset_laser_primary(producer_id);
         }
     }
 
@@ -576,20 +813,22 @@ impl GameLogic {
         kind: crate::game_logic::host_hero_abilities::LeftoverSaKind,
         prep_ms: u32,
     ) -> bool {
-        use crate::command_system::SpecialPowerType;
         use crate::game_logic::host_hero_abilities::{
             LeftoverSaChannel, LeftoverSaKind, LeftoverSaPhase, LOTUS_DISABLE_SPECIAL_OBJECT,
             LOTUS_STEAL_SPECIAL_OBJECT,
         };
-        let power = match kind {
-            LeftoverSaKind::StealCash => Some(SpecialPowerType::BlackLotusStealCash),
-            LeftoverSaKind::DisableVehicle => Some(SpecialPowerType::BlackLotusDisableVehicle),
-            _ => None,
-        };
-        if let Some(power) = power {
-            if !self.consume_special_power_charge_for(object_id, &power) {
-                return false;
-            }
+        let target_alive = self
+            .objects
+            .get(&target_id)
+            .is_some_and(|target| target.is_alive() && !target.status.destroyed);
+        if !target_alive
+            || self.leftover_sa_target_is_ally(object_id, target_id)
+            || self.leftover_sa_target_stealthed_undetected(target_id)
+        {
+            return false;
+        }
+        if !self.leftover_sa_consume_prep_charge(object_id, kind) {
+            return false;
         }
         if let Some(object) = self.objects.get_mut(&object_id) {
             if !object.is_alive() {
@@ -613,6 +852,7 @@ impl GameLogic {
             // C++ startPreparation: tryInfiltrationEvent after createSpecialObject/initLaser.
             self.try_infiltration_event(target_id);
             self.hero_abilities.record_leftover_infiltration();
+            self.leftover_sa_set_pack_model(object_id, false, false, true);
         }
         let mut channel =
             LeftoverSaChannel::new(kind, target_id, LeftoverSaPhase::Preparing, prep_ms);
@@ -659,6 +899,7 @@ impl GameLogic {
         );
         self.hero_abilities.take_leftover_channel(object_id);
         self.pending_special_abilities.remove(&object_id);
+        self.leftover_sa_set_pack_model(object_id, false, false, false);
         if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.set_status_using_ability(false);
         }
@@ -678,7 +919,13 @@ impl GameLogic {
         };
         const EPS: f32 = 0.000_1;
         let (timings, variation) = self.leftover_timings_for(object_id, kind);
-        let channel = self.hero_abilities.leftover_channel(object_id).copied();
+        let channel = match self.hero_abilities.leftover_channel(object_id).copied() {
+            Some(channel) if channel.kind != kind || channel.target_id != target_id => {
+                self.abort_leftover_sa_channel_on_new_order(object_id);
+                None
+            }
+            other => other,
+        };
         match channel {
             None => {
                 if crate::game_logic::host_hero_abilities::leftover_sa_need_to_face()
@@ -694,15 +941,7 @@ impl GameLogic {
                 let unpack_ms =
                     crate::game_logic::vary_pack_unpack_duration_ms(timings.unpack_ms, variation);
                 if unpack_ms > 0 {
-                    self.hero_abilities.set_leftover_channel(
-                        object_id,
-                        LeftoverSaChannel::new(
-                            kind,
-                            target_id,
-                            LeftoverSaPhase::Unpacking,
-                            unpack_ms,
-                        ),
-                    );
+                    self.leftover_begin_unpacking(object_id, target_id, kind, unpack_ms);
                     return LeftoverSaTick::Waiting;
                 }
                 if !self.leftover_start_sa_preparation(
@@ -729,15 +968,7 @@ impl GameLogic {
                 let unpack_ms =
                     crate::game_logic::vary_pack_unpack_duration_ms(timings.unpack_ms, variation);
                 if unpack_ms > 0 {
-                    self.hero_abilities.set_leftover_channel(
-                        object_id,
-                        LeftoverSaChannel::new(
-                            kind,
-                            target_id,
-                            LeftoverSaPhase::Unpacking,
-                            unpack_ms,
-                        ),
-                    );
+                    self.leftover_begin_unpacking(object_id, target_id, kind, unpack_ms);
                     return LeftoverSaTick::Waiting;
                 }
                 if !self.leftover_start_sa_preparation(
@@ -774,6 +1005,7 @@ impl GameLogic {
                     self.hero_abilities.set_leftover_channel(object_id, channel);
                     return LeftoverSaTick::Waiting;
                 }
+                self.leftover_finish_unpack(object_id, &timings);
                 if !self.leftover_start_sa_preparation(
                     object_id,
                     target_id,
@@ -791,6 +1023,24 @@ impl GameLogic {
                 }
             }
             Some(channel) if channel.phase == LeftoverSaPhase::Preparing => {
+                if self.leftover_sa_should_abort_prep(
+                    object_id,
+                    target_id,
+                    kind,
+                    timings.abort_range,
+                ) {
+                    let pack_ms = crate::game_logic::vary_pack_unpack_duration_ms(
+                        timings.pack_ms,
+                        variation,
+                    );
+                    if pack_ms > 0 {
+                        self.leftover_begin_packing(object_id, target_id, kind, pack_ms);
+                        return LeftoverSaTick::Waiting;
+                    }
+                    self.abort_leftover_sa_channel_on_new_order(object_id);
+                    self.pending_special_abilities.remove(&object_id);
+                    return LeftoverSaTick::Finished;
+                }
                 let remaining = (channel.remaining_seconds - dt.max(0.0)).max(0.0);
                 if remaining > EPS {
                     self.hero_abilities.set_leftover_channel(
@@ -819,6 +1069,7 @@ impl GameLogic {
                 } else {
                     self.hero_abilities.take_leftover_channel(object_id);
                     self.pending_special_abilities.remove(&object_id);
+                    self.leftover_sa_set_pack_model(object_id, false, false, false);
                     if let Some(obj) = self.objects.get_mut(&object_id) {
                         obj.stop_moving();
                         obj.set_status_using_ability(false);
@@ -843,6 +1094,7 @@ impl GameLogic {
         if pack_ms == 0 {
             self.hero_abilities.take_leftover_channel(object_id);
             self.pending_special_abilities.remove(&object_id);
+            self.leftover_sa_set_pack_model(object_id, false, false, false);
             if let Some(obj) = self.objects.get_mut(&object_id) {
                 obj.stop_moving();
                 obj.set_status_using_ability(false);
@@ -856,6 +1108,8 @@ impl GameLogic {
             obj.set_status_using_ability(false);
             obj.set_ai_state(AIState::SpecialAbility);
         }
+        self.leftover_sa_set_pack_model(object_id, false, true, false);
+        self.leftover_sa_queue_pack_unpack_sound(object_id, kind, true);
         self.hero_abilities.set_leftover_channel(
             object_id,
             LeftoverSaChannel::new(kind, target_id, LeftoverSaPhase::Packing, pack_ms),
@@ -2797,7 +3051,20 @@ impl GameLogic {
                         continue;
                     }
 
-                    // Pad/airfield/war-factory: C++ RepairDockUpdate::action
+                    // Airfields have no RepairDockUpdate. ParkingPlaceBehavior
+                    // heals after landing; never TimeForFullHeal while airborne.
+                    let seeking_aircraft = matches!(state, AIState::SeekingRepair)
+                        && (support_target_is_airfield
+                            || self
+                                .objects
+                                .get(&object_id)
+                                .is_some_and(|o| o.is_kind_of(KindOf::Aircraft)));
+                    if seeking_aircraft {
+                        self.try_aircraft_land_for_repair(object_id, support_target_id);
+                        continue;
+                    }
+
+                    // Pad/war-factory: C++ RepairDockUpdate::action
                     // TimeForFullHeal. One activeDocker; rate computed once
                     // from missing HP so Humvee ≠ Overlord.
                     if matches!(state, AIState::SeekingRepair)
@@ -2847,6 +3114,9 @@ impl GameLogic {
                         } else {
                             obj.set_ai_state(state);
                         }
+                    }
+                    if seeking_repair {
+                        self.heal_slave_drone_with_repair_dock(object_id);
                     }
                     let fully_repaired = self
                         .objects
@@ -4297,11 +4567,29 @@ impl GameLogic {
                                                     self.frame,
                                                 );
                                             }
-                                            cash_stolen = self.steal_cash_from_team(
-                                                target_team,
-                                                team,
-                                                SABOTEUR_STEAL_CASH_AMOUNT,
-                                            );
+                                            // C++ other/obj getControllingPlayer() money,
+                                            // never first same-faction slot.
+                                            let from_player_id = self
+                                                .objects
+                                                .get(&special_target_id)
+                                                .and_then(|target| {
+                                                    self.player_owner_for_host_object(target)
+                                                });
+                                            let to_player_id = self
+                                                .objects
+                                                .get(&object_id)
+                                                .and_then(|caster| {
+                                                    self.player_owner_for_host_object(caster)
+                                                });
+                                            cash_stolen = match (from_player_id, to_player_id) {
+                                                (Some(from), Some(to)) => self
+                                                    .steal_cash_between_players(
+                                                        from,
+                                                        to,
+                                                        SABOTEUR_STEAL_CASH_AMOUNT,
+                                                    ),
+                                                _ => 0,
+                                            };
                                         }
                                         SaboteurEffectKind::MilitaryFactory => {
                                             if let Some(until) =
@@ -4386,7 +4674,14 @@ impl GameLogic {
                                     // Supply center: CashStolen if cash taken, else BuildingSabotaged.
                                     if kind.steals_cash() && cash_stolen > 0 {
                                         // C++ controller ScoreKeeper::addMoneyEarned residual.
-                                        if let Some(p) = self.get_player_mut_by_team(team) {
+                                        if let Some(p) = self
+                                            .objects
+                                            .get(&object_id)
+                                            .and_then(|caster| {
+                                                self.player_owner_for_host_object(caster)
+                                            })
+                                            .and_then(|id| self.get_player_mut(id))
+                                        {
                                             p.add_money_earned(cash_stolen);
                                         }
                                         self.try_eva_cash_stolen(special_target_id);
@@ -4564,15 +4859,32 @@ impl GameLogic {
                             );
                             // Black Lotus residual: steal cash from enemy economy.
                             // C++ SPECIAL_BLACKLOTUS_STEAL_CASH_HACK:
+                            // target->getControllingPlayer() / object->getControllingPlayer()
                             // withdraw/deposit, scorekeeper money earned, EVA_CashStolen
                             // when victim local, GUI:AddCash/LoseCash floating texts.
+                            // Never debit/credit the first same-faction player.
                             let amount =
                                 crate::game_logic::host_hero_abilities::STEAL_CASH_DEFAULT_AMOUNT;
-                            let stolen = self.steal_cash_from_team(target_team, team, amount);
+                            let from_player_id = self
+                                .objects
+                                .get(&special_target_id)
+                                .and_then(|target| self.player_owner_for_host_object(target));
+                            let to_player_id = self
+                                .objects
+                                .get(&object_id)
+                                .and_then(|caster| self.player_owner_for_host_object(caster));
+                            let stolen = match (from_player_id, to_player_id) {
+                                (Some(from), Some(to)) => {
+                                    self.steal_cash_between_players(from, to, amount)
+                                }
+                                _ => 0,
+                            };
                             if stolen > 0 {
                                 self.hero_abilities.record_cash_steal(stolen);
                                 // C++ controller->getScoreKeeper()->addMoneyEarned(cash)
-                                if let Some(p) = self.get_player_mut_by_team(team) {
+                                if let Some(p) =
+                                    to_player_id.and_then(|id| self.get_player_mut(id))
+                                {
                                     p.add_money_earned(stolen);
                                 }
                                 self.try_eva_cash_stolen(special_target_id);
@@ -4788,11 +5100,35 @@ impl GameLogic {
                             self.queue_radar_message_for_team(team, msg);
                         }
                         PendingSpecialAbility::PlantBoobyTrap { .. } => {
-                            // C++ SpecialAbilityBoobyTrap residual: mark structure BOOBY_TRAPPED.
+                            // C++ triggerAbilityEffect SPECIAL_BOOBY_TRAP:
+                            // checkAndDetonateBoobyTrap first; cancel if either dies;
+                            // refuse a second plant while BOOBY_TRAPPED remains.
                             use crate::game_logic::host_booby_trap::{
                                 has_booby_trap_upgrade, is_booby_trap_planter_template,
                                 BOOBY_TRAP_INSTALL_AUDIO,
                             };
+                            if self.leftover_probe_booby_at_target(
+                                object_id,
+                                special_target_id,
+                                team,
+                            ) {
+                                self.hero_abilities.take_leftover_channel(object_id);
+                                self.pending_special_abilities.remove(&object_id);
+                                continue;
+                            }
+                            let still_trapped = self.booby_trap.is_booby_trapped(special_target_id)
+                                || self
+                                    .objects
+                                    .get(&special_target_id)
+                                    .is_some_and(|target| target.status.booby_trapped);
+                            if still_trapped {
+                                self.pending_special_abilities.remove(&object_id);
+                                if let Some(obj) = self.objects.get_mut(&object_id) {
+                                    obj.stop_moving();
+                                    obj.set_target(None);
+                                }
+                                continue;
+                            }
                             let (can_plant, ready) = self
                                 .objects
                                 .get(&object_id)
@@ -4813,7 +5149,7 @@ impl GameLogic {
                                     .get(&special_target_id)
                                     .map(|t| t.selection_radius.max(8.0))
                                     .unwrap_or(8.0);
-                                let prev = self.booby_trap.install(
+                                let _ = self.booby_trap.install(
                                     special_target_id,
                                     object_id,
                                     team,
@@ -4821,11 +5157,6 @@ impl GameLogic {
                                     geom,
                                     None,
                                 );
-                                if let Some(prev_plant) = prev {
-                                    if let Some(cid) = prev_plant.charge_object_id {
-                                        self.destroy_booby_trap_special_object(cid);
-                                    }
-                                }
                                 if let Some(cid) = self.spawn_booby_trap_special_object(
                                     object_id,
                                     team,
@@ -6208,30 +6539,56 @@ impl GameLogic {
     }
 
     fn try_claim_dock(&mut self, dock_id: ObjectId, docker_id: ObjectId) -> bool {
-        let (current, template_name, is_repair, dock_kind, delete_when_empty) =
-            match self.objects.get(&dock_id) {
-                Some(dock) => (
-                    dock.dock_active_docker,
-                    dock.template_name.clone(),
-                    dock.is_kind_of(crate::game_logic::KindOf::RepairPad),
-                    dock.thing.template.dock_kind,
-                    dock.thing.template.dock_delete_when_empty,
-                ),
-                None => return false,
-            };
-        let current_alive = current
-            .and_then(|id| self.objects.get(&id))
-            .is_some_and(|object| object.is_alive());
+        let (
+            current,
+            template_name,
+            is_repair,
+            dock_kind,
+            delete_when_empty,
+            dock_pos,
+            dock_major,
+            ignore_bones,
+        ) = match self.objects.get(&dock_id) {
+            Some(dock) => (
+                dock.dock_active_docker,
+                dock.template_name.clone(),
+                dock.is_kind_of(crate::game_logic::KindOf::RepairPad),
+                dock.thing.template.dock_kind,
+                dock.thing.template.dock_delete_when_empty,
+                dock.get_position(),
+                if dock.thing.template.geometry_info.authored {
+                    dock.thing.template.geometry_info.bounding_circle_radius()
+                } else {
+                    dock.selection_radius
+                },
+                false,
+            ),
+            None => return false,
+        };
+        let current_alive = current.and_then(|id| self.objects.get(&id)).is_some_and(|object| {
+            object.is_alive()
+                && crate::game_logic::host_supply_gather::is_live_dock_ai_state(&object.ai_state)
+        });
         let docker_alive = self
             .objects
             .get(&docker_id)
             .is_some_and(|object| object.is_alive());
+        let docker_pos = self
+            .objects
+            .get(&docker_id)
+            .map(|o| o.get_position())
+            .unwrap_or(dock_pos);
         let n = crate::game_logic::host_supply_gather::number_approach_positions_for_dock(
             &template_name,
             dock_kind,
             is_repair,
             delete_when_empty,
         );
+        let waiting_bones = if ignore_bones || n <= 0 {
+            Vec::new()
+        } else {
+            self.load_dock_waiting_bones_world(dock_id, n as usize)
+        };
         let tick = crate::game_logic::host_supply_gather::tick_live_dock_approach(
             dock_id,
             docker_id,
@@ -6239,6 +6596,20 @@ impl GameLogic {
             docker_alive,
             current,
             current_alive,
+            docker_pos,
+            dock_pos,
+            dock_major,
+            &waiting_bones,
+            self.frame,
+            |id| {
+                self.objects.get(&id).is_some_and(|object| {
+                    object.is_alive()
+                        && (id == docker_id
+                            || crate::game_logic::host_supply_gather::is_live_dock_ai_state(
+                                &object.ai_state,
+                            ))
+                })
+            },
         );
         match tick {
             crate::game_logic::host_supply_gather::DockApproachTick::ClearToAct => {
@@ -6248,10 +6619,35 @@ impl GameLogic {
                 if current != Some(docker_id) {
                     self.apply_docking_model_conditions(dock_id, docker_id, true);
                 }
+                self.clear_worker_moving_while_docking(dock_id, docker_id);
                 true
             }
-            _ => false,
+            crate::game_logic::host_supply_gather::DockApproachTick::PathTo(goal) => {
+                let state = self
+                    .objects
+                    .get(&docker_id)
+                    .map(|o| o.ai_state.clone())
+                    .unwrap_or(AIState::Idle);
+                self.path_approach_with_state(docker_id, goal, state);
+                false
+            }
+            crate::game_logic::host_supply_gather::DockApproachTick::TimedOut => {
+                self.release_dock_if_holder(dock_id, docker_id);
+                self.on_dock_wait_timeout(dock_id, docker_id);
+                false
+            }
+            crate::game_logic::host_supply_gather::DockApproachTick::Blocked => false,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn try_claim_dock_for_test(&mut self, dock_id: ObjectId, docker_id: ObjectId) -> bool {
+        self.try_claim_dock(dock_id, docker_id)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn update_support_states_for_test(&mut self, ids: &[ObjectId], dt: f32) {
+        self.update_support_states(ids, dt);
     }
 
     fn release_dock_if_holder(&mut self, dock_id: ObjectId, docker_id: ObjectId) {
@@ -6272,6 +6668,33 @@ impl GameLogic {
         if was_holder {
             self.apply_docking_model_conditions(dock_id, docker_id, false);
         }
+    }
+
+    /// C++ `AIDockState::onExit` → `AIDockMachine::halt` → `DockUpdate::cancelDock`.
+    pub(crate) fn cancel_dock_reservation(&mut self, docker_id: ObjectId) {
+        let mut docks = Vec::new();
+        if let Some(obj) = self.objects.get(&docker_id) {
+            if let Some(id) = obj.preferred_dock_id {
+                docks.push(id);
+            }
+            if let Some(id) = obj.target {
+                if !docks.contains(&id) {
+                    docks.push(id);
+                }
+            }
+        }
+        for (id, obj) in &self.objects {
+            if (obj.dock_active_docker == Some(docker_id)
+                || obj.repair_dock_last_id == Some(docker_id))
+                && !docks.contains(id)
+            {
+                docks.push(*id);
+            }
+        }
+        for dock_id in docks {
+            self.release_dock_if_holder(dock_id, docker_id);
+        }
+        crate::game_logic::host_supply_gather::cancel_live_dock_for_docker(docker_id);
     }
 
     /// C++ `RepairDockUpdate::isRallyPointAfterDockType` + `AIDockMoveToRallyState`.
@@ -6318,6 +6741,141 @@ impl GameLogic {
                 }
                 obj.record_host_model_condition();
             }
+        }
+        if entering {
+            self.clear_worker_moving_while_docking(dock_id, docker_id);
+        }
+    }
+
+    /// C++ `DockUpdate::update` Worker MOVING clear at a supply-source dock.
+    fn clear_worker_moving_while_docking(&mut self, dock_id: ObjectId, docker_id: ObjectId) {
+        use crate::game_logic::host_enum_table_residual::{
+            docking_beginning_model_bit, moving_model_bit,
+        };
+        let dock_is_supply = self
+            .objects
+            .get(&dock_id)
+            .is_some_and(|dock| dock.is_kind_of(KindOf::SupplySource));
+        if !dock_is_supply {
+            return;
+        }
+        let beginning = docking_beginning_model_bit();
+        let moving = moving_model_bit();
+        let Some(obj) = self.objects.get_mut(&docker_id) else {
+            return;
+        };
+        if obj.is_kind_of(KindOf::Dozer) && obj.is_kind_of(KindOf::Harvester) {
+            if (obj.model_condition_bits & (1u128 << beginning)) != 0 {
+                obj.model_condition_bits &= !(1u128 << moving);
+                obj.record_host_model_condition();
+            }
+        }
+    }
+
+    /// Pristine `DockWaiting01..NN` in host world space.
+    fn load_dock_waiting_bones_world(&self, dock_id: ObjectId, max: usize) -> Vec<glam::Vec3> {
+        let Some(dock) = self.objects.get(&dock_id) else {
+            return Vec::new();
+        };
+        let model = dock.thing.template.get_model_name();
+        let scale = dock.thing.template.asset_scale;
+        let pos = dock.get_position();
+        let yaw = dock.get_orientation();
+        let (sin, cos) = yaw.sin_cos();
+        let mut out = Vec::new();
+        for i in 1..=max.max(1) {
+            let name = format!("DockWaiting{i:02}");
+            let Some(local) =
+                gamelogic::object::draw::lookup_pristine_bone_translation(model, scale, &name)
+            else {
+                break;
+            };
+            let host_local = glam::Vec3::new(local.x, local.z, local.y);
+            out.push(glam::Vec3::new(
+                pos.x + host_local.x * cos - host_local.z * sin,
+                pos.y + host_local.y,
+                pos.z + host_local.x * sin + host_local.z * cos,
+            ));
+        }
+        out
+    }
+
+    fn on_dock_wait_timeout(&mut self, dock_id: ObjectId, docker_id: ObjectId) {
+        let Some((state, team, owner, pos)) = self.objects.get(&docker_id).map(|o| {
+            (o.ai_state.clone(), o.team, o.owner_player_id, o.get_position())
+        }) else {
+            return;
+        };
+        match state {
+            AIState::Gathering => {
+                let scan = self.collector_warehouse_scan(docker_id, owner);
+                if let Some(next) =
+                    self.find_nearest_harvestable_supply_within(team, pos, scan, docker_id)
+                {
+                    if next != dock_id {
+                        if let Some(dest) = self.objects.get(&next).map(|s| s.get_position()) {
+                            if let Some(obj) = self.objects.get_mut(&docker_id) {
+                                obj.set_target(Some(next));
+                            }
+                            self.path_approach_with_state(docker_id, dest, AIState::Gathering);
+                            return;
+                        }
+                    }
+                }
+                self.begin_supply_regroup(docker_id, team, owner, pos);
+            }
+            AIState::ReturningResources => {
+                if let Some(obj) = self.objects.get_mut(&docker_id) {
+                    obj.supply_truck_state = SupplyTruckState::Wanting;
+                }
+                self.begin_supply_regroup(docker_id, team, owner, pos);
+            }
+            _ => {}
+        }
+    }
+
+
+    pub(crate) fn try_aircraft_land_for_repair(&mut self, unit_id: ObjectId, airfield_id: ObjectId) {
+        if self.try_jet_enter_or_repair_airfield(unit_id, airfield_id) {
+            return;
+        }
+        let Some(pos) = self.objects.get(&airfield_id).map(|a| a.get_position()) else {
+            return;
+        };
+        let helipad = self
+            .objects
+            .get(&unit_id)
+            .is_some_and(Self::object_is_produced_at_helipad);
+        if let Some(unit) = self.objects.get_mut(&unit_id) {
+            if let Some(ai) = unit.chinook_ai.as_mut() {
+                ai.command_repair([pos.x, pos.z, pos.y], airfield_id.0);
+                return;
+            }
+            if helipad {
+                unit.return_to_base_requested = true;
+                if unit.producer_id.is_none() {
+                    unit.producer_id = Some(airfield_id);
+                }
+            }
+        }
+        if helipad {
+            let _ = self.try_return_to_base_rearm(unit_id);
+        }
+    }
+    /// C++ `RepairDockUpdate::action` drone snap-to-max via `findMyDrone`.
+    fn heal_slave_drone_with_repair_dock(&mut self, master_id: ObjectId) {
+        let drone_id = self.objects.iter().find_map(|(id, obj)| {
+            (obj.is_alive()
+                && obj.is_kind_of(KindOf::Drone)
+                && obj.producer_id == Some(master_id))
+            .then_some(*id)
+        });
+        let Some(drone_id) = drone_id else {
+            return;
+        };
+        if let Some(drone) = self.objects.get_mut(&drone_id) {
+            let max = drone.health.maximum;
+            drone.heal(max);
         }
     }
 

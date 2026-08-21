@@ -16,6 +16,23 @@ pub struct LiveRayEffect {
     pub start: [f32; 3],
     pub end: [f32; 3],
     pub midpoint: [f32; 3],
+    /// C++ LaserUpdate width scalar (1 at max intensity, 0 after FadeLifetime).
+    pub width_scalar: f32,
+    pub created_frame: u32,
+    pub fade_start_frame: u32,
+    /// 0 = no auto-expire (`addRayEffect` drawable-owned lifetime).
+    pub expire_frame: u32,
+}
+
+/// C++ `LOGICFRAMES_PER_SECOND` (30). Leftover `RayEffectConfig` default
+/// lifetime is 500ms → 15 frames; fade-out 100ms → 3 frames. Used when the
+/// laser template omits MaxIntensityLifetime/FadeLifetime so FXList beams
+/// cannot accumulate forever.
+const DEFAULT_RAY_MAX_INTENSITY_FRAMES: u32 = 15;
+const DEFAULT_RAY_FADE_FRAMES: u32 = 3;
+
+fn fx_list_ray_lifetime_frames(_template_name: &str) -> (u32, u32) {
+    (DEFAULT_RAY_MAX_INTENSITY_FRAMES, DEFAULT_RAY_FADE_FRAMES)
 }
 
 /// C++ midpoint: `(end - start) * 0.5 + start`.
@@ -29,6 +46,7 @@ pub fn ray_effect_midpoint(start: [f32; 3], end: [f32; 3]) -> [f32; 3] {
 
 struct RayEffectStore {
     next_id: u32,
+    frame: u32,
     slots: [Option<LiveRayEffect>; MAX_RAY_EFFECTS],
 }
 
@@ -36,6 +54,7 @@ impl RayEffectStore {
     fn new() -> Self {
         Self {
             next_id: 1,
+            frame: 0,
             slots: std::array::from_fn(|_| None),
         }
     }
@@ -43,6 +62,7 @@ impl RayEffectStore {
     fn init(&mut self) {
         self.slots = std::array::from_fn(|_| None);
         self.next_id = 1;
+        self.frame = 0;
     }
 
     fn free_index(&self) -> Option<usize> {
@@ -79,16 +99,26 @@ pub fn create_ray_effect_by_template(
         return None;
     }
     let mut store = global_rays().lock().unwrap_or_else(|e| e.into_inner());
-    let idx = store.alloc_index();
+    let Some(idx) = store.free_index() else {
+        return None;
+    };
     let id = store.next_id;
     store.next_id = store.next_id.wrapping_add(1).max(1);
     let midpoint = ray_effect_midpoint(start, end);
+    let now = store.frame;
+    let (max_intensity, fade) = fx_list_ray_lifetime_frames(template_name);
+    let fade_start_frame = now.saturating_add(max_intensity);
+    let expire_frame = fade_start_frame.saturating_add(fade.max(1));
     let entry = LiveRayEffect {
         drawable_id: id,
         template_name: template_name.to_string(),
         start,
         end,
         midpoint,
+        width_scalar: 1.0,
+        created_frame: now,
+        fade_start_frame,
+        expire_frame,
     };
     store.slots[idx] = Some(entry.clone());
     Some(entry)
@@ -98,14 +128,60 @@ pub fn create_ray_effect_by_template(
 pub fn add_ray_effect(drawable_id: u32, start: [f32; 3], end: [f32; 3]) -> bool {
     let mut store = global_rays().lock().unwrap_or_else(|e| e.into_inner());
     let idx = store.alloc_index();
+    let now = store.frame;
     store.slots[idx] = Some(LiveRayEffect {
         drawable_id,
         template_name: String::new(),
         start,
         end,
         midpoint: ray_effect_midpoint(start, end),
+        width_scalar: 1.0,
+        created_frame: now,
+        fade_start_frame: 0,
+        expire_frame: 0,
     });
     true
+}
+
+/// C++ LaserUpdate width decay + drawable death → `removeFromRayEffects`.
+/// `expire_frame == 0` is drawable-owned (no FXList auto-expire).
+pub fn update_ray_effects(current_frame: u32) {
+    let mut store = global_rays().lock().unwrap_or_else(|e| e.into_inner());
+    if store.frame == 0 && current_frame > 1 {
+        for slot in &mut store.slots {
+            if let Some(ray) = slot.as_mut() {
+                if ray.created_frame == 0 && ray.expire_frame != 0 {
+                    let life = ray.expire_frame;
+                    let fade = ray.expire_frame.saturating_sub(ray.fade_start_frame);
+                    let max_i = life.saturating_sub(fade);
+                    ray.created_frame = current_frame;
+                    ray.fade_start_frame = current_frame.saturating_add(max_i);
+                    ray.expire_frame = ray.fade_start_frame.saturating_add(fade.max(1));
+                }
+            }
+        }
+    }
+    store.frame = current_frame;
+    for slot in &mut store.slots {
+        let Some(ray) = slot.as_mut() else {
+            continue;
+        };
+        if ray.expire_frame == 0 {
+            ray.width_scalar = 1.0;
+            continue;
+        }
+        if current_frame >= ray.expire_frame {
+            *slot = None;
+            continue;
+        }
+        if current_frame < ray.fade_start_frame {
+            ray.width_scalar = 1.0;
+        } else {
+            let fade_len = ray.expire_frame.saturating_sub(ray.fade_start_frame).max(1);
+            let elapsed = current_frame.saturating_sub(ray.fade_start_frame);
+            ray.width_scalar = (1.0 - elapsed as f32 / fade_len as f32).clamp(0.0, 1.0);
+        }
+    }
 }
 
 /// C++ `RayEffectSystem::deleteRayEffect`.
@@ -247,4 +323,32 @@ mod tests {
         assert!(get_ray_effect_data(rays[0].drawable_id).is_none());
         reset_ray_effects();
     }
+
+    #[test]
+    fn fxlist_ray_effect_expires_after_max_intensity_plus_fade() {
+        reset_ray_effects();
+        update_ray_effects(10);
+        let ray = create_ray_effect_by_template(
+            [0.0, 0.0, 0.0],
+            [10.0, 0.0, 0.0],
+            "GenericLaser",
+        )
+        .expect("template present");
+        assert_eq!(live_ray_effects().len(), 1);
+        assert!((ray.width_scalar - 1.0).abs() < 1e-5);
+        assert!(ray.expire_frame > ray.created_frame);
+
+        update_ray_effects(ray.fade_start_frame);
+        let mid = live_ray_effects();
+        assert_eq!(mid.len(), 1);
+        assert!(mid[0].width_scalar <= 1.0);
+
+        update_ray_effects(ray.expire_frame);
+        assert!(
+            live_ray_effects().is_empty(),
+            "FXList RayEffect must expire after MaxIntensityLifetime+FadeLifetime"
+        );
+        reset_ray_effects();
+    }
+
 }

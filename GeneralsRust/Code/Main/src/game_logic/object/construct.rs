@@ -20,6 +20,8 @@ impl Object {
         let template_name = template.name.clone();
         let crusher_level = template.crusher_level;
         let crushable_level = template.crushable_level;
+        let has_squish_collide =
+            crate::game_logic::host_squish_collide::template_has_squish_collide(&template_name);
         let temporary_weapon_runtime = crate::game_logic::host_temporary_weapon_behavior::
             TemporaryWeaponRuntimeBundle::from_thing_template(&template, logic_frame);
         // A normal player Enter requires a real Contain module.  Capture its
@@ -230,6 +232,7 @@ impl Object {
             bounce_audio_pending: 0,
             crusher_level,
             crushable_level,
+            has_squish_collide,
             topple_data: None,
             structure_topple_data: None,
             structure_collapse_data: None,
@@ -939,6 +942,8 @@ impl Object {
         let dock_starting_boxes = template.dock_starting_boxes.unwrap_or(0);
         let crusher_level = template.crusher_level;
         let crushable_level = template.crushable_level;
+        let has_squish_collide =
+            crate::game_logic::host_squish_collide::template_has_squish_collide(&template_name);
         let is_fs_fake = template.is_kind_of(crate::game_logic::KindOf::FSFake);
 
         Self {
@@ -1019,6 +1024,7 @@ impl Object {
             bounce_audio_pending: 0,
             crusher_level,
             crushable_level,
+            has_squish_collide,
             topple_data: None,
             structure_topple_data: None,
             structure_collapse_data: None,

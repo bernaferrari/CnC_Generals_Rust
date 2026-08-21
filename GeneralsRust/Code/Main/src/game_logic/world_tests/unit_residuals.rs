@@ -1123,7 +1123,7 @@ fn troop_crawler_residual_transport_load_unload() {
                 reload_time: 0.5,
                 last_fire_time: -10.0,
                 ..Weapon::default()
-            });
+});
             unit.target = Some(crawler_id);
             unit.set_ai_state(AIState::Entering);
         }

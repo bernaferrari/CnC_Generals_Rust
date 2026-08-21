@@ -270,7 +270,9 @@ pub fn combat_cycle_weapon_for_rider(rider: CombatCycleRider) -> Option<Weapon> 
             pre_attack_delay: 0.0,
             splash_radius: 0.0,
             suspend_fx_frame: 0,
-        }),
+                    reloading_clip: false,
+            last_bonus_rof: 0.0,
+}),
         CombatCycleRider::TunnelDefender => Some(Weapon {
             damage: RPG_DAMAGE,
             range: RPG_RANGE,
@@ -286,7 +288,9 @@ pub fn combat_cycle_weapon_for_rider(rider: CombatCycleRider) -> Option<Weapon> 
             pre_attack_delay: 0.0,
             splash_radius: 0.0,
             suspend_fx_frame: 0,
-        }),
+                    reloading_clip: false,
+            last_bonus_rof: 0.0,
+}),
         CombatCycleRider::JarmenKell => Some(Weapon {
             damage: KELL_DAMAGE,
             range: KELL_RANGE,
@@ -302,7 +306,9 @@ pub fn combat_cycle_weapon_for_rider(rider: CombatCycleRider) -> Option<Weapon> 
             pre_attack_delay: 0.0,
             splash_radius: 0.0,
             suspend_fx_frame: 0,
-        }),
+                    reloading_clip: false,
+            last_bonus_rof: 0.0,
+}),
         CombatCycleRider::Terrorist => Some(Weapon {
             // Host residual: use suicide primary as attack damage flag;
             // real area is applied via SuicideBikeBomb residual path.
@@ -320,7 +326,9 @@ pub fn combat_cycle_weapon_for_rider(rider: CombatCycleRider) -> Option<Weapon> 
             pre_attack_delay: 0.0,
             splash_radius: 0.0,
             suspend_fx_frame: 0,
-        }),
+                    reloading_clip: false,
+            last_bonus_rof: 0.0,
+}),
         CombatCycleRider::None
         | CombatCycleRider::Worker
         | CombatCycleRider::Hijacker

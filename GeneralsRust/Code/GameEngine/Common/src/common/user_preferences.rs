@@ -203,6 +203,33 @@ impl UserPreferences {
     }
 }
 
+/// C++ OptionsMenu.cpp:1708-1732 — exact `"Yes"`, empty/missing falls back to InGameUI.
+pub fn scroll_anchor_pref_enabled(value: Option<&str>, fallback: bool) -> bool {
+    match value {
+        None | Some("") => fallback,
+        Some(v) => v == "Yes",
+    }
+}
+
+/// Options.ini Draw/MoveScrollAnchor with InGameUI.ini fallback (ctor FALSE).
+pub fn load_rmb_scroll_anchor_preferences() -> (bool, bool) {
+    let mut pref = UserPreferences::new();
+    let _ = pref.load("Options.ini");
+    let (ini_draw, ini_move) = crate::common::ini::ini_in_game_ui::get_in_game_ui_settings()
+        .map(|s| (s.draw_rmb_scroll_anchor, s.move_rmb_scroll_anchor))
+        .unwrap_or((false, false));
+    (
+        scroll_anchor_pref_enabled(
+            pref.get_string("DrawScrollAnchor").map(String::as_str),
+            ini_draw,
+        ),
+        scroll_anchor_pref_enabled(
+            pref.get_string("MoveScrollAnchor").map(String::as_str),
+            ini_move,
+        ),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,5 +247,15 @@ mod tests {
             prefs.get_string("player").cloned(),
             Some("Nova".to_string())
         );
+    }
+
+    #[test]
+    fn scroll_anchor_pref_yes_or_empty_fallback_matches_cpp() {
+        assert!(scroll_anchor_pref_enabled(Some("Yes"), false));
+        assert!(!scroll_anchor_pref_enabled(Some("yes"), true));
+        assert!(!scroll_anchor_pref_enabled(Some("No"), true));
+        assert!(scroll_anchor_pref_enabled(None, true));
+        assert!(scroll_anchor_pref_enabled(Some(""), true));
+        assert!(!scroll_anchor_pref_enabled(Some(""), false));
     }
 }

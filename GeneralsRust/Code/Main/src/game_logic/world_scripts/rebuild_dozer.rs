@@ -850,6 +850,9 @@ impl GameLogic {
 
     /// C++ ActionManager.cpp:463-485 — builder still owns the BUILD task.
     fn builder_is_actively_building(&self, builder_id: ObjectId, structure_id: ObjectId) -> bool {
+        if self.worker_is_acting_as_supply_truck(builder_id) {
+            return false;
+        }
         self.objects.get(&builder_id).is_some_and(|builder| {
             builder.is_alive()
                 && (builder.dozer_task_build_target == Some(structure_id)
@@ -876,35 +879,7 @@ impl GameLogic {
     /// `m_preferredDock = INVALID_ID` plus `AS_DOZER` so other workers are not
     /// queued behind a dock this unit will never finish.
     pub fn worker_exit_supply_for_dozer_task(&mut self, worker_id: ObjectId) {
-        let (preferred, target) = match self.objects.get(&worker_id) {
-            Some(w) => (w.preferred_dock_id, w.target),
-            None => return,
-        };
-        let mut docks = Vec::new();
-        if let Some(id) = preferred {
-            docks.push(id);
-        }
-        if let Some(id) = target {
-            if Some(id) != preferred {
-                docks.push(id);
-            }
-        }
-        for (id, obj) in &self.objects {
-            if obj.dock_active_docker == Some(worker_id) && !docks.contains(id) {
-                docks.push(*id);
-            }
-        }
-        for dock_id in docks {
-            if let Some(dock) = self.objects.get_mut(&dock_id) {
-                if dock.dock_active_docker == Some(worker_id) {
-                    dock.dock_active_docker = None;
-                }
-                if dock.repair_dock_last_id == Some(worker_id) {
-                    dock.repair_dock_last_id = None;
-                    dock.repair_dock_health_per_sec = 0.0;
-                }
-            }
-        }
+        self.cancel_dock_reservation(worker_id);
         if let Some(w) = self.objects.get_mut(&worker_id) {
             w.preferred_dock_id = None;
             w.supply_truck_state = crate::game_logic::SupplyTruckState::Idle;
@@ -1045,7 +1020,12 @@ impl GameLogic {
     }
 
     /// C++ `WorkerAIUpdate::aiDoCommand` drop-boxes-on-clear-mines tail.
+    /// `isClearingMines` requires OBJECT_STATUS_IS_ATTACKING + ANTI_MINE, so
+    /// the initial mine-clear order keeps carried boxes.
     pub(crate) fn drop_worker_supply_boxes_for_mine_clear(&mut self, id: ObjectId) {
+        if !self.worker_is_clearing_mines(id) {
+            return;
+        }
         let Some(obj) = self.objects.get_mut(&id) else {
             return;
         };
@@ -1058,6 +1038,40 @@ impl GameLogic {
             return;
         }
         obj.set_stored_supplies(0);
+    }
+
+    /// C++ `AIUpdateInterface::isClearingMines` (AIUpdate.cpp:3120-3135).
+    pub(crate) fn worker_is_clearing_mines(&self, id: ObjectId) -> bool {
+        let Some(obj) = self.objects.get(&id) else {
+            return false;
+        };
+        let attacking = obj.status.attacking || matches!(obj.ai_state, AIState::Attacking);
+        if !attacking {
+            return false;
+        }
+        obj.weapon_set_mine_clearing_detail
+    }
+
+    /// C++ WorkerStateMachine AS_SUPPLY_TRUCK — dozer brain is not updated.
+    pub(crate) fn worker_is_acting_as_supply_truck(&self, id: ObjectId) -> bool {
+        let Some(obj) = self.objects.get(&id) else {
+            return false;
+        };
+        if !obj.is_resource_collector()
+            && !obj.template_name.to_ascii_lowercase().contains("worker")
+        {
+            return false;
+        }
+        matches!(
+            obj.ai_state,
+            AIState::Gathering | AIState::ReturningResources
+        ) || matches!(
+            obj.supply_truck_state,
+            crate::game_logic::SupplyTruckState::Wanting
+                | crate::game_logic::SupplyTruckState::DockingWarehouse
+                | crate::game_logic::SupplyTruckState::DockingCenter
+                | crate::game_logic::SupplyTruckState::Regrouping
+        ) || obj.supply_truck_force_pending
     }
 
     /// C++ DozerAIUpdate findObjectToRepair residual (same player, structure, damaged).
@@ -1186,6 +1200,9 @@ impl GameLogic {
 
     /// C++ DozerPrimaryIdleState bored residual: repair, else mine-clear.
     pub(crate) fn process_dozer_bored_event(&mut self, id: ObjectId) {
+        if self.worker_is_acting_as_supply_truck(id) {
+            return;
+        }
         let Some((alive, can_repair)) = self
             .objects
             .get(&id)
@@ -1222,7 +1239,6 @@ impl GameLogic {
             }
 
             if self.apply_engagement_decision_aware(id, mine_id) {
-                self.drop_worker_supply_boxes_for_mine_clear(id);
                 self.path_approach_with_state(id, mine_pos, AIState::Attacking);
                 self.dozer_bored_mine_clear_events =
                     self.dozer_bored_mine_clear_events.saturating_add(1);
@@ -1235,6 +1251,9 @@ impl GameLogic {
         let bored = crate::game_logic::host_repair::DOZER_BORED_TIME_FRAMES;
         let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
         for id in ids {
+            if self.worker_is_acting_as_supply_truck(id) {
+                continue;
+            }
             {
                 let Some(obj) = self.objects.get_mut(&id) else {
                     continue;
@@ -1294,7 +1313,6 @@ impl GameLogic {
 
                 // Combat engagement via decision authority; path_approach logs Attacking too.
                 if self.apply_engagement_decision_aware(id, mine_id) {
-                    self.drop_worker_supply_boxes_for_mine_clear(id);
                     // Approach residual — attack resolution happens in combat update.
                     self.path_approach_with_state(id, mine_pos, AIState::Attacking);
                     self.dozer_bored_mine_clear_events =

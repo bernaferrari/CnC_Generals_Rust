@@ -18,6 +18,52 @@ struct HostAirfieldPPInfo {
     runway_takeoff_dist: f32,
 }
 
+fn std_angle_diff(a: f32, b: f32) -> f32 {
+    let mut d = a - b;
+    while d > std::f32::consts::PI {
+        d -= std::f32::consts::TAU;
+    }
+    while d < -std::f32::consts::PI {
+        d += std::f32::consts::TAU;
+    }
+    d
+}
+
+/// C++ `JetAIUpdate.cpp:499-508` taxi corner (host Y-up: XZ ground).
+fn taxi_intermediate_point(info: &HostAirfieldPPInfo) -> Option<glam::Vec3> {
+    let heading = (info.runway_prep.z - info.parking_space.z)
+        .atan2(info.runway_prep.x - info.parking_space.x);
+    if std_angle_diff(heading, info.parking_orientation).abs() <= std::f32::consts::PI / 128.0 {
+        return None;
+    }
+    let ax = info.parking_space.x;
+    let az = info.parking_space.z;
+    let ao = info.parking_orientation;
+    let cx = info.runway_prep.x;
+    let cz = info.runway_prep.z;
+    let co = info.parking_orientation + std::f32::consts::FRAC_PI_2;
+    let bx = ax + ao.cos();
+    let bz = az + ao.sin();
+    let dx = cx + co.cos();
+    let dz = cz + co.sin();
+    let denom = (bx - ax) * (dz - cz) - (bz - az) * (dx - cx);
+    if denom.abs() < 1.0e-6 {
+        return None;
+    }
+    let r = ((az - cz) * (dx - cx) - (ax - cx) * (dz - cz)) / denom;
+    Some(glam::Vec3::new(
+        ax + r * (bx - ax),
+        (info.parking_space.y + info.runway_prep.y) * 0.5,
+        az + r * (bz - az),
+    ))
+}
+
+fn horiz_dist_sq(a: glam::Vec3, b: glam::Vec3) -> f32 {
+    let dx = a.x - b.x;
+    let dz = a.z - b.z;
+    dx * dx + dz * dz
+}
+
 /// C++ `HEAL_RATE_FRAMES` (`LOGICFRAMES_PER_SECOND / 5`).
 const AIRFIELD_HEAL_RATE_FRAMES: u32 = 6;
 const AIRFIELD_HEAL_FOREVER: u32 = u32::MAX;
@@ -96,6 +142,15 @@ impl GameLogic {
                 }
                 (action, lockon_tick, lockon_pos)
             };
+            self.prune_jet_targeters(id);
+            if self
+                .objects
+                .get(&id)
+                .is_some_and(|jet| jet.jet_reached_runway_head())
+            {
+                self.begin_pause_after_taxi_to_runway(id);
+            }
+            self.sync_jet_afterburner_sound(id);
 
             if lockon_tick {
                 let pos = lockon_pos
@@ -137,6 +192,101 @@ impl GameLogic {
         }
         for id in transfers {
             self.transfer_runway_reservation_to_next_in_line(id);
+        }
+    }
+
+    /// C++ `TurretAI::removeSelfAsTargeter` / `setCurrentVictim(NULL)`.
+    fn prune_jet_targeters(&mut self, jet_id: ObjectId) {
+        let now = self.frame;
+        let targeted = self
+            .objects
+            .get(&jet_id)
+            .map(|jet| jet.jet_ai.targeted_by.clone())
+            .unwrap_or_default();
+        if targeted.is_empty() {
+            return;
+        }
+        for tid in targeted {
+            let keep = self
+                .objects
+                .get(&tid)
+                .is_some_and(|atk| atk.is_alive() && atk.target == Some(jet_id));
+            if !keep {
+                if let Some(jet) = self.objects.get_mut(&jet_id) {
+                    jet.add_jet_targeter(tid, false, now);
+                }
+            }
+        }
+    }
+
+    /// C++ `friend_enableAfterburners` start/stop via TheAudio.
+    fn sync_jet_afterburner_sound(&mut self, jet_id: ObjectId) {
+        use crate::game_logic::object::{JET_AFTERBURNER_SOUND, JET_AFTERBURNER_SOUND_STOP};
+        let (on, playing, pos) = {
+            let Some(jet) = self.objects.get(&jet_id) else {
+                return;
+            };
+            (
+                jet.jet_ai.afterburners_on,
+                jet.jet_ai.afterburner_sound_playing,
+                jet.get_position(),
+            )
+        };
+        if on == playing {
+            return;
+        }
+        if let Some(jet) = self.objects.get_mut(&jet_id) {
+            jet.jet_ai.afterburner_sound_playing = on;
+        }
+        if on {
+            self.queue_audio_event(
+                crate::game_logic::AudioEventRequest::new(JET_AFTERBURNER_SOUND)
+                    .with_object(jet_id)
+                    .with_position(pos)
+                    .looping(),
+            );
+        } else {
+            self.queue_audio_event(
+                crate::game_logic::AudioEventRequest::new(JET_AFTERBURNER_SOUND_STOP)
+                    .with_object(jet_id)
+                    .with_position(pos)
+                    .stopping(),
+            );
+        }
+    }
+
+    /// C++ PauseBeforeTakeoff after TAXI_TO_TAKEOFF reaches runwayStart.
+    fn begin_pause_after_taxi_to_runway(&mut self, jet_id: ObjectId) {
+        let (waited, end, dist) = {
+            let Some(jet) = self.objects.get_mut(&jet_id) else {
+                return;
+            };
+            if !jet.jet_ai.taxi_to_takeoff {
+                return;
+            }
+            let waited = jet.jet_ai.takeoff_waited_for_taxi;
+            let end = jet
+                .jet_ai
+                .takeoff_runway_end
+                .map(|p| glam::Vec3::new(p[0], p[1], p[2]));
+            let dist = jet.jet_ai.takeoff_runway_dist.max(1.0);
+            let Some(end) = end else {
+                jet.jet_ai.taxi_to_takeoff = false;
+                return;
+            };
+            jet.jet_ai.taxi_to_takeoff = false;
+            jet.begin_jet_runway_takeoff(self.frame, end, dist, waited);
+            (waited, end, dist)
+        };
+        let _ = (waited, dist);
+        if !self.assign_unit_path(jet_id, end, &[]) {
+            if let Some(jet) = self.objects.get_mut(&jet_id) {
+                jet.movement.path = vec![end];
+                jet.movement.current_path_index = 0;
+                jet.movement.target_position = Some(end);
+                jet.set_ai_state(AIState::Moving);
+                jet.set_status_moving(true);
+            }
         }
     }
 
@@ -1452,8 +1602,9 @@ impl GameLogic {
         let Some(jet) = self.objects.get_mut(&jet_id) else {
             return false;
         };
-        jet.set_position(info.parking_space);
-        jet.set_orientation(info.parking_orientation);
+        // C++ exitObjectViaDoor creation/hangar bone; FROM_HANGAR taxis to parking.
+        jet.set_position(info.hangar_internal);
+        jet.set_orientation(info.hangar_internal_orient);
         jet.set_contained_by(Some(producer_id));
         jet.set_ai_state(AIState::Docked);
         jet.set_status_moving(false);
@@ -1464,9 +1615,9 @@ impl GameLogic {
             crate::game_logic::host_move_log::record(
                 jet_id,
                 Some([
-                    info.parking_space.x,
-                    info.parking_space.y,
-                    info.parking_space.z,
+                    info.hangar_internal.x,
+                    info.hangar_internal.y,
+                    info.hangar_internal.z,
                 ]),
             );
             jet.record_host_movement();
@@ -1782,68 +1933,59 @@ impl GameLogic {
             return false;
         };
         let ppinfo = self.calc_airfield_pp_info(af_id, jet_id);
-        let taxi = if let Some(info) = ppinfo {
-            vec![info.runway_prep, info.runway_start, info.runway_end]
+        let jet_pos = self
+            .objects
+            .get(&jet_id)
+            .map(|jet| jet.get_position())
+            .unwrap_or(airfield_position);
+        let (taxi, runway_end, runway_dist) = if let Some(info) = ppinfo {
+            let mut path = Vec::new();
+            let hangar_to_park = horiz_dist_sq(info.hangar_internal, info.parking_space) > 1.0;
+            let at_parking = horiz_dist_sq(jet_pos, info.parking_space) <= 12.0 * 12.0;
+            // C++ FROM_HANGAR then FROM_PARKING (intermediate + prep + start).
+            if hangar_to_park && !at_parking {
+                path.push(info.parking_space);
+            }
+            if let Some(inter) = taxi_intermediate_point(&info) {
+                path.push(inter);
+            }
+            path.push(info.runway_prep);
+            path.push(info.runway_start);
+            (path, info.runway_end, info.runway_takeoff_dist.max(1.0))
         } else {
             let runway_count = metadata.runway_count().unwrap_or(1);
             let mut prep = airfield_position;
             prep.x += (runway_idx as f32 - (runway_count.saturating_sub(1) as f32 * 0.5))
                 * PARKING_PLACE_RUNWAY_PREP_SPACING;
             prep.y += metadata.landing_deck_height_offset;
-            vec![prep]
+            (vec![prep], prep, 80.0)
         };
         let dest = *taxi.last().unwrap_or(&airfield_position);
-        let via: Vec<glam::Vec3> = taxi.iter().copied().take(taxi.len().saturating_sub(1)).collect();
+        let via: Vec<glam::Vec3> = taxi
+            .iter()
+            .copied()
+            .take(taxi.len().saturating_sub(1))
+            .collect();
         let waited = self
             .airfield_runway_was_in_line
             .get(&af_id)
             .and_then(|flags| flags.get(runway_idx))
             .copied()
             .unwrap_or(false);
-        let ok = self.launch_jet_from_airfield_parking(jet_id);
-        if !ok {
+        // C++ taxi is ground SET_TAXIING — do not lift to ApproachHeight yet.
+        if !self.uncontain_jet_for_ground_taxi(jet_id) {
             self.release_airfield_runway_for_jet(jet_id);
             return false;
         }
         if let Some(jet) = self.objects.get_mut(&jet_id) {
             let mut pos = jet.get_position();
-            if let Some(info) = ppinfo {
-                pos.y = info.runway_start.y;
-                jet.set_position(pos);
-                jet.begin_jet_runway_takeoff(
-                    self.frame,
-                    info.runway_end,
-                    info.runway_takeoff_dist.max(1.0),
-                    waited,
-                );
-            } else {
-                pos.y = dest.y;
-                jet.set_position(pos);
-                jet.begin_jet_runway_takeoff(self.frame, dest, 80.0, waited);
-            }
+            pos.y = dest.y;
+            jet.set_position(pos);
+            jet.arm_jet_taxi_to_takeoff(dest, runway_end, runway_dist, waited);
         }
-        if self
-            .objects
-            .get(&jet_id)
-            .is_some_and(|j| j.jet_ai.afterburners_on)
-        {
-            let pos = self
-                .objects
-                .get(&jet_id)
-                .map(|j| j.get_position())
-                .unwrap_or(dest);
-            self.queue_audio_event(
-                crate::game_logic::AudioEventRequest::new(
-                    crate::game_logic::object::JET_AFTERBURNER_SOUND,
-                )
-                .with_object(jet_id)
-                .with_position(pos),
-            );
-
-        }
-        if let Some(jet) = self.objects.get_mut(&jet_id) {
-            // C++ JetOrHeliTaxiState::onEnter — !ALLOW_AIR_LOCO + SET_TAXIING.
-            jet.apply_taxiing_locomotor_set();
+        if horiz_dist_sq(jet_pos, dest) <= 12.0 * 12.0 {
+            self.begin_pause_after_taxi_to_runway(jet_id);
+            return true;
         }
         if !self.assign_unit_path(jet_id, dest, &via) {
             if let Some(jet) = self.objects.get_mut(&jet_id) {
@@ -1982,6 +2124,30 @@ impl GameLogic {
         self.do_jet_landing_command(jet_id, airfield_id)
     }
 
+
+    /// C++ JetOrHeliTaxiState::onEnter — uncontain, SET_TAXIING, stay on deck.
+    fn uncontain_jet_for_ground_taxi(&mut self, jet_id: ObjectId) -> bool {
+        self.set_airfield_healee_for_jet(jet_id, false);
+        let af_hint = {
+            let Some(jet) = self.objects.get(&jet_id) else {
+                return false;
+            };
+            jet.contained_by.or(jet.producer_id)
+        };
+        let was_parked = self.objects.get(&jet_id).is_some_and(|jet| {
+            jet.is_parked_at_airfield() || jet.contained_by.is_some()
+        });
+        if let Some(jet) = self.objects.get_mut(&jet_id) {
+            jet.set_contained_by(None);
+            jet.status.airborne_target = false;
+            jet.set_ultra_accurate(true);
+            jet.apply_taxiing_locomotor_set();
+        }
+        if let Some(af_id) = af_hint {
+            self.sync_airfield_hangar_doors(af_id);
+        }
+        was_parked || af_hint.is_some()
+    }
 
     /// C++ takeoff onExit: uncontain, keep stall when `keepsParkingSpaceWhenAirborne`.
     fn launch_jet_from_airfield_parking(&mut self, jet_id: ObjectId) -> bool {
@@ -2196,24 +2362,6 @@ impl GameLogic {
         }
 
 
-        const REARM_RANGE: f32 = 120.0;
-        let dx = jet_position.x - airfield_position.x;
-        let dz = jet_position.z - airfield_position.z;
-        if dx * dx + dz * dz > REARM_RANGE * REARM_RANGE {
-            if let Some(jet) = self.objects.get_mut(&jet_id) {
-                jet.target = None;
-                jet.set_status_attacking(false);
-                jet.set_ai_state(AIState::Moving);
-            }
-            if self.assign_unit_path(jet_id, airfield_position, &[]) {
-                // Keep the authenticated `ParkingPlaceBehavior` reservation
-                // while JetAI is returning; capacity is not a garrison count.
-                return true;
-            }
-            let _ = self.release_airfield_parking_space_for_jet(jet_id);
-            return false;
-        }
-
         let already_docked = self
             .objects
             .get(&jet_id)
@@ -2223,7 +2371,10 @@ impl GameLogic {
         } else {
             match self.reserve_airfield_runway_ex(airfield_id, jet_id, true) {
                 Some(index) => Some(index),
-                None => return self.airfield_has_reserved_space(airfield_id, jet_id),
+                None => {
+                    // C++ LANDING_AWAIT_CLEARANCE — keep the stall, wait for the strip.
+                    return self.airfield_has_reserved_space(airfield_id, jet_id);
+                }
             }
         };
 
@@ -2242,33 +2393,100 @@ impl GameLogic {
             pad
         };
         let approach = ppinfo.map(|info| info.runway_approach).unwrap_or(pad);
-        let dxp = jet_position.x - pad.x;
-        let dyp = jet_position.y - pad.y;
-        let dzp = jet_position.z - pad.z;
-        const PAD_SNAP: f32 = 12.0;
-        if dxp * dxp + dyp * dyp + dzp * dzp > PAD_SNAP * PAD_SNAP {
-            let via = if (jet_position - approach).length_squared() > PAD_SNAP * PAD_SNAP {
-                vec![approach]
-            } else {
-                Vec::new()
-            };
+        let runway_end = ppinfo.map(|info| info.runway_end).unwrap_or(approach);
+        let runway_start = ppinfo.map(|info| info.runway_start).unwrap_or(pad);
+        let prep = ppinfo.map(|info| info.runway_prep).unwrap_or(pad);
+        let intermediate = ppinfo.and_then(|info| taxi_intermediate_point(&info));
+        let (phase, airborne) = self
+            .objects
+            .get(&jet_id)
+            .map(|jet| (jet.jet_ai.rtb_landing_phase, jet.status.airborne_target))
+            .unwrap_or((0, true));
+        const WAYPOINT: f32 = 12.0;
+        const WAYPOINT_SQ: f32 = WAYPOINT * WAYPOINT;
+        const APPROACH_RANGE_SQ: f32 = 120.0 * 120.0;
+
+        if already_docked
+            || (horiz_dist_sq(jet_position, pad) <= WAYPOINT_SQ
+                && (phase >= crate::game_logic::object::JET_RTB_PHASE_TAXI || !airborne))
+        {
+            return self.dock_jet_at_airfield_pad(jet_id, airfield_id, pad);
+        }
+
+        if phase >= crate::game_logic::object::JET_RTB_PHASE_TAXI
+            || (phase >= crate::game_logic::object::JET_RTB_PHASE_LANDING
+                && horiz_dist_sq(jet_position, runway_start) <= WAYPOINT_SQ)
+        {
             if let Some(jet) = self.objects.get_mut(&jet_id) {
+                jet.jet_ai.rtb_landing_phase = crate::game_logic::object::JET_RTB_PHASE_TAXI;
+                jet.jet_ai.landing_in_progress = false;
+                jet.status.airborne_target = false;
                 jet.apply_taxiing_locomotor_set();
+                jet.target = None;
+                jet.set_status_attacking(false);
             }
-            if self.assign_unit_path(jet_id, pad, &via) {
-                return true;
+            self.release_airfield_runway_for_jet(jet_id);
+            let mut taxi = vec![prep];
+            if let Some(inter) = intermediate {
+                taxi.push(inter);
             }
+            taxi.push(pad);
+            return self.assign_rtb_path(jet_id, &taxi);
+        }
+
+        if horiz_dist_sq(jet_position, approach) > APPROACH_RANGE_SQ {
             if let Some(jet) = self.objects.get_mut(&jet_id) {
+                jet.jet_ai.rtb_landing_phase = crate::game_logic::object::JET_RTB_PHASE_APPROACH;
+                jet.jet_ai.landing_in_progress = true;
+                jet.apply_airborne_locomotor_set();
                 jet.target = None;
                 jet.set_status_attacking(false);
                 jet.set_ai_state(AIState::Moving);
-                jet.movement.path = via.into_iter().chain(std::iter::once(pad)).collect();
-                jet.movement.current_path_index = 0;
-                jet.movement.target_position = Some(pad);
-                jet.set_status_moving(true);
             }
+            if self.assign_unit_path(jet_id, approach, &[]) {
+                return true;
+            }
+            let _ = self.release_airfield_parking_space_for_jet(jet_id);
+            return false;
+        }
+
+        if let Some(jet) = self.objects.get_mut(&jet_id) {
+            jet.jet_ai.rtb_landing_phase = crate::game_logic::object::JET_RTB_PHASE_LANDING;
+            jet.jet_ai.landing_in_progress = true;
+            jet.apply_airborne_locomotor_set();
+            jet.target = None;
+            jet.set_status_attacking(false);
+        }
+        self.assign_rtb_path(jet_id, &[approach, runway_end, runway_start])
+    }
+
+    fn assign_rtb_path(&mut self, jet_id: ObjectId, points: &[glam::Vec3]) -> bool {
+        if points.is_empty() {
+            return false;
+        }
+        let dest = *points.last().unwrap();
+        let via: Vec<glam::Vec3> = points[..points.len() - 1].to_vec();
+        if self.assign_unit_path(jet_id, dest, &via) {
             return true;
         }
+        if let Some(jet) = self.objects.get_mut(&jet_id) {
+            jet.target = None;
+            jet.set_status_attacking(false);
+            jet.set_ai_state(AIState::Moving);
+            jet.movement.path = points.to_vec();
+            jet.movement.current_path_index = 0;
+            jet.movement.target_position = Some(dest);
+            jet.set_status_moving(true);
+        }
+        true
+    }
+
+    fn dock_jet_at_airfield_pad(
+        &mut self,
+        jet_id: ObjectId,
+        airfield_id: ObjectId,
+        pad: glam::Vec3,
+    ) -> bool {
         {
             let Some(jet) = self.objects.get_mut(&jet_id) else {
                 self.release_airfield_runway_for_jet(jet_id);
@@ -2278,6 +2496,8 @@ impl GameLogic {
             jet.set_ai_state(AIState::Docked);
             jet.set_status_moving(false);
             jet.status.airborne_target = false;
+            jet.jet_ai.landing_in_progress = false;
+            jet.jet_ai.rtb_landing_phase = 0;
             jet.apply_taxiing_locomotor_set();
             jet.target = None;
             jet.movement.path.clear();
@@ -2293,16 +2513,12 @@ impl GameLogic {
             jet.begin_parked_airfield_rearm(self.frame);
             let _ = jet.tick_parked_airfield_rearm(self.frame);
         }
-
-
         self.release_airfield_runway_for_jet(jet_id);
         self.sync_airfield_hangar_doors(airfield_id);
-
         if let Some(jet) = self.objects.get_mut(&jet_id) {
             jet.begin_parked_airfield_rearm(self.frame);
             let _ = jet.tick_parked_airfield_rearm(self.frame);
         }
-        // A parked clip-reload in progress is still a successful RTB route.
         true
     }
 

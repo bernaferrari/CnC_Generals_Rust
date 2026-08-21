@@ -166,6 +166,18 @@ impl Object {
         )
     }
 
+    /// C++ Object::canCrushOrSquish default TEST_CRUSH_OR_SQUISH
+    /// (Object.cpp:1109-1137): SquishCollide module OR crusherLevel > crushableLevel.
+    pub fn can_crush_or_squish(&self, other: &Object, is_ally: bool) -> bool {
+        if is_ally || self.status.disabled_unmanned || self.crusher_level == 0 {
+            return false;
+        }
+        if other.has_squish_collide {
+            return true;
+        }
+        self.crusher_level > other.crushable_level
+    }
+
     /// Unit direction 2D residual from orientation (host XZ plane).
     pub fn unit_direction_xz(&self) -> (f32, f32) {
         let yaw = self.get_orientation();
@@ -195,17 +207,13 @@ impl Object {
         if self_being_crushed {
             return true; // passive overlap
         }
-        if !self_crushing_other {
-            return false;
-        }
-        // C++ SquishCollide::onCollide is infantry-only (module on infantry).
-        // Cars/props use PhysicsBehavior crush *points* (PhysicsUpdate.cpp:1466).
-        // Do not treat crushable_level < crusher_level as instant-squish —
-        // that predicate is identical to can_crush_only and skipped front/back.
-        if other.is_kind_of(crate::game_logic::KindOf::Infantry) {
+        // C++ SquishCollide::onCollide is independent of TEST_CRUSH_ONLY.
+        // Instant-squish when the victim has the authored module.
+        if other.has_squish_collide {
             use crate::game_logic::host_squish_collide::{
-                should_skip_squish_for_goal_ability, squish_geom_collides,
-                template_has_hijacker_update, velocity_toward_victim, SQUISH_HUGE_DAMAGE,
+                authored_crusher_geometry, should_skip_squish_for_goal_ability,
+                squish_geom_collides_with, template_has_hijacker_update,
+                velocity_toward_victim, SQUISH_HUGE_DAMAGE,
             };
             let has_hijacker = template_has_hijacker_update(&other.template_name);
             let tnt_active = crate::game_logic::host_tank_hunter::is_tank_hunter_template(
@@ -213,6 +221,7 @@ impl Object {
             ) && other.ai_state == crate::game_logic::AIState::SpecialAbility
                 && other.target == Some(self.id);
             if !is_ally
+                && self.crusher_level > 0
                 && !should_skip_squish_for_goal_ability(
                     other.target,
                     self.id,
@@ -228,26 +237,34 @@ impl Object {
                 let crusher_g = &self.thing.geometry;
                 let crusher_half_x =
                     ((crusher_g.bounds_max.x - crusher_g.bounds_min.x).abs() * 0.5).max(0.0);
-                let crusher_major = crusher_g
+                let fallback_major = crusher_g
                     .radius
                     .max(self.selection_radius)
                     .max(crusher_half_x)
                     .max(1.0);
-                let crusher_h = (crusher_g.bounds_max.y - crusher_g.bounds_min.y)
+                let fallback_h = (crusher_g.bounds_max.y - crusher_g.bounds_min.y)
                     .abs()
                     .max(crusher_g.radius)
                     .max(1.0);
+                let crusher_geom = authored_crusher_geometry(
+                    &self.thing.template.geometry_info,
+                    fallback_major,
+                    fallback_h,
+                );
                 let victim_g = &other.thing.geometry;
-                let victim_h = (victim_g.bounds_max.y - victim_g.bounds_min.y)
-                    .abs()
-                    .max(victim_g.radius)
-                    .max(1.0);
+                let victim_h = if other.thing.template.geometry_info.authored {
+                    other.thing.template.geometry_info.height.max(0.01)
+                } else {
+                    (victim_g.bounds_max.y - victim_g.bounds_min.y)
+                        .abs()
+                        .max(victim_g.radius)
+                        .max(1.0)
+                };
                 if toward
-                    && squish_geom_collides(
+                    && squish_geom_collides_with(
                         (us.x, us.y, us.z),
                         self.get_orientation(),
-                        crusher_major,
-                        crusher_h,
+                        crusher_geom,
                         (them.x, them.y, them.z),
                         other.get_orientation(),
                         victim_h,
@@ -266,6 +283,9 @@ impl Object {
                     return true;
                 }
             }
+        }
+        if !self_crushing_other {
+            return false;
         }
         // add overlap
         let oid = other.id;
@@ -286,9 +306,19 @@ impl Object {
         }
         let us = self.get_position();
         let them = other.get_position();
-        let (dx_f, dz_f) = self.unit_direction_xz();
-        // major radius residual ≈ selection_radius
-        let major = other.selection_radius.max(5.0);
+        let vel = self.movement.velocity;
+        let (dx_f, dz_f) = if vel.x * vel.x + vel.z * vel.z > 1e-8 {
+            (vel.x, vel.z)
+        } else {
+            (us.x - them.x, us.z - them.z)
+        };
+        // C++ getGeometryInfo().getMajorRadius() / 2 (PhysicsUpdate.cpp:1490).
+        let geom = &other.thing.template.geometry_info;
+        let major = if geom.authored {
+            geom.major_radius
+        } else {
+            other.selection_radius.max(1.0)
+        };
         let offset = major / 2.0;
         let crushee_facing = other.unit_direction_xz();
         let target = {

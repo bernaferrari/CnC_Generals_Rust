@@ -234,7 +234,9 @@ pub fn gattling_ground_weapon(level: GattlingFireLevel, has_chain_guns: bool) ->
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-    }
+                reloading_clip: false,
+            last_bonus_rof: 0.0,
+}
 }
 
 /// Build residual air Weapon for level + chain guns.
@@ -255,7 +257,9 @@ pub fn gattling_air_weapon(level: GattlingFireLevel, has_chain_guns: bool) -> We
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-    }
+                reloading_clip: false,
+            last_bonus_rof: 0.0,
+}
 }
 
 /// Advance continuous-fire residual state after a shot.

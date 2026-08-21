@@ -1412,6 +1412,16 @@ impl IniParser {
                                 set.conditions = Self::condition_tokens(value);
                             }
                             "weapon" => set.record_weapon(value),
+                            "autochoosesources" => {
+                                set.attributes
+                                    .insert(key.to_string(), value.to_string());
+                                if let Some(slot) = value.split_whitespace().next() {
+                                    set.attributes.insert(
+                                        format!("AutoChooseSources {slot}"),
+                                        value.to_string(),
+                                    );
+                                }
+                            }
                             _ => {
                                 set.attributes.insert(key.to_string(), value.to_string());
                             }

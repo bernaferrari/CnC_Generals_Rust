@@ -1029,7 +1029,7 @@ fn process_ai_behavior_idle_defers_to_mood_auto_acquire() {
         attacker.weapon = Some(Weapon {
             range: 150.0,
             ..Weapon::default()
-        });
+});
     }
 
     let (pos, team, can_attack) = {
@@ -1103,7 +1103,7 @@ fn process_ai_behavior_hunt_seeks_map_wide_not_100_circle() {
         unit.weapon = Some(Weapon {
             range: 150.0,
             ..Weapon::default()
-        });
+});
     }
     let (start, team, can_attack) = {
         let unit = game_logic.host_object(unit_id).expect("unit should exist");

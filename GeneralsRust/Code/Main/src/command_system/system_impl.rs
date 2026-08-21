@@ -290,12 +290,13 @@ impl CommandSystem {
             waypoint_mode = true;
         }
 
-        // C++ TheInGameUI force modes residual:
-        // Ctrl = ForceAttack, Alt = Waypoints (prefer over sticky current_mode).
-        let mode = if context.modifier_keys.ctrl {
-            CommandMode::ForceAttack
-        } else if waypoint_mode {
+        // C++ evaluateContextCommand: isInWaypointMode first — any context
+        // command including Ctrl force-attack becomes MSG_ADD_WAYPOINT
+        // (CommandXlat.cpp:1458-1474).
+        let mode = if waypoint_mode {
             CommandMode::Waypoint
+        } else if context.modifier_keys.ctrl {
+            CommandMode::ForceAttack
         } else {
             self.current_mode.clone()
         };
@@ -487,6 +488,21 @@ impl CommandSystem {
                     }
                 }
             }
+        }
+
+        // C++ CommandXlat.cpp:2180-2199 — empty ground + AUTO_RALLYPOINT → SetRallyPoint.
+        if context.target_object.is_none()
+            && !selected_units.is_empty()
+            && game_logic.is_some_and(|gl| {
+                selected_units.iter().all(|&id| {
+                    gl.unit_is_alive(id)
+                        && gl.unit_is_kind_of(id, KindOf::AutoRallypoint)
+                })
+            })
+        {
+            return CommandType::SetRallyPoint {
+                location: context.world_position,
+            };
         }
 
         // Default to move command (Ctrl ForceAttack handled before context path).
@@ -921,7 +937,7 @@ impl CommandSystem {
         location: Vec3,
         game_logic: &mut GameLogic,
     ) -> CommandResult {
-        let (build_cost, is_structure) = match game_logic.get_templates().get(template_name) {
+        let (base_cost, is_structure) = match game_logic.get_templates().get(template_name) {
             Some(t) => (
                 t.build_cost,
                 t.is_kind_of(crate::game_logic::KindOf::Structure),
@@ -941,6 +957,13 @@ impl CommandSystem {
             let Some((player_id, _team)) = game_logic.unit_owner_if_can_construct(unit_id) else {
                 continue;
             };
+
+            let mut build_cost = base_cost;
+            build_cost.supplies = game_logic.modified_build_cost_supplies(
+                player_id,
+                template_name,
+                base_cost.supplies,
+            );
 
             if !game_logic.try_spend_player_resources(player_id, &build_cost) {
                 return CommandResult::InvalidCommand;

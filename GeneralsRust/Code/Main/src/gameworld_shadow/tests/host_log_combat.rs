@@ -141,12 +141,12 @@ fn host_weapon_stats_log_drives_set_weapon_stats_channel() {
             can_target_ground: true,
             projectile_speed: 90.0,
             ..Weapon::default()
-        });
+});
         o.secondary_weapon = Some(Weapon {
             damage: 9.0,
             range: 80.0,
             ..Weapon::default()
-        });
+});
         o.record_host_weapon_stats();
     }
     let events = host_weapon_stats_log::drain();

@@ -99,12 +99,13 @@ pub fn pack_player_color_argb(rgb: (u8, u8, u8)) -> u32 {
 
 /// C++ `TheRadar->createEvent` — rotating triangle + last-event (not beacon).
 pub fn host_create_radar_event(pos: glam::Vec3, event_type: RadarEventType) {
+    host_create_radar_event_for(pos, event_type, RADAR_EVENT_SECONDS_TO_LIVE);
+}
+
+/// C++ `TheRadar->createEvent` with an explicit lifetime (beacon pulse = 0.5s).
+pub fn host_create_radar_event_for(pos: glam::Vec3, event_type: RadarEventType, seconds: f32) {
     if let Ok(mut radar) = get_radar_system().write() {
-        radar.create_event(
-            &host_world_to_radar_coord(pos),
-            event_type,
-            RADAR_EVENT_SECONDS_TO_LIVE,
-        );
+        radar.create_event(&host_world_to_radar_coord(pos), event_type, seconds);
     }
 }
 

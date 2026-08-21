@@ -102,7 +102,7 @@ impl Object {
                 1u8
             } else if primary_ready {
                 0u8
-            } else if secondary_ready {
+            } else if secondary_ready && self.thing.template.slot_allows_auto_choose(1) {
                 1u8
             } else {
                 return None;
@@ -295,7 +295,33 @@ impl Object {
                 None => return None,
             };
         if clip_emptied {
+            if let Some(weapon) = self.weapon_slot_mut(slot) {
+                weapon.reloading_clip = true;
+            }
             self.rebuild_scatter_targets_unused(slot, name);
+        } else {
+            if let Some(weapon) = self.weapon_slot_mut(slot) {
+                weapon.reloading_clip = false;
+            }
+            if let Some(weapon_name) = name {
+                if let Some(rolled) =
+                    crate::game_logic::weapon_bootstrap::host_delay_between_shots_secs_rolled(
+                        weapon_name,
+                    )
+                {
+                    let rof = self.weapon_bonus_fields().2;
+                    let rolled = (rolled / rof.max(0.01)).max(0.0);
+                    let nominal = self
+                        .weapon_slot(slot)
+                        .map(|weapon| self.live_reload_interval(weapon, Some(weapon_name), rof))
+                        .unwrap_or(rolled);
+                    if (rolled - nominal).abs() > 1e-6 {
+                        if let Some(weapon) = self.weapon_slot_mut(slot) {
+                            weapon.last_fire_time = current_time + rolled - nominal;
+                        }
+                    }
+                }
+            }
         }
         let shooter_id = self.id;
         let shooter_pos = self.get_position();
@@ -634,8 +660,12 @@ impl Object {
         weapon_name: Option<&str>,
         rof: f32,
     ) -> f32 {
-        let waiting_clip =
-            weapon.clip_size > 0 && weapon.ammo == Some(0) && weapon.clip_reload_time > 0.0;
+        let auto_clip = weapon_name
+            .map(crate::game_logic::weapon_bootstrap::host_reload_type_for_weapon_name)
+            .unwrap_or(crate::game_logic::weapon_bootstrap::HostReloadType::Auto)
+            == crate::game_logic::weapon_bootstrap::HostReloadType::Auto;
+        let waiting_clip = weapon.reloading_clip
+            || (auto_clip && weapon.clip_size > 0 && weapon.ammo == Some(0));
         let base = if waiting_clip {
             weapon.clip_reload_time
         } else {
@@ -714,13 +744,13 @@ mod tests {
             damage: 5.0,
             range: 100.0,
             ..Weapon::default()
-        });
+});
         attacker.tertiary_weapon = Some(Weapon {
             damage: 37.0,
             range: 250.0,
             last_fire_time: -10.0,
             ..Weapon::default()
-        });
+});
         assert!(attacker.set_weapon_lock(2, WeaponLockType::LockedPermanently));
 
         // Simulate a stale displayed active slot.  The stored weapon lock is
@@ -761,7 +791,7 @@ mod tests {
             range: 150.0,
             last_fire_time: -10.0,
             ..Weapon::default()
-        });
+});
         assert!(atk.fire_at(ObjectId(2), 1.0));
         assert_eq!(
             crate::game_logic::combat::last_pending_projectile_damage_type_for_test(),
@@ -779,7 +809,7 @@ mod tests {
             range: 150.0,
             last_fire_time: -10.0,
             ..Weapon::default()
-        });
+});
         unit.apply_grant_stealth();
         unit.stealth_breaks_on_attack = true;
         unit.stealth_delay_frames = 30;

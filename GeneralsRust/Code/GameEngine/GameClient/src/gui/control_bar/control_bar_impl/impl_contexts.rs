@@ -265,13 +265,14 @@ impl ControlBar {
         let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
             // Host presentation residual: beacon UI when command-set freeze says BEACON.
             // Wave 1030: peel translator catalog template/command-set residual too.
-            let catalog_beacon =
-                crate::presentation_translator_residual::translator_catalog_entry(object_id)
-                    .map(|e| {
-                        e.template_name.to_ascii_uppercase().contains("BEACON")
-                            || e.command_set_name.to_ascii_uppercase().contains("BEACON")
-                    })
-                    .unwrap_or(false);
+            let catalog = crate::presentation_translator_residual::translator_catalog_entry(object_id);
+            let catalog_beacon = catalog
+                .as_ref()
+                .map(|e| {
+                    e.template_name.to_ascii_uppercase().contains("BEACON")
+                        || e.command_set_name.to_ascii_uppercase().contains("BEACON")
+                })
+                .unwrap_or(false);
             let is_beacon = catalog_beacon
                 || self
                     .presentation_primary_command_set
@@ -282,7 +283,15 @@ impl ControlBar {
                     .portrait_image
                     .to_ascii_uppercase()
                     .contains("BEACON");
-            self.populate_beacon_windows(is_beacon, "")?;
+            let caption = catalog
+                .as_ref()
+                .map(|e| e.caption.as_str())
+                .unwrap_or("");
+            let local = catalog
+                .as_ref()
+                .map(crate::presentation_translator_residual::translator_entry_is_local)
+                .unwrap_or(is_beacon);
+            self.populate_beacon_windows(local && is_beacon, caption)?;
             return Ok(());
         };
         let Ok(object) = object_arc.read() else {
@@ -321,37 +330,39 @@ impl ControlBar {
     }
 
     fn local_player_below_beacon_limit(&self) -> bool {
-        let Some(local_player) = logic_player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_local_player().cloned())
-        else {
-            return false;
-        };
-        let Ok(local_player) = local_player.read() else {
-            return false;
-        };
-        let Some(template_name) = local_player
-            .get_player_template()
-            .map(|template| template.beacon_name.clone())
-        else {
-            return false;
-        };
-        if template_name.is_empty() {
-            return false;
-        }
-        let Some(beacon_template) = TheThingFactory::find_template(&template_name) else {
-            return false;
-        };
-        let mut count = [0];
-        local_player.count_objects_by_thing_template(
-            std::slice::from_ref(&beacon_template),
-            false,
-            false,
-            &mut count,
-        );
         let max_beacons = with_multiplayer_settings(|settings| settings.max_beacons_per_player);
-        count[0] < max_beacons
+        let leftover_count = (|| {
+            let local_player = logic_player_list()
+                .read()
+                .ok()
+                .and_then(|list| list.get_local_player().cloned())?;
+            let local_player = local_player.read().ok()?;
+            let template_name = local_player
+                .get_player_template()
+                .map(|template| template.beacon_name.clone())
+                .filter(|name| !name.is_empty())?;
+            let beacon_template = TheThingFactory::find_template(&template_name)?;
+            let mut count = [0];
+            local_player.count_objects_by_thing_template(
+                std::slice::from_ref(&beacon_template),
+                false,
+                false,
+                &mut count,
+            );
+            Some(count[0])
+        })()
+        .unwrap_or(0);
+        let catalog_count = crate::presentation_translator_residual::with_translator_catalog(|cat| {
+            cat.iter()
+                .filter(|e| {
+                    crate::presentation_translator_residual::translator_entry_is_local(e)
+                        && !e.destroyed
+                        && (e.template_name.to_ascii_uppercase().contains("BEACON")
+                            || e.command_set_name.to_ascii_uppercase().contains("BEACON"))
+                })
+                .count() as i32
+        });
+        leftover_count.max(catalog_count) < max_beacons
     }
 
     fn apply_place_beacon_button_enabled(

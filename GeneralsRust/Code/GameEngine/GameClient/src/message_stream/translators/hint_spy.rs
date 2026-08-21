@@ -391,6 +391,18 @@ impl Default for HintSpy {
 
 impl GameMessageTranslator for HintSpy {
     fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
+        // C++ HintSpy.cpp:91-96 — MSG_DO_MOVETO / ATTACKMOVETO / FORCEMOVETO /
+        // ADD_WAYPOINT create a destination marker and keep the command.
+        match msg.get_type() {
+            GameMessageType::DoMoveTo(pos)
+            | GameMessageType::DoAttackMoveTo(pos)
+            | GameMessageType::DoForceMoveTO(pos)
+            | GameMessageType::AddWaypoint(pos) => {
+                TheInGameUI::create_move_hint(pos.clone(), pos.clone(), 0);
+                return GameMessageDisposition::KeepMessage;
+            }
+            _ => {}
+        }
         if let Some(hint) = hint_visual_for_message(msg.get_type()) {
             self.process_hint(msg.get_type(), hint);
             GameMessageDisposition::DestroyMessage

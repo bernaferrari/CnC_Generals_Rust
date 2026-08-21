@@ -20,7 +20,7 @@ fn test_object(id: u32) -> Object {
         ammo: Some(4),
         clip_size: 4,
         ..Weapon::default()
-    });
+});
     object
 }
 

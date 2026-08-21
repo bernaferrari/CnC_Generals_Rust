@@ -35,7 +35,7 @@ fn arm_attacker_then_attack(attacker: &mut Object, target_id: ObjectId, damage: 
         last_fire_time: 0.0,
         projectile_speed: 0.0,
         ..Weapon::default()
-    });
+});
     attacker.attack_target(target_id);
 }
 
@@ -1562,7 +1562,7 @@ fn cash_bounty_zero_percent_does_not_award() {
             reload_time: 0.0,
             last_fire_time: 0.0,
             ..Weapon::default()
-        });
+});
     }
     {
         let target = game_logic
@@ -1675,7 +1675,7 @@ fn combat_fire_queues_weapon_fire_audio_event() {
             reload_time: 0.0,
             last_fire_time: 0.0,
             ..Weapon::default()
-        });
+});
     }
 
     game_logic.frame = 30;
@@ -1733,7 +1733,7 @@ fn weapon_discharge_world_tick_combat_preserves_preadvance_barrel_and_freezes_on
             reload_time: 0.0,
             last_fire_time: 0.0,
             ..Weapon::default()
-        });
+});
         assert!(attacker.set_weapon_barrel_count_for_slot(0, 3));
         attacker.weapon_barrel_states[0].current_barrel = 2;
         attacker.weapon_barrel_states[0].shots_left_on_barrel = 1;
@@ -4214,7 +4214,7 @@ fn detected_hero_wakes_idle_enemies() {
             reload_time: 1.0,
             last_fire_time: -10.0,
             ..Weapon::default()
-        });
+});
     }
 
     logic.frame = 1;

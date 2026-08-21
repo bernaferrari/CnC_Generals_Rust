@@ -228,7 +228,7 @@ impl TerrainVisual for TerrainVisualImpl {
             self.ensure_snow_texture_bind_group(device.as_ref());
             self.apply_water_transparency_map_overrides(device.as_ref());
         }
-        self.upload_snow_mesh(camera_position);
+        self.upload_snow_mesh(camera_position, view_matrix);
         if self.overlay.overlays_dirty {
             self.rebuild_all_overlays();
         }

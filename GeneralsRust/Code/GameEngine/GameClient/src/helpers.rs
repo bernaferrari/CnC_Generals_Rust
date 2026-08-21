@@ -2124,13 +2124,15 @@ impl TheInGameUI {
         end: crate::message_stream::game_message::Coord3D,
         source_id: u32,
     ) {
+        // C++ InGameUI.cpp:2163 — frame = TheGameClient->getFrame();
+        // C++ W3DInGameUI::drawMoveHints shows while elapsed <= 40.
         let hint = HintData {
             hint_type: HintType::Move,
             start: gamelogic::common::Coord3D::new(start.x, start.y, start.z),
             end: gamelogic::common::Coord3D::new(end.x, end.y, end.z),
-            creation_frame: 0,
+            creation_frame: TheGameLogic::get_frame(),
             source_id,
-            lifetime_frames: 60,
+            lifetime_frames: 41,
         };
         let state = hint_state();
         let mut guard = state.lock().unwrap_or_else(|e| e.into_inner());

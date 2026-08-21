@@ -252,7 +252,9 @@ pub fn burton_sniper_weapon() -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-    }
+                reloading_clip: false,
+            last_bonus_rof: 0.0,
+}
 }
 
 /// Residual knife Weapon (close-range one-shot).
@@ -272,7 +274,9 @@ pub fn burton_knife_weapon() -> Weapon {
         pre_attack_delay: delay_frames_to_reload_secs(BURTON_KNIFE_PRE_ATTACK_FRAMES),
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-    }
+                reloading_clip: false,
+            last_bonus_rof: 0.0,
+}
 }
 
 /// Whether knife residual should apply for this shot.

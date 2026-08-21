@@ -138,6 +138,30 @@ fn aflame_bits_come_from_host_not_death_type_name() {
 }
 
 #[test]
+fn jet_afterburner_bits_survive_presentation_and_exhaust_not_invented() {
+    use crate::game_logic::host_enum_table_residual::{
+        jetafterburner_model_bit, jetexhaust_model_bit,
+    };
+    use crate::presentation_frame::PresentationObjectType;
+    let ab = 1u128 << jetafterburner_model_bit();
+    let ex = 1u128 << jetexhaust_model_bit();
+    let mut u = unit_render_input_fixture();
+    u.object_type = PresentationObjectType::Aircraft;
+    u.model_condition_bits = ab;
+    u.moving = true;
+    u.airborne_target = true;
+    u.velocity = glam::Vec3::new(5.0, 0.0, 0.0);
+    u.jet_slow_death_active = false;
+    let bits = u.model_condition_bits_with_combat_flags();
+    assert_ne!(bits & ab, 0, "takeoff JETAFTERBURNER must not be wiped");
+    assert_eq!(bits & ex, 0, "presentation must not invent JETEXHAUST");
+    u.jet_slow_death_active = true;
+    u.model_condition_bits = 0;
+    let crash = u.model_condition_bits_with_combat_flags();
+    assert_ne!(crash & ab, 0, "crash still stamps JETAFTERBURNER");
+}
+
+#[test]
 fn topple_world_matrix_falls_along_crush_direction() {
     let mut u = unit_render_input_fixture();
     u.mesh_scale = 1.0;
@@ -874,7 +898,9 @@ fn overlay_gameworld_shadow_copies_entity_residual() {
             pre_attack_delay: 0.0,
             splash_radius: 0.0,
             suspend_fx_frame: 0,
-        });
+                    reloading_clip: false,
+            last_bonus_rof: 0.0,
+});
         obj.force_attack = true;
         obj.show_health_bar = false;
     }

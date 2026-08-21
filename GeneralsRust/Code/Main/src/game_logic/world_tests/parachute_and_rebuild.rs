@@ -411,7 +411,7 @@ fn worker_build_or_repair_releases_supply_dock() {
 
 #[test]
 fn mine_clear_drops_worker_supply_boxes() {
-    // C++ WorkerAIUpdate.cpp:1043-1050.
+    // C++ WorkerAIUpdate.cpp:1004-1015 + AIUpdate.cpp:3120-3135.
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     logic
@@ -434,6 +434,17 @@ fn mine_clear_drops_worker_supply_boxes() {
         .expect("worker");
     if let Some(w) = logic.host_object_mut(wid) {
         w.set_stored_supplies(2);
+        w.set_weapon_set_mine_clearing_detail(true);
+    }
+    logic.drop_worker_supply_boxes_for_mine_clear(wid);
+    assert_eq!(
+        logic.host_object(wid).unwrap().stored_resources.supplies,
+        2,
+        "hq-6je29: not attacking yet — keep boxes"
+    );
+    if let Some(w) = logic.host_object_mut(wid) {
+        w.set_ai_state(AIState::Attacking);
+        w.status.attacking = true;
     }
     logic.drop_worker_supply_boxes_for_mine_clear(wid);
     assert_eq!(
@@ -2144,7 +2155,7 @@ fn countermeasures_diverts_projectile_direct_hits() {
         damage: 5.0,
         splash_radius: 0.0,
         ..Weapon::default()
-    };
+};
     let air_pos = glam::Vec3::new(0.0, 20.0, 0.0);
     let hp0 = logic.host_object(air).unwrap().health.current;
     for i in 0..60u32 {

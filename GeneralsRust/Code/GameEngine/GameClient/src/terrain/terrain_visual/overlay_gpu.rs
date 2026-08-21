@@ -2,7 +2,9 @@
 // custom edging, snow flakes, heat-haze smudge, FOW shroud, flat LOD.
 
 use super::*;
-use crate::snow::{get_snow_manager, get_weather_setting};
+use crate::snow::{
+    camera_facing_quad_corners, get_snow_manager, get_weather_setting, SnowVisibleBoxXy,
+};
 use crate::system::smudge::get_smudge_manager;
 use super::water_tracks::{decode_wak_records, water_track_wak_path};
 use super::IRegion2D as BgRegion;
@@ -586,7 +588,7 @@ impl TerrainVisualImpl {
                 .collect();
     }
 
-    fn upload_snow_mesh(&mut self, camera: Vec3) {
+    fn upload_snow_mesh(&mut self, camera: Vec3, view_matrix: &Mat4) {
         let Some(device) = self.device.as_ref() else {
             self.snow_mesh = None;
             return;
@@ -610,11 +612,11 @@ impl TerrainVisualImpl {
             self.snow_mesh = None;
             return;
         }
-        let settings = get_weather_setting()
-            .and_then(|s| s.read().ok().map(|g| g.clone()))
-            .unwrap_or_default();
-        let flakes = guard.flake_positions_y_up([camera.x, camera.y, camera.z]);
-        let quad = guard.quad_size().max(settings.snow_quad_size).max(0.15);
+        let (camera_y_up, right, up, view_is_z_up) =
+            Self::snow_camera_axes_y_up(camera, view_matrix);
+        let visible_xy = self.snow_terrain_visible_xy();
+        let flakes = guard.flake_positions_y_up_clipped(camera_y_up, visible_xy);
+        let quad = guard.quad_size();
         drop(guard);
         if flakes.is_empty() {
             self.snow_mesh = None;
@@ -622,18 +624,17 @@ impl TerrainVisualImpl {
         }
         let mut vertices = Vec::with_capacity(flakes.len() * 4);
         let mut indices = Vec::with_capacity(flakes.len() * 6);
+        let right_a = [right.x, right.y, right.z];
+        let up_a = [up.x, up.y, up.z];
         for flake in flakes {
-            let cx = flake[0];
-            let wy = flake[1];
-            let cz = flake[2];
+            // Overlay vertices must live in the same space as `view_matrix`.
+            let center = if view_is_z_up {
+                [flake[0], flake[2], flake[1]]
+            } else {
+                flake
+            };
             let base = vertices.len() as u32;
-            let corners = [
-                ([cx - quad, wy - quad, cz], [0.0, 0.0]),
-                ([cx + quad, wy - quad, cz], [1.0, 0.0]),
-                ([cx + quad, wy + quad, cz], [1.0, 1.0]),
-                ([cx - quad, wy + quad, cz], [0.0, 1.0]),
-            ];
-            for (pos, uv) in corners {
+            for (pos, uv) in camera_facing_quad_corners(center, right_a, up_a, quad) {
                 vertices.push(OverlayGpuVertex {
                     position: pos,
                     color: [1.0, 1.0, 1.0],
@@ -646,6 +647,53 @@ impl TerrainVisualImpl {
         }
         self.snow_mesh = Self::upload_overlay_mesh(device, "Snow Flakes", &vertices, &indices);
     }
+
+    /// Eye + billboard axes. Overlay GPU is Y-up; the live view may still be
+    /// C++ Z-up (`look_at` with world up = Z).
+    fn snow_camera_axes_y_up(camera: Vec3, view_matrix: &Mat4) -> ([f32; 3], Vec3, Vec3, bool) {
+        let inv = view_matrix.inverse();
+        let right = inv.transform_vector3(Vec3::X);
+        let up = inv.transform_vector3(Vec3::Y);
+        let y_as_cam_up = view_matrix.transform_vector3(Vec3::Y).y.abs();
+        let z_as_cam_up = view_matrix.transform_vector3(Vec3::Z).y.abs();
+        let view_is_z_up = z_as_cam_up > y_as_cam_up;
+        if view_is_z_up {
+            ([camera.x, camera.z, camera.y], right, up, true)
+        } else {
+            ([camera.x, camera.y, camera.z], right, up, false)
+        }
+    }
+
+    /// C++ `getMaximumVisibleBox(frustum, &bbox, TRUE)` X/Y for snow clip.
+    /// Uses the height map min plane so we do not re-lock `THE_TERRAIN_VISUAL`.
+    fn snow_terrain_visible_xy(&self) -> Option<SnowVisibleBoxXy> {
+        let min_height = self
+            .height_map
+            .as_ref()
+            .map(|h| h.min_height)
+            .unwrap_or(0.0);
+        crate::display::view::with_tactical_view_ref(|view| {
+            let cam = view.get_3d_camera_position();
+            let target = view.position();
+            let aspect = (view.width() as f32 / view.height().max(1) as f32).max(0.01);
+            let visible = crate::display::shadow_pass::maximum_visible_box(
+                [cam.x, cam.y, cam.z],
+                [target.x, target.y, target.z],
+                1.0,
+                20000.0,
+                crate::display::view::vertical_fov_from_horizontal(view.field_of_view(), aspect),
+                aspect,
+                min_height,
+            );
+            Some(SnowVisibleBoxXy {
+                center_x: visible.center[0],
+                center_y: visible.center[1],
+                extent_x: visible.extent[0],
+                extent_y: visible.extent[1],
+            })
+        })
+    }
+
 
     fn upload_smudge_mesh(&mut self) {
         let Some(device) = self.device.as_ref() else {

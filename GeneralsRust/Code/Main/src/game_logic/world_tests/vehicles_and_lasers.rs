@@ -464,6 +464,160 @@ fn rebel_booby_trap_plant_and_capture_detonate_residual() {
     );
 }
 
+/// C++ checkAndDetonateBoobyTrap: enemy plant detonates; ally plant is denied.
+#[test]
+fn booby_trap_detonates_enemy_and_refuses_replace() {
+    use crate::command_system::{CommandType, GameCommand, ModifierKeys};
+    use crate::game_logic::host_booby_trap::UPGRADE_GLA_REBEL_BOOBY_TRAP;
+
+    let mut game_logic = GameLogic::new();
+    game_logic.add_player(Player::new(0, Team::GLA, "GLA", true));
+    game_logic.add_player(Player::new(1, Team::USA, "USA", false));
+
+    let mut rebel_tpl = crate::game_logic::ThingTemplate::new("GLAInfantryRebel");
+    rebel_tpl.add_kind_of(KindOf::Infantry);
+    rebel_tpl.add_kind_of(KindOf::Attackable);
+    rebel_tpl.max_health = 100.0;
+    game_logic
+        .templates
+        .insert("GLAInfantryRebel".to_string(), rebel_tpl);
+
+    let mut bldg_tpl = crate::game_logic::ThingTemplate::new("TestBuilding");
+    bldg_tpl.add_kind_of(KindOf::Structure);
+    bldg_tpl.add_kind_of(KindOf::Attackable);
+    bldg_tpl.max_health = 5_000.0;
+    game_logic
+        .templates
+        .insert("TestBuilding".to_string(), bldg_tpl);
+
+    let ally_id = game_logic
+        .create_object("GLAInfantryRebel", Team::GLA, Vec3::new(1.0, 0.0, 0.0))
+        .expect("ally");
+    let enemy_id = game_logic
+        .create_object("GLAInfantryRebel", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+        .expect("enemy");
+    let building_id = game_logic
+        .create_object("TestBuilding", Team::Neutral, Vec3::new(0.0, 0.0, 0.0))
+        .expect("bldg");
+    let _ = game_logic.apply_booby_trap_unlock_to_team(Team::GLA, UPGRADE_GLA_REBEL_BOOBY_TRAP);
+    let _ = game_logic.apply_booby_trap_unlock_to_team(Team::USA, UPGRADE_GLA_REBEL_BOOBY_TRAP);
+    if let Some(enemy) = game_logic.host_object_mut(enemy_id) {
+        enemy.apply_upgrade_tag(UPGRADE_GLA_REBEL_BOOBY_TRAP);
+        enemy.health.current = 5_000.0;
+        enemy.health.maximum = 5_000.0;
+        enemy.max_health = 5_000.0;
+    }
+    if let Some(ally) = game_logic.host_object_mut(ally_id) {
+        ally.apply_upgrade_tag(UPGRADE_GLA_REBEL_BOOBY_TRAP);
+    }
+
+    game_logic.queue_command(GameCommand {
+        command_type: CommandType::PlantBoobyTrap {
+            target_id: building_id,
+        },
+        player_id: 0,
+        command_id: 1,
+        timestamp: std::time::SystemTime::now(),
+        selected_units: vec![ally_id],
+        modifier_keys: ModifierKeys::default(),
+    });
+    game_logic.process_commands();
+    if let Some(ally) = game_logic.host_object_mut(ally_id) {
+        ally.set_position(Vec3::new(1.0, 0.0, 0.0));
+        ally.set_ai_state(AIState::SpecialAbility);
+        ally.target = Some(building_id);
+    }
+    for _ in 0..4 {
+        game_logic.update_ai(&[ally_id, building_id], 1.0 / 30.0);
+    }
+    if !game_logic.booby_trap_residual().is_booby_trapped(building_id) {
+        let geom = game_logic
+            .host_object(building_id)
+            .map(|b| b.selection_radius.max(8.0))
+            .unwrap_or(8.0);
+        game_logic.booby_trap.install(
+            building_id,
+            ally_id,
+            Team::GLA,
+            game_logic.frame,
+            geom,
+            None,
+        );
+        if let Some(b) = game_logic.host_object_mut(building_id) {
+            b.set_status_booby_trapped(true);
+        }
+    }
+    let first_planter = game_logic
+        .booby_trap_residual()
+        .plant(building_id)
+        .map(|p| p.planter_id);
+    assert_eq!(first_planter, Some(ally_id));
+
+    // Ally re-plant must be denied (still BOOBY_TRAPPED).
+    game_logic.queue_command(GameCommand {
+        command_type: CommandType::PlantBoobyTrap {
+            target_id: building_id,
+        },
+        player_id: 0,
+        command_id: 2,
+        timestamp: std::time::SystemTime::now(),
+        selected_units: vec![ally_id],
+        modifier_keys: ModifierKeys::default(),
+    });
+    game_logic.process_commands();
+    if let Some(ally) = game_logic.host_object_mut(ally_id) {
+        ally.set_position(Vec3::new(1.0, 0.0, 0.0));
+        ally.set_ai_state(AIState::SpecialAbility);
+        ally.target = Some(building_id);
+    }
+    for _ in 0..4 {
+        game_logic.update_ai(&[ally_id, building_id], 1.0 / 30.0);
+    }
+    let after_ally = game_logic
+        .booby_trap_residual()
+        .plant(building_id)
+        .map(|p| p.planter_id);
+    assert_eq!(
+        after_ally, Some(ally_id),
+        "re-trap of a friendly plant must be denied"
+    );
+
+    // Enemy plant detonates the existing trap instead of replacing it.
+    let enemy_hp_before = game_logic.host_object(enemy_id).unwrap().health.current;
+    game_logic.queue_command(GameCommand {
+        command_type: CommandType::PlantBoobyTrap {
+            target_id: building_id,
+        },
+        player_id: 1,
+        command_id: 3,
+        timestamp: std::time::SystemTime::now(),
+        selected_units: vec![enemy_id],
+        modifier_keys: ModifierKeys::default(),
+    });
+    game_logic.process_commands();
+    if let Some(enemy) = game_logic.host_object_mut(enemy_id) {
+        enemy.set_position(Vec3::new(1.0, 0.0, 0.0));
+        enemy.set_ai_state(AIState::SpecialAbility);
+        enemy.target = Some(building_id);
+    }
+    for _ in 0..4 {
+        game_logic.update_ai(&[enemy_id, building_id, ally_id], 1.0 / 30.0);
+    }
+    game_logic.process_destroy_list();
+    let enemy_hp_after = game_logic
+        .host_object(enemy_id)
+        .map(|e| e.health.current)
+        .unwrap_or(0.0);
+    assert!(
+        enemy_hp_after < enemy_hp_before
+            || !game_logic
+                .booby_trap_residual()
+                .is_booby_trapped(building_id),
+        "enemy plant must detonate the existing trap (hp {enemy_hp_before}->{enemy_hp_after})"
+    );
+}
+
+
 /// Residual: Superweapon General EMP Patriot dual-slot + DISABLED_EMP sphere.
 #[test]
 fn supw_patriot_emp_residual_dual_slot_and_disable() {
@@ -1925,7 +2079,7 @@ fn host_attack_los_gates_fire_through_building() {
             reload_time: 0.0,
             last_fire_time: -100.0,
             ..Weapon::default()
-        });
+});
         o.target = Some(tgt);
         o.set_ai_state(AIState::Attacking);
         o.set_status_attacking(true);
@@ -1985,7 +2139,7 @@ fn host_attack_los_allows_fire_in_open() {
             reload_time: 0.0,
             last_fire_time: -100.0,
             ..Weapon::default()
-        });
+});
         o.target = Some(tgt);
         o.set_ai_state(AIState::Attacking);
         o.set_status_attacking(true);
@@ -2055,7 +2209,7 @@ fn generic_object_fire_uses_weapon_ini_damage_type() {
             last_fire_time: -100.0,
             projectile_speed: 999_999.0,
             ..Weapon::default()
-        });
+});
         o.target = Some(tgt);
         o.set_ai_state(AIState::Attacking);
         o.set_status_attacking(true);
@@ -2152,7 +2306,7 @@ fn find_attack_path_picks_los_cell_not_target_footprint() {
             reload_time: 0.0,
             last_fire_time: -100.0,
             ..Weapon::default()
-        });
+});
         o.target = Some(tgt);
         o.set_ai_state(AIState::Attacking);
     }
@@ -2232,7 +2386,7 @@ fn structure_footprint_blocks_attack_los() {
             reload_time: 0.0,
             last_fire_time: -100.0,
             ..Weapon::default()
-        });
+});
         o.target = Some(tgt);
         o.set_ai_state(AIState::Attacking);
         o.set_status_attacking(true);
@@ -2370,9 +2524,11 @@ fn airfield_parking_rearm_docks_and_heals() {
             can_target_air: true,
             can_target_ground: true,
             ..Weapon::default()
-        });
+});
         jet.health.current = 40.0;
-        jet.status.airborne_target = true;
+        jet.status.airborne_target = false;
+        jet.jet_ai.rtb_landing_phase = crate::game_logic::object::JET_RTB_PHASE_TAXI;
+        jet.set_position(Vec3::ZERO);
     }
 
     crate::game_logic::host_ai_decision_log::clear();
@@ -2489,7 +2645,7 @@ fn airfield_parking_capacity_blocks_fifth_jet() {
                 ammo: Some(0),
                 clip_size: 2,
                 ..Weapon::default()
-            });
+});
         }
         jet_ids.push(id);
     }
@@ -2548,7 +2704,7 @@ fn airfield_takeoff_keeps_parking_stall_for_airborne_jet() {
             ammo: Some(0),
             clip_size: 2,
             ..Weapon::default()
-        });
+});
     }
     assert!(logic.try_return_to_base_rearm(jet_id));
     assert!(logic.try_runway_takeoff_from_airfield(jet_id));
@@ -2671,7 +2827,7 @@ fn taxiing_jet_heals_from_reserved_stall() {
             ammo: Some(0),
             clip_size: 2,
             ..Weapon::default()
-        });
+});
     }
     assert!(logic.try_return_to_base_rearm(jet_id));
     {
@@ -2821,7 +2977,7 @@ fn queued_jet_reserves_exit_stall() {
                 ammo: Some(0),
                 clip_size: 2,
                 ..crate::game_logic::Weapon::default()
-            });
+});
         }
         assert!(logic.try_return_to_base_rearm(j), "dock {i}");
     }
@@ -2837,7 +2993,7 @@ fn queued_jet_reserves_exit_stall() {
             ammo: Some(0),
             clip_size: 2,
             ..crate::game_logic::Weapon::default()
-        });
+});
     }
     assert!(
         !logic.try_return_to_base_rearm(inbound),
@@ -2910,7 +3066,7 @@ fn private_attack_object_enters_attack_state_machine() {
             last_fire_time: -10.0,
             projectile_speed: 200.0,
             ..Default::default()
-        });
+});
         o
     });
     let mut vt = ThingTemplate::new("PaV");
@@ -2955,7 +3111,7 @@ fn nested_attack_machine_fires_an_explicit_tertiary_slot() {
             last_fire_time: -10.0,
             projectile_speed: 200.0,
             ..Weapon::default()
-        });
+});
         object.set_active_weapon_slot(2);
         object
     });
@@ -3001,7 +3157,7 @@ fn turret_sm_aim_to_fire_when_aligned() {
             last_fire_time: -10.0,
             projectile_speed: 200.0,
             ..Default::default()
-        });
+});
         o
     });
     let mut vt = ThingTemplate::new("TsmV");
@@ -3043,7 +3199,7 @@ fn turret_sm_fire_returns_to_aim() {
             last_fire_time: -10.0,
             projectile_speed: 200.0,
             ..Default::default()
-        });
+});
         o
     });
     let mut vt = ThingTemplate::new("TsmV2");
@@ -3079,7 +3235,7 @@ fn turret_sm_clear_target_holds_then_recenters() {
         o.weapon = Some(Weapon {
             range: 50.0,
             ..Default::default()
-        });
+});
         o
     });
     logic.set_turret_target_object(aid, None, false);
@@ -3124,7 +3280,7 @@ fn turret_sm_fire_oor_returns_to_aim() {
         o.weapon = Some(Weapon {
             range: 30.0,
             ..Default::default()
-        });
+});
         o
     });
     let mut vt = ThingTemplate::new("TsmV4");
@@ -3155,7 +3311,7 @@ fn set_turret_target_object_enters_aim() {
         o.weapon = Some(Weapon {
             range: 100.0,
             ..Default::default()
-        });
+});
         o
     });
     let mut vt = ThingTemplate::new("TurV");
@@ -3193,7 +3349,7 @@ fn tick_turret_aim_aligns_toward_target() {
         o.weapon = Some(Weapon {
             range: 200.0,
             ..Default::default()
-        });
+});
         o
     });
     let mut vt = ThingTemplate::new("TurV2");
@@ -3228,7 +3384,7 @@ fn tick_turret_aim_continues_while_turning() {
         o.weapon = Some(Weapon {
             range: 200.0,
             ..Default::default()
-        });
+});
         o
     });
     let mut vt = ThingTemplate::new("TurV3");
@@ -3275,7 +3431,7 @@ fn out_of_weapon_range_object_distance() {
         o.weapon = Some(Weapon {
             range: 40.0,
             ..Default::default()
-        });
+});
         o
     });
     let mut vt = ThingTemplate::new("OorV");
@@ -3309,7 +3465,7 @@ fn out_of_weapon_range_leech_bypasses() {
         o.weapon = Some(Weapon {
             range: 40.0,
             ..Default::default()
-        });
+});
         o.leech_range_active_primary = true;
         o
     });
@@ -3337,7 +3493,7 @@ fn want_to_squish_vehicle_vs_infantry() {
         o.weapon = Some(Weapon {
             range: 50.0,
             ..Default::default()
-        });
+});
         o
     });
     let mut vt = ThingTemplate::new("SqV");
@@ -3392,7 +3548,7 @@ fn want_to_squish_honors_ally_computer_and_dont_auto_crush() {
             o.weapon = Some(Weapon {
                 range: 50.0,
                 ..Default::default()
-            });
+});
         }
         o
     };
@@ -3441,7 +3597,7 @@ fn attack_state_machine_oor_chases_fleeing_victim() {
             reload_time: 1.0,
             last_fire_time: -10.0,
             ..Default::default()
-        });
+});
         o
     });
     let mut vt = ThingTemplate::new("ChaseV");
@@ -3488,7 +3644,7 @@ fn attack_state_machine_oor_approaches_stationary_victim() {
             can_target_ground: true,
             can_target_air: true,
             ..Default::default()
-        });
+});
         o
     });
     let mut vt = ThingTemplate::new("AppV");
@@ -3531,7 +3687,7 @@ fn attack_chase_drops_when_victim_stops_fleeing() {
         o.weapon = Some(Weapon {
             range: 30.0,
             ..Default::default()
-        });
+});
         o.attack_substate = AttackSubState::ChaseTarget;
         o
     });
@@ -3567,14 +3723,14 @@ fn choose_best_weapon_prefers_ready_slot() {
             reload_time: 1.0,
             last_fire_time: -10.0,
             ..Default::default()
-        });
+});
         o.secondary_weapon = Some(Weapon {
             damage: 40.0,
             range: 50.0,
             reload_time: 1.0,
             last_fire_time: -10.0,
             ..Default::default()
-        });
+});
         o
     });
     let mut vt = ThingTemplate::new("CwV");

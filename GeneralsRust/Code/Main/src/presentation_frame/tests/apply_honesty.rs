@@ -481,7 +481,7 @@ fn presentation_feeds_unit_command_panel_buttons() {
             damage: 10.0,
             range: 100.0,
             ..crate::game_logic::Weapon::default()
-        });
+});
     }
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![ranger];
@@ -1103,7 +1103,7 @@ fn presentation_frame_observes_combat_kill_particle_systems() {
             projectile_speed: 0.0,
             pre_attack_delay: 0.0,
             ..Weapon::default()
-        });
+});
         a.attack_target(victim);
     }
     {
@@ -1578,3 +1578,71 @@ fn weapon_laser_presentation_freezes_laser_name() {
     let beam2 = PresentationLaserBeam::from_weapon_laser(&l2, 1, 0.0, false);
     assert_eq!(beam2.laser_bone_name, "LASER");
 }
+
+/// C++ isPowerCurrentlyInUse inverts remote detonate when charge count is 0.
+#[test]
+fn burton_detonate_button_gray_without_remote_charges() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use crate::presentation_frame::PresentationFrame;
+
+    let mut logic = crate::game_logic::GameLogic::new();
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "USA", true));
+    let mut burton = ThingTemplate::new("AmericaInfantryColonelBurton");
+    burton
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    logic
+        .templates
+        .insert("AmericaInfantryColonelBurton".into(), burton);
+    let burton_id = logic
+        .create_object(
+            "AmericaInfantryColonelBurton",
+            Team::USA,
+            glam::Vec3::new(0.0, 0.0, 0.0),
+        )
+        .expect("burton");
+    if let Some(o) = logic.host_object_mut(burton_id) {
+        o.selected = true;
+    }
+    if let Some(p) = logic.get_player_mut(0) {
+        p.selected_objects = vec![burton_id];
+    }
+
+    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let cmds = frame.unit_command_buttons();
+    let detonate = cmds.iter().find(|c| {
+        c.command_name
+            .eq_ignore_ascii_case("Command_DetonateRemoteDemoCharges")
+    });
+    assert!(
+        detonate.is_some_and(|c| !c.enabled),
+        "zero charges must gray DetonateRemoteDemoCharges: {:?}",
+        cmds.iter()
+            .map(|c| (c.command_name.as_str(), c.enabled))
+            .collect::<Vec<_>>()
+    );
+
+    let charge = logic
+        .place_remote_demo_charge(
+            Team::USA,
+            glam::Vec3::new(5.0, 0.0, 0.0),
+            Some(burton_id),
+            None,
+        )
+        .expect("charge");
+    if let Some(c) = logic.host_object_mut(charge) {
+        c.producer_id = Some(burton_id);
+    }
+    let frame = PresentationFrame::build_from_logic(&logic, 1);
+    let cmds = frame.unit_command_buttons();
+    let detonate = cmds.iter().find(|c| {
+        c.command_name
+            .eq_ignore_ascii_case("Command_DetonateRemoteDemoCharges")
+    });
+    assert!(
+        detonate.is_some_and(|c| c.enabled),
+        "planted remote charge must enable detonate"
+    );
+}
+

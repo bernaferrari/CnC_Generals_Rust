@@ -611,13 +611,18 @@ impl PresentationWorldEnv {
             .collect();
 
         let weather = logic.weather_state().current_weather.to_ascii_lowercase();
-        let follow_weather = get_global_data()
-            .map(|global| global.read().force_models_to_follow_weather)
-            .unwrap_or(true);
+        let (follow_weather, is_night) = get_global_data()
+            .map(|global| {
+                let global = global.read();
+                (
+                    global.force_models_to_follow_weather,
+                    // C++ Drawable::setTimeOfDay / Object bind: NIGHT iff tod==TIME_OF_DAY_NIGHT.
+                    matches!(global.time_of_day, TimeOfDay::Night),
+                )
+            })
+            .unwrap_or((true, false));
         let is_snow = weather.contains("snow") && follow_weather;
 
-        // Night residual: weather name or evening/night tokens (fail-closed TOD runtime).
-        let is_night = weather.contains("night") || weather.contains("evening");
         // C++ W3DDisplay::setTimeOfDay applies all 3 object lights; TerrainVisual
         // uses the terrain array. Map objects-lighting wins for units/shadows.
         let (object_global_lights, terrain_global_lights, infantry_light_scale) =
@@ -903,4 +908,26 @@ mod lighting_parity_tests {
             Some([0.0, 0.5, 0.0])
         );
     }
+
+    #[test]
+    fn world_env_night_follows_global_time_of_day_not_weather_string() {
+        use crate::game_logic::GameLogic;
+        let handle = ensure_global_data();
+        let previous = handle.read().clone();
+        {
+            let mut data = handle.write();
+            data.time_of_day = TimeOfDay::Night;
+        }
+        let logic = GameLogic::new();
+        let night = PresentationWorldEnv::from_logic(&logic);
+        assert!(night.is_night, "TIME_OF_DAY_NIGHT must stamp MODELCONDITION_NIGHT");
+        {
+            let mut data = handle.write();
+            data.time_of_day = TimeOfDay::Afternoon;
+        }
+        let day = PresentationWorldEnv::from_logic(&logic);
+        assert!(!day.is_night);
+        *handle.write() = previous;
+    }
+
 }

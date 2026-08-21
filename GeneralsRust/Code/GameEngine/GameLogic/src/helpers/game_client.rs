@@ -950,6 +950,17 @@ impl TheGameClient {
         DRAWABLE_STATE.lock().ok().map(|m| m.len()).unwrap_or(0)
     }
 
+    /// Client-only drawables (RallyPointMarker) keyed by leftover DRAWABLE_STATE.
+    pub fn leftover_drawables_named(&self, template: &str) -> Vec<(u32, DrawableState)> {
+        let Ok(map) = DRAWABLE_STATE.lock() else {
+            return Vec::new();
+        };
+        map.iter()
+            .filter(|(_, state)| state.template_name.eq_ignore_ascii_case(template))
+            .map(|(id, state)| (*id, state.clone()))
+            .collect()
+    }
+
     pub fn get_drawable_beam_width(&self, id: u32) -> Option<Real> {
         let map = DRAWABLE_STATE.lock().ok()?;
         map.get(&id).and_then(|state| state.beam_width)

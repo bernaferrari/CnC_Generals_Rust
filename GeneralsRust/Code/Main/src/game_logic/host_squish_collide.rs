@@ -56,15 +56,67 @@ pub fn squish_geom_collides(
     victim_angle: f32,
     victim_height: f32,
 ) -> bool {
+    use gamelogic::object::collide::GeometryInfo;
+    squish_geom_collides_with(
+        crusher_pos,
+        crusher_angle,
+        GeometryInfo::new_cylinder(
+            crusher_major.max(1.0),
+            crusher_height.max(1.0),
+            crusher_major <= 20.0,
+        ),
+        victim_pos,
+        victim_angle,
+        victim_height,
+    )
+}
+
+/// C++ `SquishCollide.cpp:83` — crusher uses **real** `GeometryInfo` (BOX for
+/// tanks), not a cylinder of the bounding/selection radius.
+pub fn authored_crusher_geometry(
+    info: &crate::game_logic::HostGeometryInfo,
+    fallback_major: f32,
+    fallback_height: f32,
+) -> gamelogic::object::collide::GeometryInfo {
+    use crate::game_logic::HostGeometryType;
+    use gamelogic::object::collide::GeometryInfo;
+    if info.authored {
+        match info.geom_type {
+            HostGeometryType::Sphere => GeometryInfo::new_sphere(info.major_radius, info.is_small),
+            HostGeometryType::Cylinder => {
+                GeometryInfo::new_cylinder(info.major_radius, info.height, info.is_small)
+            }
+            HostGeometryType::Box => {
+                let mut geom = GeometryInfo::new_box(
+                    info.major_radius * 2.0,
+                    info.minor_radius * 2.0,
+                    info.is_small,
+                );
+                geom.set_height(info.height);
+                geom
+            }
+        }
+    } else {
+        GeometryInfo::new_cylinder(
+            fallback_major.max(1.0),
+            fallback_height.max(1.0),
+            fallback_major <= 20.0,
+        )
+    }
+}
+
+/// C++ `geomCollidesWithGeom(other->getGeometryInfo(), victim 1.0 major/minor)`.
+pub fn squish_geom_collides_with(
+    crusher_pos: (f32, f32, f32),
+    crusher_angle: f32,
+    crusher_geom: gamelogic::object::collide::GeometryInfo,
+    victim_pos: (f32, f32, f32),
+    victim_angle: f32,
+    victim_height: f32,
+) -> bool {
     use gamelogic::object::collide::{
         collide_test_dispatch, CollideInfo, CollideLocAndNormal, Coord3D, GeometryInfo,
     };
-    let geom_crusher = GeometryInfo::new_cylinder(
-        crusher_major.max(1.0),
-        crusher_height.max(1.0),
-        crusher_major <= 20.0,
-    );
-    // Victim geom: keep height, force 1.0 crush radius (C++ setMajor/Minor).
     let geom_victim = GeometryInfo::new_cylinder(
         SQUISH_CRUSH_RADIUS,
         victim_height.max(0.01),
@@ -72,7 +124,7 @@ pub fn squish_geom_collides(
     );
     let info_a = CollideInfo::new(
         Coord3D::new(crusher_pos.0, crusher_pos.2, crusher_pos.1),
-        geom_crusher,
+        crusher_geom,
         crusher_angle,
     );
     let info_b = CollideInfo::new(
@@ -90,7 +142,7 @@ pub fn squish_geom_collides(
     let mut cinfo =
         CollideLocAndNormal::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(0.0, 0.0, 0.0));
     collide_test_dispatch(
-        geom_crusher.get_geom_type(),
+        crusher_geom.get_geom_type(),
         geom_victim.get_geom_type(),
         &info_a,
         &info_b,
@@ -120,6 +172,23 @@ pub fn template_has_hijacker_update(victim_template: &str) -> bool {
     victim_template
         .to_ascii_lowercase()
         .contains("hijacker")
+}
+
+/// C++ `findModule("SquishCollide")` (`Object.cpp:1133`). Authored on infantry
+/// Object INI; never inferred from KindOf.
+pub fn template_has_squish_collide(template_name: &str) -> bool {
+    let Some(manager) = crate::assets::get_asset_manager() else {
+        return false;
+    };
+    let Ok(guard) = manager.lock() else {
+        return false;
+    };
+    let Some(definition) = guard.get_object_definition(template_name) else {
+        return false;
+    };
+    definition.behavior_modules.iter().any(|module| {
+        module.class_name.eq_ignore_ascii_case("SquishCollide")
+    })
 }
 
 /// C++ `SquishCollide::onCollide` (`SquishCollide.cpp:51-70`): skip crush only
@@ -216,6 +285,42 @@ mod tests {
             0.0,
             8.0,
             5.0,
+            (8.5, 0.0, 0.0),
+            0.0,
+            2.0,
+        ));
+    }
+
+    #[test]
+    fn crusher_uses_authored_box_not_cylinder() {
+        use gamelogic::object::collide::GeometryInfo;
+        // Long thin BOX: major 8 (X), minor 2 (Z). Side point is outside BOX
+        // but inside a cylinder of the major/selection radius.
+        let mut box_geom = GeometryInfo::new_box(16.0, 4.0, true);
+        box_geom.set_height(5.0);
+        assert!(!squish_geom_collides_with(
+            (0.0, 0.0, 0.0),
+            0.0,
+            box_geom,
+            (0.0, 0.0, 6.0),
+            0.0,
+            2.0,
+        ));
+        assert!(squish_geom_collides(
+            (0.0, 0.0, 0.0),
+            0.0,
+            8.0,
+            5.0,
+            (0.0, 0.0, 6.0),
+            0.0,
+            2.0,
+        ));
+        let mut along = GeometryInfo::new_box(16.0, 4.0, true);
+        along.set_height(5.0);
+        assert!(squish_geom_collides_with(
+            (0.0, 0.0, 0.0),
+            0.0,
+            along,
             (8.5, 0.0, 0.0),
             0.0,
             2.0,

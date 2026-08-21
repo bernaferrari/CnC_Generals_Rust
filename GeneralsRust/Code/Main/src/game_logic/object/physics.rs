@@ -169,7 +169,7 @@ impl Object {
     /// Fail-closed vs full pathfind goal cell / path priority matrix.
     /// `is_ally` is the crusher's `getRelationship == ALLIES` (Object.cpp:1096).
     pub fn ai_blocked_by(&self, other: &Object, is_ally: bool) -> bool {
-        if self.can_crush_only(other, is_ally) {
+        if self.can_crush_or_squish(other, is_ally) {
             return false;
         }
         let other_ground =

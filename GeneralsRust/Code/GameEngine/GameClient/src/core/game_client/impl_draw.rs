@@ -97,7 +97,7 @@ impl GameClient {
         Vec<(String, [f32; 4])>,
         Option<String>,
         Vec<(String, String, bool)>,
-        Vec<(String, [f32; 3], (u8, u8, u8), u32, u32)>,
+        Vec<(String, [f32; 3], (u8, u8, u8, u8), u32, u32)>,
         Vec<(String, [f32; 3], f32, f32, bool, u32)>,
     ) {
         let Some(ui) = &self.subsystem_manager.in_game_ui else {
@@ -138,13 +138,7 @@ impl GameClient {
         let frame = gamelogic::helpers::TheGameLogic::get_frame();
         crate::gui::ingame_ui::step_live_hud(frame);
         let subtitle = crate::gui::ingame_ui::live_military_subtitle_draw(frame)
-            .map(|(text, _, _, _, _)| text)
-            .or_else(|| {
-                guard
-                    .military_subtitles()
-                    .back()
-                    .map(|(text, _)| text.clone())
-            });
+            .map(|(text, _, _, _, _)| text);
         // C++ draws named timers (0.05,0.7) and superweapon timers (0.7,0.7)
         // independently. Named lines must not replace the SW strip.
         let timers: Vec<(String, String, bool)> = guard
@@ -218,15 +212,6 @@ impl GameClient {
                         0.0,
                     );
                 }
-            } else if let Some(text) = &subtitle {
-                let pos_x = 10.0 * (screen_w / 800.0);
-                let pos_y = 340.0 * (screen_h / 600.0);
-                let _ = renderer.draw_text_simple(
-                    text,
-                    Vec2::new(pos_x, pos_y),
-                    12.0,
-                    [1.0, 1.0, 1.0, 1.0],
-                );
             }
 
             // Named timers (C++ InGameUI.cpp:3699-3784) at constructor pos 0.05, 0.7.
@@ -261,8 +246,9 @@ impl GameClient {
             for (text, pos, color, spawn_frame, timeout) in &floating {
                 let timeout_frames = (*timeout).max(1);
                 let frame_timeout = spawn_frame.saturating_add(timeout_frames);
+                let spawn_alpha = color.3;
                 let alpha_u8 = crate::gui::ingame_ui::InGameUI::floating_text_alpha_at_frame(
-                    255,
+                    spawn_alpha,
                     self.frame,
                     frame_timeout,
                     0.1,
@@ -287,8 +273,10 @@ impl GameClient {
                 }) else {
                     continue;
                 };
-                let rgba =
-                    crate::gui::ingame_ui::InGameUI::floating_text_draw_rgba(*color, alpha_u8);
+                let rgba = crate::gui::ingame_ui::InGameUI::floating_text_draw_rgba(
+                    (color.0, color.1, color.2),
+                    alpha_u8,
+                );
                 let drop = [0.0, 0.0, 0.0, rgba[3]];
                 let char_w = 8.0 * 0.6;
                 let text_w = text.len() as f32 * char_w;
@@ -375,13 +363,18 @@ impl GameClient {
                     .downcast_ref::<crate::drawable::drawable::BasicDrawable>()
                     .map(|basic| basic.overlay_data.clone())
             })
-            .filter(|overlay| overlay.visible && overlay.health_region.is_some())
+            .filter(|overlay| {
+                overlay.visible
+                    && (overlay.health_region.is_some()
+                        || overlay.caption.as_ref().is_some_and(|c| !c.is_empty()))
+            })
             .collect();
         counts.icon_overlays = overlays.len() as u32;
 
         let _ = with_ui_renderer_mut(|renderer| {
             for overlay in &overlays {
                 let Some(region) = overlay.health_region else {
+                    draw_cpp_drawable_caption(renderer, overlay);
                     continue;
                 };
                 let bar_x = region.lo.x as f32;
@@ -567,16 +560,7 @@ impl GameClient {
                     );
                 }
 
-                if let Some(caption) = overlay.caption.as_deref() {
-                    if !caption.is_empty() {
-                        let _ = renderer.draw_text_simple(
-                            caption,
-                            Vec2::new(bar_x, bar_y - 24.0),
-                            10.0,
-                            [1.0, 1.0, 1.0, 1.0],
-                        );
-                    }
-                }
+                draw_cpp_drawable_caption(renderer, overlay);
             }
         });
 
@@ -792,4 +776,62 @@ fn draw_money_pickup_anim2d(
         [0.2, 0.85, 0.25, alpha],
     );
 }
+
+/// C++ `Drawable::drawCaption` (Drawable.cpp:3737-3768).
+fn draw_cpp_drawable_caption(
+    renderer: &mut crate::gui::ui_renderer::UIRenderer,
+    overlay: &crate::drawable::drawable::DrawableOverlayData,
+) {
+    use crate::display::view::{with_tactical_view_ref, Point3};
+    use crate::gui::ui_renderer::UIRect;
+    use glam::Vec2;
+
+    let Some(caption) = overlay.caption.as_deref().filter(|c| !c.is_empty()) else {
+        return;
+    };
+    let Some(world) = overlay
+        .caption_world
+        .map(|p| Point3::new(p[0], p[1], p[2]))
+    else {
+        return;
+    };
+    let Some(screen) = with_tactical_view_ref(|view| {
+        view.world_to_screen(&world)
+            .map(|pt| (pt.x as f32, pt.y as f32))
+    }) else {
+        return;
+    };
+    // C++ constructor defaults (InGameUI.cpp:1017-1020): Arial 10 white.
+    let point_size = 10.0;
+    let color_u32 = 0xFFFF_FFFFu32;
+    let a = ((color_u32 >> 24) & 0xFF) as f32 / 255.0;
+    let r = ((color_u32 >> 16) & 0xFF) as f32 / 255.0;
+    let g = ((color_u32 >> 8) & 0xFF) as f32 / 255.0;
+    let b = (color_u32 & 0xFF) as f32 / 255.0;
+    let rgba = [r, g, b, a];
+    let char_w = point_size * 0.6;
+    let text_w = caption.len() as f32 * char_w;
+    let text_h = point_size;
+    let x = screen.0 - text_w * 0.5;
+    let y = screen.1;
+    let _ = renderer.draw_rect(
+        UIRect::new(x - 1.0, y - 1.0, text_w + 2.0, text_h + 2.0),
+        [0.0, 0.0, 0.0, 125.0 / 255.0],
+        0.0,
+    );
+    let _ = renderer.draw_rect_outline(
+        UIRect::new(x - 1.0, y - 1.0, text_w + 2.0, text_h + 2.0),
+        1.0,
+        [20.0 / 255.0, 20.0 / 255.0, 20.0 / 255.0, 1.0],
+        0.0,
+    );
+    let _ = renderer.draw_text_simple(
+        caption,
+        Vec2::new(x + 1.0, y + 1.0),
+        point_size,
+        [0.0, 0.0, 0.0, a],
+    );
+    let _ = renderer.draw_text_simple(caption, Vec2::new(x, y), point_size, rgba);
+}
+
 

@@ -295,6 +295,14 @@ impl<'a> CommandExecutor<'a> {
                 *power_type,
                 SpecialPowerType::BlackLotusStealCash
                     | SpecialPowerType::BlackLotusDisableVehicle
+                    | SpecialPowerType::TankHunterTnt
+                    | SpecialPowerType::DemoRebelTimedCharges
+                    | SpecialPowerType::DemoKellTimedCharges
+                    | SpecialPowerType::DemoKellStickyCharges
+                    | SpecialPowerType::DemoKellRemoteCharges
+                    | SpecialPowerType::BattleBusDemoTrapRollout
+                    | SpecialPowerType::BurtonTimedCharges
+                    | SpecialPowerType::BurtonRemoteCharges
             );
             if !consume_at_prep
                 && !consume_after_valid_object

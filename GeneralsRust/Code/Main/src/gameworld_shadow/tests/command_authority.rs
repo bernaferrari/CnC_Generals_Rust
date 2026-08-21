@@ -37,7 +37,7 @@ fn attack_command_lands_set_attack_target_same_tick() {
             damage: 10.0,
             range: 200.0,
             ..Weapon::default()
-        });
+});
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);

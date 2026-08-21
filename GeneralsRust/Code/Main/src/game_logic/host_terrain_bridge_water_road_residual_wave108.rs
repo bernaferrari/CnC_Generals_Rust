@@ -550,7 +550,7 @@ pub fn honesty_road_residual_deepen_pack_wave108() -> bool {
 // ---------------------------------------------------------------------------
 
 /// C++ `PATHFIND_CLIFF_SLOPE_LIMIT_F` residual (WorldHeightMap.cpp).
-/// Cell is cliff when max(rawZ)−min(rawZ) of four corners > this limit.
+/// Cell is cliff when max(raw*MAP_HEIGHT_SCALE)−min(...) of four corners > 9.8 world Z.
 pub const PATHFIND_CLIFF_SLOPE_LIMIT_F_RESIDUAL: f32 = 9.8;
 /// C++ cliff UV stretch residual limits (WorldHeightMap getUVData old path).
 pub const CLIFF_STRETCH_LIMIT_RESIDUAL: f32 = 1.5;
@@ -582,12 +582,11 @@ pub const PATHFIND_CELL_TYPE_NAME_TABLE_RESIDUAL: &[&str] = &[
 /// C++ cliff bit packing residual: 8 cells per flag byte (xIndex >> 3, bit xIndex&7).
 pub const CLIFF_FLAG_BITS_PER_BYTE_RESIDUAL: i32 = 8;
 
-/// Host residual: is cliff from four raw corner heights (max−min > limit).
+/// Host residual: is cliff from four raw corner heights (world-Z range > 9.8).
+/// Wires leftover `terrain_cliff::is_cliff_from_raw_heights` (C++ `setCellCliffFlagFromHeights`).
 #[inline]
 pub fn cliff_cell_from_raw_heights_residual(h0: u8, h1: u8, h2: u8, h3: u8) -> bool {
-    let min_z = h0.min(h1).min(h2).min(h3);
-    let max_z = h0.max(h1).max(h2).max(h3);
-    (max_z as f32 - min_z as f32) > PATHFIND_CLIFF_SLOPE_LIMIT_F_RESIDUAL
+    gamelogic::terrain_cliff::is_cliff_from_raw_heights(h0, h1, h2, h3)
 }
 
 /// Host residual: cliff flag byte bit test for cell x.
@@ -638,10 +637,12 @@ pub fn honesty_cliff_residual_peels_pack_wave108() -> bool {
 
     // Flat cell: not cliff.
     let flat_ok = !cliff_cell_from_raw_heights_residual(10, 10, 10, 10);
-    // Delta 9 raw units: 9.0 ≤ 9.8 → not cliff.
-    let just_under_ok = !cliff_cell_from_raw_heights_residual(0, 9, 0, 9);
-    // Delta 10 raw units: 10.0 > 9.8 → cliff.
-    let cliff_ok = cliff_cell_from_raw_heights_residual(0, 10, 0, 10);
+    // Raw delta 10 = 6.25 world Z < 9.8 → not cliff (old bug treated 10 raw as cliff).
+    let raw_under_ok = !cliff_cell_from_raw_heights_residual(0, 10, 0, 10);
+    // Raw delta 15 = 9.375 world Z ≤ 9.8 → not cliff.
+    let just_under_ok = !cliff_cell_from_raw_heights_residual(0, 15, 0, 15);
+    // Raw delta 16 = 10.0 world Z > 9.8 → cliff.
+    let cliff_ok = cliff_cell_from_raw_heights_residual(0, 16, 0, 16);
     // Extreme cliff.
     let steep_ok = cliff_cell_from_raw_heights_residual(0, 255, 0, 255);
 
@@ -661,6 +662,7 @@ pub fn honesty_cliff_residual_peels_pack_wave108() -> bool {
     slope_ok
         && cell_type_ok
         && flat_ok
+        && raw_under_ok
         && just_under_ok
         && cliff_ok
         && steep_ok

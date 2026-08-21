@@ -755,7 +755,7 @@ fn attack_position_own_location_and_max_shots() {
             damage: 10.0,
             range: 100.0,
             ..Weapon::default()
-        });
+});
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -1014,7 +1014,7 @@ fn special_power_and_command_button_source_object() {
             damage: 10.0,
             range: 100.0,
             ..Weapon::default()
-        });
+});
         a.special_power_cooldowns
             .insert(SpecialPowerType::SpySatellite, 0.0);
     }
@@ -1069,7 +1069,7 @@ fn attack_move_sets_max_shots_and_path_flag() {
             damage: 10.0,
             range: 150.0,
             ..Weapon::default()
-        });
+});
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -1332,7 +1332,7 @@ fn attack_follow_waypoint_sets_attack_path() {
             damage: 10.0,
             range: 150.0,
             ..Weapon::default()
-        });
+});
     }
     let wps = vec![Vec3::new(20.0, 0.0, 0.0), Vec3::new(60.0, 0.0, 0.0)];
     {
@@ -1372,7 +1372,7 @@ fn attack_move_sets_is_attack_path_flag() {
             damage: 10.0,
             range: 150.0,
             ..Weapon::default()
-        });
+});
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -1596,7 +1596,7 @@ fn attack_team_engages_member_of_team() {
             damage: 10.0,
             range: 200.0,
             ..Weapon::default()
-        });
+});
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -1644,12 +1644,12 @@ fn weapon_lock_forces_slot_and_release() {
             damage: 10.0,
             range: 100.0,
             ..Weapon::default()
-        });
+});
         u.secondary_weapon = Some(Weapon {
             damage: 5.0,
             range: 80.0,
             ..Weapon::default()
-        });
+});
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -1699,12 +1699,12 @@ fn do_weapon_locks_the_requested_secondary_slot_before_targeting() {
             damage: 10.0,
             range: 100.0,
             ..Weapon::default()
-        });
+});
         unit.secondary_weapon = Some(Weapon {
             damage: 50.0,
             range: 200.0,
             ..Weapon::default()
-        });
+});
     }
 
     let target = Vec3::new(75.0, 0.0, 25.0);
@@ -1749,18 +1749,18 @@ fn do_weapon_uses_the_real_tertiary_slot_without_secondary_aliasing() {
             damage: 10.0,
             range: 100.0,
             ..Weapon::default()
-        });
+});
         unit.secondary_weapon = Some(Weapon {
             damage: 20.0,
             range: 100.0,
             ..Weapon::default()
-        });
+});
         unit.tertiary_weapon = Some(Weapon {
             damage: 73.0,
             range: 300.0,
             last_fire_time: -10.0,
             ..Weapon::default()
-        });
+});
     }
 
     let target = ObjectId(999);
@@ -1808,7 +1808,7 @@ fn do_weapon_rejects_unrepresented_slots_without_primary_fallback() {
         damage: 10.0,
         range: 100.0,
         ..Weapon::default()
-    });
+});
 
     let result = CommandExecutor::new(&mut logic, 0).execute_weapon(
         &[unit_id],
@@ -2541,6 +2541,179 @@ fn add_waypoint_uses_group_destinations() {
 }
 
 #[test]
+fn add_waypoint_skips_immobile_and_still_succeeds() {
+    use super::CommandExecutor;
+    use crate::command_system::CommandResult;
+    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut mobile = ThingTemplate::new("WP_MOB");
+    mobile
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    logic.templates.insert("WP_MOB".into(), mobile);
+    let mut stuck = ThingTemplate::new("WP_STUCK");
+    stuck
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Immobile)
+        .set_health(100.0);
+    logic.templates.insert("WP_STUCK".into(), stuck);
+    let a = logic
+        .create_object("WP_MOB", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let b = logic
+        .create_object("WP_STUCK", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+        .unwrap();
+    let click = Vec3::new(80.0, 0.0, 0.0);
+    let mut exec = CommandExecutor::new(&mut logic, 0);
+    assert_eq!(
+        exec.execute_add_waypoint(&[a, b], click),
+        CommandResult::Success
+    );
+    assert!(
+        !logic.host_object(a).unwrap().movement.path.is_empty(),
+        "mobile member must still receive the waypoint"
+    );
+    assert!(
+        logic.host_object(b).unwrap().movement.path.is_empty(),
+        "immobile member is skipped, not a group abort"
+    );
+}
+
+#[test]
+fn add_waypoint_clamps_to_map_extent() {
+    use super::CommandExecutor;
+    use crate::command_system::CommandResult;
+    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut tpl = ThingTemplate::new("WP_CLAMP");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    logic.templates.insert("WP_CLAMP".into(), tpl);
+    let a = logic
+        .create_object("WP_CLAMP", Team::USA, Vec3::ZERO)
+        .unwrap();
+    let mut exec = CommandExecutor::new(&mut logic, 0);
+    assert_eq!(
+        exec.execute_add_waypoint(&[a], Vec3::new(400.0, 0.0, 0.0)),
+        CommandResult::Success
+    );
+    let goal = *logic
+        .host_object(a)
+        .unwrap()
+        .movement
+        .path
+        .last()
+        .expect("clamped waypoint");
+    let (_min, max) = logic.world_bounds();
+    let margin = 4.0 * crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
+    assert!(
+        goal.x <= max.x - margin + 0.1,
+        "AddWaypoint must clampWaypointPosition, goal={goal:?} max={max:?}"
+    );
+}
+
+#[test]
+fn add_waypoint_plays_voice_move_when_idle() {
+    use super::CommandExecutor;
+    use crate::command_system::CommandResult;
+    use crate::game_logic::audio_dispatch_impl::{
+        clear_test_template_voices, set_test_template_voice, UnitVoiceSlot,
+    };
+    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+    use glam::Vec3;
+
+    clear_test_template_voices();
+    set_test_template_voice("WP_VOICE", UnitVoiceSlot::Move, "TestWaypointVoiceMove");
+    let mut logic = GameLogic::new();
+    let mut tpl = ThingTemplate::new("WP_VOICE");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    logic.templates.insert("WP_VOICE".into(), tpl);
+    let a = logic
+        .create_object("WP_VOICE", Team::USA, Vec3::ZERO)
+        .unwrap();
+    logic.queued_audio_events.clear();
+    let mut exec = CommandExecutor::new(&mut logic, 0);
+    assert_eq!(
+        exec.execute_add_waypoint(&[a], Vec3::new(40.0, 0.0, 0.0)),
+        CommandResult::Success
+    );
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == "TestWaypointVoiceMove"),
+        "idle AddWaypoint must play VoiceMove: {:?}",
+        logic
+            .queued_audio_events
+            .iter()
+            .map(|e| e.event_type.clone())
+            .collect::<Vec<_>>()
+    );
+    logic.queued_audio_events.clear();
+    let mut exec = CommandExecutor::new(&mut logic, 0);
+    assert_eq!(
+        exec.execute_add_waypoint(&[a], Vec3::new(80.0, 0.0, 0.0)),
+        CommandResult::Success
+    );
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .all(|e| e.event_type != "TestWaypointVoiceMove"),
+        "already-moving AddWaypoint must not replay VoiceMove"
+    );
+    clear_test_template_voices();
+}
+
+#[test]
+fn add_waypoint_breaks_off_attack() {
+    use super::CommandExecutor;
+    use crate::command_system::CommandResult;
+    use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    for name in ["WP_ATK", "WP_VIC"] {
+        let mut tpl = ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        logic.templates.insert(name.to_string(), tpl);
+    }
+    let a = logic
+        .create_object("WP_ATK", Team::USA, Vec3::ZERO)
+        .unwrap();
+    let v = logic
+        .create_object("WP_VIC", Team::GLA, Vec3::new(30.0, 0.0, 0.0))
+        .unwrap();
+    {
+        let u = logic.host_object_mut(a).unwrap();
+        u.set_target(Some(v));
+        u.set_guard_target(Some(v));
+    }
+    let mut exec = CommandExecutor::new(&mut logic, 0);
+    assert_eq!(
+        exec.execute_add_waypoint(&[a], Vec3::new(90.0, 0.0, 0.0)),
+        CommandResult::Success
+    );
+    let u = logic.host_object(a).unwrap();
+    assert!(u.target.is_none(), "queued waypoint must drop attack target");
+    assert!(u.guard_target.is_none(), "queued waypoint must drop guard");
+    assert_eq!(u.ai_state, AIState::Moving);
+    assert!(!u.status.attacking);
+}
+
+
+#[test]
 fn move_delays_mood_for_unstealthed_stealth_unit() {
     use super::CommandExecutor;
     use crate::command_system::CommandResult;
@@ -2943,7 +3116,7 @@ fn attack_team_reacquires_after_victim_dies() {
             damage: 10.0,
             range: 200.0,
             ..Weapon::default()
-        });
+});
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -3025,7 +3198,7 @@ fn attack_move_uses_identical_destination() {
             damage: 10.0,
             range: 150.0,
             ..Weapon::default()
-        });
+});
         o.selection_radius = 15.0;
     }
     let dest = Vec3::new(200.0, 0.0, 0.0);
@@ -3591,7 +3764,7 @@ fn object_attack_orders_passenger_fire() {
             damage: 5.0,
             range: 80.0,
             ..Weapon::default()
-        });
+});
     }
     {
         let r = logic.host_object_mut(rider).unwrap();
@@ -3601,7 +3774,7 @@ fn object_attack_orders_passenger_fire() {
             damage: 10.0,
             range: 80.0,
             ..Weapon::default()
-        });
+});
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -3683,6 +3856,55 @@ fn stop_idles_garrison_occupants_and_hive_slaves() {
 }
 
 #[test]
+fn stop_idles_ai_transport_occupants() {
+    // C++ privateIdle walks contain riders (AIUpdate.cpp:3076-3088).
+    use super::CommandExecutor;
+    use crate::command_system::CommandResult;
+    use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut humvee = ThingTemplate::new("ST_HV");
+    humvee
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(200.0);
+    logic.templates.insert("ST_HV".into(), humvee);
+    let mut inf = ThingTemplate::new("ST_RI");
+    inf.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    logic.templates.insert("ST_RI".into(), inf);
+    let truck = logic
+        .create_object("ST_HV", Team::USA, Vec3::ZERO)
+        .unwrap();
+    let rider = logic
+        .create_object("ST_RI", Team::USA, Vec3::ZERO)
+        .unwrap();
+    {
+        let t = logic.host_object_mut(truck).unwrap();
+        t.is_humvee_transport = true;
+        t.max_transport = 5;
+        t.passengers_allowed_to_fire = true;
+        assert!(t.add_occupant(rider), "load rider");
+    }
+    {
+        let r = logic.host_object_mut(rider).unwrap();
+        r.set_contained_by(Some(truck));
+        r.set_ai_state(crate::game_logic::AIState::Attacking);
+        r.set_target(Some(ObjectId(99)));
+    }
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(exec.execute_stop(&[truck]), CommandResult::Success);
+    }
+    let r = logic.host_object(rider).unwrap();
+    assert_eq!(r.ai_state, crate::game_logic::AIState::Idle);
+    assert!(r.target.is_none(), "Stop on transport must idle firing riders");
+}
+
+
+#[test]
 fn stealth_mood_delay_skips_while_stealthed_auto_acquire() {
     // C++ AIGroup::groupIdle (AIGroup.cpp:2051): !canAutoAcquireWhileStealthed.
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
@@ -3707,7 +3929,7 @@ fn stealth_mood_delay_skips_while_stealthed_auto_acquire() {
             damage: 10.0,
             range: 80.0,
             ..crate::game_logic::Weapon::default()
-        });
+});
         u.next_mood_check_time = 0;
     }
     assert!(
@@ -3758,17 +3980,17 @@ fn switch_weapons_locks_button_slot_not_cycle() {
             damage: 1.0,
             range: 100.0,
             ..Weapon::default()
-        });
+});
         obj.secondary_weapon = Some(Weapon {
             damage: 2.0,
             range: 100.0,
             ..Weapon::default()
-        });
+});
         obj.tertiary_weapon = Some(Weapon {
             damage: 3.0,
             range: 100.0,
             ..Weapon::default()
-        });
+});
         obj.active_weapon_slot = 0;
     }
 
@@ -4053,6 +4275,82 @@ fn execute_build_source_records_build_slot_and_docks() {
         f.contains("flatten_terrain_box_at")
             && f.contains("HostGeometryType::Box"),
         "hq-6smw3: flatten_and_snap must use GEOMETRY_BOX flatten, not cylinder-only"
+    );
+}
+
+#[test]
+fn dozer_place_and_cancel_use_calc_cost_to_build_handicap() {
+    use super::CommandExecutor;
+    use crate::command_system::CommandResult;
+    use crate::game_logic::{GameLogic, KindOf, Object, ObjectId, Player, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut player = Player::new(0, Team::USA, "USA", true);
+    player.resources.supplies = 1_000;
+    player.map_side.handicap_build_cost_buildings = 0.75;
+    logic.add_player(player);
+
+    let mut barracks = ThingTemplate::new("TestHandicapBarracks");
+    barracks
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(1_000.0)
+        .set_cost(1_000, 0);
+    logic
+        .templates
+        .insert("TestHandicapBarracks".into(), barracks);
+
+    let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
+    dozer_t
+        .add_kind_of(KindOf::Dozer)
+        .add_kind_of(KindOf::Vehicle)
+        .set_health(200.0);
+    logic
+        .templates
+        .insert("AmericaVehicleDozer".into(), dozer_t.clone());
+    let mut dozer = Object::new(dozer_t, ObjectId(9201), Team::USA);
+    dozer.set_position(Vec3::new(0.0, 0.0, 0.0));
+    dozer.owner_player_id = Some(0);
+    logic.objects.insert(ObjectId(9201), dozer);
+
+    assert_eq!(
+        logic.modified_build_cost_supplies(0, "TestHandicapBarracks", 1_000),
+        750
+    );
+
+    let result = {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        exec.execute_build(
+            &[ObjectId(9201)],
+            "TestHandicapBarracks",
+            Vec3::new(40.0, 0.0, 0.0),
+            0.0,
+        )
+    };
+    assert_eq!(result, CommandResult::Success, "handicap place must succeed");
+    assert_eq!(
+        logic.get_player(0).unwrap().effective_supplies(),
+        250,
+        "hq-iherw: place charges calcCostToBuild (1000 * 0.75)"
+    );
+
+    let building_id = logic
+        .objects
+        .values()
+        .find(|o| o.template_name == "TestHandicapBarracks")
+        .map(|o| o.id)
+        .expect("placed barracks");
+
+    let cancel = {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        exec.execute_cancel_construction(building_id, 0)
+    };
+    assert_eq!(cancel, CommandResult::Success);
+    assert_eq!(
+        logic.get_player(0).unwrap().effective_supplies(),
+        1_000,
+        "hq-iherw: cancel refunds calcCostToBuild, not raw INI BuildCost"
     );
 }
 

@@ -388,7 +388,7 @@ impl GameLogic {
             return false;
         }
         let is_ally = self.object_relationship(obj, victim) == Relationship::Allies;
-        obj.can_crush_only(victim, is_ally)
+        obj.can_crush_or_squish(victim, is_ally)
     }
 
     pub fn should_chase_attack_target(&self, unit_id: ObjectId, victim_id: ObjectId) -> bool {
@@ -617,6 +617,36 @@ impl GameLogic {
         }
     }
 
+    /// C++ `TurretAI::removeSelfAsTargeter` (TurretAI.cpp:528-543).
+    fn remove_self_as_jet_targeter(&mut self, unit_id: ObjectId) {
+        let Some(prev) = self.objects.get(&unit_id).and_then(|u| u.turret_target_id) else {
+            return;
+        };
+        if let Some(tgt) = self.objects.get_mut(&prev) {
+            tgt.add_jet_targeter(unit_id, false, self.frame);
+        }
+    }
+
+    /// C++ `AIUpdateInterface::setCurrentVictim(NULL)` (AIUpdate.cpp:4169-4186).
+    pub(in super::super) fn remove_self_as_jet_targeter_from_current_victim(
+        &mut self,
+        unit_id: ObjectId,
+    ) {
+        let Some(prev) = self.objects.get(&unit_id).and_then(|u| u.target) else {
+            return;
+        };
+        if let Some(tgt) = self.objects.get_mut(&prev) {
+            tgt.add_jet_targeter(unit_id, false, self.frame);
+        }
+    }
+
+    /// C++ attack-state exit: `setCurrentVictim(NULL)` + `setTurretTargetObject(NULL)`.
+    pub(in super::super) fn drop_jet_targeters_on_attack_exit(&mut self, unit_id: ObjectId) {
+        self.remove_self_as_jet_targeter(unit_id);
+        self.remove_self_as_jet_targeter_from_current_victim(unit_id);
+    }
+
+
     /// C++ AIUpdateInterface::setTurretTargetObject residual.
     pub fn set_turret_target_object(
         &mut self,
@@ -624,6 +654,19 @@ impl GameLogic {
         victim_id: Option<ObjectId>,
         force_attacking: bool,
     ) {
+        // C++ setTurretTargetObject: nuke victim → removeSelfAsTargeter first.
+        let clearing = match victim_id {
+            None => true,
+            Some(vid) => self
+                .objects
+                .get(&vid)
+                .map(|v| !(v.is_alive() && !v.status.destroyed))
+                .unwrap_or(true),
+        };
+        if clearing {
+            self.remove_self_as_jet_targeter(unit_id);
+        }
+
         if let Some(vid) = victim_id {
             let (alive, team) = self
                 .objects
@@ -672,12 +715,15 @@ impl GameLogic {
 
     /// C++ TurretAI::setTurretTargetPosition (TurretAI.cpp:589-626).
     pub fn set_turret_target_position(&mut self, unit_id: ObjectId, pos: Option<glam::Vec3>) {
+        let enabled = self.objects.get(&unit_id).is_some_and(|u| u.turret_enabled);
+        if !enabled {
+            return;
+        }
+        // C++ always removeSelfAsTargeter before retargeting a position.
+        self.remove_self_as_jet_targeter(unit_id);
         let Some(u) = self.objects.get_mut(&unit_id) else {
             return;
         };
-        if !u.turret_enabled {
-            return;
-        }
         u.turret_target_id = None;
         u.turret_force_attacking = false;
         u.turret_mood_target = false;

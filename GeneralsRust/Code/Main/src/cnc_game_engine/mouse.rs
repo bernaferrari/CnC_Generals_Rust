@@ -1495,7 +1495,9 @@ impl CnCGameEngine {
                     winit::keyboard::Key::Named(winit::keyboard::NamedKey::Alt)
                 )
             });
-        if ctrl && !self.host_selection_can_force_attack(mouse_pos, target_object) {
+        // C++ waypoint mode outranks Ctrl force-attack. Do not fail-closed
+        // the RMB when Alt/sticky waypoint is on.
+        if ctrl && !alt && !self.host_selection_can_force_attack(mouse_pos, target_object) {
             return false;
         }
 
@@ -2402,6 +2404,11 @@ impl CnCGameEngine {
                 }
             }
             return ("Normal", CursorIcon::Default);
+        }
+
+        // C++ CommandXlat.cpp:2180-2199 MSG_SET_RALLY_POINT_HINT on empty ground.
+        if hover.is_none() && self.host_selection_can_set_rally() {
+            return ("SetRallyPoint", CursorIcon::Cell);
         }
 
         // Has selection: context from CommandSystem residual.

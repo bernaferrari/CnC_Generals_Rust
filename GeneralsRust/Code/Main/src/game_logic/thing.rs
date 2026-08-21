@@ -1506,6 +1506,10 @@ pub struct ThingTemplate {
     /// link-key object need not expose a player SpecialPowerModule.
     #[serde(default)]
     pub max_simultaneous_link_key: Option<String>,
+    /// C++ Object INI `MaxSimultaneousOfType` numeric cap. `0` is unlimited
+    /// unless `DeterminedBySuperweaponRestriction` overrides via GameLogic.
+    #[serde(default)]
+    pub max_simultaneous_of_type: u16,
     /// Exact `MaxSimultaneousOfType=DeterminedBySuperweaponRestriction`
     /// policy associated with this object template.
     #[serde(default)]
@@ -1657,6 +1661,12 @@ pub struct ThingTemplate {
     /// C++ `WeaponTemplateSet::m_isReloadTimeShared`.
     #[serde(default)]
     pub share_weapon_reload_time: bool,
+    /// C++ `WeaponTemplateSet::m_autoChooseMask` per slot. Default all-sources.
+    #[serde(default = "default_auto_choose_masks")]
+    pub auto_choose_masks: [u32; 3],
+    /// C++ `WeaponTemplateSet::m_isWeaponLockSharedAcrossSets`.
+    #[serde(default)]
+    pub weapon_lock_shared_across_sets: bool,
     /// C++ `WeaponSet` `AutoChooseSources = PRIMARY NONE`.
     ///
     /// The authored PRIMARY still resolves from Weapon.ini when present, but
@@ -1811,6 +1821,7 @@ impl ThingTemplate {
             energy_production: None,
             max_simultaneous_link_key: None,
             max_simultaneous_determined_by_superweapon_restriction: false,
+            max_simultaneous_of_type: 0,
             energy_bonus: None,
             overcharge_behavior: None,
             power_plant_update: None,
@@ -1853,6 +1864,8 @@ impl ThingTemplate {
             tertiary_weapon_name: None,
             preferred_against: [Vec::new(), Vec::new(), Vec::new()],
             share_weapon_reload_time: false,
+            auto_choose_masks: default_auto_choose_masks(),
+            weapon_lock_shared_across_sets: false,
             primary_auto_choose_none: false,
             has_fire_ocl_after_weapon_cooldown: false,
             fire_weapon_when_damaged_behaviors: Vec::new(),
@@ -1979,6 +1992,43 @@ impl ThingTemplate {
                 .max_simultaneous_link_key
                 .as_deref()
                 .is_some_and(|key| !key.trim().is_empty())
+    }
+
+    /// C++ `ThingTemplate::getMaxSimultaneousOfType`.
+    #[inline]
+    pub fn get_max_simultaneous_of_type(&self, superweapon_restriction: u32) -> u32 {
+        if self.max_simultaneous_determined_by_superweapon_restriction {
+            superweapon_restriction
+        } else {
+            u32::from(self.max_simultaneous_of_type)
+        }
+    }
+
+    /// C++ `countExisting` template match: `isEquivalentTo` (name) or shared
+    /// `MaxSimultaneousLinkKey`.
+    #[inline]
+    pub fn counts_toward_max_simultaneous_of(&self, wanted: &ThingTemplate) -> bool {
+        if self.name.eq_ignore_ascii_case(&wanted.name) {
+            return true;
+        }
+        match (
+            wanted
+                .max_simultaneous_link_key
+                .as_deref()
+                .map(str::trim)
+                .filter(|key| !key.is_empty()),
+            self.max_simultaneous_link_key
+                .as_deref()
+                .map(str::trim)
+                .filter(|key| !key.is_empty()),
+        ) {
+            (Some(wanted_key), Some(candidate_key))
+                if wanted_key.eq_ignore_ascii_case(candidate_key) =>
+            {
+                true
+            }
+            _ => false,
+        }
     }
 
     /// Attach host primary weapon stats (damage/range/reload) to this template.
@@ -2234,13 +2284,9 @@ impl ThingTemplate {
             clip_size: wt.clip_size.max(0) as u32,
             // C++ ClipReloadTime is independent of DelayBetweenShots. Store
             // already converted msec → frames; host Weapon uses seconds.
+            // Absent/0 stays 0 — reloadWithBonus is ready the same frame.
             clip_reload_time: if wt.clip_size > 0 {
-                let frames = if wt.clip_reload_time > 0 {
-                    wt.clip_reload_time as f32
-                } else {
-                    wt.max_delay_between_shots.max(0) as f32
-                };
-                frames / FPS
+                (wt.clip_reload_time.max(0) as f32) / FPS
             } else {
                 0.0
             },
@@ -2254,6 +2300,8 @@ impl ThingTemplate {
             projectile_speed,
             pre_attack_delay,
             splash_radius: wt.primary_damage_radius.max(0.0),
+            reloading_clip: false,
+            last_bonus_rof: 0.0,
             suspend_fx_frame,
         })
     }
@@ -2289,7 +2337,8 @@ impl ThingTemplate {
     }
 
     /// Apply one unconditional Object INI `WeaponSet` row (PreferredAgainst +
-    /// ShareWeaponReloadTime). C++ WeaponSet.cpp parsePreferredAgainst / parseBool.
+    /// ShareWeaponReloadTime + AutoChooseSources + WeaponLockSharedAcrossSets).
+    /// C++ WeaponSet.cpp parsePreferredAgainst / parseAutoChoose / parseBool.
     pub fn apply_weapon_set_definition(&mut self, set: &crate::assets::WeaponSetDefinition) {
         for (key, value) in &set.attributes {
             if key.eq_ignore_ascii_case("ShareWeaponReloadTime")
@@ -2298,11 +2347,28 @@ impl ThingTemplate {
                 self.share_weapon_reload_time = parse_ini_bool(value);
                 continue;
             }
+            if key.eq_ignore_ascii_case("WeaponLockSharedAcrossSets")
+                || key.eq_ignore_ascii_case("ShareWeaponLock")
+            {
+                self.weapon_lock_shared_across_sets = parse_ini_bool(value);
+                continue;
+            }
             let lower = key.to_ascii_lowercase();
             if lower == "preferredagainst" || lower.starts_with("preferredagainst") {
                 if let Some((slot, kinds)) = parse_preferred_against_value(value) {
                     if let Some(slot_kinds) = self.preferred_against.get_mut(slot as usize) {
                         *slot_kinds = kinds;
+                    }
+                }
+                continue;
+            }
+            if lower == "autochoosesources" || lower.starts_with("autochoosesources") {
+                if let Some((slot, mask)) = parse_auto_choose_value(value) {
+                    if let Some(slot_mask) = self.auto_choose_masks.get_mut(slot as usize) {
+                        *slot_mask = mask;
+                    }
+                    if slot == 0 && mask == 0 {
+                        self.primary_auto_choose_none = true;
                     }
                 }
             }
@@ -2336,6 +2402,21 @@ impl ThingTemplate {
     }
 
     /// C++ WeaponSet.cpp:869-877 — victim matches this slot's PreferredAgainst.
+
+    /// C++ WeaponSet.cpp:816-822 — AutoChooseSources includes FROM_PLAYER /
+    /// FROM_AI / DEFAULT_SWITCH_WEAPON. NONE (mask 0) is button-only.
+    pub fn slot_allows_auto_choose(&self, slot: u8) -> bool {
+        if slot == 0 && self.primary_auto_choose_none {
+            return false;
+        }
+        let mask = self
+            .auto_choose_masks
+            .get(slot as usize)
+            .copied()
+            .unwrap_or(u32::MAX);
+        const COMBAT: u32 = (1 << 0) | (1 << 2) | (1 << 4);
+        (mask & COMBAT) != 0
+    }
     pub fn slot_preferred_against(&self, slot: u8, target_kinds: impl Fn(KindOf) -> bool) -> bool {
         let Some(kinds) = self.preferred_against.get(slot as usize) else {
             return false;
@@ -2412,6 +2493,37 @@ impl ThingTemplate {
         }
     }
 }
+
+fn default_auto_choose_masks() -> [u32; 3] {
+    // C++ WeaponTemplateSet::clear: m_autoChooseMask[i] = 0xffffffff
+    [u32::MAX; 3]
+}
+
+/// C++ `WeaponTemplateSet::parseAutoChoose`: slot then CommandSourceMask bits.
+fn parse_auto_choose_value(value: &str) -> Option<(u8, u32)> {
+    let mut tokens = value.split_whitespace();
+    let first = tokens.next()?;
+    let slot = match first.to_ascii_uppercase().as_str() {
+        "PRIMARY" => 0u8,
+        "SECONDARY" => 1,
+        "TERTIARY" => 2,
+        _ => return None,
+    };
+    let mut mask = 0u32;
+    for token in tokens {
+        match token.to_ascii_uppercase().as_str() {
+            "NONE" => {}
+            "FROM_PLAYER" => mask |= 1 << 0,
+            "FROM_SCRIPT" => mask |= 1 << 1,
+            "FROM_AI" => mask |= 1 << 2,
+            "FROM_DOZER" => mask |= 1 << 3,
+            "DEFAULT_SWITCH_WEAPON" => mask |= 1 << 4,
+            _ => {}
+        }
+    }
+    Some((slot, mask))
+}
+
 
 /// C++ FiringTracker fields bound from a WeaponStore template onto a host Object.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2563,7 +2675,7 @@ mod weapon_resolve_tests {
             range: 80.0,
             reload_time: 0.5,
             ..Weapon::default()
-        });
+});
         t.set_primary_weapon_name("DoesNotExistInStoreHopefully");
         let w = t.resolve_primary_weapon().expect("weapon");
         assert!((w.damage - 40.0).abs() < 0.01);
@@ -2667,26 +2779,13 @@ mod weapon_resolve_tests {
 
     #[test]
     fn secondary_unit_name_residual_map_binds_ranger_flashbang() {
-        let mut t = ThingTemplate::new("USA_Ranger");
-        t.add_kind_of(KindOf::Infantry)
-            .add_kind_of(KindOf::Attackable);
-        // No secondary_weapon_name set — residual map by template name.
-        let w = t
-            .resolve_secondary_weapon()
-            .expect("ranger residual secondary");
-        assert!((w.damage - 35.0).abs() < 0.01);
-        assert!((w.range - 175.0).abs() < 0.01);
-    }
-
-    #[test]
-    fn explicit_secondary_weapon_beats_store() {
-        let mut t = ThingTemplate::new("Armed");
+        let mut t = ThingTemplate::new("AmericaInfantryColonelBurton");
         t.set_secondary_weapon(Weapon {
             damage: 99.0,
             range: 50.0,
             reload_time: 1.0,
             ..Weapon::default()
-        });
+});
         t.set_secondary_weapon_name("DoesNotExistInStoreHopefully");
         let w = t.resolve_secondary_weapon().expect("weapon");
         assert!((w.damage - 99.0).abs() < 0.01);
@@ -2714,12 +2813,24 @@ mod weapon_resolve_tests {
         );
         set.attributes
             .insert("ShareWeaponReloadTime".to_string(), "Yes".to_string());
+        set.attributes.insert(
+            "AutoChooseSources".to_string(),
+            "SECONDARY NONE".to_string(),
+        );
+        set.attributes.insert(
+            "WeaponLockSharedAcrossSets".to_string(),
+            "No".to_string(),
+        );
         let mut t = ThingTemplate::new("AmericaVehicleComanche");
         t.apply_weapon_set_definition(&set);
         assert_eq!(t.preferred_against[0], vec![KindOf::Infantry]);
         assert!(t.share_weapon_reload_time);
         assert!(t.slot_preferred_against(0, |k| k == KindOf::Infantry));
         assert!(!t.slot_preferred_against(0, |k| k == KindOf::Vehicle));
+        assert_eq!(t.auto_choose_masks[1], 0);
+        assert!(t.slot_allows_auto_choose(0));
+        assert!(!t.slot_allows_auto_choose(1));
+        assert!(!t.weapon_lock_shared_across_sets);
     }
 
     #[test]

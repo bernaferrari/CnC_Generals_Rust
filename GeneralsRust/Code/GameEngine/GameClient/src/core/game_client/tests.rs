@@ -775,6 +775,22 @@ mod tests {
         });
     }
 
+    #[test]
+    fn game_client_reset_restores_snow_visibility() {
+        // C++ GameClient.cpp:451-452 TheSnowManager->reset() → m_isVisible=TRUE
+        let snow = crate::snow::initialize_snow_manager();
+        snow.lock().expect("snow lock").set_visible(false);
+        assert!(!snow.lock().expect("snow lock").is_visible());
+
+        let mut client = GameClient::new().expect("GameClient::new");
+        client.reset().expect("GameClient::reset");
+
+        assert!(
+            snow.lock().expect("snow lock").is_visible(),
+            "SHOW_WEATHER=No must not stick after GameClient::reset"
+        );
+    }
+
 
     #[test]
     fn test_drawable_id_allocation() {
@@ -909,6 +925,8 @@ mod tests {
             max_garrison: 0,
             disabled: false,
             is_carbomb: false,
+            bomb_type: 0,
+            bomb_timer_seconds: 0,
             weapon_bonus_enthusiastic: false,
             show_healing: false,
             healing_icon_type: 0,
@@ -1551,7 +1569,7 @@ mod tests {
         client.apply_presentation_floating_texts(&[(
             "+$100".to_string(),
             [10.0, 0.0, 20.0],
-            (0, 255, 0),
+            (0, 255, 0, 255),
             0,
             10,
         )]);

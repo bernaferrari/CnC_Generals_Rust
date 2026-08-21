@@ -1060,7 +1060,7 @@ fn projectile_authority_steps_flight_and_writeback() {
             damage: 10.0,
             range: 500.0,
             ..Weapon::default()
-        };
+};
         w.projectile_speed = 100.0;
         let id = logic.combat_system.fire_projectile(
             glam::Vec3::new(0.0, 0.0, 0.0),

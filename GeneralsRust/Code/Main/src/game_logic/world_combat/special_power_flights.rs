@@ -1650,6 +1650,12 @@ impl GameLogic {
             ai.wanting_enter_or_exit = wanting;
             ai.contained_count = contained;
             ai.tick(step);
+            let evac_fly = matches!(
+                ai.state,
+                crate::game_logic::host_combat_chinook::HostChinookAIState::MoveToAndEvac
+                    | crate::game_logic::host_combat_chinook::HostChinookAIState::MoveToAndEvacAndExit
+            )
+            .then_some(glam::Vec3::new(ai.dest[0], ai.dest[2], ai.dest[1]));
             let landed = matches!(
                 ai.flight_status,
                 crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landed
@@ -1668,6 +1674,16 @@ impl GameLogic {
             drop(ai);
             obj.set_position(new_pos);
             obj.loco_preferred_height = preferred;
+            if let Some(dest) = evac_fly {
+                if obj.movement.path.is_empty() && !obj.status.moving {
+                    obj.movement.path = vec![new_pos, dest];
+                    obj.movement.current_path_index = 1;
+                    obj.movement.target_position = Some(dest);
+                    obj.set_ai_state(AIState::Moving);
+                    obj.status.moving = true;
+                    obj.pending_evacuate_on_stop = true;
+                }
+            }
             if landed {
                 // C++ ChinookAIUpdate::chooseLocomotorSet — CHINOOK_LANDED → TAXIING.
                 obj.apply_taxiing_locomotor_set();
@@ -1682,6 +1698,7 @@ impl GameLogic {
             if destroyed {
                 obj.status.destroyed = true;
             }
+
         }
     }
 
@@ -2066,7 +2083,7 @@ impl GameLogic {
                         reload_time: 1.0,
                         last_fire_time: 0.0,
                         ..Weapon::default()
-                    });
+});
                 }
                 guard.set_contained_by(Some(crawler_id));
                 guard.set_ai_state(AIState::Docked);

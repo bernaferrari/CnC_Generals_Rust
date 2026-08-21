@@ -633,9 +633,16 @@ pub struct RenderableObject {
     /// Host ObjectStatus::disabled_hacked residual.
     #[serde(default)]
     pub disabled_hacked: bool,
-    /// Host ObjectStatus::disabled_unmanned residual.
-    #[serde(default)]
     pub disabled_unmanned: bool,
+    /// C++ DISABLED_FREEFALL residual for Drawable TINT_STATUS_DISABLED.
+    #[serde(default)]
+    pub disabled_freefall: bool,
+    /// C++ DISABLED_DEFAULT residual for Drawable TINT_STATUS_DISABLED.
+    #[serde(default)]
+    pub disabled_default: bool,
+    /// C++ DISABLED_SCRIPT_UNDERPOWERED residual for Drawable TINT_STATUS_DISABLED.
+    #[serde(default)]
+    pub disabled_script_underpowered: bool,
     /// C++ HackInternetAIInterface::isHackingPackingOrUnpacking residual.
     #[serde(default)]
     pub hacking_packing_or_unpacking: bool,
@@ -747,8 +754,16 @@ pub struct RenderableObject {
     pub disguised: bool,
     /// Host ObjectStatus::disabled_subdued residual.
     pub disabled_subdued: bool,
-    /// Host ObjectStatus::is_carbomb residual.
     pub is_carbomb: bool,
+    /// C++ WEAPONSET_CARBOMB residual for the local-player CarBomb icon.
+    #[serde(default)]
+    pub weapon_set_carbomb: bool,
+    /// C++ drawBombed sticky type: 0 none, 1 timed, 2 remote.
+    #[serde(default)]
+    pub bomb_type: u8,
+    /// C++ StickyBombUpdate countdown residual in whole seconds.
+    #[serde(default)]
+    pub bomb_timer_seconds: u32,
     /// Host ObjectStatus::hijacked residual.
     pub hijacked: bool,
     /// C++ StealthUpdate disguise transition opacity residual (0..1).

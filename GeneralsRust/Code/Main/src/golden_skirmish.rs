@@ -237,7 +237,7 @@ fn install_templates(logic: &mut GameLogic) {
             range: 100.0,
             reload_time: 1.0,
             ..Weapon::default()
-        });
+});
     }
     for t in templates {
         logic.templates.insert(t.name.clone(), t);

@@ -216,15 +216,14 @@ impl TerrainData {
         (gx * gx + gz * gz).sqrt()
     }
 
-    /// C++ TerrainLogic::isCliffCell residual via host slope / corner delta.
+    /// C++ `WorldHeightMap::setCellCliffFlagFromHeights` / leftover `terrain_cliff`.
     ///
-    /// Uses pathfind cliff slope limit residual when four-corner raw heights are
-    /// available; otherwise steep slope_at_world as fail-closed stand-in.
+    /// Four-corner raw samples are converted to world Z (`* MAP_HEIGHT_SCALE`)
+    /// and flagged cliff when maxZ−minZ > `PATHFIND_CLIFF_SLOPE_LIMIT_F` (9.8).
     #[cfg(feature = "game_client")]
     pub fn is_cliff_at_world(&self, world: Vec3) -> bool {
-        use crate::game_logic::host_terrain_bridge_water_road_residual_wave108::{
-            cliff_cell_from_raw_heights_residual, PATHFIND_CLIFF_SLOPE_LIMIT_F_RESIDUAL,
-        };
+        use crate::game_logic::host_terrain_bridge_water_road_residual_wave108::
+            cliff_cell_from_raw_heights_residual;
         // Four-corner raw residual around the cell (heightmap u8 samples).
         let u = ((world.x - self.world_min.x) / self.scale_x + self.border_size as f32)
             .clamp(0.0, self.heightmap.width as f32 - 1.0);
@@ -242,16 +241,7 @@ impl TerrainData {
         let h10 = to_raw(x1, z0);
         let h01 = to_raw(x0, z1);
         let h11 = to_raw(x1, z1);
-        if cliff_cell_from_raw_heights_residual(h00, h10, h01, h11) {
-            return true;
-        }
-        // Slope stand-in: rise/run approximating neighbor delta threshold.
-        let slope = self.slope_at_world(world);
-        // Convert PATHFIND raw limit (~9.8 raw * MAP_HEIGHT_SCALE) into world slope
-        // over one cell (scale_x). Fail-closed generous gate.
-        let rise = PATHFIND_CLIFF_SLOPE_LIMIT_F_RESIDUAL * MAP_HEIGHT_SAMPLE_SCALE;
-        let run = self.scale_x.max(1e-3);
-        slope >= (rise / run) * 0.85
+        cliff_cell_from_raw_heights_residual(h00, h10, h01, h11)
     }
 
     #[cfg(not(feature = "game_client"))]

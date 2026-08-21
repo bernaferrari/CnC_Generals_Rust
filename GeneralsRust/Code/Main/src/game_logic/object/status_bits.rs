@@ -702,6 +702,14 @@ impl Object {
     }
 
     pub fn set_ai_state(&mut self, state: AIState) {
+        // C++ `StateMachine::internalSetState` fires `onExit(EXIT_RESET)` then
+        // `AIDockMachine::halt` → `cancelDock`. Leaving a live dock session
+        // must free the approach slot so a re-tasked truck cannot ghost-jam.
+        if crate::game_logic::host_supply_gather::is_live_dock_ai_state(&self.ai_state)
+            && self.ai_state != state
+        {
+            crate::game_logic::host_supply_gather::cancel_live_dock_for_docker(self.id);
+        }
         let ordinal = match state {
             AIState::Idle => 0u8,
             AIState::Moving => 1,

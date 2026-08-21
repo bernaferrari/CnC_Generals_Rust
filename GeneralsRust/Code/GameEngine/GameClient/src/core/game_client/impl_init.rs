@@ -181,6 +181,14 @@ impl GameClient {
             with_window_manager(|manager| manager.destroy_layout(&layout));
         }
 
+        // C++ GameClient.cpp:451-452 TheSnowManager->reset() restores
+        // m_isVisible=TRUE so SHOW_WEATHER=No does not stick across maps.
+        if let Some(snow) = crate::snow::get_snow_manager() {
+            if let Ok(mut guard) = snow.lock() {
+                guard.reset();
+            }
+        }
+
         // Clear TOC
         self.drawable_toc.clear();
 

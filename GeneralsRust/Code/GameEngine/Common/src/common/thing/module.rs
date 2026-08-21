@@ -473,6 +473,10 @@ pub trait StickyBombControlInterface {
     fn detonate(&mut self);
     fn get_target(&self) -> ObjectID;
     fn set_target_object_id(&mut self, target_id: ObjectID);
+    /// C++ `StickyBombUpdate::isTimedBomb` — lifetime timer present.
+    fn is_timed_bomb(&self) -> bool;
+    /// C++ `StickyBombUpdate::getDetonationFrame`.
+    fn get_detonation_frame(&self) -> u32;
 }
 
 pub trait OclUpdateControlInterface {

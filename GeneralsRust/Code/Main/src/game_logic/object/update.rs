@@ -366,6 +366,7 @@ impl Object {
             if let Some(weapon) =
                 crate::game_logic::thing::ThingTemplate::weapon_from_store(&wname)
             {
+                self.release_weapon_lock_on_set_change();
                 let _ = self.replace_weapon_set_slot(0, Some(weapon));
             }
         }
@@ -454,6 +455,17 @@ impl Object {
         }
         self.record_host_model_condition();
     }
+
+    /// C++ WeaponSet::updateWeaponSet: unless WeaponLockSharedAcrossSets,
+    /// release permanent lock and return to PRIMARY.
+    fn release_weapon_lock_on_set_change(&mut self) {
+        if self.thing.template.weapon_lock_shared_across_sets {
+            return;
+        }
+        self.release_weapon_lock(WeaponLockType::LockedPermanently);
+        self.set_active_weapon_slot(0);
+    }
+
 
     /// Bind authored WeaponTemplateSet for this rank when INI declares one.
     /// Returns true when a slot was replaced (skip in-place damage/ROF scale).
@@ -748,6 +760,7 @@ impl Object {
 
         // C++ Object::onVeterancyLevelChanged: exclusive WEAPONSET + WEAPONBONUSCONDITION.
         self.set_veterancy_weapon_set_and_bonus_flags(new_level);
+        self.release_weapon_lock_on_set_change();
         let rebound_authored = self.try_bind_authored_veterancy_weapon_set(new_level);
 
         // C++ updateUpgradeModules + giveUpgrade(findVeterancyUpgrade(newLevel)).

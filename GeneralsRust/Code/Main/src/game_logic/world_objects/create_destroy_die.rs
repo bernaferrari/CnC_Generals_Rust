@@ -1036,7 +1036,9 @@ impl GameLogic {
                         pre_attack_delay: 0.0,
                         splash_radius: 0.0,
                         suspend_fx_frame: 0,
-                    });
+                                reloading_clip: false,
+            last_bonus_rof: 0.0,
+});
                 }
             }
 
@@ -1218,10 +1220,15 @@ impl GameLogic {
             }
 
             // Host residual: AirF Combat Chinook TransportContain Slots=8 + passenger fire.
-            // Fail-closed: not ChinookAIUpdate ropes / supply / rappel / combat drop.
+            // Regular AmericaVehicleChinook: same slots + ChinookAI, no passenger fire.
             if crate::game_logic::host_combat_chinook::is_combat_chinook_template(template_name) {
                 object.install_combat_chinook_transport();
+            } else if crate::game_logic::host_combat_chinook::is_regular_chinook_template(
+                template_name,
+            ) {
+                object.install_chinook_transport();
             }
+
 
             // Host residual: China Listening Outpost detect 300 + transport Slots=2 +
             // InnateStealth + ArmedRiders dummy. Fail-closed: not IR FX / multi-door.
@@ -2079,6 +2086,16 @@ impl GameLogic {
             );
             return None;
         }
+        // C++ Player::canBuildMoreOfType — numeric INI MaxSimultaneousOfType
+        // (unique buildings / heroes) plus link-key rebuild holes.
+        if !self.can_build_more_of_type(owner_player_id, team, template_name) {
+            log::debug!(
+                "Blocked construction {} for team {:?} (MaxSimultaneousOfType)",
+                template_name,
+                team
+            );
+            return None;
+        }
         if let Some(template) = self.templates.get(template_name).cloned() {
             // Keep the same PlayerTemplate veterancy binding for a placed
             // structure as for a completed production spawn.  C++ creates the
@@ -2565,9 +2582,15 @@ impl GameLogic {
     }
 
     pub(crate) fn mark_object_for_destruction(&mut self, id: ObjectId, killer: Option<Team>) {
+        // C++ AIUpdate dtor / setCurrentVictim(NULL) + turret nuke on death.
+        self.drop_jet_targeters_on_attack_exit(id);
+
         if let Some(obj) = self.objects.get_mut(&id) {
             obj.unstamp_partition_value_threat();
         }
+        // C++ AIDockState::onExit → AIDockMachine::halt → cancelDock on death.
+        self.cancel_dock_reservation(id);
+
         // C++ ProductionUpdate cancelAndRefund on death start (before topple/slow-death deferral).
         self.cancel_all_production(id);
         // C++ SpecialPowerCompletionDie::onDie residual.

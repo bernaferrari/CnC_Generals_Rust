@@ -1337,7 +1337,7 @@ pub struct InGameUISubsystem {
 
     military_subtitles: VecDeque<(String, i32)>,
     /// Wave 1060: presentation floating cash/text residual.
-    presentation_floating_texts: Vec<(String, [f32; 3], (u8, u8, u8), u32, u32)>,
+    presentation_floating_texts: Vec<(String, [f32; 3], (u8, u8, u8, u8), u32, u32)>,
     /// Presentation MoneyPickUp / world Anim2D residual (template, pos, time, z-rise, fades, spawn).
     presentation_world_anims: Vec<(String, [f32; 3], f32, f32, bool, u32)>,
     /// Presentation PublicTimer residual (name + READY/mm:ss).
@@ -1561,12 +1561,12 @@ impl InGameUISubsystem {
     /// Wave 1060: stamp presentation floating text residual.
     pub fn replace_floating_texts_from_presentation(
         &mut self,
-        entries: &[(String, [f32; 3], (u8, u8, u8), u32, u32)],
+        entries: &[(String, [f32; 3], (u8, u8, u8, u8), u32, u32)],
     ) {
         self.presentation_floating_texts = entries.to_vec();
     }
 
-    pub fn presentation_floating_texts(&self) -> &[(String, [f32; 3], (u8, u8, u8), u32, u32)] {
+    pub fn presentation_floating_texts(&self) -> &[(String, [f32; 3], (u8, u8, u8, u8), u32, u32)] {
         &self.presentation_floating_texts
     }
 
@@ -1587,6 +1587,11 @@ impl InGameUISubsystem {
 
     pub fn military_subtitles(&self) -> &VecDeque<(String, i32)> {
         &self.military_subtitles
+    }
+
+    /// C++ `removeMilitarySubtitle` — drop the leftover raw-label queue.
+    pub fn clear_military_subtitles(&mut self) {
+        self.military_subtitles.clear();
     }
 
     pub fn replace_superweapon_timers_from_presentation(

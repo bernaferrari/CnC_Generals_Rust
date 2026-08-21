@@ -531,6 +531,8 @@ impl GameLogic {
             self.update_spy_satellite_pings();
         }
         self.update_spy_satellites();
+        crate::command_executor::tick_live_beacon_client_updates(self);
+
 
         // Host CIA Intelligence residual: expire vision-spied marks + FOW undos.
         // Fail-closed vs full SpyVisionUpdate setUnitsVisionSpied module path.

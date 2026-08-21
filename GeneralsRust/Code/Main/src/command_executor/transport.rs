@@ -615,6 +615,40 @@ impl<'a> CommandExecutor<'a> {
             if !can {
                 continue;
             }
+            let taking_off = if let Some(obj) = self.game_logic.host_object_mut(unit_id) {
+                let name = obj.template_name.clone();
+                if obj.chinook_ai.is_none()
+                    && (crate::game_logic::host_combat_chinook::is_regular_chinook_template(&name)
+                        || crate::game_logic::host_combat_chinook::is_combat_chinook_template(
+                            &name,
+                        ))
+                {
+                    if crate::game_logic::host_combat_chinook::is_combat_chinook_template(&name) {
+                        obj.install_combat_chinook_transport();
+                    } else {
+                        obj.install_chinook_transport();
+                    }
+                }
+                let p = obj.get_position();
+                if let Some(ai) = obj.chinook_ai.as_mut() {
+                    ai.pos = [p.x, p.z, p.y];
+                    ai.command_evac([destination.x, destination.z, destination.y], and_exit);
+                    ai.state
+                        == crate::game_logic::host_combat_chinook::HostChinookAIState::TakingOff
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            if taking_off {
+                let _ = self.game_logic.unit_command_set_pending_evacuate(
+                    unit_id, true, and_exit, true,
+                );
+                any = true;
+                continue;
+            }
+
             // Wave 233: pending evacuate prep via GameLogic authority API.
             let _ = self
                 .game_logic
@@ -632,6 +666,7 @@ impl<'a> CommandExecutor<'a> {
                     any = true;
                 }
             }
+
         }
         if any {
             CommandResult::Success
@@ -730,16 +765,25 @@ impl<'a> CommandExecutor<'a> {
                 (target_obj.position, Some(*target_id))
             }
         };
+        // C++ MoveToBldg: geom.getMaxHeightAbovePosition(), not object world Y.
         let bldg_h = object_target.and_then(|tid| {
-            self.game_logic
-                .host_object(tid)
-                .map(|o| o.get_position().y.max(0.0))
+            self.game_logic.host_object(tid).and_then(|o| {
+                if o.is_alive() && o.is_kind_of(crate::game_logic::KindOf::Structure) {
+                    Some(o.thing.template.geometry_info.max_height_above_position())
+                } else {
+                    None
+                }
+            })
         });
         let mut any = false;
         for &unit_id in units {
             let is_chinook = self.game_logic.host_object(unit_id).is_some_and(|o| {
                 o.is_alive()
-                    && (o.is_combat_chinook_style_container() || o.chinook_ai.is_some())
+                    && (o.is_combat_chinook_style_container()
+                        || o.chinook_ai.is_some()
+                        || crate::game_logic::host_combat_chinook::is_regular_chinook_template(
+                            &o.template_name,
+                        ))
             });
             if !is_chinook {
                 continue;
@@ -750,6 +794,30 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
             if let Some(tid) = object_target {
+                let allowed = match (
+                    self.game_logic.host_object(unit_id),
+                    self.game_logic.host_object(tid),
+                ) {
+                    (Some(chinook), Some(tgt)) => {
+                        crate::game_logic::host_combat_chinook::combat_drop_into_allowed(
+                            tgt.is_alive(),
+                            tgt.status.under_construction,
+                            tgt.status.sold,
+                            &tgt.template_name,
+                            tgt.thing.template.contain_module.kind
+                                != crate::game_logic::ContainModuleKind::None
+                                || tgt.can_contain()
+                                || tgt.is_garrison_contain(),
+                            tgt.thing.template.contain_module.kind.is_heal_contain(),
+                            chinook.health.current >= chinook.health.maximum,
+                            tgt.is_faction_structure(),
+                        )
+                    }
+                    _ => false,
+                };
+                if !allowed {
+                    continue;
+                }
                 let _ = self
                     .game_logic
                     .unit_command_set_order_target(unit_id, Some(tid));
@@ -757,11 +825,18 @@ impl<'a> CommandExecutor<'a> {
             let mut hover = dest;
             if let Some(obj) = self.game_logic.host_object_mut(unit_id) {
                 if obj.chinook_ai.is_none() {
-                    obj.install_combat_chinook_transport();
+                    if crate::game_logic::host_combat_chinook::is_regular_chinook_template(
+                        &obj.template_name,
+                    ) {
+                        obj.install_chinook_transport();
+                    } else {
+                        obj.install_combat_chinook_transport();
+                    }
                 }
                 let p = obj.get_position();
                 if let Some(ai) = obj.chinook_ai.as_mut() {
                     ai.pos = [p.x, p.z, p.y];
+                    ai.combat_drop_target = object_target.map(|id| id.0);
                     ai.command_combat_drop([dest.x, dest.z, dest.y], bldg_h);
                     hover.y = ai.combat_drop_dest_z;
                 }
@@ -785,6 +860,7 @@ impl<'a> CommandExecutor<'a> {
             CommandResult::InvalidCommand
         }
     }
+
 }
 
 #[cfg(test)]
@@ -793,7 +869,8 @@ mod tests {
     use crate::command_executor::CommandExecutor;
     use crate::command_system::CommandResult;
     use crate::game_logic::{
-        ContainModuleKind, ContainModuleMetadata, GameLogic, KindOf, Team, ThingTemplate,
+        ContainAdmission, ContainModuleKind, ContainModuleMetadata, GameLogic,
+        HostGeometryInfo, HostGeometryType, KindOf, Team, ThingTemplate,
     };
 
     fn contain_pair(logic: &mut GameLogic, transport: ObjectId, pax: ObjectId) {
@@ -965,6 +1042,233 @@ mod tests {
         );
     }
 
+    fn bunker_template(name: &str, height: f32, slots: usize) -> ThingTemplate {
+        let mut b = ThingTemplate::new(name);
+        b.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(1000.0);
+        b.geometry_info = HostGeometryInfo {
+            geom_type: HostGeometryType::Box,
+            is_small: false,
+            height,
+            major_radius: 15.0,
+            minor_radius: 15.0,
+            authored: true,
+        };
+        b.contain_module = ContainModuleMetadata {
+            kind: ContainModuleKind::Garrison,
+            slots: Some(slots),
+            admission: ContainAdmission::InfantryOnly,
+            allow_allies_inside: true,
+            allow_enemies_inside: true,
+            allow_neutral_inside: true,
+            ..ContainModuleMetadata::default()
+        };
+        b
+    }
+
+    #[test]
+    fn combat_drop_rappel_uses_roof_dest_not_y0() {
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("CD_T3");
+        t.add_kind_of(KindOf::Aircraft);
+        t.set_health(200.0);
+        logic.templates.insert("CD_T3".to_string(), t);
+        let mut p = ThingTemplate::new("CD_P3");
+        p.add_kind_of(KindOf::Infantry);
+        p.set_health(100.0);
+        logic.templates.insert("CD_P3".to_string(), p);
+        logic
+            .templates
+            .insert("CD_B3".to_string(), bunker_template("CD_B3", 24.0, 5));
+        let transport = logic
+            .create_object("CD_T3", Team::USA, Vec3::new(10.0, 100.0, 10.0))
+            .unwrap();
+        let bunker = logic
+            .create_object("CD_B3", Team::USA, Vec3::new(10.0, 0.0, 10.0))
+            .unwrap();
+        let pax = logic
+            .create_object("CD_P3", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let t = logic.host_object_mut(transport).unwrap();
+            t.install_combat_chinook_transport();
+            let _ = t.add_occupant(pax);
+            t.set_order_target(Some(bunker));
+            if let Some(ai) = t.chinook_ai.as_mut() {
+                ai.command_combat_drop([10.0, 10.0, 0.0], Some(24.0));
+                ai.arrive_for_combat_drop();
+            }
+        }
+        {
+            let p = logic.host_object_mut(pax).unwrap();
+            p.set_contained_by(Some(transport));
+        }
+        assert!(logic.evacuate_container_now(transport, false));
+        let pax_obj = logic.host_object(pax).unwrap();
+        assert!(pax_obj.is_rappelling());
+        assert!(
+            (pax_obj.status.rappel_dest_y - 24.0).abs() < 0.01,
+            "dest Y must be roof height, got {}",
+            pax_obj.status.rappel_dest_y
+        );
+        assert!(pax_obj.get_position().y > 50.0);
+        assert!((pax_obj.movement.max_speed - 30.0).abs() < 0.01);
+        assert_ne!(
+            pax_obj.movement.target_position.map(|p| p.y),
+            Some(0.0),
+            "must not path to Y=0"
+        );
+    }
+
+    #[test]
+    fn combat_drop_rappel_add_to_contain_on_roof() {
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("CD_T4");
+        t.add_kind_of(KindOf::Aircraft);
+        t.set_health(200.0);
+        logic.templates.insert("CD_T4".to_string(), t);
+        let mut p = ThingTemplate::new("CD_P4");
+        p.add_kind_of(KindOf::Infantry);
+        p.set_health(100.0);
+        logic.templates.insert("CD_P4".to_string(), p);
+        logic
+            .templates
+            .insert("CD_B4".to_string(), bunker_template("CD_B4", 20.0, 5));
+        let transport = logic
+            .create_object("CD_T4", Team::USA, Vec3::new(10.0, 80.0, 10.0))
+            .unwrap();
+        let bunker = logic
+            .create_object("CD_B4", Team::USA, Vec3::new(10.0, 0.0, 10.0))
+            .unwrap();
+        let pax = logic
+            .create_object("CD_P4", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let t = logic.host_object_mut(transport).unwrap();
+            t.install_combat_chinook_transport();
+            let _ = t.add_occupant(pax);
+            t.set_order_target(Some(bunker));
+            if let Some(ai) = t.chinook_ai.as_mut() {
+                ai.command_combat_drop([10.0, 10.0, 0.0], Some(20.0));
+                ai.arrive_for_combat_drop();
+            }
+        }
+        {
+            let p = logic.host_object_mut(pax).unwrap();
+            p.set_contained_by(Some(transport));
+        }
+        assert!(logic.evacuate_container_now(transport, false));
+        for _ in 0..120 {
+            logic.tick_rappel_into(pax);
+            if logic
+                .host_object(pax)
+                .is_some_and(|o| !o.is_rappelling())
+            {
+                break;
+            }
+        }
+        let pax_obj = logic.host_object(pax).unwrap();
+        assert!(!pax_obj.is_rappelling());
+        assert_eq!(pax_obj.contained_by, Some(bunker));
+        assert_eq!(pax_obj.ai_state, AIState::Garrisoned);
+        assert!(logic
+            .host_object(bunker)
+            .unwrap()
+            .contained_units()
+            .contains(&pax));
+    }
+
+    #[test]
+    fn combat_drop_rappel_kills_two_and_dies() {
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("CD_T5");
+        t.add_kind_of(KindOf::Aircraft);
+        t.set_health(200.0);
+        logic.templates.insert("CD_T5".to_string(), t);
+        let mut p = ThingTemplate::new("CD_P5");
+        p.add_kind_of(KindOf::Infantry);
+        p.set_health(100.0);
+        logic.templates.insert("CD_P5".to_string(), p);
+        let mut e = ThingTemplate::new("CD_E5");
+        e.add_kind_of(KindOf::Infantry);
+        e.set_health(100.0);
+        logic.templates.insert("CD_E5".to_string(), e);
+        logic
+            .templates
+            .insert("CD_B5".to_string(), bunker_template("CD_B5", 16.0, 5));
+        let transport = logic
+            .create_object("CD_T5", Team::USA, Vec3::new(10.0, 60.0, 10.0))
+            .unwrap();
+        let bunker = logic
+            .create_object("CD_B5", Team::China, Vec3::new(10.0, 0.0, 10.0))
+            .unwrap();
+        let pax = logic
+            .create_object("CD_P5", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        let e1 = logic
+            .create_object("CD_E5", Team::China, Vec3::new(2.0, 0.0, 0.0))
+            .unwrap();
+        let e2 = logic
+            .create_object("CD_E5", Team::China, Vec3::new(3.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let b = logic.host_object_mut(bunker).unwrap();
+            assert!(b.add_occupant(e1));
+            assert!(b.add_occupant(e2));
+        }
+        {
+            let o = logic.host_object_mut(e1).unwrap();
+            o.set_contained_by(Some(bunker));
+        }
+        {
+            let o = logic.host_object_mut(e2).unwrap();
+            o.set_contained_by(Some(bunker));
+        }
+        {
+            let t = logic.host_object_mut(transport).unwrap();
+            t.install_combat_chinook_transport();
+            let _ = t.add_occupant(pax);
+            t.set_order_target(Some(bunker));
+            if let Some(ai) = t.chinook_ai.as_mut() {
+                ai.command_combat_drop([10.0, 10.0, 0.0], Some(16.0));
+                ai.arrive_for_combat_drop();
+            }
+        }
+        {
+            let p = logic.host_object_mut(pax).unwrap();
+            p.set_contained_by(Some(transport));
+        }
+        assert!(logic.evacuate_container_now(transport, false));
+        for _ in 0..120 {
+            logic.tick_rappel_into(pax);
+            if logic
+                .host_object(pax)
+                .is_some_and(|o| !o.is_alive() || !o.is_rappelling())
+            {
+                break;
+            }
+        }
+        assert!(
+            !logic.host_object(e1).unwrap().is_alive(),
+            "first occupant must die"
+        );
+        assert!(
+            !logic.host_object(e2).unwrap().is_alive(),
+            "second occupant must die"
+        );
+        assert!(
+            !logic.host_object(pax).unwrap().is_alive(),
+            "rappeller dies after killing two"
+        );
+        assert!(!logic
+            .host_object(bunker)
+            .unwrap()
+            .contained_units()
+            .contains(&pax));
+    }
+
+
     #[test]
     fn execute_exit_staggers_humvee_occupants_and_goes_aggressive() {
         let mut logic = GameLogic::new();
@@ -1054,6 +1358,184 @@ mod tests {
             "DelayExitInAir must hold the door until the bus lands"
         );
         assert!(logic.host_object(transport).unwrap().pending_evacuate_on_stop);
+    }
+
+    #[test]
+    fn combat_drop_into_rejects_faction_structure() {
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("CD_T6");
+        t.add_kind_of(KindOf::Aircraft);
+        t.set_health(200.0);
+        logic.templates.insert("CD_T6".into(), t);
+        let mut p = ThingTemplate::new("CD_P6");
+        p.add_kind_of(KindOf::Infantry);
+        p.set_health(100.0);
+        logic.templates.insert("CD_P6".into(), p);
+        let mut cc = ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::CommandCenter)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(2000.0);
+        cc.contain_module = ContainModuleMetadata {
+            kind: ContainModuleKind::Garrison,
+            slots: Some(5),
+            admission: ContainAdmission::InfantryOnly,
+            ..Default::default()
+        };
+        logic.templates.insert("AmericaCommandCenter".into(), cc);
+        let transport = logic
+            .create_object("CD_T6", Team::USA, Vec3::new(0.0, 100.0, 0.0))
+            .unwrap();
+        let pax = logic
+            .create_object("CD_P6", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        let bldg = logic
+            .create_object("AmericaCommandCenter", Team::China, Vec3::new(40.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let t = logic.host_object_mut(transport).unwrap();
+            t.install_combat_chinook_transport();
+            let _ = t.add_occupant(pax);
+        }
+        {
+            let p = logic.host_object_mut(pax).unwrap();
+            p.set_contained_by(Some(transport));
+        }
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_combat_drop(&[transport], &DropTarget::Object(bldg)),
+            CommandResult::InvalidCommand
+        );
+    }
+
+    #[test]
+    fn combat_drop_hover_uses_geometry_height_plus_min_drop() {
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("CD_T7");
+        t.add_kind_of(KindOf::Aircraft);
+        t.set_health(200.0);
+        logic.templates.insert("CD_T7".into(), t);
+        let mut p = ThingTemplate::new("CD_P7");
+        p.add_kind_of(KindOf::Infantry);
+        p.set_health(100.0);
+        logic.templates.insert("CD_P7".into(), p);
+        logic
+            .templates
+            .insert("CD_B7".into(), bunker_template("CD_B7", 80.0, 5));
+        let transport = logic
+            .create_object("CD_T7", Team::USA, Vec3::new(0.0, 100.0, 0.0))
+            .unwrap();
+        let pax = logic
+            .create_object("CD_P7", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        let bunker = logic
+            .create_object("CD_B7", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let t = logic.host_object_mut(transport).unwrap();
+            t.install_combat_chinook_transport();
+            let _ = t.add_occupant(pax);
+        }
+        {
+            let p = logic.host_object_mut(pax).unwrap();
+            p.set_contained_by(Some(transport));
+        }
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_combat_drop(&[transport], &DropTarget::Object(bunker)),
+                CommandResult::Success
+            );
+        }
+        let ai = logic
+            .host_object(transport)
+            .unwrap()
+            .chinook_ai
+            .as_ref()
+            .unwrap();
+        assert!(
+            (ai.combat_drop_dest_z - 120.0).abs() < 0.01,
+            "hover must be geom 80 + MinDropHeight 40, got {}",
+            ai.combat_drop_dest_z
+        );
+    }
+
+    #[test]
+    fn regular_chinook_create_installs_transport() {
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("AmericaVehicleChinook");
+        t.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Aircraft)
+            .set_health(200.0);
+        logic.templates.insert("AmericaVehicleChinook".into(), t);
+        let id = logic
+            .create_object(
+                "AmericaVehicleChinook",
+                Team::USA,
+                Vec3::new(0.0, 100.0, 0.0),
+            )
+            .unwrap();
+        let obj = logic.host_object(id).unwrap();
+        assert_eq!(obj.max_transport, 8);
+        assert!(obj.can_contain());
+        assert!(obj.chinook_ai.is_some());
+        assert!(!obj.is_combat_chinook_style_container());
+        assert!(!obj.chinook_ai.as_ref().unwrap().can_issue_attack());
+        assert!(!obj.passengers_allowed_to_fire);
+    }
+
+    #[test]
+    fn last_rappeller_finish_leaves_do_combat_drop() {
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("CD_T8");
+        t.add_kind_of(KindOf::Aircraft);
+        t.set_health(200.0);
+        logic.templates.insert("CD_T8".into(), t);
+        let mut p = ThingTemplate::new("CD_P8");
+        p.add_kind_of(KindOf::Infantry);
+        p.set_health(100.0);
+        logic.templates.insert("CD_P8".into(), p);
+        let transport = logic
+            .create_object("CD_T8", Team::USA, Vec3::new(10.0, 100.0, 10.0))
+            .unwrap();
+        let pax = logic
+            .create_object("CD_P8", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let t = logic.host_object_mut(transport).unwrap();
+            t.install_combat_chinook_transport();
+            let _ = t.add_occupant(pax);
+            if let Some(ai) = t.chinook_ai.as_mut() {
+                ai.command_combat_drop([10.0, 10.0, 0.0], None);
+                ai.arrive_for_combat_drop();
+            }
+        }
+        {
+            let p = logic.host_object_mut(pax).unwrap();
+            p.set_contained_by(Some(transport));
+        }
+        assert!(logic.evacuate_container_now(transport, false));
+        assert_eq!(
+            logic
+                .host_object(transport)
+                .unwrap()
+                .chinook_ai
+                .as_ref()
+                .unwrap()
+                .flight_status,
+            crate::game_logic::host_combat_chinook::HostChinookFlightStatus::DoingCombatDrop
+        );
+        assert!(!logic.evacuate_container_now(transport, false));
+        assert_eq!(
+            logic
+                .host_object(transport)
+                .unwrap()
+                .chinook_ai
+                .as_ref()
+                .unwrap()
+                .flight_status,
+            crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Flying
+        );
     }
 
 }

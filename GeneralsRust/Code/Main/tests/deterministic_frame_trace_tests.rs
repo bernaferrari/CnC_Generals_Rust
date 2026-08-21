@@ -162,7 +162,7 @@ fn traced_game_logic() -> (GameLogic, ObjectId, ObjectId) {
         reload_time: 0.0,
         projectile_speed: 0.0,
         ..Weapon::default()
-    });
+});
     game_logic
         .get_objects_mut()
         .get_mut(&humvee)

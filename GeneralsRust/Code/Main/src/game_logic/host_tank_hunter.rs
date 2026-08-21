@@ -242,7 +242,9 @@ pub fn tank_hunter_weapon(in_horde: bool, has_nationalism: bool) -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: splash,
         suspend_fx_frame: 0,
-    }
+                reloading_clip: false,
+            last_bonus_rof: 0.0,
+}
 }
 
 /// Splash residual damage at distance from impact.

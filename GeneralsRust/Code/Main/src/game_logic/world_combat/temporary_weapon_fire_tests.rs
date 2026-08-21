@@ -253,6 +253,133 @@ fn dead_behavior_honors_triggered_by_and_conflicts_with_ownership() {
     logic.objects.insert(source, object);
     let upgraded = logic.execute_temporary_weapon_on_die(source);
     assert!(upgraded > 0, "TriggeredBy HE must activate exclusive death module");
+    assert!(
+        logic
+            .host_object(source)
+            .expect("source")
+            .fire_weapon_when_dead_fired
+    );
+}
+
+/// C++ FireWeaponWhenDeadBehavior::onDie — every matching module fires.
+/// Exclusive mux selects default vs HE; Bio still fires when owned.
+#[test]
+fn dead_behavior_fires_every_matching_module() {
+    let mut logic = GameLogic::new();
+    logic.frame = 8;
+    let mux_default = FireWeaponUpgradeMuxMetadata {
+        conflicts_with: vec!["Upgrade_GLABombTruckHighExplosiveBomb".into()],
+        ..Default::default()
+    };
+    let mux_he = FireWeaponUpgradeMuxMetadata {
+        triggered_by: vec!["Upgrade_GLABombTruckHighExplosiveBomb".into()],
+        ..Default::default()
+    };
+    let mux_bio = FireWeaponUpgradeMuxMetadata {
+        triggered_by: vec!["Upgrade_GLABombTruckBioBomb".into()],
+        ..Default::default()
+    };
+    let mut template = ThingTemplate::new("GLAVehicleBombTruckMulti");
+    template.fire_weapon_when_dead_behaviors = vec![
+        FireWeaponWhenDeadMetadata {
+            module_source_index: 0,
+            module_tag: None,
+            starts_active: true,
+            death_weapon: Some("CrusaderTankGun".into()),
+            upgrade_mux: mux_default,
+            death_types: Default::default(),
+            veterancy_levels: Default::default(),
+            exempt_status: Default::default(),
+            required_status: Default::default(),
+        },
+        FireWeaponWhenDeadMetadata {
+            module_source_index: 1,
+            module_tag: None,
+            starts_active: false,
+            death_weapon: Some("PaladinTankGun".into()),
+            upgrade_mux: mux_he,
+            death_types: Default::default(),
+            veterancy_levels: Default::default(),
+            exempt_status: Default::default(),
+            required_status: Default::default(),
+        },
+        FireWeaponWhenDeadMetadata {
+            module_source_index: 2,
+            module_tag: None,
+            starts_active: false,
+            death_weapon: Some("CrusaderTankGun".into()),
+            upgrade_mux: mux_bio,
+            death_types: Default::default(),
+            veterancy_levels: Default::default(),
+            exempt_status: Default::default(),
+            required_status: Default::default(),
+        },
+    ];
+    let mut object = Object::new(template, ObjectId(16), Team::GLA);
+    object.temporary_weapon_runtime.dead = vec![
+        FireWeaponWhenDeadRuntimeState {
+            module_source_index: 0,
+            upgrade_executed: false,
+        },
+        FireWeaponWhenDeadRuntimeState {
+            module_source_index: 1,
+            upgrade_executed: false,
+        },
+        FireWeaponWhenDeadRuntimeState {
+            module_source_index: 2,
+            upgrade_executed: false,
+        },
+    ];
+    object.status.destroyed = true;
+    object.apply_upgrade_tag("Upgrade_GLABombTruckHighExplosiveBomb");
+    object.apply_upgrade_tag("Upgrade_GLABombTruckBioBomb");
+    let source = ObjectId(16);
+    logic.objects.insert(source, object);
+    let hits = logic.execute_temporary_weapon_on_die(source);
+    assert!(
+        hits > 0,
+        "hq-ys6gk: HE+Bio must fire leftover death modules"
+    );
+    assert!(
+        logic
+            .host_object(source)
+            .expect("source")
+            .fire_weapon_when_dead_fired
+    );
+}
+
+#[test]
+fn dead_behavior_store_miss_does_not_stamp_fired() {
+    let mut logic = GameLogic::new();
+    logic.frame = 8;
+    let mut template = ThingTemplate::new("TempDeadMissingWeapon");
+    template.fire_weapon_when_dead_behaviors = vec![FireWeaponWhenDeadMetadata {
+        module_source_index: 0,
+        module_tag: None,
+        starts_active: true,
+        death_weapon: Some("DefinitelyNotARealWeaponTemplate".into()),
+        upgrade_mux: FireWeaponUpgradeMuxMetadata::default(),
+        death_types: Default::default(),
+        veterancy_levels: Default::default(),
+        exempt_status: Default::default(),
+        required_status: Default::default(),
+    }];
+    let mut object = Object::new(template, ObjectId(17), Team::GLA);
+    object.temporary_weapon_runtime.dead = vec![FireWeaponWhenDeadRuntimeState {
+        module_source_index: 0,
+        upgrade_executed: true,
+    }];
+    object.status.destroyed = true;
+    let source = ObjectId(17);
+    logic.objects.insert(source, object);
+    assert_eq!(logic.execute_temporary_weapon_on_die(source), 0);
+    assert!(
+        !logic
+            .host_object(source)
+            .expect("source")
+            .fire_weapon_when_dead_fired,
+        "hq-ys6gk: store miss must not stamp fired (residual blast still allowed)"
+    );
 }
 
 #[test]

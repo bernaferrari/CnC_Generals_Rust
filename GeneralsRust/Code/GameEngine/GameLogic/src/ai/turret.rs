@@ -271,6 +271,9 @@ impl TurretAI {
 
     /// Set current target by stable object ID.
     pub fn set_current_target(&mut self, target: Option<ObjectID>) {
+        if target.filter(|&id| id != crate::common::INVALID_ID).is_none() {
+            self.remove_self_as_targeter();
+        }
         self.current_target = target.filter(|&id| id != crate::common::INVALID_ID);
         self.target_kind = if self.current_target.is_some() {
             TurretTargetKind::Object
@@ -291,6 +294,9 @@ impl TurretAI {
 
     /// Set current target from idle mood selection
     pub fn set_current_target_from_idle_mood(&mut self, target: Option<ObjectID>) {
+        if target.filter(|&id| id != crate::common::INVALID_ID).is_none() {
+            self.remove_self_as_targeter();
+        }
         self.current_target = target.filter(|&id| id != crate::common::INVALID_ID);
         self.target_kind = if self.current_target.is_some() {
             TurretTargetKind::Object
@@ -335,6 +341,9 @@ impl TurretAI {
         target: Option<ObjectID>,
         force_attacking: bool,
     ) {
+        if target.filter(|&id| id != crate::common::INVALID_ID).is_none() {
+            self.remove_self_as_targeter();
+        }
         self.current_target = target.filter(|&id| id != crate::common::INVALID_ID);
         self.target_kind = if self.current_target.is_some() {
             TurretTargetKind::Object

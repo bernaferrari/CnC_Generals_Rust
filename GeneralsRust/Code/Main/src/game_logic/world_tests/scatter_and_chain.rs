@@ -37,7 +37,7 @@ fn continue_attack_range_chains_to_nearby_same_team_target() {
             reload_time: 0.0,
             last_fire_time: -100.0,
             ..Weapon::default()
-        });
+});
         o.target = Some(mine1);
         o.set_ai_state(AIState::Attacking);
         o.set_status_attacking(true);

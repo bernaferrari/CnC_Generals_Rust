@@ -1091,6 +1091,17 @@ fn reload_type_seed_return_to_base() {
 }
 
 #[test]
+fn delay_between_shots_frames_draws_inclusive_range() {
+    assert_eq!(super::delay_between_shots_frames(12, 12), 12);
+    game_engine::common::random_value::init_game_logic_random(0xC0FFEE);
+    for _ in 0..32 {
+        let drawn = super::delay_between_shots_frames(3, 9);
+        assert!((3..=9).contains(&drawn), "drawn={drawn}");
+    }
+}
+
+
+#[test]
 fn target_pitch_limits_seed_and_gate() {
     let sc = seed_target_pitch_limits_for("AmericaStrategyCenterArtillery");
     assert!(!sc.is_unlimited());

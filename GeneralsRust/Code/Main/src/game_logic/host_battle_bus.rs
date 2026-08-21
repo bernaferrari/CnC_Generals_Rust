@@ -370,7 +370,9 @@ pub fn battle_bus_passenger_dummy_weapon() -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-    }
+                reloading_clip: false,
+            last_bonus_rof: 0.0,
+}
 }
 
 /// Residual BattleBusDummyWeapon (SECONDARY AA residual enable).
@@ -390,7 +392,9 @@ pub fn battle_bus_dummy_weapon() -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-    }
+                reloading_clip: false,
+            last_bonus_rof: 0.0,
+}
 }
 
 /// Residual of C++ TransportContain armed-rider check:
@@ -559,14 +563,14 @@ mod tests {
             damage: 10.0,
             range: 100.0,
             ..Weapon::default()
-        };
+};
         assert!(rider_has_viable_weapon(Some(&rifle), true));
         assert!(!rider_has_viable_weapon(Some(&rifle), false));
         let melee = Weapon {
             damage: 20.0,
             range: 3.0,
             ..Weapon::default()
-        };
+};
         assert!(!rider_has_viable_weapon(Some(&melee), true));
         assert!(!rider_has_viable_weapon(None, true));
     }
