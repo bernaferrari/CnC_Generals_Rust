@@ -1065,6 +1065,50 @@ impl GameLogic {
         affected
     }
 
+    /// C++ PowerPlantUpgrade::upgradeImplementation for one America plant.
+    /// Adds EnergyBonus and starts extendRods when Advanced Control Rods is
+    /// already researched (Object::updateUpgradeModules on a new Cold Fusion).
+    pub(in super::super) fn apply_advanced_control_rods_to_object(
+        &mut self,
+        plant_id: ObjectId,
+        upgrade_name: &str,
+    ) -> bool {
+        use crate::game_logic::host_structure_economy_residual::{
+            is_power_plant_template, AMERICA_POWER_ENERGY_BONUS,
+            UPGRADE_AMERICA_ADVANCED_CONTROL_RODS,
+        };
+
+        let bonus = AMERICA_POWER_ENERGY_BONUS;
+        let Some(obj) = self.objects.get_mut(&plant_id) else {
+            return false;
+        };
+        if !obj.is_alive() || !obj.is_kind_of(KindOf::Structure) {
+            return false;
+        }
+        let is_plant = is_power_plant_template(&obj.template_name)
+            || obj.is_kind_of(KindOf::PowerPlant)
+            || obj.is_kind_of(KindOf::FSPower);
+        if !is_plant {
+            return false;
+        }
+        let n = obj.template_name.to_ascii_lowercase();
+        let america = n.contains("america") || n.contains("usa") || n.contains("coldfusion");
+        if !america {
+            return false;
+        }
+        if obj.has_upgrade_tag(UPGRADE_AMERICA_ADVANCED_CONTROL_RODS)
+            || obj.has_upgrade_tag(upgrade_name)
+        {
+            return false;
+        }
+        obj.apply_upgrade_tag(upgrade_name);
+        obj.apply_upgrade_tag(UPGRADE_AMERICA_ADVANCED_CONTROL_RODS);
+        obj.power_provided = obj.power_provided.saturating_add(bonus);
+        obj.record_host_entity_power();
+        let _ = self.begin_power_plant_rods_extend(plant_id);
+        true
+    }
+
     /// C++ PowerPlantUpgrade Advanced Control Rods residual.
     ///
     /// Tags America power plants and adds EnergyBonus to power_provided;
@@ -1075,13 +1119,11 @@ impl GameLogic {
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_structure_economy_residual::{
-            is_power_plant_template, AMERICA_POWER_ENERGY_BONUS,
-            UPGRADE_AMERICA_ADVANCED_CONTROL_RODS,
+            is_power_plant_template, UPGRADE_AMERICA_ADVANCED_CONTROL_RODS,
         };
 
-        let bonus = AMERICA_POWER_ENERGY_BONUS;
         let mut plant_ids: Vec<ObjectId> = Vec::new();
-        for (id, obj) in self.objects.iter_mut() {
+        for (id, obj) in self.objects.iter() {
             if !upgrade_targets_object(obj, team) || !obj.is_alive() {
                 continue;
             }
@@ -1094,7 +1136,6 @@ impl GameLogic {
             if !is_plant {
                 continue;
             }
-            // America plants only residual (China uses OverchargeBehavior).
             let n = obj.template_name.to_ascii_lowercase();
             let america = n.contains("america") || n.contains("usa") || n.contains("coldfusion");
             if !america {
@@ -1105,18 +1146,11 @@ impl GameLogic {
             {
                 continue;
             }
-            obj.apply_upgrade_tag(upgrade_name);
-            obj.apply_upgrade_tag(UPGRADE_AMERICA_ADVANCED_CONTROL_RODS);
-            obj.power_provided = obj.power_provided.saturating_add(bonus);
-            obj.record_host_entity_power();
             plant_ids.push(*id);
         }
         let mut affected = 0u32;
         for id in plant_ids {
-            // C++ PowerPlantUpdate::extendRods(TRUE) residual — UPGRADING → UPGRADED.
-            if self.begin_power_plant_rods_extend(id) {
-                affected = affected.saturating_add(1);
-            } else {
+            if self.apply_advanced_control_rods_to_object(id, upgrade_name) {
                 affected = affected.saturating_add(1);
             }
         }

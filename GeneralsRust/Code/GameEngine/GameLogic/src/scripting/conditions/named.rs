@@ -683,25 +683,31 @@ impl ScriptCondition for NamedEnteredAreaCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        if dual_world_registry_unavailable() {
-            return Ok(false);
-        }
-
         let unit_name = get_str_param(parameters, "unit_name")?;
         let area_name = get_str_param(parameters, "area_name")?;
+        let Some(trigger) = crate::scripting::host_script_lookup_polygon_trigger(&area_name)
+            .or_else(|| {
+                get_script_engine().read().ok().and_then(|guard| {
+                    guard
+                        .as_ref()
+                        .and_then(|engine| engine.get_qualified_trigger_area_by_name(&area_name))
+                })
+            })
+        else {
+            return Ok(false);
+        };
+        if dual_world_registry_unavailable() {
+            let Some(object_id) = super::helpers::host_script_named_unit_id(&unit_name) else {
+                return Ok(false);
+            };
+            return Ok(super::helpers::host_object_did_enter(object_id, &trigger));
+        }
 
         let object_id = match lookup_named_object_id(&unit_name)? {
             Some(id) => id,
             None => {
                 return Ok(false);
             }
-        };
-        let Some(trigger) = get_script_engine().read().ok().and_then(|guard| {
-            guard
-                .as_ref()
-                .and_then(|engine| engine.get_qualified_trigger_area_by_name(&area_name))
-        }) else {
-            return Ok(false);
         };
         Ok(OBJECT_REGISTRY
             .with_object(object_id, |obj| {
@@ -740,25 +746,31 @@ impl ScriptCondition for NamedExitedAreaCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        if dual_world_registry_unavailable() {
-            return Ok(false);
-        }
-
         let unit_name = get_str_param(parameters, "unit_name")?;
         let area_name = get_str_param(parameters, "area_name")?;
+        let Some(trigger) = crate::scripting::host_script_lookup_polygon_trigger(&area_name)
+            .or_else(|| {
+                get_script_engine().read().ok().and_then(|guard| {
+                    guard
+                        .as_ref()
+                        .and_then(|engine| engine.get_qualified_trigger_area_by_name(&area_name))
+                })
+            })
+        else {
+            return Ok(false);
+        };
+        if dual_world_registry_unavailable() {
+            let Some(object_id) = super::helpers::host_script_named_unit_id(&unit_name) else {
+                return Ok(false);
+            };
+            return Ok(super::helpers::host_object_did_exit(object_id, &trigger));
+        }
 
         let object_id = match lookup_named_object_id(&unit_name)? {
             Some(id) => id,
             None => {
                 return Ok(false);
             }
-        };
-        let Some(trigger) = get_script_engine().read().ok().and_then(|guard| {
-            guard
-                .as_ref()
-                .and_then(|engine| engine.get_qualified_trigger_area_by_name(&area_name))
-        }) else {
-            return Ok(false);
         };
         Ok(OBJECT_REGISTRY
             .with_object(object_id, |obj| {

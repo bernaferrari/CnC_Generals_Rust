@@ -570,6 +570,7 @@ impl SnapshotBuilder {
                 // update_player_radar residual pass (fail-closed restore).
                 radar_count: 0,
                 radar_disabled: false,
+                disable_proof_radar_count: 0,
                 logical_retaliation_mode_enabled: false,
                 // Pre-v10 fallback. C++ Player::xfer (Player.cpp:4268-4275)
                 // persists these; v10 `player_ranks` overwrites them after

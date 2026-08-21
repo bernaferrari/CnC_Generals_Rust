@@ -325,6 +325,7 @@ impl<'a> CommandExecutor<'a> {
         let (
             target_team,
             target_pos,
+            target_radius,
             target_alive,
             target_is_vehicle,
             target_is_airborne,
@@ -333,6 +334,7 @@ impl<'a> CommandExecutor<'a> {
             Some(target) => (
                 target.team,
                 target.get_position(),
+                target.selection_radius,
                 target.is_alive(),
                 target.is_kind_of(KindOf::Vehicle),
                 target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target,
@@ -354,11 +356,17 @@ impl<'a> CommandExecutor<'a> {
         let mut any = false;
         let mut issued_units = Vec::new();
         for &unit_id in units {
-            let can_issue = self
-                .game_logic
-                .host_object(unit_id)
-                .map(|unit| unit.is_alive() && unit.can_move() && unit.team != target_team)
-                .unwrap_or(false);
+            let Some((unit_pos, unit_radius, can_issue)) =
+                self.game_logic.host_object(unit_id).map(|unit| {
+                    (
+                        unit.get_position(),
+                        unit.selection_radius,
+                        unit.is_alive() && unit.can_move() && unit.team != target_team,
+                    )
+                })
+            else {
+                continue;
+            };
             if !can_issue {
                 continue;
             }
@@ -367,7 +375,25 @@ impl<'a> CommandExecutor<'a> {
             let _ = self
                 .game_logic
                 .unit_command_stop_moving_order_target(unit_id, Some(target_id));
-            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
+            // C++ CommandXlat.cpp:548-556 VoiceSnipePilot + ActionManager.cpp:1944-1950
+            // MSG_DO_WEAPON_AT_OBJECT DAMAGE_KILLPILOT. Retail
+            // GLAJarmenKellVehiclePilotSniperRifle AttackRange is 225, not
+            // contact radii+4. Already-in-range must not require a path to
+            // the occupied vehicle cell.
+            let in_killpilot_range =
+                crate::game_logic::host_hero_abilities::leftover_snipe_in_killpilot_range(
+                    unit_pos,
+                    unit_radius,
+                    target_pos,
+                    target_radius,
+                );
+            if in_killpilot_range {
+                let _ = self
+                    .game_logic
+                    .unit_command_set_ai_state(unit_id, AIState::SpecialAbility);
+                issued_units.push(unit_id);
+                any = true;
+            } else if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
                 any = true;
             }

@@ -1,25 +1,18 @@
-//! Host America Countermeasures residual (CountermeasuresBehavior).
+//! Host America Countermeasures (CountermeasuresBehavior).
 //!
-//! Residual slice (playability):
-//! - When `Upgrade_AmericaCountermeasures` is applied to an aircraft, incoming
-//!   projectiles may be diverted with retail **EvasionRate 30%**.
-//! - Available flares residual: VolleySize **4** × NumberOfVolleys **5** = **20**
-//!   (Raptor ModuleTag_11 baseline; other airframes may use 3 volleys).
-//! - ReloadTime **0** → must reload at airfield residual (fail-closed full dock).
-//! - Diverted missiles deal **no** Direct residual damage (decoy path).
-//!
-//! C++ path: `CountermeasuresBehavior::reportMissileForCountermeasures` rolls
+//! C++ `CountermeasuresBehavior::reportMissileForCountermeasures` rolls
 //! `GameLogicRandomValueReal(0,1) < m_evasionRate`, then sets projectile
-//! diversion delay. Host residual collapses delay into immediate miss.
+//! `framesTillDecoyed` (MissileDecoyDelay 200 ms → 6f). Volleys launch later
+//! from `update` while airborne. Diverted missiles seek the closest flare of
+//! the newest volley and deal no detonation damage.
 //!
-//! Fail-closed honesty:
-//! - CountermeasureFlare SpecialObject spawn residual closed (LifetimeUpdate 3s)
-//! - Not full bone volley arc / VolleyVelocityFactor locomotor matrix
-//! - Not full calculateCountermeasureToDivertTo closest-flare seeker
-//! - Airfield reload residual: docked at friendly airfield restores full load
-//!   (C++ JetAIUpdate → reloadCountermeasures; ReloadTime=0 / MustReloadAtAirfield)
-//! - Not full active-flare lifetime list / bone volley FX
-//! - Shell `playable_claim` stays false; network deferred
+//! Retail pack:
+//! - EvasionRate **30%**
+//! - VolleySize **4** × NumberOfVolleys **5** = **20** (Raptor ModuleTag_11).
+//!   Comanche / Aurora use **3** volleys (12 flares).
+//! - ReloadTime **0** → airfield-only reload (MustReloadAtAirfield).
+//! - DelayBetweenVolleys **1000** ms → 30f; ReactionLaunchLatency **0**.
+//! - VolleyArcAngle **90°**, VolleyVelocityFactor **2.0**.
 
 use super::ObjectId;
 use crate::game_logic::host_rng_residual::HostRandomState;
@@ -80,36 +73,91 @@ pub struct HostCountermeasuresState {
     pub incoming_missiles: u32,
     pub diverted_missiles: u32,
     pub volleys_fired: u32,
+    /// C++ `m_reactionFrame`. Meaningful when `reaction_armed`.
+    #[serde(default)]
+    pub reaction_frame: u32,
+    /// Distinguishes an armed reaction at frame 0 from C++'s 0=unset.
+    #[serde(default)]
+    pub reaction_armed: bool,
+    /// C++ `m_nextVolleyFrame`. 0 = no continuation volley scheduled.
+    #[serde(default)]
+    pub next_volley_frame: u32,
+    /// Per-airframe `NumberOfVolleys` (Raptor 5, Comanche/Aurora 3).
+    #[serde(default = "default_number_of_volleys")]
+    pub number_of_volleys: u32,
+    /// C++ `m_counterMeasures` (newest at the back).
+    #[serde(default)]
+    pub flare_ids: Vec<ObjectId>,
+}
+
+fn default_number_of_volleys() -> u32 {
+    NUMBER_OF_VOLLEYS
 }
 
 impl Default for HostCountermeasuresState {
     fn default() -> Self {
-        Self {
-            available: FULL_LOAD_COUNTERMEASURES,
-            active: 0,
-            incoming_missiles: 0,
-            diverted_missiles: 0,
-            volleys_fired: 0,
-        }
+        Self::full_load_with_volleys(NUMBER_OF_VOLLEYS)
     }
 }
 
 impl HostCountermeasuresState {
     pub fn full_load() -> Self {
-        Self::default()
+        Self::full_load_with_volleys(NUMBER_OF_VOLLEYS)
+    }
+
+    pub fn full_load_with_volleys(number_of_volleys: u32) -> Self {
+        let n = number_of_volleys.max(1);
+        Self {
+            available: VOLLEY_SIZE.saturating_mul(n),
+            active: 0,
+            incoming_missiles: 0,
+            diverted_missiles: 0,
+            volleys_fired: 0,
+            reaction_frame: 0,
+            reaction_armed: false,
+            next_volley_frame: 0,
+            number_of_volleys: n,
+            flare_ids: Vec::new(),
+        }
+    }
+
+    pub fn full_load_count(&self) -> u32 {
+        VOLLEY_SIZE.saturating_mul(self.number_of_volleys.max(1))
     }
 
     /// Airfield reload residual (ReloadTime = 0 → only via this path).
     pub fn reload_at_airfield(&mut self) {
-        self.available = FULL_LOAD_COUNTERMEASURES;
+        self.available = self.full_load_count();
         self.active = 0;
         self.volleys_fired = 0;
+        self.reaction_frame = 0;
+        self.reaction_armed = false;
+        self.next_volley_frame = 0;
+        self.flare_ids.clear();
     }
 
     /// True when any flares remain (available or currently active residual).
     pub fn has_flares(&self) -> bool {
         self.available.saturating_add(self.active) > 0
     }
+}
+
+/// Retail `NumberOfVolleys` for an airframe template.
+/// Raptor ModuleTag_11 = 5; Comanche / Aurora = 3.
+pub fn number_of_volleys_for_template(template_name: &str) -> u32 {
+    let n = template_name.to_ascii_lowercase();
+    if n.contains("comanche") || n.contains("aurora") {
+        3
+    } else {
+        NUMBER_OF_VOLLEYS
+    }
+}
+
+/// C++ `LOCOMOTORSET_SUPERSONIC` gate (Weapon.cpp:1148-1149).
+pub fn victim_locomotor_is_supersonic(locomotor_set: Option<&str>) -> bool {
+    locomotor_set
+        .map(|s| s.to_ascii_uppercase().contains("SUPERSONIC"))
+        .unwrap_or(false)
 }
 
 /// Host registry of countermeasures residual by aircraft ObjectId.
@@ -165,10 +213,37 @@ impl HostCountermeasuresRegistry {
         }
     }
 
+    /// Drop a destroyed flare id from the newest-volley seek list.
+    pub fn forget_flare_id(&mut self, aircraft_id: ObjectId, flare_id: ObjectId) {
+        if let Some(st) = self.states.get_mut(&aircraft_id.0) {
+            st.flare_ids.retain(|id| *id != flare_id);
+        }
+    }
+
+    /// Record a spawned flare id (C++ `m_counterMeasures.push_back`).
+    pub fn record_flare_id(&mut self, aircraft_id: ObjectId, flare_id: ObjectId) {
+        self.ensure(aircraft_id).flare_ids.push(flare_id);
+    }
+
+    pub fn aircraft_ids(&self) -> Vec<ObjectId> {
+        self.states.keys().copied().map(ObjectId).collect()
+    }
+
     pub fn ensure(&mut self, aircraft_id: ObjectId) -> &mut HostCountermeasuresState {
         self.states
             .entry(aircraft_id.0)
             .or_insert_with(HostCountermeasuresState::full_load)
+    }
+
+    pub fn ensure_for_template(
+        &mut self,
+        aircraft_id: ObjectId,
+        template_name: &str,
+    ) -> &mut HostCountermeasuresState {
+        let n = number_of_volleys_for_template(template_name);
+        self.states
+            .entry(aircraft_id.0)
+            .or_insert_with(|| HostCountermeasuresState::full_load_with_volleys(n))
     }
 
     pub fn get(&self, aircraft_id: ObjectId) -> Option<&HostCountermeasuresState> {
@@ -212,27 +287,48 @@ pub fn aircraft_has_countermeasures_upgrade(
     })
 }
 
-/// C++ reportMissileForCountermeasures residual: roll evasion, consume one flare.
+/// C++ `reportMissileForCountermeasures`: increment incoming, roll evasion,
+/// arm reaction. Does **not** consume flares or spawn a volley.
 ///
-/// Returns `true` when the missile is diverted (no Direct residual damage).
-/// Deterministic RNG: seed from aircraft_id ^ projectile_id ^ frame.
-pub fn try_divert_missile(
+/// Returns `true` when the missile is marked for delayed diversion
+/// (`setFramesTillCountermeasureDiversionOccurs`).
+pub fn report_missile_for_countermeasures(
     reg: &mut HostCountermeasuresRegistry,
     aircraft_id: ObjectId,
     projectile_id: ObjectId,
     frame: u32,
     has_upgrade: bool,
 ) -> bool {
+    report_missile_for_countermeasures_named(
+        reg,
+        aircraft_id,
+        projectile_id,
+        frame,
+        has_upgrade,
+        None,
+    )
+}
+
+pub fn report_missile_for_countermeasures_named(
+    reg: &mut HostCountermeasuresRegistry,
+    aircraft_id: ObjectId,
+    projectile_id: ObjectId,
+    frame: u32,
+    has_upgrade: bool,
+    template_name: Option<&str>,
+) -> bool {
     if !has_upgrade {
         return false;
     }
     reg.total_reports = reg.total_reports.saturating_add(1);
-    let st = reg.ensure(aircraft_id);
+    let st = match template_name {
+        Some(name) => reg.ensure_for_template(aircraft_id, name),
+        None => reg.ensure(aircraft_id),
+    };
     st.incoming_missiles = st.incoming_missiles.saturating_add(1);
     if !st.has_flares() {
         return false;
     }
-    // Deterministic GameLogicRandomValueReal residual.
     let seed = aircraft_id
         .0
         .wrapping_mul(0x9E37_79B9)
@@ -243,15 +339,37 @@ pub fn try_divert_missile(
     if roll >= EVASION_RATE {
         return false;
     }
-    // Launch one volley residual (VolleySize flares) when available.
-    let flares = st.available.min(VOLLEY_SIZE);
-    if flares > 0 {
-        st.available = st.available.saturating_sub(flares);
-        st.active = st.active.saturating_add(flares);
-    }
     st.diverted_missiles = st.diverted_missiles.saturating_add(1);
-    st.volleys_fired = st.volleys_fired.saturating_add(1);
+    if st.active == 0 && !st.reaction_armed {
+        st.reaction_frame = frame.saturating_add(REACTION_LAUNCH_LATENCY_MS);
+        st.reaction_armed = true;
+    }
     reg.total_diverts = reg.total_diverts.saturating_add(1);
+    let _ = projectile_id;
+    true
+}
+
+/// Back-compat name for C++ report (no flare consume).
+pub fn try_divert_missile(
+    reg: &mut HostCountermeasuresRegistry,
+    aircraft_id: ObjectId,
+    projectile_id: ObjectId,
+    frame: u32,
+    has_upgrade: bool,
+) -> bool {
+    report_missile_for_countermeasures(reg, aircraft_id, projectile_id, frame, has_upgrade)
+}
+
+/// C++ `CountermeasuresBehavior::launchVolley` — queue `VolleySize` flare spawns.
+fn launch_volley(reg: &mut HostCountermeasuresRegistry, aircraft_id: ObjectId, frame: u32) {
+    let st = reg.ensure(aircraft_id);
+    let flares = st.available.min(VOLLEY_SIZE);
+    if flares == 0 {
+        return;
+    }
+    st.available = st.available.saturating_sub(flares);
+    st.active = st.active.saturating_add(flares);
+    st.volleys_fired = st.volleys_fired.saturating_add(1);
     for vi in 0..flares {
         reg.pending_flare_spawns
             .push(PendingCountermeasureFlareSpawn {
@@ -260,8 +378,106 @@ pub fn try_divert_missile(
                 volley_index: vi,
             });
     }
-    let _ = projectile_id;
-    true
+}
+
+/// C++ `CountermeasuresBehavior::update` volley timers (airborne only).
+pub fn update_countermeasures(
+    reg: &mut HostCountermeasuresRegistry,
+    aircraft_id: ObjectId,
+    now: u32,
+    airborne: bool,
+) {
+    let (available, reaction, reaction_armed, next) = {
+        let Some(st) = reg.states.get(&aircraft_id.0) else {
+            return;
+        };
+        (
+            st.available,
+            st.reaction_frame,
+            st.reaction_armed,
+            st.next_volley_frame,
+        )
+    };
+    if !airborne || available == 0 {
+        return;
+    }
+    if reaction_armed && reaction == now {
+        launch_volley(reg, aircraft_id, now);
+        if let Some(st) = reg.states.get_mut(&aircraft_id.0) {
+            st.next_volley_frame = now.saturating_add(DELAY_BETWEEN_VOLLEYS_FRAMES);
+            st.reaction_frame = 0;
+            st.reaction_armed = false;
+        }
+    }
+    let next = reg
+        .states
+        .get(&aircraft_id.0)
+        .map(|s| s.next_volley_frame)
+        .unwrap_or(next);
+    if next != 0 && next == now {
+        launch_volley(reg, aircraft_id, now);
+        if let Some(st) = reg.states.get_mut(&aircraft_id.0) {
+            st.next_volley_frame = now.saturating_add(DELAY_BETWEEN_VOLLEYS_FRAMES);
+        }
+    }
+}
+
+/// C++ `launchVolley` facing-rotated motive (host XZ = C++ XY).
+/// `ratio = i/(size-1)*2-1`, `angle = ratio * 90°`, scale by
+/// `(vel < 1 ? -10 : vel) * VolleyVelocityFactor`.
+pub fn flare_volley_motive_force(
+    facing_xz: (f32, f32),
+    volley_index: u32,
+    volley_size: u32,
+    speed: f32,
+) -> (f32, f32, f32) {
+    let size = volley_size.max(1);
+    let ratio = if size > 1 {
+        (volley_index as f32) / ((size - 1) as f32) * 2.0 - 1.0
+    } else {
+        0.0
+    };
+    let angle = ratio * VOLLEY_ARC_ANGLE_DEG.to_radians();
+    let (sin_a, cos_a) = angle.sin_cos();
+    let (dx, dz) = facing_xz;
+    let len = (dx * dx + dz * dz).sqrt();
+    let (dx, dz) = if len > 1.0e-6 {
+        (dx / len, dz / len)
+    } else {
+        (1.0, 0.0)
+    };
+    let rx = dx * cos_a - dz * sin_a;
+    let rz = dx * sin_a + dz * cos_a;
+    let velocity = if speed < 1.0 { -10.0 } else { speed };
+    let scale = velocity * VOLLEY_VELOCITY_FACTOR;
+    (rx * scale, 0.0, rz * scale)
+}
+
+/// C++ `calculateCountermeasureToDivertTo`: closest 2D of the newest volley.
+pub fn calculate_countermeasure_to_divert_to(
+    reg: &HostCountermeasuresRegistry,
+    aircraft_id: ObjectId,
+    aircraft_xz: (f32, f32),
+    flare_xz: &[(ObjectId, f32, f32)],
+) -> Option<ObjectId> {
+    let st = reg.get(aircraft_id)?;
+    let max_check = VOLLEY_SIZE.max(1) as usize;
+    let newest: Vec<ObjectId> = st.flare_ids.iter().rev().copied().take(max_check).collect();
+    let mut best_id = None;
+    let mut best_d2 = f32::INFINITY;
+    for (fid, fx, fz) in flare_xz {
+        if !newest.iter().any(|id| id == fid) {
+            continue;
+        }
+        let dx = fx - aircraft_xz.0;
+        let dz = fz - aircraft_xz.1;
+        let d2 = dx * dx + dz * dz;
+        if d2 < best_d2 {
+            best_d2 = d2;
+            best_id = Some(*fid);
+        }
+    }
+    best_id
 }
 
 /// Wave residual honesty pack.
@@ -350,5 +566,128 @@ mod tests {
         assert!(!aircraft_has_countermeasures_upgrade(&s));
         s.insert(UPGRADE_AMERICA_COUNTERMEASURES.to_string());
         assert!(aircraft_has_countermeasures_upgrade(&s));
+    }
+
+    #[test]
+    fn report_does_not_consume_flares() {
+        let mut reg = HostCountermeasuresRegistry::new();
+        let air = ObjectId(1);
+        let mut diverted = 0u32;
+        for f in 0..80u32 {
+            if report_missile_for_countermeasures(&mut reg, air, ObjectId(200 + f), f, true) {
+                diverted += 1;
+            }
+        }
+        assert!(diverted > 0);
+        let st = reg.get(air).unwrap();
+        assert_eq!(st.available, FULL_LOAD_COUNTERMEASURES);
+        assert_eq!(st.active, 0);
+        assert_eq!(st.volleys_fired, 0);
+        assert!(st.reaction_armed);
+        assert!(reg.take_pending_flare_spawns().is_empty());
+    }
+
+    #[test]
+    fn airborne_update_launches_timed_volleys() {
+        let mut reg = HostCountermeasuresRegistry::new();
+        let air = ObjectId(3);
+        // Force a diverted report at frame 10.
+        let mut frame = 10u32;
+        let mut ok = false;
+        for i in 0..64u32 {
+            if report_missile_for_countermeasures(&mut reg, air, ObjectId(300 + i), frame, true) {
+                ok = true;
+                break;
+            }
+            frame += 1;
+        }
+        assert!(ok);
+        let reaction = reg.get(air).unwrap().reaction_frame;
+        assert_eq!(reaction, frame);
+        // Extra evaded missiles must not dump extra volleys.
+        let _ = report_missile_for_countermeasures(&mut reg, air, ObjectId(400), frame, true);
+        update_countermeasures(&mut reg, air, reaction, false);
+        assert!(reg.take_pending_flare_spawns().is_empty());
+        update_countermeasures(&mut reg, air, reaction, true);
+        let first = reg.take_pending_flare_spawns();
+        assert_eq!(first.len(), VOLLEY_SIZE as usize);
+        let st = reg.get(air).unwrap();
+        assert_eq!(st.available, FULL_LOAD_COUNTERMEASURES - VOLLEY_SIZE);
+        assert_eq!(st.volleys_fired, 1);
+        assert_eq!(st.reaction_frame, 0);
+        assert_eq!(st.next_volley_frame, reaction + DELAY_BETWEEN_VOLLEYS_FRAMES);
+        update_countermeasures(&mut reg, air, st.next_volley_frame, true);
+        let second = reg.take_pending_flare_spawns();
+        assert_eq!(second.len(), VOLLEY_SIZE as usize);
+        assert_eq!(
+            reg.get(air).unwrap().available,
+            FULL_LOAD_COUNTERMEASURES - 2 * VOLLEY_SIZE
+        );
+    }
+
+    #[test]
+    fn comanche_and_aurora_use_three_volleys() {
+        assert_eq!(number_of_volleys_for_template("AmericaJetRaptor"), 5);
+        assert_eq!(number_of_volleys_for_template("AmericaVehicleComanche"), 3);
+        assert_eq!(number_of_volleys_for_template("AmericaJetAurora"), 3);
+        let mut reg = HostCountermeasuresRegistry::new();
+        let air = ObjectId(8);
+        let st = reg.ensure_for_template(air, "AmericaVehicleComanche");
+        assert_eq!(st.available, 12);
+        assert_eq!(st.number_of_volleys, 3);
+    }
+
+    #[test]
+    fn flare_motive_is_ninety_degree_fan() {
+        let (x0, y0, z0) = flare_volley_motive_force((1.0, 0.0), 0, 4, 20.0);
+        let (x1, _, z1) = flare_volley_motive_force((1.0, 0.0), 1, 4, 20.0);
+        let (x3, _, z3) = flare_volley_motive_force((1.0, 0.0), 3, 4, 20.0);
+        assert!((y0).abs() < 1e-5);
+        // i=0 → -90° from +X → -Z at 40.
+        assert!((x0).abs() < 1e-4);
+        assert!((z0 + 40.0).abs() < 1e-3);
+        // i=3 → +90° from +X → +Z at 40.
+        assert!((x3).abs() < 1e-4);
+        assert!((z3 - 40.0).abs() < 1e-3);
+        // Hover uses -10 * 2 = -20 along facing (straight back).
+        let (hx, _, hz) = flare_volley_motive_force((1.0, 0.0), 0, 1, 0.2);
+        assert!((hx + 20.0).abs() < 1e-3);
+        assert!(hz.abs() < 1e-4);
+        let _ = (x1, z1);
+    }
+
+    #[test]
+    fn divert_picks_closest_newest_volley_flare() {
+        let mut reg = HostCountermeasuresRegistry::new();
+        let air = ObjectId(1);
+        {
+            let st = reg.ensure(air);
+            st.flare_ids = vec![
+                ObjectId(10),
+                ObjectId(11),
+                ObjectId(12),
+                ObjectId(13),
+                ObjectId(20),
+                ObjectId(21),
+                ObjectId(22),
+                ObjectId(23),
+            ];
+        }
+        let flares = [
+            (ObjectId(10), 0.0, 0.0),
+            (ObjectId(20), 100.0, 0.0),
+            (ObjectId(21), 1.0, 0.0),
+            (ObjectId(22), 50.0, 0.0),
+            (ObjectId(23), 8.0, 0.0),
+        ];
+        let id = calculate_countermeasure_to_divert_to(&reg, air, (0.0, 0.0), &flares);
+        assert_eq!(id, Some(ObjectId(21)));
+    }
+
+    #[test]
+    fn supersonic_gate_matches_set_token() {
+        assert!(victim_locomotor_is_supersonic(Some("SET_SUPERSONIC")));
+        assert!(!victim_locomotor_is_supersonic(Some("SET_NORMAL")));
+        assert!(!victim_locomotor_is_supersonic(None));
     }
 }

@@ -26,6 +26,53 @@ impl GameLogic {
         self.weather_state.next_change_time = next_change_time.max(0.0);
     }
 
+    /// C++ `WorldHeightMap::ParseWorldDictDataChunk` writes `m_weather` when
+    /// WorldInfo carries `TheKey_weather` (`WEATHER_NORMAL=0` / `WEATHER_SNOWY=1`).
+    pub fn apply_world_info_weather(&mut self, weather: Option<i32>) {
+        let Some(weather) = weather else {
+            return;
+        };
+        let snowy = weather == 1;
+        let name = if snowy { "snowy" } else { "normal" };
+        let intensity = self.weather_state.intensity;
+        let duration_remaining = self.weather_state.duration_remaining;
+        let next_change_time = self.weather_state.next_change_time;
+        self.set_weather_state(name, intensity, duration_remaining, next_change_time);
+        if let Some(global) = game_engine::common::ini::get_global_data() {
+            global.write().weather = if snowy {
+                game_engine::common::ini::Weather::Snowy
+            } else {
+                game_engine::common::ini::Weather::Normal
+            };
+        }
+        if let Ok(mut runtime) = game_engine::common::global_data::write_safe() {
+            runtime.weather = if snowy { 1 } else { 0 };
+        }
+    }
+
+    fn apply_spawned_object_weather(&mut self, id: ObjectId, object_weather: i32) {
+        let follow = game_engine::common::ini::get_global_data()
+            .map(|global| global.read().force_models_to_follow_weather)
+            .unwrap_or(true);
+        let world_is_snow = follow
+            && self
+                .weather_state
+                .current_weather
+                .to_ascii_lowercase()
+                .contains("snow");
+        let snow = super::script_loader::resolve_object_weather_snow(object_weather, world_is_snow);
+        let snow_b = crate::game_logic::host_enum_table_residual::snow_model_bit();
+        if let Some(created) = self.objects.get_mut(&id) {
+            created.object_weather = object_weather;
+            if snow {
+                created.model_condition_bits |= 1u128 << snow_b;
+            } else {
+                created.model_condition_bits &= !(1u128 << snow_b);
+            }
+        }
+    }
+
+
     pub fn set_weather_visible(&mut self, visible: bool) {
         self.weather_state.visible = visible;
         #[cfg(feature = "game_client")]
@@ -1940,6 +1987,19 @@ impl GameLogic {
                     None
                 }
             };
+        let map_weather = match super::script_loader::parse_runtime_weather_from_chunky(chunky) {
+            Ok(value) => value,
+            Err(err) => {
+                log::warn!(
+                    "Fast legacy runtime sync WorldInfo weather parse failed for '{}': {}",
+                    map_path.display(),
+                    err
+                );
+                None
+            }
+        };
+        self.apply_world_info_weather(map_weather);
+
         report_progress(0.43, "Fast sync polygons");
         let polygon_triggers =
             match super::script_loader::parse_runtime_polygon_triggers_from_chunky(chunky) {
@@ -1953,6 +2013,8 @@ impl GameLogic {
                     Vec::new()
                 }
             };
+        super::script_loader::install_runtime_polygon_triggers(&polygon_triggers);
+
         report_progress(0.435, "Fast sync roads");
         self.runtime_road_segments =
             match super::script_loader::parse_runtime_roads_from_chunky(chunky) {
@@ -3000,6 +3062,22 @@ impl GameLogic {
                                         created.set_script_unsellable(true);
                                     }
                                 }
+                                if obj.enabled == Some(false) {
+                                    if let Some(created) = self.objects.get_mut(&id) {
+                                        created.set_script_disabled(true);
+                                    }
+                                }
+                                if obj.powered == Some(false) {
+                                    if let Some(created) = self.objects.get_mut(&id) {
+                                        created.set_script_underpowered(true);
+                                    }
+                                }
+                                self.apply_spawned_object_weather(
+                                    id,
+                                    obj.object_weather.unwrap_or(0),
+                                );
+
+
                                 if let Some(name) =
                                     obj.name.as_deref().map(str::trim).filter(|n| !n.is_empty())
                                 {
@@ -3581,6 +3659,25 @@ mod sides_host_apply_tests {
         assert_eq!(ai.building_queue[0].max_rebuilds, 3);
         assert!(ai.building_queue[0].is_built);
     }
+
+    #[test]
+    fn world_info_weather_snowy_sets_runtime_weather_state() {
+        let mut logic = GameLogic::new();
+        assert!(
+            !logic
+                .weather_state()
+                .current_weather
+                .to_ascii_lowercase()
+                .contains("snow")
+        );
+        logic.apply_world_info_weather(Some(1));
+        assert_eq!(logic.weather_state().current_weather, "snowy");
+        logic.apply_world_info_weather(Some(0));
+        assert_eq!(logic.weather_state().current_weather, "normal");
+        logic.apply_world_info_weather(None);
+        assert_eq!(logic.weather_state().current_weather, "normal");
+    }
+
 }
 
 #[cfg(test)]

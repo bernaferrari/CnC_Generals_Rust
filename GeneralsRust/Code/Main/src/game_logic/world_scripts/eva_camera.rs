@@ -269,11 +269,14 @@ impl GameLogic {
                 .is_some_and(|player| player.is_local && player.is_alive);
             let local_ally = !local_owns
                 && owner_id.is_some_and(|oid| {
-                    self.eva_local_player_id().is_some_and(|local_id| {
-                        self.player_relationship(local_id, oid)
-                            == gamelogic::common::Relationship::Allies
+                    self.players.values().any(|player| {
+                        player.is_local
+                            && player.is_alive
+                            && self.player_relationship(player.id, oid)
+                                == gamelogic::common::Relationship::Allies
                     })
                 });
+
             if local_owns {
                 let _ = gamelogic::helpers::TheEva::set_should_play(
                     gamelogic::helpers::EvaEvent::BaseUnderAttack,

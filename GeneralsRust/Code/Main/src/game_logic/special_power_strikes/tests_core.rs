@@ -128,7 +128,7 @@ fn particle_cannon_params_match_retail_continuous_beam() {
     assert!(!HostSuperweaponKind::DaisyCutter.spawns_beam_field());
     // damagePerPulse = (105/30 * 400) / 40 = 35
     assert!((PARTICLE_BEAM_DAMAGE_PER_PULSE - 35.0).abs() < 0.01);
-    assert_eq!(PARTICLE_BEAM_RADIUS, 50.0);
+    assert!((PARTICLE_BEAM_RADIUS - 44.2).abs() < 0.01);
     assert_eq!(PARTICLE_BEAM_TICK_INTERVAL_FRAMES, 3);
     assert_eq!(PARTICLE_BEAM_DURATION_FRAMES, 105);
     assert_eq!(PARTICLE_BEAM_TOTAL_PULSES, 40);
@@ -200,7 +200,7 @@ fn particle_cannon_params_match_retail_continuous_beam() {
     // Decay half-way: scalar 0.5, death at orbital lifetime.
     let half_decay = decay_start + PARTICLE_WIDTH_GROW_FRAMES / 2;
     assert!((particle_width_scalar(100, half_decay) - 0.5).abs() < 0.01);
-    assert!((particle_beam_damage_radius(100, half_decay) - 25.0).abs() < 0.1);
+    assert!((particle_beam_damage_radius(100, half_decay) - 22.1).abs() < 0.1);
     let death = particle_death_frame(100);
     assert_eq!(death, 100 + PARTICLE_BEAM_ORBITAL_LIFETIME_FRAMES);
     assert!((particle_width_scalar(100, death) - 0.0).abs() < 0.01);

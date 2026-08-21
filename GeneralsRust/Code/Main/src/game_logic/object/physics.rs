@@ -1273,9 +1273,9 @@ impl Object {
         height > -(3.0 * 3.0) * Self::SHOCK_GRAVITY
     }
 
-    /// C++ DISABLED_HELD: garrisoned / parachute-cargo / prison / docked riders.
+    /// C++ DISABLED_HELD: garrisoned / parachute-cargo / prison / Battle Bus hulk.
     pub fn is_physics_held(&self) -> bool {
-        self.contained_by.is_some()
+        self.contained_by.is_some() || self.status.disabled_held
     }
 
     /// C++ deckTaxiing residual: OBJECT_STATUS_DECK_HEIGHT_OFFSET.

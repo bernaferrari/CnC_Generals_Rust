@@ -277,6 +277,7 @@ impl GameLogic {
         Self::apply_authored_production_exit_metadata(&mut template, definition);
         Self::apply_authored_pilot_veterancy_metadata(&mut template, definition);
         Self::apply_authored_eject_pilot_die_metadata(&mut template, definition);
+        Self::apply_authored_rebuild_hole_expose_die_metadata(&mut template, definition);
         Self::apply_authored_hack_internet_metadata(&mut template, definition);
         Self::apply_authored_special_power_module_metadata(&mut template, definition);
         Self::apply_authored_hacker_disable_building_metadata(&mut template, definition);
@@ -2055,6 +2056,63 @@ impl GameLogic {
         template.eject_pilot_die = Some(metadata);
     }
 
+    /// Retain one C++ `RebuildHoleExposeDieModuleData` declaration.
+    /// Module presence is the die authority; a GLA/template-name heuristic
+    /// never fabricates HoleName.
+    fn apply_authored_rebuild_hole_expose_die_metadata(
+        template: &mut ThingTemplate,
+        definition: &ObjectDefinition,
+    ) {
+        fn stripped_value(value: &str) -> &str {
+            value.split(';').next().unwrap_or_default().trim()
+        }
+
+        fn parse_bool(value: &str) -> Option<bool> {
+            match stripped_value(value) {
+                value if value.eq_ignore_ascii_case("yes") || value.eq_ignore_ascii_case("true") => {
+                    Some(true)
+                }
+                value if value.eq_ignore_ascii_case("no") || value.eq_ignore_ascii_case("false") => {
+                    Some(false)
+                }
+                _ => None,
+            }
+        }
+
+        let mut modules = definition.behavior_modules.iter().filter(|module| {
+            module
+                .class_name
+                .eq_ignore_ascii_case("RebuildHoleExposeDie")
+        });
+        let Some(module) = modules.next() else {
+            template.rebuild_hole_expose = None;
+            return;
+        };
+        let _ = modules.next();
+
+        let hole_name = module
+            .attribute("HoleName")
+            .map(stripped_value)
+            .filter(|name| !name.is_empty())
+            .unwrap_or("")
+            .to_string();
+        if hole_name.is_empty() {
+            template.rebuild_hole_expose = None;
+            return;
+        }
+        template.rebuild_hole_expose = Some(crate::game_logic::RebuildHoleExposeDieMetadata {
+            hole_name,
+            hole_max_health: module
+                .attribute("HoleMaxHealth")
+                .and_then(|value| stripped_value(value).parse::<f32>().ok())
+                .unwrap_or(0.0),
+            transfer_attackers: module
+                .attribute("TransferAttackers")
+                .and_then(parse_bool)
+                .unwrap_or(true),
+        });
+    }
+
     /// Retain one exact `HackInternetAIUpdate` behavior from Object INI.
     ///
     /// C++ owns these fields in `HackInternetAIUpdateModuleData`; it does not
@@ -3224,6 +3282,7 @@ impl GameLogic {
                 // path solely because it already existed in the template map.
                 Self::apply_authored_production_exit_metadata(template, &definition);
                 Self::apply_authored_eject_pilot_die_metadata(template, &definition);
+                Self::apply_authored_rebuild_hole_expose_die_metadata(template, &definition);
                 Self::apply_authored_hack_internet_metadata(template, &definition);
                 Self::apply_authored_special_power_module_metadata(template, &definition);
                 Self::apply_authored_hacker_disable_building_metadata(template, &definition);
@@ -5111,6 +5170,53 @@ End
         assert!(
             no_behavior.parking_place.is_none(),
             "FSAirfield/name alone must not fabricate ParkingPlaceBehavior"
+        );
+    }
+
+    #[test]
+    fn parsed_rebuild_hole_expose_die_keeps_authored_hole_name() {
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(
+                r#"
+Object GLAScudStorm
+  KindOf = STRUCTURE
+  Behavior = RebuildHoleExposeDie ModuleTag_Hole
+    HoleName = GLAScudStormRebuildHole
+    HoleMaxHealth = 500.0
+    TransferAttackers = Yes
+  End
+End
+Object AmericaCommandCenter
+  KindOf = STRUCTURE COMMANDCENTER
+End
+"#,
+            )
+            .expect("parse rebuild hole expose probe");
+        let scud = GameLogic::build_template_from_object_definition(
+            "GLAScudStorm",
+            parser
+                .get_definition("GLAScudStorm")
+                .expect("scud definition"),
+            None,
+        );
+        let expose = scud
+            .rebuild_hole_expose
+            .expect("authored RebuildHoleExposeDie");
+        assert_eq!(expose.hole_name, "GLAScudStormRebuildHole");
+        assert!((expose.hole_max_health - 500.0).abs() < f32::EPSILON);
+        assert!(expose.transfer_attackers);
+
+        let usa = GameLogic::build_template_from_object_definition(
+            "AmericaCommandCenter",
+            parser
+                .get_definition("AmericaCommandCenter")
+                .expect("usa cc definition"),
+            None,
+        );
+        assert!(
+            usa.rebuild_hole_expose.is_none(),
+            "USA CC name/command KindOf must not fabricate a hole module"
         );
     }
 

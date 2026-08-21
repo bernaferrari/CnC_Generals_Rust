@@ -325,6 +325,8 @@ fn hacker_disable_building_uses_typed_persistent_channel_and_packs_on_relation_l
         .expect("hacker")
         .set_position(Vec3::new(10.0, 0.0, 0.0));
     game_logic.update_ai(&[hacker_id, target_id], 1.0 / 60.0);
+    // C++ NeedToFace before unpack: first in-range tick may still be approaching.
+    game_logic.update_ai(&[hacker_id, target_id], 1.0);
     assert_eq!(
         game_logic
             .host_object(hacker_id)

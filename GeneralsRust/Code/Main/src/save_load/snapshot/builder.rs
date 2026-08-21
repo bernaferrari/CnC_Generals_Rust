@@ -77,6 +77,7 @@ impl SnapshotBuilder {
             sell_list: self.snapshot_sell_list(game_logic),
             object_persist: self.snapshot_object_persist(game_logic),
             client_drawable_visuals: self.snapshot_client_drawable_visuals(game_logic),
+            player_energy: self.snapshot_player_energy(game_logic),
         };
 
         log::info!(
@@ -121,6 +122,7 @@ impl SnapshotBuilder {
         // C++ parity order: players/teams before objects, then world systems.
         self.restore_all_players(&snapshot.players, game_logic)?;
         self.restore_player_ranks(snapshot, game_logic)?;
+        self.restore_player_energy(snapshot, game_logic)?;
         self.restore_player_template_bindings(snapshot, game_logic)?;
         self.restore_all_teams(&snapshot.teams, game_logic)?;
         self.restore_all_objects(&snapshot.objects, game_logic)?;
@@ -586,6 +588,23 @@ impl SnapshotBuilder {
         Ok(ranks)
     }
 
+    /// C++ `Energy::xfer` v3 persists `m_powerSabotagedTillFrame`.
+    fn snapshot_player_energy(&self, game_logic: &GameLogic) -> Vec<PlayerEnergySnapshot> {
+        let mut energy = Vec::new();
+        let mut player_ids: Vec<u32> = game_logic.get_players().keys().copied().collect();
+        player_ids.sort_unstable();
+        for player_id in player_ids {
+            let Some(player) = game_logic.get_player(player_id) else {
+                continue;
+            };
+            energy.push(PlayerEnergySnapshot {
+                player_id,
+                power_sabotaged_till_frame: player.power_sabotaged_till_frame,
+            });
+        }
+        energy
+    }
+
 
     /// C++ `Object::xfer` (`Object.cpp:4068`) and `AIUpdateInterface::xfer`
     /// (`AIUpdate.cpp:5015-5019`). World tail so nested object records stay
@@ -961,6 +980,33 @@ impl SnapshotBuilder {
             player.rank_level = rank.rank_level.max(1);
             player.skill_points = rank.skill_points;
             player.science_purchase_points = rank.science_purchase_points.max(0);
+        }
+        Ok(())
+    }
+
+    fn restore_player_energy(
+        &self,
+        snapshot: &WorldSnapshot,
+        game_logic: &mut GameLogic,
+    ) -> SaveLoadResult<()> {
+        if snapshot.version < WORLD_SNAPSHOT_DIRECT_XFER_V15_TAIL_VERSION {
+            return Ok(());
+        }
+        let mut seen_players = HashSet::new();
+        for energy in &snapshot.player_energy {
+            if !seen_players.insert(energy.player_id) {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "Duplicate PlayerEnergy snapshot for player {}",
+                    energy.player_id
+                )));
+            }
+            let Some(player) = game_logic.get_player_mut(energy.player_id) else {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "PlayerEnergy snapshot references missing player {}",
+                    energy.player_id
+                )));
+            };
+            player.power_sabotaged_till_frame = energy.power_sabotaged_till_frame;
         }
         Ok(())
     }

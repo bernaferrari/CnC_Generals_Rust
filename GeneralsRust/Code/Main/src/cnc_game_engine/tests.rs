@@ -1157,6 +1157,40 @@ fn take_clear_game_data_drains_stream_and_keeps_other_messages() {
 }
 
 #[test]
+fn clear_game_data_pushes_score_screen_not_main_menu() {
+    // C++ GameLogicDispatch.cpp:223-253 / :439 default showScoreScreen.
+    assert!(CnCGameEngine::clear_game_data_should_push_score_screen(
+        false, true, true
+    ));
+    assert!(
+        !CnCGameEngine::clear_game_data_should_push_score_screen(true, true, true),
+        "in-shell + in-game must not push ScoreScreen"
+    );
+    assert!(!CnCGameEngine::clear_game_data_should_push_score_screen(
+        false, true, false
+    ));
+
+    let src = include_str!("dispatch.rs");
+    let consume = src
+        .split("fn host_consume_clear_game_data")
+        .nth(1)
+        .and_then(|s| s.split("fn host_restart_mission_from_dispatch").next())
+        .expect("host_consume_clear_game_data");
+    assert!(
+        consume.contains("host_push_score_screen_like_cpp")
+            && !consume.contains("return_to_main_menu_after_match"),
+        "MSG_CLEAR_GAME_DATA must push ScoreScreen, not Main Menu"
+    );
+    assert!(
+        src.contains("show_shell(false)")
+            && src.contains("Menus/ScoreScreen.wnd")
+            && src.contains("fn host_push_score_screen_like_cpp"),
+        "clearGameData must showShell(FALSE) after ScoreScreen push"
+    );
+}
+
+
+#[test]
 fn peek_new_game_leaves_message_for_propagate_messages() {
     // C++ GameLogic::logicMessageDispatcher MSG_NEW_GAME
     // (GameLogicDispatch.cpp:396-423) consumes the streamed message after

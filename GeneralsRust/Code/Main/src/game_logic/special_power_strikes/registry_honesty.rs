@@ -473,7 +473,7 @@ impl HostSpecialPowerStrikeRegistry {
     /// Tracks W3DLaserDraw OuterBeamWidth draw width, `getCurrentLaserRadius`
     /// (OuterBeamWidth×0.5×scalar), and retail damage formula
     /// (laser radius × DamageRadiusScalar = peak 44.2). Host combat damage
-    /// still uses [`PARTICLE_BEAM_RADIUS`] (50). Fail-closed: not full GPU
+    /// uses [`PARTICLE_BEAM_RADIUS`] (44.2). Fail-closed: not full GPU
     /// multi-beam soft edge / texture atlas submit (NumBeams residual closed
     /// separately via [`honesty_beam_num_beams_scroll_ok`]).
     /// Residual honesty: soft-edge RGB innerAlpha premultiply residual.

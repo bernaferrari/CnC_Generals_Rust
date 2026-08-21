@@ -484,7 +484,7 @@ pub struct HostParticleBeamField {
     /// Honesty: peak width scalar reached this beam (WidthGrow residual).
     #[serde(default)]
     pub peak_width_scalar: f32,
-    /// Honesty: last residual damage radius used (WidthGrow residual).
+    /// Honesty: last residual damage radius used (WidthGrow × retail 44.2).
     #[serde(default)]
     pub last_damage_radius: f32,
     /// Honesty: last sampled width scalar (grow/hold/decay residual).

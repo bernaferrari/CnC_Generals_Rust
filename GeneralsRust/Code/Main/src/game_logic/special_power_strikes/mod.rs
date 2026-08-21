@@ -48,9 +48,8 @@
 //! STATUS_FIRING; intensity schedule residual closed
 //! (CHARGING/PREPARING/ALMOST_READY/READY Light→Medium→Intense client residual);
 //! OuterBeamWidth × width_scalar orbital laser draw / getCurrentLaserRadius
-//! retail damage-radius formula honesty residual closed (host combat still caps
-//! at PARTICLE_BEAM_RADIUS 50; retail peak = OuterBeamWidth×0.5×DamageRadiusScalar
-//! = 44.2); manual beam driving residual closed (override destination +
+//! retail damage-radius formula residual closed (host combat peak =
+//! OuterBeamWidth×0.5×DamageRadiusScalar = 44.2); manual beam driving residual closed (override destination +
 //! ManualDrivingSpeed / ManualFastDrivingSpeed / DoubleClickToFastDriveDelay);
 //! DamagePulseRemnant trail residual closed; swath sine residual closed;
 //! WidthGrow damage-radius grow+hold+decay shrink residual closed;

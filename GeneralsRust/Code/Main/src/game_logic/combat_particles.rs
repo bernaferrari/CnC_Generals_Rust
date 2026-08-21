@@ -223,6 +223,20 @@ impl CombatParticleRegistry {
         )
     }
 
+    /// Spawn a named particle-system template (DisableFX BinaryShower, etc.).
+    pub fn spawn_named(
+        &mut self,
+        kind: CombatParticleKind,
+        template_name: impl Into<String>,
+        position: Vec3,
+        frame: u32,
+        source: Option<ObjectId>,
+        target: Option<ObjectId>,
+    ) -> u32 {
+        self.spawn_with_template(kind, template_name.into(), position, frame, source, target)
+    }
+
+
     /// Spawn with an exact particle-system template rather than the generic
     /// kind preset. `ProjectileExhaust` needs this because Weapon.ini names a
     /// ParticleSystem template directly; it is not an FXList entry.

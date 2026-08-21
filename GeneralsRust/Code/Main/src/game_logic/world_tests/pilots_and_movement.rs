@@ -792,18 +792,24 @@ fn countermeasures_divert_spawns_flare_objects() {
         let o = logic.host_object_mut(air).unwrap();
         o.applied_upgrades
             .insert(UPGRADE_AMERICA_COUNTERMEASURES.to_string());
+        o.status.airborne_target = true;
+        o.movement.velocity = Vec3::new(20.0, 0.0, 0.0);
+        o.set_orientation(0.0);
     }
     logic.countermeasures.ensure(air);
 
     // Force many rolls until a divert succeeds (deterministic seed space).
     let mut diverted = false;
+    let mut diverted_frame = 0u32;
     for f in 0..64u32 {
         if try_divert_missile(&mut logic.countermeasures, air, ObjectId(900 + f), f, true) {
             diverted = true;
+            diverted_frame = f;
             break;
         }
     }
     assert!(diverted, "evasion residual must succeed within seed window");
+    logic.frame = diverted_frame;
     logic.flush_countermeasure_flare_spawns();
     assert!(logic.honesty_countermeasure_flare_object_ok());
     let flares: Vec<_> = logic
@@ -819,6 +825,17 @@ fn countermeasures_divert_spawns_flare_objects() {
     assert!(flares
         .iter()
         .all(|o| o.template_name == FLARE_TEMPLATE_NAME));
+    assert!(
+        flares.iter().all(|o| {
+            let p = o.get_position();
+            (p.x).abs() < 0.01 && (p.z).abs() < 0.01 && (p.y - 40.0).abs() < 0.01
+        }),
+        "C++ launchVolley spawns at aircraft position, not a static ring"
+    );
+    assert!(
+        flares.iter().any(|o| o.movement.velocity.length() > 1.0),
+        "flares must inherit jet velocity plus volley motive"
+    );
     let fid = flares[0].id;
     logic.frame = logic.frame.saturating_add(FLARE_LIFETIME_FRAMES + 2);
     logic.update_countermeasure_flare_objects();
@@ -2860,6 +2877,10 @@ fn steal_cash_hack_command_transfers_cash_after_reach() {
         lotus.target = Some(target_id);
     }
     game_logic.update_ai(&[lotus_id, target_id], 1.0 / 60.0);
+    // C++ NeedToFace then Unpack 6730ms + Prep 6000ms before trigger.
+    game_logic.update_ai(&[lotus_id, target_id], 1.0);
+    game_logic.update_ai(&[lotus_id, target_id], 7.0);
+    game_logic.update_ai(&[lotus_id, target_id], 6.0);
 
     assert!(
         game_logic.honesty_steal_cash_ok(),
@@ -2938,7 +2959,8 @@ fn steal_cash_hack_awards_lotus_award_xp_for_triggering() {
         lotus.target = Some(target_id);
     }
     game_logic.update_ai(&[lotus_id, target_id], 1.0 / 60.0);
-    // C++ leftover SpecialAbilityUpdate: Unpack 6730ms then Preparation 6000ms.
+    // C++ leftover SpecialAbilityUpdate: NeedToFace, Unpack 6730ms, Prep 6000ms.
+    game_logic.update_ai(&[lotus_id, target_id], 1.0);
     game_logic.update_ai(&[lotus_id, target_id], 7.0);
     game_logic.update_ai(&[lotus_id, target_id], 6.0);
 
@@ -3104,6 +3126,10 @@ fn disable_vehicle_hack_command_disables_after_reach() {
         lotus.target = Some(target_id);
     }
     game_logic.update_ai(&[lotus_id, target_id], 1.0 / 60.0);
+    // C++ NeedToFace then Unpack 2000ms + Prep 2000ms.
+    game_logic.update_ai(&[lotus_id, target_id], 1.0);
+    game_logic.update_ai(&[lotus_id, target_id], 2.1);
+    game_logic.update_ai(&[lotus_id, target_id], 2.1);
 
     let target_after = game_logic
         .host_object(target_id)

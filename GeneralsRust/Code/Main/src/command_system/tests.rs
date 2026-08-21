@@ -2342,3 +2342,245 @@ fn active_special_power_destination_steers_world_click() {
         other => panic!("expected OverrideSpecialPowerDestination, got {other:?}"),
     }
 }
+
+fn hint_target(id: ObjectId) -> PresentationTargetHint {
+    PresentationTargetHint {
+        id,
+        is_alive: true,
+        is_structure: false,
+        is_resource: false,
+        under_construction: false,
+        sold: false,
+        team: crate::game_logic::Team::Neutral,
+        is_enemy_of_local: false,
+        is_neutral: true,
+        template_name: "HintTarget".into(),
+        can_be_entered: false,
+        enter_available_capacity: 0,
+        enter_uses_transport_slots: false,
+        enter_requires_infantry: false,
+        enter_forbids_aircraft: false,
+        enter_disabled_subdued: false,
+        enter_is_rider_change: false,
+        rider_change_allowed_templates: Vec::new(),
+        is_damaged: false,
+        is_friendly_of_local: false,
+        provides_vehicle_repair: false,
+        provides_aircraft_repair: false,
+        provides_heal: false,
+        can_provide_service: true,
+        dock_kind: crate::game_logic::DockKind::None,
+        dock_controller_is_local: false,
+        stored_supplies: 0,
+        capturable: false,
+        immune_to_capture: false,
+        capture_garrisonable: false,
+        capture_nonstealthed_garrison_count: 0,
+        capture_friendly_garrison_count: 0,
+        capture_target_effectively_stealthed: false,
+        is_crate: false,
+        is_salvage_crate: false,
+        is_vehicle: false,
+        is_aircraft: false,
+        is_drone: false,
+        is_carbomb: false,
+        is_unmanned: false,
+        is_mine: false,
+    }
+}
+
+fn hint_selected(id: ObjectId, template: &str) -> PresentationSelectedUnitHint {
+    PresentationSelectedUnitHint {
+        id,
+        is_alive: true,
+        is_resource_collector: false,
+        is_worker: false,
+        can_attack: false,
+        can_move: true,
+        can_request_service: true,
+        can_capture: false,
+        template_name: template.into(),
+        can_repair: false,
+        is_damaged: false,
+        is_vehicle: false,
+        is_aircraft: false,
+        is_above_terrain: false,
+        is_infantry: false,
+        transport_slot_count: 1,
+        stored_supplies: 0,
+        is_controlled_by_local: true,
+        capture_power: crate::game_logic::CapturePowerKind::None,
+        capture_power_ready: false,
+        is_salvager: false,
+        can_override_special_power_destination: false,
+    }
+}
+
+fn rmb_ctx(
+    target: PresentationTargetHint,
+    selected: Vec<PresentationSelectedUnitHint>,
+) -> MouseCommandContext {
+    MouseCommandContext {
+        world_position: glam::Vec3::new(20.0, 0.0, 0.0),
+        target_object: Some(target.id),
+        target_presentation: Some(target),
+        selected_presentation: selected,
+        presentation_box_select_units: Vec::new(),
+        presentation_select_similar_units: Vec::new(),
+        screen_position: glam::Vec2::ZERO,
+        viewport_size: None,
+        world_min: None,
+        world_max: None,
+        mouse_button: MouseButton::Right,
+        modifier_keys: ModifierKeys::default(),
+        is_drag: false,
+        drag_start: None,
+        drag_end: None,
+        drag_start_world: None,
+        drag_end_world: None,
+    }
+}
+
+#[test]
+fn tank_rmb_attacks_neutral_tech_oil() {
+    // hq-5fhuz: C++ getCanAttackObject is weapon-legal; neutrals/tech are attacked.
+    let tank = ObjectId(1);
+    let oil = ObjectId(2);
+    let mut selected = hint_selected(tank, "AmericaTankCrusader");
+    selected.can_attack = true;
+    selected.is_vehicle = true;
+    let mut target = hint_target(oil);
+    target.is_structure = true;
+    target.capturable = true;
+    target.template_name = "TechOilDerrick".into();
+    let mut sys = CommandSystem::new();
+    let cmd = sys
+        .process_mouse_input(&rmb_ctx(target, vec![selected]), &[tank], 0, None)
+        .expect("tank RMB on oil");
+    match cmd.command_type {
+        CommandType::AttackObject { target_id } => assert_eq!(target_id, oil),
+        other => panic!("expected AttackObject on neutral oil, got {other:?}"),
+    }
+}
+
+#[test]
+fn dozer_rmb_does_not_attack_enemy_tank() {
+    // hq-5fhuz: dozer DISARM vs non-mine is NOT_POSSIBLE.
+    let dozer = ObjectId(1);
+    let tank = ObjectId(2);
+    let mut selected = hint_selected(dozer, "AmericaVehicleDozer");
+    selected.can_attack = true;
+    selected.is_worker = true;
+    selected.can_repair = true;
+    let mut target = hint_target(tank);
+    target.is_neutral = false;
+    target.is_enemy_of_local = true;
+    target.is_vehicle = true;
+    target.team = crate::game_logic::Team::GLA;
+    target.template_name = "AmericaTankCrusader".into();
+    let mut sys = CommandSystem::new();
+    let cmd = sys.process_mouse_input(&rmb_ctx(target, vec![selected]), &[dozer], 0, None);
+    assert!(
+        !matches!(
+            cmd.as_ref().map(|c| &c.command_type),
+            Some(CommandType::AttackObject { .. })
+        ),
+        "dozer must not Attack a non-mine, got {cmd:?}"
+    );
+}
+
+#[test]
+fn infantry_rmb_enters_unmanned_husk() {
+    // hq-7rr63: C++ canEnterObject unmanned before capacity.
+    let ranger = ObjectId(1);
+    let husk = ObjectId(2);
+    let mut selected = hint_selected(ranger, "AmericaInfantryRanger");
+    selected.is_infantry = true;
+    let mut target = hint_target(husk);
+    target.is_unmanned = true;
+    target.is_vehicle = true;
+    target.can_be_entered = false;
+    target.enter_available_capacity = 0;
+    target.template_name = "AmericaTankCrusader".into();
+    let mut sys = CommandSystem::new();
+    let cmd = sys
+        .process_mouse_input(&rmb_ctx(target, vec![selected]), &[ranger], 0, None)
+        .expect("ranger RMB on husk");
+    match cmd.command_type {
+        CommandType::Enter { target_id } => assert_eq!(target_id, husk),
+        other => panic!("expected Enter on unmanned husk, got {other:?}"),
+    }
+}
+
+#[test]
+fn mixed_dozer_group_repairs_before_enter() {
+    // hq-wzk8m: C++ Repair is before Enter; mixed dozer+ranger must Repair.
+    let dozer = ObjectId(1);
+    let ranger = ObjectId(2);
+    let building = ObjectId(3);
+    let mut dozer_h = hint_selected(dozer, "AmericaVehicleDozer");
+    dozer_h.is_worker = true;
+    dozer_h.can_repair = true;
+    let mut ranger_h = hint_selected(ranger, "AmericaInfantryRanger");
+    ranger_h.is_infantry = true;
+    ranger_h.can_attack = true;
+    let mut target = hint_target(building);
+    target.is_structure = true;
+    target.is_damaged = true;
+    target.is_neutral = false;
+    target.is_friendly_of_local = true;
+    target.is_enemy_of_local = false;
+    target.team = crate::game_logic::Team::USA;
+    target.can_be_entered = true;
+    target.enter_available_capacity = 5;
+    target.enter_requires_infantry = true;
+    target.template_name = "AmericaBarracks".into();
+    let mut sys = CommandSystem::new();
+    let cmd = sys
+        .process_mouse_input(
+            &rmb_ctx(target, vec![dozer_h, ranger_h]),
+            &[dozer, ranger],
+            0,
+            None,
+        )
+        .expect("mixed dozer RMB");
+    match cmd.command_type {
+        CommandType::Repair { target_id } => assert_eq!(target_id, building),
+        other => panic!("expected Repair before Enter, got {other:?}"),
+    }
+}
+
+#[test]
+fn mixed_dozer_colonel_repairs_damaged_civilian_before_capture() {
+    // hq-wzk8m: dozer + colonel on damaged civilian/tech → Repair, not Capture.
+    let dozer = ObjectId(1);
+    let colonel = ObjectId(2);
+    let civic = ObjectId(3);
+    let mut dozer_h = hint_selected(dozer, "AmericaVehicleDozer");
+    dozer_h.is_worker = true;
+    dozer_h.can_repair = true;
+    let mut colonel_h = hint_selected(colonel, "AmericaInfantryColonelBurton");
+    colonel_h.is_infantry = true;
+    colonel_h.can_attack = true;
+    colonel_h.can_capture = true;
+    colonel_h.capture_power = crate::game_logic::CapturePowerKind::Ranger;
+    colonel_h.capture_power_ready = true;
+    let mut target = hint_target(civic);
+    target.is_structure = true;
+    target.is_damaged = true;
+    target.capturable = true;
+    target.template_name = "TechOilDerrick".into();
+    let mut sys = CommandSystem::new();
+    let cmd = sys
+        .process_mouse_input(
+            &rmb_ctx(target, vec![dozer_h, colonel_h]),
+            &[dozer, colonel],
+            0,
+            None,
+        )
+        .expect("dozer+colonel RMB");
+    match cmd.command_type {
+        CommandType::Repair { target_id } => assert_eq!(target_id, civic),
+        other => panic!("expected Repair before Capture, got {other:?}"),
+    }
+}

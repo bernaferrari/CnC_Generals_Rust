@@ -357,6 +357,11 @@ pub struct Object {
     /// C++ ModelConditionFlags residual bits (ALLOW_SURRENDER-off index layout).
     #[serde(default)]
     pub model_condition_bits: u128,
+    /// C++ `TheKey_objectWeather` (`Object.cpp:3595-3605`): 0 follow map,
+    /// 1 force clear `MODELCONDITION_SNOW`, 2 force set.
+    #[serde(default)]
+    pub object_weather: i32,
+
     /// C++ RadarUpdate m_extendDoneFrame residual (0 = inactive).
     pub radar_extend_done_frame: u32,
     /// C++ RadarUpdate m_extendComplete residual.

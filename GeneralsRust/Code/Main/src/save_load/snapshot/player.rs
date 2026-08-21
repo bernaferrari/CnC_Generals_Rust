@@ -50,6 +50,14 @@ pub struct PlayerRankSnapshot {
     pub science_purchase_points: i32,
 }
 
+/// C++ `Energy::xfer` v3 (`Energy.cpp:258-262`) `m_powerSabotagedTillFrame`.
+/// World tail so nested `PlayerSnapshot` records stay aligned.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlayerEnergySnapshot {
+    pub player_id: u32,
+    pub power_sabotaged_till_frame: u32,
+}
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PopulationInfo {
@@ -156,6 +164,17 @@ impl XferData for PlayerRankSnapshot {
         xfer.xfer_i32(&mut self.skill_points)?;
         xfer.xfer_marker_label("SciencePurchasePoints")?;
         xfer.xfer_i32(&mut self.science_purchase_points)?;
+        Ok(())
+    }
+}
+
+impl XferData for PlayerEnergySnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("PlayerEnergySnapshot")?;
+        xfer.xfer_marker_label("PlayerId")?;
+        xfer.xfer_u32(&mut self.player_id)?;
+        xfer.xfer_marker_label("PowerSabotagedTillFrame")?;
+        xfer.xfer_u32(&mut self.power_sabotaged_till_frame)?;
         Ok(())
     }
 }

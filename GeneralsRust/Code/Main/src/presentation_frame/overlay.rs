@@ -1439,6 +1439,8 @@ impl PresentationFrame {
             },
             parachuting: ent.parachuting,
             parachute_open: ent.parachute_open,
+            object_weather: 0,
+
             captured: ent.private_captured,
             prone: ent.prone_active,
             emoticon_name: ent.emoticon_name.clone(),

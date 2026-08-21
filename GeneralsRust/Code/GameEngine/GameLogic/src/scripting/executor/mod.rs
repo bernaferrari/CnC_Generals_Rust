@@ -61,6 +61,10 @@ thread_local! {
         RefCell::new(Vec::new());
     static HOST_SKIRMISH_BUILD_REQUESTS: RefCell<Vec<String>> = RefCell::new(Vec::new());
     static HOST_SET_CAVE_INDEX_REQUESTS: RefCell<Vec<(String, i32)>> = RefCell::new(Vec::new());
+    static HOST_OBJECT_PANEL_FLAG_REQUESTS: RefCell<Vec<(String, String, bool)>> =
+        RefCell::new(Vec::new());
+    static HOST_TEAM_PANEL_FLAG_REQUESTS: RefCell<Vec<(String, String, bool)>> =
+        RefCell::new(Vec::new());
 }
 
 /// Live host drain: `SKIRMISH_FIRE_SPECIAL_POWER_AT_MOST_COST` when crate
@@ -95,6 +99,31 @@ pub fn request_host_set_cave_index(cave_name: &str, cave_index: i32) {
             .push((cave_name.to_string(), cave_index));
     });
 }
+
+/// Live host drain: UNIT_AFFECT_OBJECT_PANEL_FLAGS when leftover registry is empty.
+pub fn request_host_object_panel_flag(unit_name: &str, flag_name: &str, enable: bool) {
+    HOST_OBJECT_PANEL_FLAG_REQUESTS.with(|q| {
+        q.borrow_mut()
+            .push((unit_name.to_string(), flag_name.to_string(), enable));
+    });
+}
+
+pub fn take_host_object_panel_flag_requests() -> Vec<(String, String, bool)> {
+    HOST_OBJECT_PANEL_FLAG_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: TEAM_AFFECT_OBJECT_PANEL_FLAGS when leftover teams are empty.
+pub fn request_host_team_panel_flag(team_name: &str, flag_name: &str, enable: bool) {
+    HOST_TEAM_PANEL_FLAG_REQUESTS.with(|q| {
+        q.borrow_mut()
+            .push((team_name.to_string(), flag_name.to_string(), enable));
+    });
+}
+
+pub fn take_host_team_panel_flag_requests() -> Vec<(String, String, bool)> {
+    HOST_TEAM_PANEL_FLAG_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
 
 pub fn take_host_set_cave_index_requests() -> Vec<(String, i32)> {
     HOST_SET_CAVE_INDEX_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))

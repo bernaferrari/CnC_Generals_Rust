@@ -163,6 +163,8 @@ impl Object {
             script_unsellable: false,
             eject_pilot_die_applied: false,
             model_condition_bits: 0,
+            object_weather: 0,
+
             radar_extend_done_frame: 0,
             radar_extend_complete: false,
             radar_active: false,
@@ -931,6 +933,8 @@ impl Object {
             script_unsellable: false,
             eject_pilot_die_applied: false,
             model_condition_bits: 0,
+            object_weather: 0,
+
             radar_extend_done_frame: 0,
             radar_extend_complete: false,
             radar_active: false,
@@ -1948,8 +1952,19 @@ impl Object {
             || self.status.disabled_subdued
             || self.status.disabled_freefall
             || self.status.disabled_default
+            || self.status.disabled_script_disabled
+            || self.status.disabled_script_underpowered
+            || self.status.disabled_held
             || self.status.under_construction
     }
+
+    /// C++ KINDOF_SPAWNS_ARE_THE_WEAPONS residual (Stinger Site / hive).
+    pub fn is_spawns_are_the_weapons(&self) -> bool {
+        self.hive_slave_count > 0
+            || self.hive_slaves.iter().any(|s| s.alive)
+            || crate::game_logic::host_base_defense::is_stinger_site_structure(&self.template_name)
+    }
+
 
     /// C++ DISABLED_FREEFALL residual.
     pub fn is_freefall_disabled(&self) -> bool {

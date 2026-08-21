@@ -1058,12 +1058,14 @@ impl HostSpecialPowerStrikeRegistry {
     /// has arrived.
     ///
     /// Retail damages all alive objects in beam radius (DamageRadiusScalar ×
-    /// laser radius) at the SwathOfDeath or manual-drive epicenter. Host residual
-    /// damages living objects in WidthGrow-scaled [`PARTICLE_BEAM_RADIUS`] around
-    /// the residual epicenter, excluding the source launcher and same-team
-    /// friendlies (host strike convention). Fail-closed vs full building→target
-    /// rotation matrix / full GPU laser width matrix. WidthGrow damage-radius
-    /// residual scales radius 0→full over grow, holds full through
+    /// laser radius) at the SwathOfDeath or manual-drive epicenter. C++
+    /// `ParticleUplinkCannonUpdate.cpp:636-648` iterates `PartitionFilterAlive`
+    /// only — no team filter. Allies, neutrals, and the owner's units take
+    /// `damagePerPulse` (35). Host residual damages living objects in
+    /// WidthGrow-scaled [`PARTICLE_BEAM_RADIUS`] (**44.2**) around the residual
+    /// epicenter, excluding only the source launcher. Fail-closed vs full
+    /// building→target rotation matrix / full GPU laser width matrix. WidthGrow
+    /// damage-radius residual scales radius 0→full over grow, holds full through
     /// TotalFiringTime, then shrinks full→0 over decay ([`PARTICLE_WIDTH_GROW_FRAMES`]).
     /// Manual driving residual uses override destination when armed.
     /// DamagePulseRemnant trail residual spawns on each completed pulse
@@ -1084,12 +1086,8 @@ impl HostSpecialPowerStrikeRegistry {
             let width_scalar = particle_width_scalar(field.spawn_frame, current_frame);
             let damage_radius = particle_beam_damage_radius(field.spawn_frame, current_frame);
             let mut hits = Vec::new();
-            for &(id, pos, team, alive) in object_positions {
+            for &(id, pos, _team, alive) in object_positions {
                 if !alive || id == field.source_object {
-                    continue;
-                }
-                // Fail-closed residual: do not damage friendlies (same team).
-                if team == field.source_team {
                     continue;
                 }
                 let dist = horizontal_distance(pos, epicenter);

@@ -758,6 +758,8 @@ impl GameLogic {
 
     /// Advance Helix Napalm FirestormSmall residual zones.
     pub(in super::super) fn update_helix_napalm_firestorms(&mut self) {
+        let frame = self.frame;
+        self.helix_napalm.advance_geometry(frame);
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
             .iter()
@@ -766,8 +768,7 @@ impl GameLogic {
 
         let plans = self
             .helix_napalm
-            .plan_due_ticks(self.frame, &object_positions);
-        let frame = self.frame;
+            .plan_due_ticks(frame, &object_positions);
 
         for plan in plans {
             let mut total_damage = 0.0_f32;
@@ -796,6 +797,24 @@ impl GameLogic {
 
             for (id, killer_team) in destroy_ids {
                 self.mark_object_for_destruction(id, Some(killer_team));
+            }
+
+            if plan.place_scorch {
+                if let Some(zone) = self
+                    .helix_napalm
+                    .active_zones()
+                    .iter()
+                    .find(|z| z.id == plan.zone_id)
+                {
+                    let pos = zone.position;
+                    let _ = self.combat_particles.spawn(
+                        CombatParticleKind::DeathExplosion,
+                        pos,
+                        frame,
+                        Some(plan.source_object),
+                        None,
+                    );
+                }
             }
 
             self.helix_napalm.record_tick_complete(
@@ -1618,10 +1637,10 @@ impl GameLogic {
         volley_index: u32,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_countermeasures::{
-            FLARE_LIFETIME_FRAMES, FLARE_MAX_HEALTH, FLARE_TEMPLATE_NAME, VOLLEY_ARC_ANGLE_DEG,
+            flare_volley_motive_force, FLARE_LIFETIME_FRAMES, FLARE_MAX_HEALTH,
+            FLARE_TEMPLATE_NAME, VOLLEY_SIZE,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
-        use std::f32::consts::PI;
 
         if !self.templates.contains_key(FLARE_TEMPLATE_NAME) {
             let mut t = ThingTemplate::new(FLARE_TEMPLATE_NAME);
@@ -1630,41 +1649,42 @@ impl GameLogic {
                 .set_cost(0, 0);
             self.templates.insert(FLARE_TEMPLATE_NAME.to_string(), t);
         }
-        let (team, origin) = {
+        let (team, origin, ori, vel, facing, speed, owner_player_id) = {
             let o = self.objects.get(&aircraft_id)?;
-            (o.team, o.get_position())
-        };
-        let owner_player_id = {
-            let aircraft = self.objects.get(&aircraft_id)?;
-            if aircraft.owner_player_id.is_some() {
-                Some(self.player_owner_for_host_object(aircraft)?)
+            let owner_player_id = if o.owner_player_id.is_some() {
+                Some(self.player_owner_for_host_object(o)?)
             } else {
                 None
-            }
+            };
+            let facing = o.unit_direction_xz();
+            let vel = o.movement.velocity;
+            let speed = (vel.x * vel.x + vel.y * vel.y + vel.z * vel.z).sqrt();
+            (
+                o.team,
+                o.get_position(),
+                o.get_orientation(),
+                vel,
+                facing,
+                speed,
+                owner_player_id,
+            )
         };
-        // Volley arc residual: spread flares ± half VolleyArcAngle around aircraft.
-        use crate::game_logic::host_countermeasures::VOLLEY_SIZE;
-        let t = if VOLLEY_SIZE > 1 {
-            (volley_index as f32) / ((VOLLEY_SIZE - 1) as f32)
-        } else {
-            0.5
-        };
-        let angle_deg = (t - 0.5) * VOLLEY_ARC_ANGLE_DEG;
-        let angle = angle_deg * PI / 180.0;
-        let dist = 12.0 + volley_index as f32 * 2.0;
-        let place = glam::Vec3::new(
-            origin.x + angle.cos() * dist,
-            origin.y.max(0.0) + 8.0,
-            origin.z + angle.sin() * dist,
-        );
+        // C++ launchVolley: spawn at aircraft pose, not a static ring.
         let fid = self.create_object_for_owner_or_team(
             FLARE_TEMPLATE_NAME,
             team,
             owner_player_id,
-            place,
+            origin,
         )?;
         let expires = self.frame.saturating_add(FLARE_LIFETIME_FRAMES.max(1));
         if let Some(o) = self.objects.get_mut(&fid) {
+            o.set_position(origin);
+            o.set_orientation(ori);
+            o.movement.velocity += vel;
+            o.invalidate_velocity_magnitude();
+            let (mx, my, mz) = flare_volley_motive_force(facing, volley_index, VOLLEY_SIZE, speed);
+            o.apply_motive_force(glam::Vec3::new(mx, my, mz));
+            o.integrate_physics_accel();
             o.countermeasure_flare = true;
             o.countermeasure_flare_expires_frame = Some(expires);
             o.producer_id = Some(aircraft_id);
@@ -1674,18 +1694,51 @@ impl GameLogic {
             o.secondary_weapon = None;
         }
         self.countermeasures.record_flare_spawned(1);
+        self.countermeasures.record_flare_id(aircraft_id, fid);
         Some(fid)
     }
 
     pub fn flush_countermeasure_flare_spawns(&mut self) {
+        self.update_countermeasure_volleys();
         let pending = self.countermeasures.take_pending_flare_spawns();
         for spawn in pending {
             let _ = self.spawn_countermeasure_flare_object(spawn.aircraft_id, spawn.volley_index);
         }
     }
 
+    /// C++ CountermeasuresBehavior::update volley launch while airborne.
+    pub fn update_countermeasure_volleys(&mut self) {
+        use crate::game_logic::host_countermeasures::update_countermeasures;
+        let frame = self.frame;
+        let ids = self.countermeasures.aircraft_ids();
+        for id in ids {
+            let airborne = self
+                .objects
+                .get(&id)
+                .is_some_and(|o| o.is_alive() && o.status.airborne_target);
+            update_countermeasures(&mut self.countermeasures, id, frame, airborne);
+        }
+    }
+
+
     pub fn update_countermeasure_flare_objects(&mut self) {
         let frame = self.frame;
+        let dt = 1.0 / 30.0;
+        let live: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.countermeasure_flare)
+            .map(|(id, _)| *id)
+            .collect();
+        for id in live {
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.integrate_physics_accel();
+                let v = o.movement.velocity;
+                let mut p = o.get_position();
+                p += v * dt;
+                o.set_position(p);
+            }
+        }
         let due: Vec<(ObjectId, Option<ObjectId>)> = self
             .objects
             .iter()
@@ -1718,6 +1771,7 @@ impl GameLogic {
             }
             if let Some(pid) = producer {
                 self.countermeasures.note_flare_expired(pid);
+                self.countermeasures.forget_flare_id(pid, id);
             }
             self.mark_object_for_destruction(id, None);
         }

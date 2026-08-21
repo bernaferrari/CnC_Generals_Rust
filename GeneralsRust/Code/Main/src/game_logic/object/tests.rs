@@ -89,6 +89,82 @@ fn pilot_recrew_adds_pilot_levels_not_max() {
     assert_eq!(vehicle.experience.level, VeterancyLevel::Heroic);
 }
 
+#[test]
+fn script_enabled_powered_set_live_disable_mask() {
+    let mut obj = make_test_object();
+    assert!(obj.can_move());
+    assert!(obj.can_attack());
+    obj.apply_object_panel_flag("Enabled", false);
+    assert!(obj.is_disabled());
+    assert!(obj.is_script_disabled());
+    assert!(!obj.can_move());
+    assert!(!obj.can_attack());
+    obj.apply_object_panel_flag("Enabled", true);
+    assert!(!obj.is_disabled());
+    obj.apply_object_panel_flag("Powered", false);
+    assert!(obj.is_script_underpowered());
+    assert!(obj.is_disabled());
+    assert!(!obj.can_move());
+}
+
+#[test]
+fn paralyzed_rejects_move_orders() {
+    let mut obj = make_test_object();
+    obj.apply_disabled_paralyzed(30);
+    assert!(obj.is_disabled());
+    assert!(!obj.can_move(), "C++ isMobile is false while paralyzed");
+    assert!(!obj.can_attack());
+}
+
+#[test]
+fn unmanned_enter_wipes_veterancy_and_auto_heal() {
+    let mut vehicle = make_test_object();
+    vehicle.experience.level = VeterancyLevel::Elite;
+    vehicle.experience.current = 200.0;
+    vehicle.default_auto_heal =
+        Some(crate::game_logic::host_heal::HostDefaultAutoHealData::new());
+    assert!(vehicle
+        .default_auto_heal
+        .as_ref()
+        .is_some_and(|h| h.upgrade_active));
+    vehicle.apply_kill_pilot_unmanned();
+    assert_eq!(vehicle.experience.level, VeterancyLevel::Rookie);
+    assert_eq!(vehicle.experience.current, 0.0);
+    assert!(vehicle
+        .default_auto_heal
+        .as_ref()
+        .is_some_and(|h| !h.upgrade_active));
+    assert!(vehicle.apply_pilot_recrew(Team::USA, Some(0), VeterancyLevel::Veteran));
+    assert_eq!(vehicle.experience.level, VeterancyLevel::Veteran);
+}
+
+#[test]
+fn battle_bus_second_life_is_held() {
+    let mut obj = make_test_object();
+    obj.status.disabled_held = true;
+    assert!(obj.is_disabled());
+    assert!(obj.is_physics_held());
+    assert!(!obj.can_move());
+    assert!(!obj.can_attack());
+}
+
+#[test]
+fn hacked_spawn_site_idles_residual_slaves() {
+    let mut site = make_test_object();
+    site.template_name = "GLAStingerSite".into();
+    site.hive_slaves = crate::game_logic::host_base_defense::init_stinger_hive_slave_roster();
+    site.hive_slave_count = 3;
+    let _ = crate::game_logic::host_base_defense::order_hive_slaves_to_attack_target(
+        &mut site.hive_slaves,
+        99,
+    );
+    assert!(site.hive_slaves.iter().any(|s| s.ai_attacking));
+    site.apply_disabled_hacked(60);
+    assert!(site.is_hacked_disabled());
+    assert!(site.hive_slaves.iter().all(|s| !s.ai_attacking));
+}
+
+
 
 #[test]
 fn stop_attack_clears_force_attack_and_targets() {

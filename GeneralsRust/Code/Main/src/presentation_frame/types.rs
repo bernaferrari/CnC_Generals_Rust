@@ -404,6 +404,10 @@ pub struct RenderableObject {
     pub parachuting: bool,
     /// Wave 509: C++ parachute open residual (false + parachuting => FREEFALL).
     pub parachute_open: bool,
+    /// C++ `TheKey_objectWeather` (0 follow map, 1 force normal, 2 force snow).
+    #[serde(default)]
+    pub object_weather: i32,
+
     /// Wave 510: C++ CAPTURED model-condition residual.
     pub captured: bool,
     /// Wave 512: C++ prone residual (Infantry goProne timer).

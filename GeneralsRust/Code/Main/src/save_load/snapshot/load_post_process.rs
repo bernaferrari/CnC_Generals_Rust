@@ -321,6 +321,20 @@ impl Snapshot for WorldSnapshot {
             self.client_drawable_visuals.clear();
         }
 
+        if self.version >= WORLD_SNAPSHOT_DIRECT_XFER_V15_TAIL_VERSION {
+            xfer.xfer_marker_label("PlayerEnergy")?;
+            xfer_vec_default(
+                xfer,
+                &mut self.player_energy,
+                PlayerEnergySnapshot {
+                    player_id: 0,
+                    power_sabotaged_till_frame: 0,
+                },
+            )?;
+        } else if xfer.get_mode() == XferMode::Load {
+            self.player_energy.clear();
+        }
+
         Ok(())
     }
 

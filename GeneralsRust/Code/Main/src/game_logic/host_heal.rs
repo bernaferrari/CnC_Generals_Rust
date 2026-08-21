@@ -165,6 +165,15 @@ impl HostDefaultAutoHealData {
         }
     }
 
+    /// C++ AutoHealBehavior::undoUpgrade — unmanned enter drops veteran self-heal.
+    pub fn undo_upgrade(&mut self) {
+        self.upgrade_active = false;
+        self.soonest_heal_frame = 0;
+        self.wake_frame = 0;
+        self.pending_damage = false;
+    }
+
+
     /// Pulse amount this frame, or 0 if sleeping / full health / stopped.
     /// Garrisoned / HELD units still heal (C++ DISABLED_HELD).
     pub fn tick_heal_amount(

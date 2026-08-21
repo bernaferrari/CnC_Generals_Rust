@@ -25,8 +25,23 @@ impl Object {
         // C++ Object.cpp:2580-2583: integer XY change notifies W3DTreeBuffer::unitMoved.
         if old_ix != position.x as i32 || old_iz != position.z as i32 {
             self.notify_terrain_trees_on_unit_move();
+            let skip = self.is_kind_of(KindOf::Projectile);
+            let team = if self.team_instance_name.is_empty() {
+                None
+            } else {
+                Some(self.team_instance_name.as_str())
+            };
+            gamelogic::scripting::update_host_object_trigger_flags(
+                self.id.0,
+                position.x,
+                position.z,
+                gamelogic::system::game_logic::current_frame(),
+                skip,
+                team,
+            );
         }
     }
+
 
     /// C++ `TheGameClient->notifyTerrainObjectMoved` → `W3DTreeBuffer::unitMoved`.
     pub fn notify_terrain_trees_on_unit_move(&self) {

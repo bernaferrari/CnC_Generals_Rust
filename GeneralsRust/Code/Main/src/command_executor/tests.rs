@@ -4026,3 +4026,26 @@ fn execute_build_clears_removable_and_map_trees() {
     );
 }
 
+#[test]
+fn execute_build_source_records_build_slot_and_docks() {
+    let src = crate::command_executor::COMMAND_EXECUTOR_SRC;
+    let i = src.find("fn execute_build").expect("execute_build");
+    let w = &src[i..src.len().min(i + 8000)];
+    assert!(
+        w.contains("dozer_new_task_build")
+            && w.contains("dozer_repair_approach_position")
+            && w.contains("path_to_goal_with_state_ignoring"),
+        "hq-gkpuk/hq-6gy32: execute_build must newTask BUILD, dock half-radius, ignoreObstacle"
+    );
+    let snap = include_str!("../game_logic/world_scripts/ui_production.rs");
+    let j = snap
+        .find("fn flatten_and_snap_construction")
+        .expect("flatten_and_snap");
+    let f = &snap[j..snap.len().min(j + 2500)];
+    assert!(
+        f.contains("flatten_terrain_box_at")
+            && f.contains("HostGeometryType::Box"),
+        "hq-6smw3: flatten_and_snap must use GEOMETRY_BOX flatten, not cylinder-only"
+    );
+}
+

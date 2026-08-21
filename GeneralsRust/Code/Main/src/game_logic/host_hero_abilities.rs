@@ -38,12 +38,12 @@
 //!   Forbidden **USING_ABILITY**, InnateStealth **Yes**
 //!
 //! Fail-closed honesty:
-//! - Leftover steal/disable/plant run C++ unpack/prep/pack + flee-after-plant
+//! - Leftover steal/disable/plant run C++ unpack/prep/pack + NeedToFace + flee-after-plant
 //! - RemoteC4Charge/TimedC4Charge SpecialObject + MaxSpecialObjects residual closed
 //! - Not full StickyBombUpdate attach bone matrix / geometry splash / max-charge list UI
 //! - Not full CashHackSpecialPower victim money clamp / floating text path
 //! - Not combat-bike rider-eject / academy sniped-vehicle stats
-//! - Not full laser attach / disable FX particle interleave / VoiceDisableVehicleComplete
+//! - Not full LaserUpdate bone-attach matrix / VoiceDisableVehicleComplete
 //! - Not full ActionManager canCapture edge matrix (stealth / garrison / shroud)
 
 use super::ObjectId;
@@ -467,6 +467,24 @@ pub fn leftover_within_start_ability_range(edge_distance: f32, start_ability_ran
     edge_distance <= start_ability_range
 }
 
+/// C++ `ActionManager.cpp:1944-1950` + `GLAJarmenKellVehiclePilotSniperRifle`
+/// AttackRange **225**. MSG_DO_WEAPON_AT_OBJECT, not contact radii+4.
+pub fn leftover_snipe_in_killpilot_range(
+    sniper_pos: Vec3,
+    sniper_radius: f32,
+    target_pos: Vec3,
+    target_radius: f32,
+) -> bool {
+    leftover_bounding_sphere_2d(sniper_pos, sniper_radius, target_pos, target_radius)
+        <= crate::game_logic::host_jarmen_kell::JARMEN_PILOT_SNIPE_RANGE
+}
+
+/// C++ `SpecialAbilityUpdate.cpp:1394` `setSystemLifetime(effectDuration * interleave)`.
+pub fn leftover_disable_fx_system_lifetime(effect_duration_frames: u32, interleave: u32) -> u32 {
+    effect_duration_frames.saturating_mul(interleave.max(1)).max(1)
+}
+
+
 /// C++ `isWithinAbilityAbortRange` (no start-range undersize).
 pub fn leftover_within_abort_range(edge_distance: f32, abort_range: f32) -> bool {
     edge_distance <= abort_range
@@ -476,6 +494,87 @@ pub fn leftover_within_abort_range(edge_distance: f32, abort_range: f32) -> bool
 pub fn leftover_undersized_start_range(start_ability_range: f32) -> f32 {
     (start_ability_range - SA_PATHFIND_CELL_SIZE_F * 0.25).max(0.0)
 }
+
+/// C++ `SpecialAbilityUpdateModuleData::m_needToFaceTarget` default TRUE.
+pub fn leftover_sa_need_to_face() -> bool {
+    true
+}
+
+/// C++ `SpecialAbilityUpdateModuleData::m_approachRequiresLOS` default TRUE.
+pub fn leftover_sa_approach_requires_los() -> bool {
+    true
+}
+
+/// C++ LOS iterate range: undersized `StartAbilityRange - PATHFIND_CELL_SIZE_F/4`.
+pub fn leftover_sa_los_iterate_range(start_ability_range: f32) -> f32 {
+    leftover_undersized_start_range(start_ability_range)
+}
+
+/// C++ `isFacing` complete residual (~3 deg, matches `Object::face_position`).
+pub const LEFTOVER_SA_FACING_EPSILON: f32 = 0.05;
+
+/// True when yaw already faces the target on the host XZ plane.
+pub fn leftover_sa_is_facing_target(pos: Vec3, yaw: f32, target: Vec3) -> bool {
+    let dx = target.x - pos.x;
+    let dz = target.z - pos.z;
+    if dx * dx + dz * dz < 1.0e-6 {
+        return true;
+    }
+    // Orientation 0 faces +X; desired heading uses (-dz).atan2(dx).
+    let desired = (-dz).atan2(dx);
+    let mut rel = desired - yaw;
+    const PI: f32 = std::f32::consts::PI;
+    while rel > PI {
+        rel -= 2.0 * PI;
+    }
+    while rel < -PI {
+        rel += 2.0 * PI;
+    }
+    rel.abs() < LEFTOVER_SA_FACING_EPSILON
+}
+
+/// C++ `SpecialAbilityUpdate.cpp:1371-1378` DisableFX interleave.
+///
+/// Small structures (`footprint < 300` and KINDOF_STRUCTURE) toggle the
+/// emit flag and double system lifetime. Default `m_doDisableFXParticles`
+/// is TRUE, so the first small-building pulse is skipped.
+pub fn leftover_disable_fx_pulse(
+    do_fx: bool,
+    footprint_area: f32,
+    is_structure: bool,
+) -> (bool, bool, u32) {
+    let mut do_fx = do_fx;
+    let mut interleave = 1u32;
+    if is_structure && footprint_area < 300.0 {
+        do_fx = !do_fx;
+        interleave = 2;
+    }
+    (do_fx, do_fx, interleave)
+}
+
+/// Estimate C++ `GeometryInfo::getFootprintArea` from host radii.
+pub fn leftover_disable_fx_footprint_area(
+    authored: bool,
+    geom_type_u32: u32,
+    major_radius: f32,
+    minor_radius: f32,
+    selection_radius: f32,
+) -> f32 {
+    use crate::game_logic::host_partition_collision_physics_residual::geometry_footprint_area;
+    if authored {
+        if let Some(area) = geometry_footprint_area(
+            geom_type_u32,
+            major_radius,
+            minor_radius,
+            selection_radius.max(major_radius).max(minor_radius),
+        ) {
+            return area;
+        }
+    }
+    let r = selection_radius.max(0.0);
+    std::f32::consts::PI * r * r
+}
+
 
 /// C++ `LoseStealthOnTrigger` + `PreTriggerUnstealthTime` during unpack.
 /// `m_animFrames < preTriggerUnstealthFrames` → remaining seconds < 5.0s.
@@ -541,9 +640,11 @@ pub enum LeftoverSaKind {
     LaserGuided,
 }
 
-/// C++ `PackingState` leftover subset.
+/// C++ `PackingState` leftover subset plus NeedToFace.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum LeftoverSaPhase {
+    /// C++ `needToFace` / `startFacing` before unpack.
+    Facing,
     #[default]
     Unpacking,
     Preparing,
@@ -622,6 +723,16 @@ pub struct LeftoverSaChannel {
     pub phase: LeftoverSaPhase,
     pub remaining_seconds: f32,
     pub unstealthed: bool,
+    /// C++ special-object id for BinaryDataStream / LaserBeam.
+    #[serde(default)]
+    pub special_object_id: Option<ObjectId>,
+    /// C++ `m_doDisableFXParticles` (default TRUE).
+    #[serde(default = "leftover_sa_default_do_disable_fx")]
+    pub do_disable_fx_particles: bool,
+}
+
+fn leftover_sa_default_do_disable_fx() -> bool {
+    true
 }
 
 impl LeftoverSaChannel {
@@ -637,6 +748,8 @@ impl LeftoverSaChannel {
             phase,
             remaining_seconds: duration_ms as f32 / 1_000.0,
             unstealthed: false,
+            special_object_id: None,
+            do_disable_fx_particles: true,
         }
     }
 }
@@ -681,6 +794,24 @@ pub struct HostHeroAbilityRegistry {
     /// C++ `m_captureFlashPhase` leftover, keyed by capturing object.
     #[serde(default)]
     pub capture_flash_phase: HashMap<ObjectId, f32>,
+    /// C++ `createSpecialObject` + `initLaser` BinaryDataStream residual.
+    #[serde(default)]
+    pub leftover_binary_streams_spawned: u32,
+    /// C++ `DisableFXParticleSystem` BinaryShower residual.
+    #[serde(default)]
+    pub leftover_disable_fx_spawned: u32,
+    /// C++ `tryInfiltrationEvent` at leftover steal/disable prep start.
+    #[serde(default)]
+    pub leftover_infiltration_events: u32,
+    /// C++ `m_doDisableFXParticles` keyed by caster (HDB persistent interleave).
+    #[serde(default)]
+    pub disable_fx_toggle: HashMap<ObjectId, bool>,
+    /// C++ DisableFX system lifetime: (particle id, expires_frame).
+    #[serde(default)]
+    pub leftover_disable_fx_until: Vec<(u32, u32)>,
+
+
+
 }
 
 impl HostHeroAbilityRegistry {
@@ -782,6 +913,51 @@ impl HostHeroAbilityRegistry {
     pub fn honesty_eva_building_stolen_ok(&self) -> bool {
         self.eva_building_stolen > 0
     }
+
+    pub fn record_leftover_binary_stream(&mut self) {
+        self.leftover_binary_streams_spawned = self.leftover_binary_streams_spawned.saturating_add(1);
+    }
+
+    pub fn honesty_leftover_binary_stream_ok(&self) -> bool {
+        self.leftover_binary_streams_spawned > 0
+    }
+
+    pub fn record_leftover_disable_fx(&mut self) {
+        self.leftover_disable_fx_spawned = self.leftover_disable_fx_spawned.saturating_add(1);
+    }
+
+    /// C++ `setSystemLifetime` residual: keep the shower until EffectDuration.
+    pub fn record_leftover_disable_fx_until(&mut self, particle_id: u32, expires_frame: u32) {
+        self.leftover_disable_fx_until.push((particle_id, expires_frame));
+    }
+
+    /// Particle ids whose C++ system lifetime has elapsed.
+    pub fn take_expired_disable_fx(&mut self, now: u32) -> Vec<u32> {
+        let mut expired = Vec::new();
+        self.leftover_disable_fx_until.retain(|(id, until)| {
+            if now >= *until {
+                expired.push(*id);
+                false
+            } else {
+                true
+            }
+        });
+        expired
+    }
+
+
+    pub fn honesty_leftover_disable_fx_ok(&self) -> bool {
+        self.leftover_disable_fx_spawned > 0
+    }
+
+    pub fn record_leftover_infiltration(&mut self) {
+        self.leftover_infiltration_events = self.leftover_infiltration_events.saturating_add(1);
+    }
+
+    pub fn honesty_leftover_infiltration_ok(&self) -> bool {
+        self.leftover_infiltration_events > 0
+    }
+
 
     /// Combined hero residual path honesty (any hero ability observed).
     pub fn honesty_any_ok(&self) -> bool {
@@ -1101,5 +1277,48 @@ mod tests {
         assert_eq!(laser.persist_prep_ms, 500);
         assert!((laser.start_range - 200.0).abs() < 0.01);
         assert!((laser.abort_range - 250.0).abs() < 0.01);
+        assert!(leftover_sa_need_to_face());
+        // C++ ActionManager.cpp:1944-1950 KILLPILOT weapon range 225, not radii+4.
+        assert!(leftover_snipe_in_killpilot_range(
+            Vec3::new(200.0, 0.0, 0.0),
+            5.0,
+            Vec3::new(0.0, 0.0, 0.0),
+            10.0,
+        ));
+        assert!(!leftover_snipe_in_killpilot_range(
+            Vec3::new(300.0, 0.0, 0.0),
+            5.0,
+            Vec3::new(0.0, 0.0, 0.0),
+            10.0,
+        ));
+        // C++ SpecialAbilityUpdate.cpp:1394 lifetime = EffectDuration * interleave.
+        assert_eq!(leftover_disable_fx_system_lifetime(450, 1), 450);
+        assert_eq!(leftover_disable_fx_system_lifetime(60, 2), 120);
+        let mut fx_reg = HostHeroAbilityRegistry::new();
+        fx_reg.record_leftover_disable_fx_until(7, 110);
+        assert!(fx_reg.take_expired_disable_fx(100).is_empty());
+        assert_eq!(fx_reg.take_expired_disable_fx(110), vec![7]);
+
+        assert!(leftover_sa_approach_requires_los());
+        assert!((leftover_sa_los_iterate_range(150.0) - 147.5).abs() < 1e-4);
+        assert!(leftover_sa_is_facing_target(
+            Vec3::new(0.0, 0.0, 0.0),
+            0.0,
+            Vec3::new(10.0, 0.0, 0.0),
+        ));
+        assert!(!leftover_sa_is_facing_target(
+            Vec3::new(0.0, 0.0, 0.0),
+            0.0,
+            Vec3::new(-10.0, 0.0, 0.0),
+        ));
+        let (toggle, emit, interleave) = leftover_disable_fx_pulse(true, 100.0, true);
+        assert!(!toggle && !emit && interleave == 2);
+        let (toggle2, emit2, interleave2) = leftover_disable_fx_pulse(false, 100.0, true);
+        assert!(toggle2 && emit2 && interleave2 == 2);
+        let (toggle3, emit3, interleave3) = leftover_disable_fx_pulse(true, 400.0, true);
+        assert!(toggle3 && emit3 && interleave3 == 1);
+        let (toggle4, emit4, interleave4) = leftover_disable_fx_pulse(true, 50.0, false);
+        assert!(toggle4 && emit4 && interleave4 == 1);
+        assert_eq!(LeftoverSaPhase::default(), LeftoverSaPhase::Unpacking);
     }
 }

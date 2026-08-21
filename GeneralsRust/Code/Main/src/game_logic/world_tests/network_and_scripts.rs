@@ -87,6 +87,58 @@ fn host_named_unit_found_with_empty_object_registry() {
 }
 
 #[test]
+fn live_host_polygon_inside_and_enter_without_object_registry() {
+    use gamelogic::common::{AsciiString, ICoord3D};
+    use gamelogic::object::registry::OBJECT_REGISTRY;
+    use gamelogic::polygon_trigger::PolygonTrigger;
+    use gamelogic::scripting::{
+        clear_host_script_query_snapshot, host_script_named_unit_in_named_area,
+        update_host_object_trigger_flags,
+    };
+
+    assert!(OBJECT_REGISTRY.is_empty());
+    clear_host_script_query_snapshot();
+    let trigger = PolygonTrigger::new(
+        1412,
+        AsciiString::from("LivePolyPad"),
+        vec![
+            ICoord3D::new(0, 0, 0),
+            ICoord3D::new(30, 0, 0),
+            ICoord3D::new(30, 30, 0),
+            ICoord3D::new(0, 30, 0),
+        ],
+    );
+    gamelogic::terrain::get_terrain_logic()
+        .write()
+        .expect("terrain")
+        .add_trigger_area(trigger);
+
+    let mut logic = GameLogic::new();
+    let mut t = ThingTemplate::new("NamedScout");
+    t.set_health(100.0);
+    logic.templates.insert("NamedScout".into(), t);
+    let id = logic
+        .create_object("NamedScout", Team::USA, Vec3::new(10.0, 0.0, 10.0))
+        .expect("unit");
+    if let Some(o) = logic.host_object_mut(id) {
+        o.name = "MapNamedScout".into();
+        o.team_instance_name = "teamUSA".into();
+    }
+    logic.inject_host_script_query_snapshot();
+    assert_eq!(
+        host_script_named_unit_in_named_area("MapNamedScout", "LivePolyPad"),
+        Some(true)
+    );
+    update_host_object_trigger_flags(id.0, 10.0, 10.0, logic.frame, false, Some("teamUSA"));
+    assert!(gamelogic::scripting::host_object_did_enter(
+        id.0,
+        &gamelogic::scripting::host_script_lookup_polygon_trigger("LivePolyPad").expect("poly")
+    ));
+    clear_host_script_query_snapshot();
+}
+
+
+#[test]
 fn network_mode_helpers_match_lan_internet_multiplayer() {
     let mut game_logic = GameLogic::new();
 
@@ -4130,7 +4182,7 @@ fn snipe_vehicle_command_applies_only_after_unit_reaches_target() {
     ensure_test_tank_template(&mut game_logic);
 
     let sniper_id = game_logic
-        .create_object("TestTank", Team::USA, Vec3::new(160.0, 0.0, 0.0))
+        .create_object("TestTank", Team::USA, Vec3::new(300.0, 0.0, 0.0))
         .expect("sniper should be created");
     let target_id = game_logic
         .create_object("TestTank", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
@@ -4170,7 +4222,7 @@ fn snipe_vehicle_command_applies_only_after_unit_reaches_target() {
         .expect("target should exist");
     assert_eq!(
         target_after_far_update.health.current, initial_health,
-        "snipe should be pending while sniper is out of range"
+        "snipe should be pending while sniper is out of KILLPILOT range"
     );
     assert!(!target_after_far_update.is_unmanned());
 
@@ -4178,7 +4230,9 @@ fn snipe_vehicle_command_applies_only_after_unit_reaches_target() {
         let sniper = game_logic
             .host_object_mut(sniper_id)
             .expect("sniper should exist");
-        sniper.set_position(Vec3::new(2.0, 0.0, 0.0));
+        // C++ MSG_DO_WEAPON_AT_OBJECT uses GLAJarmenKellVehiclePilotSniperRifle
+        // AttackRange 225, not contact radii+4.
+        sniper.set_position(Vec3::new(200.0, 0.0, 0.0));
         sniper.set_ai_state(AIState::SpecialAbility);
         sniper.target = Some(target_id);
     }

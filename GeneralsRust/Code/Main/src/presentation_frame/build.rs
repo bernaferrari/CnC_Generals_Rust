@@ -533,6 +533,8 @@ impl PresentationFrame {
                 },
                 parachuting: obj.is_parachuting(),
                 parachute_open: obj.is_parachute_open(),
+                object_weather: obj.object_weather,
+
                 captured: obj.has_captured_model_condition() || obj.is_private_captured(),
                 prone: obj.prone_timer > 0.0,
                 emoticon_name: obj.emoticon_name.clone(),

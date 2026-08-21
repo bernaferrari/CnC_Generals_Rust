@@ -143,28 +143,13 @@ fn with_single_player_load_screen_state<R>(
 }
 
 fn finish_single_player_load_screen_audio_prelude() {
-    let should_play_briefing =
-        with_single_player_load_screen_state(|state| !state.briefing_voice_played);
-    let briefing_voice = if should_play_briefing {
-        let campaign_manager = get_campaign_manager();
-        campaign_manager
-            .get_current_mission()
-            .map(|mission| mission.briefing_voice.sound_file.clone())
-    } else {
-        None
-    };
-    let briefing_handle = briefing_voice
-        .as_deref()
-        .filter(|event| !event.is_empty())
-        .map(add_audio_event)
-        .unwrap_or(0);
+    // C++ LoadScreen.cpp:532-533 `// PULLED FROM THE MISSION DISK` — the movie
+    // loop never calls `moveWindows` (the only BriefingVoice caller at :217-220).
+    // After the movie / VoiceLength delay, only `LoadScreenAmbient` plays (:590).
     let ambient_handle = add_audio_event("LoadScreenAmbient");
-
     with_single_player_load_screen_state(|state| {
-        if !state.briefing_voice_played {
-            state.briefing_voice_handle = briefing_handle;
-            state.briefing_voice_played = true;
-        }
+        state.briefing_voice_played = false;
+        state.briefing_voice_handle = 0;
         state.ambient_loop_handle = ambient_handle;
     });
 }

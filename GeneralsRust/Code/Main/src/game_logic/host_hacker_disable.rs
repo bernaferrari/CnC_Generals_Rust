@@ -22,8 +22,8 @@
 //! - Target filters: enemy structure, not under construction, not already hacked
 //!
 //! Fail-closed honesty:
-//! - Not full SpecialAbilityUpdate continuous BinaryDataStream attach matrix
-//! - Not full DisableFX particle interleave / PrepSoundLoop audio stream
+//! - Not full SpecialAbilityUpdate continuous BinaryDataStream bone-attach matrix
+//! - Not full PrepSoundLoop audio stream
 //! - Not full CashHackSpecialPower victim money clamp / floating text path
 //! - Not network disable-building replication (network deferred)
 
@@ -143,6 +143,25 @@ pub fn is_legal_hacker_disable_target(
 ) -> bool {
     is_alive && is_structure && !under_construction && is_enemy && !already_hacked
 }
+
+/// C++ `NeedToFaceTarget` default TRUE for HDB.
+pub fn hacker_disable_need_to_face() -> bool {
+    crate::game_logic::host_hero_abilities::leftover_sa_need_to_face()
+}
+
+/// C++ DisableFX small-building interleave (footprint < 300).
+pub fn hacker_disable_fx_pulse(
+    do_fx: bool,
+    footprint_area: f32,
+    is_structure: bool,
+) -> (bool, bool, u32) {
+    crate::game_logic::host_hero_abilities::leftover_disable_fx_pulse(
+        do_fx,
+        footprint_area,
+        is_structure,
+    )
+}
+
 
 /// Absolute expiry frame for residual disable (now + EffectDuration frames).
 pub fn hacker_disable_until_frame(current_frame: u32) -> u32 {
@@ -311,5 +330,14 @@ mod tests {
         assert_eq!(cash_hack_money_for_science_tier(3), 4_000);
         assert!(CASH_HACK_MONEY_AMOUNT_TIER3 > CASH_HACK_MONEY_AMOUNT_TIER2);
         assert!(CASH_HACK_MONEY_AMOUNT_TIER2 > CASH_HACK_MONEY_AMOUNT_DEFAULT);
+    }
+
+    #[test]
+    fn need_to_face_and_disable_fx_interleave() {
+        assert!(hacker_disable_need_to_face());
+        let (toggle, emit, factor) = hacker_disable_fx_pulse(true, 100.0, true);
+        assert!(!toggle && !emit && factor == 2);
+        let (toggle, emit, factor) = hacker_disable_fx_pulse(true, 400.0, true);
+        assert!(toggle && emit && factor == 1);
     }
 }

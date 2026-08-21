@@ -360,6 +360,9 @@ impl GameWorldShadow {
                     e.disabled_hacked_until_frame = obj.status.disabled_hacked_until_frame;
                     e.disabled_paralyzed_until_frame = obj.status.disabled_paralyzed_until_frame;
                     e.disabled_paralyzed = obj.status.disabled_paralyzed;
+                    e.disabled_script_disabled = obj.status.disabled_script_disabled;
+                    e.disabled_script_underpowered = obj.status.disabled_script_underpowered;
+                    e.disabled_held = obj.status.disabled_held;
                     e.weapons_jammed = obj.status.weapons_jammed;
                     e.masked = obj.status.masked;
                     e.unattackable = obj.is_kind_of(crate::game_logic::KindOf::Unattackable);
@@ -1844,6 +1847,9 @@ impl GameWorldShadow {
                 e.disabled_hacked_until_frame = obj.status.disabled_hacked_until_frame;
                 e.disabled_paralyzed_until_frame = obj.status.disabled_paralyzed_until_frame;
                 e.disabled_paralyzed = obj.status.disabled_paralyzed;
+                e.disabled_script_disabled = obj.status.disabled_script_disabled;
+                e.disabled_script_underpowered = obj.status.disabled_script_underpowered;
+                e.disabled_held = obj.status.disabled_held;
                 e.weapons_jammed = obj.status.weapons_jammed;
                 e.masked = obj.status.masked;
                 e.unattackable = obj.is_kind_of(crate::game_logic::KindOf::Unattackable);
