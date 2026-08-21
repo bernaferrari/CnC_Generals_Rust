@@ -1388,6 +1388,7 @@ impl CnCGameEngine {
         slot: &str,
         mut save_info: SaveGameInfo,
     ) -> Result<SaveGameInfo, String> {
+        let mut rank_points = 0;
         if let Ok(state) = self.save_file_manager.read_campaign_state(slot) {
             save_info.difficulty = match state.difficulty {
                 0 => GameDifficulty::Easy,
@@ -1397,6 +1398,7 @@ impl CnCGameEngine {
             if !state.campaign.is_empty() {
                 save_info.campaign_side = Some(state.campaign.clone());
             }
+            rank_points = state.rank_points;
             game_engine::System::apply_campaign_manager_runtime(state.clone());
             game_client::gui::campaign_manager::get_campaign_manager()
                 .apply_logic_chunk_state(state);
@@ -1419,7 +1421,7 @@ impl CnCGameEngine {
             );
             msg.append_integer_argument(0); // GAME_SINGLE_PLAYER
             msg.append_integer_argument(difficulty);
-            msg.append_integer_argument(0);
+            msg.append_integer_argument(rank_points);
         }
         let faction = save_info
             .campaign_side
