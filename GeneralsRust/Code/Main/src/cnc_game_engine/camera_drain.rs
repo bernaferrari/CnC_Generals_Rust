@@ -2151,10 +2151,15 @@ impl CnCGameEngine {
             fow_rendering::reveal_entire_map_for_player(player_id);
             script_events::push_event(ScriptEvent::PlayerDefeated { player_id });
             script_events::push_event(ScriptEvent::RevealMapForPlayer { player_id });
-            // C++ Player::killPlayer — local loser switches to FactionObserver bar.
+            // C++ VictoryConditions.cpp:201-214 — first local defeat
+            // TheRadar->forceOn + SetInGameChatType(EVERYONE).
             if self.presentation_or_boot_local_player_id() == Some(player_id) {
+                self.host_game_logic_mut().set_radar_forced(true);
                 #[cfg(feature = "game_client")]
                 {
+                    let _ = game_client::gui::callbacks::ingame_callbacks::set_in_game_chat_type(
+                        game_client::gui::callbacks::ingame_callbacks::InGameChatType::Everyone,
+                    );
                     self.control_bar
                         .set_control_bar_scheme_by_player_side("Observer");
                 }

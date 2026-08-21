@@ -228,10 +228,20 @@ impl GameLogic {
             .map(|(id, _)| *id)
             .collect();
         for id in army {
-            let is_tech = self
+            let (is_tech, is_beacon) = self
                 .objects
                 .get(&id)
-                .is_some_and(|obj| obj.is_kind_of(KindOf::TechBuilding));
+                .map(|obj| {
+                    (
+                        obj.is_kind_of(KindOf::TechBuilding),
+                        obj.template_name.to_ascii_lowercase().contains("beacon"),
+                    )
+                })
+                .unwrap_or((false, false));
+            if is_beacon {
+                // C++ Team::killTeam skips beacons.
+                continue;
+            }
             if is_tech {
                 // C++ Team::killTeam: KINDOF_TECH_BUILDING → Neutral default team.
                 if let Some(obj) = self.objects.get_mut(&id) {
