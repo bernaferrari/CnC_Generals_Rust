@@ -1692,6 +1692,7 @@ impl GameLogic {
             let worker_id = self.host_spawn_rebuild_bound_object(
                 REBUILD_HOLE_WORKER_TEMPLATE,
                 team,
+                owner_player_id,
                 pos,
                 ready_ev.and_then(|e| e.worker_entity_raw),
             );
@@ -1750,6 +1751,7 @@ impl GameLogic {
             let Some(new_id) = self.host_spawn_rebuild_bound_object(
                 &rebuild_name,
                 team,
+                owner_player_id,
                 pos,
                 ready_ev.and_then(|e| e.rebuild_entity_raw),
             ) else {
@@ -1803,7 +1805,9 @@ impl GameLogic {
             self.rebuild_hole_reconstructs = self.rebuild_hole_reconstructs.saturating_add(1);
         }
         for hid in holes_to_remove {
-            self.objects.remove(&hid);
+            // C++ RebuildHoleBehavior.cpp:309 TheGameLogic->destroyObject(hole).
+            // Hashmap-remove left radar / pathfind / GameWorld crater ghosts.
+            self.destroy_object(hid);
         }
     }
 
