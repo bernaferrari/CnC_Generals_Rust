@@ -4624,3 +4624,14 @@ fn supply_center_accepts_deposit_same_player_only() {
     assert!(logic.supply_center_accepts_deposit_for_test(cid, Team::USA, Some(0)));
     assert!(!logic.supply_center_accepts_deposit_for_test(cid, Team::USA, Some(1)));
 }
+
+#[test]
+fn worker_mine_clear_dumps_carried_boxes() {
+    use crate::game_logic::{Object, ObjectId, Team, ThingTemplate};
+    let mut t = ThingTemplate::new("GLAWorker");
+    let id = ObjectId(8802);
+    let mut worker = Object::new(t, id, Team::GLA);
+    worker.stored_resources.supplies = 3;
+    worker.set_weapon_set_mine_clearing_detail(true);
+    assert_eq!(worker.stored_resources.supplies, 0);
+}

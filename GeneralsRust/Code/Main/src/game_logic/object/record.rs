@@ -632,6 +632,9 @@ impl Object {
 
     pub fn set_weapon_set_mine_clearing_detail(&mut self, enabled: bool) {
         let _ = self.set_weapon_set_flag(1, enabled);
+        if enabled && self.stored_resources.supplies > 0 {
+            self.stored_resources.supplies = 0;
+        }
     }
 
     /// C++ AICMD_GO_PRONE residual — infantry hit the dirt briefly.
