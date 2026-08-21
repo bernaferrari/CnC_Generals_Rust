@@ -110,7 +110,10 @@ fn ocl_store_spawn_templates(ocl_name: &str) -> Vec<String> {
             .downcast_ref::<GenericObjectCreationNugget>()
         {
             if generic.name_are_objects {
-                names.extend(generic.names.iter().cloned());
+                let copies = generic.debris_to_generate.max(1) as usize;
+                for _ in 0..copies {
+                    names.extend(generic.names.iter().cloned());
+                }
             }
         }
     }

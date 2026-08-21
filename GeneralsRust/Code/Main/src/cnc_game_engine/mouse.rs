@@ -737,6 +737,36 @@ impl CnCGameEngine {
             return;
         }
         if self.pending_map_command.is_some() {
+            // C++ CommandXlat issueMoveToLocationCommand / evaluateContextCommand:
+            // waypoint mode (Alt or sticky) outranks any armed GUI command.
+            let waypoint = self.sticky_waypoint_mode
+                || self.keys_pressed.contains(&Key::Named(NamedKey::Alt));
+            if waypoint {
+                let mut selected = self.ui_selected_ids(self.current_player_id);
+                if selected.is_empty() {
+                    selected = self.selected_objects.clone();
+                }
+                if !selected.is_empty() {
+                    self.host_queue_and_process_command_silent(
+                        crate::command_system::GameCommand {
+                            command_type: crate::command_system::CommandType::AddWaypoint {
+                                destination: mouse_pos,
+                            },
+                            player_id: self.current_player_id,
+                            command_id: 0,
+                            timestamp: std::time::SystemTime::now(),
+                            selected_units: selected,
+                            modifier_keys: crate::command_system::ModifierKeys {
+                                ctrl: false,
+                                shift: false,
+                                alt: true,
+                            },
+                        },
+                    );
+                }
+                self.left_click_release_behavior = LeftMouseReleaseBehavior::Suppress;
+                return;
+            }
             self.commit_pending_map_command(mouse_pos, clicked_object);
             self.left_click_release_behavior = LeftMouseReleaseBehavior::Suppress;
             return;

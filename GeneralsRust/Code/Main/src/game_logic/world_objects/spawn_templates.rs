@@ -396,6 +396,19 @@ impl GameLogic {
             template.experience_value = if is_structure { 100.0 } else { 50.0 };
         }
 
+        if let Some(sp) = Self::object_definition_attr(definition, "skillpointvalue") {
+            use crate::game_logic::host_rank_ui_residual::USE_EXP_VALUE_FOR_SKILL_VALUE_RESIDUAL;
+            let mut table = [USE_EXP_VALUE_FOR_SKILL_VALUE_RESIDUAL; 4];
+            for (i, tok) in sp.split_whitespace().take(4).enumerate() {
+                if tok.eq_ignore_ascii_case("USE_EXP_VALUE") || tok == "-999" {
+                    table[i] = USE_EXP_VALUE_FOR_SKILL_VALUE_RESIDUAL;
+                } else if let Ok(v) = tok.parse::<i32>() {
+                    table[i] = v;
+                }
+            }
+            template.skill_point_values = table;
+        }
+
         if let Some(req) = Self::object_definition_attr(definition, "experiencerequired") {
             let vals: Vec<f32> = req
                 .split_whitespace()

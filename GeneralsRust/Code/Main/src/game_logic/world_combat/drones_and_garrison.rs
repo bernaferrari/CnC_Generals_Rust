@@ -525,6 +525,11 @@ impl GameLogic {
         if bunker_slots > 0 && !attacker.is_kind_of(KindOf::Infantry) {
             return;
         }
+        // C++ TransportContain::isPassengerAllowedToFire — vehicles never shoot
+        // out of a Helix (infantry / portable-structure only).
+        if container.is_helix_transport && !attacker.is_kind_of(KindOf::Infantry) {
+            return;
+        }
         let is_battle_bus = container.is_battle_bus_style_container();
         let is_combat_chinook = container.is_combat_chinook_style_container();
         let is_listening_outpost = container.is_listening_outpost_style_container();

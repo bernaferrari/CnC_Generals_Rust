@@ -655,6 +655,7 @@ impl GameLogic {
             };
             let score_counts = self.score_the_kill_victim_counts(destroyed_object);
             if let Some(player_id) = killer_owner_player_id {
+                let mut rank_skill = 0;
                 if let Some(player) = self.players.get_mut(&player_id) {
                     if destroyed_is_structure {
                         player.record_structure_destroyed();
@@ -676,11 +677,11 @@ impl GameLogic {
                     // Skill value is victim template SkillPointValue / ExperienceValue.
                     // C++ Object.cpp:2898-2905: skip non-playable and IGNORED_IN_GUI.
                     if enemy_kill && !under_construction && score_counts {
-                        let skill = destroyed_object.kill_skill_point_value();
-                        if skill != 0 {
-                            let _leveled = player.add_skill_points_for_kill(skill);
-                        }
+                        rank_skill = destroyed_object.kill_skill_point_value();
                     }
+                }
+                if rank_skill != 0 {
+                    let _ = self.add_player_skill_points(player_id, rank_skill);
                 }
             }
         }

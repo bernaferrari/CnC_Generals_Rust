@@ -1049,13 +1049,17 @@ impl Object {
     }
 
     /// Install residual HelixContain transport (Slots=5).
+    /// C++ HelixContain lets infantry fire (`isPassengerAllowedToFire`) and
+    /// applies WEAPONBONUSCONDITION_GARRISONED on enter.
     pub fn install_helix_transport(&mut self) {
         self.is_helix_transport = true;
         self.max_transport = crate::game_logic::host_overlord_addons::HELIX_TRANSPORT_SLOTS;
+        self.passengers_allowed_to_fire = true;
         // Helix can hold infantry / vehicle / portable structure residual.
         // Fail-closed: allow_inside matrix simplified to transport capacity.
         self.record_host_contain_capacity();
         self.record_host_overlord();
+        self.record_host_stealth_flags();
     }
 
     /// True when portable gattling residual is active on this host.

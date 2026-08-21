@@ -578,7 +578,7 @@ impl Object {
         }
         self.thing
             .template
-            .experience_value_for_level(self.experience.level) as i32
+            .skill_point_value_for_level(self.experience.level)
     }
 
     /// C++ ExperienceTracker::setExperienceSink.

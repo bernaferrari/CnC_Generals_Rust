@@ -437,6 +437,10 @@ impl<'a> CommandExecutor<'a> {
 
         let mut any = false;
         let mut issued_units = Vec::new();
+        let target_owner = self
+            .game_logic
+            .host_object(target_id)
+            .and_then(|target| target.owner_player_id);
         for &unit_id in units {
             let can_issue = self
                 .game_logic
@@ -445,9 +449,15 @@ impl<'a> CommandExecutor<'a> {
                     use crate::game_logic::host_booby_trap::{
                         has_booby_trap_upgrade, is_booby_trap_planter_template,
                     };
+                    use gamelogic::common::Relationship;
+                    // C++ ActionManager.cpp:1610-1618 — STRUCTURE && (NEUTRAL || ALLIES).
+                    let rel = match (unit.owner_player_id, target_owner) {
+                        (Some(src), Some(tgt)) => self.game_logic.player_relationship(src, tgt),
+                        _ => Relationship::Neutral,
+                    };
                     unit.is_alive()
                         && unit.can_move()
-                        && unit.team != target_team
+                        && matches!(rel, Relationship::Neutral | Relationship::Allies)
                         && is_booby_trap_planter_template(&unit.template_name)
                         && has_booby_trap_upgrade(&unit.applied_upgrades)
                 })
