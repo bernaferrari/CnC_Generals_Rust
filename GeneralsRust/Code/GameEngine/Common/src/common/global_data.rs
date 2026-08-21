@@ -440,8 +440,11 @@ impl Default for GlobalData {
             keyboard_camera_rotate_speed: 0.1,
             play_stats: -1,               // C++ line 574: -1
             camera_audible_radius: 500.0, // C++ line 848: 500.0
-            save_camera_in_replay: false,
-            use_camera_in_replay: false,
+            // C++ ctor is FALSE then OptionPreferences (missing key → TRUE) copies
+            // at init (GlobalData.cpp:1210-1211). Live never applies Options.ini,
+            // so default to the player-visible retail boot state.
+            save_camera_in_replay: true,
+            use_camera_in_replay: true,
 
             // Water and sky settings (parity: GlobalData.cpp constructor)
             use_water_plane: false, // C++ line 604: false

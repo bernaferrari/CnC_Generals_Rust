@@ -886,6 +886,16 @@ pub fn show_control_bar(immediate: bool) -> Result<(), Box<dyn std::error::Error
     system.show_control_bar(immediate)
 }
 
+pub fn is_control_bar_visible() -> bool {
+    let system = get_control_bar_system();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
+    system
+        .get_callbacks()
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .is_visible()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

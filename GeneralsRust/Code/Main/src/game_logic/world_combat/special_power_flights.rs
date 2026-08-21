@@ -238,6 +238,12 @@ impl GameLogic {
             }
         }
         for (team, target, producer) in drops {
+            use crate::game_logic::host_mines::{
+                apply_cluster_mines_drop_variance, cluster_mines_drop_unit_samples,
+            };
+            let seed = producer.0.wrapping_add(self.frame);
+            let (ux, uy) = cluster_mines_drop_unit_samples(seed);
+            let target = apply_cluster_mines_drop_variance(target, ux, uy);
             let drop_pos = Vec3::new(target.x, 80.0, target.z);
             if let Some(bid) = self.create_object(CLUSTER_MINES_BOMB_OBJECT, team, drop_pos) {
                 if let Some(o) = self.objects.get_mut(&bid) {
@@ -269,7 +275,9 @@ impl GameLogic {
             };
             if pos.y <= 5.0 {
                 let impact = Vec3::new(pos.x, 0.0, pos.z);
-                let mines = self.place_cluster_mines(team, impact, producer);
+                // Bomb already carries DropVariance; SmartBorder around impact only.
+                let mines = self.place_cluster_mines_unvaried(team, impact, producer);
+
                 self.cluster_mines_flight_reg
                     .record_minefield(mines.len() as u32);
                 let _ = self.combat_particles.spawn(
@@ -1561,6 +1569,7 @@ impl GameLogic {
                             );
                         }
                     }
+                    crate::game_logic::host_radar::host_radar_queue_terrain_refresh();
                 }
             } else {
                 self.bridge_behavior.on_leave_rubble(id);

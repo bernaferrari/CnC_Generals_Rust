@@ -656,7 +656,12 @@ impl GameLogic {
                     let was = obj.weapon_bonus_horde;
                     obj.weapon_bonus_horde = now_horde;
                     obj.record_host_weapon_bonus();
-                    obj.apply_horde_terrain_decal(was, now_horde, true);
+                    obj.apply_horde_terrain_decal(
+                        was,
+                        now_horde,
+                        crate::game_logic::host_battlemaster::leftover_horde_draw_icon_ui(),
+                    );
+
                     if now_horde && !was {
                         match grant {
                             HordeGrantCounter::Battlemaster => {

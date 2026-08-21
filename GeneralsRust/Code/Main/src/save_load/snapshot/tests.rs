@@ -3871,3 +3871,90 @@ fn bincode_v13_migrates_without_object_persist_tail() {
     assert!(restored.object_persist.is_empty());
     assert!(restored.client_drawable_visuals.is_empty());
 }
+
+#[test]
+fn snapshot_round_trips_scoring_restriction_cave_tunnel_airfield() {
+    gamelogic::helpers::TheGameLogic::set_scoring_enabled(false);
+    let mut source = GameLogic::new();
+    source.set_limit_superweapons(true);
+    source
+        .cave_system_residual_mut()
+        .register_cave(ObjectId(10), 1, Team::USA);
+    let _ = source.cave_system_residual_mut().record_enter(
+        1,
+        ObjectId(20),
+        ObjectId(10),
+        Team::USA,
+    );
+    source
+        .tunnel_network_residual_mut()
+        .on_tunnel_created(1, ObjectId(30));
+    let _ = source
+        .tunnel_network_residual_mut()
+        .record_enter(1, ObjectId(40), ObjectId(30));
+    source.restore_airfield_parking_spaces(vec![(
+        ObjectId(50),
+        vec![(Some(ObjectId(60)), false), (None, false)],
+    )]);
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder
+        .create_world_snapshot(&source)
+        .expect("snapshot");
+    assert!(!snapshot.is_scoring_enabled);
+    assert!(snapshot.limit_superweapons);
+    assert!(snapshot.cave_system.is_in_network(1, ObjectId(20)));
+    assert!(snapshot.tunnel_network.is_in_network(1, ObjectId(40)));
+    assert_eq!(
+        snapshot.airfield_parking.fields[0].spaces[0].object_id,
+        Some(ObjectId(60))
+    );
+
+    gamelogic::helpers::TheGameLogic::set_scoring_enabled(true);
+    let mut restored = GameLogic::new();
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .expect("restore");
+    assert!(!gamelogic::helpers::TheGameLogic::is_scoring_enabled());
+    assert!(restored.skirmish_rules().limit_superweapons);
+    assert!(restored
+        .cave_system_residual()
+        .is_in_network(1, ObjectId(20)));
+    assert!(restored
+        .tunnel_network_residual()
+        .is_in_network(1, ObjectId(40)));
+    assert_eq!(
+        restored.snapshot_airfield_parking_spaces()[0].1[0].0,
+        Some(ObjectId(60))
+    );
+    gamelogic::helpers::TheGameLogic::set_scoring_enabled(true);
+}
+
+#[test]
+fn snapshot_pre_v17_defaults_scoring_and_empty_pools() {
+    let mut snapshot = WorldSnapshot::default();
+    snapshot.version = WORLD_SNAPSHOT_DIRECT_XFER_V16_TAIL_VERSION;
+    snapshot.is_scoring_enabled = false;
+    snapshot.limit_superweapons = true;
+    snapshot
+        .cave_system
+        .register_cave(ObjectId(1), 0, Team::USA);
+    let builder = SnapshotBuilder::new();
+    // Direct restore of a v16-shaped in-memory record still carries the
+    // live fields; bincode v16 migration is the empty-default path.
+    let mut v16 = snapshot;
+    v16.is_scoring_enabled = true;
+    v16.limit_superweapons = false;
+    v16.cave_system = crate::game_logic::HostCaveSystem::new();
+    v16.tunnel_network = crate::game_logic::HostTunnelNetworkRegistry::new();
+    v16.airfield_parking = AirfieldParkingWorldSnapshot::default();
+    let mut restored = GameLogic::new();
+    restored.set_limit_superweapons(true);
+    builder
+        .restore_from_snapshot(&v16, &mut restored)
+        .expect("restore");
+    assert!(gamelogic::helpers::TheGameLogic::is_scoring_enabled());
+    assert!(!restored.skirmish_rules().limit_superweapons);
+    assert_eq!(restored.cave_system_residual().contain_count(0), 0);
+}
+

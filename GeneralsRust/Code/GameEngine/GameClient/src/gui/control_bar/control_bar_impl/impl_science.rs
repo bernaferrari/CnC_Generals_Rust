@@ -188,6 +188,41 @@ const WIN_U_ATTACK: &str = "ControlBar.wnd:WinUAttack";
 const BUTTON_GENERAL: &str = "ControlBar.wnd:ButtonGeneral";
 const BUTTON_LARGE: &str = "ControlBar.wnd:ButtonLarge";
 const CONTROL_BAR_PARENT: &str = "ControlBar.wnd:ControlBarParent";
+const GEN_EXP_POINTS_AVAILABLE: &str = "GeneralsExpPoints.wnd:StaticTextRankPointsAvailable";
+const GEN_EXP_TITLE: &str = "GeneralsExpPoints.wnd:StaticTextTitle";
+
+fn leftover_hide_all_purchase_science_windows() {
+    for i in 0..MAX_PURCHASE_SCIENCE_RANK_1 {
+        leftover_hide_window(&format!("GeneralsExpPoints.wnd:ButtonRank1Number{i}"), true);
+    }
+    for i in 0..MAX_PURCHASE_SCIENCE_RANK_3 {
+        leftover_hide_window(&format!("GeneralsExpPoints.wnd:ButtonRank3Number{i}"), true);
+    }
+    for i in 0..MAX_PURCHASE_SCIENCE_RANK_8 {
+        leftover_hide_window(&format!("GeneralsExpPoints.wnd:ButtonRank8Number{i}"), true);
+    }
+}
+
+/// C++ ControlBar.cpp:1118-1141 — bind rank cameo windows and USE_OVERLAY_STATES.
+fn leftover_bind_purchase_science_windows_init() {
+    leftover_ensure_named_window(GEN_EXP_POINTS_AVAILABLE);
+    leftover_ensure_named_window(GEN_EXP_TITLE);
+    let bind = |prefix: &str, count: usize| {
+        for i in 0..count {
+            let name = format!("GeneralsExpPoints.wnd:{prefix}{i}");
+            leftover_ensure_named_window(&name);
+            if let Some(win) = leftover_find_window(&name) {
+                win.borrow_mut()
+                    .set_status(crate::gui::game_window::WindowStatus::USE_OVERLAY_STATES);
+            }
+        }
+    };
+    bind("ButtonRank1Number", MAX_PURCHASE_SCIENCE_RANK_1);
+    bind("ButtonRank3Number", MAX_PURCHASE_SCIENCE_RANK_3);
+    bind("ButtonRank8Number", MAX_PURCHASE_SCIENCE_RANK_8);
+}
+
+
 
 
 /// C++ ControlBarCommand.cpp:1219-1261 — COMMAND_RESTRICTED unless ScienceVec owned.
@@ -230,43 +265,76 @@ impl ControlBar {
     // ---------------------------------------------------------------------------
 
     fn ensure_generals_exp_layout(&mut self) {
-        if leftover_find_window(GEN_EXP_PARENT).is_some() {
-            self.science_layout_loaded = true;
-            return;
+        if leftover_find_window(GEN_EXP_PARENT).is_none() {
+            // C++ ControlBar.cpp:1058-1062 winCreateLayout("GeneralsExpPoints.wnd")
+            // then bind GenExpParent as CP_PURCHASE_SCIENCE. Retail .wnd may be
+            // absent in this tree — fail-closed stub windows still receive hide.
+            with_window_manager(|manager| {
+                let _ = manager.create_layout_with_windows("GeneralsExpPoints.wnd");
+            });
+            leftover_ensure_named_window(GEN_EXP_PARENT);
+            leftover_ensure_named_window(GEN_EXP_PROGRESS);
+            leftover_ensure_named_window("GeneralsExpPoints.wnd:ButtonExit");
+            leftover_ensure_named_window(BUTTON_GENERAL);
+            leftover_hide_window(GEN_EXP_PARENT, true);
+            leftover_hide_window("GeneralsExpPoints.wnd", true);
         }
-        // C++ ControlBar.cpp:1058-1062 winCreateLayout("GeneralsExpPoints.wnd")
-        // then bind GenExpParent as CP_PURCHASE_SCIENCE. Retail .wnd may be
-        // absent in this tree — fail-closed stub windows still receive hide.
-        with_window_manager(|manager| {
-            let _ = manager.create_layout_with_windows("GeneralsExpPoints.wnd");
-        });
-        leftover_ensure_named_window(GEN_EXP_PARENT);
-        leftover_ensure_named_window(GEN_EXP_PROGRESS);
-        leftover_ensure_named_window("GeneralsExpPoints.wnd:ButtonExit");
-        leftover_ensure_named_window(BUTTON_GENERAL);
-        leftover_hide_window(GEN_EXP_PARENT, true);
-        leftover_hide_window("GeneralsExpPoints.wnd", true);
+        leftover_bind_purchase_science_windows_init();
         self.science_layout_loaded = leftover_find_window(GEN_EXP_PARENT).is_some();
     }
 
+    /// Resolve a CommandButton by name for leftover setControlCommand / click.
+    fn leftover_lookup_command_button(command_name: &str) -> Option<CommandButton> {
+        Self::leftover_command_button_by_name(command_name)
+    }
+
     fn leftover_apply_purchase_science_windows(&self) {
+        leftover_hide_all_purchase_science_windows();
         let apply_rank = |prefix: &str, buttons: &[ScienceButtonState]| {
             for (i, button) in buttons.iter().enumerate() {
                 let name = format!("GeneralsExpPoints.wnd:{prefix}{i}");
                 leftover_hide_window(&name, button.is_hidden || button.command_name.is_empty());
                 leftover_enable_window(&name, button.is_enabled && !button.is_purchased);
-                if button.is_purchased {
-                    if let Some(win) = leftover_find_window(&name) {
-                        win.borrow_mut()
-                            .set_status(crate::gui::game_window::WindowStatus::ALWAYS_COLOR);
+                if let Some(win) = leftover_find_window(&name) {
+                    {
+                        let mut win = win.borrow_mut();
+                        win.set_status(crate::gui::game_window::WindowStatus::USE_OVERLAY_STATES);
+                        if button.is_purchased {
+                            win.set_status(crate::gui::game_window::WindowStatus::ALWAYS_COLOR);
+                        } else {
+                            win.clear_status(crate::gui::game_window::WindowStatus::ALWAYS_COLOR);
+                        }
                     }
+                    if !button.command_name.is_empty() {
+                        let cmd = Self::leftover_command_button_by_name(&button.command_name)
+                            .unwrap_or_else(|| {
+                                let mut fallback = CommandButton::default();
+                                fallback.command_name = button.command_name.clone();
+                                fallback.command_type = CommandType::PurchaseScience;
+                                fallback
+                            });
+                        self.set_control_command(&win, &cmd);
+                    }
+
                 }
             }
         };
         apply_rank("ButtonRank1Number", &self.science_state.rank1_buttons);
         apply_rank("ButtonRank3Number", &self.science_state.rank3_buttons);
         apply_rank("ButtonRank8Number", &self.science_state.rank8_buttons);
+
+        leftover_set_button_text(
+            GEN_EXP_POINTS_AVAILABLE,
+            &self.science_state.available_points.to_string(),
+        );
+        let title_key = format!("SCIENCE:Rank{}", self.science_state.rank_level);
+        leftover_set_button_text(GEN_EXP_TITLE, &GameText::fetch(&title_key));
+        leftover_set_progress(
+            GEN_EXP_PROGRESS,
+            (self.science_state.experience_progress * 100.0) as i32,
+        );
     }
+
 
     pub fn show_purchase_science(&mut self) {
         if gamelogic::helpers::TheScriptEngine::is_game_ending() {
@@ -471,7 +539,10 @@ impl ControlBar {
 
 
 
-    fn leftover_experience_progress_percent(player: &gamelogic::player::Player) -> i32 {
+    fn leftover_experience_progress_percent(&self, player: &gamelogic::player::Player) -> i32 {
+        if let Some(percent) = self.science_state.live_rank_progress_percent {
+            return percent.clamp(0, 100);
+        }
         let skill = player.get_skill_points();
         let rank = player.get_rank_level();
         let (down, up) = gamelogic::system::rank_info::the_rank_info_store()
@@ -495,6 +566,17 @@ impl ControlBar {
     }
 
     fn update_context_purchase_science(&mut self) {
+        if let Some(progress) = self.science_state.live_rank_progress_percent {
+            if let Some(spp) = self.science_state.live_science_purchase_points {
+                self.science_state.available_points = spp;
+            }
+            if let Some(rank) = self.science_state.live_rank_level {
+                self.science_state.rank_level = rank;
+            }
+            self.science_state.experience_progress = (progress as f32 / 100.0).clamp(0.0, 1.0);
+            leftover_set_progress(GEN_EXP_PROGRESS, progress);
+            return;
+        }
         let player_arc = logic_player_list()
             .read()
             .ok()
@@ -505,9 +587,35 @@ impl ControlBar {
         };
 
         self.science_state.available_points = player.get_science_purchase_points();
-        let progress = Self::leftover_experience_progress_percent(&player);
+        let progress = self.leftover_experience_progress_percent(&player);
         self.science_state.experience_progress = (progress as f32 / 100.0).clamp(0.0, 1.0);
         leftover_set_progress(GEN_EXP_PROGRESS, progress);
+    }
+
+    /// Bind live host rank / skill to GeneralsExpPoints ProgressBarExperience.
+    ///
+    /// C++ ControlBar::updateContextPurchaseScience reads the local player's
+    /// skill vs rank thresholds. Leftover PlayerList skill is never written by
+    /// Main, so presentation pushes the already-correct live percent.
+    pub fn sync_rank_progress_from_presentation(
+        &mut self,
+        percent: i32,
+        skill_points: i32,
+        rank_level: i32,
+        science_purchase_points: i32,
+    ) {
+        let percent = percent.clamp(0, 100);
+        self.science_state.live_rank_progress_percent = Some(percent);
+        self.science_state.live_skill_points = Some(skill_points);
+        self.science_state.live_rank_level = Some(rank_level);
+        self.science_state.live_science_purchase_points = Some(science_purchase_points);
+        self.science_state.rank_level = rank_level;
+        self.science_state.available_points = science_purchase_points;
+        self.science_state.rank_title_label = format!("SCIENCE:Rank{rank_level}");
+        self.science_state.experience_progress = (percent as f32 / 100.0).clamp(0.0, 1.0);
+        leftover_set_progress(GEN_EXP_PROGRESS, percent);
+        self.leftover_apply_purchase_science_windows();
+
     }
 
     /// Feed unlocked science names from PresentationFrame into purchase UI residual.
@@ -550,7 +658,7 @@ impl ControlBar {
         {
             self.science_state.rank1_buttons = unlocked
                 .iter()
-                .take(8)
+                .take(MAX_PURCHASE_SCIENCE_RANK_1)
                 .map(|name| ScienceButtonState {
                     command_name: name.clone(),
                     science_type: SCIENCE_INVALID,
@@ -560,7 +668,9 @@ impl ControlBar {
                 })
                 .collect();
         }
+        self.leftover_apply_purchase_science_windows();
         self.mark_ui_dirty();
+
     }
 
     pub fn get_science_state(&self) -> &SciencePurchaseState {
@@ -1397,6 +1507,7 @@ impl ControlBar {
         self.border_colors.action = action;
         self.border_colors.upgrade = upgrade;
         self.border_colors.system = system;
+
     }
 
     pub fn get_border_color_for_type(
@@ -1614,6 +1725,18 @@ mod science_vec_gate_tests {
             "hidePurchaseScience must winHide(TRUE) GenExpParent"
         );
         assert!(!bar.science_state.is_visible);
+    }
+
+    #[test]
+    fn progress_bar_experience_uses_live_host_skill() {
+        // C++ ControlBar::updateContextPurchaseScience from live local skill.
+        let mut bar = ControlBar::new();
+        bar.sync_rank_progress_from_presentation(50, 1150, 2, 3);
+        assert_eq!(bar.science_state.live_rank_progress_percent, Some(50));
+        assert!((bar.science_state.experience_progress - 0.5).abs() < 0.001);
+        assert_eq!(bar.science_state.available_points, 3);
+        assert_eq!(bar.science_state.rank_level, 2);
+        assert_eq!(bar.science_state.live_skill_points, Some(1150));
     }
 
     #[test]

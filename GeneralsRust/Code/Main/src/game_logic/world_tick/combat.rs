@@ -2124,6 +2124,11 @@ impl GameLogic {
                                         fire_wname.as_deref(),
                                         damage_type,
                                     );
+                                    crate::game_logic::object::prime_live_damage_context(
+                                        self.objects.get(&attacker_id),
+                                        fire_wname.as_deref(),
+                                        damage_type,
+                                    );
                                     if let Some(target) = self.objects.get_mut(&target_id) {
                                         let destroyed = target.take_damage_from_typed_death(
                                             weapon_damage,
@@ -2663,14 +2668,23 @@ impl GameLogic {
                         } else if let Some(ground_target_id) =
                             self.find_ground_attack_victim(attacker_id, target_location)
                         {
-                            let damage_type = self
+                            let ground_wname = self
                                 .objects
                                 .get(&attacker_id)
-                                .and_then(|attacker| attacker.weapon_name_for_slot(ground_slot))
+                                .and_then(|attacker| {
+                                    attacker.weapon_name_for_slot(ground_slot).map(str::to_owned)
+                                });
+                            let damage_type = ground_wname
+                                .as_deref()
                                 .map(
                                     crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name,
                                 )
                                 .unwrap_or(crate::game_logic::combat::DamageType::Bullet);
+                            crate::game_logic::object::prime_live_damage_context(
+                                self.objects.get(&attacker_id),
+                                ground_wname.as_deref(),
+                                damage_type,
+                            );
                             if let Some(target) = self.objects.get_mut(&ground_target_id) {
                                 let destroyed = target.take_damage_from_typed(
                                     weapon_damage,

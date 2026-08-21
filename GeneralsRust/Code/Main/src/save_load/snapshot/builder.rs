@@ -79,6 +79,11 @@ impl SnapshotBuilder {
             client_drawable_visuals: self.snapshot_client_drawable_visuals(game_logic),
             player_energy: self.snapshot_player_energy(game_logic),
             object_triggers: self.snapshot_object_triggers(game_logic),
+            is_scoring_enabled: gamelogic::helpers::TheGameLogic::is_scoring_enabled(),
+            limit_superweapons: game_logic.skirmish_rules().limit_superweapons,
+            cave_system: game_logic.cave_system_residual().clone(),
+            tunnel_network: game_logic.tunnel_network_residual().clone(),
+            airfield_parking: self.snapshot_airfield_parking(game_logic),
         };
 
         log::info!(
@@ -185,6 +190,8 @@ impl SnapshotBuilder {
         let tail = super::lifecycle_tail::decode_lifecycle_tail(&snapshot.lifecycle_tail)?;
         super::lifecycle_tail::apply_lifecycle_tail_to_host(&tail, game_logic)?;
         self.sync_all_garrisoned_units_from_occupants(game_logic);
+        self.restore_game_logic_persist_tail(snapshot, game_logic);
+
 
         log::info!("World restoration complete");
         Ok(())
@@ -1691,4 +1698,189 @@ impl SnapshotBuilder {
         values.sort();
         values
     }
+
+    fn snapshot_airfield_parking(&self, game_logic: &GameLogic) -> AirfieldParkingWorldSnapshot {
+        let mut jet_stalls: Vec<AirfieldJetStallSnapshot> = game_logic
+            .host_objects()
+            .iter()
+            .filter_map(|(id, object)| {
+                object
+                    .airfield_parking_space_index
+                    .map(|space_index| AirfieldJetStallSnapshot {
+                        object_id: *id,
+                        space_index: Some(space_index),
+                    })
+            })
+            .collect();
+        jet_stalls.sort_by_key(|stall| stall.object_id.0);
+        AirfieldParkingWorldSnapshot {
+            fields: game_logic
+                .snapshot_airfield_parking_spaces()
+                .into_iter()
+                .map(|(airfield_id, spaces)| AirfieldParkingFieldSnapshot {
+                    airfield_id,
+                    spaces: spaces
+                        .into_iter()
+                        .map(|(object_id, reserved_for_exit)| AirfieldParkingSpaceSnapshot {
+                            object_id,
+                            reserved_for_exit,
+                        })
+                        .collect(),
+                })
+                .collect(),
+            runways: game_logic
+                .snapshot_runway_reservations()
+                .into_iter()
+                .map(|(airfield_id, occupants)| AirfieldRunwaySnapshot {
+                    airfield_id,
+                    occupants,
+                })
+                .collect(),
+            next_in_line: game_logic
+                .snapshot_airfield_runway_next_in_line()
+                .into_iter()
+                .map(|(airfield_id, occupants)| AirfieldRunwaySnapshot {
+                    airfield_id,
+                    occupants,
+                })
+                .collect(),
+            was_in_line: game_logic
+                .snapshot_airfield_runway_was_in_line()
+                .into_iter()
+                .map(|(airfield_id, was_in_line)| AirfieldRunwayWasInLineSnapshot {
+                    airfield_id,
+                    was_in_line,
+                })
+                .collect(),
+            jet_stalls,
+            flight_decks: game_logic
+                .snapshot_flight_deck_occupancy()
+                .into_iter()
+                .map(
+                    |(
+                        carrier_id,
+                        got_info,
+                        spaces,
+                        runways,
+                        designated_target,
+                        designated_command,
+                        pending_replacement,
+                    )| {
+                        FlightDeckPersistSnapshot {
+                            carrier_id,
+                            spaces: spaces
+                                .into_iter()
+                                .map(|(object_id, runway)| FlightDeckSpaceSnapshot {
+                                    object_id,
+                                    runway,
+                                })
+                                .collect(),
+                            runways: runways
+                                .into_iter()
+                                .map(|(in_use_takeoff, in_use_landing)| {
+                                    FlightDeckRunwaySnapshot {
+                                        in_use_takeoff,
+                                        in_use_landing,
+                                    }
+                                })
+                                .collect(),
+                            got_info,
+                            designated_target,
+                            designated_command,
+                            pending_replacement,
+                        }
+                    },
+                )
+                .collect(),
+        }
+    }
+
+    fn restore_game_logic_persist_tail(
+        &self,
+        snapshot: &WorldSnapshot,
+        game_logic: &mut GameLogic,
+    ) {
+        gamelogic::helpers::TheGameLogic::set_scoring_enabled(snapshot.is_scoring_enabled);
+        game_logic.set_limit_superweapons(snapshot.limit_superweapons);
+        if let Ok(mut leftover) = gamelogic::system::game_logic::get_game_logic().lock() {
+            leftover.set_superweapon_restriction(if snapshot.limit_superweapons {
+                1
+            } else {
+                0
+            });
+        }
+        game_logic.restore_cave_system(snapshot.cave_system.clone());
+        game_logic.restore_tunnel_network(snapshot.tunnel_network.clone());
+        game_logic.restore_airfield_parking_spaces(
+            snapshot
+                .airfield_parking
+                .fields
+                .iter()
+                .map(|field| {
+                    (
+                        field.airfield_id,
+                        field
+                            .spaces
+                            .iter()
+                            .map(|space| (space.object_id, space.reserved_for_exit))
+                            .collect(),
+                    )
+                })
+                .collect(),
+        );
+        game_logic.restore_runway_reservations(
+            snapshot
+                .airfield_parking
+                .runways
+                .iter()
+                .map(|runway| (runway.airfield_id, runway.occupants.clone()))
+                .collect(),
+        );
+        game_logic.restore_airfield_runway_next_in_line(
+            snapshot
+                .airfield_parking
+                .next_in_line
+                .iter()
+                .map(|runway| (runway.airfield_id, runway.occupants.clone()))
+                .collect(),
+        );
+        game_logic.restore_airfield_runway_was_in_line(
+            snapshot
+                .airfield_parking
+                .was_in_line
+                .iter()
+                .map(|runway| (runway.airfield_id, runway.was_in_line.clone()))
+                .collect(),
+        );
+        for stall in &snapshot.airfield_parking.jet_stalls {
+            if let Some(object) = game_logic.host_object_mut(stall.object_id) {
+                object.airfield_parking_space_index = stall.space_index;
+            }
+        }
+        game_logic.restore_flight_deck_occupancy(
+            snapshot
+                .airfield_parking
+                .flight_decks
+                .iter()
+                .map(|deck| {
+                    (
+                        deck.carrier_id,
+                        deck.got_info,
+                        deck.spaces
+                            .iter()
+                            .map(|space| (space.object_id, space.runway))
+                            .collect(),
+                        deck.runways
+                            .iter()
+                            .map(|runway| (runway.in_use_takeoff, runway.in_use_landing))
+                            .collect(),
+                        deck.designated_target,
+                        deck.designated_command,
+                        deck.pending_replacement,
+                    )
+                })
+                .collect(),
+        );
+    }
+
 }

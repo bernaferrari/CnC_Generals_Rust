@@ -237,6 +237,30 @@ pub(crate) fn split_superweapon_power_key(power_key: &str, local_player_id: u32)
     (local_player_id, power_key)
 }
 
+fn object_public_timer_remaining(
+    obj: &crate::game_logic::Object,
+    power: &crate::command_system::SpecialPowerType,
+) -> f32 {
+    obj.special_power_cooldowns
+        .get(power)
+        .copied()
+        .unwrap_or(obj.special_power_cooldown_remaining)
+        .max(0.0)
+}
+
+/// C++ `SpecialPowerModule::isReady` plus HUD bold/flash: remaining 0 is not
+/// ready when the source is disabled or pauseCountdown is held.
+fn object_public_timer_ready(
+    obj: &crate::game_logic::Object,
+    power: &crate::command_system::SpecialPowerType,
+    remaining: f32,
+) -> bool {
+    remaining <= 0.0
+        && !obj.is_disabled()
+        && !obj.is_special_power_countdown_paused(power)
+}
+
+
 
 impl PresentationFrame {
     /// Build a snapshot by borrowing the authoritative world for this call only.
@@ -636,6 +660,8 @@ impl PresentationFrame {
                 power_provided: obj.power_provided,
                 power_consumed: obj.power_consumed,
                 stored_supplies: obj.stored_resources.supplies,
+                drawable_supply_boxes: obj.drawable_supply_boxes,
+                drawable_supply_max_boxes: obj.drawable_supply_max_boxes,
                 dock_kind: obj.thing.template.dock_kind,
                 capturable: obj.thing.template.capturable,
                 immune_to_capture: obj.thing.template.immune_to_capture,
@@ -1142,13 +1168,12 @@ impl PresentationFrame {
         let _ = (&mut local_unlocked_sciences, &mut local_queued_upgrades);
 
         // PublicTimer superweapon residual.
-        // C++ InGameUI.cpp:3503 `for (Int i=0; i<MAX_PLAYER_COUNT; ++i)` —
-        // enemy/ally rows draw in that player's SuperweaponInfo.m_color.
-        // C++ SpecialPowerModule::getReadyFrame (SpecialPowerModule.cpp:756)
-        // returns Player::getOrStartSpecialPowerReadyFrame when SharedNSync;
-        // InGameUI.cpp:3684 then emits one row per player+template.
+        // C++ InGameUI.cpp:3503 iterates SuperweaponInfo per object; skip UC;
+        // SharedNSync breaks after the first valid; honor m_superweaponHiddenByScript
+        // and per-info m_hiddenByScript. Sell keeps the row until destroy.
         let mut superweapon_timers: Vec<PresentationSuperweaponTimer> = Vec::new();
-        {
+        if logic.peek_script_superweapon_display_enabled() {
+            let hidden_objects = logic.peek_script_superweapon_hidden_objects();
             use crate::command_system::SpecialPowerType as P;
             use crate::game_logic::host_special_power_enum_residual::{
                 special_power_has_public_timer, special_power_is_structure_bound_public_timer,
@@ -1186,7 +1211,8 @@ impl PresentationFrame {
                     .filter(|o| {
                         superweapon_object_owned_by_player(o, p, logic)
                             && o.is_alive()
-                            && o.is_constructed()
+                            && !o.status.under_construction
+                            && !hidden_objects.contains(&o.id)
                             && (o.is_kind_of(crate::game_logic::KindOf::Structure)
                                 || o.is_kind_of(crate::game_logic::KindOf::FSSuperweapon))
                     })
@@ -1243,65 +1269,77 @@ impl PresentationFrame {
                     }
                     let shared_n_sync = matching_modules.iter().any(|(_, module)| module.shared_n_sync)
                         || special_power_uses_shared_synced_timer(power);
-                    let (template_name, reload, remaining) = if shared_n_sync {
-                        // C++ SpecialPowerModule.cpp:756-765 — player shared ready frame,
-                        // not min() of independent object special_power_cooldowns.
+                    if shared_n_sync {
+                        // C++ SpecialPowerModule.cpp:756-765 + InGameUI.cpp:3684 —
+                        // one row per player+template from the player ready frame.
                         let module = matching_modules.first().map(|(_, module)| *module);
-                        (
-                            module
+                        let remaining = p.shared_special_power_remaining(power);
+                        let ready = match matching_modules.first() {
+                            Some((obj, _)) => object_public_timer_ready(obj, power, remaining),
+                            None => remaining <= 0.0,
+                        };
+                        superweapon_timers.push(PresentationSuperweaponTimer {
+                            name: public_timer_row_name(
+                                special_power_public_timer_display_name(power),
+                                is_local,
+                                rel,
+                                p.color_rgb,
+                            ),
+                            template_name: module
                                 .map(|module| module.special_power_template.clone())
                                 .unwrap_or_else(|| template.clone()),
-                            module
+                            icon: special_power_public_timer_icon(power).to_string(),
+                            recharge_time: module
                                 .map(|module| (module.reload_time_frames as f32 / 30.0).max(0.0))
                                 .unwrap_or_else(|| {
                                     special_power_reload_seconds(power).unwrap_or(0.0).max(0.0)
                                 }),
-                            p.shared_special_power_remaining(power),
-                        )
+                            remaining,
+                            unlocked,
+                            ready,
+                            power_key: public_timer_power_key(power, pid, local_player_id),
+                        });
                     } else if structure_bound {
-                        let mut min_rem = f32::MAX;
-                        let mut selected = None;
-                        for (obj, module) in &matching_modules {
-                            let rem = obj
-                                .special_power_cooldowns
-                                .get(power)
-                                .copied()
-                                .unwrap_or(obj.special_power_cooldown_remaining)
-                                .max(0.0);
-                            if rem < min_rem {
-                                min_rem = rem;
-                                selected = Some(*module);
-                            }
+                        // C++ one SuperweaponInfo per object; no min() merge.
+                        for (obj, module) in matching_modules {
+                            let remaining = object_public_timer_remaining(obj, power);
+                            let ready = object_public_timer_ready(obj, power, remaining);
+                            superweapon_timers.push(PresentationSuperweaponTimer {
+                                name: public_timer_row_name(
+                                    special_power_public_timer_display_name(power),
+                                    is_local,
+                                    rel,
+                                    p.color_rgb,
+                                ),
+                                template_name: module.special_power_template.clone(),
+                                icon: special_power_public_timer_icon(power).to_string(),
+                                recharge_time: (module.reload_time_frames as f32 / 30.0).max(0.0),
+                                remaining,
+                                unlocked,
+                                ready,
+                                power_key: public_timer_power_key(power, pid, local_player_id),
+                            });
                         }
-                        let module = selected.expect("unlocked structure module is non-empty");
-                        (
-                            module.special_power_template.clone(),
-                            (module.reload_time_frames as f32 / 30.0).max(0.0),
-                            min_rem,
-                        )
                     } else {
-                        (
-                            template.clone(),
-                            special_power_reload_seconds(power).unwrap_or(0.0).max(0.0),
-                            p.shared_special_power_remaining(power),
-                        )
-                    };
-                    let ready = remaining <= 0.0;
-                    superweapon_timers.push(PresentationSuperweaponTimer {
-                        name: public_timer_row_name(
-                            special_power_public_timer_display_name(power),
-                            is_local,
-                            rel,
-                            p.color_rgb,
-                        ),
-                        template_name,
-                        icon: special_power_public_timer_icon(power).to_string(),
-                        recharge_time: reload,
-                        remaining,
-                        unlocked,
-                        ready,
-                        power_key: public_timer_power_key(power, pid, local_player_id),
-                    });
+                        let remaining = p.shared_special_power_remaining(power);
+                        superweapon_timers.push(PresentationSuperweaponTimer {
+                            name: public_timer_row_name(
+                                special_power_public_timer_display_name(power),
+                                is_local,
+                                rel,
+                                p.color_rgb,
+                            ),
+                            template_name: template.clone(),
+                            icon: special_power_public_timer_icon(power).to_string(),
+                            recharge_time: special_power_reload_seconds(power)
+                                .unwrap_or(0.0)
+                                .max(0.0),
+                            remaining,
+                            unlocked,
+                            ready: remaining <= 0.0,
+                            power_key: public_timer_power_key(power, pid, local_player_id),
+                        });
+                    }
                 }
             }
             superweapon_timers.sort_by(|a, b| {
@@ -2137,8 +2175,14 @@ fn sync_live_terrain_decals(objects: &[RenderableObject], local_team: crate::gam
             let size = if obj.terrain_decal_size > 0.0 {
                 obj.terrain_decal_size
             } else {
-                40.0
+                // C++ W3DModelDraw::setTerrainDecal uses ShadowSize (often 0).
+                // Do not invent 40wu for infantry EXHorde rings.
+                0.0
             };
+            if size <= 0.0 {
+                continue;
+            }
+
             let color = match obj.terrain_decal_type {
                 5 => [255, 210, 64],
                 7 => [64, 220, 96],
@@ -2202,7 +2246,7 @@ mod sw_hud_tests {
         power: SpecialPowerType,
         shared: bool,
         object_remaining: f32,
-    ) {
+    ) -> crate::game_logic::ObjectId {
         let mut tpl = ThingTemplate::new(name);
         tpl.add_kind_of(KindOf::Structure)
             .add_kind_of(KindOf::FSSuperweapon)
@@ -2220,6 +2264,7 @@ mod sw_hud_tests {
             o.special_power_cooldown_remaining = object_remaining;
             o.special_power_ready = object_remaining <= 0.0;
         }
+        id
     }
 
     #[test]
@@ -2336,6 +2381,138 @@ mod sw_hud_tests {
             rows[0].remaining
         );
         assert!(!rows[0].ready);
+    }
+
+    #[test]
+    fn two_nonshared_pucs_emit_two_rows_not_min_merge() {
+        let mut logic = GameLogic::new();
+        let mut p = Player::new(0, Team::USA, "USA", true);
+        p.apply_faction_intrinsic_sciences();
+        logic.add_player(p);
+        spawn_sw(
+            &mut logic,
+            "PucA",
+            0,
+            SpecialPowerType::ParticleCannon,
+            false,
+            10.0,
+        );
+        spawn_sw(
+            &mut logic,
+            "PucB",
+            0,
+            SpecialPowerType::ParticleCannon,
+            false,
+            90.0,
+        );
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let mut rem: Vec<f32> = frame
+            .superweapon_timers
+            .iter()
+            .filter(|t| t.name.contains("Particle"))
+            .map(|t| t.remaining)
+            .collect();
+        rem.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert_eq!(rem.len(), 2, "C++ SuperweaponInfo is per-object");
+        assert!((rem[0] - 10.0).abs() < 0.01, "{rem:?}");
+        assert!((rem[1] - 90.0).abs() < 0.01, "{rem:?}");
+    }
+
+    #[test]
+    fn script_hide_and_uc_skip_sold_keeps_row() {
+        let mut logic = GameLogic::new();
+        let mut p = Player::new(0, Team::USA, "USA", true);
+        p.apply_faction_intrinsic_sciences();
+        logic.add_player(p);
+        let ready = spawn_sw(
+            &mut logic,
+            "PucReady",
+            0,
+            SpecialPowerType::ParticleCannon,
+            false,
+            0.0,
+        );
+        let hidden = spawn_sw(
+            &mut logic,
+            "PucHidden",
+            0,
+            SpecialPowerType::ParticleCannon,
+            false,
+            20.0,
+        );
+        let uc = spawn_sw(
+            &mut logic,
+            "PucUc",
+            0,
+            SpecialPowerType::ParticleCannon,
+            false,
+            0.0,
+        );
+        if let Some(o) = logic.host_object_mut(uc) {
+            o.status.under_construction = true;
+            o.construction_percent = 0.4;
+        }
+        if let Some(o) = logic.host_object_mut(ready) {
+            o.status.sold = true;
+            o.construction_percent = 0.999;
+            o.status.under_construction = false;
+        }
+        logic.hide_script_superweapon_object_for_test(hidden);
+
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let rows: Vec<_> = frame
+            .superweapon_timers
+            .iter()
+            .filter(|t| t.name.contains("Particle"))
+            .collect();
+        assert_eq!(
+            rows.len(),
+            1,
+            "UC skipped, hidden skipped, sold kept: {:?}",
+            rows.iter().map(|t| t.remaining).collect::<Vec<_>>()
+        );
+        assert!(
+            (rows[0].remaining - 0.0).abs() < 0.01,
+            "sold ready PUC stays until destroy"
+        );
+        assert!(
+            rows[0].ready,
+            "C++ HUD keeps sold SuperweaponInfo; Player sold skip is fire only"
+        );
+
+        logic.set_script_superweapon_display_enabled_for_test(false);
+        let hidden_frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(
+            hidden_frame.superweapon_timers.is_empty(),
+            "HideSuperweaponDisplay emits no strip"
+        );
+    }
+
+    #[test]
+    fn disabled_ready_puc_is_not_bold() {
+        let mut logic = GameLogic::new();
+        let mut p = Player::new(0, Team::USA, "USA", true);
+        p.apply_faction_intrinsic_sciences();
+        logic.add_player(p);
+        let id = spawn_sw(
+            &mut logic,
+            "PucBrownout",
+            0,
+            SpecialPowerType::ParticleCannon,
+            false,
+            0.0,
+        );
+        if let Some(o) = logic.host_object_mut(id) {
+            o.status.disabled_underpowered = true;
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let row = frame
+            .superweapon_timers
+            .iter()
+            .find(|t| t.name.contains("Particle"))
+            .expect("row");
+        assert!(row.remaining <= 0.0);
+        assert!(!row.ready, "brownout ready PUC is 0:00 not bold");
     }
 }
 

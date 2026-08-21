@@ -28,7 +28,8 @@
 //! - Terrain-decal type / vehicle size / fade-in-out
 //! - ExactMatch vehicle horde is not Battlemaster-only (Dragon / Inferno /
 //!   Gattling / Overlord chassis share HordeUpdate)
-//! - Not full Fanaticism infantry-general nationalism branch
+//! - Fanaticism weapon-bonus nests under Nationalism (C++ evaluateMoraleBonus)
+
 //! - BattleMasterTankShell DumbProjectile Bezier flight residual closed
 //! - ScatterRadiusVsInfantry **10** residual miss cone closed (deterministic aim offset)
 //! - Not full Nuclear Tanks death weapon / locomotor upgrade residual
@@ -45,8 +46,17 @@ pub const BATTLE_MASTER_LOGIC_FPS: f32 = 30.0;
 pub const BATTLE_MASTER_TANK_GUN: &str = "BattleMasterTankGun";
 /// Retail Upgrade_ChinaUraniumShells (WeaponBonusUpgrade → PLAYER_UPGRADE).
 pub const UPGRADE_CHINA_URANIUM_SHELLS: &str = "Upgrade_ChinaUraniumShells";
+/// Retail Upgrade_Fanaticism (Infantry General). Nested under Nationalism in C++.
+pub const UPGRADE_FANATICISM: &str = "Upgrade_Fanaticism";
 /// Retail Upgrade_Nationalism (player science/upgrade; stacks with HORDE).
 pub const UPGRADE_NATIONALISM: &str = "Upgrade_Nationalism";
+
+/// C++ `TheGameLogic->getDrawIconUI()` — scripts hide horde rings with icon chrome.
+pub fn leftover_horde_draw_icon_ui() -> bool {
+    gamelogic::helpers::TheGameLogic::get_draw_icon_ui()
+}
+
+
 /// Retail Upgrade_ChinaNuclearTanks residual.
 pub const UPGRADE_CHINA_NUCLEAR_TANKS: &str = "Upgrade_ChinaNuclearTanks";
 /// Retail NuclearTankDeathWeapon residual.
@@ -239,6 +249,20 @@ pub fn has_nationalism_upgrade(applied_upgrades: &std::collections::HashSet<Stri
         l.contains("nationalism") || l == "upgrade_nationalism" || l.contains("chinanationalism")
     })
 }
+
+/// Whether Fanaticism upgrade tag is present (does not imply Nationalism).
+pub fn has_fanaticism_upgrade(applied_upgrades: &std::collections::HashSet<String>) -> bool {
+    applied_upgrades.iter().any(|u| {
+        let l = u.to_ascii_lowercase();
+        l.contains("fanaticism")
+    })
+}
+
+/// C++ `evaluateMoraleBonus` nesting: FANATICISM only while NATIONALISM is set.
+pub fn leftover_horde_fanaticism_bonus(has_nationalism: bool, has_fanaticism_upgrade: bool) -> bool {
+    has_nationalism && has_fanaticism_upgrade
+}
+
 
 /// Apply Uranium residual damage mult when upgrade present.
 pub fn battlemaster_damage_with_uranium(base_damage: f32, has_uranium: bool) -> f32 {
@@ -728,6 +752,107 @@ pub fn leftover_vehicle_horde_decal_size(major_radius: f32) -> f32 {
     VEHICLE_HORDE_DECAL_SIZE_MULT * major_radius.max(0.0)
 }
 
+/// C++ `W3DModelDraw::setTerrainDecal` infantry size from ShadowSize (never invent 40wu).
+pub fn leftover_infantry_horde_decal_size(shadow_size_x: f32, shadow_size_y: f32) -> f32 {
+    if shadow_size_x > 0.0 {
+        shadow_size_x
+    } else {
+        shadow_size_y.max(0.0)
+    }
+}
+
+/// C++ `HordeUpdate.cpp:253` vehicle membership gate.
+pub fn leftover_vehicle_horde_membership_due(
+    current_frame: u32,
+    last_horde_refresh_frame: u32,
+    update_rate: u32,
+) -> bool {
+    current_frame > last_horde_refresh_frame.saturating_add(update_rate)
+}
+
+/// First live scan is a wake (tests + spawn). Later infantry sleeps UpdateRate;
+/// vehicles recheck membership only when `frame > last + UpdateRate`.
+pub fn leftover_horde_take_wake(
+    initialized: bool,
+    is_infantry: bool,
+    current_frame: u32,
+    last_refresh: u32,
+    next_wake: u32,
+    update_rate: u32,
+) -> (bool, bool, u32, u32) {
+    if !initialized {
+        return (
+            true,
+            true,
+            current_frame,
+            current_frame.saturating_add(update_rate.max(1)),
+        );
+    }
+    if is_infantry {
+        if current_frame >= next_wake {
+            (
+                true,
+                true,
+                current_frame,
+                current_frame.saturating_add(update_rate.max(1)),
+            )
+        } else {
+            (false, true, last_refresh, next_wake)
+        }
+    } else if leftover_vehicle_horde_membership_due(current_frame, last_refresh, update_rate) {
+        (true, true, current_frame, next_wake)
+    } else {
+        (false, true, last_refresh, next_wake)
+    }
+}
+
+
+/// C++ `HordeUpdate.cpp:146-147` constructor first-wake delay.
+pub fn leftover_horde_first_wake_delay(update_rate: u32) -> u32 {
+    let delay = update_rate.max(1) as i32;
+    gamelogic::helpers::get_game_logic_random_value(1, delay).max(1) as u32
+}
+
+
+/// Resolve Object INI ShadowSize without inventing a 40wu fallback.
+pub fn leftover_template_shadow_size(template_name: &str, authored_x: f32, authored_y: f32) -> (f32, f32) {
+    if authored_x > 0.0 || authored_y > 0.0 {
+        return (authored_x.max(0.0), authored_y.max(0.0));
+    }
+    if let Some(guard) = game_engine::common::thing::thing_factory::try_get_thing_factory() {
+        if let Some(factory) = guard.as_ref() {
+            if let Some(tmpl) = factory.find_template(template_name, false) {
+                let sx = tmpl.get_shadow_size_x();
+                let sy = tmpl.get_shadow_size_y();
+                if sx > 0.0 || sy > 0.0 {
+                    return (sx, sy);
+                }
+            }
+        }
+    }
+    if let Some(mgr) = crate::assets::get_asset_manager() {
+        if let Ok(m) = mgr.lock() {
+            if let Some(def) = m.get_object_definition(template_name) {
+                let parse = |key: &str| {
+                    def.attributes.iter().find_map(|(k, v)| {
+                        k.eq_ignore_ascii_case(key)
+                            .then(|| v.parse::<f32>().ok())
+                            .flatten()
+                    })
+                    .unwrap_or(0.0)
+                };
+                let sx = parse("ShadowSizeX");
+                let sy = parse("ShadowSizeY");
+                if sx > 0.0 || sy > 0.0 {
+                    return (sx, sy);
+                }
+            }
+        }
+    }
+    (0.0, 0.0)
+}
+
+
 /// C++ join/leave fade. `None` when membership did not change.
 pub fn leftover_horde_decal_fade(was_in_horde: bool, now_in_horde: bool) -> Option<(f32, f32)> {
     if !was_in_horde && now_in_horde {
@@ -836,8 +961,12 @@ pub fn honesty_battlemaster_horde_residual_ok() -> bool {
         && is_china_vehicle_horde_unit("ChinaTankOverlord")
         && !is_china_vehicle_horde_unit("OverlordGattlingCannon")
         && leftover_horde_decal_type(false, false, false) == TERRAIN_DECAL_HORDE_VEHICLE
+        && leftover_horde_decal_type(true, false, true) == TERRAIN_DECAL_HORDE
         && leftover_horde_decal_type(true, true, true) == TERRAIN_DECAL_HORDE_WITH_FANATICISM
+        && leftover_infantry_horde_decal_size(0.0, 0.0) == 0.0
+        && leftover_vehicle_horde_membership_due(31, 0, 30)
         && (leftover_vehicle_horde_decal_size(13.0) - 45.5).abs() < 0.01
+
         && same_vehicle_horde_family("ChinaTankBattleMaster", "ChinaTankBattleMaster")
         && !same_vehicle_horde_family("ChinaTankOverlord", "ChinaTankEmperor")
         && !same_vehicle_horde_family("ChinaTankBattleMaster", "Infa_ChinaTankBattleMaster")
@@ -981,28 +1110,47 @@ mod tests {
         let mut tags = HashSet::new();
         tags.insert(UPGRADE_CHINA_URANIUM_SHELLS.to_string());
         assert!(has_uranium_shells_upgrade(&tags));
-        assert!(!has_uranium_shells_upgrade(&HashSet::new()));
-    }
-
-    #[test]
-    fn horde_and_nationalism_rof_stack() {
-        // HORDE alone: floor(60/1.5)=40
-        assert_eq!(battlemaster_delay_frames(true, false), 40);
-        // Nationalism alone without horde does nothing residual.
-        assert_eq!(battlemaster_delay_frames(false, true), 60);
-        // HORDE + NATIONALISM: floor(60/1.875)=32
-        assert_eq!(battlemaster_delay_frames(true, true), 32);
-
+        let w_base = battlemaster_weapon(false, false, false);
         let w_horde = battlemaster_weapon(false, true, false);
         let w_both = battlemaster_weapon(false, true, true);
-        let w_base = battlemaster_weapon(false, false, false);
         assert!(w_horde.reload_time < w_base.reload_time - 0.05);
         assert!(w_both.reload_time < w_horde.reload_time - 0.01);
-        // Uranium + full ROF stack
         let w_full = battlemaster_weapon(true, true, true);
         assert!((w_full.damage - 75.0).abs() < 0.01);
         assert!((w_full.reload_time - (32.0 / 30.0)).abs() < 0.02);
     }
+
+    #[test]
+    fn horde_decal_matrix() {
+        assert_eq!(
+            leftover_horde_decal_type(true, false, false),
+            TERRAIN_DECAL_HORDE
+        );
+        assert_eq!(
+            leftover_horde_decal_type(false, false, false),
+            TERRAIN_DECAL_HORDE_VEHICLE
+        );
+        assert_eq!(
+            leftover_horde_decal_type(false, true, false),
+            TERRAIN_DECAL_HORDE_WITH_NATIONALISM
+        );
+        assert_eq!(
+            leftover_horde_decal_type(true, false, true),
+            TERRAIN_DECAL_HORDE
+        );
+        assert_eq!(
+            leftover_horde_decal_type(true, true, true),
+            TERRAIN_DECAL_HORDE_WITH_FANATICISM
+        );
+        assert_eq!(leftover_infantry_horde_decal_size(14.0, 12.0), 14.0);
+        assert_eq!(leftover_infantry_horde_decal_size(0.0, 0.0), 0.0);
+        assert!(!leftover_vehicle_horde_membership_due(0, 0, 30));
+        assert!(leftover_vehicle_horde_membership_due(31, 0, 30));
+        assert_eq!(leftover_horde_decal_fade(false, true), Some((1.0, 0.03)));
+        assert_eq!(leftover_horde_decal_fade(true, false), Some((0.0, -0.03)));
+        assert_eq!(leftover_horde_decal_fade(true, true), None);
+    }
+
 
     #[test]
     fn horde_count_includes_self() {

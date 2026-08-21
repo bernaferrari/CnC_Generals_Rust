@@ -34,6 +34,10 @@ impl GameLogic {
         // C++ TheRadar->createEvent(..., RADAR_EVENT_UPGRADE) residual.
         // Host maps upgrade events as Generic radar kind with upgrade honesty.
         self.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Generic);
+        crate::game_logic::host_radar::host_create_radar_event(
+            pos,
+            game_engine::common::system::radar::RadarEventType::Upgrade,
+        );
         self.radar_upgrade_events = self.radar_upgrade_events.saturating_add(1);
     }
 

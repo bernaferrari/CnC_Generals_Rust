@@ -1521,6 +1521,14 @@ fn cash_bounty_increases_cash_on_enemy_kill() {
     );
     assert_eq!(ft.amount, expected_bounty);
     assert_eq!(ft.color_rgba, (255, 255, 0, 255));
+    assert_eq!(
+        game_logic
+            .get_player(0)
+            .map(|p| p.statistics.money_earned)
+            .unwrap_or(0),
+        expected_bounty,
+        "C++ ScoreKeeper::addMoneyEarned must count bounty dollars"
+    );
 }
 
 /// Residual: no cash bounty when percent is zero (fail-closed default).

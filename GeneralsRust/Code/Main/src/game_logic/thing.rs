@@ -1381,6 +1381,9 @@ pub struct ThingTemplate {
     pub kind_of: HashSet<KindOf>,
     pub max_health: f32,
     pub armor: f32,
+    /// C++ `ThingTemplate::m_visionRange` from Object INI `VisionRange`.
+    /// Default 0 = reveal nothing (ThingTemplate.cpp:976).
+    #[serde(default)]
     pub sight_range: f32,
     /// C++ `ThingTemplate::m_shroudClearingRange`. `-1` means use `sight_range`.
     #[serde(default = "default_template_shroud_clearing_range")]
@@ -1748,6 +1751,17 @@ pub struct ThingTemplate {
     /// C++ `ThingTemplate::m_fenceXOffset` from Object INI `FenceXOffset`.
     #[serde(default)]
     pub fence_x_offset: f32,
+    /// C++ `ThingTemplate::m_shadowSizeX` (Object INI `ShadowSizeX`).
+    #[serde(default)]
+    pub shadow_size_x: f32,
+    /// C++ `ThingTemplate::m_shadowSizeY` (Object INI `ShadowSizeY`).
+    #[serde(default)]
+    pub shadow_size_y: f32,
+    /// C++ `ThingTemplate::m_radarPriority` (Object INI `RadarPriority`).
+    /// 0=INVALID, 1=NOT_ON_RADAR, 2=STRUCTURE, 3=UNIT, 4=LOCAL_UNIT_ONLY.
+    #[serde(default)]
+    pub radar_priority: u8,
+
     /// C++ `ThingTemplate::m_geometryInfo` from Object INI Geometry*.
     #[serde(default)]
     pub geometry_info: HostGeometryInfo,
@@ -1761,7 +1775,7 @@ impl ThingTemplate {
             kind_of: HashSet::new(),
             max_health: 100.0,
             armor: 0.0,
-            sight_range: 150.0,
+            sight_range: 0.0,
             shroud_clearing_range: default_template_shroud_clearing_range(),
             shroud_reveal_to_all_range: default_template_shroud_reveal_to_all_range(),
             reveal_to_all: false,
@@ -1866,6 +1880,10 @@ impl ThingTemplate {
             crushable_level: 255,
             fence_width: 0.0,
             fence_x_offset: 0.0,
+            shadow_size_x: 0.0,
+            shadow_size_y: 0.0,
+            radar_priority: 0,
+
             geometry_info: HostGeometryInfo::default(),
         }
     }

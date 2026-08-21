@@ -56,8 +56,12 @@ impl GameLogic {
         let scan = scan_distance.map(|distance| {
             crate::game_logic::host_supply_gather::warehouse_scan_distance(distance, is_computer)
         });
-        let Some(source_id) =
-            self.find_nearest_harvestable_supply_within(collector_team, collector_pos, scan)
+        let Some(source_id) = self.find_nearest_harvestable_supply_within(
+            collector_team,
+            collector_pos,
+            scan,
+            collector_id,
+        )
         else {
             return false;
         };
@@ -1885,6 +1889,30 @@ impl GameLogic {
                 }
             }
 
+            // C++ ExperienceScalarUpgrade after player Upgrade_AmericaAdvancedTraining:
+            // Object::updateUpgradeModules on create fires AddXPScalar for later spawns.
+            {
+                use crate::game_logic::host_unit_training::{
+                    sciences_include_advanced_training, UPGRADE_AMERICA_ADVANCED_TRAINING,
+                };
+                let has_at = owner_player_id
+                    .and_then(|player_id| self.players.get(&player_id))
+                    .map(|player| {
+                        player.has_unlocked_upgrade(UPGRADE_AMERICA_ADVANCED_TRAINING)
+                            || sciences_include_advanced_training(&player.unlocked_sciences)
+                    })
+                    .unwrap_or(false);
+                if has_at {
+                    if let Some(obj) = self.objects.get_mut(&id) {
+                        if !obj.is_kind_of(KindOf::Structure)
+                            && !obj.has_upgrade_tag(UPGRADE_AMERICA_ADVANCED_TRAINING)
+                        {
+                            obj.apply_upgrade_tag(UPGRADE_AMERICA_ADVANCED_TRAINING);
+                        }
+                    }
+                }
+            }
+
             // Host residual: Demo SuicideBomb tag + CommandSetUpgrade if researched.
             {
                 use crate::game_logic::host_demo_suicide_bomb::{
@@ -2110,8 +2138,9 @@ impl GameLogic {
             }
             // C++ Object.cpp:473 TheRadar->addObject(this) (under construction too).
             self.host_radar_add_object(id);
-            // C++ DozerAIUpdate.cpp:1692-1698 flattenTerrain + Z snap + pathfind.
+            // C++ DozerAIUpdate.cpp:1692-1699 flattenTerrain + Z snap + addObjectToPathfindMap.
             self.flatten_and_snap_construction(id);
+            self.block_structure_object_path(id);
             self.move_objects_for_construction(position, 12.0, None);
 
             log::debug!(

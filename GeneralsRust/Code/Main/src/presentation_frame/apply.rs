@@ -789,7 +789,8 @@ impl PresentationFrame {
                 | CombatParticleKind::ProjectileExhaust
                 | CombatParticleKind::ParticleSysBone
                 | CombatParticleKind::BodyFire
-                | CombatParticleKind::BodySmoke => continue,
+                | CombatParticleKind::BodySmoke
+                | CombatParticleKind::DisableFx => continue,
             };
             for event_name in event_names {
                 let event_name = event_name.as_str();
@@ -1162,6 +1163,12 @@ impl PresentationFrame {
             );
         }
         control_bar.sync_sciences_from_presentation(&self.local_unlocked_sciences);
+        control_bar.sync_rank_progress_from_presentation(
+            self.local_rank_progress_percent,
+            self.local_skill_points,
+            self.local_rank_level as i32,
+            self.local_science_purchase_points,
+        );
         let ready_sp: Vec<String> = self
             .selected_unit_display_infos()
             .iter()

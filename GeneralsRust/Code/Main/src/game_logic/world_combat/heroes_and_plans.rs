@@ -1159,6 +1159,13 @@ impl GameLogic {
             audio_pos,
             radar_notifications::RadarKind::Ally,
         );
+        if let Some(player) = self.players.get(&player_id) {
+            crate::game_logic::host_radar::host_create_player_radar_event(
+                crate::game_logic::host_radar::pack_player_color_argb(player.color_rgb),
+                audio_pos,
+                game_engine::common::system::radar::RadarEventType::BattlePlan,
+            );
+        }
 
         true
     }

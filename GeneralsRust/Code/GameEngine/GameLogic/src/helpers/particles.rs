@@ -45,6 +45,15 @@ impl TheFXList {
         let fx_id = NameKeyGenerator::name_to_key(fx_template) as FXListId;
         manager.do_fx_pos_ex(fx_id, pos, None, primary_speed, secondary, override_radius);
     }
+
+    /// C++ `FXList::doFXObj` — object form (orient + AttachToObject + FXListAtBonePos).
+    pub fn do_fx_obj(&self, fx_template: &str, primary_id: ObjectID, secondary_id: Option<ObjectID>) {
+        let Some(manager) = FX_LIST_MANAGER.get() else {
+            return;
+        };
+        let fx_id = NameKeyGenerator::name_to_key(fx_template) as FXListId;
+        manager.do_fx_obj_with_source(fx_id, primary_id, secondary_id);
+    }
 }
 
 /// Particle system manager bridge to the client-side implementation.
@@ -309,6 +318,16 @@ impl TheParticleSystemManager {
 /// Stable GameLogic-callable entry for OCL. Fail-closed: empty name, missing
 /// manager, or unknown template returns `None` (never panics).
 pub fn attach_particle_system_to_object(name: &str, object_id: ObjectID) -> Option<u32> {
+    attach_particle_system_to_object_local(name, object_id, None, None)
+}
+
+/// C++ create + attachToObject + optional `setPosition` (local) + `setSystemLifetime`.
+pub fn attach_particle_system_to_object_local(
+    name: &str,
+    object_id: ObjectID,
+    local_pos: Option<&Coord3D>,
+    lifetime_frames: Option<u32>,
+) -> Option<u32> {
     if name.is_empty() {
         return None;
     }
@@ -316,6 +335,12 @@ pub fn attach_particle_system_to_object(name: &str, object_id: ObjectID) -> Opti
     let template_id = manager.find_template(name)?;
     let system_id = manager.create_particle_system(template_id)?;
     manager.attach_particle_system_to_object(system_id, object_id);
+    if let Some(pos) = local_pos {
+        manager.set_particle_system_position(system_id, pos);
+    }
+    if let Some(frames) = lifetime_frames {
+        manager.set_particle_system_lifetime(system_id, frames);
+    }
     Some(system_id)
 }
 

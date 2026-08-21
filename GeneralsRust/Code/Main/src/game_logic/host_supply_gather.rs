@@ -6,7 +6,7 @@ use crate::game_logic::{DockKind, ObjectId};
 use glam::Vec3;
 
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{LazyLock, Mutex, OnceLock};
 
 fn live_dock_queues() -> &'static Mutex<HashMap<ObjectId, HostDockApproachQueue>> {
     static QUEUES: OnceLock<Mutex<HashMap<ObjectId, HostDockApproachQueue>>> = OnceLock::new();
@@ -57,6 +57,17 @@ pub fn cancel_live_dock_approach(dock_id: ObjectId, docker_id: ObjectId) {
             queue.cancel_docker(docker_id);
         }
     }
+}
+
+/// C++ `DockUpdate::isClearToApproach` against the live approach-queue.
+/// A dock that has never been reserved is clear (every slot still free).
+pub fn live_dock_is_clear_to_approach(dock_id: ObjectId, docker_id: ObjectId) -> bool {
+    let Ok(map) = live_dock_queues().lock() else {
+        return false;
+    };
+    map.get(&dock_id)
+        .map(|queue| queue.is_clear_to_approach(docker_id))
+        .unwrap_or(true)
 }
 
 /// C++ `DYNAMIC_APPROACH_VECTOR_FLAG` (`DockUpdate.h:24`).
@@ -307,16 +318,39 @@ pub fn warehouse_scan_distance(authored: f32, is_computer: bool) -> f32 {
     }
 }
 
-/// C++ `SupplyWarehouseDockUpdate::action` close-enough: 2D center vs `(r*2)²`.
+/// C++ `SupplyWarehouseDockUpdate::action` close-enough
+/// (`SupplyWarehouseDockUpdate.cpp:74-86`):
+/// `curDistSqr = FROM_BOUNDINGSPHERE_2D` vs `sqr(docker_r*2)`.
+/// `distCalcProc_BoundaryAndBoundary_2D` is the surface gap
+/// `max(0, centerDist - r_docker - r_warehouse)`.
 pub fn warehouse_too_far_2d(
     docker_xz: (f32, f32),
     warehouse_xz: (f32, f32),
     docker_bounding_circle_radius: f32,
+    warehouse_bounding_circle_radius: f32,
 ) -> bool {
     let close = docker_bounding_circle_radius * 2.0;
     let dx = docker_xz.0 - warehouse_xz.0;
     let dz = docker_xz.1 - warehouse_xz.1;
-    dx * dx + dz * dz > close * close
+    let center = (dx * dx + dz * dz).sqrt();
+    let gap = (center
+        - docker_bounding_circle_radius.max(0.0)
+        - warehouse_bounding_circle_radius.max(0.0))
+        .max(0.0);
+    gap * gap > close * close
+}
+
+/// Host geometry circle: authored `GeometryInfo` when present, else mesh radius.
+pub fn host_bounding_circle_radius(
+    geometry_info_authored: bool,
+    geometry_info_circle: f32,
+    fallback_radius: f32,
+) -> f32 {
+    if geometry_info_authored {
+        geometry_info_circle.max(0.0)
+    } else {
+        fallback_radius.max(0.0)
+    }
 }
 
 /// Deterministic C++ `GameLogicRandomValue(-range, range)` twitch pair.
@@ -352,9 +386,9 @@ pub fn should_play_supplies_depleted_voice(
     }
 }
 
-/// C++ `TheGameText->fetch("GUI:AddCash")` formatted with the deposit.
+/// C++ `TheGameText->fetch("GUI:AddCash")` — retail English CSF is `$%d`.
 pub fn format_gui_add_cash(value: u32) -> String {
-    format!("+${value}")
+    format!("${value}")
 }
 
 /// C++ hide popup only when the *center* is STEALTHED, not locally controlled,
@@ -506,6 +540,148 @@ pub fn collector_carrying_from_boxes(current_boxes: u32) -> bool {
     current_boxes > 0
 }
 
+/// Retail W3DSupplyDraw `SupplyBonePrefix` default (`SupplyBox01`…).
+pub const DEFAULT_SUPPLY_BONE_PREFIX: &str = "SupplyBox";
+/// Leftover Device / typical warehouse crate-bone count when HTree is unknown.
+pub const DEFAULT_SUPPLY_DRAW_BONE_COUNT: u32 = 8;
+
+/// C++ `W3DSupplyDraw::updateDrawModuleSupplyStatus`
+/// (`W3DSupplyDraw.cpp:60-61`): `ceil(total * current / max)`.
+pub fn supply_draw_bones_to_show(total_bones: u32, current_supply: u32, max_supply: u32) -> u32 {
+    if total_bones == 0 || max_supply == 0 {
+        return 0;
+    }
+    let shown = ((total_bones as f32) * (current_supply as f32) / (max_supply as f32)).ceil() as u32;
+    shown.min(total_bones)
+}
+
+/// C++ `sprintf("%s%02d", prefix, index)` (`W3DSupplyDraw.cpp:75`).
+pub fn supply_draw_bone_name(prefix: &str, index: u32) -> String {
+    format!("{prefix}{index:02}")
+}
+
+/// 1-based crate index if `name` is `{prefix}NN` (case-insensitive prefix).
+pub fn supply_draw_bone_index(prefix: &str, name: &str) -> Option<u32> {
+    if prefix.is_empty() {
+        return None;
+    }
+    let name = name.trim();
+    if name.len() < prefix.len() + 2 {
+        return None;
+    }
+    if !name.get(..prefix.len())?.eq_ignore_ascii_case(prefix) {
+        return None;
+    }
+    name[prefix.len()..].parse::<u32>().ok().filter(|i| *i >= 1)
+}
+
+/// Count `{prefix}NN` names, then hide bones after `bonesToShow`.
+/// If no names are listed, emit `DEFAULT_SUPPLY_DRAW_BONE_COUNT` slots so the
+/// HLOD resolver can hide existing `SupplyBoxNN` children.
+pub fn supply_draw_hide_directives(
+    prefix: &str,
+    named_bones: &[impl AsRef<str>],
+    current_supply: u32,
+    max_supply: u32,
+) -> Vec<(String, bool)> {
+    let prefix = if prefix.is_empty() {
+        DEFAULT_SUPPLY_BONE_PREFIX
+    } else {
+        prefix
+    };
+    let mut total = 0u32;
+    for name in named_bones {
+        if let Some(idx) = supply_draw_bone_index(prefix, name.as_ref()) {
+            total = total.max(idx);
+        }
+    }
+    if total == 0 {
+        total = DEFAULT_SUPPLY_DRAW_BONE_COUNT;
+    }
+    let show = supply_draw_bones_to_show(total, current_supply, max_supply);
+    (1..=total)
+        .map(|i| (supply_draw_bone_name(prefix, i), i > show))
+        .collect()
+}
+
+/// C++ `setCashValue` → host stored cash (`boxes * ValuePerSupplyBox`).
+pub fn warehouse_stored_supplies_from_cash(cash: i32) -> u32 {
+    let boxes = crate::game_logic::host_structure_economy_residual::supply_warehouse_boxes_from_cash(
+        cash,
+    );
+    let value = crate::game_logic::host_structure_economy_residual::VALUE_PER_SUPPLY_BOX;
+    let value = if value > 0 { value as u32 } else { 75 };
+    (boxes.max(0) as u32).saturating_mul(value)
+}
+
+static PENDING_WAREHOUSE_SETS: LazyLock<Mutex<Vec<(String, i32)>>> =
+    LazyLock::new(|| Mutex::new(Vec::new()));
+static WAREHOUSE_CRIPPLING_STATES: LazyLock<Mutex<HashMap<ObjectId, WarehouseCripplingState>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Queue `WAREHOUSE_SET_VALUE` for the live host drain.
+pub fn queue_warehouse_set_value(name: &str, cash: i32) {
+    if name.is_empty() {
+        return;
+    }
+    if let Ok(mut q) = PENDING_WAREHOUSE_SETS.lock() {
+        q.push((name.to_string(), cash));
+    }
+}
+
+pub fn drain_warehouse_set_values() -> Vec<(String, i32)> {
+    PENDING_WAREHOUSE_SETS
+        .lock()
+        .map(|mut q| q.drain(..).collect())
+        .unwrap_or_default()
+}
+
+/// Drop live warehouse queues so tests do not leak ObjectId state.
+pub fn reset_live_warehouse_host_state() {
+    if let Ok(mut q) = PENDING_WAREHOUSE_SETS.lock() {
+        q.clear();
+    }
+    if let Ok(mut s) = WAREHOUSE_CRIPPLING_STATES.lock() {
+        s.clear();
+    }
+}
+
+#[derive(Debug, Clone)]
+struct WarehouseCripplingState {
+    last_health: f32,
+    healing_suppressed_until_frame: u32,
+    next_healing_frame: u32,
+}
+
+/// C++ `SupplyWarehouseCripplingBehavior::update` pulse after suppression.
+pub fn warehouse_crippling_heal_amount(
+    current_frame: u32,
+    current_health: f32,
+    max_health: f32,
+    last_health: f32,
+    healing_suppressed_until_frame: &mut u32,
+    next_healing_frame: &mut u32,
+) -> f32 {
+    use crate::game_logic::host_structure_economy_residual::{
+        SUPPLY_WAREHOUSE_SELF_HEAL_AMOUNT, SUPPLY_WAREHOUSE_SELF_HEAL_DELAY_FRAMES,
+        SUPPLY_WAREHOUSE_SELF_HEAL_SUPPRESSION_FRAMES,
+    };
+    if current_health + 0.01 < last_health {
+        *healing_suppressed_until_frame =
+            current_frame.saturating_add(SUPPLY_WAREHOUSE_SELF_HEAL_SUPPRESSION_FRAMES);
+        *next_healing_frame = *healing_suppressed_until_frame;
+    }
+    if max_health <= 0.0 || current_health >= max_health - f32::EPSILON {
+        return 0.0;
+    }
+    if current_frame < *healing_suppressed_until_frame || current_frame < *next_healing_frame {
+        return 0.0;
+    }
+    *next_healing_frame = current_frame.saturating_add(SUPPLY_WAREHOUSE_SELF_HEAL_DELAY_FRAMES);
+    SUPPLY_WAREHOUSE_SELF_HEAL_AMOUNT
+}
+
+
 /// Retail GLA SupplyCenterDock `GrantTemporaryStealth = 20000` ms → 600 frames.
 /// America / China omit the field → module default 0.
 pub fn grant_temporary_stealth_frames_for_center(template_name: &str) -> u32 {
@@ -606,6 +782,77 @@ pub fn collector_supply_lines_boost(
         crate::game_logic::host_combat_chinook::COMBAT_CHINOOK_UPGRADED_SUPPLY_BOOST
     } else {
         REGULAR_CHINOOK_UPGRADED_SUPPLY_BOOST
+    }
+}
+
+
+impl crate::game_logic::GameLogic {
+    /// C++ `SupplyWarehouseCripplingBehavior` + `WAREHOUSE_SET_VALUE` drain.
+    pub fn update_supply_warehouse_crippling(&mut self) {
+        self.drain_warehouse_script_set_values();
+        let frame = self.frame as u32;
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| {
+                o.is_alive()
+                    && o.thing.template.dock_kind
+                        == crate::game_logic::DockKind::SupplyWarehouse
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        let mut states = match WAREHOUSE_CRIPPLING_STATES.lock() {
+            Ok(g) => g,
+            Err(_) => return,
+        };
+        for id in ids {
+            let Some(obj) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            let max_h = obj.health.maximum.max(obj.max_health).max(1.0);
+            let cur = obj.health.current;
+            // C++ onDamage resets SelfHealSupression. First observation below
+            // max means damage already happened (module would be awake).
+            let state = states.entry(id).or_insert(WarehouseCripplingState {
+                last_health: if cur + 0.01 < max_h { max_h } else { cur },
+                healing_suppressed_until_frame: u32::MAX,
+                next_healing_frame: u32::MAX,
+            });
+            let amount = warehouse_crippling_heal_amount(
+                frame,
+                cur,
+                max_h,
+                state.last_health,
+                &mut state.healing_suppressed_until_frame,
+                &mut state.next_healing_frame,
+            );
+            if amount > 0.0 {
+                // C++ SupplyWarehouseCripplingBehavior::update attemptHealing.
+                obj.heal(amount);
+            }
+            state.last_health = obj.health.current;
+        }
+    }
+
+    pub fn drain_warehouse_script_set_values(&mut self) {
+        for (name, cash) in drain_warehouse_set_values() {
+            let _ = self.apply_warehouse_set_value(&name, cash);
+        }
+    }
+
+    /// C++ `SupplyWarehouseDockUpdate::setCashValue`.
+    pub fn apply_warehouse_set_value(&mut self, name: &str, cash: i32) -> bool {
+        let Some(id) = self.find_object_id_by_name(name) else {
+            return false;
+        };
+        let Some(obj) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        if obj.thing.template.dock_kind != crate::game_logic::DockKind::SupplyWarehouse {
+            return false;
+        }
+        obj.set_stored_supplies(warehouse_stored_supplies_from_cash(cash));
+        true
     }
 }
 
@@ -722,6 +969,61 @@ mod tests {
         );
         assert_eq!(collector_supply_lines_boost(true, true, 0, true), 60);
         assert_eq!(collector_supply_lines_boost(true, true, 4, true), 4);
+    }
+
+    #[test]
+    fn warehouse_close_enough_is_bounding_sphere_gap() {
+        // Hull contact: center 35, r 10+20, gap 5 vs docker diameter 20.
+        assert!(!warehouse_too_far_2d((0.0, 0.0), (35.0, 0.0), 10.0, 20.0));
+        // Old center-to-center vs (r*2)^2 would reject this.
+        assert!(35.0 * 35.0 > (10.0 * 2.0) * (10.0 * 2.0));
+        assert!(warehouse_too_far_2d((0.0, 0.0), (60.0, 0.0), 10.0, 20.0));
+        assert!(!warehouse_too_far_2d((0.0, 0.0), (5.0, 0.0), 10.0, 20.0));
+    }
+
+    #[test]
+    fn gui_add_cash_is_retail_dollar_n() {
+        assert_eq!(format_gui_add_cash(75), "$75");
+        assert_eq!(format_gui_add_cash(0), "$0");
+    }
+
+    #[test]
+    fn supply_draw_hides_crate_bones_by_ratio() {
+        // 8 bones, half stock → show 4, hide 05..08.
+        let dirs = supply_draw_hide_directives("SupplyBox", &[] as &[&str], 200, 400);
+        assert_eq!(dirs.len(), 8);
+        assert!(!dirs[3].1);
+        assert!(dirs[4].1);
+        assert_eq!(dirs[4].0, "SupplyBox05");
+        assert_eq!(supply_draw_bones_to_show(8, 0, 10), 0);
+        assert_eq!(supply_draw_bones_to_show(8, 10, 10), 8);
+        assert_eq!(supply_draw_bones_to_show(8, 1, 10), 1);
+    }
+
+    #[test]
+    fn warehouse_set_value_ceils_boxes_from_cash() {
+        assert_eq!(warehouse_stored_supplies_from_cash(75), 75);
+        assert_eq!(warehouse_stored_supplies_from_cash(76), 150);
+        assert_eq!(warehouse_stored_supplies_from_cash(0), 0);
+        assert_eq!(warehouse_stored_supplies_from_cash(1000), 14 * 75);
+    }
+
+    #[test]
+    fn warehouse_crippling_heals_after_suppression() {
+        let mut suppressed = 0;
+        let mut next = 0;
+        // Damage at frame 10 from 1000 → 200.
+        let first = warehouse_crippling_heal_amount(10, 200.0, 1000.0, 1000.0, &mut suppressed, &mut next);
+        assert_eq!(first, 0.0);
+        assert_eq!(suppressed, 100);
+        assert_eq!(next, 100);
+        let mid = warehouse_crippling_heal_amount(99, 200.0, 1000.0, 200.0, &mut suppressed, &mut next);
+        assert_eq!(mid, 0.0);
+        let heal = warehouse_crippling_heal_amount(100, 200.0, 1000.0, 200.0, &mut suppressed, &mut next);
+        assert!((heal - 5.0).abs() < 0.01);
+        assert_eq!(next, 115);
+        let full = warehouse_crippling_heal_amount(200, 1000.0, 1000.0, 1000.0, &mut suppressed, &mut next);
+        assert_eq!(full, 0.0);
     }
 }
 

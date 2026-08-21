@@ -255,7 +255,10 @@ pub enum HostUpgradeKind {
     LaserMissiles,
     /// China Nationalism horde ROF residual.
     Nationalism,
+    /// Infantry General Fanaticism. C++ sets FANATICISM only inside Nationalism.
+    Fanaticism,
     /// China Chain Guns gattling/minigun damage residual.
+
     ChainGuns,
     /// China Uranium Shells tank damage residual.
     UraniumShells,
@@ -353,9 +356,11 @@ impl HostUpgradeKind {
             HostUpgradeKind::ApRockets
         } else if n.contains("lasermissiles") || n.contains("lasermissile") {
             HostUpgradeKind::LaserMissiles
-        } else if n.contains("nationalism") || n.contains("fanaticism") {
-            // Upgrade_Fanaticism is infantry-general Nationalism residual (same horde ROF).
+        } else if n.contains("fanaticism") {
+            HostUpgradeKind::Fanaticism
+        } else if n.contains("nationalism") {
             HostUpgradeKind::Nationalism
+
         } else if n.contains("chainguns") || n.contains("chaingun") {
             HostUpgradeKind::ChainGuns
         } else if n.contains("uraniumshells") || n.contains("uraniumshell") {
@@ -444,6 +449,8 @@ impl HostUpgradeKind {
             HostUpgradeKind::ApRockets => "ApRockets",
             HostUpgradeKind::LaserMissiles => "LaserMissiles",
             HostUpgradeKind::Nationalism => "Nationalism",
+            HostUpgradeKind::Fanaticism => "Fanaticism",
+
             HostUpgradeKind::ChainGuns => "ChainGuns",
             HostUpgradeKind::UraniumShells => "UraniumShells",
             HostUpgradeKind::BlackNapalm => "BlackNapalm",
@@ -513,6 +520,8 @@ impl HostUpgradeKind {
             HostUpgradeKind::ApRockets => 1500,
             HostUpgradeKind::LaserMissiles => 1500,
             HostUpgradeKind::Nationalism => 2000,
+            HostUpgradeKind::Fanaticism => 2000,
+
             HostUpgradeKind::ChainGuns => 1500,
             HostUpgradeKind::UraniumShells => 2000,
             HostUpgradeKind::BlackNapalm => 2000,
@@ -564,6 +573,8 @@ impl HostUpgradeKind {
             HostUpgradeKind::ApRockets => 45.0,
             HostUpgradeKind::LaserMissiles => 40.0,
             HostUpgradeKind::Nationalism => 60.0,
+            HostUpgradeKind::Fanaticism => 60.0,
+
             HostUpgradeKind::ChainGuns => 40.0,
             HostUpgradeKind::UraniumShells => 60.0,
             HostUpgradeKind::BlackNapalm => 60.0,

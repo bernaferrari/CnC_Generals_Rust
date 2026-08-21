@@ -56,6 +56,42 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, RwLock};
 use std::cell::RefCell;
 
+/// Live host drain: TEAM/NAMED move and attack when leftover `OBJECT_REGISTRY` is empty.
+/// C++ `ScriptActions::doMoveToWaypoint` / `doNamedMoveToWaypoint` / `doAttack` /
+/// `doNamedAttack` / `doNamedAttackArea` / `doNamedAttackTeam` / `doTeamAttackArea` /
+/// `doTeamAttackNamed`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostScriptMoveAttackRequest {
+    TeamMove { team: String, waypoint: String },
+    NamedMove { unit: String, waypoint: String },
+    TeamAttackTeam { attacker: String, victim: String },
+    NamedAttackNamed { attacker: String, victim: String },
+    NamedAttackArea { unit: String, area: String },
+    NamedAttackTeam { unit: String, team: String },
+    TeamAttackArea { team: String, area: String },
+    TeamAttackNamed { team: String, unit: String },
+}
+
+/// Live host drain: CREATE_OBJECT family when leftover `OBJECT_REGISTRY` is empty.
+/// C++ `ScriptActions::doCreateObject` / `createUnitOnTeamAt` / `doCreateReinforcements`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum HostScriptCreateRequest {
+    Object {
+        name: Option<String>,
+        thing: String,
+        team: String,
+        x: f32,
+        y: f32,
+        z: f32,
+        angle: f32,
+    },
+    ReinforcementTeam {
+        team: String,
+        waypoint: String,
+    },
+}
+
+
 thread_local! {
     static HOST_SKIRMISH_FIRE_SPECIAL_REQUESTS: RefCell<Vec<(String, String)>> =
         RefCell::new(Vec::new());
@@ -70,6 +106,16 @@ thread_local! {
     static HOST_TEAM_LOCO_SET_REQUESTS: RefCell<Vec<(String, String, Option<String>)>> =
         RefCell::new(Vec::new());
     static HOST_UNIT_LOCO_SET_REQUESTS: RefCell<Vec<(String, String)>> = RefCell::new(Vec::new());
+    static HOST_SCRIPT_MOVE_ATTACK_REQUESTS: RefCell<Vec<HostScriptMoveAttackRequest>> =
+        RefCell::new(Vec::new());
+    static HOST_BUILD_TEAM_REQUESTS: RefCell<Vec<(String, String)>> = RefCell::new(Vec::new());
+    static HOST_RECRUIT_TEAM_REQUESTS: RefCell<Vec<(String, String, f32)>> =
+        RefCell::new(Vec::new());
+    static HOST_SCRIPT_CREATE_REQUESTS: RefCell<Vec<HostScriptCreateRequest>> =
+        RefCell::new(Vec::new());
+    static HOST_TEAM_ATTITUDE_REQUESTS: RefCell<Vec<(String, i32)>> = RefCell::new(Vec::new());
+
+
 
 }
 
@@ -178,6 +224,61 @@ pub fn request_host_unit_loco_set(unit_name: &str, set: &str) {
 pub fn take_host_unit_loco_set_requests() -> Vec<(String, String)> {
     HOST_UNIT_LOCO_SET_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
+
+/// Live host drain: TEAM/NAMED move and attack (`CMD_FROM_SCRIPT`).
+pub fn request_host_script_move_attack(req: HostScriptMoveAttackRequest) {
+    HOST_SCRIPT_MOVE_ATTACK_REQUESTS.with(|q| q.borrow_mut().push(req));
+}
+
+pub fn take_host_script_move_attack_requests() -> Vec<HostScriptMoveAttackRequest> {
+    HOST_SCRIPT_MOVE_ATTACK_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: `BUILD_TEAM` → `AIPlayer::buildSpecificAITeam`.
+pub fn request_host_build_team(owner_name: &str, team_name: &str) {
+    HOST_BUILD_TEAM_REQUESTS.with(|q| {
+        q.borrow_mut()
+            .push((owner_name.to_string(), team_name.to_string()));
+    });
+}
+
+pub fn take_host_build_team_requests() -> Vec<(String, String)> {
+    HOST_BUILD_TEAM_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: `RECRUIT_TEAM` → `AIPlayer::recruitSpecificAITeam`.
+pub fn request_host_recruit_team(owner_name: &str, team_name: &str, recruit_radius: f32) {
+    HOST_RECRUIT_TEAM_REQUESTS.with(|q| {
+        q.borrow_mut()
+            .push((owner_name.to_string(), team_name.to_string(), recruit_radius));
+    });
+}
+
+pub fn take_host_recruit_team_requests() -> Vec<(String, String, f32)> {
+    HOST_RECRUIT_TEAM_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: CREATE_OBJECT / named-at-waypoint / reinforcements.
+pub fn request_host_script_create(req: HostScriptCreateRequest) {
+    HOST_SCRIPT_CREATE_REQUESTS.with(|q| q.borrow_mut().push(req));
+}
+
+pub fn take_host_script_create_requests() -> Vec<HostScriptCreateRequest> {
+    HOST_SCRIPT_CREATE_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: TEAM_SET_ATTITUDE → `set_team_attitude_by_name`.
+pub fn request_host_team_attitude(team_name: &str, mood: i32) {
+    HOST_TEAM_ATTITUDE_REQUESTS.with(|q| {
+        q.borrow_mut().push((team_name.to_string(), mood));
+    });
+}
+
+pub fn take_host_team_attitude_requests() -> Vec<(String, i32)> {
+    HOST_TEAM_ATTITUDE_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+
 
 
 /// Wave 284: host-only path has no dual-world factory objects.

@@ -48,6 +48,10 @@ pub struct HostOclCreateDebrisPlan {
     pub spin_rate_deg: f32,
     pub min_pitch_deg: f32,
     pub max_pitch_deg: f32,
+    /// C++ ExtraFriction (already per-frame).
+    pub extra_friction: f32,
+    /// C++ BounceSound AudioEventRTS name. Empty = silent land.
+    pub bounce_sound: String,
 }
 
 impl HostOclCreateDebrisPlan {
@@ -63,6 +67,8 @@ impl HostOclCreateDebrisPlan {
             spin_rate_deg: DAMAGED_BARREL_SPIN_RATE,
             min_pitch_deg: DAMAGED_BARREL_MIN_PITCH_DEG,
             max_pitch_deg: DAMAGED_BARREL_MAX_PITCH_DEG,
+            extra_friction: 0.0,
+            bounce_sound: String::new(),
         }
     }
 
@@ -78,6 +84,8 @@ impl HostOclCreateDebrisPlan {
             spin_rate_deg: 120.0,
             min_pitch_deg: 45.0,
             max_pitch_deg: 80.0,
+            extra_friction: 0.0,
+            bounce_sound: String::new(),
         }
     }
 }

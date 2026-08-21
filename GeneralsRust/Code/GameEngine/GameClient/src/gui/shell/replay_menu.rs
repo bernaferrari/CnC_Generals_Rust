@@ -6,11 +6,14 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
 
+use chrono::{DateTime, Datelike, Local, Timelike};
 use crate::game_text::GameText;
 use crate::gui::window_manager::{with_window_manager, with_window_manager_ref};
+use game_engine::common::ini::ini_game_data::get_global_data;
 use game_engine::common::recorder::{self, ReplayHeader as CommonReplayHeader};
+use game_engine::common::version::get_version;
 
 /// Maximum number of player slots in a game
 pub const MAX_SLOTS: usize = 8;
@@ -122,19 +125,7 @@ pub struct SystemTimeValue {
 
 impl SystemTimeValue {
     pub fn now() -> Self {
-        let now = SystemTime::now();
-        let duration = now.duration_since(UNIX_EPOCH).unwrap();
-        let secs = duration.as_secs();
-
-        // Simple conversion - in real implementation would use proper date/time library
-        SystemTimeValue {
-            year: 2001,
-            month: 1,
-            day: 1,
-            hour: ((secs / 3600) % 24) as u16,
-            minute: ((secs / 60) % 60) as u16,
-            second: (secs % 60) as u16,
-        }
+        system_time_to_value(SystemTime::now())
     }
 
     pub fn to_display_string(&self) -> String {
@@ -146,15 +137,18 @@ impl SystemTimeValue {
 }
 
 fn system_time_to_value(time: SystemTime) -> SystemTimeValue {
-    let duration = time.duration_since(UNIX_EPOCH).unwrap_or_default();
-    let secs = duration.as_secs();
+    // C++ ReplayMenu.cpp:149 getUnicodeTimeBuffer(header.timeVal) uses the
+    // recorded SYSTEMTIME calendar. Leftover recorder stores Local::now() as
+    // SYSTEMTIME and reconstructs SystemTime; convert back in local time so
+    // the list date is not frozen at 2001-01-01.
+    let local: DateTime<Local> = DateTime::<Local>::from(time);
     SystemTimeValue {
-        year: 2001,
-        month: 1,
-        day: 1,
-        hour: ((secs / 3600) % 24) as u16,
-        minute: ((secs / 60) % 60) as u16,
-        second: (secs % 60) as u16,
+        year: local.year() as u16,
+        month: local.month() as u16,
+        day: local.day() as u16,
+        hour: local.hour() as u16,
+        minute: local.minute() as u16,
+        second: local.second() as u16,
     }
 }
 
@@ -440,6 +434,16 @@ pub struct ReplayMenu {
 
 impl ReplayMenu {
     pub fn new(replay_dir: PathBuf, replay_ext: String) -> Self {
+        recorder::init_recorder();
+        let last_replay_filename = recorder::with_recorder(|rec| rec.last_replay_filename().to_string())
+            .unwrap_or_else(|| "00000000".to_string());
+        let version = get_version();
+        let (current_exe_crc, current_ini_crc) = get_global_data()
+            .map(|data| {
+                let g = data.read();
+                (g.exe_crc, g.ini_crc)
+            })
+            .unwrap_or((0, 0));
         ReplayMenu {
             parent_id: 0,
             button_load_id: 0,
@@ -456,11 +460,11 @@ impl ReplayMenu {
             selected_index: -1,
             replay_directory: replay_dir,
             replay_extension: replay_ext,
-            last_replay_filename: "LastReplay".to_string(),
-            current_version: "1.0".to_string(),
-            current_version_number: 100,
-            current_exe_crc: 0,
-            current_ini_crc: 0,
+            last_replay_filename,
+            current_version: version.get_unicode_version(),
+            current_version_number: version.get_version_number(),
+            current_exe_crc,
+            current_ini_crc,
         }
     }
 
@@ -540,6 +544,10 @@ impl ReplayMenu {
         }
 
         let entry = &self.replay_list[index as usize];
+        let last_label = GameText::fetch("GUI:LastReplay");
+        if entry.name.eq_ignore_ascii_case(&last_label) {
+            return format!("{}{}", self.last_replay_filename, self.replay_extension);
+        }
         entry.filename.clone()
     }
 
@@ -580,7 +588,7 @@ impl ReplayMenu {
                     // Check if this is the last replay
                     let last_replay_full =
                         format!("{}{}", self.last_replay_filename, self.replay_extension);
-                    if filename == last_replay_full {
+                    if filename.eq_ignore_ascii_case(&last_replay_full) {
                         display_name = GameText::fetch("GUI:LastReplay");
                     }
 
@@ -1130,5 +1138,44 @@ mod tests {
         assert_eq!(gray.r, 128);
         assert_eq!(gray.g, 128);
         assert_eq!(gray.b, 128);
+    }
+
+    #[test]
+    fn last_replay_filename_defaults_to_00000000() {
+        let menu = ReplayMenu::new(PathBuf::from("/replays"), ".rep".to_string());
+        assert_eq!(menu.last_replay_filename, "00000000");
+    }
+
+    #[test]
+    fn last_replay_display_and_filename_roundtrip() {
+        let mut menu = ReplayMenu::new(PathBuf::from("/replays"), ".rep".to_string());
+        menu.replay_list.push(ReplayListEntry::new(
+            GameText::fetch("GUI:LastReplay"),
+            "2026-03-11".to_string(),
+            "1.0".to_string(),
+            "TestMap".to_string(),
+            Color::white(),
+            "00000000.rep".to_string(),
+        ));
+        assert_eq!(menu.get_replay_filename_from_listbox(0), "00000000.rep");
+    }
+
+    #[test]
+    fn system_time_to_value_uses_real_local_calendar() {
+        let now = SystemTime::now();
+        let value = system_time_to_value(now);
+        assert_ne!(value.year, 2001, "must not freeze the calendar at 2001");
+        assert!(value.year >= 2024);
+        assert!((1..=12).contains(&value.month));
+        assert!((1..=31).contains(&value.day));
+    }
+
+    #[test]
+    fn replay_menu_version_matches_the_version_and_global_crc() {
+        let menu = ReplayMenu::new(PathBuf::from("/replays"), ".rep".to_string());
+        let version = game_engine::common::version::get_version();
+        assert_eq!(menu.current_version, version.get_unicode_version());
+        assert_eq!(menu.current_version_number, version.get_version_number());
+        assert_ne!(menu.current_version_number, 100);
     }
 }

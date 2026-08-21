@@ -359,7 +359,9 @@ impl GameLogic {
 
     /// Refresh Red Guard weapon residual from current horde / nationalism flags.
     pub(crate) fn refresh_red_guard_weapon(&mut self, object_id: ObjectId) {
-        use crate::game_logic::host_battlemaster::has_nationalism_upgrade;
+        use crate::game_logic::host_battlemaster::{
+            has_fanaticism_upgrade, has_nationalism_upgrade, leftover_horde_fanaticism_bonus,
+        };
         use crate::game_logic::host_red_guard::{is_red_guard_template, red_guard_weapon};
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return;
@@ -375,16 +377,24 @@ impl GameLogic {
             HORDE_DEFAULT_ALLOWED_NATIONALISM,
         );
         obj.weapon_bonus_nationalism = nationalism_active;
+        obj.weapon_bonus_fanaticism = leftover_horde_fanaticism_bonus(
+            nationalism_active,
+            has_fanaticism_upgrade(&obj.applied_upgrades),
+        );
         obj.record_host_weapon_bonus();
         let last_fire = obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
         let mut w = red_guard_weapon(in_horde, nationalism_active);
         w.last_fire_time = last_fire;
         obj.weapon = Some(w);
+
     }
 
     /// Refresh Tank Hunter RPG residual from current horde / nationalism flags.
     pub(crate) fn refresh_tank_hunter_weapon(&mut self, object_id: ObjectId) {
-        use crate::game_logic::host_battlemaster::has_nationalism_upgrade;
+        use crate::game_logic::host_battlemaster::{
+            has_fanaticism_upgrade, has_nationalism_upgrade, leftover_horde_fanaticism_bonus,
+        };
+
         use crate::game_logic::host_tank_hunter::{is_tank_hunter_template, tank_hunter_weapon};
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return;
@@ -400,7 +410,12 @@ impl GameLogic {
             HORDE_DEFAULT_ALLOWED_NATIONALISM,
         );
         obj.weapon_bonus_nationalism = nationalism_active;
+        obj.weapon_bonus_fanaticism = leftover_horde_fanaticism_bonus(
+            nationalism_active,
+            has_fanaticism_upgrade(&obj.applied_upgrades),
+        );
         obj.record_host_weapon_bonus();
+
         let last_fire = obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
         let mut w = tank_hunter_weapon(in_horde, nationalism_active);
         w.last_fire_time = last_fire;
@@ -409,7 +424,10 @@ impl GameLogic {
 
     /// Refresh MiniGunner dual-gun residual from continuous fire + horde / nationalism.
     pub(crate) fn refresh_minigunner_weapon(&mut self, object_id: ObjectId) {
-        use crate::game_logic::host_battlemaster::has_nationalism_upgrade;
+        use crate::game_logic::host_battlemaster::{
+            has_fanaticism_upgrade, has_nationalism_upgrade, leftover_horde_fanaticism_bonus,
+        };
+
         use crate::game_logic::host_gattling_tank::GattlingFireLevel;
         use crate::game_logic::host_minigunner::{
             has_chain_guns_upgrade, is_minigunner_template, minigunner_air_weapon,
@@ -429,7 +447,12 @@ impl GameLogic {
             HORDE_DEFAULT_ALLOWED_NATIONALISM,
         );
         obj.weapon_bonus_nationalism = nationalism_active;
+        obj.weapon_bonus_fanaticism = leftover_horde_fanaticism_bonus(
+            nationalism_active,
+            has_fanaticism_upgrade(&obj.applied_upgrades),
+        );
         obj.record_host_weapon_bonus();
+
         let chain = has_chain_guns_upgrade(&obj.applied_upgrades);
         let level = GattlingFireLevel::from_u8(obj.continuous_fire_level);
         let last_fire = obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
@@ -526,13 +549,13 @@ impl GameLogic {
     pub fn update_china_infantry_horde_status(&mut self) {
         use crate::game_logic::host_battlemaster::{
             evaluate_leftover_horde_blob_scan, leftover_horde_bounding_sphere_radius,
-            LeftoverHordeScanUnit,
+            leftover_horde_draw_icon_ui, leftover_horde_take_wake, LeftoverHordeScanUnit,
         };
         use crate::game_logic::host_minigunner::is_minigunner_template;
         use crate::game_logic::host_red_guard::{
             counts_toward_infantry_horde, is_china_infantry_horde_unit, is_red_guard_template,
             leftover_infantry_is_horde_neighbor, INFANTRY_HORDE_COUNT, INFANTRY_HORDE_RADIUS,
-            INFANTRY_HORDE_RUB_OFF_RADIUS,
+            INFANTRY_HORDE_RUB_OFF_RADIUS, INFANTRY_HORDE_UPDATE_FRAMES,
         };
         use crate::game_logic::host_tank_hunter::is_tank_hunter_template;
 
@@ -594,14 +617,31 @@ impl GameLogic {
         let mut to_refresh_red: Vec<ObjectId> = Vec::new();
         let mut to_refresh_th: Vec<ObjectId> = Vec::new();
         let mut to_refresh_mg: Vec<ObjectId> = Vec::new();
+        let draw_icon = leftover_horde_draw_icon_ui();
+        let frame = self.frame;
 
         for (idx, (id, _team, _owner, _scan, name)) in horde_units.iter().enumerate() {
-            let now_horde = membership[idx].in_horde;
+            let scanned = membership[idx].in_horde;
             if let Some(obj) = self.objects.get_mut(id) {
+                let (due, init, last, next) = leftover_horde_take_wake(
+                    obj.horde_wake_initialized,
+                    true,
+                    frame,
+                    obj.last_horde_refresh_frame,
+                    obj.horde_next_wake_frame,
+                    INFANTRY_HORDE_UPDATE_FRAMES,
+                );
+                obj.horde_wake_initialized = init;
+                obj.last_horde_refresh_frame = last;
+                obj.horde_next_wake_frame = next;
+                if !due {
+                    continue;
+                }
                 let was = obj.weapon_bonus_horde;
+                let now_horde = scanned;
                 obj.weapon_bonus_horde = now_horde;
                 obj.record_host_weapon_bonus();
-                obj.apply_horde_terrain_decal(was, now_horde, true);
+                obj.apply_horde_terrain_decal(was, now_horde, draw_icon);
                 if now_horde && !was {
                     if is_red_guard_template(name) {
                         red_grants = red_grants.saturating_add(1);
@@ -622,6 +662,7 @@ impl GameLogic {
                 }
             }
         }
+
 
         self.red_guard_residual_horde_grants = self
             .red_guard_residual_horde_grants

@@ -44,10 +44,8 @@ impl GameLogic {
                 continue;
             }
             // C++ PhysicsBehavior update residual order: friction → integrate accel → motion.
-            // Dead wrecks keep friction (C++ does not bail on isEffectivelyDead).
-            if o.can_move() || o.status.destroyed || !o.is_alive() {
-                o.apply_frictional_forces();
-            }
+            // applyFrictionalForces every non-HELD update (debris, disabled, wrecks).
+            o.apply_frictional_forces();
             o.integrate_physics_accel();
         }
         let mut landed: Vec<ObjectId> = Vec::new();
@@ -63,28 +61,31 @@ impl GameLogic {
             self.dispatch_physics_ground_collide(id);
         }
         // Rebuild partition cells (C++ registerObject residual each update).
-        // Keep FOW reveal residual; only re-register live objects.
+        // Dead wrecks stay registered and still onCollide (C++ PartitionManager).
         self.partition_manager.clear_registered_objects();
         // O(1) id → pose/radius for pair resolution (was linear find per neighbor).
         let mut entry_by_id: std::collections::HashMap<u32, (glam::Vec3, f32)> =
             std::collections::HashMap::new();
         let mut mobile_ids: Vec<ObjectId> = Vec::new();
         for (id, o) in self.objects.iter() {
-            if !o.is_alive() || o.status.destroyed {
-                continue;
-            }
             // C++ unRegisterObject while ride-hidden (hijacker mesh + collide).
             if o.drawable_hidden || o.hijacker_in_vehicle {
                 continue;
             }
             let pos = o.get_position();
-            let r = o.selection_radius.max(1.0);
+            let fp = super::collide_dispatch::host_object_footprint(o);
             self.partition_manager
-                .register_object_footprint(id.0, pos.x, pos.z, r);
+                .register_object_geometry(id.0, pos.x, pos.z, fp);
+            let r = o.selection_radius.max(1.0);
             entry_by_id.insert(id.0, (pos, r));
-            // Only mobile bodies initiate collide queries (structures stay as
-            // partition obstacles via neighbor lookup).
-            if o.can_move() {
+            // Mobile bodies and physics-active wrecks initiate collide queries.
+            // Dead hulks stay registered as obstacles; only moving/falling ones query.
+            let wreck_physics = (o.status.destroyed || !o.is_alive())
+                && (o.movement.velocity.length_squared() > 1e-6
+                    || o.get_position().y > o.ground_height
+                    || o.allow_to_fall
+                    || o.shock_stun_frames > 0);
+            if o.can_move() || wreck_physics {
                 mobile_ids.push(*id);
             }
         }
@@ -94,10 +95,11 @@ impl GameLogic {
         let mut seen_pairs: std::collections::HashSet<(u32, u32)> =
             std::collections::HashSet::new();
         for a_id in &mobile_ids {
-            let Some((a_pos, a_r)) = entry_by_id.get(&a_id.0).copied() else {
+            let Some((_a_pos, a_r)) = entry_by_id.get(&a_id.0).copied() else {
                 continue;
             };
-            let neighbors = self.partition_manager.neighbor_object_ids(a_pos.x, a_pos.z);
+            // C++ addPossibleCollisions: every other module in every COI cell.
+            let neighbors = self.partition_manager.neighbor_object_ids_of(a_id.0);
             for b_raw in neighbors {
                 if b_raw == a_id.0 {
                     continue;
@@ -107,15 +109,9 @@ impl GameLogic {
                 if !seen_pairs.insert((lo, hi)) {
                     continue;
                 }
-                let Some((b_pos, b_r)) = entry_by_id.get(&b_raw).copied() else {
+                let Some((_b_pos, b_r)) = entry_by_id.get(&b_raw).copied() else {
                     continue;
                 };
-                let dx = a_pos.x - b_pos.x;
-                let dz = a_pos.z - b_pos.z;
-                let sum = a_r + b_r;
-                if dx * dx + dz * dz > sum * sum {
-                    continue;
-                }
                 let b_id = ObjectId(b_raw);
                 if let (Some(a), Some(b)) = (self.objects.get(a_id), self.objects.get(&b_id)) {
                     if let Some((loc, normal)) = super::collide_dispatch::host_geom_collides(a, b) {

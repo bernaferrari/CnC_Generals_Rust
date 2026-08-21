@@ -253,6 +253,29 @@ fn set_team_attitude_applies_to_all_members() {
 }
 
 #[test]
+fn set_team_attitude_by_instance_name_and_script_drain() {
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+    use gamelogic::scripting::request_host_team_attitude;
+
+    let mut logic = GameLogic::new();
+    let mut t = ThingTemplate::new("Hero");
+    t.add_kind_of(KindOf::Infantry);
+    let id = ObjectId(4100);
+    let mut o = Object::new(t, id, Team::USA);
+    o.team_instance_name = "AmericaTeamHeroes".into();
+    o.weapon = Some(Weapon {
+        range: 40.0,
+        ..Default::default()
+    });
+    logic.objects.insert(id, o);
+
+    request_host_team_attitude("AmericaTeamHeroes", 2);
+    logic.apply_host_team_attitude_script_requests();
+    assert_eq!(logic.objects[&id].ai_attitude, 2);
+}
+
+
+#[test]
 fn resolve_host_team_name_covers_cpp_aliases() {
     assert_eq!(
         GameLogic::resolve_host_team_name("teamAmerica"),
@@ -2981,6 +3004,24 @@ fn apply_immobile_collide_bounce_scrubs_and_pushes() {
     assert_eq!(p.movement.velocity.x, 0.0);
     assert_eq!(p.movement.velocity.z, 0.0);
     assert!(p.get_position().x < 0.0);
+
+    // Dead wreck still stiffness-bounces (C++ effectivelyDead hulks stay in world).
+    let mut wt = ThingTemplate::new("DeadHulk");
+    wt.add_kind_of(KindOf::Vehicle);
+    let wid = ObjectId(84);
+    let mut w = Object::new(wt, wid, Team::USA);
+    w.set_position(Vec3::new(0.0, 1.0, 0.0));
+    w.movement.velocity = Vec3::new(6.0, 0.0, 0.0);
+    w.status.destroyed = true;
+    w.health.current = 0.0;
+    logic.objects.insert(wid, w);
+    assert!(logic.apply_immobile_collide_bounce(wid, iid, 10.0));
+    let w = logic.objects.get(&wid).unwrap();
+    assert!(
+        w.movement.velocity.x <= 0.0,
+        "wreck vel={:?}",
+        w.movement.velocity
+    );
 }
 
 #[test]
@@ -3025,6 +3066,7 @@ fn tick_shock_stun_all_queues_bounce_audio() {
     let id = ObjectId(9100);
     let mut o = Object::new(tmpl, id, Team::USA);
     o.shock_stun_frames = 0;
+    o.set_bounce_sound(BOUNCE_SOUND_DEFAULT);
     o.record_bounce_land(2.0);
     assert!(o.bounce_audio_pending > 0);
     logic.objects.insert(id, o);

@@ -2422,5 +2422,93 @@ impl GameLogic {
         }
     }
 
+    /// C++ ParkingPlaceBehavior stall occupancy for WorldSnapshot.
+    pub fn snapshot_airfield_parking_spaces(
+        &self,
+    ) -> Vec<(ObjectId, Vec<(Option<ObjectId>, bool)>)> {
+        let mut rows: Vec<_> = self
+            .airfield_parking_spaces
+            .iter()
+            .map(|(&id, spaces)| {
+                (
+                    id,
+                    spaces
+                        .iter()
+                        .map(|space| (space.object_id, space.reserved_for_exit))
+                        .collect(),
+                )
+            })
+            .collect();
+        rows.sort_by_key(|(id, _)| id.0);
+        rows
+    }
+
+    pub fn restore_airfield_parking_spaces(
+        &mut self,
+        rows: Vec<(ObjectId, Vec<(Option<ObjectId>, bool)>)>,
+    ) {
+        self.airfield_parking_spaces.clear();
+        for (id, spaces) in rows {
+            self.airfield_parking_spaces.insert(
+                id,
+                spaces
+                    .into_iter()
+                    .map(|(object_id, reserved_for_exit)| AirfieldParkingSpace {
+                        object_id,
+                        reserved_for_exit,
+                    })
+                    .collect(),
+            );
+        }
+    }
+
+    pub fn snapshot_runway_reservations(&self) -> Vec<(ObjectId, Vec<Option<ObjectId>>)> {
+        let mut rows: Vec<_> = self
+            .runway_reservations
+            .iter()
+            .map(|(&id, slots)| (id, slots.clone()))
+            .collect();
+        rows.sort_by_key(|(id, _)| id.0);
+        rows
+    }
+
+    pub fn restore_runway_reservations(&mut self, rows: Vec<(ObjectId, Vec<Option<ObjectId>>)>) {
+        self.runway_reservations = rows.into_iter().collect();
+    }
+
+    pub fn snapshot_airfield_runway_next_in_line(
+        &self,
+    ) -> Vec<(ObjectId, Vec<Option<ObjectId>>)> {
+        let mut rows: Vec<_> = self
+            .airfield_runway_next_in_line
+            .iter()
+            .map(|(&id, slots)| (id, slots.clone()))
+            .collect();
+        rows.sort_by_key(|(id, _)| id.0);
+        rows
+    }
+
+    pub fn restore_airfield_runway_next_in_line(
+        &mut self,
+        rows: Vec<(ObjectId, Vec<Option<ObjectId>>)>,
+    ) {
+        self.airfield_runway_next_in_line = rows.into_iter().collect();
+    }
+
+    pub fn snapshot_airfield_runway_was_in_line(&self) -> Vec<(ObjectId, Vec<bool>)> {
+        let mut rows: Vec<_> = self
+            .airfield_runway_was_in_line
+            .iter()
+            .map(|(&id, slots)| (id, slots.clone()))
+            .collect();
+        rows.sort_by_key(|(id, _)| id.0);
+        rows
+    }
+
+    pub fn restore_airfield_runway_was_in_line(&mut self, rows: Vec<(ObjectId, Vec<bool>)>) {
+        self.airfield_runway_was_in_line = rows.into_iter().collect();
+    }
+
+
 
 }

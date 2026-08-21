@@ -685,25 +685,84 @@ impl Object {
         );
     }
 
+    /// C++ `TheGlobalData->m_healthBonus[new] / m_healthBonus[old]`.
+    /// Leftover GlobalData when INI-populated; else GameData.ini residual 1.0/1.2/1.3/1.5.
+    fn veterancy_health_bonus_scale(
+        previous_level: VeterancyLevel,
+        new_level: VeterancyLevel,
+    ) -> f32 {
+        let idx = |level: VeterancyLevel| match level {
+            VeterancyLevel::Rookie => 0usize,
+            VeterancyLevel::Veteran => 1,
+            VeterancyLevel::Elite => 2,
+            VeterancyLevel::Heroic => 3,
+        };
+        if let Some(data) = game_engine::common::ini::get_global_data() {
+            let guard = data.read();
+            let old = guard
+                .health_bonus
+                .get(idx(previous_level))
+                .copied()
+                .unwrap_or(1.0);
+            let new = guard
+                .health_bonus
+                .get(idx(new_level))
+                .copied()
+                .unwrap_or(1.0);
+            // Constructor default is 1.0 for every rank. Treat that as "INI not loaded".
+            if old > 0.0
+                && new > 0.0
+                && ((old - 1.0).abs() > f32::EPSILON || (new - 1.0).abs() > f32::EPSILON)
+            {
+                return new / old;
+            }
+        }
+        crate::game_logic::host_unit_training::veterancy_health_scale(previous_level, new_level)
+    }
+
+    /// C++ ActiveBody::onVeterancyLevelChanged → setMaxHealth(..., PRESERVE_RATIO).
+    fn apply_veterancy_max_health_scale(
+        &mut self,
+        previous_level: VeterancyLevel,
+        new_level: VeterancyLevel,
+    ) {
+        if previous_level == new_level {
+            return;
+        }
+        let scale = Self::veterancy_health_bonus_scale(previous_level, new_level);
+        let old_max = self.health.maximum.max(self.max_health).max(1.0);
+        let ratio = self.health.current / old_max;
+        let new_max = (old_max * scale).max(1.0);
+        self.health.maximum = new_max;
+        self.max_health = new_max;
+        self.health.current = (new_max * ratio).clamp(0.0, new_max);
+    }
+
     pub(crate) fn apply_veterancy_bonuses(
         &mut self,
         previous_level: VeterancyLevel,
         new_level: VeterancyLevel,
     ) {
-        let (_old_health_bonus, old_damage_bonus, old_rof_bonus) =
-            Self::veterancy_bonuses(previous_level);
-        let (health_bonus, damage_bonus, rof_bonus) = Self::veterancy_bonuses(new_level);
+        let (_, old_damage_bonus, old_rof_bonus) = Self::veterancy_bonuses(previous_level);
+        let (_, damage_bonus, rof_bonus) = Self::veterancy_bonuses(new_level);
 
         // C++ Object::onVeterancyLevelChanged: exclusive WEAPONSET + WEAPONBONUSCONDITION.
         self.set_veterancy_weapon_set_and_bonus_flags(new_level);
         let rebound_authored = self.try_bind_authored_veterancy_weapon_set(new_level);
 
-        // Apply health bonus
-        let base_health = self.thing.template.max_health;
-        let old_max_health = self.health.maximum.max(1.0);
-        let health_ratio = (self.health.current / old_max_health).clamp(0.0, 1.0);
-        self.health.maximum = base_health * health_bonus;
-        self.health.current = (self.health.maximum * health_ratio).clamp(0.0, self.health.maximum);
+        // C++ updateUpgradeModules + giveUpgrade(findVeterancyUpgrade(newLevel)).
+        if let Some(name) =
+            crate::game_logic::host_unit_training::veterancy_upgrade_name(new_level)
+        {
+            self.apply_upgrade_tag(name);
+            let _ = crate::game_logic::host_upgrade_module_residuals::apply_locomotor_set_upgrade(
+                self, name,
+            );
+        }
+
+        // C++ ActiveBody::setMaxHealth(m_maxHealth * (newBonus/oldBonus), PRESERVE_RATIO).
+        // Scale the *current* body max so Composite Armor / difficulty HP survive rank-up.
+        self.apply_veterancy_max_health_scale(previous_level, new_level);
 
         // In-place damage/ROF scale is the host residual for units that keep
         // the rookie WeaponSet. Authored VETERAN/ELITE/HERO sets already
@@ -728,6 +787,25 @@ impl Object {
         self.record_host_max_health();
         self.set_veterancy_armor_set_flags(new_level);
         self.validate_armor_and_damage_fx();
+
+        // C++ ActiveBody SoundPromoted* + Object LevelGain Anim2D + MiscAudio UnitPromoted.
+        self.queue_veterancy_promote_fx(previous_level, new_level);
+    }
+
+    fn queue_veterancy_promote_fx(
+        &self,
+        previous_level: VeterancyLevel,
+        new_level: VeterancyLevel,
+    ) {
+        use crate::game_logic::host_unit_training::{record_promote_fx, veterancy_rank};
+        if veterancy_rank(new_level) <= veterancy_rank(previous_level) {
+            return;
+        }
+        if self.is_kind_of(crate::game_logic::KindOf::IgnoredInGui) {
+            return;
+        }
+        let pos = self.get_health_box_position();
+        record_promote_fx(self.id, pos, 0, new_level);
     }
 
     /// C++ ExperienceTracker::setMinVeterancyLevel residual (VeterancyGainCreate).

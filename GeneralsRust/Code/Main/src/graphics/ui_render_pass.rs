@@ -110,6 +110,9 @@ impl<T: UiFrameLifecycle> Drop for UiFrameCleanup<T> {
 fn unhide_control_bar_parent_while_ingame(
     wm: &mut game_client::gui::window_manager::WindowManager,
 ) {
+    if !game_client::gui::callbacks::control_bar_callbacks::is_control_bar_visible() {
+        return;
+    }
     // ForwardPass only flushes this overlay for the live 3D frame.
     // Do not gate on Shell.is_shell_active — leftover MainMenu can
     // keep that flag true and leave ControlBarParent HIDDEN.

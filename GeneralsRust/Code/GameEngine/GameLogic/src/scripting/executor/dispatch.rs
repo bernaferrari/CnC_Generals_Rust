@@ -1325,6 +1325,42 @@ impl ScriptActionDispatcher {
             }
         }
 
+        if super::dual_world_registry_unavailable() {
+            if let Some(unit_name) = unit_name {
+                if crate::scripting::host_script_named_unit_alive(unit_name) == Some(true) {
+                    log::warn!(
+                        "WARNING - Object with name '{}' already exists. Failed Create.",
+                        unit_name
+                    );
+                    return Ok(None);
+                }
+            }
+            let waypoint_ascii = AsciiString::from(waypoint_name);
+            let position = get_terrain_logic()
+                .read()
+                .ok()
+                .and_then(|terrain| {
+                    terrain
+                        .get_waypoint_by_name(&waypoint_ascii)
+                        .map(|w| *w.get_location())
+                })
+                .unwrap_or_else(|| {
+                    log::warn!("CREATE_UNIT: waypoint '{}' not found", waypoint_name);
+                    crate::common::Coord3D::new(0.0, 0.0, 0.0)
+                });
+            super::request_host_script_create(super::HostScriptCreateRequest::Object {
+                name: unit_name.map(str::to_string),
+                thing: object_type.to_string(),
+                team: team_name.to_string(),
+                x: position.x,
+                y: position.y,
+                z: position.z,
+                angle: 0.0,
+            });
+            return Ok(None);
+        }
+
+
         let team_arc = match self.get_or_create_team_by_name(team_name) {
             Ok(team) => team,
             Err(err) => {

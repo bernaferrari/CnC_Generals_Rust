@@ -88,16 +88,18 @@ impl GameLogic {
         team: Team,
         from: Vec3,
     ) -> Option<ObjectId> {
-        self.find_nearest_harvestable_supply_within(team, from, None)
+        self.find_nearest_harvestable_supply_within(team, from, None, ObjectId(u32::MAX))
     }
 
     /// C++ `ResourceGatheringManager::findBestSupplyWarehouse` scan cap.
     /// `max_scan` is already AI-doubled via `warehouse_scan_distance`.
+    /// C++ `computeRelativeCost` returns FLT_MAX when `!isClearToApproach`.
     pub(in super::super) fn find_nearest_harvestable_supply_within(
         &self,
         team: Team,
         from: Vec3,
         max_scan: Option<f32>,
+        query_id: ObjectId,
     ) -> Option<ObjectId> {
         let _ = team; // supplies are neutral/shared residual
                       // Pure residual acquire: nearest harvestable supply pile (3D distance).
@@ -124,6 +126,14 @@ impl GameLogic {
                     if obj.thing.template.dock_kind == DockKind::SupplyWarehouse {
                         return None;
                     }
+                }
+                // C++ `computeRelativeCost`: occupied approach-queues score FLT_MAX.
+                if obj.thing.template.dock_kind == DockKind::SupplyWarehouse
+                    && !crate::game_logic::host_supply_gather::live_dock_is_clear_to_approach(
+                        id, query_id,
+                    )
+                {
+                    return None;
                 }
                 Some(
                     crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
@@ -1466,6 +1476,13 @@ impl GameLogic {
         if !obj.is_alive() {
             return false;
         }
+        // C++ Player.cpp:1240-1304 `doFindSpecialPowerSourceObject` /
+        // `doCountSpecialPowersReady` refuse UNDER_CONSTRUCTION and SOLD.
+        // `is_disabled()` already covers UC, but sell clears UC and keeps
+        // the object alive — sold must be an explicit fire skip.
+        if obj.status.under_construction || obj.status.sold {
+            return false;
+        }
         // C++ SpecialPowerModule::doSpecialPower / isReady: disabled objects cannot fire.
         // Covers underpowered POWERED SWs (PUC/Nuke), EMP, hacked, unmanned, etc.
         if obj.is_disabled() {
@@ -2677,6 +2694,58 @@ mod can_use_special_power_module_gate_tests {
         assert!(
             !logic.is_special_power_ready_for(cc_id, &SpecialPowerType::EarlyFrenzy),
             "CC without EarlyFrenzy module must not inherit Frenzy"
+        );
+    }
+
+    /// C++ Player.cpp:1240-1304 sold / under-construction sources cannot fire.
+    #[test]
+    fn sold_and_under_construction_cannot_fire_special_power() {
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "USA", true));
+
+        let mut puc = ThingTemplate::new("Hq6mi3iPuc");
+        puc.set_health(4000.0);
+        puc.special_power_modules.push(test_module(
+            SpecialPowerType::ParticleCannon,
+            "SuperweaponParticleUplinkCannon",
+            SpecialPowerModuleKind::OclSpecialPower,
+        ));
+        logic.templates.insert("Hq6mi3iPuc".into(), puc);
+        let id = logic
+            .create_object("Hq6mi3iPuc", Team::USA, glam::Vec3::ZERO)
+            .expect("puc");
+        if let Some(o) = logic.host_object_mut(id) {
+            o.status.under_construction = false;
+            o.status.sold = false;
+            o.construction_percent = 1.0;
+        }
+        assert!(
+            logic.is_special_power_ready_for(id, &SpecialPowerType::ParticleCannon),
+            "constructed unsold PUC must be ready"
+        );
+
+        if let Some(o) = logic.host_object_mut(id) {
+            o.status.sold = true;
+            o.construction_percent = 0.999;
+            o.status.under_construction = false;
+        }
+        assert!(
+            !logic.is_special_power_ready_for(id, &SpecialPowerType::ParticleCannon),
+            "C++ Player iterators skip OBJECT_STATUS_SOLD"
+        );
+        assert!(
+            !logic.consume_special_power_charge_for(id, &SpecialPowerType::ParticleCannon),
+            "sold PUC must not consume/recharge"
+        );
+
+        if let Some(o) = logic.host_object_mut(id) {
+            o.status.sold = false;
+            o.status.under_construction = true;
+            o.construction_percent = 0.4;
+        }
+        assert!(
+            !logic.is_special_power_ready_for(id, &SpecialPowerType::ParticleCannon),
+            "C++ Player iterators skip OBJECT_STATUS_UNDER_CONSTRUCTION"
         );
     }
 }

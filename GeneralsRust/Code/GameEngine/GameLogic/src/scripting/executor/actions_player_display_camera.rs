@@ -388,11 +388,15 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let waypoint_name = self.get_string_param(action, 0)?;
         let duration_seconds = self.get_real_param(action, 1)?;
+        let ease_in_seconds = action.get_parameter(2).map(|p| p.get_real()).unwrap_or(0.0);
+        let ease_out_seconds = action.get_parameter(3).map(|p| p.get_real()).unwrap_or(0.0);
 
         log::info!(
-            "Resetting camera to waypoint '{}' over {} seconds",
+            "Resetting camera to waypoint '{}' over {} seconds (ease_in: {}, ease_out: {})",
             waypoint_name,
-            duration_seconds
+            duration_seconds,
+            ease_in_seconds,
+            ease_out_seconds
         );
 
         let waypoint_ascii = AsciiString::from(waypoint_name.as_str());
@@ -407,9 +411,14 @@ impl ScriptActionDispatcher {
         };
 
         if let Some(handler) = current_script_action_handler() {
-            if let Err(err) =
-                handler.reset_camera_to(target.x, target.y, target.z, duration_seconds)
-            {
+            if let Err(err) = handler.reset_camera_to(
+                target.x,
+                target.y,
+                target.z,
+                duration_seconds,
+                ease_in_seconds,
+                ease_out_seconds,
+            ) {
                 log::warn!("Script action handler reset_camera_to failed: {}", err);
             }
         }

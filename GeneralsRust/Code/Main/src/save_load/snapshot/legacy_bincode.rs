@@ -32,10 +32,13 @@ use std::time::SystemTime;
 /// Version 13 predates the v14 object persist / drawable visual tail.
 /// Version 14 predates the v15 Energy sabotage-frame tail.
 /// Version 15 predates the v16 Object trigger-area tail.
+/// Version 16 predates the v17 GameLogic persist tail (scoring, restriction,
+/// CaveSystem, TunnelTracker, airfield stalls).
 /// Unknown versions fail closed rather than relying on field
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BincodeWorldSnapshotDecodePath {
     Current,
+    LegacyPreV17V16,
     LegacyPreV16V15,
     LegacyPreV15V14,
     LegacyPreV14V13,
@@ -62,6 +65,14 @@ pub(crate) fn decode_bincode_world_snapshot(
     match version {
         WORLD_SNAPSHOT_BINCODE_VERSION => bincode_exact::<WorldSnapshot>(payload)
             .map(|snapshot| (snapshot, BincodeWorldSnapshotDecodePath::Current))
+            .map_err(|error| SaveLoadError::Serialization(error.to_string())),
+        16 => bincode_exact::<PreV17WorldSnapshot>(payload)
+            .map(|snapshot| {
+                (
+                    snapshot.into(),
+                    BincodeWorldSnapshotDecodePath::LegacyPreV17V16,
+                )
+            })
             .map_err(|error| SaveLoadError::Serialization(error.to_string())),
         15 => bincode_exact::<PreV16WorldSnapshot>(payload)
             .map(|snapshot| {
@@ -559,6 +570,46 @@ struct PreV16WorldSnapshot {
     player_energy: Vec<PlayerEnergySnapshot>,
 }
 
+/// Complete v16 world record before the v17 GameLogic persist tail.
+#[derive(Debug, Deserialize, Serialize)]
+struct PreV17WorldSnapshot {
+    version: u32,
+    timestamp: SystemTime,
+    frame_number: u64,
+    random_seed: u64,
+    objects: HashMap<ObjectId, ObjectSnapshot>,
+    players: Vec<PlayerSnapshot>,
+    teams: Vec<TeamSnapshot>,
+    terrain: TerrainSnapshot,
+    weather: WeatherSnapshot,
+    resource_manager: ResourceManagerSnapshot,
+    combat_tracker: CombatTrackerSnapshot,
+    experience_tracker: ExperienceTrackerSnapshot,
+    pathfinding_cache: PathfindingCacheSnapshot,
+    ai_players: Vec<AIPlayerSnapshot>,
+    global_ai_state: GlobalAIStateSnapshot,
+    special_power_strikes: SpecialPowerStrikeRegistrySnapshot,
+    combat_particles: CombatParticleRegistrySnapshot,
+    host_upgrades: HostUpgradeRegistrySnapshot,
+    next_weapon_discharge_sequence: u64,
+    client_drawables: ClientDrawableWorldSnapshot,
+    player_template_bindings: Vec<PlayerTemplateBindingSnapshot>,
+    shroud: ShroudSnapshot,
+    lifecycle_tail: Vec<u8>,
+    player_ranks: Vec<PlayerRankSnapshot>,
+    object_instance_guards: Vec<ObjectInstanceGuardSnapshot>,
+    overcharge_active: Vec<ObjectOverchargeSnapshot>,
+    cia_intelligence: crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry,
+    vision_spied: Vec<ObjectVisionSpiedSnapshot>,
+    builder_tasks: Vec<ObjectBuilderTaskSnapshot>,
+    sell_list: Vec<SellListEntrySnapshot>,
+    object_persist: Vec<ObjectPersistTailSnapshot>,
+    client_drawable_visuals: Vec<ClientDrawableVisualSnapshot>,
+    player_energy: Vec<PlayerEnergySnapshot>,
+    object_triggers: Vec<ObjectTriggerPersistSnapshot>,
+}
+
+
 
 
 /// Complete v7 world record before the v8 source-keyed temporary-Weapon
@@ -887,6 +938,11 @@ impl From<LegacyWorldSnapshot> for WorldSnapshot {
             client_drawable_visuals: Vec::new(),
             player_energy: Vec::new(),
             object_triggers: Vec::new(),
+            is_scoring_enabled: true,
+            limit_superweapons: false,
+            cave_system: crate::game_logic::HostCaveSystem::new(),
+            tunnel_network: crate::game_logic::HostTunnelNetworkRegistry::new(),
+            airfield_parking: AirfieldParkingWorldSnapshot::default(),
         }
     }
 }
@@ -1019,6 +1075,11 @@ impl From<PreHackerDisableWorldSnapshot> for WorldSnapshot {
             client_drawable_visuals: Vec::new(),
             player_energy: Vec::new(),
             object_triggers: Vec::new(),
+            is_scoring_enabled: true,
+            limit_superweapons: false,
+            cave_system: crate::game_logic::HostCaveSystem::new(),
+            tunnel_network: crate::game_logic::HostTunnelNetworkRegistry::new(),
+            airfield_parking: AirfieldParkingWorldSnapshot::default(),
         }
     }
 }
@@ -1097,6 +1158,11 @@ impl From<PreV4WorldSnapshot> for WorldSnapshot {
             client_drawable_visuals: Vec::new(),
             player_energy: Vec::new(),
             object_triggers: Vec::new(),
+            is_scoring_enabled: true,
+            limit_superweapons: false,
+            cave_system: crate::game_logic::HostCaveSystem::new(),
+            tunnel_network: crate::game_logic::HostTunnelNetworkRegistry::new(),
+            airfield_parking: AirfieldParkingWorldSnapshot::default(),
         }
     }
 }
@@ -1142,6 +1208,11 @@ impl From<PreV6WorldSnapshot> for WorldSnapshot {
             client_drawable_visuals: Vec::new(),
             player_energy: Vec::new(),
             object_triggers: Vec::new(),
+            is_scoring_enabled: true,
+            limit_superweapons: false,
+            cave_system: crate::game_logic::HostCaveSystem::new(),
+            tunnel_network: crate::game_logic::HostTunnelNetworkRegistry::new(),
+            airfield_parking: AirfieldParkingWorldSnapshot::default(),
         }
     }
 }
@@ -1187,6 +1258,11 @@ impl From<PreV8WorldSnapshot> for WorldSnapshot {
             client_drawable_visuals: Vec::new(),
             player_energy: Vec::new(),
             object_triggers: Vec::new(),
+            is_scoring_enabled: true,
+            limit_superweapons: false,
+            cave_system: crate::game_logic::HostCaveSystem::new(),
+            tunnel_network: crate::game_logic::HostTunnelNetworkRegistry::new(),
+            airfield_parking: AirfieldParkingWorldSnapshot::default(),
         }
     }
 }
@@ -1228,6 +1304,11 @@ impl From<PreV9WorldSnapshot> for WorldSnapshot {
             client_drawable_visuals: Vec::new(),
             player_energy: Vec::new(),
             object_triggers: Vec::new(),
+            is_scoring_enabled: true,
+            limit_superweapons: false,
+            cave_system: crate::game_logic::HostCaveSystem::new(),
+            tunnel_network: crate::game_logic::HostTunnelNetworkRegistry::new(),
+            airfield_parking: AirfieldParkingWorldSnapshot::default(),
         }
     }
 }
@@ -1269,6 +1350,11 @@ impl From<PreV10WorldSnapshot> for WorldSnapshot {
             client_drawable_visuals: Vec::new(),
             player_energy: Vec::new(),
             object_triggers: Vec::new(),
+            is_scoring_enabled: true,
+            limit_superweapons: false,
+            cave_system: crate::game_logic::HostCaveSystem::new(),
+            tunnel_network: crate::game_logic::HostTunnelNetworkRegistry::new(),
+            airfield_parking: AirfieldParkingWorldSnapshot::default(),
         }
     }
 }
@@ -1310,6 +1396,11 @@ impl From<PreV11WorldSnapshot> for WorldSnapshot {
             client_drawable_visuals: Vec::new(),
             player_energy: Vec::new(),
             object_triggers: Vec::new(),
+            is_scoring_enabled: true,
+            limit_superweapons: false,
+            cave_system: crate::game_logic::HostCaveSystem::new(),
+            tunnel_network: crate::game_logic::HostTunnelNetworkRegistry::new(),
+            airfield_parking: AirfieldParkingWorldSnapshot::default(),
         }
     }
 }
@@ -1351,6 +1442,11 @@ impl From<PreV12WorldSnapshot> for WorldSnapshot {
             client_drawable_visuals: Vec::new(),
             player_energy: Vec::new(),
             object_triggers: Vec::new(),
+            is_scoring_enabled: true,
+            limit_superweapons: false,
+            cave_system: crate::game_logic::HostCaveSystem::new(),
+            tunnel_network: crate::game_logic::HostTunnelNetworkRegistry::new(),
+            airfield_parking: AirfieldParkingWorldSnapshot::default(),
         }
     }
 }
@@ -1392,6 +1488,11 @@ impl From<PreV13WorldSnapshot> for WorldSnapshot {
             client_drawable_visuals: Vec::new(),
             player_energy: Vec::new(),
             object_triggers: Vec::new(),
+            is_scoring_enabled: true,
+            limit_superweapons: false,
+            cave_system: crate::game_logic::HostCaveSystem::new(),
+            tunnel_network: crate::game_logic::HostTunnelNetworkRegistry::new(),
+            airfield_parking: AirfieldParkingWorldSnapshot::default(),
         }
     }
 }
@@ -1433,6 +1534,11 @@ impl From<PreV14WorldSnapshot> for WorldSnapshot {
             client_drawable_visuals: Vec::new(),
             player_energy: Vec::new(),
             object_triggers: Vec::new(),
+            is_scoring_enabled: true,
+            limit_superweapons: false,
+            cave_system: crate::game_logic::HostCaveSystem::new(),
+            tunnel_network: crate::game_logic::HostTunnelNetworkRegistry::new(),
+            airfield_parking: AirfieldParkingWorldSnapshot::default(),
         }
     }
 }
@@ -1474,6 +1580,11 @@ impl From<PreV15WorldSnapshot> for WorldSnapshot {
             client_drawable_visuals: snapshot.client_drawable_visuals,
             player_energy: Vec::new(),
             object_triggers: Vec::new(),
+            is_scoring_enabled: true,
+            limit_superweapons: false,
+            cave_system: crate::game_logic::HostCaveSystem::new(),
+            tunnel_network: crate::game_logic::HostTunnelNetworkRegistry::new(),
+            airfield_parking: AirfieldParkingWorldSnapshot::default(),
         }
     }
 }
@@ -1515,9 +1626,61 @@ impl From<PreV16WorldSnapshot> for WorldSnapshot {
             client_drawable_visuals: snapshot.client_drawable_visuals,
             player_energy: snapshot.player_energy,
             object_triggers: Vec::new(),
+            is_scoring_enabled: true,
+            limit_superweapons: false,
+            cave_system: crate::game_logic::HostCaveSystem::new(),
+            tunnel_network: crate::game_logic::HostTunnelNetworkRegistry::new(),
+            airfield_parking: AirfieldParkingWorldSnapshot::default(),
         }
     }
 }
+
+impl From<PreV17WorldSnapshot> for WorldSnapshot {
+    fn from(snapshot: PreV17WorldSnapshot) -> Self {
+        Self {
+            version: WORLD_SNAPSHOT_BINCODE_VERSION,
+            timestamp: snapshot.timestamp,
+            frame_number: snapshot.frame_number,
+            random_seed: snapshot.random_seed,
+            objects: snapshot.objects,
+            players: snapshot.players,
+            teams: snapshot.teams,
+            terrain: snapshot.terrain,
+            weather: snapshot.weather,
+            resource_manager: snapshot.resource_manager,
+            combat_tracker: snapshot.combat_tracker,
+            experience_tracker: snapshot.experience_tracker,
+            pathfinding_cache: snapshot.pathfinding_cache,
+            ai_players: snapshot.ai_players,
+            global_ai_state: snapshot.global_ai_state,
+            special_power_strikes: snapshot.special_power_strikes,
+            combat_particles: snapshot.combat_particles,
+            host_upgrades: snapshot.host_upgrades,
+            next_weapon_discharge_sequence: snapshot.next_weapon_discharge_sequence,
+            client_drawables: snapshot.client_drawables,
+            player_template_bindings: snapshot.player_template_bindings,
+            shroud: snapshot.shroud,
+            lifecycle_tail: snapshot.lifecycle_tail,
+            player_ranks: snapshot.player_ranks,
+            object_instance_guards: snapshot.object_instance_guards,
+            overcharge_active: snapshot.overcharge_active,
+            cia_intelligence: snapshot.cia_intelligence,
+            vision_spied: snapshot.vision_spied,
+            builder_tasks: snapshot.builder_tasks,
+            sell_list: snapshot.sell_list,
+            object_persist: snapshot.object_persist,
+            client_drawable_visuals: snapshot.client_drawable_visuals,
+            player_energy: snapshot.player_energy,
+            object_triggers: snapshot.object_triggers,
+            is_scoring_enabled: true,
+            limit_superweapons: false,
+            cave_system: crate::game_logic::HostCaveSystem::new(),
+            tunnel_network: crate::game_logic::HostTunnelNetworkRegistry::new(),
+            airfield_parking: AirfieldParkingWorldSnapshot::default(),
+        }
+    }
+}
+
 
 
 
@@ -1595,6 +1758,11 @@ impl From<PreV7WorldSnapshot> for WorldSnapshot {
             client_drawable_visuals: Vec::new(),
             player_energy: Vec::new(),
             object_triggers: Vec::new(),
+            is_scoring_enabled: true,
+            limit_superweapons: false,
+            cave_system: crate::game_logic::HostCaveSystem::new(),
+            tunnel_network: crate::game_logic::HostTunnelNetworkRegistry::new(),
+            airfield_parking: AirfieldParkingWorldSnapshot::default(),
         }
     }
 }
@@ -1673,6 +1841,11 @@ impl From<PreV5WorldSnapshot> for WorldSnapshot {
             client_drawable_visuals: Vec::new(),
             player_energy: Vec::new(),
             object_triggers: Vec::new(),
+            is_scoring_enabled: true,
+            limit_superweapons: false,
+            cave_system: crate::game_logic::HostCaveSystem::new(),
+            tunnel_network: crate::game_logic::HostTunnelNetworkRegistry::new(),
+            airfield_parking: AirfieldParkingWorldSnapshot::default(),
         }
     }
 }

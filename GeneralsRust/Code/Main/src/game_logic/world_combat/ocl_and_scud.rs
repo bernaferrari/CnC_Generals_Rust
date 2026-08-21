@@ -227,6 +227,11 @@ impl GameLogic {
                         std::f32::consts::TAU,
                     ));
                 }
+                // C++ ObjectCreationList.cpp:1086/1122 setExtraFriction, 1124 setBounceSound.
+                object.set_extra_friction(generic.extra_friction);
+                if !generic.bounce_sound.is_empty() {
+                    object.set_bounce_sound(generic.bounce_sound.clone());
+                }
                 if generic.fade_in {
                     object.start_drawable_fade_in(generic.fade_frames, self.frame);
                 } else if generic.fade_out {

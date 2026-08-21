@@ -56,6 +56,13 @@ fn superweapon_timer_strip_name(
     format!("{} ({rel} #{r:02X}{g:02X}{b:02X})", timer.name)
 }
 
+/// C++ InGameUI.cpp:3644-3650 `time.format(L"%d:%2.2d", min, sec)` even when ready (0:00).
+fn superweapon_countdown_text(remaining: f32) -> String {
+    let secs = remaining.max(0.0) as u32;
+    format!("{}:{:02}", secs / 60, secs % 60)
+}
+
+
 
 impl CnCGameEngine {
     /// Wave 602: via `host_route_shell_owned_screen_change`.
@@ -2442,26 +2449,22 @@ impl CnCGameEngine {
                 .collect();
             self.game_client
                 .apply_presentation_world_anims(&world_anims);
-            let sw_timers: Vec<(String, String, bool)> = pres
-                .superweapon_timers
-                .iter()
-                .filter(|t| t.unlocked)
-                .map(|t| {
-                    // C++ InGameUI.cpp:3648-3650 name + mm:ss; SuperweaponInfo.m_color
-                    // is the owning player's color (addSuperweapon / postDraw).
-                    let countdown = if t.ready || t.remaining <= 0.0 {
-                        "READY".to_string()
-                    } else {
-                        let secs = t.remaining.max(0.0) as u32;
-                        format!("{}:{:02}", secs / 60, secs % 60)
-                    };
-                    (
-                        superweapon_timer_strip_name(pres, t),
-                        countdown,
-                        t.ready,
-                    )
-                })
-                .collect();
+            let sw_timers: Vec<(String, String, bool)> = if !pres.superweapon_display_enabled {
+                Vec::new()
+            } else {
+                pres.superweapon_timers
+                    .iter()
+                    .filter(|t| t.unlocked)
+                    .map(|t| {
+                        // C++ InGameUI.cpp:3648-3650 name + mm:ss even when ready (0:00).
+                        (
+                            superweapon_timer_strip_name(pres, t),
+                            superweapon_countdown_text(t.remaining),
+                            t.ready,
+                        )
+                    })
+                    .collect()
+            };
             self.game_client
                 .apply_presentation_superweapon_timers(&sw_timers);
 
@@ -2854,6 +2857,20 @@ mod replay_fast_forward_probe {
         // Rust's unit-test harness executes tests on worker threads.
         assert_eq!(replay_logic_step_count(false), 1);
         assert_eq!(replay_logic_step_count(true), 4);
+    }
+}
+
+#[cfg(test)]
+mod superweapon_countdown_tests {
+    use super::superweapon_countdown_text;
+
+    #[test]
+    fn ready_and_recharging_use_mm_ss_not_ready_word() {
+        assert_eq!(superweapon_countdown_text(0.0), "0:00");
+        assert_eq!(superweapon_countdown_text(-1.0), "0:00");
+        assert_eq!(superweapon_countdown_text(90.0), "1:30");
+        assert_eq!(superweapon_countdown_text(5.9), "0:05");
+        assert_ne!(superweapon_countdown_text(0.0), "READY");
     }
 }
 

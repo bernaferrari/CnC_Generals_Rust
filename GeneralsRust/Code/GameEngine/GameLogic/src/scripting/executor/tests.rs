@@ -2673,6 +2673,64 @@ fn active_team_build_actions_fail_closed_without_a_prototype_controller() {
 }
 
 #[test]
+fn build_and_recruit_team_queue_host_when_dual_world_empty() {
+    let _test_lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    let _ = take_host_build_team_requests();
+    let _ = take_host_recruit_team_requests();
+    initialize_script_engine().expect("script engine should initialize");
+
+    const TEAM_NAME: &str = "HostBuildTeam";
+    const OWNER: &str = "PlyrAmerica";
+    get_team_factory().lock().unwrap().reset();
+    get_team_factory().lock().unwrap().init_team(
+        AsciiString::from(TEAM_NAME),
+        AsciiString::from(OWNER),
+        false,
+        None,
+    );
+
+    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let mut build = ScriptAction::new(ScriptActionType::BuildTeam);
+    build
+        .add_parameter(Parameter::with_string(
+            ParameterType::Team,
+            TEAM_NAME.to_string(),
+        ))
+        .expect("team parameter");
+    assert_eq!(
+        dispatcher.execute_action(&build).expect("build action"),
+        ScriptActionResult::Success
+    );
+    assert_eq!(
+        take_host_build_team_requests(),
+        vec![(OWNER.to_string(), TEAM_NAME.to_string())]
+    );
+
+    let mut recruit = ScriptAction::new(ScriptActionType::RecruitTeam);
+    recruit
+        .add_parameter(Parameter::with_string(
+            ParameterType::Team,
+            TEAM_NAME.to_string(),
+        ))
+        .expect("team parameter");
+    recruit
+        .add_parameter(Parameter::with_real(ParameterType::Real, 250.0))
+        .expect("recruit radius parameter");
+    assert_eq!(
+        dispatcher.execute_action(&recruit).expect("recruit action"),
+        ScriptActionResult::Success
+    );
+    assert_eq!(
+        take_host_recruit_team_requests(),
+        vec![(OWNER.to_string(), TEAM_NAME.to_string(), 250.0)]
+    );
+
+    get_team_factory().lock().unwrap().reset();
+}
+
+
+#[test]
 fn team_transfer_to_player_reassigns_team_controller_without_capture() {
     get_object_manager().write().unwrap().reset();
     get_team_factory().lock().unwrap().reset();
@@ -3842,4 +3900,106 @@ fn team_panic_queues_host_when_dual_world_empty() {
         )]
     );
 }
+
+#[test]
+fn create_object_queues_host_when_dual_world_empty() {
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    let _ = take_host_script_create_requests();
+    let mut action = ScriptAction::new(ScriptActionType::CreateObject);
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::ObjectType,
+            "AmericaInfantryRanger".into(),
+        ))
+        .unwrap();
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Team,
+            "teamAmerica".into(),
+        ))
+        .unwrap();
+    action
+        .add_parameter(Parameter::with_coord(
+            ParameterType::Coord3D,
+            crate::scripting::core::Coord3D::new(10.0, 20.0, 0.0),
+        ))
+        .unwrap();
+    action
+        .add_parameter(Parameter::with_real(ParameterType::Angle, 1.5))
+        .unwrap();
+    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    assert_eq!(
+        dispatcher.execute_action(&action).unwrap(),
+        ScriptActionResult::Success
+    );
+    assert_eq!(
+        take_host_script_create_requests(),
+        vec![HostScriptCreateRequest::Object {
+            name: None,
+            thing: "AmericaInfantryRanger".to_string(),
+            team: "teamAmerica".to_string(),
+            x: 10.0,
+            y: 20.0,
+            z: 0.0,
+            angle: 1.5,
+        }]
+    );
+}
+
+#[test]
+fn team_set_attitude_queues_host_when_dual_world_empty() {
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    let _ = take_host_team_attitude_requests();
+    let mut action = ScriptAction::new(ScriptActionType::TeamSetAttitude);
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Team,
+            "AmericaTeamHeroes".into(),
+        ))
+        .unwrap();
+    action
+        .add_parameter(Parameter::with_int(ParameterType::AiMood, 2))
+        .unwrap();
+    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    assert_eq!(
+        dispatcher.execute_action(&action).unwrap(),
+        ScriptActionResult::Success
+    );
+    assert_eq!(
+        take_host_team_attitude_requests(),
+        vec![("AmericaTeamHeroes".to_string(), 2)]
+    );
+}
+
+#[test]
+fn build_team_queues_host_when_dual_world_empty() {
+    let _test_lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    let _ = take_host_build_team_requests();
+    get_team_factory().lock().unwrap().reset();
+    get_team_factory().lock().unwrap().init_team(
+        AsciiString::from("SquadHost"),
+        AsciiString::from("PlyrAmerica"),
+        false,
+        None,
+    );
+    let mut action = ScriptAction::new(ScriptActionType::BuildTeam);
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Team,
+            "SquadHost".into(),
+        ))
+        .unwrap();
+    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    assert_eq!(
+        dispatcher.execute_action(&action).unwrap(),
+        ScriptActionResult::Success
+    );
+    assert_eq!(
+        take_host_build_team_requests(),
+        vec![("PlyrAmerica".to_string(), "SquadHost".to_string())]
+    );
+    get_team_factory().lock().unwrap().reset();
+}
+
 

@@ -383,6 +383,25 @@ pub(crate) fn collect_presentation_world_anims(logic: &GameLogic) -> Vec<Present
         .iter()
         .map(PresentationWorldAnim::from_money_pickup)
         .collect();
+    for anim in crate::game_logic::host_unit_training::promote_anims_snapshot() {
+        let spawn_frame = if anim.spawn_frame == 0 {
+            logic.frame
+        } else {
+            anim.spawn_frame
+        };
+        out.push(PresentationWorldAnim {
+            template: crate::game_logic::host_unit_training::LEVEL_GAIN_ANIM_TEMPLATE.to_string(),
+            position: anim.position,
+            display_time_seconds:
+                crate::game_logic::host_unit_training::LEVEL_GAIN_ANIM_DISPLAY_TIME_SECONDS,
+            z_rise_per_second:
+                crate::game_logic::host_unit_training::LEVEL_GAIN_ANIM_Z_RISE_PER_SECOND,
+            fades: true,
+            spawn_frame,
+            crate_id: anim.object,
+            picker_id: anim.object,
+        });
+    }
     out.sort_by(|a, b| {
         a.spawn_frame
             .cmp(&b.spawn_frame)

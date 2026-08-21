@@ -627,8 +627,8 @@ impl Player {
         crate::game_logic::host_player_cooldown_log::record(self.id, cds);
     }
 
-    /// Award cash for a kill: `ceil(victim_build_cost * cash_bounty_percent)`.
-    /// C++ Player::doBountyForKill residual (no floating text).
+    /// Award cash for a kill: `ceil(victim_calcCostToBuild * cash_bounty_percent)`.
+    /// C++ Player::doBountyForKill: deposit then ScoreKeeper::addMoneyEarned.
     /// Returns cash awarded (0 when disabled or zero cost).
     pub fn do_bounty_for_kill(&mut self, victim_build_cost: u32) -> u32 {
         let bounty = crate::game_logic::host_cash_bounty::compute_bounty_award(
@@ -653,6 +653,8 @@ impl Player {
                     self.power_available,
                 );
             }
+            // C++ Player.cpp:2416 m_scoreKeeper.addMoneyEarned(bounty).
+            self.add_money_earned(bounty);
         }
         bounty
     }

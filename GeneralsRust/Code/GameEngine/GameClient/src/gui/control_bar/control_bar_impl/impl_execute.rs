@@ -516,8 +516,97 @@ impl ControlBar {
         Ok(())
     }
 
-    /// C++ ControlBar.cpp:1086 / setControlCommand :2472-2476 — cache
-    /// ButtonCommand01..14, store command name, and register TextLabel hotkeys.
+    fn leftover_command_button_by_name(name: &str) -> Option<CommandButton> {
+        if name.is_empty() {
+            return None;
+        }
+        if let Some(ini) = get_ini_control_bar() {
+            if let Some(definition) = ini.find_command_button_resolved(name) {
+                return Some(Self::command_from_definition(definition));
+            }
+        }
+        if let Some(bridge) = get_control_bar_bridge() {
+            if let Some(logic) = bridge.find_command_button_by_name(name) {
+                return Some(Self::command_from_logic_button(logic));
+            }
+        }
+        None
+    }
+
+    fn leftover_apply_command_bar_border(&self, win: &mut GameWindow, cmd: &CommandButton) {
+        let border = leftover_mapped_border_type(&cmd.button_border_type);
+        let color = self.get_border_color_for_type(border);
+        if let Some(crate::gui::game_window::WindowWidget::PushButton(button)) = win.widget_mut() {
+            match color {
+                Some(packed) => button.set_border(true, leftover_color_from_packed(packed)),
+                None => button.set_border(false, crate::gui::gadgets::Color::rgba(0, 0, 0, 0)),
+            }
+        }
+    }
+
+    /// C++ ControlBar::setControlCommand (ControlBar.cpp:2403-2480).
+    fn set_control_command(&self, win: &Rc<RefCell<GameWindow>>, cmd: &CommandButton) {
+        let mapped_image = if cmd.button_image.is_empty() {
+            None
+        } else {
+            leftover_mapped_image(&cmd.button_image)
+        };
+
+        {
+            let mut window = win.borrow_mut();
+            if (cmd.options & CommandOption::CheckLike as u32) != 0 {
+                if let Some(crate::gui::game_window::WindowWidget::PushButton(button)) =
+                    window.widget_mut()
+                {
+                    button.set_checkbox(true, false);
+                }
+            } else if let Some(crate::gui::game_window::WindowWidget::PushButton(button)) =
+                window.widget_mut()
+            {
+                button.set_checkbox(false, false);
+            }
+            if let Some(image) = mapped_image {
+                let _ = window.set_enabled_image(0, image);
+                window.set_status(crate::gui::game_window::WindowStatus::IMAGE);
+            }
+            if !cmd.text_label.is_empty()
+                || !cmd.sciences_ids.is_empty()
+                || !cmd.sciences.is_empty()
+            {
+                window.set_tooltip_callback(leftover_command_button_tooltip);
+            }
+            if let Some(overlay) = cmd.overlay_image.as_deref() {
+                if let Some(crate::gui::game_window::WindowWidget::PushButton(button)) =
+                    window.widget_mut()
+                {
+                    button.set_overlay_image(Some(overlay));
+                }
+            } else if let Some(crate::gui::game_window::WindowWidget::PushButton(button)) =
+                window.widget_mut()
+            {
+                button.set_overlay_image(None::<String>);
+            }
+            window.set_user_data(cmd.clone());
+            self.leftover_apply_command_bar_border(&mut window, cmd);
+            if let Some(crate::gui::game_window::WindowWidget::PushButton(button)) =
+                window.widget_mut()
+            {
+                button.set_alt_sound(Some("GUICommandBarClick"));
+            }
+        }
+        if !cmd.text_label.is_empty() {
+            let hot_key =
+                with_hot_key_manager(|manager| manager.search_hot_key(&cmd.text_label));
+            if !hot_key.is_empty() {
+                with_hot_key_manager(|manager| manager.add_hot_key(win.clone(), &hot_key));
+            }
+        }
+    }
+
+
+
+    /// C++ ControlBar.cpp:1086 / setControlCommand :2403-2480 — bind
+    /// ButtonCommand01..14, tooltip, border, command identity, and hotkeys.
     fn bind_command_windows(&self, context: &ControlBarContext) {
         // C++ switchToContext resets TheHotKeyManager before rebinding.
         with_hot_key_manager(|manager| manager.reset());
@@ -532,45 +621,20 @@ impl ControlBar {
                         let _ = win.borrow_mut().hide(true);
                         continue;
                     }
-                    win.borrow_mut().set_user_data(cmd.command_name.clone());
-                    if !cmd.button_image.is_empty() {
-                        if let Some(image) = wm.win_find_image(&cmd.button_image) {
-                            let _ = win.borrow_mut().set_enabled_image(0, image);
-                            win.borrow_mut()
-                                .set_status(crate::gui::game_window::WindowStatus::IMAGE);
-                        }
-                    }
-                    if let Some(overlay) = cmd.overlay_image.as_deref() {
-                        if let Some(crate::gui::game_window::WindowWidget::PushButton(button)) =
-                            win.borrow_mut().widget_mut()
-                        {
-                            button.set_overlay_image(Some(overlay));
-                        }
-                    } else if let Some(crate::gui::game_window::WindowWidget::PushButton(button)) =
-                        win.borrow_mut().widget_mut()
-                    {
-                        button.set_overlay_image(None::<String>);
-                    }
+                    self.set_control_command(&win, cmd);
                     if context.current_state == ControlBarState::StructureInventory {
-                        win.borrow_mut()
-                            .set_status(crate::gui::game_window::WindowStatus::ALWAYS_COLOR);
+                        // C++ ControlBarCommand.cpp:813-821 — ALWAYS_COLOR on
+                        // EXIT_CONTAINER was commented out so subdued
+                        // containers can gray exit cameos.
                         let _ = win
                             .borrow_mut()
                             .clear_status(crate::gui::game_window::WindowStatus::NOT_READY);
+                        let _ = win
+                            .borrow_mut()
+                            .clear_status(crate::gui::game_window::WindowStatus::ALWAYS_COLOR);
                     }
                     let _ = win.borrow_mut().enable(cmd.button_enabled);
                     let _ = win.borrow_mut().hide(false);
-                    // C++ ControlBar.cpp:2472-2476 setControlCommand.
-                    if !cmd.text_label.is_empty() {
-                        let hot_key = with_hot_key_manager(|manager| {
-                            manager.search_hot_key(&cmd.text_label)
-                        });
-                        if !hot_key.is_empty() {
-                            with_hot_key_manager(|manager| {
-                                manager.add_hot_key(win.clone(), &hot_key)
-                            });
-                        }
-                    }
                 } else if context.current_state == ControlBarState::Command
                     || context.current_state == ControlBarState::StructureInventory
                 {
@@ -580,6 +644,38 @@ impl ControlBar {
         });
     }
 }
+
+fn leftover_mapped_border_type(raw: &str) -> CommandButtonMappedBorderType {
+    match raw.trim().to_ascii_uppercase().as_str() {
+        "BUILD" => CommandButtonMappedBorderType::Build,
+        "UPGRADE" => CommandButtonMappedBorderType::Upgrade,
+        "ACTION" => CommandButtonMappedBorderType::Action,
+        "SYSTEM" => CommandButtonMappedBorderType::System,
+        _ => CommandButtonMappedBorderType::None,
+    }
+}
+
+fn leftover_color_from_packed(color: u32) -> crate::gui::gadgets::Color {
+    crate::gui::gadgets::Color::rgba(
+        ((color >> 16) & 0xFF) as u8,
+        ((color >> 8) & 0xFF) as u8,
+        (color & 0xFF) as u8,
+        ((color >> 24) & 0xFF) as u8,
+    )
+}
+
+fn leftover_command_button_tooltip(
+    window: &GameWindow,
+    _inst: &crate::gui::game_window::WindowInstanceData,
+    _mouse: u32,
+) {
+    let id = window.get_id();
+    let Some(rc) = with_window_manager(|wm| wm.get_window_by_id(id)) else {
+        return;
+    };
+    let _ = crate::gui::gui_callbacks::control_bar_popup_description::show_build_tooltip_layout(rc);
+}
+
 
 #[cfg(test)]
 mod host_bridge_execution_tests {

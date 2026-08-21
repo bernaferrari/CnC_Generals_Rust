@@ -99,6 +99,9 @@ fn unit_render_input_world_matrix_applies_mesh_scale() {
         presentation_opacity: 1.0,
         status_tint: [0.0; 3],
         stored_supplies: 0,
+        drawable_supply_boxes: 0,
+        drawable_supply_max_boxes: 0,
+        dock_kind: crate::game_logic::DockKind::None,
         drawable_shroud: PresentationDrawableShroudFacts::default(),
     };
     let m = u.world_matrix();
@@ -250,6 +253,9 @@ fn unit_render_input_fixture() -> UnitRenderInput {
         presentation_opacity: 1.0,
         status_tint: [0.0; 3],
         stored_supplies: 0,
+        drawable_supply_boxes: 0,
+        drawable_supply_max_boxes: 0,
+        dock_kind: crate::game_logic::DockKind::None,
         drawable_shroud: PresentationDrawableShroudFacts::default(),
     }
 }

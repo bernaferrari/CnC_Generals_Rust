@@ -1,3 +1,7 @@
+use super::partition_coi::{
+    cells_touched_for_footprint, do_circle_fill, HostPartitionFootprint,
+};
+
 use std::collections::{HashMap, HashSet};
 
 /// C++ PartitionManager PartitionCellSize residual (world units).
@@ -92,38 +96,44 @@ impl PartitionManager {
         ((x / s).floor() as i32, (z / s).floor() as i32)
     }
 
-    /// C++ registerObject residual for collide broadphase (center cell).
+    /// C++ `registerObject` residual — stamp the object's authored geometry COI
+    /// (`doSmallFill` / `doCircleFill` / `doRectFill`), not a selection-radius AABB.
     pub fn register_object_at(&mut self, id: u32, x: f32, z: f32) {
-        self.register_object_footprint(id, x, z, 0.0);
+        self.register_object_geometry(id, x, z, HostPartitionFootprint::small_circle(0.0));
     }
 
     /// Stamp every partition cell overlapping a circle of `radius`.
+    /// Small radii use `doSmallFill`; larger ones use `doCircleFill`.
     pub fn register_object_footprint(&mut self, id: u32, x: f32, z: f32, radius: f32) {
+        let r = radius.max(0.0);
+        let fp = if r <= PARTITION_CELL_SIZE_RESIDUAL * 0.5 {
+            HostPartitionFootprint::small_circle(r)
+        } else {
+            HostPartitionFootprint {
+                major_radius: r,
+                minor_radius: r,
+                angle: 0.0,
+                is_small: false,
+                is_box: false,
+            }
+        };
+        self.register_object_geometry(id, x, z, fp);
+    }
+
+    /// C++ `PartitionData::updateCellsTouched` — stamp every overlapping cell.
+    pub fn register_object_geometry(
+        &mut self,
+        id: u32,
+        x: f32,
+        z: f32,
+        fp: HostPartitionFootprint,
+    ) {
         self.unregister_object(id);
-        let keys = Self::cells_for_circle(x, z, radius);
+        let keys = cells_touched_for_footprint(x, z, fp);
         for key in &keys {
             self.cells.entry(*key).or_default().push(id);
         }
         self.object_cells.insert(id, keys);
-    }
-
-    fn cells_for_circle(x: f32, z: f32, radius: f32) -> Vec<(i32, i32)> {
-        let s = PARTITION_CELL_SIZE_RESIDUAL;
-        let r = radius.max(0.0);
-        let min_cx = ((x - r) / s).floor() as i32;
-        let max_cx = ((x + r) / s).floor() as i32;
-        let min_cz = ((z - r) / s).floor() as i32;
-        let max_cz = ((z + r) / s).floor() as i32;
-        let mut keys = Vec::new();
-        for cz in min_cz..=max_cz {
-            for cx in min_cx..=max_cx {
-                keys.push((cx, cz));
-            }
-        }
-        if keys.is_empty() {
-            keys.push(Self::cell_coords(x, z));
-        }
-        keys
     }
 
     /// C++ unRegisterObject residual.
@@ -140,7 +150,8 @@ impl PartitionManager {
         }
     }
 
-    /// Candidate neighbor object ids for collide (self cell + 8 neighbors).
+    /// Candidate neighbor object ids for collide (center cell + 8 neighbors).
+    /// Point queries stay 9-cell; object collide must use [`Self::neighbor_object_ids_of`].
     pub fn neighbor_object_ids(&self, x: f32, z: f32) -> Vec<u32> {
         let (cx, cz) = Self::cell_coords(x, z);
         let mut out = Vec::new();
@@ -156,29 +167,36 @@ impl PartitionManager {
         out
     }
 
+    /// C++ `PartitionData::addPossibleCollisions` — every other module in
+    /// **every** COI cell of `id`, not the 9-cell ring around its center.
+    pub fn neighbor_object_ids_of(&self, id: u32) -> Vec<u32> {
+        let Some(keys) = self.object_cells.get(&id) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for key in keys {
+            if let Some(list) = self.cells.get(key) {
+                out.extend(list.iter().copied());
+            }
+        }
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
     /// Object ids registered in cells overlapping a world-space XZ radius.
     ///
-    /// Cell ring is ceil(radius / cell_size) + 1 (inclusive margin). Used by AI
-    /// acquire scans so Lone Eagle (~900 objs) does not full-table scan every unit.
+    /// Query cells are C++ `doCircleFill` (`worldToCell` + `worldToCellDist`),
+    /// then COI occupancy of those cells (FASTER_GCO over the same stamp).
     pub fn ids_in_radius(&self, x: f32, z: f32, radius: f32) -> Vec<u32> {
         if self.object_cells.is_empty() {
             return Vec::new();
         }
-        let r = radius.max(0.0);
-        let (cx, cz) = Self::cell_coords(x, z);
-        // Callers still distance-filter; +0 keeps small radii from spanning half the map.
-        // Partial-cell margin: include one extra ring only when radius > 0.
-        let ring = if r <= 0.0 {
-            0
-        } else {
-            (r / PARTITION_CELL_SIZE_RESIDUAL).ceil() as i32
-        };
+        let keys = do_circle_fill(x, z, radius.max(0.0));
         let mut out = Vec::new();
-        for dz in -ring..=ring {
-            for dx in -ring..=ring {
-                if let Some(list) = self.cells.get(&(cx + dx, cz + dz)) {
-                    out.extend(list.iter().copied());
-                }
+        for key in keys {
+            if let Some(list) = self.cells.get(&key) {
+                out.extend(list.iter().copied());
             }
         }
         out.sort_unstable();
@@ -232,6 +250,29 @@ mod tests {
         assert!(wide.contains(&2) && wide.contains(&3));
         let tight = pm.ids_in_radius(10.0, 10.0, 5.0);
         assert!(!tight.contains(&3));
+    }
+
+    #[test]
+    fn large_box_coi_shares_cells_beyond_nine_cell_ring() {
+        let mut pm = PartitionManager::new();
+        let building = HostPartitionFootprint {
+            major_radius: 80.0,
+            minor_radius: 80.0,
+            angle: 0.0,
+            is_small: false,
+            is_box: true,
+        };
+        pm.register_object_geometry(1, 0.0, 0.0, building);
+        pm.register_object_geometry(2, 80.0, 0.0, HostPartitionFootprint::small_circle(5.0));
+        // Centers are two 40wu cells apart — 9-cell from the tank center misses
+        // a selection-radius stamp of the building, but COI cells overlap.
+        let n = pm.neighbor_object_ids_of(2);
+        assert!(n.contains(&1), "hull-sharing pair must be a collide candidate");
+        let near = pm.ids_in_radius(80.0, 0.0, 15.0);
+        assert!(
+            near.contains(&1),
+            "iterate must see a structure whose hull is in range"
+        );
     }
 
     #[test]

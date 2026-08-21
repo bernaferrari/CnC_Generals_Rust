@@ -614,7 +614,9 @@ impl ScriptAction for SnapCameraAction {
         if let Ok(engine_guard) = get_script_engine().read() {
             if let Some(ref script_engine) = *engine_guard {
                 if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.reset_camera_to(target.x, target.y, target.z, 0.0) {
+                    if let Err(err) =
+                        handler.reset_camera_to(target.x, target.y, target.z, 0.0, 0.0, 0.0)
+                    {
                         log::warn!("Script action handler reset_camera_to failed: {}", err);
                     }
                 }

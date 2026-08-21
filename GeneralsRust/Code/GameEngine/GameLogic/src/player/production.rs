@@ -456,13 +456,13 @@ impl Player {
         _killer: &dyn game_engine::common::rts::player::BountyObject,
         victim: &dyn game_engine::common::rts::player::BountyObject,
     ) -> Int {
-        // C++ line 1972: Get victim's build cost for bounty calculation
-        let killer_cost = victim.get_build_cost();
-
-        // C++ line 1973: Under construction objects don't give bounty
+        // C++ Player.cpp:2406-2407: no bounty for under-construction victims.
         if victim.is_under_construction() {
             return 0;
         }
+
+        // C++ Player.cpp:2409 calcCostToBuild(victim controlling player).
+        let killer_cost = victim.calc_cost_to_build();
 
         self.do_bounty_for_kill(killer_cost)
     }

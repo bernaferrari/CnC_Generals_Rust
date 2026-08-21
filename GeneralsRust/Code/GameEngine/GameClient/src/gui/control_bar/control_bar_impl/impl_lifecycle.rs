@@ -152,8 +152,13 @@ impl ControlBar {
         }
 
         if self.science_state.is_visible {
+            if self.ui_dirty {
+                self.populate_purchase_science();
+                self.leftover_apply_purchase_science_windows();
+            }
             self.update_context_purchase_science();
         }
+
 
         self.update_flash_buttons();
 

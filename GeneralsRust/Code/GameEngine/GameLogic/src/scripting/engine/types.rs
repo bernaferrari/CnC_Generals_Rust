@@ -119,9 +119,12 @@ pub trait ScriptActionHandler: Send + Sync {
         _y: f32,
         _z: f32,
         _duration_seconds: f32,
+        _ease_in_seconds: f32,
+        _ease_out_seconds: f32,
     ) -> GameLogicResult<()> {
         Ok(())
     }
+
 
     fn zoom_camera(
         &self,
@@ -546,6 +549,11 @@ pub trait ScriptActionHandler: Send + Sync {
 
     /// C++ GameLogic::closeWindows GameLogicDispatch.cpp:202-219.
     fn close_game_windows(&self) -> GameLogicResult<()> {
+        Ok(())
+    }
+
+    /// C++ ScriptActions.cpp:5079 doSetWarehouseValue → setCashValue.
+    fn set_warehouse_value(&self, _warehouse_name: &str, _cash_value: i32) -> GameLogicResult<()> {
         Ok(())
     }
 }

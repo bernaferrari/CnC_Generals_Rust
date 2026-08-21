@@ -317,6 +317,24 @@ impl DamageFX {
         }
     }
 
+    /// Install major/minor FXList for one veterancy slot (C++ m_dfx[dt][v]).
+    pub fn set_major_minor_fx_at_level(
+        &mut self,
+        damage_type: DamageType,
+        level: usize,
+        major: Option<String>,
+        minor: Option<String>,
+        amount_for_major_fx: f32,
+    ) {
+        let type_index = self.damage_type_to_index(damage_type);
+        if type_index >= DAMAGE_NUM_TYPES || level >= LEVEL_COUNT {
+            return;
+        }
+        self.dfx[type_index][level].major_damage_fx_list = major;
+        self.dfx[type_index][level].minor_damage_fx_list = minor;
+        self.dfx[type_index][level].amount_for_major_fx = amount_for_major_fx;
+    }
+
     /// Convert damage type to array index
     fn damage_type_to_index(&self, damage_type: DamageType) -> usize {
         damage_type as usize

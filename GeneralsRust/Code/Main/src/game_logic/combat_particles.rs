@@ -38,6 +38,8 @@ pub enum CombatParticleKind {
     BodyFire,
     /// C++ ActiveBody AutoSmoke bone smoke (SMOKESMALL/MEDIUM/LARGE).
     BodySmoke,
+    /// C++ SpecialAbilityUpdate DisableFX BinaryShower (not ParticleSysBone).
+    DisableFx,
 }
 
 impl CombatParticleKind {
@@ -56,6 +58,7 @@ impl CombatParticleKind {
             CombatParticleKind::ParticleSysBone => "SmokePlume",
             CombatParticleKind::BodyFire => "FireSmall",
             CombatParticleKind::BodySmoke => "SmokeSmall",
+            CombatParticleKind::DisableFx => "DisabledEffectBinaryShower0",
         }
     }
 }
@@ -852,30 +855,42 @@ impl CombatParticleRegistry {
         frame: u32,
         template_name: &str,
     ) -> Option<u32> {
-        let template_name = usable_particle_template_name(template_name)?;
-        let id = self.spawn_with_template(
-            CombatParticleKind::ParticleSysBone,
-            template_name.to_string(),
+        self.attach_named_to_object_local(
+            owner,
             position,
+            0.0,
+            Vec3::ZERO,
             frame,
-            Some(owner),
-            None,
-        );
-        let leftover_id = gamelogic::helpers::attach_particle_system_to_object(
             template_name,
-            owner.0,
-        );
-        if leftover_id.is_some() {
-            if let Some(entry) = self.systems.get_mut(&id) {
-                if entry.client_system_id.is_none() {
-                    entry.client_system_id = leftover_id;
-                    if let Some(client_id) = leftover_id {
-                        self.client_system_ids.insert(client_id);
-                    }
-                }
-            }
-        }
-        Some(id)
+            CombatParticleKind::ParticleSysBone,
+            None,
+        )
+    }
+
+    /// C++ create + `setPosition` (local) + `attachToObject` [+ `setSystemLifetime`].
+    pub fn attach_named_to_object_local(
+        &mut self,
+        owner: ObjectId,
+        origin: Vec3,
+        yaw: f32,
+        local: Vec3,
+        frame: u32,
+        template_name: &str,
+        kind: CombatParticleKind,
+        lifetime: Option<u32>,
+    ) -> Option<u32> {
+        let template_name = usable_particle_template_name(template_name)?;
+        Some(spawn_attached_system(
+            self,
+            kind,
+            template_name,
+            owner,
+            origin,
+            yaw,
+            local,
+            frame,
+            lifetime,
+        ))
     }
 
     /// C++ `W3DModelDraw::recalcBonesForClientParticleSystems` for one object.
@@ -885,11 +900,17 @@ impl CombatParticleRegistry {
         owner: ObjectId,
         position: Vec3,
         bones: &[(String, String)],
+        pose: BodyAutoParticlePose<'_>,
     ) {
-        let wanted: HashSet<String> = bones
+        let wanted: Vec<(String, String)> = bones
             .iter()
-            .filter_map(|(_, system)| usable_particle_template_name(system).map(str::to_string))
+            .filter_map(|(bone, system)| {
+                usable_particle_template_name(system)
+                    .map(|system| (bone.clone(), system.to_string()))
+            })
             .collect();
+        let wanted_templates: HashSet<String> =
+            wanted.iter().map(|(_, system)| system.clone()).collect();
         let stale: Vec<u32> = self
             .systems
             .values()
@@ -897,32 +918,39 @@ impl CombatParticleRegistry {
                 entry.active
                     && entry.kind == CombatParticleKind::ParticleSysBone
                     && entry.source_object == Some(owner)
-                    && !wanted.contains(&entry.template_name)
+                    && !wanted_templates.contains(&entry.template_name)
             })
             .map(|entry| entry.id)
             .collect();
         for id in stale {
             self.deactivate(id);
         }
-        for system in wanted {
+        for (bone, system) in wanted {
+            let local = particle_sys_bone_local(&pose, &bone);
+            let world = rotate_yaw_host(position, pose.yaw, local);
             let existing = self.systems.values().find_map(|entry| {
                 (entry.active
                     && entry.kind == CombatParticleKind::ParticleSysBone
                     && entry.source_object == Some(owner)
                     && entry.template_name == system)
-                    .then_some((entry.id, entry.client_system_id))
+                    .then_some(entry.id)
             });
-            if let Some((id, client_id)) = existing {
-                if let Some(client_id) = client_id {
-                    if self.client_system_ids.contains(&client_id) {
-                        mirror_update_client_system_position(client_id, position);
-                    }
-                }
+            if let Some(id) = existing {
                 if let Some(entry) = self.systems.get_mut(&id) {
-                    entry.position = position;
+                    entry.attach_offset = local;
+                    entry.position = world;
                 }
             } else {
-                let _ = self.attach_named_to_object(owner, position, frame, &system);
+                let _ = self.attach_named_to_object_local(
+                    owner,
+                    position,
+                    pose.yaw,
+                    local,
+                    frame,
+                    &system,
+                    CombatParticleKind::ParticleSysBone,
+                    None,
+                );
             }
         }
     }
@@ -943,7 +971,8 @@ impl CombatParticleRegistry {
             frame,
             body_ordinal,
             aflame,
-            |prefix, max| body_prefix_bone_worlds(pose.model, pose.scale, position, pose.yaw, prefix, max),
+            pose.yaw,
+            |prefix, max| body_prefix_bone_locals(pose.model, pose.scale, prefix, max),
         );
     }
 
@@ -963,11 +992,14 @@ impl CombatParticleRegistry {
             frame,
             body_ordinal,
             aflame,
+            0.0,
             |prefix, _max| {
                 prefix_bones
                     .iter()
                     .find(|(name, _)| name.eq_ignore_ascii_case(prefix))
-                    .map(|(_, bones)| bones.clone())
+                    .map(|(_, bones)| {
+                        bones.iter().map(|world| *world - position).collect()
+                    })
                     .unwrap_or_default()
             },
         );
@@ -980,7 +1012,8 @@ impl CombatParticleRegistry {
         frame: u32,
         body_ordinal: u8,
         aflame: bool,
-        resolve_bones: impl Fn(&str, usize) -> Vec<Vec3>,
+        yaw: f32,
+        resolve_locals: impl Fn(&str, usize) -> Vec<Vec3>,
     ) {
         let stale: Vec<u32> = self
             .systems
@@ -1006,16 +1039,17 @@ impl CombatParticleRegistry {
             let Some(template) = usable_particle_template_name(spec.template.as_str()) else {
                 continue;
             };
-            let bones = resolve_bones(spec.prefix.as_str(), MAX_BODY_PARTICLE_BONES);
+            let locals = resolve_locals(spec.prefix.as_str(), MAX_BODY_PARTICLE_BONES);
             spawn_body_systems_on_bones(
                 self,
                 spec.kind,
                 template,
                 owner,
                 position,
+                yaw,
                 frame,
                 spec.max_systems,
-                &bones,
+                &locals,
             );
         }
     }
@@ -1031,33 +1065,27 @@ impl CombatParticleRegistry {
         })
     }
 
-    pub fn follow_attached_body_particles(&mut self, owner: ObjectId, position: Vec3) {
-        let ids: Vec<(u32, Option<u32>)> = self
+    pub fn follow_attached_body_particles(&mut self, owner: ObjectId, position: Vec3, yaw: f32) {
+        let ids: Vec<u32> = self
             .systems
             .values()
             .filter(|entry| {
                 entry.active
                     && matches!(
                         entry.kind,
-                        CombatParticleKind::BodyFire | CombatParticleKind::BodySmoke
+                        CombatParticleKind::BodyFire
+                            | CombatParticleKind::BodySmoke
+                            | CombatParticleKind::DisableFx
                     )
                     && entry.source_object == Some(owner)
             })
-            .map(|entry| (entry.id, entry.client_system_id))
+            .map(|entry| entry.id)
             .collect();
-        for (id, client_id) in ids {
-            let world = {
-                let Some(entry) = self.systems.get_mut(&id) else {
-                    continue;
-                };
-                let world = position + entry.attach_offset;
-                entry.position = world;
-                world
-            };
-            if let Some(client_id) = client_id {
-                if self.client_system_ids.contains(&client_id) {
-                    mirror_update_client_system_position(client_id, world);
-                }
+        for id in ids {
+            if let Some(entry) = self.systems.get_mut(&id) {
+                // C++ `ParticleSystem::update`: parentXfrm * local. Do not write
+                // world into leftover `setPosition` (that field is local).
+                entry.position = rotate_yaw_host(position, yaw, entry.attach_offset);
             }
         }
     }
@@ -1319,6 +1347,10 @@ fn cpp_bone_to_host_local(bone: gamelogic::common::Coord3D) -> Vec3 {
     Vec3::new(bone.x, bone.z, bone.y)
 }
 
+fn host_local_to_cpp(local: Vec3) -> gamelogic::common::Coord3D {
+    gamelogic::common::Coord3D::new(local.x, local.z, local.y)
+}
+
 fn rotate_yaw_host(origin: Vec3, yaw: f32, local: Vec3) -> Vec3 {
     let (sin, cos) = yaw.sin_cos();
     Vec3::new(
@@ -1328,15 +1360,16 @@ fn rotate_yaw_host(origin: Vec3, yaw: f32, local: Vec3) -> Vec3 {
     )
 }
 
-/// C++ `getMultiLogicalBonePosition(prefix, MAX_BONES)` then world-transform.
-pub fn body_prefix_bone_worlds(
-    model: &str,
-    scale: f32,
-    origin: Vec3,
-    yaw: f32,
-    prefix: &str,
-    max: usize,
-) -> Vec<Vec3> {
+fn particle_sys_bone_local(pose: &BodyAutoParticlePose<'_>, bone: &str) -> Vec3 {
+    if bone.is_empty() || bone.eq_ignore_ascii_case("none") || pose.model.is_empty() {
+        return Vec3::ZERO;
+    }
+    gamelogic::object::draw::lookup_pristine_bone_translation(pose.model, pose.scale, bone)
+        .map(cpp_bone_to_host_local)
+        .unwrap_or(Vec3::ZERO)
+}
+
+fn body_prefix_bone_locals(model: &str, scale: f32, prefix: &str, max: usize) -> Vec<Vec3> {
     if prefix.is_empty() || max == 0 {
         return Vec::new();
     }
@@ -1348,13 +1381,68 @@ pub fn body_prefix_bone_worlds(
         else {
             break;
         };
-        out.push(rotate_yaw_host(
-            origin,
-            yaw,
-            cpp_bone_to_host_local(local),
-        ));
+        out.push(cpp_bone_to_host_local(local));
     }
     out
+}
+
+/// C++ `getMultiLogicalBonePosition(prefix, MAX_BONES)` then world-transform.
+pub fn body_prefix_bone_worlds(
+    model: &str,
+    scale: f32,
+    origin: Vec3,
+    yaw: f32,
+    prefix: &str,
+    max: usize,
+) -> Vec<Vec3> {
+    body_prefix_bone_locals(model, scale, prefix, max)
+        .into_iter()
+        .map(|local| rotate_yaw_host(origin, yaw, local))
+        .collect()
+}
+
+/// C++ create + local `setPosition` + attach. Never an unattached xyz preset.
+fn spawn_attached_system(
+    registry: &mut CombatParticleRegistry,
+    kind: CombatParticleKind,
+    template: &str,
+    owner: ObjectId,
+    origin: Vec3,
+    yaw: f32,
+    local: Vec3,
+    frame: u32,
+    lifetime: Option<u32>,
+) -> u32 {
+    let world = rotate_yaw_host(origin, yaw, local);
+    let id = registry.next_id;
+    registry.next_id = registry.next_id.saturating_add(1).max(1);
+    let cpp_local = host_local_to_cpp(local);
+    let leftover_id = gamelogic::helpers::attach_particle_system_to_object_local(
+        template,
+        owner.0,
+        Some(&cpp_local),
+        lifetime,
+    );
+    if let Some(client_id) = leftover_id {
+        registry.client_system_ids.insert(client_id);
+    }
+    let entry = CombatParticleSystemEntry {
+        id,
+        kind,
+        template_name: template.to_string(),
+        position: world,
+        source_object: Some(owner),
+        target_object: None,
+        spawned_frame: frame,
+        active: true,
+        client_system_id: leftover_id,
+        fx_list_name: String::new(),
+        ocl_list_name: String::new(),
+        attach_offset: local,
+    };
+    registry.systems.insert(id, entry);
+    registry.spawned_this_frame.push(id);
+    id
 }
 
 /// C++ `ActiveBody::createParticleSystems` random unused-bone pick.
@@ -1364,14 +1452,15 @@ fn spawn_body_systems_on_bones(
     template: &str,
     owner: ObjectId,
     object_origin: Vec3,
+    yaw: f32,
     frame: u32,
     max_systems: i32,
-    bone_worlds: &[Vec3],
+    bone_locals: &[Vec3],
 ) {
-    if max_systems <= 0 || bone_worlds.is_empty() {
+    if max_systems <= 0 || bone_locals.is_empty() {
         return;
     }
-    let num_bones = bone_worlds.len();
+    let num_bones = bone_locals.len();
     let target_count = usize::min(max_systems as usize, num_bones);
     let mut used = vec![false; num_bones];
     for i in 0..target_count {
@@ -1394,30 +1483,17 @@ fn spawn_body_systems_on_bones(
             continue;
         };
         used[bone_index] = true;
-        let world = bone_worlds[bone_index];
-        let id = registry.spawn_with_template(
+        spawn_attached_system(
+            registry,
             kind,
-            template.to_string(),
-            world,
+            template,
+            owner,
+            object_origin,
+            yaw,
+            bone_locals[bone_index],
             frame,
-            Some(owner),
             None,
         );
-        if let Some(entry) = registry.systems.get_mut(&id) {
-            entry.attach_offset = world - object_origin;
-        }
-        let leftover_id =
-            gamelogic::helpers::attach_particle_system_to_object(template, owner.0);
-        if leftover_id.is_some() {
-            if let Some(entry) = registry.systems.get_mut(&id) {
-                if entry.client_system_id.is_none() {
-                    entry.client_system_id = leftover_id;
-                    if let Some(client_id) = leftover_id {
-                        registry.client_system_ids.insert(client_id);
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -1844,6 +1920,7 @@ mod tests {
             owner,
             pos,
             &[("exhaust01".to_string(), "DieselSmoke".to_string())],
+            BodyAutoParticlePose::new("", 1.0, 0.0),
         );
         let bones = reg.systems_of_kind(CombatParticleKind::ParticleSysBone);
         assert_eq!(bones.len(), 1);
@@ -1934,7 +2011,7 @@ mod tests {
         );
 
         let moved = pos + Vec3::new(10.0, 0.0, 0.0);
-        reg.follow_attached_body_particles(owner, moved);
+        reg.follow_attached_body_particles(owner, moved, 0.0);
         let followed = reg
             .systems_of_kind(CombatParticleKind::BodyFire)
             .into_iter()
@@ -1972,5 +2049,100 @@ mod tests {
             .any(|(_, system)| system == "RepairCloud"));
         let frenzy = particle_sys_bones_for_template("Frenzy_InvisibleMarker", 0);
         assert!(frenzy.iter().any(|(_, system)| system == "FrenzyCloud"));
+    }
+
+    #[test]
+    fn particle_sys_bone_sits_on_local_offset_not_origin() {
+        let mut reg = CombatParticleRegistry::new();
+        let owner = ObjectId(21);
+        let origin = Vec3::new(10.0, 0.0, 4.0);
+        let local = Vec3::new(3.0, 2.0, 1.0);
+        let id = reg
+            .attach_named_to_object_local(
+                owner,
+                origin,
+                0.0,
+                local,
+                1,
+                "DieselSmoke",
+                CombatParticleKind::ParticleSysBone,
+                None,
+            )
+            .expect("bone system");
+        let entry = reg.get(id).expect("entry");
+        assert!((entry.attach_offset - local).length() < 0.01);
+        assert!((entry.position - (origin + local)).length() < 0.01);
+        assert!((entry.position - origin).length() > 0.5);
+    }
+
+    #[test]
+    fn disable_fx_is_not_culled_as_particle_sys_bone() {
+        let mut reg = CombatParticleRegistry::new();
+        let victim = ObjectId(9);
+        let origin = Vec3::new(5.0, 0.0, 5.0);
+        let local = Vec3::new(2.0, 0.0, 1.0);
+        let id = reg
+            .attach_named_to_object_local(
+                victim,
+                origin,
+                0.0,
+                local,
+                3,
+                "DisabledEffectBinaryShower0",
+                CombatParticleKind::DisableFx,
+                Some(120),
+            )
+            .expect("disable fx");
+        assert!(reg.get(id).expect("entry").active);
+        reg.sync_particle_sys_bones(
+            4,
+            victim,
+            origin,
+            &[],
+            BodyAutoParticlePose::new("", 1.0, 0.0),
+        );
+        assert!(
+            reg.get(id).expect("kept").active,
+            "DisableFX must not be culled as a stale ParticleSysBone"
+        );
+        assert_eq!(
+            reg.systems_of_kind(CombatParticleKind::ParticleSysBone).len(),
+            0
+        );
+    }
+
+    #[test]
+    fn attached_fire_follows_parent_times_local_yaw() {
+        let mut reg = CombatParticleRegistry::new();
+        let owner = ObjectId(3);
+        let origin = Vec3::new(0.0, 0.0, 0.0);
+        let fire_bone = Vec3::new(5.0, 2.0, 0.0);
+        reg.replace_body_auto_particles_with_bones(
+            owner,
+            origin,
+            1,
+            1,
+            false,
+            &[("FIRESMALL".to_string(), vec![fire_bone])],
+        );
+        let yaw = std::f32::consts::FRAC_PI_2;
+        reg.follow_attached_body_particles(owner, origin, yaw);
+        let fire = reg
+            .systems_of_kind(CombatParticleKind::BodyFire)
+            .into_iter()
+            .next()
+            .expect("fire");
+        let expected = rotate_yaw_host(origin, yaw, fire_bone);
+        assert!(
+            (fire.position - expected).length() < 0.01,
+            "fire must rotate with hull, got {:?} expected {:?}",
+            fire.position,
+            expected
+        );
+        assert!(
+            (fire.position - fire_bone).length() > 0.5,
+            "world translation follow would stay at {:?}",
+            fire_bone
+        );
     }
 }

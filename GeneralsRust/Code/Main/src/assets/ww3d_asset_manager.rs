@@ -182,6 +182,28 @@ impl WW3DAssetManager {
             } else {
                 raw
             }
+        } else if !Self::is_default_thing_template_name(name) {
+            // C++ ThingFactory::newTemplate copies DefaultThingTemplate
+            // into every new object before parse. ChildObject/ObjectReskin
+            // already inherit that copy through their named parent.
+            if let Some(default_name) = raw_definitions
+                .keys()
+                .find(|key| Self::is_default_thing_template_name(key))
+                .cloned()
+            {
+                if let Some(default) = Self::resolve_inherited_definition(
+                    &default_name,
+                    raw_definitions,
+                    resolved_definitions,
+                    stack,
+                ) {
+                    Self::merge_default_thing_template(default, raw)
+                } else {
+                    raw
+                }
+            } else {
+                raw
+            }
         } else {
             raw
         };
@@ -307,12 +329,109 @@ impl WW3DAssetManager {
         parent
     }
 
+    fn is_default_thing_template_name(name: &str) -> bool {
+        name.eq_ignore_ascii_case("DefaultThingTemplate")
+    }
+
+    fn is_default_object_ini(path: &str) -> bool {
+        path.replace('\\', "/")
+            .eq_ignore_ascii_case("Data/INI/Default/Object.ini")
+    }
+
+    /// Copy DefaultThingTemplate scalars/collections the way C++
+    /// `ThingFactory::newTemplate` does (`*newTemplate = *defaultT`).
+    ///
+    /// This is not ChildObject module merge: default DestroyDie / InactiveBody
+    /// / W3DDefaultDraw must not append onto every authored object. Inheritable
+    /// AutoHeal and Overrideable StealthUpdate stay on leftover ThingFactory.
+    fn merge_default_thing_template(
+        default: ObjectDefinition,
+        mut child: ObjectDefinition,
+    ) -> ObjectDefinition {
+        child.attributes = Self::overlay_ini_attributes(default.attributes, child.attributes);
+
+        if child.weapon_sets.is_empty() {
+            child.weapon_sets = default.weapon_sets;
+            if child.primary_weapon.is_none() {
+                child.primary_weapon = default.primary_weapon;
+            }
+            if child.secondary_weapon.is_none() {
+                child.secondary_weapon = default.secondary_weapon;
+            }
+            if child.tertiary_weapon.is_none() {
+                child.tertiary_weapon = default.tertiary_weapon;
+            }
+        }
+        if child.armor_sets.is_empty() {
+            child.armor_sets = default.armor_sets;
+            if child.armor_type.is_none() {
+                child.armor_type = default.armor_type;
+            }
+        }
+        if child.hit_points.is_none() {
+            child.hit_points = default.hit_points;
+        }
+        if !child.scale_was_specified {
+            child.scale = default.scale;
+            child.scale_was_specified = default.scale_was_specified;
+        }
+        if child.owner.is_none() {
+            child.owner = default.owner;
+        }
+        if child.subdual_damage_cap.is_none() {
+            child.subdual_damage_cap = default.subdual_damage_cap;
+        }
+        if child.subdual_heal_rate_frames.is_none() {
+            child.subdual_heal_rate_frames = default.subdual_heal_rate_frames;
+        }
+        if child.subdual_heal_amount.is_none() {
+            child.subdual_heal_amount = default.subdual_heal_amount;
+        }
+        if child.locomotor_sets.is_empty() {
+            child.locomotor_sets = default.locomotor_sets;
+        }
+        child
+    }
+
+    fn overlay_ini_attributes(
+        mut base: HashMap<String, String>,
+        overlay: HashMap<String, String>,
+    ) -> HashMap<String, String> {
+        for (key, value) in overlay {
+            if let Some(existing) = base
+                .keys()
+                .find(|existing| existing.eq_ignore_ascii_case(&key))
+                .cloned()
+            {
+                base.remove(&existing);
+            }
+            base.insert(key, value);
+        }
+        base
+    }
+
     fn discover_object_ini_files(archive_system: &ArchiveFileSystem) -> Vec<String> {
-        let mut discovered: Vec<String> = archive_system
-            .list_all_files()
+        Self::select_catalogue_object_ini_files(archive_system.list_all_files())
+    }
+
+    /// C++ `GameEngine.cpp:458` loads `Data\\INI\\Default\\Object.ini` first,
+    /// then `Data\\INI\\Object`. Live catalogue also keeps `crate.ini`.
+    fn select_catalogue_object_ini_files<I, S>(paths: I) -> Vec<String>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let mut default_object_ini = None;
+        let mut discovered: Vec<String> = paths
             .into_iter()
-            .map(|path| path.replace('\\', "/"))
+            .map(|path| path.as_ref().replace('\\', "/"))
             .filter(|path| {
+                if Self::is_default_object_ini(path) {
+                    if default_object_ini.is_none() {
+                        default_object_ini = Some(path.clone());
+                    }
+                    return false;
+                }
                 let normalized = path.to_ascii_lowercase();
                 (normalized.starts_with("data/ini/object/") && normalized.ends_with(".ini"))
                     || normalized == "data/ini/crate.ini"
@@ -322,6 +441,11 @@ impl WW3DAssetManager {
         discovered.sort_by_key(|path| path.to_ascii_lowercase());
         discovered.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
 
+        discovered.insert(
+            0,
+            default_object_ini
+                .unwrap_or_else(|| "Data/INI/Default/Object.ini".to_string()),
+        );
         discovered
     }
 
@@ -742,4 +866,124 @@ End
             "a new tag appends after inherited modules"
         );
     }
+
+
+    #[test]
+    fn catalogue_discovery_loads_default_object_ini_first() {
+        let discovered = WW3DAssetManager::select_catalogue_object_ini_files([
+            "Data/INI/Object/America.ini",
+            "Data/INI/Crate.ini",
+            r"Data\INI\Default\Object.ini",
+            "Data/INI/Object/China.ini",
+            "Data/INI/Weapon.ini",
+        ]);
+        assert_eq!(
+            discovered[0].replace('\\', "/").to_ascii_lowercase(),
+            "data/ini/default/object.ini"
+        );
+        assert!(discovered
+            .iter()
+            .any(|path| path.eq_ignore_ascii_case("Data/INI/Crate.ini")));
+        assert!(discovered
+            .iter()
+            .any(|path| path.eq_ignore_ascii_case("Data/INI/Object/America.ini")));
+        assert!(!discovered
+            .iter()
+            .any(|path| path.to_ascii_lowercase().contains("weapon.ini")));
+    }
+
+    #[test]
+    fn catalogue_discovery_requests_default_object_ini_even_when_unlistable() {
+        let discovered = WW3DAssetManager::select_catalogue_object_ini_files([
+            "Data/INI/Object/America.ini",
+        ]);
+        assert_eq!(discovered[0], "Data/INI/Default/Object.ini");
+    }
+
+    #[test]
+    fn unauthored_object_copies_default_thing_template_without_default_modules() {
+        let source = r#"
+Object DefaultThingTemplate
+  VisionRange = 0.0
+  Geometry = SPHERE
+  GeometryMajorRadius = 1.0
+  GeometryIsSmall = Yes
+  Scale = 1.0
+  Shadow = NONE
+  TransportSlotCount = 0
+  EnergyProduction = 0
+  WeaponSet
+    Conditions = None
+    Weapon = PRIMARY None
+    Weapon = SECONDARY None
+    Weapon = TERTIARY None
+  End
+  ArmorSet
+    Conditions = None
+    Armor = NoArmor
+    DamageFX = None
+  End
+  Behavior = DestroyDie ModuleTag_DefaultDestroyDie
+  End
+End
+
+Object BareUnit
+  DisplayName = BARE
+  VisionRange = 150.0
+End
+
+Object UnauthoredUnit
+  DisplayName = UNAUTHORED
+End
+"#;
+        let mut parser = IniParser::new();
+        parser
+            .parse_ini_content(source, "default_thing_template.ini")
+            .expect("parse default + objects");
+        let raw: HashMap<String, ObjectDefinition> = parser
+            .get_all_definitions()
+            .iter()
+            .map(|(name, definition)| (name.clone(), definition.clone()))
+            .collect();
+        let mut resolved = HashMap::new();
+        let mut stack = HashSet::new();
+        let authored = WW3DAssetManager::resolve_inherited_definition(
+            "BareUnit",
+            &raw,
+            &mut resolved,
+            &mut stack,
+        )
+        .expect("BareUnit");
+        let unauthored = WW3DAssetManager::resolve_inherited_definition(
+            "UnauthoredUnit",
+            &raw,
+            &mut resolved,
+            &mut stack,
+        )
+        .expect("UnauthoredUnit");
+
+        let attr = |definition: &ObjectDefinition, key: &str| {
+            definition.attributes.iter().find_map(|(name, value)| {
+                name.eq_ignore_ascii_case(key).then(|| value.as_str())
+            })
+        };
+
+        assert_eq!(attr(&authored, "visionrange"), Some("150.0"));
+        assert_eq!(attr(&authored, "geometry"), Some("SPHERE"));
+        assert_eq!(attr(&authored, "geometryissmall"), Some("Yes"));
+        assert_eq!(attr(&unauthored, "visionrange"), Some("0.0"));
+        assert_eq!(attr(&unauthored, "shadow"), Some("NONE"));
+        assert_eq!(attr(&unauthored, "transportslotcount"), Some("0"));
+        assert_eq!(attr(&unauthored, "energyproduction"), Some("0"));
+        assert_eq!(unauthored.weapon_sets.len(), 1);
+        assert_eq!(unauthored.base_weapon_name(0), None);
+        assert_eq!(unauthored.armor_sets.len(), 1);
+        assert!(
+            unauthored.behavior_modules.is_empty(),
+            "Default DestroyDie must not append onto an object that never authored modules"
+        );
+        assert!(authored.behavior_modules.is_empty());
+    }
 }
+
+

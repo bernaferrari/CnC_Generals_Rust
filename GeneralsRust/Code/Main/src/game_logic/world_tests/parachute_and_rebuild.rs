@@ -3627,16 +3627,25 @@ fn early_leaflet_drop_queues_same_delay_residual() {
 }
 
 #[test]
-fn host_upgrade_complete_fanaticism_maps_to_nationalism() {
+fn host_upgrade_complete_fanaticism_does_not_map_to_nationalism() {
+    use crate::game_logic::host_battlemaster::{
+        leftover_horde_decal_type, leftover_horde_fanaticism_bonus, TERRAIN_DECAL_HORDE,
+        UPGRADE_FANATICISM,
+    };
     use crate::game_logic::host_upgrades::HostUpgradeKind;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     assert_eq!(
         HostUpgradeKind::from_name("Upgrade_Fanaticism"),
-        HostUpgradeKind::Nationalism
+        HostUpgradeKind::Fanaticism
     );
     assert_eq!(
         HostUpgradeKind::from_name("Upgrade_ChinaNationalism"),
         HostUpgradeKind::Nationalism
+    );
+    assert!(!leftover_horde_fanaticism_bonus(false, true));
+    assert_eq!(
+        leftover_horde_decal_type(true, false, true),
+        TERRAIN_DECAL_HORDE
     );
 
     let mut logic = GameLogic::new();
@@ -3653,14 +3662,14 @@ fn host_upgrade_complete_fanaticism_maps_to_nationalism() {
             glam::Vec3::new(0.0, 0.0, 0.0),
         )
         .expect("rg");
-    // Fanaticism is infantry-general Nationalism residual (same apply path).
-    let n = logic.apply_nationalism_to_team(Team::China, "Upgrade_Fanaticism");
-    assert!(n >= 1, "fanaticism nationalism residual n={n}");
-    assert!(logic
-        .host_object(id)
-        .unwrap()
-        .has_upgrade_tag("Upgrade_Fanaticism"));
+    let n = logic.apply_fanaticism_to_team(Team::China, UPGRADE_FANATICISM);
+    assert!(n >= 1, "fanaticism tag residual n={n}");
+    let obj = logic.host_object(id).unwrap();
+    assert!(obj.has_upgrade_tag(UPGRADE_FANATICISM));
+    assert!(!obj.weapon_bonus_nationalism);
+    assert!(!obj.weapon_bonus_fanaticism);
 }
+
 
 #[test]
 fn superweapon_cash_hack_science_tier_steals_amount() {
@@ -4476,6 +4485,44 @@ fn host_upgrade_complete_advanced_training_and_tactical_nuke_mig() {
         .host_object(mid)
         .unwrap()
         .has_upgrade_tag("Upgrade_ChinaTacticalNukeMig"));
+}
+
+#[test]
+fn newly_trained_unit_gets_advanced_training_scalar() {
+    // C++ ExperienceScalarUpgrade on create after Upgrade_AmericaAdvancedTraining.
+    use crate::game_logic::host_unit_training::UPGRADE_AMERICA_ADVANCED_TRAINING;
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::USA, "USA", true));
+    logic
+        .players
+        .get_mut(&0)
+        .unwrap()
+        .unlocked_sciences
+        .insert(UPGRADE_AMERICA_ADVANCED_TRAINING.to_string());
+
+    let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
+    ranger.add_kind_of(KindOf::Infantry).set_health(100.0);
+    logic
+        .templates
+        .insert("AmericaInfantryRanger".into(), ranger);
+
+    let rid = logic
+        .create_object(
+            "AmericaInfantryRanger",
+            Team::USA,
+            glam::Vec3::new(0.0, 0.0, 0.0),
+        )
+        .expect("ranger");
+    let obj = logic.host_object(rid).unwrap();
+    assert!(obj.has_upgrade_tag(UPGRADE_AMERICA_ADVANCED_TRAINING));
+    assert!(
+        (obj.experience_scalar - 2.0).abs() < 0.001,
+        "AddXPScalar 1.0 on 1.0 base, got {}",
+        obj.experience_scalar
+    );
 }
 
 #[test]

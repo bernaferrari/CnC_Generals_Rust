@@ -151,7 +151,8 @@ pub(crate) fn default_mood_attack_check_rate() -> u32 {
 }
 
 pub(crate) fn default_vision_range() -> f32 {
-    150.0
+    // C++ Object.cpp:270 copies ThingTemplate::m_visionRange (default 0).
+    0.0
 }
 
 fn default_true_for_auto_acquire() -> bool {
@@ -528,7 +529,8 @@ pub struct Object {
     #[serde(default)]
     pub last_bounce_fall_dy: f32,
     /// C++ PhysicsBehavior bounce AudioEventRTS name residual.
-    #[serde(default = "default_bounce_sound_name")]
+    /// Empty unless OCL/SlowDeath authored BounceSound (doBounceSound no-ops).
+    #[serde(default)]
     pub bounce_sound_name: String,
     /// Last computed bounce volume residual [0.25, 1.0] (MuLaw path).
     #[serde(default)]
@@ -2157,10 +2159,22 @@ pub struct Object {
     /// RubOffRadius honorary + leftover terrain-decal type/size/fade.
     #[serde(default)]
     pub weapon_bonus_horde: bool,
-    /// Host residual NATIONALISM weapon bonus (only while in horde + upgrade).
-    /// Fail-closed: not full Fanaticism infantry-general branch.
+    /// Host residual NATIONALISM weapon bonus (player Upgrade_Nationalism).
     #[serde(default)]
     pub weapon_bonus_nationalism: bool,
+    /// C++ WEAPONBONUSCONDITION_FANATICISM — only while NATIONALISM is set.
+    #[serde(default)]
+    pub weapon_bonus_fanaticism: bool,
+    /// C++ HordeUpdate::m_lastHordeRefreshFrame.
+    #[serde(default)]
+    pub last_horde_refresh_frame: u32,
+    /// C++ constructor first-wake + infantry UPDATE_SLEEP(UpdateRate).
+    #[serde(default)]
+    pub horde_next_wake_frame: u32,
+    /// True after the first HordeUpdate wake on this object.
+    #[serde(default)]
+    pub horde_wake_initialized: bool,
+
 
     /// Host residual Frenzy / Rage temporary attack buff
     /// (C++ WEAPONBONUSCONDITION_FRENZY_ONE/TWO/THREE via doTempWeaponBonus).
@@ -2655,16 +2669,12 @@ pub const MAX_FRICTION_RESIDUAL: f32 = 0.99;
 pub const PATHFIND_CELL_SIZE_F_RESIDUAL: f32 = 10.0;
 /// C++ PhysicsBehavior isVerySmall3D residual threshold.
 pub const VERY_SMALL_VEL: f32 = 0.01;
-/// Host residual bounce-land AudioEventRTS name (fail-closed default).
+/// Authored BounceSound event name used by OCL debris / tests. Not a default.
 pub const BOUNCE_SOUND_DEFAULT: &str = "BodyFallGeneric";
 /// C++ doBounceSound NORMAL_VEL_Z residual.
 pub const BOUNCE_NORMAL_VEL_Z: f32 = 0.25;
 /// C++ doBounceSound NORMAL_MASS residual.
 pub const BOUNCE_NORMAL_MASS: f32 = 50.0;
-
-fn default_bounce_sound_name() -> String {
-    BOUNCE_SOUND_DEFAULT.to_string()
-}
 
 fn default_crushable_level() -> u8 {
     255
@@ -2783,6 +2793,7 @@ pub use entity_lifecycle_envelope::{
 pub use entity_lifecycle_tags::INVENTORY_TAGS;
 
 pub use barrels::WeaponBarrelState;
+pub use damage::{prime_live_damage_context, set_pending_damage_status_type};
 pub use visual::ObjectVisualInfo;
 pub use stealth::{
     drawable_explicit_fade_opacity, drawable_status_tint_rgb, friendly_stealth_pulse_opacity,

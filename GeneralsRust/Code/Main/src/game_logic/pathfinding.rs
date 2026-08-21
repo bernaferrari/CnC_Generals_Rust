@@ -2778,11 +2778,9 @@ impl PathfindingSystem {
 
     /// Rebuild structure static obstacles from live objects (map load / bulk sync).
     /// Does not clear terrain slope blocks — only ORs structure footprints.
+    /// C++ `addObjectToPathfindMap` includes scaffolds (DozerAIUpdate.cpp:1698-1699).
     pub fn apply_structure_static_blocks(&mut self, objects: &HashMap<ObjectId, Object>) {
         for obj in objects.values() {
-            if obj.status.under_construction {
-                continue;
-            }
             let rubble = PathfindingGrid::object_is_pathfind_rubble(obj);
             if !obj.is_alive() && !rubble {
                 continue;
@@ -4706,6 +4704,50 @@ mod tests {
             "INI FenceWidth must classify a crushable fence strip"
         );
         assert!(sys.grid.cell_passable_for(fence_cell, SURFACE_GROUND, true));
+    }
+
+    /// hq-qbvcc: scaffolds classify as path obstacles at placement.
+    #[test]
+    fn under_construction_structure_blocks_path() {
+        use crate::game_logic::{GameLogic, KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut sys = PathfindingSystem::new(200.0, 200.0);
+        let mut objects = HashMap::new();
+        let mut tmpl = ThingTemplate::new("AmericaWarFactory");
+        tmpl.add_kind_of(KindOf::Structure);
+        let mut factory = Object::new_under_construction(tmpl, ObjectId(4), Team::USA);
+        factory.set_position(Vec3::new(80.0, 0.0, 80.0));
+        factory.selection_radius = 20.0;
+        assert!(factory.status.under_construction);
+        objects.insert(factory.id, factory);
+        sys.apply_structure_static_blocks(&objects);
+        let cell = sys.grid.world_to_grid(Vec3::new(80.0, 0.0, 80.0));
+        assert!(
+            sys.grid.is_static_blocked(cell),
+            "C++ addObjectToPathfindMap at construct() must block unfinished buildings"
+        );
+
+        let mut logic = GameLogic::new();
+        let mut place = ThingTemplate::new("TestScaffoldBarracks");
+        place.add_kind_of(KindOf::Structure);
+        logic.templates.insert("TestScaffoldBarracks".into(), place);
+        let id = logic
+            .create_object_under_construction(
+                "TestScaffoldBarracks",
+                Team::USA,
+                Vec3::new(80.0, 0.0, 80.0),
+            )
+            .expect("scaffold");
+        let obj = logic.host_object(id).expect("placed");
+        assert!(obj.status.under_construction);
+        let placed = obj.get_position();
+        let placed_cell = logic.pathfinding_system.grid.world_to_grid(placed);
+        assert!(
+            logic
+                .pathfinding_system
+                .grid
+                .is_static_blocked(placed_cell),
+            "placement must stamp the scaffold footprint immediately"
+        );
     }
 
     /// hq-ah4jh: queued move must not install dest velocity before A*.

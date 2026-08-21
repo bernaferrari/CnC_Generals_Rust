@@ -2541,6 +2541,9 @@ impl TerrainLogic {
         });
         if changed {
             self.bridge_damage_states_changed = true;
+            if let Some(radar) = crate::helpers::TheRadar::get() {
+                radar.queue_terrain_refresh();
+            }
         }
     }
 

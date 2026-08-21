@@ -99,6 +99,7 @@ fn kind_to_f32(kind: crate::game_logic::combat_particles::CombatParticleKind) ->
         ParticleSysBone => 8,
         BodyFire => 9,
         BodySmoke => 10,
+        DisableFx => 11,
     }) as f32
 }
 

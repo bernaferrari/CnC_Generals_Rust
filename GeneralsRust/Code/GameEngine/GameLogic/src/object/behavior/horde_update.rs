@@ -107,7 +107,7 @@ fn parse_bool(tokens: &[&str]) -> Result<Bool, INIError> {
     INI::parse_bool(token)
 }
 
-fn horde_terrain_decal_type(
+pub fn horde_terrain_decal_type(
     is_infantry: bool,
     has_nationalism: bool,
     has_fanaticism: bool,
@@ -123,6 +123,30 @@ fn horde_terrain_decal_type(
     } else {
         TerrainDecalType::HordeVehicle
     }
+}
+
+/// C++ `W3DModelDraw::setTerrainDecal` sizes infantry rings from ShadowSize.
+pub fn leftover_infantry_horde_decal_size(shadow_size_x: Real, shadow_size_y: Real) -> Real {
+    if shadow_size_x > 0.0 {
+        shadow_size_x
+    } else {
+        shadow_size_y.max(0.0)
+    }
+}
+
+/// C++ `HordeUpdate.cpp:253` vehicle membership gate (`frame > last + UpdateRate`).
+pub fn leftover_vehicle_horde_membership_due(
+    current_frame: UnsignedInt,
+    last_horde_refresh_frame: UnsignedInt,
+    update_rate: UnsignedInt,
+) -> bool {
+    current_frame > last_horde_refresh_frame.saturating_add(update_rate)
+}
+
+/// C++ `HordeUpdate.cpp:146-147` constructor `UPDATE_SLEEP(GameLogicRandomValue(1, delay))`.
+pub fn leftover_horde_first_wake_delay(update_rate: UnsignedInt) -> UnsignedInt {
+    let delay = update_rate.max(1) as i32;
+    GameLogicRandomValue(1, delay).max(1) as UnsignedInt
 }
 
 /// C++ `HordeUpdate.cpp:362-365` join/leave fade. `None` when membership did not change.
@@ -780,6 +804,23 @@ mod tests {
             UpdateSleepTime::from_u32(30)
         );
     }
+
+    #[test]
+    fn infantry_decal_size_uses_shadow_size_not_invented_40() {
+        assert_eq!(leftover_infantry_horde_decal_size(14.0, 12.0), 14.0);
+        assert_eq!(leftover_infantry_horde_decal_size(0.0, 9.0), 9.0);
+        assert_eq!(leftover_infantry_horde_decal_size(0.0, 0.0), 0.0);
+    }
+
+    #[test]
+    fn vehicle_membership_due_matches_cpp_update_rate_gate() {
+        assert!(!leftover_vehicle_horde_membership_due(0, 0, 30));
+        assert!(!leftover_vehicle_horde_membership_due(30, 0, 30));
+        assert!(leftover_vehicle_horde_membership_due(31, 0, 30));
+        let delay = leftover_horde_first_wake_delay(30);
+        assert!(delay >= 1 && delay <= 30);
+    }
+
 
     #[test]
     fn on_drawable_bound_hides_flag_subobjects() {

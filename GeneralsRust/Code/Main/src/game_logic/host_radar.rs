@@ -24,6 +24,10 @@
 //! - Fake command centers residual-skip (`*Fake*CommandCenter*`)
 
 use serde::{Deserialize, Serialize};
+use game_engine::common::system::radar::{
+    get_radar_system, Coord3D, RadarEventType,
+};
+
 
 /// Logic frames per second (host fixed step).
 pub const RADAR_LOGIC_FPS: f32 = 30.0;
@@ -79,6 +83,59 @@ pub fn radar_ms_to_frames(ms: u32) -> u32 {
         return 0;
     }
     ((ms as f32) * RADAR_LOGIC_FPS / 1000.0).round() as u32
+}
+
+/// C++ `Radar::createEvent` default live time (Radar.cpp color table / 4s).
+pub const RADAR_EVENT_SECONDS_TO_LIVE: f32 = 4.0;
+
+/// Host world (Y-up XZ) → leftover radar plane (Z-up XY).
+pub fn host_world_to_radar_coord(pos: glam::Vec3) -> Coord3D {
+    Coord3D::new(pos.x, pos.z, pos.y)
+}
+
+pub fn pack_player_color_argb(rgb: (u8, u8, u8)) -> u32 {
+    0xFF00_0000 | ((rgb.0 as u32) << 16) | ((rgb.1 as u32) << 8) | (rgb.2 as u32)
+}
+
+/// C++ `TheRadar->createEvent` — rotating triangle + last-event (not beacon).
+pub fn host_create_radar_event(pos: glam::Vec3, event_type: RadarEventType) {
+    if let Ok(mut radar) = get_radar_system().write() {
+        radar.create_event(
+            &host_world_to_radar_coord(pos),
+            event_type,
+            RADAR_EVENT_SECONDS_TO_LIVE,
+        );
+    }
+}
+
+/// C++ `TheRadar->createPlayerEvent` (battle-plan player colors).
+pub fn host_create_player_radar_event(
+    player_color: u32,
+    pos: glam::Vec3,
+    event_type: RadarEventType,
+) {
+    if let Ok(mut radar) = get_radar_system().write() {
+        radar.create_player_event(
+            player_color,
+            &host_world_to_radar_coord(pos),
+            event_type,
+            RADAR_EVENT_SECONDS_TO_LIVE,
+        );
+    }
+}
+
+/// C++ `Radar::queueTerrainRefresh` (3s delay via leftover `update`).
+pub fn host_radar_queue_terrain_refresh() {
+    if let Ok(mut radar) = get_radar_system().write() {
+        radar.queue_terrain_refresh();
+    }
+}
+
+/// C++ `Radar::refreshTerrain` immediate rebuild (map load / wave-guide).
+pub fn host_radar_refresh_terrain() {
+    if let Ok(mut radar) = get_radar_system().write() {
+        radar.refresh_terrain();
+    }
 }
 
 /// True when template is a residual radar-providing Command Center (not fake).
@@ -253,6 +310,16 @@ mod tests {
         assert!(is_radar_van_template("TestRadarVan"));
         assert!(is_radar_provider_template("TestCommandCenter"));
         assert!(!is_radar_provider_template("TestBarracks"));
+    }
+
+    #[test]
+    fn radar_event_helpers_match_cpp_defaults() {
+        assert!((RADAR_EVENT_SECONDS_TO_LIVE - 4.0).abs() < f32::EPSILON);
+        assert_eq!(pack_player_color_argb((0x12, 0x34, 0x56)), 0xFF12_3456);
+        let loc = host_world_to_radar_coord(glam::Vec3::new(1.0, 2.0, 3.0));
+        assert!((loc.x - 1.0).abs() < f32::EPSILON);
+        assert!((loc.y - 3.0).abs() < f32::EPSILON);
+        assert!((loc.z - 2.0).abs() < f32::EPSILON);
     }
 
     #[test]

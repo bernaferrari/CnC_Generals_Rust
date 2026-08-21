@@ -22,6 +22,7 @@ struct HostRadarMapState {
     max: Coord3D,
     ready: bool,
     local_player_id: u32,
+    samples: Vec<(f32, bool)>,
 }
 
 impl HostRadarMapState {
@@ -39,7 +40,26 @@ impl HostRadarMapState {
             },
             ready: false,
             local_player_id: 0,
+            samples: Vec::new(),
         }
+    }
+
+    fn sample(&self, world_x: f32, world_y: f32) -> Option<(f32, bool)> {
+        const W: usize = 128;
+        const H: usize = 128;
+        if self.samples.len() != W * H {
+            return None;
+        }
+        let span_x = self.max.x - self.min.x;
+        let span_y = self.max.y - self.min.y;
+        if span_x <= f32::EPSILON || span_y <= f32::EPSILON {
+            return None;
+        }
+        let x = ((world_x - self.min.x) / span_x * W as f32).floor() as i32;
+        let y = ((world_y - self.min.y) / span_y * H as f32).floor() as i32;
+        let x = x.clamp(0, W as i32 - 1) as usize;
+        let y = y.clamp(0, H as i32 - 1) as usize;
+        self.samples.get(y * W + x).copied()
     }
 }
 
@@ -95,13 +115,23 @@ impl RadarMapSource for HostRadarMapSource {
         Some((guard.min, guard.max))
     }
 
-    fn sample_cell(&self, _world_x: f32, _world_y: f32) -> Option<(f32, bool)> {
+    fn sample_cell(&self, world_x: f32, world_y: f32) -> Option<(f32, bool)> {
+        if let Ok(guard) = HOST_RADAR_MAP.lock() {
+            if let Some(sample) = guard.sample(world_x, world_y) {
+                return Some(sample);
+            }
+        }
+        if let Ok(tl) = gamelogic::terrain::get_terrain_logic().try_read() {
+            let height = tl.get_ground_height(world_x, world_y, None);
+            let water = tl.is_underwater(world_x, world_y, None, None);
+            return Some((height, water));
+        }
         Some((0.0, false))
     }
 }
 
 fn pack_player_color_argb(rgb: (u8, u8, u8)) -> u32 {
-    0xFF00_0000 | ((rgb.0 as u32) << 16) | ((rgb.1 as u32) << 8) | (rgb.2 as u32)
+    crate::game_logic::host_radar::pack_player_color_argb(rgb)
 }
 
 fn host_to_radar_coord(pos: glam::Vec3) -> Coord3D {
@@ -128,18 +158,59 @@ fn store_radar_map_extent(min: glam::Vec3, max: glam::Vec3) -> Option<(Coord3D, 
     Some((lo, hi))
 }
 
-fn radar_priority_for_object(obj: &Object) -> RadarPriorityType {
-    if obj.is_kind_of(KindOf::Structure) {
-        RadarPriorityType::Structure
-    } else if obj.is_kind_of(KindOf::Infantry)
-        || obj.is_kind_of(KindOf::Vehicle)
-        || obj.is_kind_of(KindOf::Aircraft)
-        || obj.is_kind_of(KindOf::Hero)
-    {
-        RadarPriorityType::Unit
-    } else {
-        RadarPriorityType::Invalid
+fn leftover_authored_radar_priority(template_name: &str) -> Option<RadarPriorityType> {
+    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
+    let factory = guard.as_ref()?;
+    let tmpl = factory.find_template(template_name, false)?;
+    match tmpl.get_radar_priority() {
+        game_engine::common::thing::thing_template::RadarPriorityType::NotOnRadar => {
+            Some(RadarPriorityType::NotOnRadar)
+        }
+        game_engine::common::thing::thing_template::RadarPriorityType::Structure => {
+            Some(RadarPriorityType::Structure)
+        }
+        game_engine::common::thing::thing_template::RadarPriorityType::Unit => {
+            Some(RadarPriorityType::Unit)
+        }
+        game_engine::common::thing::thing_template::RadarPriorityType::LocalUnitOnly => {
+            Some(RadarPriorityType::LocalUnitOnly)
+        }
+        game_engine::common::thing::thing_template::RadarPriorityType::Invalid => None,
     }
+}
+
+fn radar_priority_for_object(obj: &Object) -> RadarPriorityType {
+    let mut priority = match obj.thing.template.radar_priority {
+        1 => RadarPriorityType::NotOnRadar,
+        2 => RadarPriorityType::Structure,
+        3 => RadarPriorityType::Unit,
+        4 => RadarPriorityType::LocalUnitOnly,
+        _ => leftover_authored_radar_priority(&obj.template_name)
+            .unwrap_or(RadarPriorityType::Invalid),
+    };
+    // C++ Object.cpp:6254-6267 infer only when template is INVALID.
+    if priority == RadarPriorityType::Invalid {
+        if obj.thing.template.garrison_contain_max.is_some() || obj.thing.template.capturable {
+            priority = RadarPriorityType::Structure;
+        }
+    }
+    // C++ Object.cpp:6270 IS_CARBOMB forces UNIT after infer.
+    if obj.is_car_bomb() {
+        priority = RadarPriorityType::Unit;
+    }
+    // Unparsed live templates have no leftover INI; keep KindOf residual.
+    if priority == RadarPriorityType::Invalid {
+        if obj.is_kind_of(KindOf::Structure) {
+            priority = RadarPriorityType::Structure;
+        } else if obj.is_kind_of(KindOf::Infantry)
+            || obj.is_kind_of(KindOf::Vehicle)
+            || obj.is_kind_of(KindOf::Aircraft)
+            || obj.is_kind_of(KindOf::Hero)
+        {
+            priority = RadarPriorityType::Unit;
+        }
+    }
+    priority
 }
 
 impl GameLogic {
@@ -253,6 +324,11 @@ impl GameLogic {
         };
         // OBJECT_STATUS_DETECTED at insert → not STEALTHLOOK_INVISIBLE.
         radar_obj.stealth_revealed = radar_obj.is_detected || radar_obj.is_disguised;
+        radar_obj.drawable_hidden = obj.drawable_hidden || obj.hijacker_in_vehicle;
+        radar_obj.hidden_by_stealth = matches!(
+            crate::game_logic::host_upgrades::HostCamoStealthLook::from_u8(obj.camo_stealth_look),
+            crate::game_logic::host_upgrades::HostCamoStealthLook::Invisible
+        );
 
         radar_obj.color = owner_color;
 
@@ -280,13 +356,68 @@ impl GameLogic {
         let Some((lo, hi)) = store_radar_map_extent(self.world_min, self.world_max) else {
             return;
         };
+        self.host_radar_rescan_terrain();
         if let Ok(mut radar) = get_radar_system().write() {
-            radar.new_map(lo, hi, &[]);
-            let _ = radar.try_new_map_from_source();
+            if !radar.try_new_map_from_source() {
+                radar.new_map(lo, hi, &[]);
+                let _ = radar.try_new_map_from_source();
+            }
         }
         let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
         for id in ids {
             self.host_radar_add_object(id);
+        }
+    }
+
+    /// Sample leftover TerrainLogic + live height into the 128x128 radar cache.
+    pub(in super::super) fn host_radar_rescan_terrain(&mut self) {
+        let (lo, hi, ready) = match HOST_RADAR_MAP.lock() {
+            Ok(guard) => (guard.min, guard.max, guard.ready),
+            Err(_) => return,
+        };
+        if !ready {
+            return;
+        }
+        let span_x = hi.x - lo.x;
+        let span_y = hi.y - lo.y;
+        if span_x <= f32::EPSILON || span_y <= f32::EPSILON {
+            return;
+        }
+        const W: u32 = 128;
+        const H: u32 = 128;
+        let x_sample = span_x / W as f32;
+        let y_sample = span_y / H as f32;
+        let mut samples = Vec::with_capacity((W * H) as usize);
+        let mut min_z = f32::MAX;
+        let mut max_z = f32::MIN;
+        for y in 0..H {
+            for x in 0..W {
+                let wx = lo.x + x as f32 * x_sample;
+                let wy = lo.y + y as f32 * y_sample;
+                let world = glam::Vec3::new(wx, 0.0, wy);
+                let mut height = self.terrain_height_at(world).unwrap_or(0.0);
+                let mut water = self
+                    .terrain
+                    .as_ref()
+                    .is_some_and(|t| t.is_underwater_at_world(world));
+                if let Ok(tl) = gamelogic::terrain::get_terrain_logic().try_read() {
+                    let leftover_h = tl.get_ground_height(wx, wy, None);
+                    if self.terrain.is_none() {
+                        height = leftover_h;
+                    }
+                    water = water || tl.is_underwater(wx, wy, None, None);
+                }
+                min_z = min_z.min(height);
+                max_z = max_z.max(height);
+                samples.push((height, water));
+            }
+        }
+        if let Ok(mut guard) = HOST_RADAR_MAP.lock() {
+            if min_z.is_finite() && max_z.is_finite() && max_z > min_z {
+                guard.min.z = min_z;
+                guard.max.z = max_z;
+            }
+            guard.samples = samples;
         }
     }
 
@@ -373,6 +504,7 @@ impl GameLogic {
     }
 }
 
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -433,5 +565,83 @@ mod tests {
             blip.is_temporarily_hidden(),
             "enemy cloak after spawn must hide the blip"
         );
+    }
+
+    #[test]
+    fn host_radar_authored_not_on_radar_is_dropped() {
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "USA", true));
+        let mut tpl = ThingTemplate::new("Decoy");
+        tpl.add_kind_of(KindOf::Infantry).set_health(100.0);
+        tpl.radar_priority = 1; // NOT_ON_RADAR
+        logic.templates.insert("Decoy".into(), tpl);
+        let id = logic
+            .create_object_for_player("Decoy", 1, Vec3::new(2.0, 0.0, 2.0))
+            .expect("spawn");
+        logic.host_radar_add_object(id);
+        let radar = get_radar_system().read().expect("radar");
+        assert!(
+            radar.get_all_objects().all(|o| o.object_id != id.0),
+            "authored NOT_ON_RADAR must not leak a KindOf infantry blip"
+        );
+    }
+
+    #[test]
+    fn host_radar_hidden_drawable_skips_blip() {
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "USA", true));
+        logic.add_player(Player::new(2, Team::China, "China", false));
+        let mut tpl = ThingTemplate::new("HiddenHijacker");
+        tpl.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("HiddenHijacker".into(), tpl);
+        let id = logic
+            .create_object_for_player("HiddenHijacker", 2, Vec3::new(5.0, 0.0, 5.0))
+            .expect("spawn");
+        if let Some(obj) = logic.host_object_mut(id) {
+            obj.drawable_hidden = true;
+        }
+        logic.host_radar_add_object(id);
+        let radar = get_radar_system().read().expect("radar");
+        let blip = radar
+            .get_all_objects()
+            .find(|o| o.object_id == id.0)
+            .expect("blip");
+        assert!(
+            blip.drawable_hidden && blip.is_temporarily_hidden(),
+            "hijacker/script-hidden drawable must drop off the radar"
+        );
+    }
+
+    #[test]
+    fn host_radar_carbomb_forces_unit_priority() {
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "USA", true));
+        let mut tpl = ThingTemplate::new("CivCar");
+        tpl.add_kind_of(KindOf::Vehicle).set_health(100.0);
+        logic.templates.insert("CivCar".into(), tpl);
+        let id = logic
+            .create_object_for_player("CivCar", 1, Vec3::new(1.0, 0.0, 1.0))
+            .expect("spawn");
+        if let Some(obj) = logic.host_object_mut(id) {
+            obj.apply_convert_to_car_bomb();
+        }
+        logic.host_radar_add_object(id);
+        let radar = get_radar_system().read().expect("radar");
+        let blip = radar
+            .get_all_objects()
+            .find(|o| o.object_id == id.0)
+            .expect("blip");
+        assert_eq!(blip.priority, RadarPriorityType::Unit);
+    }
+
+    #[test]
+    fn host_create_radar_event_sets_last_event() {
+        use crate::game_logic::host_radar::host_create_radar_event;
+        use game_engine::common::system::radar::RadarEventType;
+        host_create_radar_event(Vec3::new(40.0, 0.0, 80.0), RadarEventType::Construction);
+        let radar = get_radar_system().read().expect("radar");
+        let loc = radar.get_last_event_loc().expect("last event");
+        assert!((loc.x - 40.0).abs() < 0.01);
+        assert!((loc.y - 80.0).abs() < 0.01);
     }
 }

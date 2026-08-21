@@ -152,6 +152,74 @@ fn supply_truck_gather_credits_retail_value_per_box() {
 
 }
 
+#[test]
+fn warehouse_set_value_updates_live_host_stock() {
+    crate::game_logic::host_supply_gather::reset_live_warehouse_host_state();
+    use crate::game_logic::DockKind;
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::Neutral, "N", false));
+    let mut warehouse = ThingTemplate::new("SupplyWarehouse");
+    warehouse
+        .add_kind_of(KindOf::SupplySource)
+        .set_health(1000.0);
+    warehouse.dock_kind = DockKind::SupplyWarehouse;
+    warehouse.dock_starting_boxes = Some(400);
+    logic.templates.insert(warehouse.name.clone(), warehouse);
+    let id = logic
+        .create_object("SupplyWarehouse", Team::Neutral, Vec3::ZERO)
+        .expect("warehouse");
+    logic
+        .host_object_mut(id)
+        .expect("wh")
+        .set_stored_supplies(400 * 75);
+    {
+        let obj = logic.host_object_mut(id).expect("name");
+        obj.name = "MapWarehouse".into();
+    }
+    crate::game_logic::host_supply_gather::queue_warehouse_set_value("MapWarehouse", 1000);
+    logic.update_supply_warehouse_crippling();
+    let obj = logic.host_object(id).expect("after set");
+    assert_eq!(obj.stored_resources.supplies, 14 * 75);
+    assert_eq!(obj.drawable_supply_boxes, 14);
+}
+#[test]
+fn warehouse_crippling_self_heals_after_suppression() {
+    use crate::game_logic::DockKind;
+    crate::game_logic::host_supply_gather::reset_live_warehouse_host_state();
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::Neutral, "N", false));
+    let mut warehouse = ThingTemplate::new("SupplyWarehouse");
+    warehouse
+        .add_kind_of(KindOf::SupplySource)
+        .set_health(1000.0);
+    warehouse.dock_kind = DockKind::SupplyWarehouse;
+    logic.templates.insert(warehouse.name.clone(), warehouse);
+    let id = logic
+        .create_object("SupplyWarehouse", Team::Neutral, Vec3::ZERO)
+        .expect("warehouse");
+    logic.set_current_frame(1);
+    logic.update_supply_warehouse_crippling();
+    {
+        let obj = logic.host_object_mut(id).expect("wh");
+        obj.health.current = 200.0;
+        obj.refresh_model_condition_bits();
+    }
+    logic.set_current_frame(2);
+    logic.update_supply_warehouse_crippling();
+    let after_hit = logic.host_object(id).expect("hit").health.current;
+    assert!(
+        (after_hit - 200.0).abs() < 0.01,
+        "suppressed immediately after damage"
+    );
+    logic.set_current_frame(92);
+    logic.update_supply_warehouse_crippling();
+    let after_heal = logic.host_object(id).expect("heal").health.current;
+    assert!(
+        after_heal > 200.0,
+        "C++ SelfHealAmount=5 after 90f suppression, after={after_heal}"
+    );
+}
+
 /// C++ `SupplyWarehouseDockUpdate::action` (`SupplyWarehouseDockUpdate.cpp:89-111`)
 /// tentatively `--m_boxesStored` then `gainOneBox` (`SupplyTruckAIUpdate.cpp:134-135`).
 /// Already-at-MaxBoxes fails and the warehouse `++m_boxesStored` takes the box back.

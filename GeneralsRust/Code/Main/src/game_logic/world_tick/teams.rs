@@ -315,12 +315,35 @@ impl GameLogic {
     }
 
     /// Named team attitude token residual (TEAM_SET_ATTITUDE script action).
+    /// C++ `updateTeamSetAttitude` walks the named team's live members.
     pub fn set_team_attitude_by_name(&mut self, team_name: &str, attitude_token: &str) -> usize {
-        let Some(team) = Self::resolve_host_team_name(team_name) else {
+        let att = Self::parse_attitude_token(attitude_token);
+        let needle = team_name.trim();
+        if needle.is_empty() {
             return 0;
-        };
-        self.set_team_attitude(team, Self::parse_attitude_token(attitude_token))
+        }
+        let faction = Self::resolve_host_team_name(team_name);
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| {
+                o.is_alive()
+                    && ((!o.team_instance_name.is_empty()
+                        && o.team_instance_name.eq_ignore_ascii_case(needle))
+                        || faction.map(|t| o.team == t).unwrap_or(false)
+                        || o.team.get_name().eq_ignore_ascii_case(needle))
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        let mut n = 0usize;
+        for id in ids {
+            if self.set_unit_attitude(id, att) {
+                n += 1;
+            }
+        }
+        n
     }
+
 
     /// Look up host ObjectId by unit name (named object tracker residual).
     pub fn find_object_id_by_name(&self, name: &str) -> Option<ObjectId> {
@@ -685,6 +708,7 @@ impl GameLogic {
 
     /// Drain leftover TEAM_PANIC / TEAM_WANDER / named-unit set swaps.
     pub fn apply_host_loco_set_script_requests(&mut self) {
+        self.apply_host_team_factory_script_requests();
         for (team_name, set, _waypoint) in gamelogic::scripting::take_host_team_loco_set_requests() {
             let _ = self.apply_team_locomotor_set(&team_name, &set);
         }
@@ -693,6 +717,32 @@ impl GameLogic {
                 let _ = self.apply_unit_locomotor_set(id, &set);
             }
         }
+    }
+
+    /// Drain leftover `TEAM_SET_ATTITUDE` onto live host members.
+    pub fn apply_host_team_attitude_script_requests(&mut self) {
+        for (team_name, mood) in gamelogic::scripting::take_host_team_attitude_requests() {
+            let _ = self.set_team_attitude_by_name(&team_name, &mood.to_string());
+        }
+    }
+
+
+    /// Drain leftover `BUILD_TEAM` / `RECRUIT_TEAM` onto host AIPlayer.
+    /// C++ `ScriptActions::doBuildTeam` / `doRecruitTeam`.
+    fn apply_host_team_factory_script_requests(&mut self) {
+        let builds = gamelogic::scripting::take_host_build_team_requests();
+        let recruits = gamelogic::scripting::take_host_recruit_team_requests();
+        if builds.is_empty() && recruits.is_empty() {
+            return;
+        }
+        let mut ai_mgr = std::mem::take(&mut self.ai_manager);
+        for (owner, team) in builds {
+            let _ = ai_mgr.build_specific_ai_team_for_token(self, &owner, &team, true);
+        }
+        for (owner, team, radius) in recruits {
+            let _ = ai_mgr.recruit_specific_ai_team_for_token(self, &owner, &team, radius);
+        }
+        self.ai_manager = ai_mgr;
     }
 
     /// C++ PartitionFilterRepulsor + AI::findClosestRepulsor residual.

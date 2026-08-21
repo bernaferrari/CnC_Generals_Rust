@@ -1217,8 +1217,10 @@ impl GameLogic {
                 .map(|m| m.get_position())
                 .unwrap_or(glam::Vec3::ZERO);
             if let Some(obj) = self.objects.get_mut(&id) {
+                obj.set_weapon_set_mine_clearing_detail(true);
                 obj.idle_since_frame = 0;
             }
+
             if self.apply_engagement_decision_aware(id, mine_id) {
                 self.drop_worker_supply_boxes_for_mine_clear(id);
                 self.path_approach_with_state(id, mine_pos, AIState::Attacking);
@@ -1286,8 +1288,10 @@ impl GameLogic {
                     .map(|m| m.get_position())
                     .unwrap_or(glam::Vec3::ZERO);
                 if let Some(obj) = self.objects.get_mut(&id) {
+                    obj.set_weapon_set_mine_clearing_detail(true);
                     obj.idle_since_frame = 0;
                 }
+
                 // Combat engagement via decision authority; path_approach logs Attacking too.
                 if self.apply_engagement_decision_aware(id, mine_id) {
                     self.drop_worker_supply_boxes_for_mine_clear(id);

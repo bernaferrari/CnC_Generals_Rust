@@ -30,8 +30,10 @@
 //! - Not full SCIENCE_GattlingTankTraining → stock Gattling module wire
 //! - Not network science / veterancy replication (network deferred)
 
-use super::VeterancyLevel;
+use super::{ObjectId, VeterancyLevel};
+use glam::Vec3;
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 
 /// Retail China Red Guard training science (StartingLevel = VETERAN).
 pub const SCIENCE_RED_GUARD_TRAINING: &str = "SCIENCE_RedGuardTraining";
@@ -57,6 +59,16 @@ pub const UNIT_TRAINING_SCIENCE_PURCHASE_POINT_COST: u32 = 1;
 pub const UPGRADE_AMERICA_ADVANCED_TRAINING: &str = "Upgrade_AmericaAdvancedTraining";
 /// Retail ExperienceScalarUpgrade AddXPScalar residual (+100% XP).
 pub const ADVANCED_TRAINING_ADD_XP_SCALAR: f32 = 1.0;
+/// C++ UpgradeCenter::findVeterancyUpgrade names.
+pub const UPGRADE_VETERANCY_VETERAN: &str = "Upgrade_Veterancy_VETERAN";
+pub const UPGRADE_VETERANCY_ELITE: &str = "Upgrade_Veterancy_ELITE";
+pub const UPGRADE_VETERANCY_HEROIC: &str = "Upgrade_Veterancy_HEROIC";
+/// C++ MiscAudio::m_unitPromoted.
+pub const UNIT_PROMOTED_AUDIO: &str = "UnitPromoted";
+/// C++ Animation2D.ini LevelGainedAnimation + GameData LevelGainAnimation*.
+pub const LEVEL_GAIN_ANIM_TEMPLATE: &str = "LevelGainedAnimation";
+pub const LEVEL_GAIN_ANIM_DISPLAY_TIME_SECONDS: f32 = 2.0;
+pub const LEVEL_GAIN_ANIM_Z_RISE_PER_SECOND: f32 = 15.0;
 
 /// Free always-Veteran residual template label (USA Pilot — no ScienceRequired).
 pub const FREE_VETERAN_PILOT_TEMPLATE: &str = "AmericaInfantryPilot";
@@ -509,6 +521,110 @@ pub fn add_xp_scalar_for_upgrade(name: &str) -> Option<f32> {
     }
 }
 
+/// True when the controlling player already completed Advanced Training.
+pub fn sciences_include_advanced_training<I, S>(sciences: I) -> bool
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    sciences
+        .into_iter()
+        .any(|s| is_advanced_training_upgrade(s.as_ref()))
+}
+
+/// C++ UpgradeCenter::findVeterancyUpgrade(newLevel). Regular/Rookie → None.
+pub fn veterancy_upgrade_name(level: VeterancyLevel) -> Option<&'static str> {
+    match level {
+        VeterancyLevel::Rookie => None,
+        VeterancyLevel::Veteran => Some(UPGRADE_VETERANCY_VETERAN),
+        VeterancyLevel::Elite => Some(UPGRADE_VETERANCY_ELITE),
+        VeterancyLevel::Heroic => Some(UPGRADE_VETERANCY_HEROIC),
+    }
+}
+
+/// C++ ActiveBody SoundPromotedVeteran/Elite/Hero template events.
+pub fn sound_promoted_event(level: VeterancyLevel) -> Option<&'static str> {
+    match level {
+        VeterancyLevel::Veteran => Some("SoundPromotedVeteran"),
+        VeterancyLevel::Elite => Some("SoundPromotedElite"),
+        VeterancyLevel::Heroic => Some("SoundPromotedHero"),
+        VeterancyLevel::Rookie => None,
+    }
+}
+
+/// C++ ActiveBody::onVeterancyLevelChanged PRESERVE_RATIO scale.
+pub fn veterancy_health_scale(old_level: VeterancyLevel, new_level: VeterancyLevel) -> f32 {
+    let (old_h, _, _) = veterancy_bonus_multipliers(old_level);
+    let (new_h, _, _) = veterancy_bonus_multipliers(new_level);
+    if old_h > 0.0 {
+        new_h / old_h
+    } else {
+        1.0
+    }
+}
+
+/// Queued UnitPromoted / SoundPromoted* residual.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HostVeterancyPromoteAudio {
+    pub object: ObjectId,
+    pub position: Vec3,
+    pub event_name: String,
+}
+
+/// Queued LevelGain Anim2D residual (InGameUI::addWorldAnimation).
+#[derive(Debug, Clone, PartialEq)]
+pub struct HostVeterancyPromoteAnim {
+    pub object: ObjectId,
+    pub position: Vec3,
+    pub spawn_frame: u32,
+}
+
+thread_local! {
+    static PROMOTE_AUDIO: RefCell<Vec<HostVeterancyPromoteAudio>> =
+        const { RefCell::new(Vec::new()) };
+    static PROMOTE_ANIMS: RefCell<Vec<HostVeterancyPromoteAnim>> =
+        const { RefCell::new(Vec::new()) };
+}
+
+/// C++ Object::onVeterancyLevelChanged provideFeedback + getDrawIconUI path.
+pub fn record_promote_fx(object: ObjectId, position: Vec3, spawn_frame: u32, new_level: VeterancyLevel) {
+    PROMOTE_AUDIO.with(|log| {
+        let mut log = log.borrow_mut();
+        log.push(HostVeterancyPromoteAudio {
+            object,
+            position,
+            event_name: UNIT_PROMOTED_AUDIO.to_string(),
+        });
+        if let Some(sound) = sound_promoted_event(new_level) {
+            log.push(HostVeterancyPromoteAudio {
+                object,
+                position,
+                event_name: sound.to_string(),
+            });
+        }
+    });
+    PROMOTE_ANIMS.with(|log| {
+        log.borrow_mut().push(HostVeterancyPromoteAnim {
+            object,
+            position,
+            spawn_frame,
+        });
+    });
+}
+
+pub fn drain_promote_audio() -> Vec<HostVeterancyPromoteAudio> {
+    PROMOTE_AUDIO.with(|log| std::mem::take(&mut *log.borrow_mut()))
+}
+
+pub fn promote_anims_snapshot() -> Vec<HostVeterancyPromoteAnim> {
+    PROMOTE_ANIMS.with(|log| log.borrow().clone())
+}
+
+pub fn clear_promote_fx() {
+    PROMOTE_AUDIO.with(|log| log.borrow_mut().clear());
+    PROMOTE_ANIMS.with(|log| log.borrow_mut().clear());
+}
+
 
 /// Apply AdvancedTraining ExperienceScalar residual to a base XP gain.
 ///
@@ -541,6 +657,16 @@ pub fn honesty_unit_training_veterancy_bonus_residual_wave79_ok() -> bool {
         && is_advanced_training_upgrade(UPGRADE_AMERICA_ADVANCED_TRAINING)
         && is_advanced_training_upgrade("UpgradeAdvancedTraining")
         && !is_advanced_training_upgrade("Upgrade_AmericaSupplyLines")
+        && sciences_include_advanced_training([UPGRADE_AMERICA_ADVANCED_TRAINING])
+        && !sciences_include_advanced_training(["Upgrade_AmericaSupplyLines"])
+        && veterancy_upgrade_name(VeterancyLevel::Veteran) == Some(UPGRADE_VETERANCY_VETERAN)
+        && veterancy_upgrade_name(VeterancyLevel::Elite) == Some(UPGRADE_VETERANCY_ELITE)
+        && veterancy_upgrade_name(VeterancyLevel::Heroic) == Some(UPGRADE_VETERANCY_HEROIC)
+        && veterancy_upgrade_name(VeterancyLevel::Rookie).is_none()
+        && (veterancy_health_scale(VeterancyLevel::Rookie, VeterancyLevel::Veteran) - 1.2).abs()
+            < 0.001
+        && UNIT_PROMOTED_AUDIO == "UnitPromoted"
+        && LEVEL_GAIN_ANIM_TEMPLATE == "LevelGainedAnimation"
 }
 
 /// Combined Wave 79 unit-training / veterancy residual honesty pack.

@@ -58,6 +58,49 @@ fn veterancy_preserves_health_ratio_when_max_health_changes() {
 }
 
 #[test]
+fn level_up_scales_current_max_health_not_template() {
+    // C++ ActiveBody PRESERVE_RATIO: Composite Armor / difficulty max must survive.
+    let mut object = make_test_object();
+    object.thing.template.max_health = 100.0;
+    object.health.maximum = 250.0;
+    object.health.current = 250.0;
+    object.max_health = 250.0;
+    crate::game_logic::host_unit_training::clear_promote_fx();
+    object.gain_experience(60.0);
+    assert!(
+        (object.health.maximum - 300.0).abs() < 0.01,
+        "expected 250 * 1.2, got {}",
+        object.health.maximum
+    );
+    assert!(
+        (object.health.current - 300.0).abs() < 0.01,
+        "PRESERVE_RATIO current, got {}",
+        object.health.current
+    );
+}
+
+#[test]
+fn level_up_gives_veterancy_upgrade_and_promote_fx() {
+    use crate::game_logic::host_unit_training::{
+        clear_promote_fx, drain_promote_audio, promote_anims_snapshot, UNIT_PROMOTED_AUDIO,
+        UPGRADE_VETERANCY_VETERAN,
+    };
+    let mut object = make_test_object();
+    clear_promote_fx();
+    object.gain_experience(60.0);
+    assert!(object.has_upgrade_tag(UPGRADE_VETERANCY_VETERAN));
+    let audio = drain_promote_audio();
+    assert!(
+        audio.iter().any(|e| e.event_name == UNIT_PROMOTED_AUDIO),
+        "UnitPromoted must queue on rank-up"
+    );
+    assert!(
+        !promote_anims_snapshot().is_empty(),
+        "LevelGain Anim2D must queue on rank-up"
+    );
+}
+
+#[test]
 fn ally_or_own_kill_awards_zero_experience() {
     let mut object = make_test_object();
     object.thing.template.experience_value = 40.0;
@@ -1606,6 +1649,24 @@ fn disarm_damage_clears_mine_without_hp_on_tank() {
 }
 
 #[test]
+fn disarm_keeps_regenerating_china_pad() {
+    use crate::game_logic::combat::DamageType;
+    use crate::game_logic::host_mines::{HostMineData, MINE_MIN_HEALTH};
+    use crate::game_logic::{Team, ThingTemplate};
+    let mut mt = ThingTemplate::new("ChinaStandardMine");
+    mt.set_health(100.0);
+    let mut mine = Object::new(mt, ObjectId(3), Team::China);
+    mine.mine_data = Some(HostMineData::land_mine_for_template("ChinaStandardMine"));
+    mine.health.current = 100.0;
+    assert!(!mine.take_damage_from_typed(1.0, None, DamageType::Disarm));
+    assert!(!mine.status.destroyed);
+    assert!((mine.health.current - MINE_MIN_HEALTH).abs() < 1e-3);
+    assert_eq!(mine.mine_data.as_ref().unwrap().virtual_mines_remaining, 0);
+    assert!(mine.mine_data.as_ref().unwrap().regenerates);
+}
+
+
+#[test]
 fn kill_pilot_damage_unmans_vehicle_without_hp_loss() {
     use crate::game_logic::combat::DamageType;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
@@ -1653,11 +1714,29 @@ fn status_damage_applies_faerie_without_hp_loss() {
     let mut o = Object::new(tmpl, ObjectId(9), Team::GLA);
     o.health.current = 100.0;
     o.health.maximum = 100.0;
+    crate::game_logic::object::set_pending_damage_status_type(Some("FAERIE_FIRE"));
     let dead = o.take_damage_from_typed(200.0, None, DamageType::Status);
     assert!(!dead);
     assert!((o.health.current - 100.0).abs() < 1e-3);
     assert!(o.is_faerie_fire());
     assert!(o.faerie_fire_until_frame > 0);
+}
+
+#[test]
+fn status_damage_none_does_not_paint_faerie_fire() {
+    use crate::game_logic::combat::DamageType;
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut tmpl = ThingTemplate::new("NoPaint");
+    tmpl.set_health(100.0);
+    tmpl.add_kind_of(KindOf::Vehicle);
+    let mut o = Object::new(tmpl, ObjectId(10), Team::GLA);
+    o.health.current = 100.0;
+    o.health.maximum = 100.0;
+    // C++ default OBJECT_STATUS_NONE: no paint.
+    let dead = o.take_damage_from_typed(200.0, None, DamageType::Status);
+    assert!(!dead);
+    assert!((o.health.current - 100.0).abs() < 1e-3);
+    assert!(!o.is_faerie_fire());
 }
 
 #[test]
@@ -3061,6 +3140,11 @@ fn kill_when_resting_and_bounce_land_residual() {
     );
     assert!(b.last_bounce_fall_dy > 0.0);
     assert!(b.last_bounce_volume >= 0.25 && b.last_bounce_volume <= 1.0);
+    // C++ doBounceSound no-ops unless BounceSound was authored.
+    assert_eq!(b.bounce_audio_pending, 0);
+    assert!(b.take_bounce_audio_pending().is_none());
+    b.set_bounce_sound(BOUNCE_SOUND_DEFAULT);
+    b.record_bounce_land(2.0);
     assert!(b.bounce_audio_pending > 0);
     let (name, vol) = b.take_bounce_audio_pending().expect("pending");
     assert_eq!(name, BOUNCE_SOUND_DEFAULT);
@@ -3180,6 +3264,7 @@ fn physics_wave10_held_wreck_friction_stun_shock() {
     land.immune_to_falling_damage = false;
     let _ = land.tick_physics_motion_step(0.0);
     assert!(land.bounce_land_events > 0);
+    assert_eq!(land.bounce_audio_pending, 0);
     assert!(land.pending_ground_collide);
 }
 #[test]
@@ -3645,5 +3730,71 @@ fn jet_stop_and_enter_airfield_land() {
     assert!(logic.do_jet_landing_command(jet2, af));
 }
 
+#[test]
+fn extra_friction_overlap_force_and_rest_kill() {
+    use crate::game_logic::{
+        KindOf, Object, ObjectId, Team, ThingTemplate, MIN_NON_AERO_FRICTION_RESIDUAL,
+    };
+    use glam::Vec3;
 
+    // OCL ExtraFriction sticks on non-loco debris (disabled / !can_move).
+    let mut td = ThingTemplate::new("Chunk");
+    td.add_kind_of(KindOf::Projectile);
+    let mut debris = Object::new(td, ObjectId(7001), Team::USA);
+    debris.status.disabled_unmanned = true;
+    debris.set_extra_friction(-0.01);
+    debris.set_locomotor_physics_options();
+    assert!((debris.extra_friction + 0.01).abs() < 1e-6);
+    debris.forward_friction = 0.15;
+    assert!((debris.get_forward_friction() - 0.14).abs() < 1e-5);
+
+    // ExtraFriction floor still applies.
+    debris.forward_friction = 0.0;
+    debris.set_extra_friction(-1.0);
+    assert!((debris.get_forward_friction() - MIN_NON_AERO_FRICTION_RESIDUAL).abs() < 1e-6);
+
+    // Mobile collide: -min(overlap,5) * delta/dist via applyForce (accel).
+    let mut tm = ThingTemplate::new("PanicInf");
+    tm.add_kind_of(KindOf::Infantry);
+    let mut inf = Object::new(tm, ObjectId(7002), Team::USA);
+    inf.set_position(Vec3::new(0.0, 0.0, 0.0));
+    inf.physics_mass = 1.0;
+    inf.physics_accel = Vec3::ZERO;
+    inf.apply_overlap_collide_force(Vec3::new(2.0, 0.0, 0.0), 4.0);
+    // force = -4 * (2,0,0)/2 = (-4, 0, 0); accel = force/mass.
+    assert!((inf.physics_accel.x + 4.0).abs() < 1e-4);
+    assert!(inf.physics_accel.z.abs() < 1e-5);
+
+    // Overlap cap 5.
+    inf.physics_accel = Vec3::ZERO;
+    inf.apply_overlap_collide_force(Vec3::new(1.0, 0.0, 0.0), 9.0);
+    assert!((inf.physics_accel.x + 5.0).abs() < 1e-4);
+
+    // KillWhenResting uses Object::kill (UNRESISTABLE), not stun-destroy only.
+    let mut tr = ThingTemplate::new("RestProp");
+    tr.add_kind_of(KindOf::Vehicle);
+    tr.set_health(50.0);
+    let mut prop = Object::new(tr, ObjectId(7003), Team::USA);
+    prop.kill_when_resting_on_ground = true;
+    prop.health.current = 50.0;
+    prop.health.maximum = 50.0;
+    prop.set_position(Vec3::ZERO);
+    prop.ground_height = 0.0;
+    prop.movement.velocity = Vec3::ZERO;
+    assert!(prop.maybe_kill_when_resting_on_ground());
+    assert!(prop.status.destroyed);
+    assert!(prop.health.current <= 0.0);
+
+    // Height > 0 is airborne (isAboveTerrain); 0.04 no longer counts as resting.
+    let mut ta = ThingTemplate::new("RestProp2");
+    ta.add_kind_of(KindOf::Vehicle);
+    let mut air = Object::new(ta, ObjectId(7004), Team::USA);
+    air.kill_when_resting_on_ground = true;
+    air.set_position(Vec3::new(0.0, 0.04, 0.0));
+    air.ground_height = 0.0;
+    air.movement.velocity = Vec3::ZERO;
+    assert!(!air.maybe_kill_when_resting_on_ground());
+    air.set_position(Vec3::ZERO);
+    assert!(air.maybe_kill_when_resting_on_ground());
+}
 

@@ -43,6 +43,7 @@ impl RadarSystem {
             && self.map_extent.lo.y == min.y
             && self.map_extent.hi.x == max.x
             && self.map_extent.hi.y == max.y
+            && !self.terrain_samples.is_empty()
         {
             return false;
         }
@@ -60,6 +61,54 @@ impl RadarSystem {
             }
         }
         self.new_map(min, max, &heights);
+        true
+    }
+
+    /// Re-sample every radar cell from the registered source without `reset`.
+    /// Used by `refreshTerrain` so bridge/water changes update the texture.
+    pub(crate) fn resample_terrain_from_source(&mut self) -> bool {
+        let Some(source) = radar_map_source() else {
+            return false;
+        };
+        if !self.has_map_extent() {
+            return false;
+        }
+        let expected = (RADAR_CELL_WIDTH * RADAR_CELL_HEIGHT) as usize;
+        let mut heights = Vec::with_capacity(expected);
+        let mut terrain_sum = 0.0;
+        let mut water_sum = 0.0;
+        let mut terrain_count = 0u32;
+        let mut water_count = 0u32;
+        for y in 0..RADAR_CELL_HEIGHT {
+            for x in 0..RADAR_CELL_WIDTH {
+                let wx = self.map_extent.lo.x + x as f32 * self.x_sample;
+                let wy = self.map_extent.lo.y + y as f32 * self.y_sample;
+                let (z, is_water) = source.sample_cell(wx, wy).unwrap_or((0.0, false));
+                if is_water {
+                    water_sum += z;
+                    water_count += 1;
+                } else {
+                    terrain_sum += z;
+                    terrain_count += 1;
+                }
+                heights.push(super::RadarTerrainSample {
+                    height: z,
+                    is_water,
+                });
+            }
+        }
+        self.terrain_average_z = if terrain_count > 0 {
+            terrain_sum / terrain_count as f32
+        } else {
+            0.0
+        };
+        self.water_average_z = if water_count > 0 {
+            water_sum / water_count as f32
+        } else {
+            0.0
+        };
+        self.terrain_samples = heights;
+        self.terrain_dirty = true;
         true
     }
 }
