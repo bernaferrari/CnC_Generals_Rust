@@ -278,6 +278,14 @@ impl GameLogic {
         crate::game_logic::host_guard_log::record(id, None, 0, 0.0);
         unit.end_guard_retaliate();
         unit.hunting = false;
+        // C++ SupplyTruckAIUpdate::privateIdle(CMD_FROM_PLAYER) setForceBusyState.
+        // Workers omit the latch (WorkerAIUpdate.cpp:516-526).
+        if unit.thing.template.supply_truck_metadata.is_some()
+            && !unit.is_kind_of(KindOf::Worker)
+        {
+            unit.supply_truck_state = crate::game_logic::SupplyTruckState::Idle;
+            unit.supply_truck_force_pending = false;
+        }
         unit.set_ai_state(AIState::Idle);
         true
 

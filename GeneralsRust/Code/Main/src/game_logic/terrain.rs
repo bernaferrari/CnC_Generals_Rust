@@ -340,7 +340,7 @@ impl TerrainData {
         }
     }
 
-    fn water_surface_at_world(&self, world: Vec3) -> Option<f32> {
+    pub fn water_surface_at_world(&self, world: Vec3) -> Option<f32> {
         if !self.water_polygons.is_empty() {
             let qx = world.x;
             let qy = world.z;
