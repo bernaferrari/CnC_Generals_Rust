@@ -243,17 +243,15 @@ impl GameClient {
                 nt_y -= 12.0;
             }
 
-            // C++ superweapon timers (InGameUI.cpp:3487-3522). Default 0.7, 0.7.
+            // C++ superweapon timers (InGameUI.cpp:3487-3678). Default 0.7, 0.7.
+            // READY blinks flash color vs default (color 0) and uses ready font size.
             let mut sw_y = 0.7 * screen_h;
             let sw_x = 0.7 * screen_w;
             for (name, countdown, ready) in &timers {
-                let color = if *ready {
-                    [1.0, 1.0, 0.2, 1.0]
-                } else {
-                    [1.0, 1.0, 1.0, 1.0]
-                };
+                let (color, size) =
+                    crate::gui::ingame_ui::live_superweapon_draw_style(frame, *ready);
                 let line = format!("{name} {countdown}");
-                let _ = renderer.draw_text_simple(&line, Vec2::new(sw_x, sw_y), 10.0, color);
+                let _ = renderer.draw_text_simple(&line, Vec2::new(sw_x, sw_y), size, color);
                 sw_y += 16.0;
             }
 
