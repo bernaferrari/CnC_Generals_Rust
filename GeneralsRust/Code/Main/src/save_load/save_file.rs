@@ -789,7 +789,7 @@ impl SaveFileManager {
             SaveLoadError::Io(e)
         })?;
 
-        self.enforce_save_limit()?;
+        // C++ GameState::saveGame never deletes existing saves.
         log::info!("Game saved successfully to: {}", save_path.display());
         Ok(())
     }
@@ -901,9 +901,6 @@ impl SaveFileManager {
 
         let filename = &save_info.filename;
         self.save_game(filename, game_logic, &save_info)?;
-
-        // Clean up old auto saves
-        self.cleanup_old_auto_saves()?;
 
         Ok(())
     }

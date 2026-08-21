@@ -41,26 +41,16 @@ impl CnCGameEngine {
         publish_host_popup_save_load_entries(entries);
     }
 
-    /// Select a collision-free Main slot for a human-facing `New Save Game`
-    /// confirmation.  The retail WND owns the description but its pseudo-row
-    /// has no filename; C++ `TheGameState` historically allocated that part.
+    /// C++ `GameState::findNextSaveFilename` LOWEST_NUMBER `%08d.sav`.
     #[cfg(feature = "game_client")]
     fn next_popup_save_slot(&self) -> String {
-        for index in 1..=crate::save_load::MAX_SAVE_SLOTS {
-            let slot = format!("save_{index:02}");
+        for index in 0..=99_999_999 {
+            let slot = format!("{index:08}");
             if !self.save_file_manager.save_exists(&slot) {
                 return slot;
             }
         }
-
-        // SaveFileManager enforces the retail save-limit after the atomic
-        // write.  A timestamp avoids silently overwriting a save whose row the
-        // player did not select.
-        let seconds = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        format!("save_{seconds}")
+        "00000000".to_string()
     }
 
     /// Complete confirmed retail PopupSaveLoad actions against Main's one
