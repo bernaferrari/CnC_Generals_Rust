@@ -42,16 +42,19 @@ impl GameLogic {
             .collect();
 
         // Pre-scan dozers: exclusive dock = assigned to this building (C++ DozerAIUpdate).
-        let dozer_info: Vec<(ObjectId, Vec3, Option<u32>, Option<ObjectId>)> = self
+        let dozer_info: Vec<(ObjectId, Vec3, Option<u32>, Option<ObjectId>, bool)> = self
             .objects
             .values()
             .filter(|obj| obj.is_alive() && obj.can_construct())
             .map(|obj| {
+                let arrived = !obj.status.moving
+                    && obj.movement.current_path_index >= obj.movement.path.len();
                 (
                     obj.id,
                     obj.get_position(),
                     object_owner_player_ids.get(&obj.id).copied().flatten(),
                     obj.target,
+                    arrived,
                 )
             })
             .collect();
@@ -82,9 +85,10 @@ impl GameLogic {
                     let exclusive_builder = obj.builder_id;
                     let nearby_dozers = dozer_info
                         .iter()
-                        .filter(|(did, pos, owner_player_id, target)| {
+                        .filter(|(did, pos, owner_player_id, target, arrived)| {
                             *owner_player_id == build_owner_player_id
                                 && *target == Some(id)
+                                && *arrived
                                 && pos.distance(build_pos) <= BUILDER_RANGE
                                 && exclusive_builder.map(|bid| bid == *did).unwrap_or(true)
                         })
@@ -1664,10 +1668,12 @@ impl GameLogic {
 
             // SupplyCenterProductionExitUpdate performs the ordinary exit
             // route first, then forces only SupplyTruckAI-capable outputs into
-            // their Wanting state.  This shared completion path covers both
-            // paid ProductionUpdate output and the one-shot SpawnBehavior.
+            // their Wanting state, then GrantTemporaryStealth (cpp:114-126).
+            // This shared completion path covers both paid ProductionUpdate
+            // output and the one-shot SpawnBehavior.
             if producer_exit_metadata.is_some_and(|exit| exit.is_supply_center()) {
                 let _ = self.force_supply_center_collector_wanting(new_id, producer_id);
+                self.grant_supply_center_exit_temporary_stealth(producer_id, new_id);
             }
             n = n.saturating_add(1);
         }
