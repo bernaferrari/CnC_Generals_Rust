@@ -47,6 +47,34 @@ fn level_up_sets_weaponset_and_weaponbonus_flags() {
 }
 
 #[test]
+fn weaponset_flag_and_salvage_unlock_unless_shared_across_sets() {
+    // C++ WeaponSet::updateWeaponSet: set-flag / crate swaps drop a permanent
+    // lock unless the incoming set has WeaponLockSharedAcrossSets.
+    let mut object = make_test_object();
+    object.secondary_weapon = Some(Weapon {
+        damage: 30.0,
+        ..Weapon::default()
+    });
+    assert!(object.set_weapon_lock(1, WeaponLockType::LockedPermanently));
+    assert!(object.set_weapon_set_flag(0, true));
+    assert!(!object.is_weapon_locked());
+    assert_eq!(object.active_weapon_slot, 0);
+
+    object.thing.template.weapon_lock_shared_across_sets = true;
+    assert!(object.set_weapon_lock(1, WeaponLockType::LockedPermanently));
+    assert!(object.set_weapon_set_flag(1, true));
+    assert!(object.is_weapon_locked());
+    assert_eq!(object.weapon_lock_slot, 1);
+
+    object.thing.template.weapon_lock_shared_across_sets = false;
+    assert!(object.set_weapon_lock(1, WeaponLockType::LockedPermanently));
+    object.apply_salvage_weapon_upgrade();
+    assert!(!object.is_weapon_locked());
+    assert_eq!(object.active_weapon_slot, 0);
+}
+
+
+#[test]
 fn veterancy_preserves_health_ratio_when_max_health_changes() {
     let mut object = make_test_object();
     object.health.current = 50.0;

@@ -1761,8 +1761,7 @@ impl GameLogic {
 
         let mut newly_upgraded = false;
         if let Some(container) = self.objects.get_mut(&container_id) {
-            container.weapon_set_player_upgrade = any_armed;
-            container.record_host_weapon_set();
+            let _ = container.set_weapon_set_flag(0, any_armed);
             if any_armed {
                 // Bind residual dummy weapon when primary is empty or still a
                 // passenger dummy (PLAYER_UPGRADE weapon set residual).

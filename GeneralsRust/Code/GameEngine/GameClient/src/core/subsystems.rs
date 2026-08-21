@@ -1371,34 +1371,7 @@ pub struct InGameUISubsystem {
 
 impl InGameUISubsystem {
     fn map_cant_build_message(message: &str) -> String {
-        let trimmed = message.trim();
-        if trimmed.is_empty() {
-            return "GUI:CantBuildThere".to_string();
-        }
-        if trimmed.starts_with("GUI:") {
-            return trimmed.to_string();
-        }
-
-        let lower = trimmed.to_ascii_lowercase();
-        if lower.contains("flat") {
-            "GUI:CantBuildNotFlatEnough".to_string()
-        } else if lower.contains("object") {
-            "GUI:CantBuildObjectsInTheWay".to_string()
-        } else if lower.contains("supply") {
-            "GUI:CantBuildTooCloseToSupplies".to_string()
-        } else if lower.contains("path") {
-            "GUI:CantBuildNoClearPath".to_string()
-        } else if lower.contains("shroud") || lower.contains("visible") {
-            "GUI:CantBuildShroud".to_string()
-        } else if lower.contains("terrain")
-            || lower.contains("cliff")
-            || lower.contains("underwater")
-            || lower.contains("bridge")
-        {
-            "GUI:CantBuildRestrictedTerrain".to_string()
-        } else {
-            "GUI:CantBuildThere".to_string()
-        }
+        crate::helpers::map_cant_build_message(message)
     }
 
     fn beacon_distance_sq(a: &Coord3D, b: &Coord3D) -> f32 {
@@ -1491,8 +1464,8 @@ impl InGameUISubsystem {
     const MAX_UI_MESSAGES: usize = 6;
     /// C++ `InGameUI.cpp:899` GameMakeColor(255, 255, 255, 255).
     const MESSAGE_COLOR1: u32 = 0xFFFF_FFFF;
-    /// C++ `InGameUI.cpp:900` GameMakeColor(180, 180, 180, 255).
-    const MESSAGE_COLOR2: u32 = 0xFFB4_B4B4;
+    /// Retail InGameUI.ini `MessageColor2` 180,180,255 (overrides ctor gray).
+    const MESSAGE_COLOR2: u32 = 0xFFB4_B4FF;
     /// C++ constructor default `m_messageDelayMS` (InGameUI.cpp:906).
     const MESSAGE_DELAY_MS: i32 = 5000;
 

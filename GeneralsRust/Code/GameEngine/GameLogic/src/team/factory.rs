@@ -701,6 +701,10 @@ impl TeamFactory {
                 }
             }
         }
+        // Live host AIPlayer queues are not leftover IntegratedAiPlayer.
+        // C++ Player::preTeamDestroy walks every player; drain on the host tick.
+        request_host_pre_team_destroy(team_id, team_name.as_deref().unwrap_or(""));
+
         if let Some(team_arc) = &team_arc {
             if let Ok(list) = player_list().read() {
                 for player_arc in list.iter() {
@@ -778,6 +782,22 @@ impl TeamFactory {
     fn drain_pending_generic_script_evals(&mut self) -> Vec<PendingTeamGenericScriptEval> {
         std::mem::take(&mut self.pending_generic_script_evals)
     }
+}
+
+thread_local! {
+    static HOST_PRE_TEAM_DESTROY: std::cell::RefCell<Vec<(TeamID, String)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Live host drain: C++ `Player::preTeamDestroy` → `AIPlayer::aiPreTeamDestroy`.
+pub fn request_host_pre_team_destroy(team_id: TeamID, team_name: &str) {
+    HOST_PRE_TEAM_DESTROY.with(|q| {
+        q.borrow_mut().push((team_id, team_name.to_string()));
+    });
+}
+
+pub fn take_host_pre_team_destroy_requests() -> Vec<(TeamID, String)> {
+    HOST_PRE_TEAM_DESTROY.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
 
 /// C++ TeamTemplateInfo (Team.cpp:669-679): walk `getFirstWaypoint` / `getNext`.

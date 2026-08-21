@@ -484,9 +484,11 @@ impl PathfindingSystem {
         }
 
         let to_pf_layer = |l: CommonPathfindLayerEnum| -> PathfindLayerEnum {
-            match l {
-                CommonPathfindLayerEnum::Top => PathfindLayerEnum::Top,
-                _ => PathfindLayerEnum::Ground,
+            let v = l as u32;
+            if (2..=14).contains(&v) || v == 15 {
+                PathfindLayerEnum::from_u32(v)
+            } else {
+                PathfindLayerEnum::Ground
             }
         };
         let mut skip_count = 0i32;

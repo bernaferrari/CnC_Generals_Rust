@@ -45,13 +45,14 @@ pub use conditions::*;
 pub use conditions::{
     capture_host_object_trigger_persists, clear_host_script_query_snapshot,
     clear_host_trigger_flags, host_object_did_enter, host_object_did_exit,
-    host_script_area_bounds, host_script_area_unit_ids, host_script_lookup_polygon_trigger,
-    host_script_named_unit_alive, host_script_named_unit_id, host_script_named_unit_in_area,
-    host_script_named_unit_in_named_area, host_script_query_has_any, host_script_team_member_ids,
-    host_script_team_unit_ids, restore_host_object_trigger_persists,
-    set_host_script_query_snapshot, sync_host_trigger_flags_from_snapshot,
-    update_host_object_trigger_flags, HostObjectTriggerPersist, HostScriptQueryObject,
-    HostScriptQuerySnapshot, HostTriggerSlotPersist,
+    host_query_supply_source_attacked, host_query_supply_source_safe, host_script_area_bounds,
+    host_script_area_unit_ids, host_script_lookup_polygon_trigger, host_script_named_unit_alive,
+    host_script_named_unit_id, host_script_named_unit_in_area, host_script_named_unit_in_named_area,
+    host_script_query_has_any, host_script_team_member_ids, host_script_team_unit_ids,
+    merge_host_script_query_snapshot, restore_host_object_trigger_persists,
+    sync_host_trigger_flags_from_snapshot, update_host_object_trigger_flags,
+    HostObjectTriggerPersist, HostScriptQueryObject, HostScriptQuerySnapshot,
+    HostTriggerSlotPersist,
 };
 pub use core::*;
 pub use engine::*;

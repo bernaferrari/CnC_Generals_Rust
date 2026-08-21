@@ -3152,6 +3152,7 @@ impl GameLogic {
             template.primary_auto_choose_none = set.auto_choose_primary_none();
             template.apply_weapon_set_definition(set);
         }
+        template.apply_retail_button_only_auto_choose();
         template.has_fire_ocl_after_weapon_cooldown = definition.behavior_modules.iter().any(
             |module| {
                 module

@@ -1925,6 +1925,16 @@ impl AISkirmishPlayer {
         self.base.is_supply_source_attacked()
     }
 
+    /// C++ `AIPlayer::guardSupplyCenter` inherited by `AISkirmishPlayer`.
+    pub fn guard_supply_center(
+        &mut self,
+        team_name: &str,
+        min_supplies: i32,
+    ) -> Result<(), crate::ai::AiError> {
+        self.base.guard_supply_center(team_name, min_supplies)
+    }
+
+
     pub fn build_specific_building_near_location(
         &mut self,
         building_name: &str,

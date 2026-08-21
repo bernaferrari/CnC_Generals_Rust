@@ -616,11 +616,15 @@ impl Object {
             return;
         };
         let cell = crate::ai::pathfind_astar::GridCoord::from_world(self.get_position());
-        let astar_layer = match self.layer {
-            PathfindLayerEnum::Top | PathfindLayerEnum::Air => {
-                crate::ai::pathfind_astar::PathfindLayerEnum::Top
+        let astar_layer = {
+            let v = self.layer as u32;
+            if (2..=14).contains(&v) {
+                crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(v)
+            } else if self.layer == PathfindLayerEnum::Wall {
+                crate::ai::pathfind_astar::PathfindLayerEnum::Wall
+            } else {
+                crate::ai::pathfind_astar::PathfindLayerEnum::Ground
             }
-            _ => crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
         };
         if remove_only {
             pf.remove_pos_cells(self.get_id(), 0, true, astar_layer);

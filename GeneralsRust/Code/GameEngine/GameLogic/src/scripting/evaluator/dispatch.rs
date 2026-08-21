@@ -1972,13 +1972,20 @@ impl ScriptEvaluator {
                     return Ok(false);
                 };
                 let player_id = player_guard.get_player_index() as u32;
+                let player_name = player_param.get_string().to_string();
                 let min_supplies = min_param.as_ref().map(|p| p.get_int()).unwrap_or(0) as i32;
+                drop(player_guard);
 
-                let safe = crate::ai::integration::with_ai_integration(|manager| {
-                    manager.with_ai_player(player_id, |ai| ai.is_supply_source_safe(min_supplies))
-                })
-                .flatten()
-                .unwrap_or(false);
+                let safe = if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+                    crate::scripting::host_query_supply_source_safe(&player_name, min_supplies)
+                        .unwrap_or(false)
+                } else {
+                    crate::ai::integration::with_ai_integration(|manager| {
+                        manager.with_ai_player(player_id, |ai| ai.is_supply_source_safe(min_supplies))
+                    })
+                    .flatten()
+                    .unwrap_or(false)
+                };
                 condition.custom_data = if safe { 1 } else { -1 };
                 Ok(safe)
             }
@@ -1999,12 +2006,19 @@ impl ScriptEvaluator {
                     return Ok(false);
                 };
                 let player_id = player_guard.get_player_index() as u32;
+                let player_name = player_param.get_string().to_string();
+                drop(player_guard);
 
-                let attacked = crate::ai::integration::with_ai_integration_mut(|manager| {
-                    manager.with_ai_player_mut(player_id, |ai| ai.is_supply_source_attacked())
-                })
-                .flatten()
-                .unwrap_or(false);
+                let attacked = if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+                    crate::scripting::host_query_supply_source_attacked(&player_name)
+                        .unwrap_or(false)
+                } else {
+                    crate::ai::integration::with_ai_integration_mut(|manager| {
+                        manager.with_ai_player_mut(player_id, |ai| ai.is_supply_source_attacked())
+                    })
+                    .flatten()
+                    .unwrap_or(false)
+                };
                 Ok(attacked)
             }
 

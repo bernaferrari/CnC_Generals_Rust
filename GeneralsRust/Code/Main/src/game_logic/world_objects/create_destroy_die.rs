@@ -1036,10 +1036,11 @@ impl GameLogic {
                         pre_attack_delay: 0.0,
                         splash_radius: 0.0,
                         suspend_fx_frame: 0,
-                                reloading_clip: false,
-            last_bonus_rof: 0.0,
-});
+                        reloading_clip: false,
+                        last_bonus_rof: 0.0,
+                    });
                 }
+                object.thing.template.apply_retail_button_only_auto_choose();
             }
 
             // Locomotor catalog → host Movement + braking/wander/damaged.
@@ -1618,13 +1619,14 @@ impl GameLogic {
             }
 
             // Host residual: GLA Jarmen Kell PRIMARY sniper residual.
-            // Fail-closed: pilot-snipe special remains host_hero_abilities.
+            // Pilot-snipe is AutoChooseSources SECONDARY NONE (button/special only).
             if crate::game_logic::host_jarmen_kell::is_jarmen_kell_template(template_name) {
                 use crate::game_logic::host_jarmen_kell::{
                     has_ap_bullets_upgrade, jarmen_kell_weapon,
                 };
                 let ap = has_ap_bullets_upgrade(&object.applied_upgrades);
                 object.weapon = Some(jarmen_kell_weapon(ap));
+                object.thing.template.apply_retail_button_only_auto_choose();
             }
 
             // Host residual: China Red Guard PRIMARY machine gun residual.
@@ -1764,7 +1766,7 @@ impl GameLogic {
             }
 
             // Host residual: USA Missile Defender PRIMARY missile + SECONDARY laser guided.
-            // Fail-closed: not full SpecialAbilityUpdate prep / LaserBeam object matrix.
+            // Laser is AutoChooseSources SECONDARY NONE (special-only).
             if crate::game_logic::host_missile_defender::is_missile_defender_template(template_name)
             {
                 use crate::game_logic::host_missile_defender::{
@@ -1772,6 +1774,7 @@ impl GameLogic {
                 };
                 object.weapon = Some(missile_defender_primary_weapon());
                 object.secondary_weapon = Some(missile_defender_laser_guided_weapon());
+                object.thing.template.apply_retail_button_only_auto_choose();
             }
 
             // Host residual: America Scout Drone StealthDetectorUpdate (VisionRange 150).

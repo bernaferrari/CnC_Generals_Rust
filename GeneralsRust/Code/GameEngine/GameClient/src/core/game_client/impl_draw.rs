@@ -179,6 +179,14 @@ impl GameClient {
             // C++ InGameUI::postDraw messages (InGameUI.cpp:3429-3458).
             let mut y = 10.0;
             for (text, color) in &messages {
+                // C++ dropColor=black with fill alpha; W3DDisplayString::draw uses +1,+1.
+                let drop = [0.0, 0.0, 0.0, color[3]];
+                let _ = renderer.draw_text_simple(
+                    text,
+                    Vec2::new(11.0, y + 1.0),
+                    10.0,
+                    drop,
+                );
                 let _ = renderer.draw_text_simple(text, Vec2::new(10.0, y), 10.0, *color);
                 y += 14.0;
             }
@@ -197,6 +205,13 @@ impl GameClient {
                 let mut y = pos.1 * (screen_h / 600.0);
                 let x = pos.0 * (screen_w / 800.0);
                 for line in text.split('\n') {
+                    let drop = [0.0, 0.0, 0.0, a];
+                    let _ = renderer.draw_text_simple(
+                        line,
+                        Vec2::new(x + 1.0, y + 1.0),
+                        12.0,
+                        drop,
+                    );
                     let _ = renderer.draw_text_simple(line, Vec2::new(x, y), 12.0, rgba);
                     y += 12.0;
                 }

@@ -120,14 +120,11 @@ impl TerrainLogicContext for LiveTerrainLogicContext {
 
     fn get_layer_height(&self, x: Real, y: Real, layer: PathfindLayerEnum) -> Real {
         let layer = match layer {
-            PathfindLayerEnum::Ground => crate::path::PathfindLayerEnum::Ground,
-            PathfindLayerEnum::Top => crate::path::PathfindLayerEnum::Top,
-            PathfindLayerEnum::Bridge1 => crate::path::PathfindLayerEnum::Bridge1,
-            PathfindLayerEnum::Bridge2 => crate::path::PathfindLayerEnum::Bridge2,
-            PathfindLayerEnum::Bridge3 => crate::path::PathfindLayerEnum::Bridge3,
-            PathfindLayerEnum::Bridge4 => crate::path::PathfindLayerEnum::Bridge4,
-            PathfindLayerEnum::Wall => crate::path::PathfindLayerEnum::Wall,
-            _ => crate::path::PathfindLayerEnum::Invalid,
+            PathfindLayerEnum::Air => crate::path::PathfindLayerEnum::Top,
+            PathfindLayerEnum::Tunnel | PathfindLayerEnum::Water | PathfindLayerEnum::Last => {
+                crate::path::PathfindLayerEnum::Ground
+            }
+            other => crate::path::PathfindLayerEnum::from_u32(other as u32),
         };
         crate::terrain::get_terrain_logic()
             .read()
@@ -142,14 +139,8 @@ impl TerrainLogicContext for LiveTerrainLogicContext {
             .ok()
             .map(
                 |terrain| match terrain.get_highest_layer_for_destination(pos) {
-                    crate::path::PathfindLayerEnum::Ground => PathfindLayerEnum::Ground,
-                    crate::path::PathfindLayerEnum::Top => PathfindLayerEnum::Top,
-                    crate::path::PathfindLayerEnum::Bridge1 => PathfindLayerEnum::Bridge1,
-                    crate::path::PathfindLayerEnum::Bridge2 => PathfindLayerEnum::Bridge2,
-                    crate::path::PathfindLayerEnum::Bridge3 => PathfindLayerEnum::Bridge3,
-                    crate::path::PathfindLayerEnum::Bridge4 => PathfindLayerEnum::Bridge4,
-                    crate::path::PathfindLayerEnum::Wall => PathfindLayerEnum::Wall,
-                    _ => PathfindLayerEnum::Invalid,
+                    crate::path::PathfindLayerEnum::Last => PathfindLayerEnum::Last,
+                    other => PathfindLayerEnum::from_u32(other as u32),
                 },
             )
             .unwrap_or(PathfindLayerEnum::Ground)

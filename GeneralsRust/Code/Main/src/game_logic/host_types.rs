@@ -648,7 +648,7 @@ pub struct Weapon {
     /// C++ ClipSize residual. 0 = unlimited (ammo ignored for readiness).
     #[serde(default)]
     pub clip_size: u32,
-    /// C++ clip reload residual (seconds) when clip empties. 0 = use `reload_time`.
+    /// C++ ClipReloadTime residual (seconds) when clip empties. 0 = ready same frame.
     #[serde(default)]
     pub clip_reload_time: f32,
     pub can_target_air: bool,

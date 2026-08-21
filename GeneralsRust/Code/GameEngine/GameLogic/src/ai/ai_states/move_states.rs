@@ -88,18 +88,18 @@ fn leftover_restake_idle_pathfinder(owner_id: ObjectID) {
     );
     if plan.first_restake {
         let layer = match owner.get_layer() {
-            crate::common::PathfindLayerEnum::Top
-            | crate::common::PathfindLayerEnum::Bridge1
-            | crate::common::PathfindLayerEnum::Bridge2
-            | crate::common::PathfindLayerEnum::Bridge3
-            | crate::common::PathfindLayerEnum::Bridge4 => {
-                crate::ai::pathfind::PathfindLayerEnum::Top
-            }
-            crate::common::PathfindLayerEnum::Wall => crate::ai::pathfind::PathfindLayerEnum::Wall,
-            crate::common::PathfindLayerEnum::Invalid | crate::common::PathfindLayerEnum::Last => {
+            crate::common::PathfindLayerEnum::Invalid
+            | crate::common::PathfindLayerEnum::Last => {
                 crate::ai::pathfind::PathfindLayerEnum::Invalid
             }
-            _ => crate::ai::pathfind::PathfindLayerEnum::Ground,
+            crate::common::PathfindLayerEnum::Wall => crate::ai::pathfind::PathfindLayerEnum::Wall,
+            crate::common::PathfindLayerEnum::Ground
+            | crate::common::PathfindLayerEnum::Tunnel
+            | crate::common::PathfindLayerEnum::Water
+            | crate::common::PathfindLayerEnum::Air => {
+                crate::ai::pathfind::PathfindLayerEnum::Ground
+            }
+            _ => crate::ai::pathfind::PathfindLayerEnum::Top,
         };
         let _ = crate::ai::pathfind::update_goal_for_object(owner_id, &pos, layer);
         if plan.snap {

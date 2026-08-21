@@ -474,7 +474,11 @@ impl PathfindingSystem {
         start_cell: GridCoord,
         end_cell: GridCoord,
     ) -> u32 {
-        let layer_id = self.bridges.len() as u32 + 2; // Start from 2 (Ground=1)
+        // C++ Pathfinder::addBridge: first unused slot in 2..=14 (LAYER_GROUND+1 .. LAYER_WALL-1).
+        let Some(layer_id) = (2u32..=14).find(|id| !self.bridges.iter().any(|b| b.layer_id == *id))
+        else {
+            return 1; // C++ returns LAYER_GROUND when out of bridge slots.
+        };
         let mut layer =
             BridgeLayer::with_meta(layer_id, bounds, bridge_object_id, start_cell, end_cell);
         // C++ classifyCells entry points: bridge ends + edge spans (isCellEntryPoint).
@@ -482,7 +486,6 @@ impl PathfindingSystem {
         self.bridges.push(layer);
         let idx = self.bridges.len() - 1;
         self.classify_bridge_cells(idx);
-        // Soften residual comment: entry cells now from bridge_entry_cells + classify.
         layer_id
     }
 

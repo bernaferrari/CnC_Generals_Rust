@@ -54,6 +54,11 @@ impl Object {
         if self.status.weapons_jammed || self.is_disabled() {
             return None;
         }
+        // C++ setWeaponBonusCondition → onWeaponBonusChange: restart an
+        // in-progress wait with the new RATE_OF_FIRE delay before the ready
+        // check so mid-reload bonuses cannot fire sooner than C++.
+        self.apply_weapon_bonus_rof_restart(current_time);
+
         // Prefer an explicit locked/active slot when ready.  The normal
         // fallback remains PRIMARY then SECONDARY; TERTIARY is deliberately
         // excluded from autonomous selection (retail Comanche rocket pods
@@ -426,6 +431,8 @@ impl Object {
         {
             let frame = crate::game_logic::host_historic_bonus::logic_frame();
             self.stamp_fire_sound_loop_after_shot(frame, fire_weapon_name.as_deref());
+            // C++ FiringTracker::shotFired(weaponFired) — delay from this slot.
+            self.stamp_auto_reload_when_idle_from_slot(slot, frame);
         }
         {
             let (dmg, rng) = self
@@ -649,11 +656,13 @@ impl Object {
         }
         self.occupants.clear();
     }
-
     /// DelayBetweenShots or ClipReloadTime, both scaled by RATE_OF_FIRE.
     ///
     /// Template delay is preferred so baked PRIMARY reload scalars are not
-    /// stacked with `weapon_bonus_fields` veterancy.
+    /// stacked with `weapon_bonus_fields` veterancy. Ready-checks use the
+    /// deterministic Min yardstick; per-shot GameLogicRandomValue(min, max)
+    /// is applied at fire (C++ `privateFireWeapon` / leftover
+    /// `get_delay_between_shots`).
     pub(super) fn live_reload_interval(
         &self,
         weapon: &Weapon,
@@ -670,7 +679,9 @@ impl Object {
             weapon.clip_reload_time
         } else {
             weapon_name
-                .and_then(crate::game_logic::weapon_bootstrap::host_delay_between_shots_secs)
+                .and_then(
+                    crate::game_logic::weapon_bootstrap::host_delay_between_shots_secs_nominal,
+                )
                 .unwrap_or(weapon.reload_time)
         };
         (base / rof.max(0.01)).max(0.0)

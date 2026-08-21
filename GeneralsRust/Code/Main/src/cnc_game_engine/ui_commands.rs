@@ -1500,7 +1500,8 @@ impl CnCGameEngine {
 
     pub(super) fn place_structure_from_ui(&mut self, template_name: &str, location: glam::Vec3) {
         use crate::game_logic::host_production_buildable_command_residual::{
-            lbc_help_message_residual, LBC_OK,
+            LBC_NO_CLEAR_PATH, LBC_NOT_FLAT_ENOUGH, LBC_OBJECTS_IN_THE_WAY, LBC_OK,
+            LBC_RESTRICTED_TERRAIN, LBC_SHROUD, LBC_TOO_CLOSE_TO_SUPPLIES,
         };
 
         let template = resolve_ui_structure_template_name(template_name);
@@ -1620,11 +1621,19 @@ impl CnCGameEngine {
                 .game_hud_mut()
                 .construction_panel
                 .arm_structure_placement(template_name.to_string());
-            let msg = lbc_help_message_residual(lbc);
-            if !msg.is_empty() {
-                self.game_hud.push_info_message(msg);
-                self.ui_manager.game_hud_mut().push_info_message(msg);
-            }
+            // C++ InGameUI::displayCantBuildMessage — leftover map_cant_build_message.
+            let cpp_key = match lbc {
+                LBC_RESTRICTED_TERRAIN => "GUI:CantBuildRestrictedTerrain",
+                LBC_NOT_FLAT_ENOUGH => "GUI:CantBuildNotFlatEnough",
+                LBC_OBJECTS_IN_THE_WAY => "GUI:CantBuildObjectsInTheWay",
+                LBC_NO_CLEAR_PATH => "GUI:CantBuildNoClearPath",
+                LBC_SHROUD => "GUI:CantBuildShroud",
+                LBC_TOO_CLOSE_TO_SUPPLIES => "GUI:CantBuildTooCloseToSupplies",
+                _ => "GUI:CantBuildThere",
+            };
+            let msg = game_client::helpers::map_cant_build_message(cpp_key);
+            self.game_hud.push_info_message(&msg);
+            self.ui_manager.game_hud_mut().push_info_message(&msg);
             if let Some(id) = builder_id {
                 game_client::message_stream::play_illegal_place_feedback_for_id(id.0);
             }

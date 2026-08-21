@@ -21,6 +21,12 @@ pub struct HostScriptQuerySnapshot {
     pub areas: HashMap<String, (f32, f32, f32, f32)>,
     /// Script team-instance name → host object ids (C++ Team member list).
     pub team_instance_ids: HashMap<String, Vec<u32>>,
+    /// Live AIPlayer::isSupplySourceAttacked keyed by player name.
+    pub supply_source_attacked: HashMap<String, bool>,
+    /// Cash at the preferred warehouse (or -1 if none).
+    pub supply_center_cash: HashMap<String, i32>,
+    /// isLocationSafe of that warehouse.
+    pub supply_center_location_safe: HashMap<String, bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -36,6 +42,11 @@ pub struct HostScriptQueryObject {
 thread_local! {
     static HOST_SCRIPT_QUERY: RefCell<HostScriptQuerySnapshot> =
         RefCell::new(HostScriptQuerySnapshot::default());
+}
+
+/// Merge additional host-query rows into the current snapshot.
+pub fn merge_host_script_query_snapshot(f: impl FnOnce(&mut HostScriptQuerySnapshot)) {
+    HOST_SCRIPT_QUERY.with(|slot| f(&mut *slot.borrow_mut()));
 }
 
 /// Inject a read-only host name/team/area query map for crate conditions.
@@ -87,6 +98,41 @@ pub fn host_script_team_unit_ids(team: u32) -> Vec<u32> {
             .unwrap_or_default()
     })
 }
+
+fn host_player_query_key(name: &str) -> String {
+    name.trim().to_ascii_lowercase()
+}
+
+/// Live `AIPlayer::isSupplySourceAttacked` for leftover conditions.
+pub fn host_query_supply_source_attacked(player_name: &str) -> Option<bool> {
+    let key = host_player_query_key(player_name);
+    if key.is_empty() {
+        return None;
+    }
+    HOST_SCRIPT_QUERY.with(|slot| slot.borrow().supply_source_attacked.get(&key).copied())
+}
+
+/// Live `AIPlayer::isSupplySourceSafe(min)` for leftover conditions.
+pub fn host_query_supply_source_safe(player_name: &str, min_supplies: i32) -> Option<bool> {
+    let key = host_player_query_key(player_name);
+    if key.is_empty() {
+        return None;
+    }
+    HOST_SCRIPT_QUERY.with(|slot| {
+        let snap = slot.borrow();
+        let cash = *snap.supply_center_cash.get(&key)?;
+        if cash < min_supplies {
+            return Some(true);
+        }
+        Some(
+            snap.supply_center_location_safe
+                .get(&key)
+                .copied()
+                .unwrap_or(true),
+        )
+    })
+}
+
 
 pub fn host_script_area_unit_ids(min_x: f32, min_z: f32, max_x: f32, max_z: f32) -> Vec<u32> {
     HOST_SCRIPT_QUERY.with(|slot| {

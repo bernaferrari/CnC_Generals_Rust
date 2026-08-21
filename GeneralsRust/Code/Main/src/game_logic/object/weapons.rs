@@ -189,19 +189,16 @@ impl Object {
             self.weapon_fire_status
         } else {
             // Approximate status from ammo/reload without mutating.
-            if !Self::weapon_has_ammo_for_shot(weapon, name) {
+            // C++ getStatus is per-weapon; ShareWeaponReloadTime copies
+            // RELOADING_CLIP onto siblings even while their clip is full.
+            if weapon.reloading_clip {
+                WeaponFireStatus::ReloadingClip
+            } else if !Self::weapon_has_ammo_for_shot(weapon, name) {
                 WeaponFireStatus::OutOfAmmo
             } else {
                 let reload = self.effective_weapon_reload(weapon.reload_time);
                 if current_time - weapon.last_fire_time < reload - 1e-6 {
-                    if weapon.clip_size > 0
-                        && weapon.ammo == Some(weapon.clip_size)
-                        && weapon.clip_reload_time > reload + 1e-4
-                    {
-                        WeaponFireStatus::ReloadingClip
-                    } else {
-                        WeaponFireStatus::BetweenFiringShots
-                    }
+                    WeaponFireStatus::BetweenFiringShots
                 } else {
                     WeaponFireStatus::ReadyToFire
                 }
@@ -211,12 +208,12 @@ impl Object {
             WeaponFireStatus::OutOfAmmo | WeaponFireStatus::PreAttack => 0.0,
             WeaponFireStatus::ReadyToFire => 1.0,
             WeaponFireStatus::BetweenFiringShots | WeaponFireStatus::ReloadingClip => {
-                let reload =
-                    if status == WeaponFireStatus::ReloadingClip && weapon.clip_reload_time > 0.0 {
-                        weapon.clip_reload_time
-                    } else {
-                        self.effective_weapon_reload(weapon.reload_time)
-                    };
+                let reload = if status == WeaponFireStatus::ReloadingClip {
+                    // C++ reloadWithBonus uses ClipReloadTime verbatim; 0 is ready now.
+                    weapon.clip_reload_time
+                } else {
+                    self.effective_weapon_reload(weapon.reload_time)
+                };
                 if reload <= 1e-6 {
                     return 1.0;
                 }
@@ -683,6 +680,16 @@ impl Object {
             latest,
             firing_interval,
         );
+        // C++ `weapon->setStatus(RELOADING_CLIP)` / `BETWEEN_FIRING_SHOTS`
+        // on every slot *before* ready checks re-read status.
+        let firing_reloading = self.weapon_slot(firing_slot).is_some_and(|weapon| {
+            weapon.reloading_clip || (weapon.clip_size > 0 && weapon.ammo == Some(0))
+        });
+        for slot in [0u8, 1, 2] {
+            if let Some(weapon) = self.weapon_slot_mut(slot) {
+                weapon.reloading_clip = firing_reloading;
+            }
+        }
         let mut stamp = [None; 3];
         for slot in [0u8, 1, 2] {
             if let Some(weapon) = self.weapon_slot(slot) {
@@ -695,51 +702,52 @@ impl Object {
                 );
             }
         }
-        let firing_reloading = self.weapon_slot(firing_slot).is_some_and(|weapon| {
-            weapon.reloading_clip || (weapon.clip_size > 0 && weapon.ammo == Some(0))
-        });
         for slot in [0u8, 1, 2] {
             if let (Some(last_fire), Some(weapon)) =
                 (stamp[slot as usize], self.weapon_slot_mut(slot))
             {
                 weapon.last_fire_time = last_fire;
-                weapon.reloading_clip = firing_reloading;
             }
         }
     }
 
-    /// C++ Weapon::onWeaponBonusChange — restart RELOADING / BETWEEN waits.
-    fn apply_weapon_bonus_rof_restart(&mut self, current_time: f32) {
+    /// C++ `Weapon::onWeaponBonusChange` (Weapon.cpp:1935-1974).
+    ///
+    /// When RATE_OF_FIRE changes while a slot is still RELOADING_CLIP or
+    /// BETWEEN_FIRING_SHOTS, C++ restarts that wait from *now* with the new
+    /// bonus delay. ShareWeaponReloadTime then copies the new next-shot stamp
+    /// and RELOADING_CLIP onto every sibling (1961-1972).
+    pub(in crate::game_logic::object) fn apply_weapon_bonus_rof_restart(&mut self, current_time: f32) {
         let rof = self.weapon_bonus_fields().2;
-        let mut restart = false;
-        let mut restart_clip = false;
+        let mut restart_slots = [false; 3];
+        let mut any_restart = false;
         for slot in [0u8, 1, 2] {
             let Some(weapon) = self.weapon_slot(slot) else {
                 continue;
             };
-            if weapon.last_bonus_rof <= 0.0 {
-                continue;
-            }
-            if (weapon.last_bonus_rof - rof).abs() <= 1e-4 {
+            let prev = if weapon.last_bonus_rof <= 0.0 {
+                1.0
+            } else {
+                weapon.last_bonus_rof
+            };
+            if (prev - rof).abs() <= 1e-4 {
                 continue;
             }
             let name = self.weapon_name_for_slot(slot);
-            let interval = self.live_reload_interval(weapon, name, weapon.last_bonus_rof);
-            let waiting = current_time - weapon.last_fire_time < interval - 1e-6;
-            if waiting {
-                restart = true;
-                if weapon.reloading_clip || (weapon.clip_size > 0 && weapon.ammo == Some(0)) {
-                    restart_clip = true;
-                }
+            if self.slot_waiting_on_bonus_delay(weapon, name, current_time, prev) {
+                restart_slots[slot as usize] = true;
+                any_restart = true;
             }
         }
-        if restart {
+        if any_restart {
             let share = self.thing.template.share_weapon_reload_time;
             for slot in [0u8, 1, 2] {
                 if let Some(weapon) = self.weapon_slot_mut(slot) {
-                    weapon.last_fire_time = current_time;
-                    if restart_clip && share {
-                        weapon.reloading_clip = true;
+                    if share || restart_slots[slot as usize] {
+                        weapon.last_fire_time = current_time;
+                        if share {
+                            weapon.reloading_clip = true;
+                        }
                     }
                 }
             }
@@ -749,6 +757,25 @@ impl Object {
                 weapon.last_bonus_rof = rof;
             }
         }
+    }
+
+    /// True when this slot is still inside a C++ RELOADING_CLIP / BETWEEN wait
+    /// measured with `prev_rof`. Never-fired `last_fire_time == 0` is READY,
+    /// not BETWEEN (C++ starts OUT_OF_AMMO then reloads to READY).
+    fn slot_waiting_on_bonus_delay(
+        &self,
+        weapon: &Weapon,
+        name: Option<&str>,
+        current_time: f32,
+        prev_rof: f32,
+    ) -> bool {
+        let clip_wait =
+            weapon.reloading_clip || (weapon.clip_size > 0 && weapon.ammo == Some(0));
+        if !clip_wait && weapon.last_fire_time <= 0.0 && self.last_fire_frame == 0 {
+            return false;
+        }
+        let interval = self.live_reload_interval(weapon, name, prev_rof);
+        current_time - weapon.last_fire_time < interval - 1e-6
     }
 
 
@@ -1050,14 +1077,21 @@ impl Object {
     }
 
     /// Stamp AutoReloadWhenIdle deadline after a shot (C++ m_frameToForceReload).
-    /// C++ FiringTracker::shotFired reads the FIRED weapon's template each shot.
+    /// C++ FiringTracker::shotFired reads the FIRED weapon's template each shot
+    /// (`weaponFired->getAutoReloadWhenIdleFrames()`). A zero delay on that
+    /// weapon does not fall back to the PRIMARY construct-time bind.
     pub fn stamp_auto_reload_when_idle(&mut self, frame: u32) {
-        let delay = self
-            .weapon_name_for_slot(self.last_fire_slot)
-            .map(crate::game_logic::thing::ThingTemplate::weapon_tracker_from_store)
-            .map(|bind| bind.auto_reload_when_idle_frames)
-            .filter(|&delay| delay > 0)
-            .unwrap_or(self.auto_reload_when_idle_frames);
+        self.stamp_auto_reload_when_idle_from_slot(self.last_fire_slot, frame);
+    }
+
+    /// Bind the force-reload delay from the weapon that just fired.
+    pub fn stamp_auto_reload_when_idle_from_slot(&mut self, slot: u8, frame: u32) {
+        let delay = match self.weapon_name_for_slot(slot) {
+            Some(name) => crate::game_logic::thing::ThingTemplate::weapon_tracker_from_store(name)
+                .auto_reload_when_idle_frames,
+            None if slot == 0 => self.auto_reload_when_idle_frames,
+            None => 0,
+        };
         if delay == 0 {
             return;
         }
@@ -1277,26 +1311,26 @@ mod tests {
     #[test]
     fn auto_choose_none_secondary_is_not_picked_while_primary_reloads() {
         let mut attacker = Object::new(
-            {
-                let mut t = ThingTemplate::new("GLAInfantryJarmenKell");
-                t.auto_choose_masks[1] = 0;
-                t
-            },
+            ThingTemplate::new("GLAInfantryJarmenKell"),
             ObjectId(1),
             Team::GLA,
+        );
+        assert!(
+            !attacker.thing.template.slot_allows_auto_choose(1),
+            "Jarmen secondary is AutoChooseSources NONE"
         );
         attacker.weapon = Some(Weapon {
             last_fire_time: 1.0,
             reload_time: 1.0,
             ..weapon(10.0)
-});
+        });
         attacker.secondary_weapon = Some(Weapon {
             last_fire_time: -10.0,
             reload_time: 0.0,
             damage: 100.0,
             range: 200.0,
             ..Weapon::default()
-});
+        });
         let mut target = Object::new(ThingTemplate::new("Tank"), ObjectId(2), Team::USA);
         target.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
         assert_eq!(
@@ -1338,6 +1372,16 @@ mod tests {
             "C++ setStatus(RELOADING_CLIP) on every sibling"
         );
         assert_eq!(attacker.secondary_weapon.as_ref().unwrap().ammo, Some(8));
+        attacker.active_weapon_slot = 1;
+        attacker.refresh_weapon_fire_status(4.5);
+        assert!(
+            attacker.secondary_weapon.as_ref().unwrap().reloading_clip,
+            "sibling ReloadingClip must survive getStatus refresh"
+        );
+        assert_eq!(
+            attacker.weapon_fire_status,
+            WeaponFireStatus::ReloadingClip
+        );
     }
 
     #[test]

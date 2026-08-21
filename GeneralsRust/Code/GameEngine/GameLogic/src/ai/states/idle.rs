@@ -159,18 +159,19 @@ impl AIIdleState {
                         if plan.first_restake {
                             let owner_id = owner_guard.get_id();
                             let layer = match owner_guard.get_layer() {
-                                PathfindLayerEnum::Top
-                                | PathfindLayerEnum::Bridge1
-                                | PathfindLayerEnum::Bridge2
-                                | PathfindLayerEnum::Bridge3
-                                | PathfindLayerEnum::Bridge4 => {
-                                    crate::ai::pathfind::PathfindLayerEnum::Top
-                                }
-                                PathfindLayerEnum::Wall => crate::ai::pathfind::PathfindLayerEnum::Wall,
                                 PathfindLayerEnum::Invalid | PathfindLayerEnum::Last => {
                                     crate::ai::pathfind::PathfindLayerEnum::Invalid
                                 }
-                                _ => crate::ai::pathfind::PathfindLayerEnum::Ground,
+                                PathfindLayerEnum::Wall => {
+                                    crate::ai::pathfind::PathfindLayerEnum::Wall
+                                }
+                                PathfindLayerEnum::Ground
+                                | PathfindLayerEnum::Tunnel
+                                | PathfindLayerEnum::Water
+                                | PathfindLayerEnum::Air => {
+                                    crate::ai::pathfind::PathfindLayerEnum::Ground
+                                }
+                                _ => crate::ai::pathfind::PathfindLayerEnum::Top,
                             };
                             let _ = crate::ai::pathfind::update_goal_for_object(
                                 owner_id, &pos, layer,

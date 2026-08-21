@@ -2378,26 +2378,38 @@ impl ThingTemplate {
     /// Fill PreferredAgainst / ShareWeaponReloadTime from the live Object INI
     /// catalog when the template has not already authored them (tests).
     pub fn bind_weapon_set_from_live_assets(&mut self) {
-        if self.preferred_against.iter().any(|kinds| !kinds.is_empty())
-            || self.share_weapon_reload_time
+        if !(self.preferred_against.iter().any(|kinds| !kinds.is_empty())
+            || self.share_weapon_reload_time)
         {
+            if let Some(manager) = crate::assets::get_asset_manager() {
+                if let Ok(guard) = manager.lock() {
+                    if let Some(definition) = guard.get_object_definition(&self.name) {
+                        if let Some(set) = definition
+                            .weapon_sets
+                            .iter()
+                            .find(|set| set.is_unconditional())
+                        {
+                            self.apply_weapon_set_definition(set);
+                        }
+                    }
+                }
+            }
+        }
+        self.apply_retail_button_only_auto_choose();
+    }
+
+    /// C++ `AutoChooseSources = SECONDARY NONE` (Jarmen snipe / Missile Defender
+    /// laser / Toxin Tractor sprayer). Stamp only while the slot is still the
+    /// WeaponTemplateSet::clear default so authored INI bits win.
+    pub fn apply_retail_button_only_auto_choose(&mut self) {
+        if self.auto_choose_masks.get(1).copied() != Some(u32::MAX) {
             return;
         }
-        let Some(manager) = crate::assets::get_asset_manager() else {
-            return;
-        };
-        let Ok(guard) = manager.lock() else {
-            return;
-        };
-        let Some(definition) = guard.get_object_definition(&self.name) else {
-            return;
-        };
-        if let Some(set) = definition
-            .weapon_sets
-            .iter()
-            .find(|set| set.is_unconditional())
+        if crate::game_logic::host_jarmen_kell::is_jarmen_kell_template(&self.name)
+            || crate::game_logic::host_missile_defender::is_missile_defender_template(&self.name)
+            || crate::game_logic::host_toxin_tractor::is_toxin_tractor_template(&self.name)
         {
-            self.apply_weapon_set_definition(set);
+            self.auto_choose_masks[1] = 0;
         }
     }
 
@@ -2414,6 +2426,17 @@ impl ThingTemplate {
             .get(slot as usize)
             .copied()
             .unwrap_or(u32::MAX);
+        // Missing INI still must not auto-pick retail button-only secondaries.
+        if slot == 1
+            && mask == u32::MAX
+            && (crate::game_logic::host_jarmen_kell::is_jarmen_kell_template(&self.name)
+                || crate::game_logic::host_missile_defender::is_missile_defender_template(
+                    &self.name,
+                )
+                || crate::game_logic::host_toxin_tractor::is_toxin_tractor_template(&self.name))
+        {
+            return false;
+        }
         const COMBAT: u32 = (1 << 0) | (1 << 2) | (1 << 4);
         (mask & COMBAT) != 0
     }

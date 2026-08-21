@@ -134,6 +134,8 @@ impl AIWorkOrder {
 #[derive(Debug, Clone)]
 pub struct AITeamQueue {
     pub name: String,
+    /// C++ `TeamInQueue::m_team` instance id (leftover TeamFactory handle).
+    pub team_id: Option<u32>,
     pub work_orders: Vec<AIWorkOrder>,
     pub priority_build: bool,
     pub frame_started: u32,
@@ -159,6 +161,7 @@ impl AITeamQueue {
     ) -> Self {
         Self {
             name,
+            team_id: None,
             work_orders,
             priority_build,
             frame_started,
@@ -371,6 +374,10 @@ pub struct AIPlayer {
     skirmish_new_map_applied: bool,
     /// C++ `AIPlayer::m_curWarehouseID` for `buildBySupplies`.
     current_warehouse_id: Option<ObjectId>,
+    /// C++ `AIPlayer::m_supplySourceAttackCheckFrame`.
+    supply_source_attack_check_frame: u32,
+    /// C++ `AIPlayer::m_attackedSupplyCenter`.
+    attacked_supply_center: Option<ObjectId>,
 }
 
 /// AI strategic states
@@ -447,6 +454,8 @@ impl AIPlayer {
             cur_right_flank_right_defense_angle: 0.0,
             skirmish_new_map_applied: false,
             current_warehouse_id: None,
+            supply_source_attack_check_frame: 0,
+            attacked_supply_center: None,
         }
     }
 
@@ -488,6 +497,10 @@ impl AIPlayer {
 
         self.last_update_time = current_time;
         self.update_enemy_assessment(game_logic, current_time);
+        // C++ Player::preTeamDestroy / AIPlayer::aiPreTeamDestroy — drop wiped
+        // TeamInQueue entries before checkReadyTeams / checkQueuedTeams.
+        self.purge_destroyed_or_wiped_queued_teams(game_logic);
+
 
         // doBaseBuilding
         self.update_economic_management(game_logic, current_time);
@@ -1942,8 +1955,127 @@ impl AIPlayer {
         true
     }
 
+    /// C++ `AIPlayer::buildSpecificBuildingNearestTeam`.
+    /// Place a priority pad at the team's estimate position (first live member).
+    pub fn build_specific_building_nearest_team(
+        &mut self,
+        game_logic: &GameLogic,
+        thing_name: &str,
+        team_name: &str,
+    ) -> bool {
+        if thing_name.trim().is_empty() {
+            return false;
+        }
+        let Some(position) = Self::estimate_team_position(game_logic, team_name) else {
+            return false;
+        };
+        self.add_building(thing_name, position, 2);
+        true
+    }
+
+    /// C++ `Team::getEstimateTeamPosition` — first living member's pose.
+    fn estimate_team_position(game_logic: &GameLogic, team_name: &str) -> Option<Vec3> {
+        let needle = team_name.trim();
+        if needle.is_empty() {
+            return None;
+        }
+        let mut best: Option<(u32, Vec3)> = None;
+        for (&id, object) in game_logic.host_objects() {
+            if !object.is_alive() || object.status.destroyed {
+                continue;
+            }
+            let instance = !object.team_instance_name.is_empty()
+                && object.team_instance_name.eq_ignore_ascii_case(needle);
+            let faction = object.team.get_name().eq_ignore_ascii_case(needle);
+            if !instance && !faction {
+                continue;
+            }
+            if best.map(|(oid, _)| id.0 < oid).unwrap_or(true) {
+                best = Some((id.0, object.get_position()));
+            }
+        }
+        best.map(|(_, pos)| pos)
+    }
+
+    /// C++ `AIPlayer::buildUpgrade` — named player upgrade at a ready factory.
+    pub fn build_upgrade(&mut self, game_logic: &mut GameLogic, upgrade_name: &str) -> bool {
+        if upgrade_name.trim().is_empty() {
+            return false;
+        }
+        if crate::game_logic::host_upgrades::is_object_scoped_upgrade(upgrade_name) {
+            return false;
+        }
+        let Some(player) = game_logic.get_player(self.player_id) else {
+            return false;
+        };
+        if !player.is_alive
+            || player.has_unlocked_upgrade(upgrade_name)
+            || player.has_queued_upgrade(upgrade_name)
+        {
+            return false;
+        }
+        let leftover_cost = gamelogic::upgrade::center::with_upgrade_center(|center| {
+            center
+                .find_upgrade(upgrade_name)
+                .map(|template| template.get_cost().max(0) as u32)
+        });
+        let cost_supplies = leftover_cost.unwrap_or_else(|| {
+            crate::game_logic::host_upgrades::resolve_upgrade_retail_cost_supplies(upgrade_name)
+        });
+        let cost = crate::game_logic::Resources {
+            supplies: cost_supplies,
+            power: 0,
+        };
+        if cost_supplies > 0 && !player.can_afford(&cost) {
+            return false;
+        }
+        let Some(producer_id) = self.find_upgrade_producer(game_logic, upgrade_name) else {
+            return false;
+        };
+        let Some(player) = game_logic.get_player_mut(self.player_id) else {
+            return false;
+        };
+        if !player.queue_upgrade(upgrade_name, &cost) {
+            return false;
+        }
+        let kind = crate::game_logic::host_upgrades::HostUpgradeKind::from_name(upgrade_name);
+        let secs = kind
+            .retail_build_time_secs()
+            .max(1.0 / LOGIC_FRAMES_PER_SECOND);
+        if !game_logic.unit_command_building_add_upgrade_to_queue(
+            producer_id,
+            upgrade_name,
+            secs,
+            cost,
+        ) {
+            if let Some(player) = game_logic.get_player_mut(self.player_id) {
+                let _ = player.cancel_queued_upgrade(upgrade_name, &cost);
+            }
+            return false;
+        }
+        game_logic.record_host_upgrade_queued(
+            self.player_id,
+            self.team,
+            upgrade_name,
+            Some(producer_id),
+        );
+        game_logic.host_upgrades_mut().set_build_cost_paid(
+            upgrade_name,
+            self.player_id,
+            cost.supplies,
+        );
+        let frames = (secs * LOGIC_FRAMES_PER_SECOND).round().max(1.0) as u32;
+        game_logic.host_upgrades_mut().set_resolved_research_frames(
+            upgrade_name,
+            self.player_id,
+            frames,
+        );
+        self.activity_count = self.activity_count.saturating_add(1);
+        true
+    }
+
     /// C++ `AIPlayer::findSupplyCenter`.
-    fn find_supply_center(&self, game_logic: &GameLogic, minimum_cash: i32) -> Option<ObjectId> {
+    pub(crate) fn find_supply_center(&self, game_logic: &GameLogic, minimum_cash: i32) -> Option<ObjectId> {
         if let Some(id) = self.current_warehouse_id {
             if game_logic.host_object(id).is_some() {
                 return Some(id);
@@ -1976,6 +2108,143 @@ impl AIPlayer {
         }
         best.map(|(_, id)| id)
     }
+
+    /// C++ `AIPlayer::isSupplySourceAttacked`.
+    ///
+    /// Rate-limited (`SCAN_RATE = 10` frames). After a recent player attack,
+    /// scan cash generators / dozers / harvesters for recent damage and latch
+    /// `m_attackedSupplyCenter`.
+    pub fn is_supply_source_attacked(&mut self, game_logic: &GameLogic) -> bool {
+        const SCAN_RATE: u32 = 10;
+        let cur_frame = game_logic.get_frame();
+        if cur_frame == 0 {
+            self.supply_source_attack_check_frame = cur_frame.saturating_add(SCAN_RATE);
+            return false;
+        }
+        self.attacked_supply_center = None;
+        if cur_frame < self.supply_source_attack_check_frame {
+            return false;
+        }
+        let Some(player) = game_logic.get_player(self.player_id) else {
+            return false;
+        };
+        if player.get_attacked_frame().saturating_add(SCAN_RATE) < cur_frame {
+            return false;
+        }
+        self.supply_source_attack_check_frame = cur_frame.saturating_add(SCAN_RATE);
+
+        for (&id, obj) in game_logic.host_objects() {
+            if obj.team != self.team || !obj.is_alive() {
+                continue;
+            }
+            // C++ KINDOF_CASH_GENERATOR | DOZER | HARVESTER.
+            let is_econ = obj.is_kind_of(KindOf::SupplyCenter)
+                || obj.is_kind_of(KindOf::FSSupplyCenter)
+                || obj.is_kind_of(KindOf::Dozer)
+                || obj.is_kind_of(KindOf::Harvester)
+                || obj.is_kind_of(KindOf::Worker);
+            if !is_econ {
+                continue;
+            }
+            let Some(timestamp) = obj.last_damage_timestamp else {
+                continue;
+            };
+            if timestamp.saturating_add(SCAN_RATE) > cur_frame {
+                self.attacked_supply_center = Some(id);
+                return true;
+            }
+        }
+        false
+    }
+
+
+    fn skirmish_enemy_team(&self, game_logic: &GameLogic) -> Option<Team> {
+        if let Some(enemy_id) = self.enemy_player_id {
+            if let Some(enemy) = game_logic.get_player(enemy_id) {
+                if enemy.team != Team::Neutral {
+                    return Some(enemy.team);
+                }
+            }
+        }
+        game_logic
+            .get_players()
+            .values()
+            .find(|player| player.is_local && player.team != Team::Neutral)
+            .map(|player| player.team)
+    }
+
+    fn named_team_member_ids(&self, game_logic: &GameLogic, team_name: &str) -> Vec<ObjectId> {
+        let needle = team_name.trim();
+        game_logic
+            .host_objects()
+            .iter()
+            .filter_map(|(&id, obj)| {
+                if !obj.is_alive() || obj.team != self.team {
+                    return None;
+                }
+                if needle.is_empty() {
+                    return obj.is_mobile().then_some(id);
+                }
+                (!obj.team_instance_name.is_empty()
+                    && obj.team_instance_name.eq_ignore_ascii_case(needle))
+                .then_some(id)
+            })
+            .collect()
+    }
+
+    /// C++ `AIPlayer::guardSupplyCenter`.
+    ///
+    /// Force attack check; prefer attacked warehouse else `findSupplyCenter`;
+    /// `groupGuardPosition` toward enemy structure-bounds offset by
+    /// warehouse radius * 0.8 (`CMD_FROM_SCRIPT` / `GUARDMODE_NORMAL`).
+    pub fn guard_supply_center(
+        &mut self,
+        game_logic: &mut GameLogic,
+        team_name: &str,
+        min_supplies: i32,
+    ) {
+        self.supply_source_attack_check_frame = 0;
+        let mut warehouse_id = None;
+        if self.is_supply_source_attacked(game_logic) {
+            warehouse_id = self.attacked_supply_center;
+        }
+        if warehouse_id.is_none() {
+            warehouse_id = self.find_supply_center(game_logic, min_supplies);
+        }
+        let Some(warehouse_id) = warehouse_id else {
+            return;
+        };
+        let Some(warehouse) = game_logic.host_object(warehouse_id) else {
+            return;
+        };
+        let mut location = warehouse.get_position();
+        let radius = warehouse.selection_radius.max(0.0) * 0.8;
+        let enemy_team = self.skirmish_enemy_team(game_logic);
+        if let Some(enemy_team) = enemy_team {
+            let (lo_x, lo_z, hi_x, hi_z) = self.player_structure_bounds(game_logic, enemy_team);
+            let mut ox = location.x - (lo_x + hi_x) * 0.5;
+            let mut oz = location.z - (lo_z + hi_z) * 0.5;
+            let len = (ox * ox + oz * oz).sqrt();
+            if len > 0.0001 {
+                ox /= len;
+                oz /= len;
+                location.x -= ox * radius;
+                location.z -= oz * radius;
+            }
+        }
+
+        let members = self.named_team_member_ids(game_logic, team_name);
+        for unit_id in members {
+            let mobile = game_logic
+                .host_object(unit_id)
+                .map(|unit| unit.is_alive() && unit.is_mobile())
+                .unwrap_or(false);
+            if mobile {
+                let _ = game_logic.unit_command_guard_position(unit_id, location);
+            }
+        }
+    }
+
     /// Default/AIData.ini `SideInfo::* ResourceGatherers*` plus the free
     /// SupplyCenter/Stash SpawnBehavior collector.  All three difficulty
     /// entries use these same values in the retail data.
@@ -2578,6 +2847,83 @@ impl AIPlayer {
     fn is_possible_to_build_team(&self, game_logic: &GameLogic, team_name: &str) -> bool {
         self.can_afford_team_start(game_logic, team_name)
             && self.team_factories_ready(game_logic, team_name)
+    }
+
+    /// C++ `AIPlayer::aiPreTeamDestroy(const Team *deletedTeam)`.
+    /// Drop TeamInQueue entries whose `m_team` is the deleted instance.
+    pub fn ai_pre_team_destroy(&mut self, deleted_team_id: Option<u32>, deleted_name: &str) {
+        let keep = |q: &AITeamQueue| -> bool {
+            if let (Some(qid), Some(did)) = (q.team_id, deleted_team_id) {
+                // C++: team->m_team == deletedTeam
+                return qid != did;
+            }
+            // Fallback: name compare when m_team handle was never stamped.
+            if q.team_id.is_none() && !deleted_name.is_empty() {
+                return q.name != deleted_name;
+            }
+            true
+        };
+        self.team_queue.retain(keep);
+        self.team_ready_queue.retain(keep);
+    }
+
+    fn leftover_team_instance_gone(team_id: Option<u32>) -> bool {
+        let Some(id) = team_id else {
+            return false;
+        };
+        gamelogic::team::get_team_factory()
+            .lock()
+            .ok()
+            .map(|factory| factory.find_team_by_id(id).is_none())
+            .unwrap_or(false)
+    }
+
+    fn queue_team_members_wiped(game_logic: &GameLogic, team: &AITeamQueue) -> bool {
+        let mut any = false;
+        for order in &team.work_orders {
+            for &id in &order.observed_unit_ids {
+                any = true;
+                if game_logic.host_object(id).is_some_and(|o| o.is_alive()) {
+                    return false;
+                }
+            }
+        }
+        any
+    }
+
+    /// C++ Team::~Team → Player::preTeamDestroy: free the AI slot immediately.
+    fn purge_destroyed_or_wiped_queued_teams(&mut self, game_logic: &GameLogic) {
+        let mut doomed: Vec<(Option<u32>, String)> = Vec::new();
+        for team in self.team_ready_queue.iter() {
+            if Self::leftover_team_instance_gone(team.team_id)
+                || Self::queue_team_members_wiped(game_logic, team)
+            {
+                doomed.push((team.team_id, team.name.clone()));
+            }
+        }
+        for team in self.team_queue.iter() {
+            if Self::leftover_team_instance_gone(team.team_id)
+                || ((team.completed || team.is_all_built())
+                    && Self::queue_team_members_wiped(game_logic, team))
+            {
+                doomed.push((team.team_id, team.name.clone()));
+            }
+        }
+        for (id, name) in doomed {
+            self.ai_pre_team_destroy(id, &name);
+        }
+    }
+
+    /// C++ `TeamInQueue::m_team = TheTeamFactory->createInactiveTeam(...)`.
+    fn bind_inactive_team_handle(team: &mut AITeamQueue) {
+        if team.team_id.is_some() {
+            return;
+        }
+        team.team_id = gamelogic::team::get_team_factory()
+            .lock()
+            .ok()
+            .and_then(|mut factory| factory.create_inactive_team(&team.name))
+            .and_then(|arc| arc.read().ok().map(|t| t.get_id()));
     }
 
     /// C++ `AIPlayer::checkReadyTeams` (`AIPlayer.cpp:2729-2803`).
@@ -3512,6 +3858,12 @@ impl AIPlayer {
         if let Some(id) = q.work_orders.first().and_then(|o| o.observed_unit_ids.first()) {
             q.reinforcement_id = Some(*id);
         }
+        // C++ reinforce uses the existing team instance, not a new inactive team.
+        q.team_id = gamelogic::team::get_team_factory()
+            .lock()
+            .ok()
+            .and_then(|factory| factory.find_team_instances(&q.name).into_iter().next())
+            .and_then(|arc| arc.read().ok().map(|t| t.get_id()));
         self.team_queue.push_front(q);
         // C++ m_teamDelay = 0
         self.next_team_queue_time = current_time;
@@ -3771,10 +4123,11 @@ impl AIPlayer {
             return false;
         }
 
-        let _ = gamelogic::team::get_team_factory()
+        let team_id = gamelogic::team::get_team_factory()
             .lock()
             .ok()
-            .and_then(|mut factory| factory.create_inactive_team(team_name));
+            .and_then(|mut factory| factory.create_inactive_team(team_name))
+            .and_then(|arc| arc.read().ok().map(|t| t.get_id()));
 
         let mut team = AITeamQueue::new(
             team_name.to_string(),
@@ -3782,6 +4135,7 @@ impl AIPlayer {
             priority_build,
             game_logic.frame as u32,
         );
+        team.team_id = team_id;
         team.execute_actions = execute_actions;
         if priority_build {
             self.team_queue.push_front(team);
@@ -3876,12 +4230,13 @@ impl AIPlayer {
         if recruited == 0 {
             return false;
         }
-        let q = AITeamQueue::new(
+        let mut q = AITeamQueue::new(
             team_name.to_string(),
             orders,
             false,
             0,
         );
+        Self::bind_inactive_team_handle(&mut q);
         self.team_ready_queue.push_back(q);
         self.activity_count = self.activity_count.saturating_add(1);
         true
@@ -3943,6 +4298,7 @@ impl AIPlayer {
             (current_time * LOGIC_FRAMES_PER_SECOND) as u32,
         );
         team.execute_actions = Self::prototype_execute_actions_on_create(team_name);
+        Self::bind_inactive_team_handle(&mut team);
         team
     }
 
@@ -5268,9 +5624,13 @@ impl AIManager {
             .iter()
             .map(|(&id, ai)| (id, ai.enemy_player_id))
             .collect();
+        let destroyed = gamelogic::team::take_host_pre_team_destroy_requests();
         let player_ids: Vec<u32> = self.ai_players.keys().copied().collect();
         for player_id in player_ids {
             if let Some(ai_player) = self.ai_players.get_mut(&player_id) {
+                for (team_id, team_name) in &destroyed {
+                    ai_player.ai_pre_team_destroy(Some(*team_id), team_name);
+                }
                 ai_player.peer_ai_targets = peer_targets.clone();
                 ai_player.update(game_logic, current_time);
             }
@@ -5772,6 +6132,65 @@ impl AIManager {
         self.recruit_specific_ai_team(game_logic, id, team_name, recruit_radius)
     }
 
+    /// C++ `ScriptActions::doGuardSupplyCenter` → `AIPlayer::guardSupplyCenter`.
+    pub fn guard_supply_center_for_team(
+        &mut self,
+        game_logic: &mut GameLogic,
+        team_name: &str,
+        min_supplies: i32,
+    ) -> bool {
+        let Some(player_id) = self.resolve_guard_supply_player(game_logic, team_name) else {
+            return false;
+        };
+        let Some(ai) = self.ai_players.get_mut(&player_id) else {
+            return false;
+        };
+        ai.guard_supply_center(game_logic, team_name, min_supplies);
+        true
+    }
+
+    fn resolve_guard_supply_player(
+        &self,
+        game_logic: &GameLogic,
+        team_name: &str,
+    ) -> Option<u32> {
+        if let Ok(factory) = gamelogic::team::get_team_factory().lock() {
+            if let Some(prototype) = factory.find_team_prototype(team_name) {
+                let owner = prototype.get_owner_name().to_string();
+                if !owner.is_empty() {
+                    if let Some(id) = Self::resolve_player_id(game_logic, &owner) {
+                        if self.ai_players.contains_key(&id) {
+                            return Some(id);
+                        }
+                    }
+                }
+            }
+        }
+        let needle = team_name.trim();
+        if !needle.is_empty() {
+            for obj in game_logic.host_objects().values() {
+                if !obj.is_alive()
+                    || obj.team_instance_name.is_empty()
+                    || !obj.team_instance_name.eq_ignore_ascii_case(needle)
+                {
+                    continue;
+                }
+                if let Some((&id, _)) = game_logic
+                    .get_players()
+                    .iter()
+                    .find(|(_, player)| player.team == obj.team)
+                {
+                    if self.ai_players.contains_key(&id) {
+                        return Some(id);
+                    }
+                }
+            }
+        }
+        Self::resolve_player_id(game_logic, team_name)
+            .filter(|id| self.ai_players.contains_key(id))
+    }
+
+
 
     /// C++ `SKIRMISH_FIRE_SPECIAL_POWER_AT_MOST_COST` live host entry.
     pub fn fire_skirmish_special_power_at_most_cost(
@@ -5838,6 +6257,70 @@ impl AIManager {
         self.ai_players
             .get_mut(&player_id)
             .is_some_and(|ai| ai.build_by_supplies(game_logic, minimum_cash, thing_name))
+    }
+
+    /// C++ `AIPlayer::buildBySupplies` for a script player token.
+    pub fn build_by_supplies_for_token(
+        &mut self,
+        game_logic: &GameLogic,
+        player_token: &str,
+        minimum_cash: i32,
+        thing_name: &str,
+    ) -> bool {
+        let Some(id) = Self::resolve_player_id(game_logic, player_token) else {
+            return false;
+        };
+        self.build_by_supplies(game_logic, id, minimum_cash, thing_name)
+    }
+
+    /// C++ `AIPlayer::buildUpgrade` live host entry.
+    pub fn build_upgrade(
+        &mut self,
+        game_logic: &mut GameLogic,
+        player_id: u32,
+        upgrade_name: &str,
+    ) -> bool {
+        self.ai_players
+            .get_mut(&player_id)
+            .is_some_and(|ai| ai.build_upgrade(game_logic, upgrade_name))
+    }
+
+    pub fn build_upgrade_for_token(
+        &mut self,
+        game_logic: &mut GameLogic,
+        player_token: &str,
+        upgrade_name: &str,
+    ) -> bool {
+        let Some(id) = Self::resolve_player_id(game_logic, player_token) else {
+            return false;
+        };
+        self.build_upgrade(game_logic, id, upgrade_name)
+    }
+
+    /// C++ `AIPlayer::buildSpecificBuildingNearestTeam` live host entry.
+    pub fn build_specific_building_nearest_team(
+        &mut self,
+        game_logic: &GameLogic,
+        player_id: u32,
+        thing_name: &str,
+        team_name: &str,
+    ) -> bool {
+        self.ai_players.get_mut(&player_id).is_some_and(|ai| {
+            ai.build_specific_building_nearest_team(game_logic, thing_name, team_name)
+        })
+    }
+
+    pub fn build_specific_building_nearest_team_for_token(
+        &mut self,
+        game_logic: &GameLogic,
+        player_token: &str,
+        thing_name: &str,
+        team_name: &str,
+    ) -> bool {
+        let Some(id) = Self::resolve_player_id(game_logic, player_token) else {
+            return false;
+        };
+        self.build_specific_building_nearest_team(game_logic, id, thing_name, team_name)
     }
 
     /// Clear all pending AI commands
@@ -5958,6 +6441,7 @@ mod cpp_parity_tests {
             factory.reset();
         }
     }
+
 
 
     #[test]

@@ -1717,18 +1717,23 @@ impl ScriptConditionEvaluator {
         drop(player);
         drop(players);
 
-        let is_safe = with_ai_integration_mut(|manager| {
-            manager.with_ai_player_mut(player_id, |ai_player| match ai_player {
-                crate::ai::integration::IntegratedAiPlayer::Standard(ai) => {
-                    ai.is_supply_source_safe(min_supply_amount)
-                }
-                crate::ai::integration::IntegratedAiPlayer::Skirmish(ai) => {
-                    ai.is_supply_source_safe(min_supply_amount)
-                }
+        let is_safe = if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            crate::scripting::host_query_supply_source_safe(&player_name, min_supply_amount)
+                .unwrap_or(false)
+        } else {
+            with_ai_integration_mut(|manager| {
+                manager.with_ai_player_mut(player_id, |ai_player| match ai_player {
+                    crate::ai::integration::IntegratedAiPlayer::Standard(ai) => {
+                        ai.is_supply_source_safe(min_supply_amount)
+                    }
+                    crate::ai::integration::IntegratedAiPlayer::Skirmish(ai) => {
+                        ai.is_supply_source_safe(min_supply_amount)
+                    }
+                })
             })
-        })
-        .flatten()
-        .unwrap_or(false);
+            .flatten()
+            .unwrap_or(false)
+        };
 
         condition.custom_data = if is_safe { 1 } else { -1 };
         Ok(if is_safe {
@@ -1758,18 +1763,22 @@ impl ScriptConditionEvaluator {
         drop(player);
         drop(players);
 
-        let attacked = with_ai_integration_mut(|manager| {
-            manager.with_ai_player_mut(player_id, |ai_player| match ai_player {
-                crate::ai::integration::IntegratedAiPlayer::Standard(ai) => {
-                    ai.is_supply_source_attacked()
-                }
-                crate::ai::integration::IntegratedAiPlayer::Skirmish(ai) => {
-                    ai.is_supply_source_attacked()
-                }
+        let attacked = if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            crate::scripting::host_query_supply_source_attacked(&player_name).unwrap_or(false)
+        } else {
+            with_ai_integration_mut(|manager| {
+                manager.with_ai_player_mut(player_id, |ai_player| match ai_player {
+                    crate::ai::integration::IntegratedAiPlayer::Standard(ai) => {
+                        ai.is_supply_source_attacked()
+                    }
+                    crate::ai::integration::IntegratedAiPlayer::Skirmish(ai) => {
+                        ai.is_supply_source_attacked()
+                    }
+                })
             })
-        })
-        .flatten()
-        .unwrap_or(false);
+            .flatten()
+            .unwrap_or(false)
+        };
 
         Ok(if attacked {
             ScriptConditionResult::True

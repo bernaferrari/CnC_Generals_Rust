@@ -597,20 +597,33 @@ impl Object {
     /// `flag`: 0=PLAYER_UPGRADE, 1=MINE_CLEARING, 2=CARBOMB, 3=VEHICLE_HIJACK.
     pub fn set_weapon_set_flag(&mut self, flag: u8, enabled: bool) -> bool {
         let previous_sources = self.active_weapon_barrel_source_identities();
-        match flag {
-            0 => {
-                self.weapon_set_player_upgrade = enabled;
-            }
-            1 => {
-                self.weapon_set_mine_clearing_detail = enabled;
-            }
-            2 => {
-                self.weapon_set_carbomb = enabled;
-            }
-            3 => {
-                self.weapon_set_vehicle_hijack = enabled;
-            }
+        let previous = match flag {
+            0 => self.weapon_set_player_upgrade,
+            1 => self.weapon_set_mine_clearing_detail,
+            2 => self.weapon_set_carbomb,
+            3 => self.weapon_set_vehicle_hijack,
             _ => return false,
+        };
+        match flag {
+            0 => self.weapon_set_player_upgrade = enabled,
+            1 => self.weapon_set_mine_clearing_detail = enabled,
+            2 => self.weapon_set_carbomb = enabled,
+            3 => self.weapon_set_vehicle_hijack = enabled,
+            _ => return false,
+        }
+        if previous != enabled {
+            // C++ setWeaponSetFlag / clearWeaponSetFlag → updateWeaponSet.
+            let condition = match flag {
+                0 => "PLAYER_UPGRADE",
+                1 => "MINE_CLEARING_DETAIL",
+                2 => "CARBOMB",
+                3 => "VEHICLE_HIJACK",
+                _ => "",
+            };
+            if enabled {
+                self.adopt_weapon_set_lock_share_for_condition(condition);
+            }
+            self.release_weapon_lock_on_set_change();
         }
         self.reset_weapon_barrel_states_if_sources_changed(previous_sources);
         self.record_host_weapon_set();
@@ -618,10 +631,7 @@ impl Object {
     }
 
     pub fn set_weapon_set_mine_clearing_detail(&mut self, enabled: bool) {
-        let previous_sources = self.active_weapon_barrel_source_identities();
-        self.weapon_set_mine_clearing_detail = enabled;
-        self.reset_weapon_barrel_states_if_sources_changed(previous_sources);
-        self.record_host_weapon_set();
+        let _ = self.set_weapon_set_flag(1, enabled);
     }
 
     /// C++ AICMD_GO_PRONE residual — infantry hit the dirt briefly.
