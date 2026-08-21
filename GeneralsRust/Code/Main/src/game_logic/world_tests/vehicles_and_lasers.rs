@@ -3902,6 +3902,27 @@ fn hijack_airborne_eject_puts_in_america_parachute() {
 }
 
 #[test]
+fn hijacker_hill_tank_is_not_airborne() {
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let hid = ObjectId(5523);
+    logic.objects.insert(hid, Object::new(ThingTemplate::new("GLAHijacker"), hid, Team::GLA));
+    let mut vt = ThingTemplate::new("AmericaTankCrusader");
+    vt.add_kind_of(KindOf::Vehicle);
+    let vid = ObjectId(5524);
+    logic.objects.insert(vid, {
+        let mut o = Object::new(vt, vid, Team::USA);
+        o.set_position(glam::Vec3::new(10.0, 80.0, 0.0));
+        o.ground_height = 80.0;
+        o
+    });
+    logic.objects.get_mut(&vid).unwrap().apply_hijacked();
+    logic.objects.get_mut(&hid).unwrap().begin_hijacker_in_vehicle(vid);
+    logic.tick_hijacker_updates();
+    assert!(!logic.objects[&hid].hijacker_was_airborne);
+}
+
+#[test]
 fn deliver_payload_parachute_directly_arms_landing_override() {
     use crate::game_logic::host_deliver_payload::{
         HostDeliverPayloadKind, SUPPLY_DROP_PARACHUTE_DIRECTLY,
