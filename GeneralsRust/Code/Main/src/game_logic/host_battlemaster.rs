@@ -854,6 +854,76 @@ pub fn leftover_template_shadow_size(template_name: &str, authored_x: f32, autho
     (0.0, 0.0)
 }
 
+/// Resolve Object INI `Shadow` bits. Authored live bits win; else leftover factory / INI.
+pub fn leftover_template_shadow_type(template_name: &str, authored: u32) -> u32 {
+    if authored != 0 {
+        return authored;
+    }
+    if let Some(guard) = game_engine::common::thing::thing_factory::try_get_thing_factory() {
+        if let Some(factory) = guard.as_ref() {
+            if let Some(tmpl) = factory.find_template(template_name, false) {
+                let bits = tmpl.get_shadow_type().bits() as u32;
+                if bits != 0 {
+                    return bits;
+                }
+            }
+        }
+    }
+    if let Some(mgr) = crate::assets::get_asset_manager() {
+        if let Ok(m) = mgr.lock() {
+            if let Some(def) = m.get_object_definition(template_name) {
+                if let Some(raw) = def.attributes.iter().find_map(|(k, v)| {
+                    k.eq_ignore_ascii_case("Shadow").then_some(v.as_str())
+                }) {
+                    return crate::game_logic::host_enum_table_residual::parse_shadow_type_bits(raw);
+                }
+            }
+        }
+    }
+    0
+}
+
+/// Resolve Object INI ShadowOffset without inventing a shift.
+pub fn leftover_template_shadow_offset(
+    template_name: &str,
+    authored_x: f32,
+    authored_y: f32,
+) -> (f32, f32) {
+    if authored_x != 0.0 || authored_y != 0.0 {
+        return (authored_x, authored_y);
+    }
+    if let Some(guard) = game_engine::common::thing::thing_factory::try_get_thing_factory() {
+        if let Some(factory) = guard.as_ref() {
+            if let Some(tmpl) = factory.find_template(template_name, false) {
+                let ox = tmpl.get_shadow_offset_x();
+                let oy = tmpl.get_shadow_offset_y();
+                if ox != 0.0 || oy != 0.0 {
+                    return (ox, oy);
+                }
+            }
+        }
+    }
+    if let Some(mgr) = crate::assets::get_asset_manager() {
+        if let Ok(m) = mgr.lock() {
+            if let Some(def) = m.get_object_definition(template_name) {
+                let parse = |key: &str| {
+                    def.attributes
+                        .iter()
+                        .find_map(|(k, v)| {
+                            k.eq_ignore_ascii_case(key)
+                                .then(|| v.parse::<f32>().ok())
+                                .flatten()
+                        })
+                        .unwrap_or(0.0)
+                };
+                return (parse("ShadowOffsetX"), parse("ShadowOffsetY"));
+            }
+        }
+    }
+    (0.0, 0.0)
+}
+
+
 
 /// C++ join/leave fade. `None` when membership did not change.
 pub fn leftover_horde_decal_fade(was_in_horde: bool, now_in_horde: bool) -> Option<(f32, f32)> {

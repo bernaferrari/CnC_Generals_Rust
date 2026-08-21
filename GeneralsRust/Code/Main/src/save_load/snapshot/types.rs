@@ -54,8 +54,10 @@ use std::time::SystemTime;
 /// with v1-v16 streams. Version 18 appends InGameUI timers/SW display,
 /// TacticalView camera, ScriptEngine counters/flags/actives, GameLogic v5-v9
 /// globals, TerrainLogic water updates, Radar hidden/force-on/event ring,
-/// and remaining Drawable::xfer residuals as a world tail.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 18;
+/// and remaining Drawable::xfer residuals as a world tail. Version 19 appends
+/// C++ `Object::xfer` `m_commandSetStringOverride` as a world tail so nested
+/// `ObjectSnapshot` records stay aligned with v1-v18 streams.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 19;
 
 /// Direct Common Xfer keeps an independent positional envelope from bincode.
 ///
@@ -63,7 +65,7 @@ pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 18;
 /// and object records.  Do not derive object-tail gates from the bincode
 /// version: a historical direct v3 stream still contains HDB even once the
 /// bincode writer has advanced to v4.
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 18;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 19;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_HDB_VERSION: u32 = 3;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V4_TAIL_VERSION: u32 = 4;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V5_TAIL_VERSION: u32 = 5;
@@ -80,6 +82,7 @@ pub const WORLD_SNAPSHOT_DIRECT_XFER_V15_TAIL_VERSION: u32 = 15;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V16_TAIL_VERSION: u32 = 16;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V17_TAIL_VERSION: u32 = 17;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V18_TAIL_VERSION: u32 = 18;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_V19_TAIL_VERSION: u32 = 19;
 
 /// Reject unknown direct-Xfer outer layouts before consuming any body bytes.
 /// Known historical writers are accepted so focused fixtures can verify their
@@ -89,7 +92,7 @@ pub(crate) fn validate_direct_world_snapshot_version(version: u32) -> SaveLoadRe
         // Keep these arms deliberately explicit. Advancing the current writer
         // must not accidentally make a future positional body acceptable
         // before its object/world gates and exact predecessor fixtures exist.
-        1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 => {
+        1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 => {
             Ok(())
         }
         actual => Err(crate::save_load::SaveLoadError::VersionMismatch {
@@ -264,6 +267,11 @@ pub struct WorldSnapshot {
     /// Reserved v18 sibling for FixW1805Vet experience_sink/scalar persist.
     #[serde(default)]
     pub object_experience_trackers: Vec<ObjectExperienceTrackerSnapshot>,
+
+    /// C++ `Object::xfer` (`Object.cpp:4403`) `m_commandSetStringOverride`.
+    /// World tail so nested `ObjectSnapshot` stays aligned with v1-v18 streams.
+    #[serde(default)]
+    pub object_command_sets: Vec<ObjectCommandSetSnapshot>,
 }
 
 /// C++ `ExperienceTracker::xfer` `m_experienceSink` + `m_experienceScalar`.
@@ -283,6 +291,14 @@ impl Default for ObjectExperienceTrackerSnapshot {
             experience_scalar: 1.0,
         }
     }
+}
+
+/// C++ `Object::xfer` (`Object.cpp:4403`) `m_commandSetStringOverride`.
+/// Empty string is none. World tail so nested object records stay aligned.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ObjectCommandSetSnapshot {
+    pub object_id: ObjectId,
+    pub command_set_override: String,
 }
 
 
@@ -513,6 +529,7 @@ impl Default for WorldSnapshot {
             airfield_parking: AirfieldParkingWorldSnapshot::default(),
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
+            object_command_sets: Vec::new(),
         }
     }
 }

@@ -33,11 +33,13 @@ use std::time::SystemTime;
 /// Version 14 predates the v15 Energy sabotage-frame tail.
 /// Version 15 predates the v16 Object trigger-area tail.
 /// Version 16 predates the v17 GameLogic persist tail (scoring, restriction,
-/// CaveSystem, TunnelTracker, airfield stalls).
-/// Unknown versions fail closed rather than relying on field
+/// CaveSystem, TunnelTracker, airfield stalls). Version 17 predates the v18
+/// persist_v18 / experience-tracker tail. Version 18 predates the v19
+/// Object command-set override tail.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BincodeWorldSnapshotDecodePath {
     Current,
+    LegacyPreV19V18,
     LegacyPreV18V17,
     LegacyPreV17V16,
     LegacyPreV16V15,
@@ -66,6 +68,14 @@ pub(crate) fn decode_bincode_world_snapshot(
     match version {
         WORLD_SNAPSHOT_BINCODE_VERSION => bincode_exact::<WorldSnapshot>(payload)
             .map(|snapshot| (snapshot, BincodeWorldSnapshotDecodePath::Current))
+            .map_err(|error| SaveLoadError::Serialization(error.to_string())),
+        18 => bincode_exact::<PreV19WorldSnapshot>(payload)
+            .map(|snapshot| {
+                (
+                    snapshot.into(),
+                    BincodeWorldSnapshotDecodePath::LegacyPreV19V18,
+                )
+            })
             .map_err(|error| SaveLoadError::Serialization(error.to_string())),
         17 => bincode_exact::<PreV18WorldSnapshot>(payload)
             .map(|snapshot| {
@@ -706,9 +716,106 @@ impl From<PreV18WorldSnapshot> for WorldSnapshot {
             airfield_parking: snapshot.airfield_parking,
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
+            object_command_sets: Vec::new(),
         }
     }
 }
+
+/// Complete v18 world record before the v19 command-set override tail.
+#[derive(Debug, Deserialize, Serialize)]
+struct PreV19WorldSnapshot {
+    version: u32,
+    timestamp: SystemTime,
+    frame_number: u64,
+    random_seed: u64,
+    objects: HashMap<ObjectId, ObjectSnapshot>,
+    players: Vec<PlayerSnapshot>,
+    teams: Vec<TeamSnapshot>,
+    terrain: TerrainSnapshot,
+    weather: WeatherSnapshot,
+    resource_manager: ResourceManagerSnapshot,
+    combat_tracker: CombatTrackerSnapshot,
+    experience_tracker: ExperienceTrackerSnapshot,
+    pathfinding_cache: PathfindingCacheSnapshot,
+    ai_players: Vec<AIPlayerSnapshot>,
+    global_ai_state: GlobalAIStateSnapshot,
+    special_power_strikes: SpecialPowerStrikeRegistrySnapshot,
+    combat_particles: CombatParticleRegistrySnapshot,
+    host_upgrades: HostUpgradeRegistrySnapshot,
+    next_weapon_discharge_sequence: u64,
+    client_drawables: ClientDrawableWorldSnapshot,
+    player_template_bindings: Vec<PlayerTemplateBindingSnapshot>,
+    shroud: ShroudSnapshot,
+    lifecycle_tail: Vec<u8>,
+    player_ranks: Vec<PlayerRankSnapshot>,
+    object_instance_guards: Vec<ObjectInstanceGuardSnapshot>,
+    overcharge_active: Vec<ObjectOverchargeSnapshot>,
+    cia_intelligence: crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry,
+    vision_spied: Vec<ObjectVisionSpiedSnapshot>,
+    builder_tasks: Vec<ObjectBuilderTaskSnapshot>,
+    sell_list: Vec<SellListEntrySnapshot>,
+    object_persist: Vec<ObjectPersistTailSnapshot>,
+    client_drawable_visuals: Vec<ClientDrawableVisualSnapshot>,
+    player_energy: Vec<PlayerEnergySnapshot>,
+    object_triggers: Vec<ObjectTriggerPersistSnapshot>,
+    is_scoring_enabled: bool,
+    limit_superweapons: bool,
+    cave_system: crate::game_logic::HostCaveSystem,
+    tunnel_network: crate::game_logic::HostTunnelNetworkRegistry,
+    airfield_parking: AirfieldParkingWorldSnapshot,
+    persist_v18: super::persist_v18::WorldPersistV18,
+    object_experience_trackers: Vec<ObjectExperienceTrackerSnapshot>,
+}
+
+impl From<PreV19WorldSnapshot> for WorldSnapshot {
+    fn from(snapshot: PreV19WorldSnapshot) -> Self {
+        Self {
+            version: WORLD_SNAPSHOT_BINCODE_VERSION,
+            timestamp: snapshot.timestamp,
+            frame_number: snapshot.frame_number,
+            random_seed: snapshot.random_seed,
+            objects: snapshot.objects,
+            players: snapshot.players,
+            teams: snapshot.teams,
+            terrain: snapshot.terrain,
+            weather: snapshot.weather,
+            resource_manager: snapshot.resource_manager,
+            combat_tracker: snapshot.combat_tracker,
+            experience_tracker: snapshot.experience_tracker,
+            pathfinding_cache: snapshot.pathfinding_cache,
+            ai_players: snapshot.ai_players,
+            global_ai_state: snapshot.global_ai_state,
+            special_power_strikes: snapshot.special_power_strikes,
+            combat_particles: snapshot.combat_particles,
+            host_upgrades: snapshot.host_upgrades,
+            next_weapon_discharge_sequence: snapshot.next_weapon_discharge_sequence,
+            client_drawables: snapshot.client_drawables,
+            player_template_bindings: snapshot.player_template_bindings,
+            shroud: snapshot.shroud,
+            lifecycle_tail: snapshot.lifecycle_tail,
+            player_ranks: snapshot.player_ranks,
+            object_instance_guards: snapshot.object_instance_guards,
+            overcharge_active: snapshot.overcharge_active,
+            cia_intelligence: snapshot.cia_intelligence,
+            vision_spied: snapshot.vision_spied,
+            builder_tasks: snapshot.builder_tasks,
+            sell_list: snapshot.sell_list,
+            object_persist: snapshot.object_persist,
+            client_drawable_visuals: snapshot.client_drawable_visuals,
+            player_energy: snapshot.player_energy,
+            object_triggers: snapshot.object_triggers,
+            is_scoring_enabled: snapshot.is_scoring_enabled,
+            limit_superweapons: snapshot.limit_superweapons,
+            cave_system: snapshot.cave_system,
+            tunnel_network: snapshot.tunnel_network,
+            airfield_parking: snapshot.airfield_parking,
+            persist_v18: snapshot.persist_v18,
+            object_experience_trackers: snapshot.object_experience_trackers,
+            object_command_sets: Vec::new(),
+        }
+    }
+}
+
 
 
 
@@ -1047,6 +1154,7 @@ impl From<LegacyWorldSnapshot> for WorldSnapshot {
             airfield_parking: AirfieldParkingWorldSnapshot::default(),
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
+            object_command_sets: Vec::new(),
         }
     }
 }
@@ -1186,6 +1294,7 @@ impl From<PreHackerDisableWorldSnapshot> for WorldSnapshot {
             airfield_parking: AirfieldParkingWorldSnapshot::default(),
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
+            object_command_sets: Vec::new(),
         }
     }
 }
@@ -1271,6 +1380,7 @@ impl From<PreV4WorldSnapshot> for WorldSnapshot {
             airfield_parking: AirfieldParkingWorldSnapshot::default(),
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
+            object_command_sets: Vec::new(),
         }
     }
 }
@@ -1323,6 +1433,7 @@ impl From<PreV6WorldSnapshot> for WorldSnapshot {
             airfield_parking: AirfieldParkingWorldSnapshot::default(),
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
+            object_command_sets: Vec::new(),
         }
     }
 }
@@ -1375,6 +1486,7 @@ impl From<PreV8WorldSnapshot> for WorldSnapshot {
             airfield_parking: AirfieldParkingWorldSnapshot::default(),
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
+            object_command_sets: Vec::new(),
         }
     }
 }
@@ -1423,6 +1535,7 @@ impl From<PreV9WorldSnapshot> for WorldSnapshot {
             airfield_parking: AirfieldParkingWorldSnapshot::default(),
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
+            object_command_sets: Vec::new(),
         }
     }
 }
@@ -1471,6 +1584,7 @@ impl From<PreV10WorldSnapshot> for WorldSnapshot {
             airfield_parking: AirfieldParkingWorldSnapshot::default(),
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
+            object_command_sets: Vec::new(),
         }
     }
 }
@@ -1519,6 +1633,7 @@ impl From<PreV11WorldSnapshot> for WorldSnapshot {
             airfield_parking: AirfieldParkingWorldSnapshot::default(),
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
+            object_command_sets: Vec::new(),
         }
     }
 }
@@ -1567,6 +1682,7 @@ impl From<PreV12WorldSnapshot> for WorldSnapshot {
             airfield_parking: AirfieldParkingWorldSnapshot::default(),
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
+            object_command_sets: Vec::new(),
         }
     }
 }
@@ -1615,6 +1731,7 @@ impl From<PreV13WorldSnapshot> for WorldSnapshot {
             airfield_parking: AirfieldParkingWorldSnapshot::default(),
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
+            object_command_sets: Vec::new(),
         }
     }
 }
@@ -1663,6 +1780,7 @@ impl From<PreV14WorldSnapshot> for WorldSnapshot {
             airfield_parking: AirfieldParkingWorldSnapshot::default(),
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
+            object_command_sets: Vec::new(),
         }
     }
 }
@@ -1711,6 +1829,7 @@ impl From<PreV15WorldSnapshot> for WorldSnapshot {
             airfield_parking: AirfieldParkingWorldSnapshot::default(),
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
+            object_command_sets: Vec::new(),
         }
     }
 }
@@ -1759,6 +1878,7 @@ impl From<PreV16WorldSnapshot> for WorldSnapshot {
             airfield_parking: AirfieldParkingWorldSnapshot::default(),
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
+            object_command_sets: Vec::new(),
         }
     }
 }
@@ -1807,6 +1927,7 @@ impl From<PreV17WorldSnapshot> for WorldSnapshot {
             airfield_parking: AirfieldParkingWorldSnapshot::default(),
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
+            object_command_sets: Vec::new(),
         }
     }
 }
@@ -1895,6 +2016,7 @@ impl From<PreV7WorldSnapshot> for WorldSnapshot {
             airfield_parking: AirfieldParkingWorldSnapshot::default(),
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
+            object_command_sets: Vec::new(),
         }
     }
 }
@@ -1980,6 +2102,7 @@ impl From<PreV5WorldSnapshot> for WorldSnapshot {
             airfield_parking: AirfieldParkingWorldSnapshot::default(),
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
+            object_command_sets: Vec::new(),
         }
     }
 }

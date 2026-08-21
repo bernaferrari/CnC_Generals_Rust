@@ -98,6 +98,17 @@ impl ScriptActionDispatcher {
             unit_name,
             waypoint_name
         );
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_follow_waypoints(
+                super::HostScriptFollowWaypointsRequest::NamedFollow {
+                    unit: unit_name,
+                    waypoint: waypoint_name,
+                    exact: false,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let tracker = get_named_object_tracker();
         let object_id = tracker.get_object_id(&unit_name).ok().flatten();
@@ -145,6 +156,17 @@ impl ScriptActionDispatcher {
             unit_name,
             waypoint_name
         );
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_follow_waypoints(
+                super::HostScriptFollowWaypointsRequest::NamedFollow {
+                    unit: unit_name,
+                    waypoint: waypoint_name,
+                    exact: true,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let tracker = get_named_object_tracker();
         let object_id = tracker.get_object_id(&unit_name).ok().flatten();
@@ -901,6 +923,16 @@ impl ScriptActionDispatcher {
             power_name,
             waypoint
         );
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_named_fire_special(
+                super::HostScriptNamedFireSpecialPowerRequest::AtWaypoint {
+                    unit: unit_name,
+                    power: power_name,
+                    waypoint,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
 
         let tracker = get_named_object_tracker();
         let Ok(Some(source_id)) = tracker.get_object_id(&unit_name) else {
@@ -959,6 +991,16 @@ impl ScriptActionDispatcher {
             power_name,
             target_name
         );
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_named_fire_special(
+                super::HostScriptNamedFireSpecialPowerRequest::AtNamed {
+                    unit: unit_name,
+                    power: power_name,
+                    target: target_name,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
 
         let tracker = get_named_object_tracker();
         let Ok(Some(source_id)) = tracker.get_object_id(&unit_name) else {

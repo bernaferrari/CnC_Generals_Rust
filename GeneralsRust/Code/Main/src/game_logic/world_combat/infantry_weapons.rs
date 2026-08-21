@@ -371,14 +371,28 @@ impl GameLogic {
             self.templates.insert(plan.gunship_template.clone(), tpl);
         }
 
+        let caster_owner = self
+            .objects
+            .get(&caster_id)
+            .and_then(|o| o.owner_player_id);
         let gunship_id = self.create_object(&plan.gunship_template, team, plan.spawn_pos)?;
         if let Some(g) = self.objects.get_mut(&gunship_id) {
             g.producer_id = Some(caster_id);
+            if let Some(owner) = caster_owner {
+                g.owner_player_id = Some(owner);
+            }
+            g.thing.template.add_kind_of(KindOf::Selectable);
             g.set_orientation(plan.orientation);
             // Preferred altitude residual.
             let mut p = g.get_position();
             p.y = plan.spawn_pos.y;
             g.set_position(p);
+            // C++ SpectreGunshipUpdate::initiateIntent sets
+            // m_overrideTargetDestination so later clicks steer the reticle.
+            g.set_special_power_overridable_destination(
+                target_pos,
+                Some(crate::command_system::SpecialPowerType::SpectreGunship),
+            );
         }
         if let Some(dep) = self
             .objects
@@ -388,6 +402,15 @@ impl GameLogic {
             dep.bind_gunship(gunship_id);
         }
         self.spectre_gunship_deployment_reg.record_spawn();
+        // C++ SpectreGunshipDeploymentUpdate::initiateIntent
+        // TheGameLogic->selectObject(newGunship, TRUE, playerMask, TRUE).
+        if let Some(pid) = self
+            .objects
+            .get(&caster_id)
+            .and_then(|o| self.player_owner_for_host_object(o))
+        {
+            self.select_object_list(1u32 << pid.min(31), vec![gunship_id], true);
+        }
         Some(gunship_id)
     }
 

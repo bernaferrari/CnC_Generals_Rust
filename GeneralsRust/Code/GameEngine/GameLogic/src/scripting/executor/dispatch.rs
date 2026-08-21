@@ -1591,14 +1591,55 @@ impl ScriptActionDispatcher {
         &self,
         team_name: &str,
         command_button_name: &str,
-        _all_ready: bool,
+        all_ready: bool,
     ) -> Result<bool, ScriptError> {
-        let _ = self.get_team_by_name(team_name)?;
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            if let Some(ready) = crate::scripting::host_eval_skirmish_command_button_ready(
+                team_name,
+                command_button_name,
+                all_ready,
+            ) {
+                return Ok(ready);
+            }
+        }
+        let team_arc = self.get_team_by_name(team_name)?;
         let control_bar = get_control_bar_bridge().ok_or_else(|| {
             ScriptError::ExecutionFailed("Control bar not initialized".to_string())
         })?;
-        Ok(control_bar
-            .find_command_button_by_name(command_button_name)
-            .is_some())
+        let Some(command_button) = control_bar.find_command_button_by_name(command_button_name)
+        else {
+            return Ok(false);
+        };
+
+        let members = team_arc
+            .read()
+            .map(|team| team.get_members().to_vec())
+            .map_err(|_| ScriptError::ExecutionFailed("Failed to read team".to_string()))?;
+
+        for obj_id in members {
+            let Some(obj_arc) = TheGameLogic::find_object_by_id(obj_id) else {
+                continue;
+            };
+            let Ok(obj_guard) = obj_arc.read() else {
+                continue;
+            };
+
+            let Some(is_ready) = super::eval_skirmish::leftover_command_button_ready_for_object(
+                &obj_guard,
+                command_button,
+            ) else {
+                continue;
+            };
+
+            if is_ready {
+                if !all_ready {
+                    return Ok(true);
+                }
+            } else if all_ready {
+                return Ok(false);
+            }
+        }
+
+        Ok(all_ready)
     }
 }

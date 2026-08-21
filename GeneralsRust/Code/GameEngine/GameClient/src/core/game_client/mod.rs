@@ -134,12 +134,13 @@ use gamelogic::helpers::{
     TheGameLogic, TheScriptEngine,
 };
 use gamelogic::object::draw::{
-    W3DDebrisDraw, W3DDebrisDrawModuleData, W3DLaserDraw, W3DLaserDrawModuleData, W3DModelDraw,
-    W3DModelDrawModuleData, W3DOverlordAircraftDraw, W3DOverlordAircraftDrawModuleData,
-    W3DOverlordTankDraw, W3DOverlordTankDrawModuleData, W3DOverlordTruckDraw,
-    W3DOverlordTruckDrawModuleData, W3DTankDraw, W3DTankDrawModuleData, W3DTankTruckDraw,
-    W3DTankTruckDrawModuleData, W3DTreeDraw, W3DTreeDrawModuleData, W3DTruckDraw,
-    W3DTruckDrawModuleData,
+    prune_live_host_tread_debris, prune_live_host_truck_dust, tick_live_host_tread_debris,
+    tick_live_host_truck_dust, TruckDrawLivePhysics, W3DDebrisDraw, W3DDebrisDrawModuleData,
+    W3DLaserDraw, W3DLaserDrawModuleData, W3DModelDraw, W3DModelDrawModuleData,
+    W3DOverlordAircraftDraw, W3DOverlordAircraftDrawModuleData, W3DOverlordTankDraw,
+    W3DOverlordTankDrawModuleData, W3DOverlordTruckDraw, W3DOverlordTruckDrawModuleData,
+    W3DTankDraw, W3DTankDrawModuleData, W3DTankTruckDraw, W3DTankTruckDrawModuleData,
+    W3DTreeDraw, W3DTreeDrawModuleData, W3DTruckDraw, W3DTruckDrawModuleData,
 };
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::object::update::{

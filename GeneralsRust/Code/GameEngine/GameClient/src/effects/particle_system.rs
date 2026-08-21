@@ -1851,6 +1851,12 @@ impl ParticleSystem {
         self.size_coeff
     }
 
+    /// C++ `ParticleSystem::setSizeMultiplier`.
+    pub fn set_size_multiplier(&mut self, multiplier: f32) {
+        self.size_coeff = multiplier;
+    }
+
+
     /// Get burst count multiplier
     pub fn burst_count_multiplier(&self) -> f32 {
         self.count_coeff

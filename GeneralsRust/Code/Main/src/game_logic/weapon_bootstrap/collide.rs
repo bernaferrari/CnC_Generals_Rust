@@ -99,21 +99,23 @@ pub(super) fn seed_radius_damage_affects_for(name: &str) -> u32 {
     host_radius_damage_affects_for_weapon_name(name)
 }
 
-/// Whether splash may affect `victim` given shooter team and residual mask.
+/// Whether splash may affect `victim` given C++ `getRelationship` and residual mask.
+///
+/// `relationship` is `curVictim->getRelationship(source)` (Weapon.cpp:1360-1372).
+/// Leftover `should_apply_damage` uses the same ALLIES/ENEMIES/NEUTRALS bits.
 pub fn radius_damage_affects_victim(
     affects: u32,
-    shooter_team: crate::game_logic::Team,
+    relationship: gamelogic::common::Relationship,
     shooter_id: crate::game_logic::ObjectId,
     victim_id: crate::game_logic::ObjectId,
-    victim_team: crate::game_logic::Team,
     victim_airborne: bool,
     same_template: bool,
 ) -> bool {
     use crate::game_logic::host_ai_path_combat_residual_wave105::{
-        WEAPON_AFFECTS_ALLIES, WEAPON_AFFECTS_ENEMIES, WEAPON_AFFECTS_NEUTRALS,
-        WEAPON_AFFECTS_SELF, WEAPON_DOESNT_AFFECT_AIRBORNE, WEAPON_DOESNT_AFFECT_SIMILAR,
+        WEAPON_AFFECTS_ALLIES, WEAPON_AFFECTS_ENEMIES, WEAPON_AFFECTS_NEUTRALS, WEAPON_AFFECTS_SELF,
+        WEAPON_DOESNT_AFFECT_AIRBORNE, WEAPON_DOESNT_AFFECT_SIMILAR,
     };
-    use crate::game_logic::Team;
+    use gamelogic::common::Relationship;
 
     if shooter_id == victim_id {
         return (affects & WEAPON_AFFECTS_SELF) != 0;
@@ -122,17 +124,15 @@ pub fn radius_damage_affects_victim(
         return false;
     }
     if (affects & WEAPON_DOESNT_AFFECT_SIMILAR) != 0 && same_template {
-        // Similar skip only for allies residual (C++ friends same template).
-        if shooter_team == victim_team && shooter_team != Team::Neutral {
+        // C++ source->getRelationship(curVictim) == ALLIES && equivalent template.
+        if relationship == Relationship::Allies {
             return false;
         }
     }
-    if victim_team == Team::Neutral {
-        return (affects & WEAPON_AFFECTS_NEUTRALS) != 0;
-    }
-    if shooter_team == victim_team {
-        return (affects & WEAPON_AFFECTS_ALLIES) != 0;
-    }
-    // Different non-neutral factions → enemies residual.
-    (affects & WEAPON_AFFECTS_ENEMIES) != 0
+    let required_mask = match relationship {
+        Relationship::Allies => WEAPON_AFFECTS_ALLIES,
+        Relationship::Enemies => WEAPON_AFFECTS_ENEMIES,
+        Relationship::Neutral => WEAPON_AFFECTS_NEUTRALS,
+    };
+    (affects & required_mask) != 0
 }

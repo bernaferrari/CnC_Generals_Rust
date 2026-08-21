@@ -29,6 +29,40 @@ pub fn tick_live_dock_approach(
     current_frame: u32,
     is_alive: impl FnMut(ObjectId) -> bool,
 ) -> DockApproachTick {
+    tick_live_dock_approach_ex(
+        dock_id,
+        docker_id,
+        number_approach_positions,
+        docker_alive,
+        current_active,
+        current_active_alive,
+        docker_pos,
+        dock_pos,
+        dock_major_radius,
+        waiting_bones,
+        current_frame,
+        false,
+        is_alive,
+    )
+}
+
+/// Same as [`tick_live_dock_approach`], with C++ `m_dockCrippled`.
+/// C++ `DockUpdate::update` never assigns `m_activeDocker` while crippled.
+pub fn tick_live_dock_approach_ex(
+    dock_id: ObjectId,
+    docker_id: ObjectId,
+    number_approach_positions: i32,
+    docker_alive: bool,
+    current_active: Option<ObjectId>,
+    current_active_alive: bool,
+    docker_pos: Vec3,
+    dock_pos: Vec3,
+    dock_major_radius: f32,
+    waiting_bones: &[Vec3],
+    current_frame: u32,
+    crippled: bool,
+    is_alive: impl FnMut(ObjectId) -> bool,
+) -> DockApproachTick {
     let Ok(mut map) = live_dock_queues().lock() else {
         return DockApproachTick::Blocked;
     };
@@ -43,7 +77,7 @@ pub fn tick_live_dock_approach(
         queue.cancel_docker(docker_id);
         return DockApproachTick::Blocked;
     }
-    if current_active == Some(docker_id) && current_active_alive {
+    if current_active == Some(docker_id) && current_active_alive && !crippled {
         queue.on_enter_reached(docker_id);
         queue.clear_wait_started(docker_id);
         return DockApproachTick::ClearToAct;
@@ -60,7 +94,7 @@ pub fn tick_live_dock_approach(
         return DockApproachTick::PathTo(goal);
     }
     queue.on_approach_reached(docker_id);
-    if queue.promote_active(current_active, current_active_alive, false) == Some(docker_id) {
+    if queue.promote_active(current_active, current_active_alive, crippled) == Some(docker_id) {
         queue.on_enter_reached(docker_id);
         queue.clear_wait_started(docker_id);
         DockApproachTick::ClearToAct

@@ -97,12 +97,121 @@ fn controlling_player_index(source: &Object) -> crate::common::Int {
 }
 
 /// C++ ActionManager.cpp:1521 — PartitionManager cell shroud, fail-closed if missing.
-fn is_location_cell_shrouded(source: &Object, loc: &crate::common::Coord3D) -> bool {
+fn is_location_cell_shrouded_for_player(
+    player_index: crate::common::Int,
+    loc: &crate::common::Coord3D,
+) -> bool {
     let Some(partition) = ThePartitionManager::get() else {
         return true;
     };
-    partition.get_shroud_status_for_player(controlling_player_index(source), loc)
+    partition.get_shroud_status_for_player(player_index, loc)
         == game_engine::common::system::radar::CellShroudStatus::Shrouded
+}
+
+
+/// C++ ActionManager.cpp:1459-1551 after source/module checks.
+///
+/// `shroud_unknown_is_clear` fail-opens the cell-shroud arm when leftover
+/// shroud grid is not initialized (live host before map load / synthetic
+/// worlds). Leftover `can_do_special_power_at_location` passes false.
+fn special_power_at_location_ok(
+    power_type: SpecialPowerType,
+    loc: &crate::common::Coord3D,
+    player_index: crate::common::Int,
+    shroud_unknown_is_clear: bool,
+) -> bool {
+    match power_type {
+        SpecialPowerType::ParadropAmerica
+        | SpecialPowerType::InfaParadropAmerica
+        | SpecialPowerType::CrateDrop
+        | SpecialPowerType::TankParadrop => {
+            if TheTerrainLogic::get().is_some_and(|terrain| {
+                terrain.is_underwater(loc.x, loc.y, None, None)
+            }) {
+                return false;
+            }
+        }
+        _ => {}
+    }
+
+    match power_type {
+        SpecialPowerType::DaisyCutter
+        | SpecialPowerType::AirfDaisyCutter
+        | SpecialPowerType::ParadropAmerica
+        | SpecialPowerType::TankParadrop
+        | SpecialPowerType::InfaParadropAmerica
+        | SpecialPowerType::CarpetBomb
+        | SpecialPowerType::ChinaCarpetBomb
+        | SpecialPowerType::LeafletDrop
+        | SpecialPowerType::EarlyLeafletDrop
+        | SpecialPowerType::EarlyChinaCarpetBomb
+        | SpecialPowerType::AirfCarpetBomb
+        | SpecialPowerType::SuprCruiseMissile
+        | SpecialPowerType::ClusterMines
+        | SpecialPowerType::NukeClusterMines
+        | SpecialPowerType::EmpPulse
+        | SpecialPowerType::CrateDrop
+        | SpecialPowerType::NapalmStrike
+        | SpecialPowerType::BlackMarketNuke
+        | SpecialPowerType::AnthraxBomb
+        | SpecialPowerType::TerrorCell
+        | SpecialPowerType::Ambush
+        | SpecialPowerType::NeutronMissile
+        | SpecialPowerType::NukeNeutronMissile
+        | SpecialPowerType::SupwNeutronMissile
+        | SpecialPowerType::ScudStorm
+        | SpecialPowerType::Demoralize
+        | SpecialPowerType::A10ThunderboltStrike
+        | SpecialPowerType::AirfA10ThunderboltStrike
+        | SpecialPowerType::SpectreGunship
+        | SpecialPowerType::AirfSpectreGunship
+        | SpecialPowerType::RepairVehicles
+        | SpecialPowerType::EarlyRepairVehicles
+        | SpecialPowerType::GpsScrambler
+        | SpecialPowerType::SlthGpsScrambler
+        | SpecialPowerType::ArtilleryBarrage
+        | SpecialPowerType::Frenzy
+        | SpecialPowerType::EarlyFrenzy
+        | SpecialPowerType::ParticleUplinkCannon
+        | SpecialPowerType::SupwParticleUplinkCannon
+        | SpecialPowerType::LazrParticleUplinkCannon
+        | SpecialPowerType::CleanupArea
+        | SpecialPowerType::SneakAttack
+        | SpecialPowerType::BattleshipBombardment => {
+            if shroud_unknown_is_clear {
+                let grid_ready = crate::system::shroud_manager::get_shroud_manager()
+                    .lock()
+                    .ok()
+                    .is_some_and(|shroud| shroud.has_shroud_grid());
+                if !grid_ready {
+                    return true;
+                }
+            }
+            !is_location_cell_shrouded_for_player(player_index, loc)
+        }
+        SpecialPowerType::SpySatellite
+        | SpecialPowerType::RadarVanScan
+        | SpecialPowerType::SpyDrone
+        | SpecialPowerType::HelixNapalmBomb => is_point_on_map(loc),
+        SpecialPowerType::LaunchBaikonurRocket => true,
+        SpecialPowerType::MissileDefenderLaserGuidedMissiles
+        | SpecialPowerType::HackerDisableBuilding
+        | SpecialPowerType::TankHunterTntAttack
+        | SpecialPowerType::BoobyTrap
+        | SpecialPowerType::CashHack
+        | SpecialPowerType::Defector
+        | SpecialPowerType::BlackLotusCaptureBuilding
+        | SpecialPowerType::BlackLotusDisableVehicleHack
+        | SpecialPowerType::BlackLotusStealCashHack
+        | SpecialPowerType::InfantryCaptureBuilding
+        | SpecialPowerType::DetonateDirtyNuke
+        | SpecialPowerType::DisguiseAsVehicle
+        | SpecialPowerType::RemoteCharges
+        | SpecialPowerType::TimedCharges
+        | SpecialPowerType::CashBounty
+        | SpecialPowerType::ChangeBattlePlans => false,
+        _ => false,
+    }
 }
 
 /// C++ getSpecialPowerModule(spTemplate) + optional getPercentReady() < 1.0.
@@ -481,93 +590,32 @@ impl TheActionManager {
         if !special_power_source_ok(obj, sp_template, check_source_requirements) {
             return false;
         }
+        let _ = command_source;
+        special_power_at_location_ok(
+            sp_template.get_special_power_type(),
+            loc,
+            controlling_player_index(obj),
+            false,
+        )
+    }
 
-        match sp_template.get_special_power_type() {
-            SpecialPowerType::ParadropAmerica
-            | SpecialPowerType::InfaParadropAmerica
-            | SpecialPowerType::CrateDrop
-            | SpecialPowerType::TankParadrop => {
-                let Some(terrain) = TheTerrainLogic::get() else {
-                    return false;
-                };
-                if terrain.is_underwater(loc.x, loc.y, None, None) {
-                    return false;
-                }
-            }
-            _ => {}
-        }
-
-        match sp_template.get_special_power_type() {
-            SpecialPowerType::DaisyCutter
-            | SpecialPowerType::AirfDaisyCutter
-            | SpecialPowerType::ParadropAmerica
-            | SpecialPowerType::TankParadrop
-            | SpecialPowerType::InfaParadropAmerica
-            | SpecialPowerType::CarpetBomb
-            | SpecialPowerType::ChinaCarpetBomb
-            | SpecialPowerType::LeafletDrop
-            | SpecialPowerType::EarlyLeafletDrop
-            | SpecialPowerType::EarlyChinaCarpetBomb
-            | SpecialPowerType::AirfCarpetBomb
-            | SpecialPowerType::SuprCruiseMissile
-            | SpecialPowerType::ClusterMines
-            | SpecialPowerType::NukeClusterMines
-            | SpecialPowerType::EmpPulse
-            | SpecialPowerType::CrateDrop
-            | SpecialPowerType::NapalmStrike
-            | SpecialPowerType::BlackMarketNuke
-            | SpecialPowerType::AnthraxBomb
-            | SpecialPowerType::TerrorCell
-            | SpecialPowerType::Ambush
-            | SpecialPowerType::NeutronMissile
-            | SpecialPowerType::NukeNeutronMissile
-            | SpecialPowerType::SupwNeutronMissile
-            | SpecialPowerType::ScudStorm
-            | SpecialPowerType::Demoralize
-            | SpecialPowerType::A10ThunderboltStrike
-            | SpecialPowerType::AirfA10ThunderboltStrike
-            | SpecialPowerType::SpectreGunship
-            | SpecialPowerType::AirfSpectreGunship
-            | SpecialPowerType::RepairVehicles
-            | SpecialPowerType::EarlyRepairVehicles
-            | SpecialPowerType::GpsScrambler
-            | SpecialPowerType::SlthGpsScrambler
-            | SpecialPowerType::ArtilleryBarrage
-            | SpecialPowerType::Frenzy
-            | SpecialPowerType::EarlyFrenzy
-            | SpecialPowerType::ParticleUplinkCannon
-            | SpecialPowerType::SupwParticleUplinkCannon
-            | SpecialPowerType::LazrParticleUplinkCannon
-            | SpecialPowerType::CleanupArea
-            | SpecialPowerType::SneakAttack
-            | SpecialPowerType::BattleshipBombardment => {
-                // C++ ActionManager.cpp:1521 — no script bypass for cell shroud.
-                let _ = command_source;
-                !is_location_cell_shrouded(obj, loc)
-            }
-            SpecialPowerType::SpySatellite
-            | SpecialPowerType::RadarVanScan
-            | SpecialPowerType::SpyDrone
-            | SpecialPowerType::HelixNapalmBomb => is_point_on_map(loc),
-            SpecialPowerType::LaunchBaikonurRocket => true,
-            SpecialPowerType::MissileDefenderLaserGuidedMissiles
-            | SpecialPowerType::HackerDisableBuilding
-            | SpecialPowerType::TankHunterTntAttack
-            | SpecialPowerType::BoobyTrap
-            | SpecialPowerType::CashHack
-            | SpecialPowerType::Defector
-            | SpecialPowerType::BlackLotusCaptureBuilding
-            | SpecialPowerType::BlackLotusDisableVehicleHack
-            | SpecialPowerType::BlackLotusStealCashHack
-            | SpecialPowerType::InfantryCaptureBuilding
-            | SpecialPowerType::DetonateDirtyNuke
-            | SpecialPowerType::DisguiseAsVehicle
-            | SpecialPowerType::RemoteCharges
-            | SpecialPowerType::TimedCharges
-            | SpecialPowerType::CashBounty
-            | SpecialPowerType::ChangeBattlePlans => false,
-            _ => false,
-        }
+    /// Host-facing leftover of C++ `canDoSpecialPowerAtLocation` location
+    /// gates (underwater + fully-shrouded + object-only). No leftover Object.
+    ///
+    /// `shroud_unknown_is_clear` matches live host: fail-open when leftover
+    /// shroud grid is not initialized.
+    pub fn can_do_special_power_at_location_for_player(
+        power_type: SpecialPowerType,
+        loc: &crate::common::Coord3D,
+        player_index: crate::common::Int,
+        shroud_unknown_is_clear: bool,
+    ) -> bool {
+        special_power_at_location_ok(
+            power_type,
+            loc,
+            player_index,
+            shroud_unknown_is_clear,
+        )
     }
 
     /// Can `obj` execute a special power on a target object.

@@ -247,6 +247,12 @@ pub struct Projectile {
     /// its firing object, while its detonation OCL must still create objects
     /// for the original team.
     pub source_team: crate::game_logic::Team,
+    /// Firing object's controlling player frozen at launch (C++ getRelationship).
+    #[serde(default)]
+    pub source_owner_player_id: Option<u32>,
+    /// Firing object's team instance name frozen at launch (team-id overrides).
+    #[serde(default)]
+    pub source_team_instance_name: String,
     /// Firing object's veterancy frozen at launch for OCL `InheritsVeterancy`.
     pub source_veterancy: crate::game_logic::VeterancyLevel,
     /// C++ SecondaryDamage residual (outer splash ring amount).
@@ -325,6 +331,8 @@ impl Projectile {
             detonation_ocl_name: String::new(),
             exhaust_name: String::new(),
             source_team: crate::game_logic::Team::Neutral,
+            source_owner_player_id: None,
+            source_team_instance_name: String::new(),
             source_veterancy: crate::game_logic::VeterancyLevel::Rookie,
             secondary_damage: 0.0,
             secondary_damage_radius: 0.0,
@@ -671,6 +679,10 @@ pub enum DamageEvent {
         radius_damage_affects: u32,
         /// Shooter team frozen at impact for ally/enemy filter.
         shooter_team: crate::game_logic::Team,
+        /// Shooter controlling player frozen at impact (C++ getRelationship).
+        shooter_owner_player_id: Option<u32>,
+        /// Shooter team instance frozen at impact (PLAYER_SET_OVERRIDE_RELATION_TO_TEAM).
+        shooter_team_instance_name: String,
         /// Shooter template name residual (NOT_SIMILAR filter).
         shooter_template: String,
         /// C++ `primaryVictim`: intended target skips RadiusDamageAffects.
@@ -738,6 +750,8 @@ static PENDING_PROJECTILES: std::sync::Mutex<Vec<PendingProjectile>> =
 #[derive(Debug, Clone, Copy)]
 pub struct ProjectileLaunchContext {
     pub source_team: crate::game_logic::Team,
+    /// Controlling player frozen at fire acceptance (C++ Object::getRelationship).
+    pub source_owner_player_id: Option<u32>,
     pub source_veterancy: crate::game_logic::VeterancyLevel,
     pub source_orientation: f32,
     pub source_velocity: Vec3,
@@ -925,6 +939,7 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
                 .get(&p.shooter_id)
                 .map(|source| ProjectileLaunchContext {
                     source_team: source.team,
+                    source_owner_player_id: source.owner_player_id,
                     source_veterancy: source.experience.level,
                     source_orientation: source.get_orientation(),
                     source_velocity: source.movement.velocity,
@@ -932,6 +947,7 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
         });
         let source_context = source_context.unwrap_or(ProjectileLaunchContext {
             source_team: crate::game_logic::Team::Neutral,
+            source_owner_player_id: None,
             source_veterancy: crate::game_logic::VeterancyLevel::Rookie,
             source_orientation: 0.0,
             source_velocity: Vec3::ZERO,
@@ -1075,6 +1091,13 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             proj.detonation_ocl_name = p.detonation_ocl_name.clone();
             proj.exhaust_name = p.exhaust_name.clone();
             proj.source_team = source_context.source_team;
+            proj.source_owner_player_id = source_context.source_owner_player_id.or_else(|| {
+                objects.get(&p.shooter_id).and_then(|o| o.owner_player_id)
+            });
+            proj.source_team_instance_name = objects
+                .get(&p.shooter_id)
+                .map(|o| o.team_instance_name.clone())
+                .unwrap_or_default();
             proj.source_veterancy = source_context.source_veterancy;
             proj.secondary_damage = p.secondary_damage;
             proj.secondary_damage_radius = p.secondary_damage_radius;
@@ -1317,8 +1340,59 @@ impl CombatSystem {
         }
     }
 
+    fn splash_area_event(
+        projectile: &Projectile,
+        objects: &HashMap<ObjectId, Object>,
+        position: Vec3,
+    ) -> DamageEvent {
+        let live = objects.get(&projectile.shooter_id);
+        DamageEvent::Area {
+            position,
+            damage: projectile.damage,
+            damage_type: projectile.damage_type,
+            death_type: if projectile.die_on_detonate {
+                crate::game_logic::host_usa_pilot::HostDeathType::Detonated
+            } else {
+                projectile.death_type
+            },
+            radius: projectile.explosion_radius,
+            shooter_id: projectile.shooter_id,
+            secondary_damage: projectile.secondary_damage,
+            secondary_radius: projectile.secondary_damage_radius,
+            shock_wave_amount: projectile.shock_wave_amount,
+            shock_wave_radius: projectile.shock_wave_radius,
+            shock_wave_taper_off: projectile.shock_wave_taper_off,
+            radius_damage_affects: projectile.radius_damage_affects,
+            shooter_team: live.map(|o| o.team).unwrap_or(projectile.source_team),
+            shooter_owner_player_id: live
+                .and_then(|o| o.owner_player_id)
+                .or(projectile.source_owner_player_id),
+            shooter_team_instance_name: live
+                .map(|o| o.team_instance_name.clone())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| projectile.source_team_instance_name.clone()),
+            shooter_template: live
+                .map(|o| o.template_name.clone())
+                .unwrap_or_default(),
+            primary_victim: projectile.target_id,
+        }
+    }
+
     /// Projectile step with optional America Countermeasures diversion residual.
     pub fn update_projectiles_with_countermeasures(
+        &mut self,
+        dt: f32,
+        objects: &mut HashMap<ObjectId, Object>,
+        countermeasures: Option<
+            &mut crate::game_logic::host_countermeasures::HostCountermeasuresRegistry,
+        >,
+        frame: u32,
+    ) -> Vec<ObjectId> {
+        self.update_projectiles_with_relationships(dt, objects, countermeasures, frame, None)
+    }
+
+    /// Projectile step that applies RadiusDamageAffects via GameWorld player relationships.
+    pub fn update_projectiles_with_relationships(
         &mut self,
         dt: f32,
         objects: &mut HashMap<ObjectId, Object>,
@@ -1326,6 +1400,7 @@ impl CombatSystem {
             &mut crate::game_logic::host_countermeasures::HostCountermeasuresRegistry,
         >,
         frame: u32,
+        players: Option<&HashMap<u32, crate::game_logic::Player>>,
     ) -> Vec<ObjectId> {
         let projectile_ids: Vec<ObjectId> = self.projectiles.keys().copied().collect();
 
@@ -1400,30 +1475,7 @@ impl CombatSystem {
                         let impact = projectile.position;
                         Self::maybe_record_historic_bonus(projectile, impact, objects);
                         if !projectile.no_damage && projectile.explosion_radius > 0.0 {
-                            damage_events.push(DamageEvent::Area {
-                                position: impact,
-                                damage: projectile.damage,
-                                damage_type: projectile.damage_type,
-                                death_type: if projectile.die_on_detonate {
-                                    crate::game_logic::host_usa_pilot::HostDeathType::Detonated
-                                } else {
-                                    projectile.death_type
-                                },
-                                radius: projectile.explosion_radius,
-                                shooter_id: projectile.shooter_id,
-                                secondary_damage: projectile.secondary_damage,
-                                secondary_radius: projectile.secondary_damage_radius,
-                                shock_wave_amount: projectile.shock_wave_amount,
-                                shock_wave_radius: projectile.shock_wave_radius,
-                                shock_wave_taper_off: projectile.shock_wave_taper_off,
-                                radius_damage_affects: projectile.radius_damage_affects,
-                                shooter_team: projectile.source_team,
-                                shooter_template: objects
-                                    .get(&projectile.shooter_id)
-                                    .map(|o| o.template_name.clone())
-                                    .unwrap_or_default(),
-                                primary_victim: projectile.target_id,
-                            });
+                            damage_events.push(Self::splash_area_event(projectile, objects, impact));
                         }
                         if !projectile.detonation_fx_name.is_empty()
                             || !projectile.detonation_ocl_name.is_empty()
@@ -1527,33 +1579,7 @@ impl CombatSystem {
                     let impact = projectile.position;
                     Self::maybe_record_historic_bonus(projectile, impact, objects);
                     if !projectile.no_damage && projectile.explosion_radius > 0.0 {
-                        damage_events.push(DamageEvent::Area {
-                            position: impact,
-                            damage: projectile.damage,
-                            damage_type: projectile.damage_type,
-                            death_type: if projectile.die_on_detonate {
-                                crate::game_logic::host_usa_pilot::HostDeathType::Detonated
-                            } else {
-                                projectile.death_type
-                            },
-                            radius: projectile.explosion_radius,
-                            shooter_id: projectile.shooter_id,
-                            secondary_damage: projectile.secondary_damage,
-                            secondary_radius: projectile.secondary_damage_radius,
-                            shock_wave_amount: projectile.shock_wave_amount,
-                            shock_wave_radius: projectile.shock_wave_radius,
-                            shock_wave_taper_off: projectile.shock_wave_taper_off,
-                            radius_damage_affects: projectile.radius_damage_affects,
-                            shooter_team: objects
-                                .get(&projectile.shooter_id)
-                                .map(|o| o.team)
-                                .unwrap_or(crate::game_logic::Team::Neutral),
-                            shooter_template: objects
-                                .get(&projectile.shooter_id)
-                                .map(|o| o.template_name.clone())
-                                .unwrap_or_default(),
-                            primary_victim: projectile.target_id,
-                        });
+                        damage_events.push(Self::splash_area_event(projectile, objects, impact));
                     } else if !projectile.no_damage {
                         damage_events.push(DamageEvent::Direct {
                             target_id: sid,
@@ -1626,33 +1652,8 @@ impl CombatSystem {
                             Self::maybe_record_historic_bonus(projectile, impact, objects);
                             if !projectile.no_damage && projectile.explosion_radius > 0.0 {
                                 // C++ Weapon.cpp:1438: primary inside primaryRadius, else secondary.
-                                damage_events.push(DamageEvent::Area {
-                                    position: impact,
-                                    damage: projectile.damage,
-                                    damage_type: projectile.damage_type,
-                                    death_type: if projectile.die_on_detonate {
-                                        crate::game_logic::host_usa_pilot::HostDeathType::Detonated
-                                    } else {
-                                        projectile.death_type
-                                    },
-                                    radius: projectile.explosion_radius,
-                                    shooter_id: projectile.shooter_id,
-                                    secondary_damage: projectile.secondary_damage,
-                                    secondary_radius: projectile.secondary_damage_radius,
-                                    shock_wave_amount: projectile.shock_wave_amount,
-                                    shock_wave_radius: projectile.shock_wave_radius,
-                                    shock_wave_taper_off: projectile.shock_wave_taper_off,
-                                    radius_damage_affects: projectile.radius_damage_affects,
-                                    shooter_team: objects
-                                        .get(&projectile.shooter_id)
-                                        .map(|o| o.team)
-                                        .unwrap_or(crate::game_logic::Team::Neutral),
-                                    shooter_template: objects
-                                        .get(&projectile.shooter_id)
-                                        .map(|o| o.template_name.clone())
-                                        .unwrap_or_default(),
-                                    primary_victim: projectile.target_id,
-                                });
+                                damage_events
+                                    .push(Self::splash_area_event(projectile, objects, impact));
                             } else if !projectile.no_damage {
                                 damage_events.push(DamageEvent::Direct {
                                     target_id,
@@ -1695,33 +1696,7 @@ impl CombatSystem {
                         let impact = projectile.target_position;
                         Self::maybe_record_historic_bonus(projectile, impact, objects);
                         if !projectile.no_damage && projectile.explosion_radius > 0.0 {
-                            damage_events.push(DamageEvent::Area {
-                                position: impact,
-                                damage: projectile.damage,
-                                damage_type: projectile.damage_type,
-                                death_type: if projectile.die_on_detonate {
-                                    crate::game_logic::host_usa_pilot::HostDeathType::Detonated
-                                } else {
-                                    projectile.death_type
-                                },
-                                radius: projectile.explosion_radius,
-                                shooter_id: projectile.shooter_id,
-                                secondary_damage: projectile.secondary_damage,
-                                secondary_radius: projectile.secondary_damage_radius,
-                                shock_wave_amount: projectile.shock_wave_amount,
-                                shock_wave_radius: projectile.shock_wave_radius,
-                                shock_wave_taper_off: projectile.shock_wave_taper_off,
-                                radius_damage_affects: projectile.radius_damage_affects,
-                                shooter_team: objects
-                                    .get(&projectile.shooter_id)
-                                    .map(|o| o.team)
-                                    .unwrap_or(crate::game_logic::Team::Neutral),
-                                shooter_template: objects
-                                    .get(&projectile.shooter_id)
-                                    .map(|o| o.template_name.clone())
-                                    .unwrap_or_default(),
-                                primary_victim: projectile.target_id,
-                            });
+                            damage_events.push(Self::splash_area_event(projectile, objects, impact));
                         }
                         if !projectile.detonation_fx_name.is_empty()
                             || !projectile.detonation_ocl_name.is_empty()
@@ -1797,7 +1772,8 @@ impl CombatSystem {
                     shock_wave_radius,
                     shock_wave_taper_off,
                     radius_damage_affects,
-                    shooter_team,
+                    shooter_owner_player_id,
+                    shooter_team_instance_name,
                     shooter_template,
                     shooter_id,
                     primary_victim,
@@ -1842,13 +1818,23 @@ impl CombatSystem {
                             let airborne = obj.is_significantly_above_terrain();
                             let same_tmpl = !shooter_template.is_empty()
                                 && obj.template_name == *shooter_template;
+                            // C++ curVictim->getRelationship(source) (Weapon.cpp:1360).
+                            let relationship = match players {
+                                Some(map) => crate::game_logic::GameLogic::object_relationship_from_owners(
+                                    map,
+                                    obj.owner_player_id,
+                                    &obj.team_instance_name,
+                                    *shooter_owner_player_id,
+                                    shooter_team_instance_name,
+                                ),
+                                None => gamelogic::common::Relationship::Neutral,
+                            };
                             let allowed =
                                 crate::game_logic::weapon_bootstrap::radius_damage_affects_victim(
                                     *radius_damage_affects,
-                                    *shooter_team,
+                                    relationship,
                                     *shooter_id,
                                     *vid,
-                                    obj.team,
                                     airborne,
                                     same_tmpl,
                                 );
@@ -2156,6 +2142,7 @@ mod tests {
             shooter_pos: Vec3::ZERO,
             source_context: Some(ProjectileLaunchContext {
                 source_team: Team::China,
+                source_owner_player_id: None,
                 source_veterancy: crate::game_logic::VeterancyLevel::Rookie,
                 source_orientation: 0.0,
                 source_velocity: Vec3::ZERO,
@@ -2882,6 +2869,7 @@ mod tests {
             shooter_pos: Vec3::ZERO,
             source_context: Some(ProjectileLaunchContext {
                 source_team: Team::China,
+                source_owner_player_id: None,
                 source_veterancy: crate::game_logic::VeterancyLevel::Heroic,
                 source_orientation: std::f32::consts::FRAC_PI_2,
                 source_velocity: Vec3::new(12.0, 0.0, -4.0),

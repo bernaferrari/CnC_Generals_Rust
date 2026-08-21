@@ -108,6 +108,7 @@ impl GameWorldShadow {
                     turn_pivot_offset: ev.turn_pivot_offset,
                     wander_width_factor: ev.wander_width_factor,
                     loco_apply_2d_friction_airborne: ev.loco_apply_2d_friction_airborne,
+                    allow_motive_force_while_airborne: ev.allow_motive_force_while_airborne,
                     loco_extra_2d_friction: ev.loco_extra_2d_friction,
                     loco_preferred_height: ev.loco_preferred_height,
                     loco_preferred_height_damping: ev.loco_preferred_height_damping,

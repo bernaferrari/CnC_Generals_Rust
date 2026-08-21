@@ -53,7 +53,9 @@ pub use w3d_projectile_stream_draw::{W3DProjectileStreamDraw, W3DProjectileStrea
 pub use w3d_rope_draw::{W3DRopeDraw, W3DRopeDrawModuleData};
 pub use w3d_science_model_draw::{W3DScienceModelDraw, W3DScienceModelDrawModuleData};
 pub use w3d_supply_draw::{W3DSupplyDraw, W3DSupplyDrawModuleData};
-pub use w3d_tank_draw::{W3DTankDraw, W3DTankDrawModuleData};
+pub use w3d_tank_draw::{
+    prune_live_host_tread_debris, tick_live_host_tread_debris, W3DTankDraw, W3DTankDrawModuleData,
+};
 pub use w3d_tank_truck_draw::{W3DTankTruckDraw, W3DTankTruckDrawModuleData};
 pub use w3d_tracer_draw::{W3DTracerDraw, W3DTracerDrawModuleData};
 pub use w3d_tree_draw::{W3DTreeDraw, W3DTreeDrawModuleData};
@@ -64,4 +66,7 @@ pub use client_visual::{
     terrain_decal_client, terrain_decal_texture_name, terrain_track_client, texture_aspect_ratio,
     TerrainDecalClient, TerrainDecalDesc, TerrainTrackClient,
 };
-pub use w3d_truck_draw::{W3DTruckDraw, W3DTruckDrawModuleData};
+pub use w3d_truck_draw::{
+    prune_live_host_truck_dust, tick_live_host_truck_dust, TruckDrawLivePhysics, W3DTruckDraw,
+    W3DTruckDrawModuleData,
+};

@@ -842,7 +842,7 @@ impl GameLogic {
         };
 
         let frame = self.frame;
-        let zones: Vec<(ObjectId, Team, Option<u32>, Vec3)> = self
+        let zones: Vec<(ObjectId, Team, Option<u32>, Vec3, bool)> = self
             .objects
             .iter()
             .filter_map(|(id, obj)| {
@@ -857,13 +857,20 @@ impl GameLogic {
                 ) {
                     return None;
                 }
-                Some((*id, obj.team, obj.owner_player_id, obj.get_position()))
+                // C++ Object::isDisabled — under_construction already filtered.
+                Some((
+                    *id,
+                    obj.team,
+                    obj.owner_player_id,
+                    obj.get_position(),
+                    obj.is_disabled(),
+                ))
             })
             .collect();
 
         // Forget destroyed zones so re-builds reschedule cleanly.
         let live: std::collections::HashSet<ObjectId> =
-            zones.iter().map(|(id, _, _, _)| *id).collect();
+            zones.iter().map(|(id, _, _, _, _)| *id).collect();
         let stale: Vec<ObjectId> = self
             .supply_drop_zones
             .next_drop_keys()
@@ -875,7 +882,12 @@ impl GameLogic {
             self.host_deliver_payloads.cancel_for_source(id);
         }
 
-        for (zone_id, team, object_owner, pos) in zones {
+        for (zone_id, team, object_owner, pos, disabled) in zones {
+            // C++ OCLUpdate.cpp:102-106 — freeze m_nextCreationFrame, do not create.
+            if disabled {
+                self.supply_drop_zones.freeze_timer(zone_id);
+                continue;
+            }
             if !self.supply_drop_zones.try_start_flight(zone_id, frame) {
                 continue;
             }

@@ -824,11 +824,12 @@ impl GameLogic {
             // Defer integrate+hits to shadow_session (GW step + writeback + hits).
             Vec::new()
         } else {
-            let hits = self.combat_system.update_projectiles_with_countermeasures(
+            let hits = self.combat_system.update_projectiles_with_relationships(
                 dt,
                 &mut self.objects,
                 Some(&mut self.countermeasures),
                 self.frame,
+                Some(&self.players),
             );
             crate::game_logic::host_projectile_log::record_snapshot(
                 self.combat_system.projectiles_snapshot(),

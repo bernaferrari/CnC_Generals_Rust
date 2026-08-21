@@ -210,8 +210,8 @@ mod tests {
         host_locomotor_log::clear();
         host_bounce_land_log::clear();
         host_locomotor_log::record(
-            id, false, false, false, true, false, false, 0.0, 1.0, false, 0.0, 0.0, 0.0, 0, 0, 0.0,
-            0,
+            id, false, false, false, true, false, false, 0.0, 1.0, false, false, 0.0, 0.0, 0.0, 0,
+            0, 0.0, 0,
         );
         host_bounce_land_log::record(id, false, 0, 0.0, String::new(), 0.0, 0, true, None, None);
         assert_eq!(host_locomotor_log::len(), 1);

@@ -267,6 +267,20 @@ impl World {
                 e.moving = false;
                 continue;
             }
+            // C++ Locomotor.cpp:954-958 getIsStunned return; :1055
+            // AllowAirborneMotiveForce || !treatAsAirborne. Do not zero
+            // velocity — PhysicsBehavior still owns tumble / fall.
+            if e.shock_stun_frames > 0 {
+                continue;
+            }
+            {
+                let height_above = e.transform.position.y - e.ground_height;
+                // C++ :1005 height > -(3*3)*m_gravity. Default gravity -1.0 → 9.0.
+                let treat_as_airborne = height_above > 9.0;
+                if treat_as_airborne && !e.allow_motive_force_while_airborne {
+                    continue;
+                }
+            }
 
 
             let horiz = |ax: f32, az: f32, bx: f32, bz: f32| -> f32 {
@@ -655,6 +669,7 @@ pub enum WorldMutation {
         turn_pivot_offset: f32,
         wander_width_factor: f32,
         loco_apply_2d_friction_airborne: bool,
+        allow_motive_force_while_airborne: bool,
         loco_extra_2d_friction: f32,
         loco_preferred_height: f32,
         loco_preferred_height_damping: f32,
@@ -1653,6 +1668,7 @@ impl GameWorld {
                     turn_pivot_offset,
                     wander_width_factor,
                     loco_apply_2d_friction_airborne,
+                    allow_motive_force_while_airborne,
                     loco_extra_2d_friction,
                     loco_preferred_height,
                     loco_preferred_height_damping,
@@ -1671,6 +1687,7 @@ impl GameWorld {
                         e.turn_pivot_offset = turn_pivot_offset;
                         e.wander_width_factor = wander_width_factor;
                         e.loco_apply_2d_friction_airborne = loco_apply_2d_friction_airborne;
+                        e.allow_motive_force_while_airborne = allow_motive_force_while_airborne;
                         e.loco_extra_2d_friction = loco_extra_2d_friction;
                         e.loco_preferred_height = loco_preferred_height;
                         e.loco_preferred_height_damping = loco_preferred_height_damping;

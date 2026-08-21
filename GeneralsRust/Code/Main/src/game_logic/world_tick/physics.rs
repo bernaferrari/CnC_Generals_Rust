@@ -293,13 +293,34 @@ impl GameLogic {
             return true;
         }
         // Immobile bounce path.
+        // C++ PhysicsUpdate.cpp:1255-1264: living AI calls processCollision;
+        // AIUpdate.cpp:1423-1425 returns FALSE when other has no AI (buildings).
+        // Stiffness rebound is dead/parachute only.
         if b_immobile {
-            // Still honor allowCollideForce residual.
-            let allow = self
-                .objects
-                .get(&a_id)
-                .map(|a| a.allow_collide_force)
-                .unwrap_or(true);
+            let (has_ai, dead_or_para, allow) = {
+                let Some(a) = self.objects.get(&a_id) else {
+                    return false;
+                };
+                let dead = !a.is_alive();
+                let para = a.is_parachuting();
+                let projectile = a.is_kind_of(crate::game_logic::KindOf::Projectile)
+                    || a.object_type == crate::game_logic::ObjectType::Projectile;
+                (a.is_mobile() || projectile, dead || para, a.allow_collide_force)
+            };
+            if has_ai && !dead_or_para {
+                let frame = self.frame;
+                let b_snap = match self.objects.get(&b_id) {
+                    Some(b) => b.clone(),
+                    None => return false,
+                };
+                let do_force = match self.objects.get_mut(&a_id) {
+                    Some(a) => a.ai_process_collision(&b_snap, frame, is_ally),
+                    None => return false,
+                };
+                if !do_force {
+                    return true; // processCollision refused bounce
+                }
+            }
             if !allow {
                 return true; // handled as no-force
             }

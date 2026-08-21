@@ -710,6 +710,14 @@ impl Object {
     }
 
     pub fn presentation_shadows_enabled(&self) -> bool {
+        // C++ W3DModelDraw::allocateShadows / setModelState: Shadow == NONE allocates nothing.
+        let bits = crate::game_logic::host_battlemaster::leftover_template_shadow_type(
+            &self.template_name,
+            self.thing.template.shadow_type,
+        );
+        if bits == 0 {
+            return false;
+        }
         let topple = self
             .topple_data
             .as_ref()
@@ -728,6 +736,7 @@ impl Object {
         }
         true
     }
+
 
     /// C++ Object::topple residual.
     /// Returns true if the object should be destroyed immediately (start-topple kill).

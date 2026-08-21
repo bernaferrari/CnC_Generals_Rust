@@ -285,10 +285,10 @@ impl Object {
         {
             return false;
         }
-        // Other needs AI residual: can_move stand-in.
-        if !other.can_move() {
-            // Immobile bounce handled outside AI processCollision.
-            return true;
+        // C++ AIUpdate.cpp:1423-1425: aiOther==NULL → FALSE (buildings/props).
+        // is_mobile is the live stand-in for getAI() (infantry/vehicle/aircraft).
+        if !other.is_mobile() {
+            return false;
         }
         let self_ground = self.can_move() && !self.status.airborne_target && !self.is_parachuting();
         let other_ground =

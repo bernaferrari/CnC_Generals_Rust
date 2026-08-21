@@ -381,6 +381,17 @@ impl Snapshot for WorldSnapshot {
             self.object_experience_trackers.clear();
         }
 
+        if self.version >= WORLD_SNAPSHOT_DIRECT_XFER_V19_TAIL_VERSION {
+            xfer.xfer_marker_label("ObjectCommandSets")?;
+            xfer_vec_default(
+                xfer,
+                &mut self.object_command_sets,
+                ObjectCommandSetSnapshot::default(),
+            )?;
+        } else if xfer.get_mode() == XferMode::Load {
+            self.object_command_sets.clear();
+        }
+
         Ok(())
     }
 

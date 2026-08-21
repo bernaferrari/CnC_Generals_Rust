@@ -478,6 +478,7 @@ impl GameWorldShadow {
                 || (obj.turn_pivot_offset - ent.turn_pivot_offset).abs() > f32::EPSILON
                 || (obj.wander_width_factor - ent.wander_width_factor).abs() > f32::EPSILON
                 || obj.loco_apply_2d_friction_airborne != ent.loco_apply_2d_friction_airborne
+                || obj.allow_motive_force_while_airborne != ent.allow_motive_force_while_airborne
                 || (obj.loco_extra_2d_friction - ent.loco_extra_2d_friction).abs() > f32::EPSILON
                 || (obj.loco_preferred_height - ent.loco_preferred_height).abs() > f32::EPSILON
                 || (obj.loco_preferred_height_damping - ent.loco_preferred_height_damping).abs()
@@ -498,6 +499,7 @@ impl GameWorldShadow {
             obj.turn_pivot_offset = ent.turn_pivot_offset;
             obj.wander_width_factor = ent.wander_width_factor;
             obj.loco_apply_2d_friction_airborne = ent.loco_apply_2d_friction_airborne;
+            obj.allow_motive_force_while_airborne = ent.allow_motive_force_while_airborne;
             obj.loco_extra_2d_friction = ent.loco_extra_2d_friction;
             obj.loco_preferred_height = ent.loco_preferred_height;
             obj.loco_preferred_height_damping = ent.loco_preferred_height_damping;

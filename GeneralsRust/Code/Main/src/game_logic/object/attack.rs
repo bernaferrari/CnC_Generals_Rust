@@ -361,6 +361,7 @@ impl Object {
             shooter_pos,
             source_context: Some(super::combat::ProjectileLaunchContext {
                 source_team: self.team,
+                source_owner_player_id: self.owner_player_id,
                 source_veterancy: veterancy,
                 source_orientation: self.get_orientation(),
                 source_velocity: self.movement.velocity,

@@ -1672,6 +1672,18 @@ impl PresentationFrame {
             },
             // Wave 490: applied upgrades from GW entity.
             applied_upgrades: ent.applied_upgrade_names.clone(),
+            upgrade_cameo_names: {
+                #[cfg(feature = "game_client")]
+                {
+                    game_client::gui::control_bar::leftover_authored_upgrade_cameo_names(
+                        &ent.template.name,
+                    )
+                }
+                #[cfg(not(feature = "game_client"))]
+                {
+                    Default::default()
+                }
+            },
             has_secondary_weapon: ent.has_secondary_weapon,
             secondary_weapon_range: ent.secondary_weapon_range,
             secondary_weapon_damage: ent.secondary_weapon_damage,

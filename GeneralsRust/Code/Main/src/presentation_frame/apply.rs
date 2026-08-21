@@ -542,13 +542,15 @@ impl PresentationFrame {
                 if let Some(ro) = self.objects.iter().find(|o| {
                     o.id == id && !o.destroyed && !o.sold && !o.unselectable && !o.masked
                 }) {
-                    for p in &ro.production_queue {
-                        queue_items.push((
-                            p.template_name.clone(),
-                            p.progress_ratio,
-                            p.cost_supplies as i32,
-                            p.total_time.max(0.01),
-                        ));
+                    if self.is_owned_by_local(ro) {
+                        for p in &ro.production_queue {
+                            queue_items.push((
+                                p.template_name.clone(),
+                                p.progress_ratio,
+                                p.cost_supplies as i32,
+                                p.total_time.max(0.01),
+                            ));
+                        }
                     }
                 }
             }
@@ -1056,6 +1058,7 @@ impl PresentationFrame {
                 panel.under_construction = ro.under_construction;
                 panel.construction_percent = ro.construction_percent;
                 panel.applied_upgrades = ro.applied_upgrades.clone();
+                panel.upgrade_cameo_names = ro.upgrade_cameo_names.clone();
                 panel.rally_point = ro.rally_point.map(|p| [p.x, p.y, p.z]);
                 panel.special_power_ready = ro.special_power_ready;
                 panel.special_power_cooldown_remaining = ro.special_power_cooldown_remaining;
@@ -1136,31 +1139,100 @@ impl PresentationFrame {
                 .collect::<Vec<_>>(),
         );
 
+        let primary = self.objects.iter().find(|o| {
+            Some(o.id) == panel.primary_object_id
+                && !o.destroyed
+                && !o.sold
+                && !o.unselectable
+                && !o.masked
+        });
+        let controllable = primary.is_some_and(|o| self.is_owned_by_local(o));
+        control_bar.sync_selection_controllable_from_presentation(controllable);
+        let empty_queue: Vec<(String, f32, bool)> = Vec::new();
         control_bar.sync_selection_display_from_presentation(
             panel.visible.then_some(panel.primary_name.as_str()),
             panel.health_current,
             panel.health_maximum,
             panel.selected_count,
             panel.veterancy_overlay.as_deref(),
-            panel.production_progress,
-            panel.production_template.as_deref(),
-            &panel.production_queue,
-            panel.production_paused,
+            if controllable {
+                panel.production_progress
+            } else {
+                None
+            },
+            if controllable {
+                panel.production_template.as_deref()
+            } else {
+                None
+            },
+            if controllable {
+                &panel.production_queue
+            } else {
+                &empty_queue
+            },
+            controllable && panel.production_paused,
         );
+        let beacon = primary.is_some_and(|o| {
+            o.template_name.to_ascii_lowercase().contains("beacon")
+        });
+        let neutral_garrison = primary.is_some_and(|o| {
+            o.team == crate::game_logic::Team::Neutral && o.max_garrison > 0
+        });
+        let garrison_max = if controllable || neutral_garrison {
+            panel.max_garrison
+        } else {
+            0
+        };
         control_bar.sync_structure_context_from_presentation(
-            panel.max_garrison,
-            panel.garrisoned_count,
-            panel.under_construction,
-            panel.construction_percent,
+            garrison_max,
+            if garrison_max > 0 {
+                panel.garrisoned_count
+            } else {
+                0
+            },
+            controllable && panel.under_construction,
+            if controllable {
+                panel.construction_percent
+            } else {
+                0.0
+            },
         );
         // Wave 1031: OCL timer residual into ControlBar OclTimer dual path.
-        control_bar.sync_ocl_timer_from_presentation(panel.ocl_timer_seconds);
-        control_bar.sync_upgrades_and_specials_from_presentation(
-            &panel.applied_upgrades,
-            panel.rally_point,
-            panel.special_power_ready,
-            panel.special_power_cooldown_remaining,
-            panel.special_power_cooldown,
+        control_bar.sync_ocl_timer_from_presentation(if controllable {
+            panel.ocl_timer_seconds
+        } else {
+            0
+        });
+        let authored_cameos: Vec<String> = panel
+            .upgrade_cameo_names
+            .iter()
+            .map(|name| name.trim().to_string())
+            .filter(|name| !name.is_empty())
+            .collect();
+        let mut completed_upgrades = panel.applied_upgrades.clone();
+        for name in &self.local_unlocked_sciences {
+            if !completed_upgrades
+                .iter()
+                .any(|owned| owned.eq_ignore_ascii_case(name))
+            {
+                completed_upgrades.push(name.clone());
+            }
+        }
+        control_bar.sync_upgrade_cameos_from_presentation(
+            &authored_cameos,
+            &completed_upgrades,
+            if controllable { panel.rally_point } else { None },
+            controllable && panel.special_power_ready,
+            if controllable {
+                panel.special_power_cooldown_remaining
+            } else {
+                0.0
+            },
+            if controllable {
+                panel.special_power_cooldown
+            } else {
+                0.0
+            },
         );
         // Wave 1110: multi-select count residual excludes sold/unusable.
         // Disabled completed structures still own their command set
@@ -1180,7 +1252,9 @@ impl PresentationFrame {
         } else {
             self.objects.iter().filter(usable_selected).count()
         };
-        if selected_count > 1 {
+        if !controllable && !beacon {
+            control_bar.sync_command_set_from_presentation(None);
+        } else if selected_count > 1 {
             let names = self.selected_command_set_names();
             control_bar.sync_multi_select_command_sets_from_presentation(&names);
         } else {
@@ -1278,6 +1352,35 @@ impl PresentationFrame {
         }) else {
             return Vec::new();
         };
+        // C++ ControlBar.cpp:1716-1778 + InGameUI::areSelectedObjectsControllable.
+        // Non-local selection is CB_CONTEXT_NONE. Exceptions: beacon context,
+        // and NEUTRAL garrisonable inventory (enemy/ally containers never peek).
+        if !self.is_owned_by_local(ro) {
+            let mut cmds = Vec::new();
+            let n = ro.template_name.to_ascii_lowercase();
+            if n.contains("beacon") {
+                cmds.push(UnitCommandButton {
+                    command_name: "Command_BeaconDelete".into(),
+                    enabled: true,
+                });
+                return cmds;
+            }
+            if ro.team == crate::game_logic::Team::Neutral && ro.max_garrison > 0 {
+                cmds.push(UnitCommandButton {
+                    command_name: "Command_StructureExit".into(),
+                    enabled: true,
+                });
+                if !ro.garrisoned_units.is_empty() {
+                    cmds.push(UnitCommandButton {
+                        command_name: "Command_Evacuate".into(),
+                        enabled: true,
+                    });
+                }
+                return cmds;
+            }
+            return Vec::new();
+        }
+
         let mut cmds = Vec::new();
         let push = |cmds: &mut Vec<UnitCommandButton>, name: &str, enabled: bool| {
             if !cmds

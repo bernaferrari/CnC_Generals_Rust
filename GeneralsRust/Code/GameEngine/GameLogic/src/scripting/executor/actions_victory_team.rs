@@ -208,6 +208,13 @@ impl ScriptActionDispatcher {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
 
         log::info!("Team '{}' hunting", team_name);
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_hunt_guard(super::HostScriptHuntGuardRequest::TeamHunt {
+                team: team_name,
+            });
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         // Create AI group from team and issue hunt command
         // C++: theGroup->groupHunt(CMD_FROM_SCRIPT)
@@ -229,6 +236,13 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         log::debug!("Team '{}' guarding at current positions", team_name);
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_hunt_guard(super::HostScriptHuntGuardRequest::TeamGuard {
+                team: team_name,
+            });
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let team_arc = self.get_team_by_name(&team_name)?;
         let members = team_arc
@@ -406,6 +420,18 @@ impl ScriptActionDispatcher {
             waypoint_path_name,
             as_team
         );
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_follow_waypoints(
+                super::HostScriptFollowWaypointsRequest::TeamFollow {
+                    team: team_name,
+                    waypoint: waypoint_path_name,
+                    as_team,
+                    exact: false,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let team_arc = self.get_team_by_name(&team_name)?;
         let Some(team_center) = self
@@ -817,6 +843,13 @@ impl ScriptActionDispatcher {
         let unit_name = self.get_string_param(action, 0)?;
 
         log::info!("Named unit '{}' hunting", unit_name);
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_hunt_guard(super::HostScriptHuntGuardRequest::NamedHunt {
+                unit: unit_name,
+            });
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         // Look up object ID by name
         let tracker = get_named_object_tracker();
@@ -863,6 +896,13 @@ impl ScriptActionDispatcher {
         let unit_name = self.get_string_param(action, 0)?;
 
         log::info!("Named unit '{}' guarding", unit_name);
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_hunt_guard(super::HostScriptHuntGuardRequest::NamedGuard {
+                unit: unit_name,
+            });
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         // Look up object ID by name
         let tracker = get_named_object_tracker();

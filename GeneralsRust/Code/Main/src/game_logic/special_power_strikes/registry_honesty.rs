@@ -1451,10 +1451,13 @@ impl HostSpecialPowerStrikeRegistry {
             if field.is_expired(current_frame) {
                 continue;
             }
+            let firing_frames = field
+                .live_decay_start_frame()
+                .saturating_sub(field.spawn_frame);
             let next_status = particle_status_for_attack(
                 current_frame,
                 field.spawn_frame,
-                PARTICLE_BEAM_DURATION_FRAMES,
+                firing_frames,
                 PARTICLE_WIDTH_GROW_FRAMES,
             );
             if next_status != field.status {

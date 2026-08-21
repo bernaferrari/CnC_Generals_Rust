@@ -393,6 +393,45 @@ fn particle_uplink_swath_of_death_residual_honesty() {
 }
 
 #[test]
+fn puc_disabled_aborts_live_beam_matches_cpp_mask() {
+    assert!(puc_disabled_aborts_live_beam(true, false, false, false));
+    assert!(puc_disabled_aborts_live_beam(false, true, false, false));
+    assert!(puc_disabled_aborts_live_beam(false, false, true, false));
+    assert!(puc_disabled_aborts_live_beam(false, false, false, true));
+    assert!(!puc_disabled_aborts_live_beam(false, false, false, false));
+}
+
+#[test]
+fn particle_cannon_owner_disable_starts_decay_and_stops_pulses() {
+    let mut reg = HostSpecialPowerStrikeRegistry::new();
+    let target = Vec3::ZERO;
+    let spawn = 10;
+    let field_id = reg.spawn_beam_field(ObjectId(1), Team::USA, target, spawn, 1);
+    let objects = vec![
+        (ObjectId(1), Vec3::new(-400.0, 0.0, 0.0), Team::USA, true),
+        (ObjectId(2), particle_swath_epicenter(target, 0), Team::GLA, true),
+    ];
+    let first = reg.plan_due_beam_ticks(spawn, &objects);
+    assert_eq!(first.len(), 1);
+    assert!(!first[0].hits.is_empty());
+    reg.record_beam_tick_complete(field_id, PARTICLE_BEAM_DAMAGE_PER_PULSE, 1, 0, spawn);
+
+    let abort_frame = spawn + 3;
+    reg.abort_beam_fields_on_owner_disable(abort_frame, |id| id == ObjectId(1));
+    let field = &reg.beam_fields()[0];
+    assert_eq!(field.start_decay_frame, abort_frame);
+    assert_eq!(
+        field.expires_frame,
+        abort_frame.saturating_add(PARTICLE_WIDTH_GROW_FRAMES)
+    );
+    assert!(reg.plan_due_beam_ticks(abort_frame, &objects).is_empty());
+    assert!(reg
+        .plan_due_beam_ticks(abort_frame + 1, &objects)
+        .is_empty());
+    assert_eq!(reg.beam_fields()[0].pulses_made, 1);
+}
+
+#[test]
 fn carpet_bomb_params_match_retail_multi_strike() {
     let kind = HostSuperweaponKind::CarpetBomb;
     assert_eq!(kind.impact_delay_frames(), CARPET_BOMB_IMPACT_DELAY_FRAMES);

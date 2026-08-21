@@ -262,6 +262,18 @@ impl TheParticleSystemManager {
         }
     }
 
+    pub fn set_particle_system_size_multiplier(&self, id: u32, multiplier: Real) {
+        if let Some(manager) = get_particle_system_manager() {
+            manager.set_particle_system_size_multiplier(id, multiplier);
+        }
+    }
+
+    pub fn trigger_particle_system(&self, id: u32) {
+        if let Some(manager) = get_particle_system_manager() {
+            manager.trigger_particle_system(id);
+        }
+    }
+
     /// C++ ParticleSystem::setSystemLifetime.
     pub fn set_system_lifetime(&self, id: u32, frames: u32) {
         if let Some(manager) = get_particle_system_manager() {

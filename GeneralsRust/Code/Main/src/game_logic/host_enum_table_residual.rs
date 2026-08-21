@@ -1797,6 +1797,28 @@ pub fn shadow_type_bit_value(name: &str) -> Option<u32> {
     shadow_type_name_index(name).map(|i| 1u32 << i)
 }
 
+/// C++ `INI::parseBitString8` + `TheShadowNames` for Object INI `Shadow`.
+/// `NONE` / `SHADOW_NONE` clear the mask. Bare `VOLUME`/`DECAL` match leftover.
+pub fn parse_shadow_type_bits(s: &str) -> u32 {
+    let mut bits = 0u32;
+    for token in s.split_whitespace() {
+        let upper = token.to_ascii_uppercase();
+        let mapped = match upper.as_str() {
+            "VOLUME" => "SHADOW_VOLUME",
+            "DECAL" => "SHADOW_DECAL",
+            other => other,
+        };
+        if mapped == "NONE" || mapped == "SHADOW_NONE" {
+            return 0;
+        }
+        if let Some(bit) = shadow_type_bit_value(mapped) {
+            bits |= bit;
+        }
+    }
+    bits
+}
+
+
 /// Wave 84 honesty: Shadow residual type table pack.
 pub fn honesty_shadow_type_enum_table_wave84() -> bool {
     SHADOW_TYPE_NAME_COUNT == 7

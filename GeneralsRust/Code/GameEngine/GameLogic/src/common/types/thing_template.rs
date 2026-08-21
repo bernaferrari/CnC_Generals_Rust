@@ -66,6 +66,31 @@ pub trait ThingTemplate: Any + AsAny + Send + Sync + std::fmt::Debug {
     fn get_fence_x_offset(&self) -> Real {
         0.0
     }
+    /// C++ `ThingTemplate::getShadowType` bits (`SHADOW_NONE` = 0).
+    fn get_shadow_type_bits(&self) -> u32 {
+        0
+    }
+    /// C++ `ThingTemplate::getShadowSizeX`.
+    fn get_shadow_size_x(&self) -> Real {
+        0.0
+    }
+    /// C++ `ThingTemplate::getShadowSizeY`.
+    fn get_shadow_size_y(&self) -> Real {
+        0.0
+    }
+    /// C++ `ThingTemplate::getShadowOffsetX`.
+    fn get_shadow_offset_x(&self) -> Real {
+        0.0
+    }
+    /// C++ `ThingTemplate::getShadowOffsetY`.
+    fn get_shadow_offset_y(&self) -> Real {
+        0.0
+    }
+    /// C++ `ThingTemplate::getShadowTextureName`.
+    fn get_shadow_texture_name(&self) -> &str {
+        ""
+    }
+
     fn get_experience_value(&self, _level: usize) -> Int {
         0
     }

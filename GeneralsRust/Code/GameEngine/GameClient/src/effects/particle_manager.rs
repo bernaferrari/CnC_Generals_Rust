@@ -1776,6 +1776,30 @@ impl gamelogic::common::types::ParticleSystemManagerInterface for ParticleSystem
         }
     }
 
+    fn set_particle_system_size_multiplier(
+        &self,
+        system_id: gamelogic::common::ParticleSystemId,
+        multiplier: gamelogic::common::Real,
+    ) {
+        if let Ok(mut manager_guard) = get_particle_system_manager_mut() {
+            if let Some(manager) = manager_guard.as_mut() {
+                if let Some(system) = manager.find_particle_system_mut(system_id) {
+                    system.set_size_multiplier(multiplier);
+                }
+            }
+        }
+    }
+
+    fn trigger_particle_system(&self, system_id: gamelogic::common::ParticleSystemId) {
+        if let Ok(mut manager_guard) = get_particle_system_manager_mut() {
+            if let Some(manager) = manager_guard.as_mut() {
+                if let Some(system) = manager.find_particle_system_mut(system_id) {
+                    system.trigger();
+                }
+            }
+        }
+    }
+
     fn destroy_attached_systems(&self, object_id: gamelogic::common::ObjectID) {
         if let Ok(mut manager_guard) = get_particle_system_manager_mut() {
             if let Some(manager) = manager_guard.as_mut() {

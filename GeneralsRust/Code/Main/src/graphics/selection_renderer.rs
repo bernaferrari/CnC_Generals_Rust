@@ -691,13 +691,27 @@ pub fn collect_blob_shadows_from_presentation(
         .iter()
         .filter(|u| !u.destroyed && u.shadows_enabled)
         .map(|u| {
-            let radius = u
-                .selection_radius
-                .max(if u.is_structure { 10.0 } else { 4.0 })
-                * 0.85;
+            let (sx, sy) = crate::game_logic::host_battlemaster::leftover_template_shadow_size(
+                &u.template_name,
+                0.0,
+                0.0,
+            );
+            let (ox, oy) = crate::game_logic::host_battlemaster::leftover_template_shadow_offset(
+                &u.template_name,
+                0.0,
+                0.0,
+            );
+            let radius = if sx > 0.0 || sy > 0.0 {
+                sx.max(sy) * 0.5
+            } else {
+                u.selection_radius
+                    .max(if u.is_structure { 10.0 } else { 4.0 })
+                    * 0.85
+            };
             SelectedUnit {
                 // Plant discs on the unit pose (terrain Y), not y=0 — units must not hover.
-                position: glam::Vec3::new(u.position.x, u.position.y, u.position.z),
+                // C++ ShadowOffsetX/Y are world X/Y; live Y is height so offset Y maps to Z.
+                position: glam::Vec3::new(u.position.x + ox, u.position.y, u.position.z + oy),
                 radius,
                 team_color: [0.0, 0.0, 0.0, 0.4],
             }
@@ -933,7 +947,10 @@ mod presentation_selection_tests {
         t.set_health(100.0);
         t.add_kind_of(KindOf::Infantry);
         t.add_kind_of(KindOf::Selectable);
+        t.shadow_type = crate::game_logic::host_enum_table_residual::SHADOW_DECAL;
         logic.templates.insert("SelUnit".into(), t);
+
+
         let id = logic
             .create_object("SelUnit", Team::USA, Vec3::new(12.0, 4.0, -7.0))
             .expect("unit");

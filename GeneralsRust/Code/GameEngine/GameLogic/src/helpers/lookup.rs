@@ -476,6 +476,25 @@ impl crate::common::ThingTemplate for EngineThingTemplateAdapter {
             }
         }
     }
+
+    fn get_shadow_type_bits(&self) -> u32 {
+        self.inner.get_shadow_type().bits() as u32
+    }
+    fn get_shadow_size_x(&self) -> crate::common::Real {
+        self.inner.get_shadow_size_x()
+    }
+    fn get_shadow_size_y(&self) -> crate::common::Real {
+        self.inner.get_shadow_size_y()
+    }
+    fn get_shadow_offset_x(&self) -> crate::common::Real {
+        self.inner.get_shadow_offset_x()
+    }
+    fn get_shadow_offset_y(&self) -> crate::common::Real {
+        self.inner.get_shadow_offset_y()
+    }
+    fn get_shadow_texture_name(&self) -> &str {
+        self.inner.get_shadow_texture_name().as_str()
+    }
 }
 
 // Residual closed (wave 29): GameLogic helpers RNG draws share the Common

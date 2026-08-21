@@ -685,6 +685,7 @@ fn locomotor_channel_via_set_locomotor() {
         -0.5,
         0.2,
         true,
+        false,
         0.03,
         40.0,
         0.7,

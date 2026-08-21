@@ -60,6 +60,8 @@ pub const ANGRY_MOB_MEMBER_MAX_HEALTH: f32 = 50.0;
 
 /// Retail SpawnReplaceDelay 30000 ms → 900 frames @ 30 FPS (C++ replacement delay).
 pub const ANGRY_MOB_EXPAND_INTERVAL_FRAMES: u32 = 900;
+/// C++ QueueProductionExitUpdate ExitDelay=5000ms → 150 frames @ 30 FPS.
+pub const ANGRY_MOB_EXIT_DELAY_FRAMES: u32 = 150;
 /// C++ SPAWN_DELAY_MIN_FRAMES (SpawnBehavior.cpp:36) — unused birth-frame stagger.
 pub const ANGRY_MOB_SPAWN_DELAY_MIN_FRAMES: u32 = 16;
 
@@ -411,10 +413,19 @@ impl HostAngryMobState {
             total_damage_applied: 0.0,
             damage_applications: 0,
             expands: 0,
-            // C++ SpawnBehavior::update first-init: queue SpawnNumber due now
-            // (SpawnBehavior.cpp:194-208). Actual C++ pushes 0/1; host uses
-            // activate_frame so frame 0 is due (`current >= t`).
-            replacement_times: vec![activate_frame; ANGRY_MOB_MAX_MEMBERS as usize],
+            // C++ QueueProductionExitUpdate isFreeToExit: InitialBurst=5 now,
+            // then one member per ExitDelay=5000ms (150 frames).
+            replacement_times: (0..ANGRY_MOB_MAX_MEMBERS)
+                .map(|i| {
+                    if i < ANGRY_MOB_INITIAL_MEMBERS {
+                        activate_frame
+                    } else {
+                        activate_frame.saturating_add(
+                            (i - ANGRY_MOB_INITIAL_MEMBERS + 1) * ANGRY_MOB_EXIT_DELAY_FRAMES,
+                        )
+                    }
+                })
+                .collect(),
             pending_nexus_destroy: false,
         }
     }

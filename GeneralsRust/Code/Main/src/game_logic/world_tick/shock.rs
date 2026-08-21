@@ -307,11 +307,18 @@ impl GameLogic {
         let affects = weapon_name
             .map(host_radius_damage_affects_for_weapon_name)
             .unwrap_or(WEAPON_AFFECTS_DEFAULT);
-        let shooter_template = self
+        let (shooter_template, attacker_owner, attacker_team_instance) = self
             .objects
             .get(&attacker_id)
-            .map(|a| a.template_name.clone())
+            .map(|a| {
+                (
+                    a.template_name.clone(),
+                    a.owner_player_id,
+                    a.team_instance_name.clone(),
+                )
+            })
             .unwrap_or_default();
+        let players = &self.players;
         let candidates: Vec<(ObjectId, f32)> = self
             .objects
             .iter()
@@ -328,12 +335,18 @@ impl GameLogic {
                 let airborne = obj.is_significantly_above_terrain();
                 let same_tmpl = !shooter_template.is_empty()
                     && obj.template_name.eq_ignore_ascii_case(&shooter_template);
+                let relationship = GameLogic::object_relationship_from_owners(
+                    players,
+                    obj.owner_player_id,
+                    &obj.team_instance_name,
+                    attacker_owner,
+                    &attacker_team_instance,
+                );
                 if !radius_damage_affects_victim(
                     affects,
-                    attacker_team,
+                    relationship,
                     attacker_id,
                     *id,
-                    obj.team,
                     airborne,
                     same_tmpl,
                 ) {
@@ -423,11 +436,18 @@ impl GameLogic {
         let affects = weapon_name
             .map(host_radius_damage_affects_for_weapon_name)
             .unwrap_or(WEAPON_AFFECTS_DEFAULT);
-        let shooter_template = self
+        let (shooter_template, attacker_owner, attacker_team_instance) = self
             .objects
             .get(&attacker_id)
-            .map(|a| a.template_name.clone())
+            .map(|a| {
+                (
+                    a.template_name.clone(),
+                    a.owner_player_id,
+                    a.team_instance_name.clone(),
+                )
+            })
             .unwrap_or_default();
+        let players = &self.players;
         let candidates: Vec<(ObjectId, f32)> = self
             .objects
             .iter()
@@ -444,12 +464,18 @@ impl GameLogic {
                 let airborne = obj.is_significantly_above_terrain();
                 let same_tmpl = !shooter_template.is_empty()
                     && obj.template_name.eq_ignore_ascii_case(&shooter_template);
+                let relationship = GameLogic::object_relationship_from_owners(
+                    players,
+                    obj.owner_player_id,
+                    &obj.team_instance_name,
+                    attacker_owner,
+                    &attacker_team_instance,
+                );
                 if !radius_damage_affects_victim(
                     affects,
-                    attacker_team,
+                    relationship,
                     attacker_id,
                     *id,
-                    obj.team,
                     airborne,
                     same_tmpl,
                 ) {

@@ -53,6 +53,35 @@ fn special_power_has_overridable_destination(
     )
 }
 
+fn leftover_special_power_type(
+    power_type: &SpecialPowerType,
+) -> Option<gamelogic::object::special_power_types::SpecialPowerType> {
+    let name = crate::game_logic::host_special_power_enum_residual::host_command_power_cpp_enum_name(
+        power_type,
+    )?;
+    gamelogic::object::special_power_types::SpecialPowerType::from_str(name)
+}
+
+/// C++ ActionManager::canDoSpecialPowerAtLocation leftover gates.
+/// Underwater (paradrop/crate-drop) + fully-shrouded damaging powers.
+fn leftover_can_do_special_power_at_location(
+    power_type: &SpecialPowerType,
+    loc: Vec3,
+    player_index: i32,
+) -> bool {
+    let Some(leftover_type) = leftover_special_power_type(power_type) else {
+        return true;
+    };
+    // Leftover/C++ Coord3D is X/Y map plane; live host is Y-up (X/Z).
+    let leftover_loc = LogicCoord3D::new(loc.x, loc.z, loc.y);
+    gamelogic::action_manager::TheActionManager::can_do_special_power_at_location_for_player(
+        leftover_type,
+        &leftover_loc,
+        player_index,
+        true,
+    )
+}
+
 impl<'a> CommandExecutor<'a> {
     /// C++ AIGroup::groupOverrideSpecialPowerDestination residual.
     pub(crate) fn execute_override_special_power_destination(
@@ -65,15 +94,30 @@ impl<'a> CommandExecutor<'a> {
             return CommandResult::InvalidLocation;
         }
         let mut any = false;
+        let mut voiced: Vec<ObjectId> = Vec::new();
         for &unit_id in units {
             if self
                 .game_logic
                 .unit_command_set_special_power_overridable_destination(unit_id, location)
             {
                 any = true;
+                voiced.push(unit_id);
             }
         }
         if any {
+            // C++ SpectreGunshipUpdate::setSpecialPowerOverridableDestination
+            // plays VoiceAttack for the local controlling player.
+            let local = self
+                .game_logic
+                .get_player(self.current_player_id)
+                .map(|p| p.is_local)
+                .unwrap_or(false);
+            if local {
+                self.game_logic.queue_picked_unit_voice(
+                    &voiced,
+                    crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Attack,
+                );
+            }
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
@@ -152,6 +196,22 @@ impl<'a> CommandExecutor<'a> {
         }
         if let PowerTarget::Location(loc) = target {
             if !loc.x.is_finite() || !loc.y.is_finite() || !loc.z.is_finite() {
+                return CommandResult::InvalidLocation;
+            }
+            // C++ ActionManager.cpp:1439-1523 leftover can_do_special_power_at_location.
+            let player_index = {
+                let src = self.special_power_source_object(units, power_type);
+                src.and_then(|id| {
+                    let (owner, team) = self
+                        .game_logic
+                        .host_object(id)
+                        .map(|o| (o.owner_player_id, o.team))?;
+                    owner.or_else(|| self.game_logic.player_id_for_team(team))
+                })
+                .map(|id| id as i32)
+                .unwrap_or(-1)
+            };
+            if !leftover_can_do_special_power_at_location(power_type, *loc, player_index) {
                 return CommandResult::InvalidLocation;
             }
         }

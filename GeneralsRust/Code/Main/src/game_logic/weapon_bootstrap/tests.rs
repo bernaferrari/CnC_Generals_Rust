@@ -888,7 +888,8 @@ fn radius_damage_affects_for_seeded_weapons_residual() {
         WEAPON_AFFECTS_ALLIES, WEAPON_AFFECTS_ENEMIES, WEAPON_AFFECTS_NEUTRALS,
         WEAPON_DOESNT_AFFECT_AIRBORNE,
     };
-    use crate::game_logic::{ObjectId, Team};
+    use crate::game_logic::ObjectId;
+    use gamelogic::common::Relationship;
     use gamelogic::weapon::{with_weapon_store_mut, WeaponTemplate};
 
     ensure_host_weapon_store();
@@ -914,29 +915,26 @@ fn radius_damage_affects_for_seeded_weapons_residual() {
 
     assert!(radius_damage_affects_victim(
         omitted,
-        Team::USA,
+        Relationship::Enemies,
         ObjectId(1),
         ObjectId(2),
-        Team::GLA,
         false,
         false,
     ));
     // C++ default friendly-fires allies unless INI clears ALLIES.
     assert!(radius_damage_affects_victim(
         omitted,
-        Team::USA,
+        Relationship::Allies,
         ObjectId(1),
         ObjectId(3),
-        Team::USA,
         false,
         false,
     ));
     assert!(!radius_damage_affects_victim(
         n,
-        Team::USA,
+        Relationship::Enemies,
         ObjectId(1),
         ObjectId(4),
-        Team::GLA,
         true,
         false,
     ));

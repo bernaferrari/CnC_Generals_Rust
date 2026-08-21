@@ -269,6 +269,8 @@ pub struct ControlBar {
     presentation_under_construction: bool,
     /// Wave 1033: sold residual from PresentationFrame.
     presentation_sold: bool,
+    /// C++ areSelectedObjectsControllable residual from PresentationFrame.
+    presentation_selection_controllable: bool,
     /// Construction percent residual from PresentationFrame (0..1).
     presentation_construction_percent: f32,
     /// OCL timer seconds residual from PresentationFrame.

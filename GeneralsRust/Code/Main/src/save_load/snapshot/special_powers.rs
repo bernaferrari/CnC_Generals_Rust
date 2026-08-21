@@ -741,6 +741,8 @@ impl XferData for crate::game_logic::special_power_strikes::HostParticleBeamFiel
         xfer.xfer_u32(&mut self.outer_node_flare_pack_armed)?;
         xfer.xfer_marker_label("DeathPackArmed")?;
         xfer.xfer_u32(&mut self.death_pack_armed)?;
+        xfer.xfer_marker_label("StartDecayFrame")?;
+        xfer.xfer_u32(&mut self.start_decay_frame)?;
         Ok(())
     }
 }
@@ -1120,6 +1122,7 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 scorch_scalar_pack_armed: 0,
                 outer_node_flare_pack_armed: 0,
                 death_pack_armed: 0,
+                start_decay_frame: 0,
             },
         )?;
         xfer.xfer_marker_label("BeamFieldsSpawnedTotal")?;

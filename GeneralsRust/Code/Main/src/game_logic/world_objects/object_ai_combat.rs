@@ -98,6 +98,7 @@ impl GameLogic {
                             shooter_pos,
                             source_context: Some(super::super::combat::ProjectileLaunchContext {
                                 source_team: attacker.team,
+                                source_owner_player_id: attacker.owner_player_id,
                                 source_veterancy: attacker.experience.level,
                                 source_orientation: attacker.get_orientation(),
                                 source_velocity: attacker.movement.velocity,

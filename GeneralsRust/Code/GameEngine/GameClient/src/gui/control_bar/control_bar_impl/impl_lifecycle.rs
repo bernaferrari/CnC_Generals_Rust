@@ -53,6 +53,7 @@ impl ControlBar {
             presentation_garrisoned_count: 0,
             presentation_under_construction: false,
             presentation_sold: false,
+            presentation_selection_controllable: true,
             presentation_construction_percent: 0.0,
             presentation_ocl_timer_seconds: 0,
             displayed_construct_percent: -1.0,
@@ -108,6 +109,12 @@ impl ControlBar {
         }
         TheInGameUI::place_build_available(None, None);
     }
+
+    /// C++ InGameUI::areSelectedObjectsControllable residual from live host.
+    pub fn sync_selection_controllable_from_presentation(&mut self, controllable: bool) {
+        self.presentation_selection_controllable = controllable;
+    }
+
 
     // ---------------------------------------------------------------------------
     // update - main per-frame update
@@ -454,6 +461,96 @@ impl ControlBar {
         let _ = events.transitions;
     }
 
+    /// C++ InGameUI.cpp:4116 — first selected drawable's isLocallyControlled.
+    fn first_selected_is_controllable(&self, obj_id: u32) -> bool {
+        if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
+            if let Ok(obj) = obj_arc.read() {
+                return obj.is_locally_controlled();
+            }
+        }
+        self.presentation_selection_controllable
+    }
+
+    fn first_selected_is_beacon(&self, obj_id: u32) -> bool {
+        if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
+            if let Ok(obj) = obj_arc.read() {
+                if Self::presentation_name_is_beacon(obj.get_template_name())
+                    || Self::presentation_name_is_beacon(obj.get_command_set_string())
+                {
+                    return true;
+                }
+            }
+        }
+        if Self::presentation_name_is_beacon(&self.presentation_primary_command_set)
+            || Self::presentation_name_is_beacon(&self.portrait_state.portrait_image)
+        {
+            return true;
+        }
+        crate::presentation_translator_residual::translator_catalog_entry(obj_id)
+            .map(|entry| {
+                Self::presentation_name_is_beacon(&entry.template_name)
+                    || Self::presentation_name_is_beacon(&entry.command_set_name)
+            })
+            .unwrap_or(false)
+    }
+
+    /// C++ evaluateContextUI: only NEUTRAL garrisonable containers peek past NONE.
+    fn non_controllable_neutral_garrison_peek(&self, obj_id: u32) -> bool {
+        if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
+            if let Ok(obj) = obj_arc.read() {
+                let Some(contain) = obj.get_contain() else {
+                    return false;
+                };
+                let Ok(contain) = contain.lock() else {
+                    return false;
+                };
+                if contain.get_contain_max() <= 0 || !contain.is_garrisonable() {
+                    return false;
+                }
+                drop(contain);
+                let player_list = logic_player_list();
+                let local_index = player_list
+                    .read()
+                    .ok()
+                    .map(|list| list.get_local_player_index())
+                    .unwrap_or(gamelogic::player::PLAYER_INDEX_INVALID);
+                let obj_player_id =
+                    obj.get_controlling_player_id().unwrap_or(0xFFFF) as PlayerIndex;
+                let local_arc = player_list
+                    .read()
+                    .ok()
+                    .and_then(|list| list.get_player(local_index).cloned());
+                let obj_player = player_list
+                    .read()
+                    .ok()
+                    .and_then(|list| list.get_player(obj_player_id).cloned());
+                if let (Some(local_arc), Some(obj_player)) = (local_arc, obj_player) {
+                    if let (Ok(local_guard), Ok(obj_guard)) =
+                        (local_arc.read(), obj_player.read())
+                    {
+                        return local_guard.get_relationship(&obj_guard)
+                            == gamelogic::common::Relationship::Neutral;
+                    }
+                }
+                return false;
+            }
+        }
+        let catalog =
+            crate::presentation_translator_residual::translator_catalog_entry(obj_id);
+        let garrisonable = self.presentation_max_garrison > 0
+            || catalog
+                .as_ref()
+                .map(|entry| entry.max_garrison > 0)
+                .unwrap_or(false);
+        if !garrisonable {
+            return false;
+        }
+        catalog
+            .map(|entry| entry.team_name.eq_ignore_ascii_case("Neutral"))
+            .unwrap_or(false)
+    }
+
+
     // ---------------------------------------------------------------------------
     // evaluateContextUI - determine what context to show
     // C++ ControlBar.cpp:1689-1888
@@ -492,6 +589,39 @@ impl ControlBar {
             *guard = context;
             return Ok(());
         }
+
+        // C++ ControlBar.cpp:1716-1778 — non-local selection is CB_CONTEXT_NONE
+        // except controlling-player beacon template and NEUTRAL garrisonable peek.
+        if let Some(&first_id) = context.selected_objects.first() {
+            if !self.first_selected_is_controllable(first_id) {
+                let peek_neutral_garrison =
+                    self.non_controllable_neutral_garrison_peek(first_id);
+                let is_beacon = self.first_selected_is_beacon(first_id);
+                if is_beacon {
+                    context.current_state = ControlBarState::Beacon;
+                } else {
+                    context.current_state = ControlBarState::None;
+                    context.available_commands.clear();
+                    context.construction_queue.clear();
+                    self.build_queue_data.clear();
+                    self.displayed_queue_count = 0;
+                    self.presentation_primary_command_set.clear();
+                    self.presentation_command_set_names.clear();
+                }
+                if !peek_neutral_garrison {
+                    if is_beacon {
+                        self.rebuild_command_buttons(&mut context)?;
+                    }
+                    let mut guard = self
+                        .context
+                        .write()
+                        .map_err(|_| "Failed to acquire context write lock")?;
+                    *guard = context;
+                    return Ok(());
+                }
+            }
+        }
+
 
         let multi_select = context.selected_objects.len() > 1;
         let single_drawable_id = if multi_select {
