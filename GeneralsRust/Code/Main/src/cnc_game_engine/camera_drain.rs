@@ -2408,8 +2408,15 @@ impl CnCGameEngine {
         self.host_sync_presentation_direct_drawables(presentation_time_frozen);
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             // Presentation cinematic letterbox residual → client display.
+            let was_letterbox = self.game_client.letterbox_overlay_enabled();
             self.game_client
                 .apply_presentation_cinematic_letterbox(pres.cinematic_letterbox);
+            // C++ ScriptActions::doLetterBoxMode HideControlBar(TRUE)/ShowControlBar(FALSE).
+            if pres.cinematic_letterbox {
+                let _ = game_client::gui::callbacks::control_bar_callbacks::hide_control_bar(true);
+            } else if was_letterbox {
+                let _ = game_client::gui::callbacks::control_bar_callbacks::show_control_bar(false);
+            }
             // Military caption residual → InGameUI (duration from freeze).
             self.game_client.apply_presentation_military_caption(
                 pres.military_caption.as_deref(),

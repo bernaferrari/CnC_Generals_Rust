@@ -212,7 +212,13 @@ pub fn flush_ui_to_frame(frame: &mut ww3d_engine::RenderFrame) -> RendererResult
     #[cfg(feature = "game_client")]
     {
         game_client::gui::w3d_gadget_draw::ensure_control_bar_wnd_draw_callbacks();
-        let _ = game_client::gui::callbacks::control_bar_callbacks::show_control_bar(true);
+        // C++ ScriptActions::doLetterBoxMode HideControlBar(TRUE) / ShowControlBar(FALSE).
+        // flush must not force-show the live ControlBar through a cutscene.
+        if game_client::display::display_fx::letterbox_enabled() {
+            let _ = game_client::gui::callbacks::control_bar_callbacks::hide_control_bar(true);
+        } else if game_client::gui::callbacks::control_bar_callbacks::is_control_bar_visible() {
+            let _ = game_client::gui::callbacks::control_bar_callbacks::show_control_bar(true);
+        }
     }
 
 
