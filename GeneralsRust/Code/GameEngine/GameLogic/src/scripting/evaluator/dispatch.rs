@@ -509,6 +509,24 @@ impl ScriptEvaluator {
                     2 => crate::common::Relationship::Allies,
                     _ => return Ok(false),
                 };
+                if dual_world_registry_unavailable() {
+                    let player_name = self
+                        .resolve_player_from_param(player_param)
+                        .and_then(|p| {
+                            p.read().ok().and_then(|g| {
+                                NameKeyGenerator::key_to_name(g.get_player_name_key())
+                            })
+                        })
+                        .filter(|n| !n.is_empty())
+                        .unwrap_or_else(|| player_param.get_string().to_string());
+                    return Ok(crate::scripting::host_enemy_sighted(
+                        unit_name,
+                        alliance,
+                        &player_name,
+                    )
+                    .unwrap_or(false));
+                }
+
                 let Some(target_player) = self.resolve_player_from_param(player_param) else {
                     return Ok(false);
                 };
@@ -815,6 +833,39 @@ impl ScriptEvaluator {
                 let types = self.resolve_object_types(type_param);
                 let area_name = trigger_param.get_string();
 
+                let player_name = self
+                    .resolve_player_from_param(player_param)
+                    .and_then(|p| {
+                        p.read()
+                            .ok()
+                            .and_then(|g| NameKeyGenerator::key_to_name(g.get_player_name_key()))
+                    })
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| player_param.get_string().to_string());
+                let type_names: Vec<String> = {
+                    let names: Vec<String> = types.iter().map(|s| s.as_str().to_string()).collect();
+                    if names.is_empty() {
+                        vec![type_param.get_string().to_string()]
+                    } else {
+                        names
+                    }
+                };
+                if let Some(count) = crate::scripting::host_count_player_type_in_area(
+                    &player_name,
+                    area_name,
+                    &type_names,
+                ) {
+                    return Ok(match comparison {
+                        0 => count < target_count,
+                        1 => count <= target_count,
+                        2 => count == target_count,
+                        3 => count >= target_count,
+                        4 => count > target_count,
+                        5 => count != target_count,
+                        _ => false,
+                    });
+                }
+
                 let trigger = match self.get_trigger_area(area_name) {
                     Some(t) => t,
                     None => return Ok(false),
@@ -896,6 +947,33 @@ impl ScriptEvaluator {
                 let kind_of_type_int = kind_param.get_int();
                 let area_name = trigger_param.get_string();
 
+                let player_name = self
+                    .resolve_player_from_param(player_param)
+                    .and_then(|p| {
+                        p.read()
+                            .ok()
+                            .and_then(|g| NameKeyGenerator::key_to_name(g.get_player_name_key()))
+                    })
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| player_param.get_string().to_string());
+                if let Some(kind) = Self::kind_of_type_to_mask(kind_of_type_int) {
+                    if let Some(count) = crate::scripting::host_count_player_kind_in_area(
+                        &player_name,
+                        area_name,
+                        kind,
+                    ) {
+                        return Ok(match comparison {
+                            0 => count < target_count,
+                            1 => count <= target_count,
+                            2 => count == target_count,
+                            3 => count >= target_count,
+                            4 => count > target_count,
+                            5 => count != target_count,
+                            _ => false,
+                        });
+                    }
+                }
+
                 let trigger = match self.get_trigger_area(area_name) {
                     Some(t) => t,
                     None => return Ok(false),
@@ -963,6 +1041,26 @@ impl ScriptEvaluator {
 
                 let unit_name = unit_param.get_string();
                 let types = self.resolve_object_types(type_param);
+                if dual_world_registry_unavailable() {
+                    let type_names: Vec<String> =
+                        types.iter().map(|t| t.as_str().to_string()).collect();
+                    let player_name = self
+                        .resolve_player_from_param(player_param)
+                        .and_then(|p| {
+                            p.read().ok().and_then(|g| {
+                                NameKeyGenerator::key_to_name(g.get_player_name_key())
+                            })
+                        })
+                        .filter(|n| !n.is_empty())
+                        .unwrap_or_else(|| player_param.get_string().to_string());
+                    return Ok(crate::scripting::host_type_sighted(
+                        unit_name,
+                        &type_names,
+                        &player_name,
+                    )
+                    .unwrap_or(false));
+                }
+
                 let Some(target_player) = self.resolve_player_from_param(player_param) else {
                     return Ok(false);
                 };

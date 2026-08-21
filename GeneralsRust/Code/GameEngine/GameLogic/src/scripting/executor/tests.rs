@@ -1505,6 +1505,7 @@ fn player_conditions_use_host_census_instead_of_stale_leftover_player() {
             has_any_build_facility: true,
             building_count: 3,
             faction_building_count: 2,
+            ..Default::default()
         },
     );
     crate::scripting::set_host_script_query_snapshot(snap);
@@ -4287,6 +4288,108 @@ fn live_named_created_true_from_host_snapshot() {
 }
 
 #[test]
+fn live_enemy_and_type_sighted_use_host_snapshot() {
+    let _test_lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    crate::scripting::clear_host_script_query_snapshot();
+
+    let mut looker = live_host_named_object("LookerScout", 7, true);
+    looker.x = 0.0;
+    looker.z = 0.0;
+    looker.vision_range = 150.0;
+    looker.team = 1;
+    looker.owner_player = "PlyrAmerica".into();
+
+    let mut enemy = live_host_named_object("EnemyRanger", 8, true);
+    enemy.x = 40.0;
+    enemy.z = 0.0;
+    enemy.vision_range = 100.0;
+    enemy.team = 0;
+    enemy.owner_player = "PlyrGLA".into();
+    enemy.template_name = "AmericaRanger".into();
+
+    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+        named: [("LookerScout".into(), 7)].into_iter().collect(),
+        objects: vec![looker, enemy.clone()],
+        ..Default::default()
+    });
+
+    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+
+    let mut enemy_sighted = Condition::new(ConditionType::EnemySighted);
+    enemy_sighted
+        .add_parameter(Parameter::with_string(
+            ParameterType::Unit,
+            "LookerScout".into(),
+        ))
+        .unwrap();
+    enemy_sighted
+        .add_parameter(Parameter::with_int(ParameterType::Relation, 0))
+        .unwrap();
+    enemy_sighted
+        .add_parameter(Parameter::with_string(
+            ParameterType::Side,
+            "PlyrGLA".into(),
+        ))
+        .unwrap();
+    assert_eq!(
+        evaluator.evaluate_condition(&mut enemy_sighted).unwrap(),
+        ScriptConditionResult::True,
+        "ENEMY_SIGHTED must use host vision when OBJECT_REGISTRY is empty"
+    );
+
+    let mut type_sighted = Condition::new(ConditionType::TypeSighted);
+    type_sighted
+        .add_parameter(Parameter::with_string(
+            ParameterType::Unit,
+            "LookerScout".into(),
+        ))
+        .unwrap();
+    type_sighted
+        .add_parameter(Parameter::with_string(
+            ParameterType::ObjectType,
+            "AmericaRanger".into(),
+        ))
+        .unwrap();
+    type_sighted
+        .add_parameter(Parameter::with_string(
+            ParameterType::Side,
+            "PlyrGLA".into(),
+        ))
+        .unwrap();
+    assert_eq!(
+        evaluator.evaluate_condition(&mut type_sighted).unwrap(),
+        ScriptConditionResult::True,
+        "TYPE_SIGHTED must use host vision when OBJECT_REGISTRY is empty"
+    );
+
+    enemy.stealthed_hidden = true;
+    let mut looker = live_host_named_object("LookerScout", 7, true);
+    looker.x = 0.0;
+    looker.z = 0.0;
+    looker.vision_range = 150.0;
+    looker.team = 1;
+    looker.owner_player = "PlyrAmerica".into();
+    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+        named: [("LookerScout".into(), 7)].into_iter().collect(),
+        objects: vec![looker, enemy],
+        ..Default::default()
+    });
+    assert_eq!(
+        evaluator.evaluate_condition(&mut enemy_sighted).unwrap(),
+        ScriptConditionResult::False,
+        "undetected stealth must fail host ENEMY_SIGHTED"
+    );
+    assert_eq!(
+        evaluator.evaluate_condition(&mut type_sighted).unwrap(),
+        ScriptConditionResult::False,
+        "undetected stealth must fail host TYPE_SIGHTED"
+    );
+    crate::scripting::clear_host_script_query_snapshot();
+}
+
+
+#[test]
 fn live_named_totally_dead_false_at_load_when_host_unit_lives() {
     let _test_lock = crate::test_sync::lock();
     crate::object::registry::OBJECT_REGISTRY.clear();
@@ -4541,6 +4644,225 @@ fn live_named_body_state_reads_host_snapshot() {
         ScriptConditionResult::False
     );
 
+    crate::scripting::clear_host_script_query_snapshot();
+}
+
+fn live_host_area_unit(
+    id: u32,
+    owner: &str,
+    template_name: &str,
+    x: f32,
+    z: f32,
+    kind_names: &[&str],
+) -> crate::scripting::HostScriptQueryObject {
+    crate::scripting::HostScriptQueryObject {
+        id,
+        name: format!("Unit{id}"),
+        team: 1,
+        x,
+        z,
+        alive: true,
+        effectively_dead: false,
+        health: 100.0,
+        initial_health: 100.0,
+        owner_player: owner.into(),
+        template_name: template_name.into(),
+        kind_names: kind_names.iter().map(|n| (*n).to_string()).collect(),
+        ..Default::default()
+    }
+}
+
+fn eval_player_unit_type_in_area(
+    comparison: i32,
+    count: i32,
+    type_name: &str,
+    area: &str,
+) -> Condition {
+    let mut condition = Condition::new(ConditionType::PlayerHasComparisonUnitTypeInTriggerArea);
+    condition
+        .add_parameter(Parameter::with_string(
+            ParameterType::Side,
+            "PlyrAmerica".into(),
+        ))
+        .unwrap();
+    condition
+        .add_parameter(Parameter::with_int(ParameterType::Comparison, comparison))
+        .unwrap();
+    condition
+        .add_parameter(Parameter::with_int(ParameterType::Int, count))
+        .unwrap();
+    condition
+        .add_parameter(Parameter::with_string(
+            ParameterType::ObjectType,
+            type_name.into(),
+        ))
+        .unwrap();
+    condition
+        .add_parameter(Parameter::with_string(
+            ParameterType::TriggerArea,
+            area.into(),
+        ))
+        .unwrap();
+    condition
+}
+
+fn eval_player_unit_kind_in_area(comparison: i32, count: i32, kind: i32, area: &str) -> Condition {
+    let mut condition = Condition::new(ConditionType::PlayerHasComparisonUnitKindInTriggerArea);
+    condition
+        .add_parameter(Parameter::with_string(
+            ParameterType::Side,
+            "PlyrAmerica".into(),
+        ))
+        .unwrap();
+    condition
+        .add_parameter(Parameter::with_int(ParameterType::Comparison, comparison))
+        .unwrap();
+    condition
+        .add_parameter(Parameter::with_int(ParameterType::Int, count))
+        .unwrap();
+    condition
+        .add_parameter(Parameter::with_int(ParameterType::KindOfParam, kind))
+        .unwrap();
+    condition
+        .add_parameter(Parameter::with_string(
+            ParameterType::TriggerArea,
+            area.into(),
+        ))
+        .unwrap();
+    condition
+}
+
+fn install_live_hold_zone_census(objects: Vec<crate::scripting::HostScriptQueryObject>) {
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    crate::scripting::clear_host_script_query_snapshot();
+    crate::terrain::get_terrain_logic()
+        .write()
+        .expect("terrain")
+        .add_trigger_area(crate::polygon_trigger::PolygonTrigger::new(
+            2108,
+            crate::common::AsciiString::from("HoldZone"),
+            vec![
+                crate::common::ICoord3D::new(0, 0, 0),
+                crate::common::ICoord3D::new(20, 0, 0),
+                crate::common::ICoord3D::new(20, 20, 0),
+                crate::common::ICoord3D::new(0, 20, 0),
+            ],
+        ));
+    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+        objects,
+        areas: [("HoldZone".into(), (0.0, 0.0, 20.0, 20.0))]
+            .into_iter()
+            .collect(),
+        ..Default::default()
+    });
+}
+
+#[test]
+fn eval_player_has_comparison_unit_type_in_trigger_area_zero_matching() {
+    // Given: live host census with no matching type in the trigger
+    // When: PLAYER_HAS_COMPARISON_UNIT_TYPE_IN_TRIGGER_AREA compares the count
+    // Then: count is 0 so ==0 is true and >=1 is false
+    let _test_lock = crate::test_sync::lock();
+    install_live_hold_zone_census(vec![live_host_area_unit(
+        1,
+        "PlyrAmerica",
+        "AmericaTankCrusader",
+        5.0,
+        5.0,
+        &["Vehicle"],
+    )]);
+    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let mut eq_zero = eval_player_unit_type_in_area(2, 0, "AmericaInfantryRanger", "HoldZone");
+    let mut ge_one = eval_player_unit_type_in_area(3, 1, "AmericaInfantryRanger", "HoldZone");
+    assert_eq!(
+        evaluator.evaluate_condition(&mut eq_zero).unwrap(),
+        ScriptConditionResult::True,
+        "0 matching units in the trigger must compare as count == 0"
+    );
+    assert_eq!(
+        evaluator.evaluate_condition(&mut ge_one).unwrap(),
+        ScriptConditionResult::False,
+        "0 matching units must not satisfy >= 1"
+    );
+    crate::scripting::clear_host_script_query_snapshot();
+}
+
+#[test]
+fn eval_player_has_comparison_unit_type_in_trigger_area_n_units_ge_n() {
+    // Given: N live host units of the scripted type inside the trigger
+    // When: PLAYER_HAS_COMPARISON_UNIT_TYPE_IN_TRIGGER_AREA asks >= N
+    // Then: the condition is true (C++ evaluatePlayerHasUnitTypeInArea)
+    let _test_lock = crate::test_sync::lock();
+    install_live_hold_zone_census(vec![
+        live_host_area_unit(1, "PlyrAmerica", "AmericaInfantryRanger", 4.0, 4.0, &["Infantry"]),
+        live_host_area_unit(2, "PlyrAmerica", "AmericaInfantryRanger", 8.0, 8.0, &["Infantry"]),
+        live_host_area_unit(3, "PlyrAmerica", "AmericaInfantryRanger", 80.0, 80.0, &["Infantry"]),
+        live_host_area_unit(4, "PlyrChina", "AmericaInfantryRanger", 6.0, 6.0, &["Infantry"]),
+    ]);
+    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let mut ge_two = eval_player_unit_type_in_area(3, 2, "AmericaInfantryRanger", "HoldZone");
+    assert_eq!(
+        evaluator.evaluate_condition(&mut ge_two).unwrap(),
+        ScriptConditionResult::True,
+        "two matching live units in the trigger must satisfy >= 2"
+    );
+    crate::scripting::clear_host_script_query_snapshot();
+}
+
+#[test]
+fn eval_player_has_comparison_unit_type_in_trigger_area_map_load_eq_zero_false() {
+    // Given: map-load census with living units already standing in the zone
+    // When: PLAYER_HAS_COMPARISON_UNIT_TYPE_IN_TRIGGER_AREA == 0
+    // Then: false — leftover owned_objects must not report an empty world
+    let _test_lock = crate::test_sync::lock();
+    install_live_hold_zone_census(vec![live_host_area_unit(
+        1,
+        "PlyrAmerica",
+        "AmericaInfantryRanger",
+        5.0,
+        5.0,
+        &["Infantry"],
+    )]);
+    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let mut eq_zero = eval_player_unit_type_in_area(2, 0, "AmericaInfantryRanger", "HoldZone");
+    assert_eq!(
+        evaluator.evaluate_condition(&mut eq_zero).unwrap(),
+        ScriptConditionResult::False,
+        "== 0 must stay false at map load while living units occupy the trigger"
+    );
+    crate::scripting::clear_host_script_query_snapshot();
+}
+
+#[test]
+fn eval_player_has_comparison_unit_kind_in_trigger_area_n_units_ge_n() {
+    // Given: N live host infantry inside the trigger
+    // When: PLAYER_HAS_COMPARISON_UNIT_KIND_IN_TRIGGER_AREA asks >= N
+    // Then: true (C++ evaluatePlayerHasUnitKindInArea)
+    let _test_lock = crate::test_sync::lock();
+    const KINDOF_INFANTRY: i32 = 4;
+    install_live_hold_zone_census(vec![
+        live_host_area_unit(1, "PlyrAmerica", "AmericaInfantryRanger", 4.0, 4.0, &["Infantry"]),
+        live_host_area_unit(
+            2,
+            "PlyrAmerica",
+            "AmericaInfantryMissileDefender",
+            9.0,
+            6.0,
+            &["Infantry"],
+        ),
+    ]);
+    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let mut ge_two = eval_player_unit_kind_in_area(3, 2, KINDOF_INFANTRY, "HoldZone");
+    let mut eq_zero = eval_player_unit_kind_in_area(2, 0, KINDOF_INFANTRY, "HoldZone");
+    assert_eq!(
+        evaluator.evaluate_condition(&mut ge_two).unwrap(),
+        ScriptConditionResult::True
+    );
+    assert_eq!(
+        evaluator.evaluate_condition(&mut eq_zero).unwrap(),
+        ScriptConditionResult::False,
+        "kind == 0 must not fire at map load while infantry occupy the trigger"
+    );
     crate::scripting::clear_host_script_query_snapshot();
 }
 

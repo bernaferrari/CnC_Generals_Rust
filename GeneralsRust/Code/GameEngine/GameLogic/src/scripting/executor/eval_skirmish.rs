@@ -969,6 +969,36 @@ impl ScriptConditionEvaluator {
             target_count
         );
 
+        // Live host never registers crate objects, so Player::get_all_objects is empty.
+        // C++ evaluatePlayerHasUnitTypeInArea walks live Team member lists.
+        let types = self.resolve_object_types_param(&type_name);
+        let type_names: Vec<String> = {
+            let names: Vec<String> = types.iter().map(|s| s.as_str().to_string()).collect();
+            if names.is_empty() {
+                vec![type_name.clone()]
+            } else {
+                names
+            }
+        };
+        if let Some(count) = crate::scripting::host_count_player_type_in_area(
+            &player_name,
+            &trigger_name,
+            &type_names,
+        ) {
+            let comparison_result = Self::compare_i32(comparison, count, target_count);
+            condition.custom_data = if comparison_result { 1 } else { -1 };
+            if let Some(frame) =
+                with_script_engine_ref(|engine| engine.get_frame_object_count_changed())
+            {
+                condition.custom_frame = frame;
+            }
+            return Ok(if comparison_result {
+                ScriptConditionResult::True
+            } else {
+                ScriptConditionResult::False
+            });
+        }
+
         let Ok(terrain) = get_terrain_logic().read() else {
             return Ok(ScriptConditionResult::False);
         };
@@ -1024,7 +1054,6 @@ impl ScriptConditionEvaluator {
             });
         }
 
-        let types = self.resolve_object_types_param(&type_name);
         let mut count = 0i32;
         for object_id in player_object_ids {
             let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
@@ -1086,14 +1115,6 @@ impl ScriptConditionEvaluator {
             target_count
         );
 
-        let Ok(terrain) = get_terrain_logic().read() else {
-            return Ok(ScriptConditionResult::False);
-        };
-        let Some(trigger) = terrain.get_trigger_area_by_name(&trigger_name).cloned() else {
-            return Ok(ScriptConditionResult::False);
-        };
-        drop(terrain);
-
         let kind = if kind_param.get_int() >= 0 {
             crate::common::ALL_KIND_OF
                 .get(kind_param.get_int() as usize)
@@ -1105,6 +1126,35 @@ impl ScriptConditionEvaluator {
         let Some(kind) = kind else {
             return Ok(ScriptConditionResult::False);
         };
+
+        // Live host never registers crate objects, so Player::get_all_objects is empty.
+        // C++ evaluatePlayerHasUnitKindInArea walks live Team member lists.
+        if let Some(count) = crate::scripting::host_count_player_kind_in_area(
+            &player_name,
+            &trigger_name,
+            kind,
+        ) {
+            let comparison_result = Self::compare_i32(comparison, count, target_count);
+            // Match C++: this writes frame object count into custom_data (legacy quirk).
+            if let Some(frame) =
+                with_script_engine_ref(|engine| engine.get_frame_object_count_changed())
+            {
+                condition.custom_data = frame as i32;
+            }
+            return Ok(if comparison_result {
+                ScriptConditionResult::True
+            } else {
+                ScriptConditionResult::False
+            });
+        }
+
+        let Ok(terrain) = get_terrain_logic().read() else {
+            return Ok(ScriptConditionResult::False);
+        };
+        let Some(trigger) = terrain.get_trigger_area_by_name(&trigger_name).cloned() else {
+            return Ok(ScriptConditionResult::False);
+        };
+        drop(terrain);
 
         let Ok(players) = player_list().read() else {
             return Ok(ScriptConditionResult::False);

@@ -857,14 +857,25 @@ impl Object {
         &self,
         previous_level: VeterancyLevel,
         new_level: VeterancyLevel,
-        _provide_feedback: bool,
+        provide_feedback: bool,
     ) {
-        // TEMP RED: old live path — rank-up + IgnoredInGui only.
-        use crate::game_logic::host_unit_training::{record_promote_fx, veterancy_rank};
-        if veterancy_rank(new_level) <= veterancy_rank(previous_level) {
-            return;
-        }
-        if self.is_kind_of(crate::game_logic::KindOf::IgnoredInGui) {
+        use crate::game_logic::host_unit_training::{
+            hide_promote_fx_for_stealth, record_promote_fx, should_queue_promote_fx,
+        };
+        let hide = hide_promote_fx_for_stealth(
+            self.is_locally_controlled_for_promote_fx(),
+            self.status.stealthed,
+            self.status.detected,
+            self.status.disguised,
+        );
+        if !should_queue_promote_fx(
+            previous_level,
+            new_level,
+            self.is_kind_of(crate::game_logic::KindOf::IgnoredInGui),
+            hide,
+            gamelogic::helpers::TheGameLogic::get_draw_icon_ui(),
+            provide_feedback,
+        ) {
             return;
         }
         let pos = self.get_health_box_position();
