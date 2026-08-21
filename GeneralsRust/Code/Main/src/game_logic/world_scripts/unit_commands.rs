@@ -1549,6 +1549,7 @@ impl GameLogic {
     }
 
     /// Wave 233: special-power overridable destination residual.
+    /// C++ SpectreGunshipUpdate::setSpecialPowerOverridableDestination.
     pub fn unit_command_set_special_power_overridable_destination(
         &mut self,
         id: ObjectId,
@@ -1557,7 +1558,7 @@ impl GameLogic {
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
-        if !unit.is_alive() {
+        if !unit.is_alive() || unit.is_disabled() {
             return false;
         }
         unit.set_special_power_overridable_destination(location, None);

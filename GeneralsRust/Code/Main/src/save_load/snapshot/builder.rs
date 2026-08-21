@@ -86,7 +86,7 @@ impl SnapshotBuilder {
             airfield_parking: self.snapshot_airfield_parking(game_logic),
             persist_v18: super::persist_v18::capture_persist_v18(game_logic),
             object_experience_trackers: self.snapshot_object_experience_trackers(game_logic),
-
+            object_command_sets: self.snapshot_object_command_sets(game_logic),
         };
 
         log::info!(
@@ -143,6 +143,7 @@ impl SnapshotBuilder {
         self.restore_object_instance_guards(snapshot, game_logic)?;
         self.restore_overcharge_active(snapshot, game_logic)?;
         self.restore_object_experience_trackers(snapshot, game_logic)?;
+        self.restore_object_command_sets(snapshot, game_logic)?;
 
 
         self.restore_cia_vision_builder_sell(snapshot, game_logic)?;
@@ -997,6 +998,67 @@ impl SnapshotBuilder {
             };
             object.set_experience_sink(entry.experience_sink);
             object.set_experience_scalar(entry.experience_scalar);
+        }
+        Ok(())
+    }
+
+    /// C++ `Object::xfer` `m_commandSetStringOverride` (`Object.cpp:4403`).
+    fn snapshot_object_command_sets(
+        &self,
+        game_logic: &GameLogic,
+    ) -> Vec<ObjectCommandSetSnapshot> {
+        let mut ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+        ids.sort();
+        let mut entries = Vec::new();
+        for id in ids {
+            let Some(object) = game_logic.host_object(id) else {
+                continue;
+            };
+            let Some(command_set) = object.command_set_override.as_ref() else {
+                continue;
+            };
+            if command_set.is_empty() {
+                continue;
+            }
+            entries.push(ObjectCommandSetSnapshot {
+                object_id: id,
+                command_set_override: command_set.clone(),
+            });
+        }
+        entries
+    }
+
+    fn restore_object_command_sets(
+        &self,
+        snapshot: &WorldSnapshot,
+        game_logic: &mut GameLogic,
+    ) -> SaveLoadResult<()> {
+        if snapshot.version < WORLD_SNAPSHOT_DIRECT_XFER_V19_TAIL_VERSION
+            && snapshot.object_command_sets.is_empty()
+        {
+            return Ok(());
+        }
+        let mut seen = HashSet::new();
+        for entry in &snapshot.object_command_sets {
+            if !seen.insert(entry.object_id) {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "Duplicate command set snapshot for object {}",
+                    entry.object_id
+                )));
+            }
+            let Some(object) = game_logic.host_object_mut(entry.object_id) else {
+                log::warn!(
+                    "Command set snapshot references missing object {}",
+                    entry.object_id
+                );
+                continue;
+            };
+            let override_name = if entry.command_set_override.is_empty() {
+                None
+            } else {
+                Some(entry.command_set_override.clone())
+            };
+            object.set_command_set_override(override_name);
         }
         Ok(())
     }

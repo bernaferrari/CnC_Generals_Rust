@@ -91,6 +91,66 @@ pub enum HostScriptCreateRequest {
     },
 }
 
+/// Live host drain: TEAM/NAMED HUNT, TEAM/NAMED GUARD, PLAYER_HUNT.
+/// C++ `ScriptActions::doNamedHunt` / `doTeamHunt` / `doNamedGuard` /
+/// `doTeamGuard` / `doPlayerHunt`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostScriptHuntGuardRequest {
+    TeamHunt { team: String },
+    NamedHunt { unit: String },
+    TeamGuard { team: String },
+    NamedGuard { unit: String },
+    PlayerHunt { player: String },
+}
+
+/// Live host drain: TEAM/NAMED FOLLOW_WAYPOINTS and EXACT variants.
+/// C++ `ScriptActions::doNamedFollowWaypoints` / `doNamedFollowWaypointsExact` /
+/// `doTeamFollowWaypoints` / `doTeamFollowWaypointsExact`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostScriptFollowWaypointsRequest {
+    TeamFollow {
+        team: String,
+        waypoint: String,
+        as_team: bool,
+        exact: bool,
+    },
+    NamedFollow {
+        unit: String,
+        waypoint: String,
+        exact: bool,
+    },
+}
+
+/// Live host drain: TEAM_GUARD_POSITION / OBJECT / AREA / TUNNEL_NETWORK.
+/// C++ `ScriptActions::doTeamGuardPosition` / `doTeamGuardObject` /
+/// `doTeamGuardArea` / `doTeamGuardInTunnelNetwork`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostScriptGuardVariantRequest {
+    TeamGuardPosition { team: String, waypoint: String },
+    TeamGuardObject { team: String, unit: String },
+    TeamGuardArea { team: String, area: String },
+    TeamGuardTunnel { team: String },
+}
+
+/// Live host drain: NAMED_FIRE_SPECIAL_POWER_AT_WAYPOINT / AT_NAMED.
+/// C++ `ScriptActions::doNamedFireSpecialPowerAtWaypoint` /
+/// `doNamedFireSpecialPowerAtNamed`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostScriptNamedFireSpecialPowerRequest {
+    AtWaypoint {
+        unit: String,
+        power: String,
+        waypoint: String,
+    },
+    AtNamed {
+        unit: String,
+        power: String,
+        target: String,
+    },
+}
+
+
+
 
 thread_local! {
     static HOST_SKIRMISH_FIRE_SPECIAL_REQUESTS: RefCell<Vec<(String, String)>> =
@@ -126,6 +186,16 @@ thread_local! {
         RefCell::new(Vec::new());
     static HOST_SKIRMISH_CMD_BUTTON_REQUESTS: RefCell<Vec<(String, String, f32)>> =
         RefCell::new(Vec::new());
+    static HOST_SCRIPT_HUNT_GUARD_REQUESTS: RefCell<Vec<HostScriptHuntGuardRequest>> =
+        RefCell::new(Vec::new());
+    static HOST_SCRIPT_FOLLOW_WAYPOINTS_REQUESTS: RefCell<Vec<HostScriptFollowWaypointsRequest>> =
+        RefCell::new(Vec::new());
+    static HOST_SCRIPT_GUARD_VARIANT_REQUESTS: RefCell<Vec<HostScriptGuardVariantRequest>> =
+        RefCell::new(Vec::new());
+    static HOST_SCRIPT_NAMED_FIRE_SPECIAL_REQUESTS:
+        RefCell<Vec<HostScriptNamedFireSpecialPowerRequest>> = RefCell::new(Vec::new());
+
+
 
 
 
@@ -353,6 +423,45 @@ pub fn request_host_guard_supply_center(team_name: &str, min_supplies: i32) {
 pub fn take_host_guard_supply_center_requests() -> Vec<(String, i32)> {
     HOST_GUARD_SUPPLY_CENTER_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
+
+/// Live host drain: TEAM/NAMED HUNT, TEAM/NAMED GUARD, PLAYER_HUNT.
+pub fn request_host_script_hunt_guard(req: HostScriptHuntGuardRequest) {
+    HOST_SCRIPT_HUNT_GUARD_REQUESTS.with(|q| q.borrow_mut().push(req));
+}
+
+pub fn take_host_script_hunt_guard_requests() -> Vec<HostScriptHuntGuardRequest> {
+    HOST_SCRIPT_HUNT_GUARD_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: TEAM/NAMED FOLLOW_WAYPOINTS and EXACT.
+pub fn request_host_script_follow_waypoints(req: HostScriptFollowWaypointsRequest) {
+    HOST_SCRIPT_FOLLOW_WAYPOINTS_REQUESTS.with(|q| q.borrow_mut().push(req));
+}
+
+pub fn take_host_script_follow_waypoints_requests() -> Vec<HostScriptFollowWaypointsRequest> {
+    HOST_SCRIPT_FOLLOW_WAYPOINTS_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: TEAM_GUARD_POSITION / OBJECT / AREA / TUNNEL_NETWORK.
+pub fn request_host_script_guard_variant(req: HostScriptGuardVariantRequest) {
+    HOST_SCRIPT_GUARD_VARIANT_REQUESTS.with(|q| q.borrow_mut().push(req));
+}
+
+pub fn take_host_script_guard_variant_requests() -> Vec<HostScriptGuardVariantRequest> {
+    HOST_SCRIPT_GUARD_VARIANT_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: NAMED_FIRE_SPECIAL_POWER_AT_WAYPOINT / AT_NAMED.
+pub fn request_host_script_named_fire_special(req: HostScriptNamedFireSpecialPowerRequest) {
+    HOST_SCRIPT_NAMED_FIRE_SPECIAL_REQUESTS.with(|q| q.borrow_mut().push(req));
+}
+
+pub fn take_host_script_named_fire_special_requests() -> Vec<HostScriptNamedFireSpecialPowerRequest>
+{
+    HOST_SCRIPT_NAMED_FIRE_SPECIAL_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+
 
 /// Live host drain: SKIRMISH_ATTACK_NEAREST_GROUP_WITH_VALUE.
 pub fn request_host_skirmish_attack_nearest_group(team: &str, comparison: i32, value: i32) {

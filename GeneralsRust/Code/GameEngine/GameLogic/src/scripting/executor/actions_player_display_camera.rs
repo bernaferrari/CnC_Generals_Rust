@@ -152,6 +152,13 @@ impl ScriptActionDispatcher {
         let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
 
         log::info!("Player '{}' units hunting", player_name);
+        if dual_world_registry_unavailable() {
+            super::request_host_script_hunt_guard(super::HostScriptHuntGuardRequest::PlayerHunt {
+                player: player_name,
+            });
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let list = player_list();
         if let Ok(list_guard) = list.read() {

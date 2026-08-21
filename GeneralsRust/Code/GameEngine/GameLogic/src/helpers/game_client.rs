@@ -166,6 +166,8 @@ pub struct DrawWheelInfo {
     pub rear_left_height_offset: Real,
     pub rear_right_height_offset: Real,
     pub wheel_angle: Real,
+    /// C++ `TWheelInfo::m_framesAirborne`.
+    pub frames_airborne: i32,
 }
 
 static OBJECT_WHEEL_INFO: Lazy<Mutex<HashMap<ObjectID, DrawWheelInfo>>> =

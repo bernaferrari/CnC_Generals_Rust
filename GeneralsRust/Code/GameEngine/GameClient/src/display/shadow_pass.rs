@@ -9,8 +9,10 @@ use crate::effects::decals::DecalRenderItem;
 use crate::radius_decal::get_projected_shadow_manager;
 use crate::terrain::terrain_visual::THE_TERRAIN_VISUAL;
 use crate::terrain::TerrainVisual;
+use game_engine::common::thing::thing_factory::try_get_thing_factory;
 use nalgebra::Point3;
 use std::sync::Mutex;
+
 
 const SHADOW_COLOR: [f32; 4] = [160.0 / 255.0, 160.0 / 255.0, 160.0 / 255.0, 127.0 / 255.0];
 const MAP_XY_FACTOR: f32 = 10.0;
@@ -91,8 +93,8 @@ pub fn collect_unit_decal_items() -> Vec<DecalRenderItem> {
         });
     }
 
-    // Also project a blob under every currently submitted drawable so units
-    // still get a decal when allocate_shadows has not registered a caster.
+    // C++ flushDecals draws allocated shadows only. A drawable still gets a
+    // fallback disc when ThingTemplate Shadow != NONE and authored size > 0.
     with_drawable_manager(|manager| {
         for id in manager.get_all_drawable_ids() {
             let Some(drawable) = manager.get_drawable(id) else {
@@ -101,17 +103,41 @@ pub fn collect_unit_decal_items() -> Vec<DecalRenderItem> {
             if !drawable.is_visible() {
                 continue;
             }
+            let Some(name) = drawable.get_template_name() else {
+                continue;
+            };
+            let Some(guard) = try_get_thing_factory() else {
+                continue;
+            };
+            let Some(factory) = guard.as_ref() else {
+                continue;
+            };
+            let Some(tmpl) = factory.find_template(name, false) else {
+                continue;
+            };
+            if tmpl.get_shadow_type().bits() == 0 {
+                continue;
+            }
+            let sx = tmpl.get_shadow_size_x();
+            let sy = tmpl.get_shadow_size_y();
+            if sx <= 0.0 && sy <= 0.0 {
+                continue;
+            }
             let pos = drawable.get_position();
             let z = sample_height(pos.x, pos.y) + Z_LIFT;
-            let radius = drawable.get_instance_scale().abs().max(1.0) * 12.0;
             items.push(DecalRenderItem {
-                position: Point3::new(pos.x, pos.y, z + BRIDGE_OFFSET.min(0.0)),
-                size: radius,
+                position: Point3::new(
+                    pos.x + tmpl.get_shadow_offset_x(),
+                    pos.y + tmpl.get_shadow_offset_y(),
+                    z + BRIDGE_OFFSET.min(0.0),
+                ),
+                size: sx.max(sy),
                 rotation: 0.0,
                 color: [SHADOW_COLOR[0], SHADOW_COLOR[1], SHADOW_COLOR[2], 0.45],
             });
         }
     });
+
 
     items
 }

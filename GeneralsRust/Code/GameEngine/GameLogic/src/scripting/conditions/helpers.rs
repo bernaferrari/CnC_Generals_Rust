@@ -68,6 +68,11 @@ pub struct HostScriptQueryObject {
     pub vision_range: f32,
     /// Host KindOf Debug names (Infantry, Vehicle, Structure, …).
     pub kind_names: Vec<String>,
+    /// C++ SpecialPowerModule::getPercentReady() == 1 for host isReady.
+    pub special_power_ready: bool,
+    /// Canonical SpecialPowerTemplate names this object owns.
+    pub special_power_templates: Vec<String>,
+
 }
 
 /// Live host Player::getMoney / getEnergy / hasAnyObjects census.
@@ -1023,6 +1028,159 @@ pub fn host_script_team_member_ids(team_name: &str) -> Vec<u32> {
     ids.dedup();
     ids
 }
+
+/// C++ ScriptConditions::evaluateSkirmishCommandButtonIsReady over the host
+/// snapshot. `None` when no snapshot is injected (leftover OBJECT_REGISTRY path).
+pub fn host_eval_skirmish_command_button_ready(
+    team_name: &str,
+    command_button_name: &str,
+    all_ready: bool,
+) -> Option<bool> {
+    if !host_script_query_has_any() {
+        return None;
+    }
+    if team_name.is_empty() {
+        return Some(false);
+    }
+
+    match leftover_command_button_kind(command_button_name) {
+        LeftoverCommandButtonKind::Missing => return Some(false),
+        LeftoverCommandButtonKind::Unknown
+        | LeftoverCommandButtonKind::SpecialPower(_)
+        | LeftoverCommandButtonKind::Upgrade
+        | LeftoverCommandButtonKind::Other => {}
+    }
+
+    let ids = host_script_team_member_ids(team_name);
+    if ids.is_empty() && !host_team_name_known(team_name) {
+        return Some(false);
+    }
+
+    for id in ids {
+        let Some(obj) = host_script_query_object_by_id(id) else {
+            continue;
+        };
+        let Some(is_ready) =
+            host_command_button_ready_for_object(&obj, command_button_name)
+        else {
+            continue;
+        };
+        if is_ready {
+            if !all_ready {
+                return Some(true);
+            }
+        } else if all_ready {
+            return Some(false);
+        }
+    }
+    Some(all_ready)
+}
+
+enum LeftoverCommandButtonKind {
+    /// Leftover ControlBar is populated and the name is absent. C++ false.
+    Missing,
+    /// No leftover catalog — live host matches snapshot special-power names.
+    Unknown,
+    SpecialPower(String),
+    Upgrade,
+    Other,
+}
+
+fn leftover_command_button_kind(command_button_name: &str) -> LeftoverCommandButtonKind {
+    if let Some(bridge) = crate::control_bar::get_control_bar_bridge() {
+        if let Some(button) = bridge.find_command_button_by_name(command_button_name) {
+            if let Some(template) = button.get_special_power_template() {
+                return LeftoverCommandButtonKind::SpecialPower(template.get_name().to_string());
+            }
+            if button.get_upgrade_template().is_some() {
+                return LeftoverCommandButtonKind::Upgrade;
+            }
+            return LeftoverCommandButtonKind::Other;
+        }
+    }
+    if let Some(bar) = game_engine::common::ini::ini_command_button::get_control_bar() {
+        if let Some(button) = bar.find_command_button_resolved(command_button_name) {
+            if let Some(template) = button.get_special_power_template() {
+                return LeftoverCommandButtonKind::SpecialPower(template.clone());
+            }
+            if !button.upgrade.is_empty() {
+                return LeftoverCommandButtonKind::Upgrade;
+            }
+            return LeftoverCommandButtonKind::Other;
+        }
+        if !bar.get_button_names().is_empty() {
+            return LeftoverCommandButtonKind::Missing;
+        }
+    }
+    LeftoverCommandButtonKind::Unknown
+}
+
+
+fn host_team_name_known(team_name: &str) -> bool {
+    HOST_SCRIPT_QUERY.with(|slot| {
+        slot.borrow()
+            .team_instance_ids
+            .keys()
+            .any(|name| name.eq_ignore_ascii_case(team_name))
+    })
+}
+
+fn host_command_button_ready_for_object(
+    obj: &HostScriptQueryObject,
+    command_button_name: &str,
+) -> Option<bool> {
+    match leftover_command_button_kind(command_button_name) {
+        LeftoverCommandButtonKind::Missing => None,
+        LeftoverCommandButtonKind::Upgrade | LeftoverCommandButtonKind::Other => {
+            // C++ does not skip upgrade members; isReady needs leftover Object.
+            Some(false)
+        }
+        LeftoverCommandButtonKind::SpecialPower(template) => {
+            if !obj
+                .special_power_templates
+                .iter()
+                .any(|owned| owned.eq_ignore_ascii_case(&template))
+            {
+                return None;
+            }
+            Some(obj.special_power_ready)
+        }
+        LeftoverCommandButtonKind::Unknown => {
+            if obj.special_power_templates.is_empty() {
+                return None;
+            }
+            if !obj
+                .special_power_templates
+                .iter()
+                .any(|owned| host_special_power_matches_button(owned, command_button_name))
+            {
+                return None;
+            }
+            Some(obj.special_power_ready)
+        }
+    }
+}
+
+fn host_special_power_matches_button(template: &str, button_name: &str) -> bool {
+    let template_key = host_command_identity_token(template);
+    let button_key = host_command_identity_token(button_name);
+    !template_key.is_empty()
+        && !button_key.is_empty()
+        && (template_key == button_key
+            || template_key.contains(&button_key)
+            || button_key.contains(&template_key))
+}
+
+fn host_command_identity_token(name: &str) -> String {
+    name.trim()
+        .trim_start_matches("Command_")
+        .trim_start_matches("COMMAND_")
+        .trim_start_matches("Superweapon")
+        .trim_start_matches("SpecialPower")
+        .replace('_', "")
+        .to_ascii_lowercase()
+}
+
 
 pub fn host_team_did_enter_or_exit(team_name: &str) -> bool {
     let now = current_logic_frame();

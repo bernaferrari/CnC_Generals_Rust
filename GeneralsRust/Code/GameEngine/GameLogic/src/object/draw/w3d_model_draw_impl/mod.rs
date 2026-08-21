@@ -33,8 +33,8 @@ use crate::helpers::{
     TheGameClient, TheGameLogic, TheGlobalData, TheParticleSystemManager,
 };
 use crate::object::draw::client_visual::{
-    object_should_animate, preload_draw_asset, terrain_decal_client, terrain_decal_texture_name,
-    terrain_track_client, TerrainDecalDesc,
+    leftover_default_shadow_texture, object_should_animate, preload_draw_asset,
+    terrain_decal_client, terrain_decal_texture_name, terrain_track_client, TerrainDecalDesc,
 };
 use crate::upgrade::modules::model_condition::parse_model_condition_flag;
 use game_engine::common::ini::{INIError, INI};

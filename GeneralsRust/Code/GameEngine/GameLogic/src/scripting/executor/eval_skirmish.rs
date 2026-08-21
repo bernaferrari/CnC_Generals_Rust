@@ -384,6 +384,15 @@ impl ScriptConditionEvaluator {
         command_button_name: &str,
         all_ready: bool,
     ) -> Result<bool, ScriptError> {
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            if let Some(ready) = crate::scripting::host_eval_skirmish_command_button_ready(
+                team_name,
+                command_button_name,
+                all_ready,
+            ) {
+                return Ok(ready);
+            }
+        }
         let team_arc = self.get_team_by_name(team_name)?;
         let control_bar = get_control_bar_bridge().ok_or_else(|| {
             ScriptError::ExecutionFailed("Control bar not initialized".to_string())
@@ -428,45 +437,7 @@ impl ScriptConditionEvaluator {
         obj: &crate::object::Object,
         command_button: &crate::command_button::CommandButton,
     ) -> Option<bool> {
-        if let Some(template) = command_button.get_special_power_template() {
-            if !obj.has_special_power(template.get_special_power_type()) {
-                return None;
-            }
-            return obj
-                .with_special_power_module_interface_by_name(template.get_name(), |sp_module| {
-                    sp_module.is_ready()
-                })
-                .or(Some(false));
-        }
-
-        let Some(upgrade) = command_button.get_upgrade_template() else {
-            return None;
-        };
-
-        if upgrade.get_upgrade_type() == crate::upgrade::UpgradeType::Object {
-            if obj.has_upgrade(upgrade) || !obj.affected_by_upgrade(upgrade) {
-                return Some(false);
-            }
-        }
-
-        if !obj.can_produce_upgrade(upgrade) {
-            return Some(false);
-        }
-
-        let player_id = obj.get_controlling_player_id()?;
-        let player_arc = {
-            let list = player_list().read().ok()?;
-            list.get_player(player_id as i32).cloned()?
-        };
-        let player_guard = player_arc.read().ok()?;
-
-        if player_guard.has_upgrade_complete(upgrade)
-            || player_guard.has_upgrade_in_production(upgrade)
-        {
-            return Some(false);
-        }
-
-        Some(true)
+        leftover_command_button_ready_for_object(obj, command_button)
     }
 
     pub(crate) fn eval_skirmish_unowned_faction_unit_exists(
@@ -1242,3 +1213,49 @@ impl ScriptConditionEvaluator {
         })
     }
 }
+
+pub(crate) fn leftover_command_button_ready_for_object(
+    obj: &crate::object::Object,
+    command_button: &crate::command_button::CommandButton,
+) -> Option<bool> {
+    if let Some(template) = command_button.get_special_power_template() {
+        if !obj.has_special_power(template.get_special_power_type()) {
+            return None;
+        }
+        return obj
+            .with_special_power_module_interface_by_name(template.get_name(), |sp_module| {
+                sp_module.is_ready()
+            })
+            .or(Some(false));
+    }
+
+    let Some(upgrade) = command_button.get_upgrade_template() else {
+        return None;
+    };
+
+    if upgrade.get_upgrade_type() == crate::upgrade::UpgradeType::Object {
+        if obj.has_upgrade(upgrade) || !obj.affected_by_upgrade(upgrade) {
+            return Some(false);
+        }
+    }
+
+    if !obj.can_produce_upgrade(upgrade) {
+        return Some(false);
+    }
+
+    let player_id = obj.get_controlling_player_id()?;
+    let player_arc = {
+        let list = player_list().read().ok()?;
+        list.get_player(player_id as i32).cloned()?
+    };
+    let player_guard = player_arc.read().ok()?;
+
+    if player_guard.has_upgrade_complete(upgrade)
+        || player_guard.has_upgrade_in_production(upgrade)
+    {
+        return Some(false);
+    }
+
+    Some(true)
+}
+

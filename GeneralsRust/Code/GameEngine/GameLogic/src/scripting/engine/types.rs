@@ -634,14 +634,17 @@ pub struct BreezeInfo {
 }
 
 impl BreezeInfo {
+    /// C++ `ScriptEngine` reset defaults (`ScriptEngine.cpp` ~5291-5298).
     pub fn new() -> Self {
+        let direction = std::f32::consts::PI / 3.0;
+        let amplitude = 0.07 * std::f32::consts::PI / 4.0;
         Self {
-            direction: 0.0,
-            direction_vec: [1.0, 0.0],
-            intensity: 0.0,
-            lean: 0.0,
-            randomness: 0.0,
-            breeze_period: 120,
+            direction,
+            direction_vec: [direction.sin(), direction.cos()],
+            intensity: amplitude,
+            lean: amplitude,
+            randomness: 0.2,
+            breeze_period: (crate::common::LOGICFRAMES_PER_SECOND * 5) as i16,
             breeze_version: 0,
         }
     }

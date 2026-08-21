@@ -714,6 +714,17 @@ impl XferData for ObjectInstanceGuardSnapshot {
     }
 }
 
+impl XferData for ObjectCommandSetSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("ObjectCommandSetSnapshot")?;
+        xfer.xfer_marker_label("ObjectId")?;
+        self.object_id.xfer(xfer)?;
+        xfer.xfer_marker_label("CommandSetOverride")?;
+        self.command_set_override.xfer(xfer)?;
+        Ok(())
+    }
+}
+
 impl XferData for ObjectOverchargeSnapshot {
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
         xfer.xfer_marker_label("ObjectOverchargeSnapshot")?;

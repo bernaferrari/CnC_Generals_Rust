@@ -662,6 +662,35 @@ fn particle_uplink_manual_drive_and_outer_nodes_residual_honesty() {
 }
 
 #[test]
+fn post_fire_object_override_applies_to_live_beam_and_orbit() {
+    // Given: live PUC beam + Spectre orbit after fire.
+    // When: the source object's override destination is applied on the strike tick.
+    // Then: beam manual aim and orbit center follow that click.
+    let mut reg = HostSpecialPowerStrikeRegistry::new();
+    let source = ObjectId(7);
+    let fire_pos = Vec3::new(40.0, 0.0, 10.0);
+    let click = Vec3::new(220.0, 0.0, 180.0);
+    let beam_id = reg.spawn_beam_field(source, Team::USA, fire_pos, 0, 1);
+    let orbit_id = reg.spawn_orbit_field(source, Team::USA, fire_pos, 0, 2);
+    assert!(reg.apply_source_override_destination(source, click, 1));
+    let beam = reg
+        .beam_fields()
+        .iter()
+        .find(|f| f.id == beam_id)
+        .expect("beam");
+    assert!(beam.manual_target_mode);
+    assert!((beam.override_destination.x - click.x).abs() < 0.01);
+    assert!((beam.override_destination.z - click.z).abs() < 0.01);
+    let orbit = reg
+        .orbit_fields()
+        .iter()
+        .find(|f| f.id == orbit_id)
+        .expect("orbit");
+    assert!((orbit.position.x - click.x).abs() < 0.01);
+    assert!((orbit.position.z - click.z).abs() < 0.01);
+}
+
+#[test]
 fn spectre_howitzer_shell_projectile_residual_honesty() {
     // Retail SpectreHowitzerShell / SpectreHowitzerGun projectile residual.
     assert_eq!(SPECTRE_HOWITZER_SHELL_OBJECT, "SpectreHowitzerShell");

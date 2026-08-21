@@ -18,6 +18,49 @@ use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
 use std::any::Any;
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+/// C++ `W3DTankDraw.cpp:286` ground-speed gate for TrackDebrisDirt.
+const DEBRIS_THRESHOLD: Real = 0.00001;
+
+thread_local! {
+    static LIVE_TREAD_DEBRIS: RefCell<HashMap<ObjectID, W3DTankDraw>> =
+        RefCell::new(HashMap::new());
+}
+
+/// C++ `W3DTankDraw::doDrawModule` debris start/stop, driven by live host pose.
+pub fn tick_live_host_tread_debris(
+    owner_id: ObjectID,
+    position: [f32; 3],
+    vel_mag_sq: Real,
+    hidden: bool,
+    shrouded: bool,
+) {
+    LIVE_TREAD_DEBRIS.with(|map| {
+        let mut map = map.borrow_mut();
+        let draw = map.entry(owner_id).or_insert_with(|| {
+            let mut draw = W3DTankDraw::new(W3DTankDrawModuleData::new());
+            draw.bind_owner_id(owner_id);
+            draw
+        });
+        draw.tick_live_move_debris(
+            &Coord3D::new(position[0], position[1], position[2]),
+            vel_mag_sq,
+            hidden,
+            shrouded,
+        );
+    });
+}
+
+/// Toss leftover TrackDebrisDirt emitters when the live drawable is pruned.
+pub fn prune_live_host_tread_debris(owner_id: ObjectID) {
+    LIVE_TREAD_DEBRIS.with(|map| {
+        if let Some(mut draw) = map.borrow_mut().remove(&owner_id) {
+            draw.toss_emitters();
+        }
+    });
+}
 
 /// Tread type classification
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -323,15 +366,21 @@ impl W3DTankDraw {
             return;
         };
         let owner_id = self.base.owner_id();
+        let drawable_attached = owner_id.is_some_and(|id| {
+            TheGameClient::get().is_some_and(|client| client.find_drawable_by_id(id).is_some())
+        });
 
         if self.tread_debris_left.is_none() && !self.data.tread_debris_name_left.is_empty() {
             if let Some(id) =
                 ps_manager.create_particle_system(Some(self.data.tread_debris_name_left.as_str()))
             {
-                if let Some(owner_id) = owner_id {
-                    ps_manager.attach_particle_system_to_drawable(id, owner_id);
+                if drawable_attached {
+                    if let Some(owner_id) = owner_id {
+                        ps_manager.attach_particle_system_to_drawable(id, owner_id);
+                    }
                 }
-                // C++ creates these emitters in stopped state.
+                // C++ marks these do-not-save and creates them stopped.
+                ps_manager.set_particle_system_saveable(id, false);
                 ps_manager.stop_particle_system(id);
                 self.tread_debris_left = Some(id);
             }
@@ -341,10 +390,13 @@ impl W3DTankDraw {
             if let Some(id) =
                 ps_manager.create_particle_system(Some(self.data.tread_debris_name_right.as_str()))
             {
-                if let Some(owner_id) = owner_id {
-                    ps_manager.attach_particle_system_to_drawable(id, owner_id);
+                if drawable_attached {
+                    if let Some(owner_id) = owner_id {
+                        ps_manager.attach_particle_system_to_drawable(id, owner_id);
+                    }
                 }
-                // C++ creates these emitters in stopped state.
+                // C++ marks these do-not-save and creates them stopped.
+                ps_manager.set_particle_system_saveable(id, false);
                 ps_manager.stop_particle_system(id);
                 self.tread_debris_right = Some(id);
             }
@@ -366,22 +418,27 @@ impl W3DTankDraw {
         }
         self.tread_debris_left = None;
         self.tread_debris_right = None;
+        self.debris_active = false;
     }
 
     /// Start creating move debris from tank treads
     fn start_move_debris(&mut self) {
-        if !self.debris_active {
-            if !self.base.is_visible() {
-                return;
+        if self.debris_active {
+            return;
+        }
+        if !self.base.is_visible() {
+            return;
+        }
+        if self.tread_debris_left.is_none() && self.tread_debris_right.is_none() {
+            return;
+        }
+        self.debris_active = true;
+        if let Some(ps_manager) = TheParticleSystemManager::get() {
+            if let Some(id) = self.tread_debris_left {
+                ps_manager.start_particle_system(id);
             }
-            self.debris_active = true;
-            if let Some(ps_manager) = TheParticleSystemManager::get() {
-                if let Some(id) = self.tread_debris_left {
-                    ps_manager.start_particle_system(id);
-                }
-                if let Some(id) = self.tread_debris_right {
-                    ps_manager.start_particle_system(id);
-                }
+            if let Some(id) = self.tread_debris_right {
+                ps_manager.start_particle_system(id);
             }
         }
     }
@@ -399,6 +456,58 @@ impl W3DTankDraw {
                 }
             }
         }
+    }
+
+    fn place_emitters_at(&self, position: &Coord3D) {
+        let Some(ps_manager) = TheParticleSystemManager::get() else {
+            return;
+        };
+        if let Some(id) = self.tread_debris_left {
+            ps_manager.set_particle_system_position(id, position);
+        }
+        if let Some(id) = self.tread_debris_right {
+            ps_manager.set_particle_system_position(id, position);
+        }
+    }
+
+    /// C++ `W3DTankDraw.cpp:309-335` start/stop + velocity/burst multipliers.
+    fn update_move_debris(&mut self, vel_mag_sq: Real) {
+        if vel_mag_sq > DEBRIS_THRESHOLD && self.base.is_visible() {
+            self.start_move_debris();
+        } else {
+            self.stop_move_debris();
+        }
+
+        let Some(ps_manager) = TheParticleSystemManager::get() else {
+            return;
+        };
+        let vel_mag = vel_mag_sq.sqrt();
+        let x = (0.5 * vel_mag + 0.1).min(1.0);
+        let z = (vel_mag + 0.1).min(1.0);
+        let vel_mult = Coord3D::new(x, x, z);
+        if let Some(id) = self.tread_debris_left {
+            ps_manager.set_particle_system_velocity_multiplier(id, &vel_mult);
+            ps_manager.set_particle_system_burst_count_multiplier(id, z);
+        }
+        if let Some(id) = self.tread_debris_right {
+            ps_manager.set_particle_system_velocity_multiplier(id, &vel_mult);
+            ps_manager.set_particle_system_burst_count_multiplier(id, z);
+        }
+    }
+
+    /// Live host pose/velocity — leftover GameLogic physics is dual-world only.
+    fn tick_live_move_debris(
+        &mut self,
+        position: &Coord3D,
+        vel_mag_sq: Real,
+        hidden: bool,
+        shrouded: bool,
+    ) {
+        DrawModule::set_hidden(self, hidden);
+        self.set_fully_obscured_by_shroud(shrouded);
+        self.create_emitters();
+        self.place_emitters_at(position);
+        self.update_move_debris(vel_mag_sq);
     }
 
     /// Update tread sub-object pointers
@@ -623,29 +732,7 @@ impl DrawModule for W3DTankDraw {
             &direction,
         );
 
-        const DEBRIS_THRESHOLD: Real = 0.00001;
-        let velocity_mag_sq = self.current_velocity * self.current_velocity;
-        if velocity_mag_sq > DEBRIS_THRESHOLD && self.base.is_visible() {
-            self.start_move_debris();
-        } else {
-            self.stop_move_debris();
-        }
-
-        if let Some(ps_manager) = TheParticleSystemManager::get() {
-            let vel_mag = self.current_velocity;
-            let x = (0.5 * vel_mag + 0.1).min(1.0);
-            let z = (vel_mag + 0.1).min(1.0);
-            let vel_mult = Coord3D::new(x, x, z);
-
-            if let Some(id) = self.tread_debris_left {
-                ps_manager.set_particle_system_velocity_multiplier(id, &vel_mult);
-                ps_manager.set_particle_system_burst_count_multiplier(id, z);
-            }
-            if let Some(id) = self.tread_debris_right {
-                ps_manager.set_particle_system_velocity_multiplier(id, &vel_mult);
-                ps_manager.set_particle_system_burst_count_multiplier(id, z);
-            }
-        }
+        self.update_move_debris(self.current_velocity * self.current_velocity);
 
         // Draw base model (includes turret positioning and recoil)
         self.base.do_draw_module(transform_mtx);

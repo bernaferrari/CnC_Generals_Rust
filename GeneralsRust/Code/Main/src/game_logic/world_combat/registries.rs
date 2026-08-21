@@ -1144,6 +1144,10 @@ impl GameLogic {
 
     /// C++ `bldg->getContain()->addToContain(obj)` + garrison onContaining.
     fn rappel_add_to_contain(&mut self, pid: ObjectId, bldg_id: ObjectId) {
+        // C++ OpenContain::addToContain checkAndDetonateBoobyTrap(rider).
+        if self.should_cancel_containment_after_booby_trap(bldg_id, pid) {
+            return;
+        }
         let entered = self
             .objects
             .get_mut(&bldg_id)

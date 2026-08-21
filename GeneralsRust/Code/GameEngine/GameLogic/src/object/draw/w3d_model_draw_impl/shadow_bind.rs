@@ -43,8 +43,7 @@ impl W3DModelDraw {
     }
 
     fn allocate_template_shadow(&mut self) {
-        // C++ allocateShadows: TheW3DShadowManager->addShadow from ThingTemplate ShadowType.
-        // GameLogic talks to the projected-shadow manager through TerrainDecalClient.
+        // C++ allocateShadows: TheW3DShadowManager->addShadow only when Shadow != NONE.
         if self.shadow_allocated {
             return;
         }
@@ -57,13 +56,24 @@ impl W3DModelDraw {
             self.shadow_allocated = true;
             return;
         }
+        let shadow_none = TheGameLogic::find_object_by_id(owner_id)
+            .and_then(|object| {
+                object
+                    .read()
+                    .ok()
+                    .map(|obj| obj.get_template().as_ref().get_shadow_type_bits() == 0)
+            })
+            .unwrap_or(true);
+        if shadow_none {
+            return;
+        }
         self.apply_terrain_decal(TerrainDecalType::ShadowTexture);
         if terrain_decal_client().is_some() {
             self.shadow_allocated = true;
         }
-        let _ = owner_id;
         self.sync_shadow_render_flags();
     }
+
 
     fn release_template_shadow(&mut self) {
         // C++ releaseShadows: m_shadow->release(); m_shadow = NULL.

@@ -279,10 +279,31 @@ impl ControlBar {
 
         // Live-registry portrait path: health stays 0 here; presentation overlay
         // (`sync_selection_display_from_presentation`) supplies snapshot HP.
+        let context_commands = self
+            .context
+            .read()
+            .ok()
+            .map(|ctx| ctx.available_commands.clone());
+        let upgrade_cameos = leftover_authored_upgrade_cameo_names(&template_name)
+            .into_iter()
+            .filter(|name| !name.is_empty())
+            .map(|name| {
+                let is_completed = leftover_object_or_player_has_upgrade(&obj, &name);
+                UpgradeCameoState {
+                    button_image: resolve_upgrade_cameo_button_image(
+                        &name,
+                        context_commands.as_deref(),
+                    ),
+                    upgrade_name: name,
+                    is_completed,
+                    is_visible: true,
+                }
+            })
+            .collect();
         self.portrait_state = PortraitDisplayState {
             portrait_image: template_name,
             veterancy_overlay,
-            upgrade_cameos: Vec::new(),
+            upgrade_cameos,
             is_visible: true,
             health_current: 0.0,
             health_maximum: 0.0,
@@ -443,14 +464,39 @@ impl ControlBar {
 
     /// Feed upgrade cameos, special-power ready, and rally residual from PresentationFrame.
     ///
-    /// Prefer this over live OBJECT_REGISTRY / template graph for dual-tick host paths.
-    /// Cameo art matches C++ `ControlBar::setPortraitByObject`:
-    /// `TheUpgradeCenter->findUpgrade(name)->getButtonImage()`, with CommandSet
-    /// / CommandButton `ButtonImage` as a shipped-data fallback. Fail-closed:
-    /// empty image when a template exists without art, otherwise the upgrade name.
+    /// C++ `ControlBar::setPortraitByObject` iterates authored `UpgradeCameo1..5`
+    /// in slot order, hides empty/unknown names, and `winEnable`s only when the
+    /// object or controlling player has the upgrade complete. Incomplete slots
+    /// stay visible as a disabled preview. Applied-upgrade leftovers are not
+    /// the slot list.
     pub fn sync_upgrades_and_specials_from_presentation(
         &mut self,
         applied_upgrades: &[String],
+        rally_point: Option<[f32; 3]>,
+        special_power_ready: bool,
+        special_power_cooldown_remaining: f32,
+        special_power_cooldown_total: f32,
+    ) {
+        self.sync_upgrade_cameos_from_presentation(
+            &[],
+            applied_upgrades,
+            rally_point,
+            special_power_ready,
+            special_power_cooldown_remaining,
+            special_power_cooldown_total,
+        );
+    }
+
+    /// Presentation-fed C++ `setPortraitByObject` cameo strip.
+    ///
+    /// `authored_cameos` is `UpgradeCameo1..5` (empty slots omitted). When
+    /// empty, leftover ThingFactory is consulted from the portrait template
+    /// name. `completed_upgrades` is object `hasUpgrade` plus player
+    /// `hasUpgradeComplete`. Applied names that are not authored never appear.
+    pub fn sync_upgrade_cameos_from_presentation(
+        &mut self,
+        authored_cameos: &[String],
+        completed_upgrades: &[String],
         rally_point: Option<[f32; 3]>,
         special_power_ready: bool,
         special_power_cooldown_remaining: f32,
@@ -461,17 +507,38 @@ impl ControlBar {
             .read()
             .ok()
             .map(|ctx| ctx.available_commands.clone());
-        let mut cameos: Vec<UpgradeCameoState> = applied_upgrades
-            .iter()
-            .map(|name| UpgradeCameoState {
-                upgrade_name: name.clone(),
-                button_image: resolve_upgrade_cameo_button_image(name, context_commands.as_deref()),
-                is_completed: true,
-                is_visible: true,
+        let leftover_slots = leftover_authored_upgrade_cameo_names(
+            &self.portrait_state.portrait_image,
+        );
+        let authored: Vec<String> = if !authored_cameos.is_empty() {
+            authored_cameos
+                .iter()
+                .map(|name| name.trim().to_string())
+                .filter(|name| !name.is_empty())
+                .collect()
+        } else {
+            leftover_slots
+                .into_iter()
+                .filter(|name| !name.is_empty())
+                .collect()
+        };
+        let cameos: Vec<UpgradeCameoState> = authored
+            .into_iter()
+            .map(|name| {
+                let is_completed = completed_upgrades
+                    .iter()
+                    .any(|owned| owned.eq_ignore_ascii_case(&name));
+                UpgradeCameoState {
+                    button_image: resolve_upgrade_cameo_button_image(
+                        &name,
+                        context_commands.as_deref(),
+                    ),
+                    upgrade_name: name,
+                    is_completed,
+                    is_visible: true,
+                }
             })
             .collect();
-        // Stable order for deterministic UI.
-        cameos.sort_by(|a, b| a.upgrade_name.cmp(&b.upgrade_name));
         self.portrait_state.upgrade_cameos = cameos;
         self.portrait_state.special_power_ready = special_power_ready;
         self.portrait_state.special_power_cooldown_remaining = special_power_cooldown_remaining;
@@ -743,4 +810,48 @@ impl ControlBar {
             None
         }
     }
+}
+
+/// C++ `ThingTemplate::getUpgradeCameoName(0..4)` via leftover ThingFactory.
+pub fn leftover_authored_upgrade_cameo_names(template_name: &str) -> [String; 5] {
+    let trimmed = template_name.trim();
+    if trimmed.is_empty() {
+        return Default::default();
+    }
+    let Ok(factory_guard) = game_engine::common::thing::get_thing_factory() else {
+        return Default::default();
+    };
+    let Some(factory) = factory_guard.as_ref() else {
+        return Default::default();
+    };
+    let Some(template) = factory.find_template(trimmed, false) else {
+        return Default::default();
+    };
+    let mut names = [String::new(), String::new(), String::new(), String::new(), String::new()];
+    for (i, slot) in names.iter_mut().enumerate() {
+        let name = template.get_upgrade_cameo_name(i);
+        let text = name.as_str().trim();
+        if !text.is_empty() {
+            *slot = text.to_string();
+        }
+    }
+    names
+}
+
+/// C++ `obj->hasUpgrade(ut) || player->hasUpgradeComplete(ut)`.
+fn leftover_object_or_player_has_upgrade(obj: &gamelogic::object::Object, name: &str) -> bool {
+    let Some(upgrade) = gamelogic::upgrade::center::with_upgrade_center(|center| {
+        center.find_upgrade(name)
+    }) else {
+        return false;
+    };
+    if obj.has_upgrade(upgrade.as_ref()) {
+        return true;
+    }
+    obj.get_controlling_player().is_some_and(|player_arc| {
+        player_arc
+            .read()
+            .ok()
+            .is_some_and(|player| player.has_upgrade_complete(upgrade.as_ref()))
+    })
 }

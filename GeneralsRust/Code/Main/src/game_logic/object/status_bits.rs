@@ -473,6 +473,7 @@ impl Object {
             self.turn_pivot_offset,
             self.wander_width_factor,
             self.loco_apply_2d_friction_airborne,
+            self.allow_motive_force_while_airborne,
             self.loco_extra_2d_friction,
             self.loco_preferred_height,
             self.loco_preferred_height_damping,

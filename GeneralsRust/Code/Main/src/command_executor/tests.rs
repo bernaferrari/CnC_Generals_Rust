@@ -670,6 +670,74 @@ fn override_special_power_destination_stores() {
 }
 
 #[test]
+fn post_fire_override_steers_live_beam_and_spectre_orbit() {
+    // Given: a live Particle Uplink beam and Spectre orbit after fire.
+    // When: a post-fire override click is issued through the live command.
+    // Then: the next strike tick aims the beam and gunship at that click.
+    use super::CommandExecutor;
+    use crate::command_system::CommandResult;
+    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut tpl = ThingTemplate::new("SP_Steer");
+    tpl.add_kind_of(KindOf::Structure);
+    tpl.add_kind_of(KindOf::Selectable);
+    tpl.set_health(500.0);
+    logic.templates.insert("SP_Steer".to_string(), tpl);
+    let id = logic
+        .create_object("SP_Steer", Team::USA, Vec3::ZERO)
+        .unwrap();
+    let fire_pos = Vec3::new(40.0, 0.0, 10.0);
+    let click = Vec3::new(220.0, 0.0, 180.0);
+    logic
+        .special_power_strikes
+        .spawn_beam_field(id, Team::USA, fire_pos, logic.frame, 1);
+    logic
+        .special_power_strikes
+        .spawn_orbit_field(id, Team::USA, fire_pos, logic.frame, 2);
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_override_special_power_destination(&[id], click),
+            CommandResult::Success
+        );
+    }
+    logic.update_special_power_strikes();
+
+    let beam = logic
+        .special_power_strikes
+        .beam_fields()
+        .iter()
+        .find(|f| f.source_object == id)
+        .expect("live beam");
+    assert!(
+        beam.manual_target_mode,
+        "post-fire click must arm PUC manual drive"
+    );
+    assert!(
+        (beam.override_destination.x - click.x).abs() < 0.01
+            && (beam.override_destination.z - click.z).abs() < 0.01,
+        "beam override {:?} != click {:?}",
+        beam.override_destination,
+        click
+    );
+
+    let orbit = logic
+        .special_power_strikes
+        .orbit_fields()
+        .iter()
+        .find(|f| f.source_object == id)
+        .expect("live spectre orbit");
+    assert!(
+        (orbit.position.x - click.x).abs() < 0.01 && (orbit.position.z - click.z).abs() < 0.01,
+        "spectre orbit {:?} != click {:?}",
+        orbit.position,
+        click
+    );
+}
+
+#[test]
 fn set_weapon_set_flag_carbomb_and_upgrade() {
     use super::CommandExecutor;
     use crate::command_system::CommandResult;

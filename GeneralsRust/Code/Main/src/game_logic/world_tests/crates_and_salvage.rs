@@ -3481,10 +3481,9 @@ fn scatter_miss_splash_honors_radius_damage_affects() {
     assert!(ah2 < 200.0 - 1.0, "default splash hits allies ah2={ah2}");
     assert!(radius_damage_affects_victim(
         omitted,
-        Team::USA,
+        gamelogic::common::Relationship::Allies,
         src,
         ally,
-        Team::USA,
         false,
         false,
     ));

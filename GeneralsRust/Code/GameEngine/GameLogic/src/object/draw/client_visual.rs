@@ -60,6 +60,23 @@ pub fn terrain_decal_texture_name(decal_type: TerrainDecalType) -> &'static str 
     }
 }
 
+/// C++ `ThingTemplate::validate` default when `ShadowTexture` is empty.
+pub fn leftover_default_shadow_texture(
+    geom: Option<game_engine::system::geometry::GeometryType>,
+    authored: &str,
+) -> String {
+    if !authored.is_empty() {
+        return authored.to_string();
+    }
+    match geom {
+        Some(game_engine::system::geometry::GeometryType::Box) => "shadows".to_string(),
+        Some(game_engine::system::geometry::GeometryType::Sphere)
+        | Some(game_engine::system::geometry::GeometryType::Cylinder) => "shadow".to_string(),
+        _ => "shadow".to_string(),
+    }
+}
+
+
 static TERRAIN_DECAL_CLIENT: OnceLock<Arc<dyn TerrainDecalClient>> = OnceLock::new();
 static TERRAIN_TRACK_CLIENT: OnceLock<Arc<dyn TerrainTrackClient>> = OnceLock::new();
 static TEXTURE_ASPECT_HOOK: RwLock<Option<fn(&str) -> Option<Real>>> = RwLock::new(None);

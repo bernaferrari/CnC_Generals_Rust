@@ -3133,14 +3133,17 @@ impl AIPlayer {
                             | ScriptActionType::TeamHuntWithCommandButton => {
                                 return OnCreateIntent::Hunt;
                             }
-                            ScriptActionType::TeamGuard
-                            | ScriptActionType::NamedGuard
-                            | ScriptActionType::TeamGuardArea
+                            ScriptActionType::TeamGuard | ScriptActionType::NamedGuard => {
+                                return OnCreateIntent::Guard;
+                            }
+                            ScriptActionType::TeamGuardArea
                             | ScriptActionType::TeamGuardPosition
                             | ScriptActionType::TeamGuardObject
                             | ScriptActionType::TeamGuardSupplyCenter
                             | ScriptActionType::TeamGuardInTunnelNetwork => {
-                                return OnCreateIntent::Guard;
+                                // Leftover run_script queues the scripted anchor.
+                                // Do not collapse to guard-at-current-position.
+                                return OnCreateIntent::None;
                             }
                             ScriptActionType::TeamAttackArea
                             | ScriptActionType::TeamAttackTeam
@@ -3155,7 +3158,18 @@ impl AIPlayer {
             }
         }
         let n = on_create.to_ascii_lowercase();
-        if n.contains("guard") {
+        if n.contains("guardposition")
+            || n.contains("guard_position")
+            || n.contains("guardobject")
+            || n.contains("guard_object")
+            || n.contains("guardarea")
+            || n.contains("guard_area")
+            || n.contains("tunnel")
+            || n.contains("supplycenter")
+            || n.contains("supply_center")
+        {
+            OnCreateIntent::None
+        } else if n.contains("guard") {
             OnCreateIntent::Guard
         } else if n.contains("attackmove")
             || n.contains("attack_move")

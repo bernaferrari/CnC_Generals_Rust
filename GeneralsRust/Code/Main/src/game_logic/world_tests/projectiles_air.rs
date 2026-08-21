@@ -619,6 +619,115 @@ fn particle_uplink_spawns_trail_remnant_objects() {
 }
 
 #[test]
+fn particle_cannon_emp_mid_beam_starts_decay_and_stops_killing() {
+    use crate::game_logic::special_power_strikes::{
+        PARTICLE_BEAM_DURATION_FRAMES, PARTICLE_BEAM_TOTAL_PULSES, PARTICLE_WIDTH_GROW_FRAMES,
+    };
+    use crate::game_logic::KindOf;
+    let mut logic = GameLogic::new();
+    ensure_test_tank_template(&mut logic);
+    let mut puc = crate::game_logic::ThingTemplate::new("AmericaParticleUplinkCannon");
+    puc.add_kind_of(KindOf::Structure).set_health(5000.0);
+    logic
+        .templates
+        .insert("AmericaParticleUplinkCannon".into(), puc);
+    let caster = logic
+        .create_object(
+            "AmericaParticleUplinkCannon",
+            Team::USA,
+            Vec3::new(-400.0, 0.0, 0.0),
+        )
+        .unwrap();
+    let victim = logic
+        .create_object("TestTank", Team::GLA, Vec3::ZERO)
+        .unwrap();
+    let spawn = logic.frame;
+    let bid = logic.special_power_strikes.spawn_beam_field(
+        caster,
+        Team::USA,
+        Vec3::ZERO,
+        spawn,
+        1,
+    );
+
+    let mut hit = false;
+    for _ in 0..PARTICLE_BEAM_DURATION_FRAMES {
+        logic.update_particle_beam_fields();
+        let health = logic
+            .host_object(victim)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        if health < 250.0 {
+            hit = true;
+            break;
+        }
+        logic.frame = logic.frame.saturating_add(1);
+    }
+    assert!(hit, "beam must start damaging the tank before EMP");
+    let health_at_emp = logic
+        .host_object(victim)
+        .map(|o| o.health.current)
+        .unwrap_or(0.0);
+    assert!(health_at_emp > 0.0, "tank must still be alive at EMP");
+    let pulses_at_emp = logic
+        .special_power_strikes
+        .beam_fields()
+        .iter()
+        .find(|f| f.id == bid)
+        .map(|f| f.pulses_made)
+        .unwrap_or(0);
+    assert!(pulses_at_emp < PARTICLE_BEAM_TOTAL_PULSES);
+
+    let abort_frame = logic.frame;
+    if let Some(puc_obj) = logic.objects.get_mut(&caster) {
+        puc_obj.apply_disabled_emp(abort_frame.saturating_add(300));
+    }
+
+    for _ in 0..PARTICLE_BEAM_DURATION_FRAMES {
+        logic.frame = logic.frame.saturating_add(1);
+        logic.update_particle_beam_fields();
+    }
+
+    let field = logic
+        .special_power_strikes
+        .beam_fields()
+        .iter()
+        .find(|f| f.id == bid);
+    if let Some(f) = field {
+        assert_eq!(
+            f.start_decay_frame, abort_frame,
+            "C++ m_startDecayFrame = now on EMP"
+        );
+        assert_eq!(
+            f.expires_frame,
+            abort_frame.saturating_add(PARTICLE_WIDTH_GROW_FRAMES)
+        );
+        assert!(
+            f.pulses_made == pulses_at_emp,
+            "EMP must stop further kill pulses, had {} then {}",
+            pulses_at_emp,
+            f.pulses_made
+        );
+    } else {
+        assert!(
+            logic.frame >= abort_frame.saturating_add(PARTICLE_WIDTH_GROW_FRAMES),
+            "pruned beam must have finished abort decay"
+        );
+    }
+    let victim_obj = logic.host_object(victim).expect("victim");
+    assert!(
+        victim_obj.is_alive() && !victim_obj.status.destroyed,
+        "EMP mid-beam must stop the laser from finishing the kill"
+    );
+    assert!(
+        victim_obj.health.current >= health_at_emp - 0.01,
+        "no post-EMP beam damage: health {} -> {}",
+        health_at_emp,
+        victim_obj.health.current
+    );
+}
+
+#[test]
 fn emp_pulse_spawns_effect_spheroid_residual() {
     use crate::game_logic::host_emp_pulse::{
         EMP_PULSE_EFFECT_SPHEROID, EMP_SPHEROID_LIFETIME_FRAMES,

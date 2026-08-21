@@ -757,6 +757,9 @@ pub struct HostParticleBeamField {
     /// design params; fail-closed vs live SlowDeathBehavior Object die).
     #[serde(default)]
     pub death_pack_armed: u32,
+    /// C++ `m_startDecayFrame`. 0 means spawn + TotalFiringTime (legacy snapshot).
+    #[serde(default)]
+    pub start_decay_frame: u32,
 }
 
 fn default_trough_width_scalar() -> f32 {
@@ -772,14 +775,33 @@ impl HostParticleBeamField {
         current_frame >= self.expires_frame
     }
 
+    /// C++ `m_startDecayFrame` (0 on legacy snapshots → spawn + TotalFiringTime).
+    pub fn live_decay_start_frame(&self) -> u32 {
+        if self.start_decay_frame == 0 {
+            particle_decay_start_frame(self.spawn_frame)
+        } else {
+            self.start_decay_frame
+        }
+    }
+
+    /// C++ abort: `m_startDecayFrame = now`, then WidthGrow decay tail.
+    pub fn begin_abort_decay(&mut self, now: u32) {
+        if self.live_decay_start_frame() > now {
+            self.start_decay_frame = now;
+            self.expires_frame = now.saturating_add(PARTICLE_WIDTH_GROW_FRAMES);
+        }
+    }
+
     /// True when a damage pulse residual is due.
     ///
     /// Pulses stop once TotalDamagePulses is reached; the field may still live
     /// through the WidthGrow decay tail without further damage ticks.
+    /// After an early abort (`start_decay_frame = now`) pulses stop immediately.
     pub fn is_due_tick(&self, current_frame: u32) -> bool {
         !self.is_expired(current_frame)
             && self.pulses_made < PARTICLE_BEAM_TOTAL_PULSES
             && current_frame >= self.next_tick_frame
+            && current_frame < self.live_decay_start_frame()
     }
 
     /// True when a scorch mark residual is due (and marks remain).

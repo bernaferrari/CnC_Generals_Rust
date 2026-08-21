@@ -935,13 +935,6 @@ impl W3DModelDraw {
         }
 
         let mut texture = terrain_decal_texture_name(decal_type).to_string();
-        if texture.is_empty() {
-            // TERRAIN_DECAL_SHADOW_TEXTURE uses the unit's shadow texture in C++.
-            // Without a public template getter, keep a non-empty name so add_decal
-            // still creates a projected blob at the authored size.
-            texture = "shadow".to_string();
-        }
-
         let mut size = self.terrain_decal_size.unwrap_or((0.0, 0.0));
         let mut position = Coord3D::new(0.0, 0.0, 0.0);
         let mut angle = 0.0;
@@ -949,15 +942,22 @@ impl W3DModelDraw {
             if let Ok(obj) = object.read() {
                 position = *obj.get_position();
                 angle = obj.get_orientation();
-                if size.0 <= 0.0 || size.1 <= 0.0 {
-                    let radius = obj.get_geometry_info().get_major_radius().max(8.0);
-                    size = (radius * 2.0, radius * 2.0);
+                let tmpl = obj.get_template().as_ref();
+                if decal_type == TerrainDecalType::ShadowTexture || texture.is_empty() {
+                    texture = leftover_default_shadow_texture(
+                        tmpl.get_template_geometry_type(),
+                        tmpl.get_shadow_texture_name(),
+                    );
                 }
+                if size.0 <= 0.0 || size.1 <= 0.0 {
+                    // C++ setTerrainDecal uses ThingTemplate ShadowSize, never geometry radius.
+                    size = (tmpl.get_shadow_size_x(), tmpl.get_shadow_size_y());
+                }
+                position.x += tmpl.get_shadow_offset_x();
+                position.y += tmpl.get_shadow_offset_y();
             }
         }
-        if size.0 <= 0.0 || size.1 <= 0.0 {
-            size = (40.0, 40.0);
-        }
+
 
         client.set_decal(&TerrainDecalDesc {
             object_id: owner_id,

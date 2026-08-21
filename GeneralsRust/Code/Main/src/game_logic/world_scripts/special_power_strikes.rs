@@ -214,6 +214,16 @@ impl GameLogic {
         self.create_special_power_view_object(source_object, target_position, kind);
 
 
+        // C++ SpecialPowerModule.cpp:622-628 getInitiateAtTargetSound at click.
+        // Distinct from source InitiateSound (CommandXlat / hq-yip5e).
+        let at_location = kind.retail_initiate_at_location_sound();
+        if !at_location.is_empty() {
+            self.queue_audio_event(
+                AudioEventRequest::new(at_location)
+                    .with_position(target_position)
+                    .with_priority(180),
+            );
+        }
         // Activation audio residual (observable request path).
         self.queue_audio_event(
             AudioEventRequest::new(kind.activate_audio())
@@ -1117,9 +1127,41 @@ impl GameLogic {
         self.special_power_strikes.prune_expired_toxin(frame);
     }
 
+    fn apply_pending_special_power_overrides(&mut self) {
+        let frame = self.frame;
+        let pending: Vec<(ObjectId, Vec3, Option<ObjectId>)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, object)| {
+                if !object.is_alive() || object.is_disabled() {
+                    return None;
+                }
+                object.special_power_override_destination.map(|destination| {
+                    (*id, destination, object.producer_id)
+                })
+            })
+            .collect();
+        for (id, destination, producer) in pending {
+            self.special_power_strikes
+                .apply_source_override_destination(id, destination, frame);
+            // C++ SpectreGunshipUpdate owns the dest; live orbit fields are
+            // sourced from the command-center caster that spawned the gunship.
+            if let Some(producer) = producer {
+                if producer != id {
+                    self.special_power_strikes.apply_source_override_destination(
+                        producer,
+                        destination,
+                        frame,
+                    );
+                }
+            }
+        }
+    }
+
     /// Tick residual Spectre orbit fields spawned at orbit insertion.
     /// Fail-closed vs full SpectreGunshipUpdate gattling-strafe / howitzer projectile.
     pub(in super::super) fn update_spectre_orbit_fields(&mut self) {
+        self.apply_pending_special_power_overrides();
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
             .iter()
@@ -1177,6 +1219,15 @@ impl GameLogic {
     /// Swath + DamagePulseRemnant residual closed.
     pub(in super::super) fn update_particle_beam_fields(&mut self) {
         let frame = self.frame;
+        self.apply_pending_special_power_overrides();
+        let aborting: std::collections::HashSet<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, obj)| obj.puc_live_beam_abort_disabled())
+            .map(|(id, _)| *id)
+            .collect();
+        self.special_power_strikes
+            .abort_beam_fields_on_owner_disable(frame, |id| aborting.contains(&id));
         // Pre-fire intensity schedule + BeamLaunchFX + POSTFIRE/PACKING residual
         // (also advances ScudStorm PreAttack residual frame counter).
         self.special_power_strikes

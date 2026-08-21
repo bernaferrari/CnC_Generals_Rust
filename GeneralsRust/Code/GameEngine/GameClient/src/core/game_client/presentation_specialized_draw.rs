@@ -64,7 +64,21 @@ impl PresentationSpecializedDrawKind {
         matches!(self, Self::Tank | Self::TankTruck | Self::OverlordTank)
     }
 
+    /// C++ `W3DTankDraw` / `W3DOverlordTankDraw` TrackDebrisDirt emitters.
+    /// TankTruck's `SHOW_TANK_DEBRIS` is compiled out in shipped C++.
+    pub fn has_tread_debris(self) -> bool {
+        matches!(self, Self::Tank | Self::OverlordTank)
+    }
+
     pub fn spins_wheels(self) -> bool {
+        matches!(
+            self,
+            Self::Truck | Self::TankTruck | Self::OverlordTruck
+        )
+    }
+
+    /// C++ `W3DTruckDraw` Dust/DirtSpray/PowerslideSpray + landing/slide audio.
+    pub fn has_truck_dust(self) -> bool {
         matches!(
             self,
             Self::Truck | Self::TankTruck | Self::OverlordTruck
@@ -157,6 +171,8 @@ pub fn prune_presentation_specialized_draw(object_id: u32) {
     {
         map.remove(&object_id);
     }
+    prune_live_host_tread_debris(object_id);
+    prune_live_host_truck_dust(object_id);
 }
 
 fn store_specialized_draw_snapshot(snapshot: PresentationSpecializedDrawSnapshot) {
@@ -216,6 +232,38 @@ pub fn infer_presentation_draw_module_names(
 fn wrap_uv(offset: f32) -> f32 {
     offset - offset.floor()
 }
+
+fn leftover_truck_draw_module_data(template_name: &str) -> Option<W3DTruckDrawModuleData> {
+    if template_name.is_empty() {
+        return None;
+    }
+    let Ok(guard) = get_thing_factory() else {
+        return None;
+    };
+    let factory = guard.as_ref()?;
+    let template = factory.find_template(template_name, false)?;
+    for entry in template.get_draw_module_info().iter() {
+        if let Some(data) = entry.data.as_any().downcast_ref::<W3DTruckDrawModuleData>() {
+            return Some(data.clone());
+        }
+        if let Some(data) = entry
+            .data
+            .as_any()
+            .downcast_ref::<W3DOverlordTruckDrawModuleData>()
+        {
+            return Some(data.base.clone());
+        }
+        if let Some(data) = entry
+            .data
+            .as_any()
+            .downcast_ref::<W3DTankTruckDrawModuleData>()
+        {
+            return Some(data.base.clone());
+        }
+    }
+    None
+}
+
 
 /// Live residual attached to a presentation `BasicDrawable`.
 #[derive(Debug)]
@@ -277,10 +325,12 @@ impl PresentationSpecializedDrawModule {
 
     fn tick(&mut self, e: &PresentationDrawableSync) {
         let pos = e.position;
+        let mut vel_mag_sq = 0.0;
         if self.has_last_pose {
             let dx = pos[0] - self.last_pos[0];
             let dy = pos[1] - self.last_pos[1];
-            let ground_speed = (dx * dx + dy * dy).sqrt();
+            vel_mag_sq = dx * dx + dy * dy;
+            let ground_speed = vel_mag_sq.sqrt();
             let turning = (e.orientation - self.last_orientation).abs();
 
             if self.kind.scrolls_treads() {
@@ -305,9 +355,58 @@ impl PresentationSpecializedDrawModule {
                     * std::f32::consts::TAU;
             }
         }
+        let last_pos = self.last_pos;
+        let last_ori = self.last_orientation;
+        let had_pose = self.has_last_pose;
         self.last_pos = pos;
         self.last_orientation = e.orientation;
         self.has_last_pose = true;
+
+        if self.kind.has_tread_debris() {
+            // C++ W3DTankDraw.cpp:309-315 — leftover emitters, live host pose.
+            tick_live_host_tread_debris(
+                e.object_id,
+                pos,
+                vel_mag_sq,
+                e.scene_hidden_by_stealth || e.destroyed,
+                false,
+            );
+        }
+        if self.kind.has_truck_dust() {
+            // C++ W3DTruckDraw.cpp:554-614 — leftover emitters + landing/slide audio.
+            let speed = vel_mag_sq.sqrt();
+            let heading_x = e.orientation.cos();
+            let heading_y = e.orientation.sin();
+            let turning = if had_pose {
+                e.orientation - last_ori
+            } else {
+                0.0
+            };
+            let airborne = pos[2] > 2.0
+                || (had_pose && pos[2] > last_pos[2] + 0.35);
+            let visual = if e.visual_template_name.is_empty() {
+                e.template_name.as_str()
+            } else {
+                e.visual_template_name.as_str()
+            };
+            tick_live_host_truck_dust(
+                e.object_id,
+                visual,
+                leftover_truck_draw_module_data(visual),
+                TruckDrawLivePhysics {
+                    speed,
+                    vel_x: heading_x * speed,
+                    vel_y: heading_y * speed,
+                    accel_x: heading_x * speed,
+                    accel_y: heading_y * speed,
+                    is_motive: speed > 0.01,
+                    airborne,
+                    frames_airborne: 0,
+                    turning,
+                },
+                e.scene_hidden_by_stealth || e.destroyed,
+            );
+        }
 
         if self.kind == PresentationSpecializedDrawKind::Debris {
             self.tick_debris(e);

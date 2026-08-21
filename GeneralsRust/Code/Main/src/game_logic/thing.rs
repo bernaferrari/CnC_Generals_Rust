@@ -1771,6 +1771,19 @@ pub struct ThingTemplate {
     /// C++ `ThingTemplate::m_shadowSizeY` (Object INI `ShadowSizeY`).
     #[serde(default)]
     pub shadow_size_y: f32,
+    /// C++ `ThingTemplate::m_shadowType` (Object INI `Shadow` bitstring).
+    #[serde(default)]
+    pub shadow_type: u32,
+    /// C++ `ThingTemplate::m_shadowOffsetX` (Object INI `ShadowOffsetX`).
+    #[serde(default)]
+    pub shadow_offset_x: f32,
+    /// C++ `ThingTemplate::m_shadowOffsetY` (Object INI `ShadowOffsetY`).
+    #[serde(default)]
+    pub shadow_offset_y: f32,
+    /// C++ `ThingTemplate::m_shadowTextureName` (Object INI `ShadowTexture`).
+    #[serde(default)]
+    pub shadow_texture: Option<String>,
+
     /// C++ `ThingTemplate::m_radarPriority` (Object INI `RadarPriority`).
     /// 0=INVALID, 1=NOT_ON_RADAR, 2=STRUCTURE, 3=UNIT, 4=LOCAL_UNIT_ONLY.
     #[serde(default)]
@@ -1799,6 +1812,11 @@ pub struct ThingTemplate {
     /// C++ `TTAUDIO_soundAmbientRubble`.
     #[serde(default)]
     pub sound_ambient_rubble: Option<String>,
+    /// C++ `ThingTemplate::m_upgradeCameoUpgradeNames` (`UpgradeCameo1..5`).
+    #[serde(default)]
+    pub upgrade_cameo_names: [String; 5],
+
+
 
 
     /// C++ `ThingTemplate::m_geometryInfo` from Object INI Geometry*.
@@ -1925,6 +1943,11 @@ impl ThingTemplate {
             fence_x_offset: 0.0,
             shadow_size_x: 0.0,
             shadow_size_y: 0.0,
+            shadow_type: 0,
+            shadow_offset_x: 0.0,
+            shadow_offset_y: 0.0,
+            shadow_texture: None,
+
             radar_priority: 0,
             sound_move_start: None,
             sound_move_start_damaged: None,
@@ -1934,6 +1957,7 @@ impl ThingTemplate {
             sound_ambient_damaged: None,
             sound_ambient_really_damaged: None,
             sound_ambient_rubble: None,
+            upgrade_cameo_names: Default::default(),
 
 
             geometry_info: HostGeometryInfo::default(),

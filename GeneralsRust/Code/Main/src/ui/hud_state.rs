@@ -449,6 +449,9 @@ pub struct ControlBarSelectionPanelState {
     pub construction_percent: f32,
     /// Applied upgrade tags residual from primary selection.
     pub applied_upgrades: Vec<String>,
+    /// C++ authored `UpgradeCameo1..5` from the primary template.
+    pub upgrade_cameo_names: [String; 5],
+
     /// Structure rally point residual (presentation-only).
     pub rally_point: Option<[f32; 3]>,
     /// Special power ready residual on primary selection.
@@ -494,6 +497,7 @@ impl ControlBarSelectionPanelState {
             under_construction: false,
             construction_percent: 0.0,
             applied_upgrades: Vec::new(),
+            upgrade_cameo_names: Default::default(),
             rally_point: None,
             special_power_ready: false,
             special_power_cooldown_remaining: 0.0,

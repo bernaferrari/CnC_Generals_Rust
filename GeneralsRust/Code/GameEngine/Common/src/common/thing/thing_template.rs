@@ -1718,6 +1718,19 @@ impl ThingTemplate {
         self.button_image.as_ref()
     }
 
+    /// C++ `ThingTemplate::getUpgradeCameoName(n)`.
+    pub fn get_upgrade_cameo_name(&self, n: usize) -> AsciiString {
+        self.upgrade_cameo_upgrade_names
+            .get(n)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Authored `UpgradeCameo1..5` slots in C++ declaration order.
+    pub fn upgrade_cameo_names(&self) -> [AsciiString; MAX_UPGRADE_CAMEO_UPGRADES] {
+        self.upgrade_cameo_upgrade_names.clone()
+    }
+
 
     /// Number of production prerequisites attached to this template.
     pub fn get_prereq_count(&self) -> usize {
@@ -1760,6 +1773,23 @@ impl ThingTemplate {
     pub fn get_shadow_size_y(&self) -> Real {
         self.shadow_size_y
     }
+    /// C++ `ThingTemplate::getShadowType`.
+    pub fn get_shadow_type(&self) -> ShadowType {
+        self.shadow_type
+    }
+    /// C++ `ThingTemplate::getShadowOffsetX`.
+    pub fn get_shadow_offset_x(&self) -> Real {
+        self.shadow_offset_x
+    }
+    /// C++ `ThingTemplate::getShadowOffsetY`.
+    pub fn get_shadow_offset_y(&self) -> Real {
+        self.shadow_offset_y
+    }
+    /// C++ `ThingTemplate::getShadowTextureName`.
+    pub fn get_shadow_texture_name(&self) -> &AsciiString {
+        &self.shadow_texture_name
+    }
+
 
     pub fn calc_vision_range(&self) -> Real {
         // C++ ThingTemplate.h:405 friend_calcVisionRange — raw field, no geometry fallback.

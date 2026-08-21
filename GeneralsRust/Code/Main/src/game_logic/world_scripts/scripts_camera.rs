@@ -337,6 +337,17 @@ impl GameLogic {
                     .iter()
                     .map(|k| format!("{k:?}"))
                     .collect(),
+                special_power_ready: obj.special_power_ready
+                    && obj.is_alive()
+                    && !obj.is_disabled()
+                    && !obj.status.destroyed,
+                special_power_templates: obj
+                    .thing
+                    .template
+                    .special_power_modules
+                    .iter()
+                    .map(|module| module.special_power_template.clone())
+                    .collect(),
                 ..Default::default()
             });
             if !obj.team_instance_name.is_empty() {
@@ -716,6 +727,358 @@ impl GameLogic {
         }
     }
 
+    /// C++ ScriptActions TEAM/NAMED HUNT, TEAM/NAMED GUARD, PLAYER_HUNT.
+    /// Leftover `OBJECT_REGISTRY` is empty on the host path; leftover actions
+    /// queue [`gamelogic::scripting::HostScriptHuntGuardRequest`].
+    fn apply_host_hunt_guard_script_requests(&mut self) {
+        use crate::game_logic::KindOf;
+        use gamelogic::scripting::HostScriptHuntGuardRequest;
+        for req in gamelogic::scripting::take_host_script_hunt_guard_requests() {
+            match req {
+                HostScriptHuntGuardRequest::TeamHunt { team } => {
+                    for id in self.host_script_team_member_ids(&team) {
+                        let _ = self.unit_command_patrol(id);
+                    }
+                }
+                HostScriptHuntGuardRequest::NamedHunt { unit } => {
+                    let Some(id) = self.host_object_id_by_script_name(&unit) else {
+                        continue;
+                    };
+                    let _ = self.apply_unit_locomotor_set(id, "normal");
+                    let _ = self.unit_command_patrol(id);
+                }
+                HostScriptHuntGuardRequest::TeamGuard { team } => {
+                    let members = self.host_script_team_member_ids(&team);
+                    for id in members {
+                        let Some(pos) = self
+                            .host_object(id)
+                            .filter(|u| u.is_alive())
+                            .map(|u| u.get_position())
+                        else {
+                            continue;
+                        };
+                        let _ = self.unit_command_guard_position(id, pos);
+                    }
+                }
+                HostScriptHuntGuardRequest::NamedGuard { unit } => {
+                    let Some(id) = self.host_object_id_by_script_name(&unit) else {
+                        continue;
+                    };
+                    let Some(pos) = self
+                        .host_object(id)
+                        .filter(|u| u.is_alive())
+                        .map(|u| u.get_position())
+                    else {
+                        continue;
+                    };
+                    let _ = self.apply_unit_locomotor_set(id, "normal");
+                    let _ = self.unit_command_guard_position(id, pos);
+                }
+                HostScriptHuntGuardRequest::PlayerHunt { player } => {
+                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
+                        continue;
+                    };
+                    let team = self.players.get(&pid).map(|p| p.team);
+                    let ids: Vec<ObjectId> = self
+                        .objects
+                        .values()
+                        .filter(|obj| {
+                            if !obj.is_alive() || obj.status.destroyed {
+                                return false;
+                            }
+                            if obj.is_kind_of(KindOf::Dozer)
+                                || obj.is_kind_of(KindOf::Harvester)
+                                || obj.is_kind_of(KindOf::IgnoresSelectAll)
+                            {
+                                return false;
+                            }
+                            match obj.owner_player_id {
+                                Some(oid) => oid == pid,
+                                None => team.map(|t| obj.team == t).unwrap_or(false),
+                            }
+                        })
+                        .map(|obj| obj.id)
+                        .collect();
+                    for id in ids {
+                        let _ = self.unit_command_patrol(id);
+                    }
+                }
+            }
+        }
+    }
+
+    /// C++ ScriptActions TEAM/NAMED FOLLOW_WAYPOINTS and EXACT.
+    /// Leftover `OBJECT_REGISTRY` is empty on the host path; leftover actions
+    /// queue [`gamelogic::scripting::HostScriptFollowWaypointsRequest`].
+    fn apply_host_follow_waypoints_script_requests(&mut self) {
+        use gamelogic::scripting::HostScriptFollowWaypointsRequest;
+        for req in gamelogic::scripting::take_host_script_follow_waypoints_requests() {
+            match req {
+                HostScriptFollowWaypointsRequest::NamedFollow {
+                    unit,
+                    waypoint,
+                    exact,
+                } => {
+                    let Some(id) = self.host_object_id_by_script_name(&unit) else {
+                        continue;
+                    };
+                    let Some(pos) = self
+                        .host_object(id)
+                        .filter(|u| u.is_alive())
+                        .map(|u| u.get_position())
+                    else {
+                        continue;
+                    };
+                    let Some(path) = self.host_script_waypoint_path_from(&waypoint, pos) else {
+                        continue;
+                    };
+                    let _ = self.apply_unit_locomotor_set(id, "normal");
+                    self.host_script_issue_follow_waypoint_path(&[id], &path, exact, false);
+                }
+                HostScriptFollowWaypointsRequest::TeamFollow {
+                    team,
+                    waypoint,
+                    as_team,
+                    exact,
+                } => {
+                    let members = self.host_script_team_member_ids(&team);
+                    if members.is_empty() {
+                        continue;
+                    }
+                    let mut sx = 0.0f32;
+                    let mut sy = 0.0f32;
+                    let mut sz = 0.0f32;
+                    let mut n = 0u32;
+                    for id in &members {
+                        if let Some(pos) = self
+                            .host_object(*id)
+                            .filter(|u| u.is_alive())
+                            .map(|u| u.get_position())
+                        {
+                            sx += pos.x;
+                            sy += pos.y;
+                            sz += pos.z;
+                            n += 1;
+                        }
+                    }
+                    if n == 0 {
+                        continue;
+                    }
+                    let inv = 1.0 / n as f32;
+                    let center = glam::Vec3::new(sx * inv, sy * inv, sz * inv);
+                    let Some(path) = self.host_script_waypoint_path_from(&waypoint, center) else {
+                        continue;
+                    };
+                    self.host_script_issue_follow_waypoint_path(&members, &path, exact, as_team);
+                }
+            }
+        }
+    }
+
+    /// C++ `doTeamGuardPosition` / `Object` / `Area` / `InTunnelNetwork`.
+    /// Leftover queues [`gamelogic::scripting::HostScriptGuardVariantRequest`].
+    fn apply_host_guard_variant_script_requests(&mut self) {
+        use gamelogic::scripting::HostScriptGuardVariantRequest;
+        for req in gamelogic::scripting::take_host_script_guard_variant_requests() {
+            match req {
+                HostScriptGuardVariantRequest::TeamGuardPosition { team, waypoint } => {
+                    let Some(dest) = self.host_script_waypoint_position(&waypoint) else {
+                        continue;
+                    };
+                    for id in self.host_script_team_member_ids(&team) {
+                        if self.host_script_unit_can_guard(id) {
+                            let _ = self.unit_command_guard_position(id, dest);
+                        }
+                    }
+                }
+                HostScriptGuardVariantRequest::TeamGuardObject { team, unit } => {
+                    let Some(tid) = self.host_object_id_by_script_name(&unit) else {
+                        continue;
+                    };
+                    for id in self.host_script_team_member_ids(&team) {
+                        if self.host_script_unit_can_guard(id) {
+                            let _ = self.unit_command_guard_object(id, tid);
+                        }
+                    }
+                }
+                HostScriptGuardVariantRequest::TeamGuardArea { team, area } => {
+                    let Some(dest) = self.host_script_area_center(&area) else {
+                        continue;
+                    };
+                    for id in self.host_script_team_member_ids(&team) {
+                        if self.host_script_unit_can_guard(id) {
+                            let _ = self.unit_command_guard_position(id, dest);
+                        }
+                    }
+                }
+                HostScriptGuardVariantRequest::TeamGuardTunnel { team } => {
+                    for id in self.host_script_team_member_ids(&team) {
+                        if !self.host_script_unit_can_guard(id) {
+                            continue;
+                        }
+                        if let Some(tid) = self.host_script_nearest_tunnel(id) {
+                            let _ = self.unit_command_guard_object(id, tid);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// C++ `doNamedFireSpecialPowerAtWaypoint` / `AtNamed`.
+    /// Leftover queues [`gamelogic::scripting::HostScriptNamedFireSpecialPowerRequest`].
+    fn apply_host_named_fire_special_script_requests(&mut self) {
+        use crate::command_system::PowerTarget;
+        use gamelogic::scripting::HostScriptNamedFireSpecialPowerRequest;
+        for req in gamelogic::scripting::take_host_script_named_fire_special_requests() {
+            match req {
+                HostScriptNamedFireSpecialPowerRequest::AtWaypoint {
+                    unit,
+                    power,
+                    waypoint,
+                } => {
+                    let Some(dest) = self.host_script_waypoint_position(&waypoint) else {
+                        continue;
+                    };
+                    self.host_script_fire_named_special_power(
+                        &unit,
+                        &power,
+                        PowerTarget::Location(dest),
+                    );
+                }
+                HostScriptNamedFireSpecialPowerRequest::AtNamed {
+                    unit,
+                    power,
+                    target,
+                } => {
+                    let Some(tid) = self.host_object_id_by_script_name(&target) else {
+                        continue;
+                    };
+                    self.host_script_fire_named_special_power(
+                        &unit,
+                        &power,
+                        PowerTarget::Object(tid),
+                    );
+                }
+            }
+        }
+    }
+
+    /// C++ `Object::getSpecialPowerModule(TheSpecialPowerStore->find…)`.
+    fn host_script_special_power_type_for(
+        &self,
+        id: ObjectId,
+        power_name: &str,
+    ) -> Option<crate::command_system::SpecialPowerType> {
+        let obj = self.host_object(id)?;
+        for module in &obj.thing.template.special_power_modules {
+            if module
+                .special_power_template
+                .eq_ignore_ascii_case(power_name)
+            {
+                if let Some(power) = module.command_power.clone() {
+                    return Some(power);
+                }
+                return crate::command_system::special_power_type_from_template_name(power_name);
+            }
+        }
+        let power = crate::command_system::special_power_type_from_template_name(power_name)?;
+        if obj
+            .thing
+            .template
+            .special_power_module_for_command(&power)
+            .is_some()
+            || obj.special_power_cooldowns.contains_key(&power)
+        {
+            Some(power)
+        } else {
+            None
+        }
+    }
+
+    /// C++ `mod->doSpecialPowerAtLocation/Object(..., COMMAND_FIRED_BY_SCRIPT)`.
+    fn host_script_fire_named_special_power(
+        &mut self,
+        unit: &str,
+        power_name: &str,
+        target: crate::command_system::PowerTarget,
+    ) {
+        let Some(id) = self.host_object_id_by_script_name(unit) else {
+            return;
+        };
+        let Some(power) = self.host_script_special_power_type_for(id, power_name) else {
+            return;
+        };
+        let player_id = {
+            let Some(obj) = self.host_object(id) else {
+                return;
+            };
+            if !obj.is_alive() || obj.status.destroyed || obj.status.sold || obj.is_disabled() {
+                return;
+            }
+            if obj.is_special_power_countdown_paused(&power) {
+                return;
+            }
+            obj.owner_player_id.unwrap_or(0)
+        };
+        // C++ script fire does not consult isReady; only paused/disabled.
+        if !self.is_special_power_ready_for(id, &power) {
+            let _ = self.script_set_special_power_countdown(id, &power, 0);
+            if let Some(obj) = self.host_object(id) {
+                if let Some(pid) = self.player_owner_for_host_object(obj) {
+                    if let Some(player) = self.get_player_mut(pid) {
+                        player.express_shared_special_power_ready_now(&power);
+                    }
+                }
+            }
+        }
+        self.queue_command(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::DoSpecialPower {
+                power_type: power,
+                target,
+            },
+            player_id,
+            command_id: 0,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+    }
+
+    fn host_script_unit_can_guard(&self, id: ObjectId) -> bool {
+        self.objects
+            .get(&id)
+            .map(|u| u.is_alive() && u.is_mobile() && !u.status.destroyed)
+            .unwrap_or(false)
+    }
+
+    /// C++ AITNGuardMachine nearest entrance for `aiGuardTunnelNetwork`.
+    fn host_script_nearest_tunnel(&self, from: ObjectId) -> Option<ObjectId> {
+        let obj = self.objects.get(&from)?;
+        let origin = obj.get_position();
+        let key = obj.tunnel_system_key();
+        self.objects
+            .iter()
+            .filter(|(_, o)| {
+                o.is_alive()
+                    && !o.status.sold
+                    && o.tunnel_system_key() == key
+                    && (o.is_tunnel_network_style_container()
+                        || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
+                            &o.template_name,
+                        ))
+            })
+            .min_by(|a, b| {
+                origin
+                    .distance(a.1.get_position())
+                    .partial_cmp(&origin.distance(b.1.get_position()))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|(id, _)| *id)
+    }
+
+
+
     /// C++ ScriptActions CREATE_OBJECT family live drain.
     pub(in super::super) fn apply_host_create_script_requests(&mut self) {
         use gamelogic::scripting::HostScriptCreateRequest;
@@ -1016,6 +1379,107 @@ impl GameLogic {
         Some(pos)
     }
 
+    /// C++ `TheTerrainLogic->getClosestWaypointOnPath` then `link[0]` chain.
+    fn host_script_waypoint_path_from(
+        &self,
+        path_label: &str,
+        from: glam::Vec3,
+    ) -> Option<Vec<glam::Vec3>> {
+        let leftover_pos = gamelogic::common::Coord3D::new(from.x, from.z, from.y);
+        let terrain = gamelogic::terrain::get_terrain_logic().read().ok()?;
+        let start = terrain.get_closest_waypoint_on_path(&leftover_pos, path_label)?;
+        let chain = terrain.walk_link0_chain(start, gamelogic::terrain::WAYPOINT_PATH_LIMIT);
+        if chain.is_empty() {
+            return None;
+        }
+        Some(
+            chain
+                .into_iter()
+                .map(|wp| {
+                    let loc = *wp.get_location();
+                    let mut pos = glam::Vec3::new(loc.x, loc.z, loc.y);
+                    if let Some(h) = self.terrain_height_at(glam::Vec3::new(pos.x, 0.0, pos.z)) {
+                        pos.y = h;
+                    }
+                    pos
+                })
+                .collect(),
+        )
+    }
+
+    /// C++ `aiFollowWaypointPath` / `groupFollowWaypointPath` / Exact / AsTeam.
+    fn host_script_issue_follow_waypoint_path(
+        &mut self,
+        units: &[ObjectId],
+        waypoints: &[glam::Vec3],
+        exact: bool,
+        as_team: bool,
+    ) {
+        if waypoints.is_empty() {
+            return;
+        }
+        let mut movers: Vec<(ObjectId, glam::Vec3, glam::Vec2)> = Vec::new();
+        for &unit_id in units {
+            let Some(unit) = self.host_object(unit_id) else {
+                continue;
+            };
+            if !unit.is_alive() || !unit.can_move() {
+                continue;
+            }
+            if unit.is_kind_of(crate::game_logic::KindOf::Immobile)
+                || unit.is_kind_of(crate::game_logic::KindOf::Structure)
+            {
+                continue;
+            }
+            movers.push((unit_id, unit.get_position(), unit.formation_offset));
+        }
+        if movers.is_empty() {
+            return;
+        }
+        let (mut cx, mut cz) = (0.0f32, 0.0f32);
+        for (_, pos, _) in &movers {
+            cx += pos.x;
+            cz += pos.z;
+        }
+        let n = movers.len() as f32;
+        cx /= n;
+        cz /= n;
+        let fid0 = self
+            .host_object(movers[0].0)
+            .map(|o| o.formation_id)
+            .unwrap_or(0);
+        let use_formation = as_team
+            && fid0 != 0
+            && movers.iter().all(|(id, _, _)| {
+                self.host_object(*id)
+                    .map(|o| o.formation_id == fid0)
+                    .unwrap_or(false)
+            });
+        for (unit_id, pos, form_off) in movers {
+            let offset = if as_team {
+                if use_formation {
+                    form_off
+                } else {
+                    glam::Vec2::new(pos.x - cx, pos.z - cz)
+                }
+            } else {
+                glam::Vec2::ZERO
+            };
+            let unit_wps: Vec<glam::Vec3> = waypoints
+                .iter()
+                .map(|wp| glam::Vec3::new(wp.x + offset.x, wp.y, wp.z + offset.y))
+                .collect();
+            let goal = *unit_wps.last().unwrap();
+            let via = &unit_wps[..unit_wps.len().saturating_sub(1)];
+            let _ = self.unit_command_waypoint_path_prep(unit_id, as_team);
+            if exact {
+                let _ = self.assign_unit_path_exact(unit_id, goal, via);
+            } else {
+                let _ = self.assign_unit_path(unit_id, goal, via);
+            }
+        }
+    }
+
     fn host_script_area_center(&self, area_name: &str) -> Option<glam::Vec3> {
         if let Ok(terrain) = gamelogic::terrain::get_terrain_logic().read() {
             if let Some(trigger) = terrain.get_trigger_area_by_name(area_name) {
@@ -1223,9 +1687,15 @@ impl GameLogic {
         self.apply_host_skirmish_script_requests();
         self.apply_host_loco_set_script_requests();
         self.apply_host_move_attack_script_requests();
+        self.apply_host_hunt_guard_script_requests();
+        self.apply_host_follow_waypoints_script_requests();
+
         self.apply_host_create_script_requests();
         self.apply_host_team_attitude_script_requests();
         self.apply_host_guard_supply_center_script_requests();
+        self.apply_host_guard_variant_script_requests();
+        self.apply_host_named_fire_special_script_requests();
+
         self.apply_host_skirmish_fight_script_requests();
 
 

@@ -2040,28 +2040,28 @@ impl AudioManager {
         with_sound_playback_hook(|hook| hook.is_playing(event.get_playing_handle())).unwrap_or(true)
     }
 
-    /// Check if there are any sounds playing with lower priority than the given event.
-    /// Returns true if we can kill a lower-priority sound to make room.
+    /// C++ `MilesAudioManager::isPlayingLowerPriority` (1993-2024).
+    /// Uses INI `AudioEventInfo.m_priority`, not the per-event field (always Normal).
     pub fn is_playing_lower_priority(&self, event: &AudioEventRts) -> Bool {
-        let event_priority = event.get_audio_priority();
+        let event_priority = Self::sample_event_priority(event);
+        if event_priority == AudioPriority::Lowest {
+            return false;
+        }
+        let positional = event.is_positional_audio();
+
+        let playing_is_lower = |playing: &AudioEventRts| {
+            if !Self::is_playing_sample(playing) || playing.is_positional_audio() != positional {
+                return false;
+            }
+            Self::sample_event_priority(playing) < event_priority
+        };
 
         with_sound_playback_hook(|hook| {
             self.active_audio_events
                 .values()
-                .filter_map(|e| {
-                    if hook.is_playing(e.get_playing_handle()) {
-                        Some(e.get_audio_priority())
-                    } else {
-                        None
-                    }
-                })
-                .any(|priority| priority < event_priority)
+                .any(|playing| hook.is_playing(playing.get_playing_handle()) && playing_is_lower(playing))
         })
-        .unwrap_or_else(|| {
-            self.active_audio_events
-                .values()
-                .any(|e| e.get_audio_priority() < event_priority)
-        })
+        .unwrap_or_else(|| self.active_audio_events.values().any(playing_is_lower))
     }
 
     fn sample_event_priority(event: &AudioEventRts) -> AudioPriority {

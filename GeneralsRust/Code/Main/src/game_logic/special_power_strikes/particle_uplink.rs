@@ -589,6 +589,19 @@ pub fn particle_decay_start_frame(spawn_frame: u32) -> u32 {
     spawn_frame.saturating_add(PARTICLE_BEAM_DURATION_FRAMES)
 }
 
+/// C++ `ParticleUplinkCannonUpdate.cpp:407-410` live-beam abort mask.
+///
+/// UNDERPOWERED / EMP / SUBDUED / HACKED force `m_startDecayFrame = now`.
+#[inline]
+pub const fn puc_disabled_aborts_live_beam(
+    underpowered: bool,
+    emp: bool,
+    subdued: bool,
+    hacked: bool,
+) -> bool {
+    underpowered || emp || subdued || hacked
+}
+
 /// Absolute frame when the orbital laser dies after decay shrink.
 ///
 /// Retail: `orbitalDeathFrame = orbitalDecayStart + widthGrowFrames`.

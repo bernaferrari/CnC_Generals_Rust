@@ -19,6 +19,7 @@ mod scatter_and_chain;
 mod science_and_upgrades;
 mod shells_and_missiles;
 mod strategy_and_stealth;
+mod superweapon_initiate_at_location;
 mod superweapons_and_plans;
 mod unit_residuals;
 mod cave_bridge;

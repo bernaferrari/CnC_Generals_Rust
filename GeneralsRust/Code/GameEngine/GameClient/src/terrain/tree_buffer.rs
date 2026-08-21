@@ -453,6 +453,10 @@ impl W3DTreeBuffer {
         buffer
     }
 
+    pub fn cur_sway_version(&self) -> i32 {
+        self.cur_sway_version
+    }
+
     pub fn trees(&self) -> &[TreeEntry] {
         &self.trees
     }

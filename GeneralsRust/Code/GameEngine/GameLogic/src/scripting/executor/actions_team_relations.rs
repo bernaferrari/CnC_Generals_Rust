@@ -539,6 +539,16 @@ impl ScriptActionDispatcher {
             team_name,
             waypoint_name
         );
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_guard_variant(
+                super::HostScriptGuardVariantRequest::TeamGuardPosition {
+                    team: self.resolve_team_name_token(&team_name),
+                    waypoint: waypoint_name,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         // Get waypoint position
         let waypoint_name_ascii = AsciiString::from(waypoint_name.as_str());
@@ -579,6 +589,16 @@ impl ScriptActionDispatcher {
         let team_name = self.get_string_param(action, 0)?;
         let object_name = self.get_string_param(action, 1)?;
         log::debug!("Team '{}' guarding object '{}'", team_name, object_name);
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_guard_variant(
+                super::HostScriptGuardVariantRequest::TeamGuardObject {
+                    team: self.resolve_team_name_token(&team_name),
+                    unit: object_name,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         // Get the object ID from name tracker
         let tracker = get_named_object_tracker();
@@ -613,6 +633,16 @@ impl ScriptActionDispatcher {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         let area_name = self.get_string_param(action, 1)?;
         log::debug!("Team '{}' guarding area '{}'", team_name, area_name);
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_guard_variant(
+                super::HostScriptGuardVariantRequest::TeamGuardArea {
+                    team: team_name,
+                    area: area_name,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let (area_center, trigger_id) = match self.get_trigger_area(&area_name) {
             Ok(trigger) => (trigger.get_center_point(), trigger.get_id()),
@@ -681,6 +711,13 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         log::debug!("Team '{}' guarding in tunnel network", team_name);
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_guard_variant(
+                super::HostScriptGuardVariantRequest::TeamGuardTunnel { team: team_name },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         if let Ok(mut factory_guard) = get_team_factory().lock() {
             if let Some(team_arc) = factory_guard.find_team(&team_name) {
@@ -849,6 +886,18 @@ impl ScriptActionDispatcher {
             waypoint_path,
             as_team
         );
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_follow_waypoints(
+                super::HostScriptFollowWaypointsRequest::TeamFollow {
+                    team: self.resolve_team_name_token(&team_name),
+                    waypoint: waypoint_path,
+                    as_team,
+                    exact: true,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let team_arc = self.get_team_by_name(&team_name)?;
         let Some(team_center) = self

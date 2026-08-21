@@ -248,6 +248,8 @@ pub struct HostLocomotorBinding {
     pub appearance: crate::game_logic::LocomotorAppearance,
     pub extra_2d_friction: f32,
     pub apply_2d_friction_when_airborne: bool,
+    /// C++ LocomotorTemplate::m_allowMotiveForceWhileAirborne.
+    pub allow_motive_force_while_airborne: bool,
     pub can_move_backward: bool,
     pub downhill_only: bool,
     pub max_lift: f32,
@@ -874,6 +876,7 @@ fn host_locomotor_binding_from_template(t: &LocomotorTemplate) -> Option<HostLoc
         },
         extra_2d_friction: t.extra_2d_friction,
         apply_2d_friction_when_airborne: t.apply_2d_friction_when_airborne,
+        allow_motive_force_while_airborne: t.allow_motive_force_while_airborne,
         can_move_backward: t.can_move_backward,
         downhill_only: t.downhill_only,
         max_lift: t.lift * FPS * FPS,
@@ -918,6 +921,7 @@ pub fn apply_host_locomotor_binding(
     object.loco_appearance = binding.appearance;
     object.loco_extra_2d_friction = binding.extra_2d_friction;
     object.loco_apply_2d_friction_airborne = binding.apply_2d_friction_when_airborne;
+    object.allow_motive_force_while_airborne = binding.allow_motive_force_while_airborne;
     object.can_move_backward = binding.can_move_backward;
     object.downhill_only = binding.downhill_only;
     object.max_lift = binding.max_lift;
@@ -966,6 +970,7 @@ fn same_host_locomotor_behavior(left: &HostLocomotorBinding, right: &HostLocomot
         && left.appearance == right.appearance
         && left.extra_2d_friction == right.extra_2d_friction
         && left.apply_2d_friction_when_airborne == right.apply_2d_friction_when_airborne
+        && left.allow_motive_force_while_airborne == right.allow_motive_force_while_airborne
         && left.can_move_backward == right.can_move_backward
         && left.downhill_only == right.downhill_only
         && left.max_lift == right.max_lift
@@ -1305,6 +1310,12 @@ fn seed_exact_aircraft_set_switch_locomotors() -> usize {
         if surfaces == "GROUND" {
             props.insert("MinSpeed".to_string(), "0".to_string());
             props.insert("ZAxisBehavior".to_string(), "NO_Z_MOTIVE_FORCE".to_string());
+        }
+        if surfaces == "AIR" {
+            props.insert(
+                "AllowAirborneMotiveForce".to_string(),
+                "Yes".to_string(),
+            );
         }
         match parse_locomotor_template_definition(name, &props) {
             Ok(template) => match get_locomotor_store_mut().add_template(template) {

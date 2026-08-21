@@ -1710,26 +1710,16 @@ impl TerrainVisualImpl {
         if self.tree_buffer.take_any_push_changed() {
             self.tree_buffer.force_vertex_rebuild();
         }
-        if self.overlay.last_sway_version != 1 {
-            struct SwayRng;
-            impl crate::terrain::TreeRandom for SwayRng {
-                fn int_range(&mut self, min: i32, _max: i32) -> i32 {
-                    min
-                }
-                fn real_range(&mut self, min: f32, _max: f32) -> f32 {
-                    min
-                }
+        // C++ `W3DTreeBuffer::drawTrees`: ScriptEngine breeze + versioned updateSway.
+        let pause = gamelogic::helpers::TheScriptEngine::is_time_frozen()
+            || gamelogic::helpers::TheGameLogic::is_game_paused();
+        if !pause {
+            let breeze = script_tree_breeze();
+            if self.tree_buffer.cur_sway_version() != breeze.breeze_version {
+                self.tree_buffer
+                    .update_sway(breeze, &mut GameClientSwayRng);
+                self.overlay.last_sway_version = breeze.breeze_version;
             }
-            let breeze = crate::terrain::BreezeInfo {
-                breeze_version: 1,
-                lean: 0.04,
-                intensity: 0.03,
-                direction_vec: glam::Vec2::new(0.7, 0.7),
-                randomness: 0.1,
-                breeze_period: 60,
-            };
-            self.tree_buffer.update_sway(breeze, &mut SwayRng);
-            self.overlay.last_sway_version = 1;
         }
         if self.tree_meshes.is_empty() {
             if self
@@ -2310,6 +2300,42 @@ fn bgra_u32_to_rgba_f32(packed: u32) -> [f32; 4] {
     let r = ((packed >> 16) & 0xFF) as f32 / 255.0;
     let a = ((packed >> 24) & 0xFF) as f32 / 255.0;
     [r, g, b, a]
+}
+
+/// Live `GameClientRandomValue` stream for C++ `W3DTreeBuffer::updateSway`.
+struct GameClientSwayRng;
+
+impl crate::terrain::TreeRandom for GameClientSwayRng {
+    fn int_range(&mut self, min: i32, max: i32) -> i32 {
+        crate::client_random_value::get_game_client_random_value(min, max, file!(), line!())
+    }
+
+    fn real_range(&mut self, min: f32, max: f32) -> f32 {
+        crate::client_random_value::get_game_client_random_value_real(min, max, file!(), line!())
+    }
+}
+
+/// C++ `TheScriptEngine->getBreezeInfo()`, or ScriptEngine reset defaults.
+fn script_tree_breeze() -> crate::terrain::BreezeInfo {
+    if let Ok(guard) = gamelogic::get_script_engine().read() {
+        if let Some(engine) = guard.as_ref() {
+            return tree_breeze_from_script(&engine.get_breeze_info());
+        }
+    }
+    tree_breeze_from_script(&gamelogic::scripting::engine::BreezeInfo::new())
+}
+
+fn tree_breeze_from_script(
+    info: &gamelogic::scripting::engine::BreezeInfo,
+) -> crate::terrain::BreezeInfo {
+    crate::terrain::BreezeInfo {
+        breeze_version: i32::from(info.breeze_version),
+        lean: info.lean,
+        intensity: info.intensity,
+        direction_vec: glam::Vec2::new(info.direction_vec[0], info.direction_vec[1]),
+        randomness: info.randomness,
+        breeze_period: i32::from(info.breeze_period.max(1)),
+    }
 }
 
 fn height_map_cell_at_world(hm: &HeightMap, world_x: f32, world_z: f32) -> (i32, i32) {

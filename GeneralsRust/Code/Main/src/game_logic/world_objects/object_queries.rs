@@ -358,12 +358,23 @@ impl GameLogic {
         source_player_id: u32,
         target_player_id: u32,
     ) -> gamelogic::common::Relationship {
+        Self::player_relationship_from_map(&self.players, source_player_id, target_player_id)
+    }
+
+    /// C++ `Player::getRelationship` / `PlayerList` using an explicit roster.
+    /// CombatSystem splash applies while `objects` is mutably borrowed, so the
+    /// live host passes `&self.players` instead of `&self`.
+    pub fn player_relationship_from_map(
+        players: &std::collections::HashMap<u32, crate::game_logic::Player>,
+        source_player_id: u32,
+        target_player_id: u32,
+    ) -> gamelogic::common::Relationship {
         use gamelogic::common::Relationship;
 
-        let Some(source) = self.players.get(&source_player_id) else {
+        let Some(source) = players.get(&source_player_id) else {
             return Relationship::Neutral;
         };
-        let Some(target) = self.players.get(&target_player_id) else {
+        let Some(target) = players.get(&target_player_id) else {
             return Relationship::Neutral;
         };
         if source_player_id == target_player_id {
@@ -393,18 +404,36 @@ impl GameLogic {
         source: &Object,
         target: &Object,
     ) -> gamelogic::common::Relationship {
+        Self::object_relationship_from_owners(
+            &self.players,
+            source.owner_player_id,
+            &source.team_instance_name,
+            target.owner_player_id,
+            &target.team_instance_name,
+        )
+    }
+
+    /// C++ `Object::getRelationship` from frozen owner ids (Weapon.cpp:1360).
+    /// `source` is the viewer (`curVictim->getRelationship(source)` when the
+    /// first pair is the victim).
+    pub fn object_relationship_from_owners(
+        players: &std::collections::HashMap<u32, crate::game_logic::Player>,
+        source_owner: Option<u32>,
+        source_team_instance: &str,
+        target_owner: Option<u32>,
+        target_team_instance: &str,
+    ) -> gamelogic::common::Relationship {
         use gamelogic::common::Relationship;
 
-        if let Some(source_player_id) = source.owner_player_id {
-            if !target.team_instance_name.is_empty() {
+        if let Some(source_player_id) = source_owner {
+            if !target_team_instance.is_empty() {
                 if let Some(rel) =
-                    leftover_team_relationship_override(source_player_id, &target.team_instance_name)
+                    leftover_team_relationship_override(source_player_id, target_team_instance)
                 {
                     return rel;
                 }
-                if let Some(source_player) = self.players.get(&source_player_id) {
-                    if let Some(rel) =
-                        source_player.team_relationship_override(&target.team_instance_name)
+                if let Some(source_player) = players.get(&source_player_id) {
+                    if let Some(rel) = source_player.team_relationship_override(target_team_instance)
                     {
                         return rel;
                     }
@@ -412,9 +441,9 @@ impl GameLogic {
             }
         }
 
-        match (source.owner_player_id, target.owner_player_id) {
+        match (source_owner, target_owner) {
             (Some(source_player_id), Some(target_player_id)) => {
-                self.player_relationship(source_player_id, target_player_id)
+                Self::player_relationship_from_map(players, source_player_id, target_player_id)
             }
             _ => Relationship::Neutral,
         }

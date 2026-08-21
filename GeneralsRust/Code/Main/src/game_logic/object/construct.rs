@@ -570,6 +570,7 @@ impl Object {
             braking_factor: 1.0,
             braking: 99999.0,
             loco_apply_2d_friction_airborne: false,
+            allow_motive_force_while_airborne: false,
             loco_extra_2d_friction: 0.0,
             physics_turning: PhysicsTurningType::TurnNone,
             loco_behavior_z: LocomotorBehaviorZ::NoZMotiveForce,
@@ -1374,6 +1375,7 @@ impl Object {
             braking_factor: 1.0,
             braking: 99999.0,
             loco_apply_2d_friction_airborne: false,
+            allow_motive_force_while_airborne: false,
             loco_extra_2d_friction: 0.0,
             physics_turning: PhysicsTurningType::TurnNone,
             loco_behavior_z: LocomotorBehaviorZ::NoZMotiveForce,
@@ -2052,6 +2054,16 @@ impl Object {
     /// C++ DISABLED_EMP residual (EMPUpdate / SuperweaponEMPPulse).
     pub fn is_emp_disabled(&self) -> bool {
         self.status.disabled_emp
+    }
+
+    /// C++ PUC live-beam abort: UNDERPOWERED / EMP / SUBDUED / HACKED.
+    pub fn puc_live_beam_abort_disabled(&self) -> bool {
+        crate::game_logic::special_power_strikes::puc_disabled_aborts_live_beam(
+            self.status.disabled_underpowered,
+            self.status.disabled_emp,
+            self.status.disabled_subdued,
+            self.status.disabled_hacked,
+        )
     }
 
     /// C++ DISABLED_PARALYZED residual (BattlePlanChangeParalyzeTime).

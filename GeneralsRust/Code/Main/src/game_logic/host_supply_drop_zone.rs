@@ -26,9 +26,9 @@
 //!   (DropDelay stagger + delayed spawn residual closed via host_deliver_payload)
 //! - AmericaCrateParachute fall-physics residual via host_deliver_payload
 //!   (OpenDist 12.5 / PreferredHeight 100; not full container Object)
-//!   (MoneyCrateCollide unit/BuildingPickup residual via host_money_crate)
 //! - Not full ControlBar OCL timer UI / sabotage timer-reset path
 //! - Under-construction / neutral / dead residual-skip (C++ OCLUpdate::shouldCreate)
+//! - Disabled / underpowered freezes the OCL timer (C++ OCLUpdate.cpp:102-106)
 
 use super::ObjectId;
 use serde::{Deserialize, Serialize};
@@ -135,6 +135,9 @@ pub fn is_supply_drop_zone_structure(name: &str) -> bool {
 ///
 /// Matches C++ OCLUpdate::shouldCreate / update gates (subset):
 /// alive, construction complete, not neutral-controlled.
+///
+/// Disabled / underpowered is **not** an exclude here: C++
+/// `OCLUpdate::update` still ticks and freezes `m_nextCreationFrame`.
 pub fn is_legal_supply_drop_zone_income_source(
     is_alive: bool,
     is_constructed: bool,
@@ -263,6 +266,16 @@ impl HostSupplyDropZoneRegistry {
             zone_id,
             current_frame.saturating_add(SUPPLY_DROP_ZONE_INTERVAL_FRAMES.max(1)),
         );
+    }
+
+    /// C++ `OCLUpdate::update` (`OCLUpdate.cpp:102-106`):
+    /// `if (getObject()->isDisabled()) { m_nextCreationFrame++; return; }`
+    ///
+    /// Push the drop deadline forward one frame so remaining time is frozen
+    /// for brownout (`DISABLED_UNDERPOWERED`), EMP, hack, and script disable.
+    pub fn freeze_timer(&mut self, zone_id: ObjectId) {
+        let next = self.next_drop_frame.entry(zone_id).or_insert(0);
+        *next = next.saturating_add(1);
     }
 
     /// Snapshot of currently tracked zone object ids (for stale cleanup).

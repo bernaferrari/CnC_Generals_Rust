@@ -916,6 +916,7 @@ impl PresentationFrame {
                     v.truncate(MAX_UPGRADES);
                     v
                 },
+                upgrade_cameo_names: obj.thing.template.upgrade_cameo_names.clone(),
                 has_secondary_weapon: obj.secondary_weapon.is_some(),
                 secondary_weapon_range: obj
                     .secondary_weapon

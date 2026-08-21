@@ -83,7 +83,8 @@ mod tests {
         }
 
         let mut control_bar = ControlBar::new();
-        control_bar.sync_upgrades_and_specials_from_presentation(
+        control_bar.sync_upgrade_cameos_from_presentation(
+            &[UPGRADE.to_string()],
             &[UPGRADE.to_string()],
             None,
             false,
@@ -131,7 +132,8 @@ mod tests {
         }
 
         let mut control_bar = ControlBar::new();
-        control_bar.sync_upgrades_and_specials_from_presentation(
+        control_bar.sync_upgrade_cameos_from_presentation(
+            &[UPGRADE.to_string()],
             &[UPGRADE.to_string()],
             None,
             false,
@@ -176,7 +178,8 @@ mod tests {
     fn unknown_upgrade_cameo_keeps_fail_closed_name_placeholder() {
         const UPGRADE: &str = "Upgrade_UnknownCameoNoArtRegistered";
         let mut control_bar = ControlBar::new();
-        control_bar.sync_upgrades_and_specials_from_presentation(
+        control_bar.sync_upgrade_cameos_from_presentation(
+            &[UPGRADE.to_string()],
             &[UPGRADE.to_string()],
             None,
             false,

@@ -764,6 +764,17 @@ pub trait ParticleSystemManagerInterface: std::fmt::Debug + Send + Sync {
     ) {
     }
 
+    /// C++ `ParticleSystem::setSizeMultiplier`.
+    fn set_particle_system_size_multiplier(
+        &self,
+        _system_id: ParticleSystemId,
+        _multiplier: Real,
+    ) {
+    }
+
+    /// C++ `ParticleSystem::trigger`.
+    fn trigger_particle_system(&self, _system_id: ParticleSystemId) {}
+
     /// Destroy all particle systems attached to the given object (mirrors ParticleSystemManager::destroyAttachedSystems).
 
     /// C++ ParticleSystem::setSystemLifetime.

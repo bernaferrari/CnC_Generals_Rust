@@ -79,6 +79,7 @@ impl BasicDrawable {
                     rear_left_height_offset: wheel.rear_left_height_offset,
                     rear_right_height_offset: wheel.rear_right_height_offset,
                     wheel_angle: wheel.wheel_angle,
+                    frames_airborne: wheel.frames_airborne,
                 },
             );
         }

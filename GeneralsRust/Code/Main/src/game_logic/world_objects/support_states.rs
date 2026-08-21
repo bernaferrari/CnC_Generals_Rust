@@ -783,6 +783,21 @@ impl GameLogic {
         target_dead || planter_dead
     }
 
+    /// C++ `OpenContain::addToContain`: `checkAndDetonateBoobyTrap(rider)`
+    /// then cancel containment if the container or rider is now dead.
+    /// Leftover `should_cancel_containment_after_booby_trap` already matches;
+    /// live host must detonate on GameWorld objects, not leftover-only.
+    pub(in super::super) fn should_cancel_containment_after_booby_trap(
+        &mut self,
+        container_id: ObjectId,
+        rider_id: ObjectId,
+    ) -> bool {
+        let Some(rider_team) = self.objects.get(&rider_id).map(|r| r.team) else {
+            return false;
+        };
+        self.leftover_probe_booby_at_target(rider_id, container_id, rider_team)
+    }
+
     fn leftover_nearest_own_mine(
         &self,
         dest: glam::Vec3,
@@ -1296,6 +1311,11 @@ impl GameLogic {
                 rider.set_status_attacking(false);
             }
             return true;
+        }
+
+        // C++ OpenContain::addToContain checkAndDetonateBoobyTrap(rider).
+        if self.should_cancel_containment_after_booby_trap(container_id, rider_id) {
+            return false;
         }
 
         // Phase 1: eject the old rider.  All IDs/list membership were checked
@@ -3546,6 +3566,20 @@ impl GameLogic {
                         if !allow {
                             continue;
                         }
+                    }
+
+                    // C++ OpenContain::addToContain checkAndDetonateBoobyTrap(rider).
+                    if !container_has_unit
+                        && self.should_cancel_containment_after_booby_trap(
+                            container_id,
+                            object_id,
+                        )
+                    {
+                        if let Some(obj) = self.objects.get_mut(&object_id) {
+                            obj.stop_moving();
+                            obj.set_target(None);
+                        }
+                        continue;
                     }
 
                     let entered = if container_has_unit {
@@ -6548,21 +6582,39 @@ impl GameLogic {
             dock_pos,
             dock_major,
             ignore_bones,
+            dock_crippled,
         ) = match self.objects.get(&dock_id) {
-            Some(dock) => (
-                dock.dock_active_docker,
-                dock.template_name.clone(),
-                dock.is_kind_of(crate::game_logic::KindOf::RepairPad),
-                dock.thing.template.dock_kind,
-                dock.thing.template.dock_delete_when_empty,
-                dock.get_position(),
-                if dock.thing.template.geometry_info.authored {
-                    dock.thing.template.geometry_info.bounding_circle_radius()
-                } else {
-                    dock.selection_radius
-                },
-                false,
-            ),
+            Some(dock) => {
+                let warehouse = dock.thing.template.dock_kind
+                    == crate::game_logic::DockKind::SupplyWarehouse
+                    || dock.thing.template.dock_delete_when_empty
+                    || dock.template_name.to_ascii_lowercase().contains("supplypile");
+                let body = crate::game_logic::host_enum_table_residual::host_calc_body_damage_state(
+                    dock.health.current,
+                    dock.health.maximum,
+                );
+                let crippled = warehouse
+                    && matches!(
+                        body,
+                        crate::game_logic::host_enum_table_residual::HostBodyDamageType::ReallyDamaged
+                            | crate::game_logic::host_enum_table_residual::HostBodyDamageType::Rubble
+                    );
+                (
+                    dock.dock_active_docker,
+                    dock.template_name.clone(),
+                    dock.is_kind_of(crate::game_logic::KindOf::RepairPad),
+                    dock.thing.template.dock_kind,
+                    dock.thing.template.dock_delete_when_empty,
+                    dock.get_position(),
+                    if dock.thing.template.geometry_info.authored {
+                        dock.thing.template.geometry_info.bounding_circle_radius()
+                    } else {
+                        dock.selection_radius
+                    },
+                    false,
+                    crippled,
+                )
+            }
             None => return false,
         };
         let current_alive = current.and_then(|id| self.objects.get(&id)).is_some_and(|object| {
@@ -6589,7 +6641,7 @@ impl GameLogic {
         } else {
             self.load_dock_waiting_bones_world(dock_id, n as usize)
         };
-        let tick = crate::game_logic::host_supply_gather::tick_live_dock_approach(
+        let tick = crate::game_logic::host_supply_gather::tick_live_dock_approach_ex(
             dock_id,
             docker_id,
             n,
@@ -6601,6 +6653,7 @@ impl GameLogic {
             dock_major,
             &waiting_bones,
             self.frame,
+            dock_crippled,
             |id| {
                 self.objects.get(&id).is_some_and(|object| {
                     object.is_alive()
@@ -6984,13 +7037,11 @@ impl GameLogic {
             return false;
         }
         let center_owner = self.player_owner_for_host_object(center);
-        if center_owner == owner_player_id {
+        if center_owner.is_some() && center_owner == owner_player_id {
             return true;
         }
-        if let (Some(a), Some(b)) = (owner_player_id, center_owner) {
-            return self.player_relationship(a, b) == gamelogic::common::Relationship::Allies;
-        }
-        center.team == team
+        let _ = team;
+        false
     }
 
 

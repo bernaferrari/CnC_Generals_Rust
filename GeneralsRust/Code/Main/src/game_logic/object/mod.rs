@@ -678,6 +678,9 @@ pub struct Object {
     /// C++ Locomotor APPLY_2D_FRICTION_WHEN_AIRBORNE residual.
     #[serde(default)]
     pub loco_apply_2d_friction_airborne: bool,
+    /// C++ LocomotorTemplate::m_allowMotiveForceWhileAirborne residual.
+    #[serde(default)]
+    pub allow_motive_force_while_airborne: bool,
     /// C++ Locomotor extra2DFriction residual (added to physics extra_friction).
     #[serde(default)]
     pub loco_extra_2d_friction: f32,

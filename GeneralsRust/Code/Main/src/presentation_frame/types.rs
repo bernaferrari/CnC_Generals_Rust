@@ -796,6 +796,10 @@ pub struct RenderableObject {
     pub object_type: PresentationObjectType,
     /// Applied upgrade tags residual (capped, sorted).
     pub applied_upgrades: Vec<String>,
+    /// C++ `ThingTemplate::m_upgradeCameoUpgradeNames` (`UpgradeCameo1..5`).
+    #[serde(default)]
+    pub upgrade_cameo_names: [String; 5],
+
     /// Secondary weapon present residual.
     pub has_secondary_weapon: bool,
     /// Secondary weapon range residual (0 when none).

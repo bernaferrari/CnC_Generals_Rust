@@ -396,6 +396,26 @@ impl GameLogic {
         {
             template.shadow_size_y = sy;
         }
+        if let Some(shadow) = Self::object_definition_attr(definition, "Shadow") {
+            template.shadow_type = crate::game_logic::host_enum_table_residual::parse_shadow_type_bits(shadow.as_str());
+        }
+        if let Some(ox) = Self::object_definition_attr(definition, "ShadowOffsetX")
+            .and_then(|v| v.parse::<f32>().ok())
+        {
+            template.shadow_offset_x = ox;
+        }
+        if let Some(oy) = Self::object_definition_attr(definition, "ShadowOffsetY")
+            .and_then(|v| v.parse::<f32>().ok())
+        {
+            template.shadow_offset_y = oy;
+        }
+        if let Some(tex) = Self::object_definition_attr(definition, "ShadowTexture") {
+            let tex = tex.trim();
+            if !tex.is_empty() && !tex.eq_ignore_ascii_case("none") {
+                template.shadow_texture = Some(tex.to_string());
+            }
+        }
+
 
 
 
@@ -548,6 +568,25 @@ impl GameLogic {
                 hijack_guard.trim().to_ascii_lowercase().as_str(),
                 "yes" | "true" | "1"
             );
+        }
+
+        // C++ ThingTemplate.cpp:151-155 UpgradeCameo1..5 → m_upgradeCameoUpgradeNames.
+        for (i, key) in [
+            "upgradecameo1",
+            "upgradecameo2",
+            "upgradecameo3",
+            "upgradecameo4",
+            "upgradecameo5",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            if let Some(name) = Self::object_definition_attr(definition, key) {
+                let trimmed = name.trim();
+                if !trimmed.is_empty() {
+                    template.upgrade_cameo_names[i] = trimmed.to_string();
+                }
+            }
         }
 
         Self::apply_authored_veterancy_gain_create(&mut template, definition);

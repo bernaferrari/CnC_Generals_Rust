@@ -2,7 +2,7 @@
 //! Child of `world_combat` (itself a child of `game_logic.rs`).
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
-
+use gamelogic::common::Relationship;
 impl GameLogic {
     /// Activate GPS Scrambler residual: GrantStealth to ally vehicles/infantry in radius.
     ///
@@ -180,7 +180,7 @@ impl GameLogic {
         use std::collections::HashSet;
 
         // Snapshot jammers: alive ECM tank / frequency jammer residual sources.
-        let jammers: Vec<(ObjectId, Team, f32, f32)> = self
+        let jammers: Vec<(ObjectId, Team, Option<u32>, String, f32, f32)> = self
             .objects
             .iter()
             .filter_map(|(id, obj)| {
@@ -198,7 +198,14 @@ impl GameLogic {
                     return None;
                 }
                 let pos = obj.get_position();
-                Some((*id, obj.team, pos.x, pos.z))
+                Some((
+                    *id,
+                    obj.team,
+                    obj.owner_player_id,
+                    obj.team_instance_name.clone(),
+                    pos.x,
+                    pos.z,
+                ))
             })
             .collect();
 
@@ -214,7 +221,7 @@ impl GameLogic {
         }
 
         // C++ ECMTankVehicleDisabler: ground vehicles only (not infantry/aircraft).
-        let candidates: Vec<(ObjectId, Team, f32, f32, bool, bool)> = self
+        let candidates: Vec<(ObjectId, Option<u32>, String, f32, f32, bool, bool)> = self
             .objects
             .iter()
             .filter_map(|(id, obj)| {
@@ -231,18 +238,35 @@ impl GameLogic {
                     return None;
                 }
                 let pos = obj.get_position();
-                Some((*id, obj.team, pos.x, pos.z, is_vehicle, is_aircraft))
+                Some((
+                    *id,
+                    obj.owner_player_id,
+                    obj.team_instance_name.clone(),
+                    pos.x,
+                    pos.z,
+                    is_vehicle,
+                    is_aircraft,
+                ))
             })
             .collect();
 
         let mut covered: HashSet<ObjectId> = HashSet::new();
         // Jammer → target links for ECMDisableStream laser residual.
         let mut jam_links: Vec<(ObjectId, ObjectId)> = Vec::new();
-        for (jammer_id, jammer_team, jx, jz) in &jammers {
+        for (jammer_id, jammer_team, jammer_owner, jammer_team_instance, jx, jz) in &jammers {
             let jammer_neutral = *jammer_team == Team::Neutral;
-            for (target_id, target_team, tx, tz, is_vehicle, is_aircraft) in &candidates {
-                let same_team = *jammer_team == *target_team;
-                let target_neutral = *target_team == Team::Neutral;
+            for (target_id, target_owner, target_team_instance, tx, tz, is_vehicle, is_aircraft) in
+                &candidates
+            {
+                let rel = GameLogic::object_relationship_from_owners(
+                    &self.players,
+                    *target_owner,
+                    target_team_instance,
+                    *jammer_owner,
+                    jammer_team_instance,
+                );
+                let same_team = rel == Relationship::Allies;
+                let target_neutral = rel == Relationship::Neutral;
                 let enemy_or_neutral =
                     is_ecm_hostile_team(jammer_neutral, same_team, target_neutral);
                 if !is_legal_ecm_vehicle_disabler_target(
@@ -572,7 +596,7 @@ impl GameLogic {
         use std::collections::HashSet;
 
         // Snapshot microwave tanks that are actively attacking.
-        let cookers: Vec<(ObjectId, Team, ObjectId, f32, f32)> = self
+        let cookers: Vec<(ObjectId, Team, Option<u32>, String, ObjectId, f32, f32)> = self
             .objects
             .iter()
             .filter_map(|(id, obj)| {
@@ -594,14 +618,24 @@ impl GameLogic {
                 }
                 let target_id = obj.target?;
                 let pos = obj.get_position();
-                Some((*id, obj.team, target_id, pos.x, pos.z))
+                Some((
+                    *id,
+                    obj.team,
+                    obj.owner_player_id,
+                    obj.team_instance_name.clone(),
+                    target_id,
+                    pos.x,
+                    pos.z,
+                ))
             })
             .collect();
 
         let mut covered: HashSet<ObjectId> = HashSet::new();
         let mut first_grant_pos: Option<glam::Vec3> = None;
 
-        for (_cooker_id, cooker_team, target_id, cx, cz) in &cookers {
+        for (_cooker_id, cooker_team, cooker_owner, cooker_team_instance, target_id, cx, cz) in
+            &cookers
+        {
             let Some(target) = self.objects.get(target_id) else {
                 continue;
             };
@@ -610,8 +644,15 @@ impl GameLogic {
             }
             let is_structure =
                 target.is_kind_of(KindOf::Structure) || target.object_type == ObjectType::Building;
-            let same_team = *cooker_team == target.team;
-            let target_neutral = target.team == Team::Neutral;
+            let rel = GameLogic::object_relationship_from_owners(
+                &self.players,
+                target.owner_player_id,
+                &target.team_instance_name,
+                *cooker_owner,
+                cooker_team_instance,
+            );
+            let same_team = rel == Relationship::Allies;
+            let target_neutral = rel == Relationship::Neutral;
             let cooker_neutral = *cooker_team == Team::Neutral;
             let enemy_or_neutral =
                 is_microwave_hostile_team(cooker_neutral, same_team, target_neutral);
@@ -695,7 +736,7 @@ impl GameLogic {
             use crate::game_logic::host_weapon_laser::ResidualWeaponLaser;
 
             let mut laser_links: Vec<(ObjectId, ObjectId, glam::Vec3, glam::Vec3)> = Vec::new();
-            for (cooker_id, _team, target_id, _cx, _cz) in &cookers {
+            for (cooker_id, _team, _owner, _team_instance, target_id, _cx, _cz) in &cookers {
                 if !covered.contains(target_id) {
                     continue;
                 }
@@ -767,7 +808,7 @@ impl GameLogic {
             return;
         }
 
-        let emitters: Vec<(ObjectId, Team, f32, f32, f32)> = self
+        let emitters: Vec<(ObjectId, Option<u32>, String, f32, f32, f32)> = self
             .objects
             .iter()
             .filter_map(|(id, obj)| {
@@ -785,7 +826,14 @@ impl GameLogic {
                     return None;
                 }
                 let pos = obj.get_position();
-                Some((*id, obj.team, pos.x, pos.y, pos.z))
+                Some((
+                    *id,
+                    obj.owner_player_id,
+                    obj.team_instance_name.clone(),
+                    pos.x,
+                    pos.y,
+                    pos.z,
+                ))
             })
             .collect();
         if emitters.is_empty() {
@@ -793,7 +841,7 @@ impl GameLogic {
         }
 
         let mut hits: Vec<(ObjectId, ObjectId, f32)> = Vec::new();
-        for (eid, eteam, ex, _ey, ez) in &emitters {
+        for (eid, eowner, eteam_instance, ex, _ey, ez) in &emitters {
             for (tid, tobj) in &self.objects {
                 if tid == eid || !tobj.is_alive() {
                     continue;
@@ -802,8 +850,15 @@ impl GameLogic {
                     tobj.is_kind_of(KindOf::Structure) || tobj.object_type == ObjectType::Building;
                 let airborne =
                     tobj.is_kind_of(KindOf::Aircraft) || tobj.object_type == ObjectType::Aircraft;
-                let same_team = *eteam == tobj.team;
-                let neutral = tobj.team == Team::Neutral;
+                let rel = GameLogic::object_relationship_from_owners(
+                    &self.players,
+                    tobj.owner_player_id,
+                    &tobj.team_instance_name,
+                    *eowner,
+                    eteam_instance,
+                );
+                let same_team = rel == Relationship::Allies;
+                let neutral = rel == Relationship::Neutral;
                 if !is_legal_microwave_emitter_target(
                     true,
                     airborne,

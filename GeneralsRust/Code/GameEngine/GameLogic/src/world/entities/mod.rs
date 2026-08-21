@@ -666,6 +666,8 @@ pub struct Entity {
     pub wander_width_factor: f32,
     /// Host locomotor residual `loco_apply_2d_friction_airborne`.
     pub loco_apply_2d_friction_airborne: bool,
+    /// Host locomotor residual `allow_motive_force_while_airborne`.
+    pub allow_motive_force_while_airborne: bool,
     /// Host locomotor residual `loco_extra_2d_friction`.
     pub loco_extra_2d_friction: f32,
     /// Host locomotor residual `loco_preferred_height`.
@@ -1826,6 +1828,7 @@ impl EntityStore {
             moving_backwards: false,
             no_slow_down_as_approaching_dest: false,
             turn_pivot_offset: 0.0,
+            allow_motive_force_while_airborne: false,
             wander_width_factor: 0.0,
             loco_apply_2d_friction_airborne: false,
             loco_extra_2d_friction: 0.0,

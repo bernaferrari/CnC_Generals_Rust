@@ -241,6 +241,20 @@ impl GameLogic {
                     obj.record_host_movement();
                     continue;
                 }
+                // C++ Locomotor.cpp:954-958 getIsStunned — no motive walk.
+                // Leave velocity for PhysicsBehavior tumble / shock tick.
+                if obj.is_shock_stunned() {
+                    continue;
+                }
+                // C++ Locomotor.cpp:1005-1056 treatAsAirborne unless
+                // AllowAirborneMotiveForce. Still apply handleBehaviorZ.
+                {
+                    let height_above = obj.get_position().y - ground_y;
+                    if height_above > 9.0 && !obj.allow_motive_force_while_airborne {
+                        Self::apply_live_handle_behavior_z(obj, surface_y, None);
+                        continue;
+                    }
+                }
                 if obj.is_rappelling() {
                     // C++ AIRappelState owns Z; handleBehaviorZ must not snap to Y=0.
                     continue;
@@ -646,11 +660,12 @@ impl GameLogic {
     /// Hit-only projectile pass after GameWorld flight integrate writeback.
     pub(crate) fn resolve_projectiles_hits_only(&mut self) -> Vec<ObjectId> {
         self.combat_system.refresh_homing_aims(&self.objects);
-        let hits = self.combat_system.update_projectiles_with_countermeasures(
+        let hits = self.combat_system.update_projectiles_with_relationships(
             0.0,
             &mut self.objects,
             Some(&mut self.countermeasures),
             self.frame,
+            Some(&self.players),
         );
         self.flush_projectile_impact_fx();
         hits

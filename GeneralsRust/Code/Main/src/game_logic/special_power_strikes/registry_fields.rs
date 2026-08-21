@@ -973,11 +973,25 @@ impl HostSpecialPowerStrikeRegistry {
             outer_node_flare_pack_armed: 1,
             // SlowDeath / InstantDeath residual pack design params armed.
             death_pack_armed: 1,
+            start_decay_frame: particle_decay_start_frame(spawn_frame),
         };
         self.beam_fields.push(field);
         self.beam_spawned_this_frame.push(id);
         self.beam_fields_spawned_total = self.beam_fields_spawned_total.saturating_add(1);
         id
+    }
+
+    /// C++ `m_startDecayFrame = now` when the PUC owner is UNDERPOWERED/EMP/SUBDUED/HACKED.
+    pub fn abort_beam_fields_on_owner_disable(
+        &mut self,
+        current_frame: u32,
+        owner_aborts: impl Fn(ObjectId) -> bool,
+    ) {
+        for field in &mut self.beam_fields {
+            if owner_aborts(field.source_object) {
+                field.begin_abort_decay(current_frame);
+            }
+        }
     }
 
     /// Apply `setSpecialPowerOverridableDestination` residual to a live beam.
@@ -1013,6 +1027,66 @@ impl HostSpecialPowerStrikeRegistry {
         } else {
             false
         }
+    }
+
+    /// C++ SpectreGunshipUpdate::setSpecialPowerOverridableDestination residual.
+    pub fn set_orbit_override_destination(
+        &mut self,
+        field_id: u32,
+        destination: Vec3,
+        current_frame: u32,
+    ) -> bool {
+        if let Some(field) = self.orbit_fields.iter_mut().find(|f| f.id == field_id) {
+            if field.is_expired(current_frame) {
+                return false;
+            }
+            field.position = destination;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Apply a live Object override click to matching PUC beam / Spectre orbit.
+    pub fn apply_source_override_destination(
+        &mut self,
+        source: ObjectId,
+        destination: Vec3,
+        current_frame: u32,
+    ) -> bool {
+        let mut applied = false;
+        let beam_ids: Vec<u32> = self
+            .beam_fields
+            .iter()
+            .filter(|field| field.source_object == source && !field.is_expired(current_frame))
+            .filter(|field| {
+                !field.manual_target_mode
+                    || (field.override_destination.x - destination.x).abs() > 1e-4
+                    || (field.override_destination.z - destination.z).abs() > 1e-4
+            })
+            .map(|field| field.id)
+            .collect();
+        for field_id in beam_ids {
+            if self.set_beam_override_destination(field_id, destination, current_frame) {
+                applied = true;
+            }
+        }
+        let orbit_ids: Vec<u32> = self
+            .orbit_fields
+            .iter()
+            .filter(|field| field.source_object == source && !field.is_expired(current_frame))
+            .filter(|field| {
+                (field.position.x - destination.x).abs() > 1e-4
+                    || (field.position.z - destination.z).abs() > 1e-4
+            })
+            .map(|field| field.id)
+            .collect();
+        for field_id in orbit_ids {
+            if self.set_orbit_override_destination(field_id, destination, current_frame) {
+                applied = true;
+            }
+        }
+        applied
     }
 
     /// Advance manual beam positions for all fields in manual-target mode.
