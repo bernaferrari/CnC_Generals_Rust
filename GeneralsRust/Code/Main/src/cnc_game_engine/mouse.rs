@@ -847,7 +847,7 @@ impl CnCGameEngine {
 
         if let Some(object_id) = clicked_object {
             self.select_left_click_target(object_id, shift_down);
-            if self.selected_objects.is_empty() {
+            if self.selected_objects.is_empty() && !shift_down {
                 log::info!("force-select local object {object_id:?} after predicate miss");
                 self.host_set_selection(self.current_player_id, vec![object_id]);
             }
