@@ -1629,6 +1629,35 @@ mod leftover_dispatch_tests {
     }
 
     #[test]
+    fn view_command_center_uses_own_player_not_same_faction() {
+        // C++ viewCommandCenter iterates localPlayer objects only.
+        let mut logic = GameLogic::new();
+        logic
+            .get_players_mut()
+            .insert(0, Player::new(0, Team::USA, "P0", true));
+        logic
+            .get_players_mut()
+            .insert(1, Player::new(1, Team::USA, "P1", false));
+        let mut cc = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(KindOf::CommandCenter)
+            .add_kind_of(KindOf::Structure)
+            .set_health(1000.0);
+        logic.templates.insert("AmericaCommandCenter".into(), cc);
+        let mine = logic
+            .create_object_for_player("AmericaCommandCenter", 0, Vec3::new(10.0, 0.0, 10.0))
+            .expect("own CC");
+        let theirs = logic
+            .create_object_for_player("AmericaCommandCenter", 1, Vec3::new(500.0, 0.0, 500.0))
+            .expect("enemy CC");
+        let _ = (mine, theirs);
+        let mine_pos = logic.player_command_center_position(0).expect("own CC pose");
+        assert!((mine_pos.x - 10.0).abs() < 0.1);
+        assert!((mine_pos.z - 10.0).abs() < 0.1);
+        let theirs_pos = logic.player_command_center_position(1).expect("p1 CC pose");
+        assert!((theirs_pos.x - 500.0).abs() < 0.1);
+    }
+
+    #[test]
     fn place_beacon_spawns_world_object_and_respects_cap() {
         let mut logic = GameLogic::new();
         logic

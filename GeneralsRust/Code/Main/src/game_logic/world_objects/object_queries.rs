@@ -36,6 +36,37 @@ fn object_has_special_power_module(
     ) && obj.thing.template.hacker_disable_building.is_some()
 }
 
+/// C++ `Player::getRelationship(const Team*)` leftover map written by
+/// `PLAYER_SET_OVERRIDE_RELATION_TO_TEAM`.
+fn leftover_team_relationship_override(
+    source_player_id: u32,
+    team_name: &str,
+) -> Option<gamelogic::common::Relationship> {
+    if team_name.trim().is_empty() {
+        return None;
+    }
+    let team = {
+        let Ok(factory) = gamelogic::team::get_team_factory().lock() else {
+            return None;
+        };
+        factory.find_team_instances(team_name).into_iter().next()?
+    };
+    let Ok(list) = gamelogic::player::ThePlayerList().read() else {
+        return None;
+    };
+    let player_arc = list
+        .get_player(source_player_id as gamelogic::player::PlayerIndex)
+        .cloned()?;
+    drop(list);
+    let Ok(player) = player_arc.read() else {
+        return None;
+    };
+    let Ok(team_guard) = team.read() else {
+        return None;
+    };
+    player.override_relationship_for_team(&team_guard)
+}
+
 
 impl GameLogic {
     /// Wave 958: legacy alias — prefer [`Self::host_object`].
@@ -344,8 +375,9 @@ impl GameLogic {
         }
     }
 
-    /// Relationship inferred from persistent object ownership. Any unowned
-    /// object is neutral rather than being assigned to a player by faction.
+    /// Relationship inferred from persistent object ownership. Team-id
+    /// overrides (C++ `Player::getRelationship(const Team*)`) win first so a
+    /// named team can be allied while the rest of that player stays enemy.
     pub fn object_relationship(
         &self,
         source: &Object,
@@ -353,12 +385,44 @@ impl GameLogic {
     ) -> gamelogic::common::Relationship {
         use gamelogic::common::Relationship;
 
+        if let Some(source_player_id) = source.owner_player_id {
+            if !target.team_instance_name.is_empty() {
+                if let Some(rel) =
+                    leftover_team_relationship_override(source_player_id, &target.team_instance_name)
+                {
+                    return rel;
+                }
+                if let Some(source_player) = self.players.get(&source_player_id) {
+                    if let Some(rel) =
+                        source_player.team_relationship_override(&target.team_instance_name)
+                    {
+                        return rel;
+                    }
+                }
+            }
+        }
+
         match (source.owner_player_id, target.owner_player_id) {
             (Some(source_player_id), Some(target_player_id)) => {
                 self.player_relationship(source_player_id, target_player_id)
             }
             _ => Relationship::Neutral,
         }
+    }
+
+    /// Stamp pathfinder occupancy ALLIES bits from Player relationships.
+    /// C++ checkForMovement uses getRelationship == ALLIES (AIPathfind.cpp:5037).
+    pub fn refresh_pathfind_ally_masks(&mut self) {
+        use gamelogic::common::Relationship;
+        let mut masks = [0u16; 16];
+        for a in 0..16u32 {
+            for b in 0..16u32 {
+                if self.player_relationship(a, b) == Relationship::Allies {
+                    masks[a as usize] |= 1u16 << b;
+                }
+            }
+        }
+        self.pathfinding_system.set_player_ally_masks(masks);
     }
 
     /// C++ `ActionManager::canGetRepairedAt` / `canGetHealedAt` service
@@ -851,6 +915,26 @@ impl GameLogic {
             .all(|object| object.owner_player_id.is_none())
     }
 
+    /// C++ `PartitionFilterHordeMember::allow` AlliesOnly (`HordeUpdate.cpp:77-79`).
+    /// Owned objects use `Player::getRelationship == ALLIES`. Ownerless synthetic
+    /// worlds keep same-faction equality so existing residual tests still horde.
+    pub fn horde_allies_only(
+        &self,
+        a_owner: Option<u32>,
+        a_team: Team,
+        b_owner: Option<u32>,
+        b_team: Team,
+    ) -> bool {
+        use gamelogic::common::Relationship;
+        match (a_owner, b_owner) {
+            (Some(a), Some(b)) => self.player_relationship(a, b) == Relationship::Allies,
+            (None, None) if self.uses_legacy_team_ownership_fallback() => {
+                a_team != Team::Neutral && a_team == b_team
+            }
+            _ => false,
+        }
+    }
+
     /// Get current frame number
     pub fn get_current_frame(&self) -> u64 {
         self.frame as u64
@@ -879,6 +963,24 @@ impl GameLogic {
         let id = self.next_formation_id;
         self.next_formation_id = self.next_formation_id.saturating_add(1).max(1);
         id
+    }
+
+    /// C++ `TheAI` next formation id after restoring stamped formations.
+    pub fn set_next_formation_id_for_restore(&mut self, next_formation_id: u32) {
+        self.next_formation_id = next_formation_id.max(1);
+    }
+
+    /// C++ `Object::m_containedByFrame` map for HealContain auto-exit.
+    pub fn contained_by_frame_for_snapshot(&self, unit_id: ObjectId) -> Option<u32> {
+        self.tunnel_network.contained_by_frame(unit_id)
+    }
+
+    pub fn stamp_contained_by_frame(&mut self, unit_id: ObjectId, frame: u32) {
+        self.tunnel_network.stamp_contained_by_frame(unit_id, frame);
+    }
+
+    pub fn restore_contained_by_frames(&mut self, frames: &[(ObjectId, u32)]) {
+        self.tunnel_network.restore_contained_by_frames(frames);
     }
 
     /// Clear all players (for snapshot restoration)
@@ -1082,11 +1184,48 @@ impl GameLogic {
         self.players.get(&id).map(|p| p.team)
     }
 
-    /// Wave 239: command-center world pose for a player's team (camera boot residual).
-    #[inline]
+    /// Wave 239: command-center world pose for a specific player.
+    /// C++ `viewCommandCenter` iterates `localPlayer` objects only
+    /// (`CommandXlat.cpp:780-793`), then most expensive structure via
+    /// `calcCostToBuild(controllingPlayer)`.
     pub fn player_command_center_position(&self, id: u32) -> Option<glam::Vec3> {
         let team = self.player_team(id)?;
-        self.command_center_position(team)
+        let mut fallback = None;
+        let mut highest_cost = i32::MIN;
+        let sole_team_owner = self
+            .players
+            .values()
+            .filter(|p| p.team == team && p.is_alive)
+            .count()
+            <= 1;
+
+        for obj in self.objects.values() {
+            if !obj.is_alive() {
+                continue;
+            }
+            let ours = match obj.owner_player_id {
+                Some(owner) => owner == id,
+                None => sole_team_owner && obj.team == team,
+            };
+            if !ours {
+                continue;
+            }
+            if obj.is_kind_of(KindOf::CommandCenter) {
+                return Some(obj.get_position());
+            }
+            if obj.is_kind_of(KindOf::Structure) {
+                let cost = self.modified_build_cost_supplies(
+                    id,
+                    &obj.template_name,
+                    obj.thing.template.build_cost.supplies,
+                ) as i32;
+                if cost > highest_cost {
+                    highest_cost = cost;
+                    fallback = Some(obj.get_position());
+                }
+            }
+        }
+        fallback
     }
 
     /// Wave 240: existence probe without exposing `&Player`.
@@ -2339,6 +2478,37 @@ mod sides_relationship_tests {
         logic.add_player(a);
         logic.add_player(b);
         assert_eq!(logic.player_relationship(0, 1), Relationship::Enemies);
+    }
+
+    #[test]
+    fn team_override_allies_one_named_team() {
+        // C++ Player.cpp:542-554 team-id override before player relations.
+        let mut logic = GameLogic::new();
+        let mut usa = Player::new(0, Team::USA, "PlyrAmerica", true);
+        let gla = Player::new(1, Team::GLA, "PlyrGLA", false);
+        usa.set_map_relationship(1, Relationship::Enemies);
+        usa.set_team_relationship_override("CivilianConvoy", Relationship::Allies);
+        logic.add_player(usa);
+        logic.add_player(gla);
+
+        let mut tmpl = ThingTemplate::new("Ranger");
+        tmpl.add_kind_of(KindOf::Infantry);
+        let mut src = Object::new(tmpl.clone(), ObjectId(1), Team::USA);
+        src.owner_player_id = Some(0);
+        let mut convoy = Object::new(tmpl.clone(), ObjectId(2), Team::GLA);
+        convoy.owner_player_id = Some(1);
+        convoy.team_instance_name = "CivilianConvoy".into();
+        let mut other = Object::new(tmpl, ObjectId(3), Team::GLA);
+        other.owner_player_id = Some(1);
+
+        assert_eq!(
+            logic.object_relationship(&src, &convoy),
+            Relationship::Allies
+        );
+        assert_eq!(
+            logic.object_relationship(&src, &other),
+            Relationship::Enemies
+        );
     }
 }
 

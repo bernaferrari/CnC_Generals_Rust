@@ -392,6 +392,65 @@ pub struct LeftoverHordeMembership {
     pub true_member: bool,
 }
 
+/// C++ `iterateObjectsInRange(..., FROM_BOUNDINGSPHERE_3D)` input.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LeftoverHordeScanUnit {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub sphere_radius: f32,
+    pub alive: bool,
+}
+
+impl LeftoverHordeScanUnit {
+    pub fn xz(x: f32, z: f32, alive: bool) -> Self {
+        Self {
+            x,
+            y: 0.0,
+            z,
+            sphere_radius: 0.0,
+            alive,
+        }
+    }
+}
+
+/// C++ `FROM_BOUNDINGSPHERE_3D`: 3D center-to-center minus both sphere radii.
+pub fn leftover_from_bounding_sphere_3d(
+    a: &LeftoverHordeScanUnit,
+    b: &LeftoverHordeScanUnit,
+) -> f32 {
+    let dx = a.x - b.x;
+    let dy = a.y - b.y;
+    let dz = a.z - b.z;
+    let center = (dx * dx + dy * dy + dz * dz).sqrt();
+    let combined = a.sphere_radius.max(0.0) + b.sphere_radius.max(0.0);
+    (center - combined).max(0.0)
+}
+
+pub fn leftover_horde_major_radius(
+    authored: bool,
+    major_radius: f32,
+    selection_radius: f32,
+) -> f32 {
+    if authored && major_radius > 0.0 {
+        major_radius
+    } else {
+        selection_radius.max(1.0)
+    }
+}
+
+pub fn leftover_horde_bounding_sphere_radius(
+    authored: bool,
+    bounding_sphere: f32,
+    selection_radius: f32,
+) -> f32 {
+    if authored {
+        bounding_sphere.max(0.0)
+    } else {
+        selection_radius.max(1.0)
+    }
+}
+
 pub fn evaluate_leftover_horde_membership(
     nearby_within_radius: u32,
     min_count: u32,
@@ -420,11 +479,30 @@ pub fn evaluate_leftover_horde_membership(
 }
 
 /// Two-pass leftover blob: true members first, then RubOff honorary.
-/// `counts_toward(self_idx, other_idx, dist)` is PartitionFilterHordeMember + Radius.
+/// XZ-only wrapper (sphere 0) for tests; live host uses `_scan`.
 pub fn evaluate_leftover_horde_blob<F>(
     units: &[(f32, f32, bool)],
     min_count: u32,
     radius: f32,
+    rub_off_radius: f32,
+    counts_toward: F,
+) -> Vec<LeftoverHordeMembership>
+where
+    F: FnMut(usize, usize, f32) -> bool,
+{
+    let scan: Vec<LeftoverHordeScanUnit> = units
+        .iter()
+        .map(|(x, z, alive)| LeftoverHordeScanUnit::xz(*x, *z, *alive))
+        .collect();
+    evaluate_leftover_horde_blob_scan(&scan, min_count, radius, rub_off_radius, counts_toward)
+}
+
+/// C++ Count uses `FROM_BOUNDINGSPHERE_3D`; RubOff uses `FROM_CENTER_2D`
+/// against the 3D-scan candidate set.
+pub fn evaluate_leftover_horde_blob_scan<F>(
+    units: &[LeftoverHordeScanUnit],
+    min_count: u32,
+    _radius: f32,
     rub_off_radius: f32,
     mut counts_toward: F,
 ) -> Vec<LeftoverHordeMembership>
@@ -442,14 +520,14 @@ where
         n
     ];
     for i in 0..n {
-        if !units[i].2 {
+        if !units[i].alive {
             continue;
         }
         for j in 0..n {
             if i == j {
                 continue;
             }
-            let dist = distance_2d(units[i].0, units[i].1, units[j].0, units[j].1);
+            let dist = leftover_from_bounding_sphere_3d(&units[i], &units[j]);
             if counts_toward(i, j, dist) {
                 nearby[i] = nearby[i].saturating_add(1);
             }
@@ -463,15 +541,19 @@ where
         }
     }
     for i in 0..n {
-        if out[i].true_member || !units[i].2 {
+        if out[i].true_member || !units[i].alive {
             continue;
         }
         for j in 0..n {
             if i == j || !true_member[j] {
                 continue;
             }
-            let dist = distance_2d(units[i].0, units[i].1, units[j].0, units[j].1);
-            if dist <= radius && dist <= rub_off_radius && counts_toward(i, j, dist) {
+            let scan_dist = leftover_from_bounding_sphere_3d(&units[i], &units[j]);
+            if !counts_toward(i, j, scan_dist) {
+                continue;
+            }
+            let dist_2d = distance_2d(units[i].x, units[i].z, units[j].x, units[j].z);
+            if dist_2d <= rub_off_radius {
                 out[i] = LeftoverHordeMembership {
                     in_horde: true,
                     true_member: false,
@@ -595,17 +677,10 @@ pub fn is_china_vehicle_horde_unit(template_name: &str) -> bool {
         || is_overlord_horde_template(&n)
 }
 
-/// ExactMatch family: Battlemasters together, Dragons together, etc.
+/// C++ ExactMatch: same ThingTemplate identity (live: exact template name).
+/// Does not lump Emperor+Overlord or name-variant chassis.
 pub fn same_vehicle_horde_family(a: &str, b: &str) -> bool {
-    if is_battlemaster_template(a) && is_battlemaster_template(b) {
-        return true;
-    }
-    let na = a.to_ascii_lowercase();
-    let nb = b.to_ascii_lowercase();
-    (is_dragon_horde_template(&na) && is_dragon_horde_template(&nb))
-        || (is_inferno_horde_template(&na) && is_inferno_horde_template(&nb))
-        || (is_gattling_tank_horde_template(&na) && is_gattling_tank_horde_template(&nb))
-        || (is_overlord_horde_template(&na) && is_overlord_horde_template(&nb))
+    !a.is_empty() && a == b
 }
 
 /// C++ HordeUpdate infantry/vehicle terrain-decal matrix.
@@ -640,6 +715,46 @@ pub fn leftover_horde_decal_fade(was_in_horde: bool, now_in_horde: bool) -> Opti
     } else {
         None
     }
+}
+
+/// C++ INI `FlagSubObjectNames` leftover meshes (HordeFlag.W3D / FLAG).
+pub const HORDE_FLAG_SUB_OBJECT_NAMES: &[&str] = &["FLAG", "HordeFlag", "HordeFlag2"];
+
+fn leftover_china_infantry_horde_name(template_name: &str) -> bool {
+    let n = template_name.to_ascii_lowercase();
+    if n.contains("weapon")
+        || n.contains("missile")
+        || n.contains("projectile")
+        || n.contains("locomotor")
+    {
+        return false;
+    }
+    n.contains("redguard")
+        || n.contains("red_guard")
+        || n.contains("tankhunter")
+        || n.contains("tank_hunter")
+        || n.contains("minigunner")
+        || n.contains("mini_gunner")
+}
+
+pub fn leftover_unit_has_horde_flag_subobjects(template_name: &str) -> bool {
+    is_china_vehicle_horde_unit(template_name) || leftover_china_infantry_horde_name(template_name)
+}
+
+pub fn hide_leftover_horde_flag_subobjects(
+    vis: &mut crate::game_logic::host_sub_objects_upgrade::HostSubObjectVisibility,
+) {
+    vis.apply_show_hide(&[], HORDE_FLAG_SUB_OBJECT_NAMES);
+}
+
+pub fn leftover_horde_flag_visibility_for_template(
+    template_name: &str,
+) -> crate::game_logic::host_sub_objects_upgrade::HostSubObjectVisibility {
+    let mut vis = crate::game_logic::host_sub_objects_upgrade::HostSubObjectVisibility::default();
+    if leftover_unit_has_horde_flag_subobjects(template_name) {
+        hide_leftover_horde_flag_subobjects(&mut vis);
+    }
+    vis
 }
 
 
@@ -701,6 +816,9 @@ pub fn honesty_battlemaster_horde_residual_ok() -> bool {
         && leftover_horde_decal_type(false, false, false) == TERRAIN_DECAL_HORDE_VEHICLE
         && leftover_horde_decal_type(true, true, true) == TERRAIN_DECAL_HORDE_WITH_FANATICISM
         && (leftover_vehicle_horde_decal_size(13.0) - 45.5).abs() < 0.01
+        && same_vehicle_horde_family("ChinaTankBattleMaster", "ChinaTankBattleMaster")
+        && !same_vehicle_horde_family("ChinaTankOverlord", "ChinaTankEmperor")
+        && !same_vehicle_horde_family("ChinaTankBattleMaster", "Infa_ChinaTankBattleMaster")
 }
 
 /// Wave 67 residual honesty: Battlemaster body residual peel.
@@ -916,12 +1034,24 @@ mod tests {
         assert!(is_china_vehicle_horde_unit("ChinaTankOverlord"));
         assert!(!is_china_vehicle_horde_unit("OverlordGattlingCannon"));
         assert!(!is_china_vehicle_horde_unit("ChinaInfantryRedguard"));
-        assert!(same_vehicle_horde_family(
+        assert!(!same_vehicle_horde_family(
             "ChinaTankDragon",
             "Nuke_ChinaTankDragon"
         ));
         assert!(!same_vehicle_horde_family(
             "ChinaTankDragon",
+            "ChinaTankBattleMaster"
+        ));
+        assert!(!same_vehicle_horde_family(
+            "ChinaTankOverlord",
+            "ChinaTankEmperor"
+        ));
+        assert!(!same_vehicle_horde_family(
+            "ChinaTankBattleMaster",
+            "Infa_ChinaTankBattleMaster"
+        ));
+        assert!(same_vehicle_horde_family(
+            "ChinaTankBattleMaster",
             "ChinaTankBattleMaster"
         ));
     }
@@ -967,6 +1097,54 @@ mod tests {
         assert_eq!(leftover_horde_decal_fade(false, true), Some((1.0, 0.03)));
         assert_eq!(leftover_horde_decal_fade(true, false), Some((0.0, -0.03)));
         assert_eq!(leftover_horde_decal_fade(true, true), None);
+    }
+
+    #[test]
+    fn bounding_sphere_3d_count_includes_slack() {
+        // Centers 80 apart: 2D fails Radius 75; sphere 13+13 makes boundary 54.
+        let line: Vec<LeftoverHordeScanUnit> = [0.0, 20.0, 40.0, 60.0, 80.0]
+            .into_iter()
+            .map(|x| LeftoverHordeScanUnit {
+                x,
+                y: 0.0,
+                z: 0.0,
+                sphere_radius: 13.0,
+                alive: true,
+            })
+            .collect();
+        let with_sphere = evaluate_leftover_horde_blob_scan(
+            &line,
+            5,
+            75.0,
+            20.0,
+            |_, _, dist| dist <= 75.0,
+        );
+        assert!(with_sphere.iter().all(|m| m.true_member));
+
+        let no_slack: Vec<LeftoverHordeScanUnit> = [0.0, 20.0, 40.0, 60.0, 80.0]
+            .into_iter()
+            .map(|x| LeftoverHordeScanUnit::xz(x, 0.0, true))
+            .collect();
+        let without = evaluate_leftover_horde_blob_scan(
+            &no_slack,
+            5,
+            75.0,
+            20.0,
+            |_, _, dist| dist <= 75.0,
+        );
+        assert!(!without[0].true_member);
+        assert!((leftover_from_bounding_sphere_3d(&line[0], &line[4]) - 54.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn horde_flag_subobjects_hidden() {
+        let vis = leftover_horde_flag_visibility_for_template("ChinaTankBattleMaster");
+        assert!(vis.is_hidden("FLAG"));
+        assert!(vis.is_hidden("HordeFlag"));
+        let empty = leftover_horde_flag_visibility_for_template("AmericaTankCrusader");
+        assert!(!empty.is_hidden("FLAG"));
+        assert!((leftover_horde_major_radius(true, 13.0, 15.81) - 13.0).abs() < 0.01);
+        assert!((leftover_vehicle_horde_decal_size(13.0) - 45.5).abs() < 0.01);
     }
 
 

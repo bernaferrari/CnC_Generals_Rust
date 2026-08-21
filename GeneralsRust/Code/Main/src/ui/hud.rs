@@ -678,7 +678,11 @@ impl ConstructionPanel {
                 cost,
                 enabled: true,
                 hovered: false,
-                build_key: Some(key),
+                // C++ ControlBar.cpp:2472-2476 TextLabel `&` wins over hardcoded keys.
+                build_key: crate::ui::construction_panel::hotkey_for_command_name(&format!(
+                    "Command_Construct{name}"
+                ))
+                .or(Some(key)),
             });
         }
     }
@@ -1447,6 +1451,43 @@ impl GameHUD {
         self.visible
     }
 
+    /// C++ `HotKeyManager::executeHotKey` (HotKey.cpp:140-173): letter shortcuts
+    /// fire on RAW_KEY_UP when the mapped control-bar button is visible.
+    /// Hidden bar is inert. Disabled visible button plays GUIClickDisabled
+    /// and does not consume. Enabled button issues the command and GUIClick.
+    pub fn handle_letter_hotkey(&mut self, key: KeyCode) -> bool {
+        if !self.visible {
+            return false;
+        }
+        let mut disabled_hit = false;
+        for button in &self.command_buttons {
+            if button.hotkey != Some(key) {
+                continue;
+            }
+            if !button.enabled {
+                disabled_hit = true;
+                continue;
+            }
+            let command_name = localized_command(&button.command);
+            let log_msg = localization::localize_with_args(
+                "hud.log.command_hotkey",
+                "Command hotkey pressed: {command}",
+                &[("command", command_name.as_str())],
+            );
+            println!("{log_msg}");
+            self.pending_ui_events
+                .push(crate::ui::UIEvent::IssueCommand {
+                    command_name: button.command.clone(),
+                });
+            let _ = crate::assets::audio::play_sound_through_the_audio("GUIClick");
+            return true;
+        }
+        if disabled_hit {
+            let _ = crate::assets::audio::play_sound_through_the_audio("GUIClickDisabled");
+        }
+        false
+    }
+
     // Private methods
 
     fn update_command_buttons(&mut self) {
@@ -1594,23 +1635,9 @@ impl Interactive for GameHUD {
             }
         }
 
-        // Check command hotkeys
-        for button in &self.command_buttons {
-            if button.hotkey == Some(key) && button.enabled {
-                let command_name = localized_command(&button.command);
-                let log_msg = localization::localize_with_args(
-                    "hud.log.command_hotkey",
-                    "Command hotkey pressed: {command}",
-                    &[("command", command_name.as_str())],
-                );
-                println!("{log_msg}");
-                self.pending_ui_events
-                    .push(crate::ui::UIEvent::IssueCommand {
-                        command_name: button.command.clone(),
-                    });
-                return true;
-            }
-        }
+        // Control-bar letters are C++ HotKey key-up (handle_letter_hotkey).
+        // Do not fire or consume them on Pressed — MetaEvent/CommandMap owns
+        // the down (Ctrl+A SELECT_ALL, T ForceAttackGround, etc.).
 
         // Global HUD hotkeys: F9 toggles control bar (retail TOGGLE_CONTROL_BAR).
         // Do **not** bind H here — retail VIEW_COMMAND_CENTER is KEY_H.
@@ -2119,7 +2146,12 @@ mod tests {
         ]);
 
         assert!(
-            hud.handle_key_press(KeyCode::Q),
+            !hud.handle_key_press(KeyCode::Q),
+            "letters must not fire on key-down (C++ HotKey.cpp RAW_KEY_UP)"
+        );
+        assert!(hud.drain_pending_ui_events().is_empty());
+        assert!(
+            hud.handle_letter_hotkey(KeyCode::Q),
             "TextLabel &Q must bind Q"
         );
         let pending = hud.drain_pending_ui_events();
@@ -2133,9 +2165,43 @@ mod tests {
         assert!(
             !src.contains("\"Command_Scatter\" => Some")
                 && !src.contains("\"Command_Stop\" => Some")
-                && src.contains("command_button_hotkey(name)"),
-            "HUD must not hardcode five Command_* hotkeys"
+                && src.contains("command_button_hotkey(name)")
+                && src.contains("GUIClick")
+                && src.contains("GUIClickDisabled"),
+            "HUD must not hardcode five Command_* hotkeys and must play GUIClick"
         );
+    }
+
+    #[test]
+    fn letter_hotkey_hidden_bar_and_disabled_match_cpp_execute_hot_key() {
+        use game_engine::common::ini::ini_command_button::{
+            get_control_bar_mut, initialize_control_bar,
+        };
+
+        initialize_control_bar();
+        {
+            let mut bar = get_control_bar_mut().expect("control bar");
+            bar.new_command_button("Command_HqD1a8xZap".to_string())
+                .text_label = "&Q".to_string();
+        }
+
+        let mut hud = GameHUD::new();
+        hud.initialize().expect("init");
+        hud.apply_presentation_unit_commands(&[("Command_HqD1a8xZap".into(), true)]);
+        hud.toggle_visibility();
+        assert!(
+            !hud.hud_visible() && !hud.handle_letter_hotkey(KeyCode::Q),
+            "F9-hidden control bar must not fire letters (HotKey.cpp:150-151)"
+        );
+        assert!(hud.drain_pending_ui_events().is_empty());
+
+        hud.toggle_visibility();
+        hud.apply_presentation_unit_commands(&[("Command_HqD1a8xZap".into(), false)]);
+        assert!(
+            !hud.handle_letter_hotkey(KeyCode::Q),
+            "disabled visible button must not consume (HotKey.cpp:166-171)"
+        );
+        assert!(hud.drain_pending_ui_events().is_empty());
     }
 
     #[test]

@@ -2406,10 +2406,11 @@ impl CnCGameEngine {
                 pres.military_caption.as_deref(),
                 pres.military_caption_remaining_ms,
             );
-            // Wave 1060: floating cash/text residual → InGameUI.
+            // Wave 1060: floating cash/text residual → InGameUI (keep vanish phase).
             let floating: Vec<(String, [f32; 3], (u8, u8, u8), u32, u32)> = pres
                 .floating_texts
                 .iter()
+                .filter(|ft| ft.is_active_at(pres.frame.0))
                 .map(|ft| {
                     (
                         ft.text.clone(),
@@ -2422,6 +2423,23 @@ impl CnCGameEngine {
                 .collect();
             self.game_client
                 .apply_presentation_floating_texts(&floating);
+            let world_anims: Vec<(String, [f32; 3], f32, f32, bool, u32)> = pres
+                .world_anims
+                .iter()
+                .filter(|a| a.is_active_at(pres.frame.0))
+                .map(|a| {
+                    (
+                        a.template.clone(),
+                        [a.position.x, a.position.y, a.position.z],
+                        a.display_time_seconds,
+                        a.z_rise_per_second,
+                        a.fades,
+                        a.spawn_frame,
+                    )
+                })
+                .collect();
+            self.game_client
+                .apply_presentation_world_anims(&world_anims);
             let sw_timers: Vec<(String, String, bool)> = pres
                 .superweapon_timers
                 .iter()

@@ -6,8 +6,14 @@ use gamelogic::world::entities::EntityId;
 /// Pre-loop borrow-safe snapshots shared by per-entity timer helpers.
 pub(super) struct StatusTimerSnapshots {
     pub eids: Vec<EntityId>,
-    pub infantry_snapshot: Vec<(u32, u8, f32, f32, bool)>,
-    pub battlemaster_snapshot: Vec<(u32, u8, f32, f32, bool, String)>,
+    pub infantry_snapshot: Vec<(u32, Option<u32>, u8, crate::game_logic::host_battlemaster::LeftoverHordeScanUnit)>,
+    pub battlemaster_snapshot: Vec<(
+        u32,
+        Option<u32>,
+        u8,
+        crate::game_logic::host_battlemaster::LeftoverHordeScanUnit,
+        String,
+    )>,
     pub infantry_horde_now: std::collections::HashMap<u32, bool>,
     pub vehicle_horde_now: std::collections::HashMap<u32, bool>,
 
@@ -27,7 +33,12 @@ impl GameWorldShadow {
     fn collect_status_timer_snapshots(&self) -> StatusTimerSnapshots {
         let eids: Vec<EntityId> = self.host_to_entity.values().copied().collect();
         // Wave 813: snapshot living HordeUpdate infantry only (C++ getHUI).
-        let mut infantry_snapshot: Vec<(u32, u8, f32, f32, bool)> = Vec::new();
+        let mut infantry_snapshot: Vec<(
+            u32,
+            Option<u32>,
+            u8,
+            crate::game_logic::host_battlemaster::LeftoverHordeScanUnit,
+        )> = Vec::new();
         for eid in &eids {
             let Some(e) = self.world.entity(*eid) else {
                 continue;
@@ -44,16 +55,27 @@ impl GameWorldShadow {
             ) {
                 infantry_snapshot.push((
                     hid,
+                    self.host_player_for_gw_owner(e.owner),
                     e.team_ordinal,
-                    e.transform.position.x,
-                    e.transform.position.z,
-                    alive,
+                    crate::game_logic::host_battlemaster::LeftoverHordeScanUnit {
+                        x: e.transform.position.x,
+                        y: e.transform.position.y,
+                        z: e.transform.position.z,
+                        sphere_radius: e.selection_radius.max(0.0),
+                        alive,
+                    },
                 ));
             }
         }
 
         // Wave 812: snapshot living China HordeUpdate vehicles (not Battlemaster-only).
-        let mut battlemaster_snapshot: Vec<(u32, u8, f32, f32, bool, String)> = Vec::new();
+        let mut battlemaster_snapshot: Vec<(
+            u32,
+            Option<u32>,
+            u8,
+            crate::game_logic::host_battlemaster::LeftoverHordeScanUnit,
+            String,
+        )> = Vec::new();
         for eid in &eids {
             let Some(e) = self.world.entity(*eid) else {
                 continue;
@@ -69,17 +91,22 @@ impl GameWorldShadow {
             if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
                 battlemaster_snapshot.push((
                     hid,
+                    self.host_player_for_gw_owner(e.owner),
                     e.team_ordinal,
-                    e.transform.position.x,
-                    e.transform.position.z,
-                    alive,
+                    crate::game_logic::host_battlemaster::LeftoverHordeScanUnit {
+                        x: e.transform.position.x,
+                        y: e.transform.position.y,
+                        z: e.transform.position.z,
+                        sphere_radius: e.selection_radius.max(0.0),
+                        alive,
+                    },
                     e.template_name().to_string(),
                 ));
             }
         }
 
         use crate::game_logic::host_battlemaster::{
-            counts_toward_battlemaster_horde, evaluate_leftover_horde_blob,
+            counts_toward_battlemaster_horde, evaluate_leftover_horde_blob_scan,
             same_vehicle_horde_family, BATTLE_MASTER_HORDE_COUNT, BATTLE_MASTER_HORDE_RADIUS,
             BATTLE_MASTER_HORDE_RUB_OFF_RADIUS,
         };
@@ -87,20 +114,30 @@ impl GameWorldShadow {
             counts_toward_infantry_horde, INFANTRY_HORDE_COUNT, INFANTRY_HORDE_RADIUS,
             INFANTRY_HORDE_RUB_OFF_RADIUS,
         };
-        let inf_units: Vec<(f32, f32, bool)> = infantry_snapshot
-            .iter()
-            .map(|(_, _, x, z, a)| (*x, *z, *a))
-            .collect();
-        let inf_mem = evaluate_leftover_horde_blob(
+        let gw_horde_allies =
+            |a: Option<u32>, a_team: u8, b: Option<u32>, b_team: u8| -> bool {
+                match (a, b) {
+                    (Some(a), Some(b)) => a == b,
+                    (None, None) => a_team == b_team,
+                    _ => false,
+                }
+            };
+        let inf_units: Vec<_> = infantry_snapshot.iter().map(|u| u.3).collect();
+        let inf_mem = evaluate_leftover_horde_blob_scan(
             &inf_units,
             INFANTRY_HORDE_COUNT,
             INFANTRY_HORDE_RADIUS,
             INFANTRY_HORDE_RUB_OFF_RADIUS,
             |i, j, dist| {
                 counts_toward_infantry_horde(
-                    infantry_snapshot[i].4,
-                    infantry_snapshot[j].4,
-                    infantry_snapshot[i].1 == infantry_snapshot[j].1,
+                    infantry_snapshot[i].3.alive,
+                    infantry_snapshot[j].3.alive,
+                    gw_horde_allies(
+                        infantry_snapshot[i].1,
+                        infantry_snapshot[i].2,
+                        infantry_snapshot[j].1,
+                        infantry_snapshot[j].2,
+                    ),
                     true,
                     dist,
                     INFANTRY_HORDE_RADIUS,
@@ -108,26 +145,28 @@ impl GameWorldShadow {
             },
         );
         let mut infantry_horde_now = std::collections::HashMap::new();
-        for (idx, (hid, _, _, _, _)) in infantry_snapshot.iter().enumerate() {
+        for (idx, (hid, _, _, _)) in infantry_snapshot.iter().enumerate() {
             infantry_horde_now.insert(*hid, inf_mem[idx].in_horde);
         }
-        let veh_units: Vec<(f32, f32, bool)> = battlemaster_snapshot
-            .iter()
-            .map(|(_, _, x, z, a, _)| (*x, *z, *a))
-            .collect();
-        let veh_mem = evaluate_leftover_horde_blob(
+        let veh_units: Vec<_> = battlemaster_snapshot.iter().map(|u| u.3).collect();
+        let veh_mem = evaluate_leftover_horde_blob_scan(
             &veh_units,
             BATTLE_MASTER_HORDE_COUNT,
             BATTLE_MASTER_HORDE_RADIUS,
             BATTLE_MASTER_HORDE_RUB_OFF_RADIUS,
             |i, j, dist| {
                 counts_toward_battlemaster_horde(
-                    battlemaster_snapshot[i].4,
-                    battlemaster_snapshot[j].4,
-                    battlemaster_snapshot[i].1 == battlemaster_snapshot[j].1,
+                    battlemaster_snapshot[i].3.alive,
+                    battlemaster_snapshot[j].3.alive,
+                    gw_horde_allies(
+                        battlemaster_snapshot[i].1,
+                        battlemaster_snapshot[i].2,
+                        battlemaster_snapshot[j].1,
+                        battlemaster_snapshot[j].2,
+                    ),
                     same_vehicle_horde_family(
-                        &battlemaster_snapshot[i].5,
-                        &battlemaster_snapshot[j].5,
+                        &battlemaster_snapshot[i].4,
+                        &battlemaster_snapshot[j].4,
                     ),
                     dist,
                     BATTLE_MASTER_HORDE_RADIUS,
@@ -135,7 +174,7 @@ impl GameWorldShadow {
             },
         );
         let mut vehicle_horde_now = std::collections::HashMap::new();
-        for (idx, (hid, _, _, _, _, _)) in battlemaster_snapshot.iter().enumerate() {
+        for (idx, (hid, _, _, _, _)) in battlemaster_snapshot.iter().enumerate() {
             vehicle_horde_now.insert(*hid, veh_mem[idx].in_horde);
         }
 

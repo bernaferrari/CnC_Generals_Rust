@@ -40,6 +40,32 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
+    /// C++ force-move VoiceCrush when the dest drawable is crushable.
+    fn force_move_has_crush_target(&self, units: &[ObjectId], dest: Vec3) -> bool {
+        let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
+        for &uid in units {
+            let Some(unit) = self.game_logic.host_object(uid) else {
+                continue;
+            };
+            for other in self.game_logic.objects.values() {
+                if other.id == uid || !other.is_alive() {
+                    continue;
+                }
+                let p = other.get_position();
+                let dx = p.x - dest.x;
+                let dz = p.z - dest.z;
+                if dx * dx + dz * dz > cell * cell {
+                    continue;
+                }
+                let ally = unit.team == other.team;
+                if unit.can_crush_only(other, ally) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     /// C++ `KINDOF_PRODUCED_AT_HELIPAD` — host KindOf bank does not retain the
     /// bit, so reuse the existing helicopter template detector.
     fn is_produced_at_helipad(unit: &crate::game_logic::object::Object) -> bool {
@@ -782,6 +808,13 @@ impl<'a> CommandExecutor<'a> {
             moved.push(unit_id);
         }
         self.apply_player_stealth_mood_delay(&moved);
+        let crush = self.force_move_has_crush_target(&moved, destination);
+        let slot = if crush {
+            crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Crush
+        } else {
+            crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Move
+        };
+        self.game_logic.queue_picked_unit_voice(&moved, slot);
         CommandResult::Success
     }
 

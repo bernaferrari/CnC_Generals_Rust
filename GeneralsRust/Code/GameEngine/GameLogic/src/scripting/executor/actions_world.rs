@@ -1096,6 +1096,13 @@ impl ScriptActionDispatcher {
         let cave_index = self.get_int_param(action, 1)?;
         log::debug!("Setting cave '{}' index to {}", cave_name, cave_index);
 
+        // Live host: leftover OBJECT_REGISTRY is empty. C++ doSetCaveIndex
+        // still looks up the named cave and tryToSetCaveIndex.
+        if super::dual_world_registry_unavailable() {
+            super::request_host_set_cave_index(&cave_name, cave_index);
+            return Ok(ScriptActionResult::Success);
+        }
+
         let tracker = get_named_object_tracker();
         if let Ok(Some(object_id)) = tracker.get_object_id(&cave_name) {
             if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {

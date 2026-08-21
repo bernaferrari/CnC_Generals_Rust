@@ -338,7 +338,30 @@ impl PresentationFrame {
                     self.frame.0,
                 );
                 if self.local_viewer_uses_friendly_stealth_look(object) {
-                    input.presentation_opacity = object.friendly_stealth_opacity.clamp(0.0, 1.0);
+                    let is_mine = object.has_mine
+                        || object
+                            .kind_of
+                            .iter()
+                            .any(|k| matches!(k, KindOf::Mine | KindOf::DemoTrap));
+                    let stealth = if is_mine {
+                        object.friendly_stealth_opacity.clamp(0.0, 1.0)
+                    } else {
+                        crate::game_logic::friendly_stealth_pulse_opacity(
+                            object.friendly_stealth_opacity,
+                            object.id.0,
+                            self.frame.0,
+                        )
+                    };
+                    input.presentation_opacity = stealth;
+                }
+                let fade = crate::game_logic::drawable_explicit_fade_opacity(
+                    object.drawable_fade_mode,
+                    object.drawable_fade_start_frame,
+                    object.drawable_fade_frames,
+                    self.frame.0,
+                );
+                if fade < 0.999 {
+                    input.presentation_opacity = (input.presentation_opacity * fade).clamp(0.0, 1.0);
                 }
                 // Compatibility fallback for a GameWorld-only record with no
                 // resident direct Drawable identity. The normal direct-host

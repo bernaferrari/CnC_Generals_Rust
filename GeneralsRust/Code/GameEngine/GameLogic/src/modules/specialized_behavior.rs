@@ -56,6 +56,10 @@ pub trait HordeUpdateInterface: Send + Sync + crate::common::AsAny {
     fn is_allowed_nationalism(&self) -> bool {
         true
     }
+
+    fn has_flag(&self) -> bool {
+        false
+    }
 }
 
 /// Power plant update interface (overcharge behavior uses this)

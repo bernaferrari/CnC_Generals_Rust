@@ -1,10 +1,12 @@
 //! Host China Propaganda / Speaker Tower residual (heal + weapon buff).
 //!
 //! Residual slice (playability):
-//! - ChinaSpeakerTower / *PropagandaTower / ListeningOutpost / Emperor tanks:
+//! - ChinaSpeakerTower / *PropagandaTower / Emperor tanks:
 //!   C++ `PropagandaTowerBehavior` radius pulse residual —
-//!   heals damaged **same-team non-structure** units in radius over time and
-//!   applies ENTHUSIASTIC (base) / SUBLIMINAL (upgrade) weapon-bonus flags.
+//!   heals damaged **allied non-structure SCORE** units in radius over time and
+//!   applies ENTHUSIASTIC (base) / SUBLIMINAL (upgrade) weapon-bonus flags
+//!   only when `hasAnyDamageWeapon`.
+//! - Listening Outpost is **not** a propaganda source (no PropagandaTowerBehavior).
 //! - Retail ChinaSpeakerTower INI ModuleTag_06 residual:
 //!   Radius=150, DelayBetweenUpdates=2000ms, HealPercentEachSecond=2%,
 //!   UpgradedHealPercentEachSecond=4%, UpgradeRequired=Upgrade_ChinaSubliminalMessaging.
@@ -15,16 +17,22 @@
 //! - Sole-benefactor residual map (first-tower-wins per pulse; multi-tower reject)
 //! - UpgradeRequired = Upgrade_ChinaSubliminalMessaging residual
 //!
+//! C++ gates now on the live host pulse:
+//! - OBJECT_STATUS_SOLD → removeAllInfluence
+//! - Scan delay 2000ms for enter/leave membership (`m_lastScanFrame`)
+//! - Double-contain / Emperor-in-container suppress
+//! - PartitionFilterRelationship ALLOW_ALLIES
+//! - SCORE kinds + hasAnyDamageWeapon for weapon bonus
+//! - Stealthed PulseFX suppress for non-local owners
+//!
 //! Fail-closed honesty:
 //! - Not full C++ multi-tower ObjectTracker influence matrix beyond residual map
-//! - Not full ally relationship filter (uses same-team residual)
-//! - Not full double-contain / stealthed FX suppress / POWERED underpower gate
 //! - Not full player vs object UpgradeType switch matrix beyond residual tag
-//! - Not full PulseFX / world-anim propaganda pulse
 //! - Not network propaganda replication (network deferred)
 
 use super::ObjectId;
 use std::collections::HashMap;
+
 
 /// Logic frames per second residual (C++ LOGICFRAMES_PER_SECOND).
 pub const PROPAGANDA_LOGIC_FPS: f32 = 30.0;
@@ -75,31 +83,108 @@ pub fn propaganda_ms_to_frames(ms: u32) -> u32 {
 /// Whether template is a residual propaganda / speaker tower source.
 ///
 /// Fail-closed: name-based residual (not full INI PropagandaTowerBehavior module matrix).
-/// Excludes PropagandaCenter (research building, different module).
+/// Excludes PropagandaCenter (research building) and Listening Outpost
+/// (`ChinaVehicleListeningOutpost` has no PropagandaTowerBehavior).
 pub fn is_propaganda_tower(template_name: &str) -> bool {
     let n = template_name.to_ascii_lowercase();
-    if n.contains("propagandacenter") {
+    if n.contains("propagandacenter") || n.contains("listeningoutpost") {
         return false;
     }
     n.contains("speakertower")
         || n.contains("propagandatower")
-        || n.contains("listeningoutpost")
         || n.contains("tankemperor")
         || n.ends_with("emperor")
 }
 
+/// Portable Overlord/Helix propaganda payload (C++ KINDOF_PORTABLE_STRUCTURE).
+pub fn is_portable_propaganda_structure(template_name: &str) -> bool {
+    let n = template_name.to_ascii_lowercase();
+    n.contains("propagandatower")
+}
+
+/// C++ `update` / `doScan` nested-contain + Emperor-in-container suppress.
+///
+/// Portable tower on an Overlord still pulses. That Overlord inside a Helix,
+/// or an Emperor (vehicle, not portable) inside a Helix, does not.
+pub fn propaganda_source_suppressed(
+    contained: bool,
+    container_is_contained: bool,
+    is_vehicle: bool,
+    is_portable_structure: bool,
+) -> bool {
+    if !contained {
+        return false;
+    }
+    if container_is_contained {
+        return true;
+    }
+    is_vehicle && !is_portable_structure
+}
+
 /// Whether residual target can receive propaganda heal/buff.
 ///
-/// C++ filters: allies, alive, same map status, not STRUCTURE, optional AffectsSelf=false.
+/// C++ filters: ALLOW_ALLIES, alive, same map status, not STRUCTURE,
+/// optional AffectsSelf=false. SCORE / hasAnyDamageWeapon are applied later.
 pub fn is_legal_propaganda_target(
     is_structure: bool,
     is_alive: bool,
-    same_team: bool,
+    is_ally: bool,
     is_self: bool,
     under_construction: bool,
 ) -> bool {
-    !is_structure && is_alive && same_team && !is_self && !under_construction
+    !is_structure && is_alive && is_ally && !is_self && !under_construction
 }
+
+/// C++ `update` effectLogic gate: SCORE | SCORE_CREATE | SCORE_DESTROY | MP_COUNT_FOR_VICTORY.
+pub fn is_propaganda_score_kind(
+    score: bool,
+    score_create: bool,
+    score_destroy: bool,
+    mp_count_for_victory: bool,
+) -> bool {
+    score || score_create || score_destroy || mp_count_for_victory
+}
+
+/// C++ `effectLogic` weapon-bonus gate (`hasAnyDamageWeapon`).
+/// Heal still applies to SCORE units without a damage weapon.
+pub fn propaganda_applies_weapon_bonus(has_any_damage_weapon: bool) -> bool {
+    has_any_damage_weapon
+}
+
+/// Host `hasAnyDamageWeapon` residual.
+///
+/// Kind-default `Weapon` on Dozer/Worker/Harvester is not a C++ damage weapon.
+pub fn host_has_any_damage_weapon(
+    has_bound_damage_weapon: bool,
+    is_unarmed_worker_kind: bool,
+    has_authored_weapon_name: bool,
+) -> bool {
+    if is_unarmed_worker_kind && !has_authored_weapon_name {
+        return false;
+    }
+    has_bound_damage_weapon
+}
+
+/// C++ `doScan` PulseFX suppress (PropagandaTowerBehavior.cpp:411-448).
+///
+/// Non-local owner + stealthed (self or container) and not DETECTED → no FX.
+pub fn should_play_propaganda_pulse_fx(
+    is_local_owner: bool,
+    self_stealthed: bool,
+    self_detected: bool,
+    contained: bool,
+    container_stealthed: bool,
+    container_detected: bool,
+) -> bool {
+    if contained && !is_local_owner && container_stealthed && !container_detected {
+        return false;
+    }
+    if !is_local_owner && self_stealthed && !self_detected {
+        return false;
+    }
+    true
+}
+
 
 /// 2D distance check residual (C++ FROM_CENTER_2D).
 pub fn in_propaganda_radius_2d(tower_pos: (f32, f32), target_pos: (f32, f32), radius: f32) -> bool {
@@ -204,6 +289,61 @@ impl HostPropagandaHealExclusivity {
     }
 }
 
+/// Per-tower `m_lastScanFrame` + `m_insideList` (C++ PropagandaTowerBehavior).
+#[derive(Debug, Clone, Default)]
+pub struct HostPropagandaScanState {
+    last_scan_frame: HashMap<ObjectId, u32>,
+    inside: HashMap<ObjectId, Vec<ObjectId>>,
+}
+
+impl HostPropagandaScanState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn clear(&mut self) {
+        self.last_scan_frame.clear();
+        self.inside.clear();
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.last_scan_frame.is_empty() && self.inside.is_empty()
+    }
+
+    /// First scan is immediate; later membership updates wait `delay` frames.
+    pub fn should_scan(&self, tower: ObjectId, frame: u32, delay: u32) -> bool {
+        match self.last_scan_frame.get(&tower) {
+            None => true,
+            Some(last) => frame.saturating_sub(*last) >= delay,
+        }
+    }
+
+    pub fn mark_scanned(&mut self, tower: ObjectId, frame: u32) {
+        self.last_scan_frame.insert(tower, frame);
+    }
+
+    pub fn set_inside(&mut self, tower: ObjectId, ids: Vec<ObjectId>) {
+        self.inside.insert(tower, ids);
+    }
+
+    pub fn inside(&self, tower: ObjectId) -> &[ObjectId] {
+        self.inside
+            .get(&tower)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    pub fn take_tower(&mut self, tower: ObjectId) -> Vec<ObjectId> {
+        self.last_scan_frame.remove(&tower);
+        self.inside.remove(&tower).unwrap_or_default()
+    }
+
+    pub fn covered_targets(&self) -> impl Iterator<Item = ObjectId> + '_ {
+        self.inside.values().flatten().copied()
+    }
+}
+
+
 /// Wave 52 residual honesty: radius / delay / heal% / flags / upgrade residual.
 pub fn honesty_propaganda_residual_ok() -> bool {
     (HOST_PROPAGANDA_TOWER_RADIUS - 150.0).abs() < 0.01
@@ -237,7 +377,13 @@ mod tests {
         assert!(is_propaganda_tower("Tank_ChinaSpeakerTower"));
         assert!(is_propaganda_tower("ChinaTankOverlordPropagandaTower"));
         assert!(is_propaganda_tower("ChinaHelixPropagandaTower"));
-        assert!(is_propaganda_tower("ChinaVehicleListeningOutpost"));
+        assert!(!is_propaganda_tower("ChinaVehicleListeningOutpost"));
+        assert!(!is_propaganda_tower("Tank_ChinaVehicleListeningOutpost"));
+        assert!(is_portable_propaganda_structure(
+            "ChinaTankOverlordPropagandaTower"
+        ));
+        assert!(!is_portable_propaganda_structure("Tank_ChinaTankEmperor"));
+        assert!(!is_portable_propaganda_structure("ChinaSpeakerTower"));
         assert!(is_propaganda_tower("Tank_ChinaTankEmperor"));
         assert!(is_propaganda_tower("Boss_SpeakerTower"));
         assert!(!is_propaganda_tower("ChinaPropagandaCenter"));
@@ -338,4 +484,75 @@ mod tests {
         assert!((HOST_PROPAGANDA_HEAL_PERCENT_PER_SEC - 0.02).abs() < 0.0001);
         assert_eq!(WEAPON_BONUS_ENTHUSIASTIC, 8);
     }
+
+    #[test]
+    fn listening_outpost_is_not_a_propaganda_source() {
+        assert!(!is_propaganda_tower("ChinaVehicleListeningOutpost"));
+        assert!(!is_propaganda_tower("Nuke_ChinaVehicleListeningOutpost"));
+        assert!(!is_propaganda_tower("Infa_ChinaVehicleListeningOutpost"));
+    }
+
+    #[test]
+    fn score_kind_and_unarmed_weapon_bonus_gates() {
+        assert!(is_propaganda_score_kind(true, false, false, false));
+        assert!(is_propaganda_score_kind(false, true, false, false));
+        assert!(is_propaganda_score_kind(false, false, true, false));
+        assert!(is_propaganda_score_kind(false, false, false, true));
+        assert!(!is_propaganda_score_kind(false, false, false, false));
+        assert!(propaganda_applies_weapon_bonus(true));
+        assert!(!propaganda_applies_weapon_bonus(false));
+        assert!(!host_has_any_damage_weapon(true, true, false));
+        assert!(host_has_any_damage_weapon(true, true, true));
+        assert!(host_has_any_damage_weapon(true, false, false));
+        assert!(!host_has_any_damage_weapon(false, false, false));
+    }
+
+    #[test]
+    fn stealthed_pulse_fx_hidden_from_enemies() {
+        assert!(should_play_propaganda_pulse_fx(
+            true, true, false, false, false, false
+        ));
+        assert!(!should_play_propaganda_pulse_fx(
+            false, true, false, false, false, false
+        ));
+        assert!(should_play_propaganda_pulse_fx(
+            false, true, true, false, false, false
+        ));
+        assert!(!should_play_propaganda_pulse_fx(
+            false, false, false, true, true, false
+        ));
+        assert!(should_play_propaganda_pulse_fx(
+            false, false, false, true, true, true
+        ));
+        assert!(should_play_propaganda_pulse_fx(
+            true, false, false, true, true, false
+        ));
+    }
+
+    #[test]
+    fn double_contain_and_emperor_in_container_suppress() {
+        assert!(!propaganda_source_suppressed(false, false, true, false));
+        assert!(!propaganda_source_suppressed(true, false, false, true));
+        assert!(propaganda_source_suppressed(true, true, false, true));
+        assert!(propaganda_source_suppressed(true, false, true, false));
+        assert!(!propaganda_source_suppressed(true, false, true, true));
+    }
+
+    #[test]
+    fn scan_delay_lags_enter_and_leave() {
+        let mut scan = HostPropagandaScanState::new();
+        let tower = ObjectId(1);
+        let unit = ObjectId(2);
+        assert!(scan.should_scan(tower, 0, 60));
+        scan.set_inside(tower, vec![unit]);
+        scan.mark_scanned(tower, 0);
+        assert!(!scan.should_scan(tower, 0, 60));
+        assert!(!scan.should_scan(tower, 59, 60));
+        assert!(scan.should_scan(tower, 60, 60));
+        assert_eq!(scan.inside(tower), &[unit]);
+        let dropped = scan.take_tower(tower);
+        assert_eq!(dropped, vec![unit]);
+        assert!(scan.should_scan(tower, 60, 60));
+    }
+
 }

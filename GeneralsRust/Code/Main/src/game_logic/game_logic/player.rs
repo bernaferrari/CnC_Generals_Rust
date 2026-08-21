@@ -160,6 +160,13 @@ pub struct Player {
     pub resource_supply_warehouses: Vec<ObjectId>,
     /// C++ initFromDict / PlayerList relationship leftovers from the map SidesList.
     pub map_side: PlayerMapSideState,
+    /// C++ `Player::m_teamRelations` — script team-id overrides keyed by
+    /// team instance name (`PLAYER_SET_OVERRIDE_RELATION_TO_TEAM`).
+    pub team_relations: HashMap<String, gamelogic::common::Relationship>,
+    /// C++ `Player::m_sciencesDisabled` (script `PLAYER_SCIENCE_AVAILABILITY`).
+    pub sciences_disabled: HashSet<String>,
+    /// C++ `Player::m_sciencesHidden`.
+    pub sciences_hidden: HashSet<String>,
     /// C++ `Player::m_attackedBy[MAX_PLAYER_COUNT]` (Player.cpp:3864).
     pub attacked_by: [bool; Self::MAX_ATTACKED_BY_PLAYERS],
     /// C++ `Player::m_attackedFrame` — last frame `setAttackedBy` fired.
@@ -367,6 +374,9 @@ impl Player {
             can_build_base: true,
 
             shared_special_power_cooldowns: HashMap::new(),
+            team_relations: HashMap::new(),
+            sciences_disabled: HashSet::new(),
+            sciences_hidden: HashSet::new(),
             map_side: PlayerMapSideState::default(),
             completed_upgrades: HashSet::new(),
             resource_supply_centers: Vec::new(),
@@ -1067,6 +1077,15 @@ impl Player {
 
     /// C++ Player::isCapableOfPurchasingScience residual.
     pub fn is_capable_of_purchasing_science(&self, science_name: &str) -> bool {
+        if self.is_science_disabled(science_name) || self.is_science_hidden(science_name) {
+            return false;
+        }
+        if crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::leftover_science_hidden_or_disabled(
+            self.id,
+            science_name,
+        ) {
+            return false;
+        }
         crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::is_capable_of_purchasing_science_residual(
             &self.unlocked_sciences,
             self.science_purchase_points,
@@ -1188,6 +1207,106 @@ impl Player {
         other_player_id: u32,
     ) -> Option<gamelogic::common::Relationship> {
         self.map_side.relations.get(&other_player_id).copied()
+    }
+
+    /// C++ `Handicap::getHandicap(BUILDTIME, …)`.
+    pub fn handicap_build_time_multiplier(&self, is_structure: bool) -> f32 {
+        if is_structure {
+            self.map_side.handicap_build_time_buildings
+        } else {
+            self.map_side.handicap_build_time_generic
+        }
+    }
+
+    fn normalize_team_instance_name(name: &str) -> String {
+        name.trim().to_ascii_lowercase()
+    }
+
+    /// C++ `Player::setTeamRelationship`.
+    pub fn set_team_relationship_override(
+        &mut self,
+        team_name: &str,
+        relationship: gamelogic::common::Relationship,
+    ) {
+        let key = Self::normalize_team_instance_name(team_name);
+        if key.is_empty() {
+            return;
+        }
+        self.team_relations.insert(key, relationship);
+    }
+
+    /// C++ `Player::removeTeamRelationship` for one named team.
+    pub fn remove_team_relationship_override(&mut self, team_name: &str) -> bool {
+        let key = Self::normalize_team_instance_name(team_name);
+        if key.is_empty() {
+            return false;
+        }
+        self.team_relations.remove(&key).is_some()
+    }
+
+    /// C++ `Player::getRelationship(const Team*)` team-id map lookup.
+    pub fn team_relationship_override(
+        &self,
+        team_name: &str,
+    ) -> Option<gamelogic::common::Relationship> {
+        let key = Self::normalize_team_instance_name(team_name);
+        if key.is_empty() {
+            return None;
+        }
+        self.team_relations.get(&key).copied()
+    }
+
+    /// C++ `Player::isScienceDisabled`.
+    pub fn is_science_disabled(&self, science_name: &str) -> bool {
+        use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::normalize_science_name_residual;
+        let key = normalize_science_name_residual(science_name);
+        if key.is_empty() {
+            return false;
+        }
+        self.sciences_disabled
+            .iter()
+            .any(|s| normalize_science_name_residual(s) == key)
+    }
+
+    /// C++ `Player::isScienceHidden`.
+    pub fn is_science_hidden(&self, science_name: &str) -> bool {
+        use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::normalize_science_name_residual;
+        let key = normalize_science_name_residual(science_name);
+        if key.is_empty() {
+            return false;
+        }
+        self.sciences_hidden
+            .iter()
+            .any(|s| normalize_science_name_residual(s) == key)
+    }
+
+    /// C++ `Player::setScienceAvailability`.
+    pub fn set_science_availability(&mut self, science_name: &str, availability: &str) -> bool {
+        use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::normalize_science_name_residual;
+        let key = normalize_science_name_residual(science_name);
+        if key.is_empty() {
+            return false;
+        }
+        let avail = availability.trim();
+        if avail.eq_ignore_ascii_case("Available") {
+            self.sciences_disabled
+                .retain(|s| normalize_science_name_residual(s) != key);
+            self.sciences_hidden
+                .retain(|s| normalize_science_name_residual(s) != key);
+            true
+        } else if avail.eq_ignore_ascii_case("Disabled") {
+            self.sciences_hidden
+                .retain(|s| normalize_science_name_residual(s) != key);
+            self.sciences_disabled.insert(key);
+            true
+        } else if avail.eq_ignore_ascii_case("Hidden") {
+            self.sciences_disabled
+                .retain(|s| normalize_science_name_residual(s) != key);
+            self.sciences_hidden.insert(key);
+            true
+        } else {
+            false
+        }
     }
 
     /// C++ `Handicap::getHandicap(BUILDCOST, …)`.
@@ -1461,6 +1580,60 @@ mod map_side_dict_tests {
         player.complete_researched_upgrade("Upgrade_AmericaSupplyLines");
         assert!(player.has_unlocked_upgrade("Upgrade_AmericaSupplyLines"));
         assert!(!player.queue_upgrade("Upgrade_AmericaSupplyLines", &cost));
+    }
+
+    #[test]
+    fn handicap_time_keys_apply_from_dict() {
+        let mut player = Player::new(0, Team::USA, "P", true);
+        let mut dict = Dict::new();
+        dict.set_real(
+            NameKeyGenerator::name_to_key("HANDICAP_BUILDTIME_BUILDINGS"),
+            0.5,
+        );
+        player.apply_map_side_dict(&dict, false);
+        assert!((player.handicap_build_time_multiplier(true) - 0.5).abs() < f32::EPSILON);
+        assert!((player.handicap_build_time_multiplier(false) - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn science_hide_and_disable_gate_purchase() {
+        // C++ Player.cpp:2616-2618 isCapableOfPurchasingScience.
+        let mut player = Player::new(0, Team::USA, "P", true);
+        player.unlocked_sciences.insert("SCIENCE_Rank1".into());
+        player.science_purchase_points = 5;
+        assert!(player.set_science_availability("SCIENCE_DaisyCutter", "Hidden"));
+        assert!(player.is_science_hidden("SCIENCE_DaisyCutter"));
+        assert!(!player.is_capable_of_purchasing_science("SCIENCE_DaisyCutter"));
+        assert!(!player.attempt_to_purchase_science("SCIENCE_DaisyCutter"));
+        assert!(player.set_science_availability("SCIENCE_DaisyCutter", "Available"));
+        assert!(!player.is_science_hidden("SCIENCE_DaisyCutter"));
+        assert!(player.set_science_availability("SCIENCE_DaisyCutter", "Disabled"));
+        assert!(player.is_science_disabled("SCIENCE_DaisyCutter"));
+        assert!(!player.is_capable_of_purchasing_science("SCIENCE_DaisyCutter"));
+    }
+
+    #[test]
+    fn handicap_multiplies_live_build_cost_and_time() {
+        // C++ ThingTemplate.cpp:1508-1527 calcCostToBuild / calcTimeToBuild.
+        let mut logic = GameLogic::new();
+        let mut p = Player::new(0, Team::USA, "P", true);
+        p.map_side.handicap_build_cost_buildings = 0.75;
+        p.map_side.handicap_build_time_buildings = 0.5;
+        logic.add_player(p);
+        let mut factory = ThingTemplate::new("WarFactory");
+        factory.add_kind_of(KindOf::Structure);
+        logic.templates.insert("WarFactory".into(), factory);
+        assert_eq!(
+            logic.modified_build_cost_supplies(0, "WarFactory", 1000),
+            750
+        );
+        let secs = logic.modified_build_time_seconds(0, "WarFactory", 10.0);
+        // 10s * 30 = 300 frames * 0.5 handicap = 150 frames + 0.25 encoding / 30.
+        let expected = (150.0 + 0.25) / 30.0;
+        assert!(
+            (secs - expected).abs() < 1e-5,
+            "handicap time seconds {secs} vs {expected}"
+        );
     }
 
 }

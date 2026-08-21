@@ -1714,6 +1714,7 @@ fn physical_rmb_dock_uses_exact_controller_not_same_faction_friendliness() {
                 capture_power: crate::game_logic::CapturePowerKind::None,
                 capture_power_ready: false,
                 is_salvager: false,
+                can_override_special_power_destination: false,
             }],
             presentation_box_select_units: Vec::new(),
             presentation_select_similar_units: Vec::new(),
@@ -2798,11 +2799,22 @@ fn propaganda_tower_residual_out_of_range_then_in_range() {
     }
     assert!(!game_logic.honesty_propaganda_ok());
 
-    // Move into radius.
+    // Move into radius — membership waits for the next 2s scan.
     {
         let unit = game_logic.host_object_mut(unit_id).expect("unit");
         unit.set_position(Vec3::new(40.0, 0.0, 0.0));
     }
+    game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
+    {
+        let unit = game_logic.host_object(unit_id).expect("unit");
+        assert!(
+            !unit.weapon_bonus_enthusiastic,
+            "enter waits for next scan (C++ m_scanDelayInFrames)"
+        );
+    }
+    game_logic.frame = game_logic
+        .frame
+        .saturating_add(crate::game_logic::host_propaganda::HOST_PROPAGANDA_DELAY_BETWEEN_UPDATES_FRAMES);
     for _ in 0..30 {
         game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
     }
@@ -2816,7 +2828,7 @@ fn propaganda_tower_residual_out_of_range_then_in_range() {
     }
     assert!(game_logic.honesty_propaganda_ok());
 
-    // Leave radius: buff clears.
+    // Leave radius: buff sticks until the next scan.
     {
         let unit = game_logic.host_object_mut(unit_id).expect("unit");
         unit.set_position(Vec3::new(300.0, 0.0, 0.0));
@@ -2825,11 +2837,23 @@ fn propaganda_tower_residual_out_of_range_then_in_range() {
     {
         let unit = game_logic.host_object(unit_id).expect("unit");
         assert!(
+            unit.weapon_bonus_enthusiastic,
+            "leave keeps ENTHUSIASTIC until next scan"
+        );
+    }
+    game_logic.frame = game_logic
+        .frame
+        .saturating_add(crate::game_logic::host_propaganda::HOST_PROPAGANDA_DELAY_BETWEEN_UPDATES_FRAMES);
+    game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
+    {
+        let unit = game_logic.host_object(unit_id).expect("unit");
+        assert!(
             !unit.weapon_bonus_enthusiastic,
-            "leaving radius must clear ENTHUSIASTIC residual buff"
+            "next scan after leave must clear ENTHUSIASTIC"
         );
         assert!(!unit.weapon_bonus_subliminal);
     }
+
 }
 
 /// Residual: enemy units near speaker tower are not healed/buffed (same-team filter).
@@ -3144,6 +3168,7 @@ fn physical_service_commands_use_player_relationship_and_revalidate_owner_change
         capture_power: CapturePowerKind::None,
         capture_power_ready: false,
         is_salvager: false,
+        can_override_special_power_destination: false,
     };
     let service_context =
         |target_id, team, is_enemy_of_local, is_friendly_of_local| MouseCommandContext {

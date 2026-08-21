@@ -249,6 +249,10 @@ pub struct UnitRenderInput {
     /// from FOW alpha: C++ friendly stealth uses alpha blending while FOW
     /// remains fully visible for the allied viewer.
     pub presentation_opacity: f32,
+    /// Frozen C++ Drawable tint-status RGB (signed additive; 0 = none).
+    pub status_tint: [f32; 3],
+    /// Frozen stored supply boxes/cash used to stamp MODELCONDITION_CARRYING.
+    pub stored_supplies: u32,
     /// Frozen direct-object C++ shroud facts.  Renderer code receives this
     /// owned input and must not derive an ordinal status from FOW alpha.
     pub drawable_shroud: PresentationDrawableShroudFacts,
@@ -367,6 +371,13 @@ impl UnitRenderInput {
             engine_bridged: ro.engine_bridged,
             fow_visibility: ro.fow_visibility,
             presentation_opacity: 1.0,
+            status_tint: crate::game_logic::drawable_status_tint_rgb(
+                ro.disabled_emp || ro.disabled_hacked || ro.disabled_unmanned,
+                ro.gaining_subdual || ro.disabled_subdued,
+                ro.weapon_bonus_frenzy,
+                matches!(ro.object_type, PresentationObjectType::Infantry),
+            ),
+            stored_supplies: ro.stored_supplies,
             drawable_shroud: ro.drawable_shroud,
         }
     }
@@ -1109,8 +1120,11 @@ impl UnitRenderInput {
                 bits &= !(1u128 << cheer_b);
             }
             let carry_b = carrying_model_bit();
-            // Infantry non-combat ability residual (flag/crate-like carry pose).
-            if self.using_ability && infantry && !self.attacking && !self.is_firing_weapon {
+            // C++ W3DModelDraw::updateDrawModuleSupplyStatus — boxes > 0.
+            // Infantry ability residual remains for flag/crate poses without supplies.
+            if self.stored_supplies > 0
+                || (self.using_ability && infantry && !self.attacking && !self.is_firing_weapon)
+            {
                 bits |= 1u128 << carry_b;
             } else {
                 bits &= !(1u128 << carry_b);
@@ -1527,5 +1541,94 @@ mod tests {
                 "C++ hides the first max-minus-remaining Scud missiles"
             );
         }
+    }
+
+    #[test]
+    fn carrying_bit_stamps_from_stored_supplies() {
+        use crate::game_logic::{GameLogic, Player, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "Local", true));
+        let mut template = ThingTemplate::new("AmericaVehicleChinook");
+        template.set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaVehicleChinook".into(), template);
+        let id = logic
+            .create_object(
+                "AmericaVehicleChinook",
+                Team::USA,
+                glam::Vec3::new(1.0, 0.0, 1.0),
+            )
+            .expect("chinook");
+        logic
+            .host_object_mut(id)
+            .expect("chinook obj")
+            .set_stored_supplies(300);
+        let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0);
+        let input = frame
+            .unit_render_inputs()
+            .into_iter()
+            .find(|u| u.id == id)
+            .expect("chinook input");
+        assert!(input.stored_supplies > 0);
+        let carry = 1u128 << crate::game_logic::host_enum_table_residual::carrying_model_bit();
+        assert_ne!(
+            input.model_condition_bits_with_combat_flags() & carry,
+            0,
+            "C++ CARRYING while stored supplies > 0"
+        );
+    }
+
+    #[test]
+    fn status_tint_uses_disabled_then_subdual_then_frenzy() {
+        use crate::game_logic::{GameLogic, Player, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "Local", true));
+        let mut template = ThingTemplate::new("AmericaTankCrusader");
+        template.set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaTankCrusader".into(), template);
+        let id = logic
+            .create_object(
+                "AmericaTankCrusader",
+                Team::USA,
+                glam::Vec3::new(2.0, 0.0, 2.0),
+            )
+            .expect("tank");
+        {
+            let o = logic.host_object_mut(id).expect("tank obj");
+            o.status.disabled_emp = true;
+        }
+        let emp = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0)
+            .unit_render_inputs()
+            .into_iter()
+            .find(|u| u.id == id)
+            .expect("emp input");
+        assert_eq!(emp.status_tint, [-0.5, -0.5, -0.5]);
+
+        {
+            let o = logic.host_object_mut(id).expect("tank obj");
+            o.status.disabled_emp = false;
+            o.subdual_damage = 10.0;
+        }
+        let subdual = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0)
+            .unit_render_inputs()
+            .into_iter()
+            .find(|u| u.id == id)
+            .expect("subdual input");
+        assert_eq!(subdual.status_tint, [-0.2, -0.2, 0.8]);
+
+        {
+            let o = logic.host_object_mut(id).expect("tank obj");
+            o.subdual_damage = 0.0;
+            o.weapon_bonus_frenzy = true;
+        }
+        let frenzy = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0)
+            .unit_render_inputs()
+            .into_iter()
+            .find(|u| u.id == id)
+            .expect("frenzy input");
+        assert_eq!(frenzy.status_tint, [0.2, -0.2, -0.2]);
     }
 }

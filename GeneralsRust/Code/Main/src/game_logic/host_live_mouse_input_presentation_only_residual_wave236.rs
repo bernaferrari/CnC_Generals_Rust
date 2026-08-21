@@ -308,6 +308,7 @@ mod tests {
                 capture_power: crate::game_logic::CapturePowerKind::None,
                 capture_power_ready: false,
                 is_salvager: false,
+                can_override_special_power_destination: false,
             }],
             presentation_box_select_units: Vec::new(),
             presentation_select_similar_units: Vec::new(),

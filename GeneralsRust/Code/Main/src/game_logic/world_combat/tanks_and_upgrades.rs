@@ -524,7 +524,10 @@ impl GameLogic {
     ///
     /// Only HordeUpdate infantry count (C++ getHUI). Radius 30 / Count 5 / RubOff 20.
     pub fn update_china_infantry_horde_status(&mut self) {
-        use crate::game_logic::host_battlemaster::evaluate_leftover_horde_blob;
+        use crate::game_logic::host_battlemaster::{
+            evaluate_leftover_horde_blob_scan, leftover_horde_bounding_sphere_radius,
+            LeftoverHordeScanUnit,
+        };
         use crate::game_logic::host_minigunner::is_minigunner_template;
         use crate::game_logic::host_red_guard::{
             counts_toward_infantry_horde, is_china_infantry_horde_unit, is_red_guard_template,
@@ -533,7 +536,7 @@ impl GameLogic {
         };
         use crate::game_logic::host_tank_hunter::is_tank_hunter_template;
 
-        let horde_units: Vec<(ObjectId, Team, f32, f32, bool, String)> = self
+        let horde_units: Vec<(ObjectId, Team, Option<u32>, LeftoverHordeScanUnit, String)> = self
             .objects
             .iter()
             .filter_map(|(id, o)| {
@@ -541,25 +544,44 @@ impl GameLogic {
                     return None;
                 }
                 let p = o.get_position();
-                Some((*id, o.team, p.x, p.z, o.is_alive(), o.template_name.clone()))
+                let geom = &o.thing.template.geometry_info;
+                Some((
+                    *id,
+                    o.team,
+                    o.owner_player_id,
+                    LeftoverHordeScanUnit {
+                        x: p.x,
+                        y: p.y,
+                        z: p.z,
+                        sphere_radius: leftover_horde_bounding_sphere_radius(
+                            geom.authored,
+                            geom.bounding_sphere_radius(),
+                            o.selection_radius,
+                        ),
+                        alive: o.is_alive(),
+                    },
+                    o.template_name.clone(),
+                ))
             })
             .collect();
 
-        let units: Vec<(f32, f32, bool)> = horde_units
-            .iter()
-            .map(|(_, _, x, z, alive, _)| (*x, *z, *alive))
-            .collect();
-        let membership = evaluate_leftover_horde_blob(
+        let units: Vec<LeftoverHordeScanUnit> = horde_units.iter().map(|u| u.3).collect();
+        let membership = evaluate_leftover_horde_blob_scan(
             &units,
             INFANTRY_HORDE_COUNT,
             INFANTRY_HORDE_RADIUS,
             INFANTRY_HORDE_RUB_OFF_RADIUS,
             |i, j, dist| {
                 counts_toward_infantry_horde(
-                    horde_units[i].4,
-                    horde_units[j].4,
-                    horde_units[i].1 == horde_units[j].1,
-                    leftover_infantry_is_horde_neighbor(&horde_units[j].5),
+                    horde_units[i].3.alive,
+                    horde_units[j].3.alive,
+                    self.horde_allies_only(
+                        horde_units[i].2,
+                        horde_units[i].1,
+                        horde_units[j].2,
+                        horde_units[j].1,
+                    ),
+                    leftover_infantry_is_horde_neighbor(&horde_units[j].4),
                     dist,
                     INFANTRY_HORDE_RADIUS,
                 )
@@ -573,7 +595,7 @@ impl GameLogic {
         let mut to_refresh_th: Vec<ObjectId> = Vec::new();
         let mut to_refresh_mg: Vec<ObjectId> = Vec::new();
 
-        for (idx, (id, _team, _x, _z, _alive, name)) in horde_units.iter().enumerate() {
+        for (idx, (id, _team, _owner, _scan, name)) in horde_units.iter().enumerate() {
             let now_horde = membership[idx].in_horde;
             if let Some(obj) = self.objects.get_mut(id) {
                 let was = obj.weapon_bonus_horde;
@@ -1924,5 +1946,91 @@ impl GameLogic {
         }
         self.technical_rpg_missiles_spawned = self.technical_rpg_missiles_spawned.saturating_add(1);
         Some(pid)
+    }
+}
+
+#[cfg(test)]
+mod horde_allies_tests {
+    use super::*;
+    use crate::game_logic::{Player, ThingTemplate};
+    use glam::Vec3;
+
+    /// C++ HordeUpdate.cpp:77-79 AlliesOnly uses getRelationship == ALLIES.
+    /// Same-faction enemy China must not share a horde blob.
+    #[test]
+    fn china_vs_china_infantry_does_not_form_one_horde() {
+        let mut logic = GameLogic::new();
+        let mut a = Player::new(1, Team::China, "ChinaA", true);
+        a.alliance_team = 0;
+        let mut b = Player::new(2, Team::China, "ChinaB", false);
+        b.alliance_team = 1;
+        logic.add_player(a);
+        logic.add_player(b);
+
+        let mut tpl = ThingTemplate::new("ChinaInfantryRedguard");
+        tpl.add_kind_of(KindOf::Infantry)
+            .set_health(120.0)
+            .set_cost(0, 0);
+        logic.templates.insert("ChinaInfantryRedguard".into(), tpl);
+
+        let mut a_ids = Vec::new();
+        let mut b_ids = Vec::new();
+        for i in 0..3 {
+            let x = i as f32 * 8.0;
+            a_ids.push(
+                logic
+                    .create_object_for_player(
+                        "ChinaInfantryRedguard",
+                        1,
+                        Vec3::new(x, 0.0, 0.0),
+                    )
+                    .expect("a"),
+            );
+            b_ids.push(
+                logic
+                    .create_object_for_player(
+                        "ChinaInfantryRedguard",
+                        2,
+                        Vec3::new(x + 4.0, 0.0, 4.0),
+                    )
+                    .expect("b"),
+            );
+        }
+        logic.update_china_infantry_horde_status();
+        for id in a_ids.iter().chain(b_ids.iter()) {
+            let obj = logic.host_object(*id).expect("unit");
+            assert!(
+                !obj.weapon_bonus_horde,
+                "3+3 same-faction enemies must not count as one AlliesOnly horde"
+            );
+        }
+
+        for i in 3..5 {
+            let x = i as f32 * 8.0;
+            a_ids.push(
+                logic
+                    .create_object_for_player(
+                        "ChinaInfantryRedguard",
+                        1,
+                        Vec3::new(x, 0.0, 0.0),
+                    )
+                    .expect("a extra"),
+            );
+        }
+        logic.update_china_infantry_horde_status();
+        assert!(
+            logic
+                .host_object(a_ids[0])
+                .expect("a0")
+                .weapon_bonus_horde,
+            "five owned allies must form a horde"
+        );
+        assert!(
+            !logic
+                .host_object(b_ids[0])
+                .expect("b0")
+                .weapon_bonus_horde,
+            "enemy China blob must stay out of the other player's horde"
+        );
     }
 }

@@ -240,6 +240,9 @@ pub struct ContainModuleMetadata {
     /// C++ GarrisonContainModuleData::m_isEnclosingContainer (default true).
     #[serde(default = "default_enclosing_container")]
     pub is_enclosing_container: bool,
+    /// C++ CaveContainModuleData::m_caveIndexData (default 0).
+    #[serde(default)]
+    pub cave_index: i32,
 }
 
 /// Exact `OverchargeBehaviorModuleData` retained from one Object INI behavior
@@ -298,6 +301,7 @@ impl Default for ContainModuleMetadata {
             frames_for_full_heal: None,
             immune_to_clear_building_attacks: false,
             is_enclosing_container: true,
+            cave_index: 0,
         }
     }
 }
@@ -520,15 +524,20 @@ impl Default for DeployStyleMetadata {
     }
 }
 
-/// Authored `SupplyTruckAIUpdate` timing and capacity data. This remains
-/// absent for ordinary Harvesters: C++ exposes the collector state machine
-/// only when the unit owns that exact update module.
+/// Authored `SupplyTruckAIUpdate` / `ChinookAIUpdate` / `WorkerAIUpdate`
+/// timing, capacity, and INI `UpgradedSupplyBoost`. Ordinary Harvesters
+/// without one of those modules stay `None`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct SupplyTruckMetadata {
     pub max_boxes: u32,
     pub warehouse_scan_distance: f32,
     pub warehouse_delay_frames: u32,
     pub center_delay_frames: u32,
+    /// C++ `ChinookAIUpdateModuleData::m_upgradedSupplyBoost` /
+    /// `WorkerAIUpdateModuleData::m_upgradedSupplyBoost`. Supply trucks
+    /// author 0 (`SupplyTruckAIUpdate::getUpgradedSupplyBoost`).
+    #[serde(default)]
+    pub upgraded_supply_boost: u32,
 }
 
 /// Compact runtime mirror of the C++ supply-truck Wanting/dock state.
@@ -1344,6 +1353,15 @@ pub struct ThingTemplate {
     /// C++ `ThingTemplate::m_shroudClearingRange`. `-1` means use `sight_range`.
     #[serde(default = "default_template_shroud_clearing_range")]
     pub shroud_clearing_range: f32,
+    /// C++ `ThingTemplate::m_shroudRevealToAllRange`. `-1` / `<= 0` means none.
+    #[serde(default = "default_template_shroud_reveal_to_all_range")]
+    pub shroud_reveal_to_all_range: f32,
+    /// C++ `KINDOF_REVEAL_TO_ALL` — full ally-range looker for every player.
+    #[serde(default)]
+    pub reveal_to_all: bool,
+    /// C++ `KINDOF_ALWAYS_VISIBLE` — never shrouded (UI feedback objects).
+    #[serde(default)]
+    pub always_visible: bool,
     pub build_cost: Resources,
     pub build_time: f32,
     /// C++ `ThingTemplate::m_buildable` (`BSTATUS_YES` = 0).
@@ -1705,6 +1723,9 @@ impl ThingTemplate {
             armor: 0.0,
             sight_range: 150.0,
             shroud_clearing_range: default_template_shroud_clearing_range(),
+            shroud_reveal_to_all_range: default_template_shroud_reveal_to_all_range(),
+            reveal_to_all: false,
+            always_visible: false,
             build_cost: Resources::default(),
             build_time: 1.0,
             buildable_status: 0,
@@ -2382,6 +2403,11 @@ fn parse_preferred_against_value(value: &str) -> Option<(u8, Vec<KindOf>)> {
 
 fn default_template_shroud_clearing_range() -> f32 {
     // C++ ThingTemplate m_shroudClearingRange default -1 → use VisionRange.
+    -1.0
+}
+
+fn default_template_shroud_reveal_to_all_range() -> f32 {
+    // C++ ThingTemplate m_shroudRevealToAllRange default -1.
     -1.0
 }
 

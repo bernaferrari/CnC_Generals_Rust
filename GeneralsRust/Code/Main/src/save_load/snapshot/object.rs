@@ -595,10 +595,9 @@ impl ObjectSnapshot {
             self.temporary_weapon_runtime = None;
         }
 
-        // Current writer (v12) appends the Frenzy helper residual. Older
-        // object records fail-closed to inactive. Same-code v12 round-trips
-        // write and read these three scalars after TemporaryWeaponRuntime.
-        if world_version >= WORLD_SNAPSHOT_DIRECT_XFER_VERSION {
+        // v12 writer appended the Frenzy helper residual. Keep the gate on
+        // V12 so a v13 world tail does not skip those object scalars.
+        if world_version >= WORLD_SNAPSHOT_DIRECT_XFER_V12_TAIL_VERSION {
             xfer.xfer_marker_label("WeaponBonusFrenzy")?;
             xfer.xfer_bool(&mut self.weapon_bonus_frenzy)?;
             xfer.xfer_marker_label("WeaponBonusFrenzyLevel")?;
@@ -722,6 +721,160 @@ impl XferData for ObjectOverchargeSnapshot {
         self.object_id.xfer(xfer)?;
         xfer.xfer_marker_label("OverchargeEnabled")?;
         xfer.xfer_bool(&mut self.overcharge_enabled)?;
+        Ok(())
+    }
+}
+
+impl XferData for ObjectVisionSpiedSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("ObjectVisionSpiedSnapshot")?;
+        xfer.xfer_marker_label("ObjectId")?;
+        self.object_id.xfer(xfer)?;
+        xfer.xfer_marker_label("VisionSpiedMask")?;
+        xfer.xfer_u32(&mut self.vision_spied_mask)?;
+        Ok(())
+    }
+}
+
+impl XferData for ObjectBuilderTaskSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("ObjectBuilderTaskSnapshot")?;
+        xfer.xfer_marker_label("ObjectId")?;
+        self.object_id.xfer(xfer)?;
+        xfer.xfer_marker_label("BuilderId")?;
+        xfer_option(xfer, &mut self.builder_id, ObjectId(0))?;
+        xfer.xfer_marker_label("DozerTaskBuildTarget")?;
+        xfer_option(xfer, &mut self.dozer_task_build_target, ObjectId(0))?;
+        xfer.xfer_marker_label("DozerTaskBuildOrderFrame")?;
+        xfer.xfer_u32(&mut self.dozer_task_build_order_frame)?;
+        Ok(())
+    }
+}
+
+impl XferData for SellListEntrySnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("SellListEntrySnapshot")?;
+        xfer.xfer_marker_label("ObjectId")?;
+        self.object_id.xfer(xfer)?;
+        xfer.xfer_marker_label("SellFrame")?;
+        xfer.xfer_u32(&mut self.sell_frame)?;
+        Ok(())
+    }
+}
+
+impl XferData for ObjectPersistTailSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("ObjectPersistTailSnapshot")?;
+        self.object_id.xfer(xfer)?;
+        xfer_option(xfer, &mut self.sole_healing_benefactor, ObjectId(0))?;
+        xfer.xfer_u32(&mut self.sole_healing_benefactor_expiration_frame)?;
+        xfer_option(xfer, &mut self.contained_by_frame, 0)?;
+        let mut has_original_team = self.original_team.is_some();
+        xfer.xfer_bool(&mut has_original_team)?;
+        if has_original_team {
+            let mut team = self.original_team.unwrap_or(Team::Neutral);
+            xfer.xfer_team(&mut team)?;
+            self.original_team = Some(team);
+        } else {
+            self.original_team = None;
+        }
+        xfer.xfer_u32(&mut self.formation_id)?;
+        xfer.xfer_f32(&mut self.formation_offset[0])?;
+        xfer.xfer_f32(&mut self.formation_offset[1])?;
+        xfer.xfer_f32(&mut self.stealth_opacity)?;
+        xfer.xfer_u8(&mut self.terrain_decal_type)?;
+        xfer.xfer_f32(&mut self.terrain_decal_size)?;
+        Ok(())
+    }
+}
+
+impl XferData for ClientDrawableVisualSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("ClientDrawableVisualSnapshot")?;
+        xfer.xfer_u32(&mut self.object_id)?;
+        xfer.xfer_u32(&mut self.draw_module_index)?;
+        xfer.xfer_bool(&mut self.hidden)?;
+        xfer.xfer_bool(&mut self.hidden_by_stealth)?;
+        xfer.xfer_f32(&mut self.stealth_opacity)?;
+        xfer.xfer_f32(&mut self.effective_opacity)?;
+        xfer.xfer_f32(&mut self.loco_pitch)?;
+        xfer.xfer_f32(&mut self.loco_roll)?;
+        xfer.xfer_u32(&mut self.expiration_date)?;
+        xfer.xfer_u8(&mut self.terrain_decal)?;
+        Ok(())
+    }
+}
+
+impl XferData for crate::game_logic::host_cia_intelligence::HostCiaIntelligenceSpiedUnit {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("HostCiaIntelligenceSpiedUnit")?;
+        self.object_id.xfer(xfer)?;
+        self.location.xfer(xfer)?;
+        xfer.xfer_f32(&mut self.radius)?;
+        xfer.xfer_bool(&mut self.fow_reveal_ok)?;
+        xfer.xfer_bool(&mut self.detected_ok)?;
+        Ok(())
+    }
+}
+
+impl XferData for crate::game_logic::host_cia_intelligence::HostCiaIntelligence {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("HostCiaIntelligence")?;
+        xfer.xfer_u32(&mut self.captured_count)?;
+        xfer.xfer_u32(&mut self.id)?;
+        xfer.xfer_u32(&mut self.player_id)?;
+        xfer.xfer_u32(&mut self.player_mask)?;
+        self.spying_team.xfer(xfer)?;
+        xfer.xfer_u32(&mut self.activate_frame)?;
+        xfer.xfer_u32(&mut self.expires_frame)?;
+        xfer_option(xfer, &mut self.caster_id, ObjectId(0))?;
+        xfer_vec_default(
+            xfer,
+            &mut self.spied_units,
+            crate::game_logic::host_cia_intelligence::HostCiaIntelligenceSpiedUnit {
+                object_id: ObjectId(0),
+                location: Vec3::ZERO,
+                radius: 0.0,
+                fow_reveal_ok: false,
+                detected_ok: false,
+            },
+        )?;
+        xfer.xfer_bool(&mut self.vision_spied_ok)?;
+        xfer.xfer_bool(&mut self.fow_reveal_ok)?;
+        xfer.xfer_bool(&mut self.detect_ok)?;
+        Ok(())
+    }
+}
+
+impl XferData for crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("HostCiaIntelligenceRegistry")?;
+        xfer.xfer_u32(&mut self.next_id)?;
+        xfer_vec_default(
+            xfer,
+            &mut self.active,
+            crate::game_logic::host_cia_intelligence::HostCiaIntelligence {
+                captured_count: 0,
+                id: 0,
+                player_id: 0,
+                player_mask: 0,
+                spying_team: Team::Neutral,
+                activate_frame: 0,
+                expires_frame: 0,
+                caster_id: None,
+                spied_units: Vec::new(),
+                vision_spied_ok: false,
+                fow_reveal_ok: false,
+                detect_ok: false,
+            },
+        )?;
+        xfer.xfer_u32(&mut self.activations)?;
+        xfer.xfer_u32(&mut self.vision_spied)?;
+        xfer.xfer_u32(&mut self.fow_reveals)?;
+        xfer.xfer_u32(&mut self.detects)?;
+        xfer.xfer_u32(&mut self.bonus_duration_applications)?;
+        xfer.xfer_u32(&mut self.units_spied)?;
+        xfer.xfer_u32(&mut self.expirations)?;
         Ok(())
     }
 }

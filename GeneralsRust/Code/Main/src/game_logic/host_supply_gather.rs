@@ -492,6 +492,20 @@ pub fn drawable_supply_status_from_cash(
     (max_boxes, current_boxes)
 }
 
+/// C++ `SupplyTruckAIUpdate::gainOneBox` / `loseOneBox`
+/// (`SupplyTruckAIUpdate.cpp:122-126`, `:164-168`):
+/// `drawable->updateDrawableSupplyStatus(maxBoxes, m_numberBoxes)`.
+/// Host collectors store cash; convert with retail `ValuePerSupplyBox`.
+pub fn collector_drawable_supply_status(max_boxes: u32, stored_cash: u32) -> (u32, u32) {
+    drawable_supply_status_from_cash(Some(max_boxes), stored_cash)
+}
+
+/// C++ `W3DModelDraw::updateDrawModuleSupplyStatus` (`W3DModelDraw.cpp:3907-3917`):
+/// CARRYING when `currentSupply > 0`. Presentation stamps the mesh bit.
+pub fn collector_carrying_from_boxes(current_boxes: u32) -> bool {
+    current_boxes > 0
+}
+
 /// Retail GLA SupplyCenterDock `GrantTemporaryStealth = 20000` ms → 600 frames.
 /// America / China omit the field → module default 0.
 pub fn grant_temporary_stealth_frames_for_center(template_name: &str) -> u32 {
@@ -550,6 +564,51 @@ pub fn warehouse_action_transfer_one_box(
     (warehouse_boxes - 1, collector_boxes + 1, true)
 }
 
+/// Retail regular `AmericaVehicleChinook` `UpgradedSupplyBoost` (leftover INI parse = 4).
+pub const REGULAR_CHINOOK_UPGRADED_SUPPLY_BOOST: u32 = 4;
+
+/// C++ `ChinookAIUpdate` collectors: regular + Combat Chinook template names.
+pub fn is_chinook_supply_collector(template_name: &str) -> bool {
+    let n = template_name.to_ascii_lowercase();
+    !n.is_empty() && n.contains("chinook")
+}
+
+/// C++ `ChinookAIUpdate::isAvailableForSupplying` (`ChinookAIUpdate.cpp:982-991`).
+/// Non-Chinook collectors (trucks, workers) stay available.
+pub fn chinook_available_for_supplying(
+    is_chinook: bool,
+    contain_count: usize,
+    wanting_enter_or_exit: bool,
+    is_overlord_style: bool,
+) -> bool {
+    if !is_chinook {
+        return true;
+    }
+    !wanting_enter_or_exit && contain_count == 0 && !is_overlord_style
+}
+
+/// C++ `SupplyCenterDockUpdate::action` + `getUpgradedSupplyBoost`:
+/// Chinooks return INI `UpgradedSupplyBoost` only with `Upgrade_AmericaSupplyLines`.
+/// Trucks return 0. Worker shoes is a separate upgrade.
+pub fn collector_supply_lines_boost(
+    is_chinook: bool,
+    is_combat_chinook: bool,
+    authored_boost: u32,
+    has_supply_lines: bool,
+) -> u32 {
+    if !is_chinook || !has_supply_lines {
+        return 0;
+    }
+    if authored_boost > 0 {
+        return authored_boost;
+    }
+    if is_combat_chinook {
+        crate::game_logic::host_combat_chinook::COMBAT_CHINOOK_UPGRADED_SUPPLY_BOOST
+    } else {
+        REGULAR_CHINOOK_UPGRADED_SUPPLY_BOOST
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -597,6 +656,17 @@ mod tests {
     }
 
     #[test]
+    fn collector_drawable_boxes_follow_cash_and_carrying() {
+        // C++ gainOneBox / loseOneBox: updateDrawableSupplyStatus(maxBoxes, m_numberBoxes).
+        assert_eq!(collector_drawable_supply_status(4, 0), (4, 0));
+        assert_eq!(collector_drawable_supply_status(4, 75), (4, 1));
+        assert_eq!(collector_drawable_supply_status(4, 4 * 75), (4, 4));
+        assert!(!collector_carrying_from_boxes(0));
+        assert!(collector_carrying_from_boxes(1));
+    }
+
+
+    #[test]
     fn gla_stash_grants_temporary_stealth_america_does_not() {
         assert_eq!(
             grant_temporary_stealth_frames_for_center("GLASupplyStash"),
@@ -625,6 +695,33 @@ mod tests {
         assert_eq!(blocked, Some(a));
         let after_dead = dock_claim_active(Some(a), false, b);
         assert_eq!(after_dead, Some(b));
+    }
+
+    #[test]
+    fn loaded_chinook_is_not_available_for_supplying() {
+        // C++ ChinookAIUpdate::isAvailableForSupplying (ChinookAIUpdate.cpp:982-991).
+        assert!(is_chinook_supply_collector("AmericaVehicleChinook"));
+        assert!(is_chinook_supply_collector("AirF_AmericaVehicleChinook"));
+        assert!(!is_chinook_supply_collector("ChinaVehicleSupplyTruck"));
+        assert!(chinook_available_for_supplying(true, 0, false, false));
+        assert!(!chinook_available_for_supplying(true, 1, false, false));
+        assert!(!chinook_available_for_supplying(true, 0, true, false));
+        assert!(!chinook_available_for_supplying(true, 0, false, true));
+        assert!(chinook_available_for_supplying(false, 3, true, true));
+    }
+
+    #[test]
+    fn supply_lines_boost_is_chinook_ini_only() {
+        // C++ ChinookAIUpdate::getUpgradedSupplyBoost (ChinookAIUpdate.cpp:1644-1652)
+        // vs SupplyTruckAIUpdate.h:196 returning 0.
+        assert_eq!(collector_supply_lines_boost(false, false, 0, true), 0);
+        assert_eq!(collector_supply_lines_boost(true, false, 0, false), 0);
+        assert_eq!(
+            collector_supply_lines_boost(true, false, 0, true),
+            REGULAR_CHINOOK_UPGRADED_SUPPLY_BOOST
+        );
+        assert_eq!(collector_supply_lines_boost(true, true, 0, true), 60);
+        assert_eq!(collector_supply_lines_boost(true, true, 4, true), 4);
     }
 }
 

@@ -652,13 +652,29 @@ impl ControlBar {
     }
 
     fn command_not_ready_clock(&self, command: &CommandButton, obj_id: u32) -> Option<u8> {
-        let obj_arc = OBJECT_REGISTRY.get_object(obj_id)?;
-        let obj = obj_arc.read().ok()?;
-        match command.command_type {
-            CommandType::FireWeapon => self.fire_weapon_availability(&obj, command).1,
-            CommandType::DoSpecialPower => self.special_power_availability(&obj, command).1,
-            _ => None,
+        if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
+            if let Ok(obj) = obj_arc.read() {
+                return match command.command_type {
+                    CommandType::FireWeapon => self.fire_weapon_availability(&obj, command).1,
+                    CommandType::DoSpecialPower => {
+                        self.special_power_availability(&obj, command).1
+                    }
+                    _ => None,
+                };
+            }
         }
+        // Live host: OBJECT_REGISTRY is empty. C++ ControlBarCommand.cpp:1306-1407
+        // GadgetButtonDrawInverseClock uses getPercentReadyToFire.
+        if matches!(command.command_type, CommandType::DoSpecialPower)
+            && !self.portrait_state.special_power_ready
+        {
+            let rem = self.portrait_state.special_power_cooldown_remaining;
+            let total = self.portrait_state.special_power_cooldown_total.max(rem);
+            if rem > 0.0 && total > 0.0 {
+                return Some(((rem / total) * 100.0).clamp(0.0, 100.0) as u8);
+            }
+        }
+        None
     }
 
     fn apply_command_availability_to_windows(

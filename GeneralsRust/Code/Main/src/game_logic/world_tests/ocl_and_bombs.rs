@@ -3771,8 +3771,9 @@ fn microwave_disable_spawns_laser_stream() {
         o.status.attacking = true;
         o.target = Some(bldg);
     }
+    logic.frame = 0;
     logic.update_microwave_disable();
-    assert!(logic.honesty_microwave_disable_ok());
+    // Laser attaches while cooking; disable waits for subdual >= maxHealth.
     assert!(logic.honesty_microwave_laser_ok());
     let beams = logic
         .objects

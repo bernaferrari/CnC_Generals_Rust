@@ -76,8 +76,15 @@ fn microwave_tank_residual_disables_enemy_structure() {
         let m = game_logic.host_object_mut(micro_id).unwrap();
         m.attack_target(barracks_id);
     }
+    {
+        let b = game_logic.host_object_mut(barracks_id).unwrap();
+        // One 50 SUBDUAL_BUILDING pulse fills this bar (ActiveBody.cpp:1292).
+        b.health.current = 40.0;
+        b.health.maximum = 40.0;
+        b.max_health = 40.0;
+    }
 
-    game_logic.frame = 1;
+    game_logic.frame = 0;
     game_logic.update_microwave_disable();
 
     assert!(
@@ -129,13 +136,13 @@ fn microwave_tank_residual_disables_enemy_structure() {
             .unwrap_or(true),
         "fail-closed: ally structure must not be microwave-disabled"
     );
-    // Enemy barracks no longer targeted — subdued must clear.
+    // Enemy barracks no longer targeted — C++ SubdualDamageHelper lingers.
     assert!(
-        !game_logic
+        game_logic
             .host_object(barracks_id)
             .map(|b| b.is_subdued_disabled())
-            .unwrap_or(true),
-        "DISABLED_SUBDUED must clear when microwave stops cooking"
+            .unwrap_or(false),
+        "DISABLED_SUBDUED lingers after the beam drops until subdual heals"
     );
 }
 

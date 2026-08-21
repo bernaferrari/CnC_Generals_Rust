@@ -11,7 +11,12 @@ use gamelogic::common::audio::AudioEventRts;
 use gamelogic::helpers::{TheAudio, TheGameLogic};
 use std::sync::Mutex;
 
-const MAX_SUBTITLE_LINES: usize = 8;
+/// C++ `MAX_SUBTITLE_LINES` (InGameUI.h:235).
+const MAX_SUBTITLE_LINES: usize = 4;
+/// Retail InGameUI.ini MilitaryCaptionPosition after constructor (10,380).
+const INI_CAPTION_POSITION: (f32, f32) = (10.0, 340.0);
+/// Retail InGameUI.ini MilitaryCaptionColor white AARRGGBB.
+const INI_CAPTION_COLOR: u32 = 0xFFFF_FFFF;
 const DEFAULT_NAMED_TIMER_NORMAL: u32 = 0xFFFF_FF00; // yellow
 const DEFAULT_NAMED_TIMER_READY: u32 = 0xFFFF_00FF; // magenta
 const DEFAULT_NAMED_TIMER_FLASH: u32 = 0xFF00_FFFF; // cyan
@@ -20,6 +25,8 @@ struct LiveHud {
     subtitle: Option<MilitarySubtitle>,
     caption_speed: i32,
     caption_point_size: i32,
+    caption_position: (f32, f32),
+    caption_color: u32,
     named_timers: Vec<NamedTimerData>,
     show_named_timers: bool,
     named_timer_used_flash_color: bool,
@@ -36,6 +43,8 @@ impl LiveHud {
             subtitle: None,
             caption_speed: 1,
             caption_point_size: 12,
+            caption_position: INI_CAPTION_POSITION,
+            caption_color: INI_CAPTION_COLOR,
             named_timers: Vec::new(),
             show_named_timers: true,
             named_timer_used_flash_color: true,
@@ -53,6 +62,8 @@ fn live_hud() -> &'static Mutex<LiveHud> {
         subtitle: None,
         caption_speed: 1,
         caption_point_size: 12,
+        caption_position: INI_CAPTION_POSITION,
+        caption_color: INI_CAPTION_COLOR,
         named_timers: Vec::new(),
         show_named_timers: true,
         named_timer_used_flash_color: true,
@@ -87,19 +98,31 @@ pub fn start_military_subtitle(label: &str, duration_ms: i32) {
     }
     let frame = TheGameLogic::get_frame();
     let lifetime_frame = frame + (30 * duration_ms.max(0) as u32) / 1000;
+    let delay = super::InGameUI::military_caption_delay_frames();
+    let pos = hud.caption_position;
     hud.subtitle = Some(MilitarySubtitle {
         text: title,
         index: 0,
-        position: (10.0, 380.0),
+        position: pos,
         lifetime_frame,
         block_drawn: true,
         block_begin_frame: frame,
-        block_pos: (10.0, 380.0),
-        increment_on_frame: frame + 1,
-        color: 0xFFC8_C81E,
+        block_pos: pos,
+        increment_on_frame: frame + delay,
+        color: hud.caption_color,
         display_lines: vec![String::new()],
         current_display_string: 0,
     });
+}
+
+/// Apply InGameUI.ini MilitaryCaptionPosition / MilitaryCaptionColor to the live path.
+pub fn apply_military_caption_style(position: (f32, f32), color: u32, point_size: i32) {
+    let mut hud = live_hud().lock().unwrap_or_else(|e| e.into_inner());
+    hud.caption_position = position;
+    hud.caption_color = color;
+    if point_size > 0 {
+        hud.caption_point_size = point_size;
+    }
 }
 
 pub fn add_named_timer(name: &str, text: &str, is_countdown: bool) {
@@ -181,7 +204,8 @@ fn step_subtitle(hud: &mut LiveHud, frame: u32) {
                 subtitle.display_lines.push(String::new());
             }
             subtitle.block_drawn = true;
-            subtitle.increment_on_frame = frame + 1;
+            subtitle.increment_on_frame =
+                frame + super::InGameUI::military_caption_delay_frames();
         }
     } else {
         if subtitle.display_lines.is_empty() {

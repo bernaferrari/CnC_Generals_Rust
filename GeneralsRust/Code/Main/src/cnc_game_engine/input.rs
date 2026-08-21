@@ -112,10 +112,12 @@ impl CnCGameEngine {
                         logical_key: key,
                         physical_key,
                         state,
+                        repeat,
                         ..
                     },
                 ..
             } => {
+                let os_repeat = *repeat;
                 #[cfg(feature = "game_client")]
                 {
                     let pressed = matches!(state, ElementState::Pressed);
@@ -142,35 +144,36 @@ impl CnCGameEngine {
                         self.current_state,
                         GameState::InGame | GameState::Paused | GameState::Menu
                     );
+                let chat_open = self.chat_panel.is_open();
                 match state {
                     ElementState::Pressed => {
                         self.keys_pressed.insert(key.clone());
                         let mut construction_consumed = false;
                         if route_keyboard_to_legacy_ui {
                             if let Some(ui_key) = Self::to_ui_key_code(key) {
-                                let _ = self.ui_manager.handle_key_press(ui_key);
+                                if !os_repeat {
+                                    let _ = self.ui_manager.handle_key_press(ui_key);
+                                }
                                 // Dual HUD residual: engine GameHUD owns construction
                                 // cameo hotkeys + placement cancel from presentation path.
                                 // When construction panel consumes a build/cancel key, skip
                                 // global command hotkeys (R repair vs R ranger, etc.).
+                                // Chat (WindowXlat) owns the key first — do not steal
+                                // letters into the control bar while the edit is open.
                                 use crate::ui::Interactive;
-                                construction_consumed =
-                                    Interactive::handle_key_press(&mut self.game_hud, ui_key);
-                                for ev in self.game_hud.drain_pending_ui_events() {
-                                    self.ui_manager.queue_event(ev);
+                                if !os_repeat && !chat_open {
+                                    construction_consumed =
+                                        Interactive::handle_key_press(&mut self.game_hud, ui_key);
+                                    for ev in self.game_hud.drain_pending_ui_events() {
+                                        self.ui_manager.queue_event(ev);
+                                    }
                                 }
                             }
                         }
-                        // Retail numpad camera residual (physical keys).
+                        // Retail numpad camera residual (physical hold keys).
+                        // Numpad5 CAMERA_RESET is CommandMap KEY_KP5 (0x65) via
+                        // handle_mapped_key_press so remaps onto KP5 dispatch.
                         match physical_key {
-                            winit::keyboard::PhysicalKey::Code(
-                                winit::keyboard::KeyCode::Numpad5,
-                            ) => {
-                                // C++ CommandXlat MSG_META_CAMERA_RESET → InGameUI::resetCamera
-                                // keeps the current look-at (`reset_camera_view_hotkey` leftover
-                                // still exists for source-scan / runtime-host).
-                                self.reset_camera_pose_in_place();
-                            }
                             winit::keyboard::PhysicalKey::Code(
                                 winit::keyboard::KeyCode::Numpad4,
                             ) => {
@@ -191,6 +194,9 @@ impl CnCGameEngine {
                             ) => {
                                 self.camera_zoom_out_held = true;
                             }
+                            _ => {}
+                        }
+                        match physical_key {
                             // QuitMenu.wnd deliberately uses GameWinBlockInput
                             // to wall off world input.  C++ CommandMap's global
                             // OPTIONS binding still owns Escape, including when
@@ -210,9 +216,11 @@ impl CnCGameEngine {
                                 // it through `Key::Character` loses ADD_TEAM.
                                 // Keep keypad keys separate: those are camera keys,
                                 // not control-group aliases in the retail map.
-                                if let Some(group) =
+                                if os_repeat {
+                                    self.handle_mapped_key_press(key, Some(*physical_key), true);
+                                } else if let Some(group) =
                                     Self::control_group_from_physical_number_row(physical_key)
-                                        .filter(|_| !self.chat_panel.is_open())
+                                        .filter(|_| !chat_open)
                                 {
                                     self.handle_control_group_hotkey(group);
                                 } else if let Key::Named(named) = key.clone() {
@@ -222,15 +230,23 @@ impl CnCGameEngine {
                                             .contains(&Key::Named(NamedKey::Control));
                                         // Ctrl+F1..F4 remain debug overlays in hotkeys.rs.
                                         if ctrl && slot < 4 {
-                                            self.handle_key_press(key);
+                                            self.handle_mapped_key_press(
+                                                key,
+                                                Some(*physical_key),
+                                                false,
+                                            );
                                         } else {
                                             self.save_or_recall_camera_view(slot);
                                         }
                                     } else {
-                                        self.handle_key_press(key);
+                                        self.handle_mapped_key_press(
+                                            key,
+                                            Some(*physical_key),
+                                            false,
+                                        );
                                     }
                                 } else {
-                                    self.handle_key_press(key);
+                                    self.handle_mapped_key_press(key, Some(*physical_key), false);
                                 }
                             }
                         }
@@ -259,6 +275,29 @@ impl CnCGameEngine {
                                 self.camera_zoom_out_held = false;
                             }
                             _ => {}
+                        }
+                        // C++ HotKeyTranslator: RAW_KEY_UP, no Ctrl/Shift/Alt.
+                        let mods_down = self
+                            .keys_pressed
+                            .contains(&Key::Named(NamedKey::Control))
+                            || self.keys_pressed.contains(&Key::Named(NamedKey::Shift))
+                            || self.keys_pressed.contains(&Key::Named(NamedKey::Alt));
+                        if !os_repeat
+                            && !mods_down
+                            && !chat_open
+                            && route_keyboard_to_legacy_ui
+                            && matches!(
+                                self.current_state,
+                                GameState::InGame | GameState::Paused
+                            )
+                        {
+                            if let Some(ui_key) = Self::to_ui_key_code(key) {
+                                if self.game_hud.handle_letter_hotkey(ui_key) {
+                                    for ev in self.game_hud.drain_pending_ui_events() {
+                                        self.ui_manager.queue_event(ev);
+                                    }
+                                }
+                            }
                         }
                     }
                 }

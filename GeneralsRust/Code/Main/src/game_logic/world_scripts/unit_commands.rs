@@ -457,6 +457,7 @@ impl GameLogic {
         self.worker_exit_supply_for_dozer_task(id);
         if let Some(unit) = self.objects.get_mut(&id) {
             unit.set_ai_state(AIState::Constructing);
+            unit.set_ultra_accurate(true);
             return true;
         }
         false

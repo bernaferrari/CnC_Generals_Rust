@@ -26,8 +26,6 @@ fn supports_host_weapon_generic_ocl(
         && !nugget.ignore_primary_obstacle
         && !nugget.contain_inside_source_object
         && !nugget.spread_formation
-        && !nugget.fade_in
-        && !nugget.fade_out
         && !nugget.dies_on_bad_land
         && !nugget.requires_live_player
 }
@@ -228,6 +226,11 @@ impl GameLogic {
                         0.0,
                         std::f32::consts::TAU,
                     ));
+                }
+                if generic.fade_in {
+                    object.start_drawable_fade_in(generic.fade_frames, self.frame);
+                } else if generic.fade_out {
+                    object.start_drawable_fade_out(generic.fade_frames, self.frame);
                 }
                 drop(object);
                 if inherit_name {
@@ -2579,5 +2582,51 @@ End
             "independent gattling deals 10 not stacked primary+10, dealt={dealt}"
         );
         assert!(logic.overlord_addons.gattling_ground_fires > 0);
+    }
+
+    #[test]
+    fn fade_in_nugget_spawns_and_starts_drawable_fade() {
+        let ini = r#"
+ObjectCreationList OCL_HostFadeInParity
+  CreateObject
+    ObjectNames = FadeDebris
+    Count = 1
+    FadeIn = Yes
+    FadeTime = 1000
+  End
+End
+"#;
+        gamelogic::object_creation_list::store::load_object_creation_lists_from_str(ini)
+            .expect("fade OCL must parse");
+
+        let mut logic = GameLogic::new();
+        logic.frame = 40;
+        logic.templates.insert(
+            "__OclBridgeSource".into(),
+            ThingTemplate::new("__OclBridgeSource"),
+        );
+        logic
+            .templates
+            .insert("FadeDebris".into(), ThingTemplate::new("FadeDebris"));
+        let source = logic
+            .create_object("__OclBridgeSource", Team::USA, Vec3::new(1.0, 0.0, 1.0))
+            .expect("source object");
+
+        let created = logic.execute_parsed_weapon_ocl_at(
+            "OCL_HostFadeInParity",
+            Some(source),
+            Team::USA,
+            VeterancyLevel::Rookie,
+            0.0,
+            Vec3::ZERO,
+            Vec3::new(1.0, 0.0, 1.0),
+        );
+        assert_eq!(created.len(), 1);
+        let debris = logic.objects.get(&created[0]).expect("faded debris");
+        assert_eq!(debris.drawable_fade_mode, crate::game_logic::DRAWABLE_FADE_IN);
+        assert_eq!(debris.drawable_fade_start_frame, 40);
+        assert!(debris.drawable_fade_frames > 0);
+        assert!((debris.drawable_fade_opacity(40) - 0.0).abs() < 1e-5);
+        assert!(debris.drawable_fade_opacity(40 + debris.drawable_fade_frames) > 0.99);
     }
 }

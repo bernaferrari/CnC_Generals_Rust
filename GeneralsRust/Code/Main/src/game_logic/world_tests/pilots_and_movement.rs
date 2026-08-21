@@ -3264,10 +3264,10 @@ fn disable_vehicle_hack_rejects_non_lotus() {
 /// ECMTankMissileJammer FireWeaponUpdate pulse (PrimaryDamageRadius=150).
 /// Fail-closed: continuous aura (not full subdual damage / laser stream).
 
+/// C++ MissileAIUpdate.cpp:777-809 projectileNowJammed — scatter, no HP.
 #[test]
 fn ecm_missile_jam_scatters_in_flight_projectile() {
     use crate::game_logic::host_ecm_jam::HOST_ECM_JAM_RADIUS;
-    use crate::game_logic::host_technical::{TechnicalWeaponTier, TECH_CANNON_SHELL_PROJECTILE};
 
     let mut logic = GameLogic::new();
     let mut ecm_tpl = ThingTemplate::new("ChinaTankECM");
@@ -3278,62 +3278,58 @@ fn ecm_missile_jam_scatters_in_flight_projectile() {
         .set_health(300.0);
     logic.templates.insert("ChinaTankECM".to_string(), ecm_tpl);
 
-    let mut tech_tpl = ThingTemplate::new("GLAVehicleTechnical");
-    tech_tpl
+    let mut tom_tpl = ThingTemplate::new("AmericaVehicleTomahawk");
+    tom_tpl
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(180.0);
     logic
         .templates
-        .insert("GLAVehicleTechnical".to_string(), tech_tpl);
+        .insert("AmericaVehicleTomahawk".to_string(), tom_tpl);
 
     let ecm = logic
         .create_object("ChinaTankECM", Team::China, Vec3::new(0.0, 0.0, 0.0))
         .expect("ecm");
-    let tech = logic
-        .create_object("GLAVehicleTechnical", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
-        .expect("tech");
-    {
-        let t = logic.host_object_mut(tech).unwrap();
-        t.apply_upgrade_tag("WEAPONSET_CRATEUPGRADE_ONE");
-        logic.apply_technical_weapon_tier(tech, TechnicalWeaponTier::One);
-    }
+    let tom = logic
+        .create_object(
+            "AmericaVehicleTomahawk",
+            Team::USA,
+            Vec3::new(50.0, 0.0, 0.0),
+        )
+        .expect("tom");
     let aim = Vec3::new(200.0, 0.0, 0.0);
     let from = Vec3::new(50.0, 5.0, 0.0);
-    let shell = logic
-        .spawn_technical_cannon_shell_projectile(tech, from, aim, None)
-        .expect("shell");
-    // Place shell near ECM.
-    if let Some(o) = logic.objects.get_mut(&shell) {
+    let missile = logic
+        .spawn_tomahawk_missile_projectile(tom, from, aim, None)
+        .expect("missile");
+    if let Some(o) = logic.objects.get_mut(&missile) {
         o.set_position(Vec3::new(10.0, 5.0, 0.0));
     }
     let aim_before = logic
         .objects
-        .get(&shell)
-        .and_then(|o| o.technical_cannon_shell_aim)
+        .get(&missile)
+        .and_then(|o| o.tomahawk_missile_aim)
         .expect("aim");
+    let hp_before = logic.objects.get(&missile).unwrap().health.current;
 
     logic.update_ecm_missile_jam();
     assert!(logic.honesty_ecm_missile_jam_ok());
-    let shell_obj = logic.objects.get(&shell);
-    if let Some(o) = shell_obj {
-        if o.is_alive() {
-            assert!(o.ecm_missile_jammed, "shell should be marked jammed");
-            let aim_after = o.technical_cannon_shell_aim.expect("aim after");
-            assert!(
-                (aim_after[0] - aim_before[0]).abs() > 0.1
-                    || (aim_after[2] - aim_before[2]).abs() > 0.1,
-                "jam should scatter aim"
-            );
-        } else {
-            // Destroyed by SUBDUAL_MISSILE residual damage also counts.
-            assert!(logic.ecm_missiles_jammed > 0);
-        }
-    } else {
-        assert!(logic.ecm_missiles_jammed > 0);
-    }
-    let _ = (ecm, HOST_ECM_JAM_RADIUS, TECH_CANNON_SHELL_PROJECTILE);
+    let o = logic.objects.get(&missile).expect("missile still exists");
+    assert!(o.is_alive(), "jam must not explode the missile");
+    assert!(
+        (o.health.current - hp_before).abs() < 1e-3,
+        "SUBDUAL_MISSILE must not deal HP, before={hp_before} after={}",
+        o.health.current
+    );
+    assert!(o.ecm_missile_jammed, "missile should be marked jammed");
+    let aim_after = o.tomahawk_missile_aim.expect("aim after");
+    assert!(
+        (aim_after[0] - aim_before[0]).abs() > 0.1
+            || (aim_after[2] - aim_before[2]).abs() > 0.1,
+        "jam should scatter aim"
+    );
+    let _ = (ecm, HOST_ECM_JAM_RADIUS);
 }
 
 #[test]
@@ -3381,6 +3377,10 @@ fn ecm_jam_spawns_disable_stream_laser() {
             last_fire_time: -10.0,
             ..Weapon::default()
         });
+        // One 24 SUBDUAL_VEHICLE pulse fills this bar (ActiveBody.cpp:1292).
+        o.health.current = 20.0;
+        o.health.maximum = 20.0;
+        o.max_health = 20.0;
     }
     // Align to laser pulse cadence.
     logic.frame = ECM_VEHICLE_DISABLER_DELAY_FRAMES;
@@ -3443,6 +3443,12 @@ fn ecm_jam_residual_jams_enemy_weapons_in_radius() {
             last_fire_time: -10.0,
             ..Weapon::default()
         });
+        if id == enemy_id {
+            // One 24 SUBDUAL_VEHICLE pulse fills the bar (ActiveBody.cpp:1292).
+            unit.health.current = 20.0;
+            unit.health.maximum = 20.0;
+            unit.max_health = 20.0;
+        }
     }
 
     assert_eq!(game_logic.ecm_residual_jams(), 0);
@@ -3508,16 +3514,28 @@ fn ecm_jam_residual_jams_enemy_weapons_in_radius() {
         "jammed enemy must not damage ECM via combat residual"
     );
 
-    // Leave radius → jam clears.
+    // Leave radius — C++ SubdualDamageHelper lingers; do not instantly unjam.
     {
         let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
         enemy.set_position(Vec3::new(400.0, 0.0, 0.0));
     }
     game_logic.update_ecm_jam_field();
+    assert!(
+        game_logic
+            .host_object(enemy_id)
+            .expect("enemy")
+            .is_weapons_jammed(),
+        "leaving radius must linger while subdual bar is full"
+    );
+    {
+        let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
+        enemy.subdual_damage = 0.0;
+    }
+    game_logic.update_ecm_jam_field();
     let enemy = game_logic.host_object(enemy_id).expect("enemy");
     assert!(
         !enemy.is_weapons_jammed(),
-        "enemy leaving jam radius must recover weapons"
+        "weapons recover after subdual heals out"
     );
     assert!(enemy.can_attack(), "recovered enemy must can_attack again");
 
@@ -3560,6 +3578,9 @@ fn ecm_jam_residual_out_of_range_then_in_range() {
             last_fire_time: -5.0,
             ..Weapon::default()
         });
+        enemy.health.current = 20.0;
+        enemy.health.maximum = 20.0;
+        enemy.max_health = 20.0;
     }
 
     game_logic.update_ecm_jam_field();

@@ -455,6 +455,8 @@ pub struct ControlBarSelectionPanelState {
     pub special_power_ready: bool,
     /// Special power cooldown remaining residual (seconds).
     pub special_power_cooldown_remaining: f32,
+    /// Special power full cooldown residual (seconds).
+    pub special_power_cooldown: f32,
     /// Head queue entry is PRODUCTION_UPGRADE residual.
     pub production_is_upgrade: bool,
     /// Wave 986: production pause residual.
@@ -495,6 +497,7 @@ impl ControlBarSelectionPanelState {
             rally_point: None,
             special_power_ready: false,
             special_power_cooldown_remaining: 0.0,
+            special_power_cooldown: 0.0,
             production_is_upgrade: primary.production_is_upgrade,
             production_paused: primary.production_paused,
         }

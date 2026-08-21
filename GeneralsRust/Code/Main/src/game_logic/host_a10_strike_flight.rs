@@ -16,9 +16,8 @@ use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
 use crate::game_logic::special_power_strikes::{
-    A10StrikeScienceTier, A10_FORMATIONION_SPACING, A10_MISSILE_PRIMARY_DAMAGE,
-    A10_MISSILE_PRIMARY_RADIUS, A10_PAYLOAD_TEMPLATE, A10_STRIKE_IMPACT_DELAY_FRAMES,
-    A10_TRANSPORT,
+    A10StrikeScienceTier, A10_DELIVERY_DISTANCE, A10_FORMATIONION_SPACING,
+    A10_MISSILE_PRIMARY_DAMAGE, A10_MISSILE_PRIMARY_RADIUS, A10_PAYLOAD_TEMPLATE, A10_TRANSPORT,
 };
 
 /// Retail DropDelay residual (ms) for A10 payload sets.
@@ -50,6 +49,19 @@ pub struct HostA10StrikeFlightData {
     pub passed_target: bool,
     #[serde(default)]
     pub last_vulcan_frame: u32,
+    /// C++ DeliverPayload visible bones still to drop (VisibleNumBones 6).
+    #[serde(default)]
+    pub missiles_remaining: u32,
+    /// Next frame a visible-payload pair may drop (DropDelay 15).
+    #[serde(default)]
+    pub next_drop_frame: u32,
+    /// Previous 2D dist² for inbound DeliverPayload::isCloseEnoughToTarget.
+    #[serde(default = "host_a10_prev_dist_sq_default")]
+    pub prev_dist_sq: f32,
+}
+
+fn host_a10_prev_dist_sq_default() -> f32 {
+    f32::MAX
 }
 
 impl HostA10StrikeFlightData {
@@ -71,6 +83,9 @@ impl HostA10StrikeFlightData {
             transport_alive: true,
             passed_target: false,
             last_vulcan_frame: 0,
+            missiles_remaining: A10_NUM_BONES,
+            next_drop_frame: 0,
+            prev_dist_sq: f32::MAX,
         }
     }
 
@@ -107,6 +122,31 @@ impl HostA10StrikeFlightData {
             && (new_pos.x - self.exit.x).abs() < 8.0
             && (new_pos.z - self.exit.z).abs() < 8.0;
         (new_pos, vel, at_exit)
+    }
+
+    /// C++ `DeliverPayloadAIUpdate::isCloseEnoughToTarget` (DeliveryDistance 450).
+    pub fn is_close_enough_to_target(&mut self, pos: Vec3) -> bool {
+        let dx = pos.x - self.target.x;
+        let dz = pos.z - self.target.z;
+        let current = dx * dx + dz * dz;
+        let inbound = self.prev_dist_sq > current;
+        self.prev_dist_sq = current;
+        let _ = inbound;
+        current <= A10_DELIVERY_DISTANCE * A10_DELIVERY_DISTANCE
+    }
+
+    /// C++ `DeliveringState::update` VisibleItemsDroppedPerInterval while close.
+    pub fn take_visible_payload_drops(&mut self, now: u32) -> u32 {
+        if self.missiles_remaining == 0 {
+            return 0;
+        }
+        if self.next_drop_frame != 0 && now < self.next_drop_frame {
+            return 0;
+        }
+        let n = self.missiles_remaining.min(A10_ITEMS_PER_DROP);
+        self.missiles_remaining = self.missiles_remaining.saturating_sub(n);
+        self.next_drop_frame = now.saturating_add(A10_DROP_DELAY_FRAMES);
+        n
     }
 }
 
@@ -161,11 +201,8 @@ impl HostA10StrikeFlightRegistry {
         for (i, pt) in points.into_iter().enumerate() {
             // DropDelay residual between pairs (every 2 missiles).
             let pair = (i as u32) / A10_ITEMS_PER_DROP;
-            let drop_frame = activate_frame
-                .saturating_add(A10_STRIKE_IMPACT_DELAY_FRAMES)
-                .saturating_add(pair.saturating_mul(A10_DROP_DELAY_FRAMES));
-            // Fall residual: drop a few frames before impact.
-            let drop_frame = drop_frame.saturating_sub(10);
+            let drop_frame =
+                activate_frame.saturating_add(pair.saturating_mul(A10_DROP_DELAY_FRAMES));
             self.pending_drops.push(PendingA10MissileDrop {
                 drop_frame,
                 target: pt,
@@ -239,5 +276,26 @@ mod tests {
     #[test]
     fn schedules_staggered_l1_missiles() {
         assert!(honesty_a10_strike_flight_residual_ok());
+    }
+
+    #[test]
+    fn close_enough_matches_cpp_delivery_distance() {
+        // C++ DeliverPayloadAIUpdate.cpp:348-368 — 2D DeliveryDistance 450.
+        let mut data = HostA10StrikeFlightData::start(
+            Vec3::new(0.0, 160.0, 0.0),
+            Vec3::new(1000.0, 0.0, 0.0),
+            A10StrikeScienceTier::Level1,
+        );
+        assert!(
+            !data.is_close_enough_to_target(Vec3::new(0.0, 160.0, 0.0)),
+            "1000wu from target must not deliver"
+        );
+        assert!(
+            data.is_close_enough_to_target(Vec3::new(600.0, 160.0, 0.0)),
+            "400wu inbound must deliver"
+        );
+        assert_eq!(data.take_visible_payload_drops(0), 2);
+        assert_eq!(data.take_visible_payload_drops(1), 0);
+        assert_eq!(data.take_visible_payload_drops(A10_DROP_DELAY_FRAMES), 2);
     }
 }

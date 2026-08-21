@@ -47,6 +47,8 @@ pub struct PortraitDisplayState {
     pub special_power_ready: bool,
     /// Special power cooldown remaining residual (seconds).
     pub special_power_cooldown_remaining: f32,
+    /// Special power full cooldown residual (seconds). C++ getPercentReadyToFire.
+    pub special_power_cooldown_total: f32,
     /// Structure rally point residual from PresentationFrame (xyz).
     pub rally_point: Option<[f32; 3]>,
 }

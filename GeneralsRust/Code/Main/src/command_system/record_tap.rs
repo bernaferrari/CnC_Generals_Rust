@@ -28,10 +28,112 @@ pub struct ReplayCameraPose {
     pub cursor: i32,
     /// C++ `LookAtTranslator::m_currentPos` pixel.
     pub pixel: (i32, i32),
+    /// C++ `GameMessage::getPlayerIndex()` — original recorder / issuing player.
+    pub player_index: i32,
+}
+
+/// Playback `MSG_CREATE/SELECT/ADD_TEAM*` for the live host control groups.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReplayTeamOp {
+    Create {
+        player_index: i32,
+        slot: u8,
+        ids: Vec<ObjectId>,
+    },
+    Select { player_index: i32, slot: u8 },
+    Add { player_index: i32, slot: u8 },
+}
+
+fn intern_name(name: &str) -> u32 {
+    game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(name)
+}
+
+fn resolve_name(id: u32) -> String {
+    game_engine::common::name_key_generator::NameKeyGenerator::key_to_name(id)
+        .unwrap_or_default()
+}
+
+fn special_maps() -> &'static Mutex<(
+    HashMap<SpecialPowerType, u32>,
+    HashMap<u32, SpecialPowerType>,
+)> {
+    static MAPS: std::sync::LazyLock<
+        Mutex<(HashMap<SpecialPowerType, u32>, HashMap<u32, SpecialPowerType>)>,
+    > = std::sync::LazyLock::new(|| Mutex::new((HashMap::new(), HashMap::new())));
+    &MAPS
+}
+
+fn intern_special(power: &SpecialPowerType) -> u32 {
+    let mut maps = special_maps().lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(id) = maps.0.get(power).copied() {
+        return id;
+    }
+    let id = intern_name(&format!("SP::{power:?}"));
+    maps.0.insert(power.clone(), id);
+    maps.1.insert(id, power.clone());
+    id
+}
+
+fn resolve_special(id: u32) -> SpecialPowerType {
+    special_maps()
+        .lock()
+        .ok()
+        .and_then(|maps| maps.1.get(&id).cloned())
+        .unwrap_or(SpecialPowerType::Invalid)
+}
+
+fn weapon_slot_to_id(slot: &WeaponSlot) -> u32 {
+    match slot {
+        WeaponSlot::Primary => 0,
+        WeaponSlot::Secondary => 1,
+        WeaponSlot::Tertiary => 2,
+        WeaponSlot::AntiAir => 3,
+        WeaponSlot::Slot(n) => *n,
+    }
+}
+
+fn weapon_slot_from_id(id: u32) -> WeaponSlot {
+    match id {
+        0 => WeaponSlot::Primary,
+        1 => WeaponSlot::Secondary,
+        2 => WeaponSlot::Tertiary,
+        3 => WeaponSlot::AntiAir,
+        n => WeaponSlot::Slot(n),
+    }
+}
+
+fn append_game_message_to_stream(msg: &GameMessage) {
+    use game_engine::common::message_stream::get_message_stream;
+    let stream_lock = get_message_stream();
+    let Ok(mut stream) = stream_lock.write() else {
+        return;
+    };
+    let dest = stream.append_message(msg.get_type().clone());
+    dest.set_player_index(msg.get_player_index());
+    for arg in msg.get_arguments() {
+        match &arg.data {
+            GameMessageArgumentType::Integer(v) => dest.append_integer_argument(*v),
+            GameMessageArgumentType::Real(v) => dest.append_real_argument(*v),
+            GameMessageArgumentType::Boolean(v) => dest.append_boolean_argument(*v),
+            GameMessageArgumentType::ObjectID(v) => dest.append_object_id_argument(*v),
+            GameMessageArgumentType::DrawableID(v) => dest.append_drawable_id_argument(*v),
+            GameMessageArgumentType::TeamID(v) | GameMessageArgumentType::SquadID(v) => {
+                dest.append_team_id_argument(*v)
+            }
+            GameMessageArgumentType::Location(v) => dest.append_location_argument(v.clone()),
+            GameMessageArgumentType::Pixel(v) => dest.append_pixel_argument(v.clone()),
+            GameMessageArgumentType::PixelRegion(v) => dest.append_pixel_region_argument(v.clone()),
+            GameMessageArgumentType::Timestamp(v) => dest.append_timestamp_argument(*v),
+            GameMessageArgumentType::WideChar(v) => dest.append_wide_char_argument(*v),
+            GameMessageArgumentType::String(v) => dest.append_string_argument(v.clone()),
+        }
+    }
 }
 
 static PENDING_REPLAY_COMMANDS: Mutex<Vec<GameCommand>> = Mutex::new(Vec::new());
 static PENDING_REPLAY_CAMERA: Mutex<Option<ReplayCameraPose>> = Mutex::new(None);
+static PENDING_REPLAY_TEAMS: Mutex<Vec<ReplayTeamOp>> = Mutex::new(Vec::new());
+static PENDING_REPLAY_REMIRROR: Mutex<Vec<i32>> = Mutex::new(Vec::new());
 static BRIDGES_INSTALLED: AtomicBool = AtomicBool::new(false);
 static HOST_LOGIC_FRAME: AtomicU32 = AtomicU32::new(0);
 
@@ -174,7 +276,15 @@ pub fn install_host_replay_bridges() {
 
     let command_source: Arc<dyn Fn() -> Vec<GameMessage> + Send + Sync> =
         Arc::new(snapshot_command_list);
-    let command_sink: Arc<dyn Fn(GameMessage) + Send + Sync> = Arc::new(append_to_command_list);
+    let command_sink: Arc<dyn Fn(GameMessage) + Send + Sync> = Arc::new(|msg| {
+        // C++ playbackFile/stopPlayback use TheMessageStream for these two.
+        match msg.get_type() {
+            GameMessageType::NewGame | GameMessageType::ClearGameData => {
+                append_game_message_to_stream(&msg);
+            }
+            _ => append_to_command_list(msg),
+        }
+    });
     let command_cull: Arc<dyn Fn() + Send + Sync> = Arc::new(cull_host_command_list);
     let frame_provider: Arc<dyn Fn() -> u32 + Send + Sync> = Arc::new(host_logic_frame);
 
@@ -206,11 +316,16 @@ pub fn tap_host_command_for_recorder(command: &GameCommand) {
 /// not `GAME_SHELL` / `GAME_SINGLE_PLAYER` / `GAME_NONE`.
 pub fn tap_host_new_game_for_recorder(mode: GameMode) {
     install_host_replay_bridges();
+    let difficulty = gamelogic::helpers::TheScriptEngine::get_global_difficulty();
+    let rank = gamelogic::helpers::TheGameLogic::get_rank_points_to_add_at_game_start();
+    let max_fps = game_engine::common::global_data::read()
+        .writable
+        .frames_per_second_limit;
     let mut message = GameMessage::new(GameMessageType::NewGame);
     message.append_integer_argument(game_mode_to_new_game_code(mode));
-    message.append_integer_argument(1); // DIFFICULTY_NORMAL
-    message.append_integer_argument(0); // rank points
-    message.append_integer_argument(30); // max FPS
+    message.append_integer_argument(difficulty);
+    message.append_integer_argument(rank);
+    message.append_integer_argument(if max_fps != 0 { max_fps } else { 30 });
     append_to_command_list(message);
 }
 
@@ -219,11 +334,10 @@ pub fn tap_host_new_game_for_recorder(mode: GameMode) {
 pub fn tap_replay_camera_for_recorder(pose: ReplayCameraPose) {
     install_host_replay_bridges();
     let coord = coord_from_vec3(pose.pos);
-    let mut message = GameMessage::new(GameMessageType::SetReplayCamera(
-        coord.clone(),
-        pose.yaw,
-        pose.zoom,
-    ));
+    let mut message = GameMessage::with_player(
+        GameMessageType::SetReplayCamera(coord.clone(), pose.yaw, pose.zoom),
+        pose.player_index,
+    );
     let (cursor, pixel) = if pose.pixel != (0, 0) || pose.cursor != 0 {
         (
             pose.cursor,
@@ -255,9 +369,117 @@ pub fn host_recorder_is_playback() -> bool {
     with_recorder(|recorder| recorder.is_playback()).unwrap_or(false)
 }
 
+/// C++ `TheControlBar->getObserverLookAtPlayer()` index.
+pub fn host_observer_look_at_player_index() -> Option<i32> {
+    #[cfg(feature = "game_client")]
+    {
+        if let Some(index) = game_client::helpers::TheControlBar::get_observer_look_at_player_index()
+        {
+            return Some(index);
+        }
+        return game_client::gui::control_bar::control_bar_observer::observer_look_at_player_index();
+    }
+    #[cfg(not(feature = "game_client"))]
+    None
+}
+
+/// C++ `getObserverLookAtPlayer() == thisPlayer`.
+pub fn host_replay_observer_matches_player(player_index: i32) -> bool {
+    host_observer_look_at_player_index() == Some(player_index)
+}
+
+/// C++ GameLogicDispatch.cpp:1803 playback + useCamera + observer==thisPlayer.
+pub fn host_should_apply_replay_camera(player_index: i32) -> bool {
+    host_recorder_is_playback()
+        && game_engine::common::global_data::read().use_camera_in_replay
+        && host_replay_observer_matches_player(player_index)
+}
+
+/// C++ GameLogicDispatch.cpp:1970 same gate as SET_REPLAY_CAMERA.
+pub fn host_should_remirror_observer_selection(player_index: i32) -> bool {
+    host_should_apply_replay_camera(player_index)
+}
+
 /// Take the most recent playback `MSG_SET_REPLAY_CAMERA` pose.
 pub fn take_pending_replay_camera() -> Option<ReplayCameraPose> {
     PENDING_REPLAY_CAMERA.lock().ok().and_then(|mut slot| slot.take())
+}
+
+/// C++ SelectionXlat.cpp:1047 MSG_CREATE/SELECT/ADD_TEAM0+group.
+/// `kind`: 0=create, 1=select, 2=add.
+pub fn tap_host_team_slot_for_recorder(slot: u8, kind: u8, ids: &[ObjectId]) {
+    install_host_replay_bridges();
+    if with_recorder(|recorder| recorder.is_playback()).unwrap_or(false) {
+        return;
+    }
+    let message_type = match kind {
+        0 => GameMessageType::CreateTeamSlot(slot),
+        1 => GameMessageType::SelectTeamSlot(slot),
+        _ => GameMessageType::AddTeamSlot(slot),
+    };
+    let mut message = GameMessage::with_player(message_type, host_local_player_index());
+    if kind == 0 {
+        for id in ids {
+            message.append_object_id_argument(object_id_to_message(*id));
+        }
+    }
+    append_to_command_list(message);
+}
+
+/// Take playback team ops for the live host control-group table.
+pub fn take_pending_replay_team_ops() -> Vec<ReplayTeamOp> {
+    PENDING_REPLAY_TEAMS
+        .lock()
+        .map(|mut pending| pending.drain(..).collect())
+        .unwrap_or_default()
+}
+
+/// Queue C++ post-dispatch remirror of `thisPlayer` onto observer InGameUI.
+pub fn queue_replay_selection_remirror(player_index: i32) {
+    if let Ok(mut pending) = PENDING_REPLAY_REMIRROR.lock() {
+        if !pending.contains(&player_index) {
+            pending.push(player_index);
+        }
+    }
+}
+
+/// Take issuing-player indices that should remirror onto observer InGameUI.
+pub fn take_pending_replay_selection_remirror() -> Vec<i32> {
+    PENDING_REPLAY_REMIRROR
+        .lock()
+        .map(|mut pending| pending.drain(..).collect())
+        .unwrap_or_default()
+}
+
+/// Leftover `Player::get_current_selection_ids` for the issuing replay player.
+pub fn leftover_player_current_selection_ids(player_index: i32) -> Vec<ObjectId> {
+    let Ok(list) = gamelogic::player::ThePlayerList().read() else {
+        return Vec::new();
+    };
+    let Some(player_arc) = list.get_player(player_index).cloned() else {
+        return Vec::new();
+    };
+    drop(list);
+    let Ok(player) = player_arc.read() else {
+        return Vec::new();
+    };
+    player
+        .get_current_selection_ids()
+        .into_iter()
+        .map(object_id_from_message)
+        .collect()
+}
+
+fn host_local_player_index() -> i32 {
+    let Ok(list) = gamelogic::player::ThePlayerList().read() else {
+        return 0;
+    };
+    let index = list.get_local_player_index();
+    if index == gamelogic::player::PLAYER_INDEX_INVALID {
+        0
+    } else {
+        index
+    }
 }
 
 /// C++ `GameLogic::update` ticks `TheRecorder` then `processCommandList`.
@@ -286,8 +508,48 @@ pub fn flush_recorder_and_replay_authority(host_queue: &mut VecDeque<GameCommand
     }
 }
 
+fn object_ids_from_message(message: &GameMessage) -> Vec<ObjectId> {
+    (0..message.get_argument_count())
+        .filter_map(|index| match message.get_argument(index) {
+            Some(GameMessageArgumentType::ObjectID(id)) => Some(object_id_from_message(*id)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn push_pending_replay_team(op: ReplayTeamOp) {
+    if let Ok(mut pending) = PENDING_REPLAY_TEAMS.lock() {
+        pending.push(op);
+    }
+}
+
+fn apply_replay_team_to_leftover_player(
+    player_index: i32,
+    slot: u8,
+    kind: u8,
+    ids: &[ObjectId],
+) {
+    let Ok(list) = gamelogic::player::ThePlayerList().read() else {
+        return;
+    };
+    let Some(player_arc) = list.get_player(player_index).cloned() else {
+        return;
+    };
+    drop(list);
+    let Ok(mut player) = player_arc.write() else {
+        return;
+    };
+    let object_ids: Vec<u32> = ids.iter().map(|id| id.0).collect();
+    match kind {
+        0 => player.process_create_team_game_message(slot as i32, &object_ids),
+        1 => player.process_select_team_game_message(slot as i32),
+        _ => player.process_add_team_game_message(slot as i32),
+    }
+}
+
 fn apply_replay_messages_to_host(messages: &[GameMessage]) {
     for message in messages {
+        let player_index = message.get_player_index();
         match message.get_type() {
             GameMessageType::SetReplayCamera(coord, yaw, zoom) => {
                 let angle = match message.get_argument(1) {
@@ -318,13 +580,45 @@ fn apply_replay_messages_to_host(messages: &[GameMessage]) {
                         zoom: zoom_v,
                         cursor,
                         pixel,
+                        player_index,
                     });
                 }
             }
-            GameMessageType::NewGame | GameMessageType::ClearGameData => {}
+            GameMessageType::NewGame | GameMessageType::ClearGameData => {
+                // C++ GameLogicDispatch.cpp:396-440 prepareNewGame/clearGameData.
+                append_game_message_to_stream(message);
+            }
+            GameMessageType::CreateTeamSlot(slot) => {
+                let ids = object_ids_from_message(message);
+                apply_replay_team_to_leftover_player(player_index, *slot, 0, &ids);
+                push_pending_replay_team(ReplayTeamOp::Create {
+                    player_index,
+                    slot: *slot,
+                    ids,
+                });
+                queue_replay_selection_remirror(player_index);
+            }
+            GameMessageType::SelectTeamSlot(slot) => {
+                apply_replay_team_to_leftover_player(player_index, *slot, 1, &[]);
+                push_pending_replay_team(ReplayTeamOp::Select {
+                    player_index,
+                    slot: *slot,
+                });
+                queue_replay_selection_remirror(player_index);
+            }
+            GameMessageType::AddTeamSlot(slot) => {
+                apply_replay_team_to_leftover_player(player_index, *slot, 2, &[]);
+                push_pending_replay_team(ReplayTeamOp::Add {
+                    player_index,
+                    slot: *slot,
+                });
+                queue_replay_selection_remirror(player_index);
+            }
+            GameMessageType::LogicCRC(_) => {}
             _ => {
                 if let Some(command) = game_message_to_host_command(message) {
                     push_pending_replay_command(command);
+                    queue_replay_selection_remirror(player_index);
                 }
             }
         }
@@ -381,6 +675,119 @@ fn game_command_to_message(command: &GameCommand) -> Option<GameMessage> {
         SelfDestruct { transfer_to_ally } => {
             GameMessageType::SelfDestruct(if *transfer_to_ally { 1 } else { 0 })
         }
+        Build {
+            template_name,
+            location,
+        }
+        | DozerConstruct {
+            template_name,
+            location,
+            ..
+        } => GameMessageType::DozerConstruct(
+            intern_name(template_name),
+            coord_from_vec3(*location),
+            match &command.command_type {
+                DozerConstruct { orientation, .. } => *orientation,
+                _ => 0.0,
+            },
+        ),
+        DozerConstructLine {
+            template_name,
+            start,
+            end,
+        } => GameMessageType::DozerConstructLine(
+            intern_name(template_name),
+            coord_from_vec3(*start),
+            coord_from_vec3(*end),
+            0.0,
+        ),
+        DozerCancelConstruct { object_id } => {
+            GameMessageType::DozerCancelConstruct(object_id_to_message(*object_id))
+        }
+        Sell { object_id } => GameMessageType::Sell(object_id_to_message(*object_id)),
+        QueueUnitCreate {
+            template_name,
+            quantity,
+        } => GameMessageType::QueueUnitCreate(intern_name(template_name), *quantity),
+        CancelUnitCreate { template_name } => {
+            GameMessageType::CancelUnitCreate(intern_name(template_name))
+        }
+        QueueUpgrade { upgrade_name } => GameMessageType::QueueUpgrade(intern_name(upgrade_name)),
+        CancelUpgrade { upgrade_name } => GameMessageType::CancelUpgrade(intern_name(upgrade_name)),
+        PurchaseScience { science_name } => {
+            GameMessageType::PurchaseScience(intern_name(science_name))
+        }
+        DoSpecialPower { power_type, target } => {
+            let power_id = intern_special(power_type);
+            match target {
+                PowerTarget::None => GameMessageType::DoSpecialPower(power_id, 0, 0),
+                PowerTarget::Object(id) => {
+                    GameMessageType::DoSpecialPowerAtObject(power_id, object_id_to_message(*id), 0, 0)
+                }
+                PowerTarget::Location(pos) => GameMessageType::DoSpecialPowerAtLocation(
+                    power_id,
+                    coord_from_vec3(*pos),
+                    0.0,
+                    0,
+                    0,
+                    0,
+                ),
+            }
+        }
+        DoWeapon {
+            weapon_slot,
+            target,
+            ..
+        } => {
+            let slot = weapon_slot_to_id(weapon_slot);
+            match target {
+                WeaponTarget::Location(pos) => {
+                    GameMessageType::DoWeaponAtLocation(slot, coord_from_vec3(*pos))
+                }
+                WeaponTarget::Object(id) => {
+                    GameMessageType::DoWeaponAtObject(slot, object_id_to_message(*id))
+                }
+            }
+        }
+        Evacuate => GameMessageType::Evacuate,
+        CombatDrop {
+            target: DropTarget::Location(pos),
+        } => GameMessageType::CombatDropAtLocation(coord_from_vec3(*pos)),
+        CombatDrop {
+            target: DropTarget::Object(id),
+        } => GameMessageType::CombatDropAtObject(object_id_to_message(*id)),
+        SetRallyPoint { location } => {
+            let unit = command
+                .selected_units
+                .first()
+                .copied()
+                .map(object_id_to_message)
+                .unwrap_or(0);
+            GameMessageType::SetRallyPoint(unit, coord_from_vec3(*location))
+        }
+        Cheer => GameMessageType::DoCheer,
+        PlaceBeacon { location, .. } => GameMessageType::PlaceBeacon(coord_from_vec3(*location)),
+        RemoveBeacon => GameMessageType::RemoveBeacon(Coord3D::new(0.0, 0.0, 0.0)),
+        SetBeaconText { text } => {
+            GameMessageType::SetBeaconText(Coord3D::new(0.0, 0.0, 0.0), text.clone())
+        }
+        ExecuteRailedTransport => GameMessageType::ExecuteRailedTransport,
+        HackInternet => GameMessageType::InternetHack,
+        ToggleOvercharge => GameMessageType::ToggleOvercharge,
+        SwitchWeapons { slot } => GameMessageType::SwitchWeapons(u32::from(*slot)),
+        DestroySelectedGroup { team_id } => GameMessageType::DestroySelectedGroup(*team_id),
+        RemoveFromSelectedGroup { units } => GameMessageType::RemoveFromSelectedGroup(
+            units.iter().copied().map(object_id_to_message).collect(),
+        ),
+        CreateFormation => GameMessageType::CreateFormation(
+            command
+                .selected_units
+                .iter()
+                .copied()
+                .map(object_id_to_message)
+                .collect(),
+        ),
+        Exit => GameMessageType::Exit(0),
         _ => return None,
     };
     Some(GameMessage::with_player(message_type, player))
@@ -419,10 +826,8 @@ fn game_message_to_host_command(message: &GameMessage) -> Option<GameCommand> {
             target: GuardTarget::Object(object_id_from_message(*id)),
             mode: guard_mode_from_i32(*mode),
         },
-        AddWaypoint(coord) => CommandType::AddWaypoint {
-            destination: vec3_from_coord(coord),
-        },
-        CreateSelectedGroup(create_new, units) => CommandType::CreateSelectedGroup {
+        CreateSelectedGroup(create_new, units)
+        | CreateSelectedGroupNoSound(create_new, units) => CommandType::CreateSelectedGroup {
             create_new: *create_new,
             units: units.iter().copied().map(object_id_from_message).collect(),
         },
@@ -454,6 +859,89 @@ fn game_message_to_host_command(message: &GameMessage) -> Option<GameCommand> {
         SelfDestruct(flag) => CommandType::SelfDestruct {
             transfer_to_ally: *flag != 0,
         },
+        DozerConstruct(building_type, coord, angle) => CommandType::DozerConstruct {
+            template_name: resolve_name(*building_type),
+            location: vec3_from_coord(coord),
+            orientation: *angle,
+        },
+        DozerConstructLine(building_type, start, end, _angle) => CommandType::DozerConstructLine {
+            template_name: resolve_name(*building_type),
+            start: vec3_from_coord(start),
+            end: vec3_from_coord(end),
+        },
+        DozerCancelConstruct(id) => CommandType::DozerCancelConstruct {
+            object_id: object_id_from_message(*id),
+        },
+        Sell(id) => CommandType::Sell {
+            object_id: object_id_from_message(*id),
+        },
+        QueueUnitCreate(unit_type_id, quantity) => CommandType::QueueUnitCreate {
+            template_name: resolve_name(*unit_type_id),
+            quantity: *quantity,
+        },
+        CancelUnitCreate(unit_type_id) => CommandType::CancelUnitCreate {
+            template_name: resolve_name(*unit_type_id),
+        },
+        QueueUpgrade(upgrade_id) => CommandType::QueueUpgrade {
+            upgrade_name: resolve_name(*upgrade_id),
+        },
+        CancelUpgrade(upgrade_id) => CommandType::CancelUpgrade {
+            upgrade_name: resolve_name(*upgrade_id),
+        },
+        PurchaseScience(science_id) => CommandType::PurchaseScience {
+            science_name: resolve_name(*science_id),
+        },
+        DoSpecialPower(power_id, _options, _source) => CommandType::DoSpecialPower {
+            power_type: resolve_special(*power_id),
+            target: PowerTarget::None,
+        },
+        DoSpecialPowerAtLocation(power_id, coord, ..) => CommandType::DoSpecialPower {
+            power_type: resolve_special(*power_id),
+            target: PowerTarget::Location(vec3_from_coord(coord)),
+        },
+        DoSpecialPowerAtObject(power_id, target, ..) => CommandType::DoSpecialPower {
+            power_type: resolve_special(*power_id),
+            target: PowerTarget::Object(object_id_from_message(*target)),
+        },
+        DoWeaponAtLocation(slot, coord) => CommandType::DoWeapon {
+            weapon_slot: weapon_slot_from_id(*slot),
+            max_shots_to_fire: -1,
+            target: WeaponTarget::Location(vec3_from_coord(coord)),
+        },
+        DoWeaponAtObject(slot, id) => CommandType::DoWeapon {
+            weapon_slot: weapon_slot_from_id(*slot),
+            max_shots_to_fire: -1,
+            target: WeaponTarget::Object(object_id_from_message(*id)),
+        },
+        Evacuate | EvacuateAtLocation(_) => CommandType::Evacuate,
+        CombatDropAtLocation(coord) => CommandType::CombatDrop {
+            target: DropTarget::Location(vec3_from_coord(coord)),
+        },
+        CombatDropAtObject(id) => CommandType::CombatDrop {
+            target: DropTarget::Object(object_id_from_message(*id)),
+        },
+        SetRallyPoint(_unit, coord) => CommandType::SetRallyPoint {
+            location: vec3_from_coord(coord),
+        },
+        DoCheer => CommandType::Cheer,
+        PlaceBeacon(coord) => CommandType::PlaceBeacon {
+            location: vec3_from_coord(coord),
+            text: String::new(),
+        },
+        RemoveBeacon(_) => CommandType::RemoveBeacon,
+        SetBeaconText(_coord, text) => CommandType::SetBeaconText { text: text.clone() },
+        ExecuteRailedTransport => CommandType::ExecuteRailedTransport,
+        InternetHack => CommandType::HackInternet,
+        ToggleOvercharge => CommandType::ToggleOvercharge,
+        SwitchWeapons(slot) => CommandType::SwitchWeapons {
+            slot: u8::try_from(*slot).unwrap_or(0),
+        },
+        DestroySelectedGroup(team_id) => CommandType::DestroySelectedGroup { team_id: *team_id },
+        RemoveFromSelectedGroup(units) => CommandType::RemoveFromSelectedGroup {
+            units: units.iter().copied().map(object_id_from_message).collect(),
+        },
+        CreateFormation(_) => CommandType::CreateFormation,
+        Exit(_) => CommandType::Exit,
         _ => return None,
     };
     Some(GameCommand {
@@ -543,6 +1031,7 @@ mod tests {
             zoom: 1.5,
             cursor: 4,
             pixel: (12, 34),
+            player_index: 2,
         });
         let snap = snapshot_command_list();
         let camera = snap
@@ -585,5 +1074,191 @@ mod tests {
             }
             other => panic!("expected pixel, got {other:?}"),
         }
+        assert_eq!(camera.get_player_index(), 2);
+
     }
+
+    fn host_command(command_type: CommandType) -> GameCommand {
+        GameCommand {
+            command_type,
+            player_id: 2,
+            command_id: 1,
+            timestamp: SystemTime::now(),
+            selected_units: vec![ObjectId(9)],
+            modifier_keys: ModifierKeys::default(),
+        }
+    }
+
+    #[test]
+    fn dozer_construct_round_trips_through_replay_tap() {
+        // C++ Recorder.cpp:488-492 writes MSG_DOZER_CONSTRUCT from TheCommandList.
+        let command = host_command(CommandType::DozerConstruct {
+            template_name: "AmericaBarracks".to_string(),
+            location: Vec3::new(40.0, 0.0, 8.0),
+            orientation: 1.25,
+        });
+        let message = game_command_to_message(&command).expect("dozer construct must record");
+        assert!(matches!(
+            message.get_type(),
+            GameMessageType::DozerConstruct(_, coord, angle)
+                if (coord.x - 40.0).abs() < f32::EPSILON && (*angle - 1.25).abs() < f32::EPSILON
+        ));
+        match game_message_to_host_command(&message)
+            .expect("playback must restore DozerConstruct")
+            .command_type
+        {
+            CommandType::DozerConstruct {
+                template_name,
+                location,
+                orientation,
+            } => {
+                assert_eq!(template_name, "AmericaBarracks");
+                assert!((location.z - 8.0).abs() < f32::EPSILON);
+                assert!((orientation - 1.25).abs() < f32::EPSILON);
+            }
+            other => panic!("expected DozerConstruct, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn queue_unit_and_special_power_round_trip() {
+        // C++ MessageStream.h:462-584 includes queue unit + special power network IDs.
+        let queue = host_command(CommandType::QueueUnitCreate {
+            template_name: "AmericaInfantryRanger".to_string(),
+            quantity: 3,
+        });
+        let queue_msg = game_command_to_message(&queue).expect("queue unit must record");
+        match game_message_to_host_command(&queue_msg)
+            .expect("playback must restore QueueUnitCreate")
+            .command_type
+        {
+            CommandType::QueueUnitCreate {
+                template_name,
+                quantity,
+            } => {
+                assert_eq!(template_name, "AmericaInfantryRanger");
+                assert_eq!(quantity, 3);
+            }
+            other => panic!("expected QueueUnitCreate, got {other:?}"),
+        }
+
+        let power = host_command(CommandType::DoSpecialPower {
+            power_type: SpecialPowerType::ParticleCannon,
+            target: PowerTarget::Location(Vec3::new(15.0, 0.0, 4.0)),
+        });
+        let power_msg = game_command_to_message(&power).expect("special power must record");
+        match game_message_to_host_command(&power_msg)
+            .expect("playback must restore DoSpecialPower")
+            .command_type
+        {
+            CommandType::DoSpecialPower { power_type, target } => {
+                assert_eq!(power_type, SpecialPowerType::ParticleCannon);
+                match target {
+                    PowerTarget::Location(pos) => {
+                        assert!((pos.x - 15.0).abs() < f32::EPSILON);
+                    }
+                    other => panic!("expected location target, got {other:?}"),
+                }
+            }
+            other => panic!("expected DoSpecialPower, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn apply_replay_new_game_posts_to_the_message_stream() {
+        // C++ GameLogicDispatch.cpp:396-421 MSG_NEW_GAME starts the match.
+        use game_engine::common::message_stream::get_message_stream;
+        {
+            let stream = get_message_stream();
+            stream
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .clear_messages();
+        }
+        let mut message = GameMessage::new(GameMessageType::NewGame);
+        message.append_integer_argument(3);
+        message.append_integer_argument(2);
+        message.append_integer_argument(10);
+        message.append_integer_argument(45);
+        apply_replay_messages_to_host(&[message]);
+        let stream = get_message_stream();
+        let guard = stream.read().unwrap_or_else(|e| e.into_inner());
+        let found = guard
+            .get_messages()
+            .iter()
+            .any(|msg| matches!(msg.get_type(), GameMessageType::NewGame));
+        assert!(found, "playback NewGame must land on TheMessageStream");
+    }
+
+    #[test]
+    fn tap_create_team_slot_records_object_ids() {
+        // C++ SelectionXlat.cpp:1047 MSG_CREATE_TEAM0+group carries object IDs.
+        tap_host_team_slot_for_recorder(3, 0, &[ObjectId(11), ObjectId(12)]);
+        let snap = snapshot_command_list();
+        let team = snap
+            .iter()
+            .rev()
+            .find(|msg| matches!(msg.get_type(), GameMessageType::CreateTeamSlot(3)))
+            .expect("create team must append MSG_CREATE_TEAM3");
+        let ids = object_ids_from_message(team);
+        assert_eq!(ids, vec![ObjectId(11), ObjectId(12)]);
+    }
+
+    #[test]
+    fn observer_mismatch_blocks_replay_camera_apply() {
+        // C++ GameLogicDispatch.cpp:1803 requires getObserverLookAtPlayer()==thisPlayer.
+        #[cfg(feature = "game_client")]
+        {
+            game_client::gui::control_bar::control_bar_observer::set_observer_look_at_player(
+                Some(1),
+            );
+            assert!(host_replay_observer_matches_player(1));
+            assert!(!host_replay_observer_matches_player(0));
+            game_client::gui::control_bar::control_bar_observer::set_observer_look_at_player(None);
+            assert!(!host_replay_observer_matches_player(1));
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            assert!(!host_replay_observer_matches_player(0));
+        }
+    }
+
+    #[test]
+    fn playback_move_queues_observer_selection_remirror() {
+        // C++ GameLogicDispatch.cpp:1970-1984 remirrors after every network command.
+        let _ = take_pending_replay_selection_remirror();
+        let message = GameMessage::with_player(
+            GameMessageType::DoMoveTo(Coord3D::new(4.0, 0.0, 1.0)),
+            4,
+        );
+        apply_replay_messages_to_host(&[message]);
+        assert_eq!(take_pending_replay_selection_remirror(), vec![4]);
+    }
+
+    #[test]
+    fn set_replay_camera_does_not_queue_selection_remirror() {
+        let _ = take_pending_replay_selection_remirror();
+        let pose = ReplayCameraPose {
+            pos: Vec3::new(1.0, 2.0, 3.0),
+            yaw: 0.0,
+            pitch: 0.0,
+            zoom: 1.0,
+            cursor: 0,
+            pixel: (0, 0),
+            player_index: 3,
+        };
+        tap_replay_camera_for_recorder(pose);
+        let snap = snapshot_command_list();
+        let camera = snap
+            .iter()
+            .rev()
+            .find(|msg| matches!(msg.get_type(), GameMessageType::SetReplayCamera(..)))
+            .cloned()
+            .expect("camera tap");
+        apply_replay_messages_to_host(&[camera]);
+        assert!(take_pending_replay_selection_remirror().is_empty());
+        let stored = take_pending_replay_camera().expect("pose stored");
+        assert_eq!(stored.player_index, 3);
+    }
+
 }

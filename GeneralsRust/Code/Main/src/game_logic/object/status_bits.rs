@@ -616,6 +616,16 @@ impl Object {
                 );
             self.drawable_supply_max_boxes = max_boxes;
             self.drawable_supply_boxes = current_boxes;
+        } else if let Some(metadata) = self.thing.template.supply_truck_metadata {
+            // C++ SupplyTruckAIUpdate::gainOneBox / loseOneBox:
+            // drawable->updateDrawableSupplyStatus(maxBoxes, m_numberBoxes).
+            let (max_boxes, current_boxes) =
+                crate::game_logic::host_supply_gather::collector_drawable_supply_status(
+                    metadata.max_boxes,
+                    supplies,
+                );
+            self.drawable_supply_max_boxes = max_boxes;
+            self.drawable_supply_boxes = current_boxes;
         }
     }
 
@@ -664,6 +674,13 @@ impl Object {
             AIState::GuardRetaliating => 20,
         };
         self.ai_state = state;
+        if matches!(
+            self.ai_state,
+            AIState::Constructing | AIState::Repairing
+        ) {
+            // Assignment: ULTRA_ACCURATE on dozer/worker precision approach.
+            self.set_ultra_accurate(true);
+        }
         crate::game_logic::host_ai_state_log::record(self.id, ordinal);
         self.record_host_ai_mood();
     }

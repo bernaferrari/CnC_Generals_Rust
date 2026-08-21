@@ -88,6 +88,7 @@ mod tests {
             None,
             false,
             0.0,
+            0.0,
         );
 
         let cameos = &control_bar.get_portrait_state().upgrade_cameos;
@@ -135,6 +136,7 @@ mod tests {
             None,
             false,
             0.0,
+            0.0,
         );
 
         let cameos = &control_bar.get_portrait_state().upgrade_cameos;
@@ -179,11 +181,27 @@ mod tests {
             None,
             false,
             0.0,
+            0.0,
         );
         let cameos = &control_bar.get_portrait_state().upgrade_cameos;
         assert_eq!(cameos.len(), 1);
         assert_eq!(cameos[0].upgrade_name, UPGRADE);
         assert_eq!(cameos[0].button_image, UPGRADE);
+    }
+
+    #[test]
+    fn presentation_special_power_cooldown_feeds_inverse_clock_percent() {
+        // C++ ControlBarCommand.cpp:1306-1407 getPercentReadyToFire.
+        let mut bar = ControlBar::new();
+        bar.sync_upgrades_and_specials_from_presentation(&[], None, false, 45.0, 180.0);
+        let portrait = bar.get_portrait_state();
+        assert!(!portrait.special_power_ready);
+        assert!((portrait.special_power_cooldown_remaining - 45.0).abs() < 0.01);
+        assert!((portrait.special_power_cooldown_total - 180.0).abs() < 0.01);
+        let percent =
+            ((portrait.special_power_cooldown_remaining / portrait.special_power_cooldown_total)
+                * 100.0) as u8;
+        assert_eq!(percent, 25);
     }
 
     #[test]

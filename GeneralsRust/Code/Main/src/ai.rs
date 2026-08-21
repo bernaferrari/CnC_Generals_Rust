@@ -3175,6 +3175,10 @@ impl AIPlayer {
             if !object.is_alive() || object.is_kind_of(KindOf::Structure) {
                 continue;
             }
+            // C++ Team::tryToRecruit DISABLED_HELD (Team.cpp:2353-2356).
+            if object.contained_by.is_some() {
+                continue;
+            }
             if !object.template_name.eq_ignore_ascii_case(template_name) {
                 continue;
             }
@@ -6454,6 +6458,41 @@ mod cpp_parity_tests {
             team.work_orders[0].factory_id.is_none(),
             "recruited unit must not also startTraining"
         );
+    }
+
+    #[test]
+    fn queue_units_skips_held_garrisoned_units() {
+        // C++ Team::tryToRecruit DISABLED_HELD (Team.cpp:2353-2356).
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
+        player.resources.supplies = 50_000;
+        logic.add_player(player);
+        let mut ranger = crate::game_logic::ThingTemplate::new("AmericaInfantryRanger");
+        ranger.add_kind_of(crate::game_logic::KindOf::Infantry);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".into(), ranger);
+
+        let existing = logic
+            .create_object("AmericaInfantryRanger", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("held ranger");
+        if let Some(obj) = logic.host_object_mut(existing) {
+            obj.owner_player_id = Some(1);
+            obj.contained_by = Some(crate::game_logic::ObjectId(99));
+            obj.set_ai_state(crate::game_logic::AIState::Idle);
+        }
+
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        let order = AIWorkOrder::new("AmericaInfantryRanger".into(), 1, 100);
+        ai.team_queue
+            .push_back(AITeamQueue::new("USA_RangerSquad".into(), vec![order], false, 0));
+        ai.process_team_queue(&mut logic, 0.0);
+        let team = ai.team_queue.front().expect("queued team");
+        assert_eq!(
+            team.work_orders[0].num_completed, 0,
+            "garrisoned unit must not be recruited"
+        );
+        assert!(team.work_orders[0].observed_unit_ids.is_empty());
     }
 
     #[test]

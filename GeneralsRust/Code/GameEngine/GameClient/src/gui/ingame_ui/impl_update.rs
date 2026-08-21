@@ -1027,6 +1027,17 @@ impl InGameUI {
             settings.military_caption_position.x,
             settings.military_caption_position.y,
         );
+        crate::gui::ingame_ui::apply_military_caption_style(
+            (
+                settings.military_caption_position.x as f32,
+                settings.military_caption_position.y as f32,
+            ),
+            ((settings.military_caption_color.alpha as u32) << 24)
+                | ((settings.military_caption_color.red as u32) << 16)
+                | ((settings.military_caption_color.green as u32) << 8)
+                | (settings.military_caption_color.blue as u32),
+            settings.military_caption_title_point_size,
+        );
         self.military_caption_title_font = settings.military_caption_title_font.clone();
         self.military_caption_title_point_size = settings.military_caption_title_point_size;
         self.military_caption_title_bold = settings.military_caption_title_bold;

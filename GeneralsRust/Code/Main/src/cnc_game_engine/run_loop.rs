@@ -607,24 +607,16 @@ pub async fn run_cnc_game(
                             ..
                         } => match engine.get_state() {
                             GameState::InGame => {
-                                // C++ Escape cancels structure placement before pause residual.
-                                if engine.pending_structure_placement.is_some() {
-                                    engine.cancel_structure_placement_from_ui();
-                                    info!("Escape cancelled structure placement residual");
-                                } else if engine.pending_map_command.take().is_some() {
-                                    info!("Escape cancelled pending map command residual");
-                                } else {
-                                    info!("Escape pressed in InGame state - pausing");
-                                    engine.request_state_change(GameState::Paused);
-                                }
+                                // C++ MSG_META_OPTIONS always ToggleQuitMenu.
+                                info!("Escape pressed in InGame state - pausing");
+                                engine.request_state_change(GameState::Paused);
                             }
                             GameState::Paused => {
                                 info!("Escape pressed in Paused state - resuming");
                                 engine.request_state_change(GameState::InGame);
                             }
                             GameState::Menu | GameState::Loading => {
-                                info!("Escape pressed in Menu/Loading - exiting");
-                                engine.request_state_change(GameState::Exiting);
+                                // C++ shell Escape is WindowXlat / menu callbacks, never app-quit.
                             }
                             GameState::Victory | GameState::Defeat => {
                                 info!("Escape pressed in endgame - returning to menu");
@@ -891,6 +883,11 @@ fn execute_wait_deadline(prev_time: Instant, interval: Option<Duration>) -> Inst
 impl CnCGameEngine {
     /// C++ `GameEngine::update` (`GameEngine.cpp:732`) `TheRadar->UPDATE()`.
     pub(super) fn host_update_the_radar(&self) {
+        if let Ok(mut shroud) =
+            gamelogic::system::shroud_manager::get_shroud_manager().lock()
+        {
+            shroud.refresh_shroud_for_local_player();
+        }
         if let Ok(mut radar) = game_engine::common::system::radar::get_radar_system().write() {
             let frame = self.host_match_logic_frame.unwrap_or(0);
             radar.update(frame);

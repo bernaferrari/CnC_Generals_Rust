@@ -1476,4 +1476,56 @@ impl ScriptEngine {
             inner.attack_priority_info.push(AttackPriorityInfo::new());
         }
     }
+
+    /// C++ `ScriptEngine::newMap` (`ScriptEngine.cpp:5409-5473`).
+    /// Resets transient counters/flags then starts the default 33-frame
+    /// `FADE_MULTIPLY` fade-in from black. Does **not** clear script lists.
+    pub fn new_map(&mut self) {
+        {
+            let inner = self.inner.get_mut();
+            inner.counters.iter_mut().for_each(|c| *c = None);
+            inner.num_counters = 1;
+            inner.flags.iter_mut().for_each(|f| *f = None);
+            inner.num_flags = 1;
+            inner.end_game_timer = -1;
+            inner.close_window_timer = -1;
+            inner.first_update = true;
+            inner.completed_video.clear();
+            inner.testing_speech.clear();
+            inner.testing_audio.clear();
+            inner.ui_interactions.clear();
+            for powers in &mut inner.triggered_special_powers {
+                powers.clear();
+            }
+            for powers in &mut inner.midway_special_powers {
+                powers.clear();
+            }
+            for powers in &mut inner.finished_special_powers {
+                powers.clear();
+            }
+            for upgrades in &mut inner.completed_upgrades {
+                upgrades.clear();
+            }
+            for sciences in &mut inner.acquired_sciences {
+                sciences.clear();
+            }
+
+            // default to a fade in from black
+            inner.fade = TFade::Multiply;
+            inner.cur_fade_frame = 0;
+            inner.min_fade = 1.0;
+            inner.max_fade = 0.0;
+            inner.fade_frames_increase = 0;
+            inner.fade_frames_hold = 0;
+            inner.fade_frames_decrease = FRAMES_TO_FADE_IN_AT_START;
+            inner.cur_fade_value = 0.0;
+        }
+        let inner = self.inner.get_mut();
+        if inner.counters[0].is_none() {
+            inner.counters[0] = Some(TCounter::new(String::new()));
+        }
+        if inner.flags[0].is_none() {
+            inner.flags[0] = Some(TFlag::new(String::new()));
+        }
+    }
 }

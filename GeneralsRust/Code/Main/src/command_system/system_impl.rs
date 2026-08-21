@@ -372,6 +372,16 @@ impl CommandSystem {
         selected_units: &[ObjectId],
         game_logic: Option<&GameLogic>,
     ) -> CommandType {
+        // C++ CommandXlat.cpp:1659-1684 — override dest before resume/dock.
+        if selection_can_override_special_power_destination(
+            &context.selected_presentation,
+            selected_units,
+            game_logic,
+        ) {
+            return CommandType::OverrideSpecialPowerDestination {
+                location: context.world_position,
+            };
+        }
         if let Some(target_id) = context.target_object {
             // Wave 228: prefer presentation-frozen target identity when installed.
             if let Some(hint) = context
@@ -423,6 +433,16 @@ impl CommandSystem {
                 // attackable capturable structures fall through here.
                 if self.can_capture_building(selected_units, target_id, gl) {
                     return CommandType::CaptureBuilding { target_id };
+                }
+                // C++ CommandXlat.cpp:2050-2156 after capture.
+                if self.can_disable_vehicle_hack(selected_units, target_id, gl) {
+                    return CommandType::DisableVehicleHack { target_id };
+                }
+                if self.can_steal_cash_hack(selected_units, target_id, gl) {
+                    return CommandType::StealCashHack { target_id };
+                }
+                if self.can_hacker_disable_building(selected_units, target_id, gl) {
+                    return CommandType::HackerDisableBuilding { target_id };
                 }
                 if self.can_repair_target(selected_units, target_id, gl) {
                     return CommandType::Repair { target_id };
@@ -856,11 +876,11 @@ impl CommandSystem {
         game_logic: &mut GameLogic,
     ) -> CommandResult {
         // Wave 242: team via player_team probe (no &Player dual-read).
-        let Some(team) = game_logic.player_team(player_id) else {
+        let Some(_team) = game_logic.player_team(player_id) else {
             return CommandResult::InvalidCommand;
         };
 
-        if let Some(position) = game_logic.command_center_position(team) {
+        if let Some(position) = game_logic.player_command_center_position(player_id) {
             game_logic.request_camera_focus(position);
             CommandResult::Success
         } else {
@@ -1001,6 +1021,74 @@ impl CommandSystem {
             .iter()
             .copied()
             .any(|unit_id| game_logic.can_unit_capture_building(unit_id, target_id, true))
+    }
+
+    fn can_disable_vehicle_hack(
+        &self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+        game_logic: &GameLogic,
+    ) -> bool {
+        if !game_logic.unit_is_alive(target_id)
+            || !game_logic.unit_is_kind_of(target_id, KindOf::Vehicle)
+            || game_logic.unit_is_kind_of(target_id, KindOf::Aircraft)
+        {
+            return false;
+        }
+        let Some(target_team) = game_logic.unit_team(target_id) else {
+            return false;
+        };
+        units.iter().copied().any(|unit_id| {
+            game_logic.unit_is_alive(unit_id)
+                && game_logic.unit_team(unit_id).is_some_and(|team| {
+                    team != target_team && target_team != crate::game_logic::Team::Neutral
+                })
+                && game_logic.unit_template_name(unit_id).is_some_and(|n| {
+                    crate::game_logic::host_hero_abilities::is_black_lotus_template(&n)
+                })
+        })
+    }
+
+    fn can_steal_cash_hack(
+        &self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+        game_logic: &GameLogic,
+    ) -> bool {
+        let Some(target_name) = game_logic.unit_template_name(target_id) else {
+            return false;
+        };
+        if !game_logic.unit_is_alive(target_id)
+            || !game_logic.unit_is_kind_of(target_id, KindOf::Structure)
+            || game_logic.unit_under_construction(target_id)
+            || !crate::game_logic::host_hero_abilities::is_cash_hack_target_template(&target_name)
+        {
+            return false;
+        }
+        let Some(target_team) = game_logic.unit_team(target_id) else {
+            return false;
+        };
+        units.iter().copied().any(|unit_id| {
+            game_logic.unit_is_alive(unit_id)
+                && game_logic.unit_team(unit_id).is_some_and(|team| {
+                    team != target_team && target_team != crate::game_logic::Team::Neutral
+                })
+                && game_logic.unit_template_name(unit_id).is_some_and(|n| {
+                    crate::game_logic::host_hero_abilities::is_black_lotus_template(&n)
+                })
+        })
+    }
+
+    fn can_hacker_disable_building(
+        &self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+        game_logic: &GameLogic,
+    ) -> bool {
+        units
+            .iter()
+            .copied()
+            .any(|unit_id| game_logic.can_unit_hacker_disable_building(unit_id, target_id, true))
     }
 
     /// Validate if selected units can attack target
@@ -1232,6 +1320,26 @@ impl CommandSystem {
             && any_capturer()
         {
             return Some(CommandType::CaptureBuilding { target_id });
+        }
+        // C++ CommandXlat.cpp:2050-2156 — Lotus/Hacker auto-hack after capture.
+        if selection_can_disable_vehicle_hack_target(
+            selected_presentation,
+            units,
+            hint,
+            game_logic,
+        ) {
+            return Some(CommandType::DisableVehicleHack { target_id });
+        }
+        if selection_can_steal_cash_hack_target(selected_presentation, units, hint, game_logic) {
+            return Some(CommandType::StealCashHack { target_id });
+        }
+        if selection_can_disable_building_hack_target(
+            selected_presentation,
+            units,
+            hint,
+            game_logic,
+        ) {
+            return Some(CommandType::HackerDisableBuilding { target_id });
         }
         // Repair damaged ally structure
         if hint.is_structure
@@ -1736,4 +1844,81 @@ fn selection_can_sabotage_target(
     selected_unit_template_names(selected_presentation, units, game_logic)
         .iter()
         .any(|name| crate::game_logic::is_saboteur_template(name))
+}
+
+fn selection_can_override_special_power_destination(
+    selected_presentation: &[PresentationSelectedUnitHint],
+    units: &[ObjectId],
+    game_logic: Option<&GameLogic>,
+) -> bool {
+    if selected_presentation
+        .iter()
+        .any(|u| u.is_alive && u.can_override_special_power_destination)
+    {
+        return true;
+    }
+    game_logic.is_some_and(|gl| {
+        units.iter().copied().any(|id| {
+            gl.host_object(id)
+                .is_some_and(|o| o.is_alive() && o.special_power_override_destination.is_some())
+        })
+    })
+}
+
+fn selection_can_disable_vehicle_hack_target(
+    selected_presentation: &[PresentationSelectedUnitHint],
+    units: &[ObjectId],
+    hint: &PresentationTargetHint,
+    game_logic: Option<&GameLogic>,
+) -> bool {
+    if !hint.is_alive
+        || hint.sold
+        || !hint.is_enemy_of_local
+        || !hint.is_vehicle
+        || hint.is_aircraft
+    {
+        return false;
+    }
+    selected_unit_template_names(selected_presentation, units, game_logic)
+        .iter()
+        .any(|name| crate::game_logic::host_hero_abilities::is_black_lotus_template(name))
+}
+
+fn selection_can_steal_cash_hack_target(
+    selected_presentation: &[PresentationSelectedUnitHint],
+    units: &[ObjectId],
+    hint: &PresentationTargetHint,
+    game_logic: Option<&GameLogic>,
+) -> bool {
+    if !hint.is_alive
+        || hint.sold
+        || !hint.is_enemy_of_local
+        || !hint.is_structure
+        || hint.under_construction
+        || !crate::game_logic::host_hero_abilities::is_cash_hack_target_template(&hint.template_name)
+    {
+        return false;
+    }
+    selected_unit_template_names(selected_presentation, units, game_logic)
+        .iter()
+        .any(|name| crate::game_logic::host_hero_abilities::is_black_lotus_template(name))
+}
+
+fn selection_can_disable_building_hack_target(
+    selected_presentation: &[PresentationSelectedUnitHint],
+    units: &[ObjectId],
+    hint: &PresentationTargetHint,
+    game_logic: Option<&GameLogic>,
+) -> bool {
+    if !hint.is_alive
+        || hint.sold
+        || !hint.is_enemy_of_local
+        || !hint.is_structure
+        || hint.under_construction
+    {
+        return false;
+    }
+    selected_unit_template_names(selected_presentation, units, game_logic)
+        .iter()
+        .any(|name| crate::game_logic::host_hacker_income::is_hacker_template(name))
 }

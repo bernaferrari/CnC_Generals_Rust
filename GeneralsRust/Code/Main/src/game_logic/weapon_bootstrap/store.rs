@@ -158,6 +158,12 @@ pub(super) fn seed_damage_type_for(name: &str, weapon_speed: f32) -> gamelogic::
     if n.contains("neutron") || n.contains("nuke") || n.contains("radiation") {
         return D::Radiation;
     }
+    if n.contains("buildingclearer")
+        || n.contains("killgarrison")
+        || n.contains("clearbuilding")
+    {
+        return D::KillGarrisoned;
+    }
     if n.contains("emp") || n.contains("microwave") {
         return D::Microwave;
     }
@@ -599,12 +605,13 @@ pub(super) fn seed_known_host_weapons() -> usize {
             weapon_speed: 999_999.0,
         },
         // MicrowaveTankBuildingClearer — PrimaryDamage 1 (kills 1 garrisoned unit),
-        // AttackRange 125. KILL_GARRISONED residual via host combat path.
+        // AttackRange 125, DelayBetweenShots 100ms → 3 frames @ 30 FPS.
+        // KILL_GARRISONED residual via host combat path.
         SeedWeapon {
             name: MICROWAVE_BUILDING_CLEARER_WEAPON,
             primary_damage: 1.0,
             attack_range: 125.0,
-            delay_frames: 30,
+            delay_frames: 3,
             clip_size: 0,
             weapon_speed: 999_999.0,
         },

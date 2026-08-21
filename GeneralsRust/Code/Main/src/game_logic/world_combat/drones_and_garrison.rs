@@ -1781,7 +1781,11 @@ impl GameLogic {
         let tokens = kindof_cost_tokens(is_vehicle, is_infantry, is_aircraft, is_structure);
         let kindof_factor = player.production_cost_factor(&tokens);
         let template_factor = self.player_template_production_cost_factor(player_id, template_name);
-        apply_production_cost_factor(base_supplies, template_factor * kindof_factor)
+        let handicap = player.handicap_build_cost_multiplier(is_structure);
+        apply_production_cost_factor(
+            base_supplies,
+            template_factor * kindof_factor * handicap,
+        )
     }
 
     /// C++ `ThingTemplate::calcTimeToBuild` authored pre-power frame count.
@@ -1838,7 +1842,18 @@ impl GameLogic {
         template_name: &str,
         base_seconds: f32,
     ) -> f32 {
-        let factor = self.player_template_production_time_factor(player_id, template_name);
+        let is_structure = self
+            .templates
+            .get(template_name)
+            .map(|t| t.is_kind_of(crate::game_logic::KindOf::Structure))
+            .unwrap_or(false);
+        let handicap = self
+            .players
+            .get(&player_id)
+            .map(|p| p.handicap_build_time_multiplier(is_structure))
+            .unwrap_or(1.0);
+        let factor =
+            self.player_template_production_time_factor(player_id, template_name) * handicap;
         Self::cpp_build_time_seconds_from_factor(base_seconds, factor)
     }
 
@@ -2740,6 +2755,75 @@ mod tests {
             vec![ranger_id]
         );
     }
+
+    /// C++ MicrowaveTankBuildingClearer DelayBetweenShots 100ms → 3f; 1 occupant/shot.
+    #[test]
+    fn microwave_clearer_delay_is_100ms_one_occupant_per_shot() {
+        use crate::game_logic::host_microwave::{
+            HOST_MICROWAVE_CLEAR_PER_SHOT, HOST_MICROWAVE_DELAY_FRAMES, MICROWAVE_LOGIC_FPS,
+        };
+        use crate::game_logic::weapon_bootstrap::{
+            ensure_host_weapon_store, MICROWAVE_BUILDING_CLEARER_WEAPON,
+        };
+
+        ensure_host_weapon_store();
+        let w = ThingTemplate::weapon_from_store(MICROWAVE_BUILDING_CLEARER_WEAPON)
+            .expect("MicrowaveTankBuildingClearer seeded");
+        let expected = HOST_MICROWAVE_DELAY_FRAMES as f32 / MICROWAVE_LOGIC_FPS;
+        assert!(
+            (w.reload_time - expected).abs() < 1e-3,
+            "clearer DelayBetweenShots 100ms → reload {}, got {}",
+            expected,
+            w.reload_time
+        );
+        assert!((w.damage - HOST_MICROWAVE_CLEAR_PER_SHOT).abs() < 1e-3);
+
+        let mut logic = GameLogic::new();
+        logic.templates.insert(
+            "ChinaBunker".into(),
+            garrison_template("ChinaBunker", false, true),
+        );
+        let mut ranger = ThingTemplate::new("AmericaRanger");
+        ranger
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(120.0);
+        logic.templates.insert("AmericaRanger".into(), ranger);
+
+        let bunker = logic
+            .create_object("ChinaBunker", Team::China, Vec3::ZERO)
+            .unwrap();
+        let a = logic
+            .create_object("AmericaRanger", Team::China, Vec3::new(5.0, 0.0, 0.0))
+            .unwrap();
+        let b = logic
+            .create_object("AmericaRanger", Team::China, Vec3::new(6.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let o = logic.host_object_mut(bunker).unwrap();
+            assert!(o.add_occupant(a));
+            assert!(o.add_occupant(b));
+        }
+        for id in [a, b] {
+            if let Some(r) = logic.host_object_mut(id) {
+                r.set_contained_by(Some(bunker));
+            }
+        }
+        let killed = logic.apply_kill_garrisoned_to_target(
+            bunker,
+            Team::USA,
+            HOST_MICROWAVE_CLEAR_PER_SHOT,
+            None,
+        );
+        assert_eq!(killed, 1, "PrimaryDamage 1 kills one occupant per 100ms shot");
+        assert_eq!(
+            logic.host_object(bunker).unwrap().contained_units().len(),
+            1
+        );
+        logic.microwaves.record_clear_shot();
+        assert!(logic.microwave_residual().clear_shots > 0);
+    }
+
 
     #[test]
     fn occupied_building_gets_can_attack_and_loses_it_when_empty() {

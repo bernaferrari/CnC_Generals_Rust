@@ -96,6 +96,9 @@ fn kind_to_f32(kind: crate::game_logic::combat_particles::CombatParticleKind) ->
         WeaponMuzzleFlash => 5,
         WeaponImpact => 6,
         ProjectileExhaust => 7,
+        ParticleSysBone => 8,
+        BodyFire => 9,
+        BodySmoke => 10,
     }) as f32
 }
 

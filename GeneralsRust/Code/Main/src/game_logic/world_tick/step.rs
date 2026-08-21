@@ -146,6 +146,7 @@ impl GameLogic {
         self.sync_authoritative_view_from_gameworld();
         // Pathfinding dynamic obstacles rebuild once per host logic frame.
         self.pathfinding_system.note_logic_frame(self.frame as u64);
+        self.refresh_pathfind_ally_masks();
         // -----------------------------------------------------------------------
         // Phase 1: Early Scripting (C++ line 3600)
         // -----------------------------------------------------------------------
@@ -172,10 +173,18 @@ impl GameLogic {
         if let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() {
             terrain.update();
         }
-        // C++ TerrainLogic water-rise damage residual (edge dry→wet under units).
-        // Full setWaterHeight scripts call apply_water_rise_damage directly with
-        // their damageAmount; this catches map/dynamic water transitions.
-        let _ = self.refresh_surface_cells_and_water_edge_damage(25.0);
+        // C++ setWaterHeight: leftover scripts queue DAMAGE_WATER amounts.
+        // Instant WATER_CHANGE_HEIGHT uses 999999.9; over-time uses scripted amount.
+        for amount in gamelogic::terrain::take_pending_host_water_rise_damage() {
+            let _ = self.apply_water_rise_damage(amount);
+        }
+        if gamelogic::terrain::take_pending_host_pathfind_recalculation() {
+            self.seed_pathfinding_from_terrain();
+        }
+
+        // Refresh underwater/cliff flags only. Do not invent a 25 HP dry→wet chip.
+        let _ = self.refresh_surface_cells_and_water_edge_damage(0.0);
+
 
         // -----------------------------------------------------------------------
         // Phase 4: Pre-Update / Collect object IDs
@@ -1151,6 +1160,8 @@ impl GameLogic {
         {
             self.update_main_crate_vision();
         }
+        // C++ Radar.cpp overlay queries live Object pose/stealth each update.
+        self.host_radar_sync_live_objects();
 
         // -----------------------------------------------------------------------
         // Phase 18: Team Events Flush

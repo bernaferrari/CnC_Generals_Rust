@@ -336,6 +336,9 @@ pub struct Object {
     /// unique owner in same-faction skirmishes.
     #[serde(default)]
     pub owner_player_id: Option<u32>,
+    /// C++ Team instance name (`Team::getName`) for script team overrides.
+    #[serde(default)]
+    pub team_instance_name: String,
 
     /// Object name
     pub name: String,
@@ -681,6 +684,9 @@ pub struct Object {
     /// C++ m_minSpeed residual (host units/sec).
     #[serde(default)]
     pub min_speed: f32,
+    /// C++ LocomotorTemplate `m_ultraAccurateSlideIntoPlaceFactor`.
+    #[serde(default)]
+    pub ultra_accurate_slide_factor: f32,
     /// C++ ULTRA_ACCURATE flag residual.
     #[serde(default)]
     pub ultra_accurate: bool,
@@ -726,6 +732,12 @@ pub struct Object {
     /// C++ Locomotor downhill-only residual (ski / sled).
     #[serde(default)]
     pub downhill_only: bool,
+    /// C++ Locomotor FLAG_CLIMBING residual (`Locomotor.cpp:1711-1716`).
+    #[serde(default)]
+    pub is_climbing: bool,
+    /// C++ Locomotor `m_donutTimer` residual (logic frame).
+    #[serde(default)]
+    pub donut_timer: u32,
     /// C++ m_lift residual (world-Y up accel capacity).
     #[serde(default)]
     pub max_lift: f32,
@@ -1094,6 +1106,13 @@ pub struct Object {
     /// Shared per-team capacity via `HostTunnelNetworkRegistry` (MaxTunnelCapacity=10).
     /// Fail-closed: not full GuardTunnelNetwork AI / CaveSystem cave-in matrix.
     pub is_tunnel_network: bool,
+
+    /// C++ CaveContain CaveIndex + CaveSystem registration.
+    #[serde(default)]
+    pub cave_index: i32,
+    /// Host residual: this object is a CaveContain entrance.
+    #[serde(default)]
+    pub is_cave_contain: bool,
 
     /// Host residual: AirF Combat Chinook style transport (capacity 8 + fire +
     /// armed-riders + ListeningOutpost dummy). Distinct from vanilla Chinook
@@ -2448,6 +2467,15 @@ pub struct Object {
     /// C++ StealthForbiddenConditions TAKING_DAMAGE residual.
     #[serde(default)]
     pub stealth_breaks_on_damage: bool,
+    /// C++ `Drawable::fadeIn` / `fadeOut` residual (0 none, 1 in, 2 out).
+    #[serde(default)]
+    pub drawable_fade_mode: u8,
+    /// Logic frame when the current Drawable fade started.
+    #[serde(default)]
+    pub drawable_fade_start_frame: u32,
+    /// C++ `m_timeToFade` residual (logic frames).
+    #[serde(default)]
+    pub drawable_fade_frames: u32,
 }
 
 /// C++ `WeaponStatus` (WeaponStatus.h) residual for the active weapon slot.
@@ -2740,6 +2768,10 @@ pub use entity_lifecycle_tags::INVENTORY_TAGS;
 
 pub use barrels::WeaponBarrelState;
 pub use visual::ObjectVisualInfo;
+pub use stealth::{
+    drawable_explicit_fade_opacity, drawable_status_tint_rgb, friendly_stealth_pulse_opacity,
+    DRAWABLE_FADE_IN, DRAWABLE_FADE_NONE, DRAWABLE_FADE_OUT,
+};
 pub use jets::{
     HostJetAi, HostJetPendingResume, JetAiTickAction, JET_AFTERBURNER_SOUND, JET_LOCKON_TICK_SOUND,
     STEALTH_FIGHTER_LOCKON_TIME_FRAMES,

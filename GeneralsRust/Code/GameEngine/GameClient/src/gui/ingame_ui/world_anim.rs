@@ -2,6 +2,27 @@
 // Split from `gui/ingame_ui.rs` dump. Included by `ingame_ui/mod.rs`.
 
 impl InGameUI {
+    /// C++ `FRAMES_BEFORE_EXPIRE_TO_FADE = LOGICFRAMES_PER_SECOND * 1`.
+    pub const WORLD_ANIM_FADE_FRAMES: u32 = 30;
+
+    pub fn world_anim_expire_frame(spawn_frame: u32, duration_seconds: f32) -> u32 {
+        spawn_frame.saturating_add((duration_seconds.max(0.0) * 30.0) as u32)
+    }
+
+    /// C++ `z += zRisePerSecond / LOGICFRAMES_PER_SECOND` accumulated over age.
+    pub fn world_anim_z_lift(age_frames: u32, z_rise_per_second: f32) -> f32 {
+        z_rise_per_second * age_frames as f32 / 30.0
+    }
+
+    /// C++ fade in the last 30 frames before expire (InGameUI.cpp:5376-5387).
+    pub fn world_anim_fade_alpha(frames_till_expire: u32, fade_on_expire: bool) -> f32 {
+        if !fade_on_expire || frames_till_expire >= Self::WORLD_ANIM_FADE_FRAMES {
+            1.0
+        } else {
+            frames_till_expire as f32 / Self::WORLD_ANIM_FADE_FRAMES as f32
+        }
+    }
+
     pub fn add_world_animation(
         &mut self,
         animation_name: &str,

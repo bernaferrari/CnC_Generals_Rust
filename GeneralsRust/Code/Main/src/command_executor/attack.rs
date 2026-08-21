@@ -500,6 +500,10 @@ impl<'a> CommandExecutor<'a> {
             any = true;
         }
         if any {
+            self.game_logic.queue_picked_unit_voice(
+                units,
+                crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Guard,
+            );
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand

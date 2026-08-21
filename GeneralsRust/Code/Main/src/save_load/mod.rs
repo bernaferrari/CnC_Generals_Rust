@@ -282,99 +282,9 @@ const CHUNK_GAME_STATE_TOKEN: &str = "CHUNK_GameState";
 
 /// Walk C++ TheGameState named chunks: `u8` length + token + `i32` size.
 fn parse_save_info_from_named_chunks(data: &[u8]) -> SaveLoadResult<SaveGameInfo> {
-    use game_engine::common::system::save_game::GameState as CommonGameState;
-    use game_engine::common::system::xfer::Xfer as CommonXfer;
-    use game_engine::common::system::xfer_load::XferLoad as CommonXferLoad;
-    use std::io::Cursor;
-    use std::time::{Duration, UNIX_EPOCH};
-
-    let mut pos = 0usize;
-    while pos < data.len() {
-        let token_len = data[pos] as usize;
-        pos += 1;
-        if pos + token_len > data.len() {
-            return Err(SaveLoadError::Corrupted(
-                "truncated named-chunk token".to_string(),
-            ));
-        }
-        let token = std::str::from_utf8(&data[pos..pos + token_len])
-            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-        pos += token_len;
-        if token.eq_ignore_ascii_case("SG_EOF") {
-            break;
-        }
-        if pos + 4 > data.len() {
-            return Err(SaveLoadError::Corrupted(
-                "truncated named-chunk size".to_string(),
-            ));
-        }
-        let block_size = i32::from_le_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]);
-        pos += 4;
-        if block_size < 0 {
-            return Err(SaveLoadError::Corrupted(
-                "negative named-chunk size".to_string(),
-            ));
-        }
-        let end = pos
-            .checked_add(block_size as usize)
-            .ok_or_else(|| SaveLoadError::Corrupted("named-chunk size overflow".to_string()))?;
-        if end > data.len() {
-            return Err(SaveLoadError::Corrupted(
-                "named-chunk payload overruns file".to_string(),
-            ));
-        }
-        if token.eq_ignore_ascii_case(CHUNK_GAME_STATE_TOKEN) {
-            let mut header = CommonGameState::default();
-            let mut xfer = CommonXferLoad::new(Cursor::new(&data[pos..end]), SAVE_FILE_VERSION);
-            header
-                .xfer(&mut xfer)
-                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-            let difficulty = match header
-                .get_metadata("difficulty")
-                .map(|s| s.as_str())
-                .unwrap_or("Medium")
-            {
-                "Easy" => GameDifficulty::Easy,
-                "Hard" => GameDifficulty::Hard,
-                _ => GameDifficulty::Medium,
-            };
-            let save_type = match header.game_mode.as_str() {
-                "Mission" => SaveFileType::Mission,
-                "QuickSave" => SaveFileType::QuickSave,
-                "AutoSave" => SaveFileType::AutoSave,
-                _ => SaveFileType::Normal,
-            };
-            return Ok(SaveGameInfo {
-                filename: String::new(),
-                display_name: header
-                    .get_metadata("display_name")
-                    .cloned()
-                    .unwrap_or_default(),
-                description: header
-                    .get_metadata("description")
-                    .cloned()
-                    .unwrap_or_default(),
-                map_name: header.map_name.clone(),
-                campaign_side: header.get_metadata("campaign_side").cloned(),
-                mission_number: header
-                    .get_metadata("mission_number")
-                    .and_then(|s| s.parse().ok()),
-                save_date: UNIX_EPOCH + Duration::from_secs(header.timestamp),
-                game_version: header
-                    .get_metadata("game_version")
-                    .cloned()
-                    .unwrap_or_default(),
-                play_time: Duration::from_secs_f32(header.elapsed_time.max(0.0)),
-                difficulty,
-                save_type,
-            });
-        }
-        pos = end;
-    }
-
-    Err(SaveLoadError::Corrupted(
-        "CHUNK_GameState not found in named-chunk save".to_string(),
-    ))
+    // C++ `GameState::getSaveGameInfoFromFile` xfers only CHUNK_GameState
+    // with `GameState::xfer` v2. Host writes that header (version byte 2).
+    crate::save_load::save_file::parse_named_chunk_save_info(data)
 }
 
 #[cfg(test)]
@@ -441,6 +351,45 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    #[test]
+    fn save_load_menu_lists_host_cpp_v2_game_state() {
+        use crate::save_load::save_file::SaveFileManager;
+        let dir = std::env::temp_dir().join(format!(
+            "menu_v2_{}_{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let mut files = SaveFileManager::with_save_directory(&dir);
+        let save_info = SaveGameInfo {
+            filename: "menu_v2".into(),
+            display_name: "Host V2".into(),
+            description: "Host V2".into(),
+            map_name: "Maps\\Alpine Assault.map".into(),
+            campaign_side: Some("America".into()),
+            mission_number: Some(2),
+            save_date: UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000),
+            game_version: String::new(),
+            play_time: std::time::Duration::from_secs(0),
+            difficulty: GameDifficulty::Medium,
+            save_type: SaveFileType::Normal,
+        };
+        files
+            .save_game("menu_v2", &crate::game_logic::GameLogic::new(), &save_info)
+            .expect("write host v2 sav");
+        let path = dir.join("menu_v2.sav");
+        let manager = SaveLoadManager::new();
+        let info = manager
+            .get_save_info_from_file(&path)
+            .expect("SaveLoadMenu must list host v2 CHUNK_GameState");
+        assert_eq!(info.description, "Host V2");
+        assert_eq!(info.save_type, SaveFileType::Normal);
+        assert_eq!(info.campaign_side.as_deref(), Some("America"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
     #[test]
     fn snapshot_version_starts_at_one_like_cpp_placeholder() {
         // C++ empty Snapshot::xfer (StateMachine.h:388) starts `XferVersion v = cv`

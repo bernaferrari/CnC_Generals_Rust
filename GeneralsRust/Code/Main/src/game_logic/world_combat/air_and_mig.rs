@@ -1443,13 +1443,14 @@ impl GameLogic {
     /// HordeUpdate vehicles). Radius 75 / Count 5 / RubOff 20; terrain-decal fade.
     pub fn update_battlemaster_horde_status(&mut self) {
         use crate::game_logic::host_battlemaster::{
-            counts_toward_battlemaster_horde, evaluate_leftover_horde_blob,
-            is_battlemaster_template, is_china_vehicle_horde_unit, same_vehicle_horde_family,
+            counts_toward_battlemaster_horde, evaluate_leftover_horde_blob_scan,
+            is_battlemaster_template, is_china_vehicle_horde_unit,
+            leftover_horde_bounding_sphere_radius, same_vehicle_horde_family,
             BATTLE_MASTER_HORDE_COUNT, BATTLE_MASTER_HORDE_RADIUS,
-            BATTLE_MASTER_HORDE_RUB_OFF_RADIUS,
+            BATTLE_MASTER_HORDE_RUB_OFF_RADIUS, LeftoverHordeScanUnit,
         };
 
-        let snapshot: Vec<(ObjectId, Team, f32, f32, bool, String)> = self
+        let snapshot: Vec<(ObjectId, Team, Option<u32>, LeftoverHordeScanUnit, String)> = self
             .objects
             .iter()
             .filter_map(|(id, o)| {
@@ -1457,25 +1458,44 @@ impl GameLogic {
                     return None;
                 }
                 let p = o.get_position();
-                Some((*id, o.team, p.x, p.z, o.is_alive(), o.template_name.clone()))
+                let geom = &o.thing.template.geometry_info;
+                Some((
+                    *id,
+                    o.team,
+                    o.owner_player_id,
+                    LeftoverHordeScanUnit {
+                        x: p.x,
+                        y: p.y,
+                        z: p.z,
+                        sphere_radius: leftover_horde_bounding_sphere_radius(
+                            geom.authored,
+                            geom.bounding_sphere_radius(),
+                            o.selection_radius,
+                        ),
+                        alive: o.is_alive(),
+                    },
+                    o.template_name.clone(),
+                ))
             })
             .collect();
 
-        let units: Vec<(f32, f32, bool)> = snapshot
-            .iter()
-            .map(|(_, _, x, z, alive, _)| (*x, *z, *alive))
-            .collect();
-        let membership = evaluate_leftover_horde_blob(
+        let units: Vec<LeftoverHordeScanUnit> = snapshot.iter().map(|u| u.3).collect();
+        let membership = evaluate_leftover_horde_blob_scan(
             &units,
             BATTLE_MASTER_HORDE_COUNT,
             BATTLE_MASTER_HORDE_RADIUS,
             BATTLE_MASTER_HORDE_RUB_OFF_RADIUS,
             |i, j, dist| {
                 counts_toward_battlemaster_horde(
-                    snapshot[i].4,
-                    snapshot[j].4,
-                    snapshot[i].1 == snapshot[j].1,
-                    same_vehicle_horde_family(&snapshot[i].5, &snapshot[j].5),
+                    snapshot[i].3.alive,
+                    snapshot[j].3.alive,
+                    self.horde_allies_only(
+                        snapshot[i].2,
+                        snapshot[i].1,
+                        snapshot[j].2,
+                        snapshot[j].1,
+                    ),
+                    same_vehicle_horde_family(&snapshot[i].4, &snapshot[j].4),
                     dist,
                     BATTLE_MASTER_HORDE_RADIUS,
                 )
@@ -1485,7 +1505,7 @@ impl GameLogic {
         let mut grants = 0u32;
         let mut to_refresh: Vec<ObjectId> = Vec::new();
 
-        for (idx, (id, _team, _x, _z, _alive, name)) in snapshot.iter().enumerate() {
+        for (idx, (id, _team, _owner, _scan, name)) in snapshot.iter().enumerate() {
             let now_horde = membership[idx].in_horde;
             if let Some(obj) = self.objects.get_mut(id) {
                 let was = obj.weapon_bonus_horde;

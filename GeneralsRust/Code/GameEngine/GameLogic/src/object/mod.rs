@@ -44,7 +44,9 @@ pub mod object_factory;
 pub mod object_types;
 pub mod partition_manager;
 mod partition_data;
-pub use partition_data::{stamp_partition_cell_lookers, PartitionData};
+pub use partition_data::{
+    partition_cell_shroud_status, stamp_partition_cell_lookers, PartitionData,
+};
 
 pub mod registry;
 pub mod simple_object;

@@ -19,6 +19,8 @@ pub mod combat;
 pub mod combat_particles;
 #[path = "game_logic/mod.rs"]
 pub mod game_logic;
+pub(crate) use game_logic::PathfindingHeightSamples;
+
 
 mod host_types;
 pub use host_types::*;

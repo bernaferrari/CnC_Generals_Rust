@@ -292,6 +292,7 @@ impl ControlBar {
             production_paused: false,
             special_power_ready: false,
             special_power_cooldown_remaining: 0.0,
+            special_power_cooldown_total: 0.0,
             rally_point: None,
         };
     }
@@ -383,6 +384,7 @@ impl ControlBar {
                     special_power_cooldown_remaining: self
                         .portrait_state
                         .special_power_cooldown_remaining,
+                    special_power_cooldown_total: self.portrait_state.special_power_cooldown_total,
                     rally_point: self.portrait_state.rally_point,
                 };
                 // Feed construction queue residual from presentation snapshot (no OBJECT_REGISTRY).
@@ -452,6 +454,7 @@ impl ControlBar {
         rally_point: Option<[f32; 3]>,
         special_power_ready: bool,
         special_power_cooldown_remaining: f32,
+        special_power_cooldown_total: f32,
     ) {
         let context_commands = self
             .context
@@ -472,6 +475,7 @@ impl ControlBar {
         self.portrait_state.upgrade_cameos = cameos;
         self.portrait_state.special_power_ready = special_power_ready;
         self.portrait_state.special_power_cooldown_remaining = special_power_cooldown_remaining;
+        self.portrait_state.special_power_cooldown_total = special_power_cooldown_total;
         self.show_rally_point(rally_point);
         self.mark_ui_dirty();
     }

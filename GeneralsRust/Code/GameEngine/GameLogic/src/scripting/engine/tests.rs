@@ -82,6 +82,22 @@ fn test_script_engine_creation() {
 }
 
 #[test]
+fn test_new_map_starts_fade_in_from_black() {
+    let mut engine = ScriptEngine::new().unwrap();
+    engine.reset();
+    assert_eq!(engine.with_inner(|i| i.fade), TFade::None);
+    engine.new_map();
+    assert_eq!(engine.get_fade(), TFade::Multiply);
+    assert_eq!(engine.get_fade_value(), 0.0);
+    assert_eq!(engine.with_inner(|i| i.min_fade), 1.0);
+    assert_eq!(engine.with_inner(|i| i.max_fade), 0.0);
+    assert_eq!(engine.with_inner(|i| i.fade_frames_increase), 0);
+    assert_eq!(engine.with_inner(|i| i.fade_frames_hold), 0);
+    assert_eq!(engine.with_inner(|i| i.fade_frames_decrease), 33);
+    assert_eq!(engine.with_inner(|i| i.cur_fade_frame), 0);
+}
+
+#[test]
 fn test_counter_operations() {
     let mut engine = ScriptEngine::new().unwrap();
 
@@ -1160,4 +1176,68 @@ fn breeze_and_track_getters_return_owned_snapshots() {
     );
     assert_eq!(engine.get_current_track_name(), "combat");
     assert!((engine.get_breeze_info().intensity - 0.9).abs() < f32::EPSILON);
+}
+
+#[test]
+fn empty_object_registry_still_runs_true_side_scripts() {
+    // C++ ScriptEngine.cpp:5554-5571 walks every side even with an empty
+    // object table. TRUE/FLAG scripts must still fire on the live host
+    // (OBJECT_REGISTRY is always empty there).
+    let _lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    assert!(crate::object::registry::OBJECT_REGISTRY.is_empty());
+
+    let engine = ScriptEngine::new().unwrap();
+    let mut script = Script::new();
+    script.script_name = "EmptyRegistryTrue".to_string();
+    script.is_active = true;
+    script.is_one_shot = true;
+    script.condition = Some(always_true_condition());
+    script.action = Some(set_flag_action("empty_registry_true_ran"));
+
+    let mut list = ScriptList::new();
+    list.append_script(Box::new(script));
+    engine
+        .set_script_list_for_player(0, Some(Box::new(list)))
+        .unwrap();
+
+    engine
+        .update()
+        .expect("side scripts must run with an empty OBJECT_REGISTRY");
+    assert!(
+        engine
+            .get_flag("empty_registry_true_ran")
+            .is_some_and(|flag| flag.value),
+        "TRUE SET_FLAG must fire when leftover OBJECT_REGISTRY is empty"
+    );
+}
+
+#[test]
+fn empty_object_registry_still_progresses_sequential_scripts() {
+    // C++ ScriptEngine.cpp:7860 evaluateAndProgressAllSequentialScripts does
+    // not abort on an empty object table. A node with no object/team is
+    // cleaned up instead of being left stuck.
+    let _lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    assert!(crate::object::registry::OBJECT_REGISTRY.is_empty());
+
+    let engine = ScriptEngine::new().unwrap();
+    let mut sequence = SequentialScript::new();
+    sequence.script_to_execute_sequentially = Some(Box::new({
+        let mut script = Script::new();
+        script.script_name = "OrphanSequential".to_string();
+        script.action = Some(set_flag_action("orphan_sequential"));
+        script
+    }));
+    engine.append_sequential_script(sequence);
+    assert!(engine.sequential_script_count() > 0);
+
+    engine
+        .with_active(|| engine.evaluate_and_progress_all_sequential_scripts())
+        .expect("sequential walk must not fail-closed on empty OBJECT_REGISTRY");
+    assert_eq!(
+        engine.sequential_script_count(),
+        0,
+        "orphan sequential node must be cleaned up when no object/team exists"
+    );
 }

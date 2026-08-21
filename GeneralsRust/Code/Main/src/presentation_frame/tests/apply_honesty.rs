@@ -1253,9 +1253,19 @@ fn presentation_frame_freezes_floating_text_and_world_anim() {
             && t.amount == 125
             && t.color_rgba == (0, 255, 0, 255)));
     assert_eq!(snap.active_floating_texts_at(frame).len(), 2);
-    assert!(snap
-        .active_floating_texts_at(frame + PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES)
-        .is_empty());
+    assert_eq!(
+        snap.active_floating_texts_at(frame + PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES)
+            .len(),
+        2,
+        "C++ keeps cash through the vanish window after timeout"
+    );
+    assert!(
+        snap.active_floating_texts_at(
+            frame + PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES + 10
+        )
+        .is_empty(),
+        "vanish window ends once fade alpha hits 0"
+    );
 
     // Snapshot stays frozen after host clears residual registries.
     let frozen_count = snap.floating_texts.len();

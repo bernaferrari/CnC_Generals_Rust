@@ -43,7 +43,7 @@ pub use authority::{
 pub(crate) use authority::{AcceptedGatherCommand, SupplyDropoffEvent};
 pub(self) use authority::DestructionEvent;
 pub(self) use crate_tick::{CRATE_EMPTY_NOOP_TICKS, GAME_LOGIC, note_crate_empty_noop_if_any};
-pub(self) use host::PathfindingHeightSamples;
+pub(crate) use host::PathfindingHeightSamples;
 pub(self) use player::{
     capture_upgrade_names_for_team, normalize_upgrade_name, AirfieldParkingSpace,
     HostHeliTakeoffOrLanding, ObjectSellInfo,

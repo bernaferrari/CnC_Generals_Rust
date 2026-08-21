@@ -394,7 +394,7 @@ impl SnapshotBuilder {
         object: &mut Object,
     ) -> SaveLoadResult<()> {
         match object_type {
-            ObjectTypeSnapshot::Unit(_unit_snapshot) => {
+            ObjectTypeSnapshot::Unit(unit_snapshot) => {
                 object.object_type = if object.is_kind_of(KindOf::Infantry) {
                     ObjectType::Infantry
                 } else if object.is_kind_of(KindOf::Aircraft) {
@@ -402,7 +402,12 @@ impl SnapshotBuilder {
                 } else {
                     ObjectType::Vehicle
                 };
-                // Unit formation/waypoints aren't represented in `Code/Main` yet.
+                let formation_id = unit_snapshot.formation_id.unwrap_or(0);
+                let offset = unit_snapshot
+                    .formation_position
+                    .map(|pos| glam::Vec2::new(pos.x, pos.y))
+                    .unwrap_or(glam::Vec2::ZERO);
+                object.set_formation(formation_id, offset);
             }
             ObjectTypeSnapshot::Building(building_snapshot) => {
                 object.object_type = ObjectType::Building;
@@ -582,6 +587,9 @@ impl SnapshotBuilder {
                 resource_supply_centers: Vec::new(),
                 resource_supply_warehouses: Vec::new(),
                 map_side: crate::game_logic::PlayerMapSideState::default(),
+                team_relations: std::collections::HashMap::new(),
+                sciences_disabled: std::collections::HashSet::new(),
+                sciences_hidden: std::collections::HashSet::new(),
                 attacked_by: [false; crate::game_logic::Player::MAX_ATTACKED_BY_PLAYERS],
                 attacked_frame: 0,
             });

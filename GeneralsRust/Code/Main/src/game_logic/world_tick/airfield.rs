@@ -327,6 +327,8 @@ impl GameLogic {
         );
         if let Some(jet) = self.objects.get_mut(&jet_id) {
             jet.status.airborne_target = true;
+            // C++ Chinook/Jet takeoff-or-landing ULTRA_ACCURATE.
+            jet.set_ultra_accurate(true);
             jet.set_ai_state(AIState::Moving);
             jet.set_status_moving(true);
             jet.movement.path.clear();
@@ -383,6 +385,7 @@ impl GameLogic {
                     self.finish_helipad_landing(jet_id, next.airfield_id, next.path[1]);
                 } else if let Some(jet) = self.objects.get_mut(&jet_id) {
                     jet.set_ai_state(AIState::Idle);
+                    jet.set_ultra_accurate(false);
                     jet.status.airborne_target = true;
                     jet.set_status_moving(false);
                     jet.movement.path.clear();
@@ -425,6 +428,7 @@ impl GameLogic {
             jet.set_contained_by(Some(airfield_id));
             jet.set_ai_state(AIState::Docked);
             jet.set_status_moving(false);
+            jet.set_ultra_accurate(false);
             jet.status.airborne_target = false;
             jet.target = None;
             jet.movement.path.clear();

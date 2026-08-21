@@ -483,6 +483,90 @@ impl Object {
         }
         false
     }
+
+    /// C++ `Drawable::fadeIn` (Drawable.cpp:1059-1065).
+    pub fn start_drawable_fade_in(&mut self, frames: u32, now: u32) {
+        self.drawable_fade_mode = DRAWABLE_FADE_IN;
+        self.drawable_fade_start_frame = now;
+        self.drawable_fade_frames = frames.max(1);
+    }
+
+    /// C++ `Drawable::fadeOut` (Drawable.cpp:1048-1054).
+    pub fn start_drawable_fade_out(&mut self, frames: u32, now: u32) {
+        self.drawable_fade_mode = DRAWABLE_FADE_OUT;
+        self.drawable_fade_start_frame = now;
+        self.drawable_fade_frames = frames.max(1);
+    }
+
+    /// C++ `updateDrawable` fade ramp sampled at `now`.
+    pub fn drawable_fade_opacity(&self, now: u32) -> f32 {
+        drawable_explicit_fade_opacity(
+            self.drawable_fade_mode,
+            self.drawable_fade_start_frame,
+            self.drawable_fade_frames,
+            now,
+        )
+    }
+
+}
+
+/// C++ `Drawable` fade mode residual: none.
+pub const DRAWABLE_FADE_NONE: u8 = 0;
+/// C++ `FADING_IN`.
+pub const DRAWABLE_FADE_IN: u8 = 1;
+/// C++ `FADING_OUT`.
+pub const DRAWABLE_FADE_OUT: u8 = 2;
+
+/// C++ `updateDrawable` fade: `numer/timeToFade`, complete when elapsed > time.
+pub fn drawable_explicit_fade_opacity(mode: u8, start_frame: u32, frames: u32, now: u32) -> f32 {
+    if mode != DRAWABLE_FADE_IN && mode != DRAWABLE_FADE_OUT {
+        return 1.0;
+    }
+    let frames = frames.max(1);
+    let elapsed = now.saturating_sub(start_frame);
+    if elapsed > frames {
+        return if mode == DRAWABLE_FADE_IN { 1.0 } else { 0.0 };
+    }
+    let t = (elapsed as f32 / frames as f32).clamp(0.0, 1.0);
+    if mode == DRAWABLE_FADE_IN {
+        t
+    } else {
+        1.0 - t
+    }
+}
+
+/// C++ `StealthUpdate` pulse + `Drawable::setEffectiveOpacity`.
+///
+/// Pulse factor is `0.5 + sin(phase)*0.5`. Effective stealth is
+/// `floor + (1-floor)*pulse` so friendly cloak shimmers between min and 1.0.
+/// Phase is presentation-owned: object-id seed + `0.2` rad per logic frame.
+pub fn friendly_stealth_pulse_opacity(min: f32, object_id: u32, logic_frame: u32) -> f32 {
+    let phase = (object_id as f32) * 0.37 + (logic_frame as f32) * 0.2;
+    let pulse = (0.5 + 0.5 * phase.sin()).clamp(0.0, 1.0);
+    let floor = min.clamp(0.0, 1.0);
+    (floor + (1.0 - floor) * pulse).clamp(0.0, 1.0)
+}
+
+/// C++ `Drawable::updateDrawable` tint-status colors (signed additive).
+pub fn drawable_status_tint_rgb(
+    disabled_dark: bool,
+    subdual: bool,
+    frenzy: bool,
+    infantry: bool,
+) -> [f32; 3] {
+    if disabled_dark {
+        [-0.5, -0.5, -0.5]
+    } else if subdual {
+        [-0.2, -0.2, 0.8]
+    } else if frenzy {
+        if infantry {
+            [0.0, -0.7, -0.7]
+        } else {
+            [0.2, -0.2, -0.2]
+        }
+    } else {
+        [0.0, 0.0, 0.0]
+    }
 }
 
 #[cfg(test)]

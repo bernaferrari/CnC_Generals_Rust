@@ -772,11 +772,11 @@ impl ReplayManager {
             | ReplayEventType::StopCommand
             | ReplayEventType::GuardCommand
             | ReplayEventType::PatrolCommand => {
-                // Deserialize and execute command
                 let command: GameCommand = bincode::deserialize(&event.data)
                     .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
 
                 let _result = command_system.execute_command(&command, game_logic);
+                crate::command_system::queue_replay_selection_remirror(command.player_id as i32);
             }
 
             ReplayEventType::SpecialPower => {
@@ -1035,4 +1035,16 @@ mod tests {
         apply_host_recorder_init_controls();
         assert!(host_replay_controls_hidden());
     }
+
+    #[test]
+    fn playback_command_queues_observer_selection_remirror() {
+        // C++ GameLogicDispatch.cpp:1970 remirrors after every network command.
+        let _ = crate::command_system::take_pending_replay_selection_remirror();
+        crate::command_system::queue_replay_selection_remirror(5);
+        assert_eq!(
+            crate::command_system::take_pending_replay_selection_remirror(),
+            vec![5]
+        );
+    }
+
 }

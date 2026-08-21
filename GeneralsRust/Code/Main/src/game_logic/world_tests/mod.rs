@@ -21,6 +21,7 @@ mod shells_and_missiles;
 mod strategy_and_stealth;
 mod superweapons_and_plans;
 mod unit_residuals;
+mod cave_bridge;
 mod vehicles_and_lasers;
 
 #[test]

@@ -318,11 +318,6 @@ impl ScriptActionDispatcher {
         &mut self,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
-        // Wave 284: empty dual-world → no-op success.
-        if dual_world_registry_unavailable() {
-            return Ok(ScriptActionResult::Success);
-        }
-
         let unit_name = self.get_string_param(action, 0)?;
         let snap_to_unit = self.get_bool_param_optional(action, 1).unwrap_or(false);
 
@@ -332,10 +327,13 @@ impl ScriptActionDispatcher {
             snap_to_unit
         );
 
+        // C++ `TheScriptEngine->getUnitNamed` — host injects name→id into the
+        // crate tracker. Empty OBJECT_REGISTRY must not skip named lookup.
         let tracker = get_named_object_tracker();
         let mut object_id = tracker.get_object_id(&unit_name).ok().flatten();
 
-        if object_id.is_none() {
+        // Wave 284: empty dual-world → skip crate Object walk only.
+        if object_id.is_none() && !dual_world_registry_unavailable() {
             let lower = unit_name.to_ascii_lowercase();
             object_id = OBJECT_REGISTRY
                 .get_all_objects()

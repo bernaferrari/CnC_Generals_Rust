@@ -87,8 +87,10 @@ impl<'a> CommandExecutor<'a> {
     }
 
     pub(super) fn execute_view_command_center(&mut self) -> CommandResult {
-        let team = self.player_team(self.current_player_id);
-        if let Some(position) = self.game_logic.command_center_position(team) {
+        if let Some(position) = self
+            .game_logic
+            .player_command_center_position(self.current_player_id)
+        {
             self.game_logic.request_camera_focus(position);
             CommandResult::Success
         } else {

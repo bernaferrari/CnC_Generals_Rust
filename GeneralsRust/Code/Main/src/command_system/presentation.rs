@@ -174,6 +174,9 @@ pub struct PresentationSelectedUnitHint {
     /// C++ `KINDOF_SALVAGER` frozen for MSG_DO_SALVAGE classification.
     #[serde(default)]
     pub is_salvager: bool,
+    /// C++ `findSpecialPowerWithOverridableDestinationActive` residual.
+    #[serde(default)]
+    pub can_override_special_power_destination: bool,
 }
 
 /// Information needed for command creation from mouse input

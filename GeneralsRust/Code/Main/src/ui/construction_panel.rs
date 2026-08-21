@@ -15,7 +15,78 @@ use crate::ui::layout;
 use crate::ui::utils;
 use crate::ui::KeyCode;
 
+use game_engine::common::ini::ini_command_button::get_control_bar;
 use game_engine::common::thing::thing_template::BuildableStatus;
+
+/// C++ `HotKeyManager::searchHotKey` (`HotKey.cpp:182-201`): first `&` marker.
+pub fn hotkey_from_text_label(label: &str) -> Option<KeyCode> {
+    let label = label.trim();
+    if label.is_empty() {
+        return None;
+    }
+    let (localized, exists) = game_client::game_text::GameText::fetch_with_exists(label);
+    let source = if exists {
+        localized.as_str()
+    } else {
+        label
+    };
+    let mut chars = source.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '&' {
+            return chars.next().and_then(keycode_from_hotkey_char);
+        }
+    }
+    None
+}
+
+fn keycode_from_hotkey_char(ch: char) -> Option<KeyCode> {
+    match ch.to_ascii_uppercase() {
+        'A' => Some(KeyCode::A),
+        'B' => Some(KeyCode::B),
+        'C' => Some(KeyCode::C),
+        'D' => Some(KeyCode::D),
+        'E' => Some(KeyCode::E),
+        'F' => Some(KeyCode::F),
+        'G' => Some(KeyCode::G),
+        'H' => Some(KeyCode::H),
+        'I' => Some(KeyCode::I),
+        'J' => Some(KeyCode::J),
+        'K' => Some(KeyCode::K),
+        'L' => Some(KeyCode::L),
+        'M' => Some(KeyCode::M),
+        'N' => Some(KeyCode::N),
+        'O' => Some(KeyCode::O),
+        'P' => Some(KeyCode::P),
+        'Q' => Some(KeyCode::Q),
+        'R' => Some(KeyCode::R),
+        'S' => Some(KeyCode::S),
+        'T' => Some(KeyCode::T),
+        'U' => Some(KeyCode::U),
+        'V' => Some(KeyCode::V),
+        'W' => Some(KeyCode::W),
+        'X' => Some(KeyCode::X),
+        'Y' => Some(KeyCode::Y),
+        'Z' => Some(KeyCode::Z),
+        '0' => Some(KeyCode::Key0),
+        '1' => Some(KeyCode::Key1),
+        '2' => Some(KeyCode::Key2),
+        '3' => Some(KeyCode::Key3),
+        '4' => Some(KeyCode::Key4),
+        '5' => Some(KeyCode::Key5),
+        '6' => Some(KeyCode::Key6),
+        '7' => Some(KeyCode::Key7),
+        '8' => Some(KeyCode::Key8),
+        '9' => Some(KeyCode::Key9),
+        _ => None,
+    }
+}
+
+/// C++ ControlBar.cpp:2472-2476 — TextLabel `&` hotkey for a command name.
+pub fn hotkey_for_command_name(command_name: &str) -> Option<KeyCode> {
+    let bar = get_control_bar()?;
+    let button = bar.find_command_button_resolved(command_name)?;
+    hotkey_from_text_label(&button.text_label)
+}
 
 // ---------------------------------------------------------------------------
 // Re-usable data extracted from the INI system
@@ -485,7 +556,8 @@ impl ConstructionPanel {
                     cost,
                     build_time,
                     button_image: btn.button_image.clone(),
-                    hotkey: None, // Hotkeys are assigned per-context
+                    hotkey: hotkey_from_text_label(&btn.text_label)
+                        .or_else(|| hotkey_for_command_name(btn_name)),
                     button_border_type: btn.button_border_type.clone(),
                     radius_cursor_type: btn.radius_cursor_type.clone(),
                     command: btn.command.clone(),
@@ -1122,6 +1194,20 @@ mod tests {
             None
         );
         assert_eq!(resolve_command_set_name("NoSuchTemplateXYZ", None), None);
+    }
+
+    #[test]
+    fn text_label_ampersand_hotkey_matches_cpp_search_hot_key() {
+        // C++ HotKey.cpp:182-201 / ControlBar.cpp:2472-2476.
+        use super::{hotkey_from_text_label, KeyCode};
+        assert_eq!(hotkey_from_text_label("S&top"), Some(KeyCode::T));
+        assert_eq!(hotkey_from_text_label("&Guard"), Some(KeyCode::G));
+        assert_eq!(
+            hotkey_from_text_label("CONTROLBAR:&Ranger"),
+            Some(KeyCode::R)
+        );
+        assert_eq!(hotkey_from_text_label("Stop"), None);
+        assert_eq!(hotkey_from_text_label(""), None);
     }
 
     fn test_tab_label() {

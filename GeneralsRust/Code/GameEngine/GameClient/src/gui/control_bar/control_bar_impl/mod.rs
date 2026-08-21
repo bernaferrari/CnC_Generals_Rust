@@ -28,6 +28,7 @@ use crate::helpers::{
 };
 use crate::message_stream::game_message::GameMessageType;
 use crate::message_stream::message_stream::THE_MESSAGE_STREAM;
+use crate::message_stream::hot_key::with_hot_key_manager;
 use crate::system::SubsystemInterface;
 use game_engine::common::ini::ini_command_button::{
     get_control_bar as get_ini_control_bar, CommandButton as IniCommandButton,

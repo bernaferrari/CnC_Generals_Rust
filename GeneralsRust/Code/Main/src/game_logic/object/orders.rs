@@ -189,9 +189,14 @@ impl Object {
         draw_icon_ui: bool,
     ) {
         use crate::game_logic::host_battlemaster::{
-            is_portable_structure_template, leftover_horde_decal_fade, leftover_horde_decal_type,
-            leftover_vehicle_horde_decal_size, TERRAIN_DECAL_NONE,
+            hide_leftover_horde_flag_subobjects, is_portable_structure_template,
+            leftover_horde_decal_fade, leftover_horde_decal_type, leftover_horde_major_radius,
+            leftover_unit_has_horde_flag_subobjects, leftover_vehicle_horde_decal_size,
+            TERRAIN_DECAL_NONE,
         };
+        if leftover_unit_has_horde_flag_subobjects(&self.template_name) {
+            hide_leftover_horde_flag_subobjects(&mut self.sub_object_visibility);
+        }
         if !self.is_alive() {
             return;
         }
@@ -205,7 +210,13 @@ impl Object {
                 });
                 let ty = leftover_horde_decal_type(is_infantry, has_nationalism, has_fanaticism);
                 if !is_infantry {
-                    let size = leftover_vehicle_horde_decal_size(self.selection_radius.max(1.0));
+                    let geom = &self.thing.template.geometry_info;
+                    let major = leftover_horde_major_radius(
+                        geom.authored,
+                        geom.major_radius,
+                        self.selection_radius,
+                    );
+                    let size = leftover_vehicle_horde_decal_size(major);
                     self.set_terrain_decal_size(size, size);
                 }
                 if self.get_terrain_decal_type() != ty {
@@ -469,6 +480,9 @@ impl Object {
         self.target = Some(victim);
         self.target_location = None;
         self.set_ai_state(AIState::GuardRetaliating);
+        // C++ JetAIUpdate::aiDoCommand GUARD_RETALIATE sets
+        // ALLOW_INTERRUPT_AND_RESUME_OF_CUR_STATE_FOR_RELOAD.
+        self.mark_jet_command_for_reload_interrupt(true);
         self.status.attacking = true;
         if let Some(max) = max_shots {
             self.max_shots_to_fire = max;
@@ -1217,6 +1231,27 @@ impl Object {
     /// True when this structure is a GLA Tunnel Network residual entrance.
     pub fn is_tunnel_network_style_container(&self) -> bool {
         self.is_tunnel_network || self.thing.template.contain_module.kind.is_tunnel_contain()
+    }
+
+    /// C++ CaveContain: CaveIndex-shared CaveSystem tracker.
+    pub fn install_cave_contain_residual(&mut self, cave_index: i32) {
+        self.is_cave_contain = true;
+        self.cave_index = cave_index;
+        if let Some(bd) = self.building_data.as_mut() {
+            bd.max_garrison = crate::game_logic::host_cave_system::MAX_CAVE_CAPACITY;
+        } else {
+            let mut bd = BuildingData::new(BuildingType::Bunker);
+            bd.max_garrison = crate::game_logic::host_cave_system::MAX_CAVE_CAPACITY;
+            self.building_data = Some(bd);
+            self.record_host_building_type();
+        }
+        self.record_host_contain_capacity();
+    }
+
+    pub fn is_cave_style_container(&self) -> bool {
+        self.is_cave_contain
+            || self.thing.template.contain_module.kind.is_cave_contain()
+            || crate::game_logic::host_cave_system::is_cave_template(&self.template_name)
     }
 
     /// Install residual GLA Technical transport:

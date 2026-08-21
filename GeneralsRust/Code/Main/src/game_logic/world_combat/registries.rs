@@ -559,7 +559,15 @@ impl GameLogic {
             .as_ref()
             .and_then(|b| b.rally_point)
             .unwrap_or(building_pos);
-        let passengers: Vec<ObjectId> = container.contained_units();
+        let mut passengers: Vec<ObjectId> = container.contained_units();
+        if container.is_cave_style_container() {
+            let idx = container.cave_index;
+            for uid in self.cave_system.contained_for_index(idx) {
+                if !passengers.contains(&uid) {
+                    passengers.push(uid);
+                }
+            }
+        }
         if passengers.is_empty() && !and_exit {
             // Still clear pending flags.
             if let Some(c) = self.objects.get_mut(&container_id) {
@@ -1623,6 +1631,7 @@ impl GameLogic {
         let mut leave = Vec::new();
         let mut vulcan: Vec<(ObjectId, Option<ObjectId>, crate::game_logic::Team, Vec3)> =
             Vec::new();
+        let mut payload_drops: Vec<(ObjectId, crate::game_logic::Team, Vec3, Vec3)> = Vec::new();
         for id in tids {
             let Some(o) = self.objects.get_mut(&id) else {
                 continue;
@@ -1637,13 +1646,25 @@ impl GameLogic {
             let dz = new_pos.z - target.z;
             let over_strafe = dx * dx + dz * dz <= A10_STRAFE_LENGTH * A10_STRAFE_LENGTH;
             let due_vulcan = over_strafe
-                && self
-                    .frame
-                    .saturating_sub(data.last_vulcan_frame)
-                    >= 2;
+                && self.frame.saturating_sub(data.last_vulcan_frame) >= 2;
             if due_vulcan {
                 data.last_vulcan_frame = self.frame;
                 vulcan.push((id, o.producer_id, o.team, new_pos));
+            }
+            // C++ DeliveringState::update — drop VisiblePayload from the jet
+            // only while isCloseEnoughToTarget (DeliveryDistance 450).
+            if data.is_close_enough_to_target(new_pos) {
+                let n = data.take_visible_payload_drops(self.frame);
+                let team = o.team;
+                for k in 0..n {
+                    let side = if k == 0 { -6.0 } else { 6.0 };
+                    payload_drops.push((
+                        id,
+                        team,
+                        Vec3::new(new_pos.x + side, new_pos.y, new_pos.z),
+                        target,
+                    ));
+                }
             }
             o.set_position(new_pos);
             o.movement.velocity = vel;
@@ -1669,26 +1690,19 @@ impl GameLogic {
             self.mark_object_for_destruction(id, None);
         }
 
-        let due = self.a10_strike_flight_reg.take_due_drops(self.frame);
-        if !due.is_empty() {
+        if !payload_drops.is_empty() {
             if !self.templates.contains_key(A10_PAYLOAD_TEMPLATE) {
                 let mut t = ThingTemplate::new(A10_PAYLOAD_TEMPLATE);
                 t.set_health(40.0).add_kind_of(KindOf::Projectile);
                 self.templates.insert(A10_PAYLOAD_TEMPLATE.to_string(), t);
             }
-            for p in due {
-                let team = self
-                    .objects
-                    .get(&ObjectId(p.source_id))
-                    .map(|o| o.team)
-                    .unwrap_or(Team::Neutral);
-                let drop_pos = Vec3::new(p.target.x, 90.0, p.target.z);
+            for (jet_id, team, drop_pos, target) in payload_drops {
                 if let Some(mid) = self.create_object(A10_PAYLOAD_TEMPLATE, team, drop_pos) {
                     if let Some(o) = self.objects.get_mut(&mid) {
-                        o.producer_id = Some(ObjectId(p.source_id));
+                        o.producer_id = Some(jet_id);
                         o.a10_strike_missile = true;
                         o.movement.velocity = Vec3::new(0.0, -20.0, 0.0);
-                        let _ = o.set_smart_bomb_target(p.target);
+                        let _ = o.set_smart_bomb_target(target);
                     }
                     self.a10_strike_flight_reg.record_drop();
                 }

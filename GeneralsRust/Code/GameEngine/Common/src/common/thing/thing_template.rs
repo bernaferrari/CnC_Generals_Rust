@@ -2050,6 +2050,22 @@ impl ThingTemplate {
         self.audioarray.get(ThingTemplateAudioType::VoiceSelect)
     }
 
+    pub fn get_voice_move(&self) -> Option<&AudioEventRts> {
+        self.audioarray.get(ThingTemplateAudioType::VoiceMove)
+    }
+
+    pub fn get_voice_enter(&self) -> Option<&AudioEventRts> {
+        self.audioarray.get(ThingTemplateAudioType::VoiceEnter)
+    }
+
+    pub fn get_voice_garrison(&self) -> Option<&AudioEventRts> {
+        self.audioarray.get(ThingTemplateAudioType::VoiceGarrison)
+    }
+
+    pub fn get_voice_guard(&self) -> Option<&AudioEventRts> {
+        self.audioarray.get(ThingTemplateAudioType::VoiceGuard)
+    }
+
     pub fn get_voice_attack(&self) -> Option<&AudioEventRts> {
         self.audioarray.get(ThingTemplateAudioType::VoiceAttack)
     }

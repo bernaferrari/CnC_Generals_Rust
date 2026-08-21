@@ -35,6 +35,10 @@ impl HostSubObjectVisibility {
     pub fn is_shown(&self, name: &str) -> bool {
         self.shown.contains(name)
     }
+
+    pub fn is_hidden(&self, name: &str) -> bool {
+        self.hidden.contains(name)
+    }
 }
 
 /// Result of applying SubObjectsUpgrade for an upgrade on a template.

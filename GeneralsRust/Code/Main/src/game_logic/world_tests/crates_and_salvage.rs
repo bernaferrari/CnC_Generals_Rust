@@ -2580,9 +2580,9 @@ fn vehicle_requests_infantry_move_away() {
         let other = logic.objects.get(&iid).unwrap().clone();
         let v = logic.objects.get_mut(&vid).unwrap();
         // Prevent ensure_crush_levels from promoting crusher during overlap.
-        let blocked = v.ai_blocked_by(&other);
+        let blocked = v.ai_blocked_by(&other, true);
         assert!(blocked, "vehicle should be blocked by infantry ahead");
-        let force = v.ai_process_collision(&other, 0);
+        let force = v.ai_process_collision(&other, 0, true);
         assert!(!force);
         assert!(v.is_blocked);
         assert_eq!(v.request_other_move_away, Some(iid));
@@ -2841,6 +2841,56 @@ fn apply_overlap_crush_check_crushes_enemy_infantry() {
     let inf = logic.objects.get(&iid).unwrap();
     assert!(inf.status.destroyed);
     assert_eq!(inf.status.death_type, HostDeathType::Crushed);
+}
+
+#[test]
+fn allied_player_tank_does_not_crush_friends() {
+    // C++ Object.cpp:1096 ALLIES, not faction Team==. hq-atwzd.
+    use crate::game_logic::host_usa_pilot::HostDeathType;
+    use crate::game_logic::{KindOf, Object, ObjectId, Player, Team, ThingTemplate};
+    use glam::Vec3;
+    let mut logic = GameLogic::new();
+    let mut usa = Player::new(0, Team::USA, "USA", true);
+    usa.alliance_team = 7;
+    usa.is_alive = true;
+    let mut china = Player::new(1, Team::China, "China", false);
+    china.alliance_team = 7;
+    china.is_alive = true;
+    logic.add_player(usa);
+    logic.add_player(china);
+
+    let mut vt = ThingTemplate::new("AllyTank");
+    vt.add_kind_of(KindOf::Vehicle);
+    let tid = ObjectId(201);
+    let mut tank = Object::new(vt, tid, Team::USA);
+    tank.owner_player_id = Some(0);
+    tank.crusher_level = 1;
+    tank.set_orientation(0.0);
+    tank.movement.velocity = Vec3::new(5.0, 0.0, 0.0);
+    tank.set_position(Vec3::new(6.0, 0.0, 0.0));
+    logic.objects.insert(tid, tank);
+
+    let mut it = ThingTemplate::new("AllyInf");
+    it.add_kind_of(KindOf::Infantry);
+    let iid = ObjectId(202);
+    let mut inf = Object::new(it, iid, Team::China);
+    inf.owner_player_id = Some(1);
+    inf.crushable_level = 0;
+    inf.selection_radius = 10.0;
+    inf.set_position(Vec3::new(5.0, 0.0, 0.0));
+    inf.health.current = 100.0;
+    inf.health.maximum = 100.0;
+    logic.objects.insert(iid, inf);
+
+    assert!(!logic.apply_overlap_crush_check(tid, iid, true));
+    let inf = logic.objects.get(&iid).unwrap();
+    assert!(inf.is_alive());
+    assert_ne!(inf.status.death_type, HostDeathType::Crushed);
+
+    // Live collide path uses object_relationship, not Team==.
+    assert!(logic.try_physics_collide(tid, iid, 8.0));
+    let inf = logic.objects.get(&iid).unwrap();
+    assert!(inf.is_alive(), "diplomatic ally infantry must survive crush");
 }
 
 #[test]

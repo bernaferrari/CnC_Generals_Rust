@@ -877,6 +877,20 @@ impl GameClient {
         ui.replace_floating_texts_from_presentation(entries);
     }
 
+    /// Presentation MoneyPickUp / world Anim2D residual → InGameUI postDraw.
+    pub fn apply_presentation_world_anims(
+        &mut self,
+        entries: &[(String, [f32; 3], f32, f32, bool, u32)],
+    ) {
+        let Some(ref ui) = self.subsystem_manager.in_game_ui else {
+            return;
+        };
+        let Ok(mut ui) = ui.lock() else {
+            return;
+        };
+        ui.replace_world_anims_from_presentation(entries);
+    }
+
     /// Presentation PublicTimer residual → InGameUI postDraw countdown strip.
     pub fn apply_presentation_superweapon_timers(
         &mut self,

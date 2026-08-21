@@ -35,6 +35,60 @@ fn dual_world_registry_unavailable() -> bool {
     crate::object::registry::OBJECT_REGISTRY.is_empty()
 }
 
+/// Host-only path: leftover scripts still raise water; Main applies DAMAGE_WATER.
+static PENDING_HOST_WATER_RISE_DAMAGE: Mutex<Vec<f32>> = Mutex::new(Vec::new());
+
+fn queue_host_water_rise_damage(amount: f32) {
+    if amount > 0.0 {
+        if let Ok(mut pending) = PENDING_HOST_WATER_RISE_DAMAGE.lock() {
+            pending.push(amount);
+        }
+    }
+}
+
+/// Drain leftover WATER_CHANGE_HEIGHT damage for the live host.
+pub fn take_pending_host_water_rise_damage() -> Vec<f32> {
+    PENDING_HOST_WATER_RISE_DAMAGE
+        .lock()
+        .map(|mut pending| pending.drain(..).collect())
+        .unwrap_or_default()
+}
+
+/// Host-only path: leftover water-height changes restamp live Water cells.
+static PENDING_HOST_PATHFIND_RECALC: Mutex<bool> = Mutex::new(false);
+
+fn queue_host_pathfind_recalculation() {
+    if let Ok(mut pending) = PENDING_HOST_PATHFIND_RECALC.lock() {
+        *pending = true;
+    }
+}
+
+/// Drain leftover `forceMapRecalculation` so the live host restamps Water cells.
+pub fn take_pending_host_pathfind_recalculation() -> bool {
+    PENDING_HOST_PATHFIND_RECALC
+        .lock()
+        .map(|mut pending| {
+            let was = *pending;
+            *pending = false;
+            was
+        })
+        .unwrap_or(false)
+}
+
+/// C++ WaveGuideUpdate::startMoving WaveGuide1 bind result.
+#[derive(Debug, Clone, Copy)]
+pub enum WaveGuide1Bind {
+    Follow {
+        first: Coord3D,
+        last: Coord3D,
+        angle: f32,
+    },
+    MissingWaypoint,
+    InvalidPath,
+}
+
+
+
 /// Maximum terrain name length
 pub const MAX_TERRAIN_NAME_LEN: usize = 64;
 const WATER_GRID_NAME_CPP: &str = "Water Grid";
@@ -1887,10 +1941,12 @@ impl TerrainLogic {
     }
 
     fn apply_water_rise_damage(&self, affected_region: &Region3D, damage_amount: f32) {
-        // Wave 341: empty dual-world → no-op.
+        // Wave 341: empty dual-world → host GameLogic applies DAMAGE_WATER.
         if dual_world_registry_unavailable() {
+            queue_host_water_rise_damage(damage_amount);
             return;
         }
+
 
         if damage_amount <= 0.0 {
             return;
@@ -1930,6 +1986,9 @@ impl TerrainLogic {
     }
 
     fn request_pathfind_recalculation(&self) {
+        // C++ TerrainLogic.cpp:2331-2338 forceMapRecalculation — live host
+        // restamps Water cells even when the crate pathfinder is empty.
+        queue_host_pathfind_recalculation();
         let pathfinder = if let Ok(ai_guard) = THE_AI.read() {
             ai_guard.pathfinder()
         } else {
@@ -1944,6 +2003,8 @@ impl TerrainLogic {
         };
         pathfinder_guard.rebuild_from_terrain(self);
     }
+
+
 
     fn set_water_height_internal(
         &mut self,
@@ -2438,6 +2499,92 @@ impl TerrainLogic {
             current = bridge.next.as_deref();
         }
     }
+
+    /// Visit every live bridge mutably.
+    pub fn for_each_bridge_mut<F: FnMut(&mut Bridge)>(&mut self, mut f: F) {
+        let mut current = self.bridge_list_head.as_deref_mut();
+        while let Some(bridge) = current {
+            f(bridge);
+            current = bridge.next.as_deref_mut();
+        }
+    }
+
+    /// Store a live GenericBridge object id on the leftover span matching `from_left`.
+    pub fn bind_bridge_object_id_at(&mut self, from_left: Coord3D, object_id: ObjectID) {
+        self.for_each_bridge_mut(|bridge| {
+            let fl = bridge.get_bridge_info().from_left;
+            if (fl.x - from_left.x).abs() < 0.01 && (fl.y - from_left.y).abs() < 0.01 {
+                bridge.set_bridge_object_id(object_id);
+            }
+        });
+    }
+
+    /// C++ Bridge::updateDamageState live writeback — set leftover rubble/pristine.
+    pub fn set_bridge_damage_state_for_object(
+        &mut self,
+        object_id: ObjectID,
+        state: BodyDamageType,
+    ) {
+        if object_id == crate::common::INVALID_ID {
+            return;
+        }
+        let mut changed = false;
+        self.for_each_bridge_mut(|bridge| {
+            if bridge.get_bridge_info().bridge_object_id == object_id {
+                let info = bridge.bridge_info_mut();
+                if info.cur_damage_state != state {
+                    info.cur_damage_state = state;
+                    info.damage_state_changed = true;
+                    changed = true;
+                }
+            }
+        });
+        if changed {
+            self.bridge_damage_states_changed = true;
+        }
+    }
+
+    /// Deck Z for a live host XZ sample (C++ XY). None when not on a live span.
+    pub fn host_deck_height_at(&self, world_x: f32, world_y: f32) -> Option<f32> {
+        let loc = Coord3D::new(world_x, world_y, 0.0);
+        let bridge = self.find_bridge_at(&loc)?;
+        if bridge.get_bridge_info().cur_damage_state == BodyDamageType::Rubble {
+            return None;
+        }
+        Some(bridge.get_bridge_height(&loc, None))
+    }
+
+    /// C++ WaveGuideUpdate::startMoving WaveGuide1 walk.
+    pub fn bind_wave_guide1(&self) -> WaveGuide1Bind {
+        let Some(waypoint) = self.get_waypoint_by_name(&AsciiString::from("WaveGuide1")) else {
+            return WaveGuide1Bind::MissingWaypoint;
+        };
+        let mut last = *waypoint.get_location();
+        let mut verify = Some(waypoint);
+        while let Some(node) = verify {
+            if node.get_num_links() > 1 {
+                return WaveGuide1Bind::InvalidPath;
+            }
+            last = *node.get_location();
+            verify = node
+                .get_link(0)
+                .and_then(|id| self.get_waypoint_by_id(id));
+        }
+        let Some(next_id) = waypoint.get_link(0) else {
+            return WaveGuide1Bind::InvalidPath;
+        };
+        let Some(next) = self.get_waypoint_by_id(next_id) else {
+            return WaveGuide1Bind::InvalidPath;
+        };
+        let angle = (next.get_location().y - waypoint.get_location().y)
+            .atan2(next.get_location().x - waypoint.get_location().x);
+        WaveGuide1Bind::Follow {
+            first: *waypoint.get_location(),
+            last,
+            angle,
+        }
+    }
+
 
     pub fn bridge_damage_states_changed(&self) -> bool {
         self.bridge_damage_states_changed

@@ -1167,6 +1167,25 @@ impl GameLogic {
                     Some(crate::game_logic::host_tunnel_network::tunnel_network_gun_weapon());
             }
 
+            if crate::game_logic::host_cave_system::is_cave_template(template_name)
+                || object.thing.template.contain_module.kind.is_cave_contain()
+            {
+                let cave_index = object.thing.template.contain_module.cave_index;
+                object.install_cave_contain_residual(cave_index);
+            }
+
+            if crate::game_logic::host_bridge_behavior::is_bridge_span_template(template_name) {
+                let p = object.get_position();
+                let half = object.selection_radius.max(20.0);
+                self.bridge_behavior.register_span(
+                    object.id,
+                    glam::Vec3::new(p.x - half, 0.0, p.z - half),
+                    glam::Vec3::new(p.x + half, 0.0, p.z - half),
+                    glam::Vec3::new(p.x - half, 0.0, p.z + half),
+                    glam::Vec3::new(p.x + half, 0.0, p.z + half),
+                );
+            }
+
             // Host residual: AirF Combat Chinook TransportContain Slots=8 + passenger fire.
             // Fail-closed: not ChinookAIUpdate ropes / supply / rappel / combat drop.
             if crate::game_logic::host_combat_chinook::is_combat_chinook_template(template_name) {
@@ -2516,8 +2535,14 @@ impl GameLogic {
             let _ = crate::gameworld_shadow::eager_mark_host_destroy_if_coupled(id);
             return;
         }
+        let crusher_xz = self.objects.get(&id).and_then(|obj| {
+            let src = obj.last_damage_source?;
+            let crusher = self.objects.get(&src)?;
+            let p = crusher.get_position();
+            Some((p.x, p.z))
+        });
         if let Some(obj) = self.objects.get_mut(&id) {
-            obj.fire_crush_die();
+            obj.fire_crush_die_from_crusher(crusher_xz);
         }
         // Wave 482: BuildAssistant sell finish removes the object immediately.
         // Do not defer into StructureTopple/Collapse / SlowDeath / KeepObjectDie —
@@ -3127,6 +3152,11 @@ impl GameLogic {
             {
                 let team = obj.team;
                 self.tunnel_network.on_tunnel_created(team, object_id);
+            }
+            if obj.is_cave_style_container() {
+                let idx = obj.cave_index;
+                let team = obj.team;
+                self.cave_system.register_cave(object_id, idx, team);
             }
         }
         // C++ SpawnBehavior::update first-init after UNDER_CONSTRUCTION clears.

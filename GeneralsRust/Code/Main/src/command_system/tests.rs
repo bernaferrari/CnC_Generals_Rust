@@ -1260,6 +1260,7 @@ fn crate_click_issues_do_salvage_for_salvager_selection() {
             capture_power: crate::game_logic::CapturePowerKind::None,
             capture_power_ready: false,
             is_salvager: true,
+            can_override_special_power_destination: false,
         }],
         presentation_box_select_units: Vec::new(),
         presentation_select_similar_units: Vec::new(),
@@ -1385,6 +1386,7 @@ fn ordinary_crate_click_issues_move_to_crate() {
             capture_power: crate::game_logic::CapturePowerKind::None,
             capture_power_ready: false,
             is_salvager: false,
+            can_override_special_power_destination: false,
         }],
         presentation_box_select_units: Vec::new(),
         presentation_select_similar_units: Vec::new(),
@@ -2150,6 +2152,7 @@ fn hijacker_context_click_issues_hijack_before_attack() {
             capture_power: crate::game_logic::CapturePowerKind::None,
             capture_power_ready: false,
             is_salvager: false,
+            can_override_special_power_destination: false,
         }],
         presentation_box_select_units: Vec::new(),
         presentation_select_similar_units: Vec::new(),
@@ -2172,5 +2175,162 @@ fn hijacker_context_click_issues_hijack_before_attack() {
     match cmd.command_type {
         CommandType::Hijack { target_id } => assert_eq!(target_id, tank),
         other => panic!("expected Hijack before Attack, got {other:?}"),
+    }
+}
+
+#[test]
+fn lotus_context_click_auto_hacks_enemy_vehicle() {
+    // C++ CommandXlat.cpp:2050-2084 ACTIONTYPE_DISABLE_VEHICLE_VIA_HACKING.
+    let lotus = crate::game_logic::ObjectId(1);
+    let tank = crate::game_logic::ObjectId(2);
+    let ctx = MouseCommandContext {
+        world_position: glam::Vec3::new(20.0, 0.0, 0.0),
+        target_object: Some(tank),
+        target_presentation: Some(PresentationTargetHint {
+            id: tank,
+            is_alive: true,
+            is_structure: false,
+            is_resource: false,
+            under_construction: false,
+            sold: false,
+            team: crate::game_logic::Team::USA,
+            is_enemy_of_local: true,
+            is_neutral: false,
+            template_name: "AmericaTankCrusader".into(),
+            can_be_entered: false,
+            enter_available_capacity: 0,
+            enter_uses_transport_slots: false,
+            enter_requires_infantry: false,
+            enter_forbids_aircraft: false,
+            enter_disabled_subdued: false,
+            enter_is_rider_change: false,
+            rider_change_allowed_templates: Vec::new(),
+            is_damaged: false,
+            is_friendly_of_local: false,
+            provides_vehicle_repair: false,
+            provides_aircraft_repair: false,
+            provides_heal: false,
+            can_provide_service: true,
+            dock_kind: crate::game_logic::DockKind::None,
+            dock_controller_is_local: false,
+            stored_supplies: 0,
+            capturable: false,
+            immune_to_capture: false,
+            capture_garrisonable: false,
+            capture_nonstealthed_garrison_count: 0,
+            capture_friendly_garrison_count: 0,
+            capture_target_effectively_stealthed: false,
+            is_crate: false,
+            is_salvage_crate: false,
+            is_vehicle: true,
+            is_aircraft: false,
+            is_drone: false,
+            is_carbomb: false,
+        }),
+        selected_presentation: vec![PresentationSelectedUnitHint {
+            id: lotus,
+            is_alive: true,
+            is_resource_collector: false,
+            is_worker: false,
+            can_attack: false,
+            can_move: true,
+            can_request_service: true,
+            can_capture: false,
+            template_name: "ChinaInfantryBlackLotus".into(),
+            can_repair: false,
+            is_damaged: false,
+            is_vehicle: false,
+            is_aircraft: false,
+            is_above_terrain: false,
+            is_infantry: true,
+            transport_slot_count: 1,
+            stored_supplies: 0,
+            is_controlled_by_local: true,
+            capture_power: crate::game_logic::CapturePowerKind::None,
+            capture_power_ready: false,
+            is_salvager: false,
+            can_override_special_power_destination: false,
+        }],
+        presentation_box_select_units: Vec::new(),
+        presentation_select_similar_units: Vec::new(),
+        screen_position: glam::Vec2::ZERO,
+        viewport_size: None,
+        world_min: None,
+        world_max: None,
+        mouse_button: MouseButton::Right,
+        modifier_keys: ModifierKeys::default(),
+        is_drag: false,
+        drag_start: None,
+        drag_end: None,
+        drag_start_world: None,
+        drag_end_world: None,
+    };
+    let mut sys = CommandSystem::new();
+    let cmd = sys
+        .process_mouse_input(&ctx, &[lotus], 0, None)
+        .expect("lotus hack context command");
+    match cmd.command_type {
+        CommandType::DisableVehicleHack { target_id } => assert_eq!(target_id, tank),
+        other => panic!("expected DisableVehicleHack, got {other:?}"),
+    }
+}
+
+#[test]
+fn active_special_power_destination_steers_world_click() {
+    // C++ CommandXlat.cpp:1659-1684 override dest before resume/dock/move.
+    let puc = crate::game_logic::ObjectId(9);
+    let dest = glam::Vec3::new(80.0, 0.0, 40.0);
+    let ctx = MouseCommandContext {
+        world_position: dest,
+        target_object: None,
+        target_presentation: None,
+        selected_presentation: vec![PresentationSelectedUnitHint {
+            id: puc,
+            is_alive: true,
+            is_resource_collector: false,
+            is_worker: false,
+            can_attack: false,
+            can_move: false,
+            can_request_service: true,
+            can_capture: false,
+            template_name: "AmericaParticleCannonUplink".into(),
+            can_repair: false,
+            is_damaged: false,
+            is_vehicle: false,
+            is_aircraft: false,
+            is_above_terrain: false,
+            is_infantry: false,
+            transport_slot_count: 0,
+            stored_supplies: 0,
+            is_controlled_by_local: true,
+            capture_power: crate::game_logic::CapturePowerKind::None,
+            capture_power_ready: false,
+            is_salvager: false,
+            can_override_special_power_destination: true,
+        }],
+        presentation_box_select_units: Vec::new(),
+        presentation_select_similar_units: Vec::new(),
+        screen_position: glam::Vec2::ZERO,
+        viewport_size: None,
+        world_min: None,
+        world_max: None,
+        mouse_button: MouseButton::Right,
+        modifier_keys: ModifierKeys::default(),
+        is_drag: false,
+        drag_start: None,
+        drag_end: None,
+        drag_start_world: None,
+        drag_end_world: None,
+    };
+    let mut sys = CommandSystem::new();
+    let cmd = sys
+        .process_mouse_input(&ctx, &[puc], 0, None)
+        .expect("override dest command");
+    match cmd.command_type {
+        CommandType::OverrideSpecialPowerDestination { location } => {
+            assert!((location.x - dest.x).abs() < f32::EPSILON);
+            assert!((location.z - dest.z).abs() < f32::EPSILON);
+        }
+        other => panic!("expected OverrideSpecialPowerDestination, got {other:?}"),
     }
 }

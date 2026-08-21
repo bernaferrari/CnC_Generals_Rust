@@ -1097,6 +1097,19 @@ impl ControlBar {
                         &cmd.button_image,
                     );
                 }
+                // C++ ControlBar.cpp:2472-2476 also binds shortcut buttons.
+                if !cmd.text_label.is_empty() {
+                    if let Some(win) =
+                        leftover_find_window(&self.leftover_shortcut_button_name(current_button))
+                    {
+                        let hot_key = with_hot_key_manager(|manager| {
+                            manager.search_hot_key(&cmd.text_label)
+                        });
+                        if !hot_key.is_empty() {
+                            with_hot_key_manager(|manager| manager.add_hot_key(win, &hot_key));
+                        }
+                    }
+                }
                 current_button += 1;
             }
         }

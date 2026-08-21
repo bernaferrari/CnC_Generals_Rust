@@ -160,6 +160,11 @@ fn cell_shroud_status(player_index: i32, x: i32, y: i32) -> CellShroudStatus {
         .unwrap_or(CellShroudStatus::Shrouded)
 }
 
+/// Host FOW: cell shroud on the 40wu partition grid stamped by lookers.
+pub fn partition_cell_shroud_status(player_index: i32, x: i32, y: i32) -> CellShroudStatus {
+    cell_shroud_status(player_index, x, y)
+}
+
 fn viewer_relationship_to_object(player_index: i32, object: &Object) -> Option<Relationship> {
     let list = player_list().read().ok()?;
     let player_arc = list.get_player(player_index)?.clone();

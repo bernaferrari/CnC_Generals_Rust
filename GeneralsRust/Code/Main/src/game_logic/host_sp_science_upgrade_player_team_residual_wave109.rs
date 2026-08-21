@@ -1083,6 +1083,33 @@ pub fn sync_host_science_to_crate_player(player_id: u32, science_name: &str) -> 
     player.add_science(science)
 }
 
+/// C++ `Player::isScienceDisabled` / `isScienceHidden` from leftover Player
+/// written by `PLAYER_SCIENCE_AVAILABILITY` (ScriptActions).
+pub fn leftover_science_hidden_or_disabled(player_id: u32, science_name: &str) -> bool {
+    let canonical = normalize_science_name_residual(science_name);
+    if canonical.is_empty() {
+        return false;
+    }
+    let science = science_type_from_name(&canonical);
+    if science == game_engine::common::rts::SCIENCE_INVALID {
+        return false;
+    }
+    let Ok(list) = gamelogic::player::ThePlayerList().read() else {
+        return false;
+    };
+    let Some(player_arc) = list
+        .get_player(player_id as gamelogic::player::PlayerIndex)
+        .cloned()
+    else {
+        return false;
+    };
+    drop(list);
+    let Ok(player) = player_arc.read() else {
+        return false;
+    };
+    player.is_science_disabled(science) || player.is_science_hidden(science)
+}
+
 fn science_type_from_name(name: &str) -> game_engine::common::rts::ScienceType {
     if let Some(store) = game_engine::common::rts::get_science_store() {
         let science = store.get_science_from_internal_name(name);

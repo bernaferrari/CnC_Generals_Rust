@@ -148,3 +148,70 @@ fn push_unique(cells: &mut Vec<(i32, i32)>, cell: (i32, i32)) {
         cells.push(cell);
     }
 }
+
+/// C++ `PartitionData::getShroudedStatus` cell mix (`PartitionManager.cpp:1615-1674`).
+/// Returns `(status, ever_seen)` after applying fogged-enemy / mine / neutral-mobile rules.
+pub fn mix_object_shroud_from_cells(
+    coi_count: usize,
+    shrouded_cells: usize,
+    fogged_cells: usize,
+    relationship_neutral: bool,
+    immobile: bool,
+    mine: bool,
+    ever_seen: bool,
+) -> (gamelogic::common::types::ObjectShroudStatus, bool) {
+    use gamelogic::common::types::ObjectShroudStatus;
+    if coi_count == 0 || shrouded_cells == coi_count {
+        return (ObjectShroudStatus::Shrouded, false);
+    }
+    if shrouded_cells + fogged_cells == coi_count {
+        let mut fogged = ObjectShroudStatus::Fogged;
+        if relationship_neutral {
+            if !immobile {
+                fogged = ObjectShroudStatus::Shrouded;
+            }
+        } else if !(immobile && ever_seen) || mine {
+            fogged = ObjectShroudStatus::Shrouded;
+        }
+        return (fogged, ever_seen);
+    }
+    if shrouded_cells == 0 && fogged_cells == 0 {
+        (ObjectShroudStatus::Clear, true)
+    } else {
+        (ObjectShroudStatus::PartialClear, true)
+    }
+}
+
+#[cfg(test)]
+mod mix_tests {
+    use super::mix_object_shroud_from_cells;
+    use gamelogic::common::types::ObjectShroudStatus;
+
+    #[test]
+    fn coi_mix_matches_partition_manager_cpp() {
+        // C++ PartitionManager.cpp:1615-1674.
+        let (s, seen) = mix_object_shroud_from_cells(4, 4, 0, false, true, false, true);
+        assert_eq!(s, ObjectShroudStatus::Shrouded);
+        assert!(!seen);
+
+        let (s, seen) = mix_object_shroud_from_cells(4, 0, 0, false, true, false, false);
+        assert_eq!(s, ObjectShroudStatus::Clear);
+        assert!(seen);
+
+        let (s, seen) = mix_object_shroud_from_cells(4, 1, 0, false, true, false, false);
+        assert_eq!(s, ObjectShroudStatus::PartialClear);
+        assert!(seen);
+
+        let (s, _) = mix_object_shroud_from_cells(2, 0, 2, true, false, false, false);
+        assert_eq!(s, ObjectShroudStatus::Shrouded, "neutral mobile fog → shroud");
+
+        let (s, _) = mix_object_shroud_from_cells(2, 0, 2, false, false, false, false);
+        assert_eq!(s, ObjectShroudStatus::Shrouded, "unseen mobile enemy fog → shroud");
+
+        let (s, _) = mix_object_shroud_from_cells(2, 0, 2, false, true, false, true);
+        assert_eq!(s, ObjectShroudStatus::Fogged, "seen immobile enemy stays fog ghost");
+
+        let (s, _) = mix_object_shroud_from_cells(2, 0, 2, false, true, true, true);
+        assert_eq!(s, ObjectShroudStatus::Shrouded, "KINDOF_MINE never fog-ghosts");
+    }
+}

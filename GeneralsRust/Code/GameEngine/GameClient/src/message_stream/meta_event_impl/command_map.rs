@@ -136,6 +136,16 @@ pub fn get_command_map_entries() -> Vec<CommandMapEntry> {
 /// C++ `MetaEventTranslator::translateGameMessage` key+modifier lookup.
 /// Returns the CommandMap name bound to this key chord, if any.
 pub fn lookup_command_map_name(key: u32, mod_state: u32) -> Option<String> {
+    lookup_command_map_name_usable(key, mod_state, COMMANDUSABLE_GAME)
+}
+
+/// Same chord lookup with an explicit UseableIn mask (SHELL vs GAME).
+/// C++ MetaEvent.cpp:421-430 skips GAME-only while the shell is active.
+pub fn lookup_command_map_name_usable(
+    key: u32,
+    mod_state: u32,
+    usable_mask: u32,
+) -> Option<String> {
     ensure_meta_map_loaded();
     let guard = get_meta_map().read().unwrap_or_else(|e| e.into_inner());
     guard
@@ -144,10 +154,13 @@ pub fn lookup_command_map_name(key: u32, mod_state: u32) -> Option<String> {
             record.key == key
                 && record.mod_state == mod_state
                 && record.transition == Transition::Down
-                && (record.usable_in & COMMANDUSABLE_GAME) != 0
+                && (record.usable_in & usable_mask) != 0
         })
         .map(|record| record.name.clone())
 }
+
+pub const COMMAND_MAP_USABLE_SHELL: u32 = COMMANDUSABLE_SHELL;
+pub const COMMAND_MAP_USABLE_GAME: u32 = COMMANDUSABLE_GAME;
 
 /// True when CommandMap.ini / Keyboard Options still owns this command name.
 pub fn command_map_binds(name: &str) -> bool {

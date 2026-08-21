@@ -500,6 +500,9 @@ pub struct RenderableObject {
     /// Stable loaded SpecialPowerTemplate id paired with the canonical name.
     #[serde(default)]
     pub special_power_ready_template_id: Option<u32>,
+    /// C++ overridable special-power dest while PUC/Spectre is active.
+    #[serde(default)]
+    pub special_power_override_destination: Option<Vec3>,
     pub health_current: f32,
     pub health_max: f32,
     pub selected: bool,
@@ -939,8 +942,19 @@ pub struct RenderableObject {
     /// Fail-closed: not full HeightMap bilinear / bridge-aware sample; does **not**
     /// rewrite `position.y` (locomotor ground clamp residual separate).
     pub ground_height: f32,
-    /// True when `ground_height` came from terrain sample (not default-0).
     pub ground_height_from_terrain: bool,
+    /// C++ Drawable fadeIn/fadeOut residual (0 none, 1 in, 2 out).
+    #[serde(default)]
+    pub drawable_fade_mode: u8,
+    /// Logic frame when the current Drawable fade started.
+    #[serde(default)]
+    pub drawable_fade_start_frame: u32,
+    /// C++ `m_timeToFade` residual (logic frames).
+    #[serde(default)]
+    pub drawable_fade_frames: u32,
+    /// C++ TINT_STATUS_GAINING_SUBDUAL_DAMAGE residual (`subdual_damage > 0`).
+    #[serde(default)]
+    pub gaining_subdual: bool,
 }
 
 /// Frozen direct-object visual source retained independently of the primary

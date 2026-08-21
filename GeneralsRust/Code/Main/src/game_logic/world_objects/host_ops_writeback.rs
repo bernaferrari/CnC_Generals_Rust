@@ -13,6 +13,7 @@ impl GameLogic {
         if self.players.get(&player_id).is_none() {
             return;
         }
+        // C++ pickAndPlay VoiceSelect — queue_audio_event in select_object_list.
         self.select_object_list(1u32 << player_id.min(31), object_ids, true);
     }
 
@@ -80,17 +81,11 @@ impl GameLogic {
             }
         }
 
-        let mut voice_pos = None;
-        let mut voice_template = None;
         for &object_id in &accepted {
             if let Some(obj) = self.objects.get_mut(&object_id) {
                 obj.select();
                 // C++ Drawable::flashAsSelected residual on select / create-team.
                 obj.flash_as_selected();
-                if voice_pos.is_none() {
-                    voice_pos = Some(obj.get_position());
-                    voice_template = Some(obj.template_name.clone());
-                }
             }
         }
 
@@ -112,21 +107,9 @@ impl GameLogic {
             }
         }
 
-        // C++ VoiceSelect residual (primary selection unit).
+        // C++ VoiceSelect from ThingTemplate INI (not `{template}VoiceSelect` / UnitVoiceSelect).
         if any_local {
-            if let (Some(pos), Some(template)) = (voice_pos, voice_template) {
-                let event = format!("{template}VoiceSelect");
-                self.queue_audio_event(
-                    AudioEventRequest::new(&event)
-                        .with_position(pos)
-                        .with_priority(100),
-                );
-                self.queue_audio_event(
-                    AudioEventRequest::new("UnitVoiceSelect")
-                        .with_position(pos)
-                        .with_priority(90),
-                );
-            }
+            self.queue_picked_unit_voice(&accepted, crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Select);
         }
 
         log::debug!(
@@ -164,29 +147,17 @@ impl GameLogic {
                 // Host pathfinding / move channel (default production path).
                 self.move_object_with_pathfinding(object_id, target_position, None);
             }
-            // C++ VoiceMove residual for local player.
+            // C++ VoiceMove from ThingTemplate INI (not `{template}VoiceMove` / UnitVoiceMove).
             let local = self
                 .players
                 .get(&player_id)
                 .map(|p| p.is_local)
                 .unwrap_or(false);
             if local {
-                if let Some(&oid) = selected.first() {
-                    if let Some(obj) = self.objects.get(&oid) {
-                        let event = format!("{}VoiceMove", obj.template_name);
-                        let pos = obj.get_position();
-                        self.queue_audio_event(
-                            AudioEventRequest::new(&event)
-                                .with_position(pos)
-                                .with_priority(100),
-                        );
-                        self.queue_audio_event(
-                            AudioEventRequest::new("UnitVoiceMove")
-                                .with_position(pos)
-                                .with_priority(90),
-                        );
-                    }
-                }
+                self.queue_picked_unit_voice(
+                    &selected,
+                    crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Move,
+                );
             }
             log::trace!(
                 "{} commanded {} units to move to {:?}",
@@ -1790,35 +1761,61 @@ impl GameLogic {
                     }
                 }
             }
-            // C++ VoiceAttack residual for local player.
+            // C++ VoiceAttack / VoiceAttackAir from ThingTemplate INI (not UnitVoiceAttack).
             let local = self
                 .players
                 .get(&player_id)
                 .map(|p| p.is_local)
                 .unwrap_or(false);
             if local {
-                if let Some(&oid) = accepted_attackers.first() {
-                    if let Some(obj) = self.objects.get(&oid) {
-                        let event = format!("{}VoiceAttack", obj.template_name);
-                        let pos = obj.get_position();
-                        self.queue_audio_event(
-                            AudioEventRequest::new(&event)
-                                .with_position(pos)
-                                .with_priority(100),
-                        );
-                        self.queue_audio_event(
-                            AudioEventRequest::new("UnitVoiceAttack")
-                                .with_position(pos)
-                                .with_priority(90),
-                        );
-                    }
-                }
+                let air = self.objects.get(&target_id).is_some_and(|t| {
+                    t.is_kind_of(KindOf::Aircraft) || t.status.airborne_target
+                });
+                let slot = if air {
+                    crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::AttackAir
+                } else {
+                    crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Attack
+                };
+                self.queue_picked_unit_voice(&accepted_attackers, slot);
             }
             log::trace!(
                 "{} commanded {} units to attack object {}",
                 player_id,
                 accepted_attackers.len(),
                 target_id
+            );
+        }
+    }
+
+    /// C++ `pickAndPlayUnitVoiceResponse` — one authored Voice.ini event.
+    pub fn queue_picked_unit_voice(
+        &mut self,
+        unit_ids: &[ObjectId],
+        slot: crate::game_logic::audio_dispatch_impl::UnitVoiceSlot,
+    ) {
+        use crate::game_logic::audio_dispatch_impl::resolve_unit_voice_event;
+        let mut chosen: Option<(String, ObjectId, glam::Vec3)> = None;
+        for &id in unit_ids {
+            let Some(obj) = self.objects.get(&id) else {
+                continue;
+            };
+            if obj.is_kind_of(KindOf::IgnoredInGui) {
+                continue;
+            }
+            let Some(event) = resolve_unit_voice_event(&obj.template_name, slot) else {
+                continue;
+            };
+            chosen = Some((event, id, obj.get_position()));
+            if slot.first_unit_wins() {
+                break;
+            }
+        }
+        if let Some((event, id, pos)) = chosen {
+            self.queue_audio_event(
+                AudioEventRequest::new(&event)
+                    .with_object(id)
+                    .with_position(pos)
+                    .with_priority(100),
             );
         }
     }

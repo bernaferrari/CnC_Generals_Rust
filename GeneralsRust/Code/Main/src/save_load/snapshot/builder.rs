@@ -71,6 +71,12 @@ impl SnapshotBuilder {
             player_ranks: self.snapshot_player_ranks(game_logic)?,
             object_instance_guards: self.snapshot_object_instance_guards(game_logic),
             overcharge_active: self.snapshot_overcharge_active(game_logic),
+            cia_intelligence: game_logic.cia_intelligence().clone(),
+            vision_spied: self.snapshot_vision_spied(game_logic),
+            builder_tasks: self.snapshot_builder_tasks(game_logic),
+            sell_list: self.snapshot_sell_list(game_logic),
+            object_persist: self.snapshot_object_persist(game_logic),
+            client_drawable_visuals: self.snapshot_client_drawable_visuals(game_logic),
         };
 
         log::info!(
@@ -120,6 +126,9 @@ impl SnapshotBuilder {
         self.restore_all_objects(&snapshot.objects, game_logic)?;
         self.restore_object_instance_guards(snapshot, game_logic)?;
         self.restore_overcharge_active(snapshot, game_logic)?;
+        self.restore_cia_vision_builder_sell(snapshot, game_logic)?;
+        self.restore_object_persist(snapshot, game_logic)?;
+        self.restore_client_drawable_visuals(snapshot, game_logic);
 
         self.restore_terrain(&snapshot.terrain, game_logic)?;
         self.restore_pathfinding_cache(&snapshot.pathfinding_cache, game_logic)?;
@@ -440,8 +449,13 @@ impl SnapshotBuilder {
             ObjectType::Infantry | ObjectType::Vehicle | ObjectType::Aircraft => {
                 Ok(ObjectTypeSnapshot::Unit(UnitSnapshot {
                     unit_type: format!("{:?}", object.object_type),
-                    formation_position: None,
-                    formation_id: None,
+                    formation_position: (object.formation_id != 0)
+                        .then_some(glam::Vec3::new(
+                            object.formation_offset.x,
+                            object.formation_offset.y,
+                            0.0,
+                        )),
+                    formation_id: (object.formation_id != 0).then_some(object.formation_id),
                     group_id: None,
                     waypoints: Vec::new(),
                 }))
@@ -647,6 +661,277 @@ impl SnapshotBuilder {
             // bonus), so only the module flag is restored.
             object.set_overcharge_enabled(entry.overcharge_enabled);
         }
+        Ok(())
+    }
+
+    /// C++ `Object::xfer` `m_visionSpiedMask` (`Object.cpp:4126-4130`).
+    fn snapshot_vision_spied(&self, game_logic: &GameLogic) -> Vec<ObjectVisionSpiedSnapshot> {
+        let mut ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+        ids.sort();
+        let mut entries = Vec::new();
+        for id in ids {
+            let Some(object) = game_logic.host_object(id) else {
+                continue;
+            };
+            if object.vision_spied_mask != 0 {
+                entries.push(ObjectVisionSpiedSnapshot {
+                    object_id: id,
+                    vision_spied_mask: object.vision_spied_mask,
+                });
+            }
+        }
+        entries
+    }
+
+    /// C++ `Object::xfer` `m_builderID` + Dozer BUILD task.
+    fn snapshot_builder_tasks(&self, game_logic: &GameLogic) -> Vec<ObjectBuilderTaskSnapshot> {
+        let mut ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+        ids.sort();
+        let mut entries = Vec::new();
+        for id in ids {
+            let Some(object) = game_logic.host_object(id) else {
+                continue;
+            };
+            if object.builder_id.is_none() && object.dozer_task_build_target.is_none() {
+                continue;
+            }
+            entries.push(ObjectBuilderTaskSnapshot {
+                object_id: id,
+                builder_id: object.builder_id,
+                dozer_task_build_target: object.dozer_task_build_target,
+                dozer_task_build_order_frame: object.dozer_task_build_order_frame,
+            });
+        }
+        entries
+    }
+
+    /// C++ `BuildAssistant::xferTheSellList` (id + sell frame).
+    fn snapshot_sell_list(&self, game_logic: &GameLogic) -> Vec<SellListEntrySnapshot> {
+        game_logic
+            .sell_list_for_snapshot()
+            .into_iter()
+            .map(|(object_id, sell_frame)| SellListEntrySnapshot {
+                object_id,
+                sell_frame,
+            })
+            .collect()
+    }
+
+    /// C++ `Object::xfer` sole-heal / contain-frame / original team / formation.
+    fn snapshot_object_persist(&self, game_logic: &GameLogic) -> Vec<ObjectPersistTailSnapshot> {
+        let mut ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+        ids.sort();
+        let mut entries = Vec::new();
+        for id in ids {
+            let Some(object) = game_logic.host_object(id) else {
+                continue;
+            };
+            let contained_by_frame = game_logic.contained_by_frame_for_snapshot(id);
+            let original_team = object
+                .building_data
+                .as_ref()
+                .and_then(|building| building.original_team);
+            let has_heal = object.sole_healing_benefactor.is_some()
+                || object.sole_healing_benefactor_expiration_frame != 0;
+            let has_formation = object.formation_id != 0;
+            let has_decal = object.terrain_decal_type != 8 || object.terrain_decal_size != 0.0;
+            let has_opacity = (object.camo_friendly_opacity - 1.0).abs() > f32::EPSILON;
+            if !has_heal
+                && contained_by_frame.is_none()
+                && original_team.is_none()
+                && !has_formation
+                && !has_decal
+                && !has_opacity
+            {
+                continue;
+            }
+            entries.push(ObjectPersistTailSnapshot {
+                object_id: id,
+                sole_healing_benefactor: object.sole_healing_benefactor,
+                sole_healing_benefactor_expiration_frame: object
+                    .sole_healing_benefactor_expiration_frame,
+                contained_by_frame,
+                original_team,
+                formation_id: object.formation_id,
+                formation_offset: [object.formation_offset.x, object.formation_offset.y],
+                stealth_opacity: object.camo_friendly_opacity,
+                terrain_decal_type: object.terrain_decal_type,
+                terrain_decal_size: object.terrain_decal_size,
+            });
+        }
+        entries
+    }
+
+    fn restore_object_persist(
+        &self,
+        snapshot: &WorldSnapshot,
+        game_logic: &mut GameLogic,
+    ) -> SaveLoadResult<()> {
+        if snapshot.version < WORLD_SNAPSHOT_DIRECT_XFER_V14_TAIL_VERSION {
+            return Ok(());
+        }
+
+        let mut seen = HashSet::new();
+        let mut contain_frames = Vec::new();
+        let mut max_formation_id = 0u32;
+        for entry in &snapshot.object_persist {
+            if !seen.insert(entry.object_id) {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "Duplicate object persist snapshot for object {}",
+                    entry.object_id
+                )));
+            }
+            if let Some(frame) = entry.contained_by_frame {
+                contain_frames.push((entry.object_id, frame));
+            }
+            let Some(object) = game_logic.host_object_mut(entry.object_id) else {
+                log::warn!(
+                    "Object persist snapshot references missing object {}",
+                    entry.object_id
+                );
+                continue;
+            };
+            object.sole_healing_benefactor = entry.sole_healing_benefactor;
+            object.sole_healing_benefactor_expiration_frame =
+                entry.sole_healing_benefactor_expiration_frame;
+            object.set_formation(
+                entry.formation_id,
+                glam::Vec2::new(entry.formation_offset[0], entry.formation_offset[1]),
+            );
+            max_formation_id = max_formation_id.max(entry.formation_id);
+            object.camo_friendly_opacity = entry.stealth_opacity;
+            object.terrain_decal_type = entry.terrain_decal_type;
+            object.terrain_decal_size = entry.terrain_decal_size;
+            if let Some(team) = entry.original_team {
+                if object.building_data.is_none() {
+                    object.building_data = Some(
+                        crate::game_logic::buildings::BuildingData::new(
+                            crate::game_logic::buildings::BuildingType::Bunker,
+                        ),
+                    );
+                }
+                if let Some(building) = object.building_data.as_mut() {
+                    building.original_team = Some(team);
+                }
+            }
+        }
+        game_logic.restore_contained_by_frames(&contain_frames);
+        if max_formation_id != 0 {
+            game_logic.set_next_formation_id_for_restore(max_formation_id.saturating_add(1));
+        }
+        Ok(())
+    }
+
+    fn snapshot_client_drawable_visuals(
+        &self,
+        game_logic: &GameLogic,
+    ) -> Vec<ClientDrawableVisualSnapshot> {
+        let mut ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+        ids.sort();
+        let mut entries = Vec::new();
+        for id in ids {
+            let Some(object) = game_logic.host_object(id) else {
+                continue;
+            };
+            let hidden_by_stealth = object.camo_stealth_look == 5;
+            let stealth_opacity = object.camo_friendly_opacity;
+            if !hidden_by_stealth
+                && (stealth_opacity - 1.0).abs() <= f32::EPSILON
+                && object.terrain_decal_type == 8
+            {
+                continue;
+            }
+            entries.push(ClientDrawableVisualSnapshot {
+                object_id: id.0,
+                draw_module_index: 0,
+                hidden: false,
+                hidden_by_stealth,
+                stealth_opacity,
+                effective_opacity: stealth_opacity,
+                loco_pitch: 0.0,
+                loco_roll: 0.0,
+                expiration_date: 0,
+                terrain_decal: object.terrain_decal_type,
+            });
+        }
+        entries
+    }
+
+    fn restore_client_drawable_visuals(
+        &self,
+        snapshot: &WorldSnapshot,
+        game_logic: &mut GameLogic,
+    ) {
+        if snapshot.version < WORLD_SNAPSHOT_DIRECT_XFER_V14_TAIL_VERSION {
+            return;
+        }
+        for entry in &snapshot.client_drawable_visuals {
+            let Some(object) = game_logic.host_object_mut(ObjectId(entry.object_id)) else {
+                continue;
+            };
+            if entry.hidden_by_stealth {
+                object.camo_stealth_look = 5;
+            }
+            object.camo_friendly_opacity = entry.stealth_opacity;
+            object.terrain_decal_type = entry.terrain_decal;
+        }
+    }
+
+    fn restore_cia_vision_builder_sell(
+        &self,
+        snapshot: &WorldSnapshot,
+        game_logic: &mut GameLogic,
+    ) -> SaveLoadResult<()> {
+        if snapshot.version < WORLD_SNAPSHOT_DIRECT_XFER_V13_TAIL_VERSION {
+            return Ok(());
+        }
+
+        let mut seen_vision = HashSet::new();
+        for entry in &snapshot.vision_spied {
+            if !seen_vision.insert(entry.object_id) {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "Duplicate vision-spied snapshot for object {}",
+                    entry.object_id
+                )));
+            }
+            let Some(object) = game_logic.host_object_mut(entry.object_id) else {
+                log::warn!(
+                    "Vision-spied snapshot references missing object {}",
+                    entry.object_id
+                );
+                continue;
+            };
+            object.vision_spied_mask = entry.vision_spied_mask;
+            object.record_host_vision_camo();
+        }
+
+        let mut seen_builder = HashSet::new();
+        for entry in &snapshot.builder_tasks {
+            if !seen_builder.insert(entry.object_id) {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "Duplicate builder-task snapshot for object {}",
+                    entry.object_id
+                )));
+            }
+            let Some(object) = game_logic.host_object_mut(entry.object_id) else {
+                log::warn!(
+                    "Builder-task snapshot references missing object {}",
+                    entry.object_id
+                );
+                continue;
+            };
+            object.builder_id = entry.builder_id;
+            object.dozer_task_build_target = entry.dozer_task_build_target;
+            object.dozer_task_build_order_frame = entry.dozer_task_build_order_frame;
+        }
+
+        game_logic.restore_cia_intelligence(snapshot.cia_intelligence.clone());
+        let sell_entries: Vec<(ObjectId, u32)> = snapshot
+            .sell_list
+            .iter()
+            .map(|entry| (entry.object_id, entry.sell_frame))
+            .collect();
+        game_logic.restore_sell_list_from_snapshot(&sell_entries);
         Ok(())
     }
 

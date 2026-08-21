@@ -194,12 +194,31 @@ impl GameLogic {
         }
 
         for &id in object_ids {
-            let ground_y = {
+            let (ground_y, climber_ahead_y) = {
                 let Some(obj) = self.objects.get(&id) else {
                     continue;
                 };
-                self.terrain_height_at(obj.get_position())
-                    .unwrap_or(obj.ground_height)
+                let pos = obj.get_position();
+                let gy = self.terrain_height_at(pos).unwrap_or(obj.ground_height);
+                let ahead_y = if matches!(obj.loco_appearance, LocomotorAppearance::Climber)
+                {
+                    if let Some(tgt) = obj.movement.target_position {
+                        let dx = tgt.x - pos.x;
+                        let dz = tgt.z - pos.z;
+                        let dlen = (dx * dx + dz * dz).sqrt();
+                        let ahead = if dlen > 0.001 {
+                            Vec3::new(pos.x + dx / dlen, pos.y, pos.z + dz / dlen)
+                        } else {
+                            pos
+                        };
+                        self.terrain_height_at(ahead).unwrap_or(pos.y)
+                    } else {
+                        pos.y
+                    }
+                } else {
+                    pos.y
+                };
+                (gy, ahead_y)
             };
             if let Some(obj) = self.objects.get_mut(&id) {
                 // C++ GameLogic.cpp:3677-3718: UpdateModules (including AI/locomotor
@@ -256,7 +275,8 @@ impl GameLogic {
                         }
                     }
 
-                    // C++ computePointOnPath: lead only when isLinePassable.
+                    // C++ computePointOnPath: always try lead; take it only
+                    // when isLinePassable (AIPathfind.cpp:910-950).
                     let surfaces = if obj.locomotor_surfaces != 0 {
                         obj.locomotor_surfaces
                     } else {
@@ -266,12 +286,14 @@ impl GameLogic {
                     let path_tail = obj.movement.path
                         [obj.movement.current_path_index.saturating_sub(1)..]
                         .to_vec();
-                    let lead = crate::game_logic::PathfindingSystem::compute_point_on_path_ex(
+                    let lead = crate::game_logic::PathfindingSystem::compute_point_on_path_for(
                         current_pos,
                         &path_tail,
                         Some(&self.pathfinding_system.grid),
                         surfaces,
                         is_crusher,
+                        obj.owner_player_id,
+                        obj.crusher_level,
                     );
                     let mut target = lead;
                     // Ground locos keep XZ march; Z-motive keeps lead Y so
@@ -302,6 +324,19 @@ impl GameLogic {
                             let actual = obj.movement.velocity.length();
                             desired_angle += obj.tick_wander_angle_offset(actual);
                         }
+                        // C++ moveTowardsPositionClimb (Locomotor.cpp:1690-1739).
+                        let mut speed = obj.effective_max_speed();
+                        if matches!(obj.loco_appearance, LocomotorAppearance::Climber) {
+                            let backwards = obj.update_climber_flags(
+                                current_pos,
+                                target_pos,
+                                climber_ahead_y,
+                            );
+                            speed *= obj.climber_slope_speed_scale(current_pos.y, climber_ahead_y);
+                            if backwards {
+                                desired_angle += std::f32::consts::PI;
+                            }
+                        }
                         let current_angle = obj.get_orientation();
                         let mut delta = desired_angle - current_angle;
                         while delta > std::f32::consts::PI {
@@ -310,32 +345,65 @@ impl GameLogic {
                         while delta < -std::f32::consts::PI {
                             delta += std::f32::consts::TAU;
                         }
-                        let max_turn = obj.effective_turn_rate() * dt;
-                        let applied = delta.clamp(-max_turn, max_turn);
-                        let new_angle = current_angle + applied;
-                        obj.set_orientation(new_angle);
-
                         let dist = horiz(current_pos, flat_target);
-                        let mut speed = obj.effective_max_speed();
+                        // C++ getIsDownhillOnly: refuse uphill goals (Locomotor.cpp:1596-1598).
+                        if obj.downhill_only_blocks_goal(current_pos.y, target_pos.y) {
+                            obj.movement.velocity = Vec3::ZERO;
+                            obj.record_host_movement();
+                            Self::apply_live_handle_behavior_z(obj, ground_y, None);
+                            continue;
+                        }
                         if !obj.no_slow_down_as_approaching_dest {
-                            let slow = crate::game_logic::calc_slow_down_dist(
+                            speed = obj.apply_cpp_approach_brake(
+                                dist,
                                 obj.movement.velocity.length(),
-                                0.0,
-                                obj.braking.max(1.0e-3),
+                                speed,
+                                self.frame,
                             );
-                            if dist < slow {
-                                obj.is_braking = true;
-                                speed = speed.min(dist / dt.max(1.0e-3));
-                            } else {
-                                obj.is_braking = false;
+                        }
+                        let wheeled = matches!(
+                            obj.loco_appearance,
+                            LocomotorAppearance::WheelsFour | LocomotorAppearance::Motorcycle
+                        );
+                        if wheeled {
+                            // C++ Locomotor.cpp:1316-1323: cap desiredSpeed on turns > PI/20.
+                            let mut turn_speed = obj.min_turn_speed;
+                            if turn_speed < speed / 4.0 {
+                                turn_speed = speed / 4.0;
+                            }
+                            if delta.abs() > std::f32::consts::PI / 20.0 && speed > turn_speed {
+                                speed = turn_speed;
                             }
                         }
-                        let heading = glam::Vec3::new(new_angle.cos(), 0.0, -new_angle.sin());
+                        // C++ Locomotor.cpp:2344-2361 ULTRA_ACCURATE slide-into-place.
+                        let slide_thresh = speed * obj.ultra_accurate_slide_factor;
+                        let sliding = obj.ultra_accurate
+                            && obj.ultra_accurate_slide_factor > 0.0
+                            && (flat_target.x - current_pos.x).abs() <= slide_thresh
+                            && (flat_target.z - current_pos.z).abs() <= slide_thresh;
+                        let new_angle = if sliding {
+                            current_angle
+                        } else {
+                            let mut max_turn = obj.effective_turn_rate() * dt;
+                            if wheeled {
+                                // C++ Locomotor.cpp:1437-1454: stationary trucks cannot yaw.
+                                max_turn *= obj.wheeled_turn_factor();
+                            }
+                            let applied = delta.clamp(-max_turn, max_turn);
+                            current_angle + applied
+                        };
+                        obj.set_orientation(new_angle);
+
+                        let heading = if sliding {
+                            glam::Vec3::new(direction.x, 0.0, direction.z)
+                        } else {
+                            glam::Vec3::new(new_angle.cos(), 0.0, -new_angle.sin())
+                        };
                         let target_velocity = heading * speed;
                         let velocity_diff = target_velocity - obj.movement.velocity;
                         let accel = obj.effective_acceleration();
                         let max_accel = if obj.is_braking {
-                            obj.braking.max(accel) * dt
+                            obj.braking_factor.max(1.0) * obj.braking.max(accel) * dt
                         } else {
                             accel * dt
                         };
@@ -350,7 +418,11 @@ impl GameLogic {
                         obj.movement.velocity = new_velocity;
                         obj.record_host_movement();
 
-                        let new_position = current_pos + new_velocity * dt;
+                        let mut new_position = current_pos + new_velocity * dt;
+                        if obj.is_braking {
+                            // C++ OBJECT_STATUS_BRAKING pose cheat (Locomotor.cpp:1092-1138).
+                            new_position = obj.braking_cheat_step(current_pos, flat_target, dt);
+                        }
                         let reached_target = dist < 2.0;
 
                         obj.set_position(new_position);
@@ -461,7 +533,8 @@ impl GameLogic {
 mod tests {
     use super::*;
     use crate::game_logic::{
-        GameLogic, GridPos, KindOf, Object, ObjectId, PathfindingGrid, Team, ThingTemplate,
+        GameLogic, GridPos, KindOf, LocomotorAppearance, Object, ObjectId, PathfindingGrid, Team,
+        ThingTemplate,
     };
     use glam::Vec3;
 
@@ -923,5 +996,160 @@ mod tests {
             "ground march must keep Y, got {}",
             obj.get_position().y
         );
+    }
+
+    #[test]
+    fn wheeled_truck_does_not_spin_in_place() {
+        // C++ Locomotor.cpp:1437-1454 turnFactor = |speed|/minTurnSpeed.
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let mut logic = GameLogic::new();
+        let id = ObjectId(9401);
+        let mut tmpl = ThingTemplate::new("Humvee");
+        tmpl.add_kind_of(KindOf::Vehicle);
+        let mut truck = Object::new(tmpl, id, Team::USA);
+        truck.set_position(Vec3::ZERO);
+        truck.set_orientation(0.0);
+        truck.loco_appearance = LocomotorAppearance::WheelsFour;
+        truck.min_turn_speed = 15.0;
+        truck.movement.turn_rate = std::f32::consts::PI;
+        truck.movement.max_speed = 40.0;
+        truck.movement.acceleration = 10_000.0;
+        truck.movement.velocity = Vec3::ZERO;
+        truck.movement.target_position = Some(Vec3::new(0.0, 0.0, 80.0));
+        logic.objects.insert(id, truck);
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("truck");
+        assert!(
+            obj.get_orientation().abs() < 1e-4,
+            "stationary wheels must not yaw, got {}",
+            obj.get_orientation()
+        );
+    }
+
+    #[test]
+    fn ultra_accurate_doubles_turn_rate() {
+        // C++ Locomotor.cpp:796-798 getMaxTurnRate * 2.
+        let mut tmpl = ThingTemplate::new("Dozer");
+        tmpl.add_kind_of(KindOf::Dozer);
+        let mut dozer = Object::new(tmpl, ObjectId(9402), Team::USA);
+        dozer.movement.turn_rate = 1.0;
+        assert!((dozer.effective_turn_rate() - 1.0).abs() < 1e-5);
+        dozer.set_ultra_accurate(true);
+        assert!((dozer.effective_turn_rate() - 2.0).abs() < 1e-5);
+        dozer.set_ai_state(AIState::Constructing);
+        assert!(dozer.ultra_accurate);
+    }
+
+    #[test]
+    fn downhill_only_refuses_uphill_goal() {
+        let mut logic = GameLogic::new();
+        let mut tmpl = ThingTemplate::new("Ski");
+        tmpl.add_kind_of(KindOf::Infantry);
+        let mut unit = Object::new(tmpl, ObjectId(9501), Team::USA);
+        unit.set_position(Vec3::new(0.0, 0.0, 0.0));
+        unit.downhill_only = true;
+        unit.movement.max_speed = 30.0;
+        unit.movement.target_position = Some(Vec3::new(20.0, 10.0, 0.0));
+        unit.set_status_moving(true);
+        logic.objects.insert(ObjectId(9501), unit);
+        logic.update_movement_for_test(&[ObjectId(9501)], 1.0 / 30.0);
+        let obj = logic.objects.get(&ObjectId(9501)).expect("ski");
+        assert!(
+            obj.movement.velocity.length() < 1e-3,
+            "downhill-only must not climb, vel={}",
+            obj.movement.velocity
+        );
+        assert!(
+            obj.get_position().x.abs() < 0.1,
+            "downhill-only must stay put, pos={:?}",
+            obj.get_position()
+        );
+    }
+
+    #[test]
+    fn climber_slows_on_steep_slope() {
+        let mut unit = {
+            let mut tmpl = ThingTemplate::new("RedGuardClimber");
+            tmpl.add_kind_of(KindOf::Infantry);
+            Object::new(tmpl, ObjectId(9502), Team::USA)
+        };
+        unit.loco_appearance = LocomotorAppearance::Climber;
+        unit.set_position(Vec3::new(0.0, 20.0, 0.0));
+        let goal = Vec3::new(10.0, 0.0, 0.0);
+        let _ = unit.update_climber_flags(unit.get_position(), goal, 5.0);
+        assert!(unit.is_climbing, " |dz| > cell must set FLAG_CLIMBING");
+        let scale = unit.climber_slope_speed_scale(20.0, 5.0);
+        assert!(
+            scale < 0.05,
+            "slope 15 must divide speed by 60, scale={scale}"
+        );
+    }
+
+    #[test]
+    fn legs_brake_uses_min_speed_not_dest_zero_snap() {
+        let mut unit = {
+            let mut tmpl = ThingTemplate::new("RangerLegs");
+            tmpl.add_kind_of(KindOf::Infantry);
+            Object::new(tmpl, ObjectId(9503), Team::USA)
+        };
+        unit.loco_appearance = LocomotorAppearance::LegsTwo;
+        unit.min_speed = 4.0;
+        unit.braking = 20.0;
+        unit.movement.velocity = Vec3::new(20.0, 0.0, 0.0);
+        let goal = unit.apply_cpp_approach_brake(2.0, 20.0, 20.0, 0);
+        assert!(unit.is_braking);
+        assert!(
+            (goal - 4.0).abs() < 1e-4,
+            "legs must drop to minSpeed not 0, goal={goal}"
+        );
+    }
+
+    #[test]
+    fn treads_use_squared_braking_factor() {
+        let mut tank = {
+            let mut tmpl = ThingTemplate::new("Crusader");
+            tmpl.add_kind_of(KindOf::Vehicle);
+            Object::new(tmpl, ObjectId(9504), Team::USA)
+        };
+        tank.loco_appearance = LocomotorAppearance::Treads;
+        tank.braking = 10.0;
+        tank.movement.velocity = Vec3::new(30.0, 0.0, 0.0);
+        let _ = tank.apply_cpp_approach_brake(5.0, 30.0, 30.0, 0);
+        assert!(tank.is_braking);
+        assert!(
+            tank.braking_factor > 1.0,
+            "treads must square braking_factor, got {}",
+            tank.braking_factor
+        );
+        assert!(tank.braking_factor <= 5.0);
+    }
+
+    #[test]
+    fn wheels_donut_forces_brake_and_wings_never_brake() {
+        let mut truck = {
+            let mut tmpl = ThingTemplate::new("Humvee");
+            tmpl.add_kind_of(KindOf::Vehicle);
+            Object::new(tmpl, ObjectId(9505), Team::USA)
+        };
+        truck.loco_appearance = LocomotorAppearance::WheelsFour;
+        truck.braking = 10.0;
+        truck.donut_timer = 0;
+        let _ = truck.apply_cpp_approach_brake(5.0, 10.0, 20.0, 80);
+        assert!(truck.is_braking, "donut timer expired must force IS_BRAKING");
+        assert!(
+            (truck.braking_factor - 1.0).abs() < 1e-5,
+            "wheels overwrite braking_factor to 1.0"
+        );
+
+        let mut jet = {
+            let mut tmpl = ThingTemplate::new("Raptor");
+            tmpl.add_kind_of(KindOf::Aircraft);
+            Object::new(tmpl, ObjectId(9506), Team::USA)
+        };
+        jet.loco_appearance = LocomotorAppearance::Wings;
+        jet.is_braking = true;
+        let goal = jet.apply_cpp_approach_brake(1.0, 40.0, 40.0, 0);
+        assert!(!jet.is_braking, "wings never brake");
+        assert!((goal - 40.0).abs() < 1e-5);
     }
 }

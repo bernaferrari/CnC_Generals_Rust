@@ -1495,6 +1495,7 @@ impl PresentationFrame {
                 .then(|| ent.special_power_ready_template_name.clone()),
             special_power_ready_template_id: (!ent.special_power_ready_template_name.is_empty())
                 .then_some(ent.special_power_ready_template_id),
+            special_power_override_destination: None,
             health_current: ent.health.max(0.0),
             health_max,
             selected: ent.selected,
@@ -1816,6 +1817,10 @@ impl PresentationFrame {
                 PRESENTATION_DEFAULT_GROUND_HEIGHT
             },
             ground_height_from_terrain: ent.ground_height_from_terrain,
+            drawable_fade_mode: 0,
+            drawable_fade_start_frame: 0,
+            drawable_fade_frames: 0,
+            gaining_subdual: ent.disabled_subdued,
         }
     }
 
@@ -1932,6 +1937,10 @@ impl PresentationFrame {
                 continue;
             };
             let mut dirty = false;
+            if ro.special_power_override_destination != obj.special_power_override_destination {
+                ro.special_power_override_destination = obj.special_power_override_destination;
+                dirty = true;
+            }
             if ro.owner_player_id != obj.owner_player_id {
                 ro.owner_player_id = obj.owner_player_id;
                 dirty = true;
@@ -1959,6 +1968,23 @@ impl PresentationFrame {
             if (ro.friendly_stealth_opacity_max - friendly_stealth_opacity_max).abs() > f32::EPSILON
             {
                 ro.friendly_stealth_opacity_max = friendly_stealth_opacity_max;
+                dirty = true;
+            }
+            if ro.drawable_fade_mode != obj.drawable_fade_mode {
+                ro.drawable_fade_mode = obj.drawable_fade_mode;
+                dirty = true;
+            }
+            if ro.drawable_fade_start_frame != obj.drawable_fade_start_frame {
+                ro.drawable_fade_start_frame = obj.drawable_fade_start_frame;
+                dirty = true;
+            }
+            if ro.drawable_fade_frames != obj.drawable_fade_frames {
+                ro.drawable_fade_frames = obj.drawable_fade_frames;
+                dirty = true;
+            }
+            let gaining_subdual = obj.subdual_damage > 0.0;
+            if ro.gaining_subdual != gaining_subdual {
+                ro.gaining_subdual = gaining_subdual;
                 dirty = true;
             }
             // GameWorld is the object-roster authority in the active frame,

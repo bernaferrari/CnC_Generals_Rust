@@ -167,8 +167,9 @@ impl Object {
     /// C++ AIUpdateInterface::blockedBy residual (simplified geometry).
     ///
     /// Fail-closed vs full pathfind goal cell / path priority matrix.
-    pub fn ai_blocked_by(&self, other: &Object) -> bool {
-        if self.can_crush_only(other, false) {
+    /// `is_ally` is the crusher's `getRelationship == ALLIES` (Object.cpp:1096).
+    pub fn ai_blocked_by(&self, other: &Object, is_ally: bool) -> bool {
+        if self.can_crush_only(other, is_ally) {
             return false;
         }
         let other_ground =
@@ -263,7 +264,7 @@ impl Object {
     ///
     /// Returns true if physics should apply bounce force. Sets is_blocked /
     /// cur_max_blocked_speed when self is moving into other.
-    pub fn ai_process_collision(&mut self, other: &Object, current_frame: u32) -> bool {
+    pub fn ai_process_collision(&mut self, other: &Object, current_frame: u32, is_ally: bool) -> bool {
         if !self.allow_collide_force {
             return false;
         }
@@ -290,7 +291,7 @@ impl Object {
 
         let self_moving = self.movement.velocity.length_squared() > 0.01;
         if self_moving {
-            let blocked = self.ai_blocked_by(other);
+            let blocked = self.ai_blocked_by(other, is_ally);
             if blocked {
                 // Panic infantry bounces residual.
                 if self.is_kind_of(crate::game_logic::KindOf::Infantry) && self.is_panicking {
@@ -368,8 +369,38 @@ impl Object {
         goal: glam::Vec3,
         dt: f32,
     ) -> (PhysicsTurningType, f32) {
-        let max_turn = self.movement.turn_rate * dt;
+        let mut max_turn = self.effective_turn_rate() * dt;
+        if matches!(
+            self.loco_appearance,
+            LocomotorAppearance::WheelsFour | LocomotorAppearance::Motorcycle
+        ) {
+            max_turn *= self.wheeled_turn_factor();
+        }
         self.rotate_obj_around_loco_pivot(goal, max_turn)
+    }
+
+    /// C++ `Locomotor::setUltraAccurate` + `setPhysicsOptions`.
+    pub fn set_ultra_accurate(&mut self, ultra: bool) {
+        if self.ultra_accurate == ultra {
+            return;
+        }
+        self.ultra_accurate = ultra;
+        self.set_locomotor_physics_options();
+        self.record_host_locomotor();
+    }
+
+    /// C++ `moveTowardsPositionWheels` turnFactor = |actualSpeed|/minTurnSpeed.
+    pub fn wheeled_turn_factor(&self) -> f32 {
+        let mut turn_speed = self.min_turn_speed;
+        let max_speed = self.effective_max_speed();
+        if turn_speed < max_speed / 4.0 {
+            turn_speed = max_speed / 4.0;
+        }
+        if turn_speed > 0.0 {
+            (self.movement.velocity.length() / turn_speed).abs().min(1.0)
+        } else {
+            0.0
+        }
     }
 
     /// C++ Locomotor::rotateObjAroundLocoPivot residual.
@@ -835,7 +866,7 @@ impl Object {
             .movement
             .turn_rate_damaged
             .clamp(0.0, pristine.max(0.0));
-        match self.body_damage_state {
+        let turn = match self.body_damage_state {
             HostBodyDamageType::Pristine | HostBodyDamageType::Damaged => pristine,
             HostBodyDamageType::ReallyDamaged | HostBodyDamageType::Rubble => {
                 if damaged > 0.0 {
@@ -844,6 +875,12 @@ impl Object {
                     pristine * 0.5
                 }
             }
+        };
+        // C++ Locomotor.cpp:796-798 ULTRA_ACCURATE monster turning.
+        if self.ultra_accurate {
+            turn * 2.0
+        } else {
+            turn
         }
     }
 

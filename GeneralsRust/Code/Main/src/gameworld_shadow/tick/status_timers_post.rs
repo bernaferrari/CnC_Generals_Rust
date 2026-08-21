@@ -58,12 +58,34 @@ impl GameWorldShadow {
             }
         }
         // Wave 792 pending A10 missile drops (registry sole-tick).
+        // C++ DeliveringState only drops while isCloseEnoughToTarget.
         {
+            use crate::game_logic::special_power_strikes::A10_DELIVERY_DISTANCE;
+            let deliver_sq = A10_DELIVERY_DISTANCE * A10_DELIVERY_DISTANCE;
+            let any_close = self.host_to_entity.values().any(|&eid| {
+                self.world.entity(eid).is_some_and(|e| {
+                    if !e.a10_strike_transport_active {
+                        return false;
+                    }
+                    let dx = e.transform.position.x - e.a10_strike_transport_target_x;
+                    let dz = e.transform.position.z - e.a10_strike_transport_target_z;
+                    dx * dx + dz * dz <= deliver_sq
+                })
+            });
             let mut due = Vec::new();
             let mut keep = Vec::new();
+            let mut emitted = 0u32;
             for p in self.a10_pending_drops.drain(..) {
-                if p.drop_frame <= frame {
+                if any_close && emitted < 2 && p.drop_frame <= frame {
                     due.push(p);
+                    emitted = emitted.saturating_add(1);
+                } else if any_close && p.drop_frame <= frame {
+                    keep.push(
+                        crate::game_logic::host_a10_strike_flight::PendingA10MissileDrop {
+                            drop_frame: frame.saturating_add(15),
+                            ..p
+                        },
+                    );
                 } else {
                     keep.push(p);
                 }

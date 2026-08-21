@@ -1126,6 +1126,50 @@ fn crush_die_queues_sound_on_crushed_death() {
 }
 
 #[test]
+fn crush_die_zero_flags_defaults_to_total() {
+    use crate::game_logic::host_neutron_missile_slow_death::{
+        MC_BIT_BACKCRUSHED, MC_BIT_FRONTCRUSHED,
+    };
+    use crate::game_logic::host_usa_pilot::HostDeathType;
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut t = ThingTemplate::new("AmericaRanger");
+    t.set_health(100.0);
+    t.add_kind_of(KindOf::Infantry);
+    let mut o = Object::new(t, ObjectId(5), Team::USA);
+    o.status.death_type = HostDeathType::Crushed;
+    assert!(!o.front_crushed && !o.back_crushed);
+    o.fire_crush_die();
+    assert!(o.front_crushed && o.back_crushed);
+    assert_ne!(o.model_condition_bits & (1u128 << MC_BIT_FRONTCRUSHED), 0);
+    assert_ne!(o.model_condition_bits & (1u128 << MC_BIT_BACKCRUSHED), 0);
+    let (_, audio) = o.take_pending_death_fx_audio();
+    assert_eq!(audio.as_deref(), Some("InfantryCrush"));
+}
+
+#[test]
+fn crush_die_recomputes_front_from_crusher_pose() {
+    use crate::game_logic::host_neutron_missile_slow_death::{
+        MC_BIT_BACKCRUSHED, MC_BIT_FRONTCRUSHED,
+    };
+    use crate::game_logic::host_usa_pilot::HostDeathType;
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut t = ThingTemplate::new("AmericaRanger");
+    t.set_health(100.0);
+    t.add_kind_of(KindOf::Infantry);
+    let mut o = Object::new(t, ObjectId(6), Team::USA);
+    o.status.death_type = HostDeathType::Crushed;
+    o.set_position(glam::Vec3::new(0.0, 0.0, 0.0));
+    o.set_orientation(0.0);
+    o.thing.template.geometry_info.authored = true;
+    o.thing.template.geometry_info.major_radius = 10.0;
+    o.fire_crush_die_from_crusher(Some((5.0, 0.0)));
+    assert!(o.front_crushed);
+    assert!(!o.back_crushed);
+    assert_ne!(o.model_condition_bits & (1u128 << MC_BIT_FRONTCRUSHED), 0);
+    assert_eq!(o.model_condition_bits & (1u128 << MC_BIT_BACKCRUSHED), 0);
+}
+
+#[test]
 fn instant_death_under_construction_building() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut t = ThingTemplate::new("AmericaParticleUplinkCannon");
@@ -2642,6 +2686,79 @@ fn crush_overlap_collision_kills_infantry() {
     assert!(!tank.can_crush_only(&a, true));
     assert!(!tank.check_for_overlap_collision(&mut a, true));
 }
+
+#[test]
+fn own_tank_is_blocked_by_own_infantry() {
+    // C++ AIUpdate.cpp:1289-1290: canCrushOrSquish is false for ALLIES,
+    // so blockedBy stays true. hq-8y2zz.
+    let mut vt = ThingTemplate::new("OwnCrushTank");
+    vt.add_kind_of(KindOf::Vehicle);
+    let mut tank = Object::new(vt, ObjectId(501), Team::USA);
+    tank.crusher_level = 1;
+    tank.owner_player_id = Some(0);
+    tank.set_orientation(0.0);
+    tank.movement.velocity = glam::Vec3::new(5.0, 0.0, 0.0);
+    tank.set_position(glam::Vec3::new(0.0, 0.0, 0.0));
+    tank.selection_radius = 8.0;
+
+    let mut it = ThingTemplate::new("OwnCrushInf");
+    it.add_kind_of(KindOf::Infantry);
+    let mut inf = Object::new(it, ObjectId(502), Team::USA);
+    inf.crushable_level = 0;
+    inf.owner_player_id = Some(0);
+    inf.set_position(glam::Vec3::new(4.0, 0.0, 0.0));
+    inf.set_orientation(0.0);
+    inf.selection_radius = 5.0;
+
+    assert!(
+        !tank.can_crush_only(&inf, true),
+        "ALLIES must not crush (Object.cpp:1096)"
+    );
+    assert!(
+        tank.ai_blocked_by(&inf, true),
+        "own infantry still blocks the tank"
+    );
+    assert!(
+        !tank.ai_blocked_by(&inf, false),
+        "enemy infantry with lower crushable is crush-through"
+    );
+}
+
+#[test]
+fn crushable_car_uses_front_back_not_instant_squish() {
+    // C++ PhysicsUpdate.cpp:1466-1743 TEST_CRUSH_ONLY: cars use crush points,
+    // not SquishCollide HUGE. hq-y3ueg.
+    let mut vt = ThingTemplate::new("CarCrushTank");
+    vt.add_kind_of(KindOf::Vehicle);
+    let mut tank = Object::new(vt, ObjectId(511), Team::USA);
+    tank.crusher_level = 2;
+    tank.set_orientation(0.0);
+    tank.movement.velocity = glam::Vec3::new(5.0, 0.0, 0.0);
+    tank.set_position(glam::Vec3::new(0.0, 0.0, 0.0));
+    tank.selection_radius = 8.0;
+
+    let mut ct = ThingTemplate::new("CivilianCar");
+    ct.add_kind_of(KindOf::Vehicle);
+    let mut car = Object::new(ct, ObjectId(512), Team::Neutral);
+    car.crushable_level = 1;
+    car.crusher_level = 0;
+    car.selection_radius = 10.0;
+    car.set_orientation(0.0);
+    car.set_position(glam::Vec3::new(10.0, 0.0, 0.0));
+    car.health.current = 200.0;
+    car.health.maximum = 200.0;
+
+    assert!(tank.can_crush_only(&car, false));
+    assert!(tank.check_for_overlap_collision(&mut car, false));
+    assert!(
+        car.is_alive() && car.health.current > 0.0,
+        "first overlap is 0-damage; car must not instant-squish"
+    );
+    assert!(
+        !(car.front_crushed && car.back_crushed),
+        "cars use front/back crush points, not both flags at first contact"
+    );
+}
 #[test]
 fn scrub_velocity_and_structure_stiffness_bounce() {
     use crate::game_logic::host_partition_collision_physics_residual::{
@@ -3256,6 +3373,12 @@ fn jet_stop_idle_timer_sneaky_and_lockon() {
     raptor.jet_ai.allow_interrupt_for_reload = false;
     raptor.jet_ai.has_pending_command = false;
     assert!(!raptor.jet_empty_clip_should_auto_rtb());
+    raptor.begin_guard_retaliate(ObjectId(9), Some(Vec3::ZERO), None);
+    assert!(
+        raptor.jet_ai.allow_interrupt_for_reload,
+        "C++ GUARD_RETALIATE sets ALLOW_INTERRUPT_AND_RESUME_OF_CUR_STATE_FOR_RELOAD"
+    );
+    assert_eq!(raptor.tick_jet_ai_update(4), JetAiTickAction::ReturnToBase);
 }
 
 #[test]

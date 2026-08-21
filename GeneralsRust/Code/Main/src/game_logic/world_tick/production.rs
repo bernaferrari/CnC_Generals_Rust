@@ -1263,13 +1263,20 @@ impl GameLogic {
             // batch also plays per-unit VoiceCreate (before oneProductionSuccessful).
             if voice_create_played.insert(producer_id) {
                 if let Some(unit) = self.objects.get(&new_id) {
-                    let pos = unit.get_position();
-                    self.queue_audio_event(
-                        crate::game_logic::game_logic::AudioEventRequest::new("VoiceCreate")
-                            .with_object(new_id)
-                            .with_position(pos)
-                            .with_priority(141),
-                    );
+                    if let Some(event) =
+                        crate::game_logic::audio_dispatch_impl::resolve_unit_voice_event(
+                            &unit.template_name,
+                            crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Create,
+                        )
+                    {
+                        let pos = unit.get_position();
+                        self.queue_audio_event(
+                            crate::game_logic::game_logic::AudioEventRequest::new(&event)
+                                .with_object(new_id)
+                                .with_position(pos)
+                                .with_priority(141),
+                        );
+                    }
                 }
             }
             // C++ ProductionUpdate door + CONSTRUCTION_COMPLETE residual on producer.

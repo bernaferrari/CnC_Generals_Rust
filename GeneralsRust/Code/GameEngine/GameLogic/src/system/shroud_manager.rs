@@ -40,14 +40,14 @@
 //! - `Vision.cpp` / `Vision.h` - C++ fog-of-war system
 //! - `ShroudUpdate()` - Per-frame visibility update function
 
-use crate::common::{Coord3D, KindOf, ObjectID};
+use crate::common::{Coord3D, KindOf, ObjectID, ObjectShroudStatus};
 use crate::object_manager::get_object_manager;
 use crate::player::PLAYER_INDEX_INVALID;
 use crate::weapon::WeaponStore;
 use game_engine::common::system::radar::{get_radar_system, CellShroudStatus};
 use log::{debug, trace};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 /// Maximum number of players in game
@@ -1190,6 +1190,10 @@ pub struct ShroudManager {
 
     /// Explored objects for each player (persistent - once seen, always remembered)
     player_explored_objects: Vec<HashSet<ObjectID>>,
+    /// C++ `PartitionData::m_shroudedness` for host objects (COI mix).
+    host_object_shroud: Vec<HashMap<ObjectID, ObjectShroudStatus>>,
+    /// C++ `PartitionData::m_everSeenByPlayer` for host objects.
+    host_object_ever_seen: Vec<HashSet<ObjectID>>,
 
     /// Grid-based shroud for spatial queries
     shroud_grid: Option<ShroudGrid>,
@@ -1420,10 +1424,14 @@ impl ShroudManager {
         // Pre-allocate visible object sets for all players
         let player_visible_objects = vec![HashSet::new(); MAX_PLAYER_COUNT];
         let player_explored_objects = vec![HashSet::new(); MAX_PLAYER_COUNT];
+        let host_object_shroud = vec![HashMap::new(); MAX_PLAYER_COUNT];
+        let host_object_ever_seen = vec![HashSet::new(); MAX_PLAYER_COUNT];
 
         ShroudManager {
             player_visible_objects,
             player_explored_objects,
+            host_object_shroud,
+            host_object_ever_seen,
             shroud_grid: None,
             last_update_frame: 0,
             has_updated_once: false,
@@ -1880,6 +1888,12 @@ impl ShroudManager {
         for explored_set in &mut self.player_explored_objects {
             explored_set.clear();
         }
+        for status in &mut self.host_object_shroud {
+            status.clear();
+        }
+        for seen in &mut self.host_object_ever_seen {
+            seen.clear();
+        }
         self.pending_undo_shroud_reveals.clear();
         self.last_update_frame = 0;
         self.last_vision_recalc_frame = 0;
@@ -2117,6 +2131,33 @@ impl ShroudManager {
         self.has_updated_once = true;
     }
 
+    /// C++ `PartitionManager::refreshShroudForLocalPlayer` for a host player id.
+    /// Leftover `player_list` is often empty on the Main host path.
+    pub fn refresh_radar_shroud_for_player(&mut self, player_id: u32) {
+        if (player_id as usize) >= MAX_PLAYER_COUNT {
+            return;
+        }
+        if let Some(grid) = self.shroud_grid.as_ref() {
+            if let Ok(mut radar) = get_radar_system().write() {
+                radar.clear_shroud();
+                for y in 0..grid.height {
+                    for x in 0..grid.width {
+                        let status = match grid.get_cell_state(player_id as usize, x, y) {
+                            ShroudState::Visible => CellShroudStatus::Clear,
+                            ShroudState::Explored => CellShroudStatus::Fogged,
+                            ShroudState::Hidden => CellShroudStatus::Shrouded,
+                        };
+                        radar.set_shroud_level(x as i32, y as i32, status);
+                    }
+                }
+            }
+        }
+        let frame = crate::helpers::TheGameLogic::get_frame();
+        self.last_update_frame = frame;
+        self.last_vision_recalc_frame = frame;
+        self.has_updated_once = true;
+    }
+
     /// Get all explored objects for a player
     ///
     /// # Arguments
@@ -2157,6 +2198,58 @@ impl ShroudManager {
         self.player_explored_objects[idx].insert(object_id);
     }
 
+    /// Fogged ghost: explored but not currently visible.
+    pub fn mark_host_object_explored(&mut self, player_id: u32, object_id: ObjectID) {
+        if player_id as usize >= MAX_PLAYER_COUNT {
+            return;
+        }
+        self.player_explored_objects[player_id as usize].insert(object_id);
+    }
+
+    pub fn set_host_object_shroud_status(
+        &mut self,
+        player_id: u32,
+        object_id: ObjectID,
+        status: ObjectShroudStatus,
+    ) {
+        if player_id as usize >= MAX_PLAYER_COUNT {
+            return;
+        }
+        self.host_object_shroud[player_id as usize].insert(object_id, status);
+    }
+
+    pub fn get_host_object_shroud_status(
+        &self,
+        player_id: u32,
+        object_id: ObjectID,
+    ) -> Option<ObjectShroudStatus> {
+        if player_id as usize >= MAX_PLAYER_COUNT {
+            return None;
+        }
+        self.host_object_shroud[player_id as usize]
+            .get(&object_id)
+            .copied()
+    }
+
+    pub fn host_object_ever_seen(&self, player_id: u32, object_id: ObjectID) -> bool {
+        if player_id as usize >= MAX_PLAYER_COUNT {
+            return false;
+        }
+        self.host_object_ever_seen[player_id as usize].contains(&object_id)
+    }
+
+    pub fn set_host_object_ever_seen(&mut self, player_id: u32, object_id: ObjectID, seen: bool) {
+        if player_id as usize >= MAX_PLAYER_COUNT {
+            return;
+        }
+        let slot = &mut self.host_object_ever_seen[player_id as usize];
+        if seen {
+            slot.insert(object_id);
+        } else {
+            slot.remove(&object_id);
+        }
+    }
+
     /// Host residual: clear per-player object membership before a full host vision pass.
     /// Does not touch terrain looker counters / shroud grid cells.
     pub fn clear_host_object_visibility(&mut self, player_id: u32) {
@@ -2165,7 +2258,8 @@ impl ShroudManager {
         }
         let idx = player_id as usize;
         self.player_visible_objects[idx].clear();
-        // Explored persists across frames (C++ explored territory).
+        self.host_object_shroud[idx].clear();
+        // Explored / ever-seen persist across frames (C++ explored territory).
     }
 
     pub fn set_vision_recalc_interval(&mut self, interval: u32) {
