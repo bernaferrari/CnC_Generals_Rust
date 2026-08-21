@@ -5643,29 +5643,16 @@ impl GameLogic {
                         continue;
                     }
                     // Deposit resources when close to a supply center.
-                    let (refinery_id, refinery_pos) = self
-                        .preferred_or_allied_supply_center(
-                            object_id,
-                            team,
-                            owner_player_id,
-                            position,
-                        )
-                        .and_then(|rid| {
-                            self.objects
-                                .get(&rid)
-                                .map(|r| (Some(rid), r.get_position()))
-                        })
-                        .unwrap_or((None, position));
+                    let refinery_id = self.preferred_or_allied_supply_center(
+                        object_id,
+                        team,
+                        owner_player_id,
+                        position,
+                    );
 
-
-                    let at_refinery =
-                        refinery_id.is_some() && position.distance(refinery_pos) <= INTERACT_RANGE;
-
-                    if at_refinery {
-                        if let Some(rid) = refinery_id {
-                            if !self.try_claim_dock(rid, object_id) {
-                                continue;
-                            }
+                    if let Some(rid) = refinery_id {
+                        if !self.try_claim_dock(rid, object_id) {
+                            continue;
                         }
 
                         let collector_metadata = self
