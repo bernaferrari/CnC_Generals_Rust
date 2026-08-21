@@ -1160,6 +1160,41 @@ mod tests {
     }
 
     #[test]
+    fn promote_active_never_assigns_when_crippled() {
+        let mut q = HostDockApproachQueue::new(5);
+        let docker = ObjectId(11);
+        assert_eq!(q.reserve_approach_position(docker), Some(0));
+        q.on_approach_reached(docker);
+        assert_eq!(q.promote_active(None, false, false), Some(docker));
+        assert_eq!(q.promote_active(None, false, true), None);
+    }
+
+    #[test]
+    fn crippled_warehouse_never_clears_to_act() {
+        reset_live_dock_queues();
+        let dock = ObjectId(21);
+        let a = ObjectId(22);
+        let bone = Vec3::new(10.0, 0.0, 0.0);
+        let tick = tick_live_dock_approach_ex(
+            dock,
+            a,
+            5,
+            true,
+            None,
+            false,
+            bone,
+            Vec3::ZERO,
+            20.0,
+            &[bone],
+            0,
+            true,
+            |_| true,
+        );
+        assert_eq!(tick, DockApproachTick::Blocked);
+        reset_live_dock_queues();
+    }
+
+    #[test]
     fn evict_dead_clears_ghost_reservation() {
         reset_live_dock_queues();
         let mut q = HostDockApproachQueue::new(5);
