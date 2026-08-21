@@ -553,6 +553,24 @@ fn context_mouse_cursor_residual() {
             && src.contains("create_mouseover_hint"),
         "InGame mouse move must apply context cursor residual and InGameUI mouseover hints"
     );
+    let start = src
+        .find("fn sync_context_mouse_cursor")
+        .expect("sync_context_mouse_cursor");
+    let end = src[start + 1..]
+        .find("\n    fn ")
+        .map(|i| start + 1 + i)
+        .unwrap_or(start + 400);
+    let body = &src[start..end];
+    let hint_at = body
+        .find("self.sync_ingame_mouseover_hint()")
+        .expect("SelectionXlat hover must call createMouseoverHint");
+    let skip_at = body
+        .find("last_context_cursor")
+        .expect("unchanged-cursor skip");
+    assert!(
+        hint_at < skip_at,
+        "C++ SelectionXlat posts MSG_MOUSEOVER_* even when the cursor icon is unchanged"
+    );
     assert!(
         src.contains("\"AttackObj\"")
             && src.contains("\"Build\"")
