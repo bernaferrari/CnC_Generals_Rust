@@ -492,6 +492,12 @@ impl AudioManagerSubsystem {
         // Apply high-level toggles/events that don't require archive lookups yet.
         // Wave 528: presentation FireSound loop stop is stop-only (no replay).
         for event in self.drain_events() {
+            if event.stop {
+                if let Some(id) = event.object_id {
+                    self.looping_object_audio.remove(&id.0);
+                }
+                continue;
+            }
             match event.event_type.as_str() {
                 "MusicDisable" => {
                     self._music_on = false;
@@ -505,10 +511,10 @@ impl AudioManagerSubsystem {
                         audio_manager.resume_audio(crate::assets::AudioAffect::Music);
                     }
                 }
-                "WeaponFireLoopStop" => {
+                "WeaponFireLoopStop" | "AfterburnerStop" => {
                     if let Some(id) = event.object_id {
                         self.looping_object_audio.remove(&id.0);
-                        log::trace!("presentation FireSound loop stop residual object={}", id.0);
+                        log::trace!("presentation loop stop residual object={}", id.0);
                     }
                 }
                 _ => {

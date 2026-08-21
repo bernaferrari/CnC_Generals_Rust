@@ -247,6 +247,8 @@ impl CnCGameEngine {
         // C++ GlobalData preference at creation, then accept later Options
         // changes only through its typed host bridge.
         let use_alternate_mouse = game_engine::common::global_data::read().use_alternate_mouse;
+        let (draw_rmb_scroll_anchor, move_rmb_scroll_anchor) =
+            game_engine::common::user_preferences::load_rmb_scroll_anchor_preferences();
 
         // C++ GameEngine::init updates MapCache before shell-map startup checks.
         game_client::map_util::refresh_map_cache();
@@ -512,8 +514,8 @@ impl CnCGameEngine {
             is_windowed: window.fullscreen().is_none(),
             rmb_scroll_anchor: None,
             is_rmb_scrolling: false,
-            move_rmb_scroll_anchor: false,
-            draw_rmb_scroll_anchor: false,
+            move_rmb_scroll_anchor,
+            draw_rmb_scroll_anchor,
             rmb_scroll_started_physically: false,
             rmb_deselect_down_at: None,
             rmb_deselect_down_screen: None,

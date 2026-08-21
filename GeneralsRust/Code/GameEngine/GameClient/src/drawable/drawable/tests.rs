@@ -1768,7 +1768,7 @@ fn projectile_launch_offset_forwards_pitch_pointer_to_draw_module() {
 }
 
 #[test]
-fn draw_bombed_requires_car_bomb_status_for_car_bomb_icon() {
+fn draw_bombed_carbomb_icon_requires_local_player_not_status() {
     use gamelogic::common::{ObjectStatusMaskType, ObjectStatusTypes};
     use gamelogic::object::Object;
     use gamelogic::weapon::WeaponSetType;
@@ -1780,6 +1780,10 @@ fn draw_bombed_requires_car_bomb_status_for_car_bomb_icon() {
         .write()
         .unwrap()
         .set_weapon_set_flag(WeaponSetType::CarBomb);
+    object.write().unwrap().set_status(
+        ObjectStatusMaskType::from_status(ObjectStatusTypes::IsCarBomb),
+        true,
+    );
     OBJECT_REGISTRY.register_object(object_id, &object);
 
     let mut drawable = BasicDrawable::new(DrawableId(2));
@@ -1789,18 +1793,10 @@ fn draw_bombed_requires_car_bomb_status_for_car_bomb_icon() {
 
     drawable.draw_bombed(&IRegion2D::default());
 
+    // C++ also requires controllingPlayer == localPlayer. new_test objects
+    // are not locally controlled, so the icon must stay off (no intel leak).
     assert!(!drawable.overlay_data.show_bombed);
     assert_eq!(drawable.overlay_data.bomb_type, 0);
-
-    object.write().unwrap().set_status(
-        ObjectStatusMaskType::from_status(ObjectStatusTypes::IsCarBomb),
-        true,
-    );
-
-    drawable.draw_bombed(&IRegion2D::default());
-
-    assert!(drawable.overlay_data.show_bombed);
-    assert_eq!(drawable.overlay_data.bomb_type, 3);
 
     OBJECT_REGISTRY.unregister_object(object_id);
 }

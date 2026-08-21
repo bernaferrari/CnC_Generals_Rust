@@ -541,3 +541,29 @@ fn fxlist_ray_effect_nugget_creates_midpoint_template_entry() {
     );
     reset_ray_effects();
 }
+
+#[test]
+fn fxlist_ray_effect_expires_after_max_intensity_plus_fade() {
+    use game_client_rust::effects::ray_effect_system::{
+        create_ray_effect_by_template, live_ray_effects, reset_ray_effects, update_ray_effects,
+    };
+
+    reset_ray_effects();
+    update_ray_effects(10);
+    let ray = create_ray_effect_by_template([0.0, 0.0, 0.0], [10.0, 0.0, 0.0], "GenericLaser")
+        .expect("template present");
+    assert_eq!(live_ray_effects().len(), 1);
+    assert!((ray.width_scalar - 1.0).abs() < 1e-5);
+    assert!(ray.expire_frame > ray.created_frame);
+
+    update_ray_effects(ray.fade_start_frame);
+    assert_eq!(live_ray_effects().len(), 1);
+
+    update_ray_effects(ray.expire_frame);
+    assert!(
+        live_ray_effects().is_empty(),
+        "FXList RayEffect must expire after MaxIntensityLifetime+FadeLifetime"
+    );
+    reset_ray_effects();
+}
+

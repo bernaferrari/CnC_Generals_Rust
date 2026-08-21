@@ -2308,10 +2308,10 @@ fn eva_beacon_detected_for_ally_placer_only() {
         events.iter().any(|e| *e == EvaEvent::BeaconDetected),
         "{events:?}"
     );
-    // Self place → no EVA
+    // Self place → EVA (C++ PlayerList self-relationship is ALLIES)
     let before = logic.eva_beacon_detected;
     logic.try_eva_beacon_detected(0);
-    assert_eq!(logic.eva_beacon_detected, before);
+    assert!(logic.eva_beacon_detected > before);
     // Enemy place → no EVA
     logic.try_eva_beacon_detected(2);
     assert_eq!(logic.eva_beacon_detected, before);
@@ -3906,7 +3906,7 @@ fn car_bomb_convert_endows_vision_and_veterancy() {
             damage: 5.0,
             range: 20.0,
             ..Default::default()
-        });
+});
         o
     });
     let donor = logic.objects.get(&tid).cloned();
@@ -4347,7 +4347,7 @@ fn salvage_crate_only_salvager_picks_up() {
             damage: 10.0,
             range: 50.0,
             ..Default::default()
-        });
+});
         o
     });
 
@@ -4443,7 +4443,7 @@ fn execute_salvage_weapon_then_money() {
         o.weapon = Some(Weapon {
             damage: 20.0,
             ..Default::default()
-        });
+});
         o
     });
     let (kind, money) = logic.execute_salvage_crate_behavior(id, 40, 1);
@@ -4667,7 +4667,7 @@ fn guard_retaliate_returns_to_guard_not_idle() {
     o.weapon = Some(Weapon {
         range: 40.0,
         ..Default::default()
-    });
+});
     o.guard_position = Some(glam::Vec3::ZERO);
     o.set_ai_state(AIState::GuardingArea);
     logic.objects.insert(id, o);
@@ -4720,7 +4720,7 @@ fn guarding_interrupts_to_last_attacker() {
     g.weapon = Some(Weapon {
         range: 150.0,
         ..Default::default()
-    });
+});
     g.set_ai_state(AIState::GuardingArea);
     logic.objects.insert(gid, g);
 
@@ -4733,7 +4733,7 @@ fn guarding_interrupts_to_last_attacker() {
     e.weapon = Some(Weapon {
         range: 300.0,
         ..Default::default()
-    });
+});
     logic.objects.insert(eid, e);
 
     logic.objects.get_mut(&gid).unwrap().last_damage_source = Some(eid);
@@ -4789,7 +4789,7 @@ fn enter_guard_does_not_shoot_enemies() {
     h.weapon = Some(Weapon {
         range: 80.0,
         ..Default::default()
-    });
+});
     h.set_ai_state(AIState::GuardingArea);
     logic.objects.insert(hid, h);
 
@@ -4830,7 +4830,7 @@ fn hijack_guard_boards_enemy_vehicle() {
     h.weapon = Some(Weapon {
         range: 20.0,
         ..Default::default()
-    });
+});
     h.set_ai_state(AIState::GuardingArea);
     logic.objects.insert(hid, h);
 
@@ -4871,7 +4871,7 @@ fn sleep_guard_range_is_zero_not_hardcoded_80() {
     g.weapon = Some(Weapon {
         range: 80.0,
         ..Default::default()
-    });
+});
     g.set_ai_state(AIState::GuardingArea);
     logic.objects.insert(gid, g);
 
@@ -4964,7 +4964,7 @@ fn begin_guard_retaliate_sets_state_and_anchor() {
     o.weapon = Some(Weapon {
         range: 50.0,
         ..Default::default()
-    });
+});
     logic.objects.insert(id, o);
     let victim = ObjectId(4502);
     logic.objects.get_mut(&id).unwrap().begin_guard_retaliate(
@@ -4991,7 +4991,7 @@ fn guard_retaliate_ends_when_victim_dead() {
     o.weapon = Some(Weapon {
         range: 40.0,
         ..Default::default()
-    });
+});
     logic.objects.insert(id, o);
     let vid = ObjectId(4511);
     let mut et = ThingTemplate::new("EV");
@@ -5058,7 +5058,7 @@ fn friends_retaliate_against_nearby_aggressor() {
         range: 100.0,
         damage: 10.0,
         ..Default::default()
-    });
+});
     logic.objects.insert(fid, friend);
 
     // Enemy damager within max retaliate distance
@@ -5108,7 +5108,7 @@ fn friends_retaliate_skipped_when_mode_off() {
         o.weapon = Some(Weapon {
             range: 80.0,
             ..Default::default()
-        });
+});
         o
     });
     let mut et = ThingTemplate::new("En2");

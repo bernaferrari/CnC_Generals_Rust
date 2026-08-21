@@ -353,7 +353,7 @@ impl PresentationFrame {
                             .iter()
                             .any(|k| matches!(k, KindOf::Mine | KindOf::DemoTrap));
                     let stealth = if is_mine {
-                        object.friendly_stealth_opacity.clamp(0.0, 1.0)
+                        object.camo_friendly_opacity.clamp(0.0, 1.0)
                     } else {
                         crate::game_logic::friendly_stealth_pulse_opacity(
                             object.friendly_stealth_opacity,
@@ -506,7 +506,102 @@ impl PresentationFrame {
             ordinary_input_ids.insert(input.id);
             inputs.push(input);
         }
+        self.append_rally_point_marker_inputs(&mut inputs);
         inputs
+    }
+
+    /// C++ ControlBar::showRallyPoint — 3D RallyPointMarker, not a yellow line.
+    fn append_rally_point_marker_inputs(&self, inputs: &mut Vec<UnitRenderInput>) {
+        let mut leftover_any = false;
+        #[cfg(feature = "game_client")]
+        {
+            for (draw_id, state) in
+                gamelogic::helpers::TheGameClient.leftover_drawables_named("RallyPointMarker")
+            {
+                leftover_any = true;
+                let Some(base) = self
+                    .objects
+                    .iter()
+                    .find(|o| o.selected && o.rally_point.is_some())
+                    .or_else(|| self.objects.iter().find(|o| o.rally_point.is_some()))
+                else {
+                    continue;
+                };
+                let mut marker = base.clone();
+                marker.id = crate::game_logic::ObjectId(0xC000_0000 | draw_id);
+                marker.template_name = "RallyPointMarker".to_string();
+                marker.position = glam::Vec3::new(state.position.x, state.position.y, state.position.z);
+                marker.orientation = state.orientation;
+                marker.team_color = [
+                    state.indicator_color.r as f32 / 255.0,
+                    state.indicator_color.g as f32 / 255.0,
+                    state.indicator_color.b as f32 / 255.0,
+                    1.0,
+                ];
+                marker.selected = false;
+                marker.rally_point = None;
+                marker.destroyed = false;
+                marker.contained_by = None;
+                let mut input = UnitRenderInput::from_renderable_with_environment(
+                    &marker,
+                    self.world_env.is_snow,
+                    self.world_env.is_night,
+                    self.frame.0,
+                );
+                input.draw_models =
+                    crate::assets::resolve_presentation_draw_models_for_conditions(
+                        "RallyPointMarker",
+                        &[],
+                        input.model_condition_bits_with_combat_flags(),
+                    );
+                input.model_key = input
+                    .draw_models
+                    .first()
+                    .map(|model| model.model_key.clone())
+                    .unwrap_or_default();
+                inputs.push(input);
+            }
+        }
+        if leftover_any {
+            return;
+        }
+        for object in &self.objects {
+            if object.destroyed || !object.selected {
+                continue;
+            }
+            let Some(rp) = object.rally_point else {
+                continue;
+            };
+            if !object.is_structure
+                && !Self::object_has_kind(object, crate::game_logic::KindOf::AutoRallypoint)
+            {
+                continue;
+            }
+            let mut marker = object.clone();
+            marker.id = crate::game_logic::ObjectId(0xC000_0000 | object.id.0);
+            marker.template_name = "RallyPointMarker".to_string();
+            marker.position = rp;
+            marker.selected = false;
+            marker.rally_point = None;
+            marker.contained_by = None;
+            let mut input = UnitRenderInput::from_renderable_with_environment(
+                &marker,
+                self.world_env.is_snow,
+                self.world_env.is_night,
+                self.frame.0,
+            );
+            input.draw_models = crate::assets::resolve_presentation_draw_models_for_conditions(
+                "RallyPointMarker",
+                &[],
+                input.model_condition_bits_with_combat_flags(),
+            );
+            input.model_key = input
+                .draw_models
+                .first()
+                .map(|model| model.model_key.clone())
+                .unwrap_or_default();
+            inputs.push(input);
+        }
     }
 
     /// C++ `OverlordContain::friend_getRider` is the first contained portable

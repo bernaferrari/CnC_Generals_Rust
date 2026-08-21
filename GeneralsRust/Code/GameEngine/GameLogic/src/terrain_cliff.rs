@@ -138,6 +138,15 @@ fn sample(map_data: &[u8], map_dx: i32, x: i32, y: i32) -> f32 {
     map_data[idx] as f32 * MAP_HEIGHT_SCALE
 }
 
+/// C++ `WorldHeightMap::setCellCliffFlagFromHeights` four-corner test.
+/// Heights are raw samples; compared as `raw * MAP_HEIGHT_SCALE` vs 9.8 world Z.
+#[inline]
+pub fn is_cliff_from_raw_heights(h0: u8, h1: u8, h2: u8, h3: u8) -> bool {
+    let min_z = (h0.min(h1).min(h2).min(h3) as f32) * MAP_HEIGHT_SCALE;
+    let max_z = (h0.max(h1).max(h2).max(h3) as f32) * MAP_HEIGHT_SCALE;
+    max_z - min_z > PATHFIND_CLIFF_SLOPE_LIMIT_F
+}
+
 /// C++ `BaseHeightMapRenderObjClass::isCliffCell` (lines 1224-1246).
 pub fn is_cliff_cell(
     x: f32,
@@ -185,6 +194,14 @@ mod tests {
         data[1] = 16;
         let bits = CliffBitfield::from_heights(&data, 2, 2);
         assert!(bits.get_cliff_state(0, 0));
+    }
+
+    #[test]
+    fn is_cliff_from_raw_heights_uses_world_z_9_8() {
+        // C++ PATHFIND_CLIFF_SLOPE_LIMIT_F is 9.8 world Z, not 9.8 raw samples.
+        assert!(!is_cliff_from_raw_heights(0, 10, 0, 10)); // 6.25 world
+        assert!(!is_cliff_from_raw_heights(0, 15, 0, 15)); // 9.375 world
+        assert!(is_cliff_from_raw_heights(0, 16, 0, 16)); // 10.0 world
     }
 
     #[test]

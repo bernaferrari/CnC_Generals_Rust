@@ -710,10 +710,23 @@ impl Object {
     }
 
     pub fn presentation_shadows_enabled(&self) -> bool {
-        self.topple_data
+        let topple = self
+            .topple_data
             .as_ref()
             .map(|t| t.shadows_enabled)
-            .unwrap_or(true)
+            .unwrap_or(true);
+        if !topple {
+            return false;
+        }
+        // C++ Drawable::draw: setShadowsEnabled(look != STEALTHLOOK_VISIBLE_DETECTED)
+        // only while the bound object is not effectively dead.
+        if self.is_alive()
+            && crate::game_logic::host_upgrades::HostCamoStealthLook::from_u8(self.camo_stealth_look)
+                == crate::game_logic::host_upgrades::HostCamoStealthLook::VisibleDetected
+        {
+            return false;
+        }
+        true
     }
 
     /// C++ Object::topple residual.

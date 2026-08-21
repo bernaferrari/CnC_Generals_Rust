@@ -2024,7 +2024,7 @@ mod tests {
                 range: 100.0,
                 last_fire_time: -5.0,
                 ..Weapon::default()
-            });
+});
             o.health.current = 20.0;
             o.health.maximum = 20.0;
             o.max_health = 20.0;
@@ -2079,7 +2079,7 @@ mod tests {
                 range: 150.0,
                 last_fire_time: -5.0,
                 ..Weapon::default()
-            });
+});
         }
         logic.frame = 0;
         logic.update_ecm_jam_field();

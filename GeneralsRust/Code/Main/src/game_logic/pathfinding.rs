@@ -1436,7 +1436,14 @@ impl PathfindingGrid {
                 for dx in -radius_cells..=radius_cells {
                     let p = GridPos::new(grid_pos.x + dx, grid_pos.y + dy);
                     if self.is_valid_pos(p) {
-                        self.mark_occupancy(p, player, moving, infantry, false, obj.crushable_level);
+                        // C++ canCrushOrSquish TEST_CRUSH_OR_SQUISH: module
+                        // presence is crush-through even at CrushableLevel 255.
+                        let crushable = if obj.has_squish_collide {
+                            0
+                        } else {
+                            obj.crushable_level
+                        };
+                        self.mark_occupancy(p, player, moving, infantry, false, crushable);
                     }
                 }
             }

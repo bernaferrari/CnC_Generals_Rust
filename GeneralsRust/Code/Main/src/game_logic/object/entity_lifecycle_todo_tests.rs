@@ -35,7 +35,7 @@ fn main_only_todo_groups_round_trip_when_present() {
     src.weapon = Some(Weapon {
         damage: 33.0,
         ..Weapon::default()
-    });
+});
     src.active_weapon_slot = 1;
     src.turret_enabled = true;
     src.turret_substate = TurretSubState::Aim;

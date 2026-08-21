@@ -133,6 +133,10 @@ impl GameLogic {
 
         let mut minimap_beacons = Vec::new();
         for beacon in snapshot_beacons() {
+            let pos = glam::Vec3::new(beacon.position.x, beacon.position.y, beacon.position.z);
+            if crate::command_executor::host_beacon_position_is_hidden(self, pos) {
+                continue;
+            }
             let normalized_x = ((beacon.position.x - world_min.x) / world_span_x).clamp(0.0, 1.0);
             let normalized_y = ((beacon.position.z - world_min.z) / world_span_z).clamp(0.0, 1.0);
             minimap_beacons.push(MinimapDot::normalized(
@@ -172,7 +176,10 @@ impl GameLogic {
         ui_state.performance_score = 1.0;
         ui_state.minimap_unit_dots = minimap_unit_dots;
         ui_state.minimap_beacons = minimap_beacons.clone();
-        ui_state.new_beacons = std::mem::take(&mut self.recent_beacons);
+        ui_state.new_beacons = std::mem::take(&mut self.recent_beacons)
+            .into_iter()
+            .filter(|p| !crate::command_executor::host_beacon_position_is_hidden(self, *p))
+            .collect();
         ui_state.minimap_viewport = crate::ui::default_minimap_viewport();
         ui_state.minimap_texture_id = None;
         ui_state.minimap_coordinates = Some(crate::graphics::MinimapCoordinates {
@@ -1290,6 +1297,116 @@ impl GameLogic {
         count
     }
 
+    /// C++ `ThingTemplate::getMaxSimultaneousOfType` with live SW restriction.
+    pub fn template_max_simultaneous_of_type(&self, template: &ThingTemplate) -> u32 {
+        let restriction = if self.skirmish_rules.limit_superweapons {
+            crate::game_logic::host_superweapon_kindof::SUPERWEAPON_MAX_SIMULTANEOUS_WHEN_LIMITED
+        } else {
+            0
+        };
+        template.get_max_simultaneous_of_type(restriction)
+    }
+
+    fn object_counts_toward_max_simultaneous(
+        &self,
+        obj: &crate::game_logic::Object,
+        wanted: &ThingTemplate,
+        wanted_name: &str,
+    ) -> bool {
+        if obj.template_name.eq_ignore_ascii_case(wanted_name) {
+            return true;
+        }
+        let candidate = self
+            .templates
+            .get(&obj.template_name)
+            .unwrap_or(&obj.thing.template);
+        candidate.counts_toward_max_simultaneous_of(wanted)
+    }
+
+    /// C++ `countExisting` living match: equivalent name or shared link key.
+    /// Factory queues count only for non-`KINDOF_STRUCTURE` (Player.cpp:2865-2872).
+    /// `countUnitTypeInQueue` is exact production-template identity.
+    pub fn count_player_units_matching_max_simultaneous(
+        &self,
+        player_id: u32,
+        template_name: &str,
+    ) -> u32 {
+        let Some(wanted) = self.templates.get(template_name) else {
+            return self.count_player_units_of_template_owned_or_queued(player_id, template_name);
+        };
+        let check_queue = !wanted.is_kind_of(KindOf::Structure);
+        let mut count = 0u32;
+        for obj in self.objects.values() {
+            if obj.owner_player_id != Some(player_id) || !obj.is_alive() {
+                continue;
+            }
+            if self.object_counts_toward_max_simultaneous(obj, wanted, template_name) {
+                count = count.saturating_add(1);
+            }
+            if check_queue {
+                if let Some(building) = obj.building_data.as_ref() {
+                    for item in &building.production_queue {
+                        if item.template_name.eq_ignore_ascii_case(template_name) {
+                            count = count.saturating_add(1);
+                        }
+                    }
+                }
+            }
+        }
+        count
+    }
+
+    pub fn count_team_units_matching_max_simultaneous(
+        &self,
+        team: Team,
+        template_name: &str,
+    ) -> u32 {
+        let Some(wanted) = self.templates.get(template_name) else {
+            return self.count_team_units_of_template_owned_or_queued(team, template_name);
+        };
+        let check_queue = !wanted.is_kind_of(KindOf::Structure);
+        let mut count = 0u32;
+        for obj in self.objects.values() {
+            if obj.team != team || !obj.is_alive() {
+                continue;
+            }
+            if self.object_counts_toward_max_simultaneous(obj, wanted, template_name) {
+                count = count.saturating_add(1);
+            }
+            if check_queue {
+                if let Some(building) = obj.building_data.as_ref() {
+                    for item in &building.production_queue {
+                        if item.template_name.eq_ignore_ascii_case(template_name) {
+                            count = count.saturating_add(1);
+                        }
+                    }
+                }
+            }
+        }
+        count
+    }
+
+    /// C++ `Player::canBuildMoreOfType` (Player.cpp:2853-2876).
+    pub fn can_build_more_of_type(
+        &self,
+        player_id: Option<u32>,
+        team: Team,
+        template_name: &str,
+    ) -> bool {
+        let Some(template) = self.templates.get(template_name) else {
+            return true;
+        };
+        let max = self.template_max_simultaneous_of_type(template);
+        if max == 0 {
+            return true;
+        }
+        let count = match player_id {
+            Some(id) => self.count_player_units_matching_max_simultaneous(id, template_name),
+            None => self.count_team_units_matching_max_simultaneous(team, template_name),
+        };
+        count < max
+    }
+
     /// C++ `ParkingPlaceBehavior` occupancy plus queued non-helipad aircraft.
     ///
     /// `producer_id` plus `airfield_parking_space_index` is the persisted
@@ -1345,11 +1462,9 @@ impl GameLogic {
         (occupied_slots.len() as u32).saturating_add(queued)
     }
 
-    /// C++ BuildAssistant::canMakeUnit residual status for a producer + template.
-    ///
-    /// Parking uses the parsed `ParkingPlaceBehavior` reservation contract;
-    /// the remaining MaxSimultaneous matrix is intentionally only the live
-    /// hero/unique-unit residual until its complete INI representation lands.
+    /// Parking uses the parsed `ParkingPlaceBehavior` reservation contract.
+    /// MaxSimultaneous uses the authored Object INI cap (or SW restriction),
+    /// counted by equivalent template / shared link key.
     pub fn can_make_unit(&self, producer_id: ObjectId, template_name: &str) -> u32 {
         use crate::game_logic::buildings::DEFAULT_PRODUCTION_QUEUE_LIMIT;
         use crate::game_logic::host_production_buildable_command_residual::{
@@ -1472,21 +1587,9 @@ impl GameLogic {
             None => false,
         };
         let _ = CANMAKE_OK;
-        // C++ MaxSimultaneousOfType residual (heroes MaxSimultaneousOfType=1).
-        let maxed_out = {
-            use crate::game_logic::host_production_buildable_command_residual::{
-                unit_max_simultaneous_of_type_residual, unit_maxed_out_for_player_residual,
-            };
-            let max = unit_max_simultaneous_of_type_residual(template_name);
-            let owned = owner_player_id
-                .map(|player_id| {
-                    self.count_player_units_of_template_owned_or_queued(player_id, template_name)
-                })
-                .unwrap_or_else(|| {
-                    self.count_team_units_of_template_owned_or_queued(team, template_name)
-                });
-            unit_maxed_out_for_player_residual(owned, max)
-        };
+        // C++ Player::canBuildMoreOfType — INI MaxSimultaneousOfType, not a
+        // hero-name residual table.
+        let maxed_out = !self.can_build_more_of_type(owner_player_id, team, template_name);
         // C++ `ProductionUpdate::canQueueCreateUnit` asks the parking-place
         // interface before it checks `m_productionCount`.  Preserve that
         // player-visible failure reason when a full authored airfield also

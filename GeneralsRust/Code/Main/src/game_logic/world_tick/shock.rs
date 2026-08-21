@@ -113,16 +113,34 @@ impl GameLogic {
                     continue;
                 };
                 let b_id = ObjectId(b_raw);
-                if let (Some(a), Some(b)) = (self.objects.get(a_id), self.objects.get(&b_id)) {
-                    if let Some((loc, normal)) = super::collide_dispatch::host_geom_collides(a, b) {
-                        super::collide_dispatch::dispatch_collide_modules(*a_id, b_id, loc, normal);
-                        self.dispatch_host_collide_modules(*a_id, b_id);
+                let geom_hit = if let (Some(a), Some(b)) =
+                    (self.objects.get(a_id), self.objects.get(&b_id))
+                {
+                    super::collide_dispatch::host_geom_collides(a, b)
+                } else {
+                    None
+                };
+                // C++ processContactList only onCollide after geomCollidesWithGeom.
+                // First-overlap 0-damage crush bookkeeping must not fire from
+                // a shared partition cell without contact (hq-zsklj).
+                if let Some((loc, normal)) = geom_hit {
+                    super::collide_dispatch::dispatch_collide_modules(*a_id, b_id, loc, normal);
+                    self.dispatch_host_collide_modules(*a_id, b_id);
+                    // Both onCollide (hq-uerpy): higher-id crusher still crushes.
+                    if self.try_physics_collide(*a_id, b_id, a_r) {
+                        handled = handled.saturating_add(1);
                     }
-                }
-                if self.try_physics_collide(*a_id, b_id, a_r) {
-                    handled = handled.saturating_add(1);
-                } else if self.try_physics_collide(b_id, *a_id, b_r) {
-                    handled = handled.saturating_add(1);
+                    let reverse_ok = self
+                        .objects
+                        .get(a_id)
+                        .is_some_and(|o| !o.status.destroyed)
+                        && self
+                            .objects
+                            .get(&b_id)
+                            .is_some_and(|o| !o.status.destroyed);
+                    if reverse_ok && self.try_physics_collide(b_id, *a_id, b_r) {
+                        handled = handled.saturating_add(1);
+                    }
                 }
             }
         }

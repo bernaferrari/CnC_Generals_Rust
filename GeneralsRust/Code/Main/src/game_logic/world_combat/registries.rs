@@ -758,7 +758,7 @@ impl GameLogic {
             }
             c.pending_evacuate_on_stop = more_remain;
             c.pending_exit_after_evacuate = and_exit && !more_remain;
-            let p = c.get_position();
+
             let contained_count = if more_remain {
                 c.contained_units().len() as u32
             } else {
@@ -768,10 +768,12 @@ impl GameLogic {
                 ai.contained_count = contained_count;
                 ai.wanting_enter_or_exit = more_remain;
                 if and_exit && !more_remain {
-                    ai.command_evac([p.x, p.z, 0.0], true);
+                    // Keep spawn `original_pos`; do not re-issue evac at the LZ.
+                    ai.begin_takeoff_and_exit();
                     return any;
                 }
             }
+
         }
 
         if and_exit && !more_remain {
@@ -816,8 +818,17 @@ impl GameLogic {
         });
         let Some(pid) = rappeller else {
             if let Some(c) = self.objects.get_mut(&container_id) {
-                c.pending_evacuate_on_stop = false;
-                c.pending_exit_after_evacuate = false;
+                let remaining = c.contained_units().len() as u32;
+                if let Some(ai) = c.chinook_ai.as_mut() {
+                    ai.finish_combat_drop();
+                    ai.contained_count = remaining;
+                    ai.wanting_enter_or_exit = remaining > 0;
+                    if remaining > 0 {
+                        ai.tick_idle_auto_land();
+                    }
+                }
+                c.pending_evacuate_on_stop = remaining > 0;
+                c.pending_exit_after_evacuate = and_exit && remaining == 0;
             }
             return false;
         };
@@ -839,18 +850,30 @@ impl GameLogic {
             .and_then(|c| c.chinook_ai.as_ref())
             .map(|ai| ai.apply_rappel_speed())
             .unwrap_or(crate::game_logic::host_combat_chinook::COMBAT_CHINOOK_RAPPEL_SPEED);
+        // C++ `aiRappelInto(getMachineGoalObject(), *getMachineGoalPosition())`.
+        let drop_target = self.objects.get(&container_id).and_then(|c| {
+            c.target.or_else(|| {
+                c.chinook_ai
+                    .as_ref()
+                    .and_then(|ai| ai.combat_drop_target)
+                    .map(ObjectId)
+            })
+        });
+        let (target_is_bldg, dest_y) = self.combat_drop_rappel_dest(hover, drop_target);
+
         if let Some(c) = self.objects.get_mut(&container_id) {
             let _ = c.remove_occupant(pid);
         }
         if let Some(p) = self.objects.get_mut(&pid) {
             p.set_contained_by(None);
-            p.target = None;
+            p.target = drop_target;
             p.set_position(hover);
-            let ground = glam::Vec3::new(hover.x, 0.0, hover.z);
-            p.movement.path = vec![hover, ground];
-            p.movement.current_path_index = 1;
-            p.movement.target_position = Some(ground);
+            let dest = glam::Vec3::new(hover.x, dest_y, hover.z);
+            p.movement.path.clear();
+            p.movement.current_path_index = 0;
+            p.movement.target_position = Some(dest);
             p.movement.max_speed = rappel_speed;
+            p.begin_rappel(dest_y, target_is_bldg, drop_target);
             p.set_ai_state(AIState::Moving);
             p.status.moving = true;
         }
@@ -870,10 +893,230 @@ impl GameLogic {
                 ai.on_rappeller_released(now);
                 ai.contained_count = remaining;
             }
-            c.pending_evacuate_on_stop = more;
+            // Stay pending so the next evac call finishes DO_COMBAT_DROP.
+            c.pending_evacuate_on_stop = true;
             c.pending_exit_after_evacuate = and_exit && !more;
         }
+
         true
+    }
+
+    /// C++ `AIRappelState::onEnter` dest Z: layer height, plus structure roof.
+    fn combat_drop_rappel_dest(
+        &self,
+        hover: glam::Vec3,
+        drop_target: Option<ObjectId>,
+    ) -> (bool, f32) {
+        let layer_y = self.terrain_height_at(hover).unwrap_or(0.0);
+        let Some(tid) = drop_target else {
+            return (false, layer_y);
+        };
+        let Some(bldg) = self.objects.get(&tid) else {
+            return (false, layer_y);
+        };
+        if !bldg.is_alive() || !bldg.is_kind_of(KindOf::Structure) {
+            return (false, layer_y);
+        }
+        let roof = bldg
+            .thing
+            .template
+            .geometry_info
+            .max_height_above_position();
+        (true, layer_y + roof)
+    }
+
+    /// C++ `AIRappelState::update`: descend at rappel rate, then kill-2 / addToContain.
+    pub(crate) fn tick_rappel_into(&mut self, pid: ObjectId) {
+        let Some(obj) = self.objects.get(&pid) else {
+            return;
+        };
+        if !obj.status.rappelling || !obj.is_alive() {
+            return;
+        }
+        let mut target_is_bldg = obj.status.rappel_target_is_bldg;
+        let mut dest_y = obj.status.rappel_dest_y;
+        let target_id = obj.status.rappel_target;
+        let pos = obj.get_position();
+        let speed = obj.movement.max_speed;
+        if target_is_bldg {
+            let gone = target_id
+                .map(|id| {
+                    self.objects.get(&id).map_or(true, |b| {
+                        !b.is_alive() || !b.is_kind_of(KindOf::Structure)
+                    })
+                })
+                .unwrap_or(true);
+            if gone {
+                target_is_bldg = false;
+                dest_y = self.terrain_height_at(pos).unwrap_or(0.0);
+            }
+        }
+        if !target_is_bldg {
+            dest_y = self.terrain_height_at(pos).unwrap_or(dest_y);
+        }
+        let sink = speed * LOGIC_FRAME_TIMESTEP;
+        let mut new_y = pos.y - sink;
+        let arrived = new_y <= dest_y;
+        if arrived {
+            new_y = dest_y;
+        }
+        if let Some(obj) = self.objects.get_mut(&pid) {
+            let mut p = obj.get_position();
+            p.y = new_y;
+            obj.set_position(p);
+            obj.movement.velocity = glam::Vec3::new(0.0, -speed, 0.0);
+            obj.status.rappel_target_is_bldg = target_is_bldg;
+            obj.status.rappel_dest_y = dest_y;
+            if arrived {
+                obj.clear_rappel();
+                obj.stop_moving();
+            }
+        }
+        if arrived && target_is_bldg {
+            if let Some(tid) = target_id {
+                self.rappel_arrive_at_building(pid, tid);
+            }
+        }
+    }
+
+    /// C++ `AIRappelState::update` arrival: kill up to 2, else addToContain / scatter.
+    fn rappel_arrive_at_building(&mut self, pid: ObjectId, bldg_id: ObjectId) {
+        let Some(bldg) = self.objects.get(&bldg_id) else {
+            return;
+        };
+        if !bldg.is_alive() {
+            return;
+        }
+        const MAX_TO_KILL: i32 = 2;
+        let num_killed = self.kill_enemies_in_container(pid, bldg_id, MAX_TO_KILL);
+        if num_killed == MAX_TO_KILL {
+            if let Some(p) = self.objects.get_mut(&pid) {
+                p.kill();
+            }
+            return;
+        }
+        let can_enter = self.objects.get(&bldg_id).is_some_and(|b| {
+            b.is_alive()
+                && b.can_contain()
+                && b.has_capacity_for(1)
+                && b.garrison_container_accepts_entry()
+        });
+        if can_enter {
+            self.rappel_add_to_contain(pid, bldg_id);
+        } else {
+            self.rappel_scatter_at_building(pid, bldg_id);
+        }
+    }
+
+    /// C++ `killEnemiesInContainer` (AIStates.cpp:415).
+    fn kill_enemies_in_container(
+        &mut self,
+        killer_id: ObjectId,
+        bldg_id: ObjectId,
+        max_to_kill: i32,
+    ) -> i32 {
+        let mut num_killed = 0;
+        while num_killed < max_to_kill {
+            let occupants = self
+                .objects
+                .get(&bldg_id)
+                .map(|b| b.contained_units())
+                .unwrap_or_default();
+            let killer_team = self.objects.get(&killer_id).map(|k| k.team);
+            let Some(enemy_id) = occupants.into_iter().find(|&id| {
+                self.objects.get(&id).is_some_and(|e| {
+                    e.is_alive()
+                        && killer_team.is_some_and(|kt| {
+                            kt != e.team && kt != Team::Neutral && e.team != Team::Neutral
+                        })
+                })
+            }) else {
+                break;
+            };
+            if let Some(b) = self.objects.get_mut(&bldg_id) {
+                let _ = b.remove_occupant(enemy_id);
+            }
+            if let Some(e) = self.objects.get_mut(&enemy_id) {
+                e.set_contained_by(None);
+                e.kill();
+            }
+            self.award_score_the_kill_experience(killer_id, enemy_id);
+            num_killed += 1;
+        }
+        num_killed
+    }
+
+    /// C++ `bldg->getContain()->addToContain(obj)` + garrison onContaining.
+    fn rappel_add_to_contain(&mut self, pid: ObjectId, bldg_id: ObjectId) {
+        let entered = self
+            .objects
+            .get_mut(&bldg_id)
+            .map(|b| b.add_occupant(pid))
+            .unwrap_or(false);
+        if !entered {
+            self.rappel_scatter_at_building(pid, bldg_id);
+            return;
+        }
+        let container_pos = self
+            .objects
+            .get(&bldg_id)
+            .map(|b| b.get_position())
+            .unwrap_or(glam::Vec3::ZERO);
+        let enclosing = self
+            .objects
+            .get(&bldg_id)
+            .map(|c| c.is_enclosing_garrison_container())
+            .unwrap_or(true);
+        if let Some(obj) = self.objects.get_mut(&pid) {
+            obj.stop_moving();
+            obj.set_contained_by(Some(bldg_id));
+            obj.target = Some(bldg_id);
+            if enclosing {
+                obj.set_position(container_pos);
+            }
+            obj.set_ai_state(AIState::Garrisoned);
+            obj.set_status_moving(false);
+            obj.deselect();
+        }
+        self.record_garrison_residual_enter();
+        self.apply_garrison_contain_on_enter(bldg_id, pid);
+    }
+
+    /// C++ full-building scatter + `aiFollowPath` (AIStates.cpp:581-613).
+    fn rappel_scatter_at_building(&mut self, pid: ObjectId, bldg_id: ObjectId) {
+        let Some(bldg) = self.objects.get(&bldg_id) else {
+            return;
+        };
+        let bldg_pos = bldg.get_position();
+        let exit_angle = bldg.get_orientation();
+        let bldg_r = bldg
+            .thing
+            .template
+            .geometry_info
+            .bounding_circle_radius();
+        let pax_r = self
+            .objects
+            .get(&pid)
+            .map(|p| p.thing.template.geometry_info.bounding_circle_radius())
+            .unwrap_or(8.0);
+        let offset = pax_r.min(bldg_r).max(1.0);
+        let angle = std::f32::consts::PI + garrison_evac_rand(pid.0, 0.0, std::f32::consts::PI);
+        let mut start = bldg_pos;
+        start.x += offset * angle.cos();
+        start.z += offset * angle.sin();
+        start.y = self.terrain_height_at(start).unwrap_or(0.0);
+        let mut end = start;
+        end.z -= 20.0;
+        end.y = self.terrain_height_at(end).unwrap_or(end.y);
+        if let Some(obj) = self.objects.get_mut(&pid) {
+            obj.set_position(start);
+            obj.set_orientation(exit_angle);
+            obj.movement.path = vec![start, end];
+            obj.movement.current_path_index = 1;
+            obj.movement.target_position = Some(end);
+            obj.set_ai_state(AIState::Moving);
+            obj.status.moving = true;
+        }
     }
 
     pub fn record_transport_residual_unload(&mut self) {

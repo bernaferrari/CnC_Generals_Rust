@@ -2013,6 +2013,11 @@ impl ThingTemplate {
     pub fn is_trainable(&self) -> bool {
         self.is_trainable
     }
+    /// C++ `ThingTemplate::isBridge()`.
+    pub fn is_bridge(&self) -> bool {
+        self.is_bridge
+    }
+
 
     /// C++ ThingTemplate.cpp:384-409 KindOf masks used when clearing default modules.
     fn gps_scrambler_inherit_flags(&self) -> (bool, bool, bool) {

@@ -34,7 +34,7 @@ fn fire_at_records_fire_intent_residual() {
             range: 200.0,
             reload_time: 0.0,
             ..Weapon::default()
-        });
+});
         o.status.weapons_jammed = false;
         let fired = o.fire_at(vid, 1.0);
         assert!(fired, "close-range fire_at should discharge");

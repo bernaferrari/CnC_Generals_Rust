@@ -8,7 +8,7 @@ fn legacy_weapon_command_without_shot_field_uses_cxx_no_max_default() {
         weapon_slot: WeaponSlot::Primary,
         max_shots_to_fire: i32::MAX,
         target: WeaponTarget::Location(Vec3::ZERO),
-    };
+};
     let mut encoded = serde_json::to_value(&original).expect("serialize weapon command");
     encoded["DoWeapon"]
         .as_object_mut()
@@ -1053,6 +1053,97 @@ fn right_click_ctrl_force_attacks_ground_residual() {
         other => panic!("expected ForceAttackGround, got {other:?}"),
     }
 }
+
+#[test]
+fn right_click_waypoint_mode_outranks_ctrl_force_attack() {
+    use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+
+    let mut ranger_t = ThingTemplate::new("AmericaInfantryRanger");
+    ranger_t
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    logic
+        .templates
+        .insert("AmericaInfantryRanger".into(), ranger_t);
+    let mut rebel_t = ThingTemplate::new("GLAInfantryRebel");
+    rebel_t
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    logic.templates.insert("GLAInfantryRebel".into(), rebel_t);
+
+    let attacker = logic
+        .create_object(
+            "AmericaInfantryRanger",
+            Team::USA,
+            glam::Vec3::new(0.0, 0.0, 0.0),
+        )
+        .expect("attacker");
+    let target = logic
+        .create_object(
+            "GLAInfantryRebel",
+            Team::GLA,
+            glam::Vec3::new(50.0, 0.0, 0.0),
+        )
+        .expect("target");
+
+    let loc = glam::Vec3::new(50.0, 0.0, 0.0);
+    let ctx = MouseCommandContext {
+        world_position: loc,
+        target_object: Some(target),
+        target_presentation: None,
+        selected_presentation: Vec::new(),
+        presentation_box_select_units: Vec::new(),
+        presentation_select_similar_units: Vec::new(),
+        screen_position: glam::Vec2::ZERO,
+        viewport_size: None,
+        world_min: None,
+        world_max: None,
+        mouse_button: MouseButton::Right,
+        modifier_keys: ModifierKeys {
+            ctrl: true,
+            shift: false,
+            alt: true,
+        },
+        is_drag: false,
+        drag_start: None,
+        drag_end: None,
+        drag_start_world: None,
+        drag_end_world: None,
+    };
+    let mut sys = CommandSystem::new();
+    let cmd = sys
+        .process_mouse_input(&ctx, &[attacker], 0, Some(&logic))
+        .expect("waypoint+ctrl RMB should produce command");
+    match cmd.command_type {
+        CommandType::AddWaypoint { destination } => {
+            assert!((destination - loc).length() < 0.1);
+        }
+        other => panic!("expected AddWaypoint over ForceAttack, got {other:?}"),
+    }
+
+    let ctx_sticky = MouseCommandContext {
+        modifier_keys: ModifierKeys {
+            ctrl: true,
+            shift: false,
+            alt: false,
+        },
+        ..ctx
+    };
+    sys.set_waypoint_mode_for_player(0, true);
+    let cmd = sys
+        .process_mouse_input(&ctx_sticky, &[attacker], 0, Some(&logic))
+        .expect("sticky waypoint+ctrl should produce command");
+    match cmd.command_type {
+        CommandType::AddWaypoint { .. } => {}
+        other => panic!("sticky waypoint must outrank Ctrl, got {other:?}"),
+    }
+}
+
 
 fn right_click_damaged_vehicle_get_repaired_context_residual() {
     use crate::game_logic::{

@@ -917,10 +917,9 @@ impl GameLogic {
             return;
         };
         // C++ GameLogicDispatch.cpp:1632 — getRelationship(placer default team) == ALLIES.
-        // Self is Neutral unless mapped, so this also excludes the local placer.
+        // PlayerList seeds self-relationship as ALLIES, so own place also plays EVA.
         if self.player_relationship(local_id, placer_player_id)
             != gamelogic::common::Relationship::Allies
-            || local_id == placer_player_id
         {
             return;
         }

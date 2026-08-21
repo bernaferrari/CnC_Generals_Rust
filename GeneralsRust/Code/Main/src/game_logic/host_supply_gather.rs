@@ -14,6 +14,7 @@ fn live_dock_queues() -> &'static Mutex<HashMap<ObjectId, HostDockApproachQueue>
 }
 
 /// C++ `DockUpdate::reserveApproachPosition` + `update` promote first arriver.
+/// Returns `PathTo` until the docker reaches its `DockWaiting` / boneless slot.
 pub fn tick_live_dock_approach(
     dock_id: ObjectId,
     docker_id: ObjectId,
@@ -21,31 +22,51 @@ pub fn tick_live_dock_approach(
     docker_alive: bool,
     current_active: Option<ObjectId>,
     current_active_alive: bool,
+    docker_pos: Vec3,
+    dock_pos: Vec3,
+    dock_major_radius: f32,
+    waiting_bones: &[Vec3],
+    current_frame: u32,
+    is_alive: impl FnMut(ObjectId) -> bool,
 ) -> DockApproachTick {
-    if !docker_alive {
-        return DockApproachTick::Blocked;
-    }
     let Ok(mut map) = live_dock_queues().lock() else {
         return DockApproachTick::Blocked;
     };
     let queue = map
         .entry(dock_id)
         .or_insert_with(|| HostDockApproachQueue::new(number_approach_positions));
-    queue.evict_dead(|_| true);
+    queue.evict_dead(is_alive);
+    if !waiting_bones.is_empty() {
+        queue.set_waiting_bones(waiting_bones.to_vec());
+    }
+    if !docker_alive {
+        queue.cancel_docker(docker_id);
+        return DockApproachTick::Blocked;
+    }
     if current_active == Some(docker_id) && current_active_alive {
         queue.on_enter_reached(docker_id);
+        queue.clear_wait_started(docker_id);
         return DockApproachTick::ClearToAct;
     }
     if !queue.is_clear_to_approach(docker_id) {
         return DockApproachTick::Blocked;
     }
-    let Some(_slot) = queue.reserve_approach_position(docker_id) else {
+    let Some(slot) = queue.reserve_approach_position(docker_id) else {
         return DockApproachTick::Blocked;
     };
+    let goal = queue.approach_world_position(slot as usize, docker_pos, dock_pos, dock_major_radius);
+    if docker_pos.distance(goal) > DOCK_APPROACH_ARRIVAL_SLOP {
+        queue.clear_wait_started(docker_id);
+        return DockApproachTick::PathTo(goal);
+    }
     queue.on_approach_reached(docker_id);
     if queue.promote_active(current_active, current_active_alive, false) == Some(docker_id) {
         queue.on_enter_reached(docker_id);
+        queue.clear_wait_started(docker_id);
         DockApproachTick::ClearToAct
+    } else if queue.wait_for_clearance_timed_out(docker_id, current_frame) {
+        queue.cancel_docker(docker_id);
+        DockApproachTick::TimedOut
     } else {
         DockApproachTick::Blocked
     }
@@ -58,6 +79,41 @@ pub fn cancel_live_dock_approach(dock_id: ObjectId, docker_id: ObjectId) {
         }
     }
 }
+
+/// C++ `DockUpdate::cancelDock` for every live queue this docker reserved.
+pub fn cancel_all_live_dock_reservations_for(docker_id: ObjectId) {
+    if let Ok(mut map) = live_dock_queues().lock() {
+        for queue in map.values_mut() {
+            queue.cancel_docker(docker_id);
+        }
+    }
+}
+
+/// Drop live approach queues so tests do not leak ObjectId state.
+pub fn reset_live_dock_queues() {
+    if let Ok(mut map) = live_dock_queues().lock() {
+        map.clear();
+    }
+}
+
+/// C++ AI_DOCK session states that own an approach reservation.
+pub fn is_live_dock_ai_state(state: &crate::game_logic::AIState) -> bool {
+    matches!(
+        state,
+        crate::game_logic::AIState::Gathering
+            | crate::game_logic::AIState::ReturningResources
+            | crate::game_logic::AIState::SeekingRepair
+            | crate::game_logic::AIState::SeekingHealing
+            | crate::game_logic::AIState::Docking
+            | crate::game_logic::AIState::Docked
+    )
+}
+
+/// Alias used by `Object::set_ai_state` / death cancel.
+pub fn cancel_live_dock_for_docker(docker_id: ObjectId) {
+    cancel_all_live_dock_reservations_for(docker_id);
+}
+
 
 /// C++ `DockUpdate::isClearToApproach` against the live approach-queue.
 /// A dock that has never been reserved is clear (every slot still free).
@@ -76,6 +132,8 @@ pub const DYNAMIC_APPROACH_VECTOR_FLAG: i32 = -1;
 pub const DEFAULT_APPROACH_VECTOR_SIZE: usize = 10;
 /// Host arrival slop at a reserved approach point (`PATHFIND_CELL_SIZE_F`).
 pub const DOCK_APPROACH_ARRIVAL_SLOP: f32 = PATHFIND_CELL_SIZE_F;
+/// C++ `AIDockWaitForClearanceState` timeout: `30 * LOGICFRAMES_PER_SECOND`.
+pub const WAIT_FOR_CLEARANCE_FRAMES: u32 = 900;
 
 /// C++ `DockUpdate` approach-slot vectors (`m_approachPositionOwners` / `Reached`).
 #[derive(Debug, Clone)]
@@ -88,6 +146,8 @@ pub struct HostDockApproachQueue {
     pub waiting_bones: Vec<Vec3>,
     pub owners: Vec<Option<ObjectId>>,
     pub reached: Vec<bool>,
+    /// C++ `AIDockWaitForClearanceState::m_enterFrame` per reserved docker.
+    pub wait_started: HashMap<ObjectId, u32>,
 }
 
 impl HostDockApproachQueue {
@@ -103,6 +163,7 @@ impl HostDockApproachQueue {
             waiting_bones: Vec::new(),
             owners: vec![None; len],
             reached: vec![false; len],
+            wait_started: HashMap::new(),
         }
     }
 
@@ -115,6 +176,9 @@ impl HostDockApproachQueue {
     pub fn evict_dead(&mut self, mut is_alive: impl FnMut(ObjectId) -> bool) {
         for (owner, reached) in self.owners.iter_mut().zip(self.reached.iter_mut()) {
             if owner.is_some_and(|id| !is_alive(id)) {
+                if let Some(id) = *owner {
+                    self.wait_started.remove(&id);
+                }
                 *owner = None;
                 *reached = false;
             }
@@ -213,6 +277,38 @@ impl HostDockApproachQueue {
                 *reached = false;
             }
         }
+        self.wait_started.remove(&docker);
+    }
+
+    pub fn clear_wait_started(&mut self, docker: ObjectId) {
+        self.wait_started.remove(&docker);
+    }
+
+    /// C++ `AIDockWaitForClearanceState::update` 30s deadline.
+    pub fn wait_for_clearance_timed_out(&mut self, docker: ObjectId, current_frame: u32) -> bool {
+        let start = *self.wait_started.entry(docker).or_insert(current_frame);
+        current_frame.saturating_sub(start) >= WAIT_FOR_CLEARANCE_FRAMES
+    }
+
+    /// C++ `DockUpdate::computeApproachPosition`.
+    pub fn approach_world_position(
+        &self,
+        slot: usize,
+        docker_pos: Vec3,
+        dock_pos: Vec3,
+        dock_major_radius: f32,
+    ) -> Vec3 {
+        if self.number_approach_position_bones > 0 {
+            if let Some(&bone) = self.waiting_bones.get(slot) {
+                return bone;
+            }
+        }
+        let mut offset = docker_pos - dock_pos;
+        offset.y = 0.0;
+        if offset.length_squared() > 0.0001 {
+            offset = offset.normalize() * (dock_major_radius.max(0.0) * 0.5);
+        }
+        dock_pos + offset
     }
 
     pub fn index_of(&self, docker: ObjectId) -> Option<i32> {
@@ -291,6 +387,8 @@ pub enum DockApproachTick {
     PathTo(Vec3),
     /// C++ `isClearToEnter` — this docker is `m_activeDocker` and may act.
     ClearToAct,
+    /// C++ `AIDockWaitForClearanceState` 30s failure — reservation cancelled.
+    TimedOut,
 }
 
 /// C++ `PATHFIND_CELL_SIZE_F` (`AIPathfind.h:416`).
@@ -644,6 +742,7 @@ pub fn reset_live_warehouse_host_state() {
     if let Ok(mut s) = WAREHOUSE_CRIPPLING_STATES.lock() {
         s.clear();
     }
+    reset_live_dock_queues();
 }
 
 #[derive(Debug, Clone)]
@@ -1024,6 +1123,122 @@ mod tests {
         assert_eq!(next, 115);
         let full = warehouse_crippling_heal_amount(200, 1000.0, 1000.0, 1000.0, &mut suppressed, &mut next);
         assert_eq!(full, 0.0);
+    }
+
+    #[test]
+    fn evict_dead_clears_ghost_reservation() {
+        reset_live_dock_queues();
+        let mut q = HostDockApproachQueue::new(5);
+        let ghost = ObjectId(9);
+        assert_eq!(q.reserve_approach_position(ghost), Some(0));
+        q.on_approach_reached(ghost);
+        q.evict_dead(|_| true);
+        assert_eq!(q.owners[0], Some(ghost), "alive predicate must keep the slot");
+        q.evict_dead(|_| false);
+        assert_eq!(q.owners[0], None);
+        assert!(!q.reached[0]);
+        assert!(q.promote_active(None, false, false).is_none());
+    }
+
+    #[test]
+    fn waiting_bones_drive_path_to_not_instant_act() {
+        reset_live_dock_queues();
+        let dock = ObjectId(1);
+        let a = ObjectId(2);
+        let bone = Vec3::new(40.0, 0.0, 0.0);
+        let tick = tick_live_dock_approach(
+            dock,
+            a,
+            5,
+            true,
+            None,
+            false,
+            Vec3::new(200.0, 0.0, 0.0),
+            Vec3::ZERO,
+            20.0,
+            &[bone],
+            0,
+            |_| true,
+        );
+        assert_eq!(tick, DockApproachTick::PathTo(bone));
+        let arrived = tick_live_dock_approach(
+            dock,
+            a,
+            5,
+            true,
+            None,
+            false,
+            bone,
+            Vec3::ZERO,
+            20.0,
+            &[bone],
+            1,
+            |_| true,
+        );
+        assert_eq!(arrived, DockApproachTick::ClearToAct);
+        reset_live_dock_queues();
+    }
+
+    #[test]
+    fn boneless_bias_is_half_major_radius_toward_docker() {
+        let q = HostDockApproachQueue::new(5);
+        let goal = q.approach_world_position(
+            0,
+            Vec3::new(100.0, 0.0, 0.0),
+            Vec3::ZERO,
+            40.0,
+        );
+        assert!((goal.x - 20.0).abs() < 0.01);
+        assert!(goal.z.abs() < 0.01);
+    }
+
+    #[test]
+    fn wait_for_clearance_times_out_after_900_frames() {
+        reset_live_dock_queues();
+        let dock = ObjectId(3);
+        let a = ObjectId(4);
+        let b = ObjectId(5);
+        let bone_a = Vec3::new(10.0, 0.0, 0.0);
+        let bone_b = Vec3::new(20.0, 0.0, 0.0);
+        assert_eq!(
+            tick_live_dock_approach(
+                dock, a, 5, true, None, false, bone_a, Vec3::ZERO, 10.0,
+                &[bone_a, bone_b], 0, |_| true,
+            ),
+            DockApproachTick::ClearToAct
+        );
+        assert_eq!(
+            tick_live_dock_approach(
+                dock, b, 5, true, Some(a), true, bone_b, Vec3::ZERO, 10.0,
+                &[bone_a, bone_b], 10, |_| true,
+            ),
+            DockApproachTick::Blocked
+        );
+        assert_eq!(
+            tick_live_dock_approach(
+                dock, b, 5, true, Some(a), true, bone_b, Vec3::ZERO, 10.0,
+                &[bone_a, bone_b], 10 + WAIT_FOR_CLEARANCE_FRAMES,
+                |_| true,
+            ),
+            DockApproachTick::TimedOut
+        );
+        assert!(live_dock_is_clear_to_approach(dock, b));
+        reset_live_dock_queues();
+    }
+
+    #[test]
+    fn death_or_retask_cancels_all_reservations() {
+        reset_live_dock_queues();
+        let dock = ObjectId(6);
+        let a = ObjectId(7);
+        let _ = tick_live_dock_approach(
+            dock, a, 5, true, Some(ObjectId(8)), true,
+            Vec3::new(100.0, 0.0, 0.0), Vec3::ZERO, 20.0,
+            &[], 0, |_| true,
+        );
+        cancel_all_live_dock_reservations_for(a);
+        assert!(live_dock_is_clear_to_approach(dock, ObjectId(9)));
+        reset_live_dock_queues();
     }
 }
 

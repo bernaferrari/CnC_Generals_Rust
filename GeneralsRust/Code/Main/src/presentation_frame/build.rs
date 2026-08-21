@@ -63,6 +63,54 @@ pub(super) fn freeze_direct_object_shroud_facts(
     PresentationDrawableShroudFacts::direct_host_object(raw_status, effectively_dead)
 }
 
+pub(super) fn object_is_mine_kind(obj: &crate::game_logic::Object) -> bool {
+    use crate::game_logic::KindOf;
+    obj.mine_data.is_some()
+        || obj.is_kind_of(KindOf::Mine)
+        || obj.is_kind_of(KindOf::DemoTrap)
+}
+
+/// C++ mines force `setEffectiveOpacity(0,0)` every frame; other units keep
+/// template FriendlyOpacityMin for the friendly pulse.
+pub(super) fn freeze_friendly_stealth_opacity(obj: &crate::game_logic::Object) -> f32 {
+    if object_is_mine_kind(obj) {
+        obj.camo_friendly_opacity
+    } else {
+        obj.thing.template.stealth_friendly_opacity_min
+    }
+}
+
+/// C++ drawBombed StickyBombUpdate: timed vs remote + countdown seconds.
+pub(super) fn freeze_sticky_bomb_overlay(
+    obj: &crate::game_logic::Object,
+    now: u32,
+) -> (u8, u32) {
+    let Some(md) = obj.mine_data.as_ref() else {
+        return (0, 0);
+    };
+    if md.attached_to.is_none() {
+        return (0, 0);
+    }
+    match md.kind {
+        crate::game_logic::host_mines::HostMineKind::TimedDemoCharge => {
+            let seconds = md
+                .detonate_at_frame
+                .map(|die| {
+                    if die <= now {
+                        0
+                    } else {
+                        ((die - now) as f32 / 30.0).ceil() as u32
+                    }
+                })
+                .unwrap_or(0);
+            (1, seconds)
+        }
+        crate::game_logic::host_mines::HostMineKind::RemoteDemoCharge => (2, 0),
+        _ => (0, 0),
+    }
+}
+
+
 /// Freeze the source capability consumed by C++
 /// `StealthUpdate::canDisguise()`. The active host's Bomb Truck residual is
 /// the implemented source of `DisguisesAsTeam`; use the immutable
@@ -747,6 +795,9 @@ impl PresentationFrame {
                 disabled_underpowered: obj.status.disabled_underpowered,
                 disabled_hacked: obj.status.disabled_hacked,
                 disabled_unmanned: obj.status.disabled_unmanned,
+                disabled_freefall: obj.status.disabled_freefall,
+                disabled_default: obj.status.disabled_default,
+                disabled_script_underpowered: obj.status.disabled_script_underpowered,
                 hacking_packing_or_unpacking: logic.hacker_income.is_hacking(obj.id),
                 weapons_jammed: obj.status.weapons_jammed,
                 masked: obj.status.masked,
@@ -764,7 +815,7 @@ impl PresentationFrame {
                 detected: obj.status.detected,
                 effectively_stealthed: obj.is_effectively_stealthed(),
                 can_disguise_as_team: freeze_direct_can_disguise_as_team(obj),
-                friendly_stealth_opacity: obj.thing.template.stealth_friendly_opacity_min,
+                friendly_stealth_opacity: freeze_friendly_stealth_opacity(obj),
                 friendly_stealth_opacity_max: obj.thing.template.stealth_friendly_opacity_max,
                 disabled: obj.is_disabled(),
                 contained_by: obj.contained_by,
@@ -831,6 +882,13 @@ impl PresentationFrame {
                 disguised: obj.status.disguised,
                 disabled_subdued: obj.status.disabled_subdued,
                 is_carbomb: obj.status.is_carbomb,
+                weapon_set_carbomb: obj.weapon_set_carbomb,
+                bomb_type: freeze_sticky_bomb_overlay(obj, logic.get_current_frame() as u32).0,
+                bomb_timer_seconds: freeze_sticky_bomb_overlay(
+                    obj,
+                    logic.get_current_frame() as u32,
+                )
+                .1,
                 hijacked: obj.status.hijacked,
                 disguise_transition_opacity: if obj.status.disguise_transition_frames > 0 {
                     obj.status.disguise_transition_opacity
@@ -1756,27 +1814,60 @@ impl PresentationFrame {
             alliance_events: Vec::new(),
             victory_summary: None,
             beacons: {
-                // Wave 211: prefer host-owned beacon list (no Mutex dual-read).
-                let host = logic.host_beacons();
-                if !host.is_empty() {
-                    host.iter().copied().take(64).collect()
+                // Visible host beacon objects win (C++ hideBeacon drops drawable + minimap).
+                let from_objects: Vec<glam::Vec3> = logic
+                    .host_objects()
+                    .iter()
+                    .filter_map(|(id, obj)| {
+                        if !obj.is_alive()
+                            || !obj.template_name.to_ascii_lowercase().contains("beacon")
+                            || obj.drawable_hidden
+                            || crate::command_executor::host_beacon_is_hidden(*id)
+                        {
+                            return None;
+                        }
+                        Some(obj.get_position())
+                    })
+                    .take(64)
+                    .collect();
+                let has_host_beacon_objs = logic.host_objects().values().any(|obj| {
+                    obj.is_alive() && obj.template_name.to_ascii_lowercase().contains("beacon")
+                });
+                if has_host_beacon_objs {
+                    from_objects
                 } else {
-                    #[cfg(feature = "game_client")]
-                    {
-                        use gamelogic::system::beacon_manager::snapshot_beacons;
-                        snapshot_beacons()
-                            .into_iter()
-                            .map(|b| glam::Vec3::new(b.position.x, b.position.y, b.position.z))
-                            .take(64)
-                            .collect()
-                    }
-                    #[cfg(not(feature = "game_client"))]
-                    {
-                        Vec::new()
+                    // Wave 211: prefer host-owned beacon list (no Mutex dual-read).
+                    let visible = |p: &glam::Vec3| {
+                        !crate::command_executor::host_beacon_position_is_hidden(logic, *p)
+                    };
+                    let host = logic.host_beacons();
+                    if !host.is_empty() {
+                        host.iter().copied().filter(visible).take(64).collect()
+                    } else {
+                        #[cfg(feature = "game_client")]
+                        {
+                            use gamelogic::system::beacon_manager::snapshot_beacons;
+                            snapshot_beacons()
+                                .into_iter()
+                                .map(|b| glam::Vec3::new(b.position.x, b.position.y, b.position.z))
+                                .filter(visible)
+                                .take(64)
+                                .collect()
+                        }
+                        #[cfg(not(feature = "game_client"))]
+                        {
+                            Vec::new()
+                        }
                     }
                 }
             },
-            new_beacons: logic.recent_beacons().iter().copied().take(32).collect(),
+            new_beacons: logic
+                .recent_beacons()
+                .iter()
+                .copied()
+                .filter(|p| !crate::command_executor::host_beacon_position_is_hidden(logic, *p))
+                .take(32)
+                .collect(),
             script_messages: {
                 let mut v = logic.script_broadcast_texts();
                 v.extend(logic.peek_new_script_messages().iter().cloned());

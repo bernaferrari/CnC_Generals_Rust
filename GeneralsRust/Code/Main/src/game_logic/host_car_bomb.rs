@@ -214,7 +214,9 @@ pub fn suicide_car_bomb_weapon() -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-    }
+                reloading_clip: false,
+            last_bonus_rof: 0.0,
+}
 }
 
 /// Residual AOE damage at distance (primary + secondary SuicideCarBomb rings).

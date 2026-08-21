@@ -269,7 +269,15 @@ impl Object {
             if total == 0 {
                 continue;
             }
-            let full = w.ammo.unwrap_or(total).min(total);
+            let remaining_zero = w.reloading_clip
+                || (slot == self.active_weapon_slot
+                    && self.weapon_fire_status == WeaponFireStatus::ReloadingClip)
+                || (w.clip_size > 0 && w.ammo == Some(0));
+            let full = if remaining_zero {
+                0
+            } else {
+                w.ammo.unwrap_or(total).min(total)
+            };
             return Some((total, full));
         }
         None
@@ -348,8 +356,53 @@ impl Object {
         }
     }
 
+    /// C++ `Weapon::reloadWithBonus` (Weapon.cpp:1884-1912) refills the clip
+    /// at reload start. Live host defers that refill until `ClipReloadTime`
+    /// elapses so `ammo == 0` can still mark `RELOADING_CLIP`. Completing here
+    /// matches leftover `Weapon::update` late refill + C++ `getStatus` READY.
+    fn complete_elapsed_auto_reload_clips(&mut self, current_time: f32) -> bool {
+        use crate::game_logic::weapon_bootstrap::{
+            host_reload_type_for_weapon_name, HostReloadType,
+        };
+        let rof = self.weapon_bonus_fields().2;
+        let mut completed = false;
+        for slot in [0u8, 1, 2] {
+            let name = self.weapon_name_for_slot(slot).map(str::to_owned);
+            let reload_type = name
+                .as_deref()
+                .map(host_reload_type_for_weapon_name)
+                .unwrap_or(HostReloadType::Auto);
+            if reload_type != HostReloadType::Auto {
+                continue;
+            }
+            let Some(weapon) = self.weapon_slot(slot) else {
+                continue;
+            };
+            if weapon.clip_size == 0 {
+                continue;
+            }
+            let waiting = weapon.reloading_clip || weapon.ammo == Some(0);
+            if !waiting {
+                continue;
+            }
+            let reload = self.live_reload_interval(weapon, name.as_deref(), rof);
+            if current_time - weapon.last_fire_time + 1e-6 < reload {
+                continue;
+            }
+            if let Some(weapon) = self.weapon_slot_mut(slot) {
+                weapon.ammo = Some(weapon.clip_size);
+                weapon.reloading_clip = false;
+            }
+        }
+        completed
+    }
+
     /// C++ Weapon::getStatus residual refresh for the active/primary slot.
     pub fn refresh_weapon_fire_status(&mut self, current_time: f32) {
+        self.apply_weapon_bonus_rof_restart(current_time);
+        if self.complete_elapsed_auto_reload_clips(current_time) {
+            self.record_host_weapon_stats();
+        }
         // Pre-attack wind-up wins while armed.
         if self.pre_attack_ready_at > current_time + 1e-6 {
             self.weapon_fire_status = WeaponFireStatus::PreAttack;
@@ -370,9 +423,8 @@ impl Object {
             return;
         }
         if current_time - weapon.last_fire_time < reload - 1e-6 {
-            if weapon.clip_size > 0
-                && weapon.ammo == Some(0)
-                && weapon.clip_reload_time > 0.0
+            if weapon.reloading_clip
+                || (weapon.clip_size > 0 && weapon.ammo == Some(0))
             {
                 self.weapon_fire_status = WeaponFireStatus::ReloadingClip;
             } else {
@@ -446,14 +498,16 @@ impl Object {
             }
         }
         let target_faerie = target.is_faerie_fire();
-        let primary_ok = self.weapon_slot(0).is_some_and(|w| {
-            self.weapon_ready_vs_target_bonused(w, current_time, target_faerie)
-                && self.can_target_with_slot(target, w, Some(0))
-        });
-        let secondary_ok = self.secondary_weapon.as_ref().is_some_and(|w| {
-            self.weapon_ready_vs_target_bonused(w, current_time, target_faerie)
-                && self.can_target_with_slot(target, w, Some(1))
-        });
+        let primary_ok = self.thing.template.slot_allows_auto_choose(0)
+            && self.weapon_slot(0).is_some_and(|w| {
+                self.weapon_ready_vs_target_bonused(w, current_time, target_faerie)
+                    && self.can_target_with_slot(target, w, Some(0))
+            });
+        let secondary_ok = self.thing.template.slot_allows_auto_choose(1)
+            && self.secondary_weapon.as_ref().is_some_and(|w| {
+                self.weapon_ready_vs_target_bonused(w, current_time, target_faerie)
+                    && self.can_target_with_slot(target, w, Some(1))
+            });
 
         // Manual weapon-slot toggle (command residual).
         if self.active_weapon_slot == 2 {
@@ -474,7 +528,12 @@ impl Object {
         }
 
         if self.active_weapon_slot == 1 {
-            if secondary_ok {
+            // Explicit secondary (flashbang / TOW) even if AutoChoose is NONE.
+            let secondary_explicit = self.secondary_weapon.as_ref().is_some_and(|w| {
+                self.weapon_ready_vs_target_bonused(w, current_time, target_faerie)
+                    && self.can_target_with_slot(target, w, Some(1))
+            });
+            if secondary_explicit {
                 return Some(1);
             }
             if primary_ok {
@@ -567,8 +626,11 @@ impl Object {
     }
 
     /// C++ WeaponSet.cpp:869-877 — PreferredAgainst KindOf match, ready unless
-    /// the clip is empty (`OUT_OF_AMMO`).
+    /// the clip is empty (`OUT_OF_AMMO`). AutoChoose NONE slots stay button-only.
     fn ini_preferred_slot_usable(&self, slot: u8, target: &Object) -> bool {
+        if !self.thing.template.slot_allows_auto_choose(slot) {
+            return false;
+        }
         if !self
             .thing
             .template
@@ -582,7 +644,7 @@ impl Object {
         if !self.can_target_with_slot(target, weapon, Some(slot)) {
             return false;
         }
-        !(weapon.clip_size > 0 && weapon.ammo == Some(0))
+        !(weapon.clip_size > 0 && weapon.ammo == Some(0) && !weapon.reloading_clip)
     }
 
     /// C++ Weapon.cpp:2655-2665 / 1898-1909 ShareWeaponReloadTime.
@@ -633,14 +695,62 @@ impl Object {
                 );
             }
         }
+        let firing_reloading = self.weapon_slot(firing_slot).is_some_and(|weapon| {
+            weapon.reloading_clip || (weapon.clip_size > 0 && weapon.ammo == Some(0))
+        });
         for slot in [0u8, 1, 2] {
             if let (Some(last_fire), Some(weapon)) =
                 (stamp[slot as usize], self.weapon_slot_mut(slot))
             {
                 weapon.last_fire_time = last_fire;
+                weapon.reloading_clip = firing_reloading;
             }
         }
     }
+
+    /// C++ Weapon::onWeaponBonusChange — restart RELOADING / BETWEEN waits.
+    fn apply_weapon_bonus_rof_restart(&mut self, current_time: f32) {
+        let rof = self.weapon_bonus_fields().2;
+        let mut restart = false;
+        let mut restart_clip = false;
+        for slot in [0u8, 1, 2] {
+            let Some(weapon) = self.weapon_slot(slot) else {
+                continue;
+            };
+            if weapon.last_bonus_rof <= 0.0 {
+                continue;
+            }
+            if (weapon.last_bonus_rof - rof).abs() <= 1e-4 {
+                continue;
+            }
+            let name = self.weapon_name_for_slot(slot);
+            let interval = self.live_reload_interval(weapon, name, weapon.last_bonus_rof);
+            let waiting = current_time - weapon.last_fire_time < interval - 1e-6;
+            if waiting {
+                restart = true;
+                if weapon.reloading_clip || (weapon.clip_size > 0 && weapon.ammo == Some(0)) {
+                    restart_clip = true;
+                }
+            }
+        }
+        if restart {
+            let share = self.thing.template.share_weapon_reload_time;
+            for slot in [0u8, 1, 2] {
+                if let Some(weapon) = self.weapon_slot_mut(slot) {
+                    weapon.last_fire_time = current_time;
+                    if restart_clip && share {
+                        weapon.reloading_clip = true;
+                    }
+                }
+            }
+        }
+        for slot in [0u8, 1, 2] {
+            if let Some(weapon) = self.weapon_slot_mut(slot) {
+                weapon.last_bonus_rof = rof;
+            }
+        }
+    }
+
 
     pub fn weapon_slot(&self, slot: u8) -> Option<&Weapon> {
         match slot {
@@ -940,8 +1050,14 @@ impl Object {
     }
 
     /// Stamp AutoReloadWhenIdle deadline after a shot (C++ m_frameToForceReload).
+    /// C++ FiringTracker::shotFired reads the FIRED weapon's template each shot.
     pub fn stamp_auto_reload_when_idle(&mut self, frame: u32) {
-        let delay = self.auto_reload_when_idle_frames;
+        let delay = self
+            .weapon_name_for_slot(self.last_fire_slot)
+            .map(crate::game_logic::thing::ThingTemplate::weapon_tracker_from_store)
+            .map(|bind| bind.auto_reload_when_idle_frames)
+            .filter(|&delay| delay > 0)
+            .unwrap_or(self.auto_reload_when_idle_frames);
         if delay == 0 {
             return;
         }
@@ -963,6 +1079,7 @@ impl Object {
             if let Some(w) = self.weapon_slot_mut(slot) {
                 if w.clip_size > 0 {
                     w.ammo = Some(w.clip_size);
+                    w.reloading_clip = false;
                 }
             }
         }
@@ -1001,7 +1118,7 @@ mod tests {
             range: 200.0,
             last_fire_time: -10.0,
             ..Weapon::default()
-        }
+}
     }
 
     #[test]
@@ -1112,11 +1229,11 @@ mod tests {
         attacker.weapon = Some(Weapon {
             last_fire_time: 4.0,
             ..weapon(10.0)
-        });
+});
         attacker.secondary_weapon = Some(Weapon {
             last_fire_time: 0.0,
             ..weapon(10.0)
-        });
+});
         attacker.sync_shared_weapon_reload();
         assert_eq!(attacker.weapon.as_ref().unwrap().last_fire_time, 4.0);
         assert_eq!(
@@ -1142,12 +1259,12 @@ mod tests {
             last_fire_time: 4.0,
             reload_time: 0.2,
             ..weapon(10.0)
-        });
+});
         attacker.secondary_weapon = Some(Weapon {
             last_fire_time: 0.0,
             reload_time: 3.0,
             ..weapon(10.0)
-        });
+});
         attacker.sync_shared_weapon_reload();
         let gun = attacker.weapon.as_ref().unwrap();
         let pods = attacker.secondary_weapon.as_ref().unwrap();
@@ -1156,4 +1273,168 @@ mod tests {
         assert!((gun_ready - pods_ready).abs() < 1e-4, "{gun_ready} vs {pods_ready}");
         assert!((gun.last_fire_time - 4.0).abs() < 1e-4);
     }
+
+    #[test]
+    fn auto_choose_none_secondary_is_not_picked_while_primary_reloads() {
+        let mut attacker = Object::new(
+            {
+                let mut t = ThingTemplate::new("GLAInfantryJarmenKell");
+                t.auto_choose_masks[1] = 0;
+                t
+            },
+            ObjectId(1),
+            Team::GLA,
+        );
+        attacker.weapon = Some(Weapon {
+            last_fire_time: 1.0,
+            reload_time: 1.0,
+            ..weapon(10.0)
+});
+        attacker.secondary_weapon = Some(Weapon {
+            last_fire_time: -10.0,
+            reload_time: 0.0,
+            damage: 100.0,
+            range: 200.0,
+            ..Weapon::default()
+});
+        let mut target = Object::new(ThingTemplate::new("Tank"), ObjectId(2), Team::USA);
+        target.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
+        assert_eq!(
+            attacker.select_combat_weapon_slot(&target, 1.1),
+            None,
+            "AutoChooseSources SECONDARY NONE must not snipe during rifle DelayBetweenShots"
+        );
+    }
+
+    #[test]
+    fn share_weapon_reload_marks_sibling_reloading_clip() {
+        let mut attacker = Object::new(
+            {
+                let mut t = ThingTemplate::new("AmericaVehicleComanche");
+                t.share_weapon_reload_time = true;
+                t
+            },
+            ObjectId(1),
+            Team::USA,
+        );
+        attacker.weapon = Some(Weapon {
+            last_fire_time: 4.0,
+            clip_size: 12,
+            ammo: Some(0),
+            clip_reload_time: 2.0,
+            reloading_clip: true,
+            ..weapon(10.0)
+        });
+        attacker.secondary_weapon = Some(Weapon {
+            last_fire_time: 0.0,
+            clip_size: 8,
+            ammo: Some(8),
+            clip_reload_time: 10.0,
+            ..weapon(40.0)
+});
+        attacker.sync_shared_weapon_reload();
+        assert!(
+            attacker.secondary_weapon.as_ref().unwrap().reloading_clip,
+            "C++ setStatus(RELOADING_CLIP) on every sibling"
+        );
+        assert_eq!(attacker.secondary_weapon.as_ref().unwrap().ammo, Some(8));
+    }
+
+    #[test]
+    fn clip_reload_elapse_refills_and_clears_reloading() {
+        let mut attacker = Object::new(
+            ThingTemplate::new("ClipWait"),
+            ObjectId(1),
+            Team::USA,
+        );
+        attacker.weapon = Some(Weapon {
+            last_fire_time: 1.0,
+            clip_size: 4,
+            ammo: Some(0),
+            clip_reload_time: 1.0,
+            reloading_clip: true,
+            reload_time: 0.2,
+            ..weapon(10.0)
+        });
+        attacker.refresh_weapon_fire_status(1.5);
+        assert_eq!(attacker.weapon_fire_status, WeaponFireStatus::ReloadingClip);
+        assert_eq!(attacker.weapon.as_ref().unwrap().ammo, Some(0));
+        attacker.refresh_weapon_fire_status(2.05);
+        assert_eq!(attacker.weapon.as_ref().unwrap().ammo, Some(4));
+        assert!(!attacker.weapon.as_ref().unwrap().reloading_clip);
+        assert_eq!(attacker.weapon_fire_status, WeaponFireStatus::ReadyToFire);
+    }
+
+    #[test]
+    fn clip_reload_time_zero_is_ready_same_frame() {
+        let mut attacker = Object::new(
+            ThingTemplate::new("InstantClip"),
+            ObjectId(1),
+            Team::USA,
+        );
+        attacker.weapon = Some(Weapon {
+            last_fire_time: 1.0,
+            clip_size: 2,
+            ammo: Some(0),
+            clip_reload_time: 0.0,
+            reloading_clip: true,
+            reload_time: 1.0,
+            ..weapon(10.0)
+        });
+        attacker.refresh_weapon_fire_status(1.0);
+        assert_eq!(attacker.weapon.as_ref().unwrap().ammo, Some(2));
+        assert!(!attacker.weapon.as_ref().unwrap().reloading_clip);
+        assert_eq!(attacker.weapon_fire_status, WeaponFireStatus::ReadyToFire);
+    }
+
+    #[test]
+    fn rof_bonus_change_restarts_in_progress_reload() {
+        let mut attacker = Object::new(
+            ThingTemplate::new("RofWait"),
+            ObjectId(1),
+            Team::USA,
+        );
+        attacker.weapon = Some(Weapon {
+            last_fire_time: 1.0,
+            reload_time: 1.0,
+            last_bonus_rof: 1.0,
+            ..weapon(10.0)
+        });
+        attacker.weapon_bonus_veteran = true;
+        attacker.refresh_weapon_fire_status(1.5);
+        let last = attacker.weapon.as_ref().unwrap().last_fire_time;
+        assert!(
+            (last - 1.5).abs() < 1e-4,
+            "C++ onWeaponBonusChange restarts the wait from now, last={last}"
+        );
+    }
+
+    #[test]
+    fn weaponset_change_unlocks_unless_shared_across_sets() {
+        let mut attacker = Object::new(
+            ThingTemplate::new("AmericaVehicleHumvee"),
+            ObjectId(1),
+            Team::USA,
+        );
+        attacker.weapon = Some(weapon(10.0));
+        attacker.secondary_weapon = Some(weapon(30.0));
+        assert!(attacker.set_weapon_lock(1, WeaponLockType::LockedPermanently));
+        attacker.apply_veterancy_bonuses(
+            crate::game_logic::VeterancyLevel::Rookie,
+            crate::game_logic::VeterancyLevel::Veteran,
+        );
+        assert!(!attacker.is_weapon_locked());
+        assert_eq!(attacker.active_weapon_slot, 0);
+
+        attacker.thing.template.weapon_lock_shared_across_sets = true;
+        assert!(attacker.set_weapon_lock(1, WeaponLockType::LockedPermanently));
+        attacker.apply_veterancy_bonuses(
+            crate::game_logic::VeterancyLevel::Veteran,
+            crate::game_logic::VeterancyLevel::Elite,
+        );
+        assert!(attacker.is_weapon_locked());
+        assert_eq!(attacker.weapon_lock_slot, 1);
+    }
+
+
 }

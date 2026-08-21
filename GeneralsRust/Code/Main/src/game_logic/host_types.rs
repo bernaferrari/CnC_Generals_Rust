@@ -239,7 +239,13 @@ pub enum KindOf {
     /// C++ `KINDOF_TECH_BUILDING`. Captured oil/tech reverts to Neutral on killPlayer.
     /// Gameplay-only: the compact presentation KindOf bank is full.
     TechBuilding,
-
+    /// C++ `KINDOF_LANDMARK_BRIDGE`. Map-placed non-resizable spans (TsingMa).
+    /// Gameplay-only: the compact presentation KindOf bank is full.
+    LandmarkBridge,
+    /// C++ `KINDOF_AUTO_RALLYPOINT`. Factories/producers that accept
+    /// ACTIONTYPE_SET_RALLY_POINT. Gameplay-only: the compact presentation
+    /// KindOf bank is full.
+    AutoRallypoint,
 
 }
 
@@ -260,9 +266,11 @@ impl KindOf {
             "IMMUNE_TO_CAPTURE" | "IMMUNETOCAPTURE" => Some(Self::ImmuneToCapture),
             "DEFENSIVE_WALL" | "DEFENSIVEWALL" => Some(Self::DefensiveWall),
             "BRIDGE" => Some(Self::Bridge),
+            "LANDMARK_BRIDGE" | "LANDMARKBRIDGE" => Some(Self::LandmarkBridge),
             "BRIDGE_TOWER" | "BRIDGETOWER" => Some(Self::BridgeTower),
             "STEALTH_GARRISON" | "STEALTHGARRISON" => Some(Self::StealthGarrison),
             "TECH_BUILDING" | "TECHBUILDING" => Some(Self::TechBuilding),
+            "AUTO_RALLYPOINT" | "AUTO_RALLY_POINT" => Some(Self::AutoRallypoint),
 
             "DRONE" => Some(Self::Drone),
             _ => None,
@@ -449,6 +457,21 @@ pub struct ObjectStatus {
     /// C++ ParachuteContain::m_isLandingOverrideSet residual.
     #[serde(default)]
     pub parachute_landing_override_set: bool,
+    /// C++ `AIRappelState` residual — descending a combat-drop rope.
+    #[serde(default)]
+    pub rappelling: bool,
+    /// Host-Y dest (C++ `m_destZ`: layer height + structure roof).
+    #[serde(default)]
+    pub rappel_dest_y: f32,
+    /// C++ `m_targetIsBldg`.
+    #[serde(default)]
+    pub rappel_target_is_bldg: bool,
+    /// C++ rappel goal object (garrison structure).
+    #[serde(default)]
+    pub rappel_target: Option<ObjectId>,
+    /// Locomotor max speed saved across `setDesiredSpeed(m_rappelSpeed)`.
+    #[serde(default)]
+    pub rappel_saved_speed: f32,
     /// Original controlling team when DISABLED_UNMANNED was applied.
     /// Host killpilot sets team Neutral; this preserves PartitionFilterPlayer residual.
     #[serde(default)]
@@ -640,6 +663,14 @@ pub struct Weapon {
     /// 0.0 = no splash (direct hit only).
     #[serde(default)]
     pub splash_radius: f32,
+    /// C++ `Weapon::m_status == RELOADING_CLIP`. ShareWeaponReloadTime siblings
+    /// keep this set so `getRemainingAmmo` / pips report 0 while the clip waits.
+    #[serde(default)]
+    pub reloading_clip: bool,
+    /// Last RATE_OF_FIRE bonus applied to this slot. 0 = unset.
+    /// C++ `Weapon::onWeaponBonusChange` restarts an in-progress wait.
+    #[serde(default)]
+    pub last_bonus_rof: f32,
     /// C++ `Weapon::m_suspendFXFrame` (Weapon.cpp:1742).  This is client-only
     /// runtime state: FireFX is suppressed while the current logic frame is
     /// below this absolute frame, but recoil still broadcasts.  Keep it out
@@ -665,6 +696,8 @@ impl Default for Weapon {
             projectile_speed: 200.0,
             pre_attack_delay: 0.0,
             splash_radius: 0.0,
+            reloading_clip: false,
+            last_bonus_rof: 0.0,
             suspend_fx_frame: 0,
         }
     }
@@ -732,6 +765,10 @@ mod tests {
         assert_eq!(
             KindOf::from_ini_token("STEALTH_GARRISON"),
             Some(KindOf::StealthGarrison)
+        );
+        assert_eq!(
+            KindOf::from_ini_token("AUTO_RALLYPOINT"),
+            Some(KindOf::AutoRallypoint)
         );
         assert_eq!(KindOf::from_ini_token("FS_FACTORY"), None);
     }

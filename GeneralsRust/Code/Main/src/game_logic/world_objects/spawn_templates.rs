@@ -841,6 +841,16 @@ impl GameLogic {
         if has_kind("defensive_wall") {
             template.add_kind_of(KindOf::DefensiveWall);
         }
+        if has_kind("bridge") {
+            template.add_kind_of(KindOf::Bridge);
+        }
+        if has_kind("landmark_bridge") {
+            template.add_kind_of(KindOf::LandmarkBridge);
+            template.add_kind_of(KindOf::Bridge);
+        }
+        if has_kind("bridge_tower") {
+            template.add_kind_of(KindOf::BridgeTower);
+        }
         if has_kind("can_see_through") || has_kind("can_see_through_structure") {
             template.add_kind_of(KindOf::CanSeeThrough);
         }
@@ -849,6 +859,10 @@ impl GameLogic {
         }
         if has_kind("always_visible") {
             template.always_visible = true;
+        }
+        // C++ KINDOF_AUTO_RALLYPOINT — factory empty-ground SET_RALLY_POINT.
+        if has_kind("auto_rallypoint") || has_kind("auto_rally_point") {
+            template.add_kind_of(KindOf::AutoRallypoint);
         }
     }
 
@@ -2370,13 +2384,18 @@ impl GameLogic {
             Self::object_definition_attr(definition, "maxsimultaneouslinkkey")
                 .map(|value| stripped_value(&value).to_string())
                 .filter(|value| !value.is_empty());
-        template.max_simultaneous_determined_by_superweapon_restriction =
-            Self::object_definition_attr(definition, "maxsimultaneousoftype").is_some_and(
-                |value| {
-                    stripped_value(&value)
-                        .eq_ignore_ascii_case("DeterminedBySuperweaponRestriction")
-                },
-            );
+        // C++ ThingTemplate::parseMaxSimultaneous: numeric UnsignedShort or
+        // DeterminedBySuperweaponRestriction (stores 0 + the restriction bool).
+        if let Some(value) = Self::object_definition_attr(definition, "maxsimultaneousoftype") {
+            let token = stripped_value(&value);
+            if token.eq_ignore_ascii_case("DeterminedBySuperweaponRestriction") {
+                template.max_simultaneous_determined_by_superweapon_restriction = true;
+                template.max_simultaneous_of_type = 0;
+            } else if let Some(n) = parse_cxx_int(token).and_then(|v| u16::try_from(v).ok()) {
+                template.max_simultaneous_of_type = n;
+                template.max_simultaneous_determined_by_superweapon_restriction = false;
+            }
+        }
 
         template.special_power_modules.clear();
         let power_store = get_special_power_store();
@@ -3125,11 +3144,14 @@ impl GameLogic {
         template: &mut ThingTemplate,
         definition: &ObjectDefinition,
     ) {
-        template.primary_auto_choose_none = definition
+        if let Some(set) = definition
             .weapon_sets
             .iter()
             .find(|set| set.is_unconditional())
-            .is_some_and(|set| set.auto_choose_primary_none());
+        {
+            template.primary_auto_choose_none = set.auto_choose_primary_none();
+            template.apply_weapon_set_definition(set);
+        }
         template.has_fire_ocl_after_weapon_cooldown = definition.behavior_modules.iter().any(
             |module| {
                 module
@@ -5308,6 +5330,76 @@ End
             usa.rebuild_hole_expose.is_none(),
             "USA CC name/command KindOf must not fabricate a hole module"
         );
+    }
+
+    #[test]
+    fn parsed_max_simultaneous_of_type_reads_numeric_and_restriction() {
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(
+                r#"
+Object AmericaWarFactory
+  KindOf = STRUCTURE
+  MaxSimultaneousOfType = 1
+End
+Object AmericaInfantryColonelBurton
+  KindOf = INFANTRY
+  MaxSimultaneousOfType = 1
+End
+Object AmericaParticleCannonUplink
+  KindOf = STRUCTURE
+  MaxSimultaneousOfType = DeterminedBySuperweaponRestriction
+  MaxSimultaneousLinkKey = Superweapon
+End
+Object AmericaInfantryRanger
+  KindOf = INFANTRY
+End
+"#,
+                "max_simultaneous_probe.ini",
+            )
+            .expect("parse MaxSimultaneous probe");
+        let factory = GameLogic::build_template_from_object_definition(
+            "AmericaWarFactory",
+            parser
+                .get_definition("AmericaWarFactory")
+                .expect("factory"),
+            None,
+        );
+        assert_eq!(factory.max_simultaneous_of_type, 1);
+        assert!(!factory.max_simultaneous_determined_by_superweapon_restriction);
+
+        let burton = GameLogic::build_template_from_object_definition(
+            "AmericaInfantryColonelBurton",
+            parser
+                .get_definition("AmericaInfantryColonelBurton")
+                .expect("burton"),
+            None,
+        );
+        assert_eq!(burton.max_simultaneous_of_type, 1);
+
+        let particle = GameLogic::build_template_from_object_definition(
+            "AmericaParticleCannonUplink",
+            parser
+                .get_definition("AmericaParticleCannonUplink")
+                .expect("puc"),
+            None,
+        );
+        assert_eq!(particle.max_simultaneous_of_type, 0);
+        assert!(particle.max_simultaneous_determined_by_superweapon_restriction);
+        assert_eq!(
+            particle.max_simultaneous_link_key.as_deref(),
+            Some("Superweapon")
+        );
+
+        let ranger = GameLogic::build_template_from_object_definition(
+            "AmericaInfantryRanger",
+            parser
+                .get_definition("AmericaInfantryRanger")
+                .expect("ranger"),
+            None,
+        );
+        assert_eq!(ranger.max_simultaneous_of_type, 0);
+        assert!(!ranger.max_simultaneous_determined_by_superweapon_restriction);
     }
 
     #[test]

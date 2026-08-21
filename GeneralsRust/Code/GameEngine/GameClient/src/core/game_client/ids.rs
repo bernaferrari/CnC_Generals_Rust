@@ -150,6 +150,10 @@ pub struct PresentationDrawableSync {
     pub max_garrison: u8,
     pub disabled: bool,
     pub is_carbomb: bool,
+    /// C++ drawBombed sticky type residual: 0 none, 1 timed, 2 remote.
+    pub bomb_type: u8,
+    /// C++ StickyBombUpdate countdown residual in whole seconds.
+    pub bomb_timer_seconds: u32,
     pub weapon_bonus_enthusiastic: bool,
     /// Wave 983: healing icon residual for host empty dual-world.
     pub show_healing: bool,

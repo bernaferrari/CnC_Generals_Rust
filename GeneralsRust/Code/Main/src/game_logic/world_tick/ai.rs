@@ -186,6 +186,11 @@ impl GameLogic {
                 {
                     obj.tick_force_reload_when_idle(self.frame);
                 }
+                // C++ ObjectWeaponStatusHelper every-frame getStatus:
+                // refill auto-reload clips and flip READY when ClipReloadTime elapses.
+                if [0u8, 1, 2].iter().any(|&slot| obj.weapon_slot(slot).is_some()) {
+                    obj.refresh_weapon_fire_status(current_time);
+                }
                 obj.tick_spy_vision_disabled(self.frame);
                 if obj.tick_disguise_transition() {
                     self.bomb_truck_disguise.record_transition_halfpoint();
@@ -457,6 +462,8 @@ impl GameLogic {
             self.tick_eject_parachute_residual(object_id);
             // AmericaCrateParachute residual sink (cargo crate freefall → OpenDist → land).
             self.tick_crate_parachute_residual(object_id);
+            // C++ AIRappelState: combat-drop rappel dest Z / kill-2 / addToContain.
+            self.tick_rappel_into(object_id);
             // PilotFindVehicleUpdate residual: AI idle pilot auto-scan for
             // recrewable unmanned vehicles (ScanRate 1000ms / range 300 / MinHealth 0.5).
             // C++ human players sleep forever — host residual: is_local → skip.

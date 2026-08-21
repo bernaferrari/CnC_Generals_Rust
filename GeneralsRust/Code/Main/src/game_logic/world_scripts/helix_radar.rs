@@ -948,7 +948,7 @@ impl GameLogic {
     /// team-shaped API above remains for legacy/map callers that genuinely do
     /// not carry a PlayerId; a concrete caster must never debit or credit the
     /// first same-faction player instead.
-    fn steal_cash_between_players(
+    pub(in super::super) fn steal_cash_between_players(
         &mut self,
         from_player_id: u32,
         to_player_id: u32,
@@ -1067,13 +1067,13 @@ impl GameLogic {
                 shroud_mgr.init_shroud_grid(world_w, world_h);
             }
 
+            // C++ RadarVanPing: instant full VisionRange, then shrink after delay.
+            // Do not queue_undo at the full radius — apply_radar_scan_dynamic_shroud
+            // undoes/re-reveals as ShrinkDelay/ShrinkTime contract the disk.
             shroud_mgr.do_shroud_reveal(&center, radius, player_mask);
-            shroud_mgr.queue_undo_shroud_reveal(&center, radius, player_mask, duration, frame);
 
-            // Observe FOW: center must be visible for the commanding player.
             let mut visible = shroud_mgr.is_position_visible(player_id.min(31), &center);
             if !visible {
-                // Team-shared mask may use a different bit; check any teammate bit.
                 for bit in 0..32u32 {
                     if (player_mask & (1u32 << bit)) != 0
                         && shroud_mgr.is_position_visible(bit, &center)
@@ -1097,9 +1097,9 @@ impl GameLogic {
             expires_frame: frame.saturating_add(duration),
             caster_id,
             fow_reveal_ok,
-            // Wave 48: RadarVanPing DynamicShroud + StealthDetector residual on activate.
             dynamic_shroud_applied: true,
             stealth_detector_applied: true,
+            last_applied_radius: radius,
         });
 
         self.queue_audio_event(
@@ -1120,8 +1120,10 @@ impl GameLogic {
         fow_reveal_ok || self.radar_scans.activations() > 0
     }
 
-    /// Advance RadarScan residual: expire bookkeeping + process shroud undos.
+    /// Advance RadarScan residual: shrink FOW + expire + undo.
     pub(in super::super) fn update_radar_scans(&mut self) {
+        self.apply_radar_scan_dynamic_shroud();
+        self.undo_expired_radar_scan_shroud();
         self.radar_scans.prune_expired(self.frame);
         if let Ok(mut shroud_mgr) = get_shroud_manager().lock() {
             shroud_mgr.process_pending_undo_shroud_reveals(self.frame);
@@ -1875,6 +1877,7 @@ impl GameLogic {
         for _ in 0..newly_visible {
             self.spy_satellites.record_fow_reveal();
         }
+        self.refresh_dynamic_shroud_grid_decals();
     }
 
     fn undo_expired_spy_satellite_shroud(&mut self) {
@@ -1896,6 +1899,145 @@ impl GameLogic {
                 shroud_mgr.undo_shroud_reveal(&center, radius, player_mask);
             }
         }
+    }
+
+    /// C++ RadarVanPing DynamicShroudClearingRangeUpdate shrink curve.
+    fn apply_radar_scan_dynamic_shroud(&mut self) {
+        use gamelogic::common::Coord3D;
+        let frame = self.frame;
+        let work: Vec<(Vec3, f32, f32, u32, u32)> = self
+            .radar_scans
+            .active_scans()
+            .iter()
+            .map(|s| {
+                let new_r = s.dynamic_shroud_radius(frame);
+                (s.location, s.last_applied_radius, new_r, s.player_mask, s.player_id)
+            })
+            .collect();
+        if work.is_empty() {
+            return;
+        }
+        if let Ok(mut shroud_mgr) = get_shroud_manager().lock() {
+            for (location, old_r, new_r, player_mask, _) in &work {
+                let center = Coord3D::new(location.x, location.z, location.y);
+                if (*new_r - *old_r).abs() <= 0.01 {
+                    continue;
+                }
+                if *old_r > 0.01 {
+                    shroud_mgr.undo_shroud_reveal(&center, *old_r, *player_mask);
+                }
+                if *new_r > 0.01 {
+                    shroud_mgr.do_shroud_reveal(&center, *new_r, *player_mask);
+                }
+            }
+        }
+        for scan in self.radar_scans.active_scans_mut() {
+            let new_r = scan.dynamic_shroud_radius(frame);
+            scan.last_applied_radius = new_r;
+            scan.radius = new_r;
+        }
+        self.refresh_dynamic_shroud_grid_decals();
+    }
+
+    fn undo_expired_radar_scan_shroud(&mut self) {
+        use gamelogic::common::Coord3D;
+        let frame = self.frame;
+        let expired: Vec<(Vec3, f32, u32)> = self
+            .radar_scans
+            .active_scans()
+            .iter()
+            .filter(|s| s.is_expired(frame) && s.last_applied_radius > 0.01)
+            .map(|s| (s.location, s.last_applied_radius, s.player_mask))
+            .collect();
+        if expired.is_empty() {
+            return;
+        }
+        if let Ok(mut shroud_mgr) = get_shroud_manager().lock() {
+            for (location, radius, player_mask) in expired {
+                let center = Coord3D::new(location.x, location.z, location.y);
+                shroud_mgr.undo_shroud_reveal(&center, radius, player_mask);
+            }
+        }
+    }
+
+    /// C++ DynamicShroudClearingRangeUpdate GridDecalTemplate ring.
+    fn refresh_dynamic_shroud_grid_decals(&mut self) {
+        let frame = self.frame;
+        let mut updates: Vec<(ObjectId, f32, Vec3, Option<u32>)> = Vec::new();
+        for (id, obj) in &self.objects {
+            if !obj.is_alive() {
+                continue;
+            }
+            let radius = if obj.spy_satellite_ping {
+                self.spy_satellites
+                    .active_scans()
+                    .iter()
+                    .find(|s| (s.location - obj.get_position()).length() < 5.0)
+                    .map(|s| s.last_applied_radius.max(s.radius))
+            } else if obj.radar_van_ping {
+                self.radar_scans
+                    .active_scans()
+                    .iter()
+                    .find(|s| (s.location - obj.get_position()).length() < 5.0)
+                    .map(|s| s.last_applied_radius.max(s.radius))
+            } else {
+                None
+            };
+            let Some(radius) = radius else {
+                continue;
+            };
+            updates.push((*id, radius, obj.get_position(), obj.owner_player_id));
+        }
+        for (id, radius, pos, owner) in updates {
+            self.apply_ping_grid_decal(id, radius, pos, owner, frame);
+        }
+    }
+
+    fn apply_ping_grid_decal(
+        &mut self,
+        id: ObjectId,
+        radius: f32,
+        pos: Vec3,
+        owner: Option<u32>,
+        frame: u32,
+    ) {
+        use crate::game_logic::host_radius_decal_update::{
+            HostRadiusDecalTemplate, HostRadiusDecalUpdateData,
+        };
+        let Some(obj) = self.objects.get_mut(&id) else {
+            return;
+        };
+        let is_spy = obj.spy_satellite_ping;
+        if obj.radius_decal_update.is_none() {
+            obj.radius_decal_update = Some(HostRadiusDecalUpdateData::default());
+        }
+        let Some(rd) = obj.radius_decal_update.as_mut() else {
+            return;
+        };
+        if radius <= 0.01 {
+            rd.kill_radius_decal();
+            return;
+        }
+        let tmpl = HostRadiusDecalTemplate {
+            name: if is_spy {
+                "SpySatellitePingGrid".into()
+            } else {
+                "RadarVanPingGrid".into()
+            },
+            texture: "EXGrid".into(),
+            opacity_min: 0.25,
+            opacity_max: 0.9,
+            throb_frames: 0,
+            only_visible_to_owner: true,
+            color: 0,
+        };
+        rd.create_radius_decal_for_owner(
+            tmpl,
+            radius,
+            pos,
+            frame,
+            owner.map(|id| id as i32),
+        );
     }
 }
 

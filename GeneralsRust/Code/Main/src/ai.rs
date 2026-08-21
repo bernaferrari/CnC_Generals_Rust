@@ -1658,7 +1658,7 @@ impl AIPlayer {
 
         if let Some(index) = build_index {
             self.relocate_defense_if_illegal(game_logic, index);
-            if let Some((template_name, position, build_cost)) =
+            if let Some((template_name, position, mut build_cost)) =
                 self.building_queue.get(index).and_then(|building| {
                     game_logic
                         .templates
@@ -1672,6 +1672,11 @@ impl AIPlayer {
                         })
                 })
             {
+                build_cost.supplies = game_logic.modified_build_cost_supplies(
+                    self.player_id,
+                    &template_name,
+                    build_cost.supplies,
+                );
                 let started = Self::find_available_dozer(
                     game_logic,
                     self.team,
@@ -1831,7 +1836,15 @@ impl AIPlayer {
             let Some(template) = game_logic.templates.get(&building.template_name) else {
                 continue;
             };
-            if !player.can_afford(&template.build_cost) {
+            if !player.can_afford(&{
+                let mut cost = template.build_cost;
+                cost.supplies = game_logic.modified_build_cost_supplies(
+                    self.player_id,
+                    &building.template_name,
+                    template.build_cost.supplies,
+                );
+                cost
+            }) {
                 continue;
             }
 
@@ -7506,7 +7519,7 @@ mod cpp_parity_tests {
             o.weapon = Some(Weapon {
                 damage: 10.0,
                 ..Weapon::default()
-            });
+});
         }
         ai.launch_attack(&mut logic, 1000.0);
         let decisions = host_ai_decision_log::drain();
@@ -7639,7 +7652,7 @@ mod cpp_parity_tests {
             o.weapon = Some(Weapon {
                 damage: 10.0,
                 ..Weapon::default()
-            });
+});
         }
 
         ai.launch_attack(&mut logic, 1000.0);
@@ -7685,7 +7698,7 @@ mod cpp_parity_tests {
             o.weapon = Some(Weapon {
                 damage: 10.0,
                 ..Weapon::default()
-            });
+});
         }
 
         let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);

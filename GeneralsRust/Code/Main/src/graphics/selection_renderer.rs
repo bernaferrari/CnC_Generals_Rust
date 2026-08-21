@@ -20,6 +20,13 @@ use wgpu::util::DeviceExt;
 const DRAG_RECT_COLOR: [f32; 4] = [0.2, 1.0, 0.2, 0.6];
 const DRAG_RECT_LINE_WIDTH_PX: f32 = 2.0;
 
+fn drag_select_tolerance_px() -> f32 {
+    game_engine::common::ini::get_mouse_settings()
+        .map(|s| s.drag_tolerance)
+        .filter(|&v| v > 0)
+        .unwrap_or(5) as f32
+}
+
 /// C++ `InGameUI::postDraw()` draws the active RMB camera anchor as two black
 /// drop rectangles followed by two opaque green center rectangles.
 const RMB_SCROLL_ANCHOR_DROP_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
@@ -44,9 +51,11 @@ pub struct DragSelectRect {
 
 impl DragSelectRect {
     pub fn is_valid(&self) -> bool {
+        // C++ SelectionXlat.cpp:399-407 — per-axis delta > Mouse DragTolerance (default 5).
+        let tol = drag_select_tolerance_px();
         let dx = (self.end.x - self.start.x).abs();
         let dy = (self.end.y - self.start.y).abs();
-        dx > 2.0 || dy > 2.0
+        dx > tol || dy > tol
     }
 }
 
@@ -757,40 +766,9 @@ pub fn collect_selected_units(
 /// into a single 3D overlay pass that executes after the terrain pass but
 /// before the UI pass.
 
-/// Selected structure → rally_point yellow line residual (C++ InGameUI rally).
-fn pack_rally_point_lines(frame: &crate::presentation_frame::PresentationFrame) -> Vec<f32> {
-    let mut out = Vec::new();
-    // Amber rally residual.
-    let color = [1.0f32, 0.85, 0.15, 0.8];
-    for o in &frame.objects {
-        if o.destroyed || !o.selected {
-            continue;
-        }
-        let Some(rp) = o.rally_point else {
-            continue;
-        };
-        // Only structures / producers.
-        if !o.is_structure {
-            continue;
-        }
-        out.extend_from_slice(&[
-            o.position.x,
-            o.position.y,
-            o.position.z,
-            color[0],
-            color[1],
-            color[2],
-            color[3],
-            rp.x,
-            rp.y,
-            rp.z,
-            color[0],
-            color[1],
-            color[2],
-            color[3],
-        ]);
-    }
-    out
+/// Rally flag is the leftover RallyPointMarker mesh (unit_render_inputs), not a line.
+fn pack_rally_point_lines(_frame: &crate::presentation_frame::PresentationFrame) -> Vec<f32> {
+    Vec::new()
 }
 
 pub fn enqueue_selection_render(
@@ -1127,6 +1105,27 @@ mod selection_shader_residual_tests {
         assert!((vertices[1] - -0.51).abs() < f32::EPSILON);
         assert!((vertices[6] - 0.505).abs() < f32::EPSILON);
         assert!((vertices[13] - -0.49).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn drag_marquee_waits_for_mouse_drag_tolerance() {
+        // C++ SelectionXlat.cpp:399-407 — per-axis > DragTolerance (default 5).
+        let tiny = DragSelectRect {
+            start: Vec2::new(100.0, 50.0),
+            end: Vec2::new(104.0, 50.0),
+            window_width: 400.0,
+            window_height: 200.0,
+        };
+        assert!(!tiny.is_valid());
+        assert!(drag_rect_screen_vertices(&tiny).is_empty());
+        let ok = DragSelectRect {
+            start: Vec2::new(100.0, 50.0),
+            end: Vec2::new(106.0, 50.0),
+            window_width: 400.0,
+            window_height: 200.0,
+        };
+        assert!(ok.is_valid());
+        assert!(!drag_rect_screen_vertices(&ok).is_empty());
     }
 
     #[test]

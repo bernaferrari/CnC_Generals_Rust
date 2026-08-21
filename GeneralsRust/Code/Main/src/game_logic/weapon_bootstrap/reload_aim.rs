@@ -110,6 +110,38 @@ pub fn host_delay_between_shots_secs(name: &str) -> Option<f32> {
     .flatten()
 }
 
+/// C++ WeaponTemplate::getDelayBetweenShots frame draw before RATE_OF_FIRE.
+/// Inclusive GameLogicRandomValue when Min != Max.
+pub fn delay_between_shots_frames(min_frames: i32, max_frames: i32) -> i32 {
+    let min = min_frames.max(0);
+    let max = max_frames.max(0);
+    if min == max {
+        min
+    } else {
+        let lo = min.min(max);
+        let hi = min.max(max);
+        gamelogic::helpers::get_game_logic_random_value(lo, hi)
+    }
+}
+
+/// Per-shot DelayBetweenShots in host seconds (frames / 30), rolled when Min != Max.
+pub fn host_delay_between_shots_secs_rolled(name: &str) -> Option<f32> {
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    with_weapon_store(|store| {
+        store.find_weapon_template(name).and_then(|wt| {
+            let frames = delay_between_shots_frames(
+                wt.min_delay_between_shots,
+                wt.max_delay_between_shots,
+            );
+            (frames > 0).then_some(frames as f32 / 30.0)
+        })
+    })
+    .ok()
+    .flatten()
+}
+
+
 /// C++ Weapon.ini PrimaryDamage residual amount (Regular).
 pub fn host_primary_damage_for_weapon_name(name: &str) -> Option<f32> {
     use gamelogic::weapon::with_weapon_store;

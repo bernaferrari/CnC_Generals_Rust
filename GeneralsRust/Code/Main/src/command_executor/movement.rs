@@ -40,27 +40,49 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
-    /// C++ force-move VoiceCrush when the dest drawable is crushable.
+    /// C++ `pickAndPlayUnitVoiceResponse` force-move VoiceCrush
+    /// (`CommandXlat.cpp:413-421`): dest drawable (`m_drawTarget`), not a
+    /// pathfind-cell neighborhood. Gate is `canCrushOrSquish` (ALLIES + SquishCollide).
+    fn dest_drawable_at(&self, dest: Vec3) -> Option<ObjectId> {
+        let mut best: Option<(ObjectId, f32)> = None;
+        for other in self.game_logic.objects.values() {
+            if !other.is_alive() {
+                continue;
+            }
+            let p = other.get_position();
+            let dx = p.x - dest.x;
+            let dz = p.z - dest.z;
+            let dist_sq = dx * dx + dz * dz;
+            let r = if other.thing.template.geometry_info.authored {
+                other.thing.template.geometry_info.bounding_circle_radius()
+            } else {
+                other.selection_radius.max(1.0)
+            };
+            if dist_sq <= r * r && best.map(|(_, d)| dist_sq < d).unwrap_or(true) {
+                best = Some((other.id, dist_sq));
+            }
+        }
+        best.map(|(id, _)| id)
+    }
+
     fn force_move_has_crush_target(&self, units: &[ObjectId], dest: Vec3) -> bool {
-        let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
+        use gamelogic::common::Relationship;
+        let Some(tid) = self.dest_drawable_at(dest) else {
+            return false;
+        };
+        let Some(target) = self.game_logic.host_object(tid) else {
+            return false;
+        };
         for &uid in units {
+            if uid == tid {
+                continue;
+            }
             let Some(unit) = self.game_logic.host_object(uid) else {
                 continue;
             };
-            for other in self.game_logic.objects.values() {
-                if other.id == uid || !other.is_alive() {
-                    continue;
-                }
-                let p = other.get_position();
-                let dx = p.x - dest.x;
-                let dz = p.z - dest.z;
-                if dx * dx + dz * dz > cell * cell {
-                    continue;
-                }
-                let ally = unit.team == other.team;
-                if unit.can_crush_only(other, ally) {
-                    return true;
-                }
+            let ally = self.game_logic.object_relationship(unit, target) == Relationship::Allies;
+            if unit.can_crush_or_squish(target, ally) {
+                return true;
             }
         }
         false
@@ -393,6 +415,85 @@ impl<'a> CommandExecutor<'a> {
             out.push((unit_id, goal));
         }
         out
+    }
+
+    /// C++ `AIGroup::computeIndividualDestination` with `isFormation=false`
+    /// (`AIGroup.cpp:456-482`). Host Y-up: the group offset lives on XZ.
+    fn compute_individual_destination(
+        pos: Vec3,
+        center: Vec3,
+        group_dest: Vec3,
+        bounding_radius: f32,
+    ) -> Vec3 {
+        let mut dx = pos.x - center.x;
+        let mut dz = pos.z - center.z;
+        let mut length = (dx * dx + dz * dz).sqrt();
+        let max_length = 6.0 * bounding_radius.max(0.0);
+        if length > max_length {
+            length = max_length;
+        }
+        if length > 1e-6 {
+            let nlen = (dx * dx + dz * dz).sqrt().max(1e-6);
+            dx = (dx / nlen) * length;
+            dz = (dz / nlen) * length;
+        } else {
+            dx = 0.0;
+            dz = 0.0;
+        }
+        Vec3::new(group_dest.x + dx, group_dest.y, group_dest.z + dz)
+    }
+
+    /// C++ `groupMoveToPosition(addWaypoint=true)` dests: force
+    /// `isFormation=false`, skip column packing, nearest member is the
+    /// center, every member gets `computeIndividualDestination`
+    /// (`AIGroup.cpp:1544-1553, :1674-1694`).
+    fn group_add_waypoint_destinations(
+        &self,
+        units: &[ObjectId],
+        destination: Vec3,
+    ) -> Vec<(ObjectId, Vec3)> {
+        let mut movers: Vec<(ObjectId, Vec3, f32)> = Vec::with_capacity(units.len());
+        for &unit_id in units {
+            let Some(obj) = self.game_logic.host_object(unit_id) else {
+                continue;
+            };
+            if !obj.is_alive()
+                || !obj.can_move()
+                || obj.status.disabled_held
+                || obj.contained_by.is_some()
+            {
+                continue;
+            }
+            if obj.is_kind_of(crate::game_logic::KindOf::Immobile)
+                || obj.is_kind_of(crate::game_logic::KindOf::Structure)
+            {
+                continue;
+            }
+            movers.push((
+                unit_id,
+                obj.get_position(),
+                Self::bounding_circle_radius(obj),
+            ));
+        }
+        if movers.is_empty() {
+            return Vec::new();
+        }
+        // Near-to-far vs goal (C++ SimpleObjectIterator ITER_SORTED_NEAR_TO_FAR).
+        movers.sort_by(|a, b| {
+            let da = (a.1.x - destination.x).hypot(a.1.z - destination.z);
+            let db = (b.1.x - destination.x).hypot(b.1.z - destination.z);
+            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let center = movers[0].1;
+        movers
+            .into_iter()
+            .map(|(id, pos, radius)| {
+                (
+                    id,
+                    Self::compute_individual_destination(pos, center, destination, radius),
+                )
+            })
+            .collect()
     }
 
     /// C++ GlobalData::m_groupMoveClickToGatherFactor residual (1.0 = full bbox).
@@ -823,20 +924,40 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         destination: Vec3,
     ) -> CommandResult {
-        // C++ groupMoveToPosition(addWaypoint): individual dests + path append.
-        let goals = self.group_move_destinations(units, destination);
+        // C++ groupMoveToPosition(addWaypoint=true): clamp first, then
+        // isFormation=false / skip column packing / clear formation /
+        // computeIndividualDestination. Held/immobile/no-AI members are
+        // skipped; the rest still append (AIGroup.cpp:1528-1727).
+        // issueMoveToLocationCommand plays VoiceMove for MSG_ADD_WAYPOINT
+        // too, but pickAndPlay skips units already moving in waypoint mode.
+        let destination = self.clamp_group_waypoint(units, destination);
+        let goals = self.group_add_waypoint_destinations(units, destination);
         let mut moved: Vec<ObjectId> = Vec::new();
+        let mut voice: Vec<ObjectId> = Vec::new();
         for (unit_id, goal) in goals {
-            if self.game_logic.host_object(unit_id).is_none() {
-                return CommandResult::InvalidTarget;
-            }
+            let Some(obj) = self.game_logic.host_object(unit_id) else {
+                continue;
+            };
+            let was_moving = obj.is_effectively_moving();
+            let _ = self
+                .game_logic
+                .unit_command_set_formation(unit_id, 0, glam::Vec2::ZERO);
             if !self.game_logic.append_unit_waypoint(unit_id, goal) {
-                return CommandResult::InvalidCommand;
+                continue;
+            }
+            if !was_moving {
+                voice.push(unit_id);
             }
             moved.push(unit_id);
             debug!("Added waypoint for unit {} at {:?}", unit_id.0, goal);
         }
         self.apply_player_stealth_mood_delay(&moved);
+        if !voice.is_empty() {
+            self.game_logic.queue_picked_unit_voice(
+                &voice,
+                crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Move,
+            );
+        }
         CommandResult::Success
     }
 

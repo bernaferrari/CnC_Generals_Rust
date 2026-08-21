@@ -947,8 +947,8 @@ impl GlobalData {
 
             load_screen_render: true,
 
-            keyboard_scroll_factor: 1.0,
-            keyboard_default_scroll_factor: 1.0,
+            keyboard_scroll_factor: 0.5,
+            keyboard_default_scroll_factor: 0.5,
 
             music_volume_factor: 0.8,
             sfx_volume_factor: 0.8,
@@ -1162,14 +1162,12 @@ impl GlobalData {
             parse_game_data_block(ini, &mut data).map_err(|err| err.to_string())?;
         }
 
-        // GlobalData.cpp applies OptionPreferences after GameData.ini.  Loading the
-        // preference resolves the user-data path through this same global, so it
-        // must happen without the GameData write lock held.
-        let alternate_mouse_preference = load_alternate_mouse_preference();
-        let camera_prefs = load_replay_camera_preferences();
+        // GlobalData.cpp:1198-1224 applies OptionPreferences after GameData.ini.
+        // Loading the preference resolves the user-data path through this same
+        // global, so it must happen without the GameData write lock held.
+        let option_pref = load_option_preferences();
         let mut data = global_data.write();
-        apply_alternate_mouse_preference(&mut data, alternate_mouse_preference);
-        apply_replay_camera_preferences(&mut data, camera_prefs);
+        apply_option_preferences_overlay(&mut data, &option_pref);
         sync_runtime_global_data_from_ini(&data);
         Ok(())
     }
@@ -1221,9 +1219,15 @@ fn apply_alternate_mouse_preference(data: &mut GlobalData, preference: Option<bo
     }
 }
 
-fn load_alternate_mouse_preference() -> Option<bool> {
+fn load_option_preferences() -> UserPreferences {
     let mut preferences = UserPreferences::new();
     let _ = preferences.load("Options.ini");
+    preferences
+}
+
+#[allow(dead_code)]
+fn load_alternate_mouse_preference() -> Option<bool> {
+    let preferences = load_option_preferences();
     alternate_mouse_preference_value(
         preferences
             .get_string("UseAlternateMouse")
@@ -1233,9 +1237,9 @@ fn load_alternate_mouse_preference() -> Option<bool> {
 
 /// C++ OptionsMenu.cpp:361-382 missing SaveCameraInReplays / UseCameraInReplays → TRUE.
 /// GlobalData.cpp:1210-1211 copies those into TheWritableGlobalData at init.
+#[allow(dead_code)]
 fn load_replay_camera_preferences() -> (bool, bool) {
-    let mut preferences = UserPreferences::new();
-    let _ = preferences.load("Options.ini");
+    let preferences = load_option_preferences();
     (
         preferences.get_bool_or("SaveCameraInReplays", true),
         preferences.get_bool_or("UseCameraInReplays", true),
@@ -1245,6 +1249,64 @@ fn load_replay_camera_preferences() -> (bool, bool) {
 fn apply_replay_camera_preferences(data: &mut GlobalData, (save_camera, use_camera): (bool, bool)) {
     data.save_camera_in_replay = save_camera;
     data.use_camera_in_replay = use_camera;
+}
+
+/// C++ OptionPreferences::getScrollFactor — missing key uses Default, not GameData 2.0.
+fn scroll_factor_from_preferences(pref: &UserPreferences, default_factor: f32) -> f32 {
+    match pref.get_string("ScrollFactor") {
+        Some(raw) => raw.parse::<i32>().unwrap_or(0).clamp(0, 100) as f32 / 100.0,
+        None => default_factor,
+    }
+}
+
+/// C++ GlobalData.cpp:1213-1224 — slider 50 leaves GameData gamma; else 0.6..=2.0.
+fn display_gamma_from_slider(val: i32) -> Option<f32> {
+    if val < 50 {
+        if val <= 0 {
+            Some(0.6)
+        } else {
+            Some(1.0 - 0.4 * (50 - val) as f32 / 50.0)
+        }
+    } else if val > 50 {
+        Some(1.0 + (val - 50) as f32 / 50.0)
+    } else {
+        None
+    }
+}
+
+/// GlobalData.cpp:1198-1224 OptionPreferences overlay after GameData.ini.
+fn apply_option_preferences_overlay(data: &mut GlobalData, pref: &UserPreferences) {
+    apply_alternate_mouse_preference(
+        data,
+        alternate_mouse_preference_value(pref.get_string("UseAlternateMouse").map(String::as_str)),
+    );
+    if let Some(enabled) =
+        alternate_mouse_preference_value(pref.get_string("Retaliation").map(String::as_str))
+    {
+        data.client_retaliation_mode_enabled = enabled;
+    }
+    if let Some(enabled) = alternate_mouse_preference_value(
+        pref.get_string("UseDoubleClickAttackMove").map(String::as_str),
+    ) {
+        data.double_click_attack_move = enabled;
+    }
+    data.keyboard_scroll_factor =
+        scroll_factor_from_preferences(pref, data.keyboard_default_scroll_factor);
+    apply_replay_camera_preferences(data, load_replay_camera_from_pref(pref));
+    let gamma_slider = pref
+        .get_string("Gamma")
+        .map(|raw| raw.parse::<i32>().unwrap_or(0))
+        .unwrap_or(50);
+    if let Some(gamma) = display_gamma_from_slider(gamma_slider) {
+        data.display_gamma = gamma;
+    }
+}
+
+fn load_replay_camera_from_pref(pref: &UserPreferences) -> (bool, bool) {
+    (
+        pref.get_bool_or("SaveCameraInReplays", true),
+        pref.get_bool_or("UseCameraInReplays", true),
+    )
 }
 
 fn parse_game_data_block(ini: &mut INI, data: &mut GlobalData) -> INIResult<()> {
@@ -1695,6 +1757,8 @@ fn apply_to_runtime_global_data(data: &GlobalData, runtime: &mut runtime_global_
     runtime.draw_entire_terrain = data.draw_entire_terrain;
     runtime.terrain_lod_target_time_ms = data.terrain_lod_target_time_ms;
     runtime.use_alternate_mouse = data.use_alternate_mouse;
+    runtime.client_retaliation_mode_enabled = data.client_retaliation_mode_enabled;
+    runtime.double_click_attack_move = data.double_click_attack_move;
     runtime.save_camera_in_replay = data.save_camera_in_replay;
     runtime.use_camera_in_replay = data.use_camera_in_replay;
     runtime.right_mouse_always_scrolls = data.right_mouse_always_scrolls;
@@ -1885,6 +1949,7 @@ fn apply_to_runtime_global_data(data: &GlobalData, runtime: &mut runtime_global_
     runtime.power_bar_base = data.power_bar_base;
     runtime.power_bar_intervals = data.power_bar_intervals;
     runtime.power_bar_yellow_range = data.power_bar_yellow_range;
+    runtime.display_gamma = data.display_gamma;
     runtime.unlook_persist_duration = data.unlook_persist_duration;
     runtime.network_fps_history_length = data.network_fps_history_length;
     runtime.network_latency_history_length = data.network_latency_history_length;
@@ -2372,6 +2437,65 @@ mod tests {
         apply_to_runtime_global_data(&data, &mut runtime);
 
         assert!(runtime.use_alternate_mouse);
+    }
+
+    #[test]
+    fn scroll_factor_missing_key_uses_default_not_gamedata_speed() {
+        let pref = UserPreferences::new();
+        assert!((scroll_factor_from_preferences(&pref, 0.5) - 0.5).abs() < f32::EPSILON);
+        let mut pref = UserPreferences::new();
+        pref.set_int("ScrollFactor", 25);
+        assert!((scroll_factor_from_preferences(&pref, 0.5) - 0.25).abs() < f32::EPSILON);
+        pref.set_int("ScrollFactor", 200);
+        assert!((scroll_factor_from_preferences(&pref, 0.5) - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn display_gamma_slider_maps_like_cpp_and_leaves_50_alone() {
+        assert_eq!(display_gamma_from_slider(50), None);
+        assert_eq!(display_gamma_from_slider(0), Some(0.6));
+        assert_eq!(display_gamma_from_slider(100), Some(2.0));
+        let darker = display_gamma_from_slider(25).unwrap();
+        assert!((darker - 0.8).abs() < 0.001);
+    }
+
+    #[test]
+    fn option_overlay_applies_scroll_retaliation_double_click_gamma() {
+        let mut pref = UserPreferences::new();
+        pref.set_int("ScrollFactor", 30);
+        pref.set_string("Retaliation".to_string(), "no".to_string());
+        pref.set_string("UseDoubleClickAttackMove".to_string(), "yes".to_string());
+        pref.set_int("Gamma", 100);
+
+        let mut data = GlobalData::new();
+        data.keyboard_scroll_factor = 2.0;
+        data.keyboard_default_scroll_factor = 0.5;
+        data.client_retaliation_mode_enabled = true;
+        data.double_click_attack_move = false;
+        data.display_gamma = 1.0;
+        apply_option_preferences_overlay(&mut data, &pref);
+
+        assert!((data.keyboard_scroll_factor - 0.3).abs() < f32::EPSILON);
+        assert!(!data.client_retaliation_mode_enabled);
+        assert!(data.double_click_attack_move);
+        assert!((data.display_gamma - 2.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn apply_game_data_copies_boot_option_prefs_to_runtime() {
+        let mut data = GlobalData::new();
+        data.client_retaliation_mode_enabled = false;
+        data.double_click_attack_move = true;
+        data.display_gamma = 1.6;
+        data.keyboard_scroll_factor = 0.3;
+
+        let mut runtime = runtime_global_data::GlobalData::default();
+        apply_to_runtime_global_data(&data, &mut runtime);
+
+        assert!(!runtime.client_retaliation_mode_enabled);
+        assert!(runtime.double_click_attack_move);
+        assert!((runtime.display_gamma - 1.6).abs() < f32::EPSILON);
+        assert!((runtime.keyboard_scroll_factor - 0.3).abs() < f32::EPSILON);
     }
 
     #[test]

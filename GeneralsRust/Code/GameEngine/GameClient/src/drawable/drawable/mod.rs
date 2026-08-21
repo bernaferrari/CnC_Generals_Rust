@@ -155,6 +155,10 @@ pub struct BasicDrawable {
     presentation_max_garrison: u8,
     presentation_disabled: bool,
     presentation_is_carbomb: bool,
+    /// C++ drawBombed sticky type residual: 0 none, 1 timed, 2 remote.
+    presentation_bomb_type: u8,
+    /// C++ StickyBombUpdate countdown residual in whole seconds.
+    presentation_bomb_timer_seconds: u32,
     presentation_weapon_bonus_enthusiastic: bool,
     /// Wave 983: host healing icon residual.
     presentation_show_healing: bool,
@@ -285,6 +289,8 @@ impl BasicDrawable {
             presentation_max_garrison: 0,
             presentation_disabled: false,
             presentation_is_carbomb: false,
+            presentation_bomb_type: 0,
+            presentation_bomb_timer_seconds: 0,
             presentation_weapon_bonus_enthusiastic: false,
             presentation_show_healing: false,
             presentation_healing_icon_type: 0,

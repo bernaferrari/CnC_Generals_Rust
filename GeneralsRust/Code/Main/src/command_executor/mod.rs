@@ -61,7 +61,9 @@ mod transport;
 mod validate;
 
 pub use leftover::{
-    host_beacon_caption, host_beacon_is_hidden, take_leftover_dispatch_commands_from_common_stream,
+    host_beacon_caption, host_beacon_is_hidden, host_beacon_position_is_hidden,
+    host_local_player_can_place_beacon, take_leftover_dispatch_commands_from_common_stream,
+    tick_live_beacon_client_updates,
 };
 
 #[cfg(test)]
@@ -117,6 +119,14 @@ impl<'a> CommandExecutor<'a> {
             self.commands_failed += 1;
             return Ok(CommandResult::InvalidCommand);
         }
+        // C++ HintSpy.cpp:91-96 — MSG_DO_MOVETO / ATTACKMOVETO / FORCEMOVETO /
+        // ADD_WAYPOINT create the destination marker as the command is issued.
+        self.create_live_move_hint(&command);
+        // C++ Dozer/Worker aiDoCommand (DozerAIUpdate.cpp:2326, 2386-2387):
+        // any command clears ACTIVELY_CONSTRUCTING; CMD_FROM_PLAYER default
+        // arm (not Repair/ResumeConstruction) cancels getCurrentTask().
+        self.apply_dozer_ai_do_command(&command);
+
 
         let result = match &command.command_type {
             // Movement commands
@@ -283,7 +293,7 @@ impl<'a> CommandExecutor<'a> {
                 weapon_slot,
                 max_shots_to_fire,
                 target,
-            } => self.execute_weapon(
+} => self.execute_weapon(
                 &command.selected_units,
                 weapon_slot,
                 *max_shots_to_fire,
@@ -479,6 +489,143 @@ impl<'a> CommandExecutor<'a> {
             }
         }
         true
+    }
+
+    /// C++ HintSpy.cpp:91-96 / InGameUI::createMoveHint (InGameUI.cpp:2141).
+    fn create_live_move_hint(&self, command: &GameCommand) {
+        let destination = match &command.command_type {
+            CommandType::Move { destination }
+            | CommandType::MoveTo { destination, .. }
+            | CommandType::AttackMoveTo { destination, .. }
+            | CommandType::ForceMoveTo { destination }
+            | CommandType::AddWaypoint { destination } => *destination,
+            _ => return,
+        };
+        // C++ InGameUI.cpp:2152-2160 — single IMMOBILE selection suppresses the hint.
+        if command.selected_units.len() == 1 {
+            if let Some(obj) = self.game_logic.host_object(command.selected_units[0]) {
+                if obj.is_kind_of(KindOf::Immobile) {
+                    return;
+                }
+            }
+        }
+        #[cfg(feature = "game_client")]
+        {
+            let source_id = command.selected_units.first().map(|id| id.0).unwrap_or(0);
+            let pos = game_client::message_stream::Coord3D::new(
+                destination.x,
+                destination.y,
+                destination.z,
+            );
+            game_client::helpers::TheInGameUI::create_move_hint(pos.clone(), pos, source_id);
+        }
+        let _ = destination;
+    }
+
+    /// C++ `DozerAIUpdate::aiDoCommand` / `WorkerAIUpdate::aiDoCommand`.
+    fn apply_dozer_ai_do_command(&mut self, command: &GameCommand) {
+        if Self::player_command_clears_dozer_constructing(&command.command_type) {
+            for &unit_id in &command.selected_units {
+                self.game_logic
+                    .dozer_clear_actively_constructing_on_command(unit_id);
+            }
+        }
+        if Self::player_command_cancels_current_dozer_task(&command.command_type) {
+            for &unit_id in &command.selected_units {
+                self.game_logic
+                    .dozer_cancel_current_task_from_player(unit_id);
+            }
+        }
+        // C++ WorkerAIUpdate::aiDoCommand tail: drop boxes only if already
+        // isClearingMines. Runs before the new order mutates attack state.
+        if Self::player_command_clears_dozer_constructing(&command.command_type) {
+            for &unit_id in &command.selected_units {
+                self.game_logic
+                    .drop_worker_supply_boxes_for_mine_clear(unit_id);
+            }
+        }
+    }
+
+    /// C++ default arm: every player AI order except Repair / ResumeConstruction.
+    fn player_command_cancels_current_dozer_task(command_type: &CommandType) -> bool {
+        matches!(
+            command_type,
+            CommandType::Move { .. }
+                | CommandType::MoveTo { .. }
+                | CommandType::DoSalvage { .. }
+                | CommandType::AttackMoveTo { .. }
+                | CommandType::ForceMoveTo { .. }
+                | CommandType::AddWaypoint { .. }
+                | CommandType::Attack { .. }
+                | CommandType::AttackObject { .. }
+                | CommandType::ForceAttackObject { .. }
+                | CommandType::ForceAttackGround { .. }
+                | CommandType::AttackPosition { .. }
+                | CommandType::Stop
+                | CommandType::Guard { .. }
+                | CommandType::Patrol
+                | CommandType::AttitudeSleep
+                | CommandType::AttitudePassive
+                | CommandType::AttitudeNormal
+                | CommandType::AttitudeAggressive
+                | CommandType::Scatter
+                | CommandType::TightenToPosition { .. }
+                | CommandType::AttackTeam { .. }
+                | CommandType::FollowWaypointPath { .. }
+                | CommandType::AttackFollowWaypointPath { .. }
+                | CommandType::Surrender { .. }
+                | CommandType::Deploy
+                | CommandType::Gather { .. }
+                | CommandType::DoSpecialPower { .. }
+                | CommandType::DoWeapon { .. }
+                | CommandType::Enter { .. }
+                | CommandType::Exit
+                | CommandType::Evacuate
+                | CommandType::MoveToAndEvacuate { .. }
+                | CommandType::HackInternet
+                | CommandType::ReturnToBase
+                | CommandType::ReturnSupplies
+                | CommandType::ClearMines
+                | CommandType::SetMineClearingDetail { .. }
+                | CommandType::GoProne
+                | CommandType::AttackArea { .. }
+                | CommandType::Dock { .. }
+                | CommandType::CombatDrop { .. }
+                | CommandType::GetRepaired { .. }
+                | CommandType::GetHealed { .. }
+                | CommandType::Hijack { .. }
+                | CommandType::Sabotage { .. }
+                | CommandType::ConvertToCarbomb { .. }
+                | CommandType::CaptureBuilding { .. }
+                | CommandType::SnipeVehicle { .. }
+                | CommandType::PlantTimedDemoCharge { .. }
+                | CommandType::PlantRemoteDemoCharge { .. }
+                | CommandType::DetonateRemoteDemoCharges
+                | CommandType::DemoTertiarySuicide
+                | CommandType::StealCashHack { .. }
+                | CommandType::DisableVehicleHack { .. }
+                | CommandType::HackerDisableBuilding { .. }
+                | CommandType::DisguiseAsVehicle { .. }
+                | CommandType::PlantBoobyTrap { .. }
+                | CommandType::SwitchWeapons { .. }
+                | CommandType::CreateFormation
+                | CommandType::Cheer
+                | CommandType::ExecuteRailedTransport
+                | CommandType::SetWeaponSetFlag { .. }
+                | CommandType::SetWeaponLock { .. }
+                | CommandType::ReleaseWeaponLock { .. }
+                | CommandType::SetEmoticon { .. }
+                | CommandType::OverrideSpecialPowerDestination { .. }
+        )
+    }
+
+    /// C++ aiDoCommand head, including Repair / ResumeConstruction.
+    fn player_command_clears_dozer_constructing(command_type: &CommandType) -> bool {
+        Self::player_command_cancels_current_dozer_task(command_type)
+            || matches!(
+                command_type,
+                CommandType::Repair { .. } | CommandType::ResumeConstruction { .. }
+            )
     }
 
     fn sync_logical_retaliation_from_client(&mut self) {

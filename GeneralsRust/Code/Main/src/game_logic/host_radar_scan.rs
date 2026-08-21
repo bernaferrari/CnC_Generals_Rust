@@ -147,6 +147,9 @@ pub struct HostRadarScan {
     pub dynamic_shroud_applied: bool,
     /// True when StealthDetector residual was applied on activate.
     pub stealth_detector_applied: bool,
+    /// Last radius actually pushed to ShroudManager looker counters.
+    #[serde(default)]
+    pub last_applied_radius: f32,
 }
 
 impl HostRadarScan {
@@ -157,7 +160,8 @@ impl HostRadarScan {
     pub fn contains_horizontal(&self, pos: Vec3) -> bool {
         let dx = pos.x - self.location.x;
         let dz = pos.z - self.location.z;
-        dx * dx + dz * dz <= self.radius * self.radius
+        let r = self.radius.max(self.last_applied_radius);
+        dx * dx + dz * dz <= r * r
     }
 
     pub fn elapsed_frames(&self, current_frame: u32) -> u32 {
@@ -204,6 +208,10 @@ impl HostRadarScanRegistry {
 
     pub fn active_scans(&self) -> &[HostRadarScan] {
         &self.active
+    }
+
+    pub fn active_scans_mut(&mut self) -> &mut [HostRadarScan] {
+        &mut self.active
     }
 
     pub fn activations(&self) -> u32 {
@@ -357,6 +365,7 @@ mod tests {
             fow_reveal_ok: true,
             dynamic_shroud_applied: false,
             stealth_detector_applied: false,
+            last_applied_radius: RADAR_SCAN_RADIUS,
         });
         assert_eq!(reg.activations(), 1);
         assert_eq!(reg.fow_reveals(), 1);

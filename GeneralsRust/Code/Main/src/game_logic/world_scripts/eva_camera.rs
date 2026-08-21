@@ -491,6 +491,18 @@ impl GameLogic {
         let _ = self.host_beacons.pop();
     }
 
+    /// Remove a specific host beacon position (hide / selected destroy).
+    pub fn note_beacon_removed_at(&mut self, position: Vec3) {
+        const MATCH: f32 = 3.0;
+        if let Some(idx) = self
+            .host_beacons
+            .iter()
+            .position(|p| (*p - position).length() <= MATCH)
+        {
+            self.host_beacons.remove(idx);
+        }
+    }
+
     /// Active host beacon positions for presentation freeze.
     pub fn host_beacons(&self) -> &[Vec3] {
         &self.host_beacons

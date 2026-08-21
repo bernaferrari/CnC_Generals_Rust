@@ -319,6 +319,8 @@ pub fn raptor_weapon(is_king: bool, has_laser_missiles: bool) -> Weapon {
             RAPTOR_CLIP_RELOAD_FRAMES
         }),
         splash_radius: 0.0,
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
         suspend_fx_frame: 0,
     }
 }

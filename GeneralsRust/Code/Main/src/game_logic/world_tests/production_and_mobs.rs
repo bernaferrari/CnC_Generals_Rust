@@ -338,7 +338,9 @@ fn overlord_gattling_addon_residual_install_and_fire() {
             pre_attack_delay: 0.0,
             splash_radius: 0.0,
             suspend_fx_frame: 0,
-        });
+                    reloading_clip: false,
+            last_bonus_rof: 0.0,
+});
     }
 
     // Install gattling addon residual (upgrade path).
@@ -648,7 +650,9 @@ fn nuke_cannon_primary_residual_area_and_radiation() {
                 pre_attack_delay: 0.0,
                 splash_radius: 0.0,
                 suspend_fx_frame: 0,
-            });
+                        reloading_clip: false,
+            last_bonus_rof: 0.0,
+});
         }
         // Place cannon within residual range of targets.
         c.set_position(Vec3::new(180.0, 0.0, 0.0));
@@ -784,7 +788,7 @@ fn battle_bus_residual_enter_sets_docked_and_upgrades_weapon_set() {
             reload_time: 0.5,
             last_fire_time: -10.0,
             ..Weapon::default()
-        });
+});
     }
 
     game_logic.queue_command(GameCommand {
@@ -850,7 +854,7 @@ fn battle_bus_residual_load_two_unload_both_free() {
                 reload_time: 0.5,
                 last_fire_time: -10.0,
                 ..Weapon::default()
-            });
+});
             unit.target = Some(bus_id);
             unit.set_ai_state(AIState::Entering);
         }
@@ -942,7 +946,7 @@ fn battle_bus_residual_passenger_fire_damages_nearby_enemy() {
             reload_time: 0.1,
             last_fire_time: -10.0,
             ..Weapon::default()
-        });
+});
         unit.target = Some(bus_id);
         unit.set_contained_by(Some(bus_id));
         unit.set_ai_state(AIState::Docked);
@@ -1387,7 +1391,9 @@ fn deploy_style_nuke_launcher_normal_attack_waits_for_range_and_unpack() {
             pre_attack_delay: 0.0,
             splash_radius: 0.0,
             suspend_fx_frame: 0,
-        });
+                    reloading_clip: false,
+            last_bonus_rof: 0.0,
+});
     // Retail ChinaVehicleNukeLauncher has 3333ms Pack/Unpack, parsed with
     // C++ duration rounding into 100 logic frames. The source flags remain
     // data even though turret centering/manual animation are fail-closed.
@@ -1563,7 +1569,9 @@ fn deploy_style_sentry_auto_target_loss_clears_pending_attack() {
             pre_attack_delay: 0.0,
             splash_radius: 0.0,
             suspend_fx_frame: 0,
-        });
+                    reloading_clip: false,
+            last_bonus_rof: 0.0,
+});
     }
 
     logic.set_current_frame(1);
@@ -1639,7 +1647,7 @@ fn jet_out_of_ammo_paths_to_distant_airfield_then_rearms() {
             can_target_air: true,
             can_target_ground: true,
             ..Weapon::default()
-        });
+});
         jet.status.airborne_target = true;
     }
     assert!(logic
@@ -1663,10 +1671,12 @@ fn jet_out_of_ammo_paths_to_distant_airfield_then_rearms() {
         assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(0));
     }
 
-    // Enter rearm range → dock. ClipReload 0 still takes the C++ min 1 frame.
+    // C++ lands on the runway then taxis; dock only once grounded at the pad.
     {
         let jet = logic.objects.get_mut(&jet_id).unwrap();
-        jet.set_position(Vec3::new(50.0, 40.0, 0.0));
+        jet.set_position(Vec3::new(0.0, 0.0, 0.0));
+        jet.status.airborne_target = false;
+        jet.jet_ai.rtb_landing_phase = crate::game_logic::object::JET_RTB_PHASE_TAXI;
         if let Some(w) = jet.weapon.as_mut() {
             w.ammo = Some(0);
         }
@@ -1725,8 +1735,10 @@ fn jet_airfield_rearm_waits_clip_reload_frames() {
             can_target_air: true,
             can_target_ground: true,
             ..Weapon::default()
-        });
-        jet.status.airborne_target = true;
+});
+        jet.status.airborne_target = false;
+        jet.jet_ai.rtb_landing_phase = crate::game_logic::object::JET_RTB_PHASE_TAXI;
+        jet.set_position(Vec3::ZERO);
     }
 
     logic.frame = 10;
@@ -1813,7 +1825,7 @@ fn empty_jet_circles_last_airfield_instead_of_bleeding_in_place() {
             can_target_air: true,
             can_target_ground: true,
             ..Weapon::default()
-        });
+});
     }
 
     logic.tick_out_of_ammo_jet_damage();
@@ -4484,7 +4496,7 @@ fn combat_chinook_residual_enter_sets_docked_and_upgrades_weapon_set() {
             reload_time: 0.5,
             last_fire_time: -10.0,
             ..Weapon::default()
-        });
+});
     }
 
     game_logic.queue_command(GameCommand {
@@ -4567,7 +4579,7 @@ fn combat_chinook_residual_load_two_unload_both_free() {
                 reload_time: 0.5,
                 last_fire_time: -10.0,
                 ..Weapon::default()
-            });
+});
             unit.target = Some(chinook_id);
             unit.set_ai_state(AIState::Entering);
         }
@@ -4664,7 +4676,7 @@ fn combat_chinook_residual_passenger_fire_damages_nearby_enemy() {
             reload_time: 0.1,
             last_fire_time: -10.0,
             ..Weapon::default()
-        });
+});
         unit.target = Some(chinook_id);
         unit.set_contained_by(Some(chinook_id));
         unit.set_ai_state(AIState::Docked);

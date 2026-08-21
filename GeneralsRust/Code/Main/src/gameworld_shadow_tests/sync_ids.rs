@@ -415,7 +415,9 @@ fn sync_from_host_copies_entity_path_waypoints_residual() {
             pre_attack_delay: 0.0,
             splash_radius: 0.0,
             suspend_fx_frame: 0,
-        });
+                    reloading_clip: false,
+            last_bonus_rof: 0.0,
+});
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
@@ -683,7 +685,9 @@ fn sync_from_host_copies_entity_weapon_move_residual() {
             pre_attack_delay: 0.1,
             splash_radius: 0.0,
             suspend_fx_frame: 0,
-        });
+                    reloading_clip: false,
+            last_bonus_rof: 0.0,
+});
         obj.secondary_weapon = Some(Weapon::default());
         obj.movement.max_speed = 12.5;
         obj.movement.velocity = glam::Vec3::new(1.0, 0.0, 2.0);

@@ -293,6 +293,7 @@ impl GameLogic {
     pub(in super::super) fn stop_attack_decision_aware(&mut self, unit_id: ObjectId) {
         // Always clear host combat engagement immediately so mid-frame fire stops.
         // Log under decision authority for GameWorld last-write parity.
+        self.drop_jet_targeters_on_attack_exit(unit_id);
         if let Some(obj) = self.objects.get_mut(&unit_id) {
             obj.stop_attack();
         }
@@ -308,6 +309,7 @@ impl GameLogic {
     pub(in super::super) fn clear_target_decision_aware(&mut self, unit_id: ObjectId) {
         // Combat engagement clear is host-immediate; non-combat associations should
         // call set_target(None) directly without this helper.
+        self.remove_self_as_jet_targeter_from_current_victim(unit_id);
         if let Some(obj) = self.objects.get_mut(&unit_id) {
             obj.set_target(None);
         }

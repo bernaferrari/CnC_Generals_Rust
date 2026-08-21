@@ -790,7 +790,7 @@ fn game_command_to_message(command: &GameCommand) -> Option<GameMessage> {
             weapon_slot,
             target,
             ..
-        } => {
+} => {
             let slot = weapon_slot_to_id(weapon_slot);
             match target {
                 WeaponTarget::Location(pos) => {
@@ -959,12 +959,12 @@ fn game_message_to_host_command(message: &GameMessage) -> Option<GameCommand> {
             weapon_slot: weapon_slot_from_id(*slot),
             max_shots_to_fire: -1,
             target: WeaponTarget::Location(vec3_from_coord(coord)),
-        },
+},
         DoWeaponAtObject(slot, id) => CommandType::DoWeapon {
             weapon_slot: weapon_slot_from_id(*slot),
             max_shots_to_fire: -1,
             target: WeaponTarget::Object(object_id_from_message(*id)),
-        },
+},
         Evacuate | EvacuateAtLocation(_) => CommandType::Evacuate,
         CombatDropAtLocation(coord) => CommandType::CombatDrop {
             target: DropTarget::Location(vec3_from_coord(coord)),

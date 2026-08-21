@@ -57,7 +57,7 @@ fn listening_outpost_residual_transport_load_unload() {
                 reload_time: 0.5,
                 last_fire_time: -10.0,
                 ..Weapon::default()
-            });
+});
             unit.target = Some(outpost_id);
             unit.set_ai_state(AIState::Entering);
         }
@@ -1020,7 +1020,7 @@ fn stealth_residual_not_auto_targeted_until_detected() {
             damage: 10.0,
             range: 150.0,
             ..Weapon::default()
-        });
+});
     }
 
     let stealth_id = game_logic
@@ -1118,7 +1118,7 @@ fn stealth_residual_fire_breaks_stealth() {
             reload_time: 0.5,
             last_fire_time: -1.0, // ready immediately
             ..Weapon::default()
-        });
+});
         assert!(s.fire_at(target_id, 0.0));
         assert!(!s.status.stealthed, "fire_at must break stealth");
     }
@@ -1311,7 +1311,9 @@ fn residual_auto_fire_ai_decision_writeback_sets_host_target() {
             pre_attack_delay: 0.0,
             splash_radius: 0.0,
             suspend_fx_frame: 0,
-        });
+                    reloading_clip: false,
+            last_bonus_rof: 0.0,
+});
     }
     assert!(logic.host_object(attacker).unwrap().target.is_none());
     let weapon = logic.host_object(attacker).and_then(|o| o.weapon.clone());
@@ -2044,7 +2046,7 @@ fn camo_netting_structure_attack_and_damage_reveal_residual() {
             reload_time: 1.0,
             last_fire_time: -10.0,
             ..Weapon::default()
-        });
+});
         // Ensure vision covers the tunnel at x=0 (enemy at x=30).
         e.get_template(); // touch template path
     }
@@ -3098,7 +3100,7 @@ fn base_defense_residual_barracks_does_not_auto_fire() {
             reload_time: 0.1,
             last_fire_time: -10.0,
             ..Weapon::default()
-        });
+});
     }
     let enemy_id = game_logic
         .create_object("TestTank", Team::GLA, Vec3::new(30.0, 0.0, 0.0))
@@ -3271,7 +3273,7 @@ fn point_defense_laser_residual_skips_non_carrier() {
             range: 100.0,
             last_fire_time: -10.0,
             ..Weapon::default()
-        });
+});
     }
 
     game_logic.frame = 1;

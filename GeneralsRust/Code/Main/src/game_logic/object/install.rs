@@ -828,6 +828,47 @@ impl Object {
         self.status.parachute_roll
     }
 
+    /// C++ `AIRappelState` residual.
+    pub fn is_rappelling(&self) -> bool {
+        self.status.rappelling
+    }
+
+    /// C++ `AIRappelState::onEnter`: dest Z + MODELCONDITION_RAPPELLING.
+    pub fn begin_rappel(
+        &mut self,
+        dest_y: f32,
+        target_is_bldg: bool,
+        target: Option<ObjectId>,
+    ) {
+        self.status.rappelling = true;
+        self.status.rappel_dest_y = dest_y;
+        self.status.rappel_target_is_bldg = target_is_bldg;
+        self.status.rappel_target = target;
+        self.status.rappel_saved_speed = self.movement.max_speed;
+        self.status.airborne_target = true;
+        self.movement.velocity = glam::Vec3::ZERO;
+        let bit = crate::game_logic::host_enum_table_residual::rappelling_model_bit();
+        self.model_condition_bits |= 1u128 << bit;
+        self.record_host_model_condition();
+    }
+
+    /// C++ `AIRappelState::onExit`: clear RAPPELLING, restore FAST_AS_POSSIBLE.
+    pub fn clear_rappel(&mut self) {
+        let saved = self.status.rappel_saved_speed;
+        self.status.rappelling = false;
+        self.status.rappel_dest_y = 0.0;
+        self.status.rappel_target_is_bldg = false;
+        self.status.rappel_target = None;
+        self.status.rappel_saved_speed = 0.0;
+        self.status.airborne_target = false;
+        if saved > 0.0 {
+            self.movement.max_speed = saved;
+        }
+        let bit = crate::game_logic::host_enum_table_residual::rappelling_model_bit();
+        self.model_condition_bits &= !(1u128 << bit);
+        self.record_host_model_condition();
+    }
+
     pub fn tick_eject_invulnerable(&mut self, current_frame: u32) {
         if self.status.eject_invulnerable
             && self.status.eject_invulnerable_until_frame > 0

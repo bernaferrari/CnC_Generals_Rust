@@ -97,6 +97,14 @@ impl GameLogic {
         self.stop_hacker_internet_hack(id);
     }
 
+    fn stop_attack_clearing_jet_targeter(&mut self, id: ObjectId) {
+        self.drop_jet_targeters_on_attack_exit(id);
+        if let Some(unit) = self.objects.get_mut(&id) {
+            unit.stop_attack();
+        }
+    }
+
+
     /// Prepare move: stop attack then assign path (fallback set_destination).
     /// Wave 230/232: stop attack residual then path or set destination + Moving.
     pub fn unit_command_move_to(&mut self, id: ObjectId, destination: glam::Vec3) -> bool {
@@ -104,9 +112,7 @@ impl GameLogic {
             return false;
         }
         self.note_hacker_ai_command(id);
-        if let Some(unit) = self.objects.get_mut(&id) {
-            unit.stop_attack();
-        }
+        self.stop_attack_clearing_jet_targeter(id);
         let ok = if self.assign_unit_path(id, destination, &[]) {
             true
         } else if let Some(unit) = self.objects.get_mut(&id) {
@@ -134,9 +140,7 @@ impl GameLogic {
             return false;
         }
         self.note_hacker_ai_command(id);
-        if let Some(unit) = self.objects.get_mut(&id) {
-            unit.stop_attack();
-        }
+        self.stop_attack_clearing_jet_targeter(id);
         self.assign_unit_path(id, destination, waypoints)
     }
 
@@ -146,9 +150,7 @@ impl GameLogic {
             return false;
         }
         self.note_hacker_ai_command(id);
-        if let Some(unit) = self.objects.get_mut(&id) {
-            unit.stop_attack();
-        }
+        self.stop_attack_clearing_jet_targeter(id);
         if !self.assign_unit_path(id, destination, &[]) {
             return false;
         }
@@ -176,12 +178,24 @@ impl GameLogic {
         ) {
             return false;
         }
+        let (can_attack, switch_away) = {
+            let Some(unit) = self.objects.get(&id) else {
+                return false;
+            };
+            (
+                unit.can_attack(),
+                unit.target.is_some_and(|prev| prev != target_id),
+            )
+        };
+        if !can_attack {
+            return false;
+        }
+        if switch_away {
+            self.drop_jet_targeters_on_attack_exit(id);
+        }
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
-        if !unit.can_attack() {
-            return false;
-        }
         unit.mark_jet_command_for_reload_interrupt(false);
         unit.set_force_attack(false);
         unit.set_target(Some(target_id));
@@ -212,12 +226,24 @@ impl GameLogic {
         ) {
             return false;
         }
+        let (can_attack, switch_away) = {
+            let Some(unit) = self.objects.get(&id) else {
+                return false;
+            };
+            (
+                unit.can_attack(),
+                unit.target.is_some_and(|prev| prev != target_id),
+            )
+        };
+        if !can_attack {
+            return false;
+        }
+        if switch_away {
+            self.drop_jet_targeters_on_attack_exit(id);
+        }
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
-        if !unit.can_attack() {
-            return false;
-        }
         unit.mark_jet_command_for_reload_interrupt(false);
         unit.set_target(Some(target_id));
         crate::game_logic::host_attack_log::record(id, Some(target_id));
@@ -232,7 +258,29 @@ impl GameLogic {
     }
 
     /// Wave 230/232: full player stop (idle + clear guard/target/force + logs).
+    /// C++ `AIUpdateInterface::privateIdle` then `aiIdle` every contained
+    /// rider (`AIUpdate.cpp:3067-3090`) so Humvee/Chinook Stop parks
+    /// PassengersAllowedToFire infantry.
     pub fn unit_command_stop(&mut self, id: ObjectId) -> bool {
+        let occupants = self
+            .objects
+            .get(&id)
+            .filter(|unit| !unit.is_kind_of(KindOf::Projectile))
+            .map(|unit| unit.contained_units())
+            .unwrap_or_default();
+        let ok = self.unit_command_stop_self(id);
+        if ok {
+            for occ in occupants {
+                if occ != id {
+                    let _ = self.unit_command_stop(occ);
+                }
+            }
+        }
+        ok
+    }
+
+    fn unit_command_stop_self(&mut self, id: ObjectId) -> bool {
+        self.drop_jet_targeters_on_attack_exit(id);
         if self.flight_deck_ai_do_command(
             id,
             crate::game_logic::host_flight_deck::HostFlightDeckCommand::Idle,
@@ -288,7 +336,6 @@ impl GameLogic {
         }
         unit.set_ai_state(AIState::Idle);
         true
-
     }
 
     pub fn unit_command_guard_position(&mut self, id: ObjectId, pos: glam::Vec3) -> bool {
@@ -358,6 +405,7 @@ impl GameLogic {
         if !can_move {
             return false;
         }
+        self.drop_jet_targeters_on_attack_exit(id);
         if let Some(unit) = self.objects.get_mut(&id) {
             unit.stop_attack();
             unit.set_force_attack(false);
@@ -532,9 +580,7 @@ impl GameLogic {
         if self.objects.get(&id).is_none() {
             return false;
         }
-        if let Some(unit) = self.objects.get_mut(&id) {
-            unit.stop_attack();
-        }
+        self.stop_attack_clearing_jet_targeter(id);
         if !self.assign_unit_path(id, destination, &[]) {
             return false;
         }
@@ -562,6 +608,7 @@ impl GameLogic {
         if !can {
             return false;
         }
+        self.drop_jet_targeters_on_attack_exit(id);
         if let Some(unit) = self.objects.get_mut(&id) {
             unit.stop_attack();
             unit.set_formation(0, glam::Vec2::ZERO);
@@ -637,6 +684,7 @@ impl GameLogic {
         } else {
             return false;
         };
+        self.drop_jet_targeters_on_attack_exit(id);
         if let Some(unit) = self.objects.get_mut(&id) {
             unit.guard_radius = guard_radius;
             unit.set_guard_mode(mode);
@@ -686,6 +734,7 @@ impl GameLogic {
         ) {
             return false;
         }
+        self.drop_jet_targeters_on_attack_exit(id);
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
@@ -715,6 +764,7 @@ impl GameLogic {
         if !can {
             return false;
         }
+        self.drop_jet_targeters_on_attack_exit(id);
         if let Some(unit) = self.objects.get_mut(&id) {
             unit.set_target(None);
             unit.set_force_attack(false);
@@ -861,9 +911,7 @@ impl GameLogic {
         if self.objects.get(&id).is_none() {
             return false;
         }
-        if let Some(unit) = self.objects.get_mut(&id) {
-            unit.stop_attack();
-        }
+        self.stop_attack_clearing_jet_targeter(id);
         if !self.assign_unit_path(id, goal, &[]) {
             return false;
         }
@@ -1002,6 +1050,10 @@ impl GameLogic {
         let Some(obj) = self.objects.get(&id) else {
             return false;
         };
+        // C++ ACTIONTYPE_SET_RALLY_POINT: KINDOF_AUTO_RALLYPOINT only.
+        if !obj.is_kind_of(crate::game_logic::KindOf::AutoRallypoint) {
+            return false;
+        }
         if obj.building_data.is_none() {
             return false;
         }
@@ -1032,6 +1084,11 @@ impl GameLogic {
 
     /// Wave 233: return-supplies order target + ReturningResources state.
     pub fn unit_command_return_supplies(&mut self, id: ObjectId, supply_center: ObjectId) -> bool {
+        if self.objects.get(&id).is_none() {
+            return false;
+        }
+        // C++ privateDock(CMD_FROM_PLAYER) resets AI_DOCK (cancelDock) first.
+        self.cancel_dock_reservation(id);
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
@@ -1053,6 +1110,11 @@ impl GameLogic {
         id: ObjectId,
         warehouse: ObjectId,
     ) -> bool {
+        self.drop_jet_targeters_on_attack_exit(id);
+        if self.objects.get(&id).is_none() {
+            return false;
+        }
+        self.cancel_dock_reservation(id);
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
@@ -1072,6 +1134,11 @@ impl GameLogic {
         id: ObjectId,
         transport: ObjectId,
     ) -> bool {
+        self.drop_jet_targeters_on_attack_exit(id);
+        if self.objects.get(&id).is_none() {
+            return false;
+        }
+        self.cancel_dock_reservation(id);
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
@@ -1083,6 +1150,7 @@ impl GameLogic {
 
     /// Wave 233: waypoint-path prep — stop attack and clear guard anchors.
     pub fn unit_command_waypoint_path_prep(&mut self, id: ObjectId, as_team: bool) -> bool {
+        self.drop_jet_targeters_on_attack_exit(id);
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
@@ -1262,6 +1330,10 @@ impl GameLogic {
 
     /// Wave 233: set AI state if alive.
     pub fn unit_command_set_ai_state(&mut self, id: ObjectId, state: AIState) -> bool {
+        if self.objects.get(&id).is_none() {
+            return false;
+        }
+        self.cancel_dock_reservation(id);
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
@@ -1521,6 +1593,8 @@ impl GameLogic {
         if !self.assign_unit_path_ignoring(id, goal, &[], ignore_obstacle) {
             return false;
         }
+        self.cancel_dock_reservation(id);
+
         if let Some(unit) = self.objects.get_mut(&id) {
             unit.set_ai_state(state);
             return true;
@@ -1674,17 +1748,17 @@ mod tests {
             damage: 1.0,
             range: 100.0,
             ..Weapon::default()
-        });
+});
         object.secondary_weapon = Some(Weapon {
             damage: 2.0,
             range: 100.0,
             ..Weapon::default()
-        });
+});
         object.tertiary_weapon = Some(Weapon {
             damage: 3.0,
             range: 100.0,
             ..Weapon::default()
-        });
+});
         (logic, id)
     }
 

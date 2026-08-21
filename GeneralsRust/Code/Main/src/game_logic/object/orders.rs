@@ -714,9 +714,11 @@ impl Object {
             || self.is_troop_crawler_transport
             || self.is_combat_chinook_transport
             || self.is_listening_outpost_transport
+            || self.chinook_ai.is_some()
         {
             return self.max_transport > 0;
         }
+
         // Structures: only garrisonable buildings with residual capacity > 0.
         // Fail-closed: faction producers / non-bunker structures reject Enter.
         if self.is_kind_of(KindOf::Structure) {
@@ -1488,10 +1490,25 @@ impl Object {
         self.record_host_stealth_flags();
     }
 
+    /// Vanilla AmericaVehicleChinook: TransportContain Slots=8 + ChinookAI, no passenger fire.
+    pub fn install_chinook_transport(&mut self) {
+        self.max_transport = crate::game_logic::host_combat_chinook::COMBAT_CHINOOK_TRANSPORT_SLOTS;
+        self.passengers_allowed_to_fire = false;
+        self.armed_riders_upgrade_weapon_set = false;
+        let p = self.get_position();
+        if self.chinook_ai.is_none() {
+            self.chinook_ai = Some(
+                crate::game_logic::host_combat_chinook::HostChinookAI::new_vanilla([p.x, p.z, p.y]),
+            );
+        }
+        self.record_host_contain_capacity();
+    }
+
     /// True when this vehicle is an AirF Combat Chinook residual transport.
     pub fn is_combat_chinook_style_container(&self) -> bool {
         self.is_combat_chinook_transport
     }
+
 
     /// Install residual China Listening Outpost transport + detect residual:
     /// C++ TransportContain Slots=2, PassengersAllowedToFire=Yes,

@@ -297,7 +297,9 @@ pub fn minigunner_ground_weapon(
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-    }
+                reloading_clip: false,
+            last_bonus_rof: 0.0,
+}
 }
 
 /// Build residual air Weapon.
@@ -324,7 +326,9 @@ pub fn minigunner_air_weapon(
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-    }
+                reloading_clip: false,
+            last_bonus_rof: 0.0,
+}
 }
 
 /// Advance continuous-fire residual state after a shot (MiniGunner thresholds).

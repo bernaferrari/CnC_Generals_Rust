@@ -550,6 +550,8 @@ impl GameClient {
                 max_garrison: 0,
                 disabled: false,
                 is_carbomb: false,
+                bomb_type: 0,
+                bomb_timer_seconds: 0,
                 weapon_bonus_enthusiastic: false,
                 show_healing: false,
                 healing_icon_type: 0,
@@ -766,6 +768,8 @@ impl GameClient {
             e.max_garrison,
             e.disabled,
             e.is_carbomb,
+            e.bomb_type,
+            e.bomb_timer_seconds,
             e.weapon_bonus_enthusiastic,
             e.orientation,
             e.show_healing,
@@ -851,9 +855,15 @@ impl GameClient {
         }
         self.last_applied_military_caption = text.map(|t| t.to_string());
         let Some(text) = text else {
+            // C++ removeMilitarySubtitle deletes the subtitle — nothing remains.
+            if let Some(ui) = &self.subsystem_manager.in_game_ui {
+                if let Ok(mut ui) = ui.lock() {
+                    ui.clear_military_subtitles();
+                }
+            }
             return;
         };
-        let Some(ref ui) = self.subsystem_manager.in_game_ui else {
+        let Some(ui) = &self.subsystem_manager.in_game_ui else {
             return;
         };
         let Ok(mut ui) = ui.lock() else {
@@ -866,9 +876,9 @@ impl GameClient {
     /// Wave 1060: presentation floating cash/text residual → InGameUI subsystem residual.
     pub fn apply_presentation_floating_texts(
         &mut self,
-        entries: &[(String, [f32; 3], (u8, u8, u8), u32, u32)],
+        entries: &[(String, [f32; 3], (u8, u8, u8, u8), u32, u32)],
     ) {
-        let Some(ref ui) = self.subsystem_manager.in_game_ui else {
+        let Some(ui) = &self.subsystem_manager.in_game_ui else {
             return;
         };
         let Ok(mut ui) = ui.lock() else {
@@ -1032,6 +1042,7 @@ impl GameClient {
                     command_set_name: u.command_set_name.clone(),
                     // Wave 1055: hotkey group residual.
                     hotkey_group: u.hotkey_group,
+                    caption: u.caption.clone(),
                 },
             )
             .collect();
@@ -1118,6 +1129,7 @@ impl GameClient {
                             command_set_name: u.command_set_name.clone(),
                             // Wave 1055: hotkey group residual.
                             hotkey_group: u.hotkey_group,
+                            caption: u.caption.clone(),
                         },
                     )
                     .collect();
@@ -1707,6 +1719,7 @@ impl GameClient {
             }
         }
         crate::effects::update_tracer_fx(self.frame);
+        crate::effects::update_ray_effects(self.frame);
         Ok(())
     }
 

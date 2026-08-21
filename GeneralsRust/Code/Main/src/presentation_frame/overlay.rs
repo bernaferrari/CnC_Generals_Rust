@@ -1561,6 +1561,9 @@ impl PresentationFrame {
             disabled_underpowered: ent.disabled_underpowered,
             disabled_hacked: ent.disabled_hacked,
             disabled_unmanned: ent.disabled_unmanned,
+            disabled_freefall: false,
+            disabled_default: false,
+            disabled_script_underpowered: false,
             hacking_packing_or_unpacking: false,
             weapons_jammed: ent.weapons_jammed,
             masked: ent.masked,
@@ -1640,6 +1643,9 @@ impl PresentationFrame {
             disguised: ent.disguised,
             disabled_subdued: ent.disabled_subdued,
             is_carbomb: ent.is_carbomb,
+            weapon_set_carbomb: false,
+            bomb_type: 0,
+            bomb_timer_seconds: 0,
             hijacked: ent.hijacked,
             disguise_transition_opacity: 1.0,
             detection_range: ent.detection_range,
@@ -1971,7 +1977,7 @@ impl PresentationFrame {
                 ro.can_disguise_as_team = can_disguise_as_team;
                 dirty = true;
             }
-            let friendly_stealth_opacity = obj.thing.template.stealth_friendly_opacity_min;
+            let friendly_stealth_opacity = super::build::freeze_friendly_stealth_opacity(obj);
             if (ro.friendly_stealth_opacity - friendly_stealth_opacity).abs() > f32::EPSILON {
                 ro.friendly_stealth_opacity = friendly_stealth_opacity;
                 dirty = true;
@@ -1990,13 +1996,32 @@ impl PresentationFrame {
                 ro.drawable_fade_start_frame = obj.drawable_fade_start_frame;
                 dirty = true;
             }
-            if ro.drawable_fade_frames != obj.drawable_fade_frames {
-                ro.drawable_fade_frames = obj.drawable_fade_frames;
-                dirty = true;
-            }
             let gaining_subdual = obj.subdual_damage > 0.0;
             if ro.gaining_subdual != gaining_subdual {
                 ro.gaining_subdual = gaining_subdual;
+                dirty = true;
+            }
+            if ro.disabled_freefall != obj.status.disabled_freefall {
+                ro.disabled_freefall = obj.status.disabled_freefall;
+                dirty = true;
+            }
+            if ro.disabled_default != obj.status.disabled_default {
+                ro.disabled_default = obj.status.disabled_default;
+                dirty = true;
+            }
+            if ro.disabled_script_underpowered != obj.status.disabled_script_underpowered {
+                ro.disabled_script_underpowered = obj.status.disabled_script_underpowered;
+                dirty = true;
+            }
+            if ro.weapon_set_carbomb != obj.weapon_set_carbomb {
+                ro.weapon_set_carbomb = obj.weapon_set_carbomb;
+                dirty = true;
+            }
+            let (bomb_type, bomb_timer_seconds) =
+                super::build::freeze_sticky_bomb_overlay(obj, logic.get_current_frame() as u32);
+            if ro.bomb_type != bomb_type || ro.bomb_timer_seconds != bomb_timer_seconds {
+                ro.bomb_type = bomb_type;
+                ro.bomb_timer_seconds = bomb_timer_seconds;
                 dirty = true;
             }
             // GameWorld is the object-roster authority in the active frame,

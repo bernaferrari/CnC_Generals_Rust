@@ -183,7 +183,7 @@ pub enum CommandType {
         #[serde(default = "default_weapon_max_shots_cmd")]
         max_shots_to_fire: i32,
         target: WeaponTarget,
-    },
+},
 
     // Transport and container
     Enter {

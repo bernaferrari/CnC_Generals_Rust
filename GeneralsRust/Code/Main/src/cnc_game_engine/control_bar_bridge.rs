@@ -821,6 +821,15 @@ impl CnCGameEngine {
                     self.arm_radius_cursor_for_pending("COMBATDROP");
                 }
                 Some(HostControlBarGenericTargetAction::PlaceBeacon) => {
+                    if !crate::command_executor::host_local_player_can_place_beacon(
+                        &self.game_logic,
+                        player_id,
+                    ) {
+                        self.host_reject_control_bar_request(
+                            "place beacon is disabled at MaxBeaconsPerPlayer",
+                        );
+                        return;
+                    }
                     self.pending_map_command = Some(PendingMapCommand::PlaceBeacon);
                     self.pending_structure_placement = None;
                     self.arm_radius_cursor_for_pending("RADAR");

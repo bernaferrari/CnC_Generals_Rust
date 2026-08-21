@@ -502,7 +502,9 @@ pub fn overlord_gattling_air_weapon(level: u8, chain_guns: bool) -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-    }
+                reloading_clip: false,
+            last_bonus_rof: 0.0,
+}
 }
 
 /// Build residual GattlingBuildingGun ground stats for passenger residual fire.

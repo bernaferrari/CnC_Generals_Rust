@@ -1912,7 +1912,11 @@ impl CnCGameEngine {
                     occupant_count: (o.occupant_count as u32).min(255) as u8,
                     max_garrison: (o.max_garrison as u32).min(255) as u8,
                     disabled: o.disabled,
-                    is_carbomb: o.is_carbomb,
+                    // C++ ICON_CARBOMB only when WEAPONSET_CARBOMB && local owner.
+                    is_carbomb: o.weapon_set_carbomb
+                        && o.owner_player_id == Some(pres.local_player_id),
+                    bomb_type: o.bomb_type,
+                    bomb_timer_seconds: o.bomb_timer_seconds,
                     weapon_bonus_enthusiastic: o.weapon_bonus_enthusiastic,
                     // Wave 983: healing icon residual.
                     show_healing: o.show_healing,
@@ -2423,7 +2427,7 @@ impl CnCGameEngine {
                 pres.military_caption_remaining_ms,
             );
             // Wave 1060: floating cash/text residual → InGameUI (keep vanish phase).
-            let floating: Vec<(String, [f32; 3], (u8, u8, u8), u32, u32)> = pres
+            let floating: Vec<(String, [f32; 3], (u8, u8, u8, u8), u32, u32)> = pres
                 .floating_texts
                 .iter()
                 .filter(|ft| ft.is_active_at(pres.frame.0))
@@ -2431,7 +2435,7 @@ impl CnCGameEngine {
                     (
                         ft.text.clone(),
                         [ft.position.x, ft.position.y, ft.position.z],
-                        (ft.color_rgba.0, ft.color_rgba.1, ft.color_rgba.2),
+                        ft.color_rgba,
                         ft.spawn_frame,
                         ft.timeout_frame.saturating_sub(ft.spawn_frame).max(1),
                     )
@@ -2625,6 +2629,18 @@ impl CnCGameEngine {
                             },
                             // Wave 1055: host control-group residual for dual group numerals.
                             hotkey_group: object_hotkey_group.get(&o.id.0).copied().unwrap_or(-1),
+                            caption: crate::command_executor::host_beacon_caption(
+                                crate::game_logic::ObjectId(o.id.0),
+                            )
+                            .or_else(|| {
+                                let dn = o.display_name.trim();
+                                if !dn.is_empty() && dn != o.template_name {
+                                    Some(dn.to_string())
+                                } else {
+                                    None
+                                }
+                            })
+                            .unwrap_or_default(),
                         },
                     )
                     .collect()

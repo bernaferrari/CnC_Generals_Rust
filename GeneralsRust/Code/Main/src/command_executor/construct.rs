@@ -34,10 +34,11 @@ impl<'a> CommandExecutor<'a> {
             return CommandResult::InvalidLocation;
         }
 
-        let (build_cost, is_structure) = match self.game_logic.get_templates().get(template_name) {
+        let (base_cost, is_structure) = match self.game_logic.get_templates().get(template_name) {
             Some(t) => (t.build_cost, t.is_kind_of(KindOf::Structure)),
             None => return CommandResult::InvalidCommand,
         };
+        let build_cost = self.calc_cost_to_build(template_name, base_cost);
 
         if !is_structure {
             return CommandResult::InvalidCommand;
@@ -284,10 +285,11 @@ impl<'a> CommandExecutor<'a> {
         if !self.validate_build_location(location) {
             return CommandResult::InvalidLocation;
         }
-        let (build_cost, is_structure) = match self.game_logic.get_templates().get(template_name) {
+        let (base_cost, is_structure) = match self.game_logic.get_templates().get(template_name) {
             Some(t) => (t.build_cost, t.is_kind_of(KindOf::Structure)),
             None => return CommandResult::InvalidCommand,
         };
+        let build_cost = self.calc_cost_to_build(template_name, base_cost);
         if !is_structure {
             return CommandResult::InvalidCommand;
         }
@@ -356,7 +358,10 @@ impl<'a> CommandExecutor<'a> {
         object_id: ObjectId,
         player_id: u32,
     ) -> CommandResult {
-        if let Some(obj) = self.game_logic.host_object(object_id) {
+        let (template_name, base_supplies, reconstructing) = {
+            let Some(obj) = self.game_logic.host_object(object_id) else {
+                return CommandResult::InvalidTarget;
+            };
             if obj.owner_player_id != Some(player_id) {
                 return CommandResult::InvalidTarget;
             }
@@ -364,25 +369,44 @@ impl<'a> CommandExecutor<'a> {
             if !obj.status.under_construction || obj.status.sold {
                 return CommandResult::InvalidCommand;
             }
-            // C++: no refund when OBJECT_STATUS_RECONSTRUCTING (rebuild hole path).
-            let refund = if obj.status.reconstructing {
-                0
-            } else {
-                obj.thing.template.build_cost.supplies
-            };
-            if refund > 0 {
-                if let Some(player) = self.game_logic.get_player_mut(player_id) {
-                    player.resources.supplies = player.resources.supplies.saturating_add(refund);
-                }
-            }
-            // C++ killing the building causes dozer cancelTask residual.
-            self.game_logic.cancel_dozers_building(object_id);
-            self.game_logic.destroy_object(object_id);
-            debug!("Canceled construction of object {}", object_id.0);
-            CommandResult::Success
+            (
+                obj.template_name.clone(),
+                obj.thing.template.build_cost.supplies,
+                obj.status.reconstructing,
+            )
+        };
+        // C++ GameLogicDispatch.cpp:1430-1435: calcCostToBuild unless reconstructing.
+        let refund = if reconstructing {
+            0
         } else {
-            CommandResult::InvalidTarget
+            self.game_logic
+                .modified_build_cost_supplies(player_id, &template_name, base_supplies)
+        };
+        if refund > 0 {
+            if let Some(player) = self.game_logic.get_player_mut(player_id) {
+                player.resources.supplies = player.resources.supplies.saturating_add(refund);
+            }
         }
+        // C++ killing the building causes dozer cancelTask residual.
+        self.game_logic.cancel_dozers_building(object_id);
+        self.game_logic.destroy_object(object_id);
+        debug!("Canceled construction of object {}", object_id.0);
+        CommandResult::Success
+    }
+
+    /// C++ `ThingTemplate::calcCostToBuild(player)` for dozer place/cancel.
+    fn calc_cost_to_build(
+        &self,
+        template_name: &str,
+        base: crate::game_logic::Resources,
+    ) -> crate::game_logic::Resources {
+        let mut cost = base;
+        cost.supplies = self.game_logic.modified_build_cost_supplies(
+            self.current_player_id,
+            template_name,
+            base.supplies,
+        );
+        cost
     }
 
     pub(super) fn execute_resume_construction(

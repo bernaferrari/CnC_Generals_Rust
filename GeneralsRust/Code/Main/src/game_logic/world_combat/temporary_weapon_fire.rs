@@ -38,13 +38,27 @@ impl GameLogic {
     }
 
     pub(in super::super) fn execute_temporary_weapon_on_die(&mut self, source: ObjectId) -> u32 {
-        let Some(spec) = self.dead_ephemeral_spec(source) else {
+        let specs = self.dead_ephemeral_specs(source);
+        if specs.is_empty() {
             return 0;
-        };
-        if let Some(object) = self.objects.get_mut(&source) {
-            object.fire_weapon_when_dead_fired = true;
         }
-        self.create_and_fire_temp_weapon(source, &spec)
+        let mut hits = 0u32;
+        let mut fired = false;
+        for spec in specs {
+            if let Some(fired_hits) = self.create_and_fire_temp_weapon(source, &spec) {
+                fired = true;
+                hits = hits.saturating_add(fired_hits);
+            }
+        }
+        // C++ has no leftover fired latch. Stamp only after at least one
+        // module actually entered createAndFireTempWeapon so a store miss
+        // still lets the residual HE/Bio blast run.
+        if fired {
+            if let Some(object) = self.objects.get_mut(&source) {
+                object.fire_weapon_when_dead_fired = true;
+            }
+        }
+        hits
     }
 
     pub(in super::super) fn fire_temporary_weapons_for_pending_deaths(&mut self) {
@@ -164,23 +178,29 @@ impl GameLogic {
         Some((object_tags, player_tags))
     }
 
-    fn dead_ephemeral_spec(
+    fn dead_ephemeral_specs(
         &mut self,
         source: ObjectId,
-    ) -> Option<
+    ) -> Vec<
         crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadEphemeralWeaponSpec,
     > {
-        let object = self.objects.get(&source)?;
+        let Some(object) = self.objects.get(&source) else {
+            return Vec::new();
+        };
         if object.fire_weapon_when_dead_fired || object.status.under_construction {
-            return None;
+            return Vec::new();
         }
         let death_ordinal = u32::from(object.status.death_type.ordinal());
         let veterancy_ordinal = object.experience.level as u32;
         let statuses = object.object_status_bits;
-        let (object_tags, player_tags) = self.fire_when_owned_upgrade_tags(source)?;
-        let object = self.objects.get_mut(&source)?;
+        let Some((object_tags, player_tags)) = self.fire_when_owned_upgrade_tags(source) else {
+            return Vec::new();
+        };
+        let Some(object) = self.objects.get_mut(&source) else {
+            return Vec::new();
+        };
         let owned = owned_upgrade_tag_refs(&object_tags, &player_tags);
-        let mut spec = None;
+        let mut specs = Vec::new();
         for (runtime, metadata) in object
             .temporary_weapon_runtime
             .dead
@@ -199,12 +219,12 @@ impl GameLogic {
             if metadata.upgrade_mux.conflicts_with_owned(&owned) {
                 continue;
             }
-            spec = metadata.ephemeral_weapon_spec();
-            if spec.is_some() {
-                break;
+            // C++ each FireWeaponWhenDead module onDie independently.
+            if let Some(spec) = metadata.ephemeral_weapon_spec() {
+                specs.push(spec);
             }
         }
-        spec
+        specs
     }
 }
 

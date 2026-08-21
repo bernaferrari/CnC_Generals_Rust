@@ -698,7 +698,7 @@ fn emp_pulse_residual_disables_vehicles_in_radius() {
             reload_time: 0.1,
             last_fire_time: -10.0,
             ..Weapon::default()
-        });
+});
     }
 
     let vehicle_hp = game_logic
@@ -954,7 +954,7 @@ fn frenzy_residual_buffs_allies_and_boosts_damage() {
             reload_time: 0.1,
             last_fire_time: -10.0,
             ..Weapon::default()
-        });
+});
     }
 
     assert!(!game_logic.honesty_frenzy_ok());
@@ -1105,7 +1105,7 @@ fn frenzy_does_not_queue_superweapon_strike() {
             reload_time: 0.1,
             last_fire_time: -10.0,
             ..Weapon::default()
-        });
+});
     }
 
     game_logic.queue_command(GameCommand {
@@ -1209,7 +1209,7 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
             reload_time: 0.1,
             last_fire_time: -10.0,
             ..Weapon::default()
-        });
+});
     }
     {
         let air = game_logic.host_object_mut(aircraft_id).expect("air");
@@ -1219,7 +1219,7 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
             reload_time: 0.1,
             last_fire_time: -10.0,
             ..Weapon::default()
-        });
+});
     }
 
     assert!(!game_logic.honesty_battle_plan_ok());
@@ -1394,7 +1394,7 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
             reload_time: 0.1,
             last_fire_time: -10.0,
             ..Weapon::default()
-        });
+});
         enemy.target = Some(ally_id);
         enemy.set_ai_state(AIState::Attacking);
         enemy.set_status_attacking(true);
@@ -1451,7 +1451,7 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
             reload_time: 0.1,
             last_fire_time: -10.0,
             ..Weapon::default()
-        });
+});
         ally.set_position(Vec3::new(0.0, 0.0, 0.0));
         ally.target = Some(enemy_id);
         ally.set_ai_state(AIState::Attacking);
@@ -1527,7 +1527,7 @@ fn strategy_center_battle_plan_paralyze_residual_on_plan_change() {
             reload_time: 0.1,
             last_fire_time: -10.0,
             ..Weapon::default()
-        });
+});
     }
 
     // First select: unpack → ACTIVE applies buffs; no BattlePlanChangeParalyze.
@@ -1630,7 +1630,7 @@ fn strategy_center_battle_plan_paralyze_residual_on_plan_change() {
             reload_time: 0.1,
             last_fire_time: -10.0,
             ..Weapon::default()
-        });
+});
     }
     crate::game_logic::host_damage_log::clear();
     game_logic.update_combat(&[ally_id, enemy_id], 1.0 / 30.0);

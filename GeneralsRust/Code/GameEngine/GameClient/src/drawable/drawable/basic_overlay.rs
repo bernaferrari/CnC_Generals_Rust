@@ -288,9 +288,12 @@ impl BasicDrawable {
     pub fn draw_caption(&mut self, _health_region: &IRegion2D) {
         if let Some(caption) = self.caption_text.as_ref() {
             self.overlay_data.caption = Some(caption.clone());
+            self.overlay_data.caption_world =
+                Some([self.position.x, self.position.y, self.position.z]);
             self.overlay_data.visible = true;
         } else {
             self.overlay_data.caption = None;
+            self.overlay_data.caption_world = None;
         }
     }
 
@@ -733,14 +736,21 @@ impl BasicDrawable {
             if self.presentation_health_pct <= 0.0 {
                 self.overlay_data.show_bombed = false;
                 self.overlay_data.bomb_type = 0;
+                self.overlay_data.bomb_timer_seconds = 0;
                 return;
             }
             if self.presentation_is_carbomb {
                 self.overlay_data.show_bombed = true;
                 self.overlay_data.bomb_type = 3;
+                self.overlay_data.bomb_timer_seconds = 0;
+            } else if self.presentation_bomb_type != 0 {
+                self.overlay_data.show_bombed = true;
+                self.overlay_data.bomb_type = self.presentation_bomb_type;
+                self.overlay_data.bomb_timer_seconds = self.presentation_bomb_timer_seconds;
             } else {
                 self.overlay_data.show_bombed = false;
                 self.overlay_data.bomb_type = 0;
+                self.overlay_data.bomb_timer_seconds = 0;
             }
             return;
         }
@@ -756,33 +766,45 @@ impl BasicDrawable {
             return;
         };
 
-        // C++ checks both WEAPONSET_CARBOMB and OBJECT_STATUS_IS_CARBOMB.
+        // C++ WEAPONSET_CARBOMB && controllingPlayer == localPlayer.
         if obj_guard.test_weapon_set_flag(gamelogic::weapon::WeaponSetType::CarBomb)
-            && obj_guard.test_status(gamelogic::common::ObjectStatusTypes::IsCarBomb)
+            && obj_guard.is_locally_controlled()
         {
             self.overlay_data.show_bombed = true;
             self.overlay_data.bomb_type = 3; // car bomb
+            self.overlay_data.bomb_timer_seconds = 0;
             return;
         }
 
-        // C++ then checks StickyBombUpdate for timed/remote bombs
-        // find_update_module("StickyBombUpdate") -> check isTimedBomb
-        // For now, bomb_type 1=timed, 2=remote are stored when bomb modules are present.
-        // The render pipeline will use these values.
-        let update_handle = obj_guard.find_update_module("StickyBombUpdate");
-        if update_handle.is_some() {
-            // Bomb is attached; the render pipeline will handle visual countdown.
+        let sticky = obj_guard
+            .find_update_module("StickyBombUpdate")
+            .and_then(|handle| {
+                handle.with_module(|module| {
+                    module.get_sticky_bomb_control_interface().and_then(|sticky| {
+                        if sticky.get_target() == INVALID_ID {
+                            return None;
+                        }
+                        Some((sticky.is_timed_bomb(), sticky.get_detonation_frame()))
+                    })
+                })
+            });
+        if let Some((timed, die_frame)) = sticky {
             self.overlay_data.show_bombed = true;
-            // Default to timed; the specific type will be refined when
-            // StickyBombUpdate is fully ported with isTimedBomb().
-            if self.overlay_data.bomb_type == 0 {
-                self.overlay_data.bomb_type = 1; // timed bomb
+            if timed {
+                self.overlay_data.bomb_type = 1;
+                let now = TheGameLogic::get_frame();
+                let remaining = die_frame.saturating_sub(now);
+                self.overlay_data.bomb_timer_seconds =
+                    ((remaining as f32) / 30.0).ceil() as u32;
+            } else {
+                self.overlay_data.bomb_type = 2;
+                self.overlay_data.bomb_timer_seconds = 0;
             }
         } else {
             self.overlay_data.show_bombed = false;
             self.overlay_data.bomb_type = 0;
-            // C++ cleanup: kill bomb icons if expired
-            if let Some(ref mut icon_info) = self.icon_info {
+            self.overlay_data.bomb_timer_seconds = 0;
+            if let Some(icon_info) = &mut self.icon_info {
                 let now = self.current_frame;
                 let expired_timed = icon_info
                     .keep_till_frame
@@ -955,6 +977,8 @@ mod hud_stealth_veterancy_tests {
             0,
             false,
             false,
+            0,
+            0,
             false,
             0.0,
             false,

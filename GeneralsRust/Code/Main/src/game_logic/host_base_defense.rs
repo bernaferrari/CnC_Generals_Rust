@@ -1900,7 +1900,9 @@ pub fn stinger_ground_weapon(has_ap_rockets: bool) -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-    }
+                reloading_clip: false,
+            last_bonus_rof: 0.0,
+}
 }
 
 /// Build residual Stinger AA Weapon (soldier SECONDARY residual).
@@ -1920,7 +1922,9 @@ pub fn stinger_air_weapon(has_ap_rockets: bool) -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-    }
+                reloading_clip: false,
+            last_bonus_rof: 0.0,
+}
 }
 
 /// Build residual Patriot ground Weapon (standard shell residual).
@@ -1964,6 +1968,8 @@ pub fn patriot_ground_weapon_for_template(template_name: &str) -> Weapon {
         projectile_speed: if laser { 999_999.0 } else { 600.0 },
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
         suspend_fx_frame: 0,
     }
 }
@@ -1996,6 +2002,8 @@ pub fn patriot_air_weapon_for_template(template_name: &str) -> Weapon {
         projectile_speed: if laser { 999_999.0 } else { 600.0 },
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
         suspend_fx_frame: 0,
     }
 }
@@ -2195,7 +2203,9 @@ pub fn gattling_building_ground_weapon(level: GattlingFireLevel, has_chain_guns:
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-    }
+                reloading_clip: false,
+            last_bonus_rof: 0.0,
+}
 }
 
 /// Build residual air Weapon for level + chain guns.
@@ -2216,7 +2226,9 @@ pub fn gattling_building_air_weapon(level: GattlingFireLevel, has_chain_guns: bo
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-    }
+                reloading_clip: false,
+            last_bonus_rof: 0.0,
+}
 }
 
 /// Advance continuous-fire residual state after a structure gattling shot.

@@ -50,10 +50,8 @@ impl GameLogic {
         &mut self,
         source: ObjectId,
         spec: &crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadEphemeralWeaponSpec,
-    ) -> u32 {
-        let Some(fields) = store_fields_for_weapon_name(&spec.weapon_template_name) else {
-            return 0;
-        };
+    ) -> Option<u32> {
+        let fields = store_fields_for_weapon_name(&spec.weapon_template_name)?;
         let runtime_spec = TemporaryWeaponRuntimeSpec {
             key: TemporaryWeaponRuntimeKey {
                 module_source_index: spec.module_source_index,
@@ -71,15 +69,15 @@ impl GameLogic {
         if promote_temporary_weapon_status(&mut ephemeral, self.frame)
             != TemporaryWeaponStatus::ReadyToFire
         {
-            return 0;
+            return None;
         }
-        self.force_fire_named_temporary(
+        Some(self.force_fire_named_temporary(
             source,
             &spec.weapon_template_name,
             ephemeral.current_barrel,
             None,
             fields,
-        )
+        ))
     }
 
     fn force_fire_named_temporary(

@@ -7,7 +7,7 @@ fn make_test_object() -> Object {
     object.weapon = Some(Weapon {
         damage: 100.0,
         ..Weapon::default()
-    });
+});
     object
 }
 
@@ -237,7 +237,7 @@ fn temporary_tertiary_lock_releases_after_its_auto_clip_reloads() {
         ammo: Some(1),
         last_fire_time: -10.0,
         ..Weapon::default()
-    });
+});
     assert!(object.set_weapon_lock(2, WeaponLockType::LockedTemporarily));
 
     assert!(object.fire_at(ObjectId(99), 1.0));
@@ -316,7 +316,7 @@ fn fire_at_breaks_stealth_when_forbidden_while_attacking() {
         reload_time: 0.5,
         last_fire_time: -1.0,
         ..Weapon::default()
-    });
+});
     assert!(object.fire_at(ObjectId(2), 0.0));
     assert!(!object.status.stealthed);
     assert!(!object.status.detected);
@@ -329,7 +329,7 @@ fn can_target_rejects_undetected_stealthed_enemy() {
         damage: 10.0,
         range: 100.0,
         ..Weapon::default()
-    });
+});
 
     let mut target = make_test_object();
     target.id = ObjectId(2);
@@ -352,7 +352,7 @@ fn can_target_rejects_weaponset_unattackable_and_masked_overrides() {
         range: 100.0,
         can_target_ground: true,
         ..Weapon::default()
-    });
+});
 
     let mut target = make_test_object();
     target.id = ObjectId(2);
@@ -381,7 +381,7 @@ fn clip_ammo_forces_clip_reload_gap() {
         clip_reload_time: 2.0, // long clip reload
         last_fire_time: -100.0,
         ..Weapon::default()
-    };
+};
     let t0 = 10.0;
     assert!(Object::weapon_ready(&w, t0));
     Object::consume_ammo_on_fire(&mut w, t0);
@@ -427,7 +427,7 @@ fn pre_attack_delay_blocks_first_shot() {
         ammo: Some(5),
         clip_size: 5,
         ..Weapon::default()
-    });
+});
     let tgt_id = ObjectId(2);
 
     // First call starts wind-up, must not fire (ammo unchanged).
@@ -459,7 +459,7 @@ fn pre_attack_resets_on_new_target() {
         last_fire_time: -100.0,
         pre_attack_delay: 2.0,
         ..Weapon::default()
-    });
+});
     assert!(!atk.fire_at(ObjectId(10), 5.0));
     assert!((atk.pre_attack_ready_at - 7.0).abs() < 1e-4);
     // Switch target restarts delay.
@@ -568,7 +568,7 @@ fn garrison_range_bonus_extends_is_within_attack_range() {
         damage: 10.0,
         range: 100.0,
         ..Weapon::default()
-    });
+});
     assert!(!atk.is_within_attack_range(&vic));
     atk.contained_by = Some(ObjectId(99));
     atk.set_ai_state(AIState::Docked);
@@ -599,7 +599,7 @@ fn fire_at_scales_secondary_damage_with_damage_bonus() {
         damage: 25.0,
         range: 100.0,
         ..Weapon::default()
-    });
+});
     atk.weapon_bonus_veteran = true;
     assert!(atk.fire_at(ObjectId(2), 0.0));
     let raw = crate::game_logic::weapon_bootstrap::host_secondary_damage_for_weapon_name(
@@ -946,7 +946,7 @@ fn fire_sound_loop_extends_and_stops() {
         reload_time: 0.1,
         last_fire_time: -100.0,
         ..Weapon::default()
-    });
+});
     crate::game_logic::host_fire_sound_loop_log::clear();
     o.stamp_fire_sound_loop_after_shot(10, Some("DragonTankFlameWeapon"));
     assert!(o.fire_sound_loop_until_frame > 10);
@@ -1753,7 +1753,7 @@ fn most_percent_ready_between_shots_progresses() {
         reload_time: 1.0,
         last_fire_time: -100.0,
         ..Weapon::default()
-    });
+});
     assert_eq!(o.get_most_percent_ready_to_fire_any_weapon(0.0), 100);
     assert!(o.fire_at(tgt.id, 1.0));
     assert_eq!(o.weapon_fire_status, WeaponFireStatus::BetweenFiringShots);
@@ -1778,13 +1778,13 @@ fn ammo_pip_and_waypoint_weapon_helpers() {
         clip_size: 4,
         ammo: Some(2),
         ..Weapon::default()
-    });
+});
     o.secondary_weapon = Some(Weapon {
         damage: 100.0,
         range: 500.0,
         reload_time: 5.0,
         ..Weapon::default()
-    });
+});
     assert_eq!(o.get_ammo_pip_showing_info(), Some((4, 2)));
     assert_eq!(o.find_waypoint_following_capable_weapon_slot(), Some(1));
 }
@@ -1807,7 +1807,7 @@ fn weapon_status_sets_between_firing_model_condition() {
         reload_time: 1.0,
         last_fire_time: -100.0,
         ..Weapon::default()
-    });
+});
     assert!(atk.fire_at(tgt.id, 1.0));
     assert_eq!(atk.weapon_fire_status, WeaponFireStatus::BetweenFiringShots);
     assert_ne!(
@@ -1835,7 +1835,7 @@ fn weapon_fire_status_between_shots_after_fire() {
         reload_time: 1.0,
         last_fire_time: -100.0,
         ..Weapon::default()
-    });
+});
     assert_eq!(atk.weapon_fire_status, WeaponFireStatus::ReadyToFire);
     assert!(atk.fire_at(tgt.id, 1.0));
     assert_eq!(atk.weapon_fire_status, WeaponFireStatus::BetweenFiringShots);
@@ -1857,7 +1857,7 @@ fn can_fire_honors_weapon_bonus_rof() {
         reload_time: 1.0,
         last_fire_time: 0.0,
         ..Weapon::default()
-    });
+});
     // Base: not ready at t=0.5
     assert!(!o.can_fire(0.5));
     // With 2x ROF, effective reload = 0.5 → ready at t=0.5
@@ -1893,7 +1893,7 @@ fn max_shots_to_fire_blocks_after_budget() {
         pre_attack_delay: 0.0,
         projectile_speed: 999_000.0,
         ..Weapon::default()
-    });
+});
     atk.set_max_shots_to_fire(2);
     assert!(atk.fire_at(tgt.id, 1.0));
     assert_eq!(atk.max_shots_to_fire, 1);
@@ -1925,7 +1925,7 @@ fn leech_range_waives_max_in_is_within_attack_range() {
         range: 100.0,
         min_range: 0.0,
         ..Weapon::default()
-    });
+});
     // Force leech template name path: set flags directly (activate needs name peel).
     assert!(!atk.is_within_attack_range(&vic));
     atk.leech_range_active_primary = true;
@@ -1962,7 +1962,7 @@ fn force_reload_when_idle_refills_clip() {
             clip_size: 4,
             ammo: Some(1), // partial
             ..Weapon::default()
-        });
+});
         a.auto_reload_when_idle_frames = 15;
         a.stamp_auto_reload_when_idle(100);
         assert_eq!(a.frame_to_force_reload, 115);
@@ -2127,7 +2127,7 @@ fn fire_at_ex_faerie_fire_speeds_reload() {
             reload_time: 1.0,
             last_fire_time: -100.0, // never-fired residual
             ..Weapon::default()
-        });
+});
         // First shot at t=0
         assert!(a.fire_at_ex(ObjectId(99), 0.0, false, true));
         // Without faerie, not ready at 0.7 (needs full 1.0s)
@@ -2316,7 +2316,7 @@ fn leech_range_waives_max_range_after_activate() {
         can_target_ground: true,
         projectile_speed: 0.0,
         ..Weapon::default()
-    });
+});
 
     let mut tgt = Object::new(
         ThingTemplate::new("AmericaTankCrusader"),
@@ -2352,7 +2352,7 @@ fn acceptable_aim_delta_blocks_then_allows_after_turn() {
         damage: 10.0,
         range: 200.0,
         ..Weapon::default()
-    });
+});
     let target = glam::Vec3::new(0.0, 0.0, 50.0); // off to +Z (~90°)
     let aim = atk.aim_delta_for_slot(0);
     let rel = atk.relative_angle_2d_to(target);
@@ -2406,7 +2406,7 @@ fn pre_attack_type_per_shot_delays_every_discharge() {
         last_fire_time: -100.0,
         pre_attack_delay: 0.5,
         ..Weapon::default()
-    });
+});
     let tgt = ObjectId(9);
     // First wind-up
     assert!(!atk.fire_at(tgt, 10.0));
@@ -2443,7 +2443,7 @@ fn pre_attack_type_per_attack_delays_once_per_target() {
         ammo: Some(5),
         clip_size: 5,
         ..Weapon::default()
-    });
+});
     let tgt = ObjectId(9);
     assert!(!atk.fire_at(tgt, 5.0)); // wind-up
     assert!(atk.fire_at(tgt, 6.0)); // fire
@@ -2477,7 +2477,7 @@ fn pre_attack_type_per_clip_delays_on_full_clip_only() {
         clip_size: 3,
         clip_reload_time: 0.0,
         ..Weapon::default()
-    });
+});
     let tgt = ObjectId(9);
     // Full clip → delay
     assert!(!atk.fire_at(tgt, 1.0));
@@ -2511,7 +2511,7 @@ fn return_to_base_blocks_fire_until_rearm() {
         can_target_air: true,
         can_target_ground: true,
         ..Weapon::default()
-    });
+});
     let tgt = ObjectId(9);
     assert!(jet.fire_at(tgt, 1.0));
     assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(1));
@@ -2543,7 +2543,7 @@ fn auto_reload_still_refills_clip() {
         clip_reload_time: 1.0,
         last_fire_time: -100.0,
         ..Weapon::default()
-    };
+};
     let t0 = 5.0;
     assert!(Object::weapon_ready(&w, t0));
     Object::consume_ammo_on_fire(&mut w, t0);
@@ -2581,7 +2581,7 @@ fn out_of_ammo_damage_ticks_empty_rtb_jet() {
         can_target_air: true,
         can_target_ground: true,
         ..Weapon::default()
-    });
+});
     assert!(jet.needs_return_to_base_rearm());
     let hp0 = jet.health.current;
     let dmg = jet.apply_out_of_ammo_damage_frame();
@@ -2616,7 +2616,7 @@ fn airfield_rearm_duration_is_remaining_biased() {
         can_target_air: true,
         can_target_ground: true,
         ..Weapon::default()
-    });
+});
     // C++ (rt * needed) / clipSize = (240 * 2) / 4 = 120.
     assert_eq!(jet.airfield_rearm_clip_reload_frames(), 120);
     jet.weapon.as_mut().unwrap().ammo = Some(0);
@@ -2641,7 +2641,7 @@ fn parked_rearm_fills_clip_percent_over_time() {
         can_target_air: true,
         can_target_ground: true,
         ..Weapon::default()
-    });
+});
     jet.begin_parked_airfield_rearm(10);
     assert_eq!(jet.airfield_rearm_ready_frame, Some(250));
     assert!(!jet.tick_parked_airfield_rearm(10));
@@ -2673,7 +2673,7 @@ fn empty_jet_circles_last_airfield_not_own_pos() {
         can_target_air: true,
         can_target_ground: true,
         ..Weapon::default()
-    });
+});
     jet.capture_jet_producer_location(Some(Vec3::ZERO));
     assert!(!jet.is_at_jet_producer_location(80.0));
     assert!(jet.enter_circling_dead_airfield(1));
@@ -2705,7 +2705,7 @@ fn parked_jet_takeoff_on_attack_and_move() {
         can_target_air: true,
         can_target_ground: true,
         ..Weapon::default()
-    });
+});
     jet.contained_by = Some(ObjectId(99));
     jet.set_ai_state(AIState::Docked);
     jet.status.airborne_target = false;
@@ -2899,6 +2899,7 @@ fn crush_overlap_collision_kills_infantry() {
     it.add_kind_of(KindOf::Infantry);
     let mut inf = Object::new(it, ObjectId(92), Team::GLA);
     inf.crushable_level = 0;
+    inf.has_squish_collide = true;
     inf.selection_radius = 10.0;
     // Tank past infantry center along +X.
     inf.set_position(glam::Vec3::new(5.0, 0.0, 0.0));
@@ -2998,6 +2999,82 @@ fn crushable_car_uses_front_back_not_instant_squish() {
     assert!(
         !(car.front_crushed && car.back_crushed),
         "cars use front/back crush points, not both flags at first contact"
+    );
+}
+
+#[test]
+fn squish_module_crushes_default_crushable_level() {
+    // C++ TEST_SQUISH / SquishCollide: crushableLevel 255 still dies.
+    use crate::game_logic::host_usa_pilot::HostDeathType;
+    let mut vt = ThingTemplate::new("SquishTank");
+    vt.add_kind_of(KindOf::Vehicle);
+    let mut tank = Object::new(vt, ObjectId(521), Team::USA);
+    tank.crusher_level = 1;
+    tank.set_orientation(0.0);
+    tank.movement.velocity = glam::Vec3::new(5.0, 0.0, 0.0);
+    tank.set_position(glam::Vec3::new(6.0, 0.0, 0.0));
+    tank.selection_radius = 8.0;
+
+    let mut it = ThingTemplate::new("SquishInf");
+    it.add_kind_of(KindOf::Infantry);
+    let mut inf = Object::new(it, ObjectId(522), Team::GLA);
+    inf.crushable_level = 255;
+    inf.has_squish_collide = true;
+    inf.selection_radius = 8.0;
+    inf.set_position(glam::Vec3::new(5.0, 0.0, 0.0));
+
+    assert!(
+        !tank.can_crush_only(&inf, false),
+        "TEST_CRUSH_ONLY is levels only"
+    );
+    assert!(
+        tank.can_crush_or_squish(&inf, false),
+        "TEST_CRUSH_OR_SQUISH includes SquishCollide"
+    );
+    assert!(!tank.ai_blocked_by(&inf, false));
+    assert!(tank.check_for_overlap_collision(&mut inf, false));
+    assert!(inf.status.destroyed || inf.health.current <= 0.0);
+    if inf.status.destroyed {
+        assert_eq!(inf.status.death_type, HostDeathType::Crushed);
+    }
+}
+
+#[test]
+fn crush_points_use_authored_major_radius() {
+    // PhysicsUpdate.cpp:1490 majorRadius/2, not selection/bounding circle.
+    let mut vt = ThingTemplate::new("MajorTank");
+    vt.add_kind_of(KindOf::Vehicle);
+    let mut tank = Object::new(vt, ObjectId(531), Team::USA);
+    tank.crusher_level = 2;
+    tank.set_orientation(0.0);
+    tank.movement.velocity = glam::Vec3::new(5.0, 0.0, 0.0);
+    tank.set_position(glam::Vec3::new(15.0, 0.0, 0.0));
+    tank.selection_radius = 8.0;
+
+    let mut ct = ThingTemplate::new("MajorCar");
+    ct.add_kind_of(KindOf::Vehicle);
+    ct.geometry_info = crate::game_logic::HostGeometryInfo {
+        geom_type: crate::game_logic::HostGeometryType::Box,
+        is_small: true,
+        height: 8.0,
+        major_radius: 6.0,
+        minor_radius: 4.0,
+        authored: true,
+    };
+    let mut car = Object::new(ct, ObjectId(532), Team::Neutral);
+    car.crushable_level = 1;
+    car.crusher_level = 0;
+    car.selection_radius = 20.0;
+    car.set_orientation(0.0);
+    car.set_position(glam::Vec3::new(10.0, 0.0, 0.0));
+    car.health.current = 200.0;
+    car.health.maximum = 200.0;
+
+    assert!(tank.can_crush_only(&car, false));
+    assert!(tank.check_for_overlap_collision(&mut car, false));
+    assert!(
+        car.is_alive() && car.health.current > 0.0,
+        "center is 5wu behind; major/2 window is 4.5wu so no HUGE crush"
     );
 }
 #[test]
@@ -3523,7 +3600,7 @@ fn shock_stun_blocks_attack_fire_and_flail_move() {
         last_fire_time: -100.0,
         can_target_ground: true,
         ..Weapon::default()
-    });
+});
     assert!(o.can_attack());
     assert!(o.can_fire(0.0));
     assert!(o.can_move());
@@ -3630,7 +3707,7 @@ fn jet_stop_idle_timer_sneaky_and_lockon() {
         ammo: Some(0),
         clip_size: 2,
         ..crate::game_logic::Weapon::default()
-    });
+});
 
     assert!(raptor.needs_return_to_base_rearm());
     assert!(raptor.jet_empty_clip_should_auto_rtb());
@@ -3674,6 +3751,80 @@ fn jet_takeoff_pause_afterburner_and_lift_ramp() {
     jet.set_position(Vec3::new(50.0, 0.0, 0.0));
     let _ = jet.tick_jet_takeoff_lift(jet.jet_ai.takeoff_pause_until);
     assert!(jet.max_lift > 0.0 && jet.max_lift < 8.0, "lift={}", jet.max_lift);
+}
+
+#[test]
+fn jet_lockon_rearms_after_targeter_removed() {
+    use crate::game_logic::object::STEALTH_FIGHTER_LOCKON_TIME_FRAMES;
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut sf_t = ThingTemplate::new("AmericaJetStealthFighter");
+    sf_t.add_kind_of(KindOf::Aircraft);
+    let mut sf = Object::new(sf_t, ObjectId(2), Team::USA);
+    sf.add_jet_targeter(ObjectId(9), true, 100);
+    assert!(sf.is_temporarily_preventing_aim_success(100));
+    assert!(!sf.is_temporarily_preventing_aim_success(100 + STEALTH_FIGHTER_LOCKON_TIME_FRAMES));
+    sf.add_jet_targeter(ObjectId(9), false, 200);
+    assert!(sf.jet_ai.targeted_by.is_empty());
+    assert_eq!(sf.jet_ai.untargetable_expire_frame, 0);
+    sf.add_jet_targeter(ObjectId(11), true, 200);
+    assert!(
+        sf.is_temporarily_preventing_aim_success(200),
+        "new targeting episode must re-arm LockonTime"
+    );
+    assert!(!sf.is_temporarily_preventing_aim_success(200 + STEALTH_FIGHTER_LOCKON_TIME_FRAMES));
+}
+
+#[test]
+fn jet_taxi_to_takeoff_does_not_enable_afterburners() {
+    use crate::game_logic::host_enum_table_residual::{
+        jetafterburner_model_bit, jetexhaust_model_bit,
+    };
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use glam::Vec3;
+    let mut t = ThingTemplate::new("AmericaJetRaptor");
+    t.add_kind_of(KindOf::Aircraft);
+    let mut jet = Object::new(t, ObjectId(5), Team::USA);
+    jet.apply_taxiing_locomotor_set();
+    jet.movement.velocity = Vec3::new(8.0, 0.0, 0.0);
+    jet.arm_jet_taxi_to_takeoff(
+        Vec3::new(40.0, 0.0, 0.0),
+        Vec3::new(120.0, 0.0, 0.0),
+        80.0,
+        false,
+    );
+    let _ = jet.tick_jet_ai_update(1);
+    assert!(!jet.jet_ai.afterburners_on);
+    assert!(jet.jet_ai.taxi_to_takeoff);
+    let ab = 1u128 << jetafterburner_model_bit();
+    let ex = 1u128 << jetexhaust_model_bit();
+    assert_eq!(jet.model_condition_bits & ab, 0, "no takeoff afterburner on taxi");
+    assert_eq!(jet.model_condition_bits & ex, 0, "no JETEXHAUST on ground taxi");
+    assert!(!jet.jet_reached_runway_head());
+    jet.set_position(Vec3::new(40.0, 0.0, 0.0));
+    assert!(jet.jet_reached_runway_head());
+    jet.begin_jet_runway_takeoff(10, Vec3::new(120.0, 0.0, 0.0), 80.0, false);
+    assert!(jet.jet_ai.afterburners_on);
+    jet.finish_jet_takeoff();
+    assert!(!jet.jet_ai.afterburners_on);
+}
+
+#[test]
+fn jet_exhaust_only_in_forward_flight() {
+    use crate::game_logic::host_enum_table_residual::jetexhaust_model_bit;
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use glam::Vec3;
+    let mut t = ThingTemplate::new("AmericaJetRaptor");
+    t.add_kind_of(KindOf::Aircraft);
+    let mut jet = Object::new(t, ObjectId(6), Team::USA);
+    let ex = 1u128 << jetexhaust_model_bit();
+    jet.apply_airborne_locomotor_set();
+    jet.status.airborne_target = true;
+    jet.movement.velocity = Vec3::ZERO;
+    let _ = jet.tick_jet_ai_update(1);
+    assert_eq!(jet.model_condition_bits & ex, 0, "hover has no exhaust");
+    jet.movement.velocity = Vec3::new(40.0, 0.0, 0.0);
+    let _ = jet.tick_jet_ai_update(2);
+    assert_ne!(jet.model_condition_bits & ex, 0, "forward flight shows exhaust");
 }
 
 #[test]
@@ -3728,6 +3879,130 @@ fn jet_stop_and_enter_airfield_land() {
         j.owner_player_id = Some(0);
     }
     assert!(logic.do_jet_landing_command(jet2, af));
+}
+
+#[test]
+fn jet_hangar_taxi_then_afterburner_at_runway_head_and_rtb_approach() {
+    use crate::game_logic::object::{JET_AFTERBURNER_SOUND, JET_AFTERBURNER_SOUND_STOP};
+    use crate::game_logic::{GameLogic, KindOf, ParkingPlaceMetadata, Team, ThingTemplate};
+    use glam::Vec3;
+    let mut logic = GameLogic::new();
+    let mut af_t = ThingTemplate::new("AmericaAirfield");
+    af_t.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSAirfield)
+        .set_health(1000.0);
+    af_t.parking_place = Some(ParkingPlaceMetadata {
+        num_rows: 2,
+        num_cols: 2,
+        approach_height: 50.0,
+        landing_deck_height_offset: 0.0,
+        has_runways: true,
+        park_in_hangars: false,
+        heal_amount_per_second: 10.0,
+    });
+    logic.templates.insert("AmericaAirfield".into(), af_t);
+    let mut jet_t = ThingTemplate::new("AmericaJetRaptor");
+    jet_t.add_kind_of(KindOf::Aircraft).set_health(80.0);
+    logic.templates.insert("AmericaJetRaptor".into(), jet_t);
+    let af = logic
+        .create_object("AmericaAirfield", Team::USA, Vec3::ZERO)
+        .expect("af");
+    let jet = logic
+        .create_object("AmericaJetRaptor", Team::USA, Vec3::new(5.0, 0.0, 0.0))
+        .expect("jet");
+    {
+        let j = logic.objects.get_mut(&jet).unwrap();
+        j.status.airborne_target = false;
+        j.jet_ai.rtb_landing_phase = crate::game_logic::object::JET_RTB_PHASE_TAXI;
+        j.set_position(Vec3::ZERO);
+    }
+    assert!(logic.try_return_to_base_rearm(jet));
+    {
+        let j = logic.objects.get_mut(&jet).unwrap();
+        assert_eq!(j.contained_by, Some(af));
+        let p = j.get_position();
+        j.set_position(Vec3::new(p.x - 50.0, p.y, p.z));
+    }
+    assert!(logic.try_runway_takeoff_from_airfield(jet));
+    {
+        let j = logic.objects.get(&jet).unwrap();
+        assert!(j.contained_by.is_none());
+        assert!(j.jet_ai.taxi_to_takeoff || j.jet_ai.takeoff_in_progress);
+        assert!(
+            !j.jet_ai.afterburners_on,
+            "afterburners stay off during hangar/parking taxi"
+        );
+        assert!(
+            !logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == JET_AFTERBURNER_SOUND),
+            "Afterburner sound must not start at taxi-out"
+        );
+        assert!(
+            j.movement.path.len() >= 2,
+            "taxi must include hangar/parking intermediate, not just runway end"
+        );
+    }
+    let start = logic
+        .objects
+        .get(&jet)
+        .and_then(|j| j.jet_ai.takeoff_runway_start)
+        .map(|p| Vec3::new(p[0], p[1], p[2]))
+        .expect("runway start");
+    if let Some(j) = logic.objects.get_mut(&jet) {
+        j.set_position(start);
+    }
+    logic.tick_jet_ai_update_all();
+    {
+        let j = logic.objects.get(&jet).unwrap();
+        assert!(j.jet_ai.afterburners_on, "afterburners at runway-head pause");
+        assert!(j.jet_ai.takeoff_in_progress);
+    }
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == JET_AFTERBURNER_SOUND && e.is_looping && !e.stop)
+    );
+    if let Some(j) = logic.objects.get_mut(&jet) {
+        j.finish_jet_takeoff();
+    }
+    logic.tick_jet_ai_update_all();
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == JET_AFTERBURNER_SOUND_STOP || e.stop),
+        "Afterburner sound must stop when afterburners clear"
+    );
+
+    let inbound = logic
+        .create_object("AmericaJetRaptor", Team::USA, Vec3::new(2000.0, 40.0, 0.0))
+        .expect("inbound");
+    if let Some(j) = logic.objects.get_mut(&inbound) {
+        j.status.airborne_target = true;
+        j.weapon = Some(crate::game_logic::Weapon {
+            ammo: Some(0),
+            clip_size: 2,
+            ..crate::game_logic::Weapon::default()
+});
+    }
+    assert!(logic.try_return_to_base_rearm(inbound));
+    {
+        let j = logic.objects.get(&inbound).unwrap();
+        assert!(j.contained_by.is_none(), "distant RTB must not snap-dock");
+        let dest = j
+            .movement
+            .target_position
+            .or_else(|| j.movement.path.last().copied())
+            .expect("approach dest");
+        assert!(
+            dest.length() > 20.0,
+            "RTB flies to runway approach, not airfield center ({dest:?})"
+        );
+        assert!(j.jet_allows_air_loco() || j.jet_ai.allow_air_loco);
+    }
 }
 
 #[test]

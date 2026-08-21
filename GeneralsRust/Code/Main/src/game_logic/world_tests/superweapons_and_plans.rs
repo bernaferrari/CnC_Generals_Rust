@@ -986,7 +986,7 @@ fn strategy_center_battle_plan_door_animation_residual() {
             reload_time: 0.1,
             last_fire_time: -10.0,
             ..Weapon::default()
-        });
+});
     }
 
     assert!(!game_logic.honesty_battle_plan_door_ok());
@@ -1153,7 +1153,7 @@ fn strategy_center_delayed_set_battle_plan_and_turret_recenter_residual() {
             reload_time: 0.1,
             last_fire_time: -10.0,
             ..Weapon::default()
-        });
+});
     }
 
     assert!(!game_logic.honesty_battle_plan_delayed_active_ok());
@@ -1565,7 +1565,7 @@ fn gps_scrambler_residual_grants_stealth_to_ally_units() {
             reload_time: 0.1,
             last_fire_time: -10.0,
             ..Weapon::default()
-        });
+});
     }
 
     assert!(!game_logic.honesty_gps_scrambler_ok());
@@ -1807,7 +1807,7 @@ fn leaflet_drop_residual_disables_enemy_infantry_and_vehicles() {
             reload_time: 0.1,
             last_fire_time: -10.0,
             ..Weapon::default()
-        });
+});
     }
 
     let vehicle_hp = game_logic
@@ -3685,6 +3685,7 @@ fn can_make_hero_maxed_out_at_one_residual() {
         .add_kind_of(KindOf::Hero)
         .set_health(200.0)
         .set_cost(1500, 0);
+    burton.max_simultaneous_of_type = 1;
     logic
         .templates
         .insert("AmericaInfantryColonelBurton".into(), burton);
@@ -3730,6 +3731,74 @@ fn can_make_hero_maxed_out_at_one_residual() {
     );
     assert!(!logic2.enqueue_production(b2, "AmericaInfantryColonelBurton".into()));
 }
+
+    #[test]
+    fn unique_building_max_simultaneous_from_ini_blocks_second() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        let mut factory = ThingTemplate::new("TestUniqueWarFactory");
+        factory
+            .add_kind_of(KindOf::Structure)
+            .set_health(2_000.0)
+            .set_cost(2_000, 0);
+        factory.max_simultaneous_of_type = 1;
+        logic
+            .templates
+            .insert("TestUniqueWarFactory".into(), factory);
+
+        let first = logic.create_object_under_construction(
+            "TestUniqueWarFactory",
+            Team::USA,
+            glam::Vec3::ZERO,
+        );
+        assert!(first.is_some(), "first unique building must place");
+        let second = logic.create_object_under_construction(
+            "TestUniqueWarFactory",
+            Team::USA,
+            glam::Vec3::new(80.0, 0.0, 0.0),
+        );
+        assert!(
+            second.is_none(),
+            "hq-ss0x8: INI MaxSimultaneousOfType=1 must block a second copy"
+        );
+    }
+
+    #[test]
+    fn max_simultaneous_link_key_counts_rebuild_hole() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        let mut scud = ThingTemplate::new("TestLinkedScud");
+        scud.add_kind_of(KindOf::Structure)
+            .set_health(4_000.0)
+            .set_cost(5_000, 0);
+        scud.max_simultaneous_of_type = 1;
+        scud.max_simultaneous_link_key = Some("Superweapon".into());
+        logic.templates.insert("TestLinkedScud".into(), scud);
+
+        let mut hole = ThingTemplate::new("TestLinkedScudHole");
+        hole.add_kind_of(KindOf::Structure).set_health(500.0);
+        hole.max_simultaneous_of_type = 1;
+        hole.max_simultaneous_link_key = Some("Superweapon".into());
+        logic.templates.insert("TestLinkedScudHole".into(), hole);
+
+        let hole_id = logic
+            .create_object("TestLinkedScudHole", Team::USA, glam::Vec3::ZERO)
+            .expect("hole");
+        assert!(logic.host_object(hole_id).is_some());
+        let blocked = logic.create_object_under_construction(
+            "TestLinkedScud",
+            Team::USA,
+            glam::Vec3::new(80.0, 0.0, 0.0),
+        );
+        assert!(
+            blocked.is_none(),
+            "hq-ss0x8: rebuild hole must consume MaxSimultaneousLinkKey"
+        );
+    }
 
 #[test]
 fn can_make_aircraft_blocked_when_airfield_parking_full() {

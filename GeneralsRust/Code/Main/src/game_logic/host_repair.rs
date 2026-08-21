@@ -15,7 +15,7 @@
 //!
 //! Fail-closed honesty:
 //! - Not full C++ sole-benefactor multi-dozer reject-on-reject path
-//! - Not full RepairDockUpdate dock bones / drone heal matrix
+//! - RepairDock drone heal + DockWaiting bones are on the live host path
 //! - Not full bridge scaffolding path
 //! - Not network repair replication (network deferred)
 
@@ -375,5 +375,126 @@ mod tests {
         assert!((DOZER_REPAIR_HEALTH_PERCENT_PER_SEC - 0.02).abs() < 0.0001);
         assert_eq!(REPAIR_DOCK_TIME_FOR_FULL_HEAL_FRAMES, 150);
         assert_eq!(TECH_REPAIR_PAD_TEMPLATE, "TechRepairPad");
+    }
+
+    #[test]
+    fn get_repaired_does_not_time_for_full_heal_airborne_aircraft() {
+        use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate};
+        crate::game_logic::host_supply_gather::reset_live_dock_queues();
+        let mut logic = GameLogic::new();
+        let mut air = ThingTemplate::new("TestAirfield");
+        air.add_kind_of(KindOf::FSAirfield).set_health(2000.0);
+        let mut heli = ThingTemplate::new("TestComanche");
+        heli.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Aircraft)
+            .set_health(240.0);
+        logic.templates.insert(air.name.clone(), air);
+        logic.templates.insert(heli.name.clone(), heli);
+        let af = logic
+            .create_object("TestAirfield", Team::USA, glam::Vec3::ZERO)
+            .unwrap();
+        let id = logic
+            .create_object("TestComanche", Team::USA, glam::Vec3::new(5.0, 20.0, 0.0))
+            .unwrap();
+        {
+            let o = logic.host_object_mut(id).unwrap();
+            o.health.current = 40.0;
+            o.status.airborne_target = true;
+            o.set_target(Some(af));
+            o.set_ai_state(AIState::SeekingRepair);
+        }
+        logic.update_support_states_for_test(&[id], 1.0);
+        let hp = logic.host_object(id).unwrap().health.current;
+        assert!(
+            (hp - 40.0).abs() < 0.01,
+            "airborne aircraft must not TimeForFullHeal, hp={hp}"
+        );
+        crate::game_logic::host_supply_gather::reset_live_dock_queues();
+    }
+
+    #[test]
+    fn repair_dock_heals_slave_drone_to_max() {
+        use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate};
+        crate::game_logic::host_supply_gather::reset_live_dock_queues();
+        let mut logic = GameLogic::new();
+        let mut pad = ThingTemplate::new("TestRepairPad");
+        pad.add_kind_of(KindOf::RepairPad).set_health(2000.0);
+        let mut humvee = ThingTemplate::new("TestHumvee");
+        humvee.add_kind_of(KindOf::Vehicle).set_health(240.0);
+        let mut drone = ThingTemplate::new("TestBattleDrone");
+        drone
+            .add_kind_of(KindOf::Drone)
+            .add_kind_of(KindOf::Vehicle)
+            .set_health(80.0);
+        logic.templates.insert(pad.name.clone(), pad);
+        logic.templates.insert(humvee.name.clone(), humvee);
+        logic.templates.insert(drone.name.clone(), drone);
+        let pad_id = logic
+            .create_object("TestRepairPad", Team::USA, glam::Vec3::ZERO)
+            .unwrap();
+        let master = logic
+            .create_object("TestHumvee", Team::USA, glam::Vec3::new(2.0, 0.0, 0.0))
+            .unwrap();
+        let drone_id = logic
+            .create_object("TestBattleDrone", Team::USA, glam::Vec3::new(3.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let o = logic.host_object_mut(master).unwrap();
+            o.health.current = 40.0;
+            o.set_target(Some(pad_id));
+            o.set_ai_state(AIState::SeekingRepair);
+        }
+        {
+            let d = logic.host_object_mut(drone_id).unwrap();
+            d.health.current = 10.0;
+            d.producer_id = Some(master);
+        }
+        logic.update_support_states_for_test(&[master], 1.0 / 30.0);
+        let drone_hp = logic.host_object(drone_id).unwrap().health.current;
+        assert!(
+            (drone_hp - 80.0).abs() < 0.01,
+            "slave drone must snap to max while master docks, hp={drone_hp}"
+        );
+        crate::game_logic::host_supply_gather::reset_live_dock_queues();
+    }
+
+    #[test]
+    fn worker_clears_moving_while_docking_at_supply_source() {
+        use crate::game_logic::host_enum_table_residual::{
+            docking_beginning_model_bit, moving_model_bit,
+        };
+        use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate};
+        crate::game_logic::host_supply_gather::reset_live_dock_queues();
+        let mut logic = GameLogic::new();
+        let mut wh = ThingTemplate::new("TestWarehouse");
+        wh.add_kind_of(KindOf::SupplySource)
+            .add_kind_of(KindOf::Structure)
+            .set_health(500.0);
+        wh.dock_kind = crate::game_logic::DockKind::SupplyWarehouse;
+        let mut worker = ThingTemplate::new("GLAInfantryWorker");
+        worker
+            .add_kind_of(KindOf::Dozer)
+            .add_kind_of(KindOf::Harvester)
+            .add_kind_of(KindOf::Infantry)
+            .set_health(100.0);
+        logic.templates.insert(wh.name.clone(), wh);
+        logic.templates.insert(worker.name.clone(), worker);
+        let dock = logic
+            .create_object("TestWarehouse", Team::GLA, glam::Vec3::ZERO)
+            .unwrap();
+        let wid = logic
+            .create_object("GLAInfantryWorker", Team::GLA, glam::Vec3::ZERO)
+            .unwrap();
+        {
+            let o = logic.host_object_mut(wid).unwrap();
+            o.model_condition_bits |= 1u128 << moving_model_bit();
+            o.set_target(Some(dock));
+            o.set_ai_state(AIState::Gathering);
+        }
+        assert!(logic.try_claim_dock_for_test(dock, wid));
+        let o = logic.host_object(wid).unwrap();
+        assert_ne!(o.model_condition_bits & (1u128 << docking_beginning_model_bit()), 0);
+        assert_eq!(o.model_condition_bits & (1u128 << moving_model_bit()), 0);
+        crate::game_logic::host_supply_gather::reset_live_dock_queues();
     }
 }

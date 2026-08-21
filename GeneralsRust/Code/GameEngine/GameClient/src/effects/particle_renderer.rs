@@ -1107,13 +1107,14 @@ impl ParticleRenderer {
             let dy = ray.end[1] - ray.start[1];
             let dz = ray.end[2] - ray.start[2];
             let length = (dx * dx + dy * dy + dz * dz).sqrt().max(0.001);
+            let alpha = ray.width_scalar.clamp(0.0, 1.0);
             vertices.push(ParticleVertex {
                 position: ray.midpoint,
-                size: [length, 0.4],
-                color: [0.85, 0.95, 1.0, 1.0],
+                size: [length, 0.4 * alpha.max(0.05)],
+                color: [0.85, 0.95, 1.0, alpha],
                 uv_rect: [0.0, 0.0, 1.0, 1.0],
                 rotation: dy.atan2(dx),
-                alpha: 1.0,
+                alpha,
                 _padding: 0.0,
             });
         }

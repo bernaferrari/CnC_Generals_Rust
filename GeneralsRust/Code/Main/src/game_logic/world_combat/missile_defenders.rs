@@ -246,6 +246,7 @@ impl GameLogic {
                     })
                 })
             else {
+                self.leftover_kill_special_objects(object_id);
                 self.hero_abilities.take_leftover_channel(object_id);
                 continue;
             };
@@ -259,6 +260,7 @@ impl GameLogic {
                 || stealth_hidden
                 || !leftover_within_abort_range(dist, timings.abort_range)
             {
+                self.leftover_kill_special_objects(object_id);
                 self.hero_abilities.take_leftover_channel(object_id);
                 continue;
             }

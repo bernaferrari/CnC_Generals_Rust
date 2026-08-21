@@ -229,7 +229,7 @@ fn set_team_attitude_applies_to_all_members() {
         o.weapon = Some(Weapon {
             range: 40.0,
             ..Default::default()
-        });
+});
         logic.objects.insert(id, o);
     }
     // USA control
@@ -240,7 +240,7 @@ fn set_team_attitude_applies_to_all_members() {
         o.weapon = Some(Weapon {
             range: 40.0,
             ..Default::default()
-        });
+});
         o
     });
     let n = logic.set_team_attitude_by_name("China", "SLEEP");
@@ -266,7 +266,7 @@ fn set_team_attitude_by_instance_name_and_script_drain() {
     o.weapon = Some(Weapon {
         range: 40.0,
         ..Default::default()
-    });
+});
     logic.objects.insert(id, o);
 
     request_host_team_attitude("AmericaTeamHeroes", 2);
@@ -350,7 +350,7 @@ fn set_unit_attitude_affects_mood_matrix() {
         o.weapon = Some(Weapon {
             range: 50.0,
             ..Default::default()
-        });
+});
         o
     });
     assert!(logic.set_unit_attitude(id, GameLogic::parse_attitude_token("SLEEP")));
@@ -422,7 +422,7 @@ fn script_priority_set_applies_to_unit_via_host_api() {
             can_target_ground: true,
             damage: 5.0,
             ..Default::default()
-        });
+});
         o
     });
     // C++ NamedApplyAttackPrioritySet residual via host setter.
@@ -517,7 +517,7 @@ fn find_closest_enemy_uses_attack_priority() {
             can_target_ground: true,
             damage: 5.0,
             ..Default::default()
-        });
+});
         o
     });
     // Low value close
@@ -571,7 +571,7 @@ fn find_closest_enemy_skips_zero_priority() {
             can_target_ground: true,
             damage: 5.0,
             ..Default::default()
-        });
+});
         o
     });
     let mut zt = ThingTemplate::new("Forbidden");
@@ -615,7 +615,7 @@ fn find_closest_enemy_skips_pure_buildings_by_default() {
             can_target_ground: true,
             damage: 5.0,
             ..Default::default()
-        });
+});
         o
     });
     // Pure building (no weapon) nearby.
@@ -667,7 +667,7 @@ fn find_closest_enemy_within_attack_range_flag() {
             can_target_ground: true,
             damage: 5.0,
             ..Default::default()
-        });
+});
         o
     });
     let mut et = ThingTemplate::new("FceE2");
@@ -742,7 +742,7 @@ fn get_next_mood_target_finds_nearby_enemy() {
             damage: 10.0,
             can_target_ground: true,
             ..Default::default()
-        });
+});
         o
     });
     let mut vt = ThingTemplate::new("MoodT2");
@@ -778,7 +778,7 @@ fn get_next_mood_target_sleep_returns_none() {
             range: 80.0,
             can_target_ground: true,
             ..Default::default()
-        });
+});
         o
     });
     let mut vt = ThingTemplate::new("MoodSE");
@@ -815,7 +815,7 @@ fn get_next_mood_target_passive_uses_last_damage_source() {
             damage: 5.0,
             can_target_ground: true,
             ..Default::default()
-        });
+});
         o
     });
     let mut vt = ThingTemplate::new("MoodPE");
@@ -857,7 +857,7 @@ fn try_mood_auto_acquire_enters_attack() {
             last_fire_time: -10.0,
             reload_time: 1.0,
             ..Default::default()
-        });
+});
         o
     });
     let mut vt = ThingTemplate::new("MoodAcE");
@@ -888,7 +888,7 @@ fn transfer_attack_retargets_attackers() {
         o.weapon = Some(Weapon {
             range: 50.0,
             ..Default::default()
-        });
+});
         o
     };
     let from = ObjectId(2401);
@@ -924,7 +924,7 @@ fn mood_matrix_sleep_blocks_attack() {
         o.weapon = Some(Weapon {
             range: 50.0,
             ..Default::default()
-        });
+});
         o
     });
     let adj = logic.get_mood_matrix_action_adjustment(id, MoodMatrixAction::Attack, false);
@@ -975,7 +975,7 @@ fn attack_state_enter_fails_when_sleep_mood() {
             damage: 10.0,
             can_target_ground: true,
             ..Default::default()
-        });
+});
         o
     });
     let mut vt = ThingTemplate::new("SleepV");
@@ -1006,7 +1006,7 @@ fn able_to_attack_possible_in_range_enemy() {
             range: 100.0,
             damage: 10.0,
             ..Default::default()
-        });
+});
         o
     });
     let mut vt = ThingTemplate::new("AtaV");
@@ -1041,7 +1041,7 @@ fn player_attack_command_uses_weaponset_target_legality_before_stamping_target()
             can_target_ground: true,
             can_target_air: false,
             ..Default::default()
-        });
+});
         attacker
     });
 
@@ -1089,7 +1089,7 @@ fn player_attack_command_uses_weaponset_target_legality_before_stamping_target()
         can_target_ground: true,
         can_target_air: false,
         ..Default::default()
-    });
+});
     assert!(attacker.set_weapon_lock(0, WeaponLockType::LockedPermanently));
     drop(attacker);
     assert!(!logic.unit_command_attack(attacker_id, target_id));
@@ -1123,7 +1123,7 @@ fn host_direct_attack_authority_does_not_bypass_weaponset_target_legality() {
             damage: 10.0,
             can_target_ground: true,
             ..Default::default()
-        });
+});
         object
     });
 
@@ -1180,7 +1180,7 @@ fn able_to_attack_after_moving_when_oor() {
             can_target_ground: true,
             can_target_air: true,
             ..Default::default()
-        });
+});
         o
     });
     let mut vt = ThingTemplate::new("AtaV2");
@@ -1207,7 +1207,7 @@ fn able_to_attack_rejects_self() {
         o.weapon = Some(Weapon {
             range: 50.0,
             ..Default::default()
-        });
+});
         o
     });
     let r = logic.get_able_to_attack_specific_object(aid, aid, AbleToAttackType::NewTarget, false);
@@ -1230,7 +1230,7 @@ fn able_to_attack_stealth_blocks_unless_force() {
             can_target_ground: true,
             can_target_air: true,
             ..Default::default()
-        });
+});
         o
     });
     let mut vt = ThingTemplate::new("AtaV4");
@@ -1278,7 +1278,7 @@ fn able_to_attack_uses_disguised_target_apparent_team_before_real_owner() {
             damage: 10.0,
             can_target_ground: true,
             ..Default::default()
-        });
+});
         attacker
     });
 
@@ -1335,7 +1335,7 @@ fn cannot_possibly_attack_same_team() {
         o.weapon = Some(Weapon {
             range: 50.0,
             ..Default::default()
-        });
+});
         o
     });
     let mut vt = ThingTemplate::new("CpV");
@@ -1361,7 +1361,7 @@ fn cannot_possibly_attack_stealthed_undetected() {
         o.weapon = Some(Weapon {
             range: 50.0,
             ..Default::default()
-        });
+});
         o
     });
     let mut vt = ThingTemplate::new("StV");
@@ -1428,7 +1428,7 @@ fn attack_state_machine_aim_to_fire_when_facing() {
             last_fire_time: -10.0,
             projectile_speed: 200.0,
             ..Default::default()
-        });
+});
         o
     });
     let mut vt = ThingTemplate::new("AsmV");
@@ -1474,7 +1474,7 @@ fn attack_state_machine_out_of_range_approaches() {
             reload_time: 1.0,
             last_fire_time: -10.0,
             ..Default::default()
-        });
+});
         o
     });
     let mut vt = ThingTemplate::new("AsmV2");
@@ -1509,7 +1509,7 @@ fn attack_state_machine_success_when_victim_dies() {
         o.weapon = Some(Weapon {
             range: 100.0,
             ..Default::default()
-        });
+});
         o
     });
     let mut vt = ThingTemplate::new("AsmV3");
@@ -1549,7 +1549,7 @@ fn attack_state_machine_fire_returns_to_aim() {
             last_fire_time: -10.0,
             projectile_speed: 200.0,
             ..Default::default()
-        });
+});
         o.attack_substate = AttackSubState::FireWeapon;
         o.set_status_firing_weapon(true);
         o
@@ -1582,7 +1582,7 @@ fn attack_aim_enter_exit_flags() {
         o.weapon = Some(Weapon {
             range: 100.0,
             ..Default::default()
-        });
+});
         o
     });
     assert!(logic.attack_aim_at_target_enter(id));
@@ -1606,7 +1606,7 @@ fn attack_aim_update_success_when_facing() {
         o.weapon = Some(Weapon {
             range: 100.0,
             ..Default::default()
-        });
+});
         o
     });
     let mut vt = ThingTemplate::new("AimVic");
@@ -1636,7 +1636,7 @@ fn attack_aim_update_continues_while_turning() {
         o.weapon = Some(Weapon {
             range: 200.0,
             ..Default::default()
-        });
+});
         o
     });
     let mut vt = ThingTemplate::new("AimVic2");
@@ -1665,7 +1665,7 @@ fn attack_aim_update_fails_dead_victim() {
         o.weapon = Some(Weapon {
             range: 100.0,
             ..Default::default()
-        });
+});
         o
     });
     let mut vt = ThingTemplate::new("AimVic3");
@@ -1694,7 +1694,7 @@ fn attack_fire_weapon_enter_exit_flags() {
             reload_time: 1.0,
             last_fire_time: -10.0,
             ..Default::default()
-        });
+});
         o
     });
     assert!(logic.attack_fire_weapon_enter(id));
@@ -1722,7 +1722,7 @@ fn attack_fire_weapon_update_fires_in_range() {
             last_fire_time: -10.0,
             projectile_speed: 200.0,
             ..Default::default()
-        });
+});
         o
     });
     let mut vt = ThingTemplate::new("FireVic");
@@ -1753,7 +1753,7 @@ fn attack_fire_weapon_update_fails_dead_victim() {
             reload_time: 1.0,
             last_fire_time: -10.0,
             ..Default::default()
-        });
+});
         o
     });
     let mut vt = ThingTemplate::new("FireVic2");
@@ -1785,7 +1785,7 @@ fn attack_fire_weapon_update_fails_out_of_range() {
             reload_time: 1.0,
             last_fire_time: -10.0,
             ..Default::default()
-        });
+});
         o
     });
     let mut vt = ThingTemplate::new("FireVic3");
@@ -1812,7 +1812,7 @@ fn is_within_attack_range_object() {
         range: 50.0,
         min_range: 0.0,
         ..Default::default()
-    });
+});
     let mut vt = ThingTemplate::new("RngV");
     vt.add_kind_of(KindOf::Infantry);
     let mut v = Object::new(vt, ObjectId(1302), Team::GLA);
@@ -1888,7 +1888,7 @@ fn attack_can_fire_at_requires_range() {
             range: 30.0,
             reload_time: 0.0,
             ..Default::default()
-        });
+});
         o
     });
     let mut vt = ThingTemplate::new("FireV");
@@ -1997,7 +1997,7 @@ fn attack_approach_skips_when_victim_still() {
             damage: 10.0,
             range: 50.0,
             ..Default::default()
-        });
+});
         o.approach_timestamp = 100;
         o.prev_victim_pos = Some(Vec3::new(40.0, 0.0, 0.0));
         o
@@ -2798,6 +2798,7 @@ fn tick_physics_collisions_all_crushes_nearby() {
     let iid = ObjectId(502);
     let mut inf = Object::new(it, iid, Team::GLA);
     inf.crushable_level = 0;
+    inf.has_squish_collide = true;
     inf.selection_radius = 8.0;
     inf.set_position(Vec3::new(5.0, 0.0, 0.0));
     logic.objects.insert(iid, inf);
@@ -2900,6 +2901,7 @@ fn apply_overlap_crush_check_crushes_enemy_infantry() {
     let iid = ObjectId(102);
     let mut inf = Object::new(it, iid, Team::GLA);
     inf.crushable_level = 0;
+    inf.has_squish_collide = true;
     inf.selection_radius = 10.0;
     inf.set_position(Vec3::new(5.0, 0.0, 0.0));
     logic.objects.insert(iid, inf);
@@ -2908,6 +2910,82 @@ fn apply_overlap_crush_check_crushes_enemy_infantry() {
     let inf = logic.objects.get(&iid).unwrap();
     assert!(inf.status.destroyed);
     assert_eq!(inf.status.death_type, HostDeathType::Crushed);
+}
+
+#[test]
+fn higher_id_crusher_still_squishes() {
+    // C++ both onCollide. Tank built after map infantry must still crush.
+    use crate::game_logic::host_usa_pilot::HostDeathType;
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    use glam::Vec3;
+    let mut logic = GameLogic::new();
+    let mut it = ThingTemplate::new("FirstInf");
+    it.add_kind_of(KindOf::Infantry);
+    let iid = ObjectId(501);
+    let mut inf = Object::new(it, iid, Team::GLA);
+    inf.crushable_level = 0;
+    inf.has_squish_collide = true;
+    inf.selection_radius = 8.0;
+    inf.set_position(Vec3::new(5.0, 0.0, 0.0));
+    logic.objects.insert(iid, inf);
+
+    let mut vt = ThingTemplate::new("LaterTank");
+    vt.add_kind_of(KindOf::Vehicle);
+    let tid = ObjectId(502);
+    let mut tank = Object::new(vt, tid, Team::USA);
+    tank.crusher_level = 1;
+    tank.set_orientation(0.0);
+    tank.movement.velocity = Vec3::new(5.0, 0.0, 0.0);
+    tank.set_position(Vec3::new(6.0, 0.0, 0.0));
+    tank.selection_radius = 8.0;
+    logic.objects.insert(tid, tank);
+
+    let _ = logic.tick_physics_collisions_all();
+    let inf = logic.objects.get(&iid).unwrap();
+    assert!(inf.status.destroyed, "higher-id tank must still crush");
+    assert_eq!(inf.status.death_type, HostDeathType::Crushed);
+}
+
+#[test]
+fn first_overlap_crush_requires_geom_contact() {
+    // checkForOverlapCollision only runs after geomCollidesWithGeom.
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    use glam::Vec3;
+    let mut logic = GameLogic::new();
+    let mut vt = ThingTemplate::new("FarTank");
+    vt.add_kind_of(KindOf::Vehicle);
+    let tid = ObjectId(601);
+    let mut tank = Object::new(vt, tid, Team::USA);
+    tank.crusher_level = 2;
+    tank.set_orientation(0.0);
+    tank.movement.velocity = Vec3::new(5.0, 0.0, 0.0);
+    tank.set_position(Vec3::new(0.0, 0.0, 0.0));
+    tank.selection_radius = 8.0;
+    logic.objects.insert(tid, tank);
+
+    let mut ct = ThingTemplate::new("FarCar");
+    ct.add_kind_of(KindOf::Vehicle);
+    let cid = ObjectId(602);
+    let mut car = Object::new(ct, cid, Team::Neutral);
+    car.crushable_level = 1;
+    car.crusher_level = 0;
+    car.selection_radius = 8.0;
+    car.set_position(Vec3::new(30.0, 0.0, 0.0));
+    car.health.current = 200.0;
+    car.health.maximum = 200.0;
+    logic.objects.insert(cid, car);
+
+    let _ = logic.tick_physics_collisions_all();
+    let tank = logic.objects.get(&tid).unwrap();
+    let car = logic.objects.get(&cid).unwrap();
+    assert!(
+        tank.physics_previous_overlap.is_none(),
+        "shared cell without geom contact must not stamp overlap"
+    );
+    assert!(
+        car.is_alive() && (car.health.current - 200.0).abs() < 1e-3,
+        "0-damage first-overlap must not fire without contact"
+    );
 }
 
 #[test]
@@ -3376,7 +3454,7 @@ fn scatter_miss_applies_splash_at_offset() {
             can_target_ground: true,
             projectile_speed: 0.0,
             ..Weapon::default()
-        });
+});
     }
     if let Some(o) = logic.objects.get_mut(&intended) {
         o.health.current = 500.0;
@@ -3450,7 +3528,7 @@ fn instant_combat_scatter_can_miss_intended_target() {
             can_target_ground: true,
             projectile_speed: 0.0, // instant residual
             ..Weapon::default()
-        });
+});
         o.target = Some(inf);
         o.set_ai_state(AIState::Attacking);
         o.set_status_attacking(true);
@@ -3550,7 +3628,7 @@ fn minimum_attack_range_too_close_backs_away() {
             can_target_ground: true,
             can_target_air: false,
             ..Weapon::default()
-        });
+});
         o.target = Some(tgt);
         o.set_ai_state(AIState::Attacking);
         o.set_status_attacking(true);
@@ -3660,7 +3738,7 @@ fn contact_weapon_approach_reaches_target_noncontact_stands_off() {
             reload_time: 0.0,
             last_fire_time: -100.0,
             ..Weapon::default()
-        });
+});
     }
     if let Some(o) = logic.objects.get_mut(&gun) {
         o.weapon = Some(Weapon {
@@ -3669,7 +3747,7 @@ fn contact_weapon_approach_reaches_target_noncontact_stands_off() {
             reload_time: 0.0,
             last_fire_time: -100.0,
             ..Weapon::default()
-        });
+});
     }
     let c_app =
         logic.approach_pos_for_attack(contact, tgt_pos, 5.0, Some("DozerMineDisarmingWeapon"));
@@ -3755,11 +3833,18 @@ fn airfield_runway_reservation_limits_parallel_takeoff() {
             .unwrap_or(false),
         "waiting jet stays docked"
     );
-    // First two airborne.
+    // First two have left the hangar (taxi or takeoff). Afterburners stay off until runway head.
     for &j in &jets[..2] {
         let o = logic.objects.get(&j).unwrap();
-        assert!(o.status.airborne_target, "sortied jet airborne");
         assert!(o.contained_by.is_none());
+        assert!(
+            o.jet_ai.taxi_to_takeoff || o.jet_ai.takeoff_in_progress || o.status.airborne_target,
+            "sortied jet must have left the stall"
+        );
+        assert!(
+            !o.jet_ai.afterburners_on || o.jet_ai.takeoff_in_progress,
+            "afterburners only at PauseBeforeTakeoff"
+        );
     }
     // Move first jet clear and tick → frees a runway for third.
     if let Some(o) = logic.objects.get_mut(&jets[0]) {
@@ -3771,8 +3856,7 @@ fn airfield_runway_reservation_limits_parallel_takeoff() {
     assert!(logic
         .objects
         .get(&jets[2])
-        .map(|o| o.status.airborne_target)
-        .unwrap_or(false));
+        .is_some_and(|o| o.contained_by.is_none()));
 }
 
 #[test]
@@ -3824,7 +3908,7 @@ fn airfield_runway_blocks_rtb_landing_when_busy() {
             clip_size: 1,
             ammo: Some(0),
             ..Weapon::default()
-        });
+});
         // Ensure weapon name peels RETURN_TO_BASE.
         o.thing.template.primary_weapon_name = Some("AmericaJetRaptorRocketPods".into());
     }
@@ -3852,6 +3936,12 @@ fn airfield_runway_blocks_rtb_landing_when_busy() {
         .map(|j| j.needs_return_to_base_rearm())
         .unwrap_or(false)
     {
+        let af_pos = logic.objects.get(&af).unwrap().get_position();
+        if let Some(j) = logic.objects.get_mut(&jet) {
+            j.status.airborne_target = false;
+            j.jet_ai.rtb_landing_phase = crate::game_logic::object::JET_RTB_PHASE_TAXI;
+            j.set_position(af_pos);
+        }
         assert!(logic.try_return_to_base_rearm(jet));
         let j = logic.objects.get(&jet).unwrap();
         assert_eq!(j.contained_by, Some(af));
@@ -3913,7 +4003,7 @@ fn airfield_takeoff_releases_parking_slot() {
             can_target_air: true,
             can_target_ground: true,
             ..Weapon::default()
-        });
+});
     }
     assert!(logic.try_return_to_base_rearm(jet_id));
     assert_eq!(logic.airfield_parked_count(af_id), 1);
@@ -3952,7 +4042,7 @@ fn airfield_takeoff_releases_parking_slot() {
             ammo: Some(0),
             clip_size: 2,
             ..Weapon::default()
-        });
+});
     }
     assert!(logic.try_return_to_base_rearm(jet2));
 }
@@ -4118,7 +4208,7 @@ fn helipad_landing_uses_two_point_descent_not_pad_snap() {
             ammo: Some(0),
             clip_size: 4,
             ..Weapon::default()
-        });
+});
         heli.status.airborne_target = true;
         heli.producer_id = Some(pad_id);
         heli.movement.max_speed = 30.0;
@@ -4173,7 +4263,7 @@ fn target_pitch_gate_blocks_strategy_center_out_of_loft() {
             reload_time: 0.0,
             last_fire_time: -100.0,
             ..Weapon::default()
-        });
+});
         o.health.current = 5000.0;
         o.health.maximum = 5000.0;
         o.target = Some(tgt);

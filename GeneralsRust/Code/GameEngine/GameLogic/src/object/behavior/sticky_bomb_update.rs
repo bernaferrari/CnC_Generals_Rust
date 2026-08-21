@@ -632,6 +632,14 @@ impl StickyBombControlInterface for StickyBombUpdate {
     fn set_target_object_id(&mut self, target_id: ObjectID) {
         self.target_id = target_id;
     }
+
+    fn is_timed_bomb(&self) -> bool {
+        StickyBombUpdate::is_timed_bomb(self)
+    }
+
+    fn get_detonation_frame(&self) -> u32 {
+        StickyBombUpdate::get_detonation_frame(self)
+    }
 }
 
 impl Snapshotable for StickyBombUpdate {
@@ -744,6 +752,14 @@ impl StickyBombControlInterface for StickyBombUpdateModule {
 
     fn set_target_object_id(&mut self, target_id: ObjectID) {
         self.behavior.target_id = target_id;
+    }
+
+    fn is_timed_bomb(&self) -> bool {
+        self.behavior.is_timed_bomb()
+    }
+
+    fn get_detonation_frame(&self) -> u32 {
+        self.behavior.get_detonation_frame()
     }
 }
 

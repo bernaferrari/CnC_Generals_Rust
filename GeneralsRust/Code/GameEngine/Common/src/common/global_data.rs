@@ -436,7 +436,7 @@ impl Default for GlobalData {
             camera_adjust_speed: 0.1,   // C++ line 957: 0.1
             enforce_max_camera_height: true,
             keyboard_scroll_factor: 0.5, // C++ line 955: 0.5
-            keyboard_default_scroll_factor: 1.0,
+            keyboard_default_scroll_factor: 0.5, // C++ line 955: 0.5
             keyboard_camera_rotate_speed: 0.1,
             play_stats: -1,               // C++ line 574: -1
             camera_audible_radius: 500.0, // C++ line 848: 500.0

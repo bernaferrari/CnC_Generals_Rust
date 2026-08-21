@@ -245,8 +245,9 @@ impl GameLogic {
         if a_para && b_para {
             return true;
         }
+        // C++ Object::onCollide walks only this object's collide modules.
+        // Reverse side is the pair loop's second try_physics_collide.
         self.dispatch_host_collide_modules(a_id, b_id);
-        self.dispatch_host_collide_modules(b_id, a_id);
         // C++ PhysicsUpdate infantry→unmanned vehicle pilot residual.
         if a_infantry && b_unmanned {
             if self.try_infantry_unmanned_reclaim(a_id, b_id) {

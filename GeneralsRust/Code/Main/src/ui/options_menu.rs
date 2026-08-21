@@ -730,19 +730,11 @@ impl OptionsMenu {
             Self::text("options.log.load_settings", "Loading current settings...")
         );
 
-        let Some(path) = Self::options_ini_path() else {
-            return;
-        };
-        if !path.exists() {
-            return;
-        }
-        let Ok(text) = std::fs::read_to_string(&path) else {
-            return;
-        };
-        let flat = Self::parse_flat_options_ini(&text);
-        if flat.is_empty() {
-            return;
-        }
+        let flat = Self::options_ini_path()
+            .filter(|path| path.exists())
+            .and_then(|path| std::fs::read_to_string(path).ok())
+            .map(|text| Self::parse_flat_options_ini(&text))
+            .unwrap_or_default();
 
         for control in self.iter_controls_mut() {
             match control.key.as_str() {
@@ -798,6 +790,43 @@ impl OptionsMenu {
                     if let Some(v) = flat.get("Retaliation") {
                         control.value = OptionValue::Boolean(Self::parse_yes_no(v));
                     }
+                }
+                "controls.double_click_attack" => {
+                    if let Some(v) = flat.get("UseDoubleClickAttackMove") {
+                        control.value = OptionValue::Boolean(v.eq_ignore_ascii_case("yes"));
+                    }
+                }
+                "controls.save_camera" => {
+                    if let Some(v) = flat.get("SaveCameraInReplays") {
+                        control.value = OptionValue::Boolean(Self::parse_yes_no(v));
+                    }
+                }
+                "controls.use_camera" => {
+                    if let Some(v) = flat.get("UseCameraInReplays") {
+                        control.value = OptionValue::Boolean(Self::parse_yes_no(v));
+                    }
+                }
+                "controls.draw_anchor" => {
+                    let fallback = game_engine::common::ini::ini_in_game_ui::get_in_game_ui_settings()
+                        .map(|s| s.draw_rmb_scroll_anchor)
+                        .unwrap_or(false);
+                    control.value = OptionValue::Boolean(
+                        game_engine::common::user_preferences::scroll_anchor_pref_enabled(
+                            flat.get("DrawScrollAnchor").map(String::as_str),
+                            fallback,
+                        ),
+                    );
+                }
+                "controls.move_anchor" => {
+                    let fallback = game_engine::common::ini::ini_in_game_ui::get_in_game_ui_settings()
+                        .map(|s| s.move_rmb_scroll_anchor)
+                        .unwrap_or(false);
+                    control.value = OptionValue::Boolean(
+                        game_engine::common::user_preferences::scroll_anchor_pref_enabled(
+                            flat.get("MoveScrollAnchor").map(String::as_str),
+                            fallback,
+                        ),
+                    );
                 }
                 "game.language_filter" => {
                     if let Some(v) = flat.get("LanguageFilter") {
@@ -1150,8 +1179,18 @@ impl OptionsMenu {
                 "Restoring default settings..."
             )
         );
+        // C++ setDefaults never touches replay-camera or RMB-anchor checkboxes.
+        const LEAVE_ON_DEFAULTS: &[&str] = &[
+            "controls.save_camera",
+            "controls.use_camera",
+            "controls.draw_anchor",
+            "controls.move_anchor",
+        ];
         let defaults = self.default_values.clone();
         for control in self.iter_controls_mut() {
+            if LEAVE_ON_DEFAULTS.contains(&control.key.as_str()) {
+                continue;
+            }
             if let Some(value) = defaults.get(&control.key).cloned() {
                 control.value = value;
             }
@@ -1421,5 +1460,67 @@ mod tests {
         assert_eq!(map.get("MusicVolume").map(String::as_str), Some("45"));
         let res = OptionsMenu::parse_resolution_value("800 600").unwrap();
         assert_eq!(res, Resolution::new(800, 600));
+    }
+
+    #[test]
+    fn restore_defaults_leaves_camera_and_anchor_checkboxes() {
+        let mut menu = OptionsMenu::new();
+        menu.initialize().unwrap();
+        menu.current_tab = OptionsTab::Controls;
+        menu.toggle_option("controls.save_camera");
+        menu.toggle_option("controls.use_camera");
+        menu.toggle_option("controls.draw_anchor");
+        menu.toggle_option("controls.move_anchor");
+        assert_eq!(
+            menu.control_value("controls.save_camera"),
+            Some(&OptionValue::Boolean(false))
+        );
+        menu.restore_defaults();
+        assert_eq!(
+            menu.control_value("controls.save_camera"),
+            Some(&OptionValue::Boolean(false))
+        );
+        assert_eq!(
+            menu.control_value("controls.use_camera"),
+            Some(&OptionValue::Boolean(false))
+        );
+        assert_eq!(
+            menu.control_value("controls.draw_anchor"),
+            Some(&OptionValue::Boolean(false))
+        );
+        assert_eq!(
+            menu.control_value("controls.move_anchor"),
+            Some(&OptionValue::Boolean(false))
+        );
+    }
+
+    #[test]
+    fn load_current_settings_reads_scroll_anchor_yes() {
+        let mut menu = OptionsMenu::new();
+        menu.initialize().unwrap();
+        let flat = OptionsMenu::parse_flat_options_ini(
+            "DrawScrollAnchor = Yes\nMoveScrollAnchor = No\nSaveCameraInReplays = no\nUseDoubleClickAttackMove = yes\n",
+        );
+        assert_eq!(
+            game_engine::common::user_preferences::scroll_anchor_pref_enabled(
+                flat.get("DrawScrollAnchor").map(String::as_str),
+                false,
+            ),
+            true
+        );
+        assert_eq!(
+            game_engine::common::user_preferences::scroll_anchor_pref_enabled(
+                flat.get("MoveScrollAnchor").map(String::as_str),
+                true,
+            ),
+            false
+        );
+        assert!(!OptionsMenu::parse_yes_no(
+            flat.get("SaveCameraInReplays").unwrap()
+        ));
+        assert!(flat
+            .get("UseDoubleClickAttackMove")
+            .unwrap()
+            .eq_ignore_ascii_case("yes"));
     }
 }

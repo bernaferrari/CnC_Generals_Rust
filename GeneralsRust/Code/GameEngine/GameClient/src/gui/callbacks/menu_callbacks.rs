@@ -731,14 +731,14 @@ impl OptionsMenu {
         let send_delay = pref.get_bool_or("SendDelay", global.firewall_send_delay);
         let save_camera = pref.get_bool_or("SaveCameraInReplays", true);
         let use_camera = pref.get_bool_or("UseCameraInReplays", true);
-        let draw_anchor = pref
-            .get_string("DrawScrollAnchor")
-            .map(|value| value.eq_ignore_ascii_case("yes"))
-            .unwrap_or(false);
-        let move_anchor = pref
-            .get_string("MoveScrollAnchor")
-            .map(|value| value.eq_ignore_ascii_case("yes"))
-            .unwrap_or(false);
+        let draw_anchor = game_engine::common::user_preferences::scroll_anchor_pref_enabled(
+            pref.get_string("DrawScrollAnchor").map(|value| value.as_str()),
+            TheInGameUI::get_draw_rmb_scroll_anchor(),
+        );
+        let move_anchor = game_engine::common::user_preferences::scroll_anchor_pref_enabled(
+            pref.get_string("MoveScrollAnchor").map(|value| value.as_str()),
+            TheInGameUI::get_move_rmb_scroll_anchor(),
+        );
 
         let music_volume = pref
             .get_int("MusicVolume")
@@ -754,7 +754,7 @@ impl OptionsMenu {
         let gamma = pref.get_int_or("Gamma", 50);
         let scroll_speed = pref.get_int_or(
             "ScrollFactor",
-            (global.keyboard_scroll_factor * 100.0) as i32,
+            (global.keyboard_default_scroll_factor * 100.0) as i32,
         );
         let anti_aliasing = pref
             .get_int_or("AntiAliasing", global.anti_alias_box_value)
@@ -861,6 +861,11 @@ impl OptionsMenu {
         Self::set_checkbox(self.check_use_camera_id, use_camera);
         Self::set_checkbox(self.check_draw_anchor_id, draw_anchor);
         Self::set_checkbox(self.check_move_anchor_id, move_anchor);
+        // C++ OptionsMenuInit applies these to TheInGameUI on open.
+        TheInGameUI::set_draw_rmb_scroll_anchor(draw_anchor);
+        TheInGameUI::set_move_rmb_scroll_anchor(move_anchor);
+        let _ = publish_host_draw_rmb_scroll_anchor(draw_anchor);
+        let _ = publish_host_move_rmb_scroll_anchor(move_anchor);
         Self::set_checkbox(self.check_3d_shadows_id, use_shadow_volumes);
         Self::set_checkbox(self.check_2d_shadows_id, use_shadow_decals);
         Self::set_checkbox(self.check_cloud_shadows_id, use_cloud_map);
@@ -895,12 +900,11 @@ impl OptionsMenu {
         Self::set_checkbox(self.check_alternate_mouse_id, false);
         Self::set_checkbox(self.check_retaliation_id, true);
         Self::set_checkbox(self.check_double_click_attack_move_id, false);
-        Self::set_checkbox(self.check_save_camera_id, true);
-        Self::set_checkbox(self.check_use_camera_id, true);
-        Self::set_checkbox(self.check_draw_anchor_id, false);
-        Self::set_checkbox(self.check_move_anchor_id, false);
+        // C++ setDefaults never touches replay-camera or RMB-anchor checkboxes.
 
-        Self::set_slider_value(self.slider_scroll_speed_id, 50);
+        let default_scroll =
+            (runtime_global_data::read().keyboard_default_scroll_factor * 100.0).round() as i32;
+        Self::set_slider_value(self.slider_scroll_speed_id, default_scroll);
         Self::set_slider_value(self.slider_music_volume_id, 60);
         Self::set_slider_value(self.slider_sfx_volume_id, 55);
         Self::set_slider_value(self.slider_voice_volume_id, 70);
@@ -1010,17 +1014,71 @@ impl OptionsMenu {
             .as_ref()
             .map(|h| h.move_anchor)
             .unwrap_or_else(|| Self::checkbox_value(self.check_move_anchor_id));
-        let use_shadow_volumes = Self::checkbox_value(self.check_3d_shadows_id);
-        let use_shadow_decals = Self::checkbox_value(self.check_2d_shadows_id);
-        let use_cloud_map = Self::checkbox_value(self.check_cloud_shadows_id);
-        let use_light_map = Self::checkbox_value(self.check_ground_lighting_id);
-        let show_soft_water_edge = Self::checkbox_value(self.check_smooth_water_id);
-        let extra_animations = Self::checkbox_value(self.check_extra_animations_id);
-        let no_dynamic_lod = Self::checkbox_value(self.check_no_dynamic_lod_id);
-        let unlock_fps = Self::checkbox_value(self.check_unlock_fps_id);
-        let heat_effects = Self::checkbox_value(self.check_heat_effects_id);
-        let building_occlusion = Self::checkbox_value(self.check_building_occlusion_id);
-        let show_props = Self::checkbox_value(self.check_props_id);
+        // Host Accept has no WND layout; C++ saveOptions reads checkboxes that
+        // OptionsMenuInit populated from prefs/globals. Keep those current values.
+        let host_apply = host.is_some();
+        let current = runtime_global_data::read();
+        let use_shadow_volumes = if host_apply {
+            pref.get_bool_or("UseShadowVolumes", current.writable.use_shadow_volumes)
+        } else {
+            Self::checkbox_value(self.check_3d_shadows_id)
+        };
+        let use_shadow_decals = if host_apply {
+            pref.get_bool_or("UseShadowDecals", current.writable.use_shadow_decals)
+        } else {
+            Self::checkbox_value(self.check_2d_shadows_id)
+        };
+        let use_cloud_map = if host_apply {
+            pref.get_bool_or("UseCloudMap", current.use_cloud_map)
+        } else {
+            Self::checkbox_value(self.check_cloud_shadows_id)
+        };
+        let use_light_map = if host_apply {
+            pref.get_bool_or("UseLightMap", current.use_light_map)
+        } else {
+            Self::checkbox_value(self.check_ground_lighting_id)
+        };
+        let show_soft_water_edge = if host_apply {
+            pref.get_bool_or("ShowSoftWaterEdge", current.show_soft_water_edge)
+        } else {
+            Self::checkbox_value(self.check_smooth_water_id)
+        };
+        let extra_animations = if host_apply {
+            pref.get_bool("ExtraAnimations")
+                .unwrap_or(!current.use_draw_module_lod)
+        } else {
+            Self::checkbox_value(self.check_extra_animations_id)
+        };
+        let no_dynamic_lod = if host_apply {
+            !pref
+                .get_bool("DynamicLOD")
+                .unwrap_or(current.writable.enable_dynamic_lod)
+        } else {
+            Self::checkbox_value(self.check_no_dynamic_lod_id)
+        };
+        let unlock_fps = if host_apply {
+            !pref
+                .get_bool("FPSLimit")
+                .unwrap_or(current.writable.use_fps_limit)
+        } else {
+            Self::checkbox_value(self.check_unlock_fps_id)
+        };
+        let heat_effects = if host_apply {
+            pref.get_bool_or("HeatEffects", current.use_heat_effects)
+        } else {
+            Self::checkbox_value(self.check_heat_effects_id)
+        };
+        let building_occlusion = if host_apply {
+            pref.get_bool_or("BuildingOcclusion", current.enable_behind_building_markers)
+        } else {
+            Self::checkbox_value(self.check_building_occlusion_id)
+        };
+        let show_props = if host_apply {
+            pref.get_bool_or("ShowTrees", current.use_trees)
+        } else {
+            Self::checkbox_value(self.check_props_id)
+        };
+        drop(current);
 
         // C++ OptionsMenu.cpp:1168-1241 `if (val != -1)` — missing slider keeps pref.
         let scroll_speed = Self::slider_value_opt(self.slider_scroll_speed_id)
@@ -1045,10 +1103,26 @@ impl OptionsMenu {
             .or_else(|| host.as_ref().map(|h| h.gamma_slider))
             .unwrap_or_else(|| pref.get_int_or("Gamma", 50))
             .clamp(0, 100);
-        let texture_resolution = Self::slider_value_opt(self.slider_texture_resolution_id)
-            .unwrap_or(2)
-            .clamp(0, 2);
-        let particle_cap = Self::slider_value_opt(self.slider_particle_cap_id).unwrap_or(5000).max(100);
+        let texture_resolution = if host_apply {
+            let reduction = pref
+                .get_int("TextureReduction")
+                .unwrap_or(runtime_global_data::read().texture_reduction_factor)
+                .clamp(0, 2);
+            2 - reduction
+        } else {
+            Self::slider_value_opt(self.slider_texture_resolution_id)
+                .unwrap_or(2)
+                .clamp(0, 2)
+        };
+        let particle_cap = if host_apply {
+            pref.get_int("MaxParticleCount")
+                .unwrap_or(runtime_global_data::read().max_particle_count)
+                .max(100)
+        } else {
+            Self::slider_value_opt(self.slider_particle_cap_id)
+                .unwrap_or(5000)
+                .max(100)
+        };
         let texture_reduction = 2 - texture_resolution;
         let detail_name = Self::detail_name_from_index(detail_index);
 
@@ -1099,6 +1173,11 @@ impl OptionsMenu {
         }
         let _ = pref.write();
         self.firewall_behavior_override = None;
+
+        TheInGameUI::set_draw_rmb_scroll_anchor(draw_anchor);
+        TheInGameUI::set_move_rmb_scroll_anchor(move_anchor);
+        let _ = publish_host_draw_rmb_scroll_anchor(draw_anchor);
+        let _ = publish_host_move_rmb_scroll_anchor(move_anchor);
 
         Self::commit_alternate_mouse_setting(alternate_mouse);
         let display_gamma = Self::slider_to_gamma(gamma_slider);
@@ -2534,6 +2613,96 @@ mod options_os_wnd_tests {
         assert!((gamma.gamma - 2.0).abs() < 0.01);
         assert!((runtime_global_data::read().music_volume_factor - 0.8).abs() < 0.01);
         crate::display::display_fx::set_gamma_state(1.0, 0.0, 1.0);
+    }
+
+    #[test]
+    fn apply_options_from_host_custom_preserves_advanced_detail() {
+        let original = {
+            let g = runtime_global_data::read();
+            (
+                g.writable.use_shadow_volumes,
+                g.writable.use_shadow_decals,
+                g.use_cloud_map,
+                g.use_light_map,
+                g.show_soft_water_edge,
+                g.use_heat_effects,
+                g.enable_behind_building_markers,
+                g.use_trees,
+                g.max_particle_count,
+            )
+        };
+        {
+            let mut g = runtime_global_data::write();
+            g.writable.use_shadow_volumes = true;
+            g.writable.use_shadow_decals = true;
+            g.use_cloud_map = true;
+            g.use_light_map = true;
+            g.show_soft_water_edge = true;
+            g.use_heat_effects = true;
+            g.enable_behind_building_markers = true;
+            g.use_trees = true;
+            g.max_particle_count = 3000;
+        }
+        let mut apply = HostOptionsApply::default();
+        apply.detail_index = 3;
+        apply.resolution = (1024, 768);
+        assert!(apply_options_from_host(apply));
+        {
+            let g = runtime_global_data::read();
+            assert!(g.writable.use_shadow_volumes);
+            assert!(g.writable.use_shadow_decals);
+            assert!(g.use_cloud_map);
+            assert!(g.use_light_map);
+            assert!(g.show_soft_water_edge);
+            assert!(g.use_heat_effects);
+            assert!(g.enable_behind_building_markers);
+            assert!(g.use_trees);
+            assert_eq!(g.max_particle_count, 3000);
+        }
+        let mut g = runtime_global_data::write();
+        g.writable.use_shadow_volumes = original.0;
+        g.writable.use_shadow_decals = original.1;
+        g.use_cloud_map = original.2;
+        g.use_light_map = original.3;
+        g.show_soft_water_edge = original.4;
+        g.use_heat_effects = original.5;
+        g.enable_behind_building_markers = original.6;
+        g.use_trees = original.7;
+        g.max_particle_count = original.8;
+    }
+
+    #[test]
+    fn apply_options_from_host_publishes_scroll_anchors() {
+        use crate::gui::options_host_bridge::{
+            acquire_host_options_bridge_test_guard, set_host_options_bridge_enabled,
+            take_host_options_requests, HostOptionsRequest,
+        };
+
+        let _bridge_guard = acquire_host_options_bridge_test_guard();
+        set_host_options_bridge_enabled(true);
+        let _ = take_host_options_requests();
+        let original_draw = TheInGameUI::get_draw_rmb_scroll_anchor();
+        let original_move = TheInGameUI::get_move_rmb_scroll_anchor();
+
+        let mut apply = HostOptionsApply::default();
+        apply.draw_anchor = true;
+        apply.move_anchor = true;
+        apply.resolution = (1024, 768);
+        assert!(apply_options_from_host(apply));
+        let reqs = take_host_options_requests();
+        assert!(
+            reqs.contains(&HostOptionsRequest::DrawRmbScrollAnchor { enabled: true }),
+            "{reqs:?}"
+        );
+        assert!(
+            reqs.contains(&HostOptionsRequest::MoveRmbScrollAnchor { enabled: true }),
+            "{reqs:?}"
+        );
+        assert!(TheInGameUI::get_draw_rmb_scroll_anchor());
+        assert!(TheInGameUI::get_move_rmb_scroll_anchor());
+
+        TheInGameUI::set_draw_rmb_scroll_anchor(original_draw);
+        TheInGameUI::set_move_rmb_scroll_anchor(original_move);
     }
 
     #[test]

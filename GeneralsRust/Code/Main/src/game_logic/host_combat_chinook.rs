@@ -274,6 +274,43 @@ pub fn is_combat_chinook_template(template_name: &str) -> bool {
     false
 }
 
+/// Vanilla / Superweapon Chinook: ChinookAIUpdate + TransportContain, not Combat.
+pub fn is_regular_chinook_template(template_name: &str) -> bool {
+    let lower = template_name.to_ascii_lowercase();
+    !lower.is_empty() && lower.contains("chinook") && !is_combat_chinook_template(template_name)
+}
+
+/// C++ `ActionManager::canEnterObject(..., COMBATDROP_INTO)` after common checks.
+pub fn combat_drop_into_allowed(
+    target_alive: bool,
+    target_under_construction: bool,
+    target_sold: bool,
+    target_name: &str,
+    has_contain_module: bool,
+    target_is_heal_contain: bool,
+    enterer_at_full_health: bool,
+    target_is_faction_structure: bool,
+) -> bool {
+    if !target_alive || target_under_construction || target_sold {
+        return false;
+    }
+    let n = target_name.to_ascii_lowercase();
+    if n.contains("prison") || n.contains("powtruck") || n.contains("pow_truck") {
+        return false;
+    }
+    if !has_contain_module {
+        return false;
+    }
+    if target_is_heal_contain && enterer_at_full_health {
+        return false;
+    }
+    if target_is_faction_structure {
+        return false;
+    }
+    true
+}
+
+
 /// Residual `ListeningOutpostUpgradedDummyWeapon` bound when armed riders
 /// upgrade weapon set (PLAYER_UPGRADE set). Negligible damage — passengers
 /// deal real residual fire; this enables attack range / CAN_ATTACK residual.
@@ -294,8 +331,10 @@ pub fn listening_outpost_upgraded_dummy_weapon() -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-    }
+        ..Weapon::default()
 }
+}
+
 
 /// Residual AirF_PointDefenseLaser weapon (Combat Chinook PDL residual).
 pub fn combat_chinook_pdl_weapon() -> Weapon {
@@ -315,8 +354,10 @@ pub fn combat_chinook_pdl_weapon() -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-    }
+        ..Weapon::default()
 }
+}
+
 
 /// Residual of C++ TransportContain armed-rider check for Combat Chinook:
 /// infantry or vehicle with a non-contact damage weapon counts as "armed".
@@ -529,7 +570,27 @@ pub struct HostChinookAI {
     /// Rappellers released this drop (rope stagger).
     #[serde(default)]
     pub combat_drop_releases: u32,
+    /// C++ `privateCombatDrop` goal object (garrison / structure).
+    #[serde(default)]
+    pub combat_drop_target: Option<u32>,
+    /// C++ `m_pendingCommand` evac dest (landed takeoff reconstitution).
+    #[serde(default)]
+    pub pending_evac_dest: Option<[f32; 3]>,
+    #[serde(default)]
+    pub pending_evac_and_exit: bool,
+    /// In-flight `aiRappelInto` jobs (rappeller, building, dest Y).
+    #[serde(default)]
+    pub rappel_into_jobs: Vec<HostRappelJob>,
 }
+
+/// Live residual of C++ `AIRappelState` goal (roof dest + garrison).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct HostRappelJob {
+    pub rappeller: u32,
+    pub building: Option<u32>,
+    pub dest_y: f32,
+}
+
 
 fn host_chinook_dist_sqr(a: [f32; 3], b: [f32; 3]) -> f32 {
     let dx = a[0] - b[0];
@@ -577,6 +638,10 @@ impl HostChinookAI {
             contained_count: 0,
             map_lo: [0.0, 0.0],
             map_hi: [500.0, 500.0],
+            combat_drop_target: None,
+            pending_evac_dest: None,
+            pending_evac_and_exit: false,
+            rappel_into_jobs: Vec::new(),
         }
     }
 
@@ -659,7 +724,9 @@ impl HostChinookAI {
             > HOST_CHINOOK_ARRIVE_THRESH * HOST_CHINOOK_ARRIVE_THRESH
             && self.flight_status == HostChinookFlightStatus::Landed
         {
-            self.dest = dest;
+            // C++ stores `m_pendingCommand` then TAKING_OFF; dest is not dropped.
+            self.pending_evac_dest = Some(dest);
+            self.pending_evac_and_exit = and_exit;
             self.enter_state(HostChinookAIState::TakingOff);
             return;
         }
@@ -670,6 +737,23 @@ impl HostChinookAI {
             HostChinookAIState::MoveToAndEvac
         });
     }
+
+    /// C++ `ChinookCombatDropState` success: clear Held, `CHINOOK_FLYING`, idle.
+    pub fn finish_combat_drop(&mut self) {
+        if self.state == HostChinookAIState::DoCombatDrop
+            || self.flight_status == HostChinookFlightStatus::DoingCombatDrop
+        {
+            self.succeed();
+        }
+    }
+
+    /// After a real dump, continue evac-and-exit without re-recording spawn at LZ.
+    pub fn begin_takeoff_and_exit(&mut self) {
+        self.contained_count = 0;
+        self.wanting_enter_or_exit = false;
+        self.enter_state(HostChinookAIState::TakeoffAndExit);
+    }
+
 
     /// C++ `privateGetRepaired` → `MOVE_TO_AND_LAND` (not immediate LANDING).
     pub fn command_repair(&mut self, depot: [f32; 3], depot_id: u32) {
@@ -831,6 +915,14 @@ impl HostChinookAI {
         } else {
             self.state = HostChinookAIState::Idle;
         }
+        // C++ `update`: parent idle reconstitutes `m_pendingCommand`.
+        if self.state == HostChinookAIState::Idle {
+            if let Some(dest) = self.pending_evac_dest.take() {
+                let and_exit = self.pending_evac_and_exit;
+                self.pending_evac_and_exit = false;
+                self.command_evac(dest, and_exit);
+            }
+        }
     }
 
     /// Advance leftover-equivalent flight residual one step.
@@ -965,6 +1057,19 @@ mod tests {
         assert!(!is_combat_chinook_template("USA_Chinook"));
         assert!(!is_combat_chinook_template("GLAVehicleBattleBus"));
         assert!(!is_combat_chinook_template("AirF_AmericaJetRaptor"));
+        assert!(is_regular_chinook_template("AmericaVehicleChinook"));
+        assert!(is_regular_chinook_template("USA_Chinook"));
+        assert!(!is_regular_chinook_template("AirF_AmericaVehicleChinook"));
+        assert!(combat_drop_into_allowed(
+            true, false, false, "AmericaCivilianBunker", true, false, false, false
+        ));
+        assert!(!combat_drop_into_allowed(
+            true, false, false, "AmericaCommandCenter", true, false, false, true
+        ));
+        assert!(!combat_drop_into_allowed(
+            true, false, false, "Tree", false, false, false, false
+        ));
+
     }
 
     #[test]
@@ -999,7 +1104,7 @@ mod tests {
             damage: 10.0,
             range: 100.0,
             ..Weapon::default()
-        };
+};
         assert!(combat_chinook_rider_has_viable_weapon(
             Some(&rifle),
             true,
@@ -1019,7 +1124,7 @@ mod tests {
             damage: 20.0,
             range: 3.0,
             ..Weapon::default()
-        };
+};
         assert!(!combat_chinook_rider_has_viable_weapon(
             Some(&melee),
             true,
@@ -1192,5 +1297,44 @@ mod tests {
         let ai = obj.chinook_ai.as_ref().expect("chinook_ai");
         assert_eq!(ai.flight_status, HostChinookFlightStatus::Landing);
         assert_eq!(ai.ai_free_to_exit(false), HostChinookFreeToExit::WaitToExit);
+    }
+    #[test]
+    fn landed_evac_keeps_dest_across_takeoff() {
+
+        let mut ai = HostChinookAI::new_combat([0.0, 0.0, 0.0]);
+        ai.flight_status = HostChinookFlightStatus::Landed;
+        ai.command_evac([80.0, 0.0, 0.0], false);
+        assert_eq!(ai.state, HostChinookAIState::TakingOff);
+        assert_eq!(ai.pending_evac_dest, Some([80.0, 0.0, 0.0]));
+        ai.pos = ai.dest;
+        ai.tick(1.0);
+        assert_eq!(ai.state, HostChinookAIState::MoveToAndEvac);
+        assert!((ai.dest[0] - 80.0).abs() < 0.01);
+        assert!(ai.pending_evac_dest.is_none());
+    }
+
+    #[test]
+    fn finish_combat_drop_leaves_doing_combat_drop() {
+        let mut ai = HostChinookAI::new_combat([0.0, 0.0, 100.0]);
+        ai.command_combat_drop([10.0, 0.0, 0.0], None);
+        ai.arrive_for_combat_drop();
+        assert_eq!(ai.flight_status, HostChinookFlightStatus::DoingCombatDrop);
+        ai.finish_combat_drop();
+        assert_eq!(ai.flight_status, HostChinookFlightStatus::Flying);
+        assert_eq!(ai.state, HostChinookAIState::Idle);
+    }
+
+    #[test]
+    fn headoffmap_uses_recorded_spawn_not_lz() {
+        let spawn = [-40.0, 0.0, 80.0];
+        let mut ai = HostChinookAI::new_combat(spawn);
+        ai.command_evac([40.0, 0.0, 0.0], true);
+        assert_eq!(ai.original_pos, spawn);
+        ai.pos = [40.0, 0.0, 80.0];
+        ai.begin_takeoff_and_exit();
+        ai.pos = ai.dest;
+        ai.tick(1.0);
+        assert_eq!(ai.state, HostChinookAIState::HeadOffMap);
+        assert_eq!(ai.dest, spawn);
     }
 }

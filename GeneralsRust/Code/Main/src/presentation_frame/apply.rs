@@ -226,8 +226,11 @@ impl PresentationFrame {
         ui.named_timer_display_shown = self.named_timer_display_shown;
         ui.superweapon_hidden_objects = self.superweapon_hidden_objects.clone();
         // Beacon residual from snapshot (no live GameLogic update_ui_state re-read).
+        // Always assign so a hide-empty freeze clears leftover enemy dots.
         ui.new_beacons = self.new_beacons.clone();
-        if !self.beacons.is_empty() {
+        if self.beacons.is_empty() {
+            ui.minimap_beacons.clear();
+        } else {
             use crate::ui::{color_for_player, MinimapDot};
             // Wave 1110: beacon bounds residual excludes sold.
             let (min_x, max_x, min_z, max_z) = {
@@ -260,10 +263,19 @@ impl PresentationFrame {
                 .map(|p| {
                     let nx = ((p.x - min_x) / span_x).clamp(0.0, 1.0);
                     let ny = ((p.z - min_z) / span_z).clamp(0.0, 1.0);
+                    let owner = self
+                        .objects
+                        .iter()
+                        .find(|o| {
+                            o.template_name.to_ascii_lowercase().contains("beacon")
+                                && (o.position - *p).length() <= 3.0
+                        })
+                        .and_then(|o| o.owner_player_id)
+                        .unwrap_or(self.local_player_id);
                     MinimapDot::normalized(
                         nx,
                         ny,
-                        color_for_player(self.local_player_id.min(255) as u8),
+                        color_for_player(owner.min(255) as u8),
                         4.0,
                     )
                 })
@@ -1352,7 +1364,16 @@ impl PresentationFrame {
             if n.contains("colonelburton") || n.contains("colonel_burton") || n.contains("burton") {
                 push(&mut cmds, "Command_PlantTimedDemoCharge", true);
                 push(&mut cmds, "Command_PlantRemoteDemoCharge", true);
-                push(&mut cmds, "Command_DetonateRemoteDemoCharges", true);
+                // C++ isPowerCurrentlyInUse SPECIAL_REMOTE_CHARGES without
+                // CONTEXTMODE_COMMAND: in-use (gray) when getSpecialObjectCount()==0.
+                let has_remote = self.objects.iter().any(|charge| {
+                    charge.producer_id == Some(ro.id)
+                        && !charge.destroyed
+                        && crate::game_logic::host_mines::is_remote_demo_charge_template(
+                            &charge.template_name,
+                        )
+                });
+                push(&mut cmds, "Command_DetonateRemoteDemoCharges", has_remote);
             }
             if n.contains("blacklotus") || n.contains("black_lotus") {
                 push(&mut cmds, "Command_CaptureBuilding", true);

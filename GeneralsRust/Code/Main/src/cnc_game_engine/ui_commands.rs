@@ -40,7 +40,7 @@ fn resolve_pending_weapon_command(
         weapon_slot: weapon.weapon_slot,
         max_shots_to_fire: weapon.max_shots_to_fire,
         target,
-    }
+}
 }
 
 /// Convert an armed `COMBATDROP` button using C++'s target precedence.
@@ -692,11 +692,11 @@ impl CnCGameEngine {
                 .find(|o| o.id == *id)
                 .map(|o| {
                     !o.destroyed
-                        && (o.is_structure
-                            || crate::presentation_frame::PresentationFrame::object_has_kind(
-                                o,
-                                crate::game_logic::KindOf::Structure,
-                            ))
+                        && frame.is_owned_by_local(o)
+                        && crate::presentation_frame::PresentationFrame::object_has_kind(
+                            o,
+                            crate::game_logic::KindOf::AutoRallypoint,
+                        )
                 })
                 .unwrap_or(false)
         })
@@ -1973,8 +1973,15 @@ impl CnCGameEngine {
                 return;
             }
             crate::command_system::CommandType::PlaceBeacon { .. } => {
-                // C++ MSG_META_PLACE_BEACON: MP and not replay.
+                // C++ MSG_META_PLACE_BEACON: MP and not replay; refuse at MaxBeacons.
                 if !self.host_command_xlat_multiplayer_meta() {
+                    return;
+                }
+                let player_id = self.local_player_id_for_ui();
+                if !crate::command_executor::host_local_player_can_place_beacon(
+                    &self.game_logic,
+                    player_id,
+                ) {
                     return;
                 }
                 self.pending_map_command = Some(PendingMapCommand::PlaceBeacon);
@@ -2215,7 +2222,7 @@ mod tests {
                 weapon_slot: crate::command_system::WeaponSlot::Primary,
                 max_shots_to_fire: 1,
                 target: crate::command_system::WeaponTarget::Location(click),
-            }
+}
         );
     }
 
