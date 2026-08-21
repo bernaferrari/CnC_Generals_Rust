@@ -202,9 +202,16 @@ pub struct TunnelDestroyedOutcome {
 }
 
 
+
+
 impl HostTunnelNetworkRegistry {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Replace the live per-player TunnelTracker pool from a snapshot tail.
+    pub fn restore_from(&mut self, other: Self) {
+        *self = other;
     }
 
     pub fn clear(&mut self) {

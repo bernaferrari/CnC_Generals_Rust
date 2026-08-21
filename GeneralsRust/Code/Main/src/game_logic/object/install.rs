@@ -49,8 +49,24 @@ impl Object {
     }
 
     /// C++ LandMineInterface::disarm residual (safe clear, no splash).
+    /// Regenerates pads stay at MIN_HEALTH rubble so AutoHeal can refill.
     pub fn disarm_mine_safe(&mut self) -> bool {
         if !self.is_disarmable_mine() {
+            return false;
+        }
+        let keep_regen = self
+            .mine_data
+            .as_ref()
+            .is_some_and(|md| md.regenerates);
+        if keep_regen {
+            use crate::game_logic::host_enum_table_residual::rubble_model_bit;
+            use crate::game_logic::host_mines::MINE_MIN_HEALTH;
+            if let Some(md) = self.mine_data.as_mut() {
+                let _ = md.disarm_regenerating_pad();
+            }
+            self.health.current = MINE_MIN_HEALTH;
+            self.model_condition_bits |= 1u128 << rubble_model_bit();
+            self.set_status_masked(true);
             return false;
         }
         if let Some(md) = self.mine_data.as_mut() {

@@ -442,6 +442,10 @@ impl GameLogic {
                 // spin residual into orientation rate if field exists — use orientation nudge
                 let spin = spin_rate_rad_per_frame(plan.spin_rate_deg);
                 o.set_orientation(o.get_orientation() + spin * (i as f32 + 1.0));
+                o.set_extra_friction(plan.extra_friction);
+                if !plan.bounce_sound.is_empty() {
+                    o.set_bounce_sound(plan.bounce_sound.clone());
+                }
             }
             self.ocl_create_debris_reg.record_spawn(plan.disposition);
             out.push(id);
@@ -1825,8 +1829,8 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed =
-                        target.take_damage_from_immediate(hit.damage, Some(plan.source_object));
+                    let killed = target
+                        .take_radiation_field_tick(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {

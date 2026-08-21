@@ -968,6 +968,58 @@ impl GameLogic {
         n
     }
 
+    /// C++ Upgrade_Fanaticism: tag only. evaluateMoraleBonus sets FANATICISM
+    /// only inside `if (nationalism)` where nationalism is Upgrade_Nationalism.
+    pub(in super::super) fn apply_fanaticism_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
+        use crate::game_logic::host_battlemaster::{
+            is_battlemaster_template, leftover_horde_fanaticism_bonus, UPGRADE_FANATICISM,
+        };
+
+        use crate::game_logic::host_minigunner::is_minigunner_template;
+        use crate::game_logic::host_red_guard::is_red_guard_template;
+        use crate::game_logic::host_tank_hunter::is_tank_hunter_template;
+
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| upgrade_targets_object(o, team) && o.is_alive())
+            .filter_map(|(id, o)| {
+                if is_battlemaster_template(&o.template_name)
+                    || is_red_guard_template(&o.template_name)
+                    || is_tank_hunter_template(&o.template_name)
+                    || is_minigunner_template(&o.template_name)
+                {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut n = 0u32;
+        for id in ids {
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.apply_upgrade_tag(upgrade_name);
+                o.apply_upgrade_tag(UPGRADE_FANATICISM);
+                o.weapon_bonus_fanaticism =
+                    leftover_horde_fanaticism_bonus(o.weapon_bonus_nationalism, true);
+
+                n = n.saturating_add(1);
+            }
+        }
+        for p in self.players.values_mut() {
+            if upgrade_targets_player(p, team) {
+                p.unlocked_sciences.insert(UPGRADE_FANATICISM.to_string());
+                p.unlocked_sciences.insert(upgrade_name.to_string());
+            }
+        }
+        n
+    }
+
+
     /// C++ Upgrade_ChinaChainGuns residual — gattling/minigun damage ×1.25.
     pub(in super::super) fn apply_chain_guns_to_team(
         &mut self,

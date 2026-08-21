@@ -319,18 +319,34 @@ impl GameWorldShadow {
         if crate::game_logic::host_battlemaster::is_china_vehicle_horde_unit(e.template_name()) {
             let alive = e.health > 0.0 && !e.destroyed;
             if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
-                let now_horde = alive && snaps.vehicle_horde_now.get(&hid).copied().unwrap_or(false);
-                let was = e.weapon_bonus_horde;
-                if e.weapon_bonus_horde != now_horde || now_horde {
-                    e.weapon_bonus_horde = now_horde;
-                    crate::game_logic::host_battlemaster_horde_log::record(
-                        crate::game_logic::host_battlemaster_horde_log::BattlemasterHordeEvent {
-                            id: crate::game_logic::ObjectId(hid),
-                            now_horde,
-                            was_horde: was,
-                        },
+                let scanned =
+                    alive && snaps.vehicle_horde_now.get(&hid).copied().unwrap_or(false);
+                let (due, init, last, next) =
+                    crate::game_logic::host_battlemaster::leftover_horde_take_wake(
+                        e.horde_wake_initialized,
+                        false,
+                        frame,
+                        e.last_horde_refresh_frame,
+                        e.horde_next_wake_frame,
+                        crate::game_logic::host_battlemaster::BATTLE_MASTER_HORDE_UPDATE_FRAMES,
                     );
-                    changed = true;
+                e.horde_wake_initialized = init;
+                e.last_horde_refresh_frame = last;
+                e.horde_next_wake_frame = next;
+                if due {
+                    let now_horde = scanned;
+                    let was = e.weapon_bonus_horde;
+                    if e.weapon_bonus_horde != now_horde || now_horde {
+                        e.weapon_bonus_horde = now_horde;
+                        crate::game_logic::host_battlemaster_horde_log::record(
+                            crate::game_logic::host_battlemaster_horde_log::BattlemasterHordeEvent {
+                                id: crate::game_logic::ObjectId(hid),
+                                now_horde,
+                                was_horde: was,
+                            },
+                        );
+                        changed = true;
+                    }
                 }
             }
         }
@@ -339,30 +355,47 @@ impl GameWorldShadow {
         if crate::game_logic::host_red_guard::is_china_infantry_horde_unit(e.template_name()) {
             let alive = e.health > 0.0 && !e.destroyed;
             if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
-                let now_horde = alive && snaps.infantry_horde_now.get(&hid).copied().unwrap_or(false);
-                let was = e.weapon_bonus_horde;
-                if e.weapon_bonus_horde != now_horde || now_horde {
-                    e.weapon_bonus_horde = now_horde;
-                    let name = e.template_name();
-                    let kind = if crate::game_logic::host_red_guard::is_red_guard_template(name) {
-                        crate::game_logic::host_china_infantry_horde_log::ChinaInfantryHordeKind::RedGuard
-                    } else if crate::game_logic::host_tank_hunter::is_tank_hunter_template(name) {
-                        crate::game_logic::host_china_infantry_horde_log::ChinaInfantryHordeKind::TankHunter
-                    } else {
-                        crate::game_logic::host_china_infantry_horde_log::ChinaInfantryHordeKind::Minigunner
-                    };
-                    crate::game_logic::host_china_infantry_horde_log::record(
-                        crate::game_logic::host_china_infantry_horde_log::ChinaInfantryHordeEvent {
-                            id: crate::game_logic::ObjectId(hid),
-                            kind,
-                            now_horde,
-                            was_horde: was,
-                        },
+                let scanned =
+                    alive && snaps.infantry_horde_now.get(&hid).copied().unwrap_or(false);
+                let (due, init, last, next) =
+                    crate::game_logic::host_battlemaster::leftover_horde_take_wake(
+                        e.horde_wake_initialized,
+                        true,
+                        frame,
+                        e.last_horde_refresh_frame,
+                        e.horde_next_wake_frame,
+                        crate::game_logic::host_red_guard::INFANTRY_HORDE_UPDATE_FRAMES,
                     );
-                    changed = true;
+                e.horde_wake_initialized = init;
+                e.last_horde_refresh_frame = last;
+                e.horde_next_wake_frame = next;
+                if due {
+                    let now_horde = scanned;
+                    let was = e.weapon_bonus_horde;
+                    if e.weapon_bonus_horde != now_horde || now_horde {
+                        e.weapon_bonus_horde = now_horde;
+                        let name = e.template_name();
+                        let kind = if crate::game_logic::host_red_guard::is_red_guard_template(name) {
+                            crate::game_logic::host_china_infantry_horde_log::ChinaInfantryHordeKind::RedGuard
+                        } else if crate::game_logic::host_tank_hunter::is_tank_hunter_template(name) {
+                            crate::game_logic::host_china_infantry_horde_log::ChinaInfantryHordeKind::TankHunter
+                        } else {
+                            crate::game_logic::host_china_infantry_horde_log::ChinaInfantryHordeKind::Minigunner
+                        };
+                        crate::game_logic::host_china_infantry_horde_log::record(
+                            crate::game_logic::host_china_infantry_horde_log::ChinaInfantryHordeEvent {
+                                id: crate::game_logic::ObjectId(hid),
+                                kind,
+                                now_horde,
+                                was_horde: was,
+                            },
+                        );
+                        changed = true;
+                    }
                 }
             }
         }
+
 
 
         // Wave 814: Stinger hive slave respawn residual.

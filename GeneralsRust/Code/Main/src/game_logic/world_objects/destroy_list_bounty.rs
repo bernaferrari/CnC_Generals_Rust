@@ -603,8 +603,17 @@ impl GameLogic {
         // C++ Object::scoreTheKill / Player::doBountyForKill:
         // no bounty for under-construction, non-enemy, or same-controller kills.
         let under_construction = destroyed_object.status.under_construction;
-        let build_cost = destroyed_object.thing.template.build_cost.supplies;
         let victim_owner_player_id = self.player_owner_for_host_object(destroyed_object);
+        // C++ victim->getTemplate()->calcCostToBuild(victim->getControllingPlayer()).
+        // No controlling player → 0 (ThingTemplate.cpp:1510-1511).
+        let build_cost = match victim_owner_player_id {
+            Some(pid) => self.modified_build_cost_supplies(
+                pid,
+                &destroyed_object.template_name,
+                destroyed_object.thing.template.build_cost.supplies,
+            ),
+            None => 0,
+        };
 
         let mut bounty_awarded = 0_u32;
         let mut bounty_killer_id = ObjectId(0);
@@ -964,6 +973,35 @@ mod tests {
             ),
             "bunker-buster must record_exit the shared pool occupant"
         );
+    }
+
+    #[test]
+    fn bounty_uses_victim_calc_cost_to_build_and_money_earned() {
+        // C++ Player.cpp:2409-2416 calcCostToBuild + addMoneyEarned.
+        let mut logic = GameLogic::new();
+        let mut killer = Player::new(0, Team::USA, "USA", true);
+        killer.cash_bounty_percent = 0.20;
+        killer.resources.supplies = 1_000;
+        logic.add_player(killer);
+        let mut victim = Player::new(2, Team::GLA, "GLA", true);
+        victim.map_side.handicap_build_cost_generic = 0.80;
+        logic.add_player(victim);
+        let mut tank = ThingTemplate::new("TestTank");
+        tank.add_kind_of(KindOf::Vehicle).set_health(100.0);
+        tank.build_cost.supplies = 600;
+        logic.templates.insert("TestTank".into(), tank);
+
+        let cost = logic.modified_build_cost_supplies(2, "TestTank", 600);
+        assert_eq!(cost, 480, "handicap 0.8 * 600");
+        let bounty = logic
+            .get_player_mut(0)
+            .expect("usa")
+            .do_bounty_for_kill(cost);
+        assert_eq!(bounty, 96);
+        let usa = logic.get_player(0).expect("usa");
+        assert_eq!(usa.statistics.money_earned, 96);
+        assert_eq!(usa.resources.supplies, 1_096);
+        assert_eq!(usa.calculate_score() as u32, 96);
     }
 }
 

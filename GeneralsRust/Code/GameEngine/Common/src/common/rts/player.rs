@@ -252,8 +252,14 @@ pub fn get_player_object_world() -> Option<Arc<dyn PlayerObjectWorld>> {
 ///
 /// C++ Reference: Player::doBountyForKill takes `const Object* killer, const Object* victim`
 pub trait BountyObject {
-    /// Get the cost to build this object (used for bounty calculation)
-    fn get_build_cost(&self) -> i32;
+    /// C++ ThingTemplate::calcCostToBuild(victim->getControllingPlayer()).
+    /// No controlling player → 0.
+    fn calc_cost_to_build(&self) -> i32;
+
+    /// Raw INI sticker fallback. Bounty uses [`Self::calc_cost_to_build`].
+    fn get_build_cost(&self) -> i32 {
+        self.calc_cost_to_build()
+    }
 
     /// Check if this object is under construction (no bounty for under-construction)
     fn is_under_construction(&self) -> bool;
@@ -2895,13 +2901,13 @@ impl Player {
         _killer: &dyn BountyObject,
         victim: &dyn BountyObject,
     ) -> i32 {
-        // C++ lines 1968-1970: Don't award bounty for under-construction objects
+        // C++ Player.cpp:2406-2407: no bounty for under-construction victims.
         if victim.is_under_construction() {
             return 0;
         }
 
-        // C++ line 1972: Get victim's build cost for bounty calculation
-        let killer_cost = victim.get_build_cost();
+        // C++ Player.cpp:2409 calcCostToBuild(victim controlling player).
+        let killer_cost = victim.calc_cost_to_build();
 
         self.do_bounty_for_kill(killer_cost)
     }
@@ -5568,5 +5574,40 @@ mod tests {
         assert_eq!(bonuses.search_and_destroy, 2);
         assert_eq!(bonuses.valid_kind_of, KindOfMask::VEHICLE);
         assert_eq!(bonuses.invalid_kind_of, KindOfMask::AIRCRAFT);
+    }
+
+    struct TestBountyVictim {
+        cost: i32,
+        under_construction: bool,
+    }
+
+    impl BountyObject for TestBountyVictim {
+        fn calc_cost_to_build(&self) -> i32 {
+            self.cost
+        }
+        fn is_under_construction(&self) -> bool {
+            self.under_construction
+        }
+    }
+
+    #[test]
+    fn do_bounty_for_kill_obj_uses_calc_cost_to_build_and_add_money_earned() {
+        let mut player = Player::new(0);
+        player.set_cash_bounty_percent(0.20);
+        let victim = TestBountyVictim {
+            cost: 1000,
+            under_construction: false,
+        };
+        let bounty = player.do_bounty_for_kill_obj(&victim, &victim);
+        assert_eq!(bounty, 200);
+        assert_eq!(player.get_score_keeper().get_total_money_earned(), 200);
+        assert_eq!(player.get_money().count_money(), 200);
+
+        let unfinished = TestBountyVictim {
+            cost: 1000,
+            under_construction: true,
+        };
+        assert_eq!(player.do_bounty_for_kill_obj(&unfinished, &unfinished), 0);
+        assert_eq!(player.get_score_keeper().get_total_money_earned(), 200);
     }
 }

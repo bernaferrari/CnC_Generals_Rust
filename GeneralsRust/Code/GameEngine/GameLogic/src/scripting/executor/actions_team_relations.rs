@@ -980,6 +980,16 @@ impl ScriptActionDispatcher {
         let team_name = self.get_string_param(action, 0)?;
         let area_name = self.get_string_param(action, 1)?;
         log::info!("Team '{}' attacking area '{}'", team_name, area_name);
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_move_attack(
+                super::HostScriptMoveAttackRequest::TeamAttackArea {
+                    team: self.resolve_team_name_token(&team_name),
+                    area: area_name,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let (area_center, trigger_id) = match self.get_trigger_area(&area_name) {
             Ok(trigger) => (trigger.get_center_point(), trigger.get_id()),
@@ -1012,6 +1022,16 @@ impl ScriptActionDispatcher {
         let team_name = self.get_string_param(action, 0)?;
         let target_name = self.get_string_param(action, 1)?;
         log::info!("Team '{}' attacking '{}'", team_name, target_name);
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_move_attack(
+                super::HostScriptMoveAttackRequest::TeamAttackNamed {
+                    team: self.resolve_team_name_token(&team_name),
+                    unit: target_name,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         // Get the object ID from name tracker
         let tracker = get_named_object_tracker();
@@ -1110,6 +1130,12 @@ impl ScriptActionDispatcher {
         let attitude = self.group_attitude_from_script_int(mood);
         let module_attitude = self.attitude_from_script_int(mood);
         log::info!("Team '{}' setting attitude to {:?}", team_name, attitude);
+
+        if super::dual_world_registry_unavailable() {
+            super::request_host_team_attitude(&team_name, mood);
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         if let Ok(group_arc) = self.create_ai_group_from_team(&team_name) {
             if let Ok(mut group) = group_arc.write() {

@@ -87,6 +87,40 @@ fn host_named_unit_found_with_empty_object_registry() {
 }
 
 #[test]
+fn create_object_script_request_spawns_named_host_unit() {
+    use gamelogic::object::registry::OBJECT_REGISTRY;
+    use gamelogic::scripting::{request_host_script_create, HostScriptCreateRequest};
+
+    OBJECT_REGISTRY.clear();
+    let mut logic = GameLogic::new();
+    let mut t = ThingTemplate::new("AmericaInfantryRanger");
+    t.set_health(100.0);
+    logic.templates.insert("AmericaInfantryRanger".into(), t);
+
+    request_host_script_create(HostScriptCreateRequest::Object {
+        name: Some("ColonelBurton".into()),
+        thing: "AmericaInfantryRanger".into(),
+        team: "teamAmerica".into(),
+        x: 12.0,
+        y: 24.0,
+        z: 0.0,
+        angle: 1.25,
+    });
+    logic.apply_host_create_script_requests();
+
+    let id = logic
+        .host_object_id_by_script_name("ColonelBurton")
+        .expect("named unit");
+    let obj = logic.objects.get(&id).expect("spawned");
+    assert_eq!(obj.name, "ColonelBurton");
+    assert_eq!(obj.team, Team::USA);
+    assert_eq!(obj.team_instance_name, "teamAmerica");
+    assert!((obj.get_orientation() - 1.25).abs() < 0.001);
+    assert!(OBJECT_REGISTRY.is_empty());
+}
+
+
+#[test]
 fn live_host_polygon_inside_and_enter_without_object_registry() {
     use gamelogic::common::{AsciiString, ICoord3D};
     use gamelogic::object::registry::OBJECT_REGISTRY;

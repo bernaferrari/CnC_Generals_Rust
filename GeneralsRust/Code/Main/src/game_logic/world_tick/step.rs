@@ -375,9 +375,8 @@ impl GameLogic {
             self.update_power_plant_rods();
         }
 
-        // Host China vehicle HordeUpdate residual (ExactMatch family, Radius 75 / Count 5 /
-        // RubOff 20 + terrain-decal fade). Retail UpdateRate 1000ms — residual rechecks
-        // each frame when horde vehicles exist.
+        // Host China vehicle HordeUpdate residual. Vehicles run every frame for
+        // decal size (UPDATE_SLEEP_NONE) but membership is gated on UpdateRate.
         // Wave 812: under coupled shadow, horde status owned by GW expire + logs.
         if !(crate::gameworld_shadow::gameworld_shadow_enabled()
             && crate::gameworld_shadow::shadow_coupled_tick_active())
@@ -385,10 +384,9 @@ impl GameLogic {
             self.update_battlemaster_horde_status();
         }
 
-        // Host China infantry HordeUpdate residual (HordeUpdate infantry only, Radius 30 /
-        // Count 5 / RubOff 20 + terrain-decal fade).
-
+        // Host China infantry HordeUpdate residual. Infantry UPDATE_SLEEP(UpdateRate).
         // Wave 813: under coupled shadow, horde status owned by GW expire + logs.
+
         if !(crate::gameworld_shadow::gameworld_shadow_enabled()
             && crate::gameworld_shadow::shadow_coupled_tick_active())
         {
@@ -613,6 +611,8 @@ impl GameLogic {
         {
             self.update_base_regenerate();
         }
+        self.update_supply_warehouse_crippling();
+
         // Wave 781: under coupled shadow, EnemyNearUpdate is owned by
         // GW tick_status_timer_expirations + writeback.
         if !(crate::gameworld_shadow::gameworld_shadow_enabled()

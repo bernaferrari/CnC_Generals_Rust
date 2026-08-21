@@ -617,11 +617,12 @@ fn demo_trap_manual_detonate_residual() {
     );
 }
 
-/// Residual: enemy mine + dozer in clear range → mine disarmed, dozer survives.
-/// Fail-closed: not full WEAPONSET_MINE_CLEARING_DETAIL / PreAttack scoop delay.
+/// Residual: enemy mine + dozer in clear range → PreAttackDelay then disarm.
 #[test]
 fn dozer_mine_clear_residual_disarms_enemy_mine_safely() {
-    use crate::game_logic::host_mines::DOZER_MINE_CLEAR_RANGE;
+    use crate::game_logic::host_mines::{
+        DOZER_MINE_CLEAR_PRE_ATTACK_FRAMES, DOZER_MINE_CLEAR_RANGE,
+    };
 
     let mut game_logic = GameLogic::new();
     ensure_test_dozer_template(&mut game_logic);
@@ -631,7 +632,6 @@ fn dozer_mine_clear_residual_disarms_enemy_mine_safely() {
         .expect("enemy mine");
     assert_eq!(game_logic.mine_residual_places(), 1);
 
-    // Place dozer inside clear range (and inside trigger range — immunity residual).
     let dozer_id = game_logic
         .create_object(
             "TestDozer",
@@ -639,6 +639,9 @@ fn dozer_mine_clear_residual_disarms_enemy_mine_safely() {
             Vec3::new(DOZER_MINE_CLEAR_RANGE * 0.5, 0.0, 0.0),
         )
         .expect("dozer");
+    if let Some(d) = game_logic.host_object_mut(dozer_id) {
+        d.set_weapon_set_mine_clearing_detail(true);
+    }
     let health_before = game_logic.host_object(dozer_id).unwrap().health.current;
     assert!(
         game_logic
@@ -648,12 +651,21 @@ fn dozer_mine_clear_residual_disarms_enemy_mine_safely() {
         "TestDozer must be Worker residual for mine clear"
     );
 
+    game_logic.frame = 1;
+    game_logic.update_mines_and_demo_traps();
+    assert_eq!(
+        game_logic.mine_residual_clears(),
+        0,
+        "PreAttackDelay must hold the first frame"
+    );
+
+    game_logic.frame = 1 + DOZER_MINE_CLEAR_PRE_ATTACK_FRAMES;
     game_logic.update_mines_and_demo_traps();
 
     assert_eq!(
         game_logic.mine_residual_clears(),
         1,
-        "dozer must clear enemy mine"
+        "dozer must clear enemy mine after PreAttackDelay"
     );
     assert_eq!(
         game_logic.mine_residual_proximity_detonations(),
@@ -665,7 +677,6 @@ fn dozer_mine_clear_residual_disarms_enemy_mine_safely() {
         "place+clear honesty path"
     );
 
-    // Mine disarmed / inactive residual.
     if let Some(mine) = game_logic.host_object(mine_id) {
         assert!(
             mine.mine_data
@@ -689,10 +700,13 @@ fn dozer_mine_clear_residual_disarms_enemy_mine_safely() {
     );
 }
 
+
 /// Residual: dozer outside clear range approaches nearest enemy mine (auto-acquire).
 #[test]
 fn dozer_mine_clear_residual_approaches_then_clears() {
-    use crate::game_logic::host_mines::{DOZER_MINE_CLEAR_RANGE, DOZER_MINE_CLEAR_SCAN_RANGE};
+    use crate::game_logic::host_mines::{
+        DOZER_MINE_CLEAR_PRE_ATTACK_FRAMES, DOZER_MINE_CLEAR_RANGE, DOZER_MINE_CLEAR_SCAN_RANGE,
+    };
 
     let mut game_logic = GameLogic::new();
     ensure_test_dozer_template(&mut game_logic);
@@ -701,7 +715,6 @@ fn dozer_mine_clear_residual_approaches_then_clears() {
         .place_land_mine(Team::GLA, Vec3::new(0.0, 0.0, 0.0), None)
         .expect("mine");
 
-    // Outside clear range, inside scan range.
     let approach_dist = (DOZER_MINE_CLEAR_RANGE + DOZER_MINE_CLEAR_SCAN_RANGE) * 0.5;
     assert!(approach_dist > DOZER_MINE_CLEAR_RANGE);
     assert!(approach_dist < DOZER_MINE_CLEAR_SCAN_RANGE);
@@ -709,6 +722,9 @@ fn dozer_mine_clear_residual_approaches_then_clears() {
     let dozer_id = game_logic
         .create_object("TestDozer", Team::USA, Vec3::new(approach_dist, 0.0, 0.0))
         .expect("dozer");
+    if let Some(d) = game_logic.host_object_mut(dozer_id) {
+        d.set_weapon_set_mine_clearing_detail(true);
+    }
 
     crate::game_logic::host_ai_decision_log::clear();
     game_logic.update_mines_and_demo_traps();
@@ -719,12 +735,10 @@ fn dozer_mine_clear_residual_approaches_then_clears() {
     );
     {
         let dozer = game_logic.host_object(dozer_id).unwrap();
-        // Host residual still stores approach destination.
         assert!(
             dozer.movement.target_position.is_some(),
             "must have move target toward mine"
         );
-        // AI state last-write under AI_DECISION_AUTHORITY (default on).
         if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             assert_eq!(dozer.ai_state, AIState::Idle);
             let moving =
@@ -743,12 +757,20 @@ fn dozer_mine_clear_residual_approaches_then_clears() {
         }
     }
 
-    // Move into clear range (host residual does not sim path here).
     {
         let dozer = game_logic.host_object_mut(dozer_id).unwrap();
         dozer.set_position(Vec3::new(DOZER_MINE_CLEAR_RANGE * 0.25, 0.0, 0.0));
         dozer.set_ai_state(AIState::Idle);
     }
+    game_logic.frame = 10;
+    game_logic.update_mines_and_demo_traps();
+    assert_eq!(
+        game_logic.mine_residual_clears(),
+        0,
+        "PreAttackDelay must hold after entering range"
+    );
+
+    game_logic.frame = 10 + DOZER_MINE_CLEAR_PRE_ATTACK_FRAMES;
     game_logic.update_mines_and_demo_traps();
 
     assert_eq!(game_logic.mine_residual_clears(), 1);
@@ -758,6 +780,7 @@ fn dozer_mine_clear_residual_approaches_then_clears() {
         assert!(mine.mine_data.as_ref().map(|d| d.detonated).unwrap_or(true));
     }
 }
+
 
 /// Residual: ally mine is not auto-cleared by friendly dozer.
 #[test]
@@ -819,6 +842,161 @@ fn dozer_mine_clear_residual_infantry_still_triggers() {
     assert_eq!(game_logic.mine_residual_clears(), 0);
     assert_eq!(game_logic.mine_residual_proximity_detonations(), 1);
 }
+
+#[test]
+fn china_regen_pad_survives_disarm_and_refills() {
+    use crate::game_logic::host_mines::{
+        MINE_AUTO_HEAL_AMOUNT, MINE_AUTO_HEAL_DELAY_FRAMES, MINE_MIN_HEALTH,
+        STANDARD_MINE_NUM_VIRTUAL,
+    };
+    let mut logic = GameLogic::new();
+    let mine_id = logic
+        .place_land_mine_named(
+            "ChinaStandardMine",
+            Team::China,
+            Vec3::new(0.0, 0.0, 0.0),
+            None,
+        )
+        .expect("pad");
+    {
+        let m = logic.host_object(mine_id).unwrap();
+        assert!(m.mine_data.as_ref().unwrap().regenerates);
+        assert_eq!(
+            m.mine_data.as_ref().unwrap().virtual_mines_remaining,
+            STANDARD_MINE_NUM_VIRTUAL
+        );
+    }
+    assert!(logic.clear_mine_internal(mine_id, ObjectId(999)));
+    let pad = logic.host_object(mine_id).expect("regen pad kept");
+    assert!(pad.is_alive(), "China pad must survive disarm");
+    assert!(!pad.status.destroyed);
+    assert!((pad.health.current - MINE_MIN_HEALTH).abs() < 1e-3);
+    assert_eq!(pad.mine_data.as_ref().unwrap().virtual_mines_remaining, 0);
+
+    logic.frame = 0;
+    logic.update_mines_and_demo_traps();
+    logic.frame = MINE_AUTO_HEAL_DELAY_FRAMES;
+    logic.update_mines_and_demo_traps();
+    let after = logic.host_object(mine_id).unwrap();
+    assert!(
+        after.health.current + 1e-3 >= MINE_MIN_HEALTH + MINE_AUTO_HEAL_AMOUNT,
+        "AutoHeal must refill the pad (hp={})",
+        after.health.current
+    );
+}
+
+#[test]
+fn weapon_fire_trips_virtual_mines_on_health_band() {
+    let mut logic = GameLogic::new();
+    let mine_id = logic
+        .place_land_mine_named(
+            "ChinaStandardMine",
+            Team::China,
+            Vec3::new(0.0, 0.0, 0.0),
+            None,
+        )
+        .expect("pad");
+    {
+        let m = logic.host_object_mut(mine_id).unwrap();
+        m.health.current = 50.0;
+        m.health.maximum = 100.0;
+        if let Some(md) = m.mine_data.as_mut() {
+            md.last_synced_health = Some(100.0);
+        }
+    }
+    logic.update_mines_and_demo_traps();
+    assert!(
+        logic.mine_residual_proximity_detonations() >= 1,
+        "health-band drop must detonateOnce"
+    );
+    let left = logic
+        .host_object(mine_id)
+        .and_then(|o| o.mine_data.as_ref().map(|m| m.virtual_mines_remaining))
+        .unwrap_or(0);
+    assert!(left < 8, "virtual count must drop, left={left}");
+}
+
+#[test]
+fn land_mine_trips_neutral_unit() {
+    let mut logic = GameLogic::new();
+    ensure_test_infantry_template(&mut logic);
+    let mine_id = logic
+        .place_land_mine(Team::China, Vec3::new(0.0, 0.0, 0.0), None)
+        .expect("mine");
+    let trigger = logic
+        .host_object(mine_id)
+        .unwrap()
+        .mine_data
+        .as_ref()
+        .unwrap()
+        .trigger_range;
+    let _civ = logic
+        .create_object(
+            "TestInfantry",
+            Team::Neutral,
+            Vec3::new(trigger * 0.25, 0.0, 0.0),
+        )
+        .expect("neutral");
+    logic.update_mines_and_demo_traps();
+    assert_eq!(
+        logic.mine_residual_proximity_detonations(),
+        1,
+        "neutral must trip land mines"
+    );
+}
+
+#[test]
+fn bored_dozer_arms_mine_clearing_weaponset() {
+    use crate::game_logic::host_mines::HostMineKind;
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, crate::game_logic::Player::new(0, Team::USA, "USA", true));
+    ensure_test_dozer_template(&mut logic);
+    let mid = logic
+        .place_land_mine(Team::GLA, Vec3::new(10.0, 0.0, 0.0), None)
+        .expect("mine");
+    let _ = mid;
+    let did = logic
+        .create_object("TestDozer", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("dozer");
+    if let Some(o) = logic.host_object_mut(did) {
+        o.set_ai_state(AIState::Idle);
+        o.idle_since_frame = 1;
+        assert!(!o.weapon_set_mine_clearing_detail);
+    }
+    logic.frame = 1 + crate::game_logic::host_repair::DOZER_BORED_TIME_FRAMES;
+    logic.update_dozer_bored_repair();
+    let d = logic.host_object(did).expect("d");
+    assert!(
+        d.weapon_set_mine_clearing_detail,
+        "idle dozer must arm WEAPONSET_MINE_CLEARING_DETAIL"
+    );
+    let _ = HostMineKind::LandMine;
+}
+
+#[test]
+fn cluster_mines_drop_variance_offsets_field() {
+    use crate::game_logic::host_mines::cluster_smart_border_positions;
+    let mut logic = GameLogic::new();
+    let click = Vec3::new(100.0, 0.0, 200.0);
+    let ids = logic.place_cluster_mines(Team::China, click, Some(ObjectId(7)));
+    assert!(!ids.is_empty());
+    let raw = cluster_smart_border_positions(click);
+    let placed: Vec<Vec3> = ids
+        .iter()
+        .filter_map(|id| logic.host_object(*id).map(|o| o.get_position()))
+        .collect();
+    let raw_cx: f32 = raw.iter().map(|p| p.x).sum::<f32>() / raw.len() as f32;
+    let pl_cx: f32 = placed.iter().map(|p| p.x).sum::<f32>() / placed.len() as f32;
+    let raw_cz: f32 = raw.iter().map(|p| p.z).sum::<f32>() / raw.len() as f32;
+    let pl_cz: f32 = placed.iter().map(|p| p.z).sum::<f32>() / placed.len() as f32;
+    assert!(
+        (raw_cx - pl_cx).abs() > 0.05 || (raw_cz - pl_cz).abs() > 0.05,
+        "DropVariance must offset the SmartBorder field from the click"
+    );
+}
+
 
 // -----------------------------------------------------------------------
 // Stealth residual (targetability + detector reveal + fire-break)

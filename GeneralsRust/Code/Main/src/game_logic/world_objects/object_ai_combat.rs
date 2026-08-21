@@ -616,6 +616,8 @@ impl GameLogic {
                     self.apply_laser_missiles_to_team(team, upgrade_name)
                 }
                 HostUpgradeKind::Nationalism => self.apply_nationalism_to_team(team, upgrade_name),
+                HostUpgradeKind::Fanaticism => self.apply_fanaticism_to_team(team, upgrade_name),
+
                 HostUpgradeKind::ChainGuns => self.apply_chain_guns_to_team(team, upgrade_name),
                 HostUpgradeKind::UraniumShells => {
                     self.apply_uranium_shells_to_team(team, upgrade_name)

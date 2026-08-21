@@ -1221,6 +1221,14 @@ impl ScriptActionDispatcher {
         let value = self.get_int_param(action, 1)?;
         log::debug!("Setting warehouse '{}' value to {}", warehouse_name, value);
 
+        // Live host: leftover OBJECT_REGISTRY is empty. Always push the
+        // C++ setCashValue through MissionScriptActionHandler.
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.set_warehouse_value(&warehouse_name, value) {
+                log::warn!("Script action handler set_warehouse_value failed: {}", err);
+            }
+        }
+
         let tracker = get_named_object_tracker();
         let Some(warehouse_id) = tracker.get_object_id(&warehouse_name).ok().flatten() else {
             return Ok(ScriptActionResult::Success);

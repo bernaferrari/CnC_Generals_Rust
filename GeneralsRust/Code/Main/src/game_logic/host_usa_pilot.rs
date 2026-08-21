@@ -196,7 +196,8 @@ impl HostDeathType {
             HostDeathType::Detonated => 10,
             HostDeathType::Splatted => 11,
             HostDeathType::PoisonedBeta => 12,
-            HostDeathType::PoisonedGamma => 13,
+            // C++ Damage.h:165-172 EXTRA_2..EXTRA_8 = 13..19, POISONED_GAMMA = 20.
+            HostDeathType::PoisonedGamma => 20,
         }
     }
 
@@ -215,7 +216,8 @@ impl HostDeathType {
             10 => HostDeathType::Detonated,
             11 => HostDeathType::Splatted,
             12 => HostDeathType::PoisonedBeta,
-            13 => HostDeathType::PoisonedGamma,
+            // 13..=19 are C++ DEATH_EXTRA_2..EXTRA_8 (unused on live host).
+            20 => HostDeathType::PoisonedGamma,
             _ => HostDeathType::Normal,
         }
     }
@@ -1452,6 +1454,15 @@ mod tests {
         assert!(!is_recrewable_unmanned_vehicle(
             false, true, false, true, false, false
         )); // dead
+    }
+
+    #[test]
+    fn poisoned_gamma_ordinal_is_cpp_20() {
+        // C++ Damage.h:161-172 DEATH_POISONED_BETA=12, EXTRA_2=13, POISONED_GAMMA=20.
+        assert_eq!(HostDeathType::PoisonedBeta.ordinal(), 12);
+        assert_eq!(HostDeathType::PoisonedGamma.ordinal(), 20);
+        assert_eq!(HostDeathType::from_ordinal(20), HostDeathType::PoisonedGamma);
+        assert_ne!(HostDeathType::from_ordinal(13), HostDeathType::PoisonedGamma);
     }
 
     #[test]

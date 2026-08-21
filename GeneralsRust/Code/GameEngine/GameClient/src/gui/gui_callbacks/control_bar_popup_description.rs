@@ -6,13 +6,22 @@ use crate::gui::{
     GameWindow, WindowLayout, WindowMsgHandled, GWS_PUSH_BUTTON, GWS_STATIC_TEXT, GWS_USER_WINDOW,
 };
 use crate::helpers::TheInGameUI;
-use game_engine::common::ini::ini_command_button::CommandButton as IniCommandButton;
+use crate::gui::control_bar::{CommandButton as LiveCommandButton, MAX_BUILD_QUEUE_BUTTONS};
+use game_engine::common::ini::ini_command_button::{
+    get_control_bar as get_ini_control_bar, CommandButton as IniCommandButton,
+};
 use game_engine::common::ini::ini_game_data::get_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::rts::get_science_store;
+use game_engine::common::thing::module::Thing;
 use game_engine::common::thing::thing_factory::get_thing_factory;
+use gamelogic::commands::selection::get_selection_manager;
+use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::player::player_list;
 use gamelogic::player::Player;
+use crate::message_stream::place_event_confirm::can_make_unit_for_place;
+use game_engine::common::system::build_assistant::CanMakeType as BuildCanMakeType;
+use gamelogic::helpers::TheThingFactory;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -69,12 +78,34 @@ fn resolve_local_player() -> Option<Arc<std::sync::RwLock<Player>>> {
     list.get_local_player().cloned()
 }
 
+fn leftover_ini_command_button(name: &str) -> Option<IniCommandButton> {
+    get_ini_control_bar()?.find_command_button_resolved(name).cloned()
+}
+
 fn resolve_command_button(window: &GameWindow) -> Option<IniCommandButton> {
     if let Some(button) = window.get_user_data::<IniCommandButton>() {
         return Some(button.clone());
     }
     if let Some(button) = window.get_user_data::<Arc<IniCommandButton>>() {
         return Some((**button).clone());
+    }
+    if let Some(button) = window.get_user_data::<LiveCommandButton>() {
+        if let Some(ini) = leftover_ini_command_button(&button.command_name) {
+            return Some(ini);
+        }
+        let mut ini = IniCommandButton::default();
+        ini.name = button.command_name.clone();
+        ini.object = button.object.clone();
+        ini.upgrade = button.upgrade.clone();
+        ini.text_label = button.text_label.clone();
+        ini.descriptive_text = button.descriptive_text.clone();
+        ini.button_image = button.button_image.clone();
+        ini.sciences_ids = button.sciences_ids.clone();
+        ini.conflicting_label = button.conflicting_element.clone();
+        return Some(ini);
+    }
+    if let Some(name) = window.get_user_data::<String>() {
+        return leftover_ini_command_button(name);
     }
     None
 }
@@ -189,6 +220,153 @@ fn update_description_window(
     let _ = win_ref.set_text(description);
 }
 
+fn leftover_append_line(description: &mut String, extra: &str) {
+    if extra.is_empty() {
+        return;
+    }
+    if !description.is_empty() {
+        description.push('\n');
+    }
+    description.push_str(extra);
+}
+
+fn leftover_requires_list(
+    prereq: &game_engine::common::rts::production_prerequisite::ProductionPrerequisite,
+    player: &Player,
+) -> String {
+    let mut parts = Vec::new();
+    for unit in prereq.get_unit_prereqs() {
+        if unit.name.is_empty() {
+            continue;
+        }
+        parts.push(unit.name.clone());
+    }
+    if prereq
+        .get_science_prereqs()
+        .iter()
+        .any(|st| !player.has_science(*st))
+    {
+        parts.push(GameText::fetch("CONTROLBAR:GeneralsPromotion"));
+    }
+    parts.join("\n")
+}
+
+fn leftover_first_selected_object_id() -> Option<u32> {
+    let list = player_list().read().ok()?;
+    let index = list.get_local_player_index();
+    if index < 0 {
+        return None;
+    }
+    let manager = get_selection_manager();
+    let manager = manager.read().ok()?;
+    manager
+        .get_player_selection_ref(index)
+        .and_then(|selection| selection.get_selected_objects().first().copied())
+}
+
+fn leftover_append_can_make_and_overcharge(
+    description: &mut String,
+    command_button: &IniCommandButton,
+    player: &Player,
+) {
+    let Some(obj_id) = leftover_first_selected_object_id() else {
+        return;
+    };
+    let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+        return;
+    };
+    let Ok(obj) = obj_arc.read() else {
+        return;
+    };
+    if command_button.command.eq_ignore_ascii_case("TOGGLE_OVERCHARGE") {
+        let active = obj
+            .with_overcharge_behavior_interface(|overcharge| overcharge.is_overcharge_active())
+            .unwrap_or(false);
+        leftover_append_line(
+            description,
+            &GameText::fetch(if active {
+                "TOOLTIP:TooltipNukeReactorOverChargeIsOn"
+            } else {
+                "TOOLTIP:TooltipNukeReactorOverChargeIsOff"
+            }),
+        );
+        return;
+    }
+    if !command_button.object.is_empty() {
+        if let Some(template) = TheThingFactory::find_template(&command_button.object) {
+            match can_make_unit_for_place(&obj, template.as_ref(), None) {
+                BuildCanMakeType::NoMoney => leftover_append_line(
+                    description,
+                    &format!("\n{}", GameText::fetch("TOOLTIP:TooltipNotEnoughMoneyToBuild")),
+                ),
+                BuildCanMakeType::QueueFull => leftover_append_line(
+                    description,
+                    &format!(
+                        "\n{}",
+                        GameText::fetch("TOOLTIP:TooltipCannotPurchaseBecauseQueueFull")
+                    ),
+                ),
+                BuildCanMakeType::ParkingPlacesFull => leftover_append_line(
+                    description,
+                    &format!(
+                        "\n{}",
+                        GameText::fetch("TOOLTIP:TooltipCannotBuildUnitBecauseParkingFull")
+                    ),
+                ),
+                BuildCanMakeType::MaxedOutForPlayer => {
+                    let key = if template.is_kind_of(gamelogic::common::types::KindOf::Structure)
+                    {
+                        "TOOLTIP:TooltipCannotBuildBuildingBecauseMaximumNumber"
+                    } else {
+                        "TOOLTIP:TooltipCannotBuildUnitBecauseMaximumNumber"
+                    };
+                    leftover_append_line(description, &format!("\n{}", GameText::fetch(key)));
+                }
+                _ => {}
+            }
+        }
+    } else if !command_button.upgrade.is_empty()
+        && (command_button.command.eq_ignore_ascii_case("PLAYER_UPGRADE")
+            || command_button.command.eq_ignore_ascii_case("OBJECT_UPGRADE"))
+    {
+        let queue_full = leftover_production_count_for_obj(&obj)
+            .is_some_and(|count| count == MAX_BUILD_QUEUE_BUTTONS);
+        if queue_full {
+            leftover_append_line(
+                description,
+                &format!(
+                    "\n{}",
+                    GameText::fetch("TOOLTIP:TooltipCannotPurchaseBecauseQueueFull")
+                ),
+            );
+        } else if !player.get_money().can_afford(
+            leftover_upgrade_cost(&command_button.upgrade),
+        ) {
+            leftover_append_line(
+                description,
+                &format!("\n{}", GameText::fetch("TOOLTIP:TooltipNotEnoughMoneyToBuild")),
+            );
+        }
+    }
+}
+
+fn leftover_production_count_for_obj(obj: &gamelogic::object::Object) -> Option<usize> {
+    let arc = obj.get_production_update_interface()?;
+    let mut guard = arc.lock().ok()?;
+    let pu = guard.get_production_update_interface()?;
+    Some(pu.get_queue_size())
+}
+
+fn leftover_upgrade_cost(upgrade_name: &str) -> i32 {
+    game_engine::common::ini::ini_upgrade::get_upgrade_center()
+        .and_then(|center| {
+            center
+                .find_template(&upgrade_name.to_string().into())
+                .map(|template| template.requirements.cost as i32)
+        })
+        .unwrap_or(0)
+}
+
 fn populate_layout_for_command(
     layout: &Rc<RefCell<WindowLayout>>,
     command_button: &IniCommandButton,
@@ -243,6 +421,16 @@ fn populate_layout_for_command(
         }
     }
 
+    if !command_button.descriptive_text.is_empty() {
+        if let Some(player_guard) = player_guard.as_ref() {
+            leftover_append_can_make_and_overcharge(
+                &mut description,
+                command_button,
+                player_guard,
+            );
+        }
+    }
+
     if let Some(science_id) = science.filter(|_| !fire_science_button) {
         if let Some(store) = get_science_store() {
             if let Some((science_name, science_desc)) = store.get_name_and_description(science_id) {
@@ -255,11 +443,14 @@ fn populate_layout_for_command(
                 }
             }
         }
-    } else if !command_button.object.is_empty() {
+    } else if !command_button.object.is_empty() && !is_purchase_science {
         if let Ok(factory_guard) = get_thing_factory() {
             if let Some(factory) = factory_guard.as_ref() {
                 if let Some(template) = factory.find_template(&command_button.object, true) {
-                    cost_value = template.calc_cost_to_build(None);
+                    cost_value = match player_guard.as_ref() {
+                        Some(guard) => template.calc_cost_to_build(Some(&**guard as &dyn Thing)),
+                        None => 0,
+                    };
                     if cost_value > 0 {
                         let template_text = GameText::fetch("TOOLTIP:Cost");
                         cost = format_template(&template_text, &[cost_value.to_string()]);
@@ -267,7 +458,7 @@ fn populate_layout_for_command(
                     let mut requires = String::new();
                     if let Some(player_guard) = player_guard.as_ref() {
                         for prereq in template.get_prereqs() {
-                            let list = String::new();
+                            let list = leftover_requires_list(prereq, player_guard);
                             if list.is_empty() {
                                 continue;
                             }
@@ -278,11 +469,10 @@ fn populate_layout_for_command(
                         }
                         if !requires.is_empty() {
                             let req_template = GameText::fetch("CONTROLBAR:Requirements");
-                            let formatted = format_template(&req_template, &[requires]);
-                            if !description.is_empty() {
-                                description.push('\n');
-                            }
-                            description.push_str(&formatted);
+                            leftover_append_line(
+                                &mut description,
+                                &format_template(&req_template, &[requires]),
+                            );
                         }
                     }
                 }
@@ -301,17 +491,40 @@ fn populate_layout_for_command(
                         .map(|upgrade| guard.has_upgrade_complete(upgrade.as_ref()))
                     })
                     .unwrap_or(false);
+                let missing_science = player_guard.as_ref().is_some_and(|guard| {
+                    command_button
+                        .sciences_ids
+                        .iter()
+                        .any(|st| !guard.has_science(*st))
+                });
                 if has_upgrade && (is_player_upgrade || is_object_upgrade) {
                     if !command_button.purchased_label.is_empty() {
                         description = GameText::fetch(&command_button.purchased_label);
                     } else {
                         description = GameText::fetch("TOOLTIP:AlreadyUpgradedDefault");
                     }
+                } else if !command_button.conflicting_label.is_empty() && has_upgrade {
+                    description = GameText::fetch(&command_button.conflicting_label);
                 } else {
-                    cost_value = template.requirements.cost as i32;
+                    cost_value = match player_guard.as_ref() {
+                        Some(guard) => leftover_upgrade_cost(&command_button.upgrade)
+                            .max(template.requirements.cost as i32),
+                        None => template.requirements.cost as i32,
+                    };
+                    let _ = player_guard.as_ref();
                     if cost_value > 0 {
                         let template_text = GameText::fetch("TOOLTIP:Cost");
                         cost = format_template(&template_text, &[cost_value.to_string()]);
+                    }
+                    if missing_science {
+                        let req_template = GameText::fetch("CONTROLBAR:Requirements");
+                        leftover_append_line(
+                            &mut description,
+                            &format_template(
+                                &req_template,
+                                &[GameText::fetch("CONTROLBAR:GeneralsPromotion")],
+                            ),
+                        );
                     }
                 }
             }
@@ -399,8 +612,10 @@ pub fn show_build_tooltip_layout(cmd_button: Rc<RefCell<GameWindow>>) -> WindowM
             None => return WindowMsgHandled::Ignored,
         };
 
-        if state.show_layout && state.prev_window_id == Some(cmd_button.borrow().get_id()) {
-            let delay_ms = cmd_button.borrow().get_tooltip_delay().max(0) as u64;
+        let window_id = cmd_button.borrow().get_id();
+        let delay_ms = cmd_button.borrow().get_tooltip_delay().max(0) as u64;
+        if state.prev_window_id == Some(window_id) {
+            state.show_layout = true;
             if !state.wait_initialized {
                 if let Some(start) = state.wait_start {
                     if start.elapsed() >= Duration::from_millis(delay_ms) {
@@ -425,12 +640,22 @@ pub fn show_build_tooltip_layout(cmd_button: Rc<RefCell<GameWindow>>) -> WindowM
                 state.prev_window_id = None;
                 return WindowMsgHandled::Handled;
             }
+            // C++ first hover of a new window starts the wait and returns.
+            state.prev_window_id = Some(window_id);
+            state.wait_start = Some(Instant::now());
+            state.wait_initialized = false;
+            state.show_layout = true;
+            return WindowMsgHandled::Ignored;
+        } else {
+            state.prev_window_id = Some(window_id);
+            state.wait_start = Some(Instant::now());
+            state.wait_initialized = false;
+            state.show_layout = true;
+            return WindowMsgHandled::Ignored;
         }
 
         state.show_layout = true;
-        state.prev_window_id = Some(cmd_button.borrow().get_id());
-        state.wait_start = Some(Instant::now());
-        state.wait_initialized = true;
+        state.prev_window_id = Some(window_id);
 
         let is_button = (cmd_button.borrow().get_style() & GWS_PUSH_BUTTON) != 0;
         if is_button {

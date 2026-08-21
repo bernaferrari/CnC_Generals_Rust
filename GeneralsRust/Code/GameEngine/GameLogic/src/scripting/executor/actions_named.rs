@@ -188,6 +188,16 @@ impl ScriptActionDispatcher {
         let unit_name = self.get_string_param(action, 0)?;
         let area_name = self.get_string_param(action, 1)?;
         log::debug!("Unit '{}' attacking area '{}'", unit_name, area_name);
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_move_attack(
+                super::HostScriptMoveAttackRequest::NamedAttackArea {
+                    unit: unit_name,
+                    area: area_name,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let (area_center, trigger_id) = match self.get_trigger_area(&area_name) {
             Ok(trigger) => (trigger.get_center_point(), trigger.get_id()),
@@ -250,6 +260,16 @@ impl ScriptActionDispatcher {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 1)?);
 
         log::info!("Unit '{}' attacking team '{}'", unit_name, team_name);
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_move_attack(
+                super::HostScriptMoveAttackRequest::NamedAttackTeam {
+                    unit: unit_name,
+                    team: team_name,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         if self.get_team_by_name(&team_name).is_err() {
             log::warn!(
@@ -1999,6 +2019,29 @@ impl ScriptActionDispatcher {
                 }
             }
         }
+
+        if super::dual_world_registry_unavailable() {
+            if let Some(name) = unit_name_opt {
+                if crate::scripting::host_script_named_unit_alive(name) == Some(true) {
+                    log::warn!(
+                        "WARNING - Object with name '{}' already exists. Failed Create.",
+                        name
+                    );
+                    return Ok(ScriptActionResult::Success);
+                }
+            }
+            super::request_host_script_create(super::HostScriptCreateRequest::Object {
+                name: unit_name_opt.map(str::to_string),
+                thing: object_type,
+                team: team_name,
+                x: position.x,
+                y: position.y,
+                z: position.z,
+                angle,
+            });
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let team_arc = match self.get_or_create_team_by_name(&team_name) {
             Ok(team) => team,

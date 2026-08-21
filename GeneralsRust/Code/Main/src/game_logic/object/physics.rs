@@ -640,9 +640,19 @@ impl Object {
 
     /// C++ Locomotor::setPhysicsOptions residual.
     pub fn set_locomotor_physics_options(&mut self) {
-        // C++ EXTRA_FRIC 0.5 when ULTRA_ACCURATE.
-        let ultra = if self.ultra_accurate { 0.5 } else { 0.0 };
-        self.extra_friction = self.loco_extra_2d_friction + ultra;
+        // C++ EXTRA_FRIC 0.5 when ULTRA_ACCURATE. Last-writer vs OCL/SlowDeath:
+        // loco update overwrites extraFriction; debris/disabled skip this path
+        // so authored ExtraFriction sticks (C++ those objects have no loco tick).
+        if self.can_move()
+            && self
+                .slow_death
+                .as_ref()
+                .map(|s| !s.is_active())
+                .unwrap_or(true)
+        {
+            let ultra = if self.ultra_accurate { 0.5 } else { 0.0 };
+            self.extra_friction = self.loco_extra_2d_friction + ultra;
+        }
         self.apply_friction_2d_when_airborne = self.loco_apply_2d_friction_airborne;
         // Walking units stick to ground residual.
         if self.is_kind_of(crate::game_logic::KindOf::Infantry) {
@@ -663,6 +673,42 @@ impl Object {
                 self.record_host_locomotor();
             }
         }
+    }
+
+    /// C++ PhysicsBehavior::setExtraFriction (OCL / SlowDeath).
+    pub fn set_extra_friction(&mut self, friction: f32) {
+        self.extra_friction = friction;
+    }
+
+    /// C++ PhysicsBehavior::setBounceSound.
+    pub fn set_bounce_sound(&mut self, name: impl Into<String>) {
+        self.bounce_sound_name = name.into();
+    }
+
+    /// C++ Object::isAboveTerrain — height above ground > 0.
+    pub fn is_above_terrain(&self) -> bool {
+        self.get_position().y > self.ground_height
+    }
+
+    /// C++ mobile collide force: -min(overlap, 5) * delta/dist via applyForce.
+    pub fn apply_overlap_collide_force(&mut self, other_center: glam::Vec3, overlap: f32) {
+        if !self.allow_collide_force {
+            return;
+        }
+        let us = self.get_position();
+        let mut dx = other_center.x - us.x;
+        let mut dz = other_center.z - us.z;
+        let mut dist = (dx * dx + dz * dz).sqrt();
+        if dist < 1.0 {
+            dist = 1.0;
+        }
+        let overlap = overlap.min(5.0);
+        let factor = -overlap;
+        self.apply_physics_force(glam::Vec3::new(
+            factor * dx / dist,
+            0.0,
+            factor * dz / dist,
+        ));
     }
 
     /// C++ Locomotor::getMaxLift residual (host world-Y).

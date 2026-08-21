@@ -1224,6 +1224,7 @@ impl XferData for CombatParticleKind {
             CombatParticleKind::ParticleSysBone => 8,
             CombatParticleKind::BodyFire => 9,
             CombatParticleKind::BodySmoke => 10,
+            CombatParticleKind::DisableFx => 11,
         };
         xfer.xfer_u32(&mut value)?;
         *self = match value {
@@ -1238,6 +1239,7 @@ impl XferData for CombatParticleKind {
             8 => CombatParticleKind::ParticleSysBone,
             9 => CombatParticleKind::BodyFire,
             10 => CombatParticleKind::BodySmoke,
+            11 => CombatParticleKind::DisableFx,
             other => {
                 return Err(SaveLoadError::Corrupted(format!(
                     "Invalid CombatParticleKind discriminant: {other}"
@@ -1338,6 +1340,7 @@ impl XferData for HostUpgradeKind {
             HostUpgradeKind::ApRockets => 20,
             HostUpgradeKind::LaserMissiles => 21,
             HostUpgradeKind::Nationalism => 22,
+            HostUpgradeKind::Fanaticism => 46,
             HostUpgradeKind::ChainGuns => 23,
             HostUpgradeKind::UraniumShells => 24,
             HostUpgradeKind::BlackNapalm => 25,
@@ -1410,6 +1413,7 @@ impl XferData for HostUpgradeKind {
             43 => HostUpgradeKind::CashBounty,
             44 => HostUpgradeKind::HelixNapalmBomb,
             45 => HostUpgradeKind::HelixNukeBomb,
+            46 => HostUpgradeKind::Fanaticism,
             other => {
                 return Err(SaveLoadError::Corrupted(format!(
                     "Invalid HostUpgradeKind discriminant: {other}"

@@ -435,9 +435,9 @@ impl GameLogic {
         effect_duration_frames: u32,
         do_fx: bool,
     ) -> bool {
-        let (is_structure, footprint, pos) = match self.objects.get(&target_id) {
+        let (is_structure, footprint, pos, yaw, geom) = match self.objects.get(&target_id) {
             Some(target) => {
-                let geom = &target.thing.template.geometry_info;
+                let geom = target.thing.template.geometry_info;
                 let area = crate::game_logic::host_hero_abilities::leftover_disable_fx_footprint_area(
                     geom.authored,
                     geom.geom_type as u32,
@@ -449,6 +449,8 @@ impl GameLogic {
                     target.is_kind_of(KindOf::Structure) || target.object_type == ObjectType::Building,
                     area,
                     target.get_position(),
+                    target.get_orientation(),
+                    geom,
                 )
             }
             None => return do_fx,
@@ -460,34 +462,32 @@ impl GameLogic {
                 is_structure,
             );
         if emit {
-            let offset = {
-                let r = (footprint.max(1.0) / std::f32::consts::PI).sqrt() * 0.35;
-                let seed = (self.frame.wrapping_add(target_id.0) % 628) as f32 / 100.0;
-                glam::Vec3::new(seed.cos() * r, 0.0, seed.sin() * r)
-            };
+            let offset = crate::game_logic::host_hero_abilities::leftover_disable_fx_footprint_offset(
+                &geom,
+            );
             // C++ SpecialAbilityUpdate.cpp:1386-1395 attachToObject(target) +
             // setPosition(footprint offset) + setSystemLifetime(duration * interleave).
             let lifetime = crate::game_logic::host_hero_abilities::leftover_disable_fx_system_lifetime(
                 effect_duration_frames,
                 interleave,
             );
-            let pid = self
-                .combat_particles
-                .attach_named_to_object(target_id, pos + offset, self.frame, template_name)
-                .unwrap_or_else(|| {
-                    self.combat_particles.spawn_named(
-                        crate::game_logic::combat_particles::CombatParticleKind::ParticleSysBone,
-                        template_name,
-                        pos + offset,
-                        self.frame,
-                        Some(caster_id),
-                        Some(target_id),
-                    )
-                });
-            self.hero_abilities.record_leftover_disable_fx_until(
-                pid,
-                self.frame.saturating_add(lifetime),
+            let pid = self.combat_particles.attach_named_to_object_local(
+                target_id,
+                pos,
+                yaw,
+                offset,
+                self.frame,
+                template_name,
+                crate::game_logic::combat_particles::CombatParticleKind::DisableFx,
+                Some(lifetime),
             );
+            let _ = caster_id;
+            if let Some(pid) = pid {
+                self.hero_abilities.record_leftover_disable_fx_until(
+                    pid,
+                    self.frame.saturating_add(lifetime),
+                );
+            }
             self.hero_abilities.record_leftover_disable_fx();
         }
         new_do_fx
@@ -4931,8 +4931,12 @@ impl GameLogic {
                     if !source_alive {
                         // C++ wanting: findBestSupplyWarehouse with scan; fail → Regrouping.
                         let scan = self.collector_warehouse_scan(object_id, owner_player_id);
-                        if let Some(next) =
-                            self.find_nearest_harvestable_supply_within(team, position, scan)
+                        if let Some(next) = self.find_nearest_harvestable_supply_within(
+                            team,
+                            position,
+                            scan,
+                            object_id,
+                        )
                         {
                             if let Some(dest) = self.objects.get(&next).map(|s| s.get_position()) {
                                 if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -4954,12 +4958,30 @@ impl GameLogic {
                         let docker_r = self
                             .objects
                             .get(&object_id)
-                            .map(|o| o.thing.geometry.radius.max(1.0))
+                            .map(|o| {
+                                crate::game_logic::host_supply_gather::host_bounding_circle_radius(
+                                    o.thing.template.geometry_info.authored,
+                                    o.thing.template.geometry_info.bounding_circle_radius(),
+                                    o.thing.geometry.radius,
+                                )
+                            })
                             .unwrap_or(1.0);
+                        let warehouse_r = self
+                            .objects
+                            .get(&source_id)
+                            .map(|o| {
+                                crate::game_logic::host_supply_gather::host_bounding_circle_radius(
+                                    o.thing.template.geometry_info.authored,
+                                    o.thing.template.geometry_info.bounding_circle_radius(),
+                                    o.thing.geometry.radius,
+                                )
+                            })
+                            .unwrap_or(0.0);
                         if crate::game_logic::host_supply_gather::warehouse_too_far_2d(
                             (position.x, position.z),
                             (source_pos.x, source_pos.z),
                             docker_r,
+                            warehouse_r,
                         ) {
                             let close = docker_r * 2.0;
                             if can_move && position.distance(source_pos) > close + 1.0 {
@@ -5080,12 +5102,30 @@ impl GameLogic {
                             let docker_r = self
                                 .objects
                                 .get(&object_id)
-                                .map(|o| o.thing.geometry.radius.max(1.0))
+                                .map(|o| {
+                                    crate::game_logic::host_supply_gather::host_bounding_circle_radius(
+                                        o.thing.template.geometry_info.authored,
+                                        o.thing.template.geometry_info.bounding_circle_radius(),
+                                        o.thing.geometry.radius,
+                                    )
+                                })
                                 .unwrap_or(1.0);
+                            let warehouse_r = self
+                                .objects
+                                .get(&source_id)
+                                .map(|o| {
+                                    crate::game_logic::host_supply_gather::host_bounding_circle_radius(
+                                        o.thing.template.geometry_info.authored,
+                                        o.thing.template.geometry_info.bounding_circle_radius(),
+                                        o.thing.geometry.radius,
+                                    )
+                                })
+                                .unwrap_or(0.0);
                             let inside = !crate::game_logic::host_supply_gather::warehouse_too_far_2d(
                                 (position.x, position.z),
                                 (source_pos.x, source_pos.z),
                                 docker_r,
+                                warehouse_r,
                             );
                             match crate::game_logic::host_supply_gather::dock_cripple_victim_action(
                                 true, inside, airborne,
@@ -5134,8 +5174,12 @@ impl GameLogic {
                         self.release_dock_if_holder(source_id, object_id);
 
                         let scan = self.collector_warehouse_scan(object_id, owner_player_id);
-                        if let Some(next) =
-                            self.find_nearest_harvestable_supply_within(team, position, scan)
+                        if let Some(next) = self.find_nearest_harvestable_supply_within(
+                            team,
+                            position,
+                            scan,
+                            object_id,
+                        )
                         {
                             if let Some(dest) = self.objects.get(&next).map(|s| s.get_position()) {
                                 if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -5177,7 +5221,12 @@ impl GameLogic {
                             .collector_warehouse_scan(object_id, owner_player_id)
                             .unwrap_or(0.0);
                         let next_dist = self
-                            .find_nearest_harvestable_supply_within(team, position, Some(scan).filter(|d| *d > 0.0))
+                            .find_nearest_harvestable_supply_within(
+                                team,
+                                position,
+                                Some(scan).filter(|d| *d > 0.0),
+                                object_id,
+                            )
                             .and_then(|nid| self.objects.get(&nid).map(|s| s.get_position().distance(position)));
                         let voice = self
                             .objects
@@ -5474,6 +5523,7 @@ impl GameLogic {
                                 team,
                                 position,
                                 self.collector_warehouse_scan(object_id, owner_player_id),
+                                object_id,
                             ) {
                                 if let Some(dest) =
                                     self.objects.get(&next).map(|s| s.get_position())
@@ -6025,7 +6075,7 @@ impl GameLogic {
 
         let scan = self.collector_warehouse_scan(object_id, owner_player_id);
         if let Some(next) =
-            self.find_nearest_harvestable_supply_within(team, position, scan)
+            self.find_nearest_harvestable_supply_within(team, position, scan, object_id)
         {
             if let Some(dest) = self.objects.get(&next).map(|s| s.get_position()) {
                 if let Some(obj) = self.objects.get_mut(&object_id) {

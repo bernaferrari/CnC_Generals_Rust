@@ -145,3 +145,29 @@ fn push_unique(cells: &mut Vec<CellCoord>, cell: CellCoord) {
         cells.push(cell);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::collision_geometry::GeometryInfo;
+    use super::super::partition_manager::CellCoord;
+
+    #[test]
+    fn large_box_touches_cells_beyond_center() {
+        let geom = GeometryInfo::new_box(160.0, 160.0, false);
+        let cells = cells_touched_for_geometry(0.0, 0.0, &geom, 0.0);
+        assert!(
+            cells.contains(&CellCoord { x: 2, y: 0 }),
+            "80wu half-extent box must occupy cell (2,0)"
+        );
+        assert!(cells.contains(&CellCoord { x: 0, y: 0 }));
+    }
+
+    #[test]
+    fn small_sphere_stays_near_center_cell() {
+        let geom = GeometryInfo::new_sphere(5.0, true);
+        let cells = cells_touched_for_geometry(80.0, 0.0, &geom, 0.0);
+        assert!(cells.contains(&CellCoord { x: 2, y: 0 }));
+        assert!(!cells.contains(&CellCoord { x: 0, y: 0 }));
+    }
+}

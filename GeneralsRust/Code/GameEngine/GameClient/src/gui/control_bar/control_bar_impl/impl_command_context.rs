@@ -100,7 +100,7 @@ impl ControlBar {
                                     r: 0,
                                     g: 0,
                                     b: 0,
-                                    a: 255,
+                                    a: 100,
                                 },
                             );
 
@@ -784,6 +784,7 @@ impl ControlBar {
                     self.portrait_state.production_paused = false;
                     self.build_queue_data.clear();
                     self.displayed_queue_count = 0;
+                    self.leftover_bind_build_queue_windows(context);
                     return Ok(());
                 }
             }
@@ -835,6 +836,7 @@ impl ControlBar {
                     );
             }
             let _ = producer_id;
+            self.leftover_bind_build_queue_windows(context);
             return Ok(());
         }
 
@@ -843,10 +845,12 @@ impl ControlBar {
 
         let Some(obj_arc) = OBJECT_REGISTRY.get_object(producer_id) else {
             self.displayed_queue_count = 0;
+            self.leftover_bind_build_queue_windows(context);
             return Ok(());
         };
         let Ok(obj) = obj_arc.read() else {
             self.displayed_queue_count = 0;
+            self.leftover_bind_build_queue_windows(context);
             return Ok(());
         };
 
@@ -869,13 +873,7 @@ impl ControlBar {
                         self.build_queue_data.push(BuildQueueEntry {
                             production_type: Self::map_logic_queue_type(entry.production_type),
                             production_id: entry.queue_index as u32,
-                            upgrade_name: if entry.production_type
-                                == gamelogic::object::production::queue::ProductionType::Upgrade
-                            {
-                                entry.template_name
-                            } else {
-                                String::new()
-                            },
+                            upgrade_name: entry.template_name,
                         });
                     }
                     break;
@@ -888,8 +886,88 @@ impl ControlBar {
         } else {
             self.displayed_queue_count = context.construction_queue.len();
         }
+        self.leftover_bind_build_queue_windows(context);
         Ok(())
     }
+
+    /// C++ ControlBarCommand.cpp:561-665 — bind ButtonQueueNN cancel cameos.
+    fn leftover_bind_build_queue_windows(&self, context: &ControlBarContext) {
+        for i in 0..MAX_BUILD_QUEUE_BUTTONS {
+            leftover_ensure_named_window(&format!("ControlBar.wnd:ButtonQueue{:02}", i + 1));
+        }
+        with_window_manager(|wm| {
+            for i in 0..MAX_BUILD_QUEUE_BUTTONS {
+                let name = format!("ControlBar.wnd:ButtonQueue{:02}", i + 1);
+                let Some(win) = wm.find_window_by_name(&name) else {
+                    continue;
+                };
+                {
+                    let mut window = win.borrow_mut();
+                    let _ = window.enable(false);
+                    let _ = window.clear_status(
+                        crate::gui::game_window::WindowStatus::USE_OVERLAY_STATES,
+                    );
+                    if let Some(crate::gui::game_window::WindowWidget::PushButton(button)) =
+                        window.widget_mut()
+                    {
+                        let _ = button.set_text("");
+                        button.set_overlay_image(None::<String>);
+                    }
+                }
+                let Some(entry) = self.build_queue_data.get(i) else {
+                    continue;
+                };
+                let cancel_name = match entry.production_type {
+                    QueueProductionType::Upgrade => "Command_CancelUpgradeCreate",
+                    _ => "Command_CancelUnitCreate",
+                };
+                let mut cmd = Self::leftover_command_button_by_name(cancel_name)
+                    .or_else(|| Self::leftover_lookup_command_button(cancel_name))
+                    .unwrap_or_else(|| {
+                        let mut fallback = CommandButton::default();
+                        fallback.command_name = cancel_name.to_string();
+                        fallback.command_type = match entry.production_type {
+                            QueueProductionType::Upgrade => CommandType::CancelUpgrade,
+                            _ => CommandType::CancelUnitCreate,
+                        };
+                        fallback
+                    });
+                cmd.purchase_cost
+                    .insert("production_id".to_string(), entry.production_id as i32);
+                let image_name = leftover_queue_slot_image(self, context, i);
+                if !image_name.is_empty() {
+                    cmd.button_image = image_name;
+                }
+                if entry.production_type != QueueProductionType::Upgrade {
+                    cmd.overlay_image = leftover_calculate_veterancy_overlay_for_thing(
+                        &leftover_queue_slot_template(self, context, i),
+                    );
+                }
+                let mapped_image = if cmd.button_image.is_empty() {
+                    None
+                } else {
+                    leftover_mapped_image(&cmd.button_image)
+                        .or_else(|| wm.win_find_image(&cmd.button_image))
+                };
+                {
+                    let mut window = win.borrow_mut();
+                    if let Some(image) = mapped_image {
+                        let _ = window.set_enabled_image(0, image);
+                        window.set_status(crate::gui::game_window::WindowStatus::IMAGE);
+                    }
+                    if let Some(crate::gui::game_window::WindowWidget::PushButton(button)) =
+                        window.widget_mut()
+                    {
+                        button.set_overlay_image(cmd.overlay_image.clone());
+                    }
+                    window.set_user_data(cmd);
+                    let _ = window.enable(true);
+                    window.set_status(crate::gui::game_window::WindowStatus::USE_OVERLAY_STATES);
+                }
+            }
+        });
+    }
+
 
     // ---------------------------------------------------------------------------
     // Command processing (click dispatch)
@@ -900,8 +978,39 @@ impl ControlBar {
     pub fn process_context_sensitive_button_click(&mut self, control_id: u32, _msg: u32) {
         let command_name = with_window_manager(|wm| {
             wm.get_window_by_id(control_id as crate::gui::WindowId)
-                .and_then(|win| win.borrow().get_user_data::<String>().cloned())
+                .and_then(|win| {
+                    let win = win.borrow();
+                    if let Some(cmd) = win.get_user_data::<CommandButton>() {
+                        return Some(cmd.command_name.clone());
+                    }
+                    if let Some(name) = win.get_user_data::<String>() {
+                        return Some(name.clone());
+                    }
+                    win.get_user_data::<IniCommandButton>()
+                        .map(|button| button.name.clone())
+                })
         });
+        let mut queue_slot = None;
+        with_window_manager(|wm| {
+            for i in 0..MAX_BUILD_QUEUE_BUTTONS {
+                let name = format!("ControlBar.wnd:ButtonQueue{:02}", i + 1);
+                if let Some(win) = wm.find_window_by_name(&name) {
+                    if win.borrow().get_id() as u32 == control_id {
+                        queue_slot = Some(i);
+                        return;
+                    }
+                }
+            }
+        });
+        if let Some(i) = queue_slot {
+            // C++ processCommand: only cancel a filled m_queueData slot.
+            if i < self.build_queue_data.len() {
+                if let Ok(ctx) = self.context.read() {
+                    let _ = self.cancel_build_queue_item(i, &ctx);
+                }
+            }
+            return;
+        }
         if let Some(command_name) = command_name {
             if command_name.is_empty() {
                 return;
@@ -982,9 +1091,15 @@ impl ControlBar {
 
             self.execute_command(button, source, &context)?;
             Ok(true)
+        } else if let Some(button) = Self::leftover_lookup_command_button(command_name) {
+            // C++ processCommandUI uses GadgetButtonGetData (setControlCommand).
+            // Purchase-science cameos are not in the 14-slot available_commands.
+            self.execute_command(&button, source, &context)?;
+            Ok(true)
         } else {
             Ok(false)
         }
+
     }
 
     fn execute_command(
@@ -1062,6 +1177,155 @@ fn leftover_production_count(obj: &gamelogic::object::Object) -> Option<usize> {
     let pu = guard.get_production_update_interface()?;
     Some(pu.get_queue_size())
 }
+
+fn leftover_queue_slot_image(
+    bar: &ControlBar,
+    context: &ControlBarContext,
+    index: usize,
+) -> String {
+    let Some(entry) = bar.build_queue_data.get(index) else {
+        return String::new();
+    };
+    if entry.production_type == QueueProductionType::Upgrade && !entry.upgrade_name.is_empty() {
+        return resolve_upgrade_cameo_button_image(
+            &entry.upgrade_name,
+            Some(&context.available_commands),
+        );
+    }
+    if !entry.upgrade_name.is_empty() {
+        return leftover_thing_button_image(&entry.upgrade_name);
+    }
+    if let Some(item) = context.construction_queue.get(index) {
+        if !item.template_name.is_empty() {
+            return leftover_thing_button_image(&item.template_name);
+        }
+    }
+    if index == 0 {
+        if let Some(tmpl) = bar.portrait_state.production_template.as_deref() {
+            return leftover_thing_button_image(tmpl);
+        }
+    }
+    String::new()
+}
+
+fn leftover_thing_button_image(template_name: &str) -> String {
+    if template_name.is_empty() {
+        return String::new();
+    }
+    let Ok(factory) = game_engine::common::thing::thing_factory::get_thing_factory() else {
+        return String::new();
+    };
+    let Some(factory) = factory.as_ref() else {
+        return String::new();
+    };
+    factory
+        .find_template(template_name, false)
+        .and_then(|tmpl| tmpl.get_button_image().cloned())
+        .map(|image| image.name)
+        .filter(|name| !name.is_empty())
+        .unwrap_or_default()
+}
+
+fn leftover_queue_slot_template(
+    bar: &ControlBar,
+    context: &ControlBarContext,
+    index: usize,
+) -> String {
+    if let Some(entry) = bar.build_queue_data.get(index) {
+        if !entry.upgrade_name.is_empty() {
+            return entry.upgrade_name.clone();
+        }
+    }
+    if let Some(item) = context.construction_queue.get(index) {
+        if !item.template_name.is_empty() {
+            return item.template_name.clone();
+        }
+    }
+    if index == 0 {
+        if let Some(tmpl) = bar.portrait_state.production_template.clone() {
+            return tmpl;
+        }
+    }
+    String::new()
+}
+
+/// C++ ControlBarCommand.cpp:893-947 calculateVeterancyOverlayForThing.
+fn leftover_calculate_veterancy_overlay_for_thing(template_name: &str) -> Option<String> {
+    if template_name.is_empty() {
+        return None;
+    }
+    let Ok(factory) = game_engine::common::thing::thing_factory::get_thing_factory() else {
+        return None;
+    };
+    let factory = factory.as_ref()?;
+    let tmpl = factory.find_template(template_name, false)?;
+    let mut level = gamelogic::common::types::VeterancyLevel::Regular;
+    let player_has_science = |science: ScienceType| -> bool {
+        if science == SCIENCE_INVALID {
+            return true;
+        }
+        logic_player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_local_player().cloned())
+            .and_then(|arc| arc.read().ok().map(|player| player.has_science(science)))
+            .unwrap_or(false)
+    };
+    for entry in tmpl.get_behavior_module_info().iter() {
+        if entry.name.as_str() != "VeterancyGainCreate" {
+            continue;
+        }
+        if let Some(data) = entry
+            .data
+            .as_any()
+            .downcast_ref::<gamelogic::object::create::VeterancyGainCreateModuleData>()
+        {
+            if player_has_science(data.science_required)
+                && (data.starting_level as i32) > (level as i32)
+            {
+                level = match data.starting_level as i32 {
+                    1 => gamelogic::common::types::VeterancyLevel::Veteran,
+                    2 => gamelogic::common::types::VeterancyLevel::Elite,
+                    3 => gamelogic::common::types::VeterancyLevel::Heroic,
+                    _ => level,
+                };
+            }
+            continue;
+        }
+        let starting = entry
+            .data
+            .get_ini_field("StartingLevel")
+            .unwrap_or("")
+            .to_ascii_uppercase();
+        let science_name = entry.data.get_ini_field("ScienceRequired").unwrap_or("");
+        let science = if science_name.is_empty() {
+            SCIENCE_INVALID
+        } else {
+            get_science_store()
+                .map(|store| store.get_science_from_internal_name(science_name))
+                .unwrap_or(SCIENCE_INVALID)
+        };
+        if !player_has_science(science) {
+            continue;
+        }
+        let parsed = match starting.as_str() {
+            "VETERAN" | "LEVEL_VETERAN" => gamelogic::common::types::VeterancyLevel::Veteran,
+            "ELITE" | "LEVEL_ELITE" => gamelogic::common::types::VeterancyLevel::Elite,
+            "HEROIC" | "LEVEL_HEROIC" => gamelogic::common::types::VeterancyLevel::Heroic,
+            _ => continue,
+        };
+        if parsed > level {
+            level = parsed;
+        }
+    }
+    match level {
+        gamelogic::common::types::VeterancyLevel::Veteran => Some("SSChevron1L".to_string()),
+        gamelogic::common::types::VeterancyLevel::Elite => Some("SSChevron2L".to_string()),
+        gamelogic::common::types::VeterancyLevel::Heroic => Some("SSChevron3L".to_string()),
+        _ => None,
+    }
+}
+
 
 fn leftover_rappeller_count(obj: &gamelogic::object::Object) -> usize {
     let Some(contain) = obj.get_contain() else {

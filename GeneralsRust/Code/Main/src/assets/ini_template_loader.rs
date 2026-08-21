@@ -12,7 +12,7 @@
 //! 1. Weapon INIs from `Data/INI/Weapon.ini`, `Data/INI/Default/Weapon.ini`,
 //!    and `Data/INI/Weapon/`
 //! 2. Upgrade INIs from `Data/INI/Default/Upgrade.ini`
-//! 3. Science INIs from `Data/INI/Science.ini`
+//! 3. Science INIs from `Data/INI/Default/Science.ini` then `Data/INI/Science.ini`
 //!
 //! These templates are registered into the GameLogic WeaponStore, the
 //! GameLogic UpgradeCenter, and the Common ScienceStore respectively.
@@ -349,23 +349,34 @@ fn discover_upgrade_ini_files(archive_system: &ArchiveFileSystem) -> Vec<String>
 
 /// Discover science INI files from the archive system.
 ///
-/// In the C++ original, science INIs are loaded from:
-/// - `Data/INI/Science.ini`
+/// C++ `GameEngine.cpp:398` loads:
+/// - `Data/INI/Default/Science.ini` first
+/// - `Data/INI/Science.ini` overwrite
 fn discover_science_ini_files(archive_system: &ArchiveFileSystem) -> Vec<String> {
-    let all_files = archive_system.list_all_files();
+    discover_science_ini_files_from_paths(archive_system.list_all_files())
+}
 
-    let mut discovered: Vec<String> = all_files
-        .into_iter()
-        .map(|path| normalize_archive_path(&path))
-        .filter(|path| {
-            let normalized = path.to_ascii_lowercase();
-            archive_key_matches_suffix(&normalized, "data/ini/science.ini")
-        })
-        .collect();
+fn discover_science_ini_files_from_paths<I>(all_files: I) -> Vec<String>
+where
+    I: IntoIterator<Item = String>,
+{
+    let mut defaults = Vec::new();
+    let mut overrides = Vec::new();
 
-    discovered.sort();
-    discovered.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
-    discovered
+    for path in all_files {
+        let normalized = normalize_archive_path(&path);
+        let key = normalized.to_ascii_lowercase();
+        if archive_key_matches_suffix(&key, "data/ini/default/science.ini") {
+            defaults.push(normalized);
+        } else if archive_key_matches_suffix(&key, "data/ini/science.ini") {
+            overrides.push(normalized);
+        }
+    }
+
+    sort_and_dedup_archive_paths(&mut defaults);
+    sort_and_dedup_archive_paths(&mut overrides);
+    defaults.extend(overrides);
+    defaults
 }
 
 /// Load weapon templates from BIG archives and register them in the GameLogic WeaponStore.
@@ -2221,6 +2232,25 @@ End
             ]
         );
     }
+
+    #[test]
+    fn discover_science_ini_loads_default_then_override() {
+        let discovered = discover_science_ini_files_from_paths(vec![
+            r"Data\INI\Science.ini".to_string(),
+            r"INIZH\Data\INI\Default\Science.ini".to_string(),
+            "Data/INI/Default/Science.ini".to_string(),
+            "Data/INI/Object.ini".to_string(),
+        ]);
+        assert_eq!(
+            discovered,
+            vec![
+                "Data/INI/Default/Science.ini".to_string(),
+                "INIZH/Data/INI/Default/Science.ini".to_string(),
+                "Data/INI/Science.ini".to_string(),
+            ]
+        );
+    }
+
 
     #[test]
     fn test_parse_damage_type() {

@@ -29,7 +29,8 @@
 //! - ScatterRadiusVsInfantry **10** residual miss cone closed (deterministic aim offset)
 //! - Not full projectile exhaust FX matrix
 //! - Not full HordeUpdate RubOffRadius honorary-member matrix
-//! - Not Fanaticism infantry-general nationalism branch
+//! - Fanaticism weapon-bonus nests under Nationalism (C++ evaluateMoraleBonus)
+
 //! - Not network TNT / RPG replication (network deferred)
 
 use super::Weapon;

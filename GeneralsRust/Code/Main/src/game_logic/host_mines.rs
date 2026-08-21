@@ -56,6 +56,15 @@ pub const MINE_MAX_IMMUNITY: usize = 3;
 pub const MINE_IMMUNITY_HOLD_FRAMES: u32 = 2;
 /// C++ detonateOnce never drains health below this.
 pub const MINE_MIN_HEALTH: f32 = 0.1;
+/// C++ CreatorDeathCheckRate default (LOGICFRAMES_PER_SECOND).
+pub const MINE_CREATOR_DEATH_CHECK_FRAMES: u32 = 30;
+/// Retail ChinaStandardMine DegenPercentPerSecondAfterCreatorDies **100%**.
+pub const MINE_DEGEN_PERCENT_PER_SECOND: f32 = 1.0;
+/// China mine AutoHeal HealingAmount residual (StartsActive Yes).
+pub const MINE_AUTO_HEAL_AMOUNT: f32 = 2.0;
+/// China mine AutoHeal HealingDelay 1000ms → 30f.
+pub const MINE_AUTO_HEAL_DELAY_FRAMES: u32 = 30;
+
 /// Retail ChinaStandardMine / ChinaEMPMine NumVirtualMines residual.
 pub const STANDARD_MINE_NUM_VIRTUAL: u32 = 8;
 /// ChinaStandardMine / ChinaClusterMine geometry major radius residual.
@@ -381,6 +390,34 @@ pub struct HostMineData {
     /// C++ StickyBombUpdate m_nextPingFrame.
     #[serde(default)]
     pub next_ping_frame: Option<u32>,
+    /// C++ MinefieldBehavior m_draining (producer died).
+    #[serde(default)]
+    pub draining: bool,
+    /// C++ MinefieldBehavior m_ignoreDamage (health clamp must not retrigger).
+    #[serde(default)]
+    pub ignore_damage: bool,
+    /// C++ StopsRegenAfterCreatorDies (module default true).
+    #[serde(default = "default_stops_regen_after_creator_dies")]
+    pub stops_regen_after_creator_dies: bool,
+    /// C++ AutoHealBehavior::stopHealing after producer death.
+    #[serde(default)]
+    pub auto_heal_stopped: bool,
+    /// Next AutoHeal pulse frame for regenerating pads.
+    #[serde(default)]
+    pub auto_heal_wake_frame: u32,
+    /// C++ m_nextDeathCheckFrame.
+    #[serde(default)]
+    pub next_death_check_frame: u32,
+    /// Last health fed to onDamage virtual sync (None = never synced).
+    #[serde(default)]
+    pub last_synced_health: Option<f32>,
+    /// Dozer/worker currently winding PreAttackDelay against this pad.
+    #[serde(default)]
+    pub clear_pre_attack_clearer: Option<ObjectId>,
+    /// Frame when that clearer may DISARM.
+    #[serde(default)]
+    pub clear_pre_attack_ready_frame: u32,
+
 }
 
 fn default_demo_trap_mode() -> DemoTrapMode {
@@ -394,6 +431,12 @@ fn default_virtual_mines_one() -> u32 {
 fn default_repeat_detonate_thresh() -> f32 {
     REPEAT_DETONATE_MOVE_THRESH
 }
+
+fn default_stops_regen_after_creator_dies() -> bool {
+    true
+}
+
+
 
 impl Default for HostMineData {
     fn default() -> Self {
@@ -429,6 +472,15 @@ impl HostMineData {
             repeat_detonate_move_thresh: REPEAT_DETONATE_MOVE_THRESH,
             detonators: Vec::new(),
             immunes: Vec::new(),
+            draining: false,
+            ignore_damage: false,
+            stops_regen_after_creator_dies: true,
+            auto_heal_stopped: false,
+            auto_heal_wake_frame: 0,
+            next_death_check_frame: 0,
+            last_synced_health: None,
+            clear_pre_attack_clearer: None,
+            clear_pre_attack_ready_frame: 0,
             next_ping_frame: None,
         }
     }
@@ -612,6 +664,147 @@ impl HostMineData {
     pub fn detonate_when_killed(&self) -> bool {
         matches!(self.kind, HostMineKind::DemoTrap) && !self.detonated
     }
+
+    /// C++ MinefieldBehavior::disarm for Regenerates pads: keep the object.
+    /// Drain to MIN_HEALTH, virtual=0. Caller applies rubble/MASKED + health.
+    pub fn disarm_regenerating_pad(&mut self) -> bool {
+        if !matches!(self.kind, HostMineKind::LandMine) || !self.regenerates {
+            return false;
+        }
+        self.virtual_mines_remaining = 0;
+        self.draining = false;
+        self.auto_heal_stopped = false;
+        self.auto_heal_wake_frame = 0;
+        self.last_synced_health = Some(MINE_MIN_HEALTH);
+        self.clear_pre_attack_clearer = None;
+        self.clear_pre_attack_ready_frame = 0;
+        true
+    }
+
+    /// C++ onDamage virtual-mine expected count (ceil damage / floor healing).
+    pub fn virtual_mines_expected_from_health(&self, health: f32, max_health: f32, healing: bool) -> u32 {
+        let max_h = max_health.max(1e-6);
+        let expected_f = self.num_virtual_mines as f32 * health.max(0.0) / max_h;
+        let expected = if healing {
+            expected_f.floor() as u32
+        } else {
+            expected_f.ceil() as u32
+        };
+        expected.min(self.num_virtual_mines)
+    }
+}
+
+
+
+/// One step of C++ MinefieldBehavior::onDamage virtual-sync loop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MineOnDamageStep {
+    /// Health band matches remaining virtual mines.
+    Done,
+    /// Quiet drain decrement; caller should re-read health and continue.
+    Continue,
+    /// Fire detonateOnce (splash + consume_virtual_mine) then continue.
+    Detonate,
+}
+
+impl HostMineData {
+    /// One C++ onDamage loop step. `Detonate` means caller must fire detonateOnce.
+    pub fn apply_on_damage_step(
+        &mut self,
+        health: f32,
+        max_health: f32,
+        healing: bool,
+        self_unresistable_drain: bool,
+    ) -> MineOnDamageStep {
+        if self.ignore_damage || !matches!(self.kind, HostMineKind::LandMine) {
+            return MineOnDamageStep::Done;
+        }
+        let expected = self.virtual_mines_expected_from_health(health, max_health, healing);
+        if self.virtual_mines_remaining < expected {
+            self.virtual_mines_remaining = expected;
+            self.last_synced_health = Some(health);
+            MineOnDamageStep::Done
+        } else if self.virtual_mines_remaining > expected {
+            if self.draining && self_unresistable_drain {
+                self.virtual_mines_remaining = self.virtual_mines_remaining.saturating_sub(1);
+                self.last_synced_health = Some(health);
+                MineOnDamageStep::Continue
+            } else {
+                MineOnDamageStep::Detonate
+            }
+        } else {
+            self.last_synced_health = Some(health);
+            MineOnDamageStep::Done
+        }
+    }
+
+    /// Clamp empty regen pads to MIN_HEALTH (C++ onDamage after the loop).
+    pub fn clamp_empty_regen_health(&self, health: f32) -> f32 {
+        if self.virtual_mines_remaining == 0 && self.regenerates && health < MINE_MIN_HEALTH {
+            MINE_MIN_HEALTH
+        } else {
+            health
+        }
+    }
+
+    /// C++ AutoHeal pulse for regenerating China pads.
+    pub fn tick_regen_auto_heal(&mut self, now: u32, health: f32, max_health: f32) -> f32 {
+        if !self.regenerates || self.auto_heal_stopped || self.draining || self.detonated {
+            return health;
+        }
+        if health + 1e-4 >= max_health {
+            return health;
+        }
+        if self.auto_heal_wake_frame == 0 {
+            self.auto_heal_wake_frame = now.saturating_add(MINE_AUTO_HEAL_DELAY_FRAMES);
+            return health;
+        }
+        if now < self.auto_heal_wake_frame {
+            return health;
+        }
+        self.auto_heal_wake_frame = now.saturating_add(MINE_AUTO_HEAL_DELAY_FRAMES);
+        (health + MINE_AUTO_HEAL_AMOUNT).min(max_health)
+    }
+
+    /// C++ StopsRegenAfterCreatorDies: flip regen off and start drain.
+    pub fn note_producer_dead(&mut self, now: u32) {
+        if !self.regenerates || !self.stops_regen_after_creator_dies {
+            return;
+        }
+        self.regenerates = false;
+        self.draining = true;
+        self.auto_heal_stopped = true;
+        self.next_death_check_frame = now.saturating_add(MINE_CREATOR_DEATH_CHECK_FRAMES);
+    }
+
+    /// C++ DegenPercentPerSecondAfterCreatorDies / LOGICFRAMES_PER_SECOND.
+    pub fn drain_health_amount(&self, max_health: f32) -> f32 {
+        if !self.draining {
+            return 0.0;
+        }
+        (max_health * MINE_DEGEN_PERCENT_PER_SECOND) / MINE_LOGIC_FPS
+    }
+
+    /// PreAttackDelay wind-up. Returns true when DISARM may fire.
+    pub fn begin_or_ready_clear_pre_attack(
+        &mut self,
+        clearer: ObjectId,
+        now: u32,
+        delay_frames: u32,
+    ) -> bool {
+        if self.clear_pre_attack_clearer != Some(clearer) || self.clear_pre_attack_ready_frame == 0
+        {
+            self.clear_pre_attack_clearer = Some(clearer);
+            self.clear_pre_attack_ready_frame = now.saturating_add(delay_frames.max(1));
+            return false;
+        }
+        now >= self.clear_pre_attack_ready_frame
+    }
+
+    pub fn reset_clear_pre_attack(&mut self) {
+        self.clear_pre_attack_clearer = None;
+        self.clear_pre_attack_ready_frame = 0;
+    }
 }
 
 /// Damage plan for one victim under a residual detonation.
@@ -649,6 +842,31 @@ pub const CLUSTER_MINE_RING_RADIUS: f32 = 40.0;
 
 /// Retail ChinaClusterMine MinefieldBehavior NumVirtualMines residual.
 pub const CLUSTER_MINE_NUM_VIRTUAL: u32 = 8;
+
+
+/// C++ MinefieldBehavior ctor DetonatedBy = ENEMIES | NEUTRAL.
+pub fn land_mine_proximity_trips(is_enemies: bool, is_neutral: bool) -> bool {
+    is_enemies || is_neutral
+}
+
+/// Retail DozerMineDisarmingWeapon vs WorkerMineDisarmingWeapon PreAttackDelay.
+pub fn mine_clear_pre_attack_frames(is_worker: bool, template_name: &str) -> u32 {
+    let n = template_name.to_ascii_lowercase();
+    if n.contains("dozer") {
+        DOZER_MINE_CLEAR_PRE_ATTACK_FRAMES
+    } else if is_worker || n.contains("worker") {
+        WORKER_MINE_CLEAR_PRE_ATTACK_FRAMES
+    } else {
+        DOZER_MINE_CLEAR_PRE_ATTACK_FRAMES
+    }
+}
+
+/// Deterministic DropVariance unit samples in [0, 1] (not a fixed 0.5).
+pub fn cluster_mines_drop_unit_samples(seed: u32) -> (f32, f32) {
+    let ux = crate::game_logic::host_rng_residual::pure_logic_random_real(seed, 0, 0.0, 1.0);
+    let uy = crate::game_logic::host_rng_residual::pure_logic_random_real(seed, 1, 0.0, 1.0);
+    (ux, uy)
+}
 
 /// Retail ClusterMinesBomb GenerateMinefieldBehavior DistanceAroundObject residual.
 pub const CLUSTER_MINES_DISTANCE_AROUND_OBJECT: f32 = 80.0;
@@ -1829,5 +2047,92 @@ mod tests {
             CHINA_EMP_MINE_TEMPLATE
         );
     }
+
+    #[test]
+    fn regenerating_disarm_keeps_pad_and_refills_virtual() {
+        let mut d = HostMineData::land_mine_for_template("ChinaStandardMine");
+        assert!(d.regenerates);
+        assert_eq!(d.virtual_mines_remaining, STANDARD_MINE_NUM_VIRTUAL);
+        assert!(d.disarm_regenerating_pad());
+        assert_eq!(d.virtual_mines_remaining, 0);
+        assert!(d.regenerates);
+        assert!(!d.consume_virtual_mine());
+        // Healing 50% of max → floor(8 * 0.5) = 4 virtual.
+        assert_eq!(
+            d.apply_on_damage_step(50.0, 100.0, true, false),
+            MineOnDamageStep::Done
+        );
+        assert_eq!(d.virtual_mines_remaining, 4);
+        let healed = d.tick_regen_auto_heal(0, 0.1, 100.0);
+        assert!((healed - 0.1).abs() < 1e-4, "first pulse only arms wake");
+        let healed = d.tick_regen_auto_heal(MINE_AUTO_HEAL_DELAY_FRAMES, 0.1, 100.0);
+        assert!((healed - (0.1 + MINE_AUTO_HEAL_AMOUNT)).abs() < 1e-4);
+    }
+
+    #[test]
+    fn weapon_damage_trips_virtual_band() {
+        let mut d = HostMineData::land_mine_for_template("ChinaStandardMine");
+        // 8 virtual, 100 HP → 87.5 health expects ceil(7.0)=7 → one detonate.
+        assert_eq!(
+            d.apply_on_damage_step(87.5, 100.0, false, false),
+            MineOnDamageStep::Detonate
+        );
+        assert_eq!(d.virtual_mines_remaining, 8);
+        assert!(!d.consume_virtual_mine());
+        assert_eq!(d.virtual_mines_remaining, 7);
+        assert_eq!(
+            d.apply_on_damage_step(87.5, 100.0, false, false),
+            MineOnDamageStep::Done
+        );
+    }
+
+    #[test]
+    fn producer_death_stops_regen_and_drains() {
+        let mut d = HostMineData::land_mine_for_template("ChinaEMPMine");
+        d.note_producer_dead(10);
+        assert!(!d.regenerates);
+        assert!(d.draining);
+        assert!(d.auto_heal_stopped);
+        assert!(d.drain_health_amount(100.0) > 0.0);
+        assert_eq!(
+            d.apply_on_damage_step(50.0, 100.0, false, true),
+            MineOnDamageStep::Continue
+        );
+        assert_eq!(d.virtual_mines_remaining, STANDARD_MINE_NUM_VIRTUAL - 1);
+    }
+
+    #[test]
+    fn land_mines_trip_neutral_demo_traps_do_not() {
+        assert!(land_mine_proximity_trips(true, false));
+        assert!(land_mine_proximity_trips(false, true));
+        assert!(!land_mine_proximity_trips(false, false));
+        assert!(!demo_trap_proximity_requires_enemies(false));
+        assert!(demo_trap_proximity_requires_enemies(true));
+    }
+
+    #[test]
+    fn clear_pre_attack_waits_then_ready() {
+        let mut d = HostMineData::land_mine();
+        let cid = ObjectId(3);
+        assert!(!d.begin_or_ready_clear_pre_attack(cid, 10, 36));
+        assert!(!d.begin_or_ready_clear_pre_attack(cid, 45, 36));
+        assert!(d.begin_or_ready_clear_pre_attack(cid, 46, 36));
+        assert_eq!(mine_clear_pre_attack_frames(false, "AmericaVehicleDozer"), 36);
+        assert_eq!(mine_clear_pre_attack_frames(true, "GLAInfantryWorker"), 30);
+        assert_eq!(mine_clear_pre_attack_frames(true, "TestDozer"), 36);
+    }
+
+    #[test]
+    fn cluster_drop_samples_are_not_always_midpoint() {
+        let (a, b) = cluster_mines_drop_unit_samples(1);
+        let (c, d) = cluster_mines_drop_unit_samples(99);
+        assert!((0.0..=1.0).contains(&a) && (0.0..=1.0).contains(&b));
+        assert!(
+            (a - 0.5).abs() > 1e-3 || (b - 0.5).abs() > 1e-3 || (c - 0.5).abs() > 1e-3,
+            "DropVariance samples must scatter"
+        );
+        let _ = d;
+    }
+
 
 }

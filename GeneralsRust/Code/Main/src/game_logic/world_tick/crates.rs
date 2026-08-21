@@ -687,8 +687,9 @@ impl GameLogic {
                 // C++ HijackerUpdate: ThePartitionManager->registerObject(obj).
                 if let Some(r) = self.objects.get(&rider_id) {
                     let p = r.get_position();
+                    let fp = super::collide_dispatch::host_object_footprint(r);
                     self.partition_manager
-                        .register_object_footprint(rider_id.0, p.x, p.z, r.selection_radius.max(1.0));
+                        .register_object_geometry(rider_id.0, p.x, p.z, fp);
                 }
 
                 // C++ HijackerUpdate: if m_wasTargetAirborne → PutInContainer

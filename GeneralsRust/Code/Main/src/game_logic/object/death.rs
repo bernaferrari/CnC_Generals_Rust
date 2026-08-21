@@ -275,6 +275,10 @@ impl Object {
             self.movement.velocity.x += fx;
             self.movement.velocity.y += fy;
             self.movement.velocity.z += fz;
+            // C++ SlowDeathBehavior.cpp:282 setExtraFriction(-3 * SECONDS_PER_LOGICFRAME).
+            self.set_extra_friction(-3.0 * (1.0 / 30.0));
+            self.allow_to_fall = true;
+            self.shock_allow_bounce = true;
         }
         self.apply_slow_death_phase_fx(&mut sd);
         self.slow_death = Some(sd);

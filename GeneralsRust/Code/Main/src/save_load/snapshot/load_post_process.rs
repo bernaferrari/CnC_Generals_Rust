@@ -2,7 +2,7 @@
 
 use super::xfer_helpers::{
     default_ai_economic_state, default_ai_strategic_state, default_ai_tactical_state,
-    default_object_snapshot, default_player_snapshot, xfer_vec_default,
+    default_object_snapshot, default_player_snapshot, xfer_serde_blob, xfer_vec_default,
 };
 use super::*;
 use crate::game_logic::*;
@@ -350,6 +350,25 @@ impl Snapshot for WorldSnapshot {
             )?;
         } else if xfer.get_mode() == XferMode::Load {
             self.object_triggers.clear();
+        }
+
+        if self.version >= WORLD_SNAPSHOT_DIRECT_XFER_V17_TAIL_VERSION {
+            xfer.xfer_marker_label("ScoringEnabled")?;
+            xfer.xfer_bool(&mut self.is_scoring_enabled)?;
+            xfer.xfer_marker_label("LimitSuperweapons")?;
+            xfer.xfer_bool(&mut self.limit_superweapons)?;
+            xfer.xfer_marker_label("CaveSystem")?;
+            xfer_serde_blob(xfer, &mut self.cave_system)?;
+            xfer.xfer_marker_label("TunnelNetwork")?;
+            xfer_serde_blob(xfer, &mut self.tunnel_network)?;
+            xfer.xfer_marker_label("AirfieldParking")?;
+            xfer_serde_blob(xfer, &mut self.airfield_parking)?;
+        } else if xfer.get_mode() == XferMode::Load {
+            self.is_scoring_enabled = true;
+            self.limit_superweapons = false;
+            self.cave_system = crate::game_logic::HostCaveSystem::new();
+            self.tunnel_network = crate::game_logic::HostTunnelNetworkRegistry::new();
+            self.airfield_parking = AirfieldParkingWorldSnapshot::default();
         }
 
         Ok(())

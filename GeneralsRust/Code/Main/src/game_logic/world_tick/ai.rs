@@ -371,7 +371,7 @@ impl GameLogic {
                         );
                     }
                     if let Some(fx) = ev.fx_name {
-                        if !crate::game_logic::dispatch_fx_list_at_pos(&fx, pos) {
+                        if !crate::game_logic::dispatch_fx_list_at_object(&fx, object_id.0, None) {
                             for sound in crate::game_logic::sound_names_for_fx_list(&fx) {
                                 self.queue_audio_event(
                                     AudioEventRequest::new(&sound)
@@ -419,7 +419,7 @@ impl GameLogic {
                     );
                 }
                 if let Some(fx) = death_fx {
-                    if !crate::game_logic::dispatch_fx_list_at_pos(&fx, pos) {
+                    if !crate::game_logic::dispatch_fx_list_at_object(&fx, object_id.0, None) {
                         for sound in crate::game_logic::sound_names_for_fx_list(&fx) {
                             self.queue_audio_event(
                                 AudioEventRequest::new(&sound)

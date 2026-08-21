@@ -437,6 +437,13 @@ impl TheRadar {
             guard.refresh_terrain();
         }
     }
+
+    pub fn queue_terrain_refresh(&self) {
+        let radar = get_radar_system();
+        if let Ok(mut guard) = radar.write() {
+            guard.queue_terrain_refresh();
+        }
+    }
 }
 
 /// C++ `TheControlBar->triggerRadarAttackGlow()` leftover + live consume hook.

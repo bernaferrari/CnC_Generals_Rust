@@ -259,8 +259,10 @@ impl Object {
         draw_icon_ui: bool,
     ) {
         use crate::game_logic::host_battlemaster::{
-            hide_leftover_horde_flag_subobjects, is_portable_structure_template,
-            leftover_horde_decal_fade, leftover_horde_decal_type, leftover_horde_major_radius,
+            has_fanaticism_upgrade, hide_leftover_horde_flag_subobjects,
+            is_portable_structure_template, leftover_horde_decal_fade, leftover_horde_decal_type,
+            leftover_horde_fanaticism_bonus, leftover_horde_major_radius,
+            leftover_infantry_horde_decal_size, leftover_template_shadow_size,
             leftover_unit_has_horde_flag_subobjects, leftover_vehicle_horde_decal_size,
             TERRAIN_DECAL_NONE,
         };
@@ -274,12 +276,20 @@ impl Object {
         if draw_icon_ui {
             if now_in_horde && !is_portable_structure_template(&self.template_name) {
                 let has_nationalism = self.weapon_bonus_nationalism;
-                let has_fanaticism = self.applied_upgrades.iter().any(|u| {
-                    let n = u.to_ascii_lowercase();
-                    n.contains("fanaticism")
-                });
+                let has_fanaticism = leftover_horde_fanaticism_bonus(
+                    has_nationalism,
+                    has_fanaticism_upgrade(&self.applied_upgrades),
+                );
                 let ty = leftover_horde_decal_type(is_infantry, has_nationalism, has_fanaticism);
-                if !is_infantry {
+                if is_infantry {
+                    let (sx, sy) = leftover_template_shadow_size(
+                        &self.template_name,
+                        self.thing.template.shadow_size_x,
+                        self.thing.template.shadow_size_y,
+                    );
+                    let size = leftover_infantry_horde_decal_size(sx, sy);
+                    self.set_terrain_decal_size(size, size);
+                } else {
                     let geom = &self.thing.template.geometry_info;
                     let major = leftover_horde_major_radius(
                         geom.authored,
@@ -296,6 +306,7 @@ impl Object {
         } else {
             self.set_terrain_decal(TERRAIN_DECAL_NONE);
         }
+
         if let Some((target, rate)) = leftover_horde_decal_fade(was_in_horde, now_in_horde) {
             self.set_terrain_decal_fade_target(target, rate);
         }

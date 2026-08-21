@@ -979,8 +979,9 @@ impl GlobalData {
             load_screen_demo: false,
             disable_render: false,
 
-            save_camera_in_replay: false,
-            use_camera_in_replay: false,
+            // OptionPreferences missing key → TRUE (OptionsMenu.cpp:361-382).
+            save_camera_in_replay: true,
+            use_camera_in_replay: true,
 
             shake_subtle_intensity: 0.5,
             shake_normal_intensity: 1.0,
@@ -1165,8 +1166,10 @@ impl GlobalData {
         // preference resolves the user-data path through this same global, so it
         // must happen without the GameData write lock held.
         let alternate_mouse_preference = load_alternate_mouse_preference();
+        let camera_prefs = load_replay_camera_preferences();
         let mut data = global_data.write();
         apply_alternate_mouse_preference(&mut data, alternate_mouse_preference);
+        apply_replay_camera_preferences(&mut data, camera_prefs);
         sync_runtime_global_data_from_ini(&data);
         Ok(())
     }
@@ -1226,6 +1229,22 @@ fn load_alternate_mouse_preference() -> Option<bool> {
             .get_string("UseAlternateMouse")
             .map(|value| value.as_str()),
     )
+}
+
+/// C++ OptionsMenu.cpp:361-382 missing SaveCameraInReplays / UseCameraInReplays → TRUE.
+/// GlobalData.cpp:1210-1211 copies those into TheWritableGlobalData at init.
+fn load_replay_camera_preferences() -> (bool, bool) {
+    let mut preferences = UserPreferences::new();
+    let _ = preferences.load("Options.ini");
+    (
+        preferences.get_bool_or("SaveCameraInReplays", true),
+        preferences.get_bool_or("UseCameraInReplays", true),
+    )
+}
+
+fn apply_replay_camera_preferences(data: &mut GlobalData, (save_camera, use_camera): (bool, bool)) {
+    data.save_camera_in_replay = save_camera;
+    data.use_camera_in_replay = use_camera;
 }
 
 fn parse_game_data_block(ini: &mut INI, data: &mut GlobalData) -> INIResult<()> {
@@ -1676,6 +1695,8 @@ fn apply_to_runtime_global_data(data: &GlobalData, runtime: &mut runtime_global_
     runtime.draw_entire_terrain = data.draw_entire_terrain;
     runtime.terrain_lod_target_time_ms = data.terrain_lod_target_time_ms;
     runtime.use_alternate_mouse = data.use_alternate_mouse;
+    runtime.save_camera_in_replay = data.save_camera_in_replay;
+    runtime.use_camera_in_replay = data.use_camera_in_replay;
     runtime.right_mouse_always_scrolls = data.right_mouse_always_scrolls;
     runtime.use_water_plane = data.use_water_plane;
     runtime.use_cloud_plane = data.use_cloud_plane;

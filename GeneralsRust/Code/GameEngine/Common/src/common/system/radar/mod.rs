@@ -735,6 +735,8 @@ pub struct RadarObject {
     pub is_powered: bool,         // Is this radar powered on (for power-dependent radars)
     pub is_disabled: bool,        // Is this radar disabled (by EMP, power loss, etc.)
     pub is_hero: bool,            // Draw HeroReticle in W3D radar icon layer
+    pub drawable_hidden: bool,    // C++ Drawable::m_hidden
+    pub hidden_by_stealth: bool,  // C++ Drawable::m_hiddenByStealth
 }
 
 impl RadarObject {
@@ -758,15 +760,21 @@ impl RadarObject {
             is_powered: true,
             is_disabled: false,
             is_hero: false,
+            drawable_hidden: false,
+            hidden_by_stealth: false,
         }
     }
 
     /// Matches C++ `RadarObject::isTemporarilyHidden` (Radar.cpp:118-125).
-    /// Hidden only for `STEALTHLOOK_INVISIBLE`: enemy + stealthed + undetected
-    /// + undisguised. Own stealth (`VISIBLE_FRIENDLY`) and DETECTED /
-    /// `DISGUISED_ENEMY` blip. `stealth_revealed` is the radar-detector analog
-    /// of `OBJECT_STATUS_DETECTED`.
+    /// Hidden when `STEALTHLOOK_INVISIBLE` (enemy + stealthed + undetected
+    /// + undisguised) **or** `Drawable::isDrawableEffectivelyHidden`
+    /// (`m_hidden || m_hiddenByStealth`). Own stealth (`VISIBLE_FRIENDLY`)
+    /// and DETECTED / `DISGUISED_ENEMY` still blip unless the drawable is
+    /// script-hidden / hijacker-hidden.
     pub fn is_temporarily_hidden(&self) -> bool {
+        if self.drawable_hidden || self.hidden_by_stealth {
+            return true;
+        }
         self.is_stealth
             && self.is_enemy
             && !self.is_detected
@@ -1471,7 +1479,9 @@ impl RadarSystem {
     }
 
     /// Refresh terrain texture (matches C++ Radar::refreshTerrain / W3DRadar::buildTerrainTexture).
+    /// Re-samples the registered map source so water/height/bridge changes repaint.
     pub fn refresh_terrain(&mut self) {
+        let _ = self.resample_terrain_from_source();
         self.build_terrain_texture_cpp();
     }
 
@@ -1692,6 +1702,45 @@ impl RadarSystem {
         if index < self.shroud_grid.len() {
             self.shroud_grid[index] = status;
             self.terrain_dirty = true;
+        }
+    }
+
+    /// C++ `W3DRadar::setShroudLevel` — partition shroud-cell indices, not
+    /// radar pixels. Converts `cell * shroudCellWidth/Height` to world, then
+    /// `worldToRadar`, and paints the radar-pixel rectangle.
+    pub fn set_shroud_level_from_partition_cell(
+        &mut self,
+        shroud_x: i32,
+        shroud_y: i32,
+        status: CellShroudStatus,
+        cell_width: f32,
+        cell_height: f32,
+    ) {
+        if cell_width <= f32::EPSILON || cell_height <= f32::EPSILON {
+            return;
+        }
+        if !self.has_map_extent() {
+            self.set_shroud_level(shroud_x, shroud_y, status);
+            return;
+        }
+        let map_min_x = shroud_x as f32 * cell_width;
+        let map_min_y = shroud_y as f32 * cell_height;
+        let map_max_x = (shroud_x + 1) as f32 * cell_width;
+        let map_max_y = (shroud_y + 1) as f32 * cell_height;
+        let Some(radar_min) = self.world_to_radar(&Coord3D::new(map_min_x, map_min_y, 0.0)) else {
+            return;
+        };
+        let Some(radar_max) = self.world_to_radar(&Coord3D::new(map_max_x, map_max_y, 0.0)) else {
+            return;
+        };
+        let x0 = radar_min.x.min(radar_max.x);
+        let x1 = radar_min.x.max(radar_max.x);
+        let y0 = radar_min.y.min(radar_max.y);
+        let y1 = radar_min.y.max(radar_max.y);
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                self.set_shroud_level(x, y, status);
+            }
         }
     }
 
@@ -2480,6 +2529,7 @@ pub fn get_radar_system() -> Arc<RwLock<RadarSystem>> {
 mod tests {
     use super::*;
 
+
     #[test]
     fn test_radar_system_creation() {
         let radar = RadarSystem::new();
@@ -2527,6 +2577,24 @@ mod tests {
             !disguised.is_temporarily_hidden(),
             "DISGUISED_ENEMY blips"
         );
+
+        let mut hijacker = RadarObject::new(6);
+        hijacker.is_stealth = false;
+        hijacker.is_enemy = false;
+        hijacker.drawable_hidden = true;
+        assert!(
+            hijacker.is_temporarily_hidden(),
+            "C++ isDrawableEffectivelyHidden drops hijacker/script-hidden drawables"
+        );
+
+        let mut stealth_hidden = RadarObject::new(7);
+        stealth_hidden.is_stealth = false;
+        stealth_hidden.is_enemy = false;
+        stealth_hidden.hidden_by_stealth = true;
+        assert!(
+            stealth_hidden.is_temporarily_hidden(),
+            "C++ m_hiddenByStealth hides even without STEALTHLOOK_INVISIBLE"
+        );
     }
 
     #[test]
@@ -2536,6 +2604,27 @@ mod tests {
         assert!(RadarPriorityType::Structure.is_visible());
         assert!(RadarPriorityType::Unit.is_visible());
         assert!(RadarPriorityType::LocalUnitOnly.is_visible());
+    }
+
+    #[test]
+    fn test_set_shroud_level_from_partition_cell_maps_to_radar() {
+        let mut radar = RadarSystem::new();
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(1280.0, 1280.0, 100.0),
+            &[],
+        );
+        // 40wu partition cell / (1280/128=10) = 4 radar pixels.
+        radar.set_shroud_level_from_partition_cell(0, 0, CellShroudStatus::Clear, 40.0, 40.0);
+        assert_eq!(radar.get_shroud_level(0, 0), CellShroudStatus::Clear);
+        assert_eq!(radar.get_shroud_level(3, 3), CellShroudStatus::Clear);
+        radar.set_shroud_level_from_partition_cell(10, 10, CellShroudStatus::Fogged, 40.0, 40.0);
+        assert_eq!(radar.get_shroud_level(40, 40), CellShroudStatus::Fogged);
+        assert_ne!(
+            radar.get_shroud_level(10, 10),
+            CellShroudStatus::Fogged,
+            "partition cell 10 is not radar cell 10"
+        );
     }
 
     #[test]

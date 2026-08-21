@@ -109,10 +109,10 @@ impl HostSpecialPowerStrikeRegistry {
 
     /// Build radiation damage plans for all fields whose tick frame has arrived.
     ///
-    /// Retail `NukeRadiationFieldWeapon` hits ALLIES ENEMIES NEUTRALS (not
-    /// airborne). Host residual damages all living objects in radius except
-    /// the source launcher object. Fail-closed vs airborne filter / armor
-    /// matrix / cleanup-hazard stacking.
+    /// Retail `NukeRadiationFieldWeapon` hits ALLIES ENEMIES NEUTRALS NOT_AIRBORNE.
+    /// Planner still lists living objects in radius except the source launcher.
+    /// Apply-time `take_radiation_field_tick` skips airborne / significantly-above
+    /// terrain (Weapon.cpp:1351) and uses DAMAGE_RADIATION so Armor.ini applies.
     pub fn plan_due_radiation_ticks(
         &self,
         current_frame: u32,

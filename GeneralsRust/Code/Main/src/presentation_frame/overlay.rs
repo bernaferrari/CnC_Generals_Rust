@@ -1493,6 +1493,8 @@ impl PresentationFrame {
             power_provided: ent.power_provided,
             power_consumed: ent.power_consumed,
             stored_supplies: ent.stored_supplies,
+            drawable_supply_boxes: 0,
+            drawable_supply_max_boxes: 0,
             dock_kind: crate::game_logic::DockKind::from_ordinal(ent.dock_kind),
             capturable: ent.capturable,
             immune_to_capture: ent.immune_to_capture,

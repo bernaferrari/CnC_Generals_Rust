@@ -136,6 +136,14 @@ impl ScriptActionDispatcher {
             team_name,
             waypoint_name
         );
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_move_attack(super::HostScriptMoveAttackRequest::TeamMove {
+                team: team_name,
+                waypoint: waypoint_name,
+            });
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let destination = self.get_waypoint_position(&waypoint_name)?;
         let group_arc = self.create_ai_group_from_team(&team_name)?;
@@ -158,6 +166,16 @@ impl ScriptActionDispatcher {
         let victim_team = self.get_string_param(action, 1)?;
 
         log::info!("Team '{}' attacking team '{}'", attacker_team, victim_team);
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_move_attack(
+                super::HostScriptMoveAttackRequest::TeamAttackTeam {
+                    attacker: self.resolve_team_name_token(&attacker_team),
+                    victim: self.resolve_team_name_token(&victim_team),
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let victim_team = self.resolve_team_name_token(&victim_team);
         if self.get_team_by_name(&victim_team).is_err() {
@@ -449,6 +467,20 @@ impl ScriptActionDispatcher {
             angle
         );
 
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_create(super::HostScriptCreateRequest::Object {
+                name: None,
+                thing: object_type,
+                team: team_name,
+                x: position.x,
+                y: position.y,
+                z: position.z,
+                angle,
+            });
+            return Ok(ScriptActionResult::Success);
+        }
+
+
         let team_arc = if team_name.trim().is_empty() {
             None
         } else {
@@ -646,6 +678,14 @@ impl ScriptActionDispatcher {
             unit_name,
             waypoint_name
         );
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_move_attack(super::HostScriptMoveAttackRequest::NamedMove {
+                unit: unit_name,
+                waypoint: waypoint_name,
+            });
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let tracker = get_named_object_tracker();
         let Some(object_id) = tracker.get_object_id(&unit_name).ok().flatten() else {
@@ -705,6 +745,16 @@ impl ScriptActionDispatcher {
         let victim_name = self.get_string_param(action, 1)?;
 
         log::info!("Named unit '{}' attacking '{}'", attacker_name, victim_name);
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_move_attack(
+                super::HostScriptMoveAttackRequest::NamedAttackNamed {
+                    attacker: attacker_name,
+                    victim: victim_name,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         // Look up attacker and victim object IDs by name
         let tracker = get_named_object_tracker();

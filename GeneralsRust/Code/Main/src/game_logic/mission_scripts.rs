@@ -50,6 +50,24 @@ where
     Some(label)
 }
 
+/// C++ `ScriptEngine::isSpeechComplete` completion frame
+/// (`ScriptEngine.cpp:7278-7284`, leftover `named_trackers.rs`).
+/// `REAL_TO_UNSIGNEDINT(TheAudio->getAudioLengthMS / MSEC_PER_LOGICFRAME_REAL)`.
+fn speech_frames_from_length_ms(audio_length_ms: f32) -> u64 {
+    ((audio_length_ms.max(0.0) / 1000.0)
+        * game_engine::common::game_common::LOGICFRAMES_PER_SECOND as f32) as u64
+}
+
+fn speech_completion_frame(now: u64, name: &str) -> u64 {
+    let audio_length_ms = gamelogic::helpers::TheAudio::get()
+        .map(|audio| {
+            let event = gamelogic::common::audio::AudioEventRts::new(name);
+            audio.get_audio_length_ms(&event)
+        })
+        .unwrap_or(0.0);
+    now.saturating_add(speech_frames_from_length_ms(audio_length_ms))
+}
+
 #[derive(Debug, Clone)]
 pub struct ObjectiveUpdate {
     pub name: String,
@@ -802,6 +820,7 @@ pub struct MissionScriptHooks {
     frame_counter: AtomicU64,
     video_complete_frame: Mutex<HashMap<String, u64>>,
     speech_complete_frame: Mutex<HashMap<String, u64>>,
+    speech_handles: Mutex<HashMap<String, Vec<u32>>>,
     audio_complete_frame: Mutex<HashMap<String, u64>>,
     music_complete_frame: Mutex<HashMap<String, u64>>,
 }
@@ -879,6 +898,7 @@ impl MissionScriptHooks {
             frame_counter: AtomicU64::new(0),
             video_complete_frame: Mutex::new(HashMap::new()),
             speech_complete_frame: Mutex::new(HashMap::new()),
+            speech_handles: Mutex::new(HashMap::new()),
             audio_complete_frame: Mutex::new(HashMap::new()),
             music_complete_frame: Mutex::new(HashMap::new()),
         }))
@@ -1318,9 +1338,21 @@ impl MissionScriptHooks {
     }
 
     pub fn note_speech_started(&self, name: &str) {
+        self.note_speech_started_with_handle(name, 0);
+    }
+
+    pub fn note_speech_started_with_handle(&self, name: &str, handle: u32) {
+        if name.trim().is_empty() {
+            return;
+        }
         let now = self.frame_counter.load(Ordering::Relaxed);
         if let Ok(mut map) = self.speech_complete_frame.lock() {
-            map.insert(name.to_string(), now.saturating_add(1));
+            map.insert(name.to_string(), speech_completion_frame(now, name));
+        }
+        if handle != 0 {
+            if let Ok(mut handles) = self.speech_handles.lock() {
+                handles.entry(name.to_string()).or_default().push(handle);
+            }
         }
     }
 
@@ -1363,12 +1395,37 @@ impl MissionScriptHooks {
     }
 
     pub fn is_speech_complete(&self, name: &str, flush: bool) -> bool {
+        if name.trim().is_empty() {
+            return false;
+        }
+        // Leftover GameClient `is_named_audio_complete`: a live Miles/rodio
+        // handle is still playing, so the line is not finished yet.
+        if let Ok(mut handles) = self.speech_handles.lock() {
+            if let Some(pending) = handles.get_mut(name) {
+                match gamelogic::helpers::TheAudio::get() {
+                    Some(audio) => pending.retain(|handle| audio.is_currently_playing(*handle)),
+                    None => pending.clear(),
+                }
+                if !pending.is_empty() {
+                    return false;
+                }
+                if flush {
+                    handles.remove(name);
+                }
+            }
+        }
         let now = self.frame_counter.load(Ordering::Relaxed);
         let Ok(mut map) = self.speech_complete_frame.lock() else {
             return true;
         };
-        let Some(&done_frame) = map.get(name) else {
-            return true;
+        let done_frame = match map.get(name).copied() {
+            Some(done_frame) => done_frame,
+            None => {
+                // C++ first HAS_FINISHED_SPEECH query starts the TheAudio timer.
+                let done_frame = speech_completion_frame(now, name);
+                map.insert(name.to_string(), done_frame);
+                done_frame
+            }
         };
         let done = now >= done_frame;
         if done && flush {
@@ -1873,6 +1930,22 @@ impl MissionScriptActionHandler {
         }
         let _handle = audio.add_audio_event(&event);
     }
+
+    /// C++ `ScriptActions::doSpeechPlay` (ScriptActions.cpp:2743-2764):
+    /// `AudioEventRTS` + `setIsLogicalAudio(true)` + local player index +
+    /// `setUninterruptable(!allowOverlap)` + `TheAudio->addAudioEvent`.
+    fn play_speech_through_the_audio(name: &str, allow_overlap: bool) -> u32 {
+        let Some(audio) = gamelogic::helpers::TheAudio::get() else {
+            return 0;
+        };
+        let mut event = gamelogic::common::audio::AudioEventRts::new(name);
+        event.set_is_logical_audio(true);
+        event.set_uninterruptable(!allow_overlap);
+        if let Some(player_index) = Self::local_player_index() {
+            event.set_player_index(player_index);
+        }
+        audio.add_audio_event(&event)
+    }
 }
 
 impl ScriptActionHandler for MissionScriptActionHandler {
@@ -2042,15 +2115,18 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         y: f32,
         z: f32,
         duration_seconds: f32,
+        ease_in_seconds: f32,
+        ease_out_seconds: f32,
     ) -> GameLogicResult<()> {
         self.hooks.push_camera_reset(CameraResetRequest {
             position: camera_coord3d_to_world(x, y, z),
             duration_seconds,
-            ease_in_seconds: 0.0,
-            ease_out_seconds: 0.0,
+            ease_in_seconds,
+            ease_out_seconds,
         });
         Ok(())
     }
+
 
     fn set_camera_zoom(&self, zoom: f32, duration_seconds: f32) -> GameLogicResult<()> {
         self.hooks.push_camera_zoom(CameraZoomRequest {
@@ -2518,9 +2594,12 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         self.hooks.is_video_complete(name, flush)
     }
 
-    fn speech_play(&self, name: &str, _allow_overlap: bool) -> GameLogicResult<()> {
-        self.hooks.note_speech_started(name);
-        self.hooks.push_sound(name.to_string());
+    fn speech_play(&self, name: &str, allow_overlap: bool) -> GameLogicResult<()> {
+        // Live GAME_SHELL installs this handler (initialize_scripts), not
+        // GameClientScriptActionHandler. C++ SPEECH_PLAY always reaches
+        // TheAudio via doSpeechPlay — do not leave this as a UI SFX.
+        let handle = Self::play_speech_through_the_audio(name, allow_overlap);
+        self.hooks.note_speech_started_with_handle(name, handle);
         if let Some(label) = speech_subtitle_label_if_displayable(name, localization::translate) {
             self.hooks
                 .push_military_caption(label, SPEECH_SUBTITLE_DURATION_MS);
@@ -2626,6 +2705,14 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         // C++ GameLogic::closeWindows GameLogicDispatch.cpp:202-219.
         game_client::core::script_action_handler::GameClientScriptActionHandler::new()
             .close_game_windows()
+    }
+
+    fn set_warehouse_value(&self, warehouse_name: &str, cash_value: i32) -> GameLogicResult<()> {
+        crate::game_logic::host_supply_gather::queue_warehouse_set_value(
+            warehouse_name,
+            cash_value,
+        );
+        Ok(())
     }
 }
 
@@ -3191,6 +3278,54 @@ mod tests {
         assert_eq!(
             speech_subtitle_label_if_displayable("Briefing", |_| Some("* hidden".to_string())),
             None
+        );
+    }
+
+    #[test]
+    fn speech_frames_from_length_ms_truncates_like_cpp() {
+        // C++ REAL_TO_UNSIGNEDINT(audioLength / MSEC_PER_LOGICFRAME_REAL).
+        assert_eq!(speech_frames_from_length_ms(0.0), 0);
+        assert_eq!(speech_frames_from_length_ms(5_000.0), 150);
+        assert_eq!(speech_frames_from_length_ms(33.3), 0);
+        assert_eq!(speech_frames_from_length_ms(33.34), 1);
+        assert_eq!(speech_frames_from_length_ms(1_000.0), 30);
+    }
+
+    #[test]
+    fn has_finished_speech_uses_audio_length_not_one_frame() {
+        let hooks = MissionScriptHooks::new().expect("hooks");
+        hooks.note_logic_frame(10);
+        assert!(
+            !hooks.is_speech_complete("", false),
+            "empty speech name is not complete"
+        );
+
+        // Seed a 5s VO completion (150 frames) as TheAudio would.
+        {
+            let mut map = hooks.speech_complete_frame.lock().expect("map");
+            map.insert("Briefing".to_string(), 10 + speech_frames_from_length_ms(5_000.0));
+        }
+        assert!(
+            !hooks.is_speech_complete("Briefing", false),
+            "HAS_FINISHED_SPEECH must stay false one frame after a 5s line"
+        );
+        hooks.note_logic_frame(11);
+        assert!(
+            !hooks.is_speech_complete("Briefing", false),
+            "HAS_FINISHED_SPEECH must stay false until TheAudio length elapses"
+        );
+        hooks.note_logic_frame(159);
+        assert!(!hooks.is_speech_complete("Briefing", false));
+        hooks.note_logic_frame(160);
+        assert!(hooks.is_speech_complete("Briefing", true));
+        assert!(
+            hooks
+                .speech_complete_frame
+                .lock()
+                .expect("map")
+                .get("Briefing")
+                .is_none(),
+            "flush removes the completed speech tracker"
         );
     }
 
@@ -3792,4 +3927,20 @@ mod tests {
         );
         let _ = handler.destroy_win_lose_window();
     }
+
+    #[test]
+    fn reset_camera_to_forwards_scripted_ease() {
+        let hooks = MissionScriptHooks::new().expect("hooks");
+        let handler = MissionScriptActionHandler::new(hooks.clone());
+        handler
+            .reset_camera_to(10.0, 20.0, 3.0, 2.0, 0.4, 0.6)
+            .expect("reset");
+        let resets = hooks.drain_camera_resets();
+        assert_eq!(resets.len(), 1);
+        assert_eq!(resets[0].duration_seconds, 2.0);
+        assert_eq!(resets[0].ease_in_seconds, 0.4);
+        assert_eq!(resets[0].ease_out_seconds, 0.6);
+        assert_eq!(resets[0].position, Vec3::new(10.0, 3.0, 20.0));
+    }
+
 }

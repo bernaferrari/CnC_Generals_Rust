@@ -1628,6 +1628,11 @@ impl GameWorldShadow {
                 || obj.weapon_bonus_subliminal != ent.weapon_bonus_subliminal
                 || obj.weapon_bonus_horde != ent.weapon_bonus_horde
                 || obj.weapon_bonus_nationalism != ent.weapon_bonus_nationalism
+                || obj.weapon_bonus_fanaticism != ent.weapon_bonus_fanaticism
+                || obj.last_horde_refresh_frame != ent.last_horde_refresh_frame
+                || obj.horde_next_wake_frame != ent.horde_next_wake_frame
+                || obj.horde_wake_initialized != ent.horde_wake_initialized
+
                 || obj.weapon_bonus_frenzy != ent.weapon_bonus_frenzy
                 || obj.weapon_bonus_frenzy_level != ent.weapon_bonus_frenzy_level
                 || obj.weapon_bonus_battle_plan_bombardment
@@ -1647,6 +1652,11 @@ impl GameWorldShadow {
             obj.weapon_bonus_subliminal = ent.weapon_bonus_subliminal;
             obj.weapon_bonus_horde = ent.weapon_bonus_horde;
             obj.weapon_bonus_nationalism = ent.weapon_bonus_nationalism;
+            obj.weapon_bonus_fanaticism = ent.weapon_bonus_fanaticism;
+            obj.last_horde_refresh_frame = ent.last_horde_refresh_frame;
+            obj.horde_next_wake_frame = ent.horde_next_wake_frame;
+            obj.horde_wake_initialized = ent.horde_wake_initialized;
+
             obj.weapon_bonus_frenzy = ent.weapon_bonus_frenzy;
             obj.weapon_bonus_frenzy_level = ent.weapon_bonus_frenzy_level;
             obj.weapon_bonus_battle_plan_bombardment = ent.weapon_bonus_battle_plan_bombardment;

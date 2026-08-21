@@ -58,6 +58,26 @@ pub fn dispatch_fx_list_at_pos_ex(
     gamelogic::helpers::get_fx_list_manager().is_some()
 }
 
+/// C++ `FXList::doFXObj` — object form used by death, TransitionDamage, DamageFX.
+///
+/// Passes the primary object so ParticleSystem nuggets get the object transform
+/// (`OrientToObject` / `AttachToObject` / `FXListAtBonePos`).
+pub fn dispatch_fx_list_at_object(
+    name: &str,
+    primary_id: u32,
+    secondary_id: Option<u32>,
+) -> bool {
+    let name = strip_fx_list_prefix(name);
+    if is_none_fx_list(name) {
+        return false;
+    }
+    let Some(fx) = gamelogic::helpers::TheFXList::get() else {
+        return false;
+    };
+    fx.do_fx_obj(name, primary_id, secondary_id);
+    gamelogic::helpers::get_fx_list_manager().is_some()
+}
+
 /// Sound nugget names (`m_soundName`) authored inside `name`.
 ///
 /// Prefers the live GameClient FXList store (the runner's source of truth).
@@ -166,6 +186,7 @@ mod tests {
             1.0,
             2.0
         ));
+        assert!(!dispatch_fx_list_at_object("None", 1, None));
         assert!(particle_template_names_for_fx_list("None").is_empty());
         assert!(particle_template_names_for_fx_list("FX:None").is_empty());
     }

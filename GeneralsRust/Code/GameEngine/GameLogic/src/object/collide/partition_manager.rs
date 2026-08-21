@@ -5,6 +5,7 @@
 //!
 //! Matches C++ PartitionManager.cpp spatial partitioning system
 
+use game_engine::common::discrete_circle::DiscreteCircle;
 use super::collision_geometry::{
     collide_test_dispatch, CollideInfo, CollideLocAndNormal, GeometryInfo,
 };
@@ -174,18 +175,24 @@ impl CellCoord {
         neighbors
     }
 
-    /// Get cells within a radius
+    /// Cells overlapping a world radius via C++ DiscreteCircle
+    /// (`worldToCellDist`, no square ring).
     pub fn cells_in_radius(&self, radius: f32) -> Vec<CellCoord> {
-        let cell_radius = (radius / PARTITION_CELL_SIZE).ceil() as i32;
+        let r = radius.max(0.0);
+        let mut cell_radius = super::partition_coi::world_to_cell_dist(r);
+        if r > 0.0 && cell_radius < 1 {
+            cell_radius = 1;
+        }
         let mut cells = Vec::new();
-
-        for dx in -cell_radius..=cell_radius {
-            for dy in -cell_radius..=cell_radius {
-                cells.push(CellCoord {
-                    x: self.x + dx,
-                    y: self.y + dy,
-                });
+        let circle = DiscreteCircle::new(self.x, self.y, cell_radius);
+        circle.draw_circle(|x1, x2, y| {
+            let (lo, hi) = if x1 <= x2 { (x1, x2) } else { (x2, x1) };
+            for x in lo..=hi {
+                cells.push(CellCoord { x, y });
             }
+        });
+        if cells.is_empty() {
+            cells.push(*self);
         }
         cells
     }
@@ -1382,9 +1389,8 @@ impl PartitionManager {
     //     (C++ PartitionManager::doThreatAffect / doValueAffect)
     // ------------------------------------------------------------------
 
-    /// Distribute `threat_value` from `player_index` across cells within
-    /// `radius` of world position `(cx, cy)`, applying linear distance
-    /// falloff: `cell_addition = value * clamp(1.0 - dist/radius, 0, 1)`.
+    /// Distribute `threat_value` from `player_index` across a DiscreteCircle of
+    /// partition cells. Falloff is **cell-index** distance over `(cellRadius+1)`.
     ///
     /// Matches C++ `PartitionManager::doThreatAffect`.
     pub fn do_threat_affect(
@@ -1395,12 +1401,11 @@ impl PartitionManager {
         player_index: usize,
         threat_value: u32,
     ) {
-        self.distribute_cell_value(cx, cy, radius, player_index, threat_value, true);
+        self.distribute_cell_value(cx, cy, radius, player_index, threat_value, true, true);
     }
 
-    /// Distribute `cash_value` from `player_index` across cells within
-    /// `radius` of world position `(cx, cy)`, applying linear distance
-    /// falloff: `cell_addition = value * clamp(1.0 - dist/radius, 0, 1)`.
+    /// Distribute `cash_value` from `player_index` across a DiscreteCircle of
+    /// partition cells. Falloff is **cell-index** distance over `(cellRadius+1)`.
     ///
     /// Matches C++ `PartitionManager::doValueAffect`.
     pub fn do_value_affect(
@@ -1411,7 +1416,7 @@ impl PartitionManager {
         player_index: usize,
         cash_value: u32,
     ) {
-        self.distribute_cell_value(cx, cy, radius, player_index, cash_value, false);
+        self.distribute_cell_value(cx, cy, radius, player_index, cash_value, false, true);
     }
 
     pub fn remove_threat_affect(
@@ -1422,7 +1427,7 @@ impl PartitionManager {
         player_index: usize,
         threat_value: u32,
     ) {
-        self.distribute_cell_value_removal(cx, cy, radius, player_index, threat_value, true);
+        self.distribute_cell_value(cx, cy, radius, player_index, threat_value, true, false);
     }
 
     pub fn remove_value_affect(
@@ -1433,7 +1438,7 @@ impl PartitionManager {
         player_index: usize,
         cash_value: u32,
     ) {
-        self.distribute_cell_value_removal(cx, cy, radius, player_index, cash_value, false);
+        self.distribute_cell_value(cx, cy, radius, player_index, cash_value, false, false);
     }
 
     fn distribute_cell_value(
@@ -1444,32 +1449,38 @@ impl PartitionManager {
         player_index: usize,
         value: u32,
         is_threat: bool,
+        add: bool,
     ) {
         if radius <= 0.0 || value == 0 || player_index >= MAX_PLAYER_COUNT {
             return;
         }
 
-        let cell_radius = (radius / PARTITION_CELL_SIZE).ceil() as i32;
         let center_cell = CellCoord::from_world_pos(&Coord3D::new(cx, cy, 0.0));
-
-        for dx in -cell_radius..=cell_radius {
-            for dy in -cell_radius..=cell_radius {
-                let cell_coord = CellCoord {
-                    x: center_cell.x + dx,
-                    y: center_cell.y + dy,
-                };
-
-                let cell_cx = cell_coord.x as f32 * PARTITION_CELL_SIZE + PARTITION_CELL_SIZE * 0.5;
-                let cell_cy = cell_coord.y as f32 * PARTITION_CELL_SIZE + PARTITION_CELL_SIZE * 0.5;
-
-                let dist = ((cell_cx - cx).hypot(cell_cy - cy)).max(0.0);
-                let mul_val = (1.0 - dist / radius).clamp(0.0, 1.0);
+        let mut cell_radius = super::partition_coi::world_to_cell_dist(radius);
+        if cell_radius < 1 {
+            cell_radius = 1;
+        }
+        // C++ parms.radius = INT_TO_REAL(cellRadius + 1); x/y are cell indices.
+        let influence = (cell_radius + 1) as f32;
+        let cx_i = center_cell.x as f32;
+        let cy_i = center_cell.y as f32;
+        let circle = DiscreteCircle::new(center_cell.x, center_cell.y, cell_radius);
+        let mut additions: Vec<(CellCoord, u32)> = Vec::new();
+        circle.draw_circle(|x1, x2, y| {
+            let (lo, hi) = if x1 <= x2 { (x1, x2) } else { (x2, x1) };
+            for x in lo..=hi {
+                let dx = x as f32 - cx_i;
+                let dy = y as f32 - cy_i;
+                let distance = (dx * dx + dy * dy).sqrt();
+                let mul_val = (1.0 - distance / influence).clamp(0.0, 1.0);
                 let cell_addition = (value as f32 * mul_val) as u32;
-
-                if cell_addition == 0 {
-                    continue;
+                if cell_addition > 0 {
+                    additions.push((CellCoord { x, y }, cell_addition));
                 }
-
+            }
+        });
+        for (cell_coord, cell_addition) in additions {
+            if add {
                 let cell = self
                     .cells
                     .entry(cell_coord)
@@ -1479,50 +1490,11 @@ impl PartitionManager {
                 } else {
                     cell.add_cash_value(player_index, cell_addition);
                 }
-            }
-        }
-    }
-
-    fn distribute_cell_value_removal(
-        &mut self,
-        cx: f32,
-        cy: f32,
-        radius: f32,
-        player_index: usize,
-        value: u32,
-        is_threat: bool,
-    ) {
-        if radius <= 0.0 || value == 0 || player_index >= MAX_PLAYER_COUNT {
-            return;
-        }
-
-        let cell_radius = (radius / PARTITION_CELL_SIZE).ceil() as i32;
-        let center_cell = CellCoord::from_world_pos(&Coord3D::new(cx, cy, 0.0));
-
-        for dx in -cell_radius..=cell_radius {
-            for dy in -cell_radius..=cell_radius {
-                let cell_coord = CellCoord {
-                    x: center_cell.x + dx,
-                    y: center_cell.y + dy,
-                };
-
-                let cell_cx = cell_coord.x as f32 * PARTITION_CELL_SIZE + PARTITION_CELL_SIZE * 0.5;
-                let cell_cy = cell_coord.y as f32 * PARTITION_CELL_SIZE + PARTITION_CELL_SIZE * 0.5;
-
-                let dist = ((cell_cx - cx).hypot(cell_cy - cy)).max(0.0);
-                let mul_val = (1.0 - dist / radius).clamp(0.0, 1.0);
-                let cell_addition = (value as f32 * mul_val) as u32;
-
-                if cell_addition == 0 {
-                    continue;
-                }
-
-                if let Some(cell) = self.cells.get_mut(&cell_coord) {
-                    if is_threat {
-                        cell.remove_threat_value(player_index, cell_addition);
-                    } else {
-                        cell.remove_cash_value(player_index, cell_addition);
-                    }
+            } else if let Some(cell) = self.cells.get_mut(&cell_coord) {
+                if is_threat {
+                    cell.remove_threat_value(player_index, cell_addition);
+                } else {
+                    cell.remove_cash_value(player_index, cell_addition);
                 }
             }
         }
@@ -1983,5 +1955,66 @@ mod tests {
         assert_eq!(stats.total_objects, 10);
         assert!(stats.total_cells > 0);
         assert!(stats.avg_objects_per_cell > 0.0);
+    }
+
+    #[test]
+    fn value_affect_uses_discrete_circle_cell_index_falloff() {
+        let mut pm = PartitionManager::new();
+        // world (0,0) → cell (0,0); radius 80 → cellRadius 2, influence 3.
+        pm.do_value_affect(0.0, 0.0, 80.0, 0, 100);
+        let cash = |x, y| {
+            pm.cells
+                .get(&CellCoord { x, y })
+                .map(|c| c.get_cash_value(0))
+                .unwrap_or(0)
+        };
+        assert_eq!(cash(0, 0), 100, "center cell-index dist 0 → full value");
+        assert_eq!(cash(1, 0), 66, "axis neighbor 1 - 1/3");
+        assert_eq!(cash(0, 1), 66);
+        assert_eq!(cash(2, 2), 0, "square corner is outside DiscreteCircle r=2");
+        pm.remove_value_affect(0.0, 0.0, 80.0, 0, 100);
+        assert_eq!(cash(0, 0), 0);
+        assert_eq!(cash(1, 0), 0);
+    }
+
+    #[test]
+    fn threat_affect_undo_matches_add() {
+        let mut pm = PartitionManager::new();
+        pm.do_threat_affect(0.0, 0.0, 80.0, 1, 90);
+        let threat = |x, y| {
+            pm.cells
+                .get(&CellCoord { x, y })
+                .map(|c| c.get_threat_value(1))
+                .unwrap_or(0)
+        };
+        assert_eq!(threat(0, 0), 90);
+        assert_eq!(threat(1, 0), 60);
+        pm.remove_threat_affect(0.0, 0.0, 80.0, 1, 90);
+        assert_eq!(threat(0, 0), 0);
+        assert_eq!(threat(1, 0), 0);
+    }
+
+    #[test]
+    fn large_box_coi_shares_cells_with_distant_center() {
+        let mut pm = PartitionManager::new();
+        let building = GeometryInfo::new_box(160.0, 160.0, false);
+        let tank = GeometryInfo::new_sphere(5.0, true);
+        pm.register_object_oriented(1, Coord3D::new(0.0, 0.0, 0.0), building, 0.0)
+            .unwrap();
+        pm.register_object_oriented(2, Coord3D::new(80.0, 0.0, 0.0), tank, 0.0)
+            .unwrap();
+        let b_cells = pm.objects.get(&1).unwrap().cells.clone();
+        let t_cells = pm.objects.get(&2).unwrap().cells.clone();
+        assert!(
+            b_cells.iter().any(|c| t_cells.contains(c)),
+            "building hull and tank must share a COI cell"
+        );
+        let found = pm.find_objects_in_radius_dc(
+            &Coord3D::new(80.0, 0.0, 0.0),
+            15.0,
+            &[],
+            super::super::partition_distance::DistanceCalculationType::FromBoundingSphere2D,
+        );
+        assert!(found.contains(&1), "iterate must see hull-in-range structure");
     }
 }

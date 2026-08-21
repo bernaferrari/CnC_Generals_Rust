@@ -1,8 +1,8 @@
 // Split from `gui/control_bar/control_bar.rs` dump. Included by `control_bar_impl/mod.rs`.
 
-pub const MAX_PURCHASE_SCIENCE_RANK_1: usize = 8;
-pub const MAX_PURCHASE_SCIENCE_RANK_3: usize = 4;
-pub const MAX_PURCHASE_SCIENCE_RANK_8: usize = 3;
+pub const MAX_PURCHASE_SCIENCE_RANK_1: usize = 4;
+pub const MAX_PURCHASE_SCIENCE_RANK_3: usize = 15;
+pub const MAX_PURCHASE_SCIENCE_RANK_8: usize = 4;
 pub const MAX_SPECIAL_POWER_SHORTCUTS: usize = 8;
 pub const MAX_RIGHT_HUD_UPGRADE_CAMEOS: usize = 4;
 const RADAR_ATTACK_GLOW_FRAMES: u32 = 150;
@@ -142,6 +142,11 @@ pub struct SciencePurchaseState {
     pub is_visible: bool,
     /// Unlocked science names residual from PresentationFrame (not live player list).
     pub unlocked_sciences: Vec<String>,
+    /// Live host rank bar 0..100 from PresentationFrame (not leftover PlayerList).
+    pub live_rank_progress_percent: Option<i32>,
+    pub live_skill_points: Option<i32>,
+    pub live_science_purchase_points: Option<i32>,
+    pub live_rank_level: Option<i32>,
 }
 
 #[derive(Debug, Clone)]
@@ -173,6 +178,10 @@ impl Default for SciencePurchaseState {
             rank_title_label: String::new(),
             is_visible: false,
             unlocked_sciences: Vec::new(),
+            live_rank_progress_percent: None,
+            live_skill_points: None,
+            live_science_purchase_points: None,
+            live_rank_level: None,
         }
     }
 }

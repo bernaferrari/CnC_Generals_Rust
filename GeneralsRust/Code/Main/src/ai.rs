@@ -3712,6 +3712,94 @@ impl AIPlayer {
         }
     }
 
+    /// C++ `AIPlayer::buildSpecificAITeam`.
+    pub fn build_specific_ai_team(
+        &mut self,
+        game_logic: &mut GameLogic,
+        team_name: &str,
+        priority_build: bool,
+    ) -> bool {
+        let can_build = game_logic
+            .get_player(self.player_id)
+            .map(|p| p.can_build_units)
+            .unwrap_or(true);
+        if !can_build {
+            return false;
+        }
+
+        let proto = {
+            let Ok(mut factory) = gamelogic::team::get_team_factory().lock() else {
+                return false;
+            };
+            let Some(proto) = factory.find_team_prototype(team_name) else {
+                return false;
+            };
+            if priority_build && proto.is_singleton() {
+                if let Some(existing) = factory.find_team(team_name) {
+                    if existing.read().ok().is_some_and(|eg| eg.has_any_objects()) {
+                        return false;
+                    }
+                }
+            }
+            proto
+        };
+
+        let execute_actions = proto.get_execute_actions_on_create();
+        let production_condition = proto.get_production_condition().to_string();
+        drop(proto);
+
+        let orders = self.build_team_work_orders(game_logic, team_name);
+        if orders.is_empty() {
+            return false;
+        }
+        // C++ `isPossibleToBuildTeam(proto, false)`: factories must exist;
+        // missing money still queues.
+        if !self.team_factories_exist(game_logic, &orders) {
+            return false;
+        }
+
+        let _ = gamelogic::team::get_team_factory()
+            .lock()
+            .ok()
+            .and_then(|mut factory| factory.create_inactive_team(team_name));
+
+        let mut team = AITeamQueue::new(
+            team_name.to_string(),
+            orders,
+            priority_build,
+            game_logic.frame as u32,
+        );
+        team.execute_actions = execute_actions;
+        if priority_build {
+            self.team_queue.push_front(team);
+        } else {
+            self.team_queue.push_back(team);
+        }
+        // C++ `m_teamDelay = 0` so `queueUnits` retries immediately.
+        self.next_team_queue_time = 0.0;
+        self.activity_count = self.activity_count.saturating_add(1);
+
+        if execute_actions && !production_condition.is_empty() {
+            if let Ok(eng) = gamelogic::scripting::engine::get_script_engine().read() {
+                if let Some(e) = eng.as_ref() {
+                    if let Some(script) = e.find_script_clone_by_name(&production_condition) {
+                        if let Some(action) = script.get_action().cloned() {
+                            drop(eng);
+                            if let Ok(mut writer) =
+                                gamelogic::scripting::engine::get_script_engine().write()
+                            {
+                                if let Some(engine) = writer.as_mut() {
+                                    engine.friend_execute_action(&action, Some(team_name));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        true
+    }
+
     /// C++ `AIPlayer::recruitSpecificAITeam`.
     pub fn recruit_specific_ai_team(
         &mut self,
@@ -3929,8 +4017,91 @@ impl AIPlayer {
             _ => {}
         }
 
+        if orders.is_empty() {
+            for (name, _min_u, max_u) in Self::prototype_unit_infos(team_name) {
+                if max_u > 0 {
+                    orders.push(AIWorkOrder::new(name, max_u as u32, 100));
+                }
+            }
+        }
+
         orders
     }
+
+    fn prototype_unit_infos(team_name: &str) -> Vec<(String, i32, i32)> {
+        let Ok(factory) = gamelogic::team::get_team_factory().lock() else {
+            return Vec::new();
+        };
+        let Some(proto) = factory.find_team_prototype(team_name) else {
+            return Vec::new();
+        };
+        proto
+            .units_info()
+            .iter()
+            .filter(|unit| !unit.unit_thing_name.is_empty())
+            .map(|unit| {
+                (
+                    unit.unit_thing_name.to_string(),
+                    unit.min_units,
+                    unit.max_units,
+                )
+            })
+            .collect()
+    }
+
+    fn unit_template_known(&self, game_logic: &GameLogic, name: &str) -> bool {
+        if game_logic.templates.contains_key(name) {
+            return true;
+        }
+        if gamelogic::helpers::TheThingFactory::find_template(name).is_some() {
+            return true;
+        }
+        // Live leftover ThingFactory is often empty; allow factory-mapped units.
+        Self::factory_template_for_unit(name, self.team).is_some()
+    }
+
+    /// C++ `buildSpecificAITeam` work-order construction: optional (max-min)
+    /// prepended, then required (min) prepended.
+    fn build_team_work_orders(&self, game_logic: &GameLogic, team_name: &str) -> Vec<AIWorkOrder> {
+        let units = Self::prototype_unit_infos(team_name);
+        if units.is_empty() {
+            return self.create_work_orders_for_team(team_name);
+        }
+        let mut orders = Vec::new();
+        for (name, min_u, max_u) in &units {
+            if !self.unit_template_known(game_logic, name) {
+                continue;
+            }
+            let count = (*max_u - *min_u).max(0);
+            if count <= 0 {
+                continue;
+            }
+            let mut order = AIWorkOrder::new(name.clone(), count as u32, 100);
+            order.is_required = false;
+            orders.insert(0, order);
+        }
+        for (name, min_u, _max_u) in &units {
+            if !self.unit_template_known(game_logic, name) {
+                continue;
+            }
+            let mut order = AIWorkOrder::new(name.clone(), (*min_u).max(0) as u32, 100);
+            order.is_required = true;
+            orders.insert(0, order);
+        }
+        orders
+    }
+
+    /// C++ `isPossibleToBuildTeam(..., requireIdleFactory=false)` factory residual.
+    fn team_factories_exist(&self, game_logic: &GameLogic, orders: &[AIWorkOrder]) -> bool {
+        if orders.is_empty() {
+            return false;
+        }
+        orders.iter().all(|order| {
+            Self::find_factory_for_unit_ex(game_logic, &order.template_name, self.team, true)
+                .is_some()
+        })
+    }
+
 
     /// Find factory that can produce a specific unit
     fn find_factory_for_unit(
@@ -5534,6 +5705,61 @@ impl AIManager {
         })
     }
 
+    /// C++ `AIPlayer::buildSpecificAITeam` live host entry.
+    pub fn build_specific_ai_team(
+        &mut self,
+        game_logic: &mut GameLogic,
+        player_id: u32,
+        team_name: &str,
+        priority_build: bool,
+    ) -> bool {
+        self.ai_players.get_mut(&player_id).is_some_and(|ai| {
+            ai.build_specific_ai_team(game_logic, team_name, priority_build)
+        })
+    }
+
+    /// Resolve prototype owner then `buildSpecificAITeam(..., true)`.
+    pub fn build_specific_ai_team_for_token(
+        &mut self,
+        game_logic: &mut GameLogic,
+        player_token: &str,
+        team_name: &str,
+        priority_build: bool,
+    ) -> bool {
+        let Some(id) = Self::resolve_player_id(game_logic, player_token) else {
+            return false;
+        };
+        self.build_specific_ai_team(game_logic, id, team_name, priority_build)
+    }
+
+    /// C++ `AIPlayer::recruitSpecificAITeam` live host entry.
+    pub fn recruit_specific_ai_team(
+        &mut self,
+        game_logic: &mut GameLogic,
+        player_id: u32,
+        team_name: &str,
+        recruit_radius: f32,
+    ) -> bool {
+        self.ai_players.get_mut(&player_id).is_some_and(|ai| {
+            ai.recruit_specific_ai_team(game_logic, team_name, recruit_radius)
+        })
+    }
+
+    /// Resolve prototype owner then `recruitSpecificAITeam`.
+    pub fn recruit_specific_ai_team_for_token(
+        &mut self,
+        game_logic: &mut GameLogic,
+        player_token: &str,
+        team_name: &str,
+        recruit_radius: f32,
+    ) -> bool {
+        let Some(id) = Self::resolve_player_id(game_logic, player_token) else {
+            return false;
+        };
+        self.recruit_specific_ai_team(game_logic, id, team_name, recruit_radius)
+    }
+
+
     /// C++ `SKIRMISH_FIRE_SPECIAL_POWER_AT_MOST_COST` live host entry.
     pub fn fire_skirmish_special_power_at_most_cost(
         &mut self,
@@ -5601,19 +5827,6 @@ impl AIManager {
             .is_some_and(|ai| ai.build_by_supplies(game_logic, minimum_cash, thing_name))
     }
 
-    /// C++ `AIPlayer::recruitSpecificAITeam` live host entry.
-    pub fn recruit_specific_ai_team(
-        &mut self,
-        game_logic: &mut GameLogic,
-        player_id: u32,
-        team_name: &str,
-        recruit_radius: f32,
-    ) -> bool {
-        self.ai_players.get_mut(&player_id).is_some_and(|ai| {
-            ai.recruit_specific_ai_team(game_logic, team_name, recruit_radius)
-        })
-    }
-
     /// Clear all pending AI commands
     pub fn clear_pending_commands(&mut self) {
         log::info!("AI Manager: Clearing all pending commands...");
@@ -5666,6 +5879,73 @@ mod cpp_parity_tests {
         }
         let _ = mgr;
     }
+
+    #[test]
+    fn script_build_team_drains_onto_host_ai_queue() {
+        let _ = gamelogic::scripting::take_host_build_team_requests();
+
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut ranger = crate::game_logic::ThingTemplate::new("AmericaInfantryRanger");
+        ranger.set_cost(225, 0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".into(), ranger);
+        let mut barracks_t = crate::game_logic::ThingTemplate::new("AmericaBarracks");
+        barracks_t.set_cost(500, 0);
+        barracks_t.add_kind_of(crate::game_logic::KindOf::Structure);
+        logic.templates.insert("AmericaBarracks".into(), barracks_t);
+
+        let mut player = crate::game_logic::Player::new(1, Team::USA, "PlyrAmerica", false);
+        player.resources.supplies = 10_000;
+        player.set_can_build_units(true);
+        logic.add_player(player);
+        logic.add_ai_opponent(1, Team::USA, AIDifficulty::Medium);
+        if let Some(p) = logic.get_player_mut(1) {
+            p.set_can_build_units(true);
+        }
+        let _ = logic.create_object(
+            "AmericaBarracks",
+            Team::USA,
+            glam::Vec3::new(0.0, 0.0, 0.0),
+        );
+
+        if let Ok(mut factory) = gamelogic::team::get_team_factory().lock() {
+            factory.reset();
+            factory.init_team(
+                gamelogic::common::AsciiString::from("USA_RangerSquad"),
+                gamelogic::common::AsciiString::from("PlyrAmerica"),
+                false,
+                None,
+            );
+        }
+
+        gamelogic::scripting::request_host_build_team("PlyrAmerica", "USA_RangerSquad");
+        logic.apply_host_loco_set_script_requests();
+
+        let queued = logic
+            .ai_manager
+            .ai_players
+            .get(&1)
+            .map(|ai| ai.team_queue.len())
+            .unwrap_or(0);
+        assert_eq!(
+            queued, 1,
+            "BUILD_TEAM must field a priority team on host AIPlayer"
+        );
+        let team = logic
+            .ai_manager
+            .ai_players
+            .get(&1)
+            .and_then(|ai| ai.team_queue.front())
+            .expect("queued team");
+        assert_eq!(team.name, "USA_RangerSquad");
+        assert!(team.priority_build);
+
+        if let Ok(mut factory) = gamelogic::team::get_team_factory().lock() {
+            factory.reset();
+        }
+    }
+
 
     #[test]
     fn ai_player_update_order_matches_cpp_aiplayer_update() {

@@ -26,7 +26,7 @@
 //! Fail-closed honesty:
 //! - Not full CashBountyPower module-on-palace science gate matrix
 //! - Not full InGameUI GPU draw / Unicode GameText localization
-//! - Not calcCostToBuild faction handicap matrix (uses template build_cost)
+//! - calcCostToBuild uses victim owner production/kindof/handicap (Player.cpp:2409)
 //! - Network deferred
 
 use super::ObjectId;

@@ -98,7 +98,7 @@ impl Object {
         }
         let tmpl_display = &self.thing.template.display_name;
         if !tmpl_display.is_empty() && tmpl_display != &self.template_name {
-            return tmpl_display.clone();
+            return crate::assets::ini_parser::translate_object_display_name(tmpl_display);
         }
         self.template_name.clone()
     }

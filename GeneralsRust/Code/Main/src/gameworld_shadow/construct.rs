@@ -1625,6 +1625,11 @@ impl GameWorldShadow {
                     e.weapon_bonus_subliminal = obj.weapon_bonus_subliminal;
                     e.weapon_bonus_horde = obj.weapon_bonus_horde;
                     e.weapon_bonus_nationalism = obj.weapon_bonus_nationalism;
+                    e.weapon_bonus_fanaticism = obj.weapon_bonus_fanaticism;
+                    e.last_horde_refresh_frame = obj.last_horde_refresh_frame;
+                    e.horde_next_wake_frame = obj.horde_next_wake_frame;
+                    e.horde_wake_initialized = obj.horde_wake_initialized;
+
                     e.weapon_bonus_frenzy = obj.weapon_bonus_frenzy;
                     e.weapon_bonus_frenzy_level = obj.weapon_bonus_frenzy_level;
                     e.weapon_bonus_battle_plan_bombardment =
@@ -2162,6 +2167,11 @@ impl GameWorldShadow {
                 e.weapon_bonus_subliminal = obj.weapon_bonus_subliminal;
                 e.weapon_bonus_horde = obj.weapon_bonus_horde;
                 e.weapon_bonus_nationalism = obj.weapon_bonus_nationalism;
+                e.weapon_bonus_fanaticism = obj.weapon_bonus_fanaticism;
+                e.last_horde_refresh_frame = obj.last_horde_refresh_frame;
+                e.horde_next_wake_frame = obj.horde_next_wake_frame;
+                e.horde_wake_initialized = obj.horde_wake_initialized;
+
                 e.weapon_bonus_frenzy = obj.weapon_bonus_frenzy;
                 e.weapon_bonus_frenzy_level = obj.weapon_bonus_frenzy_level;
                 e.weapon_bonus_battle_plan_bombardment = obj.weapon_bonus_battle_plan_bombardment;
@@ -2492,6 +2502,11 @@ impl GameWorldShadow {
             e.weapon_bonus_subliminal = false;
             e.weapon_bonus_horde = false;
             e.weapon_bonus_nationalism = false;
+            e.weapon_bonus_fanaticism = false;
+            e.last_horde_refresh_frame = 0;
+            e.horde_next_wake_frame = 0;
+            e.horde_wake_initialized = false;
+
             e.weapon_bonus_frenzy = false;
             e.weapon_bonus_frenzy_level = 0;
             e.weapon_bonus_battle_plan_bombardment = false;

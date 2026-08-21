@@ -470,16 +470,17 @@ impl Object {
         self.last_bounce_fall_dy = dy;
         self.last_bounce_volume = bounce_sound_volume_residual(dy, Self::SHOCK_MASS);
         self.bounce_land_events = self.bounce_land_events.saturating_add(1);
-        self.bounce_audio_pending = self.bounce_audio_pending.saturating_add(1);
-        if self.bounce_sound_name.is_empty() {
-            self.bounce_sound_name = BOUNCE_SOUND_DEFAULT.to_string();
+        // C++ doBounceSound returns immediately unless m_bounceSound was authored.
+        if !self.bounce_sound_name.is_empty() {
+            self.bounce_audio_pending = self.bounce_audio_pending.saturating_add(1);
         }
         self.record_host_bounce_land();
     }
 
     /// Drain one pending bounce audio emit for GameLogic → TheAudio queue.
     pub fn take_bounce_audio_pending(&mut self) -> Option<(String, f32)> {
-        if self.bounce_audio_pending == 0 {
+        if self.bounce_audio_pending == 0 || self.bounce_sound_name.is_empty() {
+            self.bounce_audio_pending = 0;
             return None;
         }
         self.bounce_audio_pending = self.bounce_audio_pending.saturating_sub(1);
@@ -533,12 +534,12 @@ impl Object {
     /// C++ killWhenRestingOnGround residual.
     ///
     /// When settled on ground with near-zero velocity, kill non-drone (or
-    /// unmanned/dead drones). Height is above terrain, not absolute Y.
+    /// unmanned/dead drones). Airborne is C++ isAboveTerrain (height > 0).
     pub fn maybe_kill_when_resting_on_ground(&mut self) -> bool {
         if !self.kill_when_resting_on_ground || self.status.destroyed {
             return false;
         }
-        if self.get_position().y - self.ground_height > 0.05 {
+        if self.is_above_terrain() {
             return false;
         }
         if !self.velocity_is_very_small() {
@@ -549,7 +550,21 @@ impl Object {
         if is_drone && self.is_alive() && !self.status.disabled_unmanned {
             return false;
         }
-        self.kill_from_stun_destruction()
+        self.kill()
+    }
+
+    /// C++ Object::kill — lethal UNRESISTABLE so Body/Die modules (FX, OCL) run.
+    pub fn kill(&mut self) -> bool {
+        if self.status.destroyed {
+            return false;
+        }
+        let max_h = self.health.maximum.max(self.max_health).max(1.0);
+        self.take_damage_from_typed_death(
+            max_h,
+            None,
+            crate::game_logic::combat::DamageType::Unresistable,
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+        )
     }
 
     pub fn apply_shock_fall_damage(&mut self, impact_vy: f32) -> f32 {

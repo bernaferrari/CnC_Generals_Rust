@@ -1323,7 +1323,7 @@ impl CnCGameEngine {
             .get_save_info(slot)
             .map_err(|err| format!("{err}"))?;
         if save_info.save_type == SaveFileType::Mission {
-            return self.host_restart_mission_from_save(save_info);
+            return self.host_restart_mission_from_save(slot, save_info);
         }
 
         // Keep the current world untouched until the save metadata, exact map,
@@ -1348,12 +1348,27 @@ impl CnCGameEngine {
     }
 
     /// C++ `GameState::loadGame` (`GameState.cpp:706-742`) for
-    /// `SAVE_FILE_TYPE_MISSION`: InitRandom(0), pendingFile = mission map,
-    /// MSG_NEW_GAME(GAME_SINGLE_PLAYER, difficulty, rankPoints).
+    /// `SAVE_FILE_TYPE_MISSION`: xfer CHUNK_Campaign, InitRandom(0),
+    /// pendingFile = mission map, MSG_NEW_GAME(GAME_SINGLE_PLAYER,
+    /// TheCampaignManager->getGameDifficulty(), getRankPoints()).
     fn host_restart_mission_from_save(
         &mut self,
-        save_info: SaveGameInfo,
+        slot: &str,
+        mut save_info: SaveGameInfo,
     ) -> Result<SaveGameInfo, String> {
+        if let Ok(state) = self.save_file_manager.read_campaign_state(slot) {
+            save_info.difficulty = match state.difficulty {
+                0 => GameDifficulty::Easy,
+                2 => GameDifficulty::Hard,
+                _ => GameDifficulty::Medium,
+            };
+            if !state.campaign.is_empty() {
+                save_info.campaign_side = Some(state.campaign.clone());
+            }
+            game_engine::System::apply_campaign_manager_runtime(state.clone());
+            game_client::gui::campaign_manager::get_campaign_manager()
+                .apply_logic_chunk_state(state);
+        }
         game_engine::common::random_value::init_random_with_seed(0);
         {
             let mut global = game_engine::common::global_data::write();

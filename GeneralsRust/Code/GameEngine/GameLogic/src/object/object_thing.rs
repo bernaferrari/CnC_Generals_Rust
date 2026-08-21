@@ -389,9 +389,16 @@ impl game_engine::common::rts::score_keeper::ScoreableObject for Object {
 }
 
 impl game_engine::common::rts::player::BountyObject for Object {
-    fn get_build_cost(&self) -> i32 {
-        // Get cost from template - pass None for player since we don't have easy access here
-        self.thing_template.calc_cost_to_build(None)
+    fn calc_cost_to_build(&self) -> i32 {
+        // C++ victim->getTemplate()->calcCostToBuild(victim->getControllingPlayer()).
+        let Some(player) = self.get_controlling_player() else {
+            return 0;
+        };
+        let Ok(guard) = player.read() else {
+            return 0;
+        };
+        self.thing_template
+            .calc_cost_to_build(Some(&*guard as &dyn std::any::Any))
     }
 
     fn is_under_construction(&self) -> bool {

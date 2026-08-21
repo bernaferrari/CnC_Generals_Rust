@@ -206,6 +206,37 @@ impl GameLogic {
         }
     }
 
+    /// C++ GameLogic.cpp:2222-2230 GAME_REPLAY: setLocalPlayer(ReplayObserver),
+    /// TheRadar->forceOn(TRUE), refreshShroudForLocalPlayer, observer control bar.
+    pub fn apply_replay_observer_as_local_player(&mut self) {
+        if !matches!(self.game_mode, GameMode::Replay) {
+            return;
+        }
+        let observer_id = self.ensure_replay_observer_player();
+        for player in self.players.values_mut() {
+            player.is_local = player.id == observer_id;
+        }
+        if let Ok(mut list) = ThePlayerList().write() {
+            if let Some(observer) = list.find_player_by_name("ReplayObserver") {
+                if let Ok(guard) = observer.read() {
+                    list.set_local_player_index(guard.get_player_index());
+                }
+            }
+        }
+        self.set_radar_forced(true);
+        if let Ok(mut radar) = game_engine::common::system::radar::get_radar_system().write() {
+            radar.force_on(true);
+        }
+        if let Ok(mut shroud) = get_shroud_manager().lock() {
+            shroud.refresh_shroud_for_local_player();
+        }
+        #[cfg(feature = "game_client")]
+        {
+            game_client::helpers::TheControlBar::set_control_bar_scheme_by_player("Observer");
+        }
+    }
+
+
     /// C++ GameLogic.cpp:1479-1532 — MultiplayerScripts.scb when numTeams > 1.
     pub fn install_multiplayer_scripts_if_needed(&mut self) {
         if !self.install_multiplayer_scripts {
@@ -548,12 +579,13 @@ impl GameLogic {
             .apply_structure_static_blocks(&self.objects);
     }
 
-    /// Block one constructed structure footprint without full rebuild.
+    /// Block one structure footprint without full rebuild.
+    /// C++ `addObjectToPathfindMap` at dozer/worker placement, including scaffolds.
     pub(super) fn block_structure_object_path(&mut self, object_id: ObjectId) {
         let Some(obj) = self.objects.get(&object_id) else {
             return;
         };
-        if !obj.is_kind_of(KindOf::Structure) || !obj.is_alive() || obj.status.under_construction {
+        if !obj.is_kind_of(KindOf::Structure) || !obj.is_alive() {
             return;
         }
         let pos = obj.get_position();
@@ -1740,10 +1772,15 @@ impl GameLogic {
             );
         }
         self.create_default_players();
-        if matches!(mode, GameMode::Skirmish) {
+        if matches!(mode, GameMode::Skirmish | GameMode::Replay) {
             let _ = self.ensure_replay_observer_player();
             self.install_replay_observer_side();
-            self.set_install_multiplayer_scripts(true);
+            if matches!(mode, GameMode::Skirmish) {
+                self.set_install_multiplayer_scripts(true);
+            }
+        }
+        if matches!(mode, GameMode::Replay) {
+            self.apply_replay_observer_as_local_player();
         }
         log::info!("New game started successfully");
         crate::command_system::tap_host_new_game_for_recorder(mode);
@@ -3402,12 +3439,15 @@ impl GameLogic {
         let scripts_started = Instant::now();
         report_progress(0.92, "Initializing mission scripts");
         self.initialize_scripts(map_name);
-        if matches!(self.game_mode, GameMode::Skirmish) {
+        if matches!(self.game_mode, GameMode::Skirmish | GameMode::Replay) {
             // C++ startNewGame adds ReplayObserver after sides, then installs
             // MultiplayerScripts.scb (numTeams>1) and permanently reveals the map.
             self.install_replay_observer_side();
             self.install_multiplayer_scripts_if_needed();
             self.reveal_replay_observer_map();
+        }
+        if matches!(self.game_mode, GameMode::Replay) {
+            self.apply_replay_observer_as_local_player();
         }
         log::info!(
             "Map '{}' script init finished in {:.2}s",
@@ -3699,6 +3739,40 @@ mod sides_host_apply_tests {
         assert_eq!(logic.weather_state().current_weather, "normal");
         logic.apply_world_info_weather(None);
         assert_eq!(logic.weather_state().current_weather, "normal");
+    }
+
+    #[test]
+    fn replay_start_new_game_sets_local_player_to_replay_observer() {
+        // C++ GameLogic.cpp:2222-2230 GAME_REPLAY switches local identity.
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "USA Commander", true));
+        logic.game_mode = GameMode::Replay;
+        let observer_id = logic.ensure_replay_observer_player();
+        logic.install_replay_observer_side();
+        logic.apply_replay_observer_as_local_player();
+
+        let observer = logic
+            .players
+            .get(&observer_id)
+            .expect("ReplayObserver host player");
+        assert!(observer.is_local, "ReplayObserver must be local in GAME_REPLAY");
+        assert_eq!(observer.name, "ReplayObserver");
+        assert_eq!(
+            logic.players.values().filter(|p| p.is_local).count(),
+            1,
+            "only ReplayObserver is local"
+        );
+        assert!(logic.radar_forced);
+        if let Ok(list) = ThePlayerList().read() {
+            if let Some(local) = list.get_local_player() {
+                if let Ok(guard) = local.read() {
+                    assert_eq!(
+                        guard.get_player_name_key(),
+                        NameKeyGenerator::name_to_key("ReplayObserver")
+                    );
+                }
+            }
+        }
     }
 
 }

@@ -2118,7 +2118,13 @@ impl ShroudManager {
                                     ShroudState::Explored => CellShroudStatus::Fogged,
                                     ShroudState::Hidden => CellShroudStatus::Shrouded,
                                 };
-                                radar.set_shroud_level(x as i32, y as i32, status);
+                                radar.set_shroud_level_from_partition_cell(
+                                    x as i32,
+                                    y as i32,
+                                    status,
+                                    SHROUD_GRID_CELL_SIZE,
+                                    SHROUD_GRID_CELL_SIZE,
+                                );
                             }
                         }
                     }
@@ -2147,7 +2153,13 @@ impl ShroudManager {
                             ShroudState::Explored => CellShroudStatus::Fogged,
                             ShroudState::Hidden => CellShroudStatus::Shrouded,
                         };
-                        radar.set_shroud_level(x as i32, y as i32, status);
+                        radar.set_shroud_level_from_partition_cell(
+                            x as i32,
+                            y as i32,
+                            status,
+                            SHROUD_GRID_CELL_SIZE,
+                            SHROUD_GRID_CELL_SIZE,
+                        );
                     }
                 }
             }

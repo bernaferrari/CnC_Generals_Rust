@@ -1003,6 +1003,111 @@ impl GameLogic {
         let dist_sqr = delta.x * delta.x + delta.z * delta.z;
         dist_sqr < FLIGHT_DECK_TAKEOFF_RANGE_SQR
     }
+
+    /// C++ FlightDeckBehavior stall occupancy for WorldSnapshot.
+    pub fn snapshot_flight_deck_occupancy(
+        &self,
+    ) -> Vec<(
+        ObjectId,
+        bool,
+        Vec<(Option<ObjectId>, u32)>,
+        Vec<(Option<ObjectId>, Option<ObjectId>)>,
+        Option<ObjectId>,
+        u8,
+        bool,
+    )> {
+        let mut rows: Vec<_> = self
+            .flight_decks
+            .iter()
+            .map(|(&carrier_id, state)| {
+                (
+                    carrier_id,
+                    state.got_info,
+                    state
+                        .spaces
+                        .iter()
+                        .map(|space| (space.object_id, space.runway as u32))
+                        .collect(),
+                    state
+                        .runways
+                        .iter()
+                        .map(|runway| (runway.in_use_by_for_takeoff, runway.in_use_by_for_landing))
+                        .collect(),
+                    state.designated_target,
+                    state.designated_command as u8,
+                    state.pending_replacement,
+                )
+            })
+            .collect();
+        rows.sort_by_key(|(id, _, _, _, _, _, _)| id.0);
+        rows
+    }
+
+    pub fn restore_flight_deck_occupancy(
+        &mut self,
+        rows: Vec<(
+            ObjectId,
+            bool,
+            Vec<(Option<ObjectId>, u32)>,
+            Vec<(Option<ObjectId>, Option<ObjectId>)>,
+            Option<ObjectId>,
+            u8,
+            bool,
+        )>,
+    ) {
+        self.flight_decks.clear();
+        for (
+            carrier_id,
+            got_info,
+            spaces,
+            runways,
+            designated_target,
+            designated_command,
+            pending_replacement,
+        ) in rows
+        {
+            let mut state = HostFlightDeckState::default();
+            state.got_info = got_info;
+            state.spaces = spaces
+                .into_iter()
+                .map(|(object_id, runway)| HostFlightDeckSpace {
+                    object_id,
+                    position: Vec3::ZERO,
+                    orientation: 0.0,
+                    runway: runway as usize,
+                })
+                .collect();
+            state.runways = runways
+                .into_iter()
+                .map(|(in_use_by_for_takeoff, in_use_by_for_landing)| {
+                    HostFlightDeckRunway {
+                        start: Vec3::ZERO,
+                        end: Vec3::ZERO,
+                        landing_start: Vec3::ZERO,
+                        landing_end: Vec3::ZERO,
+                        taxi: Vec::new(),
+                        creation: Vec::new(),
+                        start_orient: 0.0,
+                        in_use_by_for_takeoff,
+                        in_use_by_for_landing,
+                    }
+                })
+                .collect();
+            state.designated_target = designated_target;
+            state.designated_command = match designated_command {
+                1 => HostFlightDeckCommand::GuardPosition,
+                2 => HostFlightDeckCommand::AttackPosition,
+                3 => HostFlightDeckCommand::AttackObject,
+                4 => HostFlightDeckCommand::ForceAttackObject,
+                5 => HostFlightDeckCommand::AttackMoveToPosition,
+                6 => HostFlightDeckCommand::Idle,
+                _ => HostFlightDeckCommand::NoCommand,
+            };
+            state.pending_replacement = pending_replacement;
+            self.flight_decks.insert(carrier_id, state);
+        }
+    }
+
 }
 
 fn flight_deck_stall_pose(

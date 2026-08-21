@@ -338,6 +338,17 @@ impl GameLogic {
         Self::apply_authored_temporary_weapon_behavior_metadata(&mut template, definition);
         Self::apply_authored_physics_behavior_metadata(&mut template, definition);
         Self::apply_authored_geometry(&mut template, definition);
+        if let Some(sx) = Self::object_definition_attr(definition, "ShadowSizeX")
+            .and_then(|v| v.parse::<f32>().ok())
+        {
+            template.shadow_size_x = sx;
+        }
+        if let Some(sy) = Self::object_definition_attr(definition, "ShadowSizeY")
+            .and_then(|v| v.parse::<f32>().ok())
+        {
+            template.shadow_size_y = sy;
+        }
+
 
 
         let primary_texture = texture_hint.or_else(|| definition.get_primary_texture());
@@ -427,8 +438,8 @@ impl GameLogic {
             template.set_health(if is_structure { 1200.0 } else { 250.0 });
         }
 
-        // C++ ThingTemplate: ExperienceValue is a 4-int list, not a scaled
-        // single token. ExperienceRequired is the per-level XP ladder.
+        // C++ ThingTemplate ctor zeros m_experienceValues[LEVEL_COUNT].
+        // Parse ExperienceValue only when authored — do not invent 50/100.
         if let Some(xp) = Self::object_definition_attr(definition, "experiencevalue") {
             let vals: Vec<f32> = xp
                 .split_whitespace()
@@ -442,8 +453,6 @@ impl GameLogic {
                 }
                 template.experience_values = table;
             }
-        } else {
-            template.experience_value = if is_structure { 100.0 } else { 50.0 };
         }
 
         if let Some(sp) = Self::object_definition_attr(definition, "skillpointvalue") {
@@ -532,10 +541,10 @@ impl GameLogic {
             template.subdual_heal_amount = amount.max(0.0);
         }
 
-        // C++ parity: parse VisionRange from INI.
+        // C++ ThingTemplate.cpp:100 INI::parseReal VisionRange. 0 is authored.
         if let Some(sight) = Self::object_definition_attr(definition, "visionrange")
             .and_then(|s| s.trim().parse::<f32>().ok())
-            .filter(|&v| v > 0.0)
+            .filter(|v| v.is_finite())
         {
             template.sight_range = sight;
         }
@@ -553,6 +562,16 @@ impl GameLogic {
             .filter(|v| v.is_finite())
         {
             template.shroud_reveal_to_all_range = r;
+        }
+
+        if let Some(raw) = Self::object_definition_attr(definition, "radarpriority") {
+            template.radar_priority = match raw.trim().to_ascii_uppercase().as_str() {
+                "NOT_ON_RADAR" => 1,
+                "STRUCTURE" => 2,
+                "UNIT" => 3,
+                "LOCAL_UNIT_ONLY" => 4,
+                _ => 0,
+            };
         }
 
         // C++ ThingTemplate.cpp:226-227 INI::parseUnsignedByte CrusherLevel/CrushableLevel.
@@ -7342,6 +7361,69 @@ End
         assert!(template.reveal_to_all);
         assert!(template.always_visible);
     }
+
+    #[test]
+    fn omitted_experience_value_defaults_to_zero_not_invented_50_100() {
+        let tree = GameLogic::build_template_from_object_definition(
+            "Tree",
+            &ObjectDefinition::new("Tree".to_string()),
+            None,
+        );
+        assert_eq!(tree.experience_value, 0.0);
+        assert_eq!(tree.experience_values, [0.0; 4]);
+
+        let mut structure = ObjectDefinition::new("CivilianBuilding".to_string());
+        structure
+            .attributes
+            .insert("KindOf".to_string(), "STRUCTURE".to_string());
+        let structure = GameLogic::build_template_from_object_definition(
+            "CivilianBuilding",
+            &structure,
+            None,
+        );
+        assert_eq!(structure.experience_value, 0.0);
+        assert_eq!(structure.experience_values, [0.0; 4]);
+
+        let mut authored = ObjectDefinition::new("AmericaInfantryRanger".to_string());
+        authored
+            .attributes
+            .insert("ExperienceValue".to_string(), "20 20 40 60".to_string());
+        let authored = GameLogic::build_template_from_object_definition(
+            "AmericaInfantryRanger",
+            &authored,
+            None,
+        );
+        assert_eq!(authored.experience_value, 20.0);
+        assert_eq!(authored.experience_values, [20.0, 20.0, 40.0, 60.0]);
+    }
+
+    #[test]
+    fn omitted_vision_range_defaults_to_zero_not_150() {
+        let tree = GameLogic::build_template_from_object_definition(
+            "Tree",
+            &ObjectDefinition::new("Tree".to_string()),
+            None,
+        );
+        assert_eq!(tree.sight_range, 0.0);
+
+        let mut authored = ObjectDefinition::new("AmericaInfantryRanger".to_string());
+        authored
+            .attributes
+            .insert("VisionRange".to_string(), "150.0".to_string());
+        let authored = GameLogic::build_template_from_object_definition(
+            "AmericaInfantryRanger",
+            &authored,
+            None,
+        );
+        assert!((authored.sight_range - 150.0).abs() < 1e-4);
+
+        let mut zero = ObjectDefinition::new("Prop".to_string());
+        zero.attributes
+            .insert("VisionRange".to_string(), "0".to_string());
+        let zero = GameLogic::build_template_from_object_definition("Prop", &zero, None);
+        assert_eq!(zero.sight_range, 0.0);
+    }
+
 }
 
 

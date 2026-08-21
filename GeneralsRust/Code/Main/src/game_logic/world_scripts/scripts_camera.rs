@@ -62,6 +62,14 @@ impl GameLogic {
                     .with_priority(150),
             );
         }
+        for ev in crate::game_logic::host_unit_training::drain_promote_audio() {
+            self.queued_audio_events.push(
+                AudioEventRequest::new(&ev.event_name)
+                    .with_object(ev.object)
+                    .with_position(ev.position)
+                    .with_priority(160),
+            );
+        }
         for event in self.queued_audio_events.drain(..) {
             let names = crate::game_logic::resolve_audio_event_names(&event.event_type);
             for name in names {
@@ -386,6 +394,367 @@ impl GameLogic {
         }
     }
 
+    /// C++ ScriptActions TEAM/NAMED move and attack live drain.
+    /// Leftover `OBJECT_REGISTRY` is empty on the host path; leftover actions
+    /// queue [`gamelogic::scripting::HostScriptMoveAttackRequest`].
+    fn apply_host_move_attack_script_requests(&mut self) {
+        use gamelogic::scripting::HostScriptMoveAttackRequest;
+        for req in gamelogic::scripting::take_host_script_move_attack_requests() {
+            match req {
+                HostScriptMoveAttackRequest::TeamMove { team, waypoint } => {
+                    let Some(dest) = self.host_script_waypoint_position(&waypoint) else {
+                        continue;
+                    };
+                    for id in self.host_script_team_member_ids(&team) {
+                        let _ = self.unit_command_move_to(id, dest);
+                    }
+                }
+                HostScriptMoveAttackRequest::NamedMove { unit, waypoint } => {
+                    let Some(dest) = self.host_script_waypoint_position(&waypoint) else {
+                        continue;
+                    };
+                    let Some(id) = self.host_object_id_by_script_name(&unit) else {
+                        continue;
+                    };
+                    let _ = self.apply_unit_locomotor_set(id, "normal");
+                    let _ = self.unit_command_move_to(id, dest);
+                }
+                HostScriptMoveAttackRequest::TeamAttackTeam { attacker, victim } => {
+                    let members = self.host_script_team_member_ids(&attacker);
+                    for id in members {
+                        self.host_script_attack_team(id, &victim);
+                    }
+                }
+                HostScriptMoveAttackRequest::NamedAttackNamed { attacker, victim } => {
+                    let Some(aid) = self.host_object_id_by_script_name(&attacker) else {
+                        continue;
+                    };
+                    let Some(vid) = self.host_object_id_by_script_name(&victim) else {
+                        continue;
+                    };
+                    let _ = self.apply_unit_locomotor_set(aid, "normal");
+                    let _ = self.unit_command_force_attack(aid, vid);
+                }
+                HostScriptMoveAttackRequest::NamedAttackArea { unit, area } => {
+                    let Some(id) = self.host_object_id_by_script_name(&unit) else {
+                        continue;
+                    };
+                    let _ = self.apply_unit_locomotor_set(id, "normal");
+                    self.host_script_attack_area(id, &area);
+                }
+                HostScriptMoveAttackRequest::NamedAttackTeam { unit, team } => {
+                    let Some(id) = self.host_object_id_by_script_name(&unit) else {
+                        continue;
+                    };
+                    let _ = self.apply_unit_locomotor_set(id, "normal");
+                    self.host_script_attack_team(id, &team);
+                }
+                HostScriptMoveAttackRequest::TeamAttackArea { team, area } => {
+                    let members = self.host_script_team_member_ids(&team);
+                    for id in members {
+                        self.host_script_attack_area(id, &area);
+                    }
+                }
+                HostScriptMoveAttackRequest::TeamAttackNamed { team, unit } => {
+                    let Some(vid) = self.host_object_id_by_script_name(&unit) else {
+                        continue;
+                    };
+                    for id in self.host_script_team_member_ids(&team) {
+                        let _ = self.unit_command_attack(id, vid);
+                    }
+                }
+            }
+        }
+    }
+
+    /// C++ ScriptActions CREATE_OBJECT family live drain.
+    pub(in super::super) fn apply_host_create_script_requests(&mut self) {
+        use gamelogic::scripting::HostScriptCreateRequest;
+        for req in gamelogic::scripting::take_host_script_create_requests() {
+
+            match req {
+                HostScriptCreateRequest::Object {
+                    name,
+                    thing,
+                    team,
+                    x,
+                    y,
+                    z,
+                    angle,
+                } => {
+                    self.host_script_create_object(name.as_deref(), &thing, &team, x, y, z, angle);
+                }
+                HostScriptCreateRequest::ReinforcementTeam { team, waypoint } => {
+                    self.host_script_create_reinforcement_team(&team, &waypoint);
+                }
+            }
+        }
+    }
+
+    fn host_script_coord_to_world(x: f32, y: f32, z: f32) -> glam::Vec3 {
+        // Generals Coord3D: (x,y) map plane, z = height.
+        glam::Vec3::new(x, z, y)
+    }
+
+    fn host_script_create_team(&self, team_name: &str) -> crate::game_logic::Team {
+        if let Ok(factory) = gamelogic::team::get_team_factory().lock() {
+            if let Some(proto) = factory.find_team_prototype(team_name) {
+                let owner = proto.get_owner_name().to_string();
+                if !owner.is_empty() {
+                    if let Some(pid) = self.host_player_id_for_script_token(&owner) {
+                        if let Some(player) = self.players.get(&pid) {
+                            return player.team;
+                        }
+                    }
+                }
+            }
+        }
+        Self::resolve_host_team_name(team_name).unwrap_or(crate::game_logic::Team::Neutral)
+    }
+
+    fn host_script_create_object(
+        &mut self,
+        name: Option<&str>,
+        thing: &str,
+        team_name: &str,
+        x: f32,
+        y: f32,
+        z: f32,
+        angle: f32,
+    ) -> Option<ObjectId> {
+        if let Some(unit_name) = name.filter(|n| !n.is_empty()) {
+            if let Some(id) = self.host_object_id_by_script_name(unit_name) {
+                if self
+                    .objects
+                    .get(&id)
+                    .is_some_and(|obj| obj.is_alive() && !obj.status.destroyed)
+                {
+                    return None;
+                }
+            }
+        }
+        let team = self.host_script_create_team(team_name);
+        let mut pos = Self::host_script_coord_to_world(x, y, z);
+        if z == 0.0 {
+            if let Some(h) = self.terrain_height_at(glam::Vec3::new(pos.x, 0.0, pos.z)) {
+                pos.y = h;
+            }
+        }
+        let id = self.create_object(thing, team, pos)?;
+        if let Some(obj) = self.objects.get_mut(&id) {
+            obj.set_orientation(angle);
+            if !team_name.trim().is_empty() {
+                obj.team_instance_name = team_name.to_string();
+            }
+            if let Some(unit_name) = name.filter(|n| !n.is_empty()) {
+                obj.name = unit_name.to_string();
+            }
+        }
+        Some(id)
+    }
+
+    fn host_script_create_reinforcement_team(&mut self, team_name: &str, waypoint_name: &str) {
+        let Some(dest) = self.host_script_waypoint_position(waypoint_name) else {
+            return;
+        };
+        let mut origin = dest;
+        let (start, transport, units) = {
+            let Ok(factory) = gamelogic::team::get_team_factory().lock() else {
+                return;
+            };
+            let Some(proto) = factory.find_team_prototype(team_name) else {
+                return;
+            };
+            (
+                proto.get_start_reinforce_waypoint().to_string(),
+                proto.get_transport_unit_type().to_string(),
+                proto
+                    .units_info()
+                    .iter()
+                    .filter(|unit| unit.max_units >= 1 && !unit.unit_thing_name.is_empty())
+                    .map(|unit| (unit.unit_thing_name.to_string(), unit.max_units))
+                    .collect::<Vec<_>>(),
+            )
+        };
+        if !start.is_empty() {
+            if let Some(start_pos) = self.host_script_waypoint_position(&start) {
+                origin = start_pos;
+            }
+        }
+        let mut spawned: Vec<ObjectId> = Vec::new();
+        if !transport.is_empty() {
+            if let Some(id) = self.host_script_create_object(
+                None,
+                &transport,
+                team_name,
+                origin.x,
+                origin.z,
+                origin.y,
+                0.0,
+            ) {
+                spawned.push(id);
+            }
+        }
+        let mut slot = 0i32;
+        for (thing, count) in units {
+            for _ in 0..count {
+                let offset = slot as f32 * 5.0;
+                if let Some(id) = self.host_script_create_object(
+                    None,
+                    &thing,
+                    team_name,
+                    origin.x + offset,
+                    origin.z,
+                    origin.y,
+                    0.0,
+                ) {
+                    spawned.push(id);
+                }
+                slot += 1;
+            }
+        }
+        if (origin - dest).length_squared() > 1.0 {
+            for id in spawned {
+                let _ = self.unit_command_move_to(id, dest);
+            }
+        }
+    }
+
+
+    fn host_script_team_member_ids(&self, team_name: &str) -> Vec<ObjectId> {
+        let needle = team_name.trim();
+        if needle.is_empty() {
+            return Vec::new();
+        }
+        let faction = Self::resolve_host_team_name(team_name);
+        self.objects
+            .values()
+            .filter(|obj| {
+                obj.is_alive()
+                    && !obj.status.destroyed
+                    && (faction.map(|t| obj.team == t).unwrap_or(false)
+                        || (!obj.team_instance_name.is_empty()
+                            && obj.team_instance_name.eq_ignore_ascii_case(needle))
+                        || obj.team.get_name().eq_ignore_ascii_case(needle))
+            })
+            .map(|obj| obj.id)
+            .collect()
+    }
+
+    fn host_script_waypoint_position(&self, waypoint_name: &str) -> Option<glam::Vec3> {
+        let name = gamelogic::common::AsciiString::from(waypoint_name);
+        let loc = gamelogic::terrain::get_terrain_logic()
+            .read()
+            .ok()
+            .and_then(|terrain| {
+                terrain
+                    .get_waypoint_by_name(&name)
+                    .map(|wp| *wp.get_location())
+            })?;
+        let mut pos = glam::Vec3::new(loc.x, loc.z, loc.y);
+        if let Some(h) = self.terrain_height_at(glam::Vec3::new(pos.x, 0.0, pos.z)) {
+            pos.y = h;
+        }
+        Some(pos)
+    }
+
+    fn host_script_area_center(&self, area_name: &str) -> Option<glam::Vec3> {
+        if let Ok(terrain) = gamelogic::terrain::get_terrain_logic().read() {
+            if let Some(trigger) = terrain.get_trigger_area_by_name(area_name) {
+                let c = trigger.get_center_point();
+                let mut pos = glam::Vec3::new(c.x, c.z, c.y);
+                if let Some(h) = self.terrain_height_at(glam::Vec3::new(pos.x, 0.0, pos.z)) {
+                    pos.y = h;
+                }
+                return Some(pos);
+            }
+        }
+        for (name, (min_x, min_z, max_x, max_z)) in
+            gamelogic::scripting::engine::get_area_tracker().all_area_aabbs()
+        {
+            if name.eq_ignore_ascii_case(area_name) {
+                let mut pos = glam::Vec3::new((min_x + max_x) * 0.5, 0.0, (min_z + max_z) * 0.5);
+                if let Some(h) = self.terrain_height_at(pos) {
+                    pos.y = h;
+                }
+                return Some(pos);
+            }
+        }
+        None
+    }
+
+    fn host_script_nearest_team_victim(
+        &self,
+        from: ObjectId,
+        victim_team: &str,
+    ) -> Option<ObjectId> {
+        let origin = self.objects.get(&from)?.get_position();
+        self.host_script_team_member_ids(victim_team)
+            .into_iter()
+            .filter(|&id| id != from)
+            .filter_map(|id| {
+                self.objects
+                    .get(&id)
+                    .map(|obj| (id, origin.distance(obj.get_position())))
+            })
+            .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(id, _)| id)
+    }
+
+    fn host_script_attack_team(&mut self, unit_id: ObjectId, victim_team: &str) {
+        if let Some(team) = Self::resolve_host_team_name(victim_team) {
+            if team != crate::game_logic::Team::Neutral {
+                if let Some(unit) = self.objects.get_mut(&unit_id) {
+                    unit.set_max_shots_to_fire(-1);
+                    unit.auto_acquire_when_idle = true;
+                    unit.attack_priority_set =
+                        Some(format!("AIGroup.AttackTeam.{}", team.get_name()));
+                }
+            }
+        }
+        if let Some(vid) = self.host_script_nearest_team_victim(unit_id, victim_team) {
+            let _ = self.unit_command_attack_soft(unit_id, vid);
+            if let Some(team) = Self::resolve_host_team_name(victim_team) {
+                if team != crate::game_logic::Team::Neutral {
+                    if let Some(unit) = self.objects.get_mut(&unit_id) {
+                        unit.set_max_shots_to_fire(-1);
+                        unit.auto_acquire_when_idle = true;
+                        unit.attack_priority_set =
+                            Some(format!("AIGroup.AttackTeam.{}", team.get_name()));
+                    }
+                }
+            }
+        }
+    }
+
+    fn host_script_attack_area(&mut self, unit_id: ObjectId, area_name: &str) {
+        let tag = format!("AIGroup.AttackArea.poly:{area_name}");
+        let center = self.host_script_area_center(area_name);
+        if let Some(unit) = self.objects.get_mut(&unit_id) {
+            unit.auto_acquire_when_idle = true;
+            unit.attack_priority_set = Some(tag.clone());
+        }
+        let victim = self.find_attack_area_victim(
+            unit_id,
+            center.unwrap_or(glam::Vec3::ZERO),
+            1.0,
+            Some(area_name),
+        );
+        if let Some(vid) = victim {
+            let _ = self.unit_command_attack(unit_id, vid);
+            if let Some(unit) = self.objects.get_mut(&unit_id) {
+                unit.auto_acquire_when_idle = true;
+                unit.attack_priority_set = Some(tag);
+            }
+        } else if let Some(dest) = center {
+            let _ = self.unit_command_attack_move_to(unit_id, dest);
+            if let Some(unit) = self.objects.get_mut(&unit_id) {
+                unit.attack_priority_set = Some(tag);
+            }
+        }
+    }
+
+
     pub(in super::super) fn evaluate_and_execute_scripts(&mut self, dt: f32) {
         if !self.scripts_loaded {
             return;
@@ -494,6 +863,9 @@ impl GameLogic {
         }
         self.apply_host_skirmish_script_requests();
         self.apply_host_loco_set_script_requests();
+        self.apply_host_move_attack_script_requests();
+        self.apply_host_create_script_requests();
+        self.apply_host_team_attitude_script_requests();
 
 
 
@@ -913,6 +1285,19 @@ impl GameLogic {
             .copied()
         {
             self.cinematic_letterbox = last;
+            // C++ ScriptActions::doLetterBoxMode HideControlBar(TRUE)/ShowControlBar(FALSE).
+            #[cfg(feature = "game_client")]
+            {
+                if last {
+                    let _ = game_client::gui::callbacks::control_bar_callbacks::hide_control_bar(
+                        true,
+                    );
+                } else {
+                    let _ = game_client::gui::callbacks::control_bar_callbacks::show_control_bar(
+                        false,
+                    );
+                }
+            }
         }
 
         if let Some((text, _font, duration_seconds)) = self

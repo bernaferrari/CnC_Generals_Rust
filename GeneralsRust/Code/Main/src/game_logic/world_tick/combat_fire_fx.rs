@@ -142,17 +142,24 @@ impl GameLogic {
         );
     }
 
-    /// C++ ActiveBody::setAflame → AutoAflameParticleSystem attach.
+    /// C++ ActiveBody::setAflame → updateBodyParticleSystems (AFLAME prefix).
     pub(crate) fn spawn_auto_aflame_particles(&mut self, object_id: ObjectId, pos: Vec3) {
-        use crate::game_logic::host_fire_spread::AUTO_AFLAME_PARTICLE;
-        let _ = self.combat_particles.spawn_weapon_fire_fx_named(
-            pos,
-            None,
-            self.frame,
-            object_id,
-            None,
-            AUTO_AFLAME_PARTICLE,
-            "",
+        let (ordinal, model, scale, yaw) = {
+            let Some(obj) = self.objects.get(&object_id) else {
+                return;
+            };
+            (
+                obj.body_damage_state.ordinal(),
+                obj.thing.template.get_model_name().to_string(),
+                obj.thing.template.asset_scale,
+                obj.get_orientation(),
+            )
+        };
+        let pose = crate::game_logic::combat_particles::BodyAutoParticlePose::new(
+            &model, scale, yaw,
+        );
+        self.combat_particles.replace_body_auto_particles(
+            object_id, pos, self.frame, ordinal, true, pose,
         );
     }
 
@@ -166,9 +173,15 @@ impl GameLogic {
             obj.model_condition_bits,
         );
         let pos = obj.get_position();
+        let model = obj.thing.template.get_model_name().to_string();
+        let scale = obj.thing.template.asset_scale;
+        let yaw = obj.get_orientation();
         let frame = self.frame;
+        let pose = crate::game_logic::combat_particles::BodyAutoParticlePose::new(
+            &model, scale, yaw,
+        );
         self.combat_particles
-            .sync_particle_sys_bones(frame, object_id, pos, &bones);
+            .sync_particle_sys_bones(frame, object_id, pos, &bones, pose);
     }
 
     /// Keep ParticleSysBone and damaged-body fire/smoke attached to live objects.
@@ -195,23 +208,23 @@ impl GameLogic {
         for (id, pos, template, model, scale, yaw, bits, ordinal, aflame) in snapshots {
             let bones =
                 crate::game_logic::combat_particles::particle_sys_bones_for_template(&template, bits);
-            self.combat_particles
-                .sync_particle_sys_bones(frame, id, pos, &bones);
-            let wants_body = ordinal > 0 || aflame;
-            let has_body = self.combat_particles.has_body_particles(id);
             let pose = crate::game_logic::combat_particles::BodyAutoParticlePose::new(
                 &model, scale, yaw,
             );
+            self.combat_particles
+                .sync_particle_sys_bones(frame, id, pos, &bones, pose);
+            let wants_body = ordinal > 0 || aflame;
+            let has_body = self.combat_particles.has_body_particles(id);
             if wants_body && !has_body {
                 self.combat_particles.replace_body_auto_particles(
                     id, pos, frame, ordinal, aflame, pose,
                 );
-            } else if wants_body {
-                self.combat_particles.follow_attached_body_particles(id, pos);
-            } else if has_body {
+            } else if !wants_body && has_body {
                 self.combat_particles
                     .replace_body_auto_particles(id, pos, frame, 0, false, pose);
             }
+            self.combat_particles
+                .follow_attached_body_particles(id, pos, yaw);
         }
     }
 }

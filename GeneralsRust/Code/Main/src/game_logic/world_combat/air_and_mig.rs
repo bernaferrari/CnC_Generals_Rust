@@ -1375,8 +1375,8 @@ impl GameLogic {
     /// Refresh Battlemaster weapon residual from current uranium / horde / nationalism flags.
     pub(crate) fn refresh_battlemaster_weapon(&mut self, object_id: ObjectId) {
         use crate::game_logic::host_battlemaster::{
-            battlemaster_weapon, has_nationalism_upgrade, has_uranium_shells_upgrade,
-            is_battlemaster_template,
+            battlemaster_weapon, has_fanaticism_upgrade, has_nationalism_upgrade,
+            has_uranium_shells_upgrade, is_battlemaster_template, leftover_horde_fanaticism_bonus,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return;
@@ -1388,18 +1388,23 @@ impl GameLogic {
         let nationalism = has_nationalism_upgrade(&obj.applied_upgrades);
         let in_horde = obj.weapon_bonus_horde;
         // C++ evaluateMoraleBonus: nationalism from upgrade; AllowedNationalism
-        // vetoes only while in horde (default TRUE).
+        // vetoes only while in horde (default TRUE). Fanaticism nests inside.
         let nationalism_active = super::tanks_and_upgrades::nationalism_bonus_from_upgrade(
             nationalism,
             in_horde,
             super::tanks_and_upgrades::HORDE_DEFAULT_ALLOWED_NATIONALISM,
         );
         obj.weapon_bonus_nationalism = nationalism_active;
+        obj.weapon_bonus_fanaticism = leftover_horde_fanaticism_bonus(
+            nationalism_active,
+            has_fanaticism_upgrade(&obj.applied_upgrades),
+        );
         obj.record_host_weapon_bonus();
         let last_fire = obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
         let mut w = battlemaster_weapon(uranium, in_horde, nationalism_active);
         w.last_fire_time = last_fire;
         obj.weapon = Some(w);
+
     }
 
     /// Apply Uranium Shells residual (PLAYER_UPGRADE DAMAGE 125%) to a Battlemaster.
@@ -1445,10 +1450,12 @@ impl GameLogic {
         use crate::game_logic::host_battlemaster::{
             counts_toward_battlemaster_horde, evaluate_leftover_horde_blob_scan,
             is_battlemaster_template, is_china_vehicle_horde_unit,
-            leftover_horde_bounding_sphere_radius, same_vehicle_horde_family,
-            BATTLE_MASTER_HORDE_COUNT, BATTLE_MASTER_HORDE_RADIUS,
-            BATTLE_MASTER_HORDE_RUB_OFF_RADIUS, LeftoverHordeScanUnit,
+            leftover_horde_bounding_sphere_radius, leftover_horde_draw_icon_ui,
+            leftover_horde_take_wake, same_vehicle_horde_family, BATTLE_MASTER_HORDE_COUNT,
+            BATTLE_MASTER_HORDE_RADIUS, BATTLE_MASTER_HORDE_RUB_OFF_RADIUS,
+            BATTLE_MASTER_HORDE_UPDATE_FRAMES, LeftoverHordeScanUnit,
         };
+
 
         let snapshot: Vec<(ObjectId, Team, Option<u32>, LeftoverHordeScanUnit, String)> = self
             .objects
@@ -1504,22 +1511,39 @@ impl GameLogic {
 
         let mut grants = 0u32;
         let mut to_refresh: Vec<ObjectId> = Vec::new();
+        let draw_icon = leftover_horde_draw_icon_ui();
+        let frame = self.frame;
 
         for (idx, (id, _team, _owner, _scan, name)) in snapshot.iter().enumerate() {
-            let now_horde = membership[idx].in_horde;
+            let scanned = membership[idx].in_horde;
             if let Some(obj) = self.objects.get_mut(id) {
+                let (due, init, last, next) = leftover_horde_take_wake(
+                    obj.horde_wake_initialized,
+                    false,
+                    frame,
+                    obj.last_horde_refresh_frame,
+                    obj.horde_next_wake_frame,
+                    BATTLE_MASTER_HORDE_UPDATE_FRAMES,
+                );
+                obj.horde_wake_initialized = init;
+                obj.last_horde_refresh_frame = last;
+                obj.horde_next_wake_frame = next;
                 let was = obj.weapon_bonus_horde;
-                obj.weapon_bonus_horde = now_horde;
-                obj.record_host_weapon_bonus();
-                obj.apply_horde_terrain_decal(was, now_horde, true);
-                if now_horde && !was {
-                    grants = grants.saturating_add(1);
+                let now_horde = if due { scanned } else { was };
+                if due {
+                    obj.weapon_bonus_horde = now_horde;
+                    obj.record_host_weapon_bonus();
+                    if now_horde && !was {
+                        grants = grants.saturating_add(1);
+                    }
+                    if is_battlemaster_template(name) && (now_horde != was || now_horde) {
+                        to_refresh.push(*id);
+                    }
                 }
-                if is_battlemaster_template(name) && (now_horde != was || now_horde) {
-                    to_refresh.push(*id);
-                }
+                obj.apply_horde_terrain_decal(was, now_horde, draw_icon);
             }
         }
+
 
         self.battlemaster_residual_horde_grants = self
             .battlemaster_residual_horde_grants

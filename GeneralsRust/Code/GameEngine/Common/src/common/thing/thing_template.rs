@@ -1752,6 +1752,15 @@ impl ThingTemplate {
     pub fn get_template_geometry_info(&self) -> &GeometryInfo {
         &self.geometry_info
     }
+    /// C++ `ThingTemplate::getShadowSizeX`.
+    pub fn get_shadow_size_x(&self) -> Real {
+        self.shadow_size_x
+    }
+    /// C++ `ThingTemplate::getShadowSizeY`.
+    pub fn get_shadow_size_y(&self) -> Real {
+        self.shadow_size_y
+    }
+
     pub fn calc_vision_range(&self) -> Real {
         // C++ ThingTemplate.h:405 friend_calcVisionRange — raw field, no geometry fallback.
         self.vision_range

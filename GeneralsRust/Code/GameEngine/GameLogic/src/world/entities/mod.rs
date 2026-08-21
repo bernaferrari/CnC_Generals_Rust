@@ -1350,6 +1350,11 @@ pub struct Entity {
     pub weapon_bonus_subliminal: bool,
     pub weapon_bonus_horde: bool,
     pub weapon_bonus_nationalism: bool,
+    pub weapon_bonus_fanaticism: bool,
+    pub last_horde_refresh_frame: u32,
+    pub horde_next_wake_frame: u32,
+    pub horde_wake_initialized: bool,
+
     pub weapon_bonus_frenzy: bool,
     pub weapon_bonus_frenzy_level: u8,
     pub weapon_bonus_battle_plan_bombardment: bool,
@@ -2284,6 +2289,11 @@ impl EntityStore {
             weapon_bonus_subliminal: false,
             weapon_bonus_horde: false,
             weapon_bonus_nationalism: false,
+            weapon_bonus_fanaticism: false,
+            last_horde_refresh_frame: 0,
+            horde_next_wake_frame: 0,
+            horde_wake_initialized: false,
+
             weapon_bonus_frenzy: false,
             weapon_bonus_frenzy_level: 0,
             weapon_bonus_battle_plan_bombardment: false,

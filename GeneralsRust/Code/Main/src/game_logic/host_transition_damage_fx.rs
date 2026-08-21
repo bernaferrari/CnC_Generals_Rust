@@ -404,6 +404,7 @@ thread_local! {
     static PENDING_ATTACKED_BY: RefCell<Vec<(u32, ObjectId)>> = const { RefCell::new(Vec::new()) };
     static ATTACKED_BY_LOG: RefCell<Vec<(i32, i32)>> = const { RefCell::new(Vec::new()) };
     static VOICE_FEAR_ROLL: Cell<Option<i32>> = const { Cell::new(None) };
+    static DAMAGE_FX_SOURCE: RefCell<Option<HostDamageFxVictim>> = const { RefCell::new(None) };
 }
 
 fn nonempty_event_name(event: &game_engine::common::audio::AudioEventRts) -> Option<String> {
@@ -540,10 +541,42 @@ fn host_to_ini_damage_type(
     }
 }
 
-struct HostDamageFxVictim {
-    name: String,
-    id: u32,
-    vet: usize,
+/// C++ DamageFX source/victim snapshot (`getVeterancyLevel` for throttle/list).
+#[derive(Debug, Clone)]
+pub struct HostDamageFxVictim {
+    pub name: String,
+    pub id: u32,
+    pub vet: usize,
+}
+
+/// C++ `source ? source->getVeterancyLevel() : LEVEL_REGULAR` (Rookie = 0).
+pub fn veterancy_to_damage_fx_level(level: crate::game_logic::VeterancyLevel) -> usize {
+    match level {
+        crate::game_logic::VeterancyLevel::Rookie => 0,
+        crate::game_logic::VeterancyLevel::Veteran => 1,
+        crate::game_logic::VeterancyLevel::Elite => 2,
+        crate::game_logic::VeterancyLevel::Heroic => 3,
+    }
+}
+
+pub fn snapshot_damage_fx_source(obj: &crate::game_logic::Object) -> HostDamageFxVictim {
+    HostDamageFxVictim {
+        name: obj.template_name.clone(),
+        id: obj.id.0,
+        vet: veterancy_to_damage_fx_level(obj.experience.level),
+    }
+}
+
+pub fn set_damage_fx_source(source: Option<HostDamageFxVictim>) {
+    DAMAGE_FX_SOURCE.with(|c| *c.borrow_mut() = source);
+}
+
+pub fn peek_damage_fx_source() -> Option<HostDamageFxVictim> {
+    DAMAGE_FX_SOURCE.with(|c| c.borrow().clone())
+}
+
+pub fn clear_damage_fx_source() {
+    DAMAGE_FX_SOURCE.with(|c| *c.borrow_mut() = None);
 }
 
 impl game_engine::common::ini::ini_damage_fx::Object for HostDamageFxVictim {
@@ -577,23 +610,21 @@ pub fn dispatch_armor_damage_fx(
     }
     game_engine::common::ini::ini_damage_fx::init_global_damage_fx_store();
     let ini_dt = host_to_ini_damage_type(damage_type);
-    let vet = match obj.experience.level {
-        crate::game_logic::VeterancyLevel::Rookie => 0,
-        crate::game_logic::VeterancyLevel::Veteran => 1,
-        crate::game_logic::VeterancyLevel::Elite => 2,
-        crate::game_logic::VeterancyLevel::Heroic => 3,
-    };
     let victim = HostDamageFxVictim {
         name: obj.template_name.clone(),
         id: obj.id.0,
-        vet,
+        vet: veterancy_to_damage_fx_level(obj.experience.level),
     };
+    // C++ DamageFX.cpp:61-93 — throttle + major/minor list use SOURCE veterancy.
+    // Missing source → LEVEL_REGULAR. Victim stays primary FX object.
+    let source = peek_damage_fx_source();
+    let source_ref = source.as_ref().map(|s| s as &dyn game_engine::common::ini::ini_damage_fx::Object);
     let (list_name, throttle) = {
         let store = game_engine::common::ini::ini_damage_fx::get_damage_fx_store()?;
         let dfx = store.find_damage_fx(&dfx_name)?;
-        let throttle = dfx.get_damage_fx_throttle_time(ini_dt, Some(&victim));
-        let list = dfx.get_damage_fx_list(ini_dt, actual_damage, Some(&victim));
-        dfx.do_damage_fx(ini_dt, actual_damage, None, Some(&victim));
+        let throttle = dfx.get_damage_fx_throttle_time(ini_dt, source_ref);
+        let list = dfx.get_damage_fx_list(ini_dt, actual_damage, source_ref);
+        dfx.do_damage_fx(ini_dt, actual_damage, source_ref, Some(&victim));
         (list, throttle)
     };
     obj.last_damage_fx_done = Some(damage_type);
@@ -601,11 +632,8 @@ pub fn dispatch_armor_damage_fx(
     DISPATCHED_ARMOR_DAMAGE_FX.with(|v| v.borrow_mut().push(dfx_name.clone()));
     if let Some(list) = &list_name {
         DISPATCHED_ARMOR_DAMAGE_FX.with(|v| v.borrow_mut().push(list.clone()));
-        let pos = obj.get_position();
-        let _ = crate::game_logic::dispatch_fx_list_at_pos(list, pos);
-        if let Some(fx) = gamelogic::helpers::TheFXList::get() {
-            fx.do_fx_at_position(list, &pos);
-        }
+        let source_id = source.as_ref().map(|s| s.id);
+        let _ = crate::game_logic::dispatch_fx_list_at_object(list, obj.id.0, source_id);
     }
     list_name.or(Some(dfx_name))
 }

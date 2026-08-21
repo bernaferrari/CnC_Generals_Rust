@@ -858,6 +858,43 @@ impl GameLogic {
         &self.skirmish_rules
     }
 
+    /// C++ `GameLogic::xfer` v10 `m_superweaponRestriction` live cap.
+    pub fn set_limit_superweapons(&mut self, limited: bool) {
+        self.skirmish_rules.limit_superweapons = limited;
+    }
+
+
+    /// Replace the live CaveSystem from a world snapshot tail.
+    pub fn restore_cave_system(
+        &mut self,
+        system: crate::game_logic::HostCaveSystem,
+    ) {
+        self.cave_system = system;
+    }
+
+    /// Mutable CaveSystem for snapshot tests / restore helpers.
+    pub fn cave_system_residual_mut(
+        &mut self,
+    ) -> &mut crate::game_logic::HostCaveSystem {
+        &mut self.cave_system
+    }
+
+    /// Replace the live per-player TunnelTracker pool from a snapshot tail.
+    pub fn restore_tunnel_network(
+        &mut self,
+        network: crate::game_logic::HostTunnelNetworkRegistry,
+    ) {
+        self.tunnel_network = network;
+    }
+
+    /// Mutable tunnel pool for snapshot tests.
+    pub fn tunnel_network_residual_mut(
+        &mut self,
+    ) -> &mut crate::game_logic::HostTunnelNetworkRegistry {
+        &mut self.tunnel_network
+    }
+
+
     pub fn world_dimensions(&self) -> (f32, f32) {
         (self.world_width, self.world_height)
     }

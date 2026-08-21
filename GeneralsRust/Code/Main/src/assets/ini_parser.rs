@@ -11,6 +11,32 @@ use anyhow::Result;
 use log::{debug, trace};
 use std::collections::HashMap;
 
+/// C++ `INI::parseAndTranslateLabel` (`TheGameText->fetch`).
+///
+/// Missing GameText entries fall through to leftover `INI::translate_label`
+/// (Language table, then the raw key) so parse-before-CSF still stores a
+/// retrievable label instead of `MISSING: 'OBJECT:…'`.
+pub fn translate_object_display_name(label: &str) -> String {
+    let trimmed = label.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    #[cfg(feature = "game_client")]
+    {
+        let (text, exists) = game_client::game_text::GameText::fetch_with_exists(trimmed);
+        if exists {
+            return text;
+        }
+    }
+
+    match game_engine::common::ini::INI::translate_label(trimmed) {
+        Ok(translated) if !translated.is_empty() => translated,
+        _ => trimmed.to_string(),
+    }
+}
+
+
 /// The source-authored model payload of one `W3D*Draw` condition state.
 ///
 /// `None` in an Object INI is distinct from a state which did not provide a
@@ -1421,7 +1447,9 @@ impl IniParser {
 
                     match lower_key.as_str() {
                         "type" => obj.object_type = value.to_string(),
-                        "displayname" => obj.display_name = value.to_string(),
+                        "displayname" => {
+                            obj.display_name = translate_object_display_name(value);
+                        }
                         "model" | "modelname" | "w3dmodel" => {
                             Self::assign_model_name(obj, value);
                             Self::assign_draw_condition_model(
@@ -2450,6 +2478,27 @@ End
         assert_eq!(def.model_name, Some("USA_INFANTRY_RANGER.w3d".to_string()));
         assert_eq!(def.hit_points, Some(60.0));
     }
+
+    #[test]
+    fn display_name_label_is_translated_via_game_text() {
+        game_engine::common::language::Language::register_localized_string(
+            "OBJECT:AmericaRanger",
+            "Ranger",
+        );
+        let ini_content = r#"
+Object AmericaInfantryRanger
+  DisplayName = OBJECT:AmericaRanger
+End
+"#;
+        let mut parser = IniParser::new();
+        parser
+            .parse_ini_content(ini_content, "display_name.ini")
+            .expect("parse");
+        let def = parser.get_definition("AmericaInfantryRanger").unwrap();
+        assert_eq!(def.display_name, "Ranger");
+        game_engine::common::language::Language::clear_localized_strings();
+    }
+
 
     #[test]
     fn test_parse_multiple_objects() {

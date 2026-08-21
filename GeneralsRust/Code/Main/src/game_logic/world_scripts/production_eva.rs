@@ -495,22 +495,40 @@ impl GameLogic {
     pub(in super::super) fn queue_script_radar_event(&mut self, event: RadarScriptEventRequest) {
         let position = event.position;
         match event.event_type {
-            1 => self.queue_radar_message_at(
-                "Construction event",
-                position,
-                radar_notifications::RadarKind::Generic,
-            ),
-            2 => self.queue_radar_message_at(
-                "Upgrade event",
-                position,
-                radar_notifications::RadarKind::Generic,
-            ),
+            1 => {
+                self.queue_radar_message_at(
+                    "Construction event",
+                    position,
+                    radar_notifications::RadarKind::Generic,
+                );
+                crate::game_logic::host_radar::host_create_radar_event(
+                    position,
+                    game_engine::common::system::radar::RadarEventType::Construction,
+                );
+            }
+            2 => {
+                self.queue_radar_message_at(
+                    "Upgrade event",
+                    position,
+                    radar_notifications::RadarKind::Generic,
+                );
+                crate::game_logic::host_radar::host_create_radar_event(
+                    position,
+                    game_engine::common::system::radar::RadarEventType::Upgrade,
+                );
+            }
             3 => self.queue_radar_attack_at("Under attack", position),
-            4 => self.queue_radar_message_at(
-                "Radar event",
-                position,
-                radar_notifications::RadarKind::Generic,
-            ),
+            4 => {
+                self.queue_radar_message_at(
+                    "Radar event",
+                    position,
+                    radar_notifications::RadarKind::Generic,
+                );
+                crate::game_logic::host_radar::host_create_radar_event(
+                    position,
+                    game_engine::common::system::radar::RadarEventType::Information,
+                );
+            }
             5 => self.queue_radar_message_at(
                 "Beacon pulse",
                 position,
@@ -521,11 +539,17 @@ impl GameLogic {
                 position,
                 radar_notifications::RadarKind::Attack,
             ),
-            7 => self.queue_radar_message_at(
-                "Battle plan event",
-                position,
-                radar_notifications::RadarKind::Ally,
-            ),
+            7 => {
+                self.queue_radar_message_at(
+                    "Battle plan event",
+                    position,
+                    radar_notifications::RadarKind::Ally,
+                );
+                crate::game_logic::host_radar::host_create_radar_event(
+                    position,
+                    game_engine::common::system::radar::RadarEventType::BattlePlan,
+                );
+            }
             8 => self.queue_radar_message_at(
                 "Stealth discovered",
                 position,
@@ -1299,6 +1323,10 @@ impl GameLogic {
             &format!("Construction complete: {name}"),
         );
         self.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Generic);
+        crate::game_logic::host_radar::host_create_radar_event(
+            pos,
+            game_engine::common::system::radar::RadarEventType::Construction,
+        );
         self.radar_construction_events = self.radar_construction_events.saturating_add(1);
         // Prefer nearby same-team dozer VoiceTaskComplete residual.
         let dozer_id = self
@@ -1637,11 +1665,37 @@ impl GameLogic {
             // it here would incorrectly turn that 0% case into an exhaustion
             // branch and retract rods before the death path owns the object.
             if below_threshold {
+                let (pos, local) = self
+                    .objects
+                    .get(&id)
+                    .map(|obj| {
+                        let local = obj
+                            .owner_player_id
+                            .and_then(|pid| self.players.get(&pid))
+                            .is_some_and(|p| p.is_local && p.is_alive);
+                        (obj.get_position(), local)
+                    })
+                    .unwrap_or((glam::Vec3::ZERO, false));
                 let _ = self.disable_overcharge_object(id, energy_bonus, has_power_plant_update);
                 // C++ posts OverchargeExhausted only through the authored
                 // threshold branch.  Destruction itself is cleaned up by
                 // onDelete and is not an exhaustion message at the 0% default.
                 self.overcharge_exhaustions = self.overcharge_exhaustions.saturating_add(1);
+                if local {
+                    let msg = localization::localize(
+                        "GUI:OverchargeExhausted",
+                        "Overcharge exhausted",
+                    );
+                    self.queue_radar_message_at(
+                        msg,
+                        pos,
+                        radar_notifications::RadarKind::Generic,
+                    );
+                    crate::game_logic::host_radar::host_create_radar_event(
+                        pos,
+                        game_engine::common::system::radar::RadarEventType::Information,
+                    );
+                }
             }
             if dead {
                 self.mark_object_for_destruction(id, None);

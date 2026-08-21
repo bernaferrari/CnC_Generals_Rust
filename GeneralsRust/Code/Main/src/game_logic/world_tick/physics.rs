@@ -346,17 +346,20 @@ impl GameLogic {
         if !allow_force {
             return true; // AI handled / no force
         }
-        // Panic bounce residual: small separation impulse on XZ.
+        // C++ PhysicsUpdate.cpp:1386-1398: overlap capped at 5, force = -overlap * delta/dist.
         if let Some(a) = self.objects.get_mut(&a_id) {
-            let us = a.get_position();
-            let them = b_snap.get_position();
-            let mut dx = us.x - them.x;
-            let mut dz = us.z - them.z;
-            let len = (dx * dx + dz * dz).sqrt().max(1.0);
-            dx /= len;
-            dz /= len;
-            a.movement.velocity.x += dx * 0.5;
-            a.movement.velocity.z += dz * 0.5;
+            if a.allow_collide_force {
+                let us = a.get_position();
+                let them = b_snap.get_position();
+                let dx = us.x - them.x;
+                let dz = us.z - them.z;
+                let dist = (dx * dx + dz * dz).sqrt();
+                let them_r = b_snap.selection_radius.max(1.0);
+                let overlap = (us_radius + them_r) - dist;
+                if overlap > 0.0 {
+                    a.apply_overlap_collide_force(them, overlap);
+                }
+            }
         }
         true
     }
@@ -506,9 +509,8 @@ impl GameLogic {
                 m.apply_parachute_building_bounce_out(imm_center, us_radius);
                 return true;
             }
-            if m.status.destroyed {
-                return false;
-            }
+            // Live destroyed ≈ C++ effectivelyDead hulks still in the world;
+            // they still stiffness-bounce. C++ isDestroyed() is remove-from-world.
             let _ = m.apply_structure_stiffness_bounce(
                 imm_center,
                 PHYSICS_STRUCTURE_STIFFNESS_DEFAULT_RESIDUAL,

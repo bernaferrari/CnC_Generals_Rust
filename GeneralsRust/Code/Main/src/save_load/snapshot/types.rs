@@ -46,11 +46,12 @@ use std::time::SystemTime;
 /// records stay aligned with v1-v13 streams. Version 15 appends C++
 /// `Energy::xfer` v3 `m_powerSabotagedTillFrame` as a world tail so nested
 /// `PlayerSnapshot` records stay aligned with v1-v14 streams. Version 16
-/// appends C++ `Object::xfer` trigger-area housekeeping (`m_iPos`,
-/// `m_enteredOrExitedFrame`, per-area entered/exited/isInside + area id/name)
-/// as a world tail so nested `ObjectSnapshot` / `object_persist` records stay
-/// aligned with v1-v15 streams.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 16;
+/// `ObjectSnapshot` / `object_persist` records stay aligned with v1-v15 streams.
+/// Version 17 appends C++ `GameLogic::xfer` scoring + superweapon restriction,
+/// `CaveSystem` / player `TunnelTracker` communal pools, and airfield /
+/// FlightDeck stall occupancy as a world tail so nested records stay aligned
+/// with v1-v16 streams.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 17;
 
 /// Direct Common Xfer keeps an independent positional envelope from bincode.
 ///
@@ -58,7 +59,7 @@ pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 16;
 /// and object records.  Do not derive object-tail gates from the bincode
 /// version: a historical direct v3 stream still contains HDB even once the
 /// bincode writer has advanced to v4.
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 16;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 17;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_HDB_VERSION: u32 = 3;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V4_TAIL_VERSION: u32 = 4;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V5_TAIL_VERSION: u32 = 5;
@@ -73,6 +74,7 @@ pub const WORLD_SNAPSHOT_DIRECT_XFER_V13_TAIL_VERSION: u32 = 13;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V14_TAIL_VERSION: u32 = 14;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V15_TAIL_VERSION: u32 = 15;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V16_TAIL_VERSION: u32 = 16;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_V17_TAIL_VERSION: u32 = 17;
 
 /// Reject unknown direct-Xfer outer layouts before consuming any body bytes.
 /// Known historical writers are accepted so focused fixtures can verify their
@@ -82,7 +84,7 @@ pub(crate) fn validate_direct_world_snapshot_version(version: u32) -> SaveLoadRe
         // Keep these arms deliberately explicit. Advancing the current writer
         // must not accidentally make a future positional body acceptable
         // before its object/world gates and exact predecessor fixtures exist.
-        1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 => Ok(()),
+        1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 => Ok(()),
         actual => Err(crate::save_load::SaveLoadError::VersionMismatch {
             expected: WORLD_SNAPSHOT_DIRECT_XFER_VERSION,
             actual,
@@ -223,6 +225,28 @@ pub struct WorldSnapshot {
     /// World tail so nested `ObjectSnapshot` / `object_persist` stay aligned.
     #[serde(default)]
     pub object_triggers: Vec<ObjectTriggerPersistSnapshot>,
+
+    /// C++ `GameLogic::xfer` v2 `m_isScoringEnabled`. Default true matches
+    /// leftover `impl_init` so pre-v17 loads keep awarding score.
+    #[serde(default = "default_scoring_enabled")]
+    pub is_scoring_enabled: bool,
+
+    /// C++ `GameLogic::xfer` v10 `m_superweaponRestriction` as the live
+    /// Limit Superweapons cap (`skirmish_rules.limit_superweapons`).
+    #[serde(default)]
+    pub limit_superweapons: bool,
+
+    /// C++ `CaveSystem::xfer` v1 shared CaveIndex TunnelTracker pool.
+    #[serde(default)]
+    pub cave_system: crate::game_logic::HostCaveSystem,
+
+    /// C++ `Player::m_tunnelSystem` TunnelTracker communal pool.
+    #[serde(default)]
+    pub tunnel_network: crate::game_logic::HostTunnelNetworkRegistry,
+
+    /// C++ `ParkingPlaceBehavior::xfer` / `FlightDeckBehavior::xfer` stalls.
+    #[serde(default)]
+    pub airfield_parking: AirfieldParkingWorldSnapshot,
 }
 
 /// C++ `OverchargeBehavior::xfer` (`OverchargeBehavior.cpp:275-289`).
@@ -318,6 +342,79 @@ pub struct ObjectInstanceGuardSnapshot {
     pub guard_mode: GuardMode,
 }
 
+pub const fn default_scoring_enabled() -> bool {
+    true
+}
+
+/// One C++ `ParkingPlaceBehavior` stall (`m_spaces[i].m_objectInSpace`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct AirfieldParkingSpaceSnapshot {
+    pub object_id: Option<ObjectId>,
+    pub reserved_for_exit: bool,
+}
+
+/// Per-airfield hangar roster.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct AirfieldParkingFieldSnapshot {
+    pub airfield_id: ObjectId,
+    pub spaces: Vec<AirfieldParkingSpaceSnapshot>,
+}
+
+/// C++ `RunwayInfo::m_inUseBy` / `m_nextInLineForTakeoff`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct AirfieldRunwaySnapshot {
+    pub airfield_id: ObjectId,
+    pub occupants: Vec<Option<ObjectId>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct AirfieldRunwayWasInLineSnapshot {
+    pub airfield_id: ObjectId,
+    pub was_in_line: Vec<bool>,
+}
+
+/// C++ `Object` hangar index written by ParkingPlace / FlightDeck reserve.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct AirfieldJetStallSnapshot {
+    pub object_id: ObjectId,
+    pub space_index: Option<u32>,
+}
+
+/// C++ `FlightDeckBehavior` stall occupancy (poses rebuild after load).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct FlightDeckSpaceSnapshot {
+    pub object_id: Option<ObjectId>,
+    pub runway: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct FlightDeckRunwaySnapshot {
+    pub in_use_takeoff: Option<ObjectId>,
+    pub in_use_landing: Option<ObjectId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct FlightDeckPersistSnapshot {
+    pub carrier_id: ObjectId,
+    pub spaces: Vec<FlightDeckSpaceSnapshot>,
+    pub runways: Vec<FlightDeckRunwaySnapshot>,
+    pub got_info: bool,
+    pub designated_target: Option<ObjectId>,
+    pub designated_command: u8,
+    pub pending_replacement: bool,
+}
+
+/// C++ ParkingPlace / FlightDeck persist tail.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct AirfieldParkingWorldSnapshot {
+    pub fields: Vec<AirfieldParkingFieldSnapshot>,
+    pub runways: Vec<AirfieldRunwaySnapshot>,
+    pub next_in_line: Vec<AirfieldRunwaySnapshot>,
+    pub was_in_line: Vec<AirfieldRunwayWasInLineSnapshot>,
+    pub jet_stalls: Vec<AirfieldJetStallSnapshot>,
+    pub flight_decks: Vec<FlightDeckPersistSnapshot>,
+}
+
 
 pub const fn default_next_weapon_discharge_sequence() -> u64 {
     1
@@ -372,6 +469,11 @@ impl Default for WorldSnapshot {
             client_drawable_visuals: Vec::new(),
             player_energy: Vec::new(),
             object_triggers: Vec::new(),
+            is_scoring_enabled: true,
+            limit_superweapons: false,
+            cave_system: crate::game_logic::HostCaveSystem::new(),
+            tunnel_network: crate::game_logic::HostTunnelNetworkRegistry::new(),
+            airfield_parking: AirfieldParkingWorldSnapshot::default(),
         }
     }
 }

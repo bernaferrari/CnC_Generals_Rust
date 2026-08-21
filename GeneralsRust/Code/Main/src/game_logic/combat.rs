@@ -1739,6 +1739,11 @@ impl CombatSystem {
                 } => {
                     // C++ MissileAIUpdate `m_noDamage`: diverted decoy detonations deal no HP.
                     // Report/seek happens at launch + decoy-timer expiry, not impact.
+                    crate::game_logic::object::prime_live_damage_context(
+                        objects.get(shooter_id),
+                        None,
+                        *damage_type,
+                    );
                     if let Some(target) = objects.get_mut(target_id) {
                         let destroyed = target.take_damage_from_typed_death(
                             *damage,
@@ -1780,6 +1785,9 @@ impl CombatSystem {
                     //   else within max(primary, secondary) → secondaryDamage
                     // Primary victim skips RadiusDamageAffects (Weapon.cpp:1316-1375).
                     // No distance falloff of the amount; only ShockWave tapers.
+                    let splash_fx_source = objects.get(shooter_id).map(
+                        crate::game_logic::host_transition_damage_fx::snapshot_damage_fx_source,
+                    );
                     let primary_r = *radius;
                     let secondary_r = (*secondary_radius).max(0.0);
                     let dual = secondary_r > primary_r + 1e-3 && *secondary_damage > 0.0;
@@ -1837,6 +1845,9 @@ impl CombatSystem {
                                 0.0
                             };
                             if area_damage > 0.0 {
+                                crate::game_logic::host_transition_damage_fx::set_damage_fx_source(
+                                    splash_fx_source.clone(),
+                                );
                                 obj.take_damage_from_typed_death(
                                     area_damage,
                                     Some(*shooter_id),

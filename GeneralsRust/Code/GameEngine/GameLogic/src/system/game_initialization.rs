@@ -245,7 +245,40 @@ impl GameInitializer {
         game_state.game_mode = params.game_mode;
         game_state.is_initialized = true;
 
+        // C++ GameLogic.cpp:2222-2230 GAME_REPLAY setLocalPlayer(ReplayObserver).
+        if matches!(params.game_mode, GameMode::Replay) {
+            Self::apply_replay_observer_as_local_player();
+        }
+
         Ok(game_state)
+    }
+
+    fn apply_replay_observer_as_local_player() {
+        let observer = {
+            let Ok(list) = ThePlayerList().read() else {
+                return;
+            };
+            list.find_player_by_name("ReplayObserver")
+        };
+        let Some(observer) = observer else {
+            return;
+        };
+        let index = observer
+            .read()
+            .ok()
+            .map(|player| player.get_player_index());
+        let Some(index) = index else {
+            return;
+        };
+        if let Ok(mut list) = ThePlayerList().write() {
+            list.set_local_player_index(index);
+        }
+        if let Ok(mut radar) = game_engine::common::system::radar::get_radar_system().write() {
+            radar.force_on(true);
+        }
+        if let Ok(mut shroud) = crate::system::shroud_manager::get_shroud_manager().lock() {
+            shroud.refresh_shroud_for_local_player();
+        }
     }
 
     /// Phase 1: Load map from file

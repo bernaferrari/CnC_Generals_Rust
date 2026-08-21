@@ -29,7 +29,8 @@
 //! - RubOffRadius honorary membership (default **20**)
 //! - Terrain-decal type / fade-in-out
 //! - Infantry count only HordeUpdate infantry (Red Guard / Tank Hunter / MiniGunner)
-//! - Not full Fanaticism infantry-general nationalism branch
+//! - Fanaticism weapon-bonus nests under Nationalism (C++ evaluateMoraleBonus)
+
 //! - Not full WeaponSet tertiary auto-choose / pre-attack anim lock matrix
 //! - SCIENCE_RedGuardTraining VETERAN spawn residual closed in host_unit_training
 //! - Not network horde / nationalism replication (network deferred)

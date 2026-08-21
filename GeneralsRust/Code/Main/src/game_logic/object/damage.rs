@@ -3,6 +3,8 @@ use super::*;
 thread_local! {
     static HIVE_SHOOTER_XZ: std::cell::Cell<Option<(f32, f32)>> =
         const { std::cell::Cell::new(None) };
+    static PENDING_DAMAGE_STATUS: std::cell::Cell<Option<&'static str>> =
+        const { std::cell::Cell::new(None) };
 }
 
 /// C++ `getClosestSlave(shooter->pos)` context for live `Object::take_damage`.
@@ -12,6 +14,52 @@ pub fn set_hive_shooter_xz(xz: Option<(f32, f32)>) {
 
 fn take_hive_shooter_xz() -> Option<(f32, f32)> {
     HIVE_SHOOTER_XZ.with(|c| c.replace(None))
+}
+
+/// C++ `DamageInfo.in.m_damageStatusType` for the current `take_damage` apply.
+/// `None` / `"NONE"` → no status paint (Weapon.ini default OBJECT_STATUS_NONE).
+pub fn set_pending_damage_status_type(name: Option<&'static str>) {
+    PENDING_DAMAGE_STATUS.with(|c| c.set(name));
+}
+
+fn peek_pending_damage_status_type() -> Option<&'static str> {
+    PENDING_DAMAGE_STATUS.with(|c| c.get())
+}
+
+fn clear_pending_damage_status_type() {
+    PENDING_DAMAGE_STATUS.with(|c| c.set(None));
+}
+
+/// Prime live combat fire: attacker DamageFX vet + authored DamageStatusType.
+pub fn prime_live_damage_context(
+    source: Option<&Object>,
+    weapon_name: Option<&str>,
+    damage_type: crate::game_logic::combat::DamageType,
+) {
+    if let Some(src) = source {
+        crate::game_logic::host_transition_damage_fx::set_damage_fx_source(Some(
+            crate::game_logic::host_transition_damage_fx::snapshot_damage_fx_source(src),
+        ));
+    } else {
+        crate::game_logic::host_transition_damage_fx::set_damage_fx_source(None);
+    }
+    if matches!(damage_type, crate::game_logic::combat::DamageType::Status) {
+        set_pending_damage_status_type(
+            weapon_name
+                .and_then(crate::game_logic::weapon_bootstrap::host_damage_status_type_for_weapon_name),
+        );
+    } else {
+        set_pending_damage_status_type(None);
+    }
+}
+
+struct PendingDamageContextGuard;
+
+impl Drop for PendingDamageContextGuard {
+    fn drop(&mut self) {
+        clear_pending_damage_status_type();
+        crate::game_logic::host_transition_damage_fx::clear_damage_fx_source();
+    }
 }
 
 impl Object {
@@ -51,6 +99,21 @@ impl Object {
             source,
             damage_type,
             crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(damage_type),
+        )
+    }
+
+    /// C++ Nuke/Medium/SmallRadiationFieldWeapon tick: DAMAGE_RADIATION + NOT_AIRBORNE.
+    /// Weapon.cpp:1351 skips `isSignificantlyAboveTerrain`; Armor.ini then applies
+    /// (structures 0%, tanks 50%, aircraft 25%). DeathType is NORMAL, not Detonated.
+    pub fn take_radiation_field_tick(&mut self, damage: f32, source: Option<ObjectId>) -> bool {
+        if self.status.airborne_target || self.is_significantly_above_terrain() {
+            return false;
+        }
+        self.take_damage_from_immediate_typed_death(
+            damage,
+            source,
+            crate::game_logic::combat::DamageType::Radiation,
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
         )
     }
 
@@ -109,6 +172,7 @@ impl Object {
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
         fx_override: Option<crate::game_logic::combat::DamageType>,
     ) -> bool {
+        let _ctx = PendingDamageContextGuard;
         // C++ InactiveBody::attemptDamage (InactiveBody.cpp:53-86): no HP except
         // DAMAGE_UNRESISTABLE (onDie once, never DamageFX).
         if self.is_inactive_body() {
@@ -295,7 +359,13 @@ impl Object {
             let frames = ((amount.max(0.0) * 30.0) / 1000.0).ceil() as u32;
             let frame = crate::game_logic::host_historic_bonus::logic_frame();
             if frames > 0 {
-                self.do_status_damage("FAERIE_FIRE", frames.max(1), frame);
+                // C++ ActiveBody.cpp:460-464 doStatusDamage(m_damageStatusType).
+                // Default OBJECT_STATUS_NONE: no paint. Avenger authors FAERIE_FIRE.
+                if let Some(name) = peek_pending_damage_status_type() {
+                    if !name.is_empty() && !name.eq_ignore_ascii_case("NONE") {
+                        self.do_status_damage(name, frames.max(1), frame);
+                    }
+                }
             }
             if amount > 0.0 {
                 self.stamp_last_damage_cpp(source, false);
@@ -327,6 +397,7 @@ impl Object {
         force_host_hp: bool,
         fx_override: Option<crate::game_logic::combat::DamageType>,
     ) -> bool {
+        let _ctx = PendingDamageContextGuard;
         if self.status.destroyed {
             return false;
         }
@@ -442,6 +513,11 @@ impl Object {
         // frame so mid-frame death / HP visibility matches C++, and still
         // log for the GameWorld shadow channel.
         self.health.damage(actual_damage);
+        // C++ MinefieldBehavior::onDamage — next mine tick syncs virtuals from HP.
+        if let Some(md) = self.mine_data.as_mut() {
+            md.last_synced_health = None;
+        }
+
         let destroyed = if !self.health.is_alive() {
             if !self.status.destroyed {
                 self.status.destroyed = true;
@@ -989,10 +1065,98 @@ mod tests {
         o.health.maximum = 100.0;
         let frame = crate::game_logic::host_historic_bonus::logic_frame();
         // 2000 msec * 0.5 armor = 1000 msec → 30 frames @ 30 FPS.
+        // Avenger-shaped STATUS weapon authors FAERIE_FIRE.
+        set_pending_damage_status_type(Some("FAERIE_FIRE"));
         assert!(!o.take_damage_from_typed(2000.0, None, DamageType::Status));
         assert!((o.health.current - 100.0).abs() < 1e-3);
         assert!(o.is_faerie_fire());
         assert_eq!(o.faerie_fire_until_frame, frame.saturating_add(30));
+    }
+
+    #[test]
+    fn status_none_does_not_hardcode_faerie_fire() {
+        let mut o = vehicle("StatusNone", 46, 100.0);
+        assert!(!o.take_damage_from_typed(2000.0, None, DamageType::Status));
+        assert!(!o.is_faerie_fire());
+        assert!((o.health.current - 100.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn radiation_field_tick_uses_armor_and_skips_airborne() {
+        // C++ NukeRadiationFieldWeapon DamageType RADIATION + NOT_AIRBORNE.
+        register_coeff_armor(
+            "RadTankArmor",
+            gamelogic::damage::DamageType::Radiation,
+            0.5,
+        );
+        let mut tank = vehicle("RadTank", 47, 100.0);
+        tank.thing.template.armor_sets.push(crate::game_logic::HostArmorSet {
+            conditions: 0,
+            armor: Some("RadTankArmor".into()),
+            damage_fx: None,
+        });
+        assert!(!tank.take_radiation_field_tick(20.0, None));
+        assert!(
+            (tank.health.current - 90.0).abs() < 1e-3,
+            "Radiation must apply armor (50% of 20), got {}",
+            tank.health.current
+        );
+
+        let mut jet = vehicle("RadJet", 48, 100.0);
+        jet.status.airborne_target = true;
+        assert!(!jet.take_radiation_field_tick(25.0, None));
+        assert!(
+            (jet.health.current - 100.0).abs() < 1e-3,
+            "NOT_AIRBORNE must skip flying victims, got {}",
+            jet.health.current
+        );
+    }
+
+    #[test]
+    fn damage_fx_uses_attacker_veterancy_not_victim() {
+        use crate::game_logic::host_transition_damage_fx::{
+            set_damage_fx_source, snapshot_damage_fx_source, take_dispatched_armor_damage_fx,
+        };
+        game_engine::common::ini::ini_damage_fx::init_global_damage_fx_store();
+        let mut dfx = game_engine::common::ini::ini_damage_fx::DamageFX::new();
+        dfx.set_major_minor_fx_at_level(
+            game_engine::common::ini::ini_damage_fx::DamageType::Unresistable,
+            0,
+            Some("FX_RegularHit".into()),
+            None,
+            0.0,
+        );
+        dfx.set_major_minor_fx_at_level(
+            game_engine::common::ini::ini_damage_fx::DamageType::Unresistable,
+            3,
+            Some("FX_HeroHit".into()),
+            None,
+            0.0,
+        );
+        if let Some(mut store) = game_engine::common::ini::ini_damage_fx::get_damage_fx_store_mut() {
+            store.add_damage_fx("VetDamageFX".into(), dfx);
+        }
+        let _ = take_dispatched_armor_damage_fx();
+        let mut attacker = vehicle("HeroGun", 82, 100.0);
+        attacker.experience.level = crate::game_logic::VeterancyLevel::Heroic;
+        set_damage_fx_source(Some(snapshot_damage_fx_source(&attacker)));
+        let mut victim = vehicle("RookieTank", 83, 200.0);
+        victim.experience.level = crate::game_logic::VeterancyLevel::Rookie;
+        victim.thing.template.armor_sets.push(crate::game_logic::HostArmorSet {
+            conditions: 0,
+            armor: Some("TankArmor".into()),
+            damage_fx: Some("VetDamageFX".into()),
+        });
+        assert!(!victim.take_damage_from_typed(20.0, Some(ObjectId(82)), DamageType::Unresistable));
+        let dispatched = take_dispatched_armor_damage_fx();
+        assert!(
+            dispatched.iter().any(|n| n == "FX_HeroHit"),
+            "DamageFX must use attacker (hero) list, got {dispatched:?}"
+        );
+        assert!(
+            !dispatched.iter().any(|n| n == "FX_RegularHit"),
+            "must not pick victim Regular list, got {dispatched:?}"
+        );
     }
 
     #[test]

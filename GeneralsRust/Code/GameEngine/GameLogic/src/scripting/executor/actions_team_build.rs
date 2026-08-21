@@ -29,16 +29,22 @@ impl ScriptActionDispatcher {
             .filter(|owner| !owner.is_empty());
 
         if let Some(owner_name) = owner_name {
-            self.with_named_player_ai(&owner_name, |ai_player| {
-                if let Err(err) = ai_player.build_specific_ai_team(&team_name, true) {
-                    log::debug!(
-                        "BuildTeam '{}' failed for player '{}': {}",
-                        team_name,
-                        owner_name,
-                        err
-                    );
-                }
-            });
+            if super::dual_world_registry_unavailable() {
+                // Host never registers crate AiIntegrationManager players.
+                // C++ player->getAI()->buildSpecificAITeam(proto, true).
+                super::request_host_build_team(&owner_name, &team_name);
+            } else {
+                self.with_named_player_ai(&owner_name, |ai_player| {
+                    if let Err(err) = ai_player.build_specific_ai_team(&team_name, true) {
+                        log::debug!(
+                            "BuildTeam '{}' failed for player '{}': {}",
+                            team_name,
+                            owner_name,
+                            err
+                        );
+                    }
+                });
+            }
         }
 
         Ok(ScriptActionResult::Success)
@@ -62,16 +68,23 @@ impl ScriptActionDispatcher {
             .filter(|owner| !owner.is_empty());
 
         if let Some(owner_name) = owner_name {
-            self.with_named_player_ai(&owner_name, |ai_player| {
-                if let Err(err) = ai_player.recruit_specific_ai_team(&team_name, recruit_radius) {
-                    log::debug!(
-                        "RecruitTeam '{}' failed for player '{}': {}",
-                        team_name,
-                        owner_name,
-                        err
-                    );
-                }
-            });
+            if super::dual_world_registry_unavailable() {
+                // C++ player->recruitSpecificTeam(proto, recruitRadius).
+                super::request_host_recruit_team(&owner_name, &team_name, recruit_radius);
+            } else {
+                self.with_named_player_ai(&owner_name, |ai_player| {
+                    if let Err(err) =
+                        ai_player.recruit_specific_ai_team(&team_name, recruit_radius)
+                    {
+                        log::debug!(
+                            "RecruitTeam '{}' failed for player '{}': {}",
+                            team_name,
+                            owner_name,
+                            err
+                        );
+                    }
+                });
+            }
         }
 
         Ok(ScriptActionResult::Success)
@@ -100,6 +113,53 @@ impl ScriptActionDispatcher {
             );
             return Ok(ScriptActionResult::Success);
         };
+
+        if super::dual_world_registry_unavailable() {
+            let has_legacy_signature = action.get_parameter(2).is_some();
+            if has_legacy_signature {
+                let unit_type = waypoint_name;
+                let spawn_pos = action
+                    .get_parameter(2)
+                    .map(|p| {
+                        if p.get_parameter_type() == ParameterType::Coord3D {
+                            let pos = p.get_coord();
+                            crate::common::Coord3D::new(pos.x, pos.y, pos.z)
+                        } else {
+                            let waypoint = AsciiString::from(p.get_string());
+                            get_terrain_logic()
+                                .read()
+                                .ok()
+                                .and_then(|terrain| {
+                                    terrain
+                                        .get_waypoint_by_name(&waypoint)
+                                        .map(|w| *w.get_location())
+                                })
+                                .unwrap_or(destination)
+                        }
+                    })
+                    .unwrap_or(destination);
+                let count = action.get_parameter(3).map(|p| p.get_int()).unwrap_or(1);
+                for i in 0..count.max(0) {
+                    let offset = (i as f32) * 5.0;
+                    super::request_host_script_create(super::HostScriptCreateRequest::Object {
+                        name: None,
+                        thing: unit_type.clone(),
+                        team: team_name.clone(),
+                        x: spawn_pos.x + offset,
+                        y: spawn_pos.y,
+                        z: spawn_pos.z,
+                        angle: 0.0,
+                    });
+                }
+                return Ok(ScriptActionResult::Success);
+            }
+            super::request_host_script_create(super::HostScriptCreateRequest::ReinforcementTeam {
+                team: team_name,
+                waypoint: waypoint_name,
+            });
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         // Keep compatibility for custom scripts that used a non-C++ extension:
         // `CREATE_REINFORCEMENT_TEAM TeamName UnitType Coord Count`.

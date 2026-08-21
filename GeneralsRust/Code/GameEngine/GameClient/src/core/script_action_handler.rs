@@ -973,12 +973,19 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
         y: f32,
         z: f32,
         duration_seconds: f32,
+        ease_in_seconds: f32,
+        ease_out_seconds: f32,
     ) -> GameLogicResult<()> {
         let target = Point3::new(x, y, z);
         let milliseconds = Self::seconds_to_ms(duration_seconds);
-        with_tactical_view(|view| view.reset_camera(&target, milliseconds, 0.0, 0.0));
+        let ease_in_ms = Self::seconds_to_ms_f32(ease_in_seconds);
+        let ease_out_ms = Self::seconds_to_ms_f32(ease_out_seconds);
+        with_tactical_view(|view| {
+            view.reset_camera(&target, milliseconds, ease_in_ms, ease_out_ms)
+        });
         Ok(())
     }
+
 
     fn zoom_camera(
         &self,

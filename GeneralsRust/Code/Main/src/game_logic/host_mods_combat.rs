@@ -125,8 +125,9 @@ pub(super) mod host_fx_list_die;
 #[path = "host_fx_list_dispatch.rs"]
 pub(super) mod host_fx_list_dispatch;
 pub use host_fx_list_dispatch::{
-    dispatch_fx_list_at_pos, dispatch_fx_list_at_pos_ex, is_authored_fx_list_name,
-    particle_template_names_for_fx_list, resolve_audio_event_names, sound_names_for_fx_list,
+    dispatch_fx_list_at_object, dispatch_fx_list_at_pos, dispatch_fx_list_at_pos_ex,
+    is_authored_fx_list_name, particle_template_names_for_fx_list, resolve_audio_event_names,
+    sound_names_for_fx_list,
 };
 
 #[path = "host_heal.rs"]

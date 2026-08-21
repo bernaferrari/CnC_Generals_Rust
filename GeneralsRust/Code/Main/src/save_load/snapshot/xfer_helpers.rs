@@ -85,6 +85,35 @@ where
     Ok(())
 }
 
+pub(super) fn xfer_serde_blob<T>(xfer: &mut dyn Xfer, value: &mut T) -> SaveLoadResult<()>
+where
+    T: serde::Serialize + serde::de::DeserializeOwned + Default,
+{
+    let mut bytes = if xfer.get_mode() == XferMode::Load {
+        Vec::new()
+    } else {
+        bincode::serialize(value).map_err(|e| SaveLoadError::Serialization(e.to_string()))?
+    };
+    let mut len = bytes.len() as u32;
+    xfer.xfer_u32(&mut len)?;
+    if xfer.get_mode() == XferMode::Load {
+        bytes.resize(len as usize, 0);
+    }
+    if !bytes.is_empty() {
+        xfer.xfer_raw(&mut bytes)?;
+    }
+    if xfer.get_mode() == XferMode::Load {
+        *value = if bytes.is_empty() {
+            T::default()
+        } else {
+            bincode::deserialize(&bytes)
+                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?
+        };
+    }
+    Ok(())
+}
+
+
 pub(super) fn xfer_vec_f32(xfer: &mut dyn Xfer, data: &mut Vec<f32>) -> SaveLoadResult<()> {
     let mut len = data.len() as u32;
     xfer.xfer_u32(&mut len)?;
