@@ -159,6 +159,16 @@ impl GameLogic {
         if let Some(pid) = owner_player_id {
             if let Some(player) = self.get_player_mut(pid) {
                 player.credit_supplies(deposited);
+                // C++ AutoDepositUpdate.cpp:148 addMoneyEarned(m_depositAmount)
+                // — SupplyLines boost is deposited but not scored.
+                let earned = match ev.kind {
+                    AutoDepositKind::BlackMarket => deposited,
+                    AutoDepositKind::OilDerrick => {
+                        crate::game_logic::host_oil_derrick::OIL_DERRICK_DEPOSIT_AMOUNT
+                            .min(deposited)
+                    }
+                };
+                player.add_money_earned(earned);
             }
         }
         let player_color = owner_player_id
@@ -209,22 +219,20 @@ impl GameLogic {
 
     pub(in super::super) fn update_black_market_deposits(&mut self) {
         use crate::game_logic::host_black_market::{
-            is_black_market_template, is_legal_black_market_income_source,
-            BLACK_MARKET_DEPOSIT_AMOUNT,
+            is_black_market_template, is_fake_black_market_template,
+            is_legal_black_market_income_source, BLACK_MARKET_DEPOSIT_AMOUNT,
         };
 
         use crate::game_logic::host_oil_derrick::HostAutoDepositFloatingText;
 
         let frame = self.frame;
-        let markets: Vec<(ObjectId, Team, Option<u32>, Vec3, bool, bool)> = self
+        let markets: Vec<(ObjectId, Team, Option<u32>, Vec3, bool, bool, bool)> = self
             .objects
             .iter()
             .filter_map(|(id, obj)| {
-                // Fake black markets residual-skip (ActualMoney=No).
-                if obj.template_name.to_ascii_lowercase().contains("fake") {
-                    return None;
-                }
-                let is_bm = obj.is_kind_of(KindOf::FSBlackMarket)
+                let fake = is_fake_black_market_template(&obj.template_name);
+                let is_bm = fake
+                    || obj.is_kind_of(KindOf::FSBlackMarket)
                     || is_black_market_template(&obj.template_name);
                 if !is_bm {
                     return None;
@@ -245,13 +253,14 @@ impl GameLogic {
                     obj.get_position(),
                     obj.status.stealthed,
                     obj.status.detected,
+                    !fake,
                 ))
             })
             .collect();
 
         // Forget destroyed markets so re-builds reschedule cleanly.
         let live: std::collections::HashSet<ObjectId> =
-            markets.iter().map(|(id, _, _, _, _, _)| *id).collect();
+            markets.iter().map(|(id, _, _, _, _, _, _)| *id).collect();
         let stale: Vec<ObjectId> = self
             .black_markets
             .next_deposit_keys()
@@ -262,7 +271,7 @@ impl GameLogic {
             self.black_markets.forget(id);
         }
 
-        for (market_id, team, object_owner, pos, stealthed, detected) in markets {
+        for (market_id, team, object_owner, pos, stealthed, detected, actual_money) in markets {
             let deposited =
                 self.black_markets
                     .try_deposit(market_id, frame, BLACK_MARKET_DEPOSIT_AMOUNT);
@@ -277,9 +286,12 @@ impl GameLogic {
             let is_local = owner_player_id
                 .map(|player_id| self.is_local_player(player_id))
                 .unwrap_or(false);
-            if let Some(player_id) = owner_player_id {
-                if let Some(player) = self.get_player_mut(player_id) {
-                    player.credit_supplies(deposited);
+            if actual_money {
+                if let Some(player_id) = owner_player_id {
+                    if let Some(player) = self.get_player_mut(player_id) {
+                        player.credit_supplies(deposited);
+                        player.add_money_earned(deposited);
+                    }
                 }
             }
             // AutoDeposit floating text residual + STEALTHED local display gate.
@@ -403,6 +415,8 @@ impl GameLogic {
                 if let Some(player_id) = owner_player_id {
                     if let Some(player) = self.get_player_mut(player_id) {
                         player.credit_supplies(bonus);
+                        // C++ AutoDepositUpdate.cpp:103 addMoneyEarned(initialCaptureBonus).
+                        player.add_money_earned(bonus);
                     }
                 }
                 // Capture bonus floating text is not STEALTH-gated in C++ (award path).
@@ -448,6 +462,9 @@ impl GameLogic {
             if let Some(player_id) = owner_player_id {
                 if let Some(player) = self.get_player_mut(player_id) {
                     player.credit_supplies(deposited);
+                    // C++ AutoDepositUpdate.cpp:148 addMoneyEarned(m_depositAmount)
+                    // — not moneyAmount (deposit + SupplyLines boost).
+                    player.add_money_earned(deposited.saturating_sub(boost));
                 }
             }
             if show_float {
