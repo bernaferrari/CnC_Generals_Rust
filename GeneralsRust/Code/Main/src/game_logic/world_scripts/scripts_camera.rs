@@ -244,11 +244,13 @@ impl GameLogic {
         let cave_indexes = gamelogic::scripting::take_host_set_cave_index_requests();
         let unit_flags = gamelogic::scripting::take_host_object_panel_flag_requests();
         let team_flags = gamelogic::scripting::take_host_team_panel_flag_requests();
+        let sciences = gamelogic::scripting::take_host_science_action_requests();
         if fires.is_empty()
             && builds.is_empty()
             && cave_indexes.is_empty()
             && unit_flags.is_empty()
             && team_flags.is_empty()
+            && sciences.is_empty()
         {
             return;
         }
@@ -291,6 +293,38 @@ impl GameLogic {
                 }
             }
         }
+        for (player_token, science_name, grant) in sciences {
+            let Some(pid) = self.host_player_id_for_script_token(&player_token) else {
+                continue;
+            };
+            if grant {
+                if let Some(player) = self.players.get_mut(&pid) {
+                    let _ = player.unlock_science(&science_name);
+                    crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::sync_host_science_to_crate_player(
+                        pid,
+                        &science_name,
+                    );
+                }
+            } else if let Some(player) = self.players.get_mut(&pid) {
+                let _ = player.attempt_to_purchase_science(&science_name);
+            }
+        }
+    }
+
+    fn host_player_id_for_script_token(&self, token: &str) -> Option<u32> {
+        let needle = token.trim();
+        if needle.is_empty() {
+            return None;
+        }
+        let upper = needle.to_ascii_uppercase();
+        if upper == "THIS_PLAYER" || upper == "THE_PLAYER" || upper == "<LOCAL PLAYER>" {
+            return self.players.values().find(|p| p.is_local).map(|p| p.id);
+        }
+        self.players.values().find(|p| {
+            p.name.eq_ignore_ascii_case(needle)
+                || p.map_side.map_player_name.eq_ignore_ascii_case(needle)
+                || format!("Plyr{}", p.team.get_name()).eq_ignore_ascii_case(needle)
+        }).map(|p| p.id)
     }
 
     /// C++ ScriptActions::doSetCaveIndex live drain.

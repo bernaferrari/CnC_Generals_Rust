@@ -1083,6 +1083,31 @@ pub fn sync_host_science_to_crate_player(player_id: u32, science_name: &str) -> 
     player.add_science(science)
 }
 
+/// Mirror host SPP onto crate Player so ControlBar remaining-points matches.
+pub fn sync_host_spp_to_crate_player(player_id: u32, spp: i32) -> bool {
+    let Ok(list) = gamelogic::player::ThePlayerList().read() else {
+        return false;
+    };
+    let player_arc = list
+        .get_player(player_id as gamelogic::player::PlayerIndex)
+        .cloned()
+        .or_else(|| list.get_local_player().cloned());
+    let Some(player_arc) = player_arc else {
+        return false;
+    };
+    drop(list);
+    let Ok(mut player) = player_arc.write() else {
+        return false;
+    };
+    let current = player.get_science_purchase_points();
+    let delta = spp - current;
+    if delta != 0 {
+        player.add_science_purchase_points(delta);
+    }
+    true
+}
+
+
 /// C++ `Player::isScienceDisabled` / `isScienceHidden` from leftover Player
 /// written by `PLAYER_SCIENCE_AVAILABILITY` (ScriptActions).
 pub fn leftover_science_hidden_or_disabled(player_id: u32, science_name: &str) -> bool {

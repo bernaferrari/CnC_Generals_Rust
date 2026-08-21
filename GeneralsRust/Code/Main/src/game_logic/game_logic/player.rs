@@ -1144,6 +1144,10 @@ impl Player {
                 self.id,
                 &canonical,
             );
+            crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::sync_host_spp_to_crate_player(
+                self.id,
+                self.science_purchase_points,
+            );
         }
         unlocked
     }
