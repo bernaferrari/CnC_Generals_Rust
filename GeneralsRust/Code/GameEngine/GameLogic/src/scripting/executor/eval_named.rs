@@ -1708,6 +1708,13 @@ impl ScriptConditionEvaluator {
             player_name
         );
 
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            return Ok(Self::bool_result(
+                crate::scripting::host_enemy_sighted(&unit_name, alliance, &player_name)
+                    .unwrap_or(false),
+            ));
+        }
+
         let tracker = get_named_object_tracker();
         let Ok(Some(unit_id)) = tracker.get_object_id(&unit_name) else {
             return Ok(ScriptConditionResult::False);
@@ -1793,6 +1800,18 @@ impl ScriptConditionEvaluator {
             type_or_list_name,
             player_name
         );
+
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            let wanted_types = self.resolve_object_types_param(&type_or_list_name);
+            let type_names: Vec<String> = wanted_types
+                .iter()
+                .map(|t| t.as_str().to_string())
+                .collect();
+            return Ok(Self::bool_result(
+                crate::scripting::host_type_sighted(&unit_name, &type_names, &player_name)
+                    .unwrap_or(false),
+            ));
+        }
 
         let tracker = get_named_object_tracker();
         let Ok(Some(unit_id)) = tracker.get_object_id(&unit_name) else {

@@ -669,6 +669,7 @@ impl GameLogic {
         // Resolve command-driven support states (guard/repair/docking/garrison) after AI decisions.
         // C++ SlavedUpdate.cpp:91-261 follow / guard / 2x GuardMaxRange recall.
         self.update_slaved_drone_follow();
+        self.sync_all_spawn_behavior_veterancy();
         // C++ DemoTrapUpdate.cpp:124-130 isEffectivelyDead + DetonateWhenKilled.
         self.update_demo_trap_detonate_when_killed();
         self.update_support_states(object_ids, dt);
@@ -808,8 +809,17 @@ impl GameLogic {
             };
 
 
-            let _ = (master_level, drone_level);
-
+            let (sync_master, sync_drone) = synced_spawn_veterancy(master_level, drone_level);
+            if sync_master != master_level {
+                if let Some(master) = self.objects.get_mut(&master_id) {
+                    master.set_min_veterancy_level(sync_master);
+                }
+            }
+            if sync_drone != drone_level {
+                if let Some(drone) = self.objects.get_mut(&drone_id) {
+                    drone.set_min_veterancy_level(sync_drone);
+                }
+            }
             // C++ SlavedUpdate.cpp:145-150 hijack/defect when master is no longer ALLIES.
             if slave_should_defect_to_master(master_team == drone_team) {
                 if let Some(d) = self.objects.get_mut(&drone_id) {

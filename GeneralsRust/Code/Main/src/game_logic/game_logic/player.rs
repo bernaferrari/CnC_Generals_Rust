@@ -706,6 +706,7 @@ impl Player {
         if self.skill_points != old_skill || self.rank_level != old_level {
             self.record_host_progress();
             self.record_host_sciences();
+            self.sync_leftover_player_sciences_from_host();
         }
         level_gained
     }
@@ -726,6 +727,7 @@ impl Player {
         self.science_purchase_points = reset.science_purchase_points;
         self.record_host_progress();
         self.record_host_sciences();
+        self.sync_leftover_player_sciences_from_host();
     }
 
     /// C++ Player::setRankLevel — downgrade calls resetRank then climbs.
@@ -773,7 +775,47 @@ impl Player {
         }
         self.record_host_progress();
         self.record_host_sciences();
+        self.sync_leftover_player_sciences_from_host();
         true
+    }
+
+    /// C++ Player::addScience / addSciencePurchasePoints after rank-up.
+    /// Live host leftover PlayerList stays stale unless we write it here.
+    fn sync_leftover_player_sciences_from_host(&self) {
+        use game_engine::common::rts::science::{get_science_store, SCIENCE_INVALID};
+
+        let names = [self.name.as_str(), self.map_side.map_player_name.as_str()];
+        let leftover = {
+            let Ok(list) = gamelogic::player::player_list().read() else {
+                return;
+            };
+            names.iter().find_map(|n| {
+                if n.is_empty() {
+                    None
+                } else {
+                    list.find_player_by_name(n)
+                }
+            })
+        };
+        let Some(arc) = leftover else {
+            return;
+        };
+        let Ok(mut leftover) = arc.write() else {
+            return;
+        };
+        let current = leftover.get_science_purchase_points();
+        let delta = self.science_purchase_points - current;
+        if delta != 0 {
+            leftover.add_science_purchase_points(delta);
+        }
+        if let Some(store) = get_science_store() {
+            for name in &self.unlocked_sciences {
+                let science = store.get_science_from_internal_name(name);
+                if science != SCIENCE_INVALID {
+                    leftover.add_science(science);
+                }
+            }
+        }
     }
 
 

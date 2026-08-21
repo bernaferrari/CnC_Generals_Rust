@@ -192,11 +192,31 @@ impl ScriptEvaluator {
             return Ok(false);
         };
 
-        Ok(self
+        if self
             .with_evaluation_engine_mut(|engine| {
                 engine.is_science_acquired(player_index, science, true)
             })
-            .unwrap_or(false))
+            .unwrap_or(false)
+        {
+            return Ok(true);
+        }
+
+        let player_name = player_arc
+            .read()
+            .ok()
+            .and_then(|p| NameKeyGenerator::key_to_name(p.get_player_name_key()))
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| player_param.get_string().to_string());
+        if crate::scripting::host_query_player_has_science(&player_name, science_name)
+            .unwrap_or(false)
+        {
+            let _ = self.with_evaluation_engine_mut(|engine| {
+                engine.notify_of_acquired_science(player_index, science);
+                engine.is_science_acquired(player_index, science, true)
+            });
+            return Ok(true);
+        }
+        Ok(false)
     }
 
     fn evaluate_player_has_science_purchase_points_condition(
@@ -215,6 +235,21 @@ impl ScriptEvaluator {
         })?;
 
         let points_needed = points_param.get_int();
+
+        let player_name = self
+            .resolve_player_from_param(player_param)
+            .and_then(|p| {
+                p.read()
+                    .ok()
+                    .and_then(|g| NameKeyGenerator::key_to_name(g.get_player_name_key()))
+            })
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| player_param.get_string().to_string());
+        if let Some(pts) =
+            crate::scripting::host_query_player_science_purchase_points(&player_name)
+        {
+            return Ok(pts >= points_needed);
+        }
 
         // Match C++ ScriptConditions::playerFromParam rather than treating a
         // legacy player token as a literal display name.
@@ -259,11 +294,49 @@ impl ScriptEvaluator {
         let Some(player_arc) = self.resolve_player_from_param(player_param) else {
             return Ok(false);
         };
-        let Ok(player_guard) = player_arc.read() else {
-            return Ok(false);
-        };
+        {
+            let Ok(player_guard) = player_arc.read() else {
+                return Ok(false);
+            };
+            if player_guard.is_capable_of_purchasing_science(science) {
+                return Ok(true);
+            }
+        }
 
-        Ok(player_guard.is_capable_of_purchasing_science(science))
+        let player_name = player_arc
+            .read()
+            .ok()
+            .and_then(|p| NameKeyGenerator::key_to_name(p.get_player_name_key()))
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| player_param.get_string().to_string());
+        if let Some(census) = crate::scripting::host_query_player_census(&player_name) {
+            if crate::scripting::host_query_player_has_science(&player_name, science_name)
+                .unwrap_or(false)
+            {
+                return Ok(false);
+            }
+            if let Some(store) = get_science_store() {
+                let cost = store.get_science_purchase_cost(science);
+                if cost > 0 && cost <= census.science_purchase_points {
+                    let owned: Vec<game_engine::common::rts::ScienceType> = census
+                        .unlocked_sciences
+                        .iter()
+                        .map(|n| store.get_science_from_internal_name(n))
+                        .filter(|s| *s != SCIENCE_INVALID)
+                        .collect();
+                    struct Access(Vec<game_engine::common::rts::ScienceType>);
+                    impl game_engine::common::rts::science::ScienceAccess for Access {
+                        fn has_science(&self, s: game_engine::common::rts::ScienceType) -> bool {
+                            self.0.contains(&s)
+                        }
+                    }
+                    if store.player_has_prereqs_for_science(&Access(owned), science) {
+                        return Ok(true);
+                    }
+                }
+            }
+        }
+        Ok(false)
     }
 
     fn evaluate_named_has_free_container_slots_condition(

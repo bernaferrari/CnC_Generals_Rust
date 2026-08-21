@@ -496,6 +496,22 @@ impl GameLogic {
             };
             insert(&player.name);
             insert(&player.map_side.map_player_name);
+            match player.team {
+                crate::game_logic::Team::USA => {
+                    insert("PlyrAmerica");
+                    insert("America");
+                    insert("USA");
+                }
+                crate::game_logic::Team::China => {
+                    insert("PlyrChina");
+                    insert("China");
+                }
+                crate::game_logic::Team::GLA => {
+                    insert("PlyrGLA");
+                    insert("GLA");
+                }
+                _ => {}
+            }
         }
         gamelogic::scripting::merge_host_script_query_snapshot(|snap| {
             snap.player_census = player_census;

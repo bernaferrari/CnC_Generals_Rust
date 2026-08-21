@@ -842,8 +842,76 @@ impl GameLogic {
             {
                 self.spawn_missing_hive_world_soldiers(site_id, &spec);
             }
+            self.sync_spawn_behavior_veterancy(site_id, &spec.spawn_template);
         }
     }
+
+
+    /// C++ SpawnBehavior::computeAggregateStates — higher rank wins both ways.
+    fn sync_spawn_behavior_veterancy(&mut self, parent_id: ObjectId, spawn_template: &str) {
+        use crate::game_logic::host_slave_drones::synced_spawn_veterancy;
+
+        let Some(parent_level) = self
+            .host_object(parent_id)
+            .filter(|o| o.is_alive())
+            .map(|o| o.experience.level)
+        else {
+            return;
+        };
+        let children: Vec<(crate::game_logic::ObjectId, crate::game_logic::VeterancyLevel)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, object)| {
+                if object.producer_id == Some(parent_id)
+                    && object.is_alive()
+                    && !object.status.effectively_dead
+                    && (object.template_name.eq_ignore_ascii_case(spawn_template)
+                        || (Self::is_stinger_soldier_template(&object.template_name)
+                            && Self::is_stinger_soldier_template(spawn_template)))
+                {
+                    Some((*id, object.experience.level))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut high = parent_level;
+        for (_, level) in &children {
+            let (next, _) = synced_spawn_veterancy(high, *level);
+            high = next;
+        }
+        if high != parent_level {
+            if let Some(parent) = self.host_object_mut(parent_id) {
+                parent.set_min_veterancy_level(high);
+            }
+        }
+        for (id, level) in children {
+            if level != high {
+                if let Some(child) = self.host_object_mut(id) {
+                    child.set_min_veterancy_level(high);
+                }
+            }
+        }
+    }
+
+    /// C++ SpawnBehavior::update computeAggregateStates for every live hive/spawner.
+    pub(crate) fn sync_all_spawn_behavior_veterancy(&mut self) {
+        let masters: Vec<(ObjectId, String)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, object)| {
+                if !object.is_alive() {
+                    return None;
+                }
+                let spec = Self::resolve_host_spawn_behavior_spec(&object.template_name)?;
+                Some((*id, spec.spawn_template))
+            })
+            .collect();
+        for (id, spawn_template) in masters {
+            self.sync_spawn_behavior_veterancy(id, &spawn_template);
+        }
+    }
+
 
     /// C++ `SpawnBehavior::onDie` / `onDelete` SpawnedRequireSpawner kill.
     pub(crate) fn apply_spawned_require_spawner_on_die(&mut self, parent_id: ObjectId) {

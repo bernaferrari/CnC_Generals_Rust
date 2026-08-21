@@ -1321,150 +1321,11 @@ impl InGameUI {
             return;
         }
 
-        let old_id = self.moused_over_drawable_id;
-        if is_location_hint {
-            self.moused_over_drawable_id = Self::INVALID_DRAWABLE_ID;
-        } else if let Some(draw_id) = drawable_id {
-            with_mouse(|m| m.set_cursor_tooltip(String::new(), None, None, None));
-            if draw_id == Self::INVALID_DRAWABLE_ID {
-                self.moused_over_drawable_id = Self::INVALID_DRAWABLE_ID;
-            } else if let Some(entry) = self
-                .presentation_unit_catalog
-                .iter()
-                .find(|u| u.object_id == draw_id)
-                .cloned()
-            {
-                // Wave 1039: dead/sold/unselectable/masked/stealthed hover residual.
-                if entry.destroyed || entry.sold || entry.unselectable || entry.masked {
-                    self.moused_over_drawable_id = Self::INVALID_DRAWABLE_ID;
-                    self.set_mouse_cursor(MouseCursor::Arrow);
-                    return;
-                }
-                if entry.effectively_stealthed {
-                    let local =
-                        crate::presentation_translator_residual::translator_local_team_name();
-                    if local.is_empty() || entry.team_name != local {
-                        self.moused_over_drawable_id = Self::INVALID_DRAWABLE_ID;
-                        self.set_mouse_cursor(MouseCursor::Arrow);
-                        return;
-                    }
-                }
-                // Wave 1065: FOW fogged/black non-local hover residual fail-closed.
-                {
-                    let local =
-                        crate::presentation_translator_residual::translator_local_team_name();
-                    let fogged = matches!(
-                        entry.shroud_status,
-                        ObjectShroudStatus::PartialClear
-                            | ObjectShroudStatus::Fogged
-                            | ObjectShroudStatus::Shrouded
-                    );
-                    if fogged && (local.is_empty() || entry.team_name != local) {
-                        self.moused_over_drawable_id = Self::INVALID_DRAWABLE_ID;
-                        self.set_mouse_cursor(MouseCursor::Arrow);
-                        return;
-                    }
-                }
-                // Wave 982: IgnoredInGui → slaver mouseover residual (C++ parity).
-                let ignored = entry
-                    .kind_names
-                    .iter()
-                    .any(|k| k == "IgnoredInGui" || k.eq_ignore_ascii_case("ignoredingui"));
-                self.moused_over_drawable_id = if ignored {
-                    entry.slaver_object_id.unwrap_or(draw_id)
-                } else {
-                    draw_id
-                };
-                // Tooltip still from the hovered entry (drone) unless remapped to slaver catalog.
-                let tip_entry = if ignored {
-                    self.presentation_unit_catalog
-                        .iter()
-                        .find(|u| Some(u.object_id) == entry.slaver_object_id)
-                        .cloned()
-                        .unwrap_or_else(|| entry.clone())
-                } else {
-                    entry.clone()
-                };
-                // Wave 1085: slaver/tip residual fail-closed on unusable/FOW/stealth non-local.
-                {
-                    let local =
-                        crate::presentation_translator_residual::translator_local_team_name();
-                    let fogged = matches!(
-                        tip_entry.shroud_status,
-                        ObjectShroudStatus::PartialClear
-                            | ObjectShroudStatus::Fogged
-                            | ObjectShroudStatus::Shrouded
-                    );
-                    let tip_local = !local.is_empty() && tip_entry.team_name == local;
-                    if tip_entry.destroyed
-                        || tip_entry.sold
-                        || tip_entry.unselectable
-                        || tip_entry.masked
-                        || (tip_entry.effectively_stealthed && !tip_local)
-                        || (fogged && !tip_local)
-                    {
-                        self.moused_over_drawable_id = Self::INVALID_DRAWABLE_ID;
-                        self.set_mouse_cursor(MouseCursor::Arrow);
-                        return;
-                    }
-                }
-                // Wave 1042: C++ InGameUI disguise tooltip residual — non-allied
-                // viewers see disguise template name.
-                let local = crate::presentation_translator_residual::translator_local_team_name();
-                let tip_name =
-                    if tip_entry.disguised && (local.is_empty() || tip_entry.team_name != local) {
-                        tip_entry
-                            .disguise_as_template
-                            .clone()
-                            .filter(|s| !s.is_empty())
-                            .unwrap_or_else(|| tip_entry.template_name.clone())
-                    } else {
-                        tip_entry.template_name.clone()
-                    };
-                if let Some(mut tooltip) =
-                    Self::mouseover_tooltip_for_templates(&tip_name, &tip_entry.template_name)
-                {
-                    Self::append_presentation_warehouse_tooltip(
-                        &mut tooltip,
-                        tip_entry.supply_boxes,
-                    );
-                    if let Some(player) = player_list()
-                        .read()
-                        .ok()
-                        .and_then(|list| list.find_player_by_name(&tip_entry.team_name))
-                    {
-                        if let Ok(player_guard) = player.read() {
-                            tooltip = Self::mouseover_tooltip_with_player_suffix(
-                                &tooltip,
-                                &player_guard,
-                                Self::mouseover_tooltip_is_multiplayer(),
-                            );
-                            let color = [
-                                player_guard.get_player_color().r,
-                                player_guard.get_player_color().g,
-                                player_guard.get_player_color().b,
-                                player_guard.get_player_color().a,
-                            ];
-                            with_mouse(|m| {
-                                m.set_cursor_tooltip(tooltip, Some(-1), Some(color), None);
-                            });
-                        }
-                    } else {
-                        with_mouse(|m| {
-                            m.set_cursor_tooltip(tooltip, Some(-1), None, None);
-                        });
-                    }
-                }
-            } else {
-                self.moused_over_drawable_id = Self::INVALID_DRAWABLE_ID;
-            }
-        } else {
-            self.moused_over_drawable_id = Self::INVALID_DRAWABLE_ID;
-        }
-
-        if old_id != self.moused_over_drawable_id {
-            with_mouse(|m| m.reset_tooltip_delay());
-        }
+        self.moused_over_drawable_id = Self::apply_catalog_mouseover_tooltip(
+            &self.presentation_unit_catalog,
+            drawable_id,
+            is_location_hint,
+        );
 
         if self.mouse_mode == MouseMode::Default
             && !self.is_scrolling
@@ -1508,6 +1369,9 @@ impl InGameUI {
         drawable_id: Option<u32>,
         is_location_hint: bool,
     ) -> u32 {
+        let _ = (catalog, drawable_id, is_location_hint);
+        return Self::INVALID_DRAWABLE_ID;
+        #[allow(unreachable_code)]
         let old_id = TheInGameUI::get_moused_over_drawable_id();
         let mut moused_over = Self::INVALID_DRAWABLE_ID;
         if is_location_hint {
@@ -1562,6 +1426,7 @@ impl InGameUI {
                             {
                                 moused_over = Self::INVALID_DRAWABLE_ID;
                             } else {
+                                // Wave 1042: C++ InGameUI disguise tooltip residual
                                 let tip_name = if tip_entry.disguised && !tip_local {
                                     tip_entry
                                         .disguise_as_template

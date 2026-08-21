@@ -230,11 +230,20 @@ pub fn host_script_query_object(name: &str) -> Option<HostScriptQueryObject> {
         return None;
     }
     HOST_SCRIPT_QUERY.with(|slot| {
-        slot.borrow()
+        let snap = slot.borrow();
+        if let Some(obj) = snap
             .objects
             .iter()
-            .find(|o| o.name == name)
-            .cloned()
+            .find(|o| o.name.eq_ignore_ascii_case(name))
+        {
+            return Some(obj.clone());
+        }
+        let id = snap
+            .named
+            .iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case(name))
+            .map(|(_, id)| *id)?;
+        snap.objects.iter().find(|o| o.id == id).cloned()
     })
 }
 
@@ -387,13 +396,25 @@ pub fn host_object_has_kind(obj: &HostScriptQueryObject, kind: crate::common::Ki
             _ => false,
         }
 }
-
 fn host_owner_matches(obj: &HostScriptQueryObject, player_name: &str) -> bool {
     let want = player_name.trim();
     if want.is_empty() || obj.owner_player.is_empty() {
         return false;
     }
-    obj.owner_player.eq_ignore_ascii_case(want)
+    if obj.owner_player.eq_ignore_ascii_case(want) {
+        return true;
+    }
+    let norm = |s: &str| {
+        s.trim()
+            .trim_start_matches("plyr")
+            .trim_start_matches("player_")
+            .trim_start_matches("player")
+            .replace([' ', '_', '-'], "")
+            .to_ascii_lowercase()
+    };
+    let a = norm(&obj.owner_player);
+    let b = norm(want);
+    !a.is_empty() && a == b
 }
 
 fn host_object_in_named_area(obj: &HostScriptQueryObject, area_name: &str) -> bool {
@@ -629,11 +650,12 @@ pub fn host_script_lookup_polygon_trigger(
     if area_name.is_empty() {
         return None;
     }
-    let resolved = crate::scripting::engine::qualify_trigger_area_name(area_name, None)?;
-    crate::terrain::get_terrain_logic()
-        .read()
-        .ok()?
+    let resolved = crate::scripting::engine::qualify_trigger_area_name(area_name, None)
+        .unwrap_or_else(|| area_name.to_string());
+    let terrain = crate::terrain::get_terrain_logic().read().ok()?;
+    terrain
         .get_trigger_area_by_name(&resolved)
+        .or_else(|| terrain.get_trigger_area_by_name(area_name))
         .cloned()
 }
 
