@@ -3786,3 +3786,28 @@ fn skirmish_value_in_area_excludes_inert() {
     player_list().write().unwrap().clear();
 }
 
+#[test]
+fn set_cave_index_queues_host_when_dual_world_empty() {
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    let _ = take_host_set_cave_index_requests();
+    let mut action = ScriptAction::new(ScriptActionType::SetCaveIndex);
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Unit,
+            "CaveB".into(),
+        ))
+        .unwrap();
+    action
+        .add_parameter(Parameter::with_int(ParameterType::Int, 3))
+        .unwrap();
+    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    assert_eq!(
+        dispatcher.execute_action(&action).unwrap(),
+        ScriptActionResult::Success
+    );
+    assert_eq!(
+        take_host_set_cave_index_requests(),
+        vec![("CaveB".to_string(), 3)]
+    );
+}
+

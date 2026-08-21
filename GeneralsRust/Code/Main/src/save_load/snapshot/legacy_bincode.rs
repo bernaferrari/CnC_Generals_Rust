@@ -28,10 +28,14 @@ use std::time::SystemTime;
 /// behavior tail. Version 9 predates the v10 Player rank/skill/science tail.
 /// Version 10 predates the v11 Object instance-name/guard tail.
 /// Version 11 predates the v12 OverchargeBehavior m_overchargeActive tail.
+/// Version 12 predates the v13 CIA/builder/sell world tail.
+/// Version 13 predates the v14 object persist / drawable visual tail.
 /// Unknown versions fail closed rather than relying on field
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BincodeWorldSnapshotDecodePath {
     Current,
+    LegacyPreV14V13,
+    LegacyPreV13V12,
     LegacyPreV12V11,
     LegacyPreV11V10,
     LegacyPreV10V9,
@@ -54,6 +58,22 @@ pub(crate) fn decode_bincode_world_snapshot(
     match version {
         WORLD_SNAPSHOT_BINCODE_VERSION => bincode_exact::<WorldSnapshot>(payload)
             .map(|snapshot| (snapshot, BincodeWorldSnapshotDecodePath::Current))
+            .map_err(|error| SaveLoadError::Serialization(error.to_string())),
+        13 => bincode_exact::<PreV14WorldSnapshot>(payload)
+            .map(|snapshot| {
+                (
+                    snapshot.into(),
+                    BincodeWorldSnapshotDecodePath::LegacyPreV14V13,
+                )
+            })
+            .map_err(|error| SaveLoadError::Serialization(error.to_string())),
+        12 => bincode_exact::<PreV13WorldSnapshot>(payload)
+            .map(|snapshot| {
+                (
+                    snapshot.into(),
+                    BincodeWorldSnapshotDecodePath::LegacyPreV13V12,
+                )
+            })
             .map_err(|error| SaveLoadError::Serialization(error.to_string())),
         11 => bincode_exact::<PreV12WorldSnapshot>(payload)
             .map(|snapshot| {
@@ -378,6 +398,72 @@ struct PreV12WorldSnapshot {
     object_instance_guards: Vec<ObjectInstanceGuardSnapshot>,
 }
 
+/// Complete v12 world record before the v13 CIA / builder / sell tail.
+#[derive(Debug, Deserialize, Serialize)]
+struct PreV13WorldSnapshot {
+    version: u32,
+    timestamp: SystemTime,
+    frame_number: u64,
+    random_seed: u64,
+    objects: HashMap<ObjectId, ObjectSnapshot>,
+    players: Vec<PlayerSnapshot>,
+    teams: Vec<TeamSnapshot>,
+    terrain: TerrainSnapshot,
+    weather: WeatherSnapshot,
+    resource_manager: ResourceManagerSnapshot,
+    combat_tracker: CombatTrackerSnapshot,
+    experience_tracker: ExperienceTrackerSnapshot,
+    pathfinding_cache: PathfindingCacheSnapshot,
+    ai_players: Vec<AIPlayerSnapshot>,
+    global_ai_state: GlobalAIStateSnapshot,
+    special_power_strikes: SpecialPowerStrikeRegistrySnapshot,
+    combat_particles: CombatParticleRegistrySnapshot,
+    host_upgrades: HostUpgradeRegistrySnapshot,
+    next_weapon_discharge_sequence: u64,
+    client_drawables: ClientDrawableWorldSnapshot,
+    player_template_bindings: Vec<PlayerTemplateBindingSnapshot>,
+    shroud: ShroudSnapshot,
+    lifecycle_tail: Vec<u8>,
+    player_ranks: Vec<PlayerRankSnapshot>,
+    object_instance_guards: Vec<ObjectInstanceGuardSnapshot>,
+    overcharge_active: Vec<ObjectOverchargeSnapshot>,
+}
+
+/// Complete v13 world record before the v14 object persist / drawable visual tail.
+#[derive(Debug, Deserialize, Serialize)]
+struct PreV14WorldSnapshot {
+    version: u32,
+    timestamp: SystemTime,
+    frame_number: u64,
+    random_seed: u64,
+    objects: HashMap<ObjectId, ObjectSnapshot>,
+    players: Vec<PlayerSnapshot>,
+    teams: Vec<TeamSnapshot>,
+    terrain: TerrainSnapshot,
+    weather: WeatherSnapshot,
+    resource_manager: ResourceManagerSnapshot,
+    combat_tracker: CombatTrackerSnapshot,
+    experience_tracker: ExperienceTrackerSnapshot,
+    pathfinding_cache: PathfindingCacheSnapshot,
+    ai_players: Vec<AIPlayerSnapshot>,
+    global_ai_state: GlobalAIStateSnapshot,
+    special_power_strikes: SpecialPowerStrikeRegistrySnapshot,
+    combat_particles: CombatParticleRegistrySnapshot,
+    host_upgrades: HostUpgradeRegistrySnapshot,
+    next_weapon_discharge_sequence: u64,
+    client_drawables: ClientDrawableWorldSnapshot,
+    player_template_bindings: Vec<PlayerTemplateBindingSnapshot>,
+    shroud: ShroudSnapshot,
+    lifecycle_tail: Vec<u8>,
+    player_ranks: Vec<PlayerRankSnapshot>,
+    object_instance_guards: Vec<ObjectInstanceGuardSnapshot>,
+    overcharge_active: Vec<ObjectOverchargeSnapshot>,
+    cia_intelligence: crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry,
+    vision_spied: Vec<ObjectVisionSpiedSnapshot>,
+    builder_tasks: Vec<ObjectBuilderTaskSnapshot>,
+    sell_list: Vec<SellListEntrySnapshot>,
+}
+
 
 
 /// Complete v7 world record before the v8 source-keyed temporary-Weapon
@@ -698,6 +784,12 @@ impl From<LegacyWorldSnapshot> for WorldSnapshot {
             player_ranks: Vec::new(),
             object_instance_guards: Vec::new(),
             overcharge_active: Vec::new(),
+            cia_intelligence: crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
+            vision_spied: Vec::new(),
+            builder_tasks: Vec::new(),
+            sell_list: Vec::new(),
+            object_persist: Vec::new(),
+            client_drawable_visuals: Vec::new(),
         }
     }
 }
@@ -822,6 +914,12 @@ impl From<PreHackerDisableWorldSnapshot> for WorldSnapshot {
             player_ranks: Vec::new(),
             object_instance_guards: Vec::new(),
             overcharge_active: Vec::new(),
+            cia_intelligence: crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
+            vision_spied: Vec::new(),
+            builder_tasks: Vec::new(),
+            sell_list: Vec::new(),
+            object_persist: Vec::new(),
+            client_drawable_visuals: Vec::new(),
         }
     }
 }
@@ -892,6 +990,12 @@ impl From<PreV4WorldSnapshot> for WorldSnapshot {
             player_ranks: Vec::new(),
             object_instance_guards: Vec::new(),
             overcharge_active: Vec::new(),
+            cia_intelligence: crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
+            vision_spied: Vec::new(),
+            builder_tasks: Vec::new(),
+            sell_list: Vec::new(),
+            object_persist: Vec::new(),
+            client_drawable_visuals: Vec::new(),
         }
     }
 }
@@ -929,6 +1033,12 @@ impl From<PreV6WorldSnapshot> for WorldSnapshot {
             player_ranks: Vec::new(),
             object_instance_guards: Vec::new(),
             overcharge_active: Vec::new(),
+            cia_intelligence: crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
+            vision_spied: Vec::new(),
+            builder_tasks: Vec::new(),
+            sell_list: Vec::new(),
+            object_persist: Vec::new(),
+            client_drawable_visuals: Vec::new(),
         }
     }
 }
@@ -966,6 +1076,12 @@ impl From<PreV8WorldSnapshot> for WorldSnapshot {
             player_ranks: Vec::new(),
             object_instance_guards: Vec::new(),
             overcharge_active: Vec::new(),
+            cia_intelligence: crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
+            vision_spied: Vec::new(),
+            builder_tasks: Vec::new(),
+            sell_list: Vec::new(),
+            object_persist: Vec::new(),
+            client_drawable_visuals: Vec::new(),
         }
     }
 }
@@ -999,6 +1115,12 @@ impl From<PreV9WorldSnapshot> for WorldSnapshot {
             player_ranks: Vec::new(),
             object_instance_guards: Vec::new(),
             overcharge_active: Vec::new(),
+            cia_intelligence: crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
+            vision_spied: Vec::new(),
+            builder_tasks: Vec::new(),
+            sell_list: Vec::new(),
+            object_persist: Vec::new(),
+            client_drawable_visuals: Vec::new(),
         }
     }
 }
@@ -1032,6 +1154,12 @@ impl From<PreV10WorldSnapshot> for WorldSnapshot {
             player_ranks: Vec::new(),
             object_instance_guards: Vec::new(),
             overcharge_active: Vec::new(),
+            cia_intelligence: crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
+            vision_spied: Vec::new(),
+            builder_tasks: Vec::new(),
+            sell_list: Vec::new(),
+            object_persist: Vec::new(),
+            client_drawable_visuals: Vec::new(),
         }
     }
 }
@@ -1065,6 +1193,12 @@ impl From<PreV11WorldSnapshot> for WorldSnapshot {
             player_ranks: snapshot.player_ranks,
             object_instance_guards: Vec::new(),
             overcharge_active: Vec::new(),
+            cia_intelligence: crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
+            vision_spied: Vec::new(),
+            builder_tasks: Vec::new(),
+            sell_list: Vec::new(),
+            object_persist: Vec::new(),
+            client_drawable_visuals: Vec::new(),
         }
     }
 }
@@ -1098,6 +1232,90 @@ impl From<PreV12WorldSnapshot> for WorldSnapshot {
             player_ranks: snapshot.player_ranks,
             object_instance_guards: snapshot.object_instance_guards,
             overcharge_active: Vec::new(),
+            cia_intelligence: crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
+            vision_spied: Vec::new(),
+            builder_tasks: Vec::new(),
+            sell_list: Vec::new(),
+            object_persist: Vec::new(),
+            client_drawable_visuals: Vec::new(),
+        }
+    }
+}
+
+impl From<PreV13WorldSnapshot> for WorldSnapshot {
+    fn from(snapshot: PreV13WorldSnapshot) -> Self {
+        Self {
+            version: WORLD_SNAPSHOT_BINCODE_VERSION,
+            timestamp: snapshot.timestamp,
+            frame_number: snapshot.frame_number,
+            random_seed: snapshot.random_seed,
+            objects: snapshot.objects,
+            players: snapshot.players,
+            teams: snapshot.teams,
+            terrain: snapshot.terrain,
+            weather: snapshot.weather,
+            resource_manager: snapshot.resource_manager,
+            combat_tracker: snapshot.combat_tracker,
+            experience_tracker: snapshot.experience_tracker,
+            pathfinding_cache: snapshot.pathfinding_cache,
+            ai_players: snapshot.ai_players,
+            global_ai_state: snapshot.global_ai_state,
+            special_power_strikes: snapshot.special_power_strikes,
+            combat_particles: snapshot.combat_particles,
+            host_upgrades: snapshot.host_upgrades,
+            next_weapon_discharge_sequence: snapshot.next_weapon_discharge_sequence,
+            client_drawables: snapshot.client_drawables,
+            player_template_bindings: snapshot.player_template_bindings,
+            shroud: snapshot.shroud,
+            lifecycle_tail: snapshot.lifecycle_tail,
+            player_ranks: snapshot.player_ranks,
+            object_instance_guards: snapshot.object_instance_guards,
+            overcharge_active: snapshot.overcharge_active,
+            cia_intelligence: crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
+            vision_spied: Vec::new(),
+            builder_tasks: Vec::new(),
+            sell_list: Vec::new(),
+            object_persist: Vec::new(),
+            client_drawable_visuals: Vec::new(),
+        }
+    }
+}
+
+impl From<PreV14WorldSnapshot> for WorldSnapshot {
+    fn from(snapshot: PreV14WorldSnapshot) -> Self {
+        Self {
+            version: WORLD_SNAPSHOT_BINCODE_VERSION,
+            timestamp: snapshot.timestamp,
+            frame_number: snapshot.frame_number,
+            random_seed: snapshot.random_seed,
+            objects: snapshot.objects,
+            players: snapshot.players,
+            teams: snapshot.teams,
+            terrain: snapshot.terrain,
+            weather: snapshot.weather,
+            resource_manager: snapshot.resource_manager,
+            combat_tracker: snapshot.combat_tracker,
+            experience_tracker: snapshot.experience_tracker,
+            pathfinding_cache: snapshot.pathfinding_cache,
+            ai_players: snapshot.ai_players,
+            global_ai_state: snapshot.global_ai_state,
+            special_power_strikes: snapshot.special_power_strikes,
+            combat_particles: snapshot.combat_particles,
+            host_upgrades: snapshot.host_upgrades,
+            next_weapon_discharge_sequence: snapshot.next_weapon_discharge_sequence,
+            client_drawables: snapshot.client_drawables,
+            player_template_bindings: snapshot.player_template_bindings,
+            shroud: snapshot.shroud,
+            lifecycle_tail: snapshot.lifecycle_tail,
+            player_ranks: snapshot.player_ranks,
+            object_instance_guards: snapshot.object_instance_guards,
+            overcharge_active: snapshot.overcharge_active,
+            cia_intelligence: snapshot.cia_intelligence,
+            vision_spied: snapshot.vision_spied,
+            builder_tasks: snapshot.builder_tasks,
+            sell_list: snapshot.sell_list,
+            object_persist: Vec::new(),
+            client_drawable_visuals: Vec::new(),
         }
     }
 }
@@ -1170,6 +1388,12 @@ impl From<PreV7WorldSnapshot> for WorldSnapshot {
             player_ranks: Vec::new(),
             object_instance_guards: Vec::new(),
             overcharge_active: Vec::new(),
+            cia_intelligence: crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
+            vision_spied: Vec::new(),
+            builder_tasks: Vec::new(),
+            sell_list: Vec::new(),
+            object_persist: Vec::new(),
+            client_drawable_visuals: Vec::new(),
         }
     }
 }
@@ -1240,6 +1464,12 @@ impl From<PreV5WorldSnapshot> for WorldSnapshot {
             player_ranks: Vec::new(),
             object_instance_guards: Vec::new(),
             overcharge_active: Vec::new(),
+            cia_intelligence: crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
+            vision_spied: Vec::new(),
+            builder_tasks: Vec::new(),
+            sell_list: Vec::new(),
+            object_persist: Vec::new(),
+            client_drawable_visuals: Vec::new(),
         }
     }
 }
@@ -1844,4 +2074,86 @@ impl From<WorldSnapshot> for PreV11WorldSnapshot {
 #[cfg(test)]
 pub(crate) fn serialize_pre_v11_v10_fixture(snapshot: WorldSnapshot) -> bincode::Result<Vec<u8>> {
     bincode::serialize(&PreV11WorldSnapshot::from(snapshot))
+}
+
+#[cfg(test)]
+impl From<WorldSnapshot> for PreV13WorldSnapshot {
+    fn from(snapshot: WorldSnapshot) -> Self {
+        Self {
+            version: 12,
+            timestamp: snapshot.timestamp,
+            frame_number: snapshot.frame_number,
+            random_seed: snapshot.random_seed,
+            objects: snapshot.objects,
+            players: snapshot.players,
+            teams: snapshot.teams,
+            terrain: snapshot.terrain,
+            weather: snapshot.weather,
+            resource_manager: snapshot.resource_manager,
+            combat_tracker: snapshot.combat_tracker,
+            experience_tracker: snapshot.experience_tracker,
+            pathfinding_cache: snapshot.pathfinding_cache,
+            ai_players: snapshot.ai_players,
+            global_ai_state: snapshot.global_ai_state,
+            special_power_strikes: snapshot.special_power_strikes,
+            combat_particles: snapshot.combat_particles,
+            host_upgrades: snapshot.host_upgrades,
+            next_weapon_discharge_sequence: snapshot.next_weapon_discharge_sequence,
+            client_drawables: snapshot.client_drawables,
+            player_template_bindings: snapshot.player_template_bindings,
+            shroud: snapshot.shroud,
+            lifecycle_tail: snapshot.lifecycle_tail,
+            player_ranks: snapshot.player_ranks,
+            object_instance_guards: snapshot.object_instance_guards,
+            overcharge_active: snapshot.overcharge_active,
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn serialize_pre_v13_v12_fixture(snapshot: WorldSnapshot) -> bincode::Result<Vec<u8>> {
+    bincode::serialize(&PreV13WorldSnapshot::from(snapshot))
+}
+
+#[cfg(test)]
+impl From<WorldSnapshot> for PreV14WorldSnapshot {
+    fn from(snapshot: WorldSnapshot) -> Self {
+        Self {
+            version: 13,
+            timestamp: snapshot.timestamp,
+            frame_number: snapshot.frame_number,
+            random_seed: snapshot.random_seed,
+            objects: snapshot.objects,
+            players: snapshot.players,
+            teams: snapshot.teams,
+            terrain: snapshot.terrain,
+            weather: snapshot.weather,
+            resource_manager: snapshot.resource_manager,
+            combat_tracker: snapshot.combat_tracker,
+            experience_tracker: snapshot.experience_tracker,
+            pathfinding_cache: snapshot.pathfinding_cache,
+            ai_players: snapshot.ai_players,
+            global_ai_state: snapshot.global_ai_state,
+            special_power_strikes: snapshot.special_power_strikes,
+            combat_particles: snapshot.combat_particles,
+            host_upgrades: snapshot.host_upgrades,
+            next_weapon_discharge_sequence: snapshot.next_weapon_discharge_sequence,
+            client_drawables: snapshot.client_drawables,
+            player_template_bindings: snapshot.player_template_bindings,
+            shroud: snapshot.shroud,
+            lifecycle_tail: snapshot.lifecycle_tail,
+            player_ranks: snapshot.player_ranks,
+            object_instance_guards: snapshot.object_instance_guards,
+            overcharge_active: snapshot.overcharge_active,
+            cia_intelligence: snapshot.cia_intelligence,
+            vision_spied: snapshot.vision_spied,
+            builder_tasks: snapshot.builder_tasks,
+            sell_list: snapshot.sell_list,
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn serialize_pre_v14_v13_fixture(snapshot: WorldSnapshot) -> bincode::Result<Vec<u8>> {
+    bincode::serialize(&PreV14WorldSnapshot::from(snapshot))
 }

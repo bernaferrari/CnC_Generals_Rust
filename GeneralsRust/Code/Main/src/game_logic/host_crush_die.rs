@@ -1,8 +1,9 @@
-//! Host CrushDie residual (Total/Front/Back crush sounds).
+//! Host CrushDie residual (Total/Front/Back crush sounds + wreck flags).
 //!
 //! C++: `CrushDie::onDie` — DieMux + DAMAGE_CRUSH only. `crushLocationCheck`
-//! picks TOTAL/FRONT/BACK. If the authored sound is non-empty and
-//! `GameLogicRandomValue(0,99) < crushSoundPercent` (default 100), queue
+//! picks TOTAL/FRONT/BACK from crusher vs victim, then writes body flags and
+//! `FRONTCRUSHED`/`BACKCRUSHED` model bits. If the authored sound is non-empty
+//! and `GameLogicRandomValue(0,99) < crushSoundPercent` (default 100), queue
 //! `TheAudio->addAudioEvent` with the victim object id.
 
 use serde::{Deserialize, Serialize};
@@ -66,6 +67,7 @@ impl HostCrushDieData {
     }
 }
 
+/// C++ `crush_kind` after flags are written. Neither flag is not Total.
 pub fn crush_kind_from_flags(front_crushed: bool, back_crushed: bool) -> HostCrushKind {
     if front_crushed && back_crushed {
         HostCrushKind::Total
@@ -74,6 +76,71 @@ pub fn crush_kind_from_flags(front_crushed: bool, back_crushed: bool) -> HostCru
     } else {
         HostCrushKind::Back
     }
+}
+
+/// C++ `CrushDie::onDie` body-flag write from crush type.
+pub fn flags_from_crush_kind(kind: HostCrushKind) -> (bool, bool) {
+    match kind {
+        HostCrushKind::Total => (true, true),
+        HostCrushKind::Front => (true, false),
+        HostCrushKind::Back => (false, true),
+    }
+}
+
+/// C++ `crushLocationCheck` (`CrushDie.cpp:25-121`).
+/// Host XZ is C++ XY. `None` is `NO_CRUSH` (both ends already crushed).
+/// Missing dealer is **not** this function — caller defaults to `Total`.
+pub fn crush_location_check(
+    crusher_xz: (f32, f32),
+    victim_xz: (f32, f32),
+    victim_dir_xz: (f32, f32),
+    major_radius: f32,
+    front_crushed: bool,
+    back_crushed: bool,
+) -> Option<HostCrushKind> {
+    let offset = major_radius * 0.5;
+    let mut best: Option<HostCrushKind> = None;
+    let mut best_dist = 99999.0_f32;
+
+    if !front_crushed && !back_crushed {
+        let dx = victim_xz.0 - crusher_xz.0;
+        let dy = victim_xz.1 - crusher_xz.1;
+        best = Some(HostCrushKind::Total);
+        best_dist = dx * dx + dy * dy;
+    }
+
+    if !front_crushed {
+        let front_x = victim_xz.0 + victim_dir_xz.0 * offset;
+        let front_y = victim_xz.1 + victim_dir_xz.1 * offset;
+        let dx = front_x - crusher_xz.0;
+        let dy = front_y - crusher_xz.1;
+        let dist = dx * dx + dy * dy;
+        if dist < best_dist {
+            best = Some(if back_crushed {
+                HostCrushKind::Total
+            } else {
+                HostCrushKind::Front
+            });
+            best_dist = dist;
+        }
+    }
+
+    if !back_crushed {
+        let back_x = victim_xz.0 - victim_dir_xz.0 * offset;
+        let back_y = victim_xz.1 - victim_dir_xz.1 * offset;
+        let dx = back_x - crusher_xz.0;
+        let dy = back_y - crusher_xz.1;
+        let dist = dx * dx + dy * dy;
+        if dist < best_dist {
+            best = Some(if front_crushed {
+                HostCrushKind::Total
+            } else {
+                HostCrushKind::Back
+            });
+        }
+    }
+
+    best
 }
 
 fn parse_percent(raw: &str) -> Option<i32> {
@@ -214,6 +281,38 @@ mod tests {
         assert_eq!(crush_kind_from_flags(true, true), HostCrushKind::Total);
         assert_eq!(crush_kind_from_flags(true, false), HostCrushKind::Front);
         assert_eq!(crush_kind_from_flags(false, true), HostCrushKind::Back);
+    }
+
+    #[test]
+    fn location_check_picks_closest_crush_point() {
+        let victim = (0.0, 0.0);
+        let dir = (1.0, 0.0);
+        let radius = 10.0;
+        assert_eq!(
+            crush_location_check((0.0, 0.0), victim, dir, radius, false, false),
+            Some(HostCrushKind::Total)
+        );
+        assert_eq!(
+            crush_location_check((5.0, 0.0), victim, dir, radius, false, false),
+            Some(HostCrushKind::Front)
+        );
+        assert_eq!(
+            crush_location_check((-5.0, 0.0), victim, dir, radius, false, false),
+            Some(HostCrushKind::Back)
+        );
+        assert_eq!(
+            crush_location_check((5.0, 0.0), victim, dir, radius, false, true),
+            Some(HostCrushKind::Total)
+        );
+        assert_eq!(
+            crush_location_check((0.0, 0.0), victim, dir, radius, true, true),
+            None
+        );
+        assert_eq!(
+            flags_from_crush_kind(HostCrushKind::Front),
+            (true, false)
+        );
+        assert_eq!(flags_from_crush_kind(HostCrushKind::Total), (true, true));
     }
 
     #[test]

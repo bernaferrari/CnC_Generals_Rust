@@ -30,6 +30,71 @@ fn definition_has_rider_change_contain(definition: &crate::assets::ObjectDefinit
         .any(|module| module.class_name.eq_ignore_ascii_case("RiderChangeContain"))
 }
 
+fn host_unlook_persist_frames() -> u32 {
+    crate::game_logic::host_gamedata_lobby_residual::UNLOOK_PERSIST_DURATION_FRAMES_RESIDUAL.max(0)
+        as u32
+}
+
+fn container_blocks_passenger_look(container: &Object) -> bool {
+    let kind = container.thing.template.contain_module.kind;
+    kind != crate::game_logic::ContainModuleKind::None && !container.is_garrison_contain()
+}
+
+fn restamp_host_partition_look(
+    last: &mut std::collections::HashMap<ObjectId, (f32, f32, f32, f32, u32)>,
+    live: &mut std::collections::HashSet<ObjectId>,
+    shroud_mgr: &mut gamelogic::system::shroud_manager::ShroudManager,
+    cell_ops: &mut Vec<(gamelogic::common::Coord3D, f32, u32, bool)>,
+    id: ObjectId,
+    center: gamelogic::common::Coord3D,
+    range: f32,
+    mask: u32,
+    persist: u32,
+    frame: u32,
+) {
+    live.insert(id);
+    let next = (center.x, center.y, center.z, range, mask);
+    if let Some(prev) = last.get(&id).copied() {
+        let same = (prev.0 - next.0).abs() < 1e-4
+            && (prev.1 - next.1).abs() < 1e-4
+            && (prev.2 - next.2).abs() < 1e-4
+            && (prev.3 - next.3).abs() < 1e-4
+            && prev.4 == next.4;
+        if same {
+            return;
+        }
+        let old = gamelogic::common::Coord3D::new(prev.0, prev.1, prev.2);
+        shroud_mgr.queue_undo_shroud_reveal(&old, prev.3, prev.4, persist, frame);
+        cell_ops.push((old, prev.3, prev.4, false));
+    }
+    shroud_mgr.do_shroud_reveal(&center, range, mask);
+    cell_ops.push((center, range, mask, true));
+    last.insert(id, next);
+}
+
+fn unlook_stale_host_partition_looks(
+    last: &mut std::collections::HashMap<ObjectId, (f32, f32, f32, f32, u32)>,
+    live: &std::collections::HashSet<ObjectId>,
+    shroud_mgr: &mut gamelogic::system::shroud_manager::ShroudManager,
+    cell_ops: &mut Vec<(gamelogic::common::Coord3D, f32, u32, bool)>,
+    persist: u32,
+    frame: u32,
+) {
+    let stale: Vec<ObjectId> = last
+        .keys()
+        .copied()
+        .filter(|id| !live.contains(id))
+        .collect();
+    for id in stale {
+        if let Some(prev) = last.remove(&id) {
+            let old = gamelogic::common::Coord3D::new(prev.0, prev.1, prev.2);
+            shroud_mgr.queue_undo_shroud_reveal(&old, prev.3, prev.4, persist, frame);
+            cell_ops.push((old, prev.3, prev.4, false));
+        }
+    }
+}
+
+
 impl GameLogic {
     /// C++ parity: veterancy-level XP multiplier. In C++ each template
     /// defines per-level ExperienceValue; we approximate by scaling the
@@ -419,6 +484,13 @@ impl GameLogic {
             template.shroud_clearing_range = scr;
         }
 
+        if let Some(r) = Self::object_definition_attr(definition, "shroudrevealtoallrange")
+            .and_then(|s| s.trim().parse::<f32>().ok())
+            .filter(|v| v.is_finite())
+        {
+            template.shroud_reveal_to_all_range = r;
+        }
+
         // C++ ThingTemplate.cpp:226-227 INI::parseUnsignedByte CrusherLevel/CrushableLevel.
         // 0 is authored (cannot crush / most crushable); do not treat as missing.
         if let Some(level) = Self::object_definition_attr(definition, "crusherlevel")
@@ -681,6 +753,12 @@ impl GameLogic {
         }
         if has_kind("can_see_through") || has_kind("can_see_through_structure") {
             template.add_kind_of(KindOf::CanSeeThrough);
+        }
+        if has_kind("reveal_to_all") {
+            template.reveal_to_all = true;
+        }
+        if has_kind("always_visible") {
+            template.always_visible = true;
         }
     }
 
@@ -1067,6 +1145,14 @@ impl GameLogic {
                 } else {
                     true
                 };
+                let cave_index = if kind == ContainModuleKind::Cave {
+                    module
+                        .attribute("CaveIndex")
+                        .and_then(|v| v.trim().parse::<i32>().ok())
+                        .unwrap_or(0)
+                } else {
+                    0
+                };
                 let candidate = ContainModuleMetadata {
                     kind,
                     slots,
@@ -1090,6 +1176,7 @@ impl GameLogic {
                     frames_for_full_heal,
                     immune_to_clear_building_attacks,
                     is_enclosing_container,
+                    cave_index,
                 };
                 // Retail gives an object one active normal contain interface.
                 // A malformed/custom stack is not safely representable here;
@@ -1421,9 +1508,10 @@ impl GameLogic {
             .behavior_modules
             .iter()
             .filter(|module| {
-                module
-                    .class_name
-                    .eq_ignore_ascii_case("SupplyTruckAIUpdate")
+                let class = module.class_name.as_str();
+                class.eq_ignore_ascii_case("SupplyTruckAIUpdate")
+                    || class.eq_ignore_ascii_case("ChinookAIUpdate")
+                    || class.eq_ignore_ascii_case("WorkerAIUpdate")
             })
             .collect();
         let [module] = modules.as_slice() else {
@@ -1449,6 +1537,10 @@ impl GameLogic {
             center_delay_frames: module
                 .attribute("SupplyCenterActionDelay")
                 .and_then(duration_frames)
+                .unwrap_or(0),
+            upgraded_supply_boost: module
+                .attribute("UpgradedSupplyBoost")
+                .and_then(unsigned)
                 .unwrap_or(0),
         });
 
@@ -3447,7 +3539,7 @@ impl GameLogic {
             Err(_) => return,
         };
 
-        let persist = 30u32;
+        let persist = host_unlook_persist_frames();
         let frame = self.frame;
         shroud_mgr.process_pending_undo_shroud_reveals(frame);
 
@@ -3457,135 +3549,254 @@ impl GameLogic {
             shroud_mgr.clear_host_object_visibility(pid);
         }
 
-        let mut viewers: Vec<(crate::game_logic::ObjectId, u32, glam::Vec3, f32)> = Vec::new();
-        let mut targets: Vec<(crate::game_logic::ObjectId, glam::Vec3)> = Vec::new();
         let mut live_lookers = std::collections::HashSet::new();
+        let mut live_reveal_all = std::collections::HashSet::new();
         let mut cell_ops: Vec<(Coord3D, f32, u32, bool)> = Vec::new();
 
-        for obj in self.objects.values() {
-            if !obj.is_alive() {
-                continue;
-            }
-            let pos = obj.get_position();
-            targets.push((obj.id, pos));
-            let tpl = obj.get_template();
-            let vision_range = if obj.vision_range > 0.0 {
-                obj.vision_range
-            } else {
-                tpl.sight_range
-            };
-            let mut shroud_range = if obj.status.under_construction {
-                obj.selection_radius.max(1.0)
-            } else if obj.shroud_clearing_range > 0.0 {
-                obj.shroud_clearing_range
-            } else {
-                tpl.resolved_shroud_clearing_range()
-            };
-            if shroud_range < 0.0 {
-                shroud_range = vision_range;
-            }
-            if vision_range <= 0.0 && shroud_range <= 0.0 {
-                continue;
-            }
-            let Some(owner_pid) = self.player_id_for_team(obj.team) else {
-                continue;
-            };
-            if vision_range > 0.0 {
-                viewers.push((obj.id, owner_pid, pos, vision_range));
-            }
-
-            let center = Coord3D::new(pos.x, pos.z, pos.y);
-            let mut player_mask = 0u32;
-            for (&pid, player) in &self.players {
-                if player.team == obj.team {
-                    player_mask |= 1u32 << pid.min(31);
+        let snaps: Vec<_> = self
+            .objects
+            .values()
+            .filter(|obj| obj.is_alive())
+            .map(|obj| {
+                let pos = obj.get_position();
+                let tpl = obj.get_template();
+                let vision_range = if obj.vision_range > 0.0 {
+                    obj.vision_range
+                } else {
+                    tpl.sight_range
+                };
+                let mut shroud_range = if obj.status.under_construction {
+                    obj.selection_radius.max(1.0)
+                } else if obj.shroud_clearing_range > 0.0 {
+                    obj.shroud_clearing_range
+                } else {
+                    tpl.resolved_shroud_clearing_range()
+                };
+                if shroud_range < 0.0 {
+                    shroud_range = vision_range;
                 }
-            }
-            if player_mask == 0 || shroud_range <= 0.0 {
-                continue;
-            }
-            live_lookers.insert(obj.id);
-            let next = (center.x, center.y, center.z, shroud_range, player_mask);
-            if let Some(prev) = self.vision_last_looks.get(&obj.id).copied() {
-                let same = (prev.0 - next.0).abs() < 1e-4
-                    && (prev.1 - next.1).abs() < 1e-4
-                    && (prev.2 - next.2).abs() < 1e-4
-                    && (prev.3 - next.3).abs() < 1e-4
-                    && prev.4 == next.4;
-                if same {
-                    continue;
-                }
-                let old = Coord3D::new(prev.0, prev.1, prev.2);
-                shroud_mgr.queue_undo_shroud_reveal(&old, prev.3, prev.4, persist, frame);
-                cell_ops.push((old, prev.3, prev.4, false));
-            }
-            shroud_mgr.do_shroud_reveal(&center, shroud_range, player_mask);
-            cell_ops.push((center, shroud_range, player_mask, true));
-            self.vision_last_looks.insert(obj.id, next);
-        }
-
-
-        let stale: Vec<crate::game_logic::ObjectId> = self
-            .vision_last_looks
-            .keys()
-            .copied()
-            .filter(|id| !live_lookers.contains(id))
+                let owner_pid = obj
+                    .owner_player_id
+                    .or_else(|| self.player_id_for_team(obj.team));
+                let blocked = obj.contained_by.is_some_and(|cid| {
+                    self.objects
+                        .get(&cid)
+                        .is_some_and(container_blocks_passenger_look)
+                });
+                let stealthed_hidden = obj.status.stealthed
+                    && !obj.status.detected
+                    && !obj.status.disguised;
+                (
+                    obj.id,
+                    pos,
+                    owner_pid,
+                    shroud_range,
+                    tpl.shroud_reveal_to_all_range,
+                    tpl.reveal_to_all,
+                    obj.status.under_construction,
+                    blocked,
+                    stealthed_hidden,
+                )
+            })
             .collect();
-        for id in stale {
-            if let Some(prev) = self.vision_last_looks.remove(&id) {
-                let old = Coord3D::new(prev.0, prev.1, prev.2);
-                shroud_mgr.queue_undo_shroud_reveal(&old, prev.3, prev.4, persist, frame);
-                cell_ops.push((old, prev.3, prev.4, false));
-            }
-        }
 
-
-        for obj in self.objects.values() {
-            if !obj.is_alive() {
+        for (
+            id,
+            pos,
+            owner_pid,
+            shroud_range,
+            reveal_all_range,
+            reveal_to_all_kind,
+            under_construction,
+            blocked,
+            stealthed_hidden,
+        ) in snaps
+        {
+            if blocked {
                 continue;
             }
-            for (&pid, player) in &self.players {
-                if player.team == obj.team && player.team != Team::Neutral {
-                    shroud_mgr.mark_host_object_seen(pid, obj.id.0);
-                }
-            }
-        }
+            let Some(owner_pid) = owner_pid else {
+                continue;
+            };
+            let center = Coord3D::new(pos.x, pos.z, pos.y);
 
-        for &(viewer_id, owner_pid, viewer_pos, vision_range) in &viewers {
-            let mut ally_pids: Vec<u32> = self
-                .players
-                .iter()
-                .filter_map(|(&pid, p)| {
-                    self.players
-                        .get(&owner_pid)
-                        .map(|owner| p.team == owner.team)
-                        .unwrap_or(false)
-                        .then_some(pid)
-                })
-                .collect();
-            if ally_pids.is_empty() {
-                ally_pids.push(owner_pid);
-            }
-            let range_sq = vision_range * vision_range;
-            for &pid in &ally_pids {
-                shroud_mgr.mark_host_object_seen(pid, viewer_id.0);
-            }
-            for &(target_id, target_pos) in &targets {
-                if target_id == viewer_id {
-                    continue;
+            if shroud_range > 0.0 {
+                let player_mask = if reveal_to_all_kind {
+                    player_ids
+                        .iter()
+                        .fold(0u32, |mask, &pid| mask | (1u32 << pid.min(31)))
+                } else {
+                    let mut mask = 0u32;
+                    for &pid in &player_ids {
+                        if self.player_relationship(owner_pid, pid)
+                            == gamelogic::common::Relationship::Allies
+                        {
+                            mask |= 1u32 << pid.min(31);
+                        }
+                    }
+                    mask
+                };
+                if player_mask != 0 {
+                    restamp_host_partition_look(
+                        &mut self.vision_last_looks,
+                        &mut live_lookers,
+                        &mut shroud_mgr,
+                        &mut cell_ops,
+                        id,
+                        center,
+                        shroud_range,
+                        player_mask,
+                        persist,
+                        frame,
+                    );
                 }
-                let dx = target_pos.x - viewer_pos.x;
-                let dz = target_pos.z - viewer_pos.z;
-                if dx * dx + dz * dz <= range_sq {
-                    for &pid in &ally_pids {
-                        shroud_mgr.mark_host_object_seen(pid, target_id.0);
+            }
+
+            if reveal_all_range > 0.0 && !under_construction && !stealthed_hidden {
+                let mut reveal_mask = 0u32;
+                for &pid in &player_ids {
+                    let rel = self.player_relationship(owner_pid, pid);
+                    if matches!(
+                        rel,
+                        gamelogic::common::Relationship::Enemies
+                            | gamelogic::common::Relationship::Neutral
+                    ) {
+                        reveal_mask |= 1u32 << pid.min(31);
                     }
                 }
+                if reveal_mask != 0 {
+                    restamp_host_partition_look(
+                        &mut self.vision_last_reveal_all,
+                        &mut live_reveal_all,
+                        &mut shroud_mgr,
+                        &mut cell_ops,
+                        id,
+                        center,
+                        reveal_all_range,
+                        reveal_mask,
+                        persist,
+                        frame,
+                    );
+                }
             }
         }
+
+        unlook_stale_host_partition_looks(
+            &mut self.vision_last_looks,
+            &live_lookers,
+            &mut shroud_mgr,
+            &mut cell_ops,
+            persist,
+            frame,
+        );
+        unlook_stale_host_partition_looks(
+            &mut self.vision_last_reveal_all,
+            &live_reveal_all,
+            &mut shroud_mgr,
+            &mut cell_ops,
+            persist,
+            frame,
+        );
         drop(shroud_mgr);
         for (center, radius, mask, add) in cell_ops {
             gamelogic::object::stamp_partition_cell_lookers(&center, radius, mask, add);
+        }
+
+        // C++ PartitionData::getShroudedStatus — object FOW is the footprint
+        // COI mix, not a VisionRange circle (hq-mvlin).
+        let Ok(mut shroud_mgr) = shroud.lock() else {
+            return;
+        };
+        use crate::game_logic::partition_coi::{
+            cells_touched_for_footprint, mix_object_shroud_from_cells, HostPartitionFootprint,
+        };
+        use game_engine::common::system::radar::CellShroudStatus;
+        use gamelogic::common::{Relationship, types::ObjectShroudStatus};
+
+        let object_snaps: Vec<_> = self
+            .objects
+            .values()
+            .filter(|o| o.is_alive())
+            .map(|o| {
+                let pos = o.get_position();
+                let geom = &o.thing.template.geometry_info;
+                let fp = if geom.authored {
+                    HostPartitionFootprint {
+                        major_radius: geom.major_radius,
+                        minor_radius: geom.minor_radius,
+                        angle: o.get_orientation(),
+                        is_small: geom.is_small,
+                        is_box: matches!(
+                            geom.geom_type,
+                            crate::game_logic::HostGeometryType::Box
+                        ),
+                    }
+                } else {
+                    HostPartitionFootprint::small_circle(o.selection_radius.max(1.0))
+                };
+                (
+                    o.id,
+                    o.owner_player_id,
+                    o.contained_by.is_some(),
+                    o.is_kind_of(KindOf::Immobile) || o.is_kind_of(KindOf::Structure),
+                    o.is_kind_of(KindOf::Mine),
+                    o.get_template().always_visible,
+                    pos.x,
+                    pos.z,
+                    fp,
+                )
+            })
+            .collect();
+
+        for (id, owner, contained, immobile, mine, always_visible, x, z, fp) in object_snaps {
+            let cells = cells_touched_for_footprint(x, z, fp);
+            for &pid in &player_ids {
+                if always_visible || contained {
+                    shroud_mgr.set_host_object_shroud_status(
+                        pid,
+                        id.0,
+                        ObjectShroudStatus::Clear,
+                    );
+                    shroud_mgr.mark_host_object_seen(pid, id.0);
+                    shroud_mgr.set_host_object_ever_seen(pid, id.0, true);
+                    continue;
+                }
+                let mut shrouded_cells = 0usize;
+                let mut fogged_cells = 0usize;
+                for &(cx, cz) in &cells {
+                    match gamelogic::object::partition_cell_shroud_status(pid as i32, cx, cz)
+                    {
+                        CellShroudStatus::Shrouded => shrouded_cells += 1,
+                        CellShroudStatus::Fogged => fogged_cells += 1,
+                        CellShroudStatus::Clear => {}
+                    }
+                }
+                let ever = shroud_mgr.host_object_ever_seen(pid, id.0);
+                let relationship_neutral = match owner {
+                    Some(oid) => self.player_relationship(pid, oid) == Relationship::Neutral,
+                    None => true,
+                };
+                let (status, ever_now) = mix_object_shroud_from_cells(
+                    cells.len(),
+                    shrouded_cells,
+                    fogged_cells,
+                    relationship_neutral,
+                    immobile,
+                    mine,
+                    ever,
+                );
+                shroud_mgr.set_host_object_ever_seen(pid, id.0, ever_now);
+                shroud_mgr.set_host_object_shroud_status(pid, id.0, status);
+                match status {
+                    ObjectShroudStatus::Clear | ObjectShroudStatus::PartialClear => {
+                        shroud_mgr.mark_host_object_seen(pid, id.0);
+                    }
+                    ObjectShroudStatus::Fogged => {
+                        shroud_mgr.mark_host_object_explored(pid, id.0);
+                    }
+                    _ => {}
+                }
+            }
         }
 
     }
@@ -6324,6 +6535,7 @@ Object ProbeCaveContain
   KindOf = STRUCTURE SELECTABLE
   Behavior = CaveContain ModuleTag_Cave
     ContainMax = 10
+    CaveIndex = 4
   End
 End
 Object ProbeTunnelContain
@@ -6373,6 +6585,7 @@ End
         );
         assert_eq!(cave.contain_module.kind, ContainModuleKind::Cave);
         assert_eq!(cave.contain_module.slots, Some(10));
+        assert_eq!(cave.contain_module.cave_index, 4);
 
         let tunnel = GameLogic::build_template_from_object_definition(
             "ProbeTunnelContain",
@@ -6535,6 +6748,225 @@ End
         assert!(
             !logic.vision_last_looks.contains_key(&id),
             "death must unlook"
+        );
+    }
+
+    /// C++ PartitionManager.cpp:1582-1688 — object FOW is footprint COI mix.
+    #[test]
+    fn object_fow_uses_coi_mix_not_vision_range_circle() {
+        use gamelogic::common::types::ObjectShroudStatus;
+        use gamelogic::system::shroud_manager::get_shroud_manager;
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "USA", true));
+        logic.add_player(Player::new(2, Team::China, "China", false));
+
+        let mut looker = ThingTemplate::new("Looker");
+        looker.sight_range = 100.0;
+        looker.shroud_clearing_range = 80.0;
+        logic.templates.insert("Looker".into(), looker);
+
+        let mut scout = ThingTemplate::new("EnemyScout");
+        scout.add_kind_of(KindOf::Infantry).set_health(80.0);
+        logic.templates.insert("EnemyScout".into(), scout);
+
+        let mut bunker = ThingTemplate::new("EnemyBunker");
+        bunker
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Immobile)
+            .set_health(400.0);
+        bunker.geometry_info = crate::game_logic::HostGeometryInfo {
+            geom_type: crate::game_logic::HostGeometryType::Box,
+            is_small: false,
+            height: 20.0,
+            major_radius: 20.0,
+            minor_radius: 20.0,
+            authored: true,
+        };
+        logic.templates.insert("EnemyBunker".into(), bunker);
+
+        {
+            let shroud = get_shroud_manager();
+            let mut mgr = shroud.lock().expect("shroud");
+            mgr.init_shroud_grid(512.0, 512.0);
+        }
+
+        let _looker_id = logic
+            .create_object_for_player("Looker", 1, Vec3::new(0.0, 0.0, 0.0))
+            .expect("looker");
+        let near_id = logic
+            .create_object_for_player("EnemyScout", 2, Vec3::new(10.0, 0.0, 0.0))
+            .expect("near");
+        let far_id = logic
+            .create_object_for_player("EnemyScout", 2, Vec3::new(300.0, 0.0, 0.0))
+            .expect("far");
+        let bunker_id = logic
+            .create_object_for_player("EnemyBunker", 2, Vec3::new(10.0, 0.0, 10.0))
+            .expect("bunker");
+
+        logic.update_main_crate_vision();
+        {
+            let shroud = get_shroud_manager();
+            let mgr = shroud.lock().expect("shroud");
+            assert_eq!(
+                mgr.get_host_object_shroud_status(1, near_id.0),
+                Some(ObjectShroudStatus::Clear),
+                "enemy on revealed cells is CLEAR"
+            );
+            assert_eq!(
+                mgr.get_host_object_shroud_status(1, far_id.0),
+                Some(ObjectShroudStatus::Shrouded),
+                "enemy on unrevealed cells is SHROUDED, not a VisionRange ghost"
+            );
+            assert_eq!(
+                mgr.get_host_object_shroud_status(1, bunker_id.0),
+                Some(ObjectShroudStatus::Clear)
+            );
+            assert!(mgr.host_object_ever_seen(1, bunker_id.0));
+        }
+
+        if let Some(obj) = logic.host_object_mut(_looker_id) {
+            obj.set_position(Vec3::new(300.0, 0.0, 300.0));
+        }
+        logic.update_main_crate_vision();
+        {
+            let shroud = get_shroud_manager();
+            let mgr = shroud.lock().expect("shroud");
+            assert_eq!(
+                mgr.get_host_object_shroud_status(1, near_id.0),
+                Some(ObjectShroudStatus::Shrouded),
+                "mobile enemy in fog must not linger as a fog ghost"
+            );
+            assert_eq!(
+                mgr.get_host_object_shroud_status(1, bunker_id.0),
+                Some(ObjectShroudStatus::Fogged),
+                "seen immobile enemy building stays FOGGED ghost"
+            );
+        }
+    }
+
+    #[test]
+    fn looker_mask_uses_player_relationship_and_unlook_persist_150() {
+        use gamelogic::system::shroud_manager::get_shroud_manager;
+        use glam::Vec3;
+
+        assert_eq!(super::host_unlook_persist_frames(), 150);
+
+        let mut logic = GameLogic::new();
+        let mut usa = Player::new(0, Team::USA, "USA", true);
+        usa.alliance_team = 7;
+        let mut china = Player::new(1, Team::China, "China", false);
+        china.alliance_team = 7;
+        logic.add_player(usa);
+        logic.add_player(china);
+
+        let mut tpl = ThingTemplate::new("AllyLooker");
+        tpl.sight_range = 50.0;
+        tpl.shroud_clearing_range = 80.0;
+        logic.templates.insert("AllyLooker".into(), tpl);
+
+        {
+            let shroud = get_shroud_manager();
+            let mut mgr = shroud.lock().expect("shroud");
+            mgr.init_shroud_grid(512.0, 512.0);
+        }
+
+        let id = logic
+            .create_object_for_player("AllyLooker", 0, Vec3::new(10.0, 0.0, 10.0))
+            .expect("spawn");
+        logic.update_main_crate_vision();
+        let look = *logic.vision_last_looks.get(&id).expect("looker");
+        assert_ne!(look.4 & (1u32 << 0), 0, "owner bit");
+        assert_ne!(look.4 & (1u32 << 1), 0, "script/skirmish ally must share look");
+    }
+
+    #[test]
+    fn transport_passengers_stop_looking() {
+        use crate::game_logic::{ContainModuleKind, ContainModuleMetadata};
+        use gamelogic::system::shroud_manager::get_shroud_manager;
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "USA", true));
+
+        let mut chinook = ThingTemplate::new("ChinookLook");
+        chinook.shroud_clearing_range = 200.0;
+        chinook.contain_module = ContainModuleMetadata {
+            kind: ContainModuleKind::Transport,
+            slots: Some(8),
+            ..ContainModuleMetadata::default()
+        };
+        logic.templates.insert("ChinookLook".into(), chinook);
+
+        let mut ranger = ThingTemplate::new("RangerLook");
+        ranger.shroud_clearing_range = 150.0;
+        logic.templates.insert("RangerLook".into(), ranger);
+
+        {
+            let shroud = get_shroud_manager();
+            let mut mgr = shroud.lock().expect("shroud");
+            mgr.init_shroud_grid(512.0, 512.0);
+        }
+
+        let bird = logic
+            .create_object_for_player("ChinookLook", 1, Vec3::new(0.0, 0.0, 0.0))
+            .expect("chinook");
+        let rider = logic
+            .create_object_for_player("RangerLook", 1, Vec3::new(0.0, 0.0, 0.0))
+            .expect("ranger");
+        if let Some(obj) = logic.host_object_mut(rider) {
+            obj.set_contained_by(Some(bird));
+        }
+        logic.update_main_crate_vision();
+        assert!(
+            logic.vision_last_looks.contains_key(&bird),
+            "container still looks"
+        );
+        assert!(
+            !logic.vision_last_looks.contains_key(&rider),
+            "transport passenger must not look"
+        );
+    }
+
+    #[test]
+    fn shroud_reveal_to_all_range_looks_for_enemies() {
+        use gamelogic::system::shroud_manager::get_shroud_manager;
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "USA", true));
+        logic.add_player(Player::new(1, Team::China, "China", false));
+
+        let mut tpl = ThingTemplate::new("StratCenter");
+        tpl.shroud_clearing_range = 200.0;
+        tpl.shroud_reveal_to_all_range = 50.0;
+        logic.templates.insert("StratCenter".into(), tpl);
+
+        {
+            let shroud = get_shroud_manager();
+            let mut mgr = shroud.lock().expect("shroud");
+            mgr.init_shroud_grid(512.0, 512.0);
+        }
+
+        let id = logic
+            .create_object_for_player("StratCenter", 0, Vec3::new(20.0, 0.0, 20.0))
+            .expect("center");
+        logic.update_main_crate_vision();
+        let reveal = *logic.vision_last_reveal_all.get(&id).expect("reveal-all");
+        assert!((reveal.3 - 50.0).abs() < 0.01);
+        assert_ne!(reveal.4 & (1u32 << 1), 0, "enemy bit in reveal-all mask");
+        assert_eq!(reveal.4 & (1u32 << 0), 0, "owner is not enemies/neutral");
+
+        if let Some(obj) = logic.host_object_mut(id) {
+            obj.status.stealthed = true;
+            obj.status.detected = false;
+            obj.status.disguised = false;
+        }
+        logic.update_main_crate_vision();
+        assert!(
+            !logic.vision_last_reveal_all.contains_key(&id),
+            "stealthed-not-detected skips reveal-to-all"
         );
     }
 
@@ -6707,6 +7139,27 @@ End
             bare.geometry_info.geom_type,
             crate::game_logic::HostGeometryType::Sphere
         );
+    }
+
+    #[test]
+    fn ini_shroud_reveal_to_all_range_and_kindofs() {
+        let mut def = ObjectDefinition::new("AmericaStrategyCenter".to_string());
+        def.attributes.insert(
+            "ShroudRevealToAllRange".to_string(),
+            "50.0".to_string(),
+        );
+        def.attributes.insert(
+            "KindOf".to_string(),
+            "STRUCTURE REVEAL_TO_ALL ALWAYS_VISIBLE".to_string(),
+        );
+        let template = GameLogic::build_template_from_object_definition(
+            "AmericaStrategyCenter",
+            &def,
+            None,
+        );
+        assert!((template.shroud_reveal_to_all_range - 50.0).abs() < 1e-4);
+        assert!(template.reveal_to_all);
+        assert!(template.always_visible);
     }
 }
 

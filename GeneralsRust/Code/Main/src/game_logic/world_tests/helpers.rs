@@ -17,6 +17,7 @@ pub(super) fn ensure_test_tank_template(game_logic: &mut GameLogic) {
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
+        .add_kind_of(KindOf::Score)
         .set_health(250.0)
         .set_cost(600, 0);
     // Explicit C++ TransportSlotCount test fixture; tanks consume three
@@ -38,6 +39,7 @@ pub(super) fn ensure_test_dozer_template(game_logic: &mut GameLogic) {
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Worker)
         .add_kind_of(KindOf::Dozer)
+        .add_kind_of(KindOf::Score)
         .set_health(300.0)
         .set_cost(1000, 0);
     game_logic
@@ -55,6 +57,7 @@ pub(super) fn ensure_test_infantry_template(game_logic: &mut GameLogic) {
         .add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
+        .add_kind_of(KindOf::Score)
         .set_health(80.0)
         .set_cost(100, 0);
     test_infantry.transport_slot_count = Some(1);

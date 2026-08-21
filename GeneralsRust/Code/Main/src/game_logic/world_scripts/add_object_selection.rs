@@ -1354,9 +1354,10 @@ impl GameLogic {
                     gamelogic::scripting::engine::get_script_engine().write()
                 {
                     if let Some(engine) = engine_guard.as_mut() {
-                        // C++ parity: ScriptEngine::newMap() resets transient script runtime state
-                        // on every map load before installing map-owned script lists.
+                        // C++ ScriptEngine::newMap() resets transient script runtime
+                        // then starts the 33-frame FADE_MULTIPLY fade-in from black.
                         engine.reset();
+                        engine.new_map();
                         for (idx, list) in self.loaded_script_lists.iter().enumerate() {
                             let _ = engine
                                 .set_script_list_for_player(idx, Some(Box::new(list.clone())));
@@ -1394,6 +1395,7 @@ impl GameLogic {
                 {
                     if let Some(engine) = engine_guard.as_mut() {
                         engine.reset();
+                        engine.new_map();
                     }
                 }
 
@@ -1425,6 +1427,7 @@ impl GameLogic {
                 {
                     if let Some(engine) = engine_guard.as_mut() {
                         engine.reset();
+                        engine.new_map();
                     }
                 }
             }

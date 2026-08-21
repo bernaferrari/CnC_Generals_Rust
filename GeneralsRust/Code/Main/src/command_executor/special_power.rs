@@ -40,6 +40,19 @@ fn host_weapon_slot_index(weapon_slot: &WeaponSlot) -> Option<u8> {
     }
 }
 
+fn special_power_has_overridable_destination(
+    power_type: &crate::command_system::SpecialPowerType,
+) -> bool {
+    matches!(
+        power_type,
+        crate::command_system::SpecialPowerType::ParticleCannon
+            | crate::command_system::SpecialPowerType::SuperweaponParticleCannon
+            | crate::command_system::SpecialPowerType::LaserCannon
+            | crate::command_system::SpecialPowerType::SpectreGunship
+            | crate::command_system::SpecialPowerType::AirForceSpectreGunship
+    )
+}
+
 impl<'a> CommandExecutor<'a> {
     /// C++ AIGroup::groupOverrideSpecialPowerDestination residual.
     pub(crate) fn execute_override_special_power_destination(
@@ -689,6 +702,13 @@ impl<'a> CommandExecutor<'a> {
                 );
             }
             any = true;
+            if special_power_has_overridable_destination(power_type) {
+                if let Some(pos) = target_position {
+                    let _ = self
+                        .game_logic
+                        .unit_command_set_special_power_overridable_destination(unit_id, pos);
+                }
+            }
 
         }
         if any {

@@ -574,6 +574,13 @@ pub use super::host_troop_crawler::{
     TROOP_CRAWLER_ASSAULT_RANGE, TROOP_CRAWLER_ASSAULT_WEAPON, TROOP_CRAWLER_DETECTION_RANGE,
     TROOP_CRAWLER_INITIAL_PAYLOAD_COUNT, TROOP_CRAWLER_TRANSPORT_SLOTS, TROOP_CRAWLER_VISION_RANGE,
 };
+pub use super::host_cave_system::{
+    is_cave_template, HostCaveSystem, MAX_CAVE_CAPACITY,
+};
+pub use super::host_bridge_behavior::{
+    is_bridge_or_tower_template, is_bridge_span_template, HostBridgeBehaviorRegistry,
+    BRIDGE_SCAFFOLD_TEMPLATE, BRIDGE_SPLAT_DAMAGE,
+};
 pub use super::host_tunnel_network::{
     is_tunnel_network_template, tunnel_network_gun_weapon, unit_can_use_tunnel,
     HostTunnelNetworkRegistry, MAX_TUNNEL_CAPACITY, TUNNEL_FULL_HEAL_FRAMES, TUNNEL_NETWORK_GUN,

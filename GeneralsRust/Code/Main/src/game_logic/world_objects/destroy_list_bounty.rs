@@ -242,6 +242,8 @@ impl GameLogic {
                     || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
                         &obj.template_name,
                     );
+                let is_cave = obj.is_cave_style_container();
+
 
                 if rider_change_payload {
                     for contained_id in obj.contained_units() {
@@ -267,6 +269,45 @@ impl GameLogic {
                         let _ = self.apply_rider_free_fall_damage(rid, eject_origin);
                     }
                     self.car_bomb.record_airborne_parachute_free_fall();
+                } else if is_cave {
+                    // C++ CaveContain::onDie — CaveSystem cave-in, no OpenContain eject.
+                    let idx = obj.cave_index;
+                    let remaining: Vec<ObjectId> = self
+                        .objects
+                        .values()
+                        .filter(|o| {
+                            o.is_alive()
+                                && !o.status.sold
+                                && o.is_cave_style_container()
+                                && o.cave_index == idx
+                                && o.id != event.id
+                        })
+                        .map(|o| o.id)
+                        .collect();
+                    let outcome = self.cave_system.on_cave_destroyed(event.id, &remaining);
+                    if outcome.cave_in {
+                        for uid in outcome.cave_in_units {
+                            if let Some(unit) = self.objects.get_mut(&uid) {
+                                unit.set_contained_by(None);
+                                unit.set_target(None);
+                                unit.stop_moving();
+                                unit.set_status_moving(false);
+                                unit.set_status_attacking(false);
+                                unit.status.destroyed = true;
+                                unit.health.current = 0.0;
+                            }
+                            self.mark_object_for_destruction(uid, event.killer);
+                        }
+                    } else if let Some(valid) = outcome.remapped_to {
+                        let pool = self.cave_system.contained_for_index(idx);
+                        for uid in pool {
+                            if let Some(unit) = self.objects.get_mut(&uid) {
+                                if unit.contained_by == Some(event.id) {
+                                    unit.set_contained_by(Some(valid));
+                                }
+                            }
+                        }
+                    }
                 } else if is_tunnel {
                     // C++ TunnelTracker::onTunnelDestroyed (TunnelTracker.cpp:187).
                     let remaining: Vec<ObjectId> = self

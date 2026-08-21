@@ -1276,13 +1276,18 @@ impl GameLogic {
             .players
             .values()
             .any(|p| p.is_local && p.is_alive && p.team == team);
-        // C++ VoiceCreated on new unit always (all owners).
-        self.queue_audio_event(
-            AudioEventRequest::new("VoiceCreated")
-                .with_object(unit_id)
-                .with_position(pos)
-                .with_priority(140),
-        );
+        // C++ getVoiceCreated() — authored Voice.ini name, not the slot token.
+        if let Some(event) = crate::game_logic::audio_dispatch_impl::resolve_unit_voice_event(
+            template_name,
+            crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Created,
+        ) {
+            self.queue_audio_event(
+                AudioEventRequest::new(&event)
+                    .with_object(unit_id)
+                    .with_position(pos)
+                    .with_priority(140),
+            );
+        }
         if local {
             let msg =
                 localization::localize("GUI:UnitReady", &format!("Unit ready: {template_name}"));

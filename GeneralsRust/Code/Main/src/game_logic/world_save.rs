@@ -243,14 +243,42 @@ impl GameLogic {
 
 
     pub fn terrain_height_at(&self, world_pos: Vec3) -> Option<f32> {
-        #[cfg(feature = "game_client")]
-        {
-            if let Some(h) = self.terrain.as_ref().map(|t| t.height_at_world(world_pos)) {
-                return Some(h);
+        let ground = {
+            #[cfg(feature = "game_client")]
+            {
+                if let Some(h) = self.terrain.as_ref().map(|t| t.height_at_world(world_pos)) {
+                    Some(h)
+                } else {
+                    self.pathfinding_height_samples.as_ref().and_then(|cache| {
+                        self.cached_pathfind_height(world_pos, cache)
+                    })
+                }
+            }
+            #[cfg(not(feature = "game_client"))]
+            {
+                self.pathfinding_height_samples.as_ref().and_then(|cache| {
+                    self.cached_pathfind_height(world_pos, cache)
+                })
+            }
+        };
+        // C++ getLayerHeight: non-rubble deck plane wins when the XY is on a span.
+        if let Ok(tl) = gamelogic::terrain::get_terrain_logic().read() {
+            if let Some(deck) = tl.host_deck_height_at(world_pos.x, world_pos.z) {
+                if ground.map_or(true, |g| deck > g) {
+                    return Some(deck);
+                }
             }
         }
-        // Coarse pathfinding height cache residual (save/load + synthetic maps).
-        let cache = self.pathfinding_height_samples.as_ref()?;
+        ground
+    }
+
+    fn cached_pathfind_height(
+        &self,
+        world_pos: Vec3,
+        cache: &PathfindingHeightSamples,
+
+
+    ) -> Option<f32> {
         let width = self.pathfinding_system.grid.width().max(0) as u32;
         let height = self.pathfinding_system.grid.height().max(0) as u32;
         if cache.width != width || cache.height != height || width == 0 || height == 0 {
@@ -263,6 +291,7 @@ impl GameLogic {
         let idx = (cell.y as u32 * width + cell.x as u32) as usize;
         cache.values.get(idx).copied()
     }
+
 
     #[cfg(feature = "game_client")]
     pub fn terrain_heightmap_snapshot(
@@ -486,7 +515,6 @@ impl GameLogic {
             .grid
             .is_static_blocked(super::pathfinding::GridPos::new(x, y))
     }
-
     pub(super) fn seed_pathfinding_from_terrain(&mut self) {
         #[cfg(feature = "game_client")]
         {
@@ -494,15 +522,11 @@ impl GameLogic {
                 return;
             };
 
-            // Reset static blocks to the terrain-derived mask each map load.
             self.pathfinding_system.clear_static_blocks();
 
-            // C++ Pathfinder::classifyMap residual (AIPathfind.h:233-242):
-            // stamp CELL_WATER / CELL_CLIFF / CELL_IMPASSABLE. Water and cliff
-            // stay walk-costed; only extreme slope / OOB is IMPASSABLE.
-            // Incomplete heightmaps that over-classify cliffs still fail-open
-            // the IMPASSABLE mask (hq-hneu: do not reopen that fail-open).
-            const MAX_SLOPE: f32 = 4.0; // only block cliffs-ish grades
+            // C++ Pathfinder::classifyMapCell (AIPathfind.cpp:4491-4521):
+            // cliff at top-left, water if any of 4 corners (water wins).
+            // No terrain-slope Impassable gate.
             let grid_size = self.pathfinding_system.grid.grid_size();
             let grid_origin = self.pathfinding_system.grid.origin();
 
@@ -514,73 +538,34 @@ impl GameLogic {
 
             let width = self.pathfinding_system.grid.width();
             let height = self.pathfinding_system.grid.height();
-            let mut blocked_slopes = 0u32;
-            let mut total_cells = 0u32;
             for y in 0..height {
                 for x in 0..width {
-                    total_cells += 1;
-                    let center = Vec3::new(
-                        grid_origin.x + (x as f32 + 0.5) * grid_size,
+                    let tl = Vec3::new(
+                        grid_origin.x + x as f32 * grid_size,
                         0.0,
-                        grid_origin.z + (y as f32 + 0.5) * grid_size,
+                        grid_origin.z + y as f32 * grid_size,
                     );
                     let pos = super::pathfinding::GridPos::new(x, y);
+                    let center = Vec3::new(tl.x + 0.5 * grid_size, 0.0, tl.z + 0.5 * grid_size);
 
                     if center.x < min_x || center.x > max_x || center.z < min_z || center.z > max_z
                     {
-                        self.pathfinding_system
-                            .grid
-                            .set_cell_type(pos, gamelogic::ai::pathfind_astar::PathfindCellType::Impassable);
+                        self.pathfinding_system.grid.set_cell_type(
+                            pos,
+                            gamelogic::ai::pathfind_astar::PathfindCellType::Impassable,
+                        );
                         continue;
                     }
 
-                    if terrain.is_underwater_at_world(center) {
-                        self.pathfinding_system
-                            .grid
-                            .set_cell_type(pos, gamelogic::ai::pathfind_astar::PathfindCellType::Water);
-                    }
-
-                    let slope = terrain.slope_at_world(center);
-                    let cliff = terrain.is_cliff_at_world(center);
-                    if slope > MAX_SLOPE {
-                        blocked_slopes += 1;
-                        self.pathfinding_system
-                            .grid
-                            .set_cell_type(pos, gamelogic::ai::pathfind_astar::PathfindCellType::Impassable);
-                    } else if cliff {
-                        self.pathfinding_system
-                            .grid
-                            .set_cell_type(pos, gamelogic::ai::pathfind_astar::PathfindCellType::Cliff);
-                    }
-                }
-            }
-
-            // If the slope heuristic blocked most of the map, terrain data is incomplete —
-            // clear slope blocks and keep only out-of-bounds so infantry can still march.
-            if total_cells > 0 && blocked_slopes as f32 / total_cells as f32 > 0.35 {
-                log::warn!(
-                    "Pathfinding slope mask blocked {:.0}% of cells; clearing static blocks (terrain incomplete)",
-                    100.0 * blocked_slopes as f32 / total_cells as f32
-                );
-                self.pathfinding_system.clear_static_blocks();
-                for y in 0..height {
-                    for x in 0..width {
-                        let center = Vec3::new(
-                            grid_origin.x + (x as f32 + 0.5) * grid_size,
-                            0.0,
-                            grid_origin.z + (y as f32 + 0.5) * grid_size,
-                        );
-                        if center.x < min_x
-                            || center.x > max_x
-                            || center.z < min_z
-                            || center.z > max_z
-                        {
-                            self.pathfinding_system.grid.set_cell_type(
-                                super::pathfinding::GridPos::new(x, y),
-                                gamelogic::ai::pathfind_astar::PathfindCellType::Impassable,
-                            );
-                        }
-                    }
+                    let brx = tl.x + grid_size;
+                    let brz = tl.z + grid_size;
+                    let cliff = terrain.is_cliff_at_world(tl);
+                    let water = terrain.is_underwater_at_world(tl)
+                        || terrain.is_underwater_at_world(Vec3::new(tl.x, 0.0, brz))
+                        || terrain.is_underwater_at_world(Vec3::new(brx, 0.0, brz))
+                        || terrain.is_underwater_at_world(Vec3::new(brx, 0.0, tl.z));
+                    let ty = super::pathfinding::PathfindingGrid::classify_map_cell(cliff, water);
+                    self.pathfinding_system.grid.set_cell_type(pos, ty);
                 }
             }
             self.stamp_live_bridge_decks_and_zones();
@@ -589,6 +574,7 @@ impl GameLogic {
 
     /// C++ addBridge classifyCells + classifyMap pinch + zone rebuild on the live host grid.
     pub(super) fn stamp_live_bridge_decks_and_zones(&mut self) {
+        self.ensure_generic_bridge_objects();
         self.pathfinding_system.grid.pinch_tighten_cliffs();
         if let Ok(terrain) = gamelogic::terrain::get_terrain_logic().read() {
             terrain.for_each_bridge(|bridge| {
@@ -605,8 +591,63 @@ impl GameLogic {
                 );
             });
         }
+        self.sync_host_bridge_rubble_and_scaffolds();
         self.pathfinding_system.grid.rebuild_terrain_zones();
     }
+
+    pub(crate) fn ensure_generic_bridge_objects(&mut self) {
+        self.ensure_named_bridge_template("GenericBridge", 300.0);
+        let mut jobs = Vec::new();
+        if let Ok(tl) = gamelogic::terrain::get_terrain_logic().read() {
+            tl.for_each_bridge(|bridge| {
+                let info = bridge.get_bridge_info();
+                if info.bridge_object_id == 0
+                    || !self.objects.contains_key(&ObjectId(info.bridge_object_id))
+                {
+                    jobs.push(info.clone());
+                }
+            });
+        }
+        for info in jobs {
+            let cx = (info.from_left.x + info.to_right.x) * 0.5;
+            let cy = (info.from_left.y + info.to_right.y) * 0.5;
+            let cz = (info.from_left.z + info.to_right.z) * 0.5;
+            let pos = Vec3::new(cx, cz, cy);
+            let Some(id) = self.create_object("GenericBridge", Team::Neutral, pos) else {
+                continue;
+            };
+            let angle = (info.to_left.y - info.from_left.y)
+                .atan2(info.to_left.x - info.from_left.x);
+            if let Some(obj) = self.objects.get_mut(&id) {
+                obj.set_orientation(angle);
+            }
+            self.bridge_behavior.register_span(
+                id,
+                Vec3::new(info.from_left.x, 0.0, info.from_left.y),
+                Vec3::new(info.from_right.x, 0.0, info.from_right.y),
+                Vec3::new(info.to_left.x, 0.0, info.to_left.y),
+                Vec3::new(info.to_right.x, 0.0, info.to_right.y),
+            );
+            if let Ok(mut tl) = gamelogic::terrain::get_terrain_logic().write() {
+                tl.bind_bridge_object_id_at(info.from_left, id.0);
+            }
+        }
+    }
+
+
+    pub(crate) fn ensure_named_bridge_template(&mut self, name: &str, health: f32) {
+
+        if self.templates.contains_key(name) {
+            return;
+        }
+        let mut t = ThingTemplate::new(name);
+        t.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Bridge)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(health);
+        self.templates.insert(name.to_string(), t);
+    }
+
 
     /// C++ AIFollowWaypointPathExact residual — use waypoints as-is (no A* smoothing).
     pub fn assign_unit_path_exact(

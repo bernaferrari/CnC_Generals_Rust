@@ -241,6 +241,86 @@ impl Snapshot for WorldSnapshot {
             self.overcharge_active.clear();
         }
 
+        if self.version >= WORLD_SNAPSHOT_DIRECT_XFER_V13_TAIL_VERSION {
+            xfer.xfer_marker_label("CiaIntelligence")?;
+            self.cia_intelligence.xfer(xfer)?;
+            xfer.xfer_marker_label("VisionSpied")?;
+            xfer_vec_default(
+                xfer,
+                &mut self.vision_spied,
+                ObjectVisionSpiedSnapshot {
+                    object_id: ObjectId(0),
+                    vision_spied_mask: 0,
+                },
+            )?;
+            xfer.xfer_marker_label("BuilderTasks")?;
+            xfer_vec_default(
+                xfer,
+                &mut self.builder_tasks,
+                ObjectBuilderTaskSnapshot {
+                    object_id: ObjectId(0),
+                    builder_id: None,
+                    dozer_task_build_target: None,
+                    dozer_task_build_order_frame: 0,
+                },
+            )?;
+            xfer.xfer_marker_label("SellList")?;
+            xfer_vec_default(
+                xfer,
+                &mut self.sell_list,
+                SellListEntrySnapshot {
+                    object_id: ObjectId(0),
+                    sell_frame: 0,
+                },
+            )?;
+        } else if xfer.get_mode() == XferMode::Load {
+            self.cia_intelligence =
+                crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new();
+            self.vision_spied.clear();
+            self.builder_tasks.clear();
+            self.sell_list.clear();
+        }
+
+        if self.version >= WORLD_SNAPSHOT_DIRECT_XFER_V14_TAIL_VERSION {
+            xfer.xfer_marker_label("ObjectPersist")?;
+            xfer_vec_default(
+                xfer,
+                &mut self.object_persist,
+                ObjectPersistTailSnapshot {
+                    object_id: ObjectId(0),
+                    sole_healing_benefactor: None,
+                    sole_healing_benefactor_expiration_frame: 0,
+                    contained_by_frame: None,
+                    original_team: None,
+                    formation_id: 0,
+                    formation_offset: [0.0, 0.0],
+                    stealth_opacity: 1.0,
+                    terrain_decal_type: 8,
+                    terrain_decal_size: 0.0,
+                },
+            )?;
+            xfer.xfer_marker_label("ClientDrawableVisuals")?;
+            xfer_vec_default(
+                xfer,
+                &mut self.client_drawable_visuals,
+                ClientDrawableVisualSnapshot {
+                    object_id: 0,
+                    draw_module_index: 0,
+                    hidden: false,
+                    hidden_by_stealth: false,
+                    stealth_opacity: 1.0,
+                    effective_opacity: 1.0,
+                    loco_pitch: 0.0,
+                    loco_roll: 0.0,
+                    expiration_date: 0,
+                    terrain_decal: 8,
+                },
+            )?;
+        } else if xfer.get_mode() == XferMode::Load {
+            self.object_persist.clear();
+            self.client_drawable_visuals.clear();
+        }
+
         Ok(())
     }
 

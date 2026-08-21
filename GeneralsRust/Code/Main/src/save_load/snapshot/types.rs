@@ -36,8 +36,15 @@ use std::time::SystemTime;
 /// appends C++ `Object::m_name` plus `AIUpdateInterface` guard anchors
 /// (`m_locationToGuard` / `m_objectToGuard` / `m_guardMode` and the host
 /// guard radius) as a world tail so nested `ObjectSnapshot` records stay
-/// aligned with v1-v10 streams.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 12;
+/// aligned with v1-v10 streams. Version 12 appends OverchargeBehavior
+/// per-object `vision_spied_mask`, exclusive `builder_id` / dozer BUILD
+/// task, and BuildAssistant `sell_list` so mid-spy / mid-build / mid-sell
+/// loads keep those residuals alive. Version 14 appends C++ `Object::xfer`
+/// sole-heal benefactor, `m_containedByFrame`, garrison `m_originalTeamName`,
+/// formation id/offset, and Drawable hidden/stealth-opacity/loco/expiration
+/// /decal companions as a world tail so nested object and client-drawable
+/// records stay aligned with v1-v13 streams.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 14;
 
 /// Direct Common Xfer keeps an independent positional envelope from bincode.
 ///
@@ -45,7 +52,7 @@ pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 12;
 /// and object records.  Do not derive object-tail gates from the bincode
 /// version: a historical direct v3 stream still contains HDB even once the
 /// bincode writer has advanced to v4.
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 12;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 14;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_HDB_VERSION: u32 = 3;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V4_TAIL_VERSION: u32 = 4;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V5_TAIL_VERSION: u32 = 5;
@@ -56,6 +63,8 @@ pub const WORLD_SNAPSHOT_DIRECT_XFER_V9_TAIL_VERSION: u32 = 9;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V10_TAIL_VERSION: u32 = 10;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V11_TAIL_VERSION: u32 = 11;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V12_TAIL_VERSION: u32 = 12;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_V13_TAIL_VERSION: u32 = 13;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_V14_TAIL_VERSION: u32 = 14;
 
 /// Reject unknown direct-Xfer outer layouts before consuming any body bytes.
 /// Known historical writers are accepted so focused fixtures can verify their
@@ -65,7 +74,7 @@ pub(crate) fn validate_direct_world_snapshot_version(version: u32) -> SaveLoadRe
         // Keep these arms deliberately explicit. Advancing the current writer
         // must not accidentally make a future positional body acceptable
         // before its object/world gates and exact predecessor fixtures exist.
-        1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 => Ok(()),
+        1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 => Ok(()),
         actual => Err(crate::save_load::SaveLoadError::VersionMismatch {
             expected: WORLD_SNAPSHOT_DIRECT_XFER_VERSION,
             actual,
@@ -166,6 +175,36 @@ pub struct WorldSnapshot {
     /// nested Object/Building records stay aligned with v1-v11 streams.
     #[serde(default)]
     pub overcharge_active: Vec<ObjectOverchargeSnapshot>,
+
+    /// C++ `Object::xfer` `m_visionSpiedMask` + SpyVisionUpdate / CIA
+    /// registry. World tail so nested Object records stay aligned with
+    /// v1-v12 streams (`Object.cpp:4126-4130`).
+    #[serde(default)]
+    pub cia_intelligence: crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry,
+    #[serde(default)]
+    pub vision_spied: Vec<ObjectVisionSpiedSnapshot>,
+
+    /// C++ `Object::xfer` `m_builderID` (`Object.cpp:4050-4053`) plus
+    /// `DozerAIUpdate` BUILD task (`DozerAIUpdate.cpp:1986`).
+    #[serde(default)]
+    pub builder_tasks: Vec<ObjectBuilderTaskSnapshot>,
+
+    /// C++ `GameLogic::xfer` v6 `TheBuildAssistant->xferTheSellList`
+    /// (object id + sell frame). Mid-sell buildings stay on this list.
+    #[serde(default)]
+    pub sell_list: Vec<SellListEntrySnapshot>,
+
+    /// C++ `Object::xfer` sole-heal window, contain enter-frame, garrison
+    /// original team, and formation stamp. World tail so nested
+    /// `ObjectSnapshot` / `BuildingSnapshot` / `UnitSnapshot` stay aligned.
+    #[serde(default)]
+    pub object_persist: Vec<ObjectPersistTailSnapshot>,
+
+    /// C++ `Drawable::xfer` v7 hidden / stealth opacity / loco / expiration
+    /// / terrain decal. World tail so historical `ClientDrawableStateSnapshot`
+    /// records stay aligned.
+    #[serde(default)]
+    pub client_drawable_visuals: Vec<ClientDrawableVisualSnapshot>,
 }
 
 /// C++ `OverchargeBehavior::xfer` (`OverchargeBehavior.cpp:275-289`).
@@ -173,6 +212,59 @@ pub struct WorldSnapshot {
 pub struct ObjectOverchargeSnapshot {
     pub object_id: ObjectId,
     pub overcharge_enabled: bool,
+}
+
+/// C++ `Object::xfer` (`Object.cpp:4126-4130`) `m_visionSpiedMask`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ObjectVisionSpiedSnapshot {
+    pub object_id: ObjectId,
+    pub vision_spied_mask: u32,
+}
+
+/// C++ `Object::xfer` `m_builderID` + `DozerAIUpdate` BUILD task slot.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ObjectBuilderTaskSnapshot {
+    pub object_id: ObjectId,
+    pub builder_id: Option<ObjectId>,
+    pub dozer_task_build_target: Option<ObjectId>,
+    pub dozer_task_build_order_frame: u32,
+}
+
+/// C++ `BuildAssistant::xferTheSellList` (`ObjectSellInfo` id + sell frame).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SellListEntrySnapshot {
+    pub object_id: ObjectId,
+    pub sell_frame: u32,
+}
+
+/// C++ `Object::xfer` residuals that must not change nested object layout.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ObjectPersistTailSnapshot {
+    pub object_id: ObjectId,
+    pub sole_healing_benefactor: Option<ObjectId>,
+    pub sole_healing_benefactor_expiration_frame: u32,
+    pub contained_by_frame: Option<u32>,
+    pub original_team: Option<Team>,
+    pub formation_id: u32,
+    pub formation_offset: [f32; 2],
+    pub stealth_opacity: f32,
+    pub terrain_decal_type: u8,
+    pub terrain_decal_size: f32,
+}
+
+/// C++ `Drawable::xfer` v7 companion extras keyed by draw module.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClientDrawableVisualSnapshot {
+    pub object_id: u32,
+    pub draw_module_index: u32,
+    pub hidden: bool,
+    pub hidden_by_stealth: bool,
+    pub stealth_opacity: f32,
+    pub effective_opacity: f32,
+    pub loco_pitch: f32,
+    pub loco_roll: f32,
+    pub expiration_date: u32,
+    pub terrain_decal: u8,
 }
 
 /// C++ `Object::xfer` (`Object.cpp:4068`) `m_name` plus `AIUpdateInterface::xfer`
@@ -233,6 +325,13 @@ impl Default for WorldSnapshot {
             player_ranks: Vec::new(),
             object_instance_guards: Vec::new(),
             overcharge_active: Vec::new(),
+            cia_intelligence:
+                crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
+            vision_spied: Vec::new(),
+            builder_tasks: Vec::new(),
+            sell_list: Vec::new(),
+            object_persist: Vec::new(),
+            client_drawable_visuals: Vec::new(),
         }
     }
 }

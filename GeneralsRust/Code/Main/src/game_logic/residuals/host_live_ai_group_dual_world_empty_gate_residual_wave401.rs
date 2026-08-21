@@ -112,7 +112,7 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: AIGroup empty dual-world short-circuits.
 pub fn honesty_ai_group_core_dual_world_empty_gate_source_wave401() -> bool {
-    let g = include_str!("../../../../GameEngine/GameLogic/src/ai/ai_group.rs");
+    let g = include_str!("../../../../GameEngine/GameLogic/src/ai/ai_group/mod.rs");
     if !(g.contains("Wave 401")
         && g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()"))

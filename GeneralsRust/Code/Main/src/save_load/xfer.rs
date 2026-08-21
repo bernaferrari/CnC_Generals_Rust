@@ -243,6 +243,10 @@ fn write_kind_of_variant(kind_of: KindOf) -> u8 {
         KindOf::Boat => 64,
         KindOf::Transport => 65,
         KindOf::ImmuneToCapture => 66,
+        // Append-only: FenceWidth classify uses DEFENSIVE_WALL vs fence strip.
+        KindOf::DefensiveWall => 67,
+        KindOf::Bridge => 68,
+        KindOf::BridgeTower => 69,
     }
 }
 
@@ -315,6 +319,9 @@ fn read_kind_of_variant(variant: u8) -> SaveLoadResult<KindOf> {
         64 => Ok(KindOf::Boat),
         65 => Ok(KindOf::Transport),
         66 => Ok(KindOf::ImmuneToCapture),
+        67 => Ok(KindOf::DefensiveWall),
+        68 => Ok(KindOf::Bridge),
+        69 => Ok(KindOf::BridgeTower),
         _ => Err(SaveLoadError::Corrupted(format!(
             "Invalid KindOf variant: {variant}"
         ))),

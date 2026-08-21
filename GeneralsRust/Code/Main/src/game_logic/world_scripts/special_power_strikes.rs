@@ -93,13 +93,20 @@ impl GameLogic {
         if kind == HostSuperweaponKind::SpectreGunship {
             let _ = self.initiate_spectre_gunship_deployment(source_object, target_position);
         }
-        // C++ OCLSpecialPower::doSpecialPowerAtLocation → ObjectCreationList::create residual.
-        if let Some(tmpl) =
-            crate::game_logic::host_ocl_special_power::special_power_template_for_host_kind(
-                kind.label(),
-            )
-        {
-            let _ = self.execute_ocl_special_power(tmpl, source_object, target_position);
+        // C++ OCLSpecialPower::doSpecialPowerAtLocation → ObjectCreationList::create.
+        // Dedicated flight spawners already create the DeliverPayload transport
+        // (A10 / Daisy / MOAB). Calling execute_ocl here doubled the jets.
+        if !matches!(
+            kind,
+            HostSuperweaponKind::A10Strike | HostSuperweaponKind::DaisyCutter
+        ) {
+            if let Some(tmpl) =
+                crate::game_logic::host_ocl_special_power::special_power_template_for_host_kind(
+                    kind.label(),
+                )
+            {
+                let _ = self.execute_ocl_special_power(tmpl, source_object, target_position);
+            }
         }
         // C++ CarpetBomb DeliverPayload residual (B52/AirF/China + staggered drops).
         let carpet_flight_tier = if kind == HostSuperweaponKind::CarpetBomb {
@@ -690,6 +697,9 @@ impl GameLogic {
             is_wave_guide_template, wave_damage_at_distance, MC_BIT_FLOODED, WAVE_DAMAGE_RADIUS,
             WAVE_TOPPLE_FORCE,
         };
+        use crate::game_logic::host_usa_pilot::HostDeathType;
+        use crate::game_logic::host_bridge_behavior::is_bridge_span_template;
+
 
         let frame = self.frame;
         // C++ WaveGuideUpdate.cpp:93-101 ctor m_needDisable; update:739-743
@@ -757,15 +767,66 @@ impl GameLogic {
         let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
 
         for (gid, gpos, gori) in guides {
-            // Motion
+            // C++ startMoving: bind WaveGuide1, snap, face the first link.
+            let mut apply_ori: Option<f32> = None;
+            let mut apply_pos: Option<glam::Vec3> = None;
             if let Some(obj) = self.objects.get_mut(&gid) {
+                let cur = obj.get_position();
                 if let Some(wg) = obj.wave_guide_data.as_mut() {
-                    wg.facing = gori;
+                    if !wg.initialized {
+                        match gamelogic::terrain::get_terrain_logic()
+                            .read()
+                            .ok()
+                            .map(|tl| tl.bind_wave_guide1())
+                        {
+                            Some(gamelogic::terrain::WaveGuide1Bind::Follow {
+                                first,
+                                last,
+                                angle,
+                            }) => {
+                                wg.final_destination = Some((last.x, last.y));
+                                wg.facing = angle;
+                                apply_ori = Some(angle);
+                                apply_pos = Some(glam::Vec3::new(first.x, first.z, first.y));
+                            }
+                            Some(gamelogic::terrain::WaveGuide1Bind::InvalidPath) => {
+                                wg.mark_done();
+                            }
+                            Some(gamelogic::terrain::WaveGuide1Bind::MissingWaypoint)
+                            | None => {
+                                wg.final_destination = Some((0.0, 0.0));
+                                wg.facing = gori;
+                            }
+                        }
+                    } else {
+                        wg.facing = gori;
+                    }
                     if let Some((dx, dz)) = wg.motion_delta(frame) {
-                        let mut p = obj.get_position();
+                        let mut p = apply_pos.unwrap_or(cur);
                         p.x += dx;
                         p.z += dz;
-                        obj.set_position(p);
+                        apply_pos = Some(p);
+                    }
+                }
+            }
+            if let Some(obj) = self.objects.get_mut(&gid) {
+                if let Some(angle) = apply_ori {
+                    obj.set_orientation(angle);
+                }
+                if let Some(p) = apply_pos {
+                    obj.set_position(p);
+                }
+                let p = obj.get_position();
+                let team = obj.team;
+                if let Some(wg) = obj.wave_guide_data.as_mut() {
+                    if wg.reached_destination(p.x, p.z) {
+                        wg.mark_done();
+                        destroy_ids.push((gid, team));
+                        continue;
+                    }
+                    if wg.done {
+                        destroy_ids.push((gid, team));
+                        continue;
                     }
                 }
             }
@@ -775,7 +836,13 @@ impl GameLogic {
                 .map(|o| o.get_position())
                 .unwrap_or(gpos);
 
-            // Damage / topple nearby
+            let preferred = self
+                .objects
+                .get(&gid)
+                .and_then(|o| o.wave_guide_data.as_ref())
+                .map(|w| w.preferred_height)
+                .unwrap_or(crate::game_logic::host_wave_guide::WAVE_PREFERRED_HEIGHT);
+
             let victims: Vec<ObjectId> = self
                 .objects
                 .iter()
@@ -788,10 +855,28 @@ impl GameLogic {
                     {
                         return None;
                     }
+                    if o.is_kind_of(crate::game_logic::KindOf::BridgeTower)
+                        || o.template_name.to_ascii_lowercase().contains("bridgetower")
+                    {
+                        return None;
+                    }
+                    if o.status.wet {
+                        return None;
+                    }
                     if !o.is_alive() {
                         return None;
                     }
+                    if o.is_kind_of(crate::game_logic::KindOf::Aircraft)
+                        || o.is_kind_of(crate::game_logic::KindOf::Projectile)
+                    {
+                        return None;
+                    }
                     let p = o.get_position();
+                    let is_bridge = o.is_kind_of(crate::game_logic::KindOf::Bridge)
+                        || is_bridge_span_template(&o.template_name);
+                    if p.y > preferred && !is_bridge {
+                        return None;
+                    }
                     let dx = p.x - gpos.x;
                     let dz = p.z - gpos.z;
                     let dist = (dx * dx + dz * dz).sqrt();
@@ -807,14 +892,16 @@ impl GameLogic {
                 let Some(obj) = self.objects.get_mut(&vid) else {
                     continue;
                 };
+                if obj.status.wet {
+                    continue;
+                }
+                obj.status.wet = true;
                 let p = obj.get_position();
                 let dx = p.x - gpos.x;
                 let dz = p.z - gpos.z;
                 let dist = (dx * dx + dz * dz).sqrt();
                 let dmg = wave_damage_at_distance(dist);
-                // FLOODED model residual.
                 obj.model_condition_bits |= 1u128 << MC_BIT_FLOODED;
-                // Topple trees/props.
                 let name = obj.template_name.to_ascii_lowercase();
                 if obj.topple_data.is_none()
                     && (name.contains("tree")
@@ -834,6 +921,8 @@ impl GameLogic {
                         obj.topple_data = Some(td);
                     }
                 }
+                let is_bridge = obj.is_kind_of(crate::game_logic::KindOf::Bridge)
+                    || is_bridge_span_template(&obj.template_name);
                 if dmg > 0.0 {
                     if let Some(wg) = self
                         .objects
@@ -848,14 +937,28 @@ impl GameLogic {
                         .map(|o| o.team)
                         .unwrap_or(Team::Neutral);
                     if let Some(obj) = self.objects.get_mut(&vid) {
-                        let destroyed = obj.take_damage_from_immediate(dmg, Some(gid));
+                        let destroyed = obj.take_damage_from_immediate_typed_death(
+                            dmg,
+                            Some(gid),
+                            crate::game_logic::combat::DamageType::Water,
+                            HostDeathType::Flooded,
+                        );
                         if destroyed {
                             destroy_ids.push((vid, team));
+                        }
+                    }
+                    if is_bridge {
+                        self.ensure_named_bridge_template("WaterWaveBridge", 1.0);
+                        let _ = self.create_object("WaterWaveBridge", Team::Neutral, p);
+                        if let Ok(mut tl) = gamelogic::terrain::get_terrain_logic().write() {
+                            let loc = gamelogic::common::Coord3D::new(p.x, p.z, p.y);
+                            let _ = tl.delete_bridge(&loc);
                         }
                     }
                 }
             }
         }
+
 
         for (id, team) in destroy_ids {
             self.mark_object_for_destruction(id, Some(team));

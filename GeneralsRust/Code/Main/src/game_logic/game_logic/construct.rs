@@ -46,6 +46,7 @@ impl GameLogic {
             objects: HostObjectStore::new(),
             host_view_dirty: HashSet::new(),
             vision_last_looks: HashMap::new(),
+            vision_last_reveal_all: HashMap::new(),
             players: HashMap::new(),
             player_template_bindings: HashMap::new(),
             next_object_id: ObjectId(1), // Start at 1, 0 is invalid
@@ -134,6 +135,9 @@ impl GameLogic {
             upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry::new(),
             tunnel_network: crate::game_logic::host_tunnel_network::HostTunnelNetworkRegistry::new(
             ),
+            cave_system: crate::game_logic::host_cave_system::HostCaveSystem::new(),
+            bridge_behavior:
+                crate::game_logic::host_bridge_behavior::HostBridgeBehaviorRegistry::new(),
             combat_chinook: crate::game_logic::host_combat_chinook::HostCombatChinookRegistry::new(
             ),
             listening_outpost:
@@ -153,6 +157,8 @@ impl GameLogic {
 
             propaganda_residual_heals: 0,
             propaganda_residual_buffs: 0,
+            propaganda_scan: crate::game_logic::host_propaganda::HostPropagandaScanState::new(),
+
             ecm_residual_jams: 0,
             microwaves: crate::game_logic::host_microwave::HostMicrowaveRegistry::new(),
             airfield_parking_spaces: std::collections::HashMap::new(),
@@ -750,6 +756,8 @@ impl GameLogic {
 
         self.propaganda_residual_heals = 0;
         self.propaganda_residual_buffs = 0;
+        self.propaganda_scan.clear();
+
         self.ecm_residual_jams = 0;
         self.microwaves.clear();
         self.airfield_parking_spaces.clear();

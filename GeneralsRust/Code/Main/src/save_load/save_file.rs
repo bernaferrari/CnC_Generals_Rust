@@ -40,6 +40,7 @@ const SAVE_HEADER_SIZE: usize = std::mem::size_of::<SaveFileHeader>();
 const CHUNK_GAME_STATE: &str = "CHUNK_GameState";
 const CHUNK_GAME_LOGIC: &str = "CHUNK_GameLogic";
 const CHUNK_GAME_STATE_MAP: &str = "CHUNK_GameStateMap";
+const CHUNK_CAMPAIGN: &str = "CHUNK_Campaign";
 const SAVE_FILE_EOF: &str = "SG_EOF";
 const CPP_GAME_STATE_XFER_VERSION: u8 = 2;
 const CPP_SAVE_FILE_TYPE_NORMAL: i32 = 0;
@@ -138,6 +139,61 @@ fn write_cpp_game_state_header<W: Write + Seek>(
     xfer.xfer_int(&mut mission_number)
         .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
     Ok(())
+}
+
+/// C++ `CampaignManager::xfer` v5 (`CampaignManager.cpp`) for CHUNK_Campaign.
+fn write_campaign_block<W: Write + Seek>(
+    xfer: &mut CommonXferSave<W>,
+) -> SaveLoadResult<()> {
+    let mut version = 5u8;
+    xfer.xfer_version(&mut version, 5)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    let mut state = game_engine::System::capture_campaign_manager_runtime();
+    write_ascii(xfer, &state.campaign)?;
+    write_ascii(xfer, &state.mission)?;
+    xfer.xfer_int(&mut state.rank_points)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    xfer.xfer_int(&mut state.difficulty)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    // Host mission restart only needs campaign/mission/rank/difficulty.
+    // Challenge nested GameInfo stays fail-closed (not required to start the map).
+    let mut is_challenge = false;
+    xfer.xfer_bool(&mut is_challenge)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    xfer.xfer_int(&mut state.generals_template)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    Ok(())
+}
+
+fn parse_campaign_block(payload: &[u8]) -> SaveLoadResult<game_engine::System::CampaignManagerXferState> {
+    let mut xfer = CommonXferLoad::new(Cursor::new(payload), SAVE_FILE_VERSION);
+    let mut version = 0u8;
+    xfer.xfer_version(&mut version, 5)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    let mut state = game_engine::System::CampaignManagerXferState::default();
+    state.campaign = read_ascii(&mut xfer)?;
+    state.mission = read_ascii(&mut xfer)?;
+    if version >= 2 {
+        xfer.xfer_int(&mut state.rank_points)
+            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    }
+    if version >= 3 {
+        xfer.xfer_int(&mut state.difficulty)
+            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    }
+    if version >= 4 {
+        xfer.xfer_bool(&mut state.is_challenge)
+            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    }
+    if version >= 5 {
+        xfer.xfer_int(&mut state.generals_template)
+            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    }
+    Ok(state)
+}
+
+pub(crate) fn parse_named_chunk_save_info(data: &[u8]) -> SaveLoadResult<SaveGameInfo> {
+    SaveFileManager::read_named_chunk_save_info(data)
 }
 
 fn read_ascii(xfer: &mut CommonXferLoad<Cursor<&[u8]>>) -> SaveLoadResult<String> {
@@ -569,7 +625,9 @@ impl SaveFileManager {
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<SaveGameInfo> {
         let (world_snapshot, save_info) = self.load_game_snapshot(filename)?;
-        self.restore_game_snapshot(&world_snapshot, game_logic)?;
+        if save_info.save_type != SaveFileType::Mission {
+            self.restore_game_snapshot(&world_snapshot, game_logic)?;
+        }
 
         log::info!("Game loaded successfully from save slot: {}", filename);
         Ok(save_info)
@@ -876,10 +934,17 @@ impl SaveFileManager {
         logic_payload: Vec<u8>,
     ) -> SaveLoadResult<Vec<u8>> {
         let ghost_bytes = capture_w3d_ghost_xfer_bytes().unwrap_or_default();
+        let block_names: &[&str] = if save_info.save_type == SaveFileType::Mission {
+            // C++ `xferSaveData` (`GameState.cpp:1339-1346`) writes only
+            // CHUNK_GameState + CHUNK_Campaign for SAVE_FILE_TYPE_MISSION.
+            &[CHUNK_GAME_STATE, CHUNK_CAMPAIGN]
+        } else {
+            SAVELOAD_BLOCK_NAMES
+        };
         let mut cursor = Cursor::new(Vec::<u8>::new());
         {
             let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
-            for &name in SAVELOAD_BLOCK_NAMES {
+            for &name in block_names {
                 write_named_block(&mut xfer, name, |xfer| match name {
                     CHUNK_GAME_STATE => write_cpp_game_state_header(xfer, save_info),
                     CHUNK_GAME_LOGIC => {
@@ -905,6 +970,7 @@ impl SaveFileManager {
                         }
                         Ok(())
                     }
+                    CHUNK_CAMPAIGN => write_campaign_block(xfer),
                     _ => write_null_snapshot_version(xfer),
                 })?;
             }
@@ -948,6 +1014,10 @@ impl SaveFileManager {
                 saw_game_state = true;
             } else if token.eq_ignore_ascii_case(CHUNK_GAME_LOGIC) {
                 logic_data = Some(payload);
+            } else if token.eq_ignore_ascii_case(CHUNK_CAMPAIGN) {
+                if let Ok(state) = parse_campaign_block(&payload) {
+                    game_engine::System::apply_campaign_manager_runtime(state);
+                }
             } else if token.eq_ignore_ascii_case(CHUNK_GHOST_OBJECT) {
                 if payload.first().copied() == Some(1) && payload.len() > 1 {
                     stash_loaded_w3d_ghost_xfer(payload[1..].to_vec());
@@ -979,6 +1049,7 @@ impl SaveFileManager {
         }
         let world_snapshot = match logic_data {
             Some(payload) => Self::decode_chunk_game_logic_for_host(&payload)?,
+            None if save_info.save_type == SaveFileType::Mission => WorldSnapshot::default(),
             None => {
                 return Err(SaveLoadError::Corrupted(
                     "CHUNK_GameLogic missing; refusing to report a successful empty world"
@@ -1021,7 +1092,9 @@ impl SaveFileManager {
         let (snapshot, path) = decode_bincode_world_snapshot(payload)?;
         match path {
             BincodeWorldSnapshotDecodePath::Current => {}
-            BincodeWorldSnapshotDecodePath::LegacyPreV12V11
+            BincodeWorldSnapshotDecodePath::LegacyPreV14V13
+            | BincodeWorldSnapshotDecodePath::LegacyPreV13V12
+            | BincodeWorldSnapshotDecodePath::LegacyPreV12V11
             | BincodeWorldSnapshotDecodePath::LegacyPreV11V10
             | BincodeWorldSnapshotDecodePath::LegacyPreV10V9
             | BincodeWorldSnapshotDecodePath::LegacyPreV9V8
@@ -1939,15 +2012,14 @@ mod tests {
         assert_eq!(info.campaign_side.as_deref(), Some("America"));
         assert_eq!(info.mission_number, Some(3));
         assert_eq!(info.map_name, "Maps\\Alpine Assault.map");
-        // Listing the C++ GameState header must still succeed. Restoring
-        // the world cannot: this file has no host WorldSnapshot and no
-        // restored C++ GameLogic objects (GameLogic.cpp:4666).
-        let load_err = SaveFileManager::read_common_sav_chunks(&bytes)
-            .expect_err("C++-header-only save must not report a successful world");
-        let load_err = load_err.to_string();
+        // C++ mission files have no world restore payload. Host lists them
+        // and loadGame restarts the mission instead of decoding GameLogic.
+        let (snapshot, listed) = SaveFileManager::read_common_sav_chunks(&bytes)
+            .expect("mission header-only is a thin restart file");
+        assert_eq!(listed.save_type, SaveFileType::Mission);
         assert!(
-            load_err.contains("CHUNK_GameLogic"),
-            "fail-closed error must name the unrestored logic chunk, got {load_err}"
+            snapshot.objects.is_empty(),
+            "mission save must not invent a mid-world snapshot"
         );
     }
 
@@ -2056,5 +2128,25 @@ mod tests {
         );
         let _ = std::fs::remove_file(path);
         let _ = std::fs::remove_dir(fixture_directory);
+    }
+
+    #[test]
+    fn mission_save_writes_only_game_state_and_campaign_chunks() {
+        let snapshot = WorldSnapshot::default();
+        let mut save_info = fixture_save_info();
+        save_info.save_type = SaveFileType::Mission;
+        save_info.map_name = "Maps\\Alpine Assault.map".into();
+        save_info.description = "MissionSave".into();
+        let bytes = SaveFileManager::write_common_sav_chunks(&snapshot, &save_info)
+            .expect("write mission sav");
+        let blocks = walk_named_chunks(&bytes).expect("walk mission chunks");
+        let names: Vec<&str> = blocks.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(names, vec![CHUNK_GAME_STATE, CHUNK_CAMPAIGN]);
+        let listed = SaveFileManager::read_named_chunk_save_info(&bytes).expect("list mission");
+        assert_eq!(listed.save_type, SaveFileType::Mission);
+        assert_eq!(listed.map_name, "Maps\\Alpine Assault.map");
+        let (world, info) = SaveFileManager::read_common_sav_chunks(&bytes).expect("read mission");
+        assert_eq!(info.save_type, SaveFileType::Mission);
+        assert!(world.objects.is_empty());
     }
 }

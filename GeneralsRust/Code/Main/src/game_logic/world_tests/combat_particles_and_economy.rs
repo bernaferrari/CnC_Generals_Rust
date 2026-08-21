@@ -87,6 +87,7 @@ fn supply_truck_gather_credits_retail_value_per_box() {
         warehouse_scan_distance: 700.0,
         warehouse_delay_frames: 0,
         center_delay_frames: 0,
+        upgraded_supply_boost: 0,
     });
     logic.templates.insert(truck.name.clone(), truck);
 
@@ -136,6 +137,18 @@ fn supply_truck_gather_credits_retail_value_per_box() {
         warehouse.drawable_supply_boxes, 9,
         "C++ updateDrawableSupplyStatus must drop one crate visual"
     );
+    let collector = logic.host_object(collector_id).expect("collector crates");
+    assert_eq!(collector.drawable_supply_max_boxes, 4);
+    assert_eq!(
+        collector.drawable_supply_boxes, 1,
+        "C++ gainOneBox must update collector crate count"
+    );
+    assert!(
+        crate::game_logic::host_supply_gather::collector_carrying_from_boxes(
+            collector.drawable_supply_boxes
+        ),
+        "loaded collector must be CARRYING"
+    );
 
 }
 
@@ -159,6 +172,7 @@ fn warehouse_action_does_not_debit_when_collector_already_at_max_boxes() {
         warehouse_scan_distance: 700.0,
         warehouse_delay_frames: 0,
         center_delay_frames: 0,
+        upgraded_supply_boost: 0,
     });
     logic.templates.insert(truck.name.clone(), truck);
 
@@ -244,6 +258,7 @@ fn allied_supply_center_deposit_credits_center_owner() {
         warehouse_scan_distance: 700.0,
         warehouse_delay_frames: 0,
         center_delay_frames: 0,
+        upgraded_supply_boost: 0,
     });
     logic.templates.insert(truck.name.clone(), truck);
 
@@ -281,6 +296,26 @@ fn allied_supply_center_deposit_credits_center_owner() {
         logic.get_player(0).expect("usa").resources.supplies,
         100,
         "allied collector must not keep the vanished-or-self credit"
+    );
+    assert_eq!(
+        logic.get_player(1).expect("china").statistics.money_earned,
+        75,
+        "C++ ScoreKeeper::addMoneyEarned must count the drop-off"
+    );
+    assert_eq!(
+        logic.get_player(0).expect("usa").statistics.money_earned,
+        0,
+        "allied collector owner must not score the center's deposit"
+    );
+    let collector = logic.host_object(collector_id).expect("collector after drop");
+    assert_eq!(
+        collector.drawable_supply_boxes, 0,
+        "C++ loseOneBox must clear collector crate count on drop-off"
+    );
+    assert!(
+        !crate::game_logic::host_supply_gather::collector_carrying_from_boxes(
+            collector.drawable_supply_boxes
+        )
     );
 }
 
@@ -3351,6 +3386,7 @@ fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
                 capture_power: crate::game_logic::CapturePowerKind::None,
                 capture_power_ready: false,
                 is_salvager: false,
+                can_override_special_power_destination: false,
             }],
             presentation_box_select_units: Vec::new(),
             presentation_select_similar_units: Vec::new(),
@@ -3399,18 +3435,14 @@ fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
     }
 }
 
-/// Residual: with SupplyLines unlocked, drop-off credits more cash than without.
-///
-/// Matches C++ SupplyCenterDockUpdate::action + Chinook getUpgradedSupplyBoost
-/// (+60 flat per deposit when Upgrade_AmericaSupplyLines is complete).
-/// Fail-closed: not full per-unit INI boost matrix / WorkerShoes path.
+/// C++ SupplyCenterDockUpdate::action + ChinookAIUpdate::getUpgradedSupplyBoost
+/// (ChinookAIUpdate.cpp:1644-1652): only Chinooks get INI UpgradedSupplyBoost
+/// when Upgrade_AmericaSupplyLines is complete. Regular Chinook leftover parse = 4.
 #[test]
 fn supply_lines_drop_off_yields_more_cash_than_without() {
     use crate::command_system::{CommandType, GameCommand};
-    use crate::game_logic::host_upgrades::{
-        residual_supply_lines_drop_off_boost, HostUpgradeKind,
-        SUPPLY_LINES_RESIDUAL_DROP_OFF_BOOST, UPGRADE_AMERICA_SUPPLY_LINES,
-    };
+    use crate::game_logic::host_supply_gather::REGULAR_CHINOOK_UPGRADED_SUPPLY_BOOST;
+    use crate::game_logic::host_upgrades::{HostUpgradeKind, UPGRADE_AMERICA_SUPPLY_LINES};
     use crate::game_logic::object::AIState;
 
     fn run_one_drop_off(with_supply_lines: bool) -> (u32, u32, u32, bool) {
@@ -3418,7 +3450,15 @@ fn supply_lines_drop_off_yields_more_cash_than_without() {
         let mut player = Player::new(0, Team::USA, "USA", true);
         player.resources.supplies = 1000;
         game_logic.add_player(player);
-        ensure_test_dozer_template(&mut game_logic);
+
+        let mut chinook = ThingTemplate::new("AmericaVehicleChinook");
+        chinook
+            .add_kind_of(KindOf::Harvester)
+            .add_kind_of(KindOf::Aircraft)
+            .set_health(100.0);
+        game_logic
+            .templates
+            .insert("AmericaVehicleChinook".to_string(), chinook);
 
         let mut supply = ThingTemplate::new("AmericaSupplyCenter");
         supply
@@ -3446,7 +3486,6 @@ fn supply_lines_drop_off_yields_more_cash_than_without() {
                 modifier_keys: crate::command_system::ModifierKeys::default(),
             });
             game_logic.process_commands();
-            // Research residual completes on next update.
             game_logic.update();
             assert!(
                 game_logic
@@ -3460,19 +3499,17 @@ fn supply_lines_drop_off_yields_more_cash_than_without() {
                 .honesty_complete_ok(HostUpgradeKind::SupplyLines));
         }
 
-        // Place gatherer at supply center with a full residual cargo.
         const CARGO: u32 = 400;
-        let dozer_id = game_logic
-            .create_object("TestDozer", Team::USA, Vec3::new(0.0, 0.0, 0.0))
-            .expect("dozer");
+        let chinook_id = game_logic
+            .create_object("AmericaVehicleChinook", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("chinook");
         {
-            let dozer = game_logic.host_object_mut(dozer_id).expect("dozer mut");
-            dozer.set_stored_supplies(CARGO);
-            dozer.set_ai_state(AIState::ReturningResources);
+            let chinook = game_logic.host_object_mut(chinook_id).expect("chinook mut");
+            chinook.set_stored_supplies(CARGO);
+            chinook.set_ai_state(AIState::ReturningResources);
         }
 
         let cash_before = game_logic.get_player(0).unwrap().resources.supplies;
-        // One logic frame: ReturningResources deposits when in INTERACT_RANGE.
         game_logic.update();
         let dropoffs = game_logic.take_supply_dropoff_events();
         assert_eq!(
@@ -3481,7 +3518,7 @@ fn supply_lines_drop_off_yields_more_cash_than_without() {
             "only the real ReturningResources carrier deposit emits an event"
         );
         let dropoff = dropoffs[0];
-        assert_eq!(dropoff.carrier_id, dozer_id);
+        assert_eq!(dropoff.carrier_id, chinook_id);
         assert_eq!(dropoff.player_id, 0);
         assert_eq!(
             dropoff.carried_amount, CARGO,
@@ -3492,23 +3529,23 @@ fn supply_lines_drop_off_yields_more_cash_than_without() {
         let bonus = game_logic.supply_lines_bonus_cash_total();
         let honesty = game_logic.honesty_supply_lines_economy_ok();
 
-        // Carried cargo must be cleared after deposit.
         let remaining = game_logic
-            .host_object(dozer_id)
+            .host_object(chinook_id)
             .map(|o| o.stored_resources.supplies)
             .unwrap_or(u32::MAX);
         assert_eq!(remaining, 0, "cargo must clear on drop-off");
 
-        let expected_boost = residual_supply_lines_drop_off_boost(with_supply_lines);
-        // Passive residual income ($5 base + $25/supply-center per sec) may add a
-        // few whole dollars per frame — require at least cargo + boost.
+        let expected_boost = if with_supply_lines {
+            REGULAR_CHINOOK_UPGRADED_SUPPLY_BOOST
+        } else {
+            0
+        };
         assert!(
             gained >= CARGO.saturating_add(expected_boost),
             "drop-off cash too low (gained={gained}, cargo={CARGO}, boost={expected_boost}, with_supply_lines={with_supply_lines})"
         );
         assert_eq!(bonus, expected_boost);
 
-        // Pure deposit yield excluding passive noise (observability residual).
         let pure_deposit = CARGO.saturating_add(bonus);
         (gained, pure_deposit, bonus, honesty)
     }
@@ -3521,7 +3558,7 @@ fn supply_lines_drop_off_yields_more_cash_than_without() {
         !without_honesty,
         "economy honesty fail-closed without upgrade"
     );
-    assert_eq!(with_bonus, SUPPLY_LINES_RESIDUAL_DROP_OFF_BOOST);
+    assert_eq!(with_bonus, REGULAR_CHINOOK_UPGRADED_SUPPLY_BOOST);
     assert!(
         with_honesty,
         "Supply Lines economy residual honesty after boosted drop-off"
@@ -3532,12 +3569,261 @@ fn supply_lines_drop_off_yields_more_cash_than_without() {
     );
     assert_eq!(
         with_pure - without_pure,
-        SUPPLY_LINES_RESIDUAL_DROP_OFF_BOOST,
-        "delta must equal residual drop-off boost"
+        REGULAR_CHINOOK_UPGRADED_SUPPLY_BOOST,
+        "delta must equal Chinook INI UpgradedSupplyBoost"
     );
     assert!(
         with_gained > without_gained,
         "with SupplyLines frame gain ({with_gained}) must exceed without ({without_gained})"
+    );
+}
+
+/// C++ SupplyTruckAIUpdate::getUpgradedSupplyBoost returns 0 — Supply Lines
+/// must not add +$60 to dozers / trucks.
+#[test]
+fn supply_lines_does_not_boost_non_chinook_collector() {
+    use crate::command_system::{CommandType, GameCommand};
+    use crate::game_logic::host_upgrades::{HostUpgradeKind, UPGRADE_AMERICA_SUPPLY_LINES};
+    use crate::game_logic::object::AIState;
+
+    let mut game_logic = GameLogic::new();
+    let mut player = Player::new(0, Team::USA, "USA", true);
+    player.resources.supplies = 1000;
+    game_logic.add_player(player);
+    ensure_test_dozer_template(&mut game_logic);
+
+    let mut supply = ThingTemplate::new("AmericaSupplyCenter");
+    supply
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::SupplyCenter)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    game_logic
+        .templates
+        .insert("AmericaSupplyCenter".to_string(), supply);
+
+    let sc_id = game_logic
+        .create_object("AmericaSupplyCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("supply center");
+    game_logic.queue_command(GameCommand {
+        command_type: CommandType::QueueUpgrade {
+            upgrade_name: UPGRADE_AMERICA_SUPPLY_LINES.to_string(),
+        },
+        player_id: 0,
+        command_id: 1,
+        timestamp: std::time::SystemTime::now(),
+        selected_units: vec![sc_id],
+        modifier_keys: crate::command_system::ModifierKeys::default(),
+    });
+    game_logic.process_commands();
+    game_logic.update();
+    assert!(game_logic
+        .host_upgrades()
+        .honesty_complete_ok(HostUpgradeKind::SupplyLines));
+
+    const CARGO: u32 = 400;
+    let dozer_id = game_logic
+        .create_object("TestDozer", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("dozer");
+    {
+        let dozer = game_logic.host_object_mut(dozer_id).expect("dozer mut");
+        dozer.set_stored_supplies(CARGO);
+        dozer.set_ai_state(AIState::ReturningResources);
+    }
+    game_logic.update();
+    assert_eq!(
+        game_logic.supply_lines_bonus_cash_total(),
+        0,
+        "Supply Lines must not boost a non-Chinook collector"
+    );
+}
+
+/// C++ ChinookAIUpdate::isAvailableForSupplying (ChinookAIUpdate.cpp:982-991):
+/// a Combat Chinook with troops must not auto-dock warehouses.
+#[test]
+fn loaded_combat_chinook_does_not_auto_gather() {
+    use crate::game_logic::{DockKind, SupplyTruckMetadata, SupplyTruckState};
+
+    let mut logic = GameLogic::new();
+    let mut player = Player::new(0, Team::USA, "USA", true);
+    player.resources.supplies = 0;
+    logic.add_player(player);
+    ensure_test_infantry_template(&mut logic);
+
+    let mut warehouse = ThingTemplate::new("FiniteWarehouse");
+    warehouse
+        .add_kind_of(KindOf::SupplySource)
+        .set_health(100.0);
+    warehouse.dock_kind = DockKind::SupplyWarehouse;
+    warehouse.dock_starting_boxes = Some(10);
+    logic.templates.insert(warehouse.name.clone(), warehouse);
+    let box_value =
+        crate::game_logic::host_structure_economy_residual::VALUE_PER_SUPPLY_BOX as u32;
+    let source = logic
+        .create_object("FiniteWarehouse", Team::Neutral, Vec3::new(2.0, 0.0, 0.0))
+        .expect("warehouse");
+    {
+        let warehouse = logic.host_object_mut(source).expect("warehouse mut");
+        warehouse.set_stored_supplies(10 * box_value);
+    }
+
+    let chinook_id = create_test_combat_chinook(&mut logic, Vec3::ZERO);
+    {
+        let chinook = logic.host_object_mut(chinook_id).expect("chinook mut");
+        chinook.thing.template.supply_truck_metadata = Some(SupplyTruckMetadata {
+            max_boxes: 8,
+            warehouse_scan_distance: 700.0,
+            warehouse_delay_frames: 0,
+            center_delay_frames: 0,
+            upgraded_supply_boost: 60,
+        });
+        chinook.set_target(Some(source));
+        chinook.set_ai_state(AIState::Gathering);
+        chinook.supply_truck_state = SupplyTruckState::DockingWarehouse;
+        chinook.set_stored_supplies(0);
+    }
+    let infantry = logic
+        .create_object("TestInfantry", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+        .expect("infantry");
+    {
+        let chinook = logic.host_object_mut(chinook_id).expect("load");
+        assert!(chinook.add_occupant(infantry), "load troop");
+    }
+
+    logic.update_support_states(&[chinook_id, source, infantry], 1.0 / 30.0);
+
+    let cargo = logic
+        .host_object(chinook_id)
+        .expect("chinook after")
+        .stored_resources
+        .supplies;
+    assert_eq!(cargo, 0, "loaded Combat Chinook must not gather");
+    assert_eq!(
+        logic.host_object(chinook_id).expect("state").ai_state,
+        AIState::Idle,
+        "loaded Chinook must leave Gathering"
+    );
+    assert_eq!(
+        logic.host_object(source).expect("warehouse after").stored_resources.supplies,
+        10 * box_value,
+        "warehouse must stay full"
+    );
+}
+
+/// C++ SupplyTruckStateMachine Idle force-wanting / Regrouping success → Wanting
+/// (SupplyTruckAIUpdate.cpp:383-418). Collectors must retry, not park forever.
+#[test]
+fn supply_truck_force_wanting_reenters_gathering() {
+    use crate::game_logic::{DockKind, SupplyTruckMetadata, SupplyTruckState};
+
+    let mut logic = GameLogic::new();
+    let mut player = Player::new(0, Team::China, "China", true);
+    player.resources.supplies = 0;
+    logic.add_player(player);
+
+    let mut truck = ThingTemplate::new("ChinaVehicleSupplyTruck");
+    truck.add_kind_of(KindOf::Harvester).set_health(100.0);
+    truck.supply_truck_metadata = Some(SupplyTruckMetadata {
+        max_boxes: 4,
+        warehouse_scan_distance: 700.0,
+        warehouse_delay_frames: 0,
+        center_delay_frames: 0,
+        upgraded_supply_boost: 0,
+    });
+    logic.templates.insert(truck.name.clone(), truck);
+
+    let mut warehouse = ThingTemplate::new("FiniteWarehouse");
+    warehouse
+        .add_kind_of(KindOf::SupplySource)
+        .set_health(100.0);
+    warehouse.dock_kind = DockKind::SupplyWarehouse;
+    warehouse.dock_starting_boxes = Some(10);
+    logic.templates.insert(warehouse.name.clone(), warehouse);
+    let source = logic
+        .create_object("FiniteWarehouse", Team::Neutral, Vec3::new(20.0, 0.0, 0.0))
+        .expect("warehouse");
+    {
+        let warehouse = logic.host_object_mut(source).expect("warehouse mut");
+        warehouse.set_stored_supplies(10 * 75);
+    }
+
+    let collector_id = logic
+        .create_object_for_player("ChinaVehicleSupplyTruck", 0, Vec3::ZERO)
+        .expect("truck");
+    {
+        let collector = logic.host_object_mut(collector_id).expect("truck mut");
+        collector.set_ai_state(AIState::Idle);
+        collector.supply_truck_state = SupplyTruckState::Regrouping;
+        collector.supply_truck_force_pending = true;
+        collector.set_stored_supplies(0);
+        collector.stop_moving();
+    }
+
+    logic.update_support_states(&[collector_id, source], 1.0 / 30.0);
+
+    let after = logic.host_object(collector_id).expect("truck after");
+    assert_eq!(
+        after.ai_state,
+        AIState::Gathering,
+        "force-wanting Idle must re-enter Wanting/Gathering"
+    );
+    assert_eq!(after.target, Some(source));
+    assert!(!after.supply_truck_force_pending, "Wanting onEnter clears force");
+    assert_eq!(after.supply_truck_state, SupplyTruckState::Wanting);
+}
+
+/// C++ WorkerAIUpdate.cpp:283-287 — gathering GLA worker arms MINE_CLEARING_DETAIL.
+#[test]
+fn worker_gather_arms_mine_clearing_detail() {
+    use crate::game_logic::{DockKind, SupplyTruckMetadata, SupplyTruckState};
+
+    let mut logic = GameLogic::new();
+    let mut player = Player::new(0, Team::GLA, "GLA", true);
+    player.resources.supplies = 0;
+    logic.add_player(player);
+
+    let mut worker = ThingTemplate::new("GLAInfantryWorker");
+    worker
+        .add_kind_of(KindOf::Harvester)
+        .add_kind_of(KindOf::Worker)
+        .set_health(100.0);
+    worker.supply_truck_metadata = Some(SupplyTruckMetadata {
+        max_boxes: 1,
+        warehouse_scan_distance: 700.0,
+        warehouse_delay_frames: 0,
+        center_delay_frames: 0,
+        upgraded_supply_boost: 8,
+    });
+    logic.templates.insert(worker.name.clone(), worker);
+
+    let mut warehouse = ThingTemplate::new("FiniteWarehouse");
+    warehouse
+        .add_kind_of(KindOf::SupplySource)
+        .set_health(100.0);
+    warehouse.dock_kind = DockKind::SupplyWarehouse;
+    warehouse.dock_starting_boxes = Some(4);
+    logic.templates.insert(warehouse.name.clone(), warehouse);
+    let source = logic
+        .create_object("FiniteWarehouse", Team::Neutral, Vec3::new(2.0, 0.0, 0.0))
+        .expect("warehouse");
+
+    let worker_id = logic
+        .create_object_for_player("GLAInfantryWorker", 0, Vec3::ZERO)
+        .expect("worker");
+    {
+        let worker = logic.host_object_mut(worker_id).expect("worker mut");
+        worker.set_target(Some(source));
+        worker.set_ai_state(AIState::Gathering);
+        worker.supply_truck_state = SupplyTruckState::DockingWarehouse;
+        assert!(!worker.weapon_set_mine_clearing_detail);
+    }
+
+    logic.update_support_states(&[worker_id, source], 1.0 / 30.0);
+
+    let worker = logic.host_object(worker_id).expect("worker after");
+    assert!(
+        worker.weapon_set_mine_clearing_detail,
+        "gathering GLA worker must arm WEAPONSET_MINE_CLEARING_DETAIL"
     );
 }
 

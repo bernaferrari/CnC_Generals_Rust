@@ -20,6 +20,12 @@ pub mod host_active_shroud_upgrade;
 #[path = "host_base_defense.rs"]
 pub mod host_base_defense;
 
+#[path = "host_bridge_behavior.rs"]
+pub mod host_bridge_behavior;
+
+#[path = "host_cave_system.rs"]
+pub mod host_cave_system;
+
 #[path = "host_base_regenerate.rs"]
 pub mod host_base_regenerate;
 

@@ -21,9 +21,7 @@
 //!   emitter Delay **250**ms → **8**f, DamageType MICROWAVE / DeathType BURNED
 //!
 //! Fail-closed honesty:
-//! - Not full subdual damage accumulate / SubdualDamageHelper heal drain
 //! - MicrowaveDisableStream laser attach residual closed (LaserName + WEAPON02 bone)
-//! - FireWeaponUpdate emitter infantry MICROWAVE field residual closed (8/r100 / 250ms)
 //! - Not full vehicle disabler (retail WeaponSet has VehicleDisabler commented out)
 //! - Not network microwave replication (network deferred)
 
@@ -38,8 +36,8 @@ pub const HOST_MICROWAVE_DISABLE_RANGE: f32 = 200.0;
 /// Retail MicrowaveTankBuildingClearer AttackRange residual (secondary).
 pub const HOST_MICROWAVE_CLEAR_RANGE: f32 = 125.0;
 
-/// Retail MicrowaveTankBuildingDisabler PrimaryDamage residual (subdual/pulse).
-/// Fail-closed continuous residual does not accumulate; used for honesty docs.
+/// Retail MicrowaveTankBuildingDisabler PrimaryDamage residual (SUBDUAL_BUILDING pulse).
+/// C++ ActiveBody accumulates until `currentSubdual >= maxHealth` (not instant disable).
 pub const HOST_MICROWAVE_SUBDUAL_PULSE: f32 = 50.0;
 
 /// Retail MicrowaveTankBuildingClearer PrimaryDamage residual (= 1 occupant).
@@ -194,6 +192,7 @@ pub fn microwave_ally_filter_allows(
 }
 
 /// Retail emitter residual: ground infantry/vehicles in field (NOT_AIRBORNE enemies).
+/// C++ `RadiusDamageAffects = ENEMIES NOT_AIRBORNE` — neutrals take no MICROWAVE.
 pub fn is_legal_microwave_emitter_target(
     is_alive: bool,
     is_airborne: bool,
@@ -201,11 +200,9 @@ pub fn is_legal_microwave_emitter_target(
     same_team: bool,
     target_is_neutral: bool,
 ) -> bool {
-    if !is_alive || is_airborne || is_structure || same_team {
+    if !is_alive || is_airborne || is_structure || same_team || target_is_neutral {
         return false;
     }
-    // Enemies only (NOT_AIRBORNE ENEMIES residual); neutrals fail-closed out of emitter.
-    let _ = target_is_neutral;
     true
 }
 
@@ -214,6 +211,27 @@ pub fn in_microwave_range_2d(src: (f32, f32), dst: (f32, f32), range: f32) -> bo
     let dx = src.0 - dst.0;
     let dy = src.1 - dst.1;
     dx * dx + dy * dy <= range * range
+}
+
+/// Seed building ActiveBody subdual cap/heal when INI left them unauthored.
+///
+/// C++ `canBeSubdued` is `SubdualDamageCap > 0`. Unauthored host templates
+/// seed cap = maxHealth so a 2000 HP War Factory needs ~4s of 50/100ms cook.
+pub fn seed_microwave_subdual_if_unauthored(
+    cap: &mut f32,
+    heal_rate_frames: &mut u32,
+    heal_amount: &mut f32,
+    max_health: f32,
+) {
+    if *cap <= 0.0 {
+        *cap = max_health.max(1.0);
+    }
+    if *heal_rate_frames == 0 {
+        *heal_rate_frames = crate::game_logic::host_ecm_jam::ECM_SUBDUAL_HEAL_RATE_FRAMES;
+    }
+    if *heal_amount <= 0.0 {
+        *heal_amount = crate::game_logic::host_ecm_jam::ECM_SUBDUAL_HEAL_AMOUNT;
+    }
 }
 
 /// Whether residual microwave should cook this structure target (attacking + range).
@@ -427,6 +445,8 @@ pub fn honesty_microwave_stream_residual_ok() -> bool {
         && HOST_MICROWAVE_EMITTER_DAMAGE_AT_SELF
         && HOST_MICROWAVE_EMITTER_AFFECTS.contains("ENEMIES")
         && HOST_MICROWAVE_EMITTER_AFFECTS.contains("NOT_AIRBORNE")
+        && is_legal_microwave_emitter_target(true, false, false, false, false)
+        && !is_legal_microwave_emitter_target(true, false, false, false, true)
 }
 
 pub fn honesty_microwave_residual_pack_ok() -> bool {
@@ -514,6 +534,10 @@ mod tests {
         ));
         assert!(!is_legal_microwave_emitter_target(
             true, false, false, true, false
+        ));
+        // C++ ENEMIES only — civilian/neutral infantry are not cooked.
+        assert!(!is_legal_microwave_emitter_target(
+            true, false, false, false, true
         ));
         let mut reg = HostMicrowaveRegistry::new();
         reg.record_laser_beam();

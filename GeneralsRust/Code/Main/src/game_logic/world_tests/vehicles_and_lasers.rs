@@ -2963,6 +2963,71 @@ fn want_to_squish_vehicle_vs_infantry() {
 }
 
 #[test]
+fn want_to_squish_honors_ally_computer_and_dont_auto_crush() {
+    // C++ AIStates.cpp:1140-1166 wantToSquishTarget. hq-mvho2.
+    use crate::game_logic::{KindOf, Object, ObjectId, Player, Team, ThingTemplate, Weapon};
+    let mut logic = GameLogic::new();
+    let mut human = Player::new(0, Team::USA, "Human", true);
+    human.is_alive = true;
+    let mut cpu = Player::new(1, Team::China, "CPU", false);
+    cpu.is_alive = true;
+    cpu.alliance_team = 3;
+    let mut ally = Player::new(2, Team::USA, "Ally", false);
+    ally.is_alive = true;
+    ally.alliance_team = 3;
+    logic.add_player(human);
+    logic.add_player(cpu);
+    logic.add_player(ally);
+
+    let spawn = |name: &str, id: u32, team: Team, owner: u32, infantry: bool| {
+        let mut t = ThingTemplate::new(name);
+        t.add_kind_of(if infantry {
+            KindOf::Infantry
+        } else {
+            KindOf::Vehicle
+        });
+        if name.to_ascii_uppercase().contains("DOZER") {
+            t.add_kind_of(KindOf::Dozer);
+        }
+        let mut o = Object::new(t, ObjectId(id), team);
+        o.owner_player_id = Some(owner);
+        if infantry {
+            o.crushable_level = 0;
+        } else {
+            o.crusher_level = 1;
+            o.turret_enabled = true;
+            o.weapon = Some(Weapon {
+                range: 50.0,
+                ..Default::default()
+            });
+        }
+        o
+    };
+
+    let tank = spawn("CpuTank", 3001, Team::China, 1, false);
+    let inf = spawn("EnemyInf", 3002, Team::USA, 0, true);
+    let dozer = spawn("AmericaVehicleDozer", 3003, Team::China, 1, false);
+    let tomahawk = spawn("AmericaVehicleTomahawk", 3004, Team::China, 1, false);
+    let human_tank = spawn("HumanTank", 3005, Team::USA, 0, false);
+    let ally_inf = spawn("AllyInf", 3006, Team::USA, 2, true);
+    logic.objects.insert(tank.id, tank);
+    logic.objects.insert(inf.id, inf);
+    logic.objects.insert(dozer.id, dozer);
+    logic.objects.insert(tomahawk.id, tomahawk);
+    logic.objects.insert(human_tank.id, human_tank);
+    logic.objects.insert(ally_inf.id, ally_inf);
+
+    assert!(
+        logic.want_to_squish_target(ObjectId(3001), ObjectId(3002)),
+        "computer turreted tank may chase-squish enemy infantry"
+    );
+    assert!(!logic.want_to_squish_target(ObjectId(3003), ObjectId(3002)));
+    assert!(!logic.want_to_squish_target(ObjectId(3004), ObjectId(3002)));
+    assert!(!logic.want_to_squish_target(ObjectId(3005), ObjectId(3002)));
+    assert!(!logic.want_to_squish_target(ObjectId(3001), ObjectId(3006)));
+}
+
+#[test]
 fn attack_state_machine_oor_chases_fleeing_victim() {
     use crate::game_logic::{
         AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon,

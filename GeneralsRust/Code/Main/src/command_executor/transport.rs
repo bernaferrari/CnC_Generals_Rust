@@ -170,6 +170,24 @@ impl<'a> CommandExecutor<'a> {
         }
 
         if issued {
+            let (heal, structure, enemies, allies) = match (
+                units
+                    .first()
+                    .and_then(|id| self.game_logic.host_object(*id)),
+                self.game_logic.host_object(target_id),
+            ) {
+                (Some(unit), Some(target)) => (
+                    target.is_kind_of(crate::game_logic::KindOf::HealPad),
+                    target.is_kind_of(crate::game_logic::KindOf::Structure),
+                    unit.team != target.team,
+                    unit.team == target.team,
+                ),
+                _ => (false, false, false, true),
+            };
+            let slot = crate::game_logic::audio_dispatch_impl::enter_voice_slot(
+                heal, structure, enemies, allies,
+            );
+            self.game_logic.queue_picked_unit_voice(units, slot);
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
@@ -508,6 +526,10 @@ impl<'a> CommandExecutor<'a> {
         }
 
         if any {
+            self.game_logic.queue_picked_unit_voice(
+                units,
+                crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Unload,
+            );
             CommandResult::Success
         } else {
             // Fail-closed: no containers selected (unlike Exit which can free passengers).
@@ -632,6 +654,10 @@ impl<'a> CommandExecutor<'a> {
             }
         }
         if issued {
+            self.game_logic.queue_picked_unit_voice(
+                units,
+                crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Supply,
+            );
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand

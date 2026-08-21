@@ -1338,6 +1338,8 @@ pub struct InGameUISubsystem {
     military_subtitles: VecDeque<(String, i32)>,
     /// Wave 1060: presentation floating cash/text residual.
     presentation_floating_texts: Vec<(String, [f32; 3], (u8, u8, u8), u32, u32)>,
+    /// Presentation MoneyPickUp / world Anim2D residual (template, pos, time, z-rise, fades, spawn).
+    presentation_world_anims: Vec<(String, [f32; 3], f32, f32, bool, u32)>,
     /// Presentation PublicTimer residual (name + READY/mm:ss).
     presentation_superweapon_timers: Vec<PresentationSuperweaponTimerResidual>,
     tooltips_disabled_until: u32,
@@ -1566,6 +1568,17 @@ impl InGameUISubsystem {
 
     pub fn presentation_floating_texts(&self) -> &[(String, [f32; 3], (u8, u8, u8), u32, u32)] {
         &self.presentation_floating_texts
+    }
+
+    pub fn replace_world_anims_from_presentation(
+        &mut self,
+        entries: &[(String, [f32; 3], f32, f32, bool, u32)],
+    ) {
+        self.presentation_world_anims = entries.to_vec();
+    }
+
+    pub fn presentation_world_anims(&self) -> &[(String, [f32; 3], f32, f32, bool, u32)] {
+        &self.presentation_world_anims
     }
     pub fn hud_messages(&self) -> &VecDeque<MessageText> {
         &self.hud_messages
@@ -1900,8 +1913,8 @@ impl InGameUISubsystem {
         self.hud_messages.clear();
         self.military_subtitles.clear();
         self.presentation_floating_texts.clear();
+        self.presentation_world_anims.clear();
         self.presentation_superweapon_timers.clear();
-        self.tooltips_disabled_until = 0;
         self.radar_pings.clear();
         self.pending_place_template = None;
         self.pending_place_source_object_id = 0;

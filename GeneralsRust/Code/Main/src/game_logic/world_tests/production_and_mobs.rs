@@ -2931,6 +2931,72 @@ fn a10_strike_flight_drops_missiles() {
 }
 
 #[test]
+fn a10_missiles_drop_from_jet_when_close_not_on_timer() {
+    // C++ DeliverPayloadAIUpdate.cpp:348-368 / DeliveringState::update:687-891
+    // VisiblePayload is created at the jet only while isCloseEnoughToTarget.
+    use crate::game_logic::special_power_strikes::{
+        A10StrikeScienceTier, A10_DELIVERY_DISTANCE, A10_PAYLOAD_TEMPLATE,
+    };
+    use crate::game_logic::KindOf;
+    let mut logic = GameLogic::new();
+    logic.override_world_size(4000.0, 4000.0);
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    let mut cc = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
+    cc.add_kind_of(KindOf::Structure).set_health(5000.0);
+    logic.templates.insert("AmericaCommandCenter".into(), cc);
+    let cc_id = logic
+        .create_object(
+            "AmericaCommandCenter",
+            Team::USA,
+            Vec3::new(0.0, 0.0, 0.0),
+        )
+        .unwrap();
+    let target = Vec3::new(1200.0, 0.0, 0.0);
+    let jet = logic
+        .spawn_a10_strike_flight(cc_id, target, A10StrikeScienceTier::Level1)
+        .expect("a10");
+    let launch = logic.host_object(jet).unwrap().get_position();
+    let launch_dist = ((launch.x - target.x).powi(2) + (launch.z - target.z).powi(2)).sqrt();
+    assert!(
+        launch_dist > A10_DELIVERY_DISTANCE,
+        "test map must start the jet outside DeliveryDistance, dist={launch_dist}"
+    );
+    logic.frame = 1;
+    logic.update_a10_strike_flights();
+    assert_eq!(
+        logic.a10_strike_flight_reg.missiles_dropped, 0,
+        "must not timer-drop missiles while the jet is far from the target"
+    );
+    let mut first_drop_xz = None;
+    for f in 2..400 {
+        logic.frame = f;
+        logic.update_a10_strike_flights();
+        if logic.a10_strike_flight_reg.missiles_dropped >= 1 {
+            first_drop_xz = logic
+                .host_objects()
+                .values()
+                .find(|o| o.template_name == A10_PAYLOAD_TEMPLATE)
+                .map(|o| o.get_position());
+            break;
+        }
+    }
+    assert!(logic.a10_strike_flight_reg.missiles_dropped >= 1);
+    let jet_pos = logic.host_object(jet).unwrap().get_position();
+    let jet_dist = ((jet_pos.x - target.x).powi(2) + (jet_pos.z - target.z).powi(2)).sqrt();
+    assert!(
+        jet_dist <= A10_DELIVERY_DISTANCE + 22.0,
+        "first drop must happen near DeliveryDistance, jet_dist={jet_dist}"
+    );
+    let drop = first_drop_xz.expect("payload");
+    let dx = drop.x - jet_pos.x;
+    let dz = drop.z - jet_pos.z;
+    assert!(
+        dx * dx + dz * dz <= 20.0 * 20.0,
+        "missile must spawn at the jet, not a precomputed ground blast, drop={drop:?} jet={jet_pos:?}"
+    );
+}
+
+#[test]
 fn artillery_barrage_flight_drops_shells() {
     use crate::game_logic::special_power_strikes::ArtilleryBarrageScienceTier;
     use crate::game_logic::KindOf;

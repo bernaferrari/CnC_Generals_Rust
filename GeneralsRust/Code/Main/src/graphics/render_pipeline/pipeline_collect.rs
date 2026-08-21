@@ -520,6 +520,7 @@ impl RenderPipeline {
                                     team_color,
                                     u.poison_tinted,
                                 );
+                                render_item.apply_status_tint(u.status_tint);
                                 render_item.set_presentation_opacity(u.presentation_opacity);
                                 render_item.animation_frame = anim_frame;
                                 render_item.animation_binding = animation_binding.clone();
@@ -568,6 +569,7 @@ impl RenderPipeline {
                                     team_color,
                                     u.poison_tinted,
                                 );
+                                aggregate_parent_item.apply_status_tint(u.status_tint);
                                 aggregate_parent_item
                                     .set_presentation_opacity(u.presentation_opacity);
                                 self.render_items.extend(
@@ -657,6 +659,7 @@ impl RenderPipeline {
                                         team_color,
                                         u.poison_tinted,
                                     );
+                                    render_item.apply_status_tint(u.status_tint);
                                     render_item.set_presentation_opacity(u.presentation_opacity);
 
                                     self.render_items.push(render_item);
@@ -713,6 +716,7 @@ impl RenderPipeline {
                                         team_color,
                                         u.poison_tinted,
                                     );
+                                    render_item.apply_status_tint(u.status_tint);
                                     render_item.set_presentation_opacity(u.presentation_opacity);
 
                                     self.render_items.push(render_item);

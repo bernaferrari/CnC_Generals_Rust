@@ -10,8 +10,9 @@ use chrono::{Datelike, Local, TimeZone, Timelike};
 
 use crate::common::ini::ini_game_data::get_global_data;
 use crate::common::message_stream::{
-    is_network_command_message, Coord3D, GameMessage, GameMessageArgumentDataType,
-    GameMessageArgumentType, GameMessageType, ICoord2D, MessageSerializer,
+    get_message_stream, is_network_command_message, Coord3D, GameMessage,
+    GameMessageArgumentDataType, GameMessageArgumentType, GameMessageType, ICoord2D,
+    MessageSerializer,
 };
 use crate::common::random_value::{
     get_game_logic_random_seed, init_game_logic_random, init_random_with_seed,
@@ -998,11 +999,42 @@ fn write_system_time_to_file(
     file.write_all(&encode_system_time_from_local(local_time))
 }
 
+/// C++ `RecorderClass::playbackFile` / `stopPlayback` append
+/// `MSG_NEW_GAME` / `MSG_CLEAR_GAME_DATA` to **TheMessageStream**
+/// (Recorder.cpp:447, 1123-1134), not TheCommandList.
+fn append_game_message_to_the_message_stream(msg: &GameMessage) {
+    let stream_lock = get_message_stream();
+    let Ok(mut stream) = stream_lock.write() else {
+        return;
+    };
+    let dest = stream.append_message(msg.get_type().clone());
+    dest.set_player_index(msg.get_player_index());
+    for arg in msg.get_arguments() {
+        match &arg.data {
+            GameMessageArgumentType::Integer(v) => dest.append_integer_argument(*v),
+            GameMessageArgumentType::Real(v) => dest.append_real_argument(*v),
+            GameMessageArgumentType::Boolean(v) => dest.append_boolean_argument(*v),
+            GameMessageArgumentType::ObjectID(v) => dest.append_object_id_argument(*v),
+            GameMessageArgumentType::DrawableID(v) => dest.append_drawable_id_argument(*v),
+            GameMessageArgumentType::TeamID(v) | GameMessageArgumentType::SquadID(v) => {
+                dest.append_team_id_argument(*v)
+            }
+            GameMessageArgumentType::Location(v) => dest.append_location_argument(v.clone()),
+            GameMessageArgumentType::Pixel(v) => dest.append_pixel_argument(v.clone()),
+            GameMessageArgumentType::PixelRegion(v) => dest.append_pixel_region_argument(v.clone()),
+            GameMessageArgumentType::Timestamp(v) => dest.append_timestamp_argument(*v),
+            GameMessageArgumentType::WideChar(v) => dest.append_wide_char_argument(*v),
+            GameMessageArgumentType::String(v) => dest.append_string_argument(v.clone()),
+        }
+    }
+}
+
 fn send_clear_game_data(
     command_sink: &Option<Arc<dyn Fn(GameMessage) + Send + Sync>>,
     pending_commands: &mut Vec<GameMessage>,
 ) {
     let clear_msg = GameMessage::new(GameMessageType::ClearGameData);
+    append_game_message_to_the_message_stream(&clear_msg);
     if let Some(sink) = command_sink {
         sink.as_ref()(clear_msg);
     } else {
@@ -1957,7 +1989,8 @@ impl Recorder {
             if max_fps != 0 {
                 msg.append_integer_argument(max_fps);
             }
-
+            // C++ Recorder.cpp:1123-1134 TheMessageStream->appendMessage(MSG_NEW_GAME).
+            append_game_message_to_the_message_stream(&msg);
             if let Some(sink) = &self.command_sink {
                 sink(msg);
             } else {
@@ -3473,5 +3506,71 @@ mod tests {
             stats.join(&replay_name).exists(),
             "DEBUG + m_saveStats copies the replay into m_baseStatsDir"
         );
+    }
+
+    #[test]
+    fn playback_file_appends_new_game_to_the_message_stream() {
+        // C++ Recorder.cpp:1123-1134 appends MSG_NEW_GAME to TheMessageStream
+        // (not TheCommandList). stopPlayback :447 appends MSG_CLEAR_GAME_DATA.
+        let temp = tempfile::tempdir().unwrap();
+        if let Some(global) = get_global_data() {
+            let mut data = global.write();
+            data.set_path_user_data(temp.path().to_string_lossy().to_string());
+            data.map_name = "Maps/PlaybackStream.map".to_string();
+            data.pending_file.clear();
+        }
+
+        let mut writer = Recorder::new();
+        writer.start_recording(1, 2, 3, 60).unwrap();
+        writer.set_current_frame(2);
+        writer
+            .write_to_file(&GameMessage::new(GameMessageType::LogicCRC(0x0BAD_F00D)))
+            .unwrap();
+        writer.stop_recording();
+        let replay_name = format!(
+            "{}{}",
+            writer.last_replay_filename(),
+            writer.replay_extension()
+        );
+
+        {
+            let stream = get_message_stream();
+            stream.write().unwrap_or_else(|e| e.into_inner()).clear_messages();
+        }
+
+        let mut reader = Recorder::new();
+        reader.set_game_mode_provider(Some(Arc::new(|| GAME_NONE)));
+        assert!(reader.playback_file(replay_name).unwrap());
+
+        {
+            let stream = get_message_stream();
+            let guard = stream.read().unwrap_or_else(|e| e.into_inner());
+            let types: Vec<_> = guard
+                .get_messages()
+                .iter()
+                .map(|msg| msg.get_type().clone())
+                .collect();
+            assert!(
+                types.iter().any(|ty| matches!(ty, GameMessageType::NewGame)),
+                "playbackFile must append MSG_NEW_GAME to TheMessageStream, got {types:?}"
+            );
+        }
+
+        reader.stop_playback();
+        {
+            let stream = get_message_stream();
+            let guard = stream.read().unwrap_or_else(|e| e.into_inner());
+            let types: Vec<_> = guard
+                .get_messages()
+                .iter()
+                .map(|msg| msg.get_type().clone())
+                .collect();
+            assert!(
+                types
+                    .iter()
+                    .any(|ty| matches!(ty, GameMessageType::ClearGameData)),
+                "stopPlayback must append MSG_CLEAR_GAME_DATA to TheMessageStream, got {types:?}"
+            );
+        }
     }
  }

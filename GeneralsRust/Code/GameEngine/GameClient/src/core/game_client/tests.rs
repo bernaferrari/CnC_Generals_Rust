@@ -1600,6 +1600,44 @@ mod tests {
         assert_eq!(client.last_live_ingame_hud_draw(), counts);
     }
 
+    #[test]
+    fn named_timers_do_not_replace_superweapon_strip() {
+        let mut client = GameClient::new().unwrap();
+        client.subsystem_manager.in_game_ui =
+            Some(Arc::new(Mutex::new(InGameUISubsystem::default())));
+        client.apply_presentation_superweapon_timers(&[(
+            "Particle Uplink Cannon".to_string(),
+            "1:00".to_string(),
+            false,
+        )]);
+        crate::gui::ingame_ui::add_named_timer("MissionTimer", "Evacuate", true);
+        let counts = client.draw_live_ingame_hud();
+        assert_eq!(
+            counts.superweapon_timers, 1,
+            "named timers must not replace the superweapon countdown strip"
+        );
+        crate::gui::ingame_ui::remove_named_timer("MissionTimer");
+    }
+
+    #[test]
+    fn live_world_anim_apply_keeps_money_pickup() {
+        let mut client = GameClient::new().unwrap();
+        client.subsystem_manager.in_game_ui =
+            Some(Arc::new(Mutex::new(InGameUISubsystem::default())));
+        client.apply_presentation_world_anims(&[(
+            "MoneyPickUp".to_string(),
+            [12.0, 0.0, 8.0],
+            4.0,
+            15.0,
+            true,
+            0,
+        )]);
+        let ui = client.subsystem_manager.in_game_ui.as_ref().unwrap();
+        let guard = ui.lock().unwrap();
+        assert_eq!(guard.presentation_world_anims().len(), 1);
+        assert_eq!(guard.presentation_world_anims()[0].0, "MoneyPickUp");
+    }
+
 
 
     #[test]

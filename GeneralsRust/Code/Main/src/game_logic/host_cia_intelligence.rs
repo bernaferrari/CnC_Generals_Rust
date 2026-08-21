@@ -141,9 +141,9 @@ impl HostCiaIntelligence {
 /// Host residual registry for CIA Intelligence special power activations.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostCiaIntelligenceRegistry {
-    next_id: u32,
+    pub next_id: u32,
     /// Active (not yet expired) residual activations.
-    active: Vec<HostCiaIntelligence>,
+    pub active: Vec<HostCiaIntelligence>,
     /// Total activations (honesty).
     pub activations: u32,
     /// Activations that vision-spied at least one enemy unit.
@@ -294,6 +294,11 @@ impl HostCiaIntelligenceRegistry {
                 dx * dx + dz * dz <= u.radius * u.radius
             })
         })
+    }
+
+    /// Replace live registry state from a save snapshot.
+    pub fn restore(&mut self, snapshot: Self) {
+        *self = snapshot;
     }
 }
 

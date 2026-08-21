@@ -292,9 +292,8 @@ fn should_emit_host_replay_camera(state: GameState, mode: crate::game_logic::Gam
     )
 }
 
-fn should_apply_host_replay_camera() -> bool {
-    crate::command_system::host_recorder_is_playback()
-        && game_engine::common::global_data::read().use_camera_in_replay
+fn should_apply_host_replay_camera(player_index: i32) -> bool {
+    crate::command_system::host_should_apply_replay_camera(player_index)
 }
 
 fn lookat_bookmark_message(slot_one_based: usize) -> String {
@@ -1723,6 +1722,34 @@ impl CnCGameEngine {
         }
     }
 
+    /// C++ GameLogicDispatch.cpp:1970-1984 deselectAllDrawables + selectDrawable.
+    fn remirror_host_replay_observer_selection(&mut self, player_index: i32) {
+        if !crate::command_system::host_should_remirror_observer_selection(player_index) {
+            return;
+        }
+        let live = self
+            .game_logic
+            .player_selected_objects(player_index as u32);
+        let leftover =
+            crate::command_system::leftover_player_current_selection_ids(player_index);
+        let ids = if !live.is_empty() { live } else { leftover };
+        self.host_set_selection(player_index as u32, ids);
+    }
+
+    fn remirror_host_replay_leftover_selection(&mut self, player_index: i32) {
+        if !crate::command_system::host_should_remirror_observer_selection(player_index) {
+            return;
+        }
+        let leftover =
+            crate::command_system::leftover_player_current_selection_ids(player_index);
+        if leftover.is_empty() {
+            self.remirror_host_replay_observer_selection(player_index);
+            return;
+        }
+        self.host_set_selection(player_index as u32, leftover);
+    }
+
+
     pub(super) fn update_camera(&mut self, dt: f32) {
         // C++ ScriptActions.cpp:3188 doDisableInput → LookAtTranslator::resetModes.
         // Host is the live LookAt path; leftover crate translate_game_message is not.
@@ -1860,28 +1887,55 @@ impl CnCGameEngine {
                 LookAtScrollType::None => {}
             }
         }
-        if should_apply_host_replay_camera() && self.host_camera_movement_finished() {
+        if self.host_camera_movement_finished() {
             if let Some(pose) = crate::command_system::take_pending_replay_camera() {
-                // C++ GameLogicDispatch.cpp:1801-1823 setLocation always applies pitch.
-                let clamped = self.clamp_to_world_bounds(pose.pos);
-                self.camera_target = clamped;
-                self.camera_yaw_radians = pose.yaw;
-                self.camera_pitch_radians = pose.pitch;
-                self.camera_zoom = clamp_w3d_zoom(pose.zoom);
-                self.camera_yaw_target = None;
-                self.camera_pitch_target = None;
-                self.camera_zoom_target = None;
-                look_at_host_modes().desired_height_above_ground = None;
-                if !lookat_has_mouse_moved_recently(self.frame_counter) {
-                    self.mouse_position = (pose.pixel.0 as f32, pose.pixel.1 as f32);
-                    self.mouse_cursor_seen = true;
-                    #[cfg(feature = "game_client")]
-                    if let Some(cursor) = game_client::gui::MouseCursor::from_i32(pose.cursor) {
-                        game_client::helpers::TheInGameUI::set_mouse_cursor(cursor);
+                if should_apply_host_replay_camera(pose.player_index) {
+                    // C++ GameLogicDispatch.cpp:1801-1823 setLocation always applies pitch.
+                    let clamped = self.clamp_to_world_bounds(pose.pos);
+                    self.camera_target = clamped;
+                    self.camera_yaw_radians = pose.yaw;
+                    self.camera_pitch_radians = pose.pitch;
+                    self.camera_zoom = clamp_w3d_zoom(pose.zoom);
+                    self.camera_yaw_target = None;
+                    self.camera_pitch_target = None;
+                    self.camera_zoom_target = None;
+                    look_at_host_modes().desired_height_above_ground = None;
+                    if !lookat_has_mouse_moved_recently(self.frame_counter) {
+                        self.mouse_position = (pose.pixel.0 as f32, pose.pixel.1 as f32);
+                        self.mouse_cursor_seen = true;
+                        #[cfg(feature = "game_client")]
+                        if let Some(cursor) = game_client::gui::MouseCursor::from_i32(pose.cursor) {
+                            game_client::helpers::TheInGameUI::set_mouse_cursor(cursor);
+                        }
+                    }
+                    self.apply_camera_orbit_transform();
+                }
+            }
+        }
+        for op in crate::command_system::take_pending_replay_team_ops() {
+            match op {
+                crate::command_system::ReplayTeamOp::Create {
+                    player_index,
+                    slot,
+                    ids,
+                } => {
+                    if crate::command_system::host_should_remirror_observer_selection(player_index)
+                    {
+                        if ids.is_empty() {
+                            self.control_groups.remove(&slot);
+                        } else {
+                            self.control_groups.insert(slot, ids);
+                        }
                     }
                 }
-                self.apply_camera_orbit_transform();
+                crate::command_system::ReplayTeamOp::Select { player_index, .. }
+                | crate::command_system::ReplayTeamOp::Add { player_index, .. } => {
+                    self.remirror_host_replay_leftover_selection(player_index);
+                }
             }
+        }
+        for player_index in crate::command_system::take_pending_replay_selection_remirror() {
+            self.remirror_host_replay_observer_selection(player_index);
         }
         let initial_zoom = self.camera_zoom;
         let initial_pitch = self.camera_pitch_radians;
@@ -2062,6 +2116,7 @@ impl CnCGameEngine {
                     zoom: self.camera_zoom,
                     cursor,
                     pixel: (self.mouse_position.0 as i32, self.mouse_position.1 as i32),
+                    player_index: self.current_player_id as i32,
                 },
             );
         }
@@ -2859,6 +2914,9 @@ impl CnCGameEngine {
                     o,
                     crate::game_logic::KindOf::Salvager,
                 ),
+                can_override_special_power_destination: o
+                    .special_power_override_destination
+                    .is_some(),
             });
         }
         out

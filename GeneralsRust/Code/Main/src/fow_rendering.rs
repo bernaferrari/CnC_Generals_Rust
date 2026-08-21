@@ -723,14 +723,25 @@ impl FOWRenderingBridge {
             if !shroud_runtime_active(&shroud_mgr, player_id) {
                 return visibility;
             }
-
-            // Check if object is visible to this player
-            let is_visible = shroud_mgr.can_see_object(player_id, object_id.0);
-
-            // Check if object has been explored by this player
-            let is_explored = shroud_mgr.has_explored_object(player_id, object_id.0);
-
-            visibility = ObjectVisibility::from_shroud_flags(is_visible, is_explored);
+            visibility = if let Some(status) =
+                shroud_mgr.get_host_object_shroud_status(player_id, object_id.0)
+            {
+                use gamelogic::common::ObjectShroudStatus;
+                match status {
+                    ObjectShroudStatus::Clear | ObjectShroudStatus::PartialClear => {
+                        ObjectVisibility::from_shroud_flags(true, true)
+                    }
+                    ObjectShroudStatus::Fogged => ObjectVisibility::from_shroud_flags(false, true),
+                    _ => ObjectVisibility::from_shroud_flags(false, false),
+                }
+            } else {
+                ObjectVisibility::from_shroud_flags(
+                    shroud_mgr.can_see_object(player_id, object_id.0),
+                    shroud_mgr.has_explored_object(player_id, object_id.0),
+                )
+            };
+            let is_visible = visibility.visibility_alpha >= 1.0;
+            let is_explored = visibility.is_explored >= 1.0;
 
             trace!(
                 "FOW visibility for object {}: alpha={}, explored={}, visible={}",

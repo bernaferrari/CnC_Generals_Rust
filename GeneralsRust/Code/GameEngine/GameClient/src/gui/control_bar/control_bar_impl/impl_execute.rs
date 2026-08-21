@@ -516,9 +516,11 @@ impl ControlBar {
         Ok(())
     }
 
-    /// C++ ControlBar.cpp:1086 — cache ButtonCommand01..14 and store the command
-    /// name on gadget user data (`GadgetButtonSetData`).
+    /// C++ ControlBar.cpp:1086 / setControlCommand :2472-2476 — cache
+    /// ButtonCommand01..14, store command name, and register TextLabel hotkeys.
     fn bind_command_windows(&self, context: &ControlBarContext) {
+        // C++ switchToContext resets TheHotKeyManager before rebinding.
+        with_hot_key_manager(|manager| manager.reset());
         with_window_manager(|wm| {
             for i in 0..14 {
                 let name = format!("ControlBar.wnd:ButtonCommand{:02}", i + 1);
@@ -558,6 +560,17 @@ impl ControlBar {
                     }
                     let _ = win.borrow_mut().enable(cmd.button_enabled);
                     let _ = win.borrow_mut().hide(false);
+                    // C++ ControlBar.cpp:2472-2476 setControlCommand.
+                    if !cmd.text_label.is_empty() {
+                        let hot_key = with_hot_key_manager(|manager| {
+                            manager.search_hot_key(&cmd.text_label)
+                        });
+                        if !hot_key.is_empty() {
+                            with_hot_key_manager(|manager| {
+                                manager.add_hot_key(win.clone(), &hot_key)
+                            });
+                        }
+                    }
                 } else if context.current_state == ControlBarState::Command
                     || context.current_state == ControlBarState::StructureInventory
                 {

@@ -74,9 +74,9 @@ impl PresentationFloatingText {
         }
     }
 
-    /// True while C++ keeps the entry before vanish-phase erase residual.
+    /// True while C++ still draws the entry (timeout plus vanish window).
     pub fn is_active_at(&self, logic_frame: u32) -> bool {
-        logic_frame < self.timeout_frame
+        self.vanish_alpha_at(logic_frame) > 0.0
     }
 
     /// Age in logic frames at `logic_frame` (0 at spawn).

@@ -253,6 +253,7 @@ impl GameLogic {
             || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
                 &container.template_name,
             )
+            || container.is_cave_style_container()
         {
             return;
         }
@@ -1833,6 +1834,23 @@ impl GameLogic {
                 .get(&id)
                 .map(|o| o.status.sold)
                 .unwrap_or(false)
+    }
+
+    /// C++ `BuildAssistant::xferTheSellList` capture (id + sell frame).
+    pub fn sell_list_for_snapshot(&self) -> Vec<(ObjectId, u32)> {
+        self.sell_list
+            .iter()
+            .map(|entry| (entry.id, entry.sell_frame))
+            .collect()
+    }
+
+    /// Restore BuildAssistant sell list so mid-sell buildings keep tearing down.
+    pub fn restore_sell_list_from_snapshot(&mut self, entries: &[(ObjectId, u32)]) {
+        self.sell_list = entries
+            .iter()
+            .copied()
+            .map(|(id, sell_frame)| ObjectSellInfo { id, sell_frame })
+            .collect();
     }
 
     pub fn honesty_actively_constructing_ok(&self) -> bool {

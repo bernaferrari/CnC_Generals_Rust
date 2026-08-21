@@ -34,6 +34,8 @@ pub struct GameLogic {
     /// C++ Object partition last-look: unlook previous then look on move/death.
     /// (x, y, z, radius, player_mask) in shroud Coord3D space.
     pub(super) vision_last_looks: HashMap<ObjectId, (f32, f32, f32, f32, u32)>,
+    /// C++ `m_partitionRevealAllLastLook` (ShroudRevealToAllRange).
+    pub(super) vision_last_reveal_all: HashMap<ObjectId, (f32, f32, f32, f32, u32)>,
 
 
     /// Players in the game. Coupled shadow: supplies/power/sciences last-write
@@ -260,6 +262,12 @@ pub struct GameLogic {
     /// Last-tunnel cave-in, heal, and GuardTunnelNetwork nemesis are live.
     pub(super) tunnel_network: crate::game_logic::host_tunnel_network::HostTunnelNetworkRegistry,
 
+    /// C++ CaveSystem + CaveContain shared CaveIndex tracker.
+    pub(super) cave_system: crate::game_logic::host_cave_system::HostCaveSystem,
+
+    /// C++ BridgeBehavior scaffolding + rubble restamp/splat.
+    pub(super) bridge_behavior: crate::game_logic::host_bridge_behavior::HostBridgeBehaviorRegistry,
+
     /// Host AirF Combat Chinook residual honesty counters
     /// (load / unload / passenger fire / armed-riders weapon-set).
     /// Fail-closed: not ChinookAIUpdate ropes / supply / rappel / combat drop.
@@ -308,6 +316,8 @@ pub struct GameLogic {
     /// buffs: ENTHUSIASTIC / SUBLIMINAL weapon-bonus flag grants.
     pub(super) propaganda_residual_heals: u32,
     pub(super) propaganda_residual_buffs: u32,
+    pub(super) propaganda_scan: crate::game_logic::host_propaganda::HostPropagandaScanState,
+
 
     /// Host China ECM Tank / jammer residual honesty counters.
     /// Fail-closed: not full subdual damage / laser stream / missile scatter matrix.
@@ -1268,11 +1278,12 @@ pub struct GameLogic {
 
 
 #[derive(Debug, Clone)]
-pub(super) struct PathfindingHeightSamples {
-    pub(super) width: u32,
-    pub(super) height: u32,
-    pub(super) values: Vec<f32>,
+pub(crate) struct PathfindingHeightSamples {
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) values: Vec<f32>,
 }
+
 
 #[derive(Debug, Clone)]
 pub struct RuntimeWeatherState {

@@ -51,6 +51,7 @@ impl CnCGameEngine {
 
     /// C++ `Player::processCreateTeamGameMessage` leftover `m_squads` / Squad xfer.
     fn write_leftover_player_create_team(&self, group_num: u8, ids: &[ObjectId]) {
+        crate::command_system::tap_host_team_slot_for_recorder(group_num, 0, ids);
         let object_ids: Vec<u32> = ids.iter().map(|id| id.0).collect();
         let Ok(list) = gamelogic::player::ThePlayerList().read() else {
             return;
@@ -71,6 +72,7 @@ impl CnCGameEngine {
 
     /// C++ `Player::processSelectTeamGameMessage` / `processAddTeamGameMessage`.
     fn write_leftover_player_select_team(&self, group_num: u8, add: bool) {
+        crate::command_system::tap_host_team_slot_for_recorder(group_num, if add { 2 } else { 1 }, &[]);
         let Ok(list) = gamelogic::player::ThePlayerList().read() else {
             return;
         };
@@ -246,7 +248,22 @@ impl CnCGameEngine {
     }
 
     pub(super) fn handle_key_press(&mut self, key: &Key) {
+        self.handle_mapped_key_press(key, None, false);
+    }
+
+    /// Live MetaEvent + default-hotkey path. `physical` supplies KEY_KP* /
+    /// OEM punctuation VKs; `os_repeat` eats CommandMap autorepeat
+    /// (C++ MetaEvent.cpp:463-470).
+    pub(super) fn handle_mapped_key_press(
+        &mut self,
+        key: &Key,
+        physical: Option<winit::keyboard::PhysicalKey>,
+        os_repeat: bool,
+    ) {
         if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+            if os_repeat {
+                return;
+            }
             match key {
                 Key::Character(c) if c == "m" || c == "M" => {
                     self.toggle_background_music();
@@ -260,11 +277,13 @@ impl CnCGameEngine {
                     }
                 }
                 Key::Named(NamedKey::Escape) => {
-                    info!("Escape pressed in Menu/Loading - exiting");
-                    self.request_state_change(GameState::Exiting);
+                    // C++ UseableIn SHELL: Escape is WindowXlat / menu
+                    // navigation, never MSG_META_OPTIONS app-quit.
+                    info!("Escape pressed in Menu/Loading — GUI navigation only");
                 }
                 _ => {}
             }
+            let _ = self.try_dispatch_command_map_remap(key, physical.as_ref(), true);
             return;
         }
 
@@ -279,10 +298,16 @@ impl CnCGameEngine {
             }
         }
 
+        // C++ MetaEvent eats KEY_STATE_AUTOREPEAT of known CommandMap keys
+        // (no second meta). Chat already had its chance above.
+        if os_repeat {
+            return;
+        }
+
         // C++ MetaEventTranslator walks TheMetaMap so Keyboard Options remaps
         // apply on the next key. Number-row CREATE/SELECT/ADD/VIEW_TEAM stays
         // with FixSelectSquad.
-        if self.try_dispatch_command_map_remap(key) {
+        if self.try_dispatch_command_map_remap(key, physical.as_ref(), false) {
             return;
         }
 
@@ -329,9 +354,11 @@ impl CnCGameEngine {
                     && !self.keys_pressed.contains(&Key::Named(NamedKey::Control))
                     && !self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
             {
-                // C++ classic A-key AttackMove residual: arm pending map click.
-                // Wave 221: selection via presentation-first ui_selected_ids.
-                if !self.ui_selected_ids(self.current_player_id).is_empty() {
+                // C++ MSG_META_TOGGLE_ATTACKMOVE flips InGameUI attack-move mode.
+                if matches!(self.pending_map_command, Some(PendingMapCommand::AttackMove)) {
+                    self.pending_map_command = None;
+                    self.clear_radius_cursor_overlays();
+                } else if !self.ui_selected_ids(self.current_player_id).is_empty() {
                     self.pending_map_command = Some(PendingMapCommand::AttackMove);
                     self.pending_structure_placement = None;
                     self.arm_radius_cursor_for_pending("ATTACK_CONTINUE_AREA");
@@ -1055,8 +1082,10 @@ impl CnCGameEngine {
             }
             Key::Named(NamedKey::F9) => {
                 // Retail CommandMap TOGGLE_CONTROL_BAR KEY_F9 residual.
-                // C++ CommandXlat.cpp:3144 MSG_META_TOGGLE_CONTROL_BAR → ToggleControlBar.
-                if !command_map_binds_host("TOGGLE_CONTROL_BAR") {
+                // C++ CommandXlat.cpp:3156-3170 no-op in RECORDERMODETYPE_PLAYBACK.
+                if !command_map_binds_host("TOGGLE_CONTROL_BAR")
+                    && !self.presentation_or_boot_in_replay_game()
+                {
                     #[cfg(feature = "game_client")]
                     {
                         let _ = game_client::gui::callbacks::control_bar_callbacks::toggle_control_bar(
@@ -1096,7 +1125,9 @@ impl CnCGameEngine {
             }
             Key::Named(NamedKey::Enter) => {
                 // Retail CommandMap CHAT_EVERYONE KEY_ENTER residual.
-                if !command_map_binds_host("CHAT_EVERYONE") {
+                if !command_map_binds_host("CHAT_EVERYONE")
+                    && self.host_command_xlat_multiplayer_meta()
+                {
                     self.open_chat_hotkey(crate::ui::ChatTarget::All);
                 }
             }
@@ -1105,11 +1136,10 @@ impl CnCGameEngine {
                     // Retail DEMO_INSTANT_QUIT Shift+Ctrl+Backspace residual.
                     info!("DEMO_INSTANT_QUIT residual — exiting");
                     self.request_state_change(GameState::Exiting);
-                } else {
-                    // Retail CommandMap CHAT_ALLIES KEY_BACKSPACE residual.
-                    if !command_map_binds_host("CHAT_ALLIES") {
-                        self.open_chat_hotkey(crate::ui::ChatTarget::Allies);
-                    }
+                } else if !command_map_binds_host("CHAT_ALLIES")
+                    && self.host_command_xlat_multiplayer_meta()
+                {
+                    self.open_chat_hotkey(crate::ui::ChatTarget::Allies);
                 }
             }
             Key::Named(NamedKey::F12) => {
@@ -1141,9 +1171,8 @@ impl CnCGameEngine {
                 }
             }
             Key::Named(NamedKey::Escape) => {
-                // Outer event-loop Escape handler is unreachable for keyboard
-                // because input() consumes the event. Mirror C++ residual here:
-                // cancel placement/map-command first, else pause/resume.
+                // C++ MSG_META_OPTIONS always ToggleQuitMenu (CommandXlat.cpp:3091).
+                // Placement/pending commands cancel via RMB, not OPTIONS.
                 match self.current_state {
                     GameState::InGame => {
                         if self.chat_panel.is_open() {
@@ -1152,28 +1181,13 @@ impl CnCGameEngine {
                         } else if self.diplomacy_panel.is_active() {
                             self.diplomacy_panel.close();
                             info!("Escape closed diplomacy panel residual");
-                        } else if self.pending_structure_placement.is_some() {
-                            self.cancel_structure_placement_from_ui();
-                            info!("Escape cancelled structure placement residual");
-                        } else if self.pending_map_command.take().is_some() {
-                            self.clear_radius_cursor_overlays();
-                            let msg = "Cancelled pending command";
-                            self.game_hud.push_info_message(msg);
-                            self.ui_manager.game_hud_mut().push_info_message(msg);
-                            info!("Escape cancelled pending map command residual");
                         } else {
                             // Retail CommandMap `OPTIONS` routes Escape to
-                            // MSG_META_OPTIONS -> ToggleQuitMenu(), which
-                            // creates Menus/QuitMenu.wnd.  Keep Main's host
-                            // simulation pause synchronized with that live
-                            // WND instead of replacing it with PauseMenu.
+                            // MSG_META_OPTIONS -> ToggleQuitMenu().
                             #[cfg(feature = "game_client")]
                             if self.host_toggle_retail_quit_menu() {
                                 info!("Escape opened/toggled the retail QuitMenu WND");
                             } else {
-                                // Fail closed only when the WND could not be
-                                // materialised; the old pause surface remains
-                                // a usable fallback for a damaged install.
                                 info!("Escape QuitMenu WND unavailable - using pause fallback");
                                 self.request_state_change(GameState::Paused);
                             }
@@ -1189,8 +1203,7 @@ impl CnCGameEngine {
                         self.request_state_change(GameState::InGame);
                     }
                     GameState::Menu | GameState::Loading => {
-                        info!("Escape pressed in Menu/Loading - exiting");
-                        self.request_state_change(GameState::Exiting);
+                        // C++ shell Escape is WindowXlat / menu callbacks, never app-quit.
                     }
                     GameState::Victory | GameState::Defeat => {
                         info!("Escape pressed in endgame - returning to menu");
@@ -1334,10 +1347,15 @@ impl CnCGameEngine {
 
     /// Consult Keyboard Options / CommandMap.ini remaps. Returns true when the
     /// chord was consumed as a remapped meta command.
-    fn try_dispatch_command_map_remap(&mut self, key: &Key) -> bool {
+    fn try_dispatch_command_map_remap(
+        &mut self,
+        key: &Key,
+        physical: Option<&winit::keyboard::PhysicalKey>,
+        shell: bool,
+    ) -> bool {
         #[cfg(feature = "game_client")]
         {
-            let Some(code) = os_key_to_command_map_vk(key) else {
+            let Some(code) = os_key_to_command_map_vk(key, physical) else {
                 return false;
             };
             // Number row is CREATE/SELECT/ADD/VIEW_TEAM (FixSelectSquad).
@@ -1354,9 +1372,14 @@ impl CnCGameEngine {
             if self.keys_pressed.contains(&Key::Named(NamedKey::Shift)) {
                 mods |= 4;
             }
-            let Some(name) =
-                game_client::message_stream::meta_event::lookup_command_map_name(code, mods)
-            else {
+            let usable = if shell {
+                game_client::message_stream::meta_event::COMMAND_MAP_USABLE_SHELL
+            } else {
+                game_client::message_stream::meta_event::COMMAND_MAP_USABLE_GAME
+            };
+            let Some(name) = game_client::message_stream::meta_event::lookup_command_map_name_usable(
+                code, mods, usable,
+            ) else {
                 return false;
             };
             let upper = name.to_ascii_uppercase();
@@ -1449,6 +1472,9 @@ impl CnCGameEngine {
                     true
                 }
                 "TOGGLE_CONTROL_BAR" => {
+                    if self.presentation_or_boot_in_replay_game() {
+                        return true;
+                    }
                     #[cfg(feature = "game_client")]
                     {
                         let _ = game_client::gui::callbacks::control_bar_callbacks::toggle_control_bar(
@@ -1464,11 +1490,15 @@ impl CnCGameEngine {
                     true
                 }
                 "CHAT_EVERYONE" => {
-                    self.open_chat_hotkey(crate::ui::ChatTarget::All);
+                    if self.host_command_xlat_multiplayer_meta() {
+                        self.open_chat_hotkey(crate::ui::ChatTarget::All);
+                    }
                     true
                 }
                 "CHAT_ALLIES" => {
-                    self.open_chat_hotkey(crate::ui::ChatTarget::Allies);
+                    if self.host_command_xlat_multiplayer_meta() {
+                        self.open_chat_hotkey(crate::ui::ChatTarget::Allies);
+                    }
                     true
                 }
                 "TOGGLE_CAMERA_TRACKING_DRAWABLE" => {
@@ -1479,12 +1509,27 @@ impl CnCGameEngine {
                     self.reset_camera_view_hotkey();
                     true
                 }
+                "OPTIONS" => {
+                    // C++ CommandXlat.cpp:3091-3094 MSG_META_OPTIONS → ToggleQuitMenu.
+                    #[cfg(feature = "game_client")]
+                    if !self.host_toggle_retail_quit_menu()
+                        && matches!(self.current_state, GameState::InGame)
+                    {
+                        info!("OPTIONS QuitMenu WND unavailable - using pause fallback");
+                        self.request_state_change(GameState::Paused);
+                    }
+                    #[cfg(not(feature = "game_client"))]
+                    if matches!(self.current_state, GameState::InGame) {
+                        self.request_state_change(GameState::Paused);
+                    }
+                    true
+                }
                 _ => false,
             }
         }
         #[cfg(not(feature = "game_client"))]
         {
-            let _ = key;
+            let _ = (key, physical, shell);
             false
         }
     }
@@ -1636,15 +1681,68 @@ fn host_localized_gui_label(key: &str) -> String {
     crate::localization::localize(key, key)
 }
 
-fn os_key_to_command_map_vk(key: &winit::keyboard::Key) -> Option<u32> {
-    use winit::keyboard::{Key, NamedKey};
+fn os_key_to_command_map_vk(
+    key: &winit::keyboard::Key,
+    physical: Option<&winit::keyboard::PhysicalKey>,
+) -> Option<u32> {
+    use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
+    if let Some(PhysicalKey::Code(code)) = physical {
+        let from_physical = match code {
+            KeyCode::Numpad0 => Some(0x60),
+            KeyCode::Numpad1 => Some(0x61),
+            KeyCode::Numpad2 => Some(0x62),
+            KeyCode::Numpad3 => Some(0x63),
+            KeyCode::Numpad4 => Some(0x64),
+            KeyCode::Numpad5 => Some(0x65),
+            KeyCode::Numpad6 => Some(0x66),
+            KeyCode::Numpad7 => Some(0x67),
+            KeyCode::Numpad8 => Some(0x68),
+            KeyCode::Numpad9 => Some(0x69),
+            KeyCode::NumpadDecimal => Some(0x6E),
+            KeyCode::NumpadMultiply => Some(0x6A),
+            KeyCode::NumpadSubtract => Some(0x6D),
+            KeyCode::NumpadAdd => Some(0x6B),
+            KeyCode::NumpadDivide => Some(0x6F),
+            KeyCode::NumpadEnter => Some(0x0D),
+            KeyCode::Minus => Some(0xBD),
+            KeyCode::Equal => Some(0xBB),
+            KeyCode::BracketLeft => Some(0xDB),
+            KeyCode::BracketRight => Some(0xDD),
+            KeyCode::Semicolon => Some(0xBA),
+            KeyCode::Quote => Some(0xDE),
+            KeyCode::Backquote => Some(0xC0),
+            KeyCode::Backslash => Some(0xDC),
+            KeyCode::Comma => Some(0xBC),
+            KeyCode::Period => Some(0xBE),
+            KeyCode::Slash => Some(0xBF),
+            KeyCode::Insert => Some(0x2D),
+            _ => None,
+        };
+        if from_physical.is_some() {
+            return from_physical;
+        }
+    }
     match key {
         Key::Character(c) => {
-            let ch = c.chars().next()?.to_ascii_uppercase();
+            let raw = c.as_str();
+            let ch = raw.chars().next()?.to_ascii_uppercase();
             if ch.is_ascii_alphanumeric() {
                 Some(ch as u32)
             } else {
-                None
+                match raw {
+                    "," | "<" => Some(0xBC),
+                    "." | ">" => Some(0xBE),
+                    "-" | "_" => Some(0xBD),
+                    "=" | "+" => Some(0xBB),
+                    "[" | "{" => Some(0xDB),
+                    "]" | "}" => Some(0xDD),
+                    ";" | ":" => Some(0xBA),
+                    "'" | "\"" => Some(0xDE),
+                    "`" | "~" => Some(0xC0),
+                    "\\" | "|" => Some(0xDC),
+                    "/" | "?" => Some(0xBF),
+                    _ => None,
+                }
             }
         }
         Key::Named(NamedKey::Space) => Some(0x20),
@@ -1673,7 +1771,40 @@ fn os_key_to_command_map_vk(key: &winit::keyboard::Key) -> Option<u32> {
         Key::Named(NamedKey::F10) => Some(0x79),
         Key::Named(NamedKey::F11) => Some(0x7A),
         Key::Named(NamedKey::F12) => Some(0x7B),
-        Key::Character(ch) if ch.as_str() == "5" => Some(0x65),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::os_key_to_command_map_vk;
+    use winit::keyboard::{Key, KeyCode, PhysicalKey};
+
+    #[test]
+    fn os_key_maps_numpad_and_oem_punctuation_to_command_map_vks() {
+        let kp5 = PhysicalKey::Code(KeyCode::Numpad5);
+        assert_eq!(
+            os_key_to_command_map_vk(&Key::Character("5".into()), Some(&kp5)),
+            Some(0x65),
+            "Numpad5 is KEY_KP5, not KEY_5"
+        );
+        assert_eq!(
+            os_key_to_command_map_vk(&Key::Character("5".into()), None),
+            Some(0x35),
+            "logical 5 without physical stays KEY_5"
+        );
+        let comma = PhysicalKey::Code(KeyCode::Comma);
+        assert_eq!(
+            os_key_to_command_map_vk(&Key::Character(",".into()), Some(&comma)),
+            Some(0xBC)
+        );
+        assert_eq!(
+            os_key_to_command_map_vk(&Key::Character("-".into()), None),
+            Some(0xBD)
+        );
+        assert_eq!(
+            os_key_to_command_map_vk(&Key::Character("[".into()), None),
+            Some(0xDB)
+        );
     }
 }

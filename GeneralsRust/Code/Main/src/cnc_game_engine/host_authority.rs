@@ -1318,6 +1318,14 @@ impl CnCGameEngine {
 
     /// Wave 928: single load authority boundary.
     pub(super) fn host_load_game_authority(&mut self, slot: &str) -> Result<SaveGameInfo, String> {
+        let save_info = self
+            .save_file_manager
+            .get_save_info(slot)
+            .map_err(|err| format!("{err}"))?;
+        if save_info.save_type == SaveFileType::Mission {
+            return self.host_restart_mission_from_save(save_info);
+        }
+
         // Keep the current world untouched until the save metadata, exact map,
         // and snapshot all restore successfully in a staging world.
         let active_mode = self.game_logic.game_mode();
@@ -1335,6 +1343,51 @@ impl CnCGameEngine {
             "Game loaded successfully from slot '{}' on map '{}'",
             slot,
             self.game_logic.get_current_map_name()
+        );
+        Ok(save_info)
+    }
+
+    /// C++ `GameState::loadGame` (`GameState.cpp:706-742`) for
+    /// `SAVE_FILE_TYPE_MISSION`: InitRandom(0), pendingFile = mission map,
+    /// MSG_NEW_GAME(GAME_SINGLE_PLAYER, difficulty, rankPoints).
+    fn host_restart_mission_from_save(
+        &mut self,
+        save_info: SaveGameInfo,
+    ) -> Result<SaveGameInfo, String> {
+        game_engine::common::random_value::init_random_with_seed(0);
+        {
+            let mut global = game_engine::common::global_data::write();
+            global.pending_file = save_info.map_name.clone();
+        }
+        let difficulty = match save_info.difficulty {
+            GameDifficulty::Easy => 0,
+            GameDifficulty::Medium => 1,
+            GameDifficulty::Hard => 2,
+        };
+        if let Ok(mut stream) =
+            game_engine::common::message_stream::get_message_stream().write()
+        {
+            let msg = stream.append_message(
+                game_engine::common::message_stream::GameMessageType::NewGame,
+            );
+            msg.append_integer_argument(0); // GAME_SINGLE_PLAYER
+            msg.append_integer_argument(difficulty);
+            msg.append_integer_argument(0);
+        }
+        let faction = save_info
+            .campaign_side
+            .clone()
+            .filter(|side| !side.trim().is_empty())
+            .unwrap_or_else(|| "USA".to_string());
+        self.start_game_from_ui(HostStartRequest::without_player_template(
+            crate::game_logic::GameMode::SinglePlayer,
+            faction,
+            save_info.map_name.clone(),
+            None,
+        ));
+        info!(
+            "Mission save '{}' restarts map '{}' instead of restoring mid-world",
+            save_info.filename, save_info.map_name
         );
         Ok(save_info)
     }
@@ -1488,6 +1541,16 @@ impl CnCGameEngine {
         self.transition_to_state(GameState::Loading);
         match self.host_load_game_authority(slot) {
             Ok(save_info) => {
+                if self.pending_match_start.is_some() {
+                    // Mission save posted MSG_NEW_GAME and parked startNewGame.
+                    // Stay on Loading so complete_parked_match_start loads the
+                    // next map clean instead of installing a mid-world snapshot.
+                    info!(
+                        "Mission save '{}' queued a fresh start on '{}'",
+                        slot, save_info.map_name
+                    );
+                    return Ok(());
+                }
                 info!(
                     "Loaded save '{}' (map={}, name={})",
                     slot, save_info.map_name, save_info.display_name

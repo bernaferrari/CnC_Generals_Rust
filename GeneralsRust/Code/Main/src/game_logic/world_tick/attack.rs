@@ -350,10 +350,12 @@ impl GameLogic {
         !obj.is_within_attack_range_for_slot(slot, victim)
     }
 
-    /// C++ wantToSquishTarget state condition residual.
+    /// C++ wantToSquishTarget state condition (AIStates.cpp:1140-1166).
     ///
-    /// AI computer crush/squish chase preference (not player).
+    /// Computer crush/squish chase only: turreted weapon, not DONT_AUTO_CRUSH,
+    /// and canCrushOrSquish (ALLIES / unmanned / levels).
     pub fn want_to_squish_target(&self, unit_id: ObjectId, victim_id: ObjectId) -> bool {
+        use gamelogic::common::Relationship;
         let Some(obj) = self.objects.get(&unit_id) else {
             return false;
         };
@@ -363,10 +365,30 @@ impl GameLogic {
         if victim.contained_by.is_some() {
             return false;
         }
-        // Fail-closed: host does not track player type on every object; use team AI residual.
-        // Prefer vehicles crushing infantry.
-        // DontAutoCrushInfantry residual: skip if template name hints "dozer" without crush.
-        obj.can_crush_only(victim, false)
+        // C++ getWhichTurretForCurWeapon() != TURRET_INVALID.
+        if !obj.turret_enabled {
+            return false;
+        }
+        // C++ PLAYER_COMPUTER only — human tanks do not auto-chase-squish.
+        let is_computer = obj
+            .owner_player_id
+            .and_then(|pid| self.players.get(&pid))
+            .map(|p| !p.is_local)
+            .unwrap_or(false);
+        if !is_computer {
+            return false;
+        }
+        // C++ KINDOF_DONT_AUTO_CRUSH_INFANTRY (Tomahawk, dozers).
+        if obj.is_kind_of(crate::game_logic::KindOf::Dozer)
+            || obj
+                .template_name
+                .to_ascii_uppercase()
+                .contains("TOMAHAWK")
+        {
+            return false;
+        }
+        let is_ally = self.object_relationship(obj, victim) == Relationship::Allies;
+        obj.can_crush_only(victim, is_ally)
     }
 
     pub fn should_chase_attack_target(&self, unit_id: ObjectId, victim_id: ObjectId) -> bool {

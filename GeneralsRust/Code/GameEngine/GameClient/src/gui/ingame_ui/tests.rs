@@ -6,6 +6,7 @@ mod tests {
     use super::*;
     use game_engine::common::ini::ini_language::init_global_language;
     use game_engine::common::language::Language;
+    use gamelogic::helpers::TheGameLogic;
 
     #[test]
     fn test_selection_box() {
@@ -940,5 +941,49 @@ mod tests {
         );
     }
 
+    #[test]
+    fn live_military_caption_uses_delay_and_ini_pose() {
+        init_global_language();
+        Language::clear_localized_strings();
+        Language::register_localized_string("SCRIPT:Briefing", "Hold the line.");
+        apply_military_caption_style((10.0, 340.0), 0xFFFF_FFFF, 12);
+        start_military_subtitle("SCRIPT:Briefing", 5000);
+        let frame = TheGameLogic::get_frame();
+        let (text, _, color, pos, _) =
+            live_military_subtitle_draw(frame).expect("live caption must start");
+        assert!(
+            text.is_empty(),
+            "750ms / 22-frame delay must hold the first character"
+        );
+        assert_eq!(pos, (10.0, 340.0));
+        assert_eq!(color, 0xFFFF_FFFF);
+        assert_eq!(InGameUI::military_caption_delay_frames(), 22);
+    }
 
+    #[test]
+    fn world_anim_fades_in_last_thirty_frames() {
+        assert_eq!(InGameUI::world_anim_expire_frame(0, 4.0), 120);
+        assert!((InGameUI::world_anim_z_lift(30, 15.0) - 15.0).abs() < 0.001);
+        assert!((InGameUI::world_anim_fade_alpha(30, true) - 1.0).abs() < 0.001);
+        assert!((InGameUI::world_anim_fade_alpha(15, true) - 0.5).abs() < 0.001);
+        assert!((InGameUI::world_anim_fade_alpha(0, true) - 0.0).abs() < 0.001);
+        assert!((InGameUI::world_anim_fade_alpha(0, false) - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn floating_text_vanish_window_keeps_alpha_after_timeout() {
+        let timeout = DEFAULT_FLOATING_TEXT_TIMEOUT;
+        assert_eq!(
+            InGameUI::floating_text_alpha_at_frame(255, timeout + 1, timeout, 0.1),
+            255
+        );
+        assert!(
+            InGameUI::floating_text_alpha_at_frame(255, timeout + 20, timeout, 0.1) < 255
+                || InGameUI::floating_text_alpha_at_frame(255, timeout + 20, timeout, 0.1)
+                    == 255
+        );
+        assert!(!InGameUI::floating_text_visible_through_shroud(
+            ObjectShroudStatus::Shrouded
+        ));
+    }
 }

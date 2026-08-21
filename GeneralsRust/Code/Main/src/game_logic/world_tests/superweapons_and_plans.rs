@@ -2010,6 +2010,16 @@ fn radar_scan_spawns_radar_van_ping_object() {
         .find(|o| o.radar_van_ping)
         .expect("RadarVanPing");
     assert_eq!(ping.template_name, RADAR_VAN_PING_TEMPLATE);
+    // C++ StealthDetectorUpdate.cpp:167-282 — RadarVanPing ModuleTag_04.
+    assert!(
+        ping.is_detector,
+        "RadarVanPing must be a stealth detector like SpySatellitePing"
+    );
+    assert!(
+        (ping.detection_range - 150.0).abs() < 0.1,
+        "DetectionRange 0 → VisionRange 150, got {}",
+        ping.detection_range
+    );
     let pid = ping.id;
     logic.frame = RADAR_SCAN_DURATION_FRAMES + 5;
     logic.update_radar_van_pings();

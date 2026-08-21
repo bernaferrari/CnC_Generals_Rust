@@ -3455,3 +3455,367 @@ fn bincode_v10_migrates_without_instance_name_and_guard_tail() {
     assert_eq!(restored.version, WORLD_SNAPSHOT_BINCODE_VERSION);
     assert!(restored.object_instance_guards.is_empty());
 }
+
+/// C++ `Object::xfer` (`Object.cpp:4126-4130`) persists `m_visionSpiedMask`.
+/// SpyVision / CIA keeps those units as moving lookers until duration expires.
+#[test]
+fn snapshot_round_trips_cia_vision_spied_and_registry() {
+    let mut source = GameLogic::new();
+    source.add_player(Player::new(0, Team::USA, "USA", true));
+    source
+        .templates
+        .insert("TestTank".to_string(), ThingTemplate::new("TestTank"));
+    let caster = source
+        .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, 10.0))
+        .expect("caster");
+    let enemy = source
+        .create_object("TestTank", Team::China, Vec3::new(400.0, 0.0, 400.0))
+        .expect("enemy");
+    assert!(source.activate_cia_intelligence(0, Team::USA, Some(caster)));
+    assert!(
+        source
+            .host_object(enemy)
+            .unwrap()
+            .is_vision_spied_by_player(0)
+    );
+    assert_eq!(source.cia_intelligence().active_count(), 1);
+    let expires = source.cia_intelligence().active_scans()[0].expires_frame;
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
+    assert!(
+        snapshot
+            .vision_spied
+            .iter()
+            .any(|entry| entry.object_id == enemy && entry.vision_spied_mask != 0)
+    );
+    assert_eq!(snapshot.cia_intelligence.active_count(), 1);
+
+    let mut restored = GameLogic::new();
+    restored.templates = source.templates.clone();
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .expect("restore");
+    assert!(
+        restored
+            .host_object(enemy)
+            .unwrap()
+            .is_vision_spied_by_player(0),
+        "load must keep Object.vision_spied_mask"
+    );
+    assert_eq!(restored.cia_intelligence().active_count(), 1);
+    assert!(restored.cia_intelligence().is_object_vision_spied(0, enemy));
+    assert_eq!(
+        restored.cia_intelligence().active_scans()[0].expires_frame,
+        expires
+    );
+}
+
+/// C++ `Object::xfer` (`Object.cpp:4050-4053`) writes `m_builderID`.
+/// Dozer BUILD exclusivity uses that id (`DozerAIUpdate.cpp:1986`).
+#[test]
+fn snapshot_round_trips_builder_id_and_dozer_build_task() {
+    let mut source = GameLogic::new();
+    source
+        .templates
+        .insert("AmericaVehicleDozer".to_string(), ThingTemplate::new("AmericaVehicleDozer"));
+    let mut barracks = ThingTemplate::new("AmericaBarracks");
+    barracks.add_kind_of(KindOf::Structure);
+    source.templates.insert("AmericaBarracks".to_string(), barracks);
+    let dozer = source
+        .create_object("AmericaVehicleDozer", Team::USA, Vec3::ZERO)
+        .expect("dozer");
+    let scaffold = source
+        .create_object("AmericaBarracks", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+        .expect("scaffold");
+    {
+        let building = source.host_object_mut(scaffold).expect("scaffold obj");
+        building.builder_id = Some(dozer);
+        building.set_status_under_construction(true);
+        building.construction_percent = 0.4;
+    }
+    {
+        let unit = source.host_object_mut(dozer).expect("dozer obj");
+        unit.dozer_task_build_target = Some(scaffold);
+        unit.dozer_task_build_order_frame = 77;
+    }
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
+    assert!(
+        snapshot.builder_tasks.iter().any(|entry| {
+            entry.object_id == scaffold && entry.builder_id == Some(dozer)
+        })
+    );
+    assert!(snapshot.builder_tasks.iter().any(|entry| {
+        entry.object_id == dozer
+            && entry.dozer_task_build_target == Some(scaffold)
+            && entry.dozer_task_build_order_frame == 77
+    }));
+
+    let mut restored = GameLogic::new();
+    restored.templates = source.templates.clone();
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .expect("restore");
+    let loaded_scaffold = restored.host_object(scaffold).expect("restored scaffold");
+    assert_eq!(loaded_scaffold.builder_id, Some(dozer));
+    let loaded_dozer = restored.host_object(dozer).expect("restored dozer");
+    assert_eq!(loaded_dozer.dozer_task_build_target, Some(scaffold));
+    assert_eq!(loaded_dozer.dozer_task_build_order_frame, 77);
+}
+
+/// C++ `GameLogic::xfer` v6 calls `TheBuildAssistant->xferTheSellList`.
+/// Mid-sell buildings stay on that list until percent hits the sold threshold.
+#[test]
+fn snapshot_round_trips_sell_list_mid_sell() {
+    let mut source = GameLogic::new();
+    source.add_player(Player::new(0, Team::USA, "USA", true));
+    let mut plant = ThingTemplate::new("AmericaPowerPlant");
+    plant.add_kind_of(KindOf::Structure).set_health(500.0);
+    plant.build_cost.supplies = 800;
+    source.templates.insert("AmericaPowerPlant".to_string(), plant);
+    let id = source
+        .create_object("AmericaPowerPlant", Team::USA, Vec3::ZERO)
+        .expect("plant");
+    if let Some(obj) = source.host_object_mut(id) {
+        obj.construction_percent = 1.0;
+        obj.set_status_under_construction(false);
+        obj.set_status_reconstructing(false);
+    }
+    assert!(source.start_sell_object(id));
+    assert!(source.is_object_being_sold(id));
+    let sell_frame = source.sell_list_for_snapshot()[0].1;
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
+    assert_eq!(
+        snapshot.sell_list,
+        vec![SellListEntrySnapshot {
+            object_id: id,
+            sell_frame,
+        }]
+    );
+
+    let mut restored = GameLogic::new();
+    restored.templates = source.templates.clone();
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .expect("restore");
+    assert!(
+        restored.is_object_being_sold(id),
+        "load must keep the building on BuildAssistant sell_list"
+    );
+    let before = restored.host_object(id).unwrap().construction_percent;
+    restored.set_current_frame(u64::from(sell_frame.saturating_add(50)));
+    restored.update_sell_list();
+    let after = restored.host_object(id).unwrap().construction_percent;
+    assert!(
+        after < before,
+        "restored sell_list must keep deconstructing (before={before}, after={after})"
+    );
+}
+
+/// V13 appends CIA / builder / sell after the v12 overcharge tail.
+#[test]
+fn direct_xfer_v13_round_trips_cia_builder_sell_tail() {
+    use crate::save_load::{Xfer, XferLoad, XferSave};
+    use std::io::Cursor;
+
+    let mut world = WorldSnapshot::default();
+    world.version = WORLD_SNAPSHOT_DIRECT_XFER_V13_TAIL_VERSION;
+    world.vision_spied.push(ObjectVisionSpiedSnapshot {
+        object_id: ObjectId(7),
+        vision_spied_mask: 1,
+    });
+    world.builder_tasks.push(ObjectBuilderTaskSnapshot {
+        object_id: ObjectId(8),
+        builder_id: Some(ObjectId(9)),
+        dozer_task_build_target: Some(ObjectId(8)),
+        dozer_task_build_order_frame: 12,
+    });
+    world.sell_list.push(SellListEntrySnapshot {
+        object_id: ObjectId(10),
+        sell_frame: 33,
+    });
+
+    let mut bytes = Cursor::new(Vec::new());
+    {
+        let mut writer = XferSave::new(&mut bytes);
+        world.xfer(&mut writer).expect("write direct v13 world");
+        let mut sentinel = 0xC0DE_F00Du32;
+        writer.xfer_u32(&mut sentinel).expect("write sentinel");
+    }
+
+    let mut restored = WorldSnapshot::default();
+    let mut sentinel = 0u32;
+    {
+        let mut reader = XferLoad::new(Cursor::new(bytes.into_inner()));
+        restored.xfer(&mut reader).expect("read direct v13 world");
+        reader.xfer_u32(&mut sentinel).expect("read sentinel");
+    }
+
+    assert_eq!(
+        restored.vision_spied,
+        vec![ObjectVisionSpiedSnapshot {
+            object_id: ObjectId(7),
+            vision_spied_mask: 1,
+        }]
+    );
+    assert_eq!(
+        restored.builder_tasks,
+        vec![ObjectBuilderTaskSnapshot {
+            object_id: ObjectId(8),
+            builder_id: Some(ObjectId(9)),
+            dozer_task_build_target: Some(ObjectId(8)),
+            dozer_task_build_order_frame: 12,
+        }]
+    );
+    assert_eq!(
+        restored.sell_list,
+        vec![SellListEntrySnapshot {
+            object_id: ObjectId(10),
+            sell_frame: 33,
+        }]
+    );
+    assert_eq!(sentinel, 0xC0DE_F00D);
+}
+
+/// Pre-v13 streams have no CIA / builder / sell tail. Restore must not invent
+/// a mid-spy, exclusive builder, or mid-sell list.
+#[test]
+fn bincode_v12_migrates_without_cia_builder_sell_tail() {
+    let mut source = WorldSnapshot::default();
+    source.version = 12;
+    source.vision_spied.push(ObjectVisionSpiedSnapshot {
+        object_id: ObjectId(1),
+        vision_spied_mask: 4,
+    });
+    source.builder_tasks.push(ObjectBuilderTaskSnapshot {
+        object_id: ObjectId(2),
+        builder_id: Some(ObjectId(3)),
+        dozer_task_build_target: None,
+        dozer_task_build_order_frame: 0,
+    });
+    source.sell_list.push(SellListEntrySnapshot {
+        object_id: ObjectId(4),
+        sell_frame: 9,
+    });
+
+    let payload = serialize_pre_v13_v12_fixture(source).expect("serialize exact v12 fixture");
+    let (restored, path) = decode_bincode_world_snapshot(&payload).expect("migrate v12 fixture");
+
+    assert_eq!(path, BincodeWorldSnapshotDecodePath::LegacyPreV13V12);
+    assert_eq!(restored.version, WORLD_SNAPSHOT_BINCODE_VERSION);
+    assert!(restored.vision_spied.is_empty());
+    assert!(restored.builder_tasks.is_empty());
+    assert!(restored.sell_list.is_empty());
+    assert_eq!(restored.cia_intelligence.active_count(), 0);
+}
+
+#[test]
+fn snapshot_round_trips_sole_heal_contain_original_team_formation() {
+    let mut source = GameLogic::new();
+    source
+        .templates
+        .insert("HealUnit".to_string(), ThingTemplate::new("HealUnit"));
+    source
+        .templates
+        .insert("GarrBldg".to_string(), ThingTemplate::new("GarrBldg"));
+    source.add_player(Player::new(1, Team::USA, "USA", true));
+    source.set_current_frame(400);
+
+    let healer = source
+        .create_object("HealUnit", Team::USA, Vec3::new(1.0, 0.0, 1.0))
+        .expect("healer");
+    let patient = source
+        .create_object("HealUnit", Team::USA, Vec3::new(2.0, 0.0, 2.0))
+        .expect("patient");
+    let building = source
+        .create_object("GarrBldg", Team::China, Vec3::new(8.0, 0.0, 8.0))
+        .expect("building");
+    {
+        let object = source.host_object_mut(patient).expect("patient");
+        object.sole_healing_benefactor = Some(healer);
+        object.sole_healing_benefactor_expiration_frame = 480;
+        object.set_formation(7, glam::Vec2::new(-12.0, 4.0));
+    }
+    source.stamp_contained_by_frame(patient, 350);
+    {
+        let object = source.host_object_mut(building).expect("building");
+        object.object_type = crate::game_logic::ObjectType::Building;
+        let mut building_data =
+            crate::game_logic::buildings::BuildingData::new(
+                crate::game_logic::buildings::BuildingType::Bunker,
+            );
+        building_data.original_team = Some(Team::China);
+        object.building_data = Some(building_data);
+    }
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder
+        .create_world_snapshot(&source)
+        .expect("persist snapshot");
+    assert!(
+        snapshot
+            .object_persist
+            .iter()
+            .any(|entry| entry.object_id == patient
+                && entry.sole_healing_benefactor == Some(healer)
+                && entry.contained_by_frame == Some(350)
+                && entry.formation_id == 7)
+    );
+    assert!(
+        snapshot
+            .object_persist
+            .iter()
+            .any(|entry| entry.object_id == building
+                && entry.original_team == Some(Team::China))
+    );
+
+    let mut restored = GameLogic::new();
+    restored.templates = source.templates.clone();
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .expect("restore persist");
+    let patient_obj = restored.host_object(patient).expect("patient restored");
+    assert_eq!(patient_obj.sole_healing_benefactor, Some(healer));
+    assert_eq!(patient_obj.sole_healing_benefactor_expiration_frame, 480);
+    assert_eq!(patient_obj.formation_id, 7);
+    assert!((patient_obj.formation_offset.x + 12.0).abs() < 0.01);
+    assert_eq!(
+        restored.contained_by_frame_for_snapshot(patient),
+        Some(350)
+    );
+    let building_obj = restored.host_object(building).expect("building restored");
+    assert_eq!(
+        building_obj
+            .building_data
+            .as_ref()
+            .and_then(|data| data.original_team),
+        Some(Team::China)
+    );
+}
+
+#[test]
+fn bincode_v13_migrates_without_object_persist_tail() {
+    let mut source = WorldSnapshot::default();
+    source.version = 13;
+    source.object_persist.push(ObjectPersistTailSnapshot {
+        object_id: ObjectId(1),
+        sole_healing_benefactor: Some(ObjectId(2)),
+        sole_healing_benefactor_expiration_frame: 9,
+        contained_by_frame: Some(3),
+        original_team: Some(Team::USA),
+        formation_id: 4,
+        formation_offset: [1.0, 2.0],
+        stealth_opacity: 0.5,
+        terrain_decal_type: 1,
+        terrain_decal_size: 3.5,
+    });
+    let payload = serialize_pre_v14_v13_fixture(source).expect("serialize v13");
+    let (restored, path) = decode_bincode_world_snapshot(&payload).expect("migrate v13");
+    assert_eq!(path, BincodeWorldSnapshotDecodePath::LegacyPreV14V13);
+    assert!(restored.object_persist.is_empty());
+    assert!(restored.client_drawable_visuals.is_empty());
+}

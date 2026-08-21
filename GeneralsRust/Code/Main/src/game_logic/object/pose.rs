@@ -1019,6 +1019,15 @@ impl Object {
                 bits |= 1u128 << smolder_b;
             }
         }
+        // C++ W3DModelDraw::updateDrawModuleSupplyStatus — CARRYING while boxes > 0.
+        {
+            use crate::game_logic::host_enum_table_residual::carrying_model_bit;
+            let carry_b = carrying_model_bit();
+            bits &= !(1u128 << carry_b);
+            if self.stored_resources.supplies > 0 {
+                bits |= 1u128 << carry_b;
+            }
+        }
         if self.model_condition_bits != bits {
             self.visual_draw_state_revision = self.visual_draw_state_revision.saturating_add(1).max(1);
         }

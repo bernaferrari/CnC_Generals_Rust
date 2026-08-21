@@ -10,15 +10,18 @@
 use super::super::*;
 
 use game_engine::common::system::radar::{
-    get_radar_system, register_radar_map_source, resolve_radar_object_color, Coord3D,
-    RadarMapSource, RadarObject, RadarObjectInsert, RadarPriorityType,
+    get_radar_system, register_radar_map_source, register_radar_object_provider,
+    resolve_radar_object_color, Coord3D, RadarMapSource, RadarObject, RadarObjectInsert,
+    RadarObjectProvider, RadarPriorityType,
 };
+use gamelogic::system::shroud_manager::get_shroud_manager;
 use std::sync::{Arc, LazyLock, Mutex};
 
 struct HostRadarMapState {
     min: Coord3D,
     max: Coord3D,
     ready: bool,
+    local_player_id: u32,
 }
 
 impl HostRadarMapState {
@@ -35,6 +38,7 @@ impl HostRadarMapState {
                 z: 0.0,
             },
             ready: false,
+            local_player_id: 0,
         }
     }
 }
@@ -46,6 +50,41 @@ struct HostRadarMapSource;
 static HOST_RADAR_MAP_REGISTERED: LazyLock<()> = LazyLock::new(|| {
     let _ = register_radar_map_source(Arc::new(HostRadarMapSource));
 });
+
+static HOST_RADAR_OBJECTS: Mutex<Vec<RadarObjectInsert>> = Mutex::new(Vec::new());
+
+struct HostRadarObjectProvider;
+
+static HOST_RADAR_PROVIDER_REGISTERED: LazyLock<()> = LazyLock::new(|| {
+    let _ = register_radar_object_provider(Arc::new(HostRadarObjectProvider));
+});
+
+impl RadarObjectProvider for HostRadarObjectProvider {
+    fn collect_objects(&self) -> Vec<RadarObjectInsert> {
+        HOST_RADAR_OBJECTS
+            .lock()
+            .ok()
+            .map(|g| g.clone())
+            .unwrap_or_default()
+    }
+}
+
+fn ensure_radar_hooks_registered() {
+    ensure_radar_map_source_registered();
+    LazyLock::force(&HOST_RADAR_PROVIDER_REGISTERED);
+}
+
+/// Push leftover ShroudManager cells onto TheRadar for the last local player.
+pub fn host_refresh_radar_shroud() {
+    let pid = HOST_RADAR_MAP
+        .lock()
+        .ok()
+        .map(|g| g.local_player_id)
+        .unwrap_or(0);
+    if let Ok(mut shroud) = get_shroud_manager().lock() {
+        shroud.refresh_radar_shroud_for_player(pid);
+    }
+}
 
 impl RadarMapSource for HostRadarMapSource {
     fn map_extent(&self) -> Option<(Coord3D, Coord3D)> {
@@ -72,6 +111,7 @@ fn host_to_radar_coord(pos: glam::Vec3) -> Coord3D {
 
 fn ensure_radar_map_source_registered() {
     LazyLock::force(&HOST_RADAR_MAP_REGISTERED);
+    LazyLock::force(&HOST_RADAR_PROVIDER_REGISTERED);
 }
 
 fn store_radar_map_extent(min: glam::Vec3, max: glam::Vec3) -> Option<(Coord3D, Coord3D)> {
@@ -282,5 +322,116 @@ impl GameLogic {
         if let Ok(mut radar) = get_radar_system().write() {
             radar.remove_object(id.0);
         }
+    }
+
+    /// C++ `RadarObject::isTemporarilyHidden` + overlay draw use live Object
+    /// pose/stealth each frame. Re-stamp every host object so cloaking,
+    /// detection, and movement update the blip (hq-sn4a0).
+    pub(in super::super) fn host_radar_sync_live_objects(&mut self) {
+        ensure_radar_hooks_registered();
+        if let Some(local) = self.host_local_player() {
+            if let Ok(mut guard) = HOST_RADAR_MAP.lock() {
+                guard.local_player_id = local.id;
+            }
+        }
+        let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        let mut specs = Vec::new();
+        for id in &ids {
+            if let Some(obj) = self.objects.get(id) {
+                if obj.is_alive() {
+                    specs.push(self.host_radar_insert_spec(obj));
+                }
+            }
+        }
+        if let Ok(mut store) = HOST_RADAR_OBJECTS.lock() {
+            *store = specs.clone();
+        }
+        if let Some(local) = self.host_local_player() {
+            if let Ok(mut shroud) = get_shroud_manager().lock() {
+                shroud.refresh_radar_shroud_for_player(local.id);
+            }
+        }
+        let live: std::collections::HashSet<u32> = ids.iter().map(|id| id.0).collect();
+        if let Ok(mut radar) = get_radar_system().write() {
+            let stale: Vec<u32> = radar
+                .get_all_objects()
+                .filter(|obj| !live.contains(&obj.object_id))
+                .map(|obj| obj.object_id)
+                .collect();
+            for id in stale {
+                radar.remove_object(id);
+            }
+        }
+        for id in ids {
+            let alive = self.objects.get(&id).is_some_and(|obj| obj.is_alive());
+            if alive {
+                self.host_radar_add_object(id);
+            } else {
+                self.host_radar_remove_object(id);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game_logic::{Player, ThingTemplate};
+    use game_engine::common::system::radar::get_radar_system;
+    use glam::Vec3;
+
+    /// C++ Radar.cpp:118-125 queries live Drawable stealth/pose each update.
+    #[test]
+    fn host_radar_sync_updates_position_and_stealth() {
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "USA", true));
+        logic.add_player(Player::new(2, Team::China, "China", false));
+
+        let mut tpl = ThingTemplate::new("RadarInfantry");
+        tpl.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("RadarInfantry".into(), tpl);
+
+        let id = logic
+            .create_object_for_player("RadarInfantry", 2, Vec3::new(10.0, 0.0, 20.0))
+            .expect("spawn");
+        logic.host_radar_add_object(id);
+
+        {
+            let radar = get_radar_system().read().expect("radar");
+            let blip = radar
+                .get_all_objects()
+                .find(|o| o.object_id == id.0)
+                .expect("blip");
+            assert!((blip.world_pos.x - 10.0).abs() < 0.01);
+            assert!(!blip.is_stealth);
+            assert!(!blip.is_temporarily_hidden());
+        }
+
+        if let Some(obj) = logic.host_object_mut(id) {
+            obj.set_position(Vec3::new(80.0, 0.0, 90.0));
+            obj.status.stealthed = true;
+            obj.status.detected = false;
+        }
+        logic.host_radar_sync_live_objects();
+
+        let radar = get_radar_system().read().expect("radar");
+        let blip = radar
+            .get_all_objects()
+            .find(|o| o.object_id == id.0)
+            .expect("moved blip");
+        assert!(
+            (blip.world_pos.x - 80.0).abs() < 0.01,
+            "blip must track live pose, got {}",
+            blip.world_pos.x
+        );
+        assert!(
+            (blip.world_pos.y - 90.0).abs() < 0.01,
+            "host XZ maps to radar XY"
+        );
+        assert!(blip.is_stealth);
+        assert!(
+            blip.is_temporarily_hidden(),
+            "enemy cloak after spawn must hide the blip"
+        );
     }
 }

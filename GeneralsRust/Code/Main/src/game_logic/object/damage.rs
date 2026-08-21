@@ -754,6 +754,27 @@ mod tests {
     }
 
     #[test]
+    fn subdual_vehicle_is_not_hp_unresistable() {
+        // C++ IsSubdualDamage (Damage.h:95-107) + ActiveBody.cpp:471-488.
+        // ECMTankVehicleDisabler is SUBDUAL_VEHICLE — accumulate, never HP.
+        let mut tank = vehicle("SubdualVehTank", 21, 400.0);
+        tank.subdual_damage_cap = 600.0;
+        assert!(!tank.take_damage_from_typed(24.0, None, DamageType::SubdualVehicle));
+        assert!(
+            (tank.health.current - 400.0).abs() < 1e-3,
+            "SUBDUAL_VEHICLE must not deal HP, got {}",
+            tank.health.current
+        );
+        assert!(
+            (tank.subdual_damage - 24.0).abs() < 1e-3,
+            "TankArmor SUBDUAL_VEHICLE 100% must accumulate, got {}",
+            tank.subdual_damage
+        );
+        assert!(!tank.is_weapons_jammed());
+    }
+
+
+    #[test]
     fn gattling_uses_tank_armor_ten_percent() {
         // C++ Armor.ini TankArmor GATTLING 10% via ArmorTemplate::adjustDamage.
         // Pre-fix: Gattling collapsed to Bullet (25%) then armor/(armor+100).

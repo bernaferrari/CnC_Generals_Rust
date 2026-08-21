@@ -2,10 +2,8 @@ use super::*;
 use crate::fow_rendering::{ProjectedShroudMetadata, ProjectedShroudSnapshot};
 
 /// Freeze only the source facts C++ resolves for a direct Object-backed
-/// Drawable.  The host path has direct shroud membership but not a drawable or
-/// partition fade alpha, so it must never synthesize `PartialClear` from the
-/// presentation's scalar `ObjectVisibility`.  C++'s own drawable dispatch
-/// later owns the clear-frame grace and may produce its final PartialClear.
+/// Drawable. Host object FOW is the PartitionData COI mix stored by
+/// `update_main_crate_vision` (Clear / PartialClear / Fogged / Shrouded).
 pub(super) fn freeze_direct_object_shroud_facts(
     obj: &crate::game_logic::Object,
     local_player_id: u32,
@@ -16,17 +14,19 @@ pub(super) fn freeze_direct_object_shroud_facts(
         // clear behavior even when the standalone manager has no membership.
         PresentationObjectShroudStatus::Clear
     } else if let Ok(shroud) = gamelogic::system::shroud_manager::get_shroud_manager().lock() {
-        // Main host objects are not registered in GameLogic's object manager.
-        // With no direct membership, retain the same C++ Object fallback used
-        // for an object without partition data: Clear, not an invented shroud.
-        let runtime_active = !shroud.get_visible_objects(local_player_id).is_empty()
-            || !shroud.get_explored_objects(local_player_id).is_empty();
-        if !runtime_active || shroud.can_see_object(local_player_id, obj.id.0) {
-            PresentationObjectShroudStatus::Clear
-        } else if shroud.has_explored_object(local_player_id, obj.id.0) {
-            PresentationObjectShroudStatus::Fogged
+        if let Some(status) = shroud.get_host_object_shroud_status(local_player_id, obj.id.0)
+        {
+            PresentationObjectShroudStatus::from(status)
         } else {
-            PresentationObjectShroudStatus::Shrouded
+            let runtime_active = !shroud.get_visible_objects(local_player_id).is_empty()
+                || !shroud.get_explored_objects(local_player_id).is_empty();
+            if !runtime_active || shroud.can_see_object(local_player_id, obj.id.0) {
+                PresentationObjectShroudStatus::Clear
+            } else if shroud.has_explored_object(local_player_id, obj.id.0) {
+                PresentationObjectShroudStatus::Fogged
+            } else {
+                PresentationObjectShroudStatus::Shrouded
+            }
         }
     } else {
         // The C++ Object fallback is Clear when it has no partition data.
@@ -615,6 +615,7 @@ impl PresentationFrame {
                     .map(|module| module.special_power_template.clone()),
                 special_power_ready_template_id: ready_structure_special_power_module
                     .map(|module| module.special_power_template_id),
+                special_power_override_destination: obj.special_power_override_destination,
                 health_current: auth_health,
                 health_max: obj.health.maximum,
                 selected: obj.selected || obj.status.selected,
@@ -972,6 +973,10 @@ impl PresentationFrame {
                 drawable_shroud,
                 ground_height,
                 ground_height_from_terrain,
+                drawable_fade_mode: obj.drawable_fade_mode,
+                drawable_fade_start_frame: obj.drawable_fade_start_frame,
+                drawable_fade_frames: obj.drawable_fade_frames,
+                gaining_subdual: obj.subdual_damage > 0.0,
             };
             direct_host_drawables.push(PresentationDirectHostDrawable {
                 object: renderable.clone(),
@@ -1935,6 +1940,10 @@ impl PresentationFrame {
             o.can_disguise_as_team.hash(&mut h);
             o.friendly_stealth_opacity.to_bits().hash(&mut h);
             o.friendly_stealth_opacity_max.to_bits().hash(&mut h);
+            o.drawable_fade_mode.hash(&mut h);
+            o.drawable_fade_start_frame.hash(&mut h);
+            o.drawable_fade_frames.hash(&mut h);
+            o.gaining_subdual.hash(&mut h);
         }
         // This transient source can diverge from the GameWorld-primary object
         // roster during deferred death, so include the direct visual identity

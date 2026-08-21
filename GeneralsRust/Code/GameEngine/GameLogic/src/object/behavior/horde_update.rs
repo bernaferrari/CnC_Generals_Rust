@@ -387,7 +387,6 @@ impl HordeUpdate {
         self.module_data.allowed_nationalism
     }
 
-    #[allow(dead_code)]
     fn show_hide_flag(&mut self, show: Bool) {
         // C++ showHideFlag always walks FlagSubObjectNames when present.
         self.has_flag = show;
@@ -630,6 +629,10 @@ impl crate::modules::HordeUpdateInterface for HordeUpdate {
     fn is_allowed_nationalism(&self) -> bool {
         self.is_allowed_nationalism()
     }
+
+    fn has_flag(&self) -> bool {
+        self.has_flag()
+    }
 }
 
 /// Glue that exposes HordeUpdate through the common Module trait.
@@ -691,6 +694,11 @@ impl Module for HordeUpdateModule {
 
     fn get_module_data(&self) -> &dyn EngineModuleData {
         self.module_data.as_ref()
+    }
+
+    fn on_drawable_bound_to_object(&mut self) {
+        // C++ HordeUpdate::onDrawableBoundToObject — always hide leftover flags.
+        self.behavior.show_hide_flag(false);
     }
 }
 
@@ -771,5 +779,34 @@ mod tests {
             horde_update_sleep_after_tick(true, 30),
             UpdateSleepTime::from_u32(30)
         );
+    }
+
+    #[test]
+    fn on_drawable_bound_hides_flag_subobjects() {
+        let mut horde = HordeUpdate {
+            object_id: crate::common::INVALID_ID,
+            module_data: Arc::new(HordeUpdateModuleData {
+                flag_sub_obj_names: vec!["FLAG".to_string(), "HordeFlag".to_string()],
+                ..HordeUpdateModuleData::default()
+            }),
+            next_call_frame_and_phase: 0,
+            last_horde_refresh_frame: 0,
+            in_horde: false,
+            true_horde_member: false,
+            has_flag: true,
+        };
+        horde.show_hide_flag(false);
+        assert!(!horde.has_flag());
+        let mut module = HordeUpdateModule {
+            behavior: horde,
+            module_name_key: 0,
+            module_data: Arc::new(HordeUpdateModuleData::default()),
+        };
+        module.behavior.has_flag = true;
+        Module::on_drawable_bound_to_object(&mut module);
+        assert!(!module.behavior.has_flag());
+        assert!(!crate::modules::HordeUpdateInterface::has_flag(
+            &module.behavior
+        ));
     }
 }

@@ -17,6 +17,14 @@ impl GameLogic {
         &self.cia_intelligence
     }
 
+    /// Restore CIA / SpyVision registry from a world snapshot tail.
+    pub fn restore_cia_intelligence(
+        &mut self,
+        registry: crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry,
+    ) {
+        self.cia_intelligence.restore(registry);
+    }
+
     /// Residual honesty: CIA Intelligence activated at least once.
     pub fn honesty_cia_intelligence_activate_ok(&self) -> bool {
         self.cia_intelligence.honesty_activate_ok()

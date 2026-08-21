@@ -226,6 +226,13 @@ pub enum KindOf {
     /// C++ `KINDOF_DEFENSIVE_WALL`. FenceWidth objects with this bit stay solid walls.
     /// Gameplay-only: the compact presentation KindOf bank is full.
     DefensiveWall,
+    /// C++ `KINDOF_BRIDGE`. Map-span GenericBridge objects are targetable.
+    /// Gameplay-only: the compact presentation KindOf bank is full.
+    Bridge,
+    /// C++ `KINDOF_BRIDGE_TOWER`. Water waves skip towers (hit the span).
+    /// Gameplay-only: the compact presentation KindOf bank is full.
+    BridgeTower,
+
 }
 
 impl KindOf {
@@ -244,6 +251,9 @@ impl KindOf {
             "TRANSPORT" => Some(Self::Transport),
             "IMMUNE_TO_CAPTURE" | "IMMUNETOCAPTURE" => Some(Self::ImmuneToCapture),
             "DEFENSIVE_WALL" | "DEFENSIVEWALL" => Some(Self::DefensiveWall),
+            "BRIDGE" => Some(Self::Bridge),
+            "BRIDGE_TOWER" | "BRIDGETOWER" => Some(Self::BridgeTower),
+
             "DRONE" => Some(Self::Drone),
             _ => None,
         }
@@ -447,6 +457,10 @@ pub struct ObjectStatus {
     /// C++ OBJECT_STATUS_DECK_HEIGHT_OFFSET residual (parked on airfield/carrier).
     #[serde(default)]
     pub deck_height_offset: bool,
+    /// C++ OBJECT_STATUS_WET residual (WaveGuideUpdate doDamage once-gate).
+    #[serde(default)]
+    pub wet: bool,
+
 }
 
 /// Basic geometry information for objects

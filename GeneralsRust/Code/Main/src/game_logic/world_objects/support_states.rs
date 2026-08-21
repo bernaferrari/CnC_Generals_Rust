@@ -2088,6 +2088,26 @@ impl GameLogic {
                         continue;
                     }
 
+                    // C++ DozerAIUpdate.cpp:665-688 createBridgeScaffolding + canHeal.
+                    let repair_name = self
+                        .objects
+                        .get(&repair_target_id)
+                        .map(|t| t.template_name.clone())
+                        .unwrap_or_default();
+                    if crate::game_logic::host_bridge_behavior::is_bridge_or_tower_template(
+                        &repair_name,
+                    ) {
+                        let span_id = self.resolve_bridge_span_for_repair(repair_target_id);
+                        if let Some(sid) = span_id {
+                            if !self.bridge_behavior.is_scaffold_present(sid) {
+                                self.spawn_bridge_scaffolding(sid);
+                            }
+                            if self.bridge_behavior.is_scaffold_in_motion(sid) {
+                                continue;
+                            }
+                        }
+                    }
+
                     // Dozer structure-repair residual: heal HP over time while in range.
                     // C++ DozerAIUpdate.cpp:694-699 percent heal, no 8.75 HP/s floor.
                     // C++ DozerAIUpdate.cpp:670: ACTIVELY_CONSTRUCTING only at the dock.
@@ -2512,6 +2532,7 @@ impl GameLogic {
                         container_is_listening_outpost,
                         container_is_troop_crawler,
                         container_is_tunnel_network,
+                        container_is_cave,
                         container_is_alive,
                         container_under_construction,
                         container_can_contain,
@@ -2534,6 +2555,7 @@ impl GameLogic {
                             container.is_listening_outpost_style_container(),
                             container.is_troop_crawler_style_container(),
                             container.is_tunnel_network_style_container(),
+                            container.is_cave_style_container(),
                             container.is_alive(),
                             container.status.under_construction,
                             container.can_contain(),
@@ -2572,7 +2594,7 @@ impl GameLogic {
                         .get(&object_id)
                         .map(|o| o.is_kind_of(KindOf::Aircraft))
                         .unwrap_or(false);
-                    if !normal_enter && container_is_tunnel_network {
+                    if !normal_enter && (container_is_tunnel_network || container_is_cave) {
                         // TunnelContain residual: reject aircraft only.
                         if unit_is_aircraft {
                             if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -2608,8 +2630,10 @@ impl GameLogic {
 
                     // Tunnel network residual: units already in the shared pool may
                     // transfer to another allied tunnel without walking (can_move false).
-                    let already_in_tunnel_network = container_is_tunnel_network
-                        && self.tunnel_network.team_holding_unit(object_id).is_some();
+                    let already_in_tunnel_network = (container_is_tunnel_network
+                        && self.tunnel_network.team_holding_unit(object_id).is_some())
+                        || (container_is_cave
+                            && self.cave_system.index_holding_unit(object_id).is_some());
 
                     if (!can_move && !already_in_tunnel_network)
                         || !container_is_alive
@@ -2669,6 +2693,14 @@ impl GameLogic {
                     let tunnel_has_space = if container_is_tunnel_network {
                         self.tunnel_network.is_in_network(team, object_id)
                             || self.tunnel_network.has_capacity(team)
+                    } else if container_is_cave {
+                        let idx = self
+                            .objects
+                            .get(&container_id)
+                            .map(|c| c.cave_index)
+                            .unwrap_or(0);
+                        self.cave_system.is_in_network(idx, object_id)
+                            || self.cave_system.has_capacity(idx)
                     } else {
                         true
                     };
@@ -2732,6 +2764,27 @@ impl GameLogic {
                             }
                             continue;
                         }
+                    }
+                    if container_is_cave {
+                        let idx = self
+                            .objects
+                            .get(&container_id)
+                            .map(|c| c.cave_index)
+                            .unwrap_or(0);
+                        let (ok, ev) =
+                            self.cave_system
+                                .record_enter(idx, object_id, container_id, team);
+                        if !ok {
+                            if let Some(container) = self.objects.get_mut(&container_id) {
+                                container.remove_occupant(object_id);
+                            }
+                            if let Some(obj) = self.objects.get_mut(&object_id) {
+                                obj.stop_moving();
+                                obj.set_target(None);
+                            }
+                            continue;
+                        }
+                        self.apply_cave_capture_event(idx, ev);
                     }
 
                     let container_is_heal_contain = self.objects.get(&container_id).is_some_and(
@@ -4270,6 +4323,18 @@ impl GameLogic {
                     const SUPPLY_BOX_VALUE: u32 = crate::game_logic::host_structure_economy_residual::VALUE_PER_SUPPLY_BOX
                         as u32;
 
+                    // C++ WorkerAIUpdate.cpp:283-287 — harvest path arms
+                    // WEAPONSET_MINE_CLEARING_DETAIL so GLA workers can be
+                    // diverted onto mines while ferrying.
+                    self.arm_worker_harvest_mine_clearing(object_id);
+                    // C++ ChinookAIUpdate::isAvailableForSupplying
+                    // (ChinookAIUpdate.cpp:982-991): loaded / enter-exit
+                    // pending Chinooks must not auto-dock warehouses.
+                    if !self.collector_available_for_supplying(object_id) {
+                        self.set_ai_state_decision_aware(object_id, AIState::Idle);
+                        continue;
+                    }
+
                     let Some(source_id) = target_id else {
                         self.set_ai_state_decision_aware(object_id, AIState::Idle);
                         continue;
@@ -4592,6 +4657,11 @@ impl GameLogic {
                     }
                 }
                 AIState::ReturningResources => {
+                    self.arm_worker_harvest_mine_clearing(object_id);
+                    if !self.collector_available_for_supplying(object_id) {
+                        self.set_ai_state_decision_aware(object_id, AIState::Idle);
+                        continue;
+                    }
                     // Deposit resources when close to a supply center.
                     let (refinery_id, refinery_pos) = self
                         .preferred_or_allied_supply_center(
@@ -4656,10 +4726,13 @@ impl GameLogic {
                             .unwrap_or(0);
 
                         if deposit_amount > 0 {
-                            // Snapshot carrier for residual boost identity (worker shoes).
+                            // Snapshot carrier for C++ getUpgradedSupplyBoost identity.
                             let (
                                 carrier_is_gla_worker,
                                 carrier_has_worker_shoes,
+                                carrier_is_chinook,
+                                carrier_is_combat_chinook,
+                                carrier_authored_boost,
                             ) = self
                                 .objects
                                 .get(&object_id)
@@ -4675,15 +4748,32 @@ impl GameLogic {
                                                 crate::game_logic::host_gla_worker::UPGRADE_GLA_WORKER_SHOES,
                                             )
                                     });
-                                    (is_w, shoes)
+                                    let is_chinook =
+                                        crate::game_logic::host_supply_gather::is_chinook_supply_collector(
+                                            &o.template_name,
+                                        ) || o.chinook_ai.is_some()
+                                            || o.is_combat_chinook_style_container();
+                                    let is_combat = o.is_combat_chinook_style_container()
+                                        || crate::game_logic::host_combat_chinook::is_combat_chinook_template(
+                                            &o.template_name,
+                                        );
+                                    let authored = o
+                                        .thing
+                                        .template
+                                        .supply_truck_metadata
+                                        .map(|m| m.upgraded_supply_boost)
+                                        .unwrap_or(0);
+                                    (is_w, shoes, is_chinook, is_combat, authored)
                                 })
-                                .unwrap_or((false, false));
+                                .unwrap_or((false, false, false, false, 0));
 
                             // Clear carried resources.
                             if let Some(obj) = self.objects.get_mut(&object_id) {
                                 obj.set_stored_supplies(0);
                             }
-                            // Player-level Supply Lines residual boost (flat per drop-off).
+                            // C++ SupplyCenterDockUpdate::action + Chinook
+                            // getUpgradedSupplyBoost: INI boost only for Chinooks
+                            // with Upgrade_AmericaSupplyLines. Trucks return 0.
                             let has_supply_lines = self
                                 .players
                                 .values()
@@ -4694,7 +4784,10 @@ impl GameLogic {
                                         )
                                 });
                             let supply_lines_boost =
-                                crate::game_logic::host_upgrades::residual_supply_lines_drop_off_boost(
+                                crate::game_logic::host_supply_gather::collector_supply_lines_boost(
+                                    carrier_is_chinook,
+                                    carrier_is_combat_chinook,
+                                    carrier_authored_boost,
                                     has_supply_lines,
                                 );
                             // GLA WorkerShoes residual: +8 per drop-off when unlocked.
@@ -4723,6 +4816,9 @@ impl GameLogic {
                                 let credited_player =
                                     if let Some(player) = self.get_player_mut(player_id) {
                                         player.credit_supplies(credited);
+                                        // C++ SupplyCenterDockUpdate::action:
+                                        // deposit(value) and ScoreKeeper::addMoneyEarned(value).
+                                        player.add_money_earned(credited);
                                         true
                                     } else {
                                         false
@@ -4917,6 +5013,18 @@ impl GameLogic {
                         obj.stop_moving();
                         obj.set_status_moving(false);
                     }
+                }
+                AIState::Idle => {
+                    // C++ SupplyTruckStateMachine Idle: isForcedIntoWantingState
+                    // → ST_WANTING. Regrouping success → ST_WANTING
+                    // (SupplyTruckAIUpdate.cpp:383-418).
+                    self.tick_supply_force_wanting(
+                        object_id,
+                        team,
+                        owner_player_id,
+                        position,
+                        can_move,
+                    );
                 }
                 _ => {}
             }
@@ -5261,9 +5369,119 @@ impl GameLogic {
         })
     }
 
+    /// C++ `ChinookAIUpdate::isAvailableForSupplying` (ChinookAIUpdate.cpp:982-991).
+    fn collector_available_for_supplying(&self, object_id: ObjectId) -> bool {
+        let Some(obj) = self.objects.get(&object_id) else {
+            return false;
+        };
+        let is_chinook = crate::game_logic::host_supply_gather::is_chinook_supply_collector(
+            &obj.template_name,
+        ) || obj.chinook_ai.is_some()
+            || obj.is_combat_chinook_style_container();
+        let wanting = obj
+            .chinook_ai
+            .as_ref()
+            .is_some_and(|ai| ai.wanting_enter_or_exit);
+        crate::game_logic::host_supply_gather::chinook_available_for_supplying(
+            is_chinook,
+            obj.contained_units().len(),
+            wanting,
+            obj.is_overlord_style_container(),
+        )
+    }
 
+    /// C++ `WorkerAIUpdate::update` harvest branch (WorkerAIUpdate.cpp:283-287).
+    fn arm_worker_harvest_mine_clearing(&mut self, object_id: ObjectId) {
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return;
+        };
+        if !crate::game_logic::host_gla_worker::is_gla_worker_template(&obj.template_name) {
+            return;
+        }
+        obj.set_weapon_set_mine_clearing_detail(true);
+    }
 
+    /// C++ Idle `isForcedIntoWantingState` → Wanting, and Regrouping success → Wanting.
+    fn tick_supply_force_wanting(
+        &mut self,
+        object_id: ObjectId,
+        team: Team,
+        owner_player_id: Option<u32>,
+        position: Vec3,
+        can_move: bool,
+    ) {
+        let Some(obj) = self.objects.get(&object_id) else {
+            return;
+        };
+        if obj.thing.template.supply_truck_metadata.is_none() {
+            return;
+        }
+        let force = obj.supply_truck_force_pending;
+        let state = obj.supply_truck_state;
+        if !force
+            && state != SupplyTruckState::Regrouping
+            && state != SupplyTruckState::Wanting
+        {
+            return;
+        }
+        let still_moving = obj.status.moving
+            || obj.movement.current_path_index < obj.movement.path.len();
+        // C++ RegroupingState::update succeeds only once AI is idle.
+        if still_moving {
+            return;
+        }
+        if !self.collector_available_for_supplying(object_id) {
+            if let Some(obj) = self.objects.get_mut(&object_id) {
+                obj.supply_truck_force_pending = false;
+            }
+            return;
+        }
+        let boxes = self
+            .objects
+            .get(&object_id)
+            .map(|o| o.stored_resources.supplies)
+            .unwrap_or(0);
+        // C++ Wanting onEnter: setForceWantingState(false) — one try.
+        if let Some(obj) = self.objects.get_mut(&object_id) {
+            obj.supply_truck_force_pending = false;
+            obj.supply_truck_state = SupplyTruckState::Wanting;
+        }
+        self.arm_worker_harvest_mine_clearing(object_id);
 
+        if boxes > 0 {
+            let dest = self
+                .preferred_or_allied_supply_center(object_id, team, owner_player_id, position)
+                .and_then(|rid| self.objects.get(&rid).map(|r| r.get_position()));
+            if let Some(dest) = dest {
+                if can_move {
+                    self.path_approach_with_state(
+                        object_id,
+                        dest,
+                        AIState::ReturningResources,
+                    );
+                } else {
+                    self.set_ai_state_decision_aware(object_id, AIState::ReturningResources);
+                }
+                return;
+            }
+            self.begin_supply_regroup(object_id, team, owner_player_id, position);
+            return;
+        }
+
+        let scan = self.collector_warehouse_scan(object_id, owner_player_id);
+        if let Some(next) =
+            self.find_nearest_harvestable_supply_within(team, position, scan)
+        {
+            if let Some(dest) = self.objects.get(&next).map(|s| s.get_position()) {
+                if let Some(obj) = self.objects.get_mut(&object_id) {
+                    obj.set_target(Some(next));
+                }
+                self.path_approach_with_state(object_id, dest, AIState::Gathering);
+                return;
+            }
+        }
+        self.begin_supply_regroup(object_id, team, owner_player_id, position);
+    }
 
     fn collector_warehouse_scan(&self, object_id: ObjectId, owner_player_id: Option<u32>) -> Option<f32> {
         let authored = self

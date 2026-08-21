@@ -331,7 +331,7 @@ impl PresentationFrame {
         let alive: Vec<&RenderableObject> = self
             .objects
             .iter()
-            .filter(|o| !o.destroyed && !o.sold)
+            .filter(|o| !o.destroyed && !o.sold && Self::minimap_fow_allows(o))
             .collect();
         let (world_min_x, world_max_x, world_min_z, world_max_z) = if alive.is_empty() {
             (-100.0, 100.0, -100.0, 100.0)
@@ -427,12 +427,20 @@ impl PresentationFrame {
         (credits, power, power.max(1))
     }
 
+    /// C++ `W3DRadar::renderObjectList`: skip when `getShroudedStatus > PARTIAL_CLEAR`.
+    #[inline]
+    fn minimap_fow_allows(o: &RenderableObject) -> bool {
+        (o.drawable_shroud.raw_status as u8)
+            <= (PresentationObjectShroudStatus::PartialClear as u8)
+    }
+
     /// Units list for GameHud minimap: (id, x, z, team_color_index).
     pub fn hud_minimap_units(&self) -> Vec<(ObjectId, f32, f32, u8)> {
         // Wave 1109: minimap unit-dot residual excludes sold (alive dots only).
+        // hq-cqosc: also skip fogged/shrouded enemies (C++ W3DRadar.cpp:636-638).
         self.objects
             .iter()
-            .filter(|o| !o.destroyed && !o.sold)
+            .filter(|o| !o.destroyed && !o.sold && Self::minimap_fow_allows(o))
             .map(|o| {
                 let team_idx = match o.team {
                     Team::USA => 1u8,
@@ -968,6 +976,7 @@ impl PresentationFrame {
                 panel.rally_point = ro.rally_point.map(|p| [p.x, p.y, p.z]);
                 panel.special_power_ready = ro.special_power_ready;
                 panel.special_power_cooldown_remaining = ro.special_power_cooldown_remaining;
+                panel.special_power_cooldown = ro.special_power_cooldown;
             }
         }
         panel
@@ -1056,12 +1065,12 @@ impl PresentationFrame {
         );
         // Wave 1031: OCL timer residual into ControlBar OclTimer dual path.
         control_bar.sync_ocl_timer_from_presentation(panel.ocl_timer_seconds);
-        control_bar.sync_sold_from_presentation(panel.sold);
         control_bar.sync_upgrades_and_specials_from_presentation(
             &panel.applied_upgrades,
             panel.rally_point,
             panel.special_power_ready,
             panel.special_power_cooldown_remaining,
+            panel.special_power_cooldown,
         );
         // Wave 1110: multi-select count residual excludes sold/unusable.
         // Disabled completed structures still own their command set

@@ -95,16 +95,28 @@ impl GameClient {
         &self,
     ) -> (
         Vec<(String, [f32; 4])>,
-
         Option<String>,
         Vec<(String, String, bool)>,
         Vec<(String, [f32; 3], (u8, u8, u8), u32, u32)>,
+        Vec<(String, [f32; 3], f32, f32, bool, u32)>,
     ) {
         let Some(ui) = &self.subsystem_manager.in_game_ui else {
-            return (Vec::new(), None, Vec::new(), Vec::new());
+            return (
+                Vec::new(),
+                None,
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            );
         };
         let Ok(guard) = ui.lock() else {
-            return (Vec::new(), None, Vec::new(), Vec::new());
+            return (
+                Vec::new(),
+                None,
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            );
         };
         let messages: Vec<(String, [f32; 4])> = guard
             .hud_messages()
@@ -133,23 +145,16 @@ impl GameClient {
                     .back()
                     .map(|(text, _)| text.clone())
             });
-        let timers: Vec<(String, String, bool)> = {
-            let named = crate::gui::ingame_ui::live_named_timer_draw(frame);
-            if !named.is_empty() {
-                named
-                    .into_iter()
-                    .map(|(text, _color, ready)| (text, String::new(), ready))
-                    .collect()
-            } else {
-                guard
-                    .presentation_superweapon_timers()
-                    .iter()
-                    .map(|t| (t.name.clone(), t.countdown_text.clone(), t.ready))
-                    .collect()
-            }
-        };
+        // C++ draws named timers (0.05,0.7) and superweapon timers (0.7,0.7)
+        // independently. Named lines must not replace the SW strip.
+        let timers: Vec<(String, String, bool)> = guard
+            .presentation_superweapon_timers()
+            .iter()
+            .map(|t| (t.name.clone(), t.countdown_text.clone(), t.ready))
+            .collect();
         let floating = guard.presentation_floating_texts().to_vec();
-        (messages, subtitle, timers, floating)
+        let world_anims = guard.presentation_world_anims().to_vec();
+        (messages, subtitle, timers, floating, world_anims)
     }
 
     fn draw_ingame_post_draw_hud(&self, counts: &mut LiveInGameHudDrawCounts) {
@@ -157,7 +162,8 @@ impl GameClient {
         use crate::gui::ui_globals::with_ui_renderer_mut;
         use glam::Vec2;
 
-        let (messages, subtitle, timers, floating) = self.packed_ingame_hud_snapshot();
+        let (messages, subtitle, timers, floating, world_anims) =
+            self.packed_ingame_hud_snapshot();
         counts.messages = messages.len() as u32;
         counts.military_subtitles = u32::from(subtitle.is_some());
         counts.superweapon_timers = timers.len() as u32;
@@ -214,12 +220,12 @@ impl GameClient {
                 }
             } else if let Some(text) = &subtitle {
                 let pos_x = 10.0 * (screen_w / 800.0);
-                let pos_y = 380.0 * (screen_h / 600.0);
+                let pos_y = 340.0 * (screen_h / 600.0);
                 let _ = renderer.draw_text_simple(
                     text,
                     Vec2::new(pos_x, pos_y),
                     12.0,
-                    [200.0 / 255.0, 200.0 / 255.0, 30.0 / 255.0, 1.0],
+                    [1.0, 1.0, 1.0, 1.0],
                 );
             }
 
@@ -252,28 +258,97 @@ impl GameClient {
             }
 
             // C++ InGameUI::drawFloatingText (InGameUI.cpp:5082-5115).
-            for (text, pos, color, spawn_frame, _timeout) in &floating {
-                let age = self.frame.saturating_sub(*spawn_frame) as f32;
+            for (text, pos, color, spawn_frame, timeout) in &floating {
+                let timeout_frames = (*timeout).max(1);
+                let frame_timeout = spawn_frame.saturating_add(timeout_frames);
+                let alpha_u8 = crate::gui::ingame_ui::InGameUI::floating_text_alpha_at_frame(
+                    255,
+                    self.frame,
+                    frame_timeout,
+                    0.1,
+                );
+                if alpha_u8 == 0 {
+                    continue;
+                }
+                let coord = crate::system::Coord3D::new(pos[0], pos[1], pos[2]);
+                if self.get_shroud_status_for_player(self.local_player_id, &coord)
+                    != ShroudStatus::Clear
+                {
+                    continue;
+                }
+                let lift = crate::gui::ingame_ui::InGameUI::floating_text_screen_offset_y(
+                    self.frame.saturating_sub(*spawn_frame),
+                    1.0,
+                );
                 let world = Point3::new(pos[0], pos[1], pos[2]);
                 let Some(screen) = with_tactical_view_ref(|view| {
                     view.world_to_screen(&world)
-                        .map(|pt| (pt.x as f32, pt.y as f32 - age))
+                        .map(|pt| (pt.x as f32, pt.y as f32 - lift))
                 }) else {
                     continue;
                 };
-                let rgba = [
-                    color.0 as f32 / 255.0,
-                    color.1 as f32 / 255.0,
-                    color.2 as f32 / 255.0,
-                    1.0,
-                ];
+                let rgba =
+                    crate::gui::ingame_ui::InGameUI::floating_text_draw_rgba(*color, alpha_u8);
+                let drop = [0.0, 0.0, 0.0, rgba[3]];
                 let char_w = 8.0 * 0.6;
                 let text_w = text.len() as f32 * char_w;
+                let x = screen.0 - text_w * 0.5;
                 let _ = renderer.draw_text_simple(
                     text,
-                    Vec2::new(screen.0 - text_w * 0.5, screen.1),
+                    Vec2::new(x + 1.0, screen.1 + 1.0),
                     8.0,
-                    rgba,
+                    drop,
+                );
+                let _ = renderer.draw_text_simple(text, Vec2::new(x, screen.1), 8.0, rgba);
+            }
+
+            // C++ InGameUI::updateAndDrawWorldAnimations (InGameUI.cpp:5323-5418).
+            for (template, pos, display, z_rise, fades, spawn_frame) in &world_anims {
+                let expire = crate::gui::ingame_ui::InGameUI::world_anim_expire_frame(
+                    *spawn_frame,
+                    *display,
+                );
+                if self.frame >= expire {
+                    continue;
+                }
+                let age = self.frame.saturating_sub(*spawn_frame);
+                let lift =
+                    crate::gui::ingame_ui::InGameUI::world_anim_z_lift(age, *z_rise);
+                let world = Point3::new(pos[0], pos[1], pos[2] + lift);
+                let coord = crate::system::Coord3D::new(pos[0], pos[1], pos[2] + lift);
+                if self.get_shroud_status_for_player(self.local_player_id, &coord)
+                    != ShroudStatus::Clear
+                {
+                    continue;
+                }
+                let frames_till = expire.saturating_sub(self.frame);
+                let alpha = crate::gui::ingame_ui::InGameUI::world_anim_fade_alpha(
+                    frames_till,
+                    *fades,
+                );
+                if alpha <= 0.0 {
+                    continue;
+                }
+                let Some(screen) = with_tactical_view_ref(|view| view.world_to_screen(&world))
+                else {
+                    continue;
+                };
+                let zoom_scale = with_tactical_view_ref(|view| {
+                    let zoom = view.zoom();
+                    if zoom > 0.0 {
+                        view.max_zoom() / zoom
+                    } else {
+                        1.0
+                    }
+                });
+                draw_money_pickup_anim2d(
+                    template,
+                    screen.x as f32,
+                    screen.y as f32,
+                    zoom_scale,
+                    alpha,
+                    age,
+                    renderer,
                 );
             }
         });
@@ -663,5 +738,53 @@ fn draw_overlay_anim2d_icons(overlay: &crate::drawable::drawable::DrawableOverla
         let y = hi.y as f32 - size;
         try_icon("Emoticon", x, y, size, size, [1.0, 0.75, 0.85, 0.95]);
     }
+}
+
+/// C++ `Anim2D::draw` for InGameUI world animations (`MoneyPickUp` SCPDollar loop).
+fn draw_money_pickup_anim2d(
+    template: &str,
+    screen_x: f32,
+    screen_y: f32,
+    zoom_scale: f32,
+    alpha: f32,
+    age_frames: u32,
+    renderer: &mut crate::gui::ui_renderer::UIRenderer,
+) {
+    use crate::system::Anim2D;
+    use game_engine::common::ascii_string::AsciiString;
+    use game_engine::common::ini::get_anim2d_collection;
+    use glam::Vec2;
+
+    if let Some(collection) = get_anim2d_collection() {
+        if let Some(tmpl) = collection
+            .read()
+            .find_template(&AsciiString::from(template))
+        {
+            let num_frames = tmpl.read().get_num_frames().max(1);
+            let anim = Anim2D::new(tmpl, None);
+            let mut guard = anim.lock();
+            let frame = (age_frames % u32::from(num_frames)) as u16;
+            guard.set_current_frame(frame);
+            guard.set_alpha(alpha);
+            let width = guard.get_current_frame_width() as f32 * zoom_scale;
+            let height = guard.get_current_frame_height() as f32 * zoom_scale;
+            if width > 0.0 && height > 0.0 {
+                guard.draw_sized(
+                    (screen_x - width * 0.5) as i32,
+                    (screen_y - height * 0.5) as i32,
+                    width as i32,
+                    height as i32,
+                );
+                return;
+            }
+        }
+    }
+    let size = (24.0 * zoom_scale).max(8.0);
+    let _ = renderer.draw_text_simple(
+        "$",
+        Vec2::new(screen_x - size * 0.25, screen_y - size * 0.5),
+        size,
+        [0.2, 0.85, 0.25, alpha],
+    );
 }
 

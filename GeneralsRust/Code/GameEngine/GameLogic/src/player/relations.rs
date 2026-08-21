@@ -79,6 +79,13 @@ impl Player {
         }
     }
 
+    /// Explicit `m_teamRelations` entry only (C++ Player.cpp:548-554).
+    pub fn override_relationship_for_team(&self, that_team: &Team) -> Option<Relationship> {
+        self.team_relations
+            .as_ref()
+            .and_then(|rels| rels.map.get(&that_team.get_id()).copied())
+    }
+
     /// Remove player-to-team relationship override
     /// Matches C++ Player.cpp:618 Player::removeTeamRelationship
     pub fn remove_team_relationship(&mut self, that_team: &Team) -> Bool {

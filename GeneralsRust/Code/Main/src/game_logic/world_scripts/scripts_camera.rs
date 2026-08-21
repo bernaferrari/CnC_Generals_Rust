@@ -172,6 +172,8 @@ impl GameLogic {
 
     /// Inject host names into the crate NamedObjectTracker (IDs only).
     /// Crate evaluator can resolve names; it still must not require crate Objects.
+    /// CAMERA_FOLLOW_NAMED / TETHER_NAMED / LOOK_TOWARD_OBJECT read this tracker
+    /// even when leftover OBJECT_REGISTRY is empty.
     pub fn inject_host_named_unit_map_into_crate_tracker(&self) {
         use gamelogic::scripting::engine::get_named_object_tracker;
         let tracker = get_named_object_tracker();
@@ -219,7 +221,8 @@ impl GameLogic {
     fn apply_host_skirmish_script_requests(&mut self) {
         let fires = gamelogic::scripting::take_host_skirmish_fire_special_requests();
         let builds = gamelogic::scripting::take_host_skirmish_build_requests();
-        if fires.is_empty() && builds.is_empty() {
+        let cave_indexes = gamelogic::scripting::take_host_set_cave_index_requests();
+        if fires.is_empty() && builds.is_empty() && cave_indexes.is_empty() {
             return;
         }
         let mut ai_mgr = std::mem::take(&mut self.ai_manager);
@@ -230,6 +233,16 @@ impl GameLogic {
             let _ = ai_mgr.build_specific_ai_building_for_token(self, "", &thing_name);
         }
         self.ai_manager = ai_mgr;
+        for (cave_name, index) in cave_indexes {
+            let _ = self.set_named_cave_index(&cave_name, index);
+        }
+    }
+
+    /// C++ ScriptActions::doSetCaveIndex live drain.
+    pub fn apply_host_set_cave_index_requests(&mut self) {
+        for (cave_name, index) in gamelogic::scripting::take_host_set_cave_index_requests() {
+            let _ = self.set_named_cave_index(&cave_name, index);
+        }
     }
 
     pub(in super::super) fn evaluate_and_execute_scripts(&mut self, dt: f32) {

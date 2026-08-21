@@ -405,7 +405,7 @@ impl InGameUI {
         status == ObjectShroudStatus::Clear
     }
 
-    fn military_caption_delay_frames() -> u32 {
+    pub(crate) fn military_caption_delay_frames() -> u32 {
         let delay_ms = get_global_language_read()
             .map(|language| language.military_caption_delay_ms)
             .unwrap_or(750);

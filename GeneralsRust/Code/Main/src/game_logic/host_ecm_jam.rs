@@ -1,12 +1,13 @@
 //! Host China ECM Tank / jammer residual (weapon jam aura).
 //!
-//! Residual slice (playability):
-//! - ChinaTankECM / *TankECM / FrequencyJammer residual sources:
-//!   continuous enemy-weapon jam field inspired by retail ECMTankVehicleDisabler
-//!   (SUBDUAL_VEHICLE → DISABLED_SUBDUED cannot fire) + ECMTankMissileJammer
-//!   FireWeaponUpdate pulse (PrimaryDamageRadius=150).
-//! - Enemies (and neutrals) with weapons inside the radius get `weapons_jammed`
-//!   residual and cannot fire until they leave the field or the jammer dies.
+//! C++ live path:
+//! - `ECMTankVehicleDisabler` is SUBDUAL_VEHICLE (ActiveBody.cpp:471-487) — no HP.
+//!   Vehicles jam only after `isSubdued()` (`maxHealth <= subdual`, :1292-1294).
+//!   Infantry / aircraft are not vehicle-disabler targets.
+//! - `ECMTankMissileJammer` SUBDUAL_MISSILE never subtracts HP; `onSubdualChange`
+//!   (:1280-1286) calls `MissileAIUpdate::projectileNowJammed` (scatter, lose lock).
+//!   `DumbProjectileBehavior::projectileNowJammed` is empty (tank shells keep flying).
+//! - SubdualDamageHelper heals 50 / 500ms so disable lingers after the beam stops.
 //!
 //! Wave 54 residual pack (retail INI honesty):
 //! - ECMTankMissileJammer PrimaryDamageRadius **150**, PrimaryDamage **100**,
@@ -20,10 +21,7 @@
 //! - VisionRange **150**; vehicle name residual list (China/Tank_/Nuke_/Infa_)
 //!
 //! Fail-closed honesty:
-//! - Not full subdual damage accumulate / SubdualDamageHelper heal drain
-//! - ECMDisableStream laser attach residual closed (LaserName + WEAPONA01 bone)
-//! - Not full FireWeaponUpdate ExclusiveWeaponDelay multi-weapon matrix beyond residual cadence
-//! - ECMTankMissileJammer projectile_now_jammed scatter residual (deflect aim + SUBDUAL_MISSILE dmg)
+//! - Not full FireWeaponUpdate ExclusiveWeaponDelay multi-weapon matrix
 //! - Not full ally relationship / underpower / DISABLED_SUBDUED FX tint matrix
 //! - Not network jam replication (network deferred)
 
@@ -31,7 +29,7 @@
 pub const ECM_LOGIC_FPS: f32 = 30.0;
 
 /// Retail ECMTankMissileJammer PrimaryDamageRadius residual (= 150).
-/// Also covers residual vehicle-disabler engagement band (AttackRange=200 fail-closed).
+/// Vehicle-disabler beam uses [`ECM_VEHICLE_DISABLER_ATTACK_RANGE`] (200).
 pub const HOST_ECM_JAM_RADIUS: f32 = 150.0;
 
 /// Retail ECMTankMissileJammer PrimaryDamage residual.
@@ -48,8 +46,8 @@ pub const ECM_MISSILE_JAMMER_DELAY_FRAMES: u32 = 20;
 pub const ECM_MISSILE_JAMMER_WEAPON: &str = "ECMTankMissileJammer";
 /// Retail FireFX residual.
 pub const ECM_MISSILE_JAMMER_FIRE_FX: &str = "FX_ECMTankMissileJammerPulse";
-/// Residual scatter radius when a missile is jammed (C++ loses target and scatters).
-pub const ECM_MISSILE_JAM_SCATTER_RADIUS: f32 = 40.0;
+/// C++ MissileAIUpdate.cpp:56 `DistanceScatterWhenJammed` default.
+pub const ECM_MISSILE_JAM_SCATTER_RADIUS: f32 = 75.0;
 /// Max missiles one jammer pulse can jam residual.
 pub const ECM_MISSILE_JAM_MAX_PER_PULSE: u32 = 4;
 
@@ -127,8 +125,14 @@ pub fn ecm_missile_scatter_offset(seed: u32) -> (f32, f32) {
     (rad.cos() * r, rad.sin() * r)
 }
 
-/// Whether template/name is residual jam-interceptable missile.
+/// Whether template/name is residual jam-interceptable **guided** missile.
+///
+/// C++ `MissileAIUpdate::projectileNowJammed` only. Dumb shells
+/// (`DumbProjectileBehavior::projectileNowJammed` empty) are excluded.
 pub fn is_ecm_jam_missile_name(template_name: &str) -> bool {
+    if is_dumb_projectile_shell_name(template_name) {
+        return false;
+    }
     let n = template_name.to_ascii_lowercase();
     if n.contains("defender") || n.contains("battery") || n.contains("site") {
         return false;
@@ -140,17 +144,22 @@ pub fn is_ecm_jam_missile_name(template_name: &str) -> bool {
         || n.contains("napalm")
         || n.contains("stinger")
         || n.contains("rpg")
-        || (n.contains("shell")
-            && (n.contains("tank") || n.contains("cannon") || n.contains("nuke")))
 }
 
-/// Whether object flags indicate an in-flight projectile residual.
+/// C++ `DumbProjectileBehavior::projectileNowJammed` is empty — tank/cannon shells
+/// keep their aim when an ECM pulse hits.
+pub fn is_dumb_projectile_shell_name(template_name: &str) -> bool {
+    let n = template_name.to_ascii_lowercase();
+    n.contains("shell") || n.contains("howitzer") || n.contains("cannonshot")
+}
+
+/// Whether object flags indicate an in-flight **guided** missile residual.
 pub fn is_ecm_jam_projectile_flags(
     is_projectile_kind: bool,
     template_name: &str,
     already_jammed: bool,
 ) -> bool {
-    if already_jammed {
+    if already_jammed || is_dumb_projectile_shell_name(template_name) {
         return false;
     }
     is_projectile_kind || is_ecm_jam_missile_name(template_name)
@@ -180,10 +189,10 @@ pub fn is_ecm_tank_vehicle_list(template_name: &str) -> bool {
         || (n.contains("chinatankecm") && !n.contains("debris") && !n.contains("hulk"))
 }
 
-/// Whether residual target can have weapons jammed by an ECM field.
+/// Whether residual target can have weapons jammed by an ECM vehicle disabler.
 ///
-/// Retail: vehicle disabler hits ground vehicles; jammer pulse affects ENEMIES/NEUTRALS.
-/// Residual: any alive armed non-structure enemy/neutral (not self, not under construction).
+/// C++ `ECMTankVehicleDisabler` hits ground vehicles only (not infantry/aircraft
+/// / structures). Live path uses [`is_legal_ecm_vehicle_disabler_target`].
 pub fn is_legal_ecm_jam_target(
     is_structure: bool,
     is_alive: bool,
@@ -193,6 +202,42 @@ pub fn is_legal_ecm_jam_target(
     has_weapon: bool,
 ) -> bool {
     !is_structure && is_alive && enemy_or_neutral && !is_self && !under_construction && has_weapon
+}
+
+/// Seed ActiveBody subdual cap/heal when INI left them unauthored (cap 0 = immune).
+///
+/// C++ `canBeSubdued` is `SubdualDamageCap > 0` (ActiveBody.cpp). Host test /
+/// residual templates often omit the module; seed cap = maxHealth so
+/// `isSubdued()` (`maxHealth <= subdual`) can fire, and ChinaTankECM heal
+/// 50 / 500ms so disable lingers after the beam stops.
+pub fn seed_host_subdual_if_unauthored(
+    cap: &mut f32,
+    heal_rate_frames: &mut u32,
+    heal_amount: &mut f32,
+    max_health: f32,
+) {
+    if *cap <= 0.0 {
+        *cap = max_health.max(1.0);
+    }
+    if *heal_rate_frames == 0 {
+        *heal_rate_frames = ECM_SUBDUAL_HEAL_RATE_FRAMES;
+    }
+    if *heal_amount <= 0.0 {
+        *heal_amount = ECM_SUBDUAL_HEAL_AMOUNT;
+    }
+}
+
+/// C++ `ActiveBody::internalAddSubdualDamage` — clamp to cap, no HP.
+pub fn accumulate_subdual_damage(current: f32, amount: f32, cap: f32) -> f32 {
+    if amount <= 0.0 || !amount.is_finite() || cap <= 0.0 {
+        return current;
+    }
+    (current + amount).min(cap)
+}
+
+/// C++ `ActiveBody::isSubdued` (`maxHealth <= currentSubdual`).
+pub fn is_subdual_full(current: f32, max_health: f32) -> bool {
+    max_health > 0.0 && current + 1e-3 >= max_health
 }
 
 /// KindOf residual filter for vehicle-disabler path (ground vehicle, not aircraft).
@@ -288,7 +333,7 @@ pub fn honesty_ecm_vehicle_list_kindof_residual_ok() -> bool {
 /// Combined Wave 54 ECM residual honesty pack.
 /// Wave residual honesty: ECM missile jam scatter peels.
 pub fn honesty_ecm_missile_jam_scatter_ok() -> bool {
-    (ECM_MISSILE_JAM_SCATTER_RADIUS - 40.0).abs() < 0.01
+    (ECM_MISSILE_JAM_SCATTER_RADIUS - 75.0).abs() < 0.01
         && ECM_MISSILE_JAM_MAX_PER_PULSE == 4
         && ECM_MISSILE_JAMMER_DELAY_FRAMES == 20
         && (ECM_MISSILE_JAMMER_PRIMARY_DAMAGE - 100.0).abs() < 0.01
@@ -377,9 +422,12 @@ mod tests {
         assert!(is_ecm_jam_missile_name("TomahawkMissile"));
         assert!(is_ecm_jam_missile_name("SCUDMissile"));
         assert!(!is_ecm_jam_missile_name("AmericaInfantryMissileDefender"));
+        assert!(!is_ecm_jam_missile_name("CrusaderTankShell"));
+        assert!(is_dumb_projectile_shell_name("TechnicalCannonShell"));
         let (x, z) = ecm_missile_scatter_offset(7);
         assert!((x * x + z * z).sqrt() <= ECM_MISSILE_JAM_SCATTER_RADIUS + 0.01);
-        assert!(is_ecm_jam_projectile_flags(true, "foo", false));
+        assert!(is_ecm_jam_projectile_flags(true, "TomahawkMissile", false));
+        assert!(!is_ecm_jam_projectile_flags(true, "TankShell", false));
         assert!(!is_ecm_jam_projectile_flags(true, "foo", true));
     }
 
@@ -422,6 +470,24 @@ mod tests {
         assert!(!is_legal_ecm_vehicle_disabler_target(
             true, false, true, true, false, true
         ));
+    }
+
+    /// C++ ActiveBody.cpp:1292-1294 — jam only after subdual fills maxHealth.
+    #[test]
+    fn subdual_accumulate_not_instant() {
+        let mut cap = 0.0;
+        let mut rate = 0;
+        let mut heal = 0.0;
+        seed_host_subdual_if_unauthored(&mut cap, &mut rate, &mut heal, 400.0);
+        assert!((cap - 400.0).abs() < 1e-3);
+        assert_eq!(rate, ECM_SUBDUAL_HEAL_RATE_FRAMES);
+        let mut pool = 0.0;
+        pool = accumulate_subdual_damage(pool, ECM_VEHICLE_DISABLER_PRIMARY_DAMAGE, cap);
+        assert!(!is_subdual_full(pool, 400.0));
+        for _ in 0..20 {
+            pool = accumulate_subdual_damage(pool, ECM_VEHICLE_DISABLER_PRIMARY_DAMAGE, cap);
+        }
+        assert!(is_subdual_full(pool, 400.0));
     }
 
     #[test]

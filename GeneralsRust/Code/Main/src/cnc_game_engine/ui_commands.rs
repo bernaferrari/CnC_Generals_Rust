@@ -189,10 +189,9 @@ impl CnCGameEngine {
         location: glam::Vec3,
         target_object: Option<crate::game_logic::ObjectId>,
     ) {
-        let Some(kind) = self.pending_map_command.take() else {
+        let Some(kind) = self.pending_map_command.clone() else {
             return;
         };
-        self.clear_radius_cursor_overlays();
         let player_id = self.current_player_id;
         // Wave 219: selection via presentation-first ui_selected_ids.
         let selected = self.ui_selected_ids(player_id);
@@ -200,13 +199,24 @@ impl CnCGameEngine {
         if selected.is_empty() && !allows_empty {
             return;
         }
+        // C++ CommandXlat.cpp:1505-1629 — NEED_TARGET_* relationship nulls the
+        // object; invalid DO_COMMAND leaves the GUI command armed.
+        let filtered_target = self.filter_pending_map_target(&kind, target_object);
+        if !self.pending_map_command_currently_valid(&kind, filtered_target) {
+            let msg = "Select a valid target";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        let _ = self.pending_map_command.take();
+        self.clear_radius_cursor_overlays();
         let command_type = match kind {
             PendingMapCommand::AttackMove => crate::command_system::CommandType::AttackMoveTo {
                 destination: location,
                 max_shots: -1,
             },
             PendingMapCommand::Guard(mode) => {
-                if let Some(tid) = target_object {
+                if let Some(tid) = filtered_target {
                     crate::command_system::CommandType::Guard {
                         target: crate::command_system::GuardTarget::Object(tid),
                         mode,
@@ -222,15 +232,18 @@ impl CnCGameEngine {
                 crate::command_system::CommandType::SetRallyPoint { location }
             }
             PendingMapCommand::CombatDrop(combat_drop) => {
-                let Some(command) =
-                    resolve_pending_combat_drop_command(combat_drop, location, target_object)
-                else {
+                let Some(command) = resolve_pending_combat_drop_command(
+                    combat_drop.clone(),
+                    location,
+                    filtered_target,
+                ) else {
+                    self.pending_map_command = Some(PendingMapCommand::CombatDrop(combat_drop));
                     return;
                 };
                 command
             }
             PendingMapCommand::SpecialPower(power_type) => {
-                let target = if let Some(tid) = target_object {
+                let target = if let Some(tid) = filtered_target {
                     crate::command_system::PowerTarget::Object(tid)
                 } else {
                     crate::command_system::PowerTarget::Location(location)
@@ -238,19 +251,15 @@ impl CnCGameEngine {
                 crate::command_system::CommandType::DoSpecialPower { power_type, target }
             }
             PendingMapCommand::Weapon(weapon) => {
-                resolve_pending_weapon_command(weapon, location, target_object)
+                resolve_pending_weapon_command(weapon, location, filtered_target)
             }
             PendingMapCommand::PlaceBeacon => crate::command_system::CommandType::PlaceBeacon {
                 location,
                 text: String::new(),
             },
             PendingMapCommand::UnitAbility(ability) => {
-                let Some(tid) = target_object else {
-                    // Keep armed if click missed an object (except abilities that allow ground).
+                let Some(tid) = filtered_target else {
                     self.pending_map_command = Some(PendingMapCommand::UnitAbility(ability));
-                    let msg = "Select a valid target";
-                    self.game_hud.push_info_message(msg);
-                    self.ui_manager.game_hud_mut().push_info_message(msg);
                     return;
                 };
                 match ability {
@@ -305,6 +314,118 @@ impl CnCGameEngine {
             modifier_keys: crate::command_system::ModifierKeys::default(),
         });
         self.host_process_commands_with_command_sound();
+    }
+
+    const NEED_TARGET_ENEMY_OBJECT: u32 = 0x0000_0001;
+    const NEED_TARGET_NEUTRAL_OBJECT: u32 = 0x0000_0002;
+    const NEED_TARGET_ALLY_OBJECT: u32 = 0x0000_0004;
+    const NEED_TARGET_POS: u32 = 0x0000_0020;
+    const NEED_OBJECT_TARGET: u32 =
+        Self::NEED_TARGET_ENEMY_OBJECT | Self::NEED_TARGET_NEUTRAL_OBJECT | Self::NEED_TARGET_ALLY_OBJECT;
+
+    fn filter_pending_map_target(
+        &self,
+        kind: &PendingMapCommand,
+        target_object: Option<crate::game_logic::ObjectId>,
+    ) -> Option<crate::game_logic::ObjectId> {
+        let Some(tid) = target_object else {
+            return None;
+        };
+        let options = self.pending_command_option_bits(kind);
+        if options & Self::NEED_OBJECT_TARGET == 0 {
+            return Some(tid);
+        }
+        if self.pending_target_relationship_allowed(options, tid) {
+            Some(tid)
+        } else {
+            None
+        }
+    }
+
+    fn pending_command_option_bits(&self, kind: &PendingMapCommand) -> u32 {
+        if let Some(bits) = kind.command_option_bits() {
+            return bits;
+        }
+        match kind {
+            PendingMapCommand::SpecialPower(power) => special_power_pending_options(power),
+            PendingMapCommand::UnitAbility(_) => {
+                Self::NEED_TARGET_ENEMY_OBJECT
+                    | Self::NEED_TARGET_NEUTRAL_OBJECT
+                    | Self::NEED_TARGET_ALLY_OBJECT
+            }
+            _ => 0,
+        }
+    }
+
+    fn pending_target_relationship_allowed(
+        &self,
+        options: u32,
+        target: crate::game_logic::ObjectId,
+    ) -> bool {
+        let needs_enemy = options & Self::NEED_TARGET_ENEMY_OBJECT != 0;
+        let needs_neutral = options & Self::NEED_TARGET_NEUTRAL_OBJECT != 0;
+        let needs_ally = options & Self::NEED_TARGET_ALLY_OBJECT != 0;
+        if !(needs_enemy || needs_neutral || needs_ally) {
+            return true;
+        }
+        if let Some(hint) = self.presentation_target_hint(target) {
+            if needs_enemy && hint.is_enemy_of_local {
+                return true;
+            }
+            if needs_ally && hint.is_friendly_of_local {
+                return true;
+            }
+            if needs_neutral && hint.is_neutral {
+                return true;
+            }
+            return false;
+        }
+        if let Some(obj) = self.game_logic.host_object(target) {
+            let local_team = self
+                .last_presentation_frame
+                .as_ref()
+                .map(|f| f.local_team)
+                .or(self.host_match_local_team)
+                .unwrap_or(obj.team);
+            if needs_ally && obj.team == local_team {
+                return true;
+            }
+            if needs_neutral && obj.team == crate::game_logic::Team::Neutral {
+                return true;
+            }
+            if needs_enemy
+                && obj.team != local_team
+                && obj.team != crate::game_logic::Team::Neutral
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn pending_map_command_currently_valid(
+        &self,
+        kind: &PendingMapCommand,
+        filtered_target: Option<crate::game_logic::ObjectId>,
+    ) -> bool {
+        let options = self.pending_command_option_bits(kind);
+        let needs_object = options & Self::NEED_OBJECT_TARGET != 0;
+        let needs_pos = options & Self::NEED_TARGET_POS != 0;
+        match kind {
+            PendingMapCommand::UnitAbility(_) => filtered_target.is_some(),
+            PendingMapCommand::SpecialPower(_) | PendingMapCommand::Weapon(_) => {
+                if needs_object && !needs_pos {
+                    filtered_target.is_some()
+                } else {
+                    true
+                }
+            }
+            _ => true,
+        }
+    }
+
+    pub(super) fn host_command_xlat_multiplayer_meta(&self) -> bool {
+        self.host_is_in_multiplayer_game() && !self.presentation_or_boot_in_replay_game()
     }
 
     pub(super) fn cancel_structure_placement_from_ui(&mut self) {
@@ -1829,6 +1950,10 @@ impl CnCGameEngine {
                 return;
             }
             crate::command_system::CommandType::PlaceBeacon { .. } => {
+                // C++ MSG_META_PLACE_BEACON: MP and not replay.
+                if !self.host_command_xlat_multiplayer_meta() {
+                    return;
+                }
                 self.pending_map_command = Some(PendingMapCommand::PlaceBeacon);
                 self.pending_structure_placement = None;
                 self.arm_radius_cursor_for_pending("RADAR");
@@ -1943,6 +2068,17 @@ impl CnCGameEngine {
                 self.resume_selected_construction();
                 return;
             }
+            crate::command_system::CommandType::Cheer => {
+                // C++ MSG_META_ALL_CHEER only in multiplayer.
+                if !self.host_is_in_multiplayer_game() {
+                    return;
+                }
+            }
+            crate::command_system::CommandType::RemoveBeacon => {
+                if !self.host_command_xlat_multiplayer_meta() {
+                    return;
+                }
+            }
             _ => {}
         }
 
@@ -1995,6 +2131,24 @@ impl CnCGameEngine {
             selected_units: selected,
             modifier_keys: crate::command_system::ModifierKeys::default(),
         });
+    }
+}
+
+fn special_power_pending_options(power: &crate::command_system::SpecialPowerType) -> u32 {
+    use crate::command_system::SpecialPowerType as P;
+    const NEED_ENEMY: u32 = 0x0000_0001;
+    const NEED_POS: u32 = 0x0000_0020;
+    match power {
+        P::BlackLotusStealCash
+        | P::BlackLotusDisableVehicle
+        | P::HackerDisableBuilding
+        | P::CashHack
+        | P::RangerCaptureBuilding
+        | P::RedGuardCaptureBuilding
+        | P::RebelCaptureBuilding
+        | P::BlackLotusCaptureBuilding
+        | P::DisguiseAsVehiclePower => NEED_ENEMY,
+        _ => NEED_POS,
     }
 }
 

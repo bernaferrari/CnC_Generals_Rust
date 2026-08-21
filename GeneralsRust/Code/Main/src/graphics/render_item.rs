@@ -549,6 +549,8 @@ pub struct RenderItem {
     /// from the material colors because HLOD AdditionalModels have independent
     /// source materials and must replay the same frozen tint once each.
     pub poison_tinted: bool,
+    /// C++ Drawable tint-status signed RGB (DISABLED/SUBDUAL/FRENZY).
+    pub status_tint: [f32; 3],
 }
 
 impl RenderItem {
@@ -603,6 +605,7 @@ impl RenderItem {
             selection_flash_intensity: 0.0,
             selection_flash_team_color: [1.0, 1.0, 1.0, 1.0],
             poison_tinted: false,
+            status_tint: [0.0; 3],
         }
     }
 
@@ -766,6 +769,22 @@ impl RenderItem {
         e.z = (e.z + POISON[2] * 0.10).min(2.0);
     }
 
+    /// Wave 13: C++ DISABLED / SUBDUAL / FRENZY signed additive envelope sample.
+    pub fn apply_status_tint(&mut self, rgb: [f32; 3]) {
+        self.status_tint = rgb;
+        if rgb.iter().all(|c| c.abs() < 1e-5) {
+            return;
+        }
+        let e = &mut self.material.emissive_color;
+        e.x = (e.x + rgb[0]).clamp(-1.0, 2.0);
+        e.y = (e.y + rgb[1]).clamp(-1.0, 2.0);
+        e.z = (e.z + rgb[2]).clamp(-1.0, 2.0);
+        let d = &mut self.material.diffuse_color;
+        d.x = (d.x + rgb[0]).clamp(0.0, 2.0);
+        d.y = (d.y + rgb[1]).clamp(0.0, 2.0);
+        d.z = (d.z + rgb[2]).clamp(0.0, 2.0);
+    }
+
     /// Apply the frozen Drawable-level visual state shared by all render
     /// objects produced for one presentation unit.  Call this once while
     /// constructing each fresh source mesh or its synthetic HLOD parent; the
@@ -806,6 +825,7 @@ impl RenderItem {
             parent.selection_flash_team_color,
             parent.poison_tinted,
         );
+        self.apply_status_tint(parent.status_tint);
         self.presentation_opacity = parent.presentation_opacity;
         self.frozen_objectless_drawable_shroud = parent.frozen_objectless_drawable_shroud;
         // AdditionalModels are C++ render-object children of the same

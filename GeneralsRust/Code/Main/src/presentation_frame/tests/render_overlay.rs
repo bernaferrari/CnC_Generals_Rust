@@ -89,6 +89,8 @@ fn unit_render_input_world_matrix_applies_mesh_scale() {
         engine_bridged: false,
         fow_visibility: ObjectVisibility::FULLY_VISIBLE,
         presentation_opacity: 1.0,
+        status_tint: [0.0; 3],
+        stored_supplies: 0,
         drawable_shroud: PresentationDrawableShroudFacts::default(),
     };
     let m = u.world_matrix();
@@ -172,10 +174,15 @@ fn viewer_relative_stealth_matches_cxx_allies_and_inactive_local_rules() {
         .iter()
         .find(|input| input.id == allied_id)
         .expect("allied translucent input");
+    let expected_allied = crate::game_logic::friendly_stealth_pulse_opacity(
+        0.5,
+        allied_id.0,
+        active.frame.0,
+    );
     assert!(
         (allied_input.fow_visibility.visibility_alpha - 1.0).abs() < f32::EPSILON
-            && (allied_input.presentation_opacity - 0.5).abs() < 0.001,
-        "C++ VISIBLE_FRIENDLY keeps FOW clear and uses its separate friendly-stealth opacity"
+            && (allied_input.presentation_opacity - expected_allied).abs() < 0.001,
+        "C++ VISIBLE_FRIENDLY pulses FriendlyOpacityMin toward 1.0"
     );
 
     logic
@@ -189,10 +196,15 @@ fn viewer_relative_stealth_matches_cxx_allies_and_inactive_local_rules() {
         .into_iter()
         .find(|input| input.id == allied_id)
         .expect("detected friendly stealth remains renderable");
+    let expected_detected = crate::game_logic::friendly_stealth_pulse_opacity(
+        0.5,
+        allied_id.0,
+        detected_frame.frame.0,
+    );
     assert!(
         (detected_input.fow_visibility.visibility_alpha - 1.0).abs() < f32::EPSILON
-            && (detected_input.presentation_opacity - 0.5).abs() < 0.001,
-        "C++ VISIBLE_FRIENDLY_DETECTED keeps the same friendly opacity"
+            && (detected_input.presentation_opacity - expected_detected).abs() < 0.001,
+        "C++ VISIBLE_FRIENDLY_DETECTED keeps the same friendly pulse"
     );
 
     let mut dead_enemy = active_enemy.clone();
@@ -236,6 +248,78 @@ fn viewer_relative_stealth_matches_cxx_allies_and_inactive_local_rules() {
             .into_iter()
             .all(|id| inactive_inputs.iter().any(|input| input.id == id)),
         "inactive local visual relation keeps both stealth objects in the mesh roster"
+    );
+}
+
+#[test]
+fn friendly_stealth_opacity_pulses_across_logic_frames() {
+    use crate::game_logic::{GameLogic, Player, Team, ThingTemplate};
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "Local", true));
+    let mut template = ThingTemplate::new("PulseStealthUnit");
+    template.set_health(100.0);
+    logic
+        .templates
+        .insert("PulseStealthUnit".into(), template);
+    let id = logic
+        .create_object(
+            "PulseStealthUnit",
+            Team::USA,
+            glam::Vec3::new(3.0, 0.0, 3.0),
+        )
+        .expect("unit");
+    {
+        let object = logic.host_object_mut(id).expect("host");
+        object.owner_player_id = Some(0);
+        object.status.stealthed = true;
+        object.status.detected = false;
+    }
+    logic.frame = 0;
+    let a = PresentationFrame::build_from_logic(&logic, 0)
+        .unit_render_inputs()
+        .into_iter()
+        .find(|u| u.id == id)
+        .expect("frame 0");
+    logic.frame = 8;
+    let b = PresentationFrame::build_from_logic(&logic, 0)
+        .unit_render_inputs()
+        .into_iter()
+        .find(|u| u.id == id)
+        .expect("frame 8");
+    assert!(
+        (a.presentation_opacity - b.presentation_opacity).abs() > 0.01,
+        "friendly stealth must shimmer, not sit at a static min"
+    );
+    assert!(a.presentation_opacity >= 0.5 && a.presentation_opacity <= 1.0);
+    assert!(b.presentation_opacity >= 0.5 && b.presentation_opacity <= 1.0);
+}
+
+#[test]
+fn ocl_fade_in_multiplies_presentation_opacity() {
+    use crate::game_logic::{GameLogic, Player, Team, ThingTemplate};
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "Local", true));
+    logic.frame = 10;
+    let mut template = ThingTemplate::new("FadeSpawn");
+    template.set_health(10.0);
+    logic.templates.insert("FadeSpawn".into(), template);
+    let id = logic
+        .create_object("FadeSpawn", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
+        .expect("spawn");
+    logic
+        .host_object_mut(id)
+        .expect("obj")
+        .start_drawable_fade_in(10, 10);
+    let input = PresentationFrame::build_from_logic(&logic, 0)
+        .unit_render_inputs()
+        .into_iter()
+        .find(|u| u.id == id)
+        .expect("fade input");
+    assert!(
+        input.presentation_opacity < 0.01,
+        "C++ fadeIn starts at explicit opacity 0"
     );
 }
 

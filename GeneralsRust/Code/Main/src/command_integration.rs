@@ -962,6 +962,9 @@ impl InputCommandProcessor {
                     o,
                     crate::game_logic::KindOf::Salvager,
                 ),
+                can_override_special_power_destination: o
+                    .special_power_override_destination
+                    .is_some(),
             });
         }
         out

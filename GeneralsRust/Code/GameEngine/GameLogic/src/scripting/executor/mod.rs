@@ -60,6 +60,7 @@ thread_local! {
     static HOST_SKIRMISH_FIRE_SPECIAL_REQUESTS: RefCell<Vec<(String, String)>> =
         RefCell::new(Vec::new());
     static HOST_SKIRMISH_BUILD_REQUESTS: RefCell<Vec<String>> = RefCell::new(Vec::new());
+    static HOST_SET_CAVE_INDEX_REQUESTS: RefCell<Vec<(String, i32)>> = RefCell::new(Vec::new());
 }
 
 /// Live host drain: `SKIRMISH_FIRE_SPECIAL_POWER_AT_MOST_COST` when crate
@@ -84,6 +85,19 @@ pub fn request_host_skirmish_build_building(thing_name: &str) {
 
 pub fn take_host_skirmish_build_requests() -> Vec<String> {
     HOST_SKIRMISH_BUILD_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: `SET_CAVE_INDEX` → `CaveContain::tryToSetCaveIndex`.
+/// Leftover crate objects are empty on the player path.
+pub fn request_host_set_cave_index(cave_name: &str, cave_index: i32) {
+    HOST_SET_CAVE_INDEX_REQUESTS.with(|q| {
+        q.borrow_mut()
+            .push((cave_name.to_string(), cave_index));
+    });
+}
+
+pub fn take_host_set_cave_index_requests() -> Vec<(String, i32)> {
+    HOST_SET_CAVE_INDEX_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
 
 /// Wave 284: host-only path has no dual-world factory objects.

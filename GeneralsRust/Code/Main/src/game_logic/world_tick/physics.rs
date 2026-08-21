@@ -108,7 +108,7 @@ impl GameLogic {
     /// C++ TerrainLogic::setWaterHeight damage residual.
     ///
     /// When water rises, every object currently underwater takes `damage_amount`
-    /// as DAMAGE_WATER (DEATH_NORMAL). Airborne/aircraft and projectiles skip.
+    /// as DAMAGE_WATER (DEATH_NORMAL). C++ has no aircraft/boat skip.
     /// Returns number of objects damaged.
     pub fn apply_water_rise_damage(&mut self, damage_amount: f32) -> u32 {
         if !(damage_amount > 0.0) {
@@ -130,19 +130,7 @@ impl GameLogic {
             if !water || !obj.is_alive() || obj.status.destroyed {
                 continue;
             }
-            if obj.is_kind_of(KindOf::Aircraft) || obj.is_kind_of(KindOf::Projectile) {
-                continue;
-            }
-            // Naval/hover peels: skip if template suggests boat/ship/amphibious.
-            let n = obj.template_name.to_ascii_lowercase();
-            if n.contains("boat")
-                || n.contains("ship")
-                || n.contains("hover")
-                || n.contains("amphib")
-                || n.contains("carrier")
-                || n.contains("destroyer")
-                || n.contains("battleship")
-            {
+            if obj.is_kind_of(KindOf::Projectile) {
                 continue;
             }
             let killed = obj.take_damage_from_typed(
@@ -161,17 +149,13 @@ impl GameLogic {
         hit
     }
 
-    /// Refresh underwater/cliff cells; on dry→wet edge apply residual water damage.
-    ///
-    /// C++ only damages on water-rise events; edge detection approximates that when
-    /// terrain water state changes under units (flood scripts / map water).
-    pub fn refresh_surface_cells_and_water_edge_damage(&mut self, edge_damage: f32) -> u32 {
+    /// Refresh underwater/cliff cells. C++ never damages on dry→wet walk-in;
+    /// DAMAGE_WATER only runs from leftover setWaterHeight rise (`apply_water_rise_damage`).
+    pub fn refresh_surface_cells_and_water_edge_damage(&mut self, _edge_damage: f32) -> u32 {
         let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
-        let mut hit = 0u32;
-        let mut destroy: Vec<ObjectId> = Vec::new();
         for id in ids {
-            let (pos, was_under) = match self.objects.get(&id) {
-                Some(o) => (o.get_position(), o.cell_is_underwater),
+            let pos = match self.objects.get(&id) {
+                Some(o) => o.get_position(),
                 None => continue,
             };
             let (_cliff, water) = self.sample_stun_surface_at(pos);
@@ -180,42 +164,10 @@ impl GameLogic {
             };
             obj.cell_is_cliff = _cliff;
             obj.cell_is_underwater = water;
-            let entered = water && !was_under;
-            if !entered || !(edge_damage > 0.0) {
-                continue;
-            }
-            if !obj.is_alive() || obj.status.destroyed {
-                continue;
-            }
-            if obj.is_kind_of(KindOf::Aircraft) || obj.is_kind_of(KindOf::Projectile) {
-                continue;
-            }
-            let n = obj.template_name.to_ascii_lowercase();
-            if n.contains("boat")
-                || n.contains("ship")
-                || n.contains("hover")
-                || n.contains("amphib")
-                || n.contains("carrier")
-                || n.contains("destroyer")
-                || n.contains("battleship")
-            {
-                continue;
-            }
-            let killed = obj.take_damage_from_typed(
-                edge_damage,
-                None,
-                crate::game_logic::combat::DamageType::Water,
-            );
-            hit = hit.saturating_add(1);
-            if killed || obj.status.destroyed || obj.health.current <= 0.0 {
-                destroy.push(id);
-            }
         }
-        for id in destroy {
-            self.mark_object_for_destruction(id, None);
-        }
-        hit
+        0
     }
+
 
     pub(crate) fn sample_stun_surface_at(&self, pos: glam::Vec3) -> (bool, bool) {
         if let Some(t) = self.terrain.as_ref() {
@@ -262,8 +214,6 @@ impl GameLogic {
             b_ignore_a,
             a_para,
             b_para,
-            a_team,
-            b_team,
             b_immobile,
             a_infantry,
             b_unmanned,
@@ -279,8 +229,6 @@ impl GameLogic {
                 b.is_ignoring_collisions_with(a_id),
                 a.is_parachuting(),
                 b.is_parachuting(),
-                a.team,
-                b.team,
                 b.is_kind_of(crate::game_logic::KindOf::Structure)
                     || b.is_kind_of(
                         crate::game_logic::KindOf::Structure, /* immobile residual */
@@ -328,7 +276,7 @@ impl GameLogic {
             }
         }
 
-        let same_team = a_team == b_team;
+        let is_ally = self.crush_relationship_is_allies(a_id, b_id);
         // C++ ToppleUpdate::onCollide residual: crusher_level > 1 topples trees/props.
         if self.try_topple_on_collide(a_id, b_id) || self.try_topple_on_collide(b_id, a_id) {
             if let Some(a) = self.objects.get_mut(&a_id) {
@@ -337,7 +285,7 @@ impl GameLogic {
             return true;
         }
         // Overlap crush (may handle the pair).
-        if self.apply_overlap_crush_check(a_id, b_id, same_team) {
+        if self.apply_overlap_crush_check(a_id, b_id, is_ally) {
             if let Some(a) = self.objects.get_mut(&a_id) {
                 a.last_collidee = Some(b_id);
             }
@@ -369,7 +317,7 @@ impl GameLogic {
             None => return false,
         };
         let allow_force = match self.objects.get_mut(&a_id) {
-            Some(a) => a.ai_process_collision(&b_snap, frame),
+            Some(a) => a.ai_process_collision(&b_snap, frame, is_ally),
             None => return false,
         };
         let (req_away, a_pos) = {
@@ -459,18 +407,31 @@ impl GameLogic {
         handled
     }
 
+    /// C++ `Object::getRelationship(other) == ALLIES` for crush gates
+    /// (Object.cpp:1096 — crusher's view of the victim, not faction Team).
+    fn crush_relationship_is_allies(&self, crusher_id: ObjectId, crushee_id: ObjectId) -> bool {
+        use gamelogic::common::Relationship;
+        let Some(crusher) = self.objects.get(&crusher_id) else {
+            return false;
+        };
+        let Some(crushee) = self.objects.get(&crushee_id) else {
+            return false;
+        };
+        self.object_relationship(crusher, crushee) == Relationship::Allies
+    }
+
     pub fn apply_overlap_crush_check(
         &mut self,
         crusher_id: ObjectId,
         crushee_id: ObjectId,
-        same_team: bool,
+        is_ally: bool,
     ) -> bool {
         // Split borrow: take crushee out, mutate both, put back.
         let Some(mut crushee) = self.objects.remove(&crushee_id) else {
             return false;
         };
         let result = if let Some(crusher) = self.objects.get_mut(&crusher_id) {
-            crusher.check_for_overlap_collision(&mut crushee, same_team)
+            crusher.check_for_overlap_collision(&mut crushee, is_ally)
         } else {
             false
         };

@@ -368,6 +368,13 @@ impl HostTunnelNetworkRegistry {
         self.contained_by_frame.remove(&unit_id.0);
     }
 
+    pub fn restore_contained_by_frames(&mut self, frames: &[(ObjectId, u32)]) {
+        self.contained_by_frame.clear();
+        for (unit_id, frame) in frames {
+            self.contained_by_frame.insert(unit_id.0, *frame);
+        }
+    }
+
     pub fn record_heal_tick(&mut self) {
         self.heal_ticks = self.heal_ticks.saturating_add(1);
     }

@@ -597,11 +597,6 @@ impl ScriptActionDispatcher {
         &mut self,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
-        // Wave 284: empty dual-world → no-op success.
-        if dual_world_registry_unavailable() {
-            return Ok(ScriptActionResult::Success);
-        }
-
         let unit_name = self.get_string_param(action, 0)?;
         let snap_to_unit = self.get_bool_param_optional(action, 1).unwrap_or(false);
         let play = action.get_parameter(2).map(|p| p.get_real()).unwrap_or(0.0);
@@ -613,9 +608,12 @@ impl ScriptActionDispatcher {
             play
         );
 
+        // C++ `TheScriptEngine->getUnitNamed` — host injects name→id into the
+        // crate tracker. Empty OBJECT_REGISTRY must not skip named lookup.
         let tracker = get_named_object_tracker();
         let mut object_id = tracker.get_object_id(&unit_name).ok().flatten();
-        if object_id.is_none() {
+        // Wave 284: empty dual-world → skip crate Object walk only.
+        if object_id.is_none() && !dual_world_registry_unavailable() {
             let lower = unit_name.to_ascii_lowercase();
             object_id = OBJECT_REGISTRY
                 .get_all_objects()
@@ -686,20 +684,18 @@ impl ScriptActionDispatcher {
         &mut self,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
-        // Wave 284: empty dual-world → no-op success.
-        if dual_world_registry_unavailable() {
-            return Ok(ScriptActionResult::Success);
-        }
-
         let object_name = self.get_string_param(action, 0)?;
         let seconds = action.get_parameter(1).map(|p| p.get_real()).unwrap_or(0.0);
         let hold_seconds = action.get_parameter(2).map(|p| p.get_real()).unwrap_or(0.0);
         let ease_in_seconds = action.get_parameter(3).map(|p| p.get_real()).unwrap_or(0.0);
         let ease_out_seconds = action.get_parameter(4).map(|p| p.get_real()).unwrap_or(0.0);
 
+        // C++ `TheScriptEngine->getUnitNamed` — host injects name→id into the
+        // crate tracker. Empty OBJECT_REGISTRY must not skip named lookup.
         let tracker = get_named_object_tracker();
         let mut object_id = tracker.get_object_id(&object_name).ok().flatten();
-        if object_id.is_none() {
+        // Wave 284: empty dual-world → skip crate Object walk only.
+        if object_id.is_none() && !dual_world_registry_unavailable() {
             let lower = object_name.to_ascii_lowercase();
             object_id = OBJECT_REGISTRY
                 .get_all_objects()

@@ -888,6 +888,17 @@ impl MissionScriptHooks {
         }
     }
 
+    /// C++ `ScriptEngine::newMap` fade-in from black (33-frame `FADE_MULTIPLY`).
+    /// Live map load calls this after leftover `reset()` so the overlay starts
+    /// even when the crate engine handle is taken out for `update()`.
+    pub fn start_new_map_fade(&self) {
+        if let Ok(mut engine_guard) = gamelogic::scripting::engine::get_script_engine().write() {
+            if let Some(engine) = engine_guard.as_mut() {
+                engine.new_map();
+            }
+        }
+    }
+
     /// Advance hook completion clocks without walking scripts.
     ///
     /// C++ GameLogic.cpp:3600 has one `TheScriptEngine->UPDATE()` per logic
@@ -3227,6 +3238,16 @@ mod tests {
         assert!((zoom[0].duration_seconds - 4.0).abs() < f32::EPSILON);
         assert!((zoom[0].ease_in_seconds - 1.5).abs() < f32::EPSILON);
         assert!((zoom[0].ease_out_seconds - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn start_new_map_fade_calls_leftover_new_map() {
+        let src = include_str!("mission_scripts.rs");
+        assert!(src.contains("pub fn start_new_map_fade"));
+        assert!(src.contains("engine.new_map()"));
+        let load = include_str!("world_scripts/add_object_selection.rs");
+        assert!(load.contains("engine.new_map()"));
+        assert!(load.contains("FADE_MULTIPLY"));
     }
 
     #[test]

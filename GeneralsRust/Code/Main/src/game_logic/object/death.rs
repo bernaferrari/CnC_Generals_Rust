@@ -491,8 +491,14 @@ impl Object {
         }
     }
 
-    /// C++ CrushDie::onDie sound residual.
+    /// C++ CrushDie::onDie — location check, body flags, model bits, sound.
     pub fn fire_crush_die(&mut self) {
+        self.fire_crush_die_from_crusher(None);
+    }
+
+    /// `crusher_xz` is the dealer host XZ (C++ `damageDealer` position).
+    /// Missing dealer defaults to `TOTAL_CRUSH` when neither end is stamped.
+    pub fn fire_crush_die_from_crusher(&mut self, crusher_xz: Option<(f32, f32)>) {
         if !matches!(
             self.status.death_type,
             crate::game_logic::host_usa_pilot::HostDeathType::Crushed
@@ -500,10 +506,37 @@ impl Object {
             return;
         }
         self.ensure_crush_die();
-        let kind = crate::game_logic::host_crush_die::crush_kind_from_flags(
-            self.front_crushed,
-            self.back_crushed,
-        );
+        let kind = if let Some(crusher_xz) = crusher_xz {
+            let victim = self.get_position();
+            let geom = &self.thing.template.geometry_info;
+            let major = if geom.authored {
+                geom.major_radius
+            } else {
+                self.selection_radius.max(1.0)
+            };
+            match crate::game_logic::host_crush_die::crush_location_check(
+                crusher_xz,
+                (victim.x, victim.z),
+                self.unit_direction_xz(),
+                major,
+                self.front_crushed,
+                self.back_crushed,
+            ) {
+                Some(kind) => kind,
+                None => return,
+            }
+        } else if !self.front_crushed && !self.back_crushed {
+            crate::game_logic::host_crush_die::HostCrushKind::Total
+        } else {
+            crate::game_logic::host_crush_die::crush_kind_from_flags(
+                self.front_crushed,
+                self.back_crushed,
+            )
+        };
+        let (front, back) = crate::game_logic::host_crush_die::flags_from_crush_kind(kind);
+        self.front_crushed = front;
+        self.back_crushed = back;
+        self.apply_crush_die_model_conditions();
         let seed = self.id.0;
         let Some(crush) = self.crush_die.as_mut() else {
             return;

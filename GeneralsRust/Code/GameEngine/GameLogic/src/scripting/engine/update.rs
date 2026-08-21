@@ -181,14 +181,10 @@ impl ScriptEngine {
     fn execute_side_scripts_from_active_lists(&self) -> GameLogicResult<()> {
         let current_frame = crate::helpers::TheGameLogic::get_frame();
 
-        // Host GAME_SHELL ticks ScriptEngine with an empty crate OBJECT_REGISTRY.
-        // Walking side lists still re-enters get_script_engine()/PlayerList and
-        // hung the windowed Menu after "named cache populated" (hq-9e2w).
-        // C++ still runs scripts; host objects are not crate Objects, so
-        // conditions cannot resolve them here anyway.
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
+        // C++ ScriptEngine.cpp:5554-5571 walks every side's ScriptList even
+        // when no Objects exist. TRUE/COUNTER/FLAG/TIMER scripts still fire.
+        // Host takes the engine out of the global RwLock before update()
+        // (scripts_camera.rs), so this walk cannot re-lock TheScriptEngine.
 
         // Prepare executor context for this frame (shared by action/condition evaluation).
         let exec_context = Arc::new(RwLock::new(crate::scripting::executor::ScriptContext {
@@ -211,28 +207,33 @@ impl ScriptEngine {
 
         // Snapshot player names before dispatch.  A script action may change
         // player state or call a subroutine; no PlayerList lock may survive
-        // into that immediate nested path.
+        // into that immediate nested path. C++ iterates TheSidesList, not the
+        // live player count — walk every side slot so installed map scripts
+        // run even when leftover PlayerList is empty.
         let player_names = {
             let player_list = crate::player::player_list();
-            let Ok(list_guard) = player_list.try_read() else {
-                return Ok(());
-            };
-            let player_count = list_guard.get_player_count().min(Self::MAX_PLAYER_COUNT);
-            (0..player_count)
-                .map(|index| {
-                    list_guard.get_player(index as i32).and_then(|player| {
-                        player.read().ok().and_then(|player| {
-                            NameKeyGenerator::key_to_name(player.get_player_name_key())
+            match player_list.try_read() {
+                Ok(list_guard) => {
+                    let player_count = list_guard.get_player_count().min(Self::MAX_PLAYER_COUNT);
+                    (0..player_count)
+                        .map(|index| {
+                            list_guard.get_player(index as i32).and_then(|player| {
+                                player.read().ok().and_then(|player| {
+                                    NameKeyGenerator::key_to_name(player.get_player_name_key())
+                                })
+                            })
                         })
-                    })
-                })
-                .collect::<Vec<_>>()
+                        .collect::<Vec<_>>()
+                }
+                Err(_) => Vec::new(),
+            }
         };
 
 
-        for (i, player_name) in player_names.into_iter().enumerate() {
+        for i in 0..Self::MAX_PLAYER_COUNT {
             // Match C++: `m_currentPlayer` is the nth player for the side index.
-            self.lock_inner_mut().current_player = player_name;
+            self.lock_inner_mut().current_player =
+                player_names.get(i).cloned().flatten();
 
             // Every side list remains searchable through the lexical active
             // store while an individual script is detached for dispatch.
@@ -613,13 +614,11 @@ impl ScriptEngine {
 
         inner.fade = TFade::None;
     }
-
     /// Evaluate and progress sequential scripts
     fn evaluate_and_progress_all_sequential_scripts(&self) -> GameLogicResult<()> {
-        // Wave 348: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
+        // C++ ScriptEngine.cpp:7860 evaluateAndProgressAllSequentialScripts
+        // walks the sequential list even when no Objects exist. Missing
+        // object/team nodes still clean up below (object_arc/team_arc none).
 
         let restore = self.with_inner(|inner| SequentialContextRestore {
             engine: self,

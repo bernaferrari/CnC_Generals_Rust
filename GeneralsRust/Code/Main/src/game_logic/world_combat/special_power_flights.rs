@@ -934,8 +934,10 @@ impl GameLogic {
         caster_id: Option<ObjectId>,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_radar_scan::{
-            RADAR_SCAN_DURATION_FRAMES, RADAR_VAN_PING_TEMPLATE,
+            RADAR_SCAN_DURATION_FRAMES, RADAR_SCAN_STEALTH_DETECTION_RANGE,
+            RADAR_SCAN_STEALTH_DETECTION_RATE_FRAMES, RADAR_VAN_PING_TEMPLATE,
         };
+        use crate::game_logic::host_strategy_center::stealth_detector_hold_frames;
         use crate::game_logic::{KindOf, ThingTemplate};
 
         if !self.templates.contains_key(RADAR_VAN_PING_TEMPLATE) {
@@ -950,8 +952,41 @@ impl GameLogic {
         if let Some(o) = self.objects.get_mut(&pid) {
             o.radar_van_ping = true;
             o.producer_id = caster_id;
+            // C++ StealthDetectorUpdate.cpp:167-282 on RadarVanPing
+            // (DetectionRate 500ms, DetectionRange 0 → VisionRange 150).
+            o.set_detector_state(
+                true,
+                RADAR_SCAN_STEALTH_DETECTION_RANGE,
+                RADAR_SCAN_STEALTH_DETECTION_RATE_FRAMES,
+            );
             o.radar_van_ping_expires_frame =
                 Some(self.frame.saturating_add(RADAR_SCAN_DURATION_FRAMES));
+        }
+        // First DetectionRate scan is immediate (C++ UPDATE_SLEEP_NONE).
+        let hold = stealth_detector_hold_frames(RADAR_SCAN_STEALTH_DETECTION_RATE_FRAMES);
+        let expires = self.frame.saturating_add(hold);
+        let range_sq = RADAR_SCAN_STEALTH_DETECTION_RANGE * RADAR_SCAN_STEALTH_DETECTION_RANGE;
+        let stealthed: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(id, o)| {
+                *id != &pid
+                    && o.is_alive()
+                    && o.team != team
+                    && (o.status.stealthed || o.status.disguised)
+            })
+            .filter(|(_, o)| {
+                let p = o.get_position();
+                let dx = p.x - position.x;
+                let dz = p.z - position.z;
+                dx * dx + dz * dz <= range_sq
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        for sid in stealthed {
+            if let Some(o) = self.objects.get_mut(&sid) {
+                o.mark_detected(expires);
+            }
         }
         self.radar_scans.record_ping_spawn();
         Some(pid)
@@ -1297,6 +1332,227 @@ impl GameLogic {
     /// List all units in a team's shared tunnel pool (for Evacuate residual).
     pub fn tunnel_network_contained_for_team(&self, team: Team) -> Vec<ObjectId> {
         self.tunnel_network.contained_for_team(team)
+    }
+
+    /// C++ CaveContain.cpp:254-336 changeTeamOnAllConnectedCaves.
+    pub(in super::super) fn apply_cave_capture_event(
+        &mut self,
+        index: i32,
+        event: crate::game_logic::host_cave_system::CaveCaptureEvent,
+    ) {
+        use crate::game_logic::host_cave_system::CaveCaptureEvent;
+        match event {
+            CaveCaptureEvent::None => {}
+            CaveCaptureEvent::FirstOccupant(team) => {
+                for cid in self.cave_system.cave_ids_for_index(index) {
+                    if let Some(cave) = self.objects.get_mut(&cid) {
+                        cave.team = team;
+                    }
+                }
+            }
+            CaveCaptureEvent::LastEmpty => {
+                for cid in self.cave_system.cave_ids_for_index(index) {
+                    if let Some(orig) = self.cave_system.original_team_of(cid) {
+                        if let Some(cave) = self.objects.get_mut(&cid) {
+                            cave.team = orig;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// C++ ScriptActions.cpp:5063 SET_CAVE_INDEX / CaveContain::tryToSetCaveIndex.
+    pub fn try_set_cave_index(&mut self, cave_id: ObjectId, new_index: i32) -> bool {
+        if !self
+            .objects
+            .get(&cave_id)
+            .is_some_and(|o| o.is_cave_style_container())
+        {
+            return false;
+        }
+        if !self.cave_system.try_set_cave_index(cave_id, new_index) {
+            return false;
+        }
+        if let Some(obj) = self.objects.get_mut(&cave_id) {
+            obj.cave_index = new_index;
+        }
+        true
+    }
+
+    /// C++ ScriptActions::doSetCaveIndex named-object lookup.
+    pub fn set_named_cave_index(&mut self, cave_name: &str, new_index: i32) -> bool {
+        let Some(id) = self.find_object_id_by_name(cave_name) else {
+            return false;
+        };
+        self.try_set_cave_index(id, new_index)
+    }
+
+    pub fn exit_cave_unit(&mut self, unit_id: ObjectId, exit_cave: ObjectId) -> bool {
+        let Some(index) = self.cave_system.index_holding_unit(unit_id) else {
+            return false;
+        };
+        let (entry, ev) = self.cave_system.record_exit(index, unit_id, exit_cave);
+        if let Some(entry_id) = entry {
+            if let Some(container) = self.objects.get_mut(&entry_id) {
+                container.remove_occupant(unit_id);
+            }
+        }
+        if entry != Some(exit_cave) {
+            if let Some(container) = self.objects.get_mut(&exit_cave) {
+                container.remove_occupant(unit_id);
+            }
+        }
+        self.apply_cave_capture_event(index, ev);
+        true
+    }
+
+    pub fn cave_system_residual(&self) -> &crate::game_logic::host_cave_system::HostCaveSystem {
+        &self.cave_system
+    }
+
+    pub(crate) fn resolve_bridge_span_for_repair(&self, target_id: ObjectId) -> Option<ObjectId> {
+        if self.bridge_behavior.span(target_id).is_some() {
+            return Some(target_id);
+        }
+        let pos = self.objects.get(&target_id)?.get_position();
+        self.objects
+            .values()
+            .filter(|o| {
+                o.is_alive()
+                    && crate::game_logic::host_bridge_behavior::is_bridge_span_template(
+                        &o.template_name,
+                    )
+            })
+            .min_by(|a, b| {
+                a.get_position()
+                    .distance(pos)
+                    .partial_cmp(&b.get_position().distance(pos))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|o| o.id)
+    }
+
+    pub(crate) fn spawn_bridge_scaffolding(&mut self, span_id: ObjectId) {
+        if !self.bridge_behavior.create_scaffolding(span_id) {
+            return;
+        }
+        let Some(pos) = self.objects.get(&span_id).map(|o| o.get_position()) else {
+            return;
+        };
+        let team = self
+            .objects
+            .get(&span_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        if let Some(sid) = self.create_object(
+            crate::game_logic::host_bridge_behavior::BRIDGE_SCAFFOLD_TEMPLATE,
+            team,
+            pos,
+        ) {
+            if let Some(span) = self.bridge_behavior.span_mut(span_id) {
+                span.scaffold_ids.push(sid);
+            }
+        }
+        if let Some(span) = self.bridge_behavior.span(span_id) {
+            self.pathfinding_system.grid.stamp_bridge_deck(
+                span.from_left,
+                span.from_right,
+                span.to_left,
+                span.to_right,
+                true,
+            );
+        }
+    }
+
+    pub(in super::super) fn sync_host_bridge_rubble_and_scaffolds(&mut self) {
+        self.bridge_behavior.tick_scaffolds();
+        let span_ids: Vec<ObjectId> = self
+            .objects
+            .values()
+            .filter(|o| {
+                crate::game_logic::host_bridge_behavior::is_bridge_span_template(&o.template_name)
+            })
+            .map(|o| o.id)
+            .collect();
+        for id in span_ids {
+            let Some((hp, max, pos, radius)) = self.objects.get(&id).map(|o| {
+                (
+                    o.health.current,
+                    o.health.maximum,
+                    o.get_position(),
+                    o.selection_radius.max(20.0),
+                )
+            }) else {
+                continue;
+            };
+            if self.bridge_behavior.span(id).is_none() {
+                self.bridge_behavior.register_span(
+                    id,
+                    glam::Vec3::new(pos.x - radius, 0.0, pos.z - radius),
+                    glam::Vec3::new(pos.x + radius, 0.0, pos.z - radius),
+                    glam::Vec3::new(pos.x - radius, 0.0, pos.z + radius),
+                    glam::Vec3::new(pos.x + radius, 0.0, pos.z + radius),
+                );
+            }
+            let rubble = max <= 0.0 || hp <= 0.0;
+            if rubble {
+                let positions: Vec<(ObjectId, glam::Vec3)> = self
+                    .objects
+                    .iter()
+                    .filter(|(oid, o)| {
+                        **oid != id
+                            && o.is_alive()
+                            && !crate::game_logic::host_bridge_behavior::is_bridge_or_tower_template(
+                                &o.template_name,
+                            )
+                    })
+                    .map(|(oid, o)| (*oid, o.get_position()))
+                    .collect();
+                let occupants = self.bridge_behavior.occupants_on_deck(id, &positions);
+                    if let Ok(mut tl) = gamelogic::terrain::get_terrain_logic().write() {
+                        tl.set_bridge_damage_state_for_object(
+                            id.0,
+                            gamelogic::common::BodyDamageType::Rubble,
+                        );
+                    }
+
+                if self.bridge_behavior.on_enter_rubble(id, &occupants) {
+                    if let Some(span) = self.bridge_behavior.span(id) {
+                        self.pathfinding_system.grid.stamp_bridge_deck(
+                            span.from_left,
+                            span.from_right,
+                            span.to_left,
+                            span.to_right,
+                            true,
+                        );
+                    }
+                    for uid in occupants {
+                        if let Some(unit) = self.objects.get_mut(&uid) {
+                            let _ = unit.take_damage_from_typed_death(
+                                crate::game_logic::host_bridge_behavior::BRIDGE_SPLAT_DAMAGE,
+                                Some(id),
+                                crate::game_logic::combat::DamageType::Falling,
+                                crate::game_logic::host_usa_pilot::HostDeathType::Splatted,
+                            );
+                        }
+                    }
+                }
+            } else {
+                self.bridge_behavior.on_leave_rubble(id);
+                if !self.bridge_behavior.is_scaffold_present(id) {
+                    if let Some(span) = self.bridge_behavior.span(id) {
+                        self.pathfinding_system.grid.stamp_bridge_deck(
+                            span.from_left,
+                            span.from_right,
+                            span.to_left,
+                            span.to_right,
+                            false,
+                        );
+                    }
+                }
+            }
+        }
     }
 
     /// Residual Combat Chinook honesty: successful load count.

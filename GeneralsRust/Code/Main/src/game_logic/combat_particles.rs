@@ -935,7 +935,7 @@ impl CombatParticleRegistry {
             return;
         }
         for (kind, template) in body_auto_particle_templates(aflame) {
-            let Some(template) = usable_particle_template_name(template) else {
+            let Some(template) = usable_particle_template_name(template.as_str()) else {
                 continue;
             };
             let id = self.spawn_with_template(

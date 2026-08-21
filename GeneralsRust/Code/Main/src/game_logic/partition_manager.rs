@@ -49,6 +49,7 @@ pub struct HostPartitionLookStamp {
 }
 
 
+
 /// Minimal partition manager mirroring WW3D map reveal + collide broadphase residual.
 #[derive(Debug, Default)]
 pub struct PartitionManager {
@@ -239,5 +240,6 @@ mod tests {
         pm.reveal_map_for_player_permanently(1);
         assert!(pm.has_revealed_map(1));
     }
+
 
 }
