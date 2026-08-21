@@ -980,12 +980,11 @@ impl ScriptConditionEvaluator {
             return Ok(ScriptConditionResult::False);
         }
 
-        // Look up the player and check if they can purchase the science
         if let Ok(players) = player_list().read() {
             if let Some(player_arc) = players.find_player_by_name(&player_name) {
                 if let Ok(player) = player_arc.read() {
-                    // Check prerequisites for this science
-                    return Ok(if player.has_prereqs_for_science(science) {
+                    // C++ ScriptConditions.cpp:1559-1568 isCapableOfPurchasingScience.
+                    return Ok(if player.is_capable_of_purchasing_science(science) {
                         ScriptConditionResult::True
                     } else {
                         ScriptConditionResult::False

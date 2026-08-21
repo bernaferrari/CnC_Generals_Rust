@@ -559,6 +559,12 @@ impl ScriptActionDispatcher {
                 log::warn!("Player '{}' not found for purchase science", player_name);
             }
         }
+        crate::scripting::executor::request_host_science_action(
+            &player_name,
+            &science_name,
+            false,
+        );
+
 
         Ok(ScriptActionResult::Success)
     }

@@ -65,6 +65,9 @@ thread_local! {
         RefCell::new(Vec::new());
     static HOST_TEAM_PANEL_FLAG_REQUESTS: RefCell<Vec<(String, String, bool)>> =
         RefCell::new(Vec::new());
+    static HOST_SCIENCE_ACTION_REQUESTS: RefCell<Vec<(String, String, bool)>> =
+        RefCell::new(Vec::new());
+
 }
 
 /// Live host drain: `SKIRMISH_FIRE_SPECIAL_POWER_AT_MOST_COST` when crate
@@ -128,6 +131,23 @@ pub fn take_host_team_panel_flag_requests() -> Vec<(String, String, bool)> {
 pub fn take_host_set_cave_index_requests() -> Vec<(String, i32)> {
     HOST_SET_CAVE_INDEX_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
+
+/// Live host drain: PLAYER_GRANT_SCIENCE / PLAYER_PURCHASE_SCIENCE.
+/// `grant == true` → grantScience; false → attemptToPurchaseScience.
+pub fn request_host_science_action(player_name: &str, science_name: &str, grant: bool) {
+    HOST_SCIENCE_ACTION_REQUESTS.with(|q| {
+        q.borrow_mut().push((
+            player_name.to_string(),
+            science_name.to_string(),
+            grant,
+        ));
+    });
+}
+
+pub fn take_host_science_action_requests() -> Vec<(String, String, bool)> {
+    HOST_SCIENCE_ACTION_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
 
 /// Wave 284: host-only path has no dual-world factory objects.
 #[inline]
