@@ -359,6 +359,14 @@ impl Object {
             self.model_condition_bits |= 1u128 << one;
         }
         self.record_host_model_condition();
+        // C++ SalvageCrateCollide::doWeaponSet → setWeaponSetFlag → updateWeaponSet.
+        let crate_condition = if self.weapon_crate_upgrade >= 2 {
+            "CRATEUPGRADE_TWO"
+        } else {
+            "CRATEUPGRADE_ONE"
+        };
+        self.adopt_weapon_set_lock_share_for_condition(crate_condition);
+        self.release_weapon_lock_on_set_change();
         if let Some(wname) = crate::game_logic::host_car_bomb::crateupgrade_primary_weapon(
             &self.template_name,
             self.weapon_crate_upgrade,
@@ -366,7 +374,6 @@ impl Object {
             if let Some(weapon) =
                 crate::game_logic::thing::ThingTemplate::weapon_from_store(&wname)
             {
-                self.release_weapon_lock_on_set_change();
                 let _ = self.replace_weapon_set_slot(0, Some(weapon));
             }
         }
@@ -456,14 +463,49 @@ impl Object {
         self.record_host_model_condition();
     }
 
-    /// C++ WeaponSet::updateWeaponSet: unless WeaponLockSharedAcrossSets,
-    /// release permanent lock and return to PRIMARY.
-    fn release_weapon_lock_on_set_change(&mut self) {
+    /// C++ WeaponSet::updateWeaponSet: unless the incoming set has
+    /// WeaponLockSharedAcrossSets, release permanent lock and return to PRIMARY.
+    pub(in crate::game_logic::object) fn release_weapon_lock_on_set_change(&mut self) {
         if self.thing.template.weapon_lock_shared_across_sets {
             return;
         }
         self.release_weapon_lock(WeaponLockType::LockedPermanently);
         self.set_active_weapon_slot(0);
+    }
+
+    /// C++ checks `WeaponTemplateSet::isWeaponLockSharedAcrossSets` on the *new* set.
+    pub(in crate::game_logic::object) fn adopt_weapon_set_lock_share_for_condition(
+        &mut self,
+        condition: &str,
+    ) {
+        let Some(manager) = crate::assets::get_asset_manager() else {
+            return;
+        };
+        let Ok(guard) = manager.lock() else {
+            return;
+        };
+        let Some(definition) = guard.get_object_definition(&self.template_name) else {
+            return;
+        };
+        let Some(set) = definition.weapon_sets.iter().find(|set| {
+            set.conditions.iter().any(|row| {
+                row.split(|ch: char| ch.is_ascii_whitespace() || matches!(ch, ',' | '|'))
+                    .any(|token| {
+                        let token = token.trim().trim_start_matches("WEAPONSET_");
+                        token.eq_ignore_ascii_case(condition)
+                    })
+            })
+        }) else {
+            return;
+        };
+        self.thing.template.weapon_lock_shared_across_sets = set.attributes.iter().any(|(key, value)| {
+            (key.eq_ignore_ascii_case("WeaponLockSharedAcrossSets")
+                || key.eq_ignore_ascii_case("ShareWeaponLock"))
+                && matches!(
+                    value.trim().to_ascii_lowercase().as_str(),
+                    "yes" | "true" | "1"
+                )
+        });
     }
 
 
@@ -760,6 +802,11 @@ impl Object {
 
         // C++ Object::onVeterancyLevelChanged: exclusive WEAPONSET + WEAPONBONUSCONDITION.
         self.set_veterancy_weapon_set_and_bonus_flags(new_level);
+        if let Some(condition) =
+            crate::game_logic::host_unit_training::veterancy_weapon_set_condition(new_level)
+        {
+            self.adopt_weapon_set_lock_share_for_condition(condition);
+        }
         self.release_weapon_lock_on_set_change();
         let rebound_authored = self.try_bind_authored_veterancy_weapon_set(new_level);
 

@@ -86,24 +86,37 @@ pub fn host_prefire_type_for_weapon_name(name: &str) -> HostPrefireType {
     seed_prefire_type_for(name)
 }
 
-/// C++ DelayBetweenShots as host seconds (frames / 30).
-pub fn host_delay_between_shots_secs(name: &str) -> Option<f32> {
+/// Deterministic DelayBetweenShots yardstick in host seconds (frames / 30).
+///
+/// C++ stores `m_whenWeCanFireAgain` from a single `getDelayBetweenShots`
+/// draw. Live ready-checks recompute `now - last_fire >= interval`, so this
+/// must not roll — fire stamps the draw onto `last_fire_time`.
+pub fn host_delay_between_shots_secs_nominal(name: &str) -> Option<f32> {
     use gamelogic::weapon::with_weapon_store;
     let _ = ensure_host_weapon_store();
     with_weapon_store(|store| {
         store.find_weapon_template(name).and_then(|wt| {
-            let between = wt.min_delay_between_shots.max(0) as f32;
-            let clip = wt.max_delay_between_shots.max(0) as f32;
-            let frames = if wt.clip_size > 0 {
-                if between > 0.0 {
-                    between
-                } else {
-                    clip
-                }
-            } else {
-                between.max(clip)
-            };
-            (frames > 0.0).then_some(frames / 30.0)
+            let min = wt.min_delay_between_shots;
+            let max = wt.max_delay_between_shots;
+            let frames = if min > 0 { min } else { max };
+            (frames > 0).then_some(frames as f32 / 30.0)
+        })
+    })
+    .ok()
+    .flatten()
+}
+
+/// C++ `WeaponTemplate::getDelayBetweenShots` as host seconds (frames / 30).
+/// Inclusive GameLogicRandomValue when Min != Max. RATE_OF_FIRE is applied by
+/// the caller (`live_reload_interval` / fire stamp).
+pub fn host_delay_between_shots_secs(name: &str) -> Option<f32> {
+    use gamelogic::weapon::{with_weapon_store, WeaponBonus};
+    let _ = ensure_host_weapon_store();
+    with_weapon_store(|store| {
+        store.find_weapon_template(name).and_then(|wt| {
+            // Leftover already matches Weapon.cpp:475-490.
+            let frames = wt.get_delay_between_shots(&WeaponBonus::new());
+            (frames > 0).then_some(frames as f32 / 30.0)
         })
     })
     .ok()
@@ -113,32 +126,16 @@ pub fn host_delay_between_shots_secs(name: &str) -> Option<f32> {
 /// C++ WeaponTemplate::getDelayBetweenShots frame draw before RATE_OF_FIRE.
 /// Inclusive GameLogicRandomValue when Min != Max.
 pub fn delay_between_shots_frames(min_frames: i32, max_frames: i32) -> i32 {
-    let min = min_frames.max(0);
-    let max = max_frames.max(0);
-    if min == max {
-        min
+    if min_frames == max_frames {
+        min_frames
     } else {
-        let lo = min.min(max);
-        let hi = min.max(max);
-        gamelogic::helpers::get_game_logic_random_value(lo, hi)
+        gamelogic::helpers::get_game_logic_random_value(min_frames, max_frames)
     }
 }
 
 /// Per-shot DelayBetweenShots in host seconds (frames / 30), rolled when Min != Max.
 pub fn host_delay_between_shots_secs_rolled(name: &str) -> Option<f32> {
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
-    with_weapon_store(|store| {
-        store.find_weapon_template(name).and_then(|wt| {
-            let frames = delay_between_shots_frames(
-                wt.min_delay_between_shots,
-                wt.max_delay_between_shots,
-            );
-            (frames > 0).then_some(frames as f32 / 30.0)
-        })
-    })
-    .ok()
-    .flatten()
+    host_delay_between_shots_secs(name)
 }
 
 

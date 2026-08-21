@@ -27,7 +27,7 @@
 //!   `GLABikerKellSniperRifle` Delay **750**ms → **23**f (not auto-applied on foot)
 //!
 //! Fail-closed honesty:
-//! - Not full SECONDARY AutoChooseSources=NONE pilot-sniper WeaponSet chooser matrix
+//! - SECONDARY AutoChooseSources=NONE is honored by the live chooser
 //! - Not full StealthUpdate / Camouflage / Science prereq residual matrix
 //! - Not full biker sniper Delay 750ms when dismounted (infantry stays 1000ms)
 //! - Not network sniper / AP Bullets replication (network deferred)

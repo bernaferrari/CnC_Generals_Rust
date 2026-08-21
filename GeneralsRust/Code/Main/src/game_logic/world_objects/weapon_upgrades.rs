@@ -1354,6 +1354,7 @@ impl GameLogic {
             obj.apply_upgrade_tag(upgrade_name);
             // Canonical retail name tag for ability checks.
             obj.apply_upgrade_tag(crate::game_logic::host_upgrades::UPGRADE_AMERICA_FLASHBANG);
+            let _ = obj.set_weapon_set_flag(0, true);
             affected = affected.saturating_add(1);
         }
         affected
@@ -1398,6 +1399,7 @@ impl GameLogic {
             }
             obj.apply_upgrade_tag(upgrade_name);
             obj.apply_upgrade_tag(crate::game_logic::host_upgrades::UPGRADE_AMERICA_TOW);
+            let _ = obj.set_weapon_set_flag(0, true);
             affected = affected.saturating_add(1);
         }
         affected
@@ -1510,9 +1512,8 @@ impl GameLogic {
             let _ = obj.replace_weapon_set_slot(2, Some(tertiary.clone()));
             obj.apply_upgrade_tag(upgrade_name);
             obj.apply_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS);
-            // Host residual: PLAYER_UPGRADE weapon set flag for presentation honesty.
-            obj.weapon_set_player_upgrade = true;
-            obj.record_host_weapon_set();
+            // C++ WeaponSetUpgrade → setWeaponSetFlag(WEAPONSET_PLAYER_UPGRADE).
+            let _ = obj.set_weapon_set_flag(0, true);
             affected = affected.saturating_add(1);
         }
         affected
@@ -1547,8 +1548,7 @@ impl GameLogic {
             }
             obj.apply_upgrade_tag(upgrade_name);
             obj.apply_upgrade_tag(UPGRADE_AMERICA_SENTRY_DRONE_GUN);
-            obj.weapon_set_player_upgrade = true;
-            obj.record_host_weapon_set();
+            let _ = obj.set_weapon_set_flag(0, true);
             affected = affected.saturating_add(1);
         }
         affected

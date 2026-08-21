@@ -639,11 +639,9 @@ impl ScriptActionDispatcher {
         &mut self,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
-        // Wave 284: empty dual-world → no-op success.
-        if dual_world_registry_unavailable() {
-            return Ok(ScriptActionResult::Success);
-        }
-
+        // C++ ScriptActions::doGuardSupplyCenter:
+        // Team *team = getTeamNamed; Player *player = team->getControllingPlayer();
+        // player->guardSupplyCenter(team, supplies).
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         let min_supplies = self.get_int_param(action, 1)?;
         log::debug!(
@@ -652,122 +650,30 @@ impl ScriptActionDispatcher {
             min_supplies
         );
 
-        let team_arc = self.get_team_by_name(&team_name)?;
-        let (members, controlling_player_id) = if let Ok(team) = team_arc.read() {
-            (
-                team.get_members().to_vec(),
-                team.get_controlling_player_id(),
-            )
-        } else {
-            (Vec::new(), None)
+        if dual_world_registry_unavailable() {
+            // Live host never populates leftover OBJECT_REGISTRY / leftover AI.
+            super::request_host_guard_supply_center(&team_name, min_supplies);
+            return Ok(ScriptActionResult::Success);
+        }
+
+        let Ok(team_arc) = self.get_team_by_name(&team_name) else {
+            return Ok(ScriptActionResult::Success);
         };
-        if members.is_empty() {
+        let controlling_player_id = team_arc
+            .read()
+            .ok()
+            .and_then(|team| team.get_controlling_player_id());
+        let Some(player_id) = controlling_player_id else {
             return Ok(ScriptActionResult::Success);
-        }
-
-        let anchor = members
-            .iter()
-            .find_map(|&id| {
-                TheGameLogic::find_object_by_id(id)
-                    .and_then(|o| o.read().ok().map(|g| *g.get_position()))
+        };
+        let _ = with_ai_integration_mut(|manager| {
+            manager.with_ai_player_mut(player_id, |ai_player| {
+                let _ = ai_player.guard_supply_center(&team_name, min_supplies);
             })
-            .unwrap_or(Coord3D::new(0.0, 0.0, 0.0));
-
-        let base_box_value = global_data::read_safe()
-            .map(|d| d.base_value_per_supply_box.max(1))
-            .unwrap_or(1) as i32;
-
-        let controlling_player = controlling_player_id.and_then(|id| {
-            player_list()
-                .read()
-                .ok()
-                .and_then(|list| list.get_player(id as i32).cloned())
         });
-
-        // Host path: empty dual-world registry → no supply-center guard residual.
-        if OBJECT_REGISTRY.is_empty() {
-            return Ok(ScriptActionResult::Success);
-        }
-        let mut best_target: Option<(f32, ObjectID)> = None;
-        for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
-            let obj_arc = match OBJECT_REGISTRY.get_object(obj_id) {
-                Some(v) => v,
-                None => continue,
-            };
-            let Ok(obj) = obj_arc.read() else {
-                continue;
-            };
-            if obj.is_destroyed() || obj.is_off_map() {
-                continue;
-            }
-            if !obj.is_kind_of(crate::common::KindOf::SupplySource)
-                && !obj.is_kind_of(crate::common::KindOf::ResourceNode)
-                && !obj.is_kind_of(crate::common::KindOf::FSSupplyCenter)
-            {
-                continue;
-            }
-
-            if let (Some(owner_id), Some(controller_arc)) =
-                (obj.get_controlling_player_id(), controlling_player.as_ref())
-            {
-                if let Some(owner_arc) = player_list()
-                    .read()
-                    .ok()
-                    .and_then(|list| list.get_player(owner_id as i32).cloned())
-                {
-                    if let (Ok(controller), Ok(owner)) = (controller_arc.read(), owner_arc.read()) {
-                        if controller.get_relationship(&owner) == Relationship::Enemies {
-                            continue;
-                        }
-                    }
-                }
-            }
-
-            let mut supply_value = i32::MAX;
-            if let Some(module) = obj.find_update_module("SupplyWarehouseDockUpdate") {
-                let mut boxes = None;
-                module.with_module(|module| {
-                    if let Some(warehouse) = module.get_supply_warehouse_dock_interface() {
-                        boxes = Some(warehouse.boxes_stored());
-                    }
-                });
-                if let Some(boxes) = boxes {
-                    supply_value = boxes.saturating_mul(base_box_value);
-                }
-            }
-            if min_supplies > 0 && supply_value < min_supplies {
-                continue;
-            }
-
-            let pos = obj.get_position();
-            let dx = pos.x - anchor.x;
-            let dy = pos.y - anchor.y;
-            let dist_sq = dx * dx + dy * dy;
-            match best_target {
-                Some((best_dist, _)) if dist_sq >= best_dist => {}
-                _ => best_target = Some((dist_sq, obj.get_id())),
-            }
-        }
-
-        if let Some((_, target_id)) = best_target {
-            let group_arc = self.create_ai_group_from_team(&team_name)?;
-            if let Ok(mut group) = group_arc.write() {
-                let mut params =
-                    AiCommandParams::new(AiCommandType::GuardObject, CommandSourceType::FromScript);
-                params.obj = Some(target_id);
-                params.int_value = GuardMode::Normal.as_i32();
-                let _ = group.ai_do_command(&params);
-            };
-        } else {
-            log::debug!(
-                "No qualifying supply center found for '{}'; falling back to TeamGuard",
-                team_name
-            );
-            let _ = self.do_team_guard(action);
-        }
-
         Ok(ScriptActionResult::Success)
     }
+
 
     pub(crate) fn do_team_guard_in_tunnel_network(
         &mut self,

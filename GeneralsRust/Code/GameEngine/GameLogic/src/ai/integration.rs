@@ -271,6 +271,23 @@ impl IntegratedAiPlayer {
         }
     }
 
+    /// C++ `Player::guardSupplyCenter` → `AIPlayer::guardSupplyCenter`.
+    pub fn guard_supply_center(
+        &mut self,
+        team_name: &str,
+        min_supplies: i32,
+    ) -> Result<(), AiError> {
+        match self {
+            IntegratedAiPlayer::Standard(player) => {
+                player.guard_supply_center(team_name, min_supplies)
+            }
+            IntegratedAiPlayer::Skirmish(player) => {
+                player.guard_supply_center(team_name, min_supplies)
+            }
+        }
+    }
+
+
     pub fn xfer(&mut self, xfer: &mut dyn Xfer) {
         match self {
             IntegratedAiPlayer::Standard(player) => player.xfer(xfer),
@@ -326,6 +343,22 @@ impl IntegratedAiPlayer {
             }
             IntegratedAiPlayer::Skirmish(player) => {
                 player.build_specific_building_nearest_team(thing_name, &team_name)
+            }
+        }
+    }
+
+    /// C++ `AIPlayer::buildSpecificBuildingNearestTeam` by team instance name.
+    pub fn build_specific_building_nearest_team_by_name(
+        &mut self,
+        thing_name: &str,
+        team_name: &str,
+    ) -> Result<(), AiError> {
+        match self {
+            IntegratedAiPlayer::Standard(player) => {
+                player.build_specific_building_nearest_team(thing_name, team_name)
+            }
+            IntegratedAiPlayer::Skirmish(player) => {
+                player.build_specific_building_nearest_team(thing_name, team_name)
             }
         }
     }

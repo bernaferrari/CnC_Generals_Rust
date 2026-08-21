@@ -399,13 +399,16 @@ impl ScriptActionDispatcher {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         let comparison = self.get_int_param(action, 1)?;
         let value = self.get_int_param(action, 2)?;
+        if dual_world_registry_unavailable() {
+            super::request_host_skirmish_attack_nearest_group(&team_name, comparison, value);
+            return Ok(ScriptActionResult::Success);
+        }
         log::debug!(
             "Skirmish team '{}' attacking nearest group with comparison {} value {}",
             team_name,
             comparison,
             value
         );
-
         let group_arc = self.create_ai_group_from_team(&team_name)?;
 
         let team_arc = self.get_team_by_name(&team_name)?;
@@ -494,6 +497,14 @@ impl ScriptActionDispatcher {
         let ability = self.get_string_param(action, 1)?;
         let range = self.get_real_param(action, 2)?;
         let _all_team_members = self.get_bool_param_optional(action, 3).unwrap_or(false);
+        if dual_world_registry_unavailable() {
+            super::request_host_skirmish_command_button_most_valuable(
+                &team_name,
+                &ability,
+                range,
+            );
+            return Ok(ScriptActionResult::Success);
+        }
 
         log::debug!(
             "Skirmish team '{}' performing command '{}' on most valuable object (range {})",
@@ -677,6 +688,12 @@ impl ScriptActionDispatcher {
             building_type,
             cash
         );
+        if dual_world_registry_unavailable() {
+            // Host never registers crate AiIntegrationManager players.
+            // C++ Player::buildBySupplies → AIPlayer::buildBySupplies.
+            super::request_host_ai_player_build_supply_center(&player_name, &building_type, cash);
+            return Ok(ScriptActionResult::Success);
+        }
         let building = building_type.clone();
         self.with_named_player_ai(&player_name, |ai_player| {
             let _ = ai_player.build_by_supplies(cash, &building);
@@ -695,6 +712,11 @@ impl ScriptActionDispatcher {
             player_name,
             upgrade_name
         );
+        if dual_world_registry_unavailable() {
+            // C++ Player::buildUpgrade → AIPlayer::buildUpgrade.
+            super::request_host_ai_player_build_upgrade(&player_name, &upgrade_name);
+            return Ok(ScriptActionResult::Success);
+        }
         let upgrade = upgrade_name.clone();
         self.with_named_player_ai(&player_name, |ai_player| {
             let _ = ai_player.build_upgrade(&upgrade);
@@ -715,25 +737,21 @@ impl ScriptActionDispatcher {
             build_type,
             team_name
         );
-
-        let team_factory = get_team_factory();
-        let team_arc = team_factory
-            .lock()
-            .ok()
-            .and_then(|mut factory| factory.find_team(&team_name));
-        let Some(team_arc) = team_arc else {
+        if dual_world_registry_unavailable() {
+            // C++ doBuildObjectNearestTeam → Player::buildSpecificBuildingNearestTeam.
+            // Leftover team factory has no live members on the host path.
+            super::request_host_ai_player_build_type_nearest_team(
+                &player_name,
+                &build_type,
+                &team_name,
+            );
             return Ok(ScriptActionResult::Success);
-        };
-        let Ok(team_guard) = team_arc.read() else {
-            return Ok(ScriptActionResult::Success);
-        };
-        let Some(location) = team_guard.get_estimate_team_position() else {
-            return Ok(ScriptActionResult::Success);
-        };
+        }
 
         let building = build_type.clone();
+        let team = team_name.clone();
         self.with_named_player_ai(&player_name, |ai_player| {
-            let _ = ai_player.build_specific_building_near_location(&building, location);
+            let _ = ai_player.build_specific_building_nearest_team_by_name(&building, &team);
         });
         Ok(ScriptActionResult::Success)
     }

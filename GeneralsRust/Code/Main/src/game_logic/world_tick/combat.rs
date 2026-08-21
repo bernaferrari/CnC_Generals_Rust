@@ -194,18 +194,26 @@ impl GameLogic {
                 .map(|t| t.is_faerie_fire())
                 .unwrap_or(false);
 
-            // Any slot ready on reload timer? If all reloading, skip (no chase).
+            // Any auto-legal slot ready on reload timer? Button-only
+            // AutoChooseSources=NONE secondaries (Jarmen snipe / MD laser)
+            // must not keep the cycle alive or the chooser will either
+            // auto-fire them or fall through to chase.
+            let secondary_explicit = attacker.active_weapon_slot == 1
+                || (attacker.weapon_lock_type != WeaponLockType::NotLocked
+                    && attacker.weapon_lock_slot == 1);
             let tertiary_explicit = attacker.active_weapon_slot == 2
                 || (attacker.weapon_lock_type != WeaponLockType::NotLocked
                     && attacker.weapon_lock_slot == 2);
             let any_ready = attacker.weapon_slot(0).is_some_and(|w| {
                 Object::weapon_ready_vs_target(w, current_time, target_has_faerie)
-            }) || attacker.secondary_weapon.as_ref().is_some_and(|w| {
-                Object::weapon_ready_vs_target(w, current_time, target_has_faerie)
-            }) || (tertiary_explicit
-                && attacker.tertiary_weapon.as_ref().is_some_and(|w| {
+            }) || ((secondary_explicit || attacker.thing.template.slot_allows_auto_choose(1))
+                && attacker.secondary_weapon.as_ref().is_some_and(|w| {
                     Object::weapon_ready_vs_target(w, current_time, target_has_faerie)
-                }));
+                }))
+                || (tertiary_explicit
+                    && attacker.tertiary_weapon.as_ref().is_some_and(|w| {
+                        Object::weapon_ready_vs_target(w, current_time, target_has_faerie)
+                    }));
             if !any_ready {
                 continue;
             }
@@ -3013,7 +3021,7 @@ impl GameLogic {
                     if let Some(tid) = attacker.target {
                         attacker.record_shot_at_target(tid);
                         attacker.stamp_continuous_fire_coast(self.frame);
-                        attacker.stamp_auto_reload_when_idle(self.frame);
+                        attacker.stamp_auto_reload_when_idle_from_slot(slot, self.frame);
                     }
                     // C++ STEALTH_NOT_WHILE_ATTACKING residual: combat fire breaks stealth.
                     if attacker.stealth_breaks_on_attack && attacker.status.stealthed {

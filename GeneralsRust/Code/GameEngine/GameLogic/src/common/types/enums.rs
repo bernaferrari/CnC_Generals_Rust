@@ -460,6 +460,7 @@ pub enum WeaponStatus {
 
 /// Pathfind layer enum (matching C++ PathfindLayerEnum)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum PathfindLayerEnum {
     Invalid = 0,
     Ground = 1,
@@ -468,11 +469,21 @@ pub enum PathfindLayerEnum {
     Bridge2 = 4,
     Bridge3 = 5,
     Bridge4 = 6,
-    Wall = 7,
-    Tunnel = 8,
-    Water = 9,
-    Air = 10,
-    Last = 11, // Used for array bounds
+    Bridge5 = 7,
+    Bridge6 = 8,
+    Bridge7 = 9,
+    Bridge8 = 10,
+    Bridge9 = 11,
+    Bridge10 = 12,
+    Bridge11 = 13,
+    Bridge12 = 14,
+    /// C++ `LAYER_WALL = 15`.
+    Wall = 15,
+    /// Leftover extras — not present in C++ PathfindLayerEnum.
+    Tunnel = 16,
+    Water = 17,
+    Air = 18,
+    Last = 19,
 }
 
 impl PathfindLayerEnum {
@@ -485,11 +496,19 @@ impl PathfindLayerEnum {
             4 => PathfindLayerEnum::Bridge2,
             5 => PathfindLayerEnum::Bridge3,
             6 => PathfindLayerEnum::Bridge4,
-            7 => PathfindLayerEnum::Wall,
-            8 => PathfindLayerEnum::Tunnel,
-            9 => PathfindLayerEnum::Water,
-            10 => PathfindLayerEnum::Air,
-            11 => PathfindLayerEnum::Last,
+            7 => PathfindLayerEnum::Bridge5,
+            8 => PathfindLayerEnum::Bridge6,
+            9 => PathfindLayerEnum::Bridge7,
+            10 => PathfindLayerEnum::Bridge8,
+            11 => PathfindLayerEnum::Bridge9,
+            12 => PathfindLayerEnum::Bridge10,
+            13 => PathfindLayerEnum::Bridge11,
+            14 => PathfindLayerEnum::Bridge12,
+            15 => PathfindLayerEnum::Wall,
+            16 => PathfindLayerEnum::Tunnel,
+            17 => PathfindLayerEnum::Water,
+            18 => PathfindLayerEnum::Air,
+            19 => PathfindLayerEnum::Last,
             _ => PathfindLayerEnum::Invalid,
         }
     }

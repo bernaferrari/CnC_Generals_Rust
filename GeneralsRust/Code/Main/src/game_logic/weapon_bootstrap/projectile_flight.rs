@@ -487,15 +487,7 @@ pub fn bridge_deck_detonate_pose(pos: Vec3, old_layer: u8, armed: bool) -> Optio
     if test_layer != old_layer {
         return Some((pos, new_layer));
     }
-    let layer = match old_layer {
-        2 => gamelogic::common::PathfindLayerEnum::Top,
-        3 => gamelogic::common::PathfindLayerEnum::Bridge1,
-        4 => gamelogic::common::PathfindLayerEnum::Bridge2,
-        5 => gamelogic::common::PathfindLayerEnum::Bridge3,
-        6 => gamelogic::common::PathfindLayerEnum::Bridge4,
-        7 => gamelogic::common::PathfindLayerEnum::Wall,
-        _ => gamelogic::common::PathfindLayerEnum::Ground,
-    };
+    let layer = gamelogic::common::PathfindLayerEnum::from_u32(old_layer as u32);
     let height = terrain.get_layer_height(test.x, test.y, layer) + BRIDGE_DECK_FUDGE;
     let mut snapped = pos;
     snapped.y = height;

@@ -4002,4 +4002,101 @@ fn build_team_queues_host_when_dual_world_empty() {
     get_team_factory().lock().unwrap().reset();
 }
 
+#[test]
+fn ai_player_build_actions_queue_host_when_dual_world_empty() {
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    let _ = take_host_ai_player_build_supply_center_requests();
+    let _ = take_host_ai_player_build_upgrade_requests();
+    let _ = take_host_ai_player_build_type_nearest_team_requests();
+
+    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+
+    let mut supply = ScriptAction::new(ScriptActionType::AiPlayerBuildSupplyCenter);
+    supply
+        .add_parameter(Parameter::with_string(
+            ParameterType::Side,
+            "PlyrAmerica".into(),
+        ))
+        .unwrap();
+    supply
+        .add_parameter(Parameter::with_string(
+            ParameterType::ObjectType,
+            "AmericaSupplyCenter".into(),
+        ))
+        .unwrap();
+    supply
+        .add_parameter(Parameter::with_int(ParameterType::Int, 1000))
+        .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&supply).unwrap(),
+        ScriptActionResult::Success
+    );
+
+    let mut upgrade = ScriptAction::new(ScriptActionType::AiPlayerBuildUpgrade);
+    upgrade
+        .add_parameter(Parameter::with_string(
+            ParameterType::Side,
+            "PlyrAmerica".into(),
+        ))
+        .unwrap();
+    upgrade
+        .add_parameter(Parameter::with_string(
+            ParameterType::Upgrade,
+            "Upgrade_AmericaSupplyLines".into(),
+        ))
+        .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&upgrade).unwrap(),
+        ScriptActionResult::Success
+    );
+
+    let mut nearest = ScriptAction::new(ScriptActionType::AiPlayerBuildTypeNearestTeam);
+    nearest
+        .add_parameter(Parameter::with_string(
+            ParameterType::Side,
+            "PlyrAmerica".into(),
+        ))
+        .unwrap();
+    nearest
+        .add_parameter(Parameter::with_string(
+            ParameterType::ObjectType,
+            "AmericaPatriotBattery".into(),
+        ))
+        .unwrap();
+    nearest
+        .add_parameter(Parameter::with_string(
+            ParameterType::Team,
+            "USA_RangerSquad".into(),
+        ))
+        .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&nearest).unwrap(),
+        ScriptActionResult::Success
+    );
+
+    assert_eq!(
+        take_host_ai_player_build_supply_center_requests(),
+        vec![(
+            "PlyrAmerica".to_string(),
+            "AmericaSupplyCenter".to_string(),
+            1000
+        )]
+    );
+    assert_eq!(
+        take_host_ai_player_build_upgrade_requests(),
+        vec![(
+            "PlyrAmerica".to_string(),
+            "Upgrade_AmericaSupplyLines".to_string()
+        )]
+    );
+    assert_eq!(
+        take_host_ai_player_build_type_nearest_team_requests(),
+        vec![(
+            "PlyrAmerica".to_string(),
+            "AmericaPatriotBattery".to_string(),
+            "USA_RangerSquad".to_string()
+        )]
+    );
+}
+
 

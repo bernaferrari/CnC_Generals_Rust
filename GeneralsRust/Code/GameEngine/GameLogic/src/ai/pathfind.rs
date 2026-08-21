@@ -1100,16 +1100,12 @@ pub enum PathfindLayerEnum {
 impl From<crate::path::PathfindLayerEnum> for PathfindLayerEnum {
     fn from(layer: crate::path::PathfindLayerEnum) -> Self {
         match layer {
-            crate::path::PathfindLayerEnum::Top
-            | crate::path::PathfindLayerEnum::Bridge1
-            | crate::path::PathfindLayerEnum::Bridge2
-            | crate::path::PathfindLayerEnum::Bridge3
-            | crate::path::PathfindLayerEnum::Bridge4 => PathfindLayerEnum::Top,
             crate::path::PathfindLayerEnum::Wall => PathfindLayerEnum::Wall,
             crate::path::PathfindLayerEnum::Ground => PathfindLayerEnum::Ground,
             crate::path::PathfindLayerEnum::Invalid | crate::path::PathfindLayerEnum::Last => {
                 PathfindLayerEnum::Invalid
             }
+            _ => PathfindLayerEnum::Top,
         }
     }
 }

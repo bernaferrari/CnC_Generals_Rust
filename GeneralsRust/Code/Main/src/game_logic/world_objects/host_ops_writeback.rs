@@ -1496,9 +1496,10 @@ impl GameLogic {
         std::array::from_fn(|index| {
             let slot = u8::try_from(index).ok()?;
             let weapon = object.weapon_slot(slot)?;
-            let shots_remaining = if slot == object.active_weapon_slot
-                && object.weapon_fire_status
-                    == crate::game_logic::object::WeaponFireStatus::ReloadingClip
+            let shots_remaining = if weapon.reloading_clip
+                || (slot == object.active_weapon_slot
+                    && object.weapon_fire_status
+                        == crate::game_logic::object::WeaponFireStatus::ReloadingClip)
             {
                 0
             } else {

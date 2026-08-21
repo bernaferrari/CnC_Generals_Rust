@@ -296,17 +296,72 @@ impl GameLogic {
         gamelogic::scripting::set_host_script_query_snapshot(snap);
     }
 
+    /// C++ `Player::isSupplySourceAttacked` / `isSupplySourceSafe` for leftover
+    /// conditions when crate `OBJECT_REGISTRY` is empty.
+    fn inject_host_supply_source_queries(&mut self) {
+        let mut attacked = std::collections::HashMap::new();
+        let mut cash_map = std::collections::HashMap::new();
+        let mut safe_map = std::collections::HashMap::new();
+        let mut ai_mgr = std::mem::take(&mut self.ai_manager);
+        let player_rows: Vec<(u32, String, crate::game_logic::Team)> = self
+            .players
+            .values()
+            .map(|p| (p.id, p.name.clone(), p.team))
+            .collect();
+        for (pid, name, team) in player_rows {
+            let key = name.trim().to_ascii_lowercase();
+            if key.is_empty() {
+                continue;
+            }
+            let Some(ai) = ai_mgr.ai_players.get_mut(&pid) else {
+                continue;
+            };
+            let is_attacked = ai.is_supply_source_attacked(self);
+            let warehouse = ai.find_supply_center(self, 0);
+            let (cash, location_safe) = match warehouse.and_then(|id| self.host_object(id)) {
+                Some(obj) => {
+                    let pos = obj.get_position();
+                    let cash = obj.stored_resources.supplies as i32;
+                    let enemy_near = self.host_objects().values().any(|other| {
+                        other.is_alive()
+                            && other.team != team
+                            && other.team != crate::game_logic::Team::Neutral
+                            && other.is_mobile()
+                            && (other.get_position() - pos).length_squared() <= 150.0 * 150.0
+                    });
+                    (cash, !enemy_near)
+                }
+                None => (-1, true),
+            };
+            attacked.insert(key.clone(), is_attacked);
+            cash_map.insert(key.clone(), cash);
+            safe_map.insert(key, location_safe);
+        }
+        self.ai_manager = ai_mgr;
+        gamelogic::scripting::merge_host_script_query_snapshot(|snap| {
+            snap.supply_source_attacked = attacked;
+            snap.supply_center_cash = cash_map;
+            snap.supply_center_location_safe = safe_map;
+        });
+    }
+
     /// Leftover `OBJECT_REGISTRY` is empty on the live path. Script actions
     /// queue named SW / priority-build requests for host AIPlayer.
-    fn apply_host_skirmish_script_requests(&mut self) {
+    pub fn apply_host_skirmish_script_requests(&mut self) {
         let fires = gamelogic::scripting::take_host_skirmish_fire_special_requests();
         let builds = gamelogic::scripting::take_host_skirmish_build_requests();
+        let supply_centers = gamelogic::scripting::take_host_ai_player_build_supply_center_requests();
+        let upgrades = gamelogic::scripting::take_host_ai_player_build_upgrade_requests();
+        let nearest = gamelogic::scripting::take_host_ai_player_build_type_nearest_team_requests();
         let cave_indexes = gamelogic::scripting::take_host_set_cave_index_requests();
         let unit_flags = gamelogic::scripting::take_host_object_panel_flag_requests();
         let team_flags = gamelogic::scripting::take_host_team_panel_flag_requests();
         let sciences = gamelogic::scripting::take_host_science_action_requests();
         if fires.is_empty()
             && builds.is_empty()
+            && supply_centers.is_empty()
+            && upgrades.is_empty()
+            && nearest.is_empty()
             && cave_indexes.is_empty()
             && unit_flags.is_empty()
             && team_flags.is_empty()
@@ -320,6 +375,20 @@ impl GameLogic {
         }
         for thing_name in builds {
             let _ = ai_mgr.build_specific_ai_building_for_token(self, "", &thing_name);
+        }
+        for (player_token, thing_name, cash) in supply_centers {
+            let _ = ai_mgr.build_by_supplies_for_token(self, &player_token, cash, &thing_name);
+        }
+        for (player_token, upgrade_name) in upgrades {
+            let _ = ai_mgr.build_upgrade_for_token(self, &player_token, &upgrade_name);
+        }
+        for (player_token, thing_name, team_name) in nearest {
+            let _ = ai_mgr.build_specific_building_nearest_team_for_token(
+                self,
+                &player_token,
+                &thing_name,
+                &team_name,
+            );
         }
         self.ai_manager = ai_mgr;
         for (cave_name, index) in cave_indexes {
@@ -490,6 +559,115 @@ impl GameLogic {
             }
         }
     }
+
+    /// C++ `ScriptActions::doGuardSupplyCenter` live drain.
+    fn apply_host_guard_supply_center_script_requests(&mut self) {
+        let requests = gamelogic::scripting::take_host_guard_supply_center_requests();
+        if requests.is_empty() {
+            return;
+        }
+        let mut ai_mgr = std::mem::take(&mut self.ai_manager);
+        for (team_name, min_supplies) in requests {
+            let _ = ai_mgr.guard_supply_center_for_team(self, &team_name, min_supplies);
+        }
+        self.ai_manager = ai_mgr;
+    }
+
+    /// C++ SKIRMISH_ATTACK_NEAREST_GROUP_WITH_VALUE /
+    /// SKIRMISH_PERFORM_COMMANDBUTTON_ON_MOST_VALUABLE_OBJECT.
+    fn apply_host_skirmish_fight_script_requests(&mut self) {
+        let attacks = gamelogic::scripting::take_host_skirmish_attack_nearest_group_requests();
+        for (team, comparison, value) in attacks {
+            let members = self.host_script_team_member_ids(&team);
+            if members.is_empty() {
+                continue;
+            }
+            let mut cx = 0.0;
+            let mut cz = 0.0;
+            let mut n = 0.0;
+            for id in &members {
+                if let Some(obj) = self.objects.get(id) {
+                    let p = obj.get_position();
+                    cx += p.x;
+                    cz += p.z;
+                    n += 1.0;
+                }
+            }
+            if n <= 0.0 {
+                continue;
+            }
+            let origin = glam::Vec3::new(cx / n, 0.0, cz / n);
+            let attacker_team = self
+                .objects
+                .get(&members[0])
+                .map(|o| o.team)
+                .unwrap_or(crate::game_logic::Team::Neutral);
+            let mut dest = origin;
+            if matches!(comparison, 3 | 4) {
+                let mut best: Option<(f32, glam::Vec3)> = None;
+                for obj in self.objects.values() {
+                    if !obj.is_alive() || obj.team == attacker_team || obj.team == crate::game_logic::Team::Neutral {
+                        continue;
+                    }
+                    let cost = obj.thing.template.build_cost.supplies as i32;
+                    if cost < value {
+                        continue;
+                    }
+                    let pos = obj.get_position();
+                    let d = (pos - origin).length_squared();
+                    if best.map(|(bd, _)| d < bd).unwrap_or(true) {
+                        best = Some((d, pos));
+                    }
+                }
+                if let Some((_, pos)) = best {
+                    dest = pos;
+                }
+            }
+            for id in members {
+                let _ = self.unit_command_attack_move_to(id, dest);
+            }
+        }
+
+        let buttons = gamelogic::scripting::take_host_skirmish_command_button_most_valuable_requests();
+        for (team, ability, range) in buttons {
+            let members = self.host_script_team_member_ids(&team);
+            if members.is_empty() {
+                continue;
+            }
+            let attacker_team = self
+                .objects
+                .get(&members[0])
+                .map(|o| o.team)
+                .unwrap_or(crate::game_logic::Team::Neutral);
+            let range2 = range.max(0.0) * range.max(0.0);
+            let mut best: Option<(i32, crate::game_logic::ObjectId, crate::game_logic::ObjectId)> =
+                None;
+            for sid in &members {
+                let Some(src) = self.objects.get(sid) else {
+                    continue;
+                };
+                let spos = src.get_position();
+                for (tid, tgt) in &self.objects {
+                    if *tid == *sid || !tgt.is_alive() || tgt.team == attacker_team {
+                        continue;
+                    }
+                    if (tgt.get_position() - spos).length_squared() > range2 {
+                        continue;
+                    }
+                    let cost = tgt.thing.template.build_cost.supplies as i32;
+                    if best.map(|(c, _, _)| cost > c).unwrap_or(true) {
+                        best = Some((cost, *sid, *tid));
+                    }
+                }
+            }
+            if let Some((_, sid, tid)) = best {
+                let _ = ability;
+                let _ = self.unit_command_force_attack(sid, tid);
+            }
+        }
+    }
+
+
 
     fn host_script_coord_to_world(x: f32, y: f32, z: f32) -> glam::Vec3 {
         // Generals Coord3D: (x,y) map plane, z = height.
@@ -713,7 +891,7 @@ impl GameLogic {
             }
         }
         if let Some(vid) = self.host_script_nearest_team_victim(unit_id, victim_team) {
-            let _ = self.unit_command_attack_soft(unit_id, vid);
+            let _ = self.unit_command_attack(unit_id, vid);
             if let Some(team) = Self::resolve_host_team_name(victim_team) {
                 if team != crate::game_logic::Team::Neutral {
                     if let Some(unit) = self.objects.get_mut(&unit_id) {
@@ -763,6 +941,7 @@ impl GameLogic {
         // Host script path: named-unit/team/area queries hit HOST objects.
         // Crate evaluator sees the name→id map + query snapshot (no crate Objects).
         self.inject_host_named_unit_map_into_crate_tracker();
+        self.inject_host_supply_source_queries();
 
         self.update_script_camera(dt * self.visual_speed_multiplier.max(0.0));
 
@@ -866,6 +1045,9 @@ impl GameLogic {
         self.apply_host_move_attack_script_requests();
         self.apply_host_create_script_requests();
         self.apply_host_team_attitude_script_requests();
+        self.apply_host_guard_supply_center_script_requests();
+        self.apply_host_skirmish_fight_script_requests();
+
 
 
 

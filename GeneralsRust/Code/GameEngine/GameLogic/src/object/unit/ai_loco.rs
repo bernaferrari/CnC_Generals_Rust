@@ -435,16 +435,12 @@ impl UnitAIUpdate {
         let terrain_layer = match layer {
             crate::common::PathfindLayerEnum::Invalid => crate::path::PathfindLayerEnum::Invalid,
             crate::common::PathfindLayerEnum::Ground => crate::path::PathfindLayerEnum::Ground,
-            crate::common::PathfindLayerEnum::Top => crate::path::PathfindLayerEnum::Top,
-            crate::common::PathfindLayerEnum::Bridge1 => crate::path::PathfindLayerEnum::Bridge1,
-            crate::common::PathfindLayerEnum::Bridge2 => crate::path::PathfindLayerEnum::Bridge2,
-            crate::common::PathfindLayerEnum::Bridge3 => crate::path::PathfindLayerEnum::Bridge3,
-            crate::common::PathfindLayerEnum::Bridge4 => crate::path::PathfindLayerEnum::Bridge4,
             crate::common::PathfindLayerEnum::Wall => crate::path::PathfindLayerEnum::Wall,
             crate::common::PathfindLayerEnum::Tunnel
             | crate::common::PathfindLayerEnum::Water
             | crate::common::PathfindLayerEnum::Air
             | crate::common::PathfindLayerEnum::Last => crate::path::PathfindLayerEnum::Ground,
+            other => crate::path::PathfindLayerEnum::from_u32(other as u32),
         };
         if let Ok(terrain) = crate::terrain::get_terrain_logic().read() {
             if layer == crate::common::PathfindLayerEnum::Wall {

@@ -63,10 +63,18 @@ pub enum PathfindLayerEnum {
     Bridge2 = 4,
     Bridge3 = 5,
     Bridge4 = 6,
-    /// C++ `LAYER_WALL = LAYER_LAST = 15`. Unnamed bridge slots are 7–14.
+    Bridge5 = 7,
+    Bridge6 = 8,
+    Bridge7 = 9,
+    Bridge8 = 10,
+    Bridge9 = 11,
+    Bridge10 = 12,
+    Bridge11 = 13,
+    Bridge12 = 14,
+    /// C++ `LAYER_WALL = LAYER_LAST = 15`. Unnamed bridge slots are 2–14.
     Wall = 15,
-    /// Kept for existing matches; C++ `LAYER_LAST` aliases `LAYER_WALL` (15).
-    Last = 8,
+    /// Leftover-only sentinel; C++ `LAYER_LAST` aliases `LAYER_WALL` (15).
+    Last = 16,
 }
 
 /// C++ `LAYER_LAST` / `LAYER_WALL`.
@@ -83,7 +91,14 @@ impl PathfindLayerEnum {
             4 => PathfindLayerEnum::Bridge2,
             5 => PathfindLayerEnum::Bridge3,
             6 => PathfindLayerEnum::Bridge4,
-            7..=14 => PathfindLayerEnum::Top,
+            7 => PathfindLayerEnum::Bridge5,
+            8 => PathfindLayerEnum::Bridge6,
+            9 => PathfindLayerEnum::Bridge7,
+            10 => PathfindLayerEnum::Bridge8,
+            11 => PathfindLayerEnum::Bridge9,
+            12 => PathfindLayerEnum::Bridge10,
+            13 => PathfindLayerEnum::Bridge11,
+            14 => PathfindLayerEnum::Bridge12,
             15 => PathfindLayerEnum::Wall,
             _ => PathfindLayerEnum::Invalid,
         }
@@ -223,13 +238,8 @@ pub fn grid_to_world(cell: &ICoord2D, layer: PathfindLayerEnum) -> Coord3D {
 
     if let Some(terrain) = crate::helpers::TheTerrainLogic::get() {
         let common_layer = match layer {
-            PathfindLayerEnum::Wall => crate::common::PathfindLayerEnum::Wall,
-            PathfindLayerEnum::Top
-            | PathfindLayerEnum::Bridge1
-            | PathfindLayerEnum::Bridge2
-            | PathfindLayerEnum::Bridge3
-            | PathfindLayerEnum::Bridge4 => crate::common::PathfindLayerEnum::Top,
-            _ => crate::common::PathfindLayerEnum::Ground,
+            PathfindLayerEnum::Last => crate::common::PathfindLayerEnum::Last,
+            other => crate::common::PathfindLayerEnum::from_u32(other as u32),
         };
         pos.z = terrain.get_layer_height(pos.x, pos.y, common_layer);
     } else {

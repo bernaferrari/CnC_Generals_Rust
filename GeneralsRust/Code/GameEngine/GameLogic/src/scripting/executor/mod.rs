@@ -114,6 +114,19 @@ thread_local! {
     static HOST_SCRIPT_CREATE_REQUESTS: RefCell<Vec<HostScriptCreateRequest>> =
         RefCell::new(Vec::new());
     static HOST_TEAM_ATTITUDE_REQUESTS: RefCell<Vec<(String, i32)>> = RefCell::new(Vec::new());
+    static HOST_AI_PLAYER_BUILD_SUPPLY_CENTER_REQUESTS: RefCell<Vec<(String, String, i32)>> =
+        RefCell::new(Vec::new());
+    static HOST_AI_PLAYER_BUILD_UPGRADE_REQUESTS: RefCell<Vec<(String, String)>> =
+        RefCell::new(Vec::new());
+    static HOST_AI_PLAYER_BUILD_TYPE_NEAREST_TEAM_REQUESTS: RefCell<Vec<(String, String, String)>> =
+        RefCell::new(Vec::new());
+    static HOST_GUARD_SUPPLY_CENTER_REQUESTS: RefCell<Vec<(String, i32)>> =
+        RefCell::new(Vec::new());
+    static HOST_SKIRMISH_ATTACK_GROUP_REQUESTS: RefCell<Vec<(String, i32, i32)>> =
+        RefCell::new(Vec::new());
+    static HOST_SKIRMISH_CMD_BUTTON_REQUESTS: RefCell<Vec<(String, String, f32)>> =
+        RefCell::new(Vec::new());
+
 
 
 
@@ -277,6 +290,98 @@ pub fn request_host_team_attitude(team_name: &str, mood: i32) {
 pub fn take_host_team_attitude_requests() -> Vec<(String, i32)> {
     HOST_TEAM_ATTITUDE_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
+
+/// Live host drain: `AI_PLAYER_BUILD_SUPPLY_CENTER` → `AIPlayer::buildBySupplies`.
+pub fn request_host_ai_player_build_supply_center(
+    player_name: &str,
+    thing_name: &str,
+    minimum_cash: i32,
+) {
+    HOST_AI_PLAYER_BUILD_SUPPLY_CENTER_REQUESTS.with(|q| {
+        q.borrow_mut().push((
+            player_name.to_string(),
+            thing_name.to_string(),
+            minimum_cash,
+        ));
+    });
+}
+
+pub fn take_host_ai_player_build_supply_center_requests() -> Vec<(String, String, i32)> {
+    HOST_AI_PLAYER_BUILD_SUPPLY_CENTER_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: `AI_PLAYER_BUILD_UPGRADE` → `AIPlayer::buildUpgrade`.
+pub fn request_host_ai_player_build_upgrade(player_name: &str, upgrade_name: &str) {
+    HOST_AI_PLAYER_BUILD_UPGRADE_REQUESTS.with(|q| {
+        q.borrow_mut()
+            .push((player_name.to_string(), upgrade_name.to_string()));
+    });
+}
+
+pub fn take_host_ai_player_build_upgrade_requests() -> Vec<(String, String)> {
+    HOST_AI_PLAYER_BUILD_UPGRADE_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: `AI_PLAYER_BUILD_TYPE_NEAREST_TEAM` →
+/// `AIPlayer::buildSpecificBuildingNearestTeam`.
+pub fn request_host_ai_player_build_type_nearest_team(
+    player_name: &str,
+    thing_name: &str,
+    team_name: &str,
+) {
+    HOST_AI_PLAYER_BUILD_TYPE_NEAREST_TEAM_REQUESTS.with(|q| {
+        q.borrow_mut().push((
+            player_name.to_string(),
+            thing_name.to_string(),
+            team_name.to_string(),
+        ));
+    });
+}
+
+pub fn take_host_ai_player_build_type_nearest_team_requests() -> Vec<(String, String, String)> {
+    HOST_AI_PLAYER_BUILD_TYPE_NEAREST_TEAM_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: `TEAM_GUARD_SUPPLY_CENTER` → `AIPlayer::guardSupplyCenter`.
+pub fn request_host_guard_supply_center(team_name: &str, min_supplies: i32) {
+    HOST_GUARD_SUPPLY_CENTER_REQUESTS.with(|q| {
+        q.borrow_mut()
+            .push((team_name.to_string(), min_supplies));
+    });
+}
+
+pub fn take_host_guard_supply_center_requests() -> Vec<(String, i32)> {
+    HOST_GUARD_SUPPLY_CENTER_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: SKIRMISH_ATTACK_NEAREST_GROUP_WITH_VALUE.
+pub fn request_host_skirmish_attack_nearest_group(team: &str, comparison: i32, value: i32) {
+    HOST_SKIRMISH_ATTACK_GROUP_REQUESTS.with(|q| {
+        q.borrow_mut()
+            .push((team.to_string(), comparison, value));
+    });
+}
+
+pub fn take_host_skirmish_attack_nearest_group_requests() -> Vec<(String, i32, i32)> {
+    HOST_SKIRMISH_ATTACK_GROUP_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: SKIRMISH_PERFORM_COMMANDBUTTON_ON_MOST_VALUABLE_OBJECT.
+pub fn request_host_skirmish_command_button_most_valuable(
+    team: &str,
+    ability: &str,
+    range: f32,
+) {
+    HOST_SKIRMISH_CMD_BUTTON_REQUESTS.with(|q| {
+        q.borrow_mut()
+            .push((team.to_string(), ability.to_string(), range));
+    });
+}
+
+pub fn take_host_skirmish_command_button_most_valuable_requests() -> Vec<(String, String, f32)> {
+    HOST_SKIRMISH_CMD_BUTTON_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
 
 
 

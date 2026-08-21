@@ -2330,23 +2330,13 @@ impl Pathfinder {
     }
 
     fn bridge_layer_from_pathfinder_id(layer_id: u32) -> crate::path::PathfindLayerEnum {
-        match layer_id {
-            2 => crate::path::PathfindLayerEnum::Bridge1,
-            3 => crate::path::PathfindLayerEnum::Bridge2,
-            4 => crate::path::PathfindLayerEnum::Bridge3,
-            5 => crate::path::PathfindLayerEnum::Bridge4,
-            _ => crate::path::PathfindLayerEnum::Invalid,
-        }
+        // C++ PathfindLayerEnum identity: 0 Invalid, 1 Ground, 2..=14 spans, 15 Wall.
+        crate::path::PathfindLayerEnum::from_u32(layer_id)
     }
 
     fn pathfinder_id_from_bridge_layer(layer: crate::path::PathfindLayerEnum) -> Option<u32> {
-        match layer {
-            crate::path::PathfindLayerEnum::Bridge1 => Some(2),
-            crate::path::PathfindLayerEnum::Bridge2 => Some(3),
-            crate::path::PathfindLayerEnum::Bridge3 => Some(4),
-            crate::path::PathfindLayerEnum::Bridge4 => Some(5),
-            _ => None,
-        }
+        let id = layer as u32;
+        (2..=14).contains(&id).then_some(id)
     }
 
     /// Register a bridge with the pathfinder and return the assigned terrain layer.
@@ -3082,11 +3072,13 @@ impl Pathfinder {
                 layer = attacker_layer;
             }
         }
-        let path_layer = match layer {
-            crate::common::PathfindLayerEnum::Top => {
-                crate::ai::pathfind_astar::PathfindLayerEnum::Top
+        let path_layer = {
+            let v = layer as u32;
+            if (2..=14).contains(&v) || v == 15 {
+                crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(v)
+            } else {
+                crate::ai::pathfind_astar::PathfindLayerEnum::Ground
             }
-            _ => crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
         };
 
         let attacker_id = attacker.get_id();
@@ -3854,7 +3846,7 @@ mod tests {
             pathfind_complete::GridCoord::new(20, 20),
         ));
 
-        assert_eq!(layer, LegacyPathfindLayerEnum::Bridge1);
+        assert_eq!(layer, LegacyPathfindLayerEnum::Top);
         assert_eq!(pathfinder.bridge_is_destroyed(layer), Some(false));
 
         pathfinder.change_bridge_state(layer, false);

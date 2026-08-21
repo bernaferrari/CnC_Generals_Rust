@@ -56,13 +56,11 @@ impl TheTerrainLogic {
             return 0.0;
         };
         let terrain_layer = match layer {
-            PathfindLayerEnum::Top | PathfindLayerEnum::Air => crate::path::PathfindLayerEnum::Top,
-            PathfindLayerEnum::Bridge1 => crate::path::PathfindLayerEnum::Bridge1,
-            PathfindLayerEnum::Bridge2 => crate::path::PathfindLayerEnum::Bridge2,
-            PathfindLayerEnum::Bridge3 => crate::path::PathfindLayerEnum::Bridge3,
-            PathfindLayerEnum::Bridge4 => crate::path::PathfindLayerEnum::Bridge4,
-            PathfindLayerEnum::Wall => crate::path::PathfindLayerEnum::Wall,
-            _ => crate::path::PathfindLayerEnum::Ground,
+            PathfindLayerEnum::Air => crate::path::PathfindLayerEnum::Top,
+            PathfindLayerEnum::Tunnel | PathfindLayerEnum::Water | PathfindLayerEnum::Last => {
+                crate::path::PathfindLayerEnum::Ground
+            }
+            other => crate::path::PathfindLayerEnum::from_u32(other as u32),
         };
         guard.get_layer_height(x, y, terrain_layer, None, true)
     }
@@ -74,14 +72,8 @@ impl TheTerrainLogic {
             return PathfindLayerEnum::Ground;
         };
         match guard.get_highest_layer_for_destination(pos) {
-            crate::path::PathfindLayerEnum::Top => PathfindLayerEnum::Top,
-            crate::path::PathfindLayerEnum::Bridge1 => PathfindLayerEnum::Bridge1,
-            crate::path::PathfindLayerEnum::Bridge2 => PathfindLayerEnum::Bridge2,
-            crate::path::PathfindLayerEnum::Bridge3 => PathfindLayerEnum::Bridge3,
-            crate::path::PathfindLayerEnum::Bridge4 => PathfindLayerEnum::Bridge4,
-            crate::path::PathfindLayerEnum::Wall => PathfindLayerEnum::Wall,
-            crate::path::PathfindLayerEnum::Invalid => PathfindLayerEnum::Invalid,
-            _ => PathfindLayerEnum::Ground,
+            crate::path::PathfindLayerEnum::Last => PathfindLayerEnum::Last,
+            other => PathfindLayerEnum::from_u32(other as u32),
         }
     }
 
@@ -92,14 +84,8 @@ impl TheTerrainLogic {
             return PathfindLayerEnum::Ground;
         };
         match guard.get_layer_for_destination(pos) {
-            crate::path::PathfindLayerEnum::Top => PathfindLayerEnum::Top,
-            crate::path::PathfindLayerEnum::Bridge1 => PathfindLayerEnum::Bridge1,
-            crate::path::PathfindLayerEnum::Bridge2 => PathfindLayerEnum::Bridge2,
-            crate::path::PathfindLayerEnum::Bridge3 => PathfindLayerEnum::Bridge3,
-            crate::path::PathfindLayerEnum::Bridge4 => PathfindLayerEnum::Bridge4,
-            crate::path::PathfindLayerEnum::Wall => PathfindLayerEnum::Wall,
-            crate::path::PathfindLayerEnum::Invalid => PathfindLayerEnum::Invalid,
-            _ => PathfindLayerEnum::Ground,
+            crate::path::PathfindLayerEnum::Last => PathfindLayerEnum::Last,
+            other => PathfindLayerEnum::from_u32(other as u32),
         }
     }
 
@@ -115,13 +101,11 @@ impl TheTerrainLogic {
             return false;
         };
         let terrain_layer = match layer {
-            PathfindLayerEnum::Top | PathfindLayerEnum::Air => crate::path::PathfindLayerEnum::Top,
-            PathfindLayerEnum::Bridge1 => crate::path::PathfindLayerEnum::Bridge1,
-            PathfindLayerEnum::Bridge2 => crate::path::PathfindLayerEnum::Bridge2,
-            PathfindLayerEnum::Bridge3 => crate::path::PathfindLayerEnum::Bridge3,
-            PathfindLayerEnum::Bridge4 => crate::path::PathfindLayerEnum::Bridge4,
-            PathfindLayerEnum::Wall => crate::path::PathfindLayerEnum::Wall,
-            _ => crate::path::PathfindLayerEnum::Ground,
+            PathfindLayerEnum::Air => crate::path::PathfindLayerEnum::Top,
+            PathfindLayerEnum::Tunnel | PathfindLayerEnum::Water | PathfindLayerEnum::Last => {
+                crate::path::PathfindLayerEnum::Ground
+            }
+            other => crate::path::PathfindLayerEnum::from_u32(other as u32),
         };
         guard.object_interacts_with_bridge_layer(obj, terrain_layer, consider_bridge_health)
     }

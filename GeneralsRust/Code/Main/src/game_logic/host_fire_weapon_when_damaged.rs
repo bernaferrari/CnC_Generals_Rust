@@ -27,7 +27,7 @@ pub const FWWDB_CONTINUOUS_RELOAD_FRAMES: u32 = 30;
 pub const FWWDB_REACTION_DEBOUNCE_FRAMES: u32 = 1;
 
 fn leftover_weapon_reload_frames(name: &str) -> u32 {
-    crate::game_logic::weapon_bootstrap::host_delay_between_shots_secs(name)
+    crate::game_logic::weapon_bootstrap::host_delay_between_shots_secs_nominal(name)
         .map(|secs| (secs * 30.0).round() as u32)
         .filter(|&frames| frames > 0)
         .unwrap_or(FWWDB_CONTINUOUS_RELOAD_FRAMES)

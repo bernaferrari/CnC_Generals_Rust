@@ -1070,7 +1070,8 @@ fn fallback_placement_state() -> &'static Mutex<InGameUIPlacementState> {
     STATE.get_or_init(|| Mutex::new(InGameUIPlacementState::default()))
 }
 
-fn map_cant_build_message_key(message: &str) -> String {
+/// C++ `InGameUI::displayCantBuildMessage` label map (`GUI:CantBuild*`).
+pub fn map_cant_build_message(message: &str) -> String {
     let trimmed = message.trim();
     if trimmed.is_empty() {
         return "GUI:CantBuildThere".to_string();
@@ -1084,7 +1085,7 @@ fn map_cant_build_message_key(message: &str) -> String {
         "GUI:CantBuildNotFlatEnough".to_string()
     } else if lower.contains("object") {
         "GUI:CantBuildObjectsInTheWay".to_string()
-    } else if lower.contains("supply") {
+    } else if lower.contains("supply") || lower.contains("supplies") {
         "GUI:CantBuildTooCloseToSupplies".to_string()
     } else if lower.contains("path") {
         "GUI:CantBuildNoClearPath".to_string()
@@ -1751,7 +1752,7 @@ impl TheInGameUI {
 
     pub fn display_cant_build_message(message: &str) {
         if !with_backend(|backend| backend.display_cant_build_message(message)) {
-            let key = map_cant_build_message_key(message);
+            let key = map_cant_build_message(message);
             info!("Can't build: {}", GameText::fetch(&key));
         }
     }
