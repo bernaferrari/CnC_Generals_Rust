@@ -2164,6 +2164,7 @@ fn countermeasures_diverts_projectile_direct_hits() {
             p.explosion_radius = 0.0;
             p.damage = 5.0;
             p.max_lifetime = 10.0;
+            p.is_small_missile = true;
         }
         let _ = logic.combat_system.update_projectiles_with_countermeasures(
             1.0 / 30.0,

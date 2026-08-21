@@ -261,9 +261,13 @@ impl World {
             let Some(e) = self.entities.get_mut(id) else {
                 continue;
             };
-            if !e.is_eligible_for_targeting() || e.under_construction {
+            if !e.is_eligible_for_targeting() || e.is_disabled() {
+                e.move_target = None;
+                e.velocity = [0.0, 0.0, 0.0];
+                e.moving = false;
                 continue;
             }
+
 
             let horiz = |ax: f32, az: f32, bx: f32, bz: f32| -> f32 {
                 let dx = ax - bx;

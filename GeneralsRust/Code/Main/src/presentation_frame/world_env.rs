@@ -611,7 +611,11 @@ impl PresentationWorldEnv {
             .collect();
 
         let weather = logic.weather_state().current_weather.to_ascii_lowercase();
-        let is_snow = weather.contains("snow");
+        let follow_weather = get_global_data()
+            .map(|global| global.read().force_models_to_follow_weather)
+            .unwrap_or(true);
+        let is_snow = weather.contains("snow") && follow_weather;
+
         // Night residual: weather name or evening/night tokens (fail-closed TOD runtime).
         let is_night = weather.contains("night") || weather.contains("evening");
         // C++ W3DDisplay::setTimeOfDay applies all 3 object lights; TerrainVisual

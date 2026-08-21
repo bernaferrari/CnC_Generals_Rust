@@ -123,6 +123,15 @@ impl ScriptEvaluator {
                 | ConditionType::NamedCreated
                 | ConditionType::NamedInsideArea
                 | ConditionType::NamedOutsideArea
+                | ConditionType::NamedEnteredArea
+                | ConditionType::NamedExitedArea
+                | ConditionType::TeamInsideAreaPartially
+                | ConditionType::TeamInsideAreaEntirely
+                | ConditionType::TeamOutsideAreaEntirely
+                | ConditionType::TeamEnteredAreaEntirely
+                | ConditionType::TeamEnteredAreaPartially
+                | ConditionType::TeamExitedAreaEntirely
+                | ConditionType::TeamExitedAreaPartially
         );
         if object_world && dual_world_registry_unavailable() {
             return Ok(false);

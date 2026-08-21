@@ -75,7 +75,9 @@ fn unit_render_input_world_matrix_applies_mesh_scale() {
         disabled: false,
         parachute_open: false,
         world_is_snow: false,
+        object_weather: 0,
         world_is_night: false,
+
         captured: false,
         overcharge_enabled: false,
         death_type_name: String::new(),

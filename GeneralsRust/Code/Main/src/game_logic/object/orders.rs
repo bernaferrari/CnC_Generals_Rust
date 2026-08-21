@@ -3,8 +3,8 @@ use super::*;
 impl Object {
     // Command system compatibility methods
     pub fn can_move(&self) -> bool {
+        // C++ Object::isMobile: KINDOF_IMMOBILE or isDisabled() → false.
         // weapons_jammed intentionally does NOT block movement (weapons-only residual).
-        // disabled_subdued blocks move (C++ DISABLED_SUBDUED full disable for non-projectile).
         // Docked aircraft may move (takeoff/sortie residual).
         // Shock flailing residual: block commanded move while STUNNED_FLAILING
         // (stun_frames > 15). Settled STUNNED phase may still stagger via velocity.
@@ -13,10 +13,7 @@ impl Object {
         self.is_mobile()
             && self.is_alive()
             && !self.status.deployed
-            && !self.status.disabled_unmanned
-            && !self.status.disabled_hacked
-            && !self.status.disabled_emp
-            && !self.status.disabled_subdued
+            && !self.is_disabled()
             && !flailing
             && (parked_aircraft || !matches!(self.ai_state, AIState::Docked | AIState::Garrisoned))
     }
@@ -1171,6 +1168,7 @@ impl Object {
         if landed {
             // C++ setModelConditionState(MODELCONDITION_SECOND_LIFE) + DISABLED_HELD.
             self.model_condition_bits |= 1u128 << BATTLE_BUS_MC_BIT_SECOND_LIFE;
+            self.set_status_disabled_held(true);
             self.stop_moving();
             self.set_ai_state(AIState::Idle);
             self.refresh_model_condition_bits();

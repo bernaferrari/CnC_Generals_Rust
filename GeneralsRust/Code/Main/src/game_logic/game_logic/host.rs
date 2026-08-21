@@ -344,6 +344,12 @@ pub struct GameLogic {
     /// C++ `HeliTakeoffOrLandingState` two-point climb/descent (NeedsRunway=No).
     pub(super) heli_takeoff_or_landing:
         std::collections::HashMap<ObjectId, HostHeliTakeoffOrLanding>,
+    /// C++ `ParkingPlaceBehavior::m_healing` — list can exceed stall count.
+    pub(super) airfield_healing:
+        std::collections::HashMap<ObjectId, Vec<AirfieldHealingInfo>>,
+    /// C++ `ParkingPlaceBehavior::m_nextHealFrame`.
+    pub(super) airfield_next_heal_frame: std::collections::HashMap<ObjectId, u32>,
+
 
     /// C++ FlightDeckBehavior runtime stalls / launch-wave / designated orders.
     pub(crate) flight_decks: std::collections::HashMap<

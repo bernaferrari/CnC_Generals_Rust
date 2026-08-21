@@ -1092,7 +1092,8 @@ impl SaveFileManager {
         let (snapshot, path) = decode_bincode_world_snapshot(payload)?;
         match path {
             BincodeWorldSnapshotDecodePath::Current => {}
-            BincodeWorldSnapshotDecodePath::LegacyPreV14V13
+            BincodeWorldSnapshotDecodePath::LegacyPreV15V14
+            | BincodeWorldSnapshotDecodePath::LegacyPreV14V13
             | BincodeWorldSnapshotDecodePath::LegacyPreV13V12
             | BincodeWorldSnapshotDecodePath::LegacyPreV12V11
             | BincodeWorldSnapshotDecodePath::LegacyPreV11V10

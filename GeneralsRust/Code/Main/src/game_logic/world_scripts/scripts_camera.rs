@@ -209,6 +209,26 @@ impl GameLogic {
                 z: obj.position.z,
                 alive: obj.is_alive() && !obj.status.destroyed,
             });
+            if !obj.team_instance_name.is_empty() {
+                snap.team_instance_ids
+                    .entry(obj.team_instance_name.clone())
+                    .or_default()
+                    .push(id.0);
+            }
+            let skip = obj.is_kind_of(crate::game_logic::KindOf::Projectile);
+            let team = if obj.team_instance_name.is_empty() {
+                None
+            } else {
+                Some(obj.team_instance_name.as_str())
+            };
+            gamelogic::scripting::update_host_object_trigger_flags(
+                id.0,
+                obj.position.x,
+                obj.position.z,
+                self.frame,
+                skip,
+                team,
+            );
         }
         for (name, aabb) in gamelogic::scripting::engine::get_area_tracker().all_area_aabbs() {
             snap.areas.insert(name, aabb);
@@ -222,7 +242,14 @@ impl GameLogic {
         let fires = gamelogic::scripting::take_host_skirmish_fire_special_requests();
         let builds = gamelogic::scripting::take_host_skirmish_build_requests();
         let cave_indexes = gamelogic::scripting::take_host_set_cave_index_requests();
-        if fires.is_empty() && builds.is_empty() && cave_indexes.is_empty() {
+        let unit_flags = gamelogic::scripting::take_host_object_panel_flag_requests();
+        let team_flags = gamelogic::scripting::take_host_team_panel_flag_requests();
+        if fires.is_empty()
+            && builds.is_empty()
+            && cave_indexes.is_empty()
+            && unit_flags.is_empty()
+            && team_flags.is_empty()
+        {
             return;
         }
         let mut ai_mgr = std::mem::take(&mut self.ai_manager);
@@ -235,6 +262,34 @@ impl GameLogic {
         self.ai_manager = ai_mgr;
         for (cave_name, index) in cave_indexes {
             let _ = self.set_named_cave_index(&cave_name, index);
+        }
+        for (unit_name, flag_name, enable) in unit_flags {
+            if let Some(id) = self.host_object_id_by_script_name(&unit_name) {
+                if let Some(obj) = self.objects.get_mut(&id) {
+                    obj.apply_object_panel_flag(&flag_name, enable);
+                }
+            }
+        }
+        for (team_name, flag_name, enable) in team_flags {
+            let needle = team_name.trim();
+            if needle.is_empty() {
+                continue;
+            }
+            let ids: Vec<ObjectId> = self
+                .objects
+                .values()
+                .filter(|obj| {
+                    (!obj.team_instance_name.is_empty()
+                        && obj.team_instance_name.eq_ignore_ascii_case(needle))
+                        || obj.team.get_name().eq_ignore_ascii_case(needle)
+                })
+                .map(|obj| obj.id)
+                .collect();
+            for id in ids {
+                if let Some(obj) = self.objects.get_mut(&id) {
+                    obj.apply_object_panel_flag(&flag_name, enable);
+                }
+            }
         }
     }
 

@@ -14,11 +14,10 @@ pub const PARTICLE_BEAM_DAMAGE_PER_PULSE: f32 = 35.0;
 /// ≈ 2.625 frames. Host residual prefers fractional nextFactor scheduling
 /// ([`particle_next_pulse_frame`]); this constant remains the minimum gap honesty.
 pub const PARTICLE_BEAM_TICK_INTERVAL_FRAMES: u32 = 3;
-/// Residual damage radius at target (fail-closed vs laser radius ×
-/// DamageRadiusScalar grow/shrink matrix; retail scalar 3.4 on dynamic beam).
-pub const PARTICLE_BEAM_RADIUS: f32 = 50.0;
-/// Retail `ParticleUplinkCannonUpdate` DamageRadiusScalar = 3.4 (honesty residual).
-/// Host damage radius is a fixed residual radius; scalar documents retail ratio.
+/// Retail peak damage radius at target: OuterBeamWidth×0.5 × DamageRadiusScalar
+/// = 13 × 3.4 = **44.2**. WidthGrow scales this 0→peak→0.
+pub const PARTICLE_BEAM_RADIUS: f32 = 44.2;
+/// Retail `ParticleUplinkCannonUpdate` DamageRadiusScalar = 3.4.
 pub const PARTICLE_DAMAGE_RADIUS_SCALAR: f32 = 3.4;
 /// Retail SwathOfDeathDistance — beam epicenter walks this total distance over
 /// TotalFiringTime (S-curve residual).
@@ -39,9 +38,7 @@ pub const PARTICLE_BEAM_ORBITAL_LIFETIME_FRAMES: u32 =
 /// Retail damage radius formula (`LaserUpdate::getCurrentLaserRadius` ×
 /// `DamageRadiusScalar`):
 /// `getLaserTemplateWidth() = OuterBeamWidth * 0.5` → peak laser r = **13.0**,
-/// peak damage = 13 × 3.4 = **44.2**. Host combat residual still caps at
-/// [`PARTICLE_BEAM_RADIUS`] (**50**) for fail-closed parity with prior host tests;
-/// OuterBeamWidth draw / retail-formula honesty is tracked separately.
+/// peak damage = 13 × 3.4 = **44.2** = [`PARTICLE_BEAM_RADIUS`].
 pub const PARTICLE_ORBITAL_LASER_OUTER_BEAM_WIDTH: f32 = 26.0;
 /// Retail InnerBeamWidth residual for OrbitalLaser W3DLaserDraw.
 pub const PARTICLE_ORBITAL_LASER_INNER_BEAM_WIDTH: f32 = 0.6;
@@ -643,8 +640,8 @@ pub fn particle_width_scalar(spawn_frame: u32, current_frame: u32) -> f32 {
 
 /// Residual damage radius at `current_frame` under WidthGrow grow/hold/decay.
 ///
-/// Full radius is [`PARTICLE_BEAM_RADIUS`] while hold. Early grow and late decay
-/// pulses use a smaller radius (retail laser radius × width scalar matrix).
+/// Full radius is [`PARTICLE_BEAM_RADIUS`] (**44.2**) while hold. Early grow
+/// and late decay pulses use a smaller radius (retail laser radius × scalar).
 pub fn particle_beam_damage_radius(spawn_frame: u32, current_frame: u32) -> f32 {
     PARTICLE_BEAM_RADIUS * particle_width_scalar(spawn_frame, current_frame)
 }
@@ -1020,9 +1017,8 @@ pub fn laser_update_current_radius(width_scalar: f32) -> f32 {
 /// Retail damage-radius formula honesty residual
 /// (`getCurrentLaserRadius() * DamageRadiusScalar`).
 ///
-/// Peak hold = 13 × 3.4 = **44.2**. Host combat still uses
-/// [`particle_beam_damage_radius`] (caps at r50 × scalar).
-#[inline]
+/// Peak hold = 13 × 3.4 = **44.2**. Combat pulses use the same formula via
+/// [`particle_beam_damage_radius`].
 pub fn particle_retail_damage_radius(spawn_frame: u32, current_frame: u32) -> f32 {
     particle_orbital_laser_current_radius(spawn_frame, current_frame)
         * PARTICLE_DAMAGE_RADIUS_SCALAR

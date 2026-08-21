@@ -32,6 +32,14 @@ impl CnCGameEngine {
         game_engine::common::game_lod::load_game_lod_ini_presets_and_options();
         // C++ GameEngine::init createAudioManager / TheAudio (GameEngine.cpp:410).
         let _ = game_engine::common::audio::game_audio::initialize_global_audio_manager();
+        // C++ GameClient::init loads Data/INI/Eva.ini into TheEva (Eva.cpp:43-57).
+        // Live ticks update_eva_system without leftover GameClient::init, so
+        // playMessage would drop on an empty check-info table without this.
+        #[cfg(feature = "game_client")]
+        if let Err(err) = game_client::eva::initialize_eva_system() {
+            warn!("Eva.ini load failed: {err}");
+        }
+
         Self::apply_startup_audio_channel_flags();
         // C++ parity: initialize startup RNG stream during engine init.
         game_engine::common::random_value::init_random();

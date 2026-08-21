@@ -1149,3 +1149,189 @@ fn test_victory_action() {
     );
     crate::helpers::TheGameLogic::set_input_enabled(prior_input);
 }
+
+fn wave14_triangle_area() -> crate::polygon_trigger::PolygonTrigger {
+    crate::polygon_trigger::PolygonTrigger::new(
+        1411,
+        crate::common::AsciiString::from("Wave14PolyPad"),
+        vec![
+            crate::common::ICoord3D::new(0, 0, 0),
+            crate::common::ICoord3D::new(20, 0, 0),
+            crate::common::ICoord3D::new(0, 20, 0),
+        ],
+    )
+}
+
+#[test]
+fn live_named_inside_uses_point_in_trigger_not_aabb() {
+    // Triangle (0,0)-(20,0)-(0,20): (18,18) is inside the AABB but outside C++ pointInTrigger.
+    let _lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    crate::scripting::clear_host_script_query_snapshot();
+    crate::terrain::get_terrain_logic()
+        .write()
+        .expect("terrain")
+        .add_trigger_area(wave14_triangle_area());
+
+    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+        named: [("Scout".into(), 7)].into_iter().collect(),
+        objects: vec![crate::scripting::HostScriptQueryObject {
+            id: 7,
+            name: "Scout".into(),
+            team: 1,
+            x: 18.0,
+            z: 18.0,
+            alive: true,
+        }],
+        ..Default::default()
+    });
+
+    let evaluator = ScriptEvaluator::new(get_script_engine());
+    let mut inside = Condition::new(ConditionType::NamedInsideArea);
+    inside
+        .add_parameter(Parameter::with_string(ParameterType::Unit, "Scout".into()))
+        .unwrap();
+    inside
+        .add_parameter(Parameter::with_string(
+            ParameterType::TriggerArea,
+            "Wave14PolyPad".into(),
+        ))
+        .unwrap();
+    assert!(
+        !evaluator.evaluate_condition(&mut inside).unwrap(),
+        "AABB would include (18,18); C++ pointInTrigger must not"
+    );
+
+    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+        named: [("Scout".into(), 7)].into_iter().collect(),
+        objects: vec![crate::scripting::HostScriptQueryObject {
+            id: 7,
+            name: "Scout".into(),
+            team: 1,
+            x: 2.0,
+            z: 2.0,
+            alive: true,
+        }],
+        ..Default::default()
+    });
+    assert!(
+        evaluator.evaluate_condition(&mut inside).unwrap(),
+        "host unit inside leftover polygon must match NAMED_INSIDE"
+    );
+    let mut outside = Condition::new(ConditionType::NamedOutsideArea);
+    outside
+        .add_parameter(Parameter::with_string(ParameterType::Unit, "Scout".into()))
+        .unwrap();
+    outside
+        .add_parameter(Parameter::with_string(
+            ParameterType::TriggerArea,
+            "Wave14PolyPad".into(),
+        ))
+        .unwrap();
+    assert!(
+        !evaluator.evaluate_condition(&mut outside).unwrap(),
+        "NAMED_OUTSIDE must not fail-open while the unit is inside"
+    );
+}
+
+#[test]
+fn live_named_entered_exited_use_two_frame_host_flags() {
+    let _lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    crate::scripting::clear_host_script_query_snapshot();
+    crate::terrain::get_terrain_logic()
+        .write()
+        .expect("terrain")
+        .add_trigger_area(wave14_triangle_area());
+    crate::system::game_logic::get_game_logic()
+        .lock()
+        .expect("logic")
+        .set_current_frame(20);
+
+    crate::scripting::update_host_object_trigger_flags(7, 18.0, 18.0, 19, false, Some("teamUSA"));
+    crate::scripting::update_host_object_trigger_flags(7, 2.0, 2.0, 20, false, Some("teamUSA"));
+    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+        named: [("Scout".into(), 7)].into_iter().collect(),
+        objects: vec![crate::scripting::HostScriptQueryObject {
+            id: 7,
+            name: "Scout".into(),
+            team: 1,
+            x: 2.0,
+            z: 2.0,
+            alive: true,
+        }],
+        team_instance_ids: [("teamUSA".into(), vec![7])].into_iter().collect(),
+        ..Default::default()
+    });
+
+    let evaluator = ScriptEvaluator::new(get_script_engine());
+    let mut entered = Condition::new(ConditionType::NamedEnteredArea);
+    entered
+        .add_parameter(Parameter::with_string(ParameterType::Unit, "Scout".into()))
+        .unwrap();
+    entered
+        .add_parameter(Parameter::with_string(
+            ParameterType::TriggerArea,
+            "Wave14PolyPad".into(),
+        ))
+        .unwrap();
+    assert!(
+        evaluator.evaluate_condition(&mut entered).unwrap(),
+        "C++ Object::didEnter must fire on the live empty-registry path"
+    );
+
+    crate::system::game_logic::get_game_logic()
+        .lock()
+        .expect("logic")
+        .set_current_frame(21);
+    crate::scripting::update_host_object_trigger_flags(7, 18.0, 18.0, 21, false, Some("teamUSA"));
+    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+        named: [("Scout".into(), 7)].into_iter().collect(),
+        objects: vec![crate::scripting::HostScriptQueryObject {
+            id: 7,
+            name: "Scout".into(),
+            team: 1,
+            x: 18.0,
+            z: 18.0,
+            alive: true,
+        }],
+        team_instance_ids: [("teamUSA".into(), vec![7])].into_iter().collect(),
+        ..Default::default()
+    });
+    let mut exited = Condition::new(ConditionType::NamedExitedArea);
+    exited
+        .add_parameter(Parameter::with_string(ParameterType::Unit, "Scout".into()))
+        .unwrap();
+    exited
+        .add_parameter(Parameter::with_string(
+            ParameterType::TriggerArea,
+            "Wave14PolyPad".into(),
+        ))
+        .unwrap();
+    assert!(
+        evaluator.evaluate_condition(&mut exited).unwrap(),
+        "C++ Object::didExit must fire on the live empty-registry path"
+    );
+
+    let mut team_inside = Condition::new(ConditionType::TeamInsideAreaEntirely);
+    team_inside
+        .add_parameter(Parameter::with_string(
+            ParameterType::Team,
+            "teamUSA".into(),
+        ))
+        .unwrap();
+    team_inside
+        .add_parameter(Parameter::with_string(
+            ParameterType::TriggerArea,
+            "Wave14PolyPad".into(),
+        ))
+        .unwrap();
+    team_inside
+        .add_parameter(Parameter::with_int(ParameterType::SurfacesAllowed, 1))
+        .unwrap();
+    assert!(
+        !evaluator.evaluate_condition(&mut team_inside).unwrap(),
+        "team standing outside the triangle is not entirely inside"
+    );
+}
+

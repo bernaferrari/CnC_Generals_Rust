@@ -2399,8 +2399,13 @@ fn airfield_parking_rearm_docks_and_heals() {
     let hp_before = logic.objects.get(&jet_id).unwrap().health.current;
     crate::game_logic::host_heal_log::clear();
     logic.tick_airfield_parking_heal();
+    // C++ first pulse is HEAL_RATE_FRAMES after setHealee.
+    let expected = 6.0 * PARKING_PLACE_AIRFIELD_HEAL_AMOUNT_PER_SEC / 30.0;
+    for _ in 0..6 {
+        logic.frame = logic.frame.saturating_add(1);
+        logic.tick_airfield_parking_heal();
+    }
     let hp_after = logic.objects.get(&jet_id).unwrap().health.current;
-    let expected = parking_place_heal_per_frame(PARKING_PLACE_AIRFIELD_HEAL_AMOUNT_PER_SEC);
     if crate::gameworld_shadow::gameworld_damage_authority_live() {
         let heals = crate::game_logic::host_heal_log::snapshot();
         let logged = heals
@@ -2416,6 +2421,7 @@ fn airfield_parking_rearm_docks_and_heals() {
             "heal {hp_before} -> {hp_after}, want +{expected}"
         );
     }
+
     assert_eq!(
         logic
             .objects
@@ -2425,22 +2431,10 @@ fn airfield_parking_rearm_docks_and_heals() {
             .as_ref()
             .unwrap()
             .ammo,
-        Some(0),
-        "same-frame parking heal must not dump full clips"
+        Some(4),
+        "rearm completes across heal-rate frames"
     );
-    logic.frame = logic.frame.saturating_add(1);
-    logic.tick_airfield_parking_heal();
-    assert_eq!(
-        logic
-            .objects
-            .get(&jet_id)
-            .unwrap()
-            .weapon
-            .as_ref()
-            .unwrap()
-            .ammo,
-        Some(4)
-    );
+
 }
 
 #[test]
@@ -2495,6 +2489,391 @@ fn airfield_parking_capacity_blocks_fifth_jet() {
         }
     }
 }
+
+#[test]
+fn airfield_takeoff_keeps_parking_stall_for_airborne_jet() {
+    use crate::game_logic::buildings::BuildingType;
+    use crate::game_logic::{KindOf, ParkingPlaceMetadata, Team, ThingTemplate, Weapon};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut af_tmpl = ThingTemplate::new("KeepStallAirfield");
+    af_tmpl
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSAirfield)
+        .set_health(1000.0);
+    af_tmpl.parking_place = Some(ParkingPlaceMetadata {
+        num_rows: 2,
+        num_cols: 2,
+        approach_height: 50.0,
+        landing_deck_height_offset: 0.0,
+        has_runways: true,
+        park_in_hangars: true,
+        heal_amount_per_second: 10.0,
+    });
+    logic.templates.insert("KeepStallAirfield".into(), af_tmpl);
+    let mut jet_tmpl = ThingTemplate::new("KeepStallRaptor");
+    jet_tmpl.add_kind_of(KindOf::Aircraft).set_health(100.0);
+    logic.templates.insert("KeepStallRaptor".into(), jet_tmpl);
+
+    let af = logic
+        .create_object("KeepStallAirfield", Team::USA, Vec3::ZERO)
+        .unwrap();
+    if let Some(o) = logic.host_object_mut(af) {
+        o.building_data = Some(crate::game_logic::BuildingData::new(BuildingType::Airfield));
+    }
+    let jet_id = logic
+        .create_object("KeepStallRaptor", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+        .unwrap();
+    if let Some(jet) = logic.objects.get_mut(&jet_id) {
+        jet.weapon = Some(Weapon {
+            damage: 10.0,
+            range: 100.0,
+            reload_time: 0.0,
+            last_fire_time: -100.0,
+            ammo: Some(0),
+            clip_size: 2,
+            ..Weapon::default()
+        });
+    }
+    assert!(logic.try_return_to_base_rearm(jet_id));
+    assert!(logic.try_runway_takeoff_from_airfield(jet_id));
+    {
+        let jet = logic.objects.get(&jet_id).unwrap();
+        assert!(jet.contained_by.is_none());
+        assert!(jet.airfield_parking_space_index.is_some());
+    }
+    assert!(
+        logic
+            .airfield_parking_spaces
+            .get(&af)
+            .is_some_and(|spaces| spaces.iter().any(|space| space.object_id == Some(jet_id))),
+        "airborne jet must keep hangar stall (JetAIUpdate.cpp:897-900, 1630)"
+    );
+}
+
+
+#[test]
+fn helipad_heals_landed_helo_without_stall() {
+    use crate::game_logic::{KindOf, ParkingPlaceMetadata, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut pad_tmpl = ThingTemplate::new("HealHelipad");
+    pad_tmpl
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSAirfield)
+        .set_health(1000.0);
+    pad_tmpl.parking_place = Some(ParkingPlaceMetadata {
+        num_rows: 1,
+        num_cols: 1,
+        approach_height: 37.0,
+        landing_deck_height_offset: 4.0,
+        has_runways: false,
+        park_in_hangars: false,
+        heal_amount_per_second: 10.0,
+    });
+    logic.templates.insert("HealHelipad".into(), pad_tmpl);
+    let mut heli_tmpl = ThingTemplate::new("AmericaVehicleComanche");
+    heli_tmpl
+        .add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Vehicle)
+        .set_health(220.0);
+    logic.templates.insert("AmericaVehicleComanche".into(), heli_tmpl);
+
+    let pad = logic
+        .create_object("HealHelipad", Team::USA, Vec3::ZERO)
+        .unwrap();
+    let heli = logic
+        .create_object(
+            "AmericaVehicleComanche",
+            Team::USA,
+            Vec3::new(0.0, 4.0, 0.0),
+        )
+        .unwrap();
+    {
+        let h = logic.objects.get_mut(&heli).unwrap();
+        h.set_contained_by(Some(pad));
+        h.set_ai_state(AIState::Docked);
+        h.status.airborne_target = false;
+        h.producer_id = Some(pad);
+        h.health.current = 100.0;
+        h.target = Some(ObjectId(99));
+    }
+    let hp_before = logic.objects.get(&heli).unwrap().health.current;
+    logic.tick_airfield_parking_heal();
+    for _ in 0..6 {
+        logic.frame = logic.frame.saturating_add(1);
+        logic.tick_airfield_parking_heal();
+    }
+    let hp_after = logic.objects.get(&heli).unwrap().health.current;
+    assert!(
+        hp_after > hp_before + 1.0,
+        "landed helo must heal without a hangar stall ({hp_before} -> {hp_after})"
+    );
+}
+
+#[test]
+fn taxiing_jet_heals_from_reserved_stall() {
+    use crate::game_logic::buildings::BuildingType;
+    use crate::game_logic::{KindOf, ParkingPlaceMetadata, Team, ThingTemplate, Weapon};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut af_tmpl = ThingTemplate::new("TaxiHealAirfield");
+    af_tmpl
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSAirfield)
+        .set_health(1000.0);
+    af_tmpl.parking_place = Some(ParkingPlaceMetadata {
+        num_rows: 2,
+        num_cols: 2,
+        approach_height: 50.0,
+        landing_deck_height_offset: 0.0,
+        has_runways: true,
+        park_in_hangars: true,
+        heal_amount_per_second: 10.0,
+    });
+    logic.templates.insert("TaxiHealAirfield".into(), af_tmpl);
+    let mut jet_tmpl = ThingTemplate::new("TaxiHealRaptor");
+    jet_tmpl.add_kind_of(KindOf::Aircraft).set_health(100.0);
+    logic.templates.insert("TaxiHealRaptor".into(), jet_tmpl);
+
+    let af = logic
+        .create_object("TaxiHealAirfield", Team::USA, Vec3::ZERO)
+        .unwrap();
+    if let Some(o) = logic.host_object_mut(af) {
+        o.building_data = Some(crate::game_logic::BuildingData::new(BuildingType::Airfield));
+    }
+    let jet_id = logic
+        .create_object("TaxiHealRaptor", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+        .unwrap();
+    if let Some(jet) = logic.objects.get_mut(&jet_id) {
+        jet.weapon = Some(Weapon {
+            damage: 10.0,
+            range: 100.0,
+            reload_time: 0.0,
+            last_fire_time: -100.0,
+            ammo: Some(0),
+            clip_size: 2,
+            ..Weapon::default()
+        });
+    }
+    assert!(logic.try_return_to_base_rearm(jet_id));
+    {
+        let jet = logic.objects.get_mut(&jet_id).unwrap();
+        jet.set_contained_by(None);
+        jet.status.airborne_target = false;
+        jet.jet_ai.takeoff_in_progress = true;
+        jet.health.current = 40.0;
+    }
+    let hp_before = logic.objects.get(&jet_id).unwrap().health.current;
+    logic.tick_airfield_parking_heal();
+    for _ in 0..6 {
+        logic.frame = logic.frame.saturating_add(1);
+        logic.tick_airfield_parking_heal();
+    }
+    let hp_after = logic.objects.get(&jet_id).unwrap().health.current;
+    assert!(
+        hp_after > hp_before + 1.0,
+        "taxiing jet must heal from reserved stall (JetAIUpdate.cpp:1834-1852) ({hp_before} -> {hp_after})"
+    );
+}
+
+#[test]
+fn chinook_landed_heals_without_stall() {
+    use crate::game_logic::host_combat_chinook::{HostChinookAI, HostChinookFlightStatus};
+    use crate::game_logic::{KindOf, ParkingPlaceMetadata, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut pad_tmpl = ThingTemplate::new("ChinookHealPad");
+    pad_tmpl
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSAirfield)
+        .set_health(1000.0);
+    pad_tmpl.parking_place = Some(ParkingPlaceMetadata {
+        num_rows: 1,
+        num_cols: 1,
+        approach_height: 37.0,
+        landing_deck_height_offset: 4.0,
+        has_runways: false,
+        park_in_hangars: false,
+        heal_amount_per_second: 10.0,
+    });
+    logic.templates.insert("ChinookHealPad".into(), pad_tmpl);
+    let mut chinook_tmpl = ThingTemplate::new("AmericaVehicleChinook");
+    chinook_tmpl
+        .add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Vehicle)
+        .set_health(220.0);
+    logic.templates.insert("AmericaVehicleChinook".into(), chinook_tmpl);
+
+    let pad = logic
+        .create_object("ChinookHealPad", Team::USA, Vec3::ZERO)
+        .unwrap();
+    let chinook = logic
+        .create_object(
+            "AmericaVehicleChinook",
+            Team::USA,
+            Vec3::new(0.0, 4.0, 0.0),
+        )
+        .unwrap();
+    {
+        let h = logic.objects.get_mut(&chinook).unwrap();
+        let mut ai = HostChinookAI::new_vanilla([0.0, 4.0, 0.0]);
+        ai.flight_status = HostChinookFlightStatus::Landed;
+        ai.airfield_id = Some(pad.0);
+        h.chinook_ai = Some(ai);
+        h.status.airborne_target = false;
+        h.health.current = 100.0;
+    }
+    let hp_before = logic.objects.get(&chinook).unwrap().health.current;
+    logic.tick_airfield_parking_heal();
+    for _ in 0..6 {
+        logic.frame = logic.frame.saturating_add(1);
+        logic.tick_airfield_parking_heal();
+    }
+    let hp_after = logic.objects.get(&chinook).unwrap().health.current;
+    assert!(
+        hp_after > hp_before + 1.0,
+        "CHINOOK_LANDED must heal without a hangar stall (ChinookAIUpdate.cpp:1055) ({hp_before} -> {hp_after})"
+    );
+}
+
+
+
+#[test]
+fn queued_jet_reserves_exit_stall() {
+    use crate::game_logic::buildings::BuildingType;
+    use crate::game_logic::{KindOf, ParkingPlaceMetadata, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    let mut af_t = ThingTemplate::new("ExitReserveAirfield");
+    af_t.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSAirfield)
+        .set_health(2000.0);
+    af_t.parking_place = Some(ParkingPlaceMetadata {
+        num_rows: 2,
+        num_cols: 2,
+        approach_height: 50.0,
+        landing_deck_height_offset: 0.0,
+        has_runways: true,
+        park_in_hangars: true,
+        heal_amount_per_second: 10.0,
+    });
+    logic.templates.insert("ExitReserveAirfield".into(), af_t);
+    let mut jet_t = ThingTemplate::new("ExitReserveRaptor");
+    jet_t
+        .add_kind_of(KindOf::Aircraft)
+        .set_health(200.0)
+        .set_cost(100, 0);
+    logic.templates.insert("ExitReserveRaptor".into(), jet_t);
+
+    let af = logic
+        .create_object("ExitReserveAirfield", Team::USA, Vec3::ZERO)
+        .unwrap();
+    if let Some(o) = logic.host_object_mut(af) {
+        o.building_data = Some(crate::game_logic::BuildingData::new(BuildingType::Airfield));
+    }
+    assert!(logic.enqueue_production(af, "ExitReserveRaptor".into()));
+    assert!(
+        logic
+            .airfield_parking_spaces
+            .get(&af)
+            .is_some_and(|spaces| {
+                spaces
+                    .iter()
+                    .any(|space| space.reserved_for_exit && space.object_id.is_none())
+            }),
+        "enqueue must set reservedForExit without objectInSpace (ParkingPlaceBehavior.cpp:695-715)"
+    );
+    for i in 0..3 {
+        let j = logic
+            .create_object(
+                "ExitReserveRaptor",
+                Team::USA,
+                Vec3::new(20.0 + i as f32, 0.0, 0.0),
+            )
+            .unwrap();
+        if let Some(jet) = logic.objects.get_mut(&j) {
+            jet.weapon = Some(crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 100.0,
+                reload_time: 0.0,
+                last_fire_time: -100.0,
+                ammo: Some(0),
+                clip_size: 2,
+                ..crate::game_logic::Weapon::default()
+            });
+        }
+        assert!(logic.try_return_to_base_rearm(j), "dock {i}");
+    }
+    let inbound = logic
+        .create_object("ExitReserveRaptor", Team::USA, Vec3::new(80.0, 40.0, 0.0))
+        .unwrap();
+    if let Some(jet) = logic.objects.get_mut(&inbound) {
+        jet.weapon = Some(crate::game_logic::Weapon {
+            damage: 10.0,
+            range: 100.0,
+            reload_time: 0.0,
+            last_fire_time: -100.0,
+            ammo: Some(0),
+            clip_size: 2,
+            ..crate::game_logic::Weapon::default()
+        });
+    }
+    assert!(
+        !logic.try_return_to_base_rearm(inbound),
+        "returning jet must not steal reservedForExit stall"
+    );
+
+
+}
+
+#[test]
+fn runway_reserve_requires_jet_stall() {
+    use crate::game_logic::buildings::BuildingType;
+    use crate::game_logic::{KindOf, ParkingPlaceMetadata, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut af_tmpl = ThingTemplate::new("RunwayStallAirfield");
+    af_tmpl
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSAirfield)
+        .set_health(1000.0);
+    af_tmpl.parking_place = Some(ParkingPlaceMetadata {
+        num_rows: 2,
+        num_cols: 2,
+        approach_height: 50.0,
+        landing_deck_height_offset: 0.0,
+        has_runways: true,
+        park_in_hangars: true,
+        heal_amount_per_second: 10.0,
+    });
+    logic.templates.insert("RunwayStallAirfield".into(), af_tmpl);
+    let mut jet_tmpl = ThingTemplate::new("RunwayStallRaptor");
+    jet_tmpl.add_kind_of(KindOf::Aircraft).set_health(100.0);
+    logic.templates.insert("RunwayStallRaptor".into(), jet_tmpl);
+
+    let af = logic
+        .create_object("RunwayStallAirfield", Team::USA, Vec3::ZERO)
+        .unwrap();
+    if let Some(o) = logic.host_object_mut(af) {
+        o.building_data = Some(crate::game_logic::BuildingData::new(BuildingType::Airfield));
+    }
+    let jet = logic
+        .create_object("RunwayStallRaptor", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+        .unwrap();
+    assert!(
+        logic.reserve_airfield_runway(af, jet).is_none(),
+        "C++ reserveRunway fails without a parking stall"
+    );
+}
+
 
 #[test]
 fn private_attack_object_enters_attack_state_machine() {
@@ -3507,6 +3886,7 @@ fn reconstructing_death_transfers_attackers_back_to_hole() {
         .insert(1, Player::new(1, Team::USA, "USA", true));
     let mut st = ThingTemplate::new("GLATunnelNetwork");
     st.add_kind_of(KindOf::Structure).set_health(1000.0);
+    st.set_rebuild_hole_expose("GLAHoleTunnelNetwork", 0.0);
     logic.templates.insert("GLATunnelNetwork".into(), st);
     let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
     ranger.add_kind_of(KindOf::Infantry).set_health(100.0);
@@ -3574,6 +3954,7 @@ fn rebuild_hole_transfers_sticky_bombs_to_reconstruction() {
         .insert(0, Player::new(0, Team::GLA, "GLA", true));
     let mut st = ThingTemplate::new("GLATunnelNetwork");
     st.add_kind_of(KindOf::Structure).set_health(1000.0);
+    st.set_rebuild_hole_expose("GLAHoleTunnelNetwork", 0.0);
     logic.templates.insert("GLATunnelNetwork".into(), st);
     let mut bomb_t = ThingTemplate::new("TimedC4Charge");
     bomb_t.set_health(10.0);
@@ -3633,6 +4014,7 @@ fn rebuild_hole_transfers_attackers_and_cancel_skips_refund() {
         .insert(1, Player::new(1, Team::USA, "USA", true));
     let mut st = ThingTemplate::new("GLABarracks");
     st.add_kind_of(KindOf::Structure).set_health(800.0);
+    st.set_rebuild_hole_expose("GLAHole", 0.0);
     st.build_cost.supplies = 500;
     logic.templates.insert("GLABarracks".into(), st);
     let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
@@ -3695,6 +4077,7 @@ fn gla_structure_death_spawns_rebuild_hole_and_reconstructs() {
         .insert(0, Player::new(0, Team::GLA, "GLA", true));
     let mut st = ThingTemplate::new("GLATunnelNetwork");
     st.add_kind_of(KindOf::Structure).set_health(1000.0);
+    st.set_rebuild_hole_expose("GLAHoleTunnelNetwork", 0.0);
     logic.templates.insert("GLATunnelNetwork".into(), st);
     // Authored hole INI HP must not be overwritten by constructor 500.
     let mut hole_tpl = ThingTemplate::new("GLAHoleTunnelNetwork");
@@ -3769,6 +4152,7 @@ fn gla_structure_death_spawns_rebuild_hole_and_reconstructs() {
         b.construction_percent = 1.0;
     }
     logic.update_rebuild_holes();
+    logic.process_destroy_list();
     assert!(logic.host_object(hole).is_none());
     assert!(logic.rebuild_hole_completes > 0);
     assert!(logic.honesty_rebuild_hole_ok());
@@ -3784,6 +4168,7 @@ fn rebuild_hole_transfers_script_name_and_skips_defeated_player() {
         .insert(0, Player::new(0, Team::GLA, "GLA", true));
     let mut st = ThingTemplate::new("GLATunnelNetwork");
     st.add_kind_of(KindOf::Structure).set_health(1000.0);
+    st.set_rebuild_hole_expose("GLAHoleTunnelNetwork", 0.0);
     logic.templates.insert("GLATunnelNetwork".into(), st);
     let sid = logic
         .create_object(
@@ -3810,6 +4195,7 @@ fn rebuild_hole_transfers_script_name_and_skips_defeated_player() {
     dead.players.insert(0, defeated);
     let mut st2 = ThingTemplate::new("GLATunnelNetwork");
     st2.add_kind_of(KindOf::Structure).set_health(1000.0);
+    st2.set_rebuild_hole_expose("GLAHoleTunnelNetwork", 0.0);
     dead.templates.insert("GLATunnelNetwork".into(), st2);
     let sid2 = dead
         .create_object(
@@ -3838,6 +4224,7 @@ fn rebuild_hole_worker_death_resumes_existing_scaffold() {
         .insert(0, Player::new(0, Team::GLA, "GLA", true));
     let mut st = ThingTemplate::new("GLABarracks");
     st.add_kind_of(KindOf::Structure).set_health(800.0);
+    st.set_rebuild_hole_expose("GLAHole", 0.0);
     logic.templates.insert("GLABarracks".into(), st);
     let sid = logic
         .create_object("GLABarracks", Team::GLA, glam::Vec3::new(0.0, 0.0, 0.0))
@@ -3896,6 +4283,7 @@ fn rebuild_hole_copies_dying_building_geometry() {
         .insert(0, Player::new(0, Team::GLA, "GLA", true));
     let mut st = ThingTemplate::new("GLAPalace");
     st.add_kind_of(KindOf::Structure).set_health(2000.0);
+    st.set_rebuild_hole_expose("GLAHole", 0.0);
     logic.templates.insert("GLAPalace".into(), st);
     let sid = logic
         .create_object("GLAPalace", Team::GLA, glam::Vec3::new(10.0, 0.0, 20.0))
@@ -3926,6 +4314,7 @@ fn rebuild_hole_complete_transfers_script_name() {
         .insert(0, Player::new(0, Team::GLA, "GLA", true));
     let mut st = ThingTemplate::new("GLATunnelNetwork");
     st.add_kind_of(KindOf::Structure).set_health(1000.0);
+    st.set_rebuild_hole_expose("GLAHoleTunnelNetwork", 0.0);
     logic.templates.insert("GLATunnelNetwork".into(), st);
     let sid = logic
         .create_object(
@@ -3955,6 +4344,7 @@ fn rebuild_hole_complete_transfers_script_name() {
         b.construction_percent = 1.0;
     }
     logic.update_rebuild_holes();
+    logic.process_destroy_list();
     assert!(logic.host_object(hole).is_none());
     assert_eq!(
         logic.host_object(rid).unwrap().name,
@@ -3974,6 +4364,7 @@ fn captured_gla_building_exposes_rebuild_hole() {
         .insert(1, Player::new(1, Team::USA, "USA", true));
     let mut st = ThingTemplate::new("GLABarracks");
     st.add_kind_of(KindOf::Structure).set_health(800.0);
+    st.set_rebuild_hole_expose("GLAHole", 0.0);
     logic.templates.insert("GLABarracks".into(), st);
     let sid = logic
         .create_object("GLABarracks", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
@@ -4031,6 +4422,7 @@ fn rebuild_hole_and_scaffold_death_destroys_worker() {
         .insert(0, Player::new(0, Team::GLA, "GLA", true));
     let mut st = ThingTemplate::new("GLABarracks");
     st.add_kind_of(KindOf::Structure).set_health(800.0);
+    st.set_rebuild_hole_expose("GLAHole", 0.0);
     logic.templates.insert("GLABarracks".into(), st);
     let sid = logic
         .create_object("GLABarracks", Team::GLA, glam::Vec3::new(0.0, 0.0, 0.0))
@@ -4100,6 +4492,149 @@ fn rebuild_hole_and_scaffold_death_destroys_worker() {
         worker2_destroyed,
         "hole death must destroy the generated worker"
     );
+}
+
+#[test]
+fn scud_storm_uses_authored_rebuild_hole_name() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::GLA, "GLA", true));
+    let mut st = ThingTemplate::new("GLAScudStorm");
+    st.add_kind_of(KindOf::Structure).set_health(4000.0);
+    st.set_rebuild_hole_expose("GLAScudStormRebuildHole", 500.0);
+    logic.templates.insert("GLAScudStorm".into(), st);
+    let sid = logic
+        .create_object("GLAScudStorm", Team::GLA, glam::Vec3::ZERO)
+        .expect("scud");
+    if let Some(o) = logic.host_object_mut(sid) {
+        o.set_status_under_construction(false);
+        o.construction_percent = 1.0;
+    }
+    let hole = logic.maybe_spawn_rebuild_hole(sid).expect("scud hole");
+    assert_eq!(
+        logic.host_object(hole).unwrap().template_name,
+        "GLAScudStormRebuildHole"
+    );
+
+    let mut fake = ThingTemplate::new("GLAFakeCommandCenter");
+    fake.add_kind_of(KindOf::Structure).set_health(100.0);
+    logic.templates.insert("GLAFakeCommandCenter".into(), fake);
+    let fid = logic
+        .create_object("GLAFakeCommandCenter", Team::GLA, glam::Vec3::new(20.0, 0.0, 0.0))
+        .expect("fake");
+    if let Some(o) = logic.host_object_mut(fid) {
+        o.set_status_under_construction(false);
+        o.construction_percent = 1.0;
+    }
+    assert!(
+        logic.maybe_spawn_rebuild_hole(fid).is_none(),
+        "GLAFake* without RebuildHoleExposeDie must not spawn a hole"
+    );
+}
+
+#[test]
+fn rebuild_hole_clock_starts_at_death_start_not_topple_done() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::GLA, "GLA", true));
+    let mut st = ThingTemplate::new("GLABarracks");
+    st.add_kind_of(KindOf::Structure).set_health(800.0);
+    st.set_rebuild_hole_expose("GLAHole", 0.0);
+    logic.templates.insert("GLABarracks".into(), st);
+    let sid = logic
+        .create_object("GLABarracks", Team::GLA, glam::Vec3::ZERO)
+        .expect("b");
+    if let Some(o) = logic.host_object_mut(sid) {
+        o.set_status_under_construction(false);
+        o.construction_percent = 1.0;
+    }
+    logic.frame = 10;
+    logic.mark_object_for_destruction(sid, None);
+    let hole = logic
+        .objects
+        .values()
+        .find(|o| o.is_rebuild_hole)
+        .map(|o| o.id)
+        .expect("hole at death start");
+    assert!(logic.host_object(sid).is_some(), "husk still present while toppling");
+    assert_eq!(
+        logic.host_object(hole).unwrap().rebuild_ready_frame,
+        10u32.max(1).saturating_add(600)
+    );
+}
+
+#[test]
+fn rebuild_hole_uses_dying_owner_not_faction_team() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(1, Player::new(1, Team::GLA, "GLA-A", true));
+    logic
+        .players
+        .insert(2, Player::new(2, Team::GLA, "GLA-B", true));
+    let mut st = ThingTemplate::new("GLABarracks");
+    st.add_kind_of(KindOf::Structure).set_health(800.0);
+    st.set_rebuild_hole_expose("GLAHole", 0.0);
+    logic.templates.insert("GLABarracks".into(), st);
+    let sid = logic
+        .create_object_for_player("GLABarracks", 2, glam::Vec3::ZERO)
+        .expect("p2 barracks");
+    if let Some(o) = logic.host_object_mut(sid) {
+        o.set_status_under_construction(false);
+        o.construction_percent = 1.0;
+    }
+    let hole = logic.maybe_spawn_rebuild_hole(sid).expect("hole");
+    let h = logic.host_object(hole).expect("hole obj");
+    assert_eq!(h.owner_player_id, Some(2));
+    assert_eq!(h.team, Team::GLA);
+}
+
+#[test]
+fn finished_rebuild_hole_goes_through_destroy_object() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::GLA, "GLA", true));
+    let mut st = ThingTemplate::new("GLABarracks");
+    st.add_kind_of(KindOf::Structure).set_health(800.0);
+    st.set_rebuild_hole_expose("GLAHole", 0.0);
+    logic.templates.insert("GLABarracks".into(), st);
+    let sid = logic
+        .create_object("GLABarracks", Team::GLA, glam::Vec3::ZERO)
+        .expect("b");
+    if let Some(o) = logic.host_object_mut(sid) {
+        o.set_status_under_construction(false);
+        o.construction_percent = 1.0;
+    }
+    let hole = logic.maybe_spawn_rebuild_hole(sid).expect("hole");
+    let now = logic.frame.max(1);
+    if let Some(h) = logic.host_object_mut(hole) {
+        h.rebuild_ready_frame = now;
+    }
+    logic.frame = now;
+    logic.update_rebuild_holes();
+    let rid = logic
+        .host_object(hole)
+        .and_then(|h| h.rebuild_reconstructing_id)
+        .expect("recon");
+    if let Some(b) = logic.host_object_mut(rid) {
+        b.set_status_under_construction(false);
+        b.construction_percent = 1.0;
+    }
+    logic.update_rebuild_holes();
+    assert!(
+        logic.objects_to_destroy.iter().any(|e| e.id == hole),
+        "finished hole must be queued via destroy_object, not hashmap-removed"
+    );
+    assert!(logic.host_object(hole).is_some());
+    logic.process_destroy_list();
+    assert!(logic.host_object(hole).is_none());
 }
 
 

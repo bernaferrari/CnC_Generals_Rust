@@ -131,6 +131,8 @@ pub struct Player {
     pub radar_count: i32,
     /// True when radar is disabled by script/power residual (C++ m_radarDisabled).
     pub radar_disabled: bool,
+    /// C++ Player::m_disableProofRadarCount — RadarVan RadarUpgrade DisableProof.
+    pub disable_proof_radar_count: i32,
     /// C++ Player::m_logicalRetaliationModeEnabled residual (options Auto-Retaliate).
     pub logical_retaliation_mode_enabled: bool,
     /// C++ Player::m_rankLevel residual (1-based retail ranks).
@@ -364,6 +366,7 @@ impl Player {
             kind_of_production_cost_changes: Vec::new(),
             radar_count: 0,
             radar_disabled: false,
+            disable_proof_radar_count: 0,
             logical_retaliation_mode_enabled: false,
             rank_level: 1,
             skill_points: 0,
@@ -507,20 +510,43 @@ impl Player {
         became_ready
     }
 
-    /// C++ Player::hasRadar residual: radar_count > 0 && !radar_disabled.
+    /// C++ Player::hasRadar (Player.cpp:3207-3213).
+    /// Brownout sets `radar_disabled`, but a disable-proof provider (Radar Van)
+    /// keeps radar online while `disable_proof_radar_count > 0`.
     pub fn has_radar(&self) -> bool {
-        self.radar_count > 0 && !self.radar_disabled
+        if self.radar_disabled && self.disable_proof_radar_count == 0 {
+            return false;
+        }
+        self.radar_count > 0
     }
 
-    /// C++ Player::addRadar residual (disable_proof ignored fail-closed).
-    pub fn add_radar(&mut self, _disable_proof: bool) {
+    /// C++ Player::addRadar (Player.cpp:3132-3140).
+    pub fn add_radar(&mut self, disable_proof: bool) {
         self.radar_count = self.radar_count.saturating_add(1);
+        if disable_proof {
+            self.disable_proof_radar_count = self.disable_proof_radar_count.saturating_add(1);
+        }
         crate::game_logic::host_radar_log::record(self.id, self.radar_count, self.radar_disabled);
     }
 
-    /// C++ Player::removeRadar residual.
-    pub fn remove_radar(&mut self, _disable_proof: bool) {
+    /// C++ Player::removeRadar (Player.cpp:3154-3172).
+    pub fn remove_radar(&mut self, disable_proof: bool) {
         self.radar_count = (self.radar_count - 1).max(0);
+        if disable_proof {
+            self.disable_proof_radar_count = (self.disable_proof_radar_count - 1).max(0);
+        }
+        crate::game_logic::host_radar_log::record(self.id, self.radar_count, self.radar_disabled);
+    }
+
+    /// C++ Player::disableRadar (Player.cpp:3175-3188).
+    pub fn disable_radar(&mut self) {
+        self.radar_disabled = true;
+        crate::game_logic::host_radar_log::record(self.id, self.radar_count, self.radar_disabled);
+    }
+
+    /// C++ Player::enableRadar (Player.cpp:3191-3203).
+    pub fn enable_radar(&mut self) {
+        self.radar_disabled = false;
         crate::game_logic::host_radar_log::record(self.id, self.radar_count, self.radar_disabled);
     }
 
@@ -1432,6 +1458,14 @@ pub(super) struct AirfieldParkingSpace {
     pub(super) reserved_for_exit: bool,
 }
 
+/// C++ `ParkingPlaceBehavior::HealingInfo` — healee list, not containment.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct AirfieldHealingInfo {
+    pub(super) getting_healed_id: ObjectId,
+    pub(super) heal_start_frame: u32,
+}
+
+
 /// C++ `HeliTakeoffOrLandingState` two-point path (JetAIUpdate.cpp:961-1125).
 #[derive(Debug, Clone, Copy)]
 pub(super) struct HostHeliTakeoffOrLanding {
@@ -1634,6 +1668,31 @@ mod map_side_dict_tests {
             (secs - expected).abs() < 1e-5,
             "handicap time seconds {secs} vs {expected}"
         );
+    }
+
+    #[test]
+    fn has_radar_honors_disable_proof_through_brownout() {
+        // C++ Player.cpp:3207-3213 — disable-proof van stays up when radar_disabled.
+        let mut player = Player::new(0, Team::GLA, "GLA", true);
+        player.add_radar(true);
+        assert!(player.has_radar());
+        assert_eq!(player.disable_proof_radar_count, 1);
+        player.disable_radar();
+        assert!(
+            player.has_radar(),
+            "Radar Van DisableProof must survive brownout"
+        );
+        player.remove_radar(true);
+        assert!(!player.has_radar());
+        assert_eq!(player.disable_proof_radar_count, 0);
+        player.add_radar(false);
+        player.disable_radar();
+        assert!(
+            !player.has_radar(),
+            "ordinary CC radar goes dark on brownout"
+        );
+        player.enable_radar();
+        assert!(player.has_radar());
     }
 
 }

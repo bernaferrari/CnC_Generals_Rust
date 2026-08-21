@@ -920,11 +920,23 @@ pub fn get_eva() -> &'static Mutex<Eva> {
 
 pub fn initialize_eva_system() -> INIResult<()> {
     let _ = get_eva();
+    if eva_check_info_count() > 0 {
+        return Ok(());
+    }
     // Register + load without holding THE_EVA; parse_eva_event locks per event.
     let _ = register_block_parser("EvaEvent", parse_eva_event);
     let mut ini = INI::new();
     ini.load("Data/INI/Eva.ini", INILoadType::Overwrite)
 }
+
+/// Number of Eva.ini `EvaEvent` blocks currently on the live singleton.
+pub fn eva_check_info_count() -> usize {
+    get_eva()
+        .lock()
+        .map(|eva| eva.all_check_infos.len())
+        .unwrap_or(0)
+}
+
 
 pub fn reset_eva_system() {
     set_eva_host_frame(0);

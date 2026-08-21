@@ -275,6 +275,18 @@ pub struct Projectile {
     pub flight: Option<crate::game_logic::weapon_bootstrap::HostProjectileFlight>,
     /// Runtime Bezier / ignition / lock / layer state.
     pub flight_runtime: crate::game_logic::weapon_bootstrap::HostProjectileRuntime,
+    /// C++ MissileAIUpdate `m_framesTillDecoyed` (absolute frame, 0 = none).
+    #[serde(default)]
+    pub frames_till_decoyed: u32,
+    /// C++ MissileAIUpdate `m_noDamage` — diverted decoy path deals no HP.
+    #[serde(default)]
+    pub no_damage: bool,
+    /// Launch already ran `reportMissileForCountermeasures`.
+    #[serde(default)]
+    pub cm_reported: bool,
+    /// C++ `KINDOF_SMALL_MISSILE` on the projectile object.
+    #[serde(default)]
+    pub is_small_missile: bool,
 }
 
 impl Projectile {
@@ -330,6 +342,10 @@ impl Projectile {
             die_on_detonate: false,
             flight: None,
             flight_runtime: crate::game_logic::weapon_bootstrap::HostProjectileRuntime::default(),
+            frames_till_decoyed: 0,
+            no_damage: false,
+            cm_reported: false,
+            is_small_missile: false,
         }
     }
 
@@ -1063,6 +1079,7 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             proj.projectile_collides = p.projectile_collides;
             proj.set_projectile_lifecycle(projectile_lifecycle);
             proj.bind_authored_flight(p.shooter_pos, target_pos, flight_speed);
+            proj.is_small_missile = host_projectile_is_small_missile(proj);
         }
     }
 }
@@ -1286,6 +1303,15 @@ impl CombatSystem {
 
         for proj_id in projectile_ids {
             if let Some(projectile) = self.projectiles.get_mut(&proj_id) {
+                if let Some(reg) = countermeasures.as_mut() {
+                    apply_countermeasure_report_and_decoy(
+                        projectile,
+                        proj_id,
+                        objects,
+                        reg,
+                        frame,
+                    );
+                }
                 let target_is_live = projectile
                     .target_id
                     .map(|target_id| objects.get(&target_id).is_some_and(Object::is_alive))
@@ -1341,7 +1367,7 @@ impl CombatSystem {
                         // A zero-radius weapon has no guessed direct victim.
                         let impact = projectile.position;
                         Self::maybe_record_historic_bonus(projectile, impact, objects);
-                        if projectile.explosion_radius > 0.0 {
+                        if !projectile.no_damage && projectile.explosion_radius > 0.0 {
                             damage_events.push(DamageEvent::Area {
                                 position: impact,
                                 damage: projectile.damage,
@@ -1467,7 +1493,7 @@ impl CombatSystem {
                     }
                     let impact = projectile.position;
                     Self::maybe_record_historic_bonus(projectile, impact, objects);
-                    if projectile.explosion_radius > 0.0 {
+                    if !projectile.no_damage && projectile.explosion_radius > 0.0 {
                         damage_events.push(DamageEvent::Area {
                             position: impact,
                             damage: projectile.damage,
@@ -1494,7 +1520,7 @@ impl CombatSystem {
                                 .map(|o| o.template_name.clone())
                                 .unwrap_or_default(),
                         });
-                    } else {
+                    } else if !projectile.no_damage {
                         damage_events.push(DamageEvent::Direct {
                             target_id: sid,
                             position: impact,
@@ -1564,7 +1590,7 @@ impl CombatSystem {
                             }
                             let impact = projectile.position;
                             Self::maybe_record_historic_bonus(projectile, impact, objects);
-                            if projectile.explosion_radius > 0.0 {
+                            if !projectile.no_damage && projectile.explosion_radius > 0.0 {
                                 // C++ Weapon.cpp:1438: primary inside primaryRadius, else secondary.
                                 damage_events.push(DamageEvent::Area {
                                     position: impact,
@@ -1592,7 +1618,7 @@ impl CombatSystem {
                                         .map(|o| o.template_name.clone())
                                         .unwrap_or_default(),
                                 });
-                            } else {
+                            } else if !projectile.no_damage {
                                 damage_events.push(DamageEvent::Direct {
                                     target_id,
                                     position: impact,
@@ -1633,7 +1659,7 @@ impl CombatSystem {
                     if distance <= 2.0 {
                         let impact = projectile.target_position;
                         Self::maybe_record_historic_bonus(projectile, impact, objects);
-                        if projectile.explosion_radius > 0.0 {
+                        if !projectile.no_damage && projectile.explosion_radius > 0.0 {
                             damage_events.push(DamageEvent::Area {
                                 position: impact,
                                 damage: projectile.damage,
@@ -1696,47 +1722,9 @@ impl CombatSystem {
                     shooter_id,
                     ..
                 } => {
-                    // America Countermeasures residual: divert missile before Direct damage.
-                    // C++ Weapon.cpp:1144-1155 KINDOF_SMALL_MISSILE only (not bullets).
-                    let mut diverted = false;
-                    if let Some(reg) = countermeasures.as_mut() {
-                        if let Some(target) = objects.get(target_id) {
-                            let is_air = target.is_kind_of(KindOf::Aircraft)
-                                || target.status.airborne_target;
-                            let is_small_missile = matches!(
-                                damage_type,
-                                DamageType::InfantryMissile
-                                    | DamageType::JetMissiles
-                                    | DamageType::StealthJetMissiles
-                                    | DamageType::SubdualMissile
-                            ) || objects.get(shooter_id).is_some_and(|s| {
-                                s.is_kind_of(KindOf::SmallMissile)
-                                    || s.is_kind_of(KindOf::Projectile)
-                                        && s.template_name.to_ascii_lowercase().contains("missile")
-                            });
-                            if is_air
-                                && is_small_missile
-                                && crate::game_logic::host_countermeasures::aircraft_has_countermeasures_upgrade(
-                                    &target.applied_upgrades,
-                                )
-                            {
-                                let proj_key = ObjectId(target_id.0.wrapping_add(frame));
-                                diverted = crate::game_logic::host_countermeasures::try_divert_missile(
-                                    reg,
-                                    *target_id,
-                                    proj_key,
-                                    frame,
-                                    true,
-                                );
-                            }
-                        }
-                    }
-                    if diverted {
-                        log::debug!(
-                            "Countermeasures diverted projectile residual vs object {}",
-                            target_id
-                        );
-                    } else if let Some(target) = objects.get_mut(target_id) {
+                    // C++ MissileAIUpdate `m_noDamage`: diverted decoy detonations deal no HP.
+                    // Report/seek happens at launch + decoy-timer expiry, not impact.
+                    if let Some(target) = objects.get_mut(target_id) {
                         let destroyed = target.take_damage_from_typed_death(
                             *damage,
                             Some(*shooter_id),
@@ -1932,6 +1920,115 @@ impl CombatSystem {
         self.projectiles.clear();
     }
 }
+
+fn host_projectile_is_small_missile(projectile: &Projectile) -> bool {
+    if projectile.is_small_missile {
+        return true;
+    }
+    if crate::game_logic::host_car_bomb::object_definition_has_kind(
+        &projectile.projectile_object_name,
+        "SMALL_MISSILE",
+    ) {
+        return true;
+    }
+    if crate::game_logic::host_car_bomb::object_definition_has_kind(
+        &projectile.projectile_object_name,
+        "BALLISTIC_MISSILE",
+    ) {
+        return false;
+    }
+    matches!(
+        projectile.damage_type,
+        DamageType::InfantryMissile
+            | DamageType::JetMissiles
+            | DamageType::StealthJetMissiles
+            | DamageType::SubdualMissile
+    ) || matches!(
+        projectile.projectile_lifecycle,
+        Some(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::Missile { .. })
+    )
+}
+
+/// C++ Weapon.cpp:1144-1155 report at launch; MissileAIUpdate decoy when the timer expires.
+fn apply_countermeasure_report_and_decoy(
+    projectile: &mut Projectile,
+    proj_id: ObjectId,
+    objects: &HashMap<ObjectId, Object>,
+    reg: &mut crate::game_logic::host_countermeasures::HostCountermeasuresRegistry,
+    frame: u32,
+) {
+    use crate::game_logic::host_countermeasures::{
+        aircraft_has_countermeasures_upgrade, calculate_countermeasure_to_divert_to,
+        report_missile_for_countermeasures_named, victim_locomotor_is_supersonic,
+        MISSILE_DECOY_DELAY_FRAMES,
+    };
+
+    if !projectile.cm_reported {
+        projectile.cm_reported = true;
+        if host_projectile_is_small_missile(projectile) {
+            if let Some(tid) = projectile.target_id {
+                if let Some(target) = objects.get(&tid) {
+                    let has_cm =
+                        aircraft_has_countermeasures_upgrade(&target.applied_upgrades);
+                    let airborne = target.is_kind_of(KindOf::Aircraft)
+                        || target.status.airborne_target;
+                    let supersonic = victim_locomotor_is_supersonic(
+                        target.rider_change_locomotor_set.as_deref(),
+                    );
+                    if has_cm && airborne && !supersonic {
+                        let tmpl = target.template_name.clone();
+                        if report_missile_for_countermeasures_named(
+                            reg,
+                            tid,
+                            proj_id,
+                            frame,
+                            true,
+                            Some(tmpl.as_str()),
+                        ) {
+                            projectile.frames_till_decoyed =
+                                frame.saturating_add(MISSILE_DECOY_DELAY_FRAMES);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if projectile.frames_till_decoyed > 0 && projectile.frames_till_decoyed <= frame {
+        projectile.frames_till_decoyed = 0;
+        projectile.no_damage = true;
+        if let Some(victim_id) = projectile.target_id {
+            let aircraft_xz = objects.get(&victim_id).map(|o| {
+                let p = o.get_position();
+                (p.x, p.z)
+            });
+            if let Some(axz) = aircraft_xz {
+                let flare_xz: Vec<(ObjectId, f32, f32)> = objects
+                    .iter()
+                    .filter(|(_, o)| {
+                        o.countermeasure_flare
+                            && o.producer_id == Some(victim_id)
+                            && o.is_alive()
+                    })
+                    .map(|(id, o)| {
+                        let p = o.get_position();
+                        (*id, p.x, p.z)
+                    })
+                    .collect();
+                if let Some(fid) =
+                    calculate_countermeasure_to_divert_to(reg, victim_id, axz, &flare_xz)
+                {
+                    projectile.target_id = Some(fid);
+                    projectile.is_homing = true;
+                    if let Some(flare) = objects.get(&fid) {
+                        projectile.target_position = flare.get_position();
+                    }
+                }
+            }
+        }
+    }
+}
+
 
 #[cfg(test)]
 mod tests {

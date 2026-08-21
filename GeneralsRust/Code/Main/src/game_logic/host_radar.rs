@@ -19,7 +19,7 @@
 //!
 //! Fail-closed honesty:
 //! - Not full RadarUpgrade / RadarUpdate extend-animation / grant-upgrade matrix
-//! - Not full disable-proof vs power-brownout remove/addRadar on disable path
+//! - Disable-proof vs brownout: `Player::has_radar` honors `disable_proof_radar_count`
 //! - Not full capture / sabotage / shared-allied radar edge cases
 //! - Fake command centers residual-skip (`*Fake*CommandCenter*`)
 

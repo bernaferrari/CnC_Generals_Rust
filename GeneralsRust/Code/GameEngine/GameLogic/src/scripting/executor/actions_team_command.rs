@@ -865,6 +865,8 @@ impl ScriptActionDispatcher {
             flag_name,
             enable
         );
+        // Live host path: leftover team factory is empty. Queue by team name.
+        super::request_host_team_panel_flag(&team_name, &flag_name, enable);
 
         let team_name = self.resolve_team_name_token(&team_name);
         if let Ok(mut factory_guard) = get_team_factory().lock() {
@@ -885,6 +887,7 @@ impl ScriptActionDispatcher {
                 }
             }
         }
+
 
         Ok(ScriptActionResult::Success)
     }

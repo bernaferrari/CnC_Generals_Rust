@@ -4713,6 +4713,28 @@ mod tests {
             "setActiveBoundary must store/restore fog and lock/release ghosts like TerrainLogic.cpp:2545-2615"
         );
     }
+
+    #[test]
+    fn flatten_terrain_box_at_covers_long_axis_corners() {
+        // hq-6smw3: C++ GEOMETRY_BOX two-triangle flatten, not a cylinder disk.
+        let mut heightmap = vec![200u8; 24 * 24];
+        // Raise a ridge along +X so a cylinder of r=15 leaves it, a 40x10 box hits it.
+        for x in 16..22 {
+            for y in 10..14 {
+                heightmap[x + y * 24] = 240;
+            }
+        }
+        let map_data = map_data_with_heightmap(24, 24, heightmap);
+        let mut terrain = TerrainLogic::new();
+        terrain.load_map_data(map_data);
+        let before = terrain.get_ground_height(180.0, 120.0, None);
+        terrain.flatten_terrain_box_at(120.0, 120.0, 0.0, 70.0, 15.0);
+        let after = terrain.get_ground_height(180.0, 120.0, None);
+        assert!(
+            after + 0.01 < before,
+            "box flatten must lower a long-axis cell a cylinder of r=15 would miss: before={before} after={after}"
+        );
+    }
 }
 
 // Global terrain logic instance

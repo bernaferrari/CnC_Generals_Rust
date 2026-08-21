@@ -131,7 +131,7 @@ fn particle_uplink_width_grow_damage_radius_residual_honesty() {
     assert!((early[0].damage_radius - spawn_radius).abs() < 0.05);
     reg.record_beam_tick_complete(field_id, 0.0, 0, 0, spawn);
 
-    // Advance to half grow (scalar 0.5 → radius 25) — still miss unit at 30.
+    // Advance to half grow (scalar 0.5 → radius 22.1) — still miss unit at 30.
     let half = spawn + PARTICLE_WIDTH_GROW_FRAMES / 2;
     // Force next tick due at half-grow frame.
     if let Some(f) = reg.beam_fields.iter_mut().find(|f| f.id == field_id) {
@@ -142,15 +142,15 @@ fn particle_uplink_width_grow_damage_radius_residual_honesty() {
     let mid = reg.plan_due_beam_ticks(half, &objects);
     assert_eq!(mid.len(), 1);
     assert!((mid[0].width_scalar - 0.5).abs() < 0.01);
-    assert!((mid[0].damage_radius - 25.0).abs() < 0.1);
+    assert!((mid[0].damage_radius - 22.1).abs() < 0.1);
     assert!(
         mid[0].hits.is_empty(),
-        "half-grow radius 25 must miss unit at dist 30"
+        "half-grow radius 22.1 must miss unit at dist 30"
     );
     reg.record_beam_tick_complete(field_id, 0.0, 0, 0, half);
     assert!((reg.beam_fields()[0].peak_width_scalar - 0.5).abs() < 0.01);
 
-    // Full grow: radius 50 → hit unit at dist 30.
+    // Full grow: radius 44.2 → hit unit at dist 30.
     let full = spawn + PARTICLE_WIDTH_GROW_FRAMES;
     if let Some(f) = reg.beam_fields.iter_mut().find(|f| f.id == field_id) {
         f.next_tick_frame = full;
@@ -204,7 +204,7 @@ fn particle_uplink_width_grow_decay_shrink_residual_honesty() {
         (ObjectId(2), near, Team::GLA, true),
     ];
 
-    // Hold phase end (TotalFiringTime): full radius 50 → hit unit at dist 30.
+    // Hold phase end (TotalFiringTime): full radius 44.2 → hit unit at dist 30.
     let decay_start = particle_decay_start_frame(spawn);
     if let Some(f) = reg.beam_fields.iter_mut().find(|f| f.id == field_id) {
         f.next_tick_frame = decay_start;
@@ -218,7 +218,7 @@ fn particle_uplink_width_grow_decay_shrink_residual_honesty() {
     assert_eq!(hold[0].hits.len(), 1);
     reg.record_beam_tick_complete(field_id, PARTICLE_BEAM_DAMAGE_PER_PULSE, 1, 0, decay_start);
 
-    // Half-decay: scalar 0.5 → radius 25 → miss unit at dist 30.
+    // Half-decay: scalar 0.5 → radius 22.1 → miss unit at dist 30.
     let half_decay = decay_start + PARTICLE_WIDTH_GROW_FRAMES / 2;
     if let Some(f) = reg.beam_fields.iter_mut().find(|f| f.id == field_id) {
         f.next_tick_frame = half_decay;
@@ -227,10 +227,10 @@ fn particle_uplink_width_grow_decay_shrink_residual_honesty() {
     let mid = reg.plan_due_beam_ticks(half_decay, &objects);
     assert_eq!(mid.len(), 1);
     assert!((mid[0].width_scalar - 0.5).abs() < 0.01);
-    assert!((mid[0].damage_radius - 25.0).abs() < 0.1);
+    assert!((mid[0].damage_radius - 22.1).abs() < 0.1);
     assert!(
         mid[0].hits.is_empty(),
-        "half-decay radius 25 must miss unit at dist 30"
+        "half-decay radius 22.1 must miss unit at dist 30"
     );
     reg.record_beam_tick_complete(field_id, 0.0, 0, 0, half_decay);
     assert!(reg.beam_fields()[0].decay_samples > 0);
@@ -733,7 +733,7 @@ fn particle_uplink_outer_beam_width_retail_radius_residual_honesty() {
     // Retail getLaserTemplateWidth = OuterBeamWidth * 0.5 = 13.
     // getCurrentLaserRadius = template * width_scalar.
     // damageRadius = laserRadius * DamageRadiusScalar → peak 44.2.
-    // Host combat residual still uses PARTICLE_BEAM_RADIUS 50 × scalar.
+    // Host combat uses the same peak ([`PARTICLE_BEAM_RADIUS`]).
     assert!((PARTICLE_ORBITAL_LASER_OUTER_BEAM_WIDTH - 26.0).abs() < 0.01);
     assert!((particle_orbital_laser_template_width() - 13.0).abs() < 0.01);
     assert!((particle_retail_damage_radius(0, 60) - 44.2).abs() < 0.05);
@@ -768,11 +768,11 @@ fn particle_uplink_outer_beam_width_retail_radius_residual_honesty() {
         assert!((f.last_outer_beam_draw_width - 13.0).abs() < 0.1);
         assert!((f.last_retail_laser_radius - 6.5).abs() < 0.1);
         assert!((f.last_retail_damage_radius - 22.1).abs() < 0.1);
-        // Host combat radius residual still PARTICLE_BEAM_RADIUS × 0.5 = 25.
-        assert!((particle_beam_damage_radius(spawn, half) - 25.0).abs() < 0.1);
+        // Host combat radius is now retail 44.2 × 0.5 = 22.1.
+        assert!((particle_beam_damage_radius(spawn, half) - 22.1).abs() < 0.1);
     }
 
-    // Full hold: draw 26, laser 13, retail damage 44.2 (host combat 50).
+    // Full hold: draw 26, laser 13, retail/combat damage 44.2.
     let hold = spawn + PARTICLE_WIDTH_GROW_FRAMES;
     reg.sample_beam_width_honesty(hold);
     {
@@ -781,7 +781,7 @@ fn particle_uplink_outer_beam_width_retail_radius_residual_honesty() {
         assert!((f.peak_retail_laser_radius - 13.0).abs() < 0.1);
         assert!((f.peak_retail_damage_radius - 44.2).abs() < 0.1);
         assert!((f.last_outer_beam_draw_width - 26.0).abs() < 0.1);
-        assert!((particle_beam_damage_radius(spawn, hold) - 50.0).abs() < 0.1);
+        assert!((particle_beam_damage_radius(spawn, hold) - 44.2).abs() < 0.1);
     }
     assert!(reg.honesty_beam_outer_beam_width_ok());
 
@@ -798,6 +798,45 @@ fn particle_uplink_outer_beam_width_retail_radius_residual_honesty() {
     }
     assert!(reg.honesty_beam_outer_beam_width_ok());
     let _ = field_id;
+}
+
+/// C++ PartitionFilterAlive only — same-team units in the beam take 35/pulse.
+#[test]
+fn particle_uplink_beam_pulses_hit_same_team() {
+    let mut reg = HostSpecialPowerStrikeRegistry::new();
+    let click = Vec3::new(0.0, 0.0, 0.0);
+    let id = reg.queue(
+        HostSuperweaponKind::ParticleCannon,
+        ObjectId(1),
+        Team::China,
+        click,
+        0,
+    );
+    reg.record_impact_complete(id, 0.0, 0, 0);
+    let field_id = reg.beam_fields()[0].id;
+    let spawn = reg.beam_fields()[0].spawn_frame;
+    let hold = spawn + PARTICLE_WIDTH_GROW_FRAMES;
+    if let Some(f) = reg.beam_fields.iter_mut().find(|f| f.id == field_id) {
+        f.next_tick_frame = hold;
+        f.pulses_made = 0;
+    }
+    let epic0 = particle_swath_epicenter(click, 0);
+    let objects = vec![
+        (ObjectId(1), Vec3::new(500.0, 0.0, 0.0), Team::China, true),
+        (ObjectId(2), epic0, Team::China, true),
+        (ObjectId(3), epic0, Team::GLA, true),
+        (ObjectId(4), epic0, Team::Neutral, true),
+    ];
+    let plans = reg.plan_due_beam_ticks(hold, &objects);
+    assert_eq!(plans.len(), 1);
+    assert!((plans[0].damage_radius - 44.2).abs() < 0.1);
+    let mut hits: Vec<_> = plans[0].hits.iter().map(|h| h.target_id).collect();
+    hits.sort_by_key(|id| id.0);
+    assert_eq!(
+        hits,
+        vec![ObjectId(2), ObjectId(3), ObjectId(4)],
+        "beam must hit same-team, enemy, and neutral; launcher still excluded"
+    );
 }
 
 #[test]

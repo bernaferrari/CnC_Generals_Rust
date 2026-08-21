@@ -460,6 +460,15 @@ pub struct ObjectStatus {
     /// C++ OBJECT_STATUS_WET residual (WaveGuideUpdate doDamage once-gate).
     #[serde(default)]
     pub wet: bool,
+    /// C++ DISABLED_SCRIPT_DISABLED (WB/script Enabled=No).
+    #[serde(default)]
+    pub disabled_script_disabled: bool,
+    /// C++ DISABLED_SCRIPT_UNDERPOWERED (WB/script Powered=No).
+    #[serde(default)]
+    pub disabled_script_underpowered: bool,
+    /// C++ DISABLED_HELD (Battle Bus second-life hulk / contain freeze).
+    #[serde(default)]
+    pub disabled_held: bool,
 
 }
 

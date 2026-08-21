@@ -20,6 +20,7 @@ impl ScriptEvaluator {
         let area_name = area_param.get_string();
 
         if dual_world_registry_unavailable() {
+            // C++ evaluateNamedInsideArea: getUnitNamed + pointInTrigger. No dead/inert filter.
             return Ok(
                 crate::scripting::host_script_named_unit_in_named_area(unit_name, area_name)
                     .unwrap_or(false),
@@ -43,10 +44,7 @@ impl ScriptEvaluator {
             return Ok(false);
         };
 
-        if !Self::is_object_considerable(&obj_guard) {
-            return Ok(false);
-        }
-
+        // C++ ScriptConditions.cpp:397-415 has no dead/inert filter.
         Ok(Self::is_object_inside_trigger(&obj_guard, &trigger))
     }
 
@@ -85,6 +83,20 @@ impl ScriptEvaluator {
             Some(trigger) => trigger,
             None => return Ok(false),
         };
+
+        if dual_world_registry_unavailable() {
+            return Ok(
+                crate::scripting::conditions::host_team_some_inside_some_outside(
+                    &team_name,
+                    &trigger,
+                    which_to_consider,
+                ) || crate::scripting::conditions::host_team_all_inside(
+                    &team_name,
+                    &trigger,
+                    which_to_consider,
+                ),
+            );
+        }
 
         for team_arc in self.resolve_team_instances(&team_name) {
             let Ok(team_guard) = team_arc.read() else {
@@ -130,6 +142,14 @@ impl ScriptEvaluator {
             None => return Ok(false),
         };
 
+        if dual_world_registry_unavailable() {
+            return Ok(crate::scripting::conditions::host_team_all_inside(
+                &team_name,
+                &trigger,
+                which_to_consider,
+            ));
+        }
+
         for team_arc in self.resolve_team_instances(&team_name) {
             let Ok(team_guard) = team_arc.read() else {
                 continue;
@@ -147,53 +167,15 @@ impl ScriptEvaluator {
         &self,
         condition: &Condition,
     ) -> GameLogicResult<bool> {
-        let team_param = condition.get_parameter(0).ok_or_else(|| {
-            GameLogicError::Configuration(
-                "TeamOutsideAreaEntirely condition missing team parameter".to_string(),
-            )
-        })?;
-        let area_param = condition.get_parameter(1).ok_or_else(|| {
-            GameLogicError::Configuration(
-                "TeamOutsideAreaEntirely condition missing trigger area parameter".to_string(),
-            )
-        })?;
-        let type_param = condition.get_parameter(2).ok_or_else(|| {
-            GameLogicError::Configuration(
-                "TeamOutsideAreaEntirely condition missing type parameter".to_string(),
-            )
-        })?;
-
-        let team_name = self.resolve_team_name_token(team_param.get_string());
-        let area_name = area_param.get_string();
-        let which_to_consider = type_param.get_int() as u32;
-
-        let trigger = match self.get_trigger_area(area_name) {
-            Some(trigger) => trigger,
-            None => return Ok(false),
-        };
-
-        for team_arc in self.resolve_team_instances(&team_name) {
-            let Ok(team_guard) = team_arc.read() else {
-                continue;
-            };
-
-            if !(team_guard.all_inside(&trigger, which_to_consider)
-                || team_guard.some_inside_some_outside(&trigger, which_to_consider))
-            {
-                return Ok(true);
-            }
-        }
-
-        Ok(false)
+        // C++ evaluateTeamOutsideAreaEntirely = !(entirely || partially).
+        Ok(!(self.evaluate_team_inside_area_entirely_condition(condition)?
+            || self.evaluate_team_inside_area_partially_condition(condition)?))
     }
 
     fn evaluate_named_entered_area_condition(
         &self,
         condition: &Condition,
     ) -> GameLogicResult<bool> {
-        if dual_world_registry_unavailable() {
-            return Ok(false);
-        }
         let unit_param = condition.get_parameter(0).ok_or_else(|| {
             GameLogicError::Configuration(
                 "NamedEnteredArea condition missing unit parameter".to_string(),
@@ -210,6 +192,12 @@ impl ScriptEvaluator {
         let Some(trigger) = self.get_trigger_area(area_name) else {
             return Ok(false);
         };
+        if dual_world_registry_unavailable() {
+            let Some(object_id) = crate::scripting::host_script_named_unit_id(unit_name) else {
+                return Ok(false);
+            };
+            return Ok(crate::scripting::host_object_did_enter(object_id, &trigger));
+        }
         let tracker = get_named_object_tracker();
         let Some(object_id) = tracker.get_object_id(unit_name).ok().flatten() else {
             return Ok(false);
@@ -225,9 +213,6 @@ impl ScriptEvaluator {
     }
 
     fn evaluate_named_exited_area_condition(&self, condition: &Condition) -> GameLogicResult<bool> {
-        if dual_world_registry_unavailable() {
-            return Ok(false);
-        }
         let unit_param = condition.get_parameter(0).ok_or_else(|| {
             GameLogicError::Configuration(
                 "NamedExitedArea condition missing unit parameter".to_string(),
@@ -244,6 +229,12 @@ impl ScriptEvaluator {
         let Some(trigger) = self.get_trigger_area(area_name) else {
             return Ok(false);
         };
+        if dual_world_registry_unavailable() {
+            let Some(object_id) = crate::scripting::host_script_named_unit_id(unit_name) else {
+                return Ok(false);
+            };
+            return Ok(crate::scripting::host_object_did_exit(object_id, &trigger));
+        }
         let tracker = get_named_object_tracker();
         let Some(object_id) = tracker.get_object_id(unit_name).ok().flatten() else {
             return Ok(false);
@@ -276,13 +267,18 @@ impl ScriptEvaluator {
         let team_name = self.resolve_team_name_token(team_param.get_string());
         let area_name = area_param.get_string();
         let which_to_consider = type_param.get_int() as u32;
-        let area_tracker = get_area_tracker();
-        if !area_tracker.has_area(area_name).unwrap_or(false) {
-            return Ok(false);
-        }
         let Some(trigger) = self.get_trigger_area(area_name) else {
             return Ok(false);
         };
+        if dual_world_registry_unavailable() {
+            return Ok(
+                crate::scripting::conditions::host_team_did_all_enter(
+                    &team_name,
+                    &trigger,
+                    which_to_consider,
+                ),
+            );
+        }
 
         for team_arc in self.resolve_team_instances(&team_name) {
             let Ok(team_guard) = team_arc.read() else {
@@ -324,13 +320,18 @@ impl ScriptEvaluator {
         let team_name = self.resolve_team_name_token(team_param.get_string());
         let area_name = area_param.get_string();
         let which_to_consider = type_param.get_int() as u32;
-        let area_tracker = get_area_tracker();
-        if !area_tracker.has_area(area_name).unwrap_or(false) {
-            return Ok(false);
-        }
         let Some(trigger) = self.get_trigger_area(area_name) else {
             return Ok(false);
         };
+        if dual_world_registry_unavailable() {
+            return Ok(
+                crate::scripting::conditions::host_team_did_partial_enter(
+                    &team_name,
+                    &trigger,
+                    which_to_consider,
+                ),
+            );
+        }
 
         for team_arc in self.resolve_team_instances(&team_name) {
             let Ok(team_guard) = team_arc.read() else {
@@ -368,13 +369,18 @@ impl ScriptEvaluator {
         let team_name = self.resolve_team_name_token(team_param.get_string());
         let area_name = area_param.get_string();
         let which_to_consider = type_param.get_int() as u32;
-        let area_tracker = get_area_tracker();
-        if !area_tracker.has_area(area_name).unwrap_or(false) {
-            return Ok(false);
-        }
         let Some(trigger) = self.get_trigger_area(area_name) else {
             return Ok(false);
         };
+        if dual_world_registry_unavailable() {
+            return Ok(
+                crate::scripting::conditions::host_team_did_all_exit(
+                    &team_name,
+                    &trigger,
+                    which_to_consider,
+                ),
+            );
+        }
 
         for team_arc in self.resolve_team_instances(&team_name) {
             let Ok(team_guard) = team_arc.read() else {
@@ -416,13 +422,18 @@ impl ScriptEvaluator {
         let team_name = self.resolve_team_name_token(team_param.get_string());
         let area_name = area_param.get_string();
         let which_to_consider = type_param.get_int() as u32;
-        let area_tracker = get_area_tracker();
-        if !area_tracker.has_area(area_name).unwrap_or(false) {
-            return Ok(false);
-        }
         let Some(trigger) = self.get_trigger_area(area_name) else {
             return Ok(false);
         };
+        if dual_world_registry_unavailable() {
+            return Ok(
+                crate::scripting::conditions::host_team_did_partial_exit(
+                    &team_name,
+                    &trigger,
+                    which_to_consider,
+                ),
+            );
+        }
 
         for team_arc in self.resolve_team_instances(&team_name) {
             let Ok(team_guard) = team_arc.read() else {

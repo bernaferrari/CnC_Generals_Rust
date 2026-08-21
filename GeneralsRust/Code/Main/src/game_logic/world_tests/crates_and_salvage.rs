@@ -3782,7 +3782,7 @@ fn airfield_runway_blocks_rtb_landing_when_busy() {
 #[test]
 fn airfield_takeoff_releases_parking_slot() {
     use crate::game_logic::host_dock_contain_exit_heal_residual::PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT;
-    use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+    use crate::game_logic::{KindOf, ParkingPlaceMetadata, Team, ThingTemplate, Weapon};
     use glam::Vec3;
 
     let mut logic = GameLogic::new();
@@ -3791,6 +3791,15 @@ fn airfield_takeoff_releases_parking_slot() {
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSAirfield)
         .set_health(1000.0);
+    af_tmpl.parking_place = Some(ParkingPlaceMetadata {
+        num_rows: 2,
+        num_cols: 2,
+        approach_height: 50.0,
+        landing_deck_height_offset: 0.0,
+        has_runways: true,
+        park_in_hangars: true,
+        heal_amount_per_second: 10.0,
+    });
     logic.templates.insert("AmericaAirfield".into(), af_tmpl);
     let mut jet_tmpl = ThingTemplate::new("AmericaJetRaptor");
     jet_tmpl.primary_weapon_name = Some("HostTestRaptorJetMissileWeapon".into());
@@ -3823,7 +3832,12 @@ fn airfield_takeoff_releases_parking_slot() {
     assert!(logic.try_return_to_base_rearm(jet_id));
     assert_eq!(logic.airfield_parked_count(af_id), 1);
 
-    // Order attack → takeoff residual (Object takeoff + host release frees slot).
+    // C++ JetTakeoffOrLandingState onExit (897-900): uncontain, keep stall
+    // when KeepsParkingSpaceWhenAirborne (default true, JetAIUpdate.cpp:1630).
+    let stall_before = logic
+        .objects
+        .get(&jet_id)
+        .and_then(|jet| jet.airfield_parking_space_index);
     {
         let jet = logic.objects.get_mut(&jet_id).unwrap();
         jet.attack_target(ObjectId(777));
@@ -3836,9 +3850,9 @@ fn airfield_takeoff_releases_parking_slot() {
         assert!(jet.status.airborne_target);
         assert!(jet.get_position().y >= PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT - 1e-3);
         assert_eq!(jet.target, Some(ObjectId(777)));
+        assert_eq!(jet.airfield_parking_space_index, stall_before);
     }
     assert_eq!(logic.airfield_parked_count(af_id), 0);
-    // Slot freed — another empty jet can dock.
     let jet2 = logic
         .create_object("AmericaJetRaptor", Team::USA, Vec3::new(30.0, 0.0, 0.0))
         .unwrap();

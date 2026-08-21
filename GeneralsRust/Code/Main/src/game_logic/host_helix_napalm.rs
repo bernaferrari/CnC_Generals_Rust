@@ -25,7 +25,9 @@
 //!
 //! Fail-closed honesty:
 //! - SpecialObject NapalmBomb projectile + HeightDieUpdate fall residual closed
-//! - Not full FirestormDynamicGeometryInfoUpdate expand/reverse radius animation
+//! - FirestormDynamicGeometryInfoUpdate expand/reverse uses current bounding
+//!   circle (`doDamageScan`) + reverse-at-transition scorch; not full particle
+//!   emission-volume follow / GPU FX / ThingFactory FirestormSmall Object
 //! - Not full SpecialAbilityUpdate UnpackTime / MaxSpecialObjects charge matrix
 //! - Not full SubObjectsUpgrade BombWing / UnpauseSpecialPowerUpgrade module
 //! - Not network Helix Napalm replication (network deferred)
@@ -76,8 +78,18 @@ pub const HELIX_NAPALM_PRIMARY_RADIUS: f32 = 5.0;
 pub const HELIX_NAPALM_SECONDARY_DAMAGE: f32 = 40.0;
 pub const HELIX_NAPALM_SECONDARY_RADIUS: f32 = 30.0;
 
-/// Retail FirestormSmall FinalMajorRadius residual (fail-closed vs expand anim).
+/// Retail FirestormSmall FinalMajorRadius.
 pub const HELIX_FIRESTORM_RADIUS: f32 = 90.0;
+/// Retail FirestormSmall InitialMajorRadius (GeometryMajorRadius start).
+pub const HELIX_FIRESTORM_INITIAL_RADIUS: f32 = 1.0;
+/// Retail FirestormSmall TransitionTime = 3000 ms → 90 frames @ 30 FPS.
+pub const HELIX_FIRESTORM_TRANSITION_MS: u32 = 3_000;
+/// TransitionTime 3000 ms @ 30 FPS. Grow then ReverseAtTransitionTime shrink.
+pub const HELIX_FIRESTORM_TRANSITION_FRAMES: u32 = 90;
+/// Retail ReverseAtTransitionTime = Yes.
+pub const HELIX_FIRESTORM_REVERSE_AT_TRANSITION: bool = true;
+/// Retail FirestormSmall ScorchSize (placed once when directions switch).
+pub const HELIX_FIRESTORM_SCORCH_SIZE: f32 = 90.0;
 
 /// Retail FirestormSmall DamageAmount per damage frame.
 pub const HELIX_FIRESTORM_DAMAGE_PER_TICK: f32 = 100.0;
@@ -175,6 +187,35 @@ pub fn helix_napalm_blast_damage_at(distance: f32) -> f32 {
     }
 }
 
+/// C++ `DynamicGeometryInfoUpdate::update` major-radius lerp at `elapsed`
+/// frames after activate (`DynamicGeometryInfoUpdate.cpp:115-148`).
+///
+/// Grow `InitialMajorRadius → FinalMajorRadius` over TransitionTime, then
+/// ReverseAtTransitionTime swaps ends and shrinks. Damage scan uses this
+/// current bounding-circle radius (`FirestormDynamicGeometryInfoUpdate.cpp:221-228`).
+pub fn firestorm_major_radius_at(elapsed: u32) -> f32 {
+    let t = HELIX_FIRESTORM_TRANSITION_FRAMES.max(1);
+    let init = HELIX_FIRESTORM_INITIAL_RADIUS;
+    let fin = HELIX_FIRESTORM_RADIUS;
+    if elapsed <= t {
+        let ratio = elapsed as f32 / t as f32;
+        return init + ratio * (fin - init);
+    }
+    let shrink_t = elapsed - t - 1;
+    if shrink_t <= t {
+        let ratio = shrink_t as f32 / t as f32;
+        return fin + ratio * (init - fin);
+    }
+    init
+}
+
+/// True once C++ `m_switchedDirections` is set (end of grow, start of shrink).
+/// Scorch is placed the first frame this becomes true (`:181-187`).
+#[inline]
+pub fn firestorm_switched_directions(elapsed: u32) -> bool {
+    HELIX_FIRESTORM_REVERSE_AT_TRANSITION && elapsed >= HELIX_FIRESTORM_TRANSITION_FRAMES
+}
+
 /// One active residual FirestormSmall damage zone from a Helix napalm drop.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HostHelixFirestormZone {
@@ -191,6 +232,12 @@ pub struct HostHelixFirestormZone {
     pub total_damage_applied: f32,
     pub damage_applications: u32,
     pub objects_destroyed: u32,
+    /// C++ `m_switchedDirections` residual (grow finished, reverse started).
+    #[serde(default)]
+    pub switched_directions: bool,
+    /// C++ `m_scorchPlaced` residual (once, when directions switch).
+    #[serde(default)]
+    pub scorch_placed: bool,
 }
 
 impl HostHelixFirestormZone {
@@ -200,6 +247,11 @@ impl HostHelixFirestormZone {
 
     pub fn is_due_tick(&self, current_frame: u32) -> bool {
         !self.is_expired(current_frame) && current_frame >= self.next_tick_frame
+    }
+
+    /// Current expand/reverse major radius at `current_frame`.
+    pub fn current_radius(&self, current_frame: u32) -> f32 {
+        firestorm_major_radius_at(current_frame.saturating_sub(self.activate_frame))
     }
 }
 
@@ -218,6 +270,11 @@ pub struct HostHelixFirestormTickPlan {
     pub source_object: ObjectId,
     pub source_team: super::Team,
     pub hits: Vec<HostHelixFirestormHit>,
+    /// Bounding-circle radius used for this damage scan.
+    pub damage_radius: f32,
+    /// Place reverse-at-transition scorch this tick.
+    pub place_scorch: bool,
+    pub scorch_size: f32,
 }
 
 /// Host residual registry for Helix NapalmBomb drops + Firestorm zones.
@@ -305,7 +362,7 @@ impl HostHelixNapalmRegistry {
             source_object,
             source_team,
             position: impact_pos,
-            radius: HELIX_FIRESTORM_RADIUS,
+            radius: firestorm_major_radius_at(0),
             damage_per_tick: damage,
             activate_frame,
             expires_frame: activate_frame.saturating_add(HELIX_FIRESTORM_DURATION_FRAMES),
@@ -315,6 +372,8 @@ impl HostHelixNapalmRegistry {
             total_damage_applied: 0.0,
             damage_applications: 0,
             objects_destroyed: 0,
+            switched_directions: false,
+            scorch_placed: false,
         };
         self.active.push(zone);
         self.zones_spawned = self.zones_spawned.saturating_add(1);
@@ -324,8 +383,10 @@ impl HostHelixNapalmRegistry {
     /// Plan Firestorm damage for zones due this frame.
     ///
     /// Retail Firestorm damages ALLIES ENEMIES NEUTRALS; residual skips source Helix.
-    /// C++ `doDamageScan` (`FirestormDynamicGeometryInfoUpdate.cpp:235-237`)
-    /// skips objects whose height is above `z + MaxHeightForDamage`.
+    /// C++ `doDamageScan` (`FirestormDynamicGeometryInfoUpdate.cpp:221-244`)
+    /// uses the **current** bounding-circle radius and skips objects whose
+    /// height is above `z + MaxHeightForDamage`. Reverse-at-transition scorch
+    /// is armed the first frame `m_switchedDirections` is true (`:181-187`).
     pub fn plan_due_ticks(
         &self,
         current_frame: u32,
@@ -337,7 +398,9 @@ impl HostHelixNapalmRegistry {
                 continue;
             }
             let mut hits = Vec::new();
-            let r2 = zone.radius * zone.radius;
+            let elapsed = current_frame.saturating_sub(zone.activate_frame);
+            let radius = firestorm_major_radius_at(elapsed);
+            let r2 = radius * radius;
             let height_cap = zone.position.y + HELIX_FIRESTORM_MAX_HEIGHT_FOR_DAMAGE;
             for &(id, pos, _team, alive) in object_positions {
                 if !alive || id == zone.source_object {
@@ -358,11 +421,16 @@ impl HostHelixNapalmRegistry {
                     });
                 }
             }
+            let place_scorch =
+                firestorm_switched_directions(elapsed) && !zone.scorch_placed;
             plans.push(HostHelixFirestormTickPlan {
                 zone_id: zone.id,
                 source_object: zone.source_object,
                 source_team: zone.source_team,
                 hits,
+                damage_radius: radius,
+                place_scorch,
+                scorch_size: HELIX_FIRESTORM_SCORCH_SIZE,
             });
         }
         plans.sort_by_key(|p| p.zone_id);
@@ -383,6 +451,12 @@ impl HostHelixNapalmRegistry {
             zone.objects_destroyed = zone.objects_destroyed.saturating_add(destroyed);
             zone.next_tick_frame =
                 current_frame.saturating_add(HELIX_FIRESTORM_TICK_INTERVAL_FRAMES);
+            let elapsed = current_frame.saturating_sub(zone.activate_frame);
+            zone.radius = firestorm_major_radius_at(elapsed);
+            if firestorm_switched_directions(elapsed) {
+                zone.switched_directions = true;
+                zone.scorch_placed = true;
+            }
         }
         self.total_fire_damage_applied += damage_applied;
         self.fire_damage_applications = self.fire_damage_applications.saturating_add(applications);
@@ -402,6 +476,30 @@ impl HostHelixNapalmRegistry {
             let dz = pos.z - z.position.z;
             dx * dx + dz * dz <= z.radius * z.radius
         })
+    }
+
+    /// Position-in-fire using the expand/reverse radius at `current_frame`.
+    pub fn is_position_in_active_fire_at(&self, pos: Vec3, current_frame: u32) -> bool {
+        self.active.iter().any(|z| {
+            let r = z.current_radius(current_frame);
+            let dx = pos.x - z.position.x;
+            let dz = pos.z - z.position.z;
+            dx * dx + dz * dz <= r * r
+        })
+    }
+
+    /// Sync stored radius / reverse-scorch flags to `current_frame`.
+    pub fn advance_geometry(&mut self, current_frame: u32) {
+        for zone in &mut self.active {
+            let elapsed = current_frame.saturating_sub(zone.activate_frame);
+            zone.radius = firestorm_major_radius_at(elapsed);
+            if firestorm_switched_directions(elapsed) {
+                zone.switched_directions = true;
+                if !zone.scorch_placed {
+                    zone.scorch_placed = true;
+                }
+            }
+        }
     }
 
     pub fn honesty_drop_ok(&self) -> bool {
@@ -470,6 +568,20 @@ pub fn honesty_helix_napalm_ability_residual_ok() -> bool {
 /// Wave 70 residual honesty: FirestormSmall DoT residual peel.
 pub fn honesty_helix_napalm_firestorm_residual_ok() -> bool {
     (HELIX_FIRESTORM_RADIUS - 90.0).abs() < 0.01
+        && (HELIX_FIRESTORM_INITIAL_RADIUS - 1.0).abs() < 0.01
+        && HELIX_FIRESTORM_TRANSITION_MS == 3_000
+        && HELIX_FIRESTORM_TRANSITION_FRAMES
+            == helix_napalm_ms_to_frames(HELIX_FIRESTORM_TRANSITION_MS)
+        && HELIX_FIRESTORM_TRANSITION_FRAMES == 90
+        && HELIX_FIRESTORM_REVERSE_AT_TRANSITION
+        && (HELIX_FIRESTORM_SCORCH_SIZE - 90.0).abs() < 0.01
+        && (firestorm_major_radius_at(0) - HELIX_FIRESTORM_INITIAL_RADIUS).abs() < 0.01
+        && (firestorm_major_radius_at(HELIX_FIRESTORM_TRANSITION_FRAMES)
+            - HELIX_FIRESTORM_RADIUS)
+            .abs()
+            < 0.01
+        && firestorm_switched_directions(HELIX_FIRESTORM_TRANSITION_FRAMES)
+        && !firestorm_switched_directions(HELIX_FIRESTORM_TRANSITION_FRAMES - 1)
         && (HELIX_FIRESTORM_DAMAGE_PER_TICK - 100.0).abs() < 0.01
         && (HELIX_FIRESTORM_DAMAGE_UPGRADED - 150.0).abs() < 0.01
         && (HELIX_FIRESTORM_MAX_HEIGHT_FOR_DAMAGE - 20.0).abs() < 0.01
@@ -669,4 +781,91 @@ mod tests {
         );
     }
 
+    /// Rim units enter the DoT only as the circle grows, then leave as it shrinks.
+    /// Reverse-at-transition scorch arms once at TransitionTime.
+    #[test]
+    fn firestorm_expand_reverse_radius_and_scorch() {
+        let mut reg = HostHelixNapalmRegistry::new();
+        let impact = Vec3::ZERO;
+        let id = reg.record_drop_and_spawn_firestorm(
+            ObjectId(1),
+            Team::China,
+            impact,
+            0,
+            false,
+            0,
+            0.0,
+        );
+        assert!(
+            (reg.active_zones()[0].radius - HELIX_FIRESTORM_INITIAL_RADIUS).abs() < 0.01,
+            "spawn must start at InitialMajorRadius, not FinalMajorRadius"
+        );
+
+        let rim = Vec3::new(80.0, 0.0, 0.0);
+        let objects = vec![
+            (ObjectId(1), Vec3::new(500.0, 0.0, 0.0), Team::China, true),
+            (ObjectId(2), rim, Team::GLA, true),
+        ];
+
+        let early = reg.plan_due_ticks(0, &objects);
+        assert_eq!(early.len(), 1);
+        assert!(early[0].hits.is_empty(), "r1 must miss rim at 80");
+        assert!(!early[0].place_scorch);
+        assert!((early[0].damage_radius - HELIX_FIRESTORM_INITIAL_RADIUS).abs() < 0.01);
+        reg.record_tick_complete(id, 0.0, 0, 0, 0);
+
+        // Grow ticks before reverse: rim at 80 still outside.
+        let mut frame = HELIX_FIRESTORM_TICK_INTERVAL_FRAMES;
+        while frame < HELIX_FIRESTORM_TRANSITION_FRAMES {
+            let mid = reg.plan_due_ticks(frame, &objects);
+            assert_eq!(mid.len(), 1);
+            assert!(
+                mid[0].hits.is_empty(),
+                "pre-reverse radius {} must miss rim at 80",
+                mid[0].damage_radius
+            );
+            assert!(!mid[0].place_scorch);
+            reg.record_tick_complete(id, 0.0, 0, 0, frame);
+            frame = frame.saturating_add(HELIX_FIRESTORM_TICK_INTERVAL_FRAMES);
+        }
+
+        let peak = reg.plan_due_ticks(HELIX_FIRESTORM_TRANSITION_FRAMES, &objects);
+        assert_eq!(peak.len(), 1);
+        assert_eq!(peak[0].hits.len(), 1);
+        assert_eq!(peak[0].hits[0].target_id, ObjectId(2));
+        assert!(peak[0].place_scorch);
+        assert!((peak[0].damage_radius - HELIX_FIRESTORM_RADIUS).abs() < 0.01);
+        reg.record_tick_complete(
+            id,
+            HELIX_FIRESTORM_DAMAGE_PER_TICK,
+            1,
+            0,
+            HELIX_FIRESTORM_TRANSITION_FRAMES,
+        );
+        assert!(reg.active_zones()[0].switched_directions);
+        assert!(reg.active_zones()[0].scorch_placed);
+
+        // Shrink ticks: last due frame at 165 (90+5*15).
+        let mut last_radius = HELIX_FIRESTORM_RADIUS;
+        frame = HELIX_FIRESTORM_TRANSITION_FRAMES + HELIX_FIRESTORM_TICK_INTERVAL_FRAMES;
+        while frame < HELIX_FIRESTORM_DURATION_FRAMES {
+            let late = reg.plan_due_ticks(frame, &objects);
+            assert_eq!(late.len(), 1);
+            assert!(!late[0].place_scorch, "scorch only once at reverse");
+            last_radius = late[0].damage_radius;
+            if last_radius < 80.0 {
+                assert!(
+                    late[0].hits.is_empty(),
+                    "shrunk radius {} must miss rim at 80",
+                    last_radius
+                );
+            }
+            reg.record_tick_complete(id, 0.0, 0, 0, frame);
+            frame = frame.saturating_add(HELIX_FIRESTORM_TICK_INTERVAL_FRAMES);
+        }
+        assert!(
+            last_radius < 20.0,
+            "late shrink must be well below FinalMajorRadius, got {last_radius}"
+        );
+    }
 }

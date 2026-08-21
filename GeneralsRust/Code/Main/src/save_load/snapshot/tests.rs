@@ -3087,6 +3087,58 @@ fn snapshot_round_trips_player_rank_skill_and_science_purchase_points() {
     assert_eq!(loaded.science_purchase_points, 7);
 }
 
+/// C++ `Energy::xfer` v3 persists `m_powerSabotagedTillFrame`. Host restore
+/// previously hardcoded 0, ending GLA sabotage on load.
+#[test]
+fn snapshot_round_trips_power_sabotaged_till_frame() {
+    let mut source = GameLogic::new();
+    let mut player = Player::new(1, Team::USA, "Sabotaged", true);
+    player.power_sabotaged_till_frame = 900;
+    source.add_player(player);
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder
+        .create_world_snapshot(&source)
+        .expect("snapshot creation failed");
+    assert_eq!(
+        snapshot.player_energy,
+        vec![PlayerEnergySnapshot {
+            player_id: 1,
+            power_sabotaged_till_frame: 900,
+        }]
+    );
+
+    let mut restored = GameLogic::new();
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .expect("snapshot restore failed");
+    let loaded = restored.get_player(1).expect("restored sabotaged player");
+    assert_eq!(loaded.power_sabotaged_till_frame, 900);
+}
+
+#[test]
+fn snapshot_pre_v15_defaults_power_sabotage_frame() {
+    let mut source = GameLogic::new();
+    source.add_player(Player::new(1, Team::USA, "Clean", true));
+    let builder = SnapshotBuilder::new();
+    let mut snapshot = builder
+        .create_world_snapshot(&source)
+        .expect("snapshot");
+    snapshot.version = 14;
+    snapshot.player_energy.clear();
+    let mut restored = GameLogic::new();
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .expect("restore");
+    assert_eq!(
+        restored
+            .get_player(1)
+            .expect("player")
+            .power_sabotaged_till_frame,
+        0
+    );
+}
+
 /// Pre-v10 streams have no rank tail. Restore must keep the fail-closed
 /// rank 1 / 0 / 0 defaults instead of inventing mid-game progress.
 #[test]

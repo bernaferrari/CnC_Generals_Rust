@@ -219,6 +219,9 @@ pub struct UnitRenderInput {
     pub parachute_open: bool,
     /// Wave 509: world snow residual stamped into mesh model-condition.
     pub world_is_snow: bool,
+    /// C++ `TheKey_objectWeather`: 0 follow `world_is_snow`, 1 force clear, 2 force set.
+    pub object_weather: i32,
+
     /// Wave 509: world night residual stamped into mesh model-condition.
     pub world_is_night: bool,
     /// Wave 510: captured residual for CAPTURED model-condition.
@@ -357,7 +360,9 @@ impl UnitRenderInput {
             user_2: ro.user_2,
             parachute_open: ro.parachute_open,
             world_is_snow: false,
+            object_weather: ro.object_weather,
             world_is_night: false,
+
             captured: ro.captured,
             overcharge_enabled: ro.overcharge_enabled,
             death_type_name: ro.death_type_name.clone(),
@@ -1021,11 +1026,16 @@ impl UnitRenderInput {
                 bits &= !(1u128 << night_b);
             }
             let snow_b = snow_model_bit();
-            if self.world_is_snow {
+            let snow = crate::game_logic::script_loader::resolve_object_weather_snow(
+                self.object_weather,
+                self.world_is_snow,
+            );
+            if snow {
                 bits |= 1u128 << snow_b;
             } else {
                 bits &= !(1u128 << snow_b);
             }
+
         }
         // Wave 510: captured / loaded transport residual bits.
         {

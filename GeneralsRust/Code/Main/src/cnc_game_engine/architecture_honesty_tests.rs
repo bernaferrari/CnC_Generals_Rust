@@ -119,6 +119,12 @@ fn live_run_loop_updates_common_the_audio_each_frame() {
             && boot.contains("createAudioManager"),
         "live boot must construct Common THE_AUDIO like GameEngine::init"
     );
+    assert!(
+        boot.contains("initialize_eva_system()")
+            && boot.contains("Eva.cpp:43-57"),
+        "live boot must load Eva.ini into TheEva like GameClient::init"
+    );
+
     let game_audio = include_str!(
         "../../../GameEngine/Common/src/common/audio/game_audio.rs"
     );

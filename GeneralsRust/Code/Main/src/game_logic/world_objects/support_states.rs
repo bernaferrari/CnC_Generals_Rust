@@ -214,6 +214,7 @@ impl GameLogic {
 
 
     fn abort_leftover_sa_channel_on_new_order(&mut self, object_id: ObjectId) {
+        self.leftover_kill_special_objects(object_id);
         self.hero_abilities.take_leftover_channel(object_id);
         if let Some(object) = self.objects.get_mut(&object_id) {
             object.set_status_using_ability(false);
@@ -239,6 +240,268 @@ impl GameLogic {
             start_range,
         )
     }
+
+    /// C++ `PartitionFilterLineOfSight` residual used after the 2D range gate.
+    fn leftover_sa_has_los(&self, source_id: ObjectId, target_id: ObjectId) -> bool {
+        let Some(source) = self.objects.get(&source_id) else {
+            return false;
+        };
+        let Some(target) = self.objects.get(&target_id) else {
+            return false;
+        };
+        let source_position = source.get_position();
+        let target_position = target.get_position();
+        let source_eye = glam::Vec3::new(
+            source_position.x,
+            source_position.y + source.selection_radius.max(5.0) * 0.5,
+            source_position.z,
+        );
+        let target_eye = glam::Vec3::new(
+            target_position.x,
+            target_position.y + target.selection_radius.max(5.0) * 0.5,
+            target_position.z,
+        );
+        self.is_clear_line_of_sight_terrain(source_eye, target_eye)
+    }
+
+    /// C++ `isWithinStartAbilityRange` for Lotus steal/disable: 2D sphere vs
+    /// full StartAbilityRange, then LOS iterate in the undersized envelope.
+    fn leftover_lotus_within_start_range(
+        &self,
+        source_id: ObjectId,
+        target_id: ObjectId,
+        start_range: f32,
+    ) -> bool {
+        let Some(source) = self.objects.get(&source_id) else {
+            return false;
+        };
+        let Some(target) = self.objects.get(&target_id) else {
+            return false;
+        };
+        let edge = crate::game_logic::host_hero_abilities::leftover_bounding_sphere_2d(
+            source.get_position(),
+            source.selection_radius,
+            target.get_position(),
+            target.selection_radius,
+        );
+        if !crate::game_logic::host_hero_abilities::leftover_within_start_ability_range(
+            edge,
+            start_range,
+        ) {
+            return false;
+        }
+        if !crate::game_logic::host_hero_abilities::leftover_sa_approach_requires_los() {
+            return true;
+        }
+        if edge
+            > crate::game_logic::host_hero_abilities::leftover_sa_los_iterate_range(start_range)
+        {
+            return false;
+        }
+        self.leftover_sa_has_los(source_id, target_id)
+    }
+
+    fn leftover_sa_unit_can_face(&self, object_id: ObjectId) -> bool {
+        self.objects
+            .get(&object_id)
+            .is_some_and(|o| o.can_move())
+    }
+
+    fn leftover_sa_facing_complete(&self, object_id: ObjectId, target_id: ObjectId) -> bool {
+        let Some(source) = self.objects.get(&object_id) else {
+            return true;
+        };
+        let Some(target) = self.objects.get(&target_id) else {
+            return true;
+        };
+        crate::game_logic::host_hero_abilities::leftover_sa_is_facing_target(
+            source.get_position(),
+            source.get_orientation(),
+            target.get_position(),
+        )
+    }
+
+    /// C++ `startFacing`: idle, reset physics, face the target.
+    fn leftover_start_facing(&mut self, object_id: ObjectId, target_id: ObjectId) {
+        if let Some(obj) = self.objects.get_mut(&object_id) {
+            obj.stop_moving();
+            obj.set_ai_state(AIState::SpecialAbility);
+        }
+        let _ = self.private_face_object(object_id, target_id);
+    }
+
+    /// Continue facing; returns true while the unit is still turning.
+    fn leftover_continue_facing(
+        &mut self,
+        object_id: ObjectId,
+        target_id: ObjectId,
+        dt: f32,
+    ) -> bool {
+        if !self.leftover_sa_unit_can_face(object_id) {
+            return false;
+        }
+        if self.leftover_sa_facing_complete(object_id, target_id) {
+            return false;
+        }
+        let Some(target_pos) = self.objects.get(&target_id).map(|t| t.get_position()) else {
+            return false;
+        };
+        if let Some(obj) = self.objects.get_mut(&object_id) {
+            !obj.face_position(target_pos, dt.max(1.0 / 30.0))
+        } else {
+            false
+        }
+    }
+
+    fn leftover_kill_special_objects(&mut self, producer_id: ObjectId) {
+        let stale: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.weapon_laser_beam && o.producer_id == Some(producer_id) {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for sid in stale {
+            if let Some(o) = self.objects.get_mut(&sid) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.weapon_laser_beam = false;
+            }
+            self.mark_object_for_destruction(sid, None);
+        }
+        self.weapon_lasers.retain(|laser| laser.from_id != producer_id);
+        if let Some(mut channel) = self.hero_abilities.leftover_channel(producer_id).copied() {
+            channel.special_object_id = None;
+            self.hero_abilities.set_leftover_channel(producer_id, channel);
+        }
+    }
+
+    /// C++ `createSpecialObject` + `initLaser` for BinaryDataStream.
+    fn leftover_spawn_binary_data_stream(
+        &mut self,
+        from_id: ObjectId,
+        to_id: ObjectId,
+        lifetime_frames: u32,
+        laser_name: &str,
+    ) -> Option<ObjectId> {
+        self.leftover_kill_special_objects(from_id);
+        let (from, to) = {
+            let source = self.objects.get(&from_id)?;
+            let target = self.objects.get(&to_id)?;
+            let fp = source.get_position();
+            let tp = target.get_position();
+            let end = glam::Vec3::new(
+                tp.x,
+                tp.y + target.selection_radius.max(5.0) * 0.5,
+                tp.z,
+            );
+            (fp, end)
+        };
+        let bid = self.spawn_weapon_laser_beam_object(laser_name, from_id, Some(to_id), from, to)?;
+        let expires = self.frame.saturating_add(lifetime_frames.max(1));
+        if let Some(o) = self.objects.get_mut(&bid) {
+            o.weapon_laser_beam_expires_frame = Some(expires);
+        }
+        self.weapon_lasers
+            .retain(|laser| laser.from_id != from_id || laser.laser_name != laser_name);
+        self.weapon_lasers
+            .push(crate::game_logic::host_weapon_laser::ResidualWeaponLaser {
+                laser_name: laser_name.to_string(),
+                laser_bone_name: String::new(),
+                from_id,
+                to_id: Some(to_id),
+                from_x: from.x,
+                from_y: from.y,
+                from_z: from.z,
+                to_x: to.x,
+                to_y: to.y,
+                to_z: to.z,
+                expires_frame: expires,
+                scroll_offset: 0.0,
+            });
+        self.hero_abilities.record_leftover_binary_stream();
+        Some(bid)
+    }
+
+    fn leftover_spawn_disable_fx(
+        &mut self,
+        caster_id: ObjectId,
+        target_id: ObjectId,
+        template_name: &str,
+        effect_duration_frames: u32,
+        do_fx: bool,
+    ) -> bool {
+        let (is_structure, footprint, pos) = match self.objects.get(&target_id) {
+            Some(target) => {
+                let geom = &target.thing.template.geometry_info;
+                let area = crate::game_logic::host_hero_abilities::leftover_disable_fx_footprint_area(
+                    geom.authored,
+                    geom.geom_type as u32,
+                    geom.major_radius,
+                    geom.minor_radius,
+                    target.selection_radius,
+                );
+                (
+                    target.is_kind_of(KindOf::Structure) || target.object_type == ObjectType::Building,
+                    area,
+                    target.get_position(),
+                )
+            }
+            None => return do_fx,
+        };
+        let (new_do_fx, emit, interleave) =
+            crate::game_logic::host_hero_abilities::leftover_disable_fx_pulse(
+                do_fx,
+                footprint,
+                is_structure,
+            );
+        if emit {
+            let offset = {
+                let r = (footprint.max(1.0) / std::f32::consts::PI).sqrt() * 0.35;
+                let seed = (self.frame.wrapping_add(target_id.0) % 628) as f32 / 100.0;
+                glam::Vec3::new(seed.cos() * r, 0.0, seed.sin() * r)
+            };
+            // C++ SpecialAbilityUpdate.cpp:1386-1395 attachToObject(target) +
+            // setPosition(footprint offset) + setSystemLifetime(duration * interleave).
+            let lifetime = crate::game_logic::host_hero_abilities::leftover_disable_fx_system_lifetime(
+                effect_duration_frames,
+                interleave,
+            );
+            let pid = self
+                .combat_particles
+                .attach_named_to_object(target_id, pos + offset, self.frame, template_name)
+                .unwrap_or_else(|| {
+                    self.combat_particles.spawn_named(
+                        crate::game_logic::combat_particles::CombatParticleKind::ParticleSysBone,
+                        template_name,
+                        pos + offset,
+                        self.frame,
+                        Some(caster_id),
+                        Some(target_id),
+                    )
+                });
+            self.hero_abilities.record_leftover_disable_fx_until(
+                pid,
+                self.frame.saturating_add(lifetime),
+            );
+            self.hero_abilities.record_leftover_disable_fx();
+        }
+        new_do_fx
+    }
+
+    /// C++ `ParticleSystem::setSystemLifetime` for DisableFX BinaryShower.
+    fn expire_leftover_disable_fx(&mut self) {
+        let now = self.frame;
+        for id in self.hero_abilities.take_expired_disable_fx(now) {
+            self.combat_particles.deactivate(id);
+        }
+    }
+
+
 
     fn leftover_probe_booby_at_target(
         &mut self,
@@ -314,7 +577,10 @@ impl GameLogic {
         prep_ms: u32,
     ) -> bool {
         use crate::command_system::SpecialPowerType;
-        use crate::game_logic::host_hero_abilities::{LeftoverSaChannel, LeftoverSaKind, LeftoverSaPhase};
+        use crate::game_logic::host_hero_abilities::{
+            LeftoverSaChannel, LeftoverSaKind, LeftoverSaPhase, LOTUS_DISABLE_SPECIAL_OBJECT,
+            LOTUS_STEAL_SPECIAL_OBJECT,
+        };
         let power = match kind {
             LeftoverSaKind::StealCash => Some(SpecialPowerType::BlackLotusStealCash),
             LeftoverSaKind::DisableVehicle => Some(SpecialPowerType::BlackLotusDisableVehicle),
@@ -334,10 +600,24 @@ impl GameLogic {
         } else {
             return false;
         }
-        self.hero_abilities.set_leftover_channel(
-            object_id,
-            LeftoverSaChannel::new(kind, target_id, LeftoverSaPhase::Preparing, prep_ms),
-        );
+        let laser_name = match kind {
+            LeftoverSaKind::StealCash => Some(LOTUS_STEAL_SPECIAL_OBJECT),
+            LeftoverSaKind::DisableVehicle => Some(LOTUS_DISABLE_SPECIAL_OBJECT),
+            _ => None,
+        };
+        let prep_frames = crate::game_logic::host_hero_abilities::hero_ms_to_frames(prep_ms).max(1);
+        let special_object_id = laser_name.and_then(|name| {
+            self.leftover_spawn_binary_data_stream(object_id, target_id, prep_frames, name)
+        });
+        if matches!(kind, LeftoverSaKind::StealCash | LeftoverSaKind::DisableVehicle) {
+            // C++ startPreparation: tryInfiltrationEvent after createSpecialObject/initLaser.
+            self.try_infiltration_event(target_id);
+            self.hero_abilities.record_leftover_infiltration();
+        }
+        let mut channel =
+            LeftoverSaChannel::new(kind, target_id, LeftoverSaPhase::Preparing, prep_ms);
+        channel.special_object_id = special_object_id;
+        self.hero_abilities.set_leftover_channel(object_id, channel);
         if matches!(kind, LeftoverSaKind::StealCash | LeftoverSaKind::DisableVehicle) {
             self.queue_audio_event(
                 AudioEventRequest::new(
@@ -401,6 +681,51 @@ impl GameLogic {
         let channel = self.hero_abilities.leftover_channel(object_id).copied();
         match channel {
             None => {
+                if crate::game_logic::host_hero_abilities::leftover_sa_need_to_face()
+                    && self.leftover_sa_unit_can_face(object_id)
+                {
+                    self.leftover_start_facing(object_id, target_id);
+                    self.hero_abilities.set_leftover_channel(
+                        object_id,
+                        LeftoverSaChannel::new(kind, target_id, LeftoverSaPhase::Facing, 0),
+                    );
+                    return LeftoverSaTick::Waiting;
+                }
+                let unpack_ms =
+                    crate::game_logic::vary_pack_unpack_duration_ms(timings.unpack_ms, variation);
+                if unpack_ms > 0 {
+                    self.hero_abilities.set_leftover_channel(
+                        object_id,
+                        LeftoverSaChannel::new(
+                            kind,
+                            target_id,
+                            LeftoverSaPhase::Unpacking,
+                            unpack_ms,
+                        ),
+                    );
+                    return LeftoverSaTick::Waiting;
+                }
+                if !self.leftover_start_sa_preparation(
+                    object_id,
+                    target_id,
+                    kind,
+                    timings.prep_ms,
+                ) {
+                    self.abort_leftover_sa_channel_on_new_order(object_id);
+                    self.pending_special_abilities.remove(&object_id);
+                    return LeftoverSaTick::Finished;
+                }
+                if timings.prep_ms == 0 {
+                    LeftoverSaTick::Trigger
+                } else {
+                    LeftoverSaTick::Waiting
+                }
+            }
+            Some(channel) if channel.phase == LeftoverSaPhase::Facing => {
+                if self.leftover_continue_facing(object_id, target_id, dt) {
+                    self.hero_abilities.set_leftover_channel(object_id, channel);
+                    return LeftoverSaTick::Waiting;
+                }
                 let unpack_ms =
                     crate::game_logic::vary_pack_unpack_duration_ms(timings.unpack_ms, variation);
                 if unpack_ms > 0 {
@@ -506,7 +831,6 @@ impl GameLogic {
             Some(_) => LeftoverSaTick::Finished,
         }
     }
-
     fn leftover_begin_packing(
         &mut self,
         object_id: ObjectId,
@@ -515,6 +839,7 @@ impl GameLogic {
         pack_ms: u32,
     ) {
         use crate::game_logic::host_hero_abilities::{LeftoverSaChannel, LeftoverSaPhase};
+        self.leftover_kill_special_objects(object_id);
         if pack_ms == 0 {
             self.hero_abilities.take_leftover_channel(object_id);
             self.pending_special_abilities.remove(&object_id);
@@ -1072,6 +1397,7 @@ impl GameLogic {
     /// `IS_USING_ABILITY` state in one place so a later command cannot inherit
     /// an old physical channel.
     fn finish_hacker_disable_building_channel(&mut self, object_id: ObjectId) {
+        self.leftover_kill_special_objects(object_id);
         self.pending_special_abilities.remove(&object_id);
         if let Some(object) = self.objects.get_mut(&object_id) {
             object.stop_moving();
@@ -1092,6 +1418,7 @@ impl GameLogic {
         target_id: ObjectId,
         pack_time_ms: u32,
     ) {
+        self.leftover_kill_special_objects(object_id);
         let mut finish_now = false;
         let pack_time_ms = self
             .objects
@@ -1243,8 +1570,6 @@ impl GameLogic {
 
     /// Enter HDB preparation and begin the exact parsed SpecialPower reload.
     /// The executor freezes click-time readiness, but this repeats the C++
-    /// start-preparation authority after physical approach/unpack so a changed
-    /// target or consumed shared timer cannot produce a false success.
     fn start_hacker_disable_building_preparation(
         &mut self,
         object_id: ObjectId,
@@ -1256,12 +1581,28 @@ impl GameLogic {
         {
             return false;
         }
+        if self
+            .objects
+            .get(&object_id)
+            .is_none_or(|object| !object.is_alive())
+        {
+            return false;
+        }
+        let prep_frames = crate::game_logic::host_hero_abilities::hero_ms_to_frames(
+            metadata.preparation_time_ms.max(metadata.persistent_prep_time_ms),
+        )
+        .max(1);
+        let _ = self.leftover_spawn_binary_data_stream(
+            object_id,
+            target_id,
+            prep_frames,
+            crate::game_logic::host_hacker_disable::HACKER_DISABLE_SPECIAL_OBJECT,
+        );
+        self.try_infiltration_event(target_id);
+        self.hero_abilities.record_leftover_infiltration();
         let Some(object) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !object.is_alive() {
-            return false;
-        }
         object.stop_moving();
         object.hacker_disable_channel = Some(crate::game_logic::HackerDisableChannelState::new(
             target_id,
@@ -1291,6 +1632,21 @@ impl GameLogic {
             self.begin_hacker_disable_building_packing(object_id, target_id, metadata.pack_time_ms);
             return;
         }
+        let do_fx = *self
+            .hero_abilities
+            .disable_fx_toggle
+            .get(&object_id)
+            .unwrap_or(&true);
+        let new_do_fx = self.leftover_spawn_disable_fx(
+            object_id,
+            target_id,
+            crate::game_logic::host_hacker_disable::HACKER_DISABLE_FX_PARTICLE,
+            duration_frames,
+            do_fx,
+        );
+        self.hero_abilities
+            .disable_fx_toggle
+            .insert(object_id, new_do_fx);
         self.hacker_disable_building_count = self.hacker_disable_building_count.saturating_add(1);
 
         // HDB is an intrinsic persistent SpecialAbilityUpdate. An omitted
@@ -1419,6 +1775,19 @@ impl GameLogic {
                     channel.target_id,
                     &metadata,
                 ) {
+                    if crate::game_logic::host_hacker_disable::hacker_disable_need_to_face()
+                        && self.leftover_sa_unit_can_face(object_id)
+                        && (self.leftover_continue_facing(
+                            object_id,
+                            channel.target_id,
+                            dt,
+                        ) || {
+                            self.leftover_start_facing(object_id, channel.target_id);
+                            self.leftover_continue_facing(object_id, channel.target_id, dt)
+                        })
+                    {
+                        return;
+                    }
                     if metadata.unpack_time_ms == 0 {
                         if self.start_hacker_disable_building_preparation(
                             object_id,
@@ -1635,6 +2004,8 @@ impl GameLogic {
 
     pub(in super::super) fn update_support_states(&mut self, object_ids: &[ObjectId], dt: f32) {
         self.update_leftover_laser_guided_channels(dt);
+        self.expire_leftover_disable_fx();
+
 
         const GUARD_MIN_RADIUS: f32 = 80.0;
         const INTERACT_RANGE: f32 = crate::game_logic::host_repair::HOST_REPAIR_INTERACT_RANGE;
@@ -3425,32 +3796,6 @@ impl GameLogic {
                         PendingSpecialAbility::CarBomb { .. }
                             | PendingSpecialAbility::DisguiseAsVehicle { .. }
                     );
-                    if !target_alive
-                        || (requires_enemy_target
-                            && (target_team == team || target_team == Team::Neutral))
-                    {
-                        self.pending_special_abilities.remove(&object_id);
-                        if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_target(None);
-                        }
-                        continue;
-                    }
-
-                    if matches!(
-                        ability,
-                        PendingSpecialAbility::SnipeVehicle { .. }
-                            | PendingSpecialAbility::Hijack { .. }
-                            | PendingSpecialAbility::CarBomb { .. }
-                            | PendingSpecialAbility::DisableVehicleHack { .. }
-                            | PendingSpecialAbility::DisguiseAsVehicle { .. }
-                    ) && (!target_is_vehicle || target_is_airborne)
-                    {
-                        self.pending_special_abilities.remove(&object_id);
-                        self.clear_target_decision_aware(object_id);
-                        continue;
-                    }
-
-
                     // C++ SpecialAbilityDisguiseAsVehicle StartAbilityRange = 1e6
                     // residual: complete without approach walk.
                     let disguise_instant =
@@ -3460,6 +3805,7 @@ impl GameLogic {
                         PendingSpecialAbility::StealCashHack { .. }
                             | PendingSpecialAbility::DisableVehicleHack { .. }
                     );
+                    let snipe_range = matches!(ability, PendingSpecialAbility::SnipeVehicle { .. });
                     let booby_trap_range =
                         matches!(ability, PendingSpecialAbility::PlantBoobyTrap { .. });
                     let plant_range = matches!(
@@ -3477,8 +3823,18 @@ impl GameLogic {
                             crate::game_logic::host_hero_abilities::PLANT_START_ABILITY_RANGE,
                         )
                     } else if black_lotus_range {
-                        position.distance(target_position)
-                            > crate::game_logic::host_hero_abilities::BLACK_LOTUS_START_ABILITY_RANGE
+                        !self.leftover_lotus_within_start_range(
+                            object_id,
+                            special_target_id,
+                            crate::game_logic::host_hero_abilities::BLACK_LOTUS_START_ABILITY_RANGE,
+                        )
+                    } else if snipe_range {
+                        crate::game_logic::host_hero_abilities::leftover_bounding_sphere_2d(
+                            position,
+                            selection_radius,
+                            target_position,
+                            target_radius,
+                        ) > crate::game_logic::host_jarmen_kell::JARMEN_PILOT_SNIPE_RANGE
                     } else if booby_trap_range {
                         position.distance(target_position)
                             > crate::game_logic::host_booby_trap::BOOBY_START_ABILITY_RANGE
@@ -4061,6 +4417,7 @@ impl GameLogic {
                             }
                         }
                         PendingSpecialAbility::StealCashHack { .. } => {
+                            self.leftover_kill_special_objects(object_id);
                             // C++ `triggerAbilityEffect` AwardXPForTriggering
                             // (`SpecialAbilityUpdate.cpp:1248-1253`). Retail
                             // `SpecialAbilityBlackLotusStealCashHack` = 20.
@@ -4196,6 +4553,25 @@ impl GameLogic {
                             if let Some(target) = self.objects.get_mut(&special_target_id) {
                                 target.apply_disabled_hacked(until);
                             }
+                            let do_fx = self
+                                .hero_abilities
+                                .leftover_channel(object_id)
+                                .map(|ch| ch.do_disable_fx_particles)
+                                .unwrap_or(true);
+                            let new_do_fx = self.leftover_spawn_disable_fx(
+                                object_id,
+                                special_target_id,
+                                crate::game_logic::host_hero_abilities::LOTUS_DISABLE_FX_PARTICLE,
+                                crate::game_logic::host_hero_abilities::DISABLE_VEHICLE_HACK_DURATION_FRAMES,
+                                do_fx,
+                            );
+                            if let Some(mut ch) =
+                                self.hero_abilities.leftover_channel(object_id).copied()
+                            {
+                                ch.do_disable_fx_particles = new_do_fx;
+                                self.hero_abilities.set_leftover_channel(object_id, ch);
+                            }
+                            self.leftover_kill_special_objects(object_id);
                             self.hero_abilities.record_vehicle_disable();
                             self.queue_audio_event(
                                 AudioEventRequest::new(
@@ -4994,7 +5370,9 @@ impl GameLogic {
                     }
                 }
                 AIState::Docked | AIState::Garrisoned => {
-                    // Aircraft parking: leave hangar when given a move/attack residual.
+                    // Aircraft parking: C++ JetTakeoffOrLandingState reserves the
+                    // stall-column runway and keeps the hangar when
+                    // KeepsParkingSpaceWhenAirborne (JetAIUpdate.cpp:1630, 897-900).
                     let wants_sortie = self
                         .objects
                         .get(&object_id)
@@ -5007,7 +5385,7 @@ impl GameLogic {
                         })
                         .unwrap_or(false);
                     if wants_sortie {
-                        self.release_jet_from_airfield_parking(object_id);
+                        let _ = self.try_runway_takeoff_from_airfield(object_id);
                         continue;
                     }
                     // Prefer contained_by (authoritative residual link) over target.

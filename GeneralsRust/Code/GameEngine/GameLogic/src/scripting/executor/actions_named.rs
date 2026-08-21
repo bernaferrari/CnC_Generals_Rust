@@ -1938,6 +1938,9 @@ impl ScriptActionDispatcher {
             enable,
             unit_name
         );
+        // Live host path: leftover OBJECT_REGISTRY is empty. Queue by script name.
+        super::request_host_object_panel_flag(&unit_name, &flag_name, enable);
+
 
         let tracker = get_named_object_tracker();
         let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) else {

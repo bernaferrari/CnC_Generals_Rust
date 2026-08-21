@@ -360,6 +360,12 @@ pub struct Entity {
     pub disabled_paralyzed_until_frame: u32,
     /// Host Object::status.disabled_paralyzed residual.
     pub disabled_paralyzed: bool,
+    /// Host Object::status.disabled_script_disabled residual.
+    pub disabled_script_disabled: bool,
+    /// Host Object::status.disabled_script_underpowered residual.
+    pub disabled_script_underpowered: bool,
+    /// Host Object::status.disabled_held residual.
+    pub disabled_held: bool,
     /// Host Object::status.weapons_jammed residual.
     pub weapons_jammed: bool,
     /// Host Object::status.masked residual.
@@ -1478,6 +1484,23 @@ impl Entity {
         !self.destroyed && self.health > 0.0
     }
 
+    /// C++ Object::isDisabled residual used by GameWorld movement authority.
+    /// weapons_jammed is fire-only and is intentionally omitted.
+    pub fn is_disabled(&self) -> bool {
+        self.disabled_underpowered
+            || self.disabled_unmanned
+            || self.disabled_hacked
+            || self.disabled_emp
+            || self.disabled_paralyzed
+            || self.disabled_subdued
+            || self.disabled_freefall
+            || self.disabled_script_disabled
+            || self.disabled_script_underpowered
+            || self.disabled_held
+            || self.under_construction
+    }
+
+
     /// Store the envelope verbatim. Header destroyed timing stays aligned with
     /// the deferred-destroy mark frame (`GameLogic.cpp:3932-3967`).
     pub fn attach_envelope(&mut self, envelope: EntityLifecycleEnvelope) {
@@ -1645,6 +1668,9 @@ impl EntityStore {
             disabled_hacked_until_frame: 0,
             disabled_paralyzed_until_frame: 0,
             disabled_paralyzed: false,
+            disabled_script_disabled: false,
+            disabled_script_underpowered: false,
+            disabled_held: false,
             weapons_jammed: false,
             masked: false,
             unattackable: false,

@@ -1583,14 +1583,32 @@ impl GameLogic {
             (player_id, cost, total_time)
         };
 
+        // C++ ProductionUpdate::queueCreateUnit reserveDoorForExit before charge.
+        let reserved_exit_door =
+            if self.should_reserve_airfield_door_when_queued(producer_id, &template) {
+                match self.reserve_airfield_door_for_exit(producer_id) {
+                    Some(door) => Some(door),
+                    None => return false,
+                }
+            } else {
+                None
+            };
+
         let Some(player) = self.get_player_mut(player_id) else {
+            if let Some(door) = reserved_exit_door {
+                self.unreserve_airfield_door_for_exit(producer_id, door);
+            }
             return false;
         };
         if !player.spend_resources(&charged_cost) {
             // Race residual: money spent between can_make and charge.
+            if let Some(door) = reserved_exit_door {
+                self.unreserve_airfield_door_for_exit(producer_id, door);
+            }
             self.try_eva_insufficient_funds(player_id);
             return false;
         }
+
 
         let producer_template_name = self
             .objects
@@ -1619,10 +1637,17 @@ impl GameLogic {
                     );
                     return true;
                 }
+                if let Some(door) = reserved_exit_door {
+                    self.unreserve_airfield_door_for_exit(producer_id, door);
+                }
                 return false;
             }
         }
+        if let Some(door) = reserved_exit_door {
+            self.unreserve_airfield_door_for_exit(producer_id, door);
+        }
         false
+
     }
 
     /// Unlock a science for a team and record residual honesty hooks.

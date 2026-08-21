@@ -1413,7 +1413,9 @@ mod tests {
     }
 
     #[test]
-    fn single_player_audio_prelude_plays_briefing_and_ambient_like_cpp() {
+    fn single_player_audio_prelude_plays_only_ambient_like_zh_md() {
+        // C++ LoadScreen.cpp:532-533 PULLED FROM THE MISSION DISK — BriefingVoice
+        // is never force-played after the prelude. Only LoadScreenAmbient (:590).
         let _state_guard = lock_test_load_screen_state();
         reset_single_player_load_screen_audio_state();
         with_single_player_load_screen_state(|state| {
@@ -1440,8 +1442,8 @@ mod tests {
                     state.ambient_loop_handle,
                 )
             });
-        assert!(briefing_played);
-        assert_eq!(briefing_handle, add_audio_event("BriefingVoiceEvent"));
+        assert!(!briefing_played);
+        assert_eq!(briefing_handle, 0);
         assert_eq!(ambient_handle, add_audio_event("LoadScreenAmbient"));
 
         reset_single_player_load_screen_audio_state();
@@ -1707,7 +1709,10 @@ mod tests {
                 )
             });
         assert_eq!(prelude_state, LoadScreenPreludeState::Complete);
-        assert!(briefing_played);
+        assert!(
+            !briefing_played,
+            "ZH MD LoadScreen.cpp:532-533 never plays BriefingVoice after prelude"
+        );
         assert_eq!(ambient_handle, add_audio_event("LoadScreenAmbient"));
 
         clear_load_screen_presentation_pump();

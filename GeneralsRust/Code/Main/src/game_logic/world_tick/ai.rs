@@ -12,6 +12,9 @@ impl GameLogic {
             self.update_countermeasure_flare_objects();
         }
 
+        self.propagate_hacked_to_spawn_slaves();
+
+
         let mut ai_commands = Vec::new();
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP; // Convert frame to seconds
         let game_phase = GamePhase::from_time(current_time);
@@ -798,6 +801,34 @@ impl GameLogic {
             obj.helicopter_slow_death = Some(h);
         }
     }
+
+    /// C++ Object::setDisabledUntil orderSlavesDisabledUntil for spawn-weapon sites.
+    fn propagate_hacked_to_spawn_slaves(&mut self) {
+        let sites: Vec<(ObjectId, u32)> = self
+            .objects
+            .values()
+            .filter(|o| o.status.disabled_hacked && o.is_spawns_are_the_weapons())
+            .map(|o| (o.id, o.status.disabled_hacked_until_frame))
+            .collect();
+        for (site_id, until) in sites {
+            let child_ids: Vec<ObjectId> = self
+                .objects
+                .values()
+                .filter(|o| {
+                    o.producer_id == Some(site_id)
+                        && (!o.status.disabled_hacked
+                            || (until > 0 && until > o.status.disabled_hacked_until_frame))
+                })
+                .map(|o| o.id)
+                .collect();
+            for child_id in child_ids {
+                if let Some(child) = self.objects.get_mut(&child_id) {
+                    child.apply_disabled_hacked(until);
+                }
+            }
+        }
+    }
+
 }
 
 /// C++ SlavedUpdate.cpp:196-258 attack / scout-ahead / 2×GuardMaxRange recall / guard.

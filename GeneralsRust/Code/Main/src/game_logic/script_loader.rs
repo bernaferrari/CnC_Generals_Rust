@@ -583,6 +583,10 @@ pub struct PlacedObject {
     pub upgrade: Option<String>,
     /// C++ Dict `objectUnsellable` / OBJECT_STATUS_SCRIPT_UNSELLABLE.
     pub unsellable: Option<bool>,
+    /// C++ Dict `objectEnabled` / OBJECT_STATUS_SCRIPT_DISABLED when false.
+    pub enabled: Option<bool>,
+    /// C++ Dict `objectPowered` / OBJECT_STATUS_SCRIPT_UNPOWERED when false.
+    pub powered: Option<bool>,
     /// C++ Dict `objectWeather` (`Object.cpp:3595-3605`): 0 follow map, 1 force
     /// `MODELCONDITION_SNOW` clear, 2 force set. Missing key is follow.
     pub object_weather: Option<i32>,
@@ -1131,6 +1135,85 @@ pub fn overlay_map_ini_particle_systems(contents: &str) -> usize {
     count
 }
 
+/// C++ GameLogic::loadMapINI — pull `Weather` blocks out of mixed map.ini.
+pub fn extract_map_ini_weather_blocks(contents: &str) -> String {
+    let mut out = String::new();
+    let mut in_block = false;
+    for raw in contents.lines() {
+        let line = raw.split(';').next().unwrap_or("").trim_end();
+        let trimmed = line.trim();
+        if !in_block {
+            if trimmed
+                .split_whitespace()
+                .next()
+                .is_some_and(|token| token.eq_ignore_ascii_case("Weather"))
+            {
+                in_block = true;
+                out.push_str(line);
+                out.push('\n');
+            }
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+        if trimmed.eq_ignore_ascii_case("End") {
+            in_block = false;
+        }
+    }
+    out
+}
+
+/// Overlay map.ini `Weather` onto `TheWeatherSetting` via CREATE_OVERRIDES
+/// (C++ GameLogic.cpp:2407-2408 `ini.load(..., INI_LOAD_CREATE_OVERRIDES)`).
+/// Returns whether a Weather block was applied.
+pub fn overlay_map_ini_weather(contents: &str) -> bool {
+    game_engine::common::ini::ini_weather::clear_weather_setting_overrides();
+    let extracted = extract_map_ini_weather_blocks(contents);
+    if extracted.trim().is_empty() {
+        #[cfg(feature = "game_client")]
+        sync_live_snow_manager_from_common();
+        return false;
+    }
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let path = std::env::temp_dir().join(format!(
+        "map_weather_override_{}_{}.ini",
+        std::process::id(),
+        nanos
+    ));
+    if std::fs::write(&path, &extracted).is_err() {
+        warn!("map.ini Weather overlay could not stage a temp INI");
+        return false;
+    }
+    let mut ini = INI::new();
+    let result = ini.with_file_source(&path, INILoadType::CreateOverrides, |ini| {
+        ini.parse_current_file()
+    });
+    let _ = std::fs::remove_file(&path);
+    if let Err(err) = result {
+        warn!("map.ini Weather CREATE_OVERRIDES parse failed: {err}");
+        return false;
+    }
+    #[cfg(feature = "game_client")]
+    sync_live_snow_manager_from_common();
+    true
+}
+
+#[cfg(feature = "game_client")]
+fn sync_live_snow_manager_from_common() {
+    // Common INI dispatch writes TheWeatherSetting; SnowManager still needs
+    // the GameClient copy + flake spacing (C++ Snow.cpp parseWeatherDefinition).
+    let _ = game_client::snow::get_weather_setting();
+    let manager = game_client::snow::get_snow_manager()
+        .unwrap_or_else(game_client::snow::initialize_snow_manager);
+    if let Ok(mut guard) = manager.lock() {
+        guard.update_ini_settings();
+    }
+}
+
+
 
 /// Parse settings from an already-decompressed chunky map.
 pub fn parse_map_settings_from_chunky(chunky: &ChunkyMap) -> LoaderResult<MapMetadata> {
@@ -1207,6 +1290,9 @@ fn parse_map_settings_from_loaded_chunky(
                 // C++ GameLogic.cpp:2404-2408 loadMapINI — ParticleSystem overlays
                 // TheParticleSystemManager, not a dead Common-only registry.
                 let _ = overlay_map_ini_particle_systems(&contents);
+                // C++ same loadMapINI pass: Weather CREATE_OVERRIDES → SnowEnabled.
+                let _ = overlay_map_ini_weather(&contents);
+
                 let mut skybox_textures: [Option<String>; 5] = [None, None, None, None, None];
                 for raw_line in contents.lines() {
                     let line = raw_line.split(';').next().unwrap_or("").trim();
@@ -1798,6 +1884,25 @@ pub fn parse_runtime_polygon_triggers_from_chunky(
     Ok(triggers)
 }
 
+/// Register parsed map polygons on leftover `TerrainLogic` by name.
+///
+/// C++ `PolygonTrigger::ParsePolygonTriggersDataChunk` leaves the live list
+/// as the geometry source for `pointInTrigger`. Skip names already present
+/// so `load_map_data` and this installer do not double-add.
+pub fn install_runtime_polygon_triggers(triggers: &[PolygonTrigger]) {
+    let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() else {
+        return;
+    };
+    for trigger in triggers {
+        let name = trigger.get_trigger_name().as_str();
+        if terrain.get_trigger_area_by_name(name).is_some() {
+            continue;
+        }
+        terrain.add_trigger_area(trigger.clone());
+    }
+}
+
+
 /// Parse runtime terrain-road segments from map objects.
 ///
 /// This mirrors C++ `W3DRoadBuffer::addMapObjects` pairing semantics:
@@ -2185,6 +2290,8 @@ fn parse_map_object_chunk(
     let mut player_id = None;
     let mut upgrade = None;
     let mut unsellable = None;
+    let mut enabled = None;
+    let mut powered = None;
     let mut object_weather = None;
 
     if version >= 2 && reader.remaining() > 0 {
@@ -2238,6 +2345,18 @@ fn parse_map_object_chunk(
         )
         .map(|value| parse_ini_boolish(&value));
 
+        enabled = dict_lookup_ci(
+            &dict,
+            &["objectEnabled", "enabled", "object_enabled"],
+        )
+        .map(|value| parse_ini_boolish(&value));
+
+        powered = dict_lookup_ci(
+            &dict,
+            &["objectPowered", "powered", "object_powered"],
+        )
+        .map(|value| parse_ini_boolish(&value));
+
         object_weather = dict_lookup_ci(&dict, &["objectWeather", "object_weather"])
             .and_then(|value| parse_object_weather_value(&value));
     }
@@ -2251,6 +2370,8 @@ fn parse_map_object_chunk(
         player_id,
         upgrade,
         unsellable,
+        enabled,
+        powered,
         object_weather,
     }))
 
@@ -2579,6 +2700,8 @@ fn parse_object_creation_chunk(data: &[u8], _version: u16) -> LoaderResult<Optio
         player_id,
         upgrade,
         unsellable: None,
+        enabled: None,
+        powered: None,
         object_weather: None,
     }))
 
@@ -3673,6 +3796,69 @@ End\n";
         assert_eq!(overlay_map_ini_particle_systems(mixed), 1);
     }
 
+    #[test]
+    fn map_ini_weather_overlay_sets_snow_enabled() {
+        // C++ GameLogic.cpp:2407-2408 loadMapINI CREATE_OVERRIDES Weather.
+        let mixed = "\
+Object SomeUnit\n\
+  KindOf = STRUCTURE\n\
+End\n\
+\n\
+ParticleSystem MapSmoke\n\
+  Priority = NONE\n\
+End\n\
+\n\
+Weather\n\
+  SnowEnabled = Yes\n\
+End\n";
+        let extracted = extract_map_ini_weather_blocks(mixed);
+        assert!(extracted.contains("Weather"));
+        assert!(extracted.contains("SnowEnabled = Yes"));
+        assert!(!extracted.contains("ParticleSystem"));
+        assert!(!extracted.contains("Object SomeUnit"));
+        assert!(overlay_map_ini_weather(mixed));
+        assert!(
+            game_engine::common::ini::ini_weather::is_snow_enabled(),
+            "map.ini Weather SnowEnabled must reach TheWeatherSetting"
+        );
+    }
+
+    #[test]
+    fn world_weather_and_object_weather_values_match_cpp() {
+        assert_eq!(parse_world_weather_value("1"), Some(1));
+        assert_eq!(parse_world_weather_value("SNOWY"), Some(1));
+        assert_eq!(parse_world_weather_value("0"), Some(0));
+        assert_eq!(parse_object_weather_value("2"), Some(2));
+        assert_eq!(parse_object_weather_value("1"), Some(1));
+        assert!(resolve_object_weather_snow(0, true));
+        assert!(!resolve_object_weather_snow(1, true));
+        assert!(resolve_object_weather_snow(2, false));
+    }
+
+    #[test]
+    fn world_info_weather_int_parses_snowy() {
+        // C++ WorldHeightMap.cpp:743-746 TheKey_weather → WEATHER_SNOWY=1.
+        let mut toc = HashMap::new();
+        toc.insert(1, "WorldInfo".to_string());
+        toc.insert(6, "weather".to_string());
+        let chunky = ChunkyMap {
+            source: PathBuf::from("SyntheticSnow.map"),
+            toc,
+            body_offset: 0,
+            bytes: chunk(1, 1, &dict_int(6, 1)),
+        };
+        assert_eq!(
+            parse_runtime_weather_from_chunky(&chunky).expect("weather parse"),
+            Some(1)
+        );
+        assert_eq!(
+            parse_runtime_water_height_from_chunky(&chunky).expect("water parse"),
+            None
+        );
+    }
+
+
+
 
     #[test]
     fn lone_eagle_fast_chunky_parses_in_under_five_seconds() {
@@ -3895,6 +4081,15 @@ End\n";
         }
     }
 
+    fn dict_int(toc_id: u32, value: i32) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        let key_and_type = (toc_id << 8) | 1;
+        bytes.extend_from_slice(&(key_and_type as i32).to_le_bytes());
+        bytes.extend_from_slice(&value.to_le_bytes());
+        bytes
+    }
+
     fn dict_real(toc_id: u32, value: f32) -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&1u16.to_le_bytes());
@@ -3903,6 +4098,7 @@ End\n";
         bytes.extend_from_slice(&value.to_le_bytes());
         bytes
     }
+
 
     fn icoord(x: i32, y: i32, z: i32, out: &mut Vec<u8>) {
         out.extend_from_slice(&x.to_le_bytes());

@@ -1873,4 +1873,98 @@ mod leftover_dispatch_tests {
         assert_eq!(dz.target, Some(scaffold));
         assert_eq!(dz.dozer_task_build_target, Some(scaffold));
     }
+
+    #[test]
+    fn execute_build_records_build_slot_and_docks_off_center() {
+        // hq-gkpuk: C++ construct:1717 newTask BUILD.
+        // hq-6gy32: C++ findGoodBuildOrRepairPosition half majorRadius + ignoreObstacle.
+        use crate::game_logic::ThingTemplate;
+        let mut logic = GameLogic::new();
+        logic.frame = 12;
+        let mut player = Player::new(0, Team::USA, "P0", true);
+        player.resources.supplies = 100_000;
+        logic.get_players_mut().insert(0, player);
+        let mut dozer_tpl = ThingTemplate::new("AmericaVehicleDozerSlot");
+        dozer_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Dozer)
+            .add_kind_of(KindOf::Worker)
+            .set_health(300.0);
+        logic
+            .templates
+            .insert("AmericaVehicleDozerSlot".into(), dozer_tpl);
+        let mut bld = ThingTemplate::new("AmericaBarracksSlot");
+        bld.add_kind_of(KindOf::Structure)
+            .set_cost(50, 0)
+            .set_health(500.0);
+        logic
+            .templates
+            .insert("AmericaBarracksSlot".into(), bld);
+        let dozer = logic
+            .create_object_for_player(
+                "AmericaVehicleDozerSlot",
+                0,
+                Vec3::new(200.0, 0.0, 0.0),
+            )
+            .expect("dozer");
+        if let Some(dz) = logic.host_object_mut(dozer) {
+            dz.selection_radius = 8.0;
+        }
+        let site = Vec3::new(0.0, 0.0, 0.0);
+        let result = CommandExecutor::new(&mut logic, 0)
+            .execute_command(command(
+                0,
+                CommandType::Build {
+                    template_name: "AmericaBarracksSlot".into(),
+                    location: site,
+                },
+                vec![dozer],
+            ))
+            .expect("exec");
+        assert_eq!(result, CommandResult::Success);
+        let scaffold = logic
+            .host_objects()
+            .iter()
+            .find(|(_, o)| o.template_name == "AmericaBarracksSlot")
+            .map(|(id, _)| *id)
+            .expect("scaffold");
+        {
+            let dz = logic.host_object(dozer).expect("dz");
+            assert_eq!(
+                dz.dozer_task_build_target,
+                Some(scaffold),
+                "hq-gkpuk: new construct must write BUILD slot"
+            );
+            assert!(dz.dozer_task_build_order_frame >= 12);
+            assert_eq!(dz.target, Some(scaffold));
+            assert_eq!(dz.ai_state, AIState::Constructing);
+            let dest = dz
+                .movement
+                .target_position
+                .or_else(|| dz.movement.path.last().copied())
+                .unwrap_or(site);
+            let pad = logic.host_object(scaffold).unwrap().get_position();
+            let dx = dest.x - pad.x;
+            let dz_ = dest.z - pad.z;
+            assert!(
+                dx * dx + dz_ * dz_ > 1.0,
+                "hq-6gy32: dozer must dock off pad center, dest={dest:?} pad={pad:?}"
+            );
+        }
+        {
+            let sc = logic.host_object(scaffold).expect("sc");
+            assert_eq!(sc.builder_id, Some(dozer));
+            assert!(sc.status.under_construction);
+        }
+        if let Some(dz) = logic.host_object_mut(dozer) {
+            dz.set_target(None);
+            dz.set_ai_state(AIState::Idle);
+            dz.set_position(Vec3::new(400.0, 0.0, 0.0));
+        }
+        assert!(
+            logic.dozer_idle_resume_pending_build(dozer),
+            "hq-gkpuk: idle isBuildMostImportant must resume a brand-new pad"
+        );
+    }
 }

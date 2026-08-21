@@ -501,6 +501,8 @@ impl MissionScriptRuntime {
             return Ok(());
         }
         self.frame_counter = current_frame;
+        gamelogic::scripting::sync_host_trigger_flags_from_snapshot(current_frame as u32);
+
         self.apply_pending_script_enabled_updates()?;
         if current_frame <= 2 {
             let enabled: Vec<_> = self
@@ -3726,6 +3728,67 @@ mod tests {
         assert!(
             win_lose_layout_is_open("Victorious.wnd:", "Victorious.wnd:Victorious"),
             "live ScriptEngine + host handler must materialise Victorious.wnd"
+        );
+        let _ = handler.destroy_win_lose_window();
+    }
+
+    #[test]
+    fn live_quick_victory_starts_timer_then_posts_clear_game_data() {
+        // C++ ScriptActions.cpp:169-176 doQuickVictory → startQuickEndGameTimer.
+        // ScriptEngine.cpp:5514-5518 expiry appends MSG_CLEAR_GAME_DATA.
+        use game_engine::common::message_stream::{get_message_stream, GameMessageType};
+        use gamelogic::scripting::core::ScriptAction;
+        use gamelogic::scripting::evaluator::ScriptEvaluator;
+
+        initialize_script_engine().expect("script engine should initialize");
+        let hooks = MissionScriptHooks::new().expect("mission script hooks should initialize");
+        let handler: Arc<dyn ScriptActionHandler> =
+            Arc::new(MissionScriptActionHandler::new(hooks));
+        {
+            let stream = get_message_stream();
+            let mut stream = stream.write().unwrap_or_else(|e| e.into_inner());
+            stream.clear_messages();
+        }
+        if let Ok(mut guard) = get_script_engine().write() {
+            if let Some(engine) = guard.as_mut() {
+                engine.set_action_handler(Some(Arc::clone(&handler)));
+                engine.close_windows(false);
+                engine.set_campaign_victorious(false);
+            }
+        }
+
+        let evaluator = ScriptEvaluator::new(get_script_engine());
+        evaluator
+            .execute_action(&ScriptAction::new(ScriptActionType::Quickvictory))
+            .expect("QuickVictory should execute");
+
+        {
+            let engine = get_script_engine();
+            let guard = engine.read().expect("script engine");
+            let engine = guard.as_ref().expect("initialized");
+            assert!(
+                engine.is_game_ending(),
+                "C++ startQuickEndGameTimer must arm m_endGameTimer"
+            );
+            assert!(
+                engine.is_campaign_victorious(),
+                "C++ ScriptActions.cpp:175 SetVictorious(TRUE)"
+            );
+        }
+
+        if let Ok(mut guard) = get_script_engine().write() {
+            if let Some(engine) = guard.as_mut() {
+                engine
+                    .update()
+                    .expect("one-frame quick-end timer should expire");
+            }
+        }
+
+        let stream = get_message_stream();
+        let stream = stream.read().unwrap_or_else(|e| e.into_inner());
+        assert!(
+            stream.contains_message_of_type(&GameMessageType::ClearGameData),
+            "timer expiry must append MSG_CLEAR_GAME_DATA (ScriptEngine.cpp:5518)"
         );
         let _ = handler.destroy_win_lose_window();
     }

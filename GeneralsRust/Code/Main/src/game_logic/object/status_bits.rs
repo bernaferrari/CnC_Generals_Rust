@@ -182,6 +182,58 @@ impl Object {
         self.script_unsellable = v;
     }
 
+    /// C++ DISABLED_SCRIPT_DISABLED residual.
+    pub fn set_status_disabled_script_disabled(&mut self, v: bool) {
+        self.status.disabled_script_disabled = v;
+    }
+
+    /// C++ DISABLED_SCRIPT_UNDERPOWERED residual.
+    pub fn set_status_disabled_script_underpowered(&mut self, v: bool) {
+        self.status.disabled_script_underpowered = v;
+    }
+
+    /// C++ DISABLED_HELD residual (Battle Bus second life / contain freeze).
+    pub fn set_status_disabled_held(&mut self, v: bool) {
+        self.status.disabled_held = v;
+    }
+
+    pub fn is_script_disabled(&self) -> bool {
+        self.status.disabled_script_disabled
+    }
+
+    /// C++ `setScriptStatus(OBJECT_STATUS_SCRIPT_DISABLED, disabled)`.
+    pub fn set_script_disabled(&mut self, disabled: bool) {
+        self.set_status_disabled_script_disabled(disabled);
+    }
+
+    pub fn is_script_underpowered(&self) -> bool {
+        self.status.disabled_script_underpowered
+    }
+
+    /// C++ `setScriptStatus(OBJECT_STATUS_SCRIPT_UNPOWERED, underpowered)`.
+    pub fn set_script_underpowered(&mut self, underpowered: bool) {
+        self.set_status_disabled_script_underpowered(underpowered);
+    }
+
+    pub fn is_held_disabled(&self) -> bool {
+        self.status.disabled_held
+    }
+
+    /// C++ `ScriptActions::changeObjectPanelFlagForSingleObject` live residual.
+    pub fn apply_object_panel_flag(&mut self, flag_to_change: &str, new_val: bool) {
+        let normalized = flag_to_change
+            .chars()
+            .filter(|c| !c.is_ascii_whitespace() && *c != '_')
+            .collect::<String>()
+            .to_ascii_lowercase();
+        match normalized.as_str() {
+            "enabled" => self.set_script_disabled(!new_val),
+            "powered" => self.set_script_underpowered(!new_val),
+            "unsellable" => self.set_script_unsellable(new_val),
+            _ => {}
+        }
+    }
+
     pub fn set_status_masked(&mut self, v: bool) {
         self.status.masked = v;
         crate::game_logic::host_status_log::record_masked(self.id, v);

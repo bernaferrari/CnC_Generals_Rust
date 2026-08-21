@@ -849,8 +849,8 @@ impl GameLogic {
         }
 
         // Apply radar_count recompute per player (absolute set, not delta).
-        // C++ Energy.cpp:196-215 / Player.cpp:3232-3241 onPowerBrownOutChange
-        // disableRadar(); hasRadar stays true if disable-proof count > 0 (Radar Van).
+        // C++ onPowerBrownOutChange always disableRadar()/enableRadar().
+        // hasRadar stays true when m_disableProofRadarCount > 0 (Radar Van).
         let player_ids: Vec<u32> = self.players.keys().copied().collect();
         let mut transition_events: Vec<(u32, bool, bool)> = Vec::new();
         for pid in player_ids {
@@ -858,13 +858,18 @@ impl GameLogic {
                 continue;
             };
             let count = providers_by_player.get(&pid).copied().unwrap_or(0);
+            let proof = disable_proof_by_player.get(&pid).copied().unwrap_or(0) as i32;
             let sabotaged = player.power_sabotaged_till_frame > 0
                 && self.frame < player.power_sabotaged_till_frame;
             let brownout = player.power_available < 0 || sabotaged;
-            let disable_proof = disable_proof_by_player.get(&pid).copied().unwrap_or(0) > 0;
-            let radar_disabled = brownout && !disable_proof;
             let had = player.has_radar();
-            player.set_radar_state(count as i32, radar_disabled);
+            player.disable_proof_radar_count = proof;
+            if brownout {
+                player.disable_radar();
+            } else {
+                player.enable_radar();
+            }
+            player.set_radar_state(count as i32, player.radar_disabled);
             let has_now = player.has_radar();
             transition_events.push((count, had, has_now));
         }
@@ -913,13 +918,9 @@ impl GameLogic {
     /// C++ parity (Player::update → doPowerDisable): set/clear
     /// `disabled_underpowered` on all KINDOF_POWERED objects depending on
     /// whether their owning player has sufficient power.
-    /// C++ parity (ThingTemplate::calcTimeToBuild): compute per-player power
-    /// production speed factor based on the energy supply ratio.
-    ///
-    ///   energy_ratio = produced / max(consumed, 1) clamped to [0,1]
-    ///   energy_short = (1.0 - ratio) * LowEnergyPenaltyModifier (retail 1.0)
-    ///   rate = max(1.0 - energy_short, MinLowEnergyProductionSpeed (0.5))
-    ///   if ratio < 1.0: rate = min(rate, MaxLowEnergyProductionSpeed (0.8))
+    ///   C++ Energy::getEnergySupplyRatio: if consumption==0 return production
+    ///   (0.0 with no plants). calcTimeToBuild clamps that to [0,1] and applies
+    ///   LowEnergyPenaltyModifier / Min 0.5 / Max 0.8. A 0/0 grid is 50% speed.
     pub(in super::super) fn compute_player_power_factors(
         &self,
     ) -> std::collections::HashMap<u32, f32> {
@@ -1038,6 +1039,19 @@ impl GameLogic {
     }
 
     pub(in super::super) fn update_power_disabled_state(&mut self) {
+        // C++ Player::onPowerBrownOutChange — always flip m_radarDisabled.
+        // Disable-proof vans stay online via hasRadar, not by skipping the flag.
+        let frame = self.frame;
+        for player in self.players.values_mut() {
+            let sabotaged = player.power_sabotaged_till_frame > 0
+                && frame < player.power_sabotaged_till_frame;
+            if sabotaged || player.power_available < 0 {
+                player.disable_radar();
+            } else {
+                player.enable_radar();
+            }
+        }
+
         // Wave 811: under coupled shadow, disabled_underpowered owned by GW expire.
         // Keep Eva low-power residual on host (UI presentation).
         if crate::gameworld_shadow::gameworld_shadow_enabled()

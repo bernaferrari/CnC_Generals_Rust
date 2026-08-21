@@ -628,6 +628,85 @@ fn advanced_control_rods_boosts_america_power_plant_energy() {
 }
 
 #[test]
+fn new_cold_fusion_after_control_rods_gets_energy_bonus() {
+    use crate::game_logic::host_structure_economy_residual::{
+        AMERICA_POWER_ENERGY_BONUS, UPGRADE_AMERICA_ADVANCED_CONTROL_RODS,
+    };
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut player = Player::new(0, Team::USA, "USA", true);
+    player.add_completed_upgrade(UPGRADE_AMERICA_ADVANCED_CONTROL_RODS);
+    logic.players.insert(0, player);
+
+    let mut plant = ThingTemplate::new("AmericaPowerPlant");
+    plant
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::PowerPlant)
+        .set_health(800.0);
+    logic.templates.insert("AmericaPowerPlant".into(), plant);
+
+    let id = logic
+        .create_object_for_player("AmericaPowerPlant", 0, glam::Vec3::new(0.0, 0.0, 0.0))
+        .expect("plant");
+    if let Some(o) = logic.host_object_mut(id) {
+        o.power_provided = 5;
+        o.construction_percent = 1.0;
+        o.set_status_under_construction(false);
+    }
+    logic.apply_researched_player_upgrades_to_object(id);
+    let plant = logic.host_object(id).unwrap();
+    assert_eq!(plant.power_provided, 5 + AMERICA_POWER_ENERGY_BONUS);
+    assert!(plant.has_upgrade_tag(UPGRADE_AMERICA_ADVANCED_CONTROL_RODS));
+}
+
+#[test]
+fn zero_consumption_grid_applies_low_energy_penalty() {
+    let mut logic = GameLogic::new();
+    let mut player = Player::new(0, Team::USA, "USA", true);
+    player.power_produced = 0;
+    player.power_consumed = 0;
+    player.power_available = 0;
+    logic.players.insert(0, player);
+    let factors = logic.compute_player_power_factors();
+    let factor = factors.get(&0).copied().unwrap();
+    assert!(
+        (factor - 0.5).abs() < 1e-5,
+        "0/0 grid must apply min low-energy speed, got {factor}"
+    );
+
+    logic.players.get_mut(&0).unwrap().power_produced = 5;
+    let factors = logic.compute_player_power_factors();
+    assert_eq!(
+        factors.get(&0).copied(),
+        Some(1.0),
+        "production with zero consumption is ratio=production, clamped to 1"
+    );
+}
+
+#[test]
+fn brownout_sets_radar_disabled_unless_disable_proof() {
+    let mut logic = GameLogic::new();
+    let mut player = Player::new(0, Team::USA, "USA", true);
+    player.radar_count = 1;
+    player.power_available = -5;
+    logic.players.insert(0, player);
+    logic.update_power_disabled_state();
+    let p = logic.get_player(0).unwrap();
+    assert!(p.radar_disabled);
+    assert!(!p.has_radar());
+
+    let mut van = Player::new(1, Team::GLA, "GLA", true);
+    van.radar_count = 1;
+    van.disable_proof_radar_count = 1;
+    van.power_available = -5;
+    logic.players.insert(1, van);
+    logic.update_power_disabled_state();
+    let v = logic.get_player(1).unwrap();
+    assert!(v.radar_disabled, "C++ still sets m_radarDisabled");
+    assert!(v.has_radar(), "disable-proof van stays online");
+}
+
+#[test]
 fn retail_overcharge_behavior_metadata_drives_frozen_command_and_live_drain() {
     use crate::command_executor::CommandExecutor;
     use crate::command_system::{CommandResult, CommandType, GameCommand, ModifierKeys};

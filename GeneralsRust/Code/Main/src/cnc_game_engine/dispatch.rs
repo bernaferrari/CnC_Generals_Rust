@@ -395,9 +395,56 @@ impl CnCGameEngine {
         }
     }
 
+    /// C++ `GameLogic::clearGameData` (`GameLogicDispatch.cpp:244`):
+    /// `(!isInShellGame() || !isInGame()) && showScoreScreen`.
+    pub(super) fn clear_game_data_should_push_score_screen(
+        in_shell_game: bool,
+        in_game: bool,
+        show_score_screen: bool,
+    ) -> bool {
+        (!in_shell_game || !in_game) && show_score_screen
+    }
+
+    /// C++ `TheShell->push("Menus/ScoreScreen.wnd"); TheShell->showShell(FALSE)`
+    /// (`GameLogicDispatch.cpp:248-249`).
+    pub(super) fn host_push_score_screen_like_cpp(&mut self) {
+        #[cfg(feature = "game_client")]
+        {
+            let result = game_client::gui::with_shell_mut(|shell| {
+                if let Err(e) = game_client::system::SubsystemInterface::init(shell) {
+                    return Err(e);
+                }
+                shell.push("Menus/ScoreScreen.wnd", false)?;
+                shell.show_shell(false)?;
+                Ok(shell.get_screen_count())
+            });
+            match result {
+                Some(Ok(_)) => {
+                    self.shell_menu_active = true;
+                }
+                Some(Err(e)) => {
+                    warn!("clearGameData failed to push ScoreScreen.wnd: {e:?}");
+                }
+                None => {
+                    game_client::gui::queue_shell_operation(|shell| {
+                        if let Err(e) = shell.push("Menus/ScoreScreen.wnd", false) {
+                            warn!("deferred ScoreScreen push failed: {e:?}");
+                            return;
+                        }
+                        if let Err(e) = shell.show_shell(false) {
+                            warn!("deferred showShell(FALSE) failed: {e:?}");
+                        }
+                    });
+                    self.shell_menu_active = true;
+                }
+            }
+        }
+        self.set_runtime_host_ui_screen_override(Some("ScoreScreen"));
+    }
+
     /// End the live offline match when ScriptEngine or QuitMenu posts
-    /// MSG_CLEAR_GAME_DATA. C++ GameLogic.cpp processes that message and
-    /// leaves the map; here Main owns the only world, so return to shell.
+    /// MSG_CLEAR_GAME_DATA. C++ `GameLogic::clearGameData`
+    /// (`GameLogicDispatch.cpp:223-253`) pushes ScoreScreen then resets.
     pub(super) fn host_consume_clear_game_data(&mut self) -> bool {
         if !matches!(
             self.current_state,
@@ -421,7 +468,42 @@ impl CnCGameEngine {
             return false;
         }
         self.host_set_paused(false);
-        self.return_to_main_menu_after_match();
+        if let Ok(mut guard) = gamelogic::scripting::engine::get_script_engine().write() {
+            if let Some(engine) = guard.as_mut() {
+                // C++ GameLogicDispatch.cpp:241 TheScriptActions->closeWindows(FALSE).
+                engine.close_windows(false);
+            }
+        }
+
+        let in_shell_game = matches!(
+            self.host_match_game_mode,
+            Some(crate::game_logic::GameMode::Shell)
+        );
+        let in_game = matches!(
+            self.current_state,
+            GameState::InGame | GameState::Victory | GameState::Defeat
+        );
+        // MSG_CLEAR_GAME_DATA uses the default showScoreScreen=TRUE
+        // (GameLogicDispatch.cpp:439).
+        let show_score = Self::clear_game_data_should_push_score_screen(
+            in_shell_game,
+            in_game,
+            true,
+        );
+
+        // C++ pushes ScoreScreen then TheGameEngine->reset(). Rust Shell::reset
+        // (if it runs via resetAll) pops the stack, so reset first then push
+        // so the player still sees ScoreScreen. CampaignManager state survives.
+        self.reset_match_state();
+        if show_score {
+            self.host_push_score_screen_like_cpp();
+            self.transition_to_state(GameState::Menu);
+            // show_shell_menu with a non-empty stack reveals ScoreScreen
+            // instead of pushing MainMenu.wnd.
+            self.set_runtime_host_ui_screen_override(Some("ScoreScreen"));
+        } else {
+            self.transition_to_state(GameState::Menu);
+        }
         true
     }
 

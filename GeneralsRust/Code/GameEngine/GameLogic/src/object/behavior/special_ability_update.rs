@@ -1281,17 +1281,31 @@ impl SpecialAbilityUpdate {
                     );
                 }
 
-                if let Some(manager) = TheParticleSystemManager::get() {
-                    if let Some(tmpl) = self.module_data.disable_fx_particle_system.as_ref() {
-                        if let Some(system_id) =
-                            manager.create_particle_system(Some(tmpl.name.as_str()))
-                        {
-                            if let Some(target) = TheGameLogic::find_object_by_id(self.target_id) {
-                                if let Ok(target_guard) = target.read() {
-                                    manager.attach_particle_system_to_object(
-                                        system_id,
-                                        target_guard.get_id(),
-                                    );
+                let mut duration_interleave_factor = 1u32;
+                if let Ok(target_guard) = target.read() {
+                    let footprint = target_guard.get_geometry_info().get_footprint_area();
+                    if footprint < 300.0 && target_guard.is_kind_of(crate::common::KindOf::Structure)
+                    {
+                        self.do_disable_fx_particles = !self.do_disable_fx_particles;
+                        duration_interleave_factor = 2;
+                    }
+                }
+                if self.do_disable_fx_particles {
+                    if let Some(manager) = TheParticleSystemManager::get() {
+                        if let Some(tmpl) = self.module_data.disable_fx_particle_system.as_ref() {
+                            if let Some(system_id) =
+                                manager.create_particle_system(Some(tmpl.name.as_str()))
+                            {
+                                if let Some(target) =
+                                    TheGameLogic::find_object_by_id(self.target_id)
+                                {
+                                    if let Ok(target_guard) = target.read() {
+                                        manager.attach_particle_system_to_object(
+                                            system_id,
+                                            target_guard.get_id(),
+                                        );
+                                        let _ = duration_interleave_factor;
+                                    }
                                 }
                             }
                         }
@@ -1629,7 +1643,7 @@ impl SpecialAbilityUpdate {
             });
         }
 
-        self.facing_complete = true;
+        // C++ startFacing only sets m_facingInitiated. isFacing waits for AI idle.
     }
 
     fn handle_packing_processing(&mut self) -> bool {

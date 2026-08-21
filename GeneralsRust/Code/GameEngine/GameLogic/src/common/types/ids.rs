@@ -177,6 +177,18 @@ impl GeometryInfo {
         (dx.min(dy) * 0.5).max(0.0)
     }
 
+    /// C++ `GeometryInfo::getFootprintArea`.
+    pub fn get_footprint_area(&self) -> Real {
+        match self.geometry_type {
+            EngineGeometryType::Sphere | EngineGeometryType::Cylinder => {
+                std::f32::consts::PI
+                    * self.get_bounding_circle_radius()
+                    * self.get_bounding_circle_radius()
+            }
+            EngineGeometryType::Box => 4.0 * self.get_major_radius() * self.get_minor_radius(),
+        }
+    }
+
     /// Get max height above position (matches C++ geometry max height).
     pub fn get_max_height_above_position(&self) -> Real {
         self.bounds.max.z

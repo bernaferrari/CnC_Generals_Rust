@@ -170,6 +170,14 @@ impl Object {
         self.target_location = None;
         self.set_status_force_attack(false);
         self.set_ai_state(AIState::Idle);
+        // C++ Object.cpp:2145-2179 non-drone unmanned enter:
+        // carbomb detonates elsewhere; else wipe XP and undo AutoHeal.
+        if !self.is_kind_of(KindOf::Drone) && !self.status.is_carbomb {
+            self.set_rider_change_veterancy_level(crate::game_logic::VeterancyLevel::Rookie);
+            if let Some(heal) = self.default_auto_heal.as_mut() {
+                heal.undo_upgrade();
+            }
+        }
     }
 
     /// Apply USA Pilot recrew residual onto this unmanned vehicle.
@@ -545,6 +553,12 @@ impl Object {
         self.target_location = None;
         self.set_status_force_attack(false);
         self.set_ai_state(AIState::Idle);
+        // C++ setDisabledUntil: KINDOF_SPAWNS_ARE_THE_WEAPONS orderSlavesDisabledUntil.
+        if self.is_spawns_are_the_weapons() {
+            let _ = crate::game_logic::host_base_defense::order_hive_slaves_to_go_idle(
+                &mut self.hive_slaves,
+            );
+        }
         if becoming {
             self.on_disabled_edge(true);
         }

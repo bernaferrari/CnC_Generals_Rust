@@ -296,18 +296,30 @@ impl GameLogic {
             return false;
         }
 
-        let mut cancelled: Option<ProductionItem> = None;
-        if let Some(producer) = self.objects.get_mut(&producer_id) {
-            if let Some(building) = producer.building_data.as_mut() {
-                if let Some(pos) = building
+        let cancel_pos = self.objects.get(&producer_id).and_then(|producer| {
+            producer.building_data.as_ref().and_then(|building| {
+                building
                     .production_queue
                     .iter()
                     .rposition(|item| item.template_name.eq_ignore_ascii_case(&template_name))
-                {
+            })
+        });
+        if let Some(pos) = cancel_pos {
+            self.unreserve_airfield_door_for_cancelled_queue_item(
+                producer_id,
+                pos,
+                &template_name,
+            );
+        }
+        let mut cancelled: Option<ProductionItem> = None;
+        if let Some(producer) = self.objects.get_mut(&producer_id) {
+            if let Some(building) = producer.building_data.as_mut() {
+                if let Some(pos) = cancel_pos {
                     cancelled = building.cancel_production(pos);
                 }
             }
         }
+
 
         if let Some(item) = cancelled {
             self.refund_cancelled_production_item(owner_player_id, team, &item);
@@ -353,12 +365,26 @@ impl GameLogic {
             return false;
         }
 
+        if let Some(name) = self.objects.get(&producer_id).and_then(|producer| {
+            producer
+                .building_data
+                .as_ref()
+                .and_then(|building| building.production_queue.get(queue_index))
+                .map(|item| item.template_name.clone())
+        }) {
+            self.unreserve_airfield_door_for_cancelled_queue_item(
+                producer_id,
+                queue_index,
+                &name,
+            );
+        }
         let mut cancelled = None;
         if let Some(producer) = self.objects.get_mut(&producer_id) {
             if let Some(building) = producer.building_data.as_mut() {
                 cancelled = building.cancel_production(queue_index);
             }
         }
+
 
         let Some(item) = cancelled else {
             return false;
@@ -427,6 +453,8 @@ impl GameLogic {
                 }
             }
         }
+        self.unreserve_all_airfield_exit_doors(producer_id);
+
 
         if cancelled_any {
             for item in &cancelled_items {
@@ -573,15 +601,20 @@ impl GameLogic {
         self.last_radar_event.as_ref().map(|e| e.text.as_str())
     }
 
-    /// C++ Object::isLocallyControlled residual for EVA/radar victim gates.
+    /// C++ Object::isLocallyControlled — controlling player is local, not faction Team.
     pub fn is_object_locally_controlled(&self, object_id: ObjectId) -> bool {
         let Some(obj) = self.objects.get(&object_id) else {
             return false;
         };
-        self.players
-            .values()
-            .any(|p| p.team == obj.team && p.is_local && p.is_alive)
+        let owner_id = obj
+            .owner_player_id
+            .filter(|id| self.players.get(id).is_some_and(|player| player.is_alive))
+            .or_else(|| self.unique_player_id_for_team(obj.team));
+        owner_id
+            .and_then(|id| self.players.get(&id))
+            .is_some_and(|player| player.is_local && player.is_alive)
     }
+
 
     /// C++ TheEva->setShouldPlay(EVA_BuildingSabotaged) when victim is local.
 
@@ -1219,6 +1252,15 @@ impl GameLogic {
             })
             .unwrap_or_default();
         for name in upgrades {
+            // C++ Object::updateUpgradeModules still walks Type=OBJECT
+            // PowerPlantUpgrade (TriggeredBy Advanced Control Rods) so a plant
+            // built after research gets EnergyBonus + extendRods.
+            if crate::game_logic::host_upgrades::HostUpgradeKind::from_name(&name)
+                == crate::game_logic::host_upgrades::HostUpgradeKind::AdvancedControlRods
+            {
+                self.apply_advanced_control_rods_to_object(structure_id, &name);
+                continue;
+            }
             if crate::game_logic::host_upgrades::is_object_scoped_upgrade(&name) {
                 continue;
             }
