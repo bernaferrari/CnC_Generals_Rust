@@ -6699,6 +6699,16 @@ impl GameLogic {
     }
 
     #[cfg(test)]
+    pub(crate) fn supply_center_accepts_deposit_for_test(
+        &self,
+        center_id: ObjectId,
+        team: Team,
+        owner_player_id: Option<u32>,
+    ) -> bool {
+        self.supply_center_accepts_deposit(center_id, team, owner_player_id)
+    }
+
+    #[cfg(test)]
     pub(crate) fn update_support_states_for_test(&mut self, ids: &[ObjectId], dt: f32) {
         self.update_support_states(ids, dt);
     }
@@ -6967,27 +6977,59 @@ impl GameLogic {
             crate::game_logic::host_supply_gather::grant_temporary_stealth_frames_for_center(
                 &center.template_name,
             );
-        let center_stealthed = center.status.stealthed;
-        let Some(docker) = self.objects.get(&docker_id) else {
+        self.apply_temporary_stealth_grant(center_id, docker_id, grant_frames);
+    }
+
+    /// C++ `SupplyCenterProductionExitUpdate::exitObjectViaDoor` after Wanting:
+    /// grant when the producer is STEALTHED and (`isTemporaryGrant` or the
+    /// new unit lacks `CAN_STEALTH`) so GPS / innate stealth wins.
+    pub(crate) fn grant_supply_center_exit_temporary_stealth(
+        &mut self,
+        producer_id: ObjectId,
+        new_id: ObjectId,
+    ) {
+        let Some(producer) = self.objects.get(&producer_id) else {
             return;
         };
-        let docker_is_temp = docker.temporary_stealth_expires_frame > self.frame;
-        let docker_can_stealth = docker.innate_stealth || docker.status.stealthed;
+        let Some(exit) = producer.thing.template.production_exit_metadata else {
+            return;
+        };
+        if !exit.is_supply_center() {
+            return;
+        }
+        self.apply_temporary_stealth_grant(producer_id, new_id, exit.grant_temporary_stealth_frames);
+    }
+
+    fn apply_temporary_stealth_grant(
+        &mut self,
+        center_id: ObjectId,
+        unit_id: ObjectId,
+        grant_frames: u32,
+    ) {
+        let Some(center) = self.objects.get(&center_id) else {
+            return;
+        };
+        let center_stealthed = center.status.stealthed;
+        let Some(unit) = self.objects.get(&unit_id) else {
+            return;
+        };
+        let unit_is_temp = unit.temporary_stealth_expires_frame > self.frame;
+        let unit_can_stealth = unit.innate_stealth || unit.status.stealthed;
         if !crate::game_logic::host_supply_gather::should_grant_temporary_stealth(
             center_stealthed,
             grant_frames,
-            docker_is_temp,
-            docker_can_stealth,
+            unit_is_temp,
+            unit_can_stealth,
         ) {
             return;
         }
-        if let Some(docker) = self.objects.get_mut(&docker_id) {
-            docker.apply_grant_stealth();
-            docker.temporary_stealth_expires_frame = self.frame.saturating_add(grant_frames);
+        if let Some(unit) = self.objects.get_mut(&unit_id) {
+            unit.apply_grant_stealth();
+            unit.temporary_stealth_expires_frame = self.frame.saturating_add(grant_frames);
         }
     }
 
-    /// C++ ResourceManager + SupplyCenterDock: own or allied constructed center.
+    /// C++ ResourceManager + SupplyCenterDock: same controlling player only.
     fn preferred_or_allied_supply_center(
         &self,
         collector_id: ObjectId,

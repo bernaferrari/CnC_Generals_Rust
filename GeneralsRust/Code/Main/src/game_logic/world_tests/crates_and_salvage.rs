@@ -4604,3 +4604,23 @@ fn target_pitch_gate_blocks_strategy_center_out_of_loft() {
         &lim
     ));
 }
+
+#[test]
+fn supply_center_accepts_deposit_same_player_only() {
+    use crate::game_logic::{DockKind, KindOf, Object, ObjectId, Player, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic.players.insert(0, Player::new(0, Team::USA, "P0", true));
+    logic.players.insert(1, Player::new(1, Team::USA, "P1", false));
+    let mut t = ThingTemplate::new("AmericaSupplyCenter");
+    t.add_kind_of(KindOf::SupplyCenter);
+    t.dock_kind = DockKind::SupplyCenter;
+    t.has_supply_center_create = true;
+    let cid = ObjectId(8801);
+    let mut center = Object::new(t, cid, Team::USA);
+    center.owner_player_id = Some(0);
+    center.construction_percent = 1.0;
+    center.status.under_construction = false;
+    logic.objects.insert(cid, center);
+    assert!(logic.supply_center_accepts_deposit_for_test(cid, Team::USA, Some(0)));
+    assert!(!logic.supply_center_accepts_deposit_for_test(cid, Team::USA, Some(1)));
+}
