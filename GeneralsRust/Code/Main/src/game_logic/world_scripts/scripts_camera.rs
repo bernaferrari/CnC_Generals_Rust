@@ -70,6 +70,8 @@ impl GameLogic {
                     .with_priority(160),
             );
         }
+        self.drain_pending_move_ambient_audio();
+
         for event in self.queued_audio_events.drain(..) {
             let names = crate::game_logic::resolve_audio_event_names(&event.event_type);
             for name in names {
@@ -268,6 +270,74 @@ impl GameLogic {
                 x: obj.position.x,
                 z: obj.position.z,
                 alive: obj.is_alive() && !obj.status.destroyed,
+                effectively_dead: obj.status.effectively_dead || obj.status.destroyed,
+                health: obj.health.current,
+                initial_health: obj.health.maximum.max(obj.max_health).max(1.0),
+                owner_player: obj
+                    .owner_player_id
+                    .and_then(|pid| self.player_name(pid))
+                    .unwrap_or_default(),
+                template_name: obj.template_name.clone(),
+                has_contain: obj.can_contain()
+                    || obj.garrison_count() > 0
+                    || obj.transport_capacity() > 0
+                    || obj
+                        .building_data
+                        .as_ref()
+                        .is_some_and(|b| b.max_garrison > 0),
+                contain_count: obj.garrison_count() as u32,
+                contain_max: obj
+                    .building_data
+                    .as_ref()
+                    .map(|b| b.max_garrison)
+                    .unwrap_or(0)
+                    .max(obj.transport_capacity()) as u32,
+                last_damage_source_id: obj.last_damage_source.map(|sid| sid.0).unwrap_or(0),
+                last_damage_template: obj
+                    .last_damage_source
+                    .and_then(|sid| self.objects.get(&sid).map(|src| src.template_name.clone()))
+                    .unwrap_or_default(),
+                last_damage_player: obj
+                    .last_damage_source
+                    .and_then(|sid| {
+                        self.objects.get(&sid).and_then(|src| {
+                            src.owner_player_id.and_then(|pid| self.player_name(pid))
+                        })
+                    })
+                    .unwrap_or_default(),
+                kind_structure: obj.is_kind_of(crate::game_logic::KindOf::Structure),
+                kind_projectile: obj.is_kind_of(crate::game_logic::KindOf::Projectile),
+                kind_inert: false,
+                kind_mine: obj.is_kind_of(crate::game_logic::KindOf::Mine),
+                held: obj.status.disabled_held,
+                stealthed_hidden: obj.is_effectively_stealthed(),
+                discovered_by: {
+                    let mut names = Vec::new();
+                    if !obj.status.disabled_held && !obj.is_effectively_stealthed() {
+                        names.extend(self.players.values().map(|p| p.name.clone()));
+                    } else if !obj.status.disabled_held {
+                        if let Some(pid) = obj.owner_player_id {
+                            if let Some(name) = self.player_name(pid) {
+                                names.push(name);
+                            }
+                        }
+                    }
+                    names
+                },
+                waypoint_labels: Vec::new(),
+                selected: obj.selected,
+                idle: matches!(obj.ai_state, crate::game_logic::AIState::Idle)
+                    && !obj.status.moving
+                    && !obj.status.attacking,
+                vision_range: obj.vision_range,
+                kind_names: obj
+                    .thing
+                    .template
+                    .kind_of
+                    .iter()
+                    .map(|k| format!("{k:?}"))
+                    .collect(),
+                ..Default::default()
             });
             if !obj.team_instance_name.is_empty() {
                 snap.team_instance_ids
@@ -290,10 +360,32 @@ impl GameLogic {
                 team,
             );
         }
+        if let Ok(factory) = gamelogic::team::get_team_factory().lock() {
+            for name in factory.prototype_names() {
+                if snap.team_instance_ids.contains_key(&name) {
+                    continue;
+                }
+                let ids = self.host_script_team_census_member_ids(&name);
+                if !ids.is_empty() {
+                    snap.team_instance_ids.insert(name, ids);
+                }
+            }
+        }
+        for player in self.players.values() {
+            let name = format!("team{}", player.name.trim());
+            if name == "team" || snap.team_instance_ids.contains_key(&name) {
+                continue;
+            }
+            let ids = self.host_script_team_census_member_ids(&name);
+            if !ids.is_empty() {
+                snap.team_instance_ids.insert(name, ids);
+            }
+        }
         for (name, aabb) in gamelogic::scripting::engine::get_area_tracker().all_area_aabbs() {
             snap.areas.insert(name, aabb);
         }
         gamelogic::scripting::set_host_script_query_snapshot(snap);
+        self.merge_host_player_census_into_snapshot();
     }
 
     /// C++ `Player::isSupplySourceAttacked` / `isSupplySourceSafe` for leftover
@@ -344,6 +436,72 @@ impl GameLogic {
             snap.supply_center_location_safe = safe_map;
         });
     }
+
+    /// C++ Player::getMoney / getEnergy / hasAnyObjects for leftover conditions
+    /// when crate `OBJECT_REGISTRY` is empty (live host Player is authoritative).
+    fn merge_host_player_census_into_snapshot(&self) {
+        use crate::game_logic::KindOf;
+        use gamelogic::scripting::HostScriptPlayerCensus;
+
+        let mut player_census = std::collections::HashMap::new();
+        for player in self.players.values() {
+            let mut census = HostScriptPlayerCensus {
+                money: player.effective_supplies() as i32,
+                energy_production: player.power_produced,
+                energy_consumption: player.power_consumed,
+                power_sabotaged: player.power_sabotaged_till_frame != 0
+                    && self.frame < player.power_sabotaged_till_frame,
+                science_purchase_points: player.science_purchase_points,
+                unlocked_sciences: player.unlocked_sciences.iter().cloned().collect(),
+                ..Default::default()
+            };
+            for obj in self.host_objects().values() {
+                let owned = match obj.owner_player_id {
+                    Some(pid) => pid == player.id,
+                    None => obj.team == player.team,
+                };
+                if !owned {
+                    continue;
+                }
+                let dead =
+                    !obj.is_alive() || obj.status.destroyed || obj.status.effectively_dead;
+                if !dead
+                    && !obj.is_kind_of(KindOf::Projectile)
+                    && !obj.is_kind_of(KindOf::Mine)
+                    && !obj.is_kind_of(KindOf::SmallMissile)
+                    && !obj.is_kind_of(KindOf::BallisticMissile)
+                {
+                    census.has_any_objects = true;
+                }
+                if !dead && obj.is_kind_of(KindOf::Structure) {
+                    census.building_count += 1;
+                    if obj.is_kind_of(KindOf::MpCountForVictory) {
+                        census.faction_building_count += 1;
+                    }
+                }
+                if !dead
+                    && (obj.is_kind_of(KindOf::CommandCenter)
+                        || obj.is_kind_of(KindOf::FSBarracks)
+                        || obj.is_kind_of(KindOf::FSWarFactory)
+                        || obj.is_kind_of(KindOf::FSAirfield))
+                {
+                    census.has_any_build_facility = true;
+                }
+            }
+            let mut insert = |name: &str| {
+                let key = name.trim().to_ascii_lowercase();
+                if !key.is_empty() {
+                    player_census.insert(key, census.clone());
+                }
+            };
+            insert(&player.name);
+            insert(&player.map_side.map_player_name);
+        }
+        gamelogic::scripting::merge_host_script_query_snapshot(|snap| {
+            snap.player_census = player_census;
+        });
+    }
+
 
     /// Leftover `OBJECT_REGISTRY` is empty on the live path. Script actions
     /// queue named SW / priority-build requests for host AIPlayer.
@@ -396,9 +554,12 @@ impl GameLogic {
         }
         for (unit_name, flag_name, enable) in unit_flags {
             if let Some(id) = self.host_object_id_by_script_name(&unit_name) {
-                if let Some(obj) = self.objects.get_mut(&id) {
+                if panel_flag_is_indestructible(&flag_name) {
+                    self.set_object_indestructible(id, enable);
+                } else if let Some(obj) = self.objects.get_mut(&id) {
                     obj.apply_object_panel_flag(&flag_name, enable);
                 }
+
             }
         }
         for (team_name, flag_name, enable) in team_flags {
@@ -417,9 +578,12 @@ impl GameLogic {
                 .map(|obj| obj.id)
                 .collect();
             for id in ids {
-                if let Some(obj) = self.objects.get_mut(&id) {
+                if panel_flag_is_indestructible(&flag_name) {
+                    self.set_object_indestructible(id, enable);
+                } else if let Some(obj) = self.objects.get_mut(&id) {
                     obj.apply_object_panel_flag(&flag_name, enable);
                 }
+
             }
         }
         for (player_token, science_name, grant) in sciences {
@@ -2153,3 +2317,11 @@ impl GameLogic {
         (duration_ms as f32 / 1000.0).max(0.0)
     }
 }
+
+fn panel_flag_is_indestructible(flag: &str) -> bool {
+    flag.chars()
+        .filter(|c| !c.is_ascii_whitespace() && *c != '_')
+        .collect::<String>()
+        .eq_ignore_ascii_case("indestructible")
+}
+

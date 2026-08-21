@@ -853,6 +853,12 @@ impl GameLogic {
             return false;
         };
 
+        // C++ GarrisonContain::isValidContainerFor — health <= 0 or
+        // BODY_REALLYDAMAGED unless KINDOF_GARRISONABLE_UNTIL_DESTROYED.
+        if target.is_garrison_contain() && !target.garrison_container_accepts_entry() {
+            return false;
+        }
+
         if !unit.is_alive()
             || !target.is_alive()
             || unit.status.under_construction

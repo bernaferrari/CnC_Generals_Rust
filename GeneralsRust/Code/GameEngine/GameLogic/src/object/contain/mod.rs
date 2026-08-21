@@ -63,7 +63,10 @@ pub use overlord_contain::{OverlordContain, OverlordContainModuleData};
 pub use parachute_contain::{ParachuteContain, ParachuteContainModuleData};
 pub use railed_transport_contain::{RailedTransportContain, RailedTransportContainModuleData};
 pub use rider_change_contain::{RiderChangeContain, RiderChangeContainModuleData};
-pub use transport_contain::{InitialPayload, TransportContain, TransportContainModuleData};
+pub use transport_contain::{
+    transport_contain_passenger_kind_allowed_to_fire, InitialPayload, TransportContain,
+    TransportContainModuleData,
+};
 pub use tunnel_contain::{TunnelContain, TunnelContainModuleData};
 
 use crate::common::{GameResult, ObjectID};

@@ -203,8 +203,8 @@ pub struct GameUIState {
     pub camera_focus: Option<[f32; 3]>,
     /// Pending BW mode residual (enabled, frames).
     pub camera_bw_mode: Option<(bool, i32)>,
-    /// Pending camera shaker residual (amplitude, duration, radius).
-    pub camera_shakers: Vec<(f32, f32, f32)>,
+    /// Pending camera shaker residual (epicenter xyz, amplitude, duration, radius).
+    pub camera_shakers: Vec<([f32; 3], f32, f32, f32)>,
     /// Pending camera motion-blur request count residual.
     pub camera_motion_blur_count: usize,
     /// Pending camera zoom residual (zoom, duration).

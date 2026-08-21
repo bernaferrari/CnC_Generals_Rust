@@ -364,6 +364,16 @@ impl ForwardPass {
                 }
             }
 
+            // C++ W3DDisplay draws FXList Tracer/RayEffect after particles
+            // (Display::draw). Host presentation skips Display::draw, so the
+            // same submit must happen on Main's sole present path.
+            renderer_guard.render_tracer_and_ray_fx(
+                encoder,
+                color_view.as_ref(),
+                depth_view.as_ref(),
+                &uniforms,
+            );
+
             // Weather and decals are updated by `update_presentation_shell` too.
             // Draw their real client-managed data in the same post-scene order as
             // GameClient::Display rather than synthesizing presentation geometry.

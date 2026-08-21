@@ -93,6 +93,35 @@ impl GameLogic {
         self.superweapon_restriction = restriction;
     }
 
+    pub fn snapshot_buildable_status_overrides(&self) -> Vec<(String, Int)> {
+        let mut entries: Vec<(String, Int)> = self
+            .buildable_status_overrides
+            .iter()
+            .map(|(name, status)| (name.clone(), *status))
+            .collect();
+        entries.sort_by(|a, b| a.0.cmp(&b.0));
+        entries
+    }
+
+    pub fn restore_buildable_status_overrides(&mut self, entries: Vec<(String, Int)>) {
+        self.buildable_status_overrides = entries.into_iter().collect();
+    }
+
+    pub fn snapshot_control_bar_overrides_raw(&self) -> Vec<(String, Option<String>)> {
+        let mut entries: Vec<(String, Option<String>)> = self
+            .control_bar_overrides
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
+        entries.sort_by(|a, b| a.0.cmp(&b.0));
+        entries
+    }
+
+    pub fn restore_control_bar_overrides_raw(&mut self, entries: Vec<(String, Option<String>)>) {
+        self.control_bar_overrides = entries.into_iter().collect();
+    }
+
+
     // =========================================================================
     // C++ Parity: Object TOC for save/load
     // =========================================================================

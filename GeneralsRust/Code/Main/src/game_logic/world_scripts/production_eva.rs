@@ -4,6 +4,29 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
+
+/// C++ `ThingTemplate::getVoiceTaskComplete` / `getPerUnitSound("VoiceTaskComplete")`.
+fn resolve_dozer_voice_task_complete(template_name: &str) -> Option<String> {
+    let factory = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
+    let factory = factory.as_ref()?;
+    let tmpl = factory.find_template(template_name, false)?;
+    let key = "VoiceTaskComplete".to_string();
+    if let Some(event) = tmpl.get_per_unit_sound(&key) {
+        let name = event.get_event_name();
+        if !name.is_empty() {
+            return Some(name.to_string());
+        }
+    }
+    tmpl.get_voice_task_complete().and_then(|event| {
+        let name = event.get_event_name();
+        if name.is_empty() {
+            None
+        } else {
+            Some(name.to_string())
+        }
+    })
+}
+
 impl GameLogic {
     /// Host SCIENCE unit-training residual honesty registry.
     pub fn unit_training(
@@ -943,6 +966,24 @@ impl GameLogic {
         let Some(obj) = self.objects.get(&hero_id) else {
             return;
         };
+        let owner_player_id = obj.owner_player_id;
+        let team = obj.team;
+        let Some(local_id) = self.eva_local_player_id() else {
+            return;
+        };
+        let Some(owner_id) = self.eva_resolve_owner_player_id(owner_player_id, team) else {
+            return;
+        };
+        self.try_eva_hero_detected_kind(hero_id, owner_id == local_id);
+    }
+
+    /// C++ StealthDetectorUpdate.cpp:233-237 Enemy* / :269-274 Own*.
+    /// `want_own` selects OwnDetectionEvaEvent vs EnemyDetectionEvaEvent.
+    /// Callers must already be inside Radar tryEvent `doFeedback`.
+    pub(crate) fn try_eva_hero_detected_kind(&mut self, hero_id: ObjectId, want_own: bool) {
+        let Some(obj) = self.objects.get(&hero_id) else {
+            return;
+        };
         if !obj.is_alive() {
             return;
         }
@@ -969,6 +1010,9 @@ impl GameLogic {
             return;
         };
         let is_own = owner_id == local_id;
+        if is_own != want_own {
+            return;
+        }
         // C++ StealthDetectorUpdate: Own* only for local controller, Enemy* only
         // when the detector/victim pair is not ALLIES. No ally hero EVA names.
         if !is_own
@@ -1169,7 +1213,7 @@ impl GameLogic {
     /// and queues a localized upgrade-complete radar message for the local player.
 
     /// C++ structure construction-complete residual feedback for local owner:
-    /// radar message + BuildingComplete audio honesty + model condition bit.
+    /// radar message + authored dozer getVoiceTaskComplete + model condition bit.
 
     /// Start radar dish extend residual on a newly completed radar provider.
     pub fn maybe_start_radar_extend(&mut self, structure_id: ObjectId) {
@@ -1327,36 +1371,25 @@ impl GameLogic {
             game_engine::common::system::radar::RadarEventType::Construction,
         );
         self.radar_construction_events = self.radar_construction_events.saturating_add(1);
-        // Prefer nearby same-team dozer VoiceTaskComplete residual.
-        let dozer_id = self
-            .objects
-            .iter()
-            .find(|(_, o)| {
-                o.team == team
-                    && o.is_alive()
-                    && o.can_construct()
-                    && o.get_position().distance(pos) <= 80.0
-            })
-            .map(|(id, _)| *id);
-        if let Some(did) = dozer_id {
-            let dpos = self
-                .objects
-                .get(&did)
-                .map(|o| o.get_position())
-                .unwrap_or(pos);
-            self.queue_audio_event(
-                AudioEventRequest::new("VoiceTaskComplete")
-                    .with_object(did)
-                    .with_position(dpos)
-                    .with_priority(155),
-            );
-        } else {
-            self.queue_audio_event(
-                AudioEventRequest::new("BuildingComplete")
-                    .with_object(structure_id)
-                    .with_position(pos)
-                    .with_priority(150),
-            );
+        // C++ DozerAIUpdate.cpp:597-617 — local dozer getVoiceTaskComplete only.
+        // Never the slot token or invented BuildingComplete.
+        let dozer = self.objects.iter().find(|(_, o)| {
+            o.team == team
+                && o.is_alive()
+                && o.can_construct()
+                && o.get_position().distance(pos) <= 80.0
+        });
+        if let Some((&did, obj)) = dozer {
+            let dpos = obj.get_position();
+            let tmpl = obj.template_name.clone();
+            if let Some(event) = resolve_dozer_voice_task_complete(&tmpl) {
+                self.queue_audio_event(
+                    AudioEventRequest::new(&event)
+                        .with_object(did)
+                        .with_position(dpos)
+                        .with_priority(155),
+                );
+            }
         }
         self.structure_complete_events = self.structure_complete_events.saturating_add(1);
     }
@@ -1828,6 +1861,92 @@ mod tests {
             .expect("ally lotus");
         logic.try_eva_hero_detected(id);
         assert!(!logic.honesty_eva_hero_detected_ok());
+    }
+
+    #[test]
+    fn fire_stealth_discover_skips_hero_eva_when_detector_not_local() {
+        let _ = TheEva::drain_events();
+        let mut logic = GameLogic::new();
+        logic.players.insert(0, Player::new(0, Team::USA, "Local", true));
+        logic.players.insert(1, Player::new(1, Team::China, "China", false));
+        logic.players.insert(2, Player::new(2, Team::GLA, "GLA", false));
+        let mut lotus = ThingTemplate::new("ChinaInfantryBlackLotus");
+        lotus
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Hero)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("ChinaInfantryBlackLotus".into(), lotus);
+        let mut det_t = ThingTemplate::new("GLAVehicleRadarVan");
+        det_t.add_kind_of(KindOf::Vehicle).set_health(200.0);
+        logic.templates.insert("GLAVehicleRadarVan".into(), det_t);
+        let hero = logic
+            .create_object_for_player(
+                "ChinaInfantryBlackLotus",
+                1,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("lotus");
+        let det = logic
+            .create_object_for_player("GLAVehicleRadarVan", 2, glam::Vec3::new(5.0, 0.0, 0.0))
+            .expect("ai detector");
+        logic.fire_stealth_discover_feedback(hero, &[det]);
+        assert!(
+            !logic.honesty_eva_hero_detected_ok(),
+            "AI detector revealing an enemy hero must not announce to local"
+        );
+    }
+
+    #[test]
+    fn fire_stealth_discover_enemy_hero_eva_throttled_by_try_event() {
+        let _ = TheEva::drain_events();
+        let mut logic = GameLogic::new();
+        logic.players.insert(0, Player::new(0, Team::USA, "Local", true));
+        logic.players.insert(1, Player::new(1, Team::China, "China", false));
+        let mut lotus = ThingTemplate::new("ChinaInfantryBlackLotus");
+        lotus
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Hero)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("ChinaInfantryBlackLotus".into(), lotus);
+        let mut det_t = ThingTemplate::new("AmericaVehicleHumvee");
+        det_t.add_kind_of(KindOf::Vehicle).set_health(200.0);
+        logic.templates.insert("AmericaVehicleHumvee".into(), det_t);
+        let hero_a = logic
+            .create_object_for_player(
+                "ChinaInfantryBlackLotus",
+                1,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("lotus a");
+        let hero_b = logic
+            .create_object_for_player(
+                "ChinaInfantryBlackLotus",
+                1,
+                glam::Vec3::new(40.0, 0.0, 0.0),
+            )
+            .expect("lotus b");
+        let det = logic
+            .create_object_for_player("AmericaVehicleHumvee", 0, glam::Vec3::new(5.0, 0.0, 0.0))
+            .expect("local detector");
+        logic.fire_stealth_discover_feedback(hero_a, &[det]);
+        assert!(logic.honesty_eva_hero_detected_ok());
+        let events = TheEva::drain_events().expect("eva");
+        assert!(
+            events
+                .iter()
+                .any(|e| *e == EvaEvent::EnemyBlackLotusDetected),
+            "{events:?}"
+        );
+        let before = logic.eva_hero_detected;
+        logic.fire_stealth_discover_feedback(hero_b, &[det]);
+        assert_eq!(
+            logic.eva_hero_detected, before,
+            "second hero in one scan must be throttled by Radar tryEvent"
+        );
     }
 }
 

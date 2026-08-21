@@ -2122,6 +2122,53 @@ fn construction_complete_radar_and_production_door_cycle() {
 }
 
 #[test]
+fn construction_complete_does_not_queue_invented_building_complete() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic.players.insert(
+        0,
+        crate::game_logic::Player::new(0, Team::USA, "Local", true),
+    );
+    let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
+    dozer_t
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Worker)
+        .set_health(200.0);
+    logic
+        .templates
+        .insert("AmericaVehicleDozer".into(), dozer_t);
+    let mut st = ThingTemplate::new("AmericaBarracks");
+    st.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSBarracks)
+        .set_health(1000.0);
+    logic.templates.insert("AmericaBarracks".into(), st);
+    let _did = logic
+        .create_object(
+            "AmericaVehicleDozer",
+            Team::USA,
+            glam::Vec3::new(0.0, 0.0, 0.0),
+        )
+        .expect("dozer");
+    let bid = logic
+        .create_object(
+            "AmericaBarracks",
+            Team::USA,
+            glam::Vec3::new(10.0, 0.0, 0.0),
+        )
+        .expect("barracks");
+    logic.queued_audio_events.clear();
+    logic.notify_structure_construction_complete(bid);
+    assert!(
+        logic.queued_audio_events.iter().all(|e| {
+            e.event_type != "BuildingComplete" && e.event_type != "VoiceTaskComplete"
+        }),
+        "must not queue slot token or invented BuildingComplete: {:?}",
+        logic.queued_audio_events
+    );
+}
+
+
+#[test]
 fn radar_extend_sets_extending_then_upgraded_bits() {
     use crate::game_logic::host_enum_table_residual::{
         host_model_condition_has, radar_extending_model_bit, radar_upgraded_model_bit,
@@ -2715,6 +2762,14 @@ fn local_unit_death_queues_eva_unit_lost() {
     assert!(
         events.iter().any(|e| *e == EvaEvent::UnitLost),
         "{events:?}"
+    );
+    let text = logic
+        .last_radar_message_text()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    assert!(
+        !text.contains("unit lost"),
+        "C++ Object.cpp:4601-4605 has no RADAR:UnitLost text, got {text:?}"
     );
     // Self-inflicted must not fire.
     let before = logic.saboteur.eva_unit_lost;
@@ -4143,8 +4198,16 @@ fn veterancy_crate_levels_picker_and_ally_in_range() {
         o.set_position(glam::Vec3::new(300.0, 0.0, 0.0));
         o
     });
+    let crate_id = ObjectId(5000);
+    let ct = ThingTemplate::new("PilotCrate");
+    logic.objects.insert(crate_id, {
+        let mut o = Object::new(ct, crate_id, Team::USA);
+        o.set_position(glam::Vec3::ZERO);
+        o.target = Some(a);
+        o
+    });
 
-    let n = logic.execute_veterancy_crate_behavior(a, 100.0, 1);
+    let n = logic.execute_veterancy_crate_behavior(crate_id, a, 100.0, 1);
     assert!(n >= 2, "picker + near ally, got {n}");
     use crate::game_logic::VeterancyLevel;
     assert_ne!(logic.objects[&a].experience.level, VeterancyLevel::Rookie);
@@ -4154,7 +4217,7 @@ fn veterancy_crate_levels_picker_and_ally_in_range() {
 
 #[test]
 fn level_up_crate_collide_path() {
-    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, VeterancyLevel};
     let mut logic = GameLogic::new();
     logic
         .players
@@ -4169,7 +4232,7 @@ fn level_up_crate_collide_path() {
         o
     });
     let cid = ObjectId(5011);
-    let mut ct = ThingTemplate::new("SmallLevelUpCrate");
+    let ct = ThingTemplate::new("SmallLevelUpCrate");
     logic
         .templates
         .insert("SmallLevelUpCrate".into(), ct.clone());
@@ -4180,10 +4243,71 @@ fn level_up_crate_collide_path() {
     });
     logic.host_money_crates.register_level_up_crate(cid, 0.0, 1);
     logic.update_money_crate_collides();
-    use crate::game_logic::VeterancyLevel;
+    assert_eq!(logic.objects[&uid].experience.level, VeterancyLevel::Rookie);
+    assert!(
+        logic.host_money_crates.contains(cid),
+        "static map crate has no AI goal so C++ leaves it inert"
+    );
+}
+
+#[test]
+fn veterancy_crate_ai_goal_grants_and_consumes() {
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, VeterancyLevel};
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::USA, "U", true));
+    let mut ut = ThingTemplate::new("Unit");
+    ut.add_kind_of(KindOf::Infantry);
+    ut.is_trainable = true;
+    let uid = ObjectId(5012);
+    logic.objects.insert(uid, {
+        let mut o = Object::new(ut, uid, Team::USA);
+        o.set_position(glam::Vec3::ZERO);
+        o
+    });
+    let cid = ObjectId(5013);
+    let ct = ThingTemplate::new("SmallLevelUpCrate");
+    logic
+        .templates
+        .insert("SmallLevelUpCrate".into(), ct.clone());
+    logic.objects.insert(cid, {
+        let mut o = Object::new(ct, cid, Team::Neutral);
+        o.set_position(glam::Vec3::new(5.0, 0.0, 0.0));
+        o.target = Some(uid);
+        o
+    });
+    logic.host_money_crates.register_level_up_crate(cid, 0.0, 1);
+    logic.update_money_crate_collides();
     assert_ne!(logic.objects[&uid].experience.level, VeterancyLevel::Rookie);
     assert!(!logic.host_money_crates.contains(cid));
 }
+
+#[test]
+fn slave_drone_attach_inherits_master_rank() {
+    use crate::game_logic::host_slave_drones::SlaveDroneKind;
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, VeterancyLevel};
+    let mut logic = GameLogic::new();
+    let mid = ObjectId(6100);
+    let mut mt = ThingTemplate::new("AmericaVehicleHumvee");
+    mt.add_kind_of(KindOf::Vehicle);
+    logic.objects.insert(mid, {
+        let mut o = Object::new(mt, mid, Team::USA);
+        o.set_position(glam::Vec3::ZERO);
+        let _ = o.set_min_veterancy_level(VeterancyLevel::Elite);
+        o
+    });
+    let drone = logic
+        .residual_attach_slave_drone(mid, SlaveDroneKind::Scout)
+        .expect("scout attach");
+    assert_eq!(
+        logic.objects[&drone].experience.level,
+        VeterancyLevel::Elite,
+        "drone must inherit Humvee rank"
+    );
+}
+
+
 
 #[test]
 fn heroic_unit_does_not_consume_promotion_crate() {

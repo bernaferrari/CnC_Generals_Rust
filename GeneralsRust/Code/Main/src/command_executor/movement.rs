@@ -168,16 +168,25 @@ impl<'a> CommandExecutor<'a> {
         let destination = self.clamp_group_waypoint(units, destination);
         let is_formation = self.group_is_stamped_formation(units);
         if !is_formation && self.should_tighten_group_move(units, destination) {
-            return self.execute_tighten_to_position(units, destination);
+            let result = self.execute_tighten_to_position(units, destination);
+            if matches!(result, CommandResult::Success) {
+                self.play_context_move_voice(units);
+            }
+            return result;
         }
         if is_formation && units.len() > 1 {
-            return self.execute_move_formation_to_position(units, destination);
+            let result = self.execute_move_formation_to_position(units, destination);
+            if matches!(result, CommandResult::Success) {
+                self.play_context_move_voice(units);
+            }
+            return result;
         }
         let goals = self.group_move_destinations(units, destination);
         if units.len() > 1 && self.compute_ground_path_should_group(units, destination) {
             if self.game_logic.assign_shared_group_paths(&goals, destination) {
                 let moved: Vec<ObjectId> = goals.iter().map(|(id, _)| *id).collect();
                 self.apply_player_stealth_mood_delay(&moved);
+                self.play_context_move_voice(units);
                 return CommandResult::Success;
             }
         }
@@ -196,6 +205,7 @@ impl<'a> CommandExecutor<'a> {
             debug!("Unit {} moving to {:?}", unit_id.0, goal);
         }
         self.apply_player_stealth_mood_delay(&moved);
+        self.play_context_move_voice(units);
         CommandResult::Success
     }
 
@@ -208,7 +218,11 @@ impl<'a> CommandExecutor<'a> {
         // Wave 232: move last-writes via GameLogic unit_command_move_to_waypoints.
         let destination = self.clamp_group_waypoint(units, destination);
         if waypoints.is_empty() && self.should_tighten_group_move(units, destination) {
-            return self.execute_tighten_to_position(units, destination);
+            let result = self.execute_tighten_to_position(units, destination);
+            if matches!(result, CommandResult::Success) {
+                self.play_context_move_voice(units);
+            }
+            return result;
         }
         let goals = self.group_move_destinations(units, destination);
         let mut moved: Vec<ObjectId> = Vec::new();
@@ -223,7 +237,16 @@ impl<'a> CommandExecutor<'a> {
             debug!("Unit {} moving via waypoints to {:?}", unit_id.0, goal);
         }
         self.apply_player_stealth_mood_delay(&moved);
+        self.play_context_move_voice(units);
         CommandResult::Success
+    }
+
+    /// C++ pickAndPlay VoiceMove (`CommandXlat.cpp:384-412`) — last-wins scan.
+    fn play_context_move_voice(&mut self, units: &[ObjectId]) {
+        self.game_logic.queue_picked_unit_voice(
+            units,
+            crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Move,
+        );
     }
 
     /// C++ AIGroup::groupMoveToPosition / computeIndividualDestination residual.
@@ -888,6 +911,8 @@ impl<'a> CommandExecutor<'a> {
             }
         }
         if any {
+            // C++ MSG_DO_ATTACKMOVETO uses VoiceMove (`CommandXlat.cpp:384-412`).
+            self.play_context_move_voice(units);
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand

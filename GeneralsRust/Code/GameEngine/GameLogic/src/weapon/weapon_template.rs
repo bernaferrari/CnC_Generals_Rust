@@ -2631,33 +2631,12 @@ impl WeaponTemplate {
 
                 // --- Radius damage affects / collide ---
                 "RadiusDamageAffects" => {
-                    // C++: INI::parseBitString32 with TheWeaponAffectsMaskNames
-                    // Pipe-separated list of flag names. C++ continues parsing after unknown tokens.
-                    for token in trimmed.split('|') {
-                        let t = token.trim().to_ascii_uppercase();
-                        match t.as_str() {
-                            "SELF" => self.affects_mask.insert(WeaponAffectsMask::SELF),
-                            "ALLIES" => self.affects_mask.insert(WeaponAffectsMask::ALLIES),
-                            "ENEMIES" => self.affects_mask.insert(WeaponAffectsMask::ENEMIES),
-                            "NEUTRALS" => self.affects_mask.insert(WeaponAffectsMask::NEUTRALS),
-                            "KILLS_SELF" => self.affects_mask.insert(WeaponAffectsMask::KILLS_SELF),
-                            "DOESNT_AFFECT_SIMILAR" => self
-                                .affects_mask
-                                .insert(WeaponAffectsMask::DOESNT_AFFECT_SIMILAR),
-                            "DOESNT_AFFECT_AIRBORNE" => self
-                                .affects_mask
-                                .insert(WeaponAffectsMask::DOESNT_AFFECT_AIRBORNE),
-                            "NOT_AIRBORNE" => self
-                                .affects_mask
-                                .insert(WeaponAffectsMask::DOESNT_AFFECT_AIRBORNE),
-                            _ => {
-                                log::warn!(
-                                    "WeaponTemplate '{}': unrecognized RadiusDamageAffects token '{}', skipping",
-                                    self.name, t
-                                );
-                            }
-                        }
-                    }
+                    // C++ INI::parseBitString32 + TheWeaponAffectsMaskNames (Weapon.h:98-107).
+                    // First bare token zeros the default ALLIES|ENEMIES|NEUTRALS.
+                    self.affects_mask = WeaponAffectsMask::new(parse_radius_damage_affects_bits(
+                        self.affects_mask.bits(),
+                        trimmed,
+                    ));
                 }
                 "ProjectileCollidesWith" => {
                     // C++: INI::parseBitString32 with TheWeaponCollideMaskNames
@@ -2713,6 +2692,71 @@ impl Default for WeaponTemplate {
 // ---------------------------------------------------------------------------
 // Weapon INI field parsing helpers
 // ---------------------------------------------------------------------------
+
+/// C++ `INI::parseBitString32` for `TheWeaponAffectsMaskNames`.
+///
+/// Bare tokens replace the existing mask (Weapon.cpp:271 default is then gone).
+/// `+TOKEN` / `-TOKEN` add/remove. `NONE` clears. Space or `|` separators.
+fn parse_radius_damage_affects_bits(existing: u32, value: &str) -> u32 {
+    let tokens: Vec<&str> = value
+        .split(|c: char| c.is_whitespace() || c == '|')
+        .filter(|token| !token.is_empty())
+        .collect();
+    if tokens.is_empty() {
+        return existing;
+    }
+    let mut bits = existing;
+    let mut found_normal = false;
+    let mut found_add_or_sub = false;
+    for token in tokens {
+        if token.eq_ignore_ascii_case("NONE") {
+            if found_normal || found_add_or_sub {
+                break;
+            }
+            return 0;
+        }
+        let (name, set) = if let Some(rest) = token.strip_prefix('+') {
+            if found_normal {
+                break;
+            }
+            found_add_or_sub = true;
+            (rest, true)
+        } else if let Some(rest) = token.strip_prefix('-') {
+            if found_normal {
+                break;
+            }
+            found_add_or_sub = true;
+            (rest, false)
+        } else {
+            if found_add_or_sub {
+                break;
+            }
+            if !found_normal {
+                bits = 0;
+            }
+            found_normal = true;
+            (token, true)
+        };
+        let flag = match name.to_ascii_uppercase().as_str() {
+            "SELF" => WeaponAffectsMask::SELF,
+            "ALLIES" => WeaponAffectsMask::ALLIES,
+            "ENEMIES" => WeaponAffectsMask::ENEMIES,
+            "NEUTRALS" => WeaponAffectsMask::NEUTRALS,
+            "SUICIDE" | "KILLS_SELF" => WeaponAffectsMask::KILLS_SELF,
+            "NOT_SIMILAR" | "DOESNT_AFFECT_SIMILAR" => WeaponAffectsMask::DOESNT_AFFECT_SIMILAR,
+            "NOT_AIRBORNE" | "DOESNT_AFFECT_AIRBORNE" => {
+                WeaponAffectsMask::DOESNT_AFFECT_AIRBORNE
+            }
+            _ => continue,
+        };
+        if set {
+            bits |= flag;
+        } else {
+            bits &= !flag;
+        }
+    }
+    bits
+}
 
 #[allow(dead_code)]
 fn parse_bool_simple(s: &str) -> Result<bool, ()> {
@@ -3057,6 +3101,23 @@ mod tests {
             template.collide_mask.bits(),
             WeaponCollideMask::STRUCTURES,
             "omitted Collide must hit structures"
+        );
+    }
+
+    #[test]
+    fn radius_damage_affects_ini_overwrites_default_like_cpp() {
+        let mut template = WeaponTemplate::new("MicrowaveEmitterTest".to_string());
+        let properties = std::collections::HashMap::from([(
+            "RadiusDamageAffects".to_string(),
+            "ENEMIES NOT_AIRBORNE".to_string(),
+        )]);
+        template.parse_weapon_fields_from_ini(&properties);
+        assert_eq!(template.affects_mask.bits() & WeaponAffectsMask::ALLIES, 0);
+        assert_eq!(template.affects_mask.bits() & WeaponAffectsMask::NEUTRALS, 0);
+        assert_ne!(template.affects_mask.bits() & WeaponAffectsMask::ENEMIES, 0);
+        assert_ne!(
+            template.affects_mask.bits() & WeaponAffectsMask::DOESNT_AFFECT_AIRBORNE,
+            0
         );
     }
 

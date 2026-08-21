@@ -35,6 +35,7 @@ impl GameLogic {
             let mut poison_kill = false;
             let mut pending_stump: Option<(String, glam::Vec3, f32, bool)> = None;
             let mut defector_audio: Vec<String> = Vec::new();
+            let mut disguise_halfpoint: Option<(glam::Vec3, bool, bool)> = None;
             let height_die_terrain = {
                 let (pos, ground) = match self.objects.get(&object_id) {
                     Some(o) => (o.get_position(), o.ground_height),
@@ -194,6 +195,11 @@ impl GameLogic {
                 obj.tick_spy_vision_disabled(self.frame);
                 if obj.tick_disguise_transition() {
                     self.bomb_truck_disguise.record_transition_halfpoint();
+                    disguise_halfpoint = Some((
+                        obj.get_position(),
+                        obj.status.disguise_transitioning_to,
+                        obj.target.is_some(),
+                    ));
                 }
                 // Wave 770: under coupled shadow, ToppleUpdate fall is owned by
                 // GW tick_status_timer_expirations + host_topple_kill_log drain.
@@ -449,6 +455,43 @@ impl GameLogic {
                         .with_priority(80),
                 );
             }
+            if let Some((pos, gaining, has_victim)) = disguise_halfpoint {
+                use crate::game_logic::host_bomb_truck_disguise::{
+                    BOMB_TRUCK_DISGUISE_FX, BOMB_TRUCK_DISGUISE_REVEAL_FX,
+                    BOMB_TRUCK_DISGUISE_REVEALED_FAILURE_AUDIO,
+                    BOMB_TRUCK_DISGUISE_REVEALED_SUCCESS_AUDIO,
+                    BOMB_TRUCK_DISGUISE_STARTED_AUDIO,
+                };
+                let (sound, fx) = if gaining {
+                    (BOMB_TRUCK_DISGUISE_STARTED_AUDIO, BOMB_TRUCK_DISGUISE_FX)
+                } else if has_victim {
+                    (
+                        BOMB_TRUCK_DISGUISE_REVEALED_SUCCESS_AUDIO,
+                        BOMB_TRUCK_DISGUISE_REVEAL_FX,
+                    )
+                } else {
+                    (
+                        BOMB_TRUCK_DISGUISE_REVEALED_FAILURE_AUDIO,
+                        BOMB_TRUCK_DISGUISE_REVEAL_FX,
+                    )
+                };
+                self.queue_audio_event(
+                    crate::game_logic::AudioEventRequest::new(sound)
+                        .with_object(object_id)
+                        .with_position(pos)
+                        .with_priority(160),
+                );
+                if !crate::game_logic::dispatch_fx_list_at_pos(fx, pos) {
+                    let _ = self.combat_particles.spawn_named(
+                        crate::game_logic::combat_particles::CombatParticleKind::WeaponImpact,
+                        fx,
+                        pos,
+                        self.frame,
+                        Some(object_id),
+                        None,
+                    );
+                }
+            }
             if poison_kill {
                 self.mark_object_for_destruction(object_id, None);
                 continue;
@@ -678,55 +721,94 @@ impl GameLogic {
             battle_drone_should_idle_repair_master, battle_drone_should_repair_master,
             is_battle_drone_template, is_hellfire_drone_template, is_scout_drone_template,
             scout_drone_should_grant_range_bonus, slave_follow_destination_y,
-            slave_should_defect_to_master, SLAVE_ATTACK_RANGE, SLAVE_GUARD_MAX_RANGE,
-            SLAVE_SCOUT_RANGE,
+            slave_should_defect_to_master, synced_spawn_veterancy, SLAVE_ATTACK_RANGE,
+            SLAVE_GUARD_MAX_RANGE, SLAVE_SCOUT_RANGE,
         };
+        use crate::game_logic::VeterancyLevel;
 
-        let drones: Vec<(ObjectId, ObjectId, glam::Vec3, bool, bool, bool, crate::game_logic::Team)> =
-            self.objects
-                .iter()
-                .filter_map(|(id, o)| {
-                    if !o.is_alive() {
-                        return None;
-                    }
-                    let is_scout = is_scout_drone_template(&o.template_name);
-                    let is_hellfire = is_hellfire_drone_template(&o.template_name);
-                    let is_battle = is_battle_drone_template(&o.template_name);
-                    if !is_scout && !is_hellfire && !is_battle {
-                        return None;
-                    }
-                    let master = o.producer_id?;
-                    let idle = matches!(o.ai_state, AIState::Idle);
-                    Some((*id, master, o.get_position(), idle, is_battle, is_scout, o.team))
-                })
-                .collect();
 
-        for (drone_id, master_id, dpos, idle, is_battle, is_scout, drone_team) in drones {
-            let Some(master) = self.objects.get(&master_id) else {
-                if let Some(d) = self.objects.get_mut(&drone_id) {
-                    d.set_status_disabled_unmanned(true);
-                    d.set_ai_state(AIState::Idle);
+        let drones: Vec<(
+            ObjectId,
+            ObjectId,
+            glam::Vec3,
+            bool,
+            bool,
+            bool,
+            crate::game_logic::Team,
+            VeterancyLevel,
+        )> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if !o.is_alive() {
+                    return None;
                 }
-                continue;
+                let is_scout = is_scout_drone_template(&o.template_name);
+                let is_hellfire = is_hellfire_drone_template(&o.template_name);
+                let is_battle = is_battle_drone_template(&o.template_name);
+                if !is_scout && !is_hellfire && !is_battle {
+                    return None;
+                }
+                let master = o.producer_id?;
+                let idle = matches!(o.ai_state, AIState::Idle);
+                Some((
+                    *id,
+                    master,
+                    o.get_position(),
+                    idle,
+                    is_battle,
+                    is_scout,
+                    o.team,
+                    o.experience.level,
+                ))
+            })
+            .collect();
+
+
+        for (drone_id, master_id, dpos, idle, is_battle, is_scout, drone_team, drone_level) in drones
+        {
+            let (master_missing, master_dead, snapped) = match self.objects.get(&master_id) {
+                None => (true, false, None),
+                Some(master) => {
+                    if !master.is_alive() || master.is_unmanned() {
+                        (false, true, None)
+                    } else {
+                        let max_hp = master.health.maximum.max(1.0);
+                        (
+                            false,
+                            false,
+                            Some((
+                                master.get_position(),
+                                (master.health.current / max_hp) * 100.0,
+                                master.movement.target_position,
+                                master.team,
+                                master.experience.level,
+                                master.target.and_then(|tid| {
+                                    self.objects
+                                        .get(&tid)
+                                        .filter(|t| t.is_alive())
+                                        .map(|t| t.get_position())
+                                }),
+                            )),
+                        )
+                    }
+                }
             };
-            if !master.is_alive() || master.is_unmanned() {
+            if master_missing || master_dead {
                 if let Some(d) = self.objects.get_mut(&drone_id) {
                     d.set_status_disabled_unmanned(true);
                     d.set_ai_state(AIState::Idle);
                 }
                 continue;
             }
-            let mpos = master.get_position();
-            let max_hp = master.health.maximum.max(1.0);
-            let master_hp_pct = (master.health.current / max_hp) * 100.0;
-            let master_dest = master.movement.target_position;
-            let master_team = master.team;
-            let victim_pos = master.target.and_then(|tid| {
-                self.objects
-                    .get(&tid)
-                    .filter(|t| t.is_alive())
-                    .map(|t| t.get_position())
-            });
+            let Some((mpos, master_hp_pct, master_dest, master_team, master_level, victim_pos)) =
+                snapped
+            else {
+                continue;
+            };
+
+
+            let _ = (master_level, drone_level);
 
             // C++ SlavedUpdate.cpp:145-150 hijack/defect when master is no longer ALLIES.
             if slave_should_defect_to_master(master_team == drone_team) {

@@ -61,11 +61,12 @@ pub const OIL_DERRICK_SUPPLY_LINES_BOOST: u32 = 20;
 /// Retail Upgrade_AmericaSupplyLines name honesty for oil derrick boost.
 pub const OIL_DERRICK_SUPPLY_LINES_UPGRADE: &str = "Upgrade_AmericaSupplyLines";
 
-/// Audio residual when oil derrick deposits (fail-closed host cue name).
-pub const OIL_DERRICK_DEPOSIT_AUDIO: &str = "OilDerrickDeposit";
+/// C++ AutoDepositUpdate → Money::deposit → MiscAudio MoneyDepositSound.
+pub const OIL_DERRICK_DEPOSIT_AUDIO: &str = "MoneyDepositSound";
 
-/// Audio residual when capture bonus is awarded.
-pub const OIL_DERRICK_CAPTURE_BONUS_AUDIO: &str = "OilDerrickCaptureBonus";
+/// Capture bonus also goes through Money::deposit (playSound=true).
+pub const OIL_DERRICK_CAPTURE_BONUS_AUDIO: &str = "MoneyDepositSound";
+
 
 /// C++ AutoDepositUpdate floating text Z lift (pos.z += 10.0f). Host Y-up → Y + 10.
 pub const OIL_DERRICK_FLOATING_TEXT_Z_OFFSET: f32 = 10.0;

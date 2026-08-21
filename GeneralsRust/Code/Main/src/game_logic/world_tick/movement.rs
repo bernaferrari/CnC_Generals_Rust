@@ -132,9 +132,11 @@ impl GameLogic {
         // owns path *commands* (move_to / attack-move logs) earlier in the frame.
         // Wave 875: movement authority early-return honesty — GW sole integrate.
         if crate::gameworld_shadow::gameworld_movement_authority_live() {
-            let _ = (object_ids, dt);
+            // Contain exit is not a locomotor integrate — still stream riders.
+            self.drain_pending_transport_exits();
             return;
         }
+
         // C++ m_isBlockedAndStuck → patchPath; requestSafePath → findSafePath Dijkstra.
         let mut repaths: Vec<(ObjectId, Vec<Vec3>)> = Vec::new();
         for &id in object_ids {
@@ -169,7 +171,9 @@ impl GameLogic {
                         repaths.push((id, path));
                     }
                 }
-            } else if obj.is_blocked_and_stuck && obj.movement.path.len() >= 2 {
+            } else if (obj.is_blocked_and_stuck || obj.num_frames_blocked > 60)
+                && obj.movement.path.len() >= 2
+            {
                 let from = obj.get_position();
                 let original = obj.movement.path.clone();
                 if let Some(path) =
@@ -194,7 +198,7 @@ impl GameLogic {
         }
 
         for &id in object_ids {
-            let (ground_y, surface_y, climber_ahead_y) = {
+            let (ground_y, surface_y, climber_ahead_y, cell_type, underwater) = {
                 let Some(obj) = self.objects.get(&id) else {
                     continue;
                 };
@@ -219,7 +223,13 @@ impl GameLogic {
                 } else {
                     pos.y
                 };
-                (gy, sy, ahead_y)
+                let cell = self.pathfinding_system.grid.world_to_grid(pos);
+                let cell_type = self.pathfinding_system.grid.cell_type(cell);
+                let underwater = self
+                    .terrain
+                    .as_ref()
+                    .is_some_and(|t| t.is_underwater_at_world(pos));
+                (gy, sy, ahead_y, cell_type, underwater)
             };
             if let Some(obj) = self.objects.get_mut(&id) {
                 // C++ GameLogic.cpp:3677-3718: UpdateModules (including AI/locomotor
@@ -242,6 +252,16 @@ impl GameLogic {
                     Self::apply_live_handle_behavior_z(obj, surface_y, None);
                     continue;
                 }
+
+                // C++ doLocomotor: chooseGoodLocomotorFromCurrentSet then blocked bookkeeping.
+                obj.choose_good_locomotor_from_current_set(cell_type);
+                obj.tick_do_locomotor_blocked_frames();
+                if obj.num_frames_blocked > 7 {
+                    // AIInternalMoveToState: > 1/4 s blocked clears MODELCONDITION_MOVING.
+                    obj.set_status_moving(false);
+                }
+                obj.apply_hover_over_water(underwater);
+
 
                 // Horizontal (XZ) distance — path grid / terrain height use Y separately,
                 // and 3D distance falsely stalls waypoint advance when |ΔY| is large.
@@ -270,7 +290,15 @@ impl GameLogic {
                         if obj.movement.current_path_index >= obj.movement.path.len() {
                             let do_evac = obj.pending_evacuate_on_stop;
                             let and_exit = obj.pending_exit_after_evacuate;
-                            obj.stop_moving();
+                            if obj.holds_air_position_when_idle() {
+                                obj.movement.path.clear();
+                                obj.movement.current_path_index = 0;
+                                obj.movement.target_position = None;
+                                obj.maintain_pos_valid = false;
+                                let _ = obj.loco_maintain_current_position(surface_y, dt);
+                            } else {
+                                obj.stop_moving();
+                            }
                             if do_evac {
                                 obj.pending_evacuate_on_stop = true;
                                 obj.pending_exit_after_evacuate = and_exit;
@@ -342,6 +370,7 @@ impl GameLogic {
                                 desired_angle += std::f32::consts::PI;
                             }
                         }
+                        speed = obj.apply_do_locomotor_blocked_speed(speed);
                         let current_angle = obj.get_orientation();
                         let mut delta = desired_angle - current_angle;
                         while delta > std::f32::consts::PI {
@@ -358,6 +387,18 @@ impl GameLogic {
                             Self::apply_live_handle_behavior_z(obj, surface_y, None);
                             continue;
                         }
+                        // C++ moveTowardsPositionTreads angleCoeff (Locomotor.cpp:1170-1192).
+                        if matches!(obj.loco_appearance, LocomotorAppearance::Treads) {
+                            let mut angle_coeff = delta.abs() / std::f32::consts::FRAC_PI_4;
+                            if angle_coeff > 1.0 {
+                                angle_coeff = 1.0;
+                            }
+                            speed = (1.0 - angle_coeff) * speed;
+                            let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
+                            if dist < 2.0 * cell && angle_coeff > 0.05 {
+                                speed = obj.movement.velocity.length() * 0.6;
+                            }
+                        }
                         if !obj.no_slow_down_as_approaching_dest {
                             speed = obj.apply_cpp_approach_brake(
                                 dist,
@@ -370,8 +411,53 @@ impl GameLogic {
                             obj.loco_appearance,
                             LocomotorAppearance::WheelsFour | LocomotorAppearance::Motorcycle
                         );
+                        let mut move_backwards = false;
                         if wheeled {
-                            // C++ Locomotor.cpp:1316-1323: cap desiredSpeed on turns > PI/20.
+                            // C++ Locomotor.cpp:1292-1323 reverse / 3pt + turn-speed cap.
+                            let actual_stopped = obj.movement.velocity.x.abs() < 1e-4
+                                && obj.movement.velocity.z.abs() < 1e-4;
+                            let major = if obj.thing.template.geometry_info.authored {
+                                obj.thing.template.geometry_info.major_radius
+                            } else {
+                                obj.selection_radius.max(1.0)
+                            };
+                            let mut on_path = dist;
+                            let idx = obj.movement.current_path_index;
+                            if idx < obj.movement.path.len() {
+                                on_path = horiz(current_pos, obj.movement.path[idx]);
+                                for w in idx..obj.movement.path.len().saturating_sub(1) {
+                                    on_path += horiz(obj.movement.path[w], obj.movement.path[w + 1]);
+                                }
+                            }
+                            if actual_stopped {
+                                obj.moving_backwards = false;
+                                if obj.can_move_backward
+                                    && delta.abs() > std::f32::consts::FRAC_PI_2
+                                {
+                                    obj.moving_backwards = true;
+                                    obj.record_host_locomotor();
+                                }
+                            }
+                            if obj.moving_backwards {
+                                if delta.abs() < std::f32::consts::FRAC_PI_2 {
+                                    obj.moving_backwards = false;
+                                    obj.record_host_locomotor();
+                                } else {
+                                    move_backwards = true;
+                                    // Far goals keep facing the dest (3-point); nearby
+                                    // reverse mirrors desiredAngle (Locomotor.cpp:1307-1310).
+                                    if on_path <= 5.0 * major {
+                                        desired_angle += std::f32::consts::PI;
+                                        delta = desired_angle - current_angle;
+                                        while delta > std::f32::consts::PI {
+                                            delta -= std::f32::consts::TAU;
+                                        }
+                                        while delta < -std::f32::consts::PI {
+                                            delta += std::f32::consts::TAU;
+                                        }
+                                    }
+                                }
+                            }
                             let mut turn_speed = obj.min_turn_speed;
                             if turn_speed < speed / 4.0 {
                                 turn_speed = speed / 4.0;
@@ -404,7 +490,8 @@ impl GameLogic {
                         } else {
                             glam::Vec3::new(new_angle.cos(), 0.0, -new_angle.sin())
                         };
-                        let target_velocity = heading * speed;
+                        let signed_speed = if move_backwards { -speed } else { speed };
+                        let target_velocity = heading * signed_speed;
                         let velocity_diff = target_velocity - obj.movement.velocity;
                         let accel = obj.effective_acceleration();
                         let max_accel = if obj.is_braking {
@@ -442,7 +529,15 @@ impl GameLogic {
                             if obj.movement.path.is_empty()
                                 || obj.movement.current_path_index + 1 >= obj.movement.path.len()
                             {
-                                obj.stop_moving();
+                                if obj.holds_air_position_when_idle() {
+                                    obj.movement.path.clear();
+                                    obj.movement.current_path_index = 0;
+                                    obj.movement.target_position = None;
+                                    obj.maintain_pos_valid = false;
+                                    let _ = obj.loco_maintain_current_position(surface_y, dt);
+                                } else {
+                                    obj.stop_moving();
+                                }
                             } else {
                                 obj.movement.current_path_index += 1;
                                 let mut next = obj.movement.path[obj.movement.current_path_index];
@@ -454,44 +549,72 @@ impl GameLogic {
                         }
                     } else {
                         // Already on target (zero horizontal delta) — still hold height.
-                        obj.movement.velocity = Vec3::ZERO;
-                        obj.record_host_movement();
                         Self::apply_live_handle_behavior_z(obj, surface_y, None);
-                        if matches!(obj.loco_appearance, LocomotorAppearance::Hover) {
-                            let _ = obj.loco_maintain_current_position(surface_y);
+                        if matches!(
+                            obj.loco_appearance,
+                            LocomotorAppearance::Hover
+                                | LocomotorAppearance::Wings
+                                | LocomotorAppearance::Thrust
+                        ) {
+                            if obj.holds_air_position_when_idle() {
+                                obj.maintain_pos_valid = false;
+                            }
+                            let _ = obj.loco_maintain_current_position(surface_y, dt);
+                        } else {
+                            obj.movement.velocity = Vec3::ZERO;
+                            obj.record_host_movement();
                         }
                         if obj.movement.path.is_empty()
                             || obj.movement.current_path_index + 1 >= obj.movement.path.len()
                         {
-                            obj.stop_moving();
+                            if obj.holds_air_position_when_idle() {
+                                obj.movement.path.clear();
+                                obj.movement.current_path_index = 0;
+                                obj.movement.target_position = None;
+                            } else {
+                                obj.stop_moving();
+                            }
                         }
                     }
                 } else {
                     // Idle hover / wings: C++ locoUpdate_maintainCurrentPosition.
                     Self::apply_live_handle_behavior_z(obj, surface_y, None);
-                    if matches!(obj.loco_appearance, LocomotorAppearance::Hover) {
-                        let _ = obj.loco_maintain_current_position(surface_y);
+                    if matches!(
+                        obj.loco_appearance,
+                        LocomotorAppearance::Hover
+                            | LocomotorAppearance::Wings
+                            | LocomotorAppearance::Thrust
+                    ) {
+                        let _ = obj.loco_maintain_current_position(surface_y, dt);
                     }
                 }
             }
         }
 
-        // C++ AICMD_MOVE_TO_POSITION_AND_EVACUATE arrival residual.
+        self.drain_pending_transport_exits();
+    }
+
+    /// C++ AIExitState::update polls isExitBusy / getAiFreeToExit every frame
+    /// with no hull-stop requirement. move-to-and-evacuate still waits for
+    /// arrival (`pending_stream_exit` stays false until the first dump).
+    fn drain_pending_transport_exits(&mut self) {
         let mut evac_now: Vec<(ObjectId, bool)> = Vec::new();
-        for &id in object_ids {
-            if let Some(obj) = self.objects.get(&id) {
-                if obj.pending_evacuate_on_stop
-                    && obj.movement.path.is_empty()
-                    && !obj.status.moving
-                {
-                    evac_now.push((id, obj.pending_exit_after_evacuate));
-                }
+        for (id, obj) in &self.objects {
+            if !obj.pending_evacuate_on_stop {
+                continue;
+            }
+            let stopped = obj.movement.path.is_empty() && !obj.status.moving;
+            let stream = obj.pending_stream_exit
+                && !(obj.transport_delay_exit_in_air() && obj.is_above_terrain_for_exit());
+            if stopped || stream {
+                evac_now.push((*id, obj.pending_exit_after_evacuate));
             }
         }
         for (id, and_exit) in evac_now {
             let _ = self.evacuate_container_now(id, and_exit);
         }
     }
+
 
     #[cfg(test)]
     pub fn update_movement_for_test(&mut self, object_ids: &[ObjectId], dt: f32) {
@@ -1157,4 +1280,310 @@ mod tests {
         assert!(!jet.is_braking, "wings never brake");
         assert!((goal - 40.0).abs() < 1e-5);
     }
-}
+
+    #[test]
+    fn treads_angle_coeff_slows_hard_turns() {
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let mut logic = GameLogic::new();
+        let id = ObjectId(9601);
+        let mut tmpl = ThingTemplate::new("Crusader");
+        tmpl.add_kind_of(KindOf::Vehicle);
+        let mut tank = Object::new(tmpl, id, Team::USA);
+        tank.set_position(Vec3::ZERO);
+        tank.set_orientation(0.0);
+        tank.loco_appearance = LocomotorAppearance::Treads;
+        tank.movement.turn_rate = std::f32::consts::PI;
+        tank.movement.max_speed = 40.0;
+        tank.movement.acceleration = 10_000.0;
+        tank.movement.velocity = Vec3::ZERO;
+        tank.no_slow_down_as_approaching_dest = true;
+        tank.movement.target_position = Some(Vec3::new(0.0, 0.0, 80.0));
+        logic.objects.insert(id, tank);
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("tank");
+        assert!(
+            obj.movement.velocity.length() < 1.0,
+            "90° treads turn must zero goalSpeed via angleCoeff, vel={}",
+            obj.movement.velocity.length()
+        );
+        assert!(
+            obj.get_orientation().abs() > 1e-4,
+            "treads must still yaw toward the goal"
+        );
+    }
+
+    #[test]
+    fn wheeled_can_move_backwards_reverses_nearby_rear_goal() {
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let mut logic = GameLogic::new();
+        let id = ObjectId(9602);
+        let mut tmpl = ThingTemplate::new("Humvee");
+        tmpl.add_kind_of(KindOf::Vehicle);
+        let mut truck = Object::new(tmpl, id, Team::USA);
+        truck.set_position(Vec3::ZERO);
+        truck.set_orientation(0.0);
+        truck.loco_appearance = LocomotorAppearance::WheelsFour;
+        truck.can_move_backward = true;
+        truck.min_turn_speed = 15.0;
+        truck.movement.turn_rate = std::f32::consts::PI;
+        truck.movement.max_speed = 40.0;
+        truck.movement.acceleration = 10_000.0;
+        truck.movement.velocity = Vec3::ZERO;
+        truck.no_slow_down_as_approaching_dest = true;
+        truck.thing.template.geometry_info.authored = true;
+        truck.thing.template.geometry_info.major_radius = 8.0;
+        // Behind, closer than 5*majorRadius → reverse, not 3-point.
+        truck.movement.target_position = Some(Vec3::new(-20.0, 0.0, 0.0));
+        logic.objects.insert(id, truck);
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("truck");
+        assert!(
+            obj.moving_backwards,
+            "CanMoveBackwards + rear goal at rest must set MOVING_BACKWARDS"
+        );
+        assert!(
+            obj.movement.velocity.x < -1.0,
+            "nearby reverse must accelerate backward, vel={:?}",
+            obj.movement.velocity
+        );
+        assert!(
+            obj.get_orientation().abs() < 0.2,
+            "nearby reverse must not flip heading, yaw={}",
+            obj.get_orientation()
+        );
+    }
+
+    /// hq-py0re: Wings idle hold circles instead of freezing at last waypoint.
+    #[test]
+    fn wings_idle_hold_circles_at_min_speed() {
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let mut logic = GameLogic::new();
+        let id = ObjectId(9701);
+        let mut tmpl = ThingTemplate::new("Raptor");
+        tmpl.add_kind_of(KindOf::Aircraft);
+        let mut jet = Object::new(tmpl, id, Team::USA);
+        jet.set_position(Vec3::new(0.0, 50.0, 0.0));
+        jet.ground_height = 0.0;
+        jet.loco_appearance = LocomotorAppearance::Wings;
+        jet.loco_behavior_z = LocomotorBehaviorZ::SurfaceRelativeHeight;
+        jet.min_speed = 20.0;
+        jet.circling_radius = 40.0;
+        jet.movement.max_speed = 80.0;
+        jet.movement.acceleration = 10_000.0;
+        jet.movement.velocity = Vec3::new(20.0, 0.0, 0.0);
+        jet.motive_frames_remaining = 10;
+        jet.status.airborne_target = true;
+        jet.movement.path = vec![Vec3::new(0.0, 50.0, 0.0)];
+        jet.movement.current_path_index = 0;
+        jet.movement.target_position = Some(Vec3::new(0.0, 50.0, 0.0));
+        let start = jet.get_position();
+        logic.objects.insert(id, jet);
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("jet");
+        assert!(
+            obj.maintain_pos_valid,
+            "wings hold must install maintain pos"
+        );
+        assert!(
+            obj.movement.velocity.length() > 5.0,
+            "wings must keep flying, vel={}",
+            obj.movement.velocity.length()
+        );
+        let moved = obj.get_position().distance(start);
+        assert!(
+            moved > 0.05,
+            "wings idle must circle, moved={moved}"
+        );
+        assert!(
+            obj.movement.target_position.is_none(),
+            "hold must not keep a grounded move order"
+        );
+    }
+
+
+    /// hq-66eos: SET_NORMAL cliff member activates on CELL_CLIFF.
+    #[test]
+    fn choose_good_locomotor_switches_on_cliff_cell() {
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let _ = crate::game_logic::locomotor_bootstrap::ensure_host_locomotor_store();
+        let mut logic = GameLogic::new();
+        let id = ObjectId(9702);
+        let mut tmpl = ThingTemplate::new("CombatBike");
+        tmpl.add_kind_of(KindOf::Vehicle);
+        let mut bike = Object::new(tmpl, id, Team::USA);
+        bike.set_position(Vec3::new(15.0, 0.0, 15.0));
+        bike.locomotor_set_names = vec![
+            crate::game_logic::locomotor_bootstrap::COMBAT_BIKE_GROUND_LOCOMOTOR.to_string(),
+            crate::game_logic::locomotor_bootstrap::COMBAT_BIKE_CLIFF_LOCOMOTOR.to_string(),
+        ];
+        bike.cur_locomotor_name = Some(
+            crate::game_logic::locomotor_bootstrap::COMBAT_BIKE_GROUND_LOCOMOTOR.to_string(),
+        );
+        bike.locomotor_surfaces = crate::game_logic::LOCO_SURFACE_GROUND;
+        let cell = logic
+            .pathfinding_system
+            .grid
+            .world_to_grid(bike.get_position());
+        logic
+            .pathfinding_system
+            .grid
+            .set_cell_type(cell, gamelogic::ai::pathfind_astar::PathfindCellType::Cliff);
+        logic.objects.insert(id, bike);
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("bike");
+        assert_eq!(
+            obj.cur_locomotor_name.as_deref(),
+            Some(crate::game_logic::locomotor_bootstrap::COMBAT_BIKE_CLIFF_LOCOMOTOR),
+            "cliff cell must pick CombatBikeCliffLocomotor"
+        );
+        assert_eq!(
+            obj.locomotor_surfaces & crate::game_logic::LOCO_SURFACE_CLIFF,
+            crate::game_logic::LOCO_SURFACE_CLIFF
+        );
+    }
+
+    /// hq-66eos: known SET_NORMAL members bind from template name (no manual list).
+    #[test]
+    fn choose_good_locomotor_fills_burton_set_from_template_name() {
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let _ = crate::game_logic::locomotor_bootstrap::ensure_host_locomotor_store();
+        let mut logic = GameLogic::new();
+        let id = ObjectId(97021);
+        let mut tmpl = ThingTemplate::new("AmericaInfantryColonelBurton");
+        tmpl.add_kind_of(KindOf::Infantry);
+        let mut burton = Object::new(tmpl, id, Team::USA);
+        burton.set_position(Vec3::new(25.0, 0.0, 25.0));
+        burton.cur_locomotor_name = Some(
+            crate::game_logic::locomotor_bootstrap::COLONEL_BURTON_GROUND_LOCOMOTOR.to_string(),
+        );
+        burton.locomotor_surfaces = crate::game_logic::LOCO_SURFACE_GROUND;
+        let cell = logic
+            .pathfinding_system
+            .grid
+            .world_to_grid(burton.get_position());
+        logic
+            .pathfinding_system
+            .grid
+            .set_cell_type(cell, gamelogic::ai::pathfind_astar::PathfindCellType::Cliff);
+        logic.objects.insert(id, burton);
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("burton");
+        assert_eq!(
+            obj.cur_locomotor_name.as_deref(),
+            Some(crate::game_logic::locomotor_bootstrap::HUMAN_CLIFF_LOCOMOTOR),
+            "cliff cell must pick HumanCliffLocomotor"
+        );
+        assert_eq!(obj.loco_appearance, LocomotorAppearance::Climber);
+        assert_eq!(
+            obj.locomotor_surfaces & crate::game_logic::LOCO_SURFACE_CLIFF,
+            crate::game_logic::LOCO_SURFACE_CLIFF
+        );
+    }
+
+
+    /// hq-ene6j: Hover OVER_WATER is sampled from the water table.
+    #[test]
+    fn hover_sets_over_water_from_water_table() {
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let mut logic = GameLogic::new();
+        #[cfg(feature = "game_client")]
+        {
+            use crate::game_logic::terrain::TerrainData;
+            use game_client::terrain::height_map::HeightMap;
+            let mut hm = HeightMap::new(8, 8, 100.0, 1.0);
+            for h in hm.heights.iter_mut() {
+                *h = 0.05;
+            }
+            let mut terrain = TerrainData::from_heightmap(
+                hm,
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(70.0, 0.0, 70.0),
+                0,
+            );
+            terrain.water_plane_y = Some(20.0);
+            logic.terrain = Some(terrain);
+        }
+        let id = ObjectId(9703);
+        let mut tmpl = ThingTemplate::new("CombatChinook");
+        tmpl.add_kind_of(KindOf::Aircraft);
+        let mut heli = Object::new(tmpl, id, Team::USA);
+        heli.set_position(Vec3::new(20.0, 5.0, 20.0));
+        heli.loco_appearance = LocomotorAppearance::Hover;
+        heli.loco_behavior_z = LocomotorBehaviorZ::SurfaceRelativeHeight;
+        heli.over_water = false;
+        logic.objects.insert(id, heli);
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("heli");
+        #[cfg(feature = "game_client")]
+        {
+            assert!(obj.over_water, "hover over water plane must set OVER_WATER");
+            let bit = crate::game_logic::host_enum_table_residual::over_water_model_bit();
+            assert_ne!(obj.model_condition_bits & (1u128 << bit), 0);
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            let mut heli = Object::new(
+                {
+                    let mut t = ThingTemplate::new("CombatChinook");
+                    t.add_kind_of(KindOf::Aircraft);
+                    t
+                },
+                ObjectId(97031),
+                Team::USA,
+            );
+            heli.loco_appearance = LocomotorAppearance::Hover;
+            heli.apply_hover_over_water(true);
+            assert!(heli.over_water);
+        }
+    }
+
+    /// hq-89bqp: blocked-wait caps speed before the march via bumpSpeedLimit.
+    #[test]
+    fn blocked_wait_caps_speed_before_march() {
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let mut logic = GameLogic::new();
+        let id = ObjectId(9704);
+        let mut unit = ranger_at(9704, Vec3::ZERO);
+        unit.set_orientation(0.0);
+        unit.movement.max_speed = 40.0;
+        unit.movement.acceleration = 10_000.0;
+        unit.movement.target_position = Some(Vec3::new(80.0, 0.0, 0.0));
+        unit.is_blocked = true;
+        unit.cur_max_blocked_speed = 4.0;
+        unit.bump_speed_limit = 4.0;
+        unit.no_slow_down_as_approaching_dest = true;
+        logic.objects.insert(id, unit);
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("unit");
+        assert!(
+            obj.movement.velocity.length() < 5.0,
+            "blocked march must use bumpSpeedLimit, vel={}",
+            obj.movement.velocity.length()
+        );
+        assert!(
+            obj.bump_speed_limit < 4.0,
+            "blocked must decay bumpSpeedLimit * 0.95, bump={}",
+            obj.bump_speed_limit
+        );
+        assert_eq!(obj.num_frames_blocked, 1);
+    }
+
+    #[test]
+    fn blocked_and_stuck_when_other_stopped() {
+        let mut self_u = ranger_at(9705, Vec3::ZERO);
+        self_u.set_orientation(0.0);
+        self_u.movement.velocity = Vec3::new(10.0, 0.0, 0.0);
+        self_u.movement.target_position = Some(Vec3::new(80.0, 0.0, 0.0));
+        let mut other = ranger_at(9706, Vec3::new(8.0, 0.0, 0.0));
+        other.set_orientation(0.0);
+        other.movement.velocity = Vec3::ZERO;
+        assert!(self_u.ai_process_collision(&other, 1, true) == false);
+        assert!(self_u.is_blocked);
+        assert!(
+            self_u.is_blocked_and_stuck,
+            "other stopped + facing dest must stick immediately"
+        );
+    }
+
+    }
+

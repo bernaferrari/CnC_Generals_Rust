@@ -2224,14 +2224,8 @@ fn cinematic_font_size(font: Option<&str>) -> f32 {
         }
 
         // C++ Eva::update is the sole SideSounds consumer. Publish the frozen
-        // host frame so the crate GameLogic clock cannot starve speech.
-        #[cfg(feature = "game_client")]
-        {
-            if pres.frame.0 != 0 {
-                game_client::eva::set_eva_host_frame(pres.frame.0);
-            }
-            game_client::eva::update_eva_system();
-        }
+        // host frame + Energy so crate leftover cannot starve LowPower speech.
+        self.publish_eva_host_frame_and_tick();
     }
 
     /// `EVA_LOWPOWER` / table token → chat line residual.

@@ -97,6 +97,7 @@ fn unit_render_input_world_matrix_applies_mesh_scale() {
         engine_bridged: false,
         fow_visibility: ObjectVisibility::FULLY_VISIBLE,
         presentation_opacity: 1.0,
+        second_material_pass_opacity: 0.0,
         status_tint: [0.0; 3],
         stored_supplies: 0,
         drawable_supply_boxes: 0,
@@ -275,6 +276,7 @@ fn unit_render_input_fixture() -> UnitRenderInput {
         engine_bridged: false,
         fow_visibility: ObjectVisibility::FULLY_VISIBLE,
         presentation_opacity: 1.0,
+        second_material_pass_opacity: 0.0,
         status_tint: [0.0; 3],
         stored_supplies: 0,
         drawable_supply_boxes: 0,
@@ -1857,6 +1859,86 @@ fn presentation_freezes_can_make_cameos_residual() {
         .iter()
         .any(|c| !c.available && c.template_name.contains("Burton")));
 }
+
+#[test]
+fn presentation_freezes_dozer_construct_can_make_cameos() {
+    use crate::game_logic::host_production_buildable_command_residual::{
+        CANMAKE_NO_MONEY, CANMAKE_OK,
+    };
+    use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
+    use crate::presentation_frame::PresentationFrame;
+
+    let mut logic = GameLogic::new();
+    let mut p = Player::new(0, Team::USA, "USA", true);
+    p.resources.supplies = 100_000;
+    p.selected_objects.clear();
+    logic.add_player(p);
+    let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
+    dozer_t
+        .add_kind_of(KindOf::Dozer)
+        .add_kind_of(KindOf::Vehicle)
+        .set_health(200.0);
+    logic
+        .templates
+        .insert("AmericaVehicleDozer".into(), dozer_t);
+    let mut plant = ThingTemplate::new("AmericaPowerPlant");
+    plant
+        .add_kind_of(KindOf::Structure)
+        .set_health(1000.0)
+        .set_cost(800, 0);
+    logic.templates.insert("AmericaPowerPlant".into(), plant);
+
+    let did = logic
+        .create_object("AmericaVehicleDozer", Team::USA, glam::Vec3::ZERO)
+        .expect("dozer");
+    if let Some(pl) = logic.get_player_mut(0) {
+        pl.selected_objects = vec![did];
+        pl.is_local = true;
+        pl.resources.supplies = 100_000;
+    }
+    assert_eq!(
+        logic.can_make_unit(did, "AmericaPowerPlant"),
+        CANMAKE_OK,
+        "dozer can_make PowerPlant with cash"
+    );
+    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    assert_eq!(frame.can_make_producer_id, Some(did.0));
+    let plant_c = frame
+        .can_make_cameos
+        .iter()
+        .find(|c| c.template_name.contains("PowerPlant"))
+        .unwrap_or_else(|| panic!("PowerPlant cameo missing in {:?}", frame.can_make_cameos));
+    assert!(plant_c.available, "plant={plant_c:?}");
+    assert_eq!(plant_c.can_make, CANMAKE_OK);
+
+    if let Some(pl) = logic.get_player_mut(0) {
+        pl.resources.supplies = 0;
+        pl.selected_objects = vec![did];
+    }
+    assert_eq!(
+        logic.can_make_unit(did, "AmericaPowerPlant"),
+        CANMAKE_NO_MONEY
+    );
+    let frame2 = PresentationFrame::build_from_logic(&logic, 0);
+    let plant2 = frame2
+        .can_make_cameos
+        .iter()
+        .find(|c| c.template_name.contains("PowerPlant"))
+        .expect("PowerPlant cameo2");
+    assert!(!plant2.available);
+    assert_eq!(plant2.can_make, CANMAKE_NO_MONEY);
+
+    let mut bar = game_client::gui::control_bar::ControlBar::new();
+    frame2.apply_to_control_bar(&mut bar);
+    assert!(
+        bar.presentation_can_make()
+            .iter()
+            .any(|(n, s)| n.contains("PowerPlant") && *s == CANMAKE_NO_MONEY),
+        "ControlBar must receive dozer CanMake gray residual: {:?}",
+        bar.presentation_can_make()
+    );
+}
+
 
 fn presentation_freezes_public_timer_superweapons() {
     use crate::command_system::SpecialPowerType;

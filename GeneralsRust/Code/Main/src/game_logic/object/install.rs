@@ -1,6 +1,55 @@
 use super::*;
 
 impl Object {
+    pub(crate) fn is_power_style_disabled(&self) -> bool {
+
+        self.status.disabled_underpowered
+            || self.status.disabled_emp
+            || self.status.disabled_subdued
+            || self.status.disabled_hacked
+    }
+
+    /// C++ Object.cpp:2078-2088 / 2237-2247 Building/Vehicle Disabled/Reenabled.
+    pub(crate) fn queue_power_disable_misc_audio(&self, becoming: bool) {
+
+        let token = if self.is_kind_of(crate::game_logic::KindOf::Structure) {
+            if becoming {
+                "BuildingDisabled"
+            } else {
+                "BuildingReenabled"
+            }
+        } else if self.is_kind_of(crate::game_logic::KindOf::Vehicle) {
+            if becoming {
+                "VehicleDisabled"
+            } else {
+                "VehicleReenabled"
+            }
+        } else {
+            return;
+        };
+        let pos = self.get_position();
+        crate::game_logic::host_disable_timers_log::record_audio(
+            self.id,
+            [pos.x, pos.y, pos.z],
+            crate::game_logic::host_economy_log::resolve_misc_audio_event(token),
+        );
+    }
+
+    /// C++ Object.cpp:2062-2067 SplatterVehiclePilotsBrain on UNMANNED enter.
+    fn queue_unmanned_splatter_audio(&self) {
+        if self.is_kind_of(crate::game_logic::KindOf::Drone) {
+            return;
+        }
+        let pos = self.get_position();
+        crate::game_logic::host_disable_timers_log::record_audio(
+            self.id,
+            [pos.x, pos.y, pos.z],
+            crate::game_logic::host_economy_log::resolve_misc_audio_event(
+                "SplatterVehiclePilotsBrain",
+            ),
+        );
+    }
+
     /// C++ KINDOF_CAN_SURRENDER residual (infantry primarily).
     pub fn can_surrender_from_damage(&self) -> bool {
         if self.is_kind_of(crate::game_logic::KindOf::Infantry) {
@@ -34,7 +83,17 @@ impl Object {
         v
     }
 
+    /// Consume GarrisonContain ReallyDamaged walk-out request.
+    pub fn take_pending_garrison_really_damaged_eject(&mut self) -> bool {
+        let v = self.status.pending_garrison_really_damaged_eject;
+        self.status.pending_garrison_really_damaged_eject = false;
+        v
+    }
+
     /// Residual mine / demo-trap / booby identity for DAMAGE_DISARM targeting.
+    ///
+    /// C++ DISARM only hits LandMineInterface (KINDOF_MINE). GLADemoTrap is
+    /// STRUCTURE / KINDOF_DEMOTRAP, so it is not disarmable.
     pub fn is_disarmable_mine(&self) -> bool {
         use crate::game_logic::host_mines::can_clear_mine_kind;
         if let Some(md) = self.mine_data.as_ref() {
@@ -42,10 +101,10 @@ impl Object {
         }
         // Name peel residual when mine_data not attached yet.
         let n = self.template_name.to_ascii_lowercase();
-        n.contains("mine")
-            || n.contains("demotrap")
-            || n.contains("booby")
-            || self.status.booby_trapped
+        if n.contains("demotrap") {
+            return false;
+        }
+        n.contains("mine") || n.contains("booby") || self.status.booby_trapped
     }
 
     /// C++ LandMineInterface::disarm residual (safe clear, no splash).
@@ -144,6 +203,7 @@ impl Object {
 
     pub fn set_disabled_subdued(&mut self, subdued: bool) {
         if subdued {
+            let already_power = self.is_power_style_disabled();
             self.set_status_disabled_subdued(true);
             // C++ orderAllPassengersToIdle residual: drop attack / move orders.
             self.status.attacking = false;
@@ -156,8 +216,15 @@ impl Object {
                 self.stop_moving();
                 self.set_ai_state(AIState::Idle);
             }
+            if !already_power {
+                self.queue_power_disable_misc_audio(true);
+            }
         } else {
+            let was = self.status.disabled_subdued;
             self.set_status_disabled_subdued(false);
+            if was && !self.is_power_style_disabled() {
+                self.queue_power_disable_misc_audio(false);
+            }
         }
     }
 
@@ -171,8 +238,10 @@ impl Object {
         if !self.status.disabled_unmanned {
             self.status.unmanned_owner_team = Some(self.team);
             self.status.unmanned_owner_player_id = self.owner_player_id;
+            self.queue_unmanned_splatter_audio();
         }
         self.set_status_disabled_unmanned(true);
+
         self.set_status_disabled_hacked(false);
         self.status.disabled_hacked_until_frame = 0;
         self.set_status_disabled_emp(false);
@@ -559,6 +628,7 @@ impl Object {
 
     pub fn apply_disabled_hacked(&mut self, until_frame: u32) {
         let becoming = !self.is_disabled();
+        let already_power = self.is_power_style_disabled();
         self.set_status_disabled_hacked(true);
         self.status.disabled_hacked_until_frame = until_frame;
         self.record_disable_timers();
@@ -575,10 +645,14 @@ impl Object {
                 &mut self.hive_slaves,
             );
         }
+        if !already_power {
+            self.queue_power_disable_misc_audio(true);
+        }
         if becoming {
             self.on_disabled_edge(true);
         }
     }
+
 
     pub fn tick_disabled_hacked(&mut self, current_frame: u32) {
         if self.status.disabled_hacked
@@ -587,11 +661,15 @@ impl Object {
         {
             self.set_status_disabled_hacked(false);
             self.status.disabled_hacked_until_frame = 0;
+            if !self.is_power_style_disabled() {
+                self.queue_power_disable_misc_audio(false);
+            }
             if !self.is_disabled() {
                 self.on_disabled_edge(false);
             }
         }
     }
+
 
     /// Apply DISABLED_EMP residual until `until_frame` (absolute host logic frame).
     /// C++ EMPUpdate::doDisableAttack: setDisabledUntil(DISABLED_EMP, now + DisabledDuration).
@@ -609,6 +687,7 @@ impl Object {
 
     pub fn apply_disabled_emp(&mut self, until_frame: u32) {
         let becoming = !self.is_disabled();
+        let already_power = self.is_power_style_disabled();
         self.set_status_disabled_emp(true);
         if until_frame > self.status.disabled_emp_until_frame {
             self.status.disabled_emp_until_frame = until_frame;
@@ -621,6 +700,9 @@ impl Object {
         self.target_location = None;
         self.set_status_force_attack(false);
         self.set_ai_state(AIState::Idle);
+        if !already_power {
+            self.queue_power_disable_misc_audio(true);
+        }
         if becoming {
             self.on_disabled_edge(true);
         }
@@ -633,11 +715,15 @@ impl Object {
         {
             self.set_status_disabled_emp(false);
             self.status.disabled_emp_until_frame = 0;
+            if !self.is_power_style_disabled() {
+                self.queue_power_disable_misc_audio(false);
+            }
             if !self.is_disabled() {
                 self.on_disabled_edge(false);
             }
         }
     }
+
 
     /// Apply DISABLED_PARALYZED residual until `until_frame` (absolute host logic frame).
     /// C++ BattlePlanUpdate::paralyzeTroop: setDisabledUntil(DISABLED_PARALYZED, now + frames).

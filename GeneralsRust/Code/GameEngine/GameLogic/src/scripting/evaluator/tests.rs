@@ -198,6 +198,7 @@ fn named_destroyed_uses_host_snapshot_when_registry_empty() {
             x: 0.0,
             z: 0.0,
             alive: false,
+            ..Default::default()
         }],
         ..Default::default()
     });
@@ -227,6 +228,7 @@ fn named_destroyed_false_when_name_never_existed_like_cxx() {
             x: 0.0,
             z: 0.0,
             alive: true,
+            ..Default::default()
         }],
         ..Default::default()
     });
@@ -1182,6 +1184,7 @@ fn live_named_inside_uses_point_in_trigger_not_aabb() {
             x: 18.0,
             z: 18.0,
             alive: true,
+            ..Default::default()
         }],
         ..Default::default()
     });
@@ -1211,6 +1214,7 @@ fn live_named_inside_uses_point_in_trigger_not_aabb() {
             x: 2.0,
             z: 2.0,
             alive: true,
+            ..Default::default()
         }],
         ..Default::default()
     });
@@ -1259,6 +1263,7 @@ fn live_named_entered_exited_use_two_frame_host_flags() {
             x: 2.0,
             z: 2.0,
             alive: true,
+            ..Default::default()
         }],
         team_instance_ids: [("teamUSA".into(), vec![7])].into_iter().collect(),
         ..Default::default()
@@ -1294,6 +1299,7 @@ fn live_named_entered_exited_use_two_frame_host_flags() {
             x: 18.0,
             z: 18.0,
             alive: true,
+            ..Default::default()
         }],
         team_instance_ids: [("teamUSA".into(), vec![7])].into_iter().collect(),
         ..Default::default()

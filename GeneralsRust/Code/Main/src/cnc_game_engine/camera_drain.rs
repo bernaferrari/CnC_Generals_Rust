@@ -332,9 +332,9 @@ impl CnCGameEngine {
             self.enqueue_script_screen_shake(*intensity);
         }
 
-        for &(amplitude, duration_seconds, radius) in &pres.camera_shakers {
+        for &(position, amplitude, duration_seconds, radius) in &pres.camera_shakers {
             self.enqueue_script_camera_shaker(CameraAddShakerRequest {
-                position: self.camera_target,
+                position: Vec3::new(position[0], position[1], position[2]),
                 amplitude,
                 duration_seconds,
                 radius,
@@ -2641,6 +2641,13 @@ impl CnCGameEngine {
                                 }
                             })
                             .unwrap_or_default(),
+                            supply_boxes: if o.dock_kind
+                                == crate::game_logic::DockKind::SupplyWarehouse
+                            {
+                                Some(o.drawable_supply_boxes as i32)
+                            } else {
+                                None
+                            },
                         },
                     )
                     .collect()

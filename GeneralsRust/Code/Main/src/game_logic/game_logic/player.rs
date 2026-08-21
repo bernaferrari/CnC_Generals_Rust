@@ -815,6 +815,11 @@ impl Player {
             self.power_available = power_after;
             if cost.supplies > 0 {
                 self.record_resources_spent(cost.supplies);
+                crate::game_logic::host_economy_log::record_money_audio(
+                    self.id,
+                    crate::game_logic::host_economy_log::HostMoneyAudio::Withdraw,
+                );
+
             }
             crate::game_logic::host_economy_log::record(
                 self.id,
@@ -825,6 +830,11 @@ impl Player {
             self.resources.supplies -= cost.supplies;
             self.power_available = power_after;
             if cost.supplies > 0 {
+                crate::game_logic::host_economy_log::record_money_audio(
+                    self.id,
+                    crate::game_logic::host_economy_log::HostMoneyAudio::Withdraw,
+                );
+
                 self.record_resources_spent(cost.supplies);
             }
             crate::game_logic::host_economy_log::record(
@@ -943,6 +953,11 @@ impl Player {
         }
         self.statistics.resources_collected =
             self.statistics.resources_collected.saturating_add(amount);
+        crate::game_logic::host_economy_log::record_money_audio(
+            self.id,
+            crate::game_logic::host_economy_log::HostMoneyAudio::Deposit,
+        );
+
         self.apply_supply_gain(amount);
     }
 

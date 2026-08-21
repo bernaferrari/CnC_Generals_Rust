@@ -73,6 +73,12 @@ impl TerrainVisualImpl {
             road_meshes: Vec::new(),
             bridge_meshes: Vec::new(),
             scorch_meshes: Vec::new(),
+            scorch_texture: None,
+            scorch_sampler: None,
+            scorch_texture_bind_group: None,
+            scorch_texture_name: String::new(),
+            scorch_texture_is_fallback: false,
+            had_dynamic_lights: false,
             overlay_gpu_meshes_dirty: true,
 
 

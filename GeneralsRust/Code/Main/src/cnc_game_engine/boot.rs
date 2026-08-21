@@ -907,16 +907,58 @@ impl CnCGameEngine {
     /// Load AIData.ini (Default + override) into the AI data store.
     /// C++ parity: GameEngine.cpp:480 initSubsystem(TheAI, ..., "Data\\INI\\Default\\AIData.ini", "Data\\INI\\AIData.ini")
     pub(super) fn preload_startup_ai_data_inis() {
-        let mut ini = game_engine::common::ini::INI::new();
+        let mut loaded_any = false;
         for path in Self::startup_ai_data_ini_paths() {
+            // Disk first (extracted INIZH). Archive `INI::load` can block on
+            // FileSystem/asset locks held by the main thread during Loading.
+            if let Some(text) = Self::read_startup_ini_from_disk(path) {
+                let mut ini = game_engine::common::ini::INI::new();
+                match ini.with_inline_source(&text, |ini| ini.parse_current_file()) {
+                    Ok(()) => {
+                        loaded_any = true;
+                        info!("Preloaded AIData INI from disk: {}", path);
+                    }
+                    Err(err) => warn!(
+                        "Failed to parse AIData INI '{}' from disk; continuing: {}",
+                        path, err
+                    ),
+                }
+                continue;
+            }
+            let mut ini = game_engine::common::ini::INI::new();
             match ini.load(path, game_engine::common::ini::INILoadType::Overwrite) {
-                Ok(()) => info!("Preloaded AIData INI: {}", path),
+                Ok(()) => {
+                    loaded_any = true;
+                    info!("Preloaded AIData INI: {}", path);
+                }
                 Err(err) => warn!(
                     "Failed to preload AIData INI '{}' during init; continuing: {}",
                     path, err
                 ),
             }
         }
+        if loaded_any {
+            crate::game_logic::host_repulsor_gate::mark_aidata_ini_applied();
+        }
+        // C++ initSubsystem(TheAI) copies parsed AIData into TheAI.
+        if let Ok(mut ai) = gamelogic::ai::THE_AI.write() {
+            ai.init();
+        }
+        crate::game_logic::host_repulsor_gate::apply_resolved_to_leftover_and_gate();
+    }
+
+    /// After archive extract of AIData.ini (Upgrade-style path in shell.rs).
+    pub(super) fn apply_startup_ai_data_enable_repulsors() {
+        crate::game_logic::host_repulsor_gate::mark_aidata_ini_applied();
+        if let Ok(mut ai) = gamelogic::ai::THE_AI.write() {
+            ai.init();
+        }
+        let enabled =
+            crate::game_logic::host_repulsor_gate::apply_resolved_to_leftover_and_gate();
+        info!(
+            "AIData EnableRepulsors={} (C++ TAiData::m_enableRepulsors)",
+            enabled
+        );
     }
 
     pub(super) fn startup_audio_should_quit(no_audio: bool, audio_ready: bool) -> bool {
@@ -1672,6 +1714,29 @@ mod tests {
         assert!(
             cmdline < lod && lod < water,
             "C++ GameEngine.cpp:357-373: parseCommandLine, GameLODManager::init, then Water/Weather"
+        );
+    }
+
+    #[test]
+    fn preload_aidata_applies_enable_repulsors_to_host_gate() {
+        let src = include_str!("boot.rs");
+        let live = src
+            .split("#[cfg(test)]")
+            .next()
+            .expect("boot live path");
+        let preload = live
+            .find("fn preload_startup_ai_data_inis")
+            .expect("AIData preload");
+        let disk = live
+            .find("Preloaded AIData INI from disk")
+            .expect("disk-first AIData");
+        let the_ai = live.find("ai.init()").expect("TheAI::init after AIData");
+        let apply = live
+            .find("apply_resolved_to_leftover_and_gate")
+            .expect("host EnableRepulsors apply");
+        assert!(
+            preload < disk && disk < the_ai && the_ai < apply,
+            "C++ GameEngine.cpp:480: load AIData.ini, TheAI::init, then EnableRepulsors"
         );
     }
 }

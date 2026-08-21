@@ -41,12 +41,13 @@ impl GameLogic {
         self.recalc_garrisons_after_occupant_detect_change(&garrison_detect_recalc);
 
         // C++ StealthUpdate.cpp:365-373 — occupants of non-garrison transports destalth.
+        // Contained-and-forbidden re-arms StealthDelay every frame (cpp:737-739).
         {
             let destalth: Vec<ObjectId> = self
                 .objects
                 .iter()
                 .filter_map(|(id, obj)| {
-                    if !obj.is_alive() || !obj.status.stealthed {
+                    if !obj.is_alive() {
                         return None;
                     }
                     let container = self.objects.get(&obj.contained_by?)?;
@@ -61,64 +62,32 @@ impl GameLogic {
                 .collect();
             for id in destalth {
                 if let Some(obj) = self.objects.get_mut(&id) {
-                    obj.break_stealth();
-                    if obj.stealth_delay_frames > 0 {
-                        obj.stealth_allowed_frame =
-                            frame.saturating_add(obj.stealth_delay_frames);
-                        obj.stealth_delay_pending = false;
-                    }
+                    obj.apply_stealth_allowed_update(frame, false);
                 }
             }
         }
 
-        // Bomb truck disguise residual: RevealDistanceFromTarget = 100 while
-        // attacking a victim; also reveal when firing breaks stealth residual.
+
+        // Bomb truck disguise: RevealDistanceFromTarget only when getCurrentVictim
+        // exists and FROM_CENTER_2D <= 100. Attack-move / ground fire have no victim.
         {
-            use crate::game_logic::host_bomb_truck_disguise::{
-                should_reveal_disguise_by_distance, BOMB_TRUCK_DISGUISE_REVEAL_AUDIO,
-            };
-            let disguised: Vec<(ObjectId, Option<ObjectId>, bool, Vec3)> = self
+            use crate::game_logic::host_bomb_truck_disguise::should_reveal_disguise_by_distance;
+            let disguised: Vec<(ObjectId, Option<ObjectId>, Vec3)> = self
                 .objects
                 .iter()
                 .filter(|(_, o)| o.status.disguised && o.is_alive())
-                .map(|(id, o)| {
-                    (
-                        *id,
-                        o.target,
-                        o.status.attacking
-                            || matches!(
-                                o.ai_state,
-                                AIState::Attacking
-                                    | AIState::AttackMoving
-                                    | AIState::AttackingGround
-                            ),
-                        o.get_position(),
-                    )
-                })
+                .map(|(id, o)| (*id, o.target, o.get_position()))
                 .collect();
             let mut reveal_ids: Vec<ObjectId> = Vec::new();
-            for (id, victim_id, is_attacking, pos) in disguised {
-                let mut reveal = false;
-                if is_attacking {
-                    if let Some(vid) = victim_id {
-                        if let Some(victim) = self.objects.get(&vid) {
-                            let vp = victim.get_position();
-                            let dx = pos.x - vp.x;
-                            let dz = pos.z - vp.z;
-                            let dist = (dx * dx + dz * dz).sqrt();
-                            if should_reveal_disguise_by_distance(dist) {
-                                reveal = true;
-                            }
-                        } else {
-                            // Attacking with no live victim: still residual-reveal
-                            // when attack state is active (fire residual).
-                            reveal = true;
-                        }
-                    } else {
-                        reveal = true;
-                    }
-                }
-                if reveal {
+            for (id, victim_id, pos) in disguised {
+                let Some(vid) = victim_id else {
+                    continue;
+                };
+                let Some(victim) = self.objects.get(&vid) else {
+                    continue;
+                };
+                let dist = Object::stealth_detector_distance_2d(pos, victim.get_position());
+                if should_reveal_disguise_by_distance(dist) {
                     reveal_ids.push(id);
                 }
             }
@@ -131,14 +100,9 @@ impl GameLogic {
                     obj.get_position()
                 };
                 self.bomb_truck_disguise.record_reveal();
-                self.queue_audio_event(
-                    AudioEventRequest::new(BOMB_TRUCK_DISGUISE_REVEAL_AUDIO)
-                        .with_object(rid)
-                        .with_position(pos)
-                        .with_priority(160),
-                );
             }
         }
+
 
         // Pathfinder residual: StealthForbiddenConditions = MOVING.
         // Uncloak while Moving/AttackMoving; re-cloak immediately when stopped
@@ -179,7 +143,7 @@ impl GameLogic {
         // ModuleTag_06 / StealthUpdate.cpp allowedToStealth.
         {
             use crate::game_logic::host_sentry_drone::{
-                is_sentry_drone_template, sentry_stealth_allowed_frame, sentry_stealth_desired,
+                is_sentry_drone_template, sentry_stealth_desired,
             };
             let sentry_ids: Vec<ObjectId> = self
                 .objects
@@ -191,47 +155,32 @@ impl GameLogic {
                 let Some(obj) = self.objects.get_mut(&sid) else {
                     continue;
                 };
-                if obj.stealth_delay_pending {
-                    obj.stealth_allowed_frame = sentry_stealth_allowed_frame(frame);
-                    obj.stealth_delay_pending = false;
-                }
                 let moving = matches!(obj.ai_state, AIState::Moving | AIState::AttackMoving)
                     || obj.status.moving;
-                let firing = obj.status.attacking
-                    || matches!(
-                        obj.ai_state,
-                        AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
-                    );
-                let Some(desired) = sentry_stealth_desired(
+                let firing = obj.stealth_fired_primary_recently(frame);
+                // Delay is applied in apply_stealth_allowed_update, not allowedToStealth.
+                let Some(allowed) = sentry_stealth_desired(
                     true,
                     obj.innate_stealth,
                     obj.is_alive(),
                     moving,
                     firing,
                     frame,
-                    obj.stealth_allowed_frame,
+                    0,
                 ) else {
                     continue;
                 };
-                if desired && !obj.status.stealthed {
-                    obj.set_status_stealthed(true);
-                    obj.set_status_detected(false);
-                    obj.detection_expires_frame = 0;
-                    obj.stealth_allowed_frame = 0;
-                } else if !desired && obj.status.stealthed {
-                    obj.break_stealth();
-                    if obj.stealth_delay_pending {
-                        obj.stealth_allowed_frame = sentry_stealth_allowed_frame(frame);
-                        obj.stealth_delay_pending = false;
-                    }
-                }
+                obj.apply_stealth_allowed_update(frame, allowed);
             }
         }
 
+
         // Listening Outpost residual: StealthForbiddenConditions = MOVING RIDERS_ATTACKING.
-        // InnateStealth re-cloaks when stopped and riders are idle.
+        // C++ StealthUpdate.cpp:737-739 re-arms StealthDelay (2000ms / 60f) every forbidden frame.
         {
-            use crate::game_logic::host_listening_outpost::listening_outpost_stealth_desired;
+            use crate::game_logic::host_listening_outpost::{
+                listening_outpost_stealth_desired, LISTENING_OUTPOST_STEALTH_DELAY_FRAMES,
+            };
             // Style bit installed at spawn for LO templates — no name scan.
             let lo_ids: Vec<ObjectId> = self
                 .objects
@@ -261,9 +210,12 @@ impl GameLogic {
                 let Some(obj) = self.objects.get_mut(&lid) else {
                     continue;
                 };
+                if obj.stealth_delay_frames == 0 {
+                    obj.stealth_delay_frames = LISTENING_OUTPOST_STEALTH_DELAY_FRAMES;
+                }
                 let moving = matches!(obj.ai_state, AIState::Moving | AIState::AttackMoving)
                     || obj.status.moving;
-                if let Some(desired) = listening_outpost_stealth_desired(
+                if let Some(allowed) = listening_outpost_stealth_desired(
                     true,
                     obj.innate_stealth,
                     obj.stealth_breaks_on_move,
@@ -271,11 +223,7 @@ impl GameLogic {
                     moving,
                     riders_attacking,
                 ) {
-                    if desired && !obj.status.stealthed {
-                        obj.set_status_stealthed(true);
-                    } else if !desired && obj.status.stealthed {
-                        obj.break_stealth();
-                    }
+                    obj.apply_stealth_allowed_update(frame, allowed);
                 }
             }
         }
@@ -284,9 +232,9 @@ impl GameLogic {
         // StealthDelay 2500ms (75f) before re-cloak. C++ GLAInfantryRebel StealthUpdate.
         {
             use crate::game_logic::host_upgrades::{
-                camouflage_stealth_allowed_frame, camouflage_unit_stealth_desired,
-                UPGRADE_GLA_CAMOUFLAGE,
+                camouflage_unit_stealth_desired, UPGRADE_GLA_CAMOUFLAGE,
             };
+
             // Upgrade tag is only applied to camouflage-eligible units at unlock.
             let camo_ids: Vec<ObjectId> = self
                 .objects
@@ -304,39 +252,21 @@ impl GameLogic {
                 let Some(obj) = self.objects.get_mut(&cid) else {
                     continue;
                 };
-                if obj.stealth_delay_pending {
-                    obj.stealth_allowed_frame = camouflage_stealth_allowed_frame(frame);
-                    obj.stealth_delay_pending = false;
-                }
-                let attacking = obj.status.attacking
-                    || matches!(
-                        obj.ai_state,
-                        AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
-                    );
+                let attacking = obj.stealth_is_firing_weapon();
                 let using_ability =
                     obj.status.using_ability || matches!(obj.ai_state, AIState::SpecialAbility);
-                let Some(desired) = camouflage_unit_stealth_desired(
+                // Delay is applied in apply_stealth_allowed_update, not allowedToStealth.
+                let Some(allowed) = camouflage_unit_stealth_desired(
                     obj.innate_stealth,
                     obj.is_alive(),
                     attacking,
                     using_ability,
                     frame,
-                    obj.stealth_allowed_frame,
+                    0,
                 ) else {
                     continue;
                 };
-                if desired && !obj.status.stealthed {
-                    obj.set_status_stealthed(true);
-                    obj.set_status_detected(false);
-                    obj.detection_expires_frame = 0;
-                    obj.stealth_allowed_frame = 0;
-                } else if !desired && obj.status.stealthed {
-                    obj.break_stealth();
-                    if obj.stealth_delay_pending {
-                        obj.stealth_allowed_frame = camouflage_stealth_allowed_frame(frame);
-                        obj.stealth_delay_pending = false;
-                    }
-                }
+                obj.apply_stealth_allowed_update(frame, allowed);
             }
         }
 
@@ -350,13 +280,12 @@ impl GameLogic {
             use crate::game_logic::host_black_market::is_black_market_template;
             use crate::game_logic::host_upgrades::{
                 camo_netting_heat_vision_opacity, camo_netting_order_idle_enemy_in_range,
-                camo_netting_pulse_opacity, camo_netting_stealth_allowed_frame,
-                camo_netting_stealth_look, camo_netting_structure_stealth_desired,
-                is_camo_netting_structure_template, stealth_same_controlling_player,
-                CAMO_NETTING_FRIENDLY_OPACITY_MAX, CAMO_NETTING_FRIENDLY_OPACITY_MIN,
-                UPGRADE_GLA_CAMO_NETTING,
+                camo_netting_pulse_opacity, camo_netting_stealth_look,
+                camo_netting_structure_stealth_desired, is_camo_netting_structure_template,
+                stealth_same_controlling_player, CAMO_NETTING_FRIENDLY_OPACITY_MAX,
+                CAMO_NETTING_FRIENDLY_OPACITY_MIN, UPGRADE_GLA_CAMO_NETTING,
             };
-            // C++ StealthUpdate.cpp:287 iterateObjects(isBlackMarket).
+
             let live_markets: Vec<(Team, Option<u32>)> = self
                 .objects
                 .values()
@@ -396,19 +325,11 @@ impl GameLogic {
                 let Some(obj) = self.objects.get_mut(&sid) else {
                     continue;
                 };
-                // Resolve pending StealthDelay after a reveal this frame.
-                if obj.stealth_delay_pending {
-                    obj.stealth_allowed_frame = camo_netting_stealth_allowed_frame(frame);
-                    obj.stealth_delay_pending = false;
-                }
-                let attacking = obj.status.attacking
-                    || matches!(
-                        obj.ai_state,
-                        AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
-                    );
+                let attacking = obj.stealth_is_firing_weapon();
                 // C++ OBJECT_STATUS_IS_USING_ABILITY residual.
                 let using_ability =
                     obj.status.using_ability || matches!(obj.ai_state, AIState::SpecialAbility);
+                let taking_damage = obj.stealth_taking_non_healing_damage(frame);
                 let has_live_black_market = live_markets.iter().any(|(team, player)| {
                     stealth_same_controlling_player(
                         obj.team,
@@ -417,36 +338,28 @@ impl GameLogic {
                         *player,
                     )
                 });
-                let Some(desired) = camo_netting_structure_stealth_desired(
+                // Delay is applied in apply_stealth_allowed_update, not allowedToStealth.
+                let Some(allowed) = camo_netting_structure_stealth_desired(
                     obj.innate_stealth,
                     obj.is_alive(),
                     attacking,
                     using_ability,
                     frame,
-                    obj.stealth_allowed_frame,
+                    0,
                     has_live_black_market,
                 ) else {
                     continue;
                 };
-                if desired && !obj.status.stealthed {
-                    obj.set_status_stealthed(true);
-                    obj.set_status_detected(false);
-                    obj.detection_expires_frame = 0;
-                    obj.stealth_allowed_frame = 0;
-                    // FriendlyOpacity residual: cloaked → min (then pulse).
+                let allowed = allowed && !taking_damage;
+                let was_stealthed = obj.status.stealthed;
+                obj.apply_stealth_allowed_update(frame, allowed);
+                if obj.status.stealthed && !was_stealthed {
                     obj.camo_friendly_opacity = CAMO_NETTING_FRIENDLY_OPACITY_MIN;
                     obj.record_host_vision_camo();
                     obj.camo_opacity_pulse_phase = 0.0;
                     opacity_cloaks = opacity_cloaks.saturating_add(1);
                     recloaks = recloaks.saturating_add(1);
-                } else if !desired && obj.status.stealthed {
-                    obj.break_stealth();
-                    // break_stealth marks delay pending; resolve immediately with frame.
-                    if obj.stealth_delay_pending {
-                        obj.stealth_allowed_frame = camo_netting_stealth_allowed_frame(frame);
-                        obj.stealth_delay_pending = false;
-                    }
-                    // FriendlyOpacity residual: revealed → max (no pulse).
+                } else if !obj.status.stealthed && was_stealthed {
                     obj.camo_friendly_opacity = CAMO_NETTING_FRIENDLY_OPACITY_MAX;
                     obj.record_host_vision_camo();
                     opacity_reveals = opacity_reveals.saturating_add(1);
@@ -474,6 +387,7 @@ impl GameLogic {
                         opacity_reveals = opacity_reveals.saturating_add(1);
                     }
                 }
+
 
                 // StealthLook residual for enemy observer (default host residual view).
                 // Detected stealthed structures → heat-vision second material pass.
@@ -629,23 +543,12 @@ impl GameLogic {
                     obj.stealth_delay_frames =
                         hero_stealth_delay_frames_residual(&obj.template_name);
                 }
-                if obj.stealth_delay_pending {
-                    obj.stealth_allowed_frame =
-                        frame.saturating_add(obj.stealth_delay_frames);
-                    obj.stealth_delay_pending = false;
-                }
-                let firing = obj.status.attacking
-                    || matches!(
-                        obj.ai_state,
-                        AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
-                    );
+                let firing = obj.stealth_is_firing_weapon();
                 // C++ FIRING_PRIMARY only — Burton knife (secondary) does not destalth.
-                let firing_primary = firing
-                    && obj.last_fire_slot == 0
-                    && obj.last_fire_sim_time > 0.0;
+                let firing_primary = obj.stealth_fired_primary_recently(frame);
                 let using_ability =
                     obj.status.using_ability || matches!(obj.ai_state, AIState::SpecialAbility);
-                let desired = if is_colonel_burton_template(&obj.template_name) {
+                let allowed = if is_colonel_burton_template(&obj.template_name) {
                     burton_stealth_desired(true, obj.innate_stealth, obj.is_alive(), firing_primary)
                 } else if is_jarmen_kell_template(&obj.template_name) {
                     jarmen_stealth_desired(true, obj.innate_stealth, obj.is_alive(), firing)
@@ -659,24 +562,8 @@ impl GameLogic {
                 } else {
                     Some(!firing)
                 };
-                if let Some(want) = desired {
-                    if want && !obj.status.stealthed {
-                        if obj.stealth_allowed_frame > 0 && frame < obj.stealth_allowed_frame {
-                            // C++ m_stealthAllowedFrame > now: wait StealthDelay.
-                        } else {
-                            obj.set_status_stealthed(true);
-                            obj.set_status_detected(false);
-                            obj.detection_expires_frame = 0;
-                            obj.stealth_allowed_frame = 0;
-                        }
-                    } else if !want && obj.status.stealthed {
-                        obj.break_stealth();
-                        if obj.stealth_delay_pending {
-                            obj.stealth_allowed_frame =
-                                frame.saturating_add(obj.stealth_delay_frames);
-                            obj.stealth_delay_pending = false;
-                        }
-                    }
+                if let Some(allowed) = allowed {
+                    obj.apply_stealth_allowed_update(frame, allowed);
                 }
             }
         }
@@ -751,15 +638,7 @@ impl GameLogic {
                     continue;
                 };
                 obj.stealth_delay_frames = delay;
-                if obj.stealth_delay_pending {
-                    obj.stealth_allowed_frame = frame.saturating_add(obj.stealth_delay_frames);
-                    obj.stealth_delay_pending = false;
-                }
-                let attacking = obj.status.attacking
-                    || matches!(
-                        obj.ai_state,
-                        AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
-                    );
+                let attacking = obj.stealth_is_firing_weapon();
                 let Some(want) = combat_cycle_rider_stealth_desired(
                     true,
                     COMBAT_CYCLE_USE_RIDER_STEALTH,
@@ -770,23 +649,7 @@ impl GameLogic {
                 ) else {
                     continue;
                 };
-                if want && !obj.status.stealthed {
-                    if obj.stealth_allowed_frame > 0 && frame < obj.stealth_allowed_frame {
-                        // C++ m_stealthAllowedFrame > now: wait rider StealthDelay.
-                    } else {
-                        obj.set_status_stealthed(true);
-                        obj.set_status_detected(false);
-                        obj.detection_expires_frame = 0;
-                        obj.stealth_allowed_frame = 0;
-                    }
-                } else if !want && obj.status.stealthed {
-                    obj.break_stealth();
-                    if obj.stealth_delay_pending {
-                        obj.stealth_allowed_frame =
-                            frame.saturating_add(obj.stealth_delay_frames);
-                        obj.stealth_delay_pending = false;
-                    }
-                }
+                obj.apply_stealth_allowed_update(frame, want);
             }
         }
 
@@ -815,37 +678,17 @@ impl GameLogic {
                 if obj.stealth_delay_frames == 0 {
                     obj.stealth_delay_frames = STEALTH_FIGHTER_STEALTH_DELAY_FRAMES_RESIDUAL;
                 }
-                if obj.stealth_delay_pending {
-                    obj.stealth_allowed_frame =
-                        frame.saturating_add(obj.stealth_delay_frames);
-                    obj.stealth_delay_pending = false;
-                } else if !obj.status.stealthed && obj.stealth_allowed_frame == 0 {
+                if !obj.status.stealthed && obj.stealth_allowed_frame == 0 && !obj.stealth_delay_pending
+                {
                     // C++ ctor: m_stealthAllowedFrame = now + StealthDelay.
                     obj.stealth_allowed_frame =
                         frame.saturating_add(obj.stealth_delay_frames);
                 }
-                let attacking = obj.status.attacking
-                    || matches!(
-                        obj.ai_state,
-                        AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
-                    );
-                if stealth_fighter_allowed_to_stealth_residual(attacking) {
-                    if obj.stealth_allowed_frame > 0 && frame < obj.stealth_allowed_frame {
-                        // wait StealthDelay
-                    } else if !obj.status.stealthed {
-                        obj.set_status_stealthed(true);
-                        obj.set_status_detected(false);
-                        obj.detection_expires_frame = 0;
-                        obj.stealth_allowed_frame = 0;
-                    }
-                } else if obj.status.stealthed {
-                    obj.break_stealth();
-                    if obj.stealth_delay_pending {
-                        obj.stealth_allowed_frame =
-                            frame.saturating_add(obj.stealth_delay_frames);
-                        obj.stealth_delay_pending = false;
-                    }
-                }
+                let attacking = obj.stealth_is_firing_weapon();
+                obj.apply_stealth_allowed_update(
+                    frame,
+                    stealth_fighter_allowed_to_stealth_residual(attacking),
+                );
             }
         }
 
@@ -881,9 +724,27 @@ impl GameLogic {
             }
         }
 
-        // GPS / receiveGrant residual: CAN_STEALTH (innate_stealth) units destalthed
-        // by fire re-cloak after StealthDelay (StealthUpdate.cpp:717-735).
+        // GPS / receiveGrant residual: CAN_STEALTH units destalthed by fire
+        // re-cloak after StealthDelay only when allowedToStealth (StealthUpdate.cpp:717-735).
         {
+            use crate::game_logic::host_black_market::is_black_market_template;
+            use crate::game_logic::host_upgrades::is_camo_netting_structure_template;
+            let live_markets: Vec<(Team, Option<u32>)> = self
+                .objects
+                .values()
+                .filter(|o| {
+                    crate::game_logic::object::is_live_stealth_black_market(
+                        o.is_kind_of(KindOf::FSBlackMarket)
+                            || is_black_market_template(&o.template_name),
+                        o.is_kind_of(KindOf::FSFake),
+                        o.is_alive(),
+                        o.status.under_construction,
+                        o.status.sold,
+                        o.status.destroyed,
+                    )
+                })
+                .map(|o| (o.team, o.owner_player_id))
+                .collect();
             let grant_ids: Vec<ObjectId> = self
                 .objects
                 .iter()
@@ -896,18 +757,49 @@ impl GameLogic {
                 .map(|(id, _)| *id)
                 .collect();
             for gid in grant_ids {
+                let occupants = self
+                    .objects
+                    .get(&gid)
+                    .map(|o| o.contained_units())
+                    .unwrap_or_default();
+                let riders_attacking = occupants.iter().any(|rid| {
+                    self.objects.get(rid).is_some_and(|rider| {
+                        rider.is_alive()
+                            && (rider.status.attacking
+                                || matches!(
+                                    rider.ai_state,
+                                    AIState::Attacking
+                                        | AIState::AttackMoving
+                                        | AIState::AttackingGround
+                                ))
+                    })
+                });
+                let (requires_black_market, has_live_black_market) =
+                    self.objects.get(&gid).map(|obj| {
+                        let requires = is_camo_netting_structure_template(&obj.template_name)
+                            && obj.stealth_breaks_on_damage;
+                        let has = live_markets.iter().any(|(team, player)| {
+                            crate::game_logic::host_upgrades::stealth_same_controlling_player(
+                                obj.team,
+                                obj.owner_player_id,
+                                *team,
+                                *player,
+                            )
+                        });
+                        (requires, has)
+                    }).unwrap_or((false, false));
                 let Some(obj) = self.objects.get_mut(&gid) else {
                     continue;
                 };
-                let forbidden = obj.status.attacking
-                    || obj.status.using_ability
-                    || matches!(
-                        obj.ai_state,
-                        AIState::Attacking
-                            | AIState::AttackMoving
-                            | AIState::AttackingGround
-                            | AIState::SpecialAbility
-                    );
+                let moving = matches!(obj.ai_state, AIState::Moving | AIState::AttackMoving)
+                    || obj.status.moving;
+                let forbidden = obj.stealth_level_forbids_cloak(
+                    frame,
+                    moving,
+                    riders_attacking,
+                    requires_black_market,
+                    has_live_black_market,
+                );
                 obj.try_recloak_after_stealth_delay(frame, forbidden);
             }
         }
@@ -1019,6 +911,7 @@ impl GameLogic {
         }
 
         if detectors.is_empty() {
+            self.apply_local_stealth_look_and_heat_vision();
             self.play_stealth_transition_sounds(&stealth_snap);
             return;
         }
@@ -1031,6 +924,8 @@ impl GameLogic {
             .filter(|(_, o)| o.is_alive() && (o.status.stealthed || o.status.disguised))
             .map(|(id, _)| *id)
             .collect();
+        let mut spotted_detectors: std::collections::HashSet<ObjectId> =
+            std::collections::HashSet::new();
 
         for sid in stealthed_ids {
             let Some((s_team, s_owner, s_pos, already_detected)) = self
@@ -1064,7 +959,11 @@ impl GameLogic {
                             }
                             _ => *det_team != s_team,
                         };
-                        let in_range = rel_ok && det_pos.distance(s_pos) <= *range;
+                        // C++ StealthDetectorUpdate.cpp:179-180 FROM_CENTER_2D
+                        // (host Y-up → XZ; altitude must not shrink radius).
+                        let in_range = rel_ok
+                            && Object::stealth_detector_distance_2d(*det_pos, s_pos) <= *range;
+
                         if in_range {
                             spotting_detectors.push(*id);
                             let hold = stealth_detector_hold_frames(*rate);
@@ -1092,8 +991,12 @@ impl GameLogic {
                     });
 
             if detected_by_someone {
+                for id in &spotting_detectors {
+                    spotted_detectors.insert(*id);
+                }
                 if let Some(obj) = self.objects.get_mut(&sid) {
                     obj.mark_detected(best_expires);
+                    obj.apply_detected_heat_vision_second_pass();
                 }
                 // C++ StealthUpdate::markAsDetected orderIdlesToAttack walk.
                 self.order_idle_enemies_to_attack_on_reveal(sid);
@@ -1117,9 +1020,10 @@ impl GameLogic {
                     if detected_by_troop_crawler {
                         self.troop_crawler.record_detect();
                     }
-                    // C++ hero stealth detection EVA residual (Own/Enemy *Detected).
-                    self.try_eva_hero_detected(sid);
+                    // C++ StealthDetectorUpdate.cpp:292-308 IR grid on newly spotted.
+                    self.spawn_detector_ir_grid_at(s_pos);
                     // C++ StealthDetectorUpdate.cpp:199-260 radar/audio/message.
+                    // Hero Enemy*/Own* EVA is inside doFeedback (tryEvent 10s).
                     self.fire_stealth_discover_feedback(sid, &spotting_detectors);
                 }
             }
@@ -1171,9 +1075,10 @@ impl GameLogic {
                     continue;
                 }
                 for (_id, det_team, det_owner, det_pos, range, _flags, rate) in &detectors {
-                    if det_pos.distance(b_pos) > *range {
+                    if Object::stealth_detector_distance_2d(*det_pos, b_pos) > *range {
                         continue;
                     }
+
                     let hold = spotter_mark_detected_garrison_rider_frames_residual(*rate);
                     let expires = frame.saturating_add(hold);
                     let mut marked = false;
@@ -1211,6 +1116,9 @@ impl GameLogic {
             }
             self.recalc_garrisons_after_occupant_detect_change(&touched);
         }
+        let scanned: Vec<ObjectId> = detectors.iter().map(|d| d.0).collect();
+        self.play_detector_ir_scan_fx(&scanned, &spotted_detectors);
+        self.apply_local_stealth_look_and_heat_vision();
         self.play_stealth_transition_sounds(&stealth_snap);
     }
 
@@ -1248,9 +1156,167 @@ impl GameLogic {
         }
     }
 
+    /// C++ StealthDetectorUpdate.cpp:338-394 IR ping / beacon after DetectionRate.
+    fn play_detector_ir_scan_fx(
+        &mut self,
+        detector_ids: &[ObjectId],
+        spotted: &std::collections::HashSet<ObjectId>,
+    ) {
+        use crate::game_logic::combat_particles::CombatParticleKind;
+        use crate::game_logic::host_radar_stealth_vision_residual::{
+            DETECTOR_IR_BEACON_PARTICLE, DETECTOR_IR_BRIGHT_PARTICLE, DETECTOR_IR_LOUD_PING_SOUND,
+            DETECTOR_IR_PING_PARTICLE, DETECTOR_IR_PING_SOUND,
+        };
+        let frame = self.frame;
+        let mut events: Vec<(ObjectId, Vec3, bool)> = Vec::new();
+        for id in detector_ids {
+            if !self.detector_ir_fx_visible_to_local(*id) {
+                continue;
+            }
+            let Some(pos) = self.objects.get(id).map(|o| o.get_position()) else {
+                continue;
+            };
+            events.push((*id, pos, spotted.contains(id)));
+        }
+        for (id, pos, found) in events {
+            let sound = if found {
+                DETECTOR_IR_LOUD_PING_SOUND
+            } else {
+                DETECTOR_IR_PING_SOUND
+            };
+            self.queue_audio_event(
+                AudioEventRequest::new(sound)
+                    .with_object(id)
+                    .with_position(pos)
+                    .with_priority(150),
+            );
+            let ping = if found {
+                DETECTOR_IR_BRIGHT_PARTICLE
+            } else {
+                DETECTOR_IR_PING_PARTICLE
+            };
+            let _ = self.combat_particles.spawn_named(
+                CombatParticleKind::ParticleSysBone,
+                ping,
+                pos,
+                frame,
+                Some(id),
+                None,
+            );
+            let _ = self.combat_particles.spawn_named(
+                CombatParticleKind::ParticleSysBone,
+                DETECTOR_IR_BEACON_PARTICLE,
+                pos,
+                frame,
+                Some(id),
+                None,
+            );
+        }
+    }
+
+    /// C++ StealthDetectorUpdate.cpp:341-343: shroud-clear and not stealthed-to-local.
+    fn detector_ir_fx_visible_to_local(&self, det_id: ObjectId) -> bool {
+        let Some(obj) = self.objects.get(&det_id) else {
+            return false;
+        };
+        if obj.status.stealthed && !self.is_object_locally_controlled(det_id) {
+            return false;
+        }
+        true
+    }
+
+    /// C++ StealthDetectorUpdate.cpp:292-308 IR grid on a newly spotted target.
+    fn spawn_detector_ir_grid_at(&mut self, pos: Vec3) {
+        use crate::game_logic::combat_particles::CombatParticleKind;
+        use crate::game_logic::host_radar_stealth_vision_residual::DETECTOR_IR_GRID_PARTICLE;
+        let grid = Vec3::new(
+            pos.x - pos.x.rem_euclid(12.0),
+            pos.y + 17.0,
+            pos.z - pos.z.rem_euclid(12.0),
+        );
+        let _ = self.combat_particles.spawn_named(
+            CombatParticleKind::ParticleSysBone,
+            DETECTOR_IR_GRID_PARTICLE,
+            grid,
+            self.frame,
+            None,
+            None,
+        );
+    }
+
+    /// C++ StealthUpdate.cpp:809-810 local-player StealthLook + heat-vision pass.
+    /// CamoNetting structures keep their existing enemy-observer residual write.
+    fn apply_local_stealth_look_and_heat_vision(&mut self) {
+        use crate::game_logic::host_upgrades::{
+            camo_netting_stealth_look, is_camo_netting_structure_template,
+        };
+        let local = self.local_player_id();
+        let local_inactive = local
+            .and_then(|id| self.players.get(&id))
+            .map(|p| !p.is_alive)
+            .unwrap_or(true);
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.is_alive())
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            let Some(obj) = self.objects.get(&id) else {
+                continue;
+            };
+            if is_camo_netting_structure_template(&obj.template_name) && obj.stealth_breaks_on_damage
+            {
+                continue;
+            }
+            let friendly = local_inactive
+                || self.is_object_locally_controlled(id)
+                || match (obj.owner_player_id, local) {
+                    (Some(a), Some(b)) => {
+                        self.player_relationship(a, b) == gamelogic::common::Relationship::Allies
+                    }
+                    _ => false,
+                };
+            let is_mine = obj.is_kind_of(KindOf::Mine)
+                || obj.is_kind_of(KindOf::DemoTrap)
+                || obj.mine_data.is_some();
+            let local_owner = self.is_object_locally_controlled(id);
+            let hint = !obj.status.stealthed
+                && obj.innate_stealth
+                && local_owner
+                && (obj.stealth_is_firing_weapon()
+                    || obj.status.using_ability
+                    || matches!(obj.ai_state, AIState::SpecialAbility));
+            let look = camo_netting_stealth_look(obj.status.stealthed, obj.status.detected, friendly);
+            let hv = crate::game_logic::stealth_second_material_pass_opacity(
+                obj.status.stealthed,
+                obj.status.detected,
+                obj.status.disguised
+                    || crate::game_logic::host_bomb_truck_disguise::has_disguises_as_team_stealth_residual(
+                        &obj.template_name,
+                    ),
+                is_mine,
+                !obj.is_alive(),
+                hint,
+            );
+            if let Some(obj) = self.objects.get_mut(&id) {
+                obj.camo_stealth_look = look.as_u8();
+                if hv > obj.camo_heat_vision_opacity {
+                    obj.camo_heat_vision_opacity = hv;
+                } else if !obj.status.stealthed && !hint {
+                    obj.camo_heat_vision_opacity = hv;
+                } else if obj.status.stealthed && !obj.status.detected && !is_mine {
+                    obj.camo_heat_vision_opacity = 0.0;
+                }
+                obj.record_host_vision_camo();
+            }
+        }
+    }
+
+
 
     /// C++ StealthDetectorUpdate.cpp:199-260 first-detect radar/audio/UI.
-    fn fire_stealth_discover_feedback(&mut self, target_id: ObjectId, detector_ids: &[ObjectId]) {
+    pub(crate) fn fire_stealth_discover_feedback(&mut self, target_id: ObjectId, detector_ids: &[ObjectId]) {
         use crate::game_logic::host_radar_stealth_vision_residual::{
             SPOTTER_AUDIO_STEALTH_DISCOVERED, SPOTTER_AUDIO_STEALTH_NEUTRALIZED,
             SPOTTER_MESSAGE_STEALTH_DISCOVERED, SPOTTER_MESSAGE_STEALTH_NEUTRALIZED,
@@ -1263,6 +1329,7 @@ impl GameLogic {
             return;
         };
         let t_team = target.team;
+        let t_owner = target.owner_player_id;
         let pos = target.get_position();
         let is_mine = target.is_kind_of(KindOf::Mine)
             || target.is_kind_of(KindOf::DemoTrap)
@@ -1274,21 +1341,33 @@ impl GameLogic {
             z: pos.y,
         };
 
-        let local_team = self
-            .players
-            .values()
-            .find(|p| p.is_local && p.is_alive)
-            .map(|p| p.team);
-
+        // C++ StealthDetectorUpdate.cpp:202-203 / :244-245:
+        // local player == detector/victim controller, relationship != ALLIES.
         let local_detector = detector_ids.iter().any(|id| {
-            self.objects.get(id).is_some_and(|d| {
-                let local_ok = local_team.map(|lt| d.team == lt).unwrap_or(true);
-                local_ok && d.team != t_team
-            })
+            if !self.is_object_locally_controlled(*id) {
+                return false;
+            }
+            let Some(d) = self.objects.get(id) else {
+                return false;
+            };
+            match (d.owner_player_id, t_owner) {
+                (Some(a), Some(b)) => {
+                    self.player_relationship(a, b) != gamelogic::common::Relationship::Allies
+                }
+                _ => d.team != t_team,
+            }
         });
-        let local_victim = local_team.map(|lt| lt == t_team).unwrap_or(false);
+        let local_victim = self.is_object_locally_controlled(target_id);
         let enemy_detector = detector_ids.iter().any(|id| {
-            self.objects.get(id).is_some_and(|d| d.team != t_team)
+            let Some(d) = self.objects.get(id) else {
+                return false;
+            };
+            match (d.owner_player_id, t_owner) {
+                (Some(a), Some(b)) => {
+                    self.player_relationship(a, b) != gamelogic::common::Relationship::Allies
+                }
+                _ => d.team != t_team,
+            }
         });
 
         if local_detector {
@@ -1313,6 +1392,8 @@ impl GameLogic {
                         .with_position(pos)
                         .with_priority(160),
                 );
+                // C++ :233-237 EnemyDetectionEvaEvent inside doFeedback.
+                self.try_eva_hero_detected_kind(target_id, false);
             }
         }
 
@@ -1347,6 +1428,8 @@ impl GameLogic {
                         .with_position(pos)
                         .with_priority(160),
                 );
+                // C++ :269-274 OwnDetectionEvaEvent inside doFeedback.
+                self.try_eva_hero_detected_kind(target_id, true);
             }
         }
     }
@@ -2144,14 +2227,19 @@ impl GameLogic {
             .iter()
             .filter_map(|(id, o)| {
                 let md = o.mine_data.as_ref()?;
-                if !o.is_alive() || md.detonated || !matches!(md.kind, HostMineKind::LandMine) {
+                if md.detonated || !matches!(md.kind, HostMineKind::LandMine) {
+                    return None;
+                }
+                // C++ onDamage runs after HP hits 0 and chain-detonates remaining
+                // virtuals before destroyObject. Do not drop lethal pads here.
+                if !o.is_alive() && !md.defers_lethal_body_destroy() {
                     return None;
                 }
                 Some(*id)
             })
             .collect();
 
-        let mut detonate: Vec<ObjectId> = Vec::new();
+        let mut detonate: Vec<(ObjectId, u32)> = Vec::new();
         let mut destroy: Vec<ObjectId> = Vec::new();
 
         for id in ids {
@@ -2211,7 +2299,7 @@ impl GameLogic {
                 continue;
             }
 
-            let mut want_detonate = false;
+            let mut want_detonate_n = 0u32;
             let mut want_destroy = false;
             loop {
                 match md.apply_on_damage_step(health, max_h, healing, self_drain) {
@@ -2223,7 +2311,10 @@ impl GameLogic {
                         }
                     }
                     MineOnDamageStep::Detonate => {
-                        want_detonate = true;
+                        let expected =
+                            md.virtual_mines_expected_from_health(health, max_h, healing);
+                        want_detonate_n =
+                            md.virtual_mines_remaining.saturating_sub(expected);
                         break;
                     }
                 }
@@ -2245,8 +2336,8 @@ impl GameLogic {
                 obj.model_condition_bits &= !bit;
                 obj.set_status_masked(false);
             }
-            if want_detonate {
-                detonate.push(id);
+            if want_detonate_n > 0 {
+                detonate.push((id, want_detonate_n));
             }
             if want_destroy {
                 destroy.push(id);
@@ -2254,13 +2345,39 @@ impl GameLogic {
 
         }
 
-        for id in detonate {
+        for (id, n) in detonate {
             let pos = self
                 .objects
                 .get(&id)
                 .map(|o| o.get_position())
                 .unwrap_or(glam::Vec3::ZERO);
-            let _ = self.trip_virtual_land_mine(id, pos);
+            for _ in 0..n {
+                if !self.trip_virtual_land_mine(id, pos) {
+                    break;
+                }
+            }
+            // C++ onDamage after the loop: regen pads at 0 HP restore MIN_HEALTH.
+            if let Some(obj) = self.objects.get_mut(&id) {
+                if let Some(md) = obj.mine_data.as_mut() {
+                    let clamped = md.clamp_empty_regen_health(obj.health.current);
+                    obj.health.current = clamped;
+                    md.last_synced_health = Some(clamped);
+                    let empty = md.virtual_mines_remaining == 0;
+                    let regenerates = md.regenerates;
+                    drop(md);
+                    let bit = 1u128 << rubble_model_bit();
+                    if empty {
+                        obj.model_condition_bits |= bit;
+                        obj.set_status_masked(true);
+                        if !regenerates && clamped <= 0.0 {
+                            destroy.push(id);
+                        }
+                    } else {
+                        obj.model_condition_bits &= !bit;
+                        obj.set_status_masked(false);
+                    }
+                }
+            }
         }
         for id in destroy {
             self.mark_object_for_destruction(id, None);
@@ -2270,8 +2387,9 @@ impl GameLogic {
     pub fn update_mines_and_demo_traps(&mut self) {
         use crate::game_logic::host_mines::{
             can_clear_mine_kind, demo_trap_skips_dozer_disarm_while_attacking, is_mine_clearer,
-            mine_clear_allowed_for_order, minefield_skips_worker, HostMineDetonateReason,
-            HostMineKind, DOZER_MINE_CLEAR_RANGE, DOZER_MINE_CLEAR_SCAN_RANGE,
+            land_mine_geometry_contacts, mine_clear_allowed_for_order, minefield_skips_worker,
+            victim_mine_collide_radius, HostMineDetonateReason, HostMineKind,
+            DOZER_MINE_CLEAR_RANGE, DOZER_MINE_CLEAR_SCAN_RANGE,
         };
 
         let frame = self.frame;
@@ -2331,6 +2449,10 @@ impl GameLogic {
                 if !data.is_active() || !obj.is_alive() {
                     return None;
                 }
+                // C++ DemoTrapUpdate::update returns on OBJECT_STATUS_SOLD.
+                if obj.status.sold {
+                    return None;
+                }
                 Some((
                     *id,
                     obj.team,
@@ -2374,7 +2496,7 @@ impl GameLogic {
             .collect();
 
         // Potential victims: dozers skip only DISARM + IS_ATTACKING (C++ :181-191).
-        let victims: Vec<(ObjectId, Team, Vec3)> = self
+        let victims: Vec<(ObjectId, Team, Vec3, f32)> = self
             .objects
             .iter()
             .filter_map(|(id, obj)| {
@@ -2404,7 +2526,13 @@ impl GameLogic {
                 if obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target {
                     return None;
                 }
-                Some((*id, obj.team, obj.get_position()))
+                let geom = &obj.thing.template.geometry_info;
+                let victim_r = victim_mine_collide_radius(
+                    geom.authored,
+                    geom.bounding_circle_radius(),
+                    obj.selection_radius,
+                );
+                Some((*id, obj.team, obj.get_position(), victim_r))
             })
             .collect();
 
@@ -2569,16 +2697,23 @@ impl GameLogic {
                 .and_then(|o| o.mine_data.as_ref())
                 .map(|m| m.workers_detonate)
                 .unwrap_or(false);
-            for (vid, _vteam, vpos) in &victims {
+            for (vid, _vteam, vpos, vgeom) in &victims {
                 if *vid == *mine_id {
                     continue;
                 }
                 if self.mine_proximity_skips_friendly(*mine_id, *vid) {
                     continue;
                 }
-                let dx = vpos.x - mine_pos.x;
-                let dz = vpos.z - mine_pos.z;
-                if dx * dx + dz * dz > range_sqr {
+                // Land mines: C++ MinefieldBehavior::onCollide (geometry overlap).
+                // Demo traps: C++ DemoTrapUpdate FROM_CENTER_2D trigger range.
+                let in_contact = if *kind == HostMineKind::LandMine {
+                    land_mine_geometry_contacts(*mine_pos, *trigger_range, *vpos, *vgeom)
+                } else {
+                    let dx = vpos.x - mine_pos.x;
+                    let dz = vpos.z - mine_pos.z;
+                    dx * dx + dz * dz <= range_sqr
+                };
+                if !in_contact {
                     continue;
                 }
                 if *kind == HostMineKind::LandMine {
@@ -2671,7 +2806,12 @@ impl GameLogic {
         let Some(mine) = self.objects.get(&mine_id) else {
             return false;
         };
-        if !mine.is_alive() {
+        // C++ detonateOnce from onDamage while the pad may already be at 0 HP.
+        let allow_zero_hp = mine
+            .mine_data
+            .as_ref()
+            .is_some_and(|md| md.defers_lethal_body_destroy());
+        if !mine.is_alive() && !allow_zero_hp {
             return false;
         }
         let Some(data) = mine.mine_data.as_ref() else {
@@ -2745,6 +2885,8 @@ impl GameLogic {
 
     /// Safely disarm/clear a residual mine without detonation or area damage.
     /// C++ Weapon DAMAGE_DISARM → LandMineInterface::disarm / destroyObject residual.
+    /// Demo traps are STRUCTURE / KINDOF_DEMOTRAP, not KINDOF_MINE — refuse
+    /// (do not silent-delete). Killing them detonates via DetonateWhenKilled.
     pub fn clear_mine_internal(&mut self, mine_id: ObjectId, clearer_id: ObjectId) -> bool {
         use crate::game_logic::host_mines::{can_clear_mine_kind, MINE_CLEARED_AUDIO};
 
@@ -2828,8 +2970,18 @@ impl GameLogic {
         let Some(mine) = self.objects.get(&mine_id) else {
             return false;
         };
-        if !mine.is_alive() && !matches!(reason, HostMineDetonateReason::Killed) {
+        if mine.status.sold {
             return false;
+        }
+        if !mine.is_alive() && !matches!(reason, HostMineDetonateReason::Killed) {
+            // Last detonateOnce of a 0-HP non-regen pad still fires + destroyObject.
+            let last_virtual = mine.mine_data.as_ref().is_some_and(|md| {
+                matches!(md.kind, crate::game_logic::host_mines::HostMineKind::LandMine)
+                    && !md.detonated
+            });
+            if !last_virtual {
+                return false;
+            }
         }
         let Some(data) = mine.mine_data.as_ref() else {
             return false;

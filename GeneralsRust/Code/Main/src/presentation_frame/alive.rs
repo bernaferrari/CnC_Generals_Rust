@@ -218,6 +218,40 @@ impl PresentationFrame {
         out
     }
 
+    /// C++ `Object::isSelectable` (`Object.cpp:3001-3020`) used by
+    /// `Squad::getLiveObjects`. Control-group recall calls `selectDrawable`
+    /// on these members — it does **not** use `CanSelectDrawable`, so contained
+    /// (garrison/transport/FireBase) and MASKED members stay live.
+    pub fn presentation_is_squad_live(o: &RenderableObject) -> bool {
+        if Self::object_has_kind(o, crate::game_logic::KindOf::AlwaysSelectable) {
+            return true;
+        }
+        !o.destroyed
+            && !o.unselectable
+            && Self::object_has_kind(o, crate::game_logic::KindOf::Selectable)
+    }
+
+    /// C++ `Squad::getLiveObjects` then optional
+    /// `obj->getControllingPlayer() == localPlayer` (SELECT_TEAM only).
+    /// ADD_TEAM / double-tap `lookAt` pass `require_local_owner = false`.
+    pub fn filter_live_squad_ids(
+        &self,
+        ids: &[ObjectId],
+        require_local_owner: bool,
+    ) -> Vec<ObjectId> {
+        let mut out = Vec::new();
+        for id in ids {
+            if let Some(o) = self.objects.iter().find(|o| o.id == *id) {
+                if Self::presentation_is_squad_live(o)
+                    && (!require_local_owner || self.is_owned_by_local(o))
+                {
+                    out.push(*id);
+                }
+            }
+        }
+        out
+    }
+
     /// Old snapshots did not include object owner provenance.  Preserve their
     /// faction-only selection behavior only when the whole frame is legacy;
     /// mixing a `None` owner into a live owner-aware frame must not let a

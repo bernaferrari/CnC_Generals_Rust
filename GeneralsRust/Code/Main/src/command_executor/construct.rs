@@ -154,6 +154,11 @@ impl<'a> CommandExecutor<'a> {
                 AIState::Constructing,
                 Some(building_id),
             );
+            self.game_logic.queue_picked_unit_voice(
+                &[unit_id],
+                crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::BuildResponse,
+            );
+
             debug!(
                 "Unit {} building {} at {:?}",
                 unit_id.0, template_name, location
@@ -206,6 +211,11 @@ impl<'a> CommandExecutor<'a> {
             }
         }
         if placed {
+            self.game_logic.queue_picked_unit_voice(
+                &[builder],
+                crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::BuildResponse,
+            );
+
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
@@ -416,6 +426,11 @@ impl<'a> CommandExecutor<'a> {
     ) -> CommandResult {
         // C++ MSG_RESUME_CONSTRUCTION / groupResumeConstruction residual.
         if self.game_logic.resume_construction(units, target_id) {
+            // C++ CommandXlat.cpp:449-456 MSG_RESUME_CONSTRUCTION → VoiceBuildResponse.
+            self.game_logic.queue_picked_unit_voice(
+                units,
+                crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::BuildResponse,
+            );
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand

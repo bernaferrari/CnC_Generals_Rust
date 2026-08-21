@@ -129,6 +129,76 @@ fn level_up_gives_veterancy_upgrade_and_promote_fx() {
 }
 
 #[test]
+fn queue_veterancy_promote_fx_plays_for_local_visible_rank_up() {
+    use crate::game_logic::host_unit_training::{
+        clear_promote_fx, drain_promote_audio, promote_anims_snapshot, UNIT_PROMOTED_AUDIO,
+    };
+    let mut object = make_test_object();
+    object.owner_player_id = Some(0);
+    object.status.stealthed = false;
+    clear_promote_fx();
+    object.gain_experience(60.0);
+    let audio = drain_promote_audio();
+    assert!(
+        audio.iter().any(|e| e.event_name == UNIT_PROMOTED_AUDIO),
+        "local visible rank-up must queue UnitPromoted"
+    );
+    assert!(
+        !promote_anims_snapshot().is_empty(),
+        "local visible rank-up must queue LevelGain"
+    );
+}
+
+#[test]
+fn queue_veterancy_promote_fx_hides_undetected_stealthed_enemy() {
+    use crate::game_logic::host_unit_training::{
+        clear_promote_fx, drain_promote_audio, promote_anims_snapshot,
+    };
+    let mut object = make_test_object();
+    object.owner_player_id = Some(1);
+    object.status.stealthed = true;
+    object.status.detected = false;
+    object.status.disguised = false;
+    clear_promote_fx();
+    object.gain_experience(60.0);
+    assert!(
+        drain_promote_audio().is_empty(),
+        "undetected stealthed enemy must not leak UnitPromoted"
+    );
+    assert!(
+        promote_anims_snapshot().is_empty(),
+        "undetected stealthed enemy must not leak LevelGain"
+    );
+}
+
+#[test]
+fn queue_veterancy_promote_fx_skips_rider_swap_and_hijack_without_feedback() {
+    use crate::game_logic::host_unit_training::{
+        clear_promote_fx, drain_promote_audio, promote_anims_snapshot,
+    };
+    let mut bike = make_test_object();
+    clear_promote_fx();
+    bike.set_rider_change_veterancy_level(VeterancyLevel::Veteran);
+    assert!(
+        drain_promote_audio().is_empty() && promote_anims_snapshot().is_empty(),
+        "RiderChangeContain provideFeedback=FALSE queues nothing"
+    );
+    assert_eq!(bike.experience.level, VeterancyLevel::Veteran);
+
+    let mut vehicle = make_test_object();
+    let mut hijacker = make_test_object();
+    hijacker.experience.level = VeterancyLevel::Elite;
+    clear_promote_fx();
+    vehicle.apply_hijacked_from(Some(&hijacker));
+    assert!(
+        drain_promote_audio().is_empty() && promote_anims_snapshot().is_empty(),
+        "hijack setVeterancyLevel(..., FALSE) queues nothing"
+    );
+    assert_eq!(vehicle.experience.level, VeterancyLevel::Elite);
+}
+
+
+#[test]
 fn ally_or_own_kill_awards_zero_experience() {
     let mut object = make_test_object();
     object.thing.template.experience_value = 40.0;
@@ -179,6 +249,17 @@ fn script_enabled_powered_set_live_disable_mask() {
 }
 
 #[test]
+fn script_indestructible_panel_flag_sets_body() {
+    let mut obj = make_test_object();
+    assert!(!obj.is_indestructible());
+    obj.apply_object_panel_flag("Indestructible", true);
+    assert!(obj.is_indestructible());
+    obj.apply_object_panel_flag("Indestructible", false);
+    assert!(!obj.is_indestructible());
+}
+
+
+#[test]
 fn paralyzed_rejects_move_orders() {
     let mut obj = make_test_object();
     obj.apply_disabled_paralyzed(30);
@@ -186,6 +267,29 @@ fn paralyzed_rejects_move_orders() {
     assert!(!obj.can_move(), "C++ isMobile is false while paralyzed");
     assert!(!obj.can_attack());
 }
+
+#[test]
+fn sold_and_under_construction_cannot_attack_or_fire() {
+    // C++ Object::isAbleToAttack (Object.cpp:3171-3176).
+    let mut obj = make_test_object();
+    obj.weapon.as_mut().unwrap().last_fire_time = -10.0;
+    assert!(obj.can_attack());
+    assert!(obj.can_fire(0.0));
+    assert!(obj.fire_at(ObjectId(2), 0.0));
+
+    obj.status.under_construction = true;
+    assert!(!obj.can_attack(), "UC Patriots/Stingers cannot acquire");
+    assert!(!obj.can_fire(1.0), "UC cannot discharge");
+    assert!(!obj.fire_at(ObjectId(2), 1.0), "UC fire_at must fail");
+    obj.status.under_construction = false;
+    assert!(obj.can_attack());
+
+    obj.status.sold = true;
+    assert!(!obj.can_attack(), "sold defenses cannot acquire");
+    assert!(!obj.can_fire(2.0), "sold cannot discharge");
+    assert!(!obj.fire_at(ObjectId(2), 2.0), "sold fire_at must fail");
+}
+
 
 #[test]
 fn unmanned_enter_wipes_veterancy_and_auto_heal() {
@@ -2202,6 +2306,36 @@ fn weapon_bonus_fields_stack_rof_and_damage() {
         assert!((o.effective_weapon_damage(10.0) - 10.0 * dmg).abs() < 0.001);
     }
 }
+
+#[test]
+fn weapon_bonus_fields_apply_player_upgrade_and_fanaticism() {
+    use crate::game_logic::host_red_guard::{
+        INFANTRY_FANATICISM_ROF_MULT, INFANTRY_NATIONALISM_ROF_MULT,
+    };
+
+    let mut obj = make_test_object();
+    let (dmg0, _, rof0, _) = obj.weapon_bonus_fields();
+    assert!((dmg0 - 1.0).abs() < 0.001);
+    assert!((rof0 - 1.0).abs() < 0.001);
+
+    obj.weapon_bonus_player_upgrade = true;
+    let (dmg, _, _, _) = obj.weapon_bonus_fields();
+    assert!(
+        (dmg - 1.25).abs() < 0.001,
+        "PLAYER_UPGRADE DAMAGE 125% got {dmg}"
+    );
+    assert!((obj.effective_weapon_damage(80.0) - 100.0).abs() < 0.001);
+
+    obj.weapon_bonus_nationalism = true;
+    obj.weapon_bonus_fanaticism = true;
+    let (_, _, rof, _) = obj.weapon_bonus_fields();
+    let expected = INFANTRY_NATIONALISM_ROF_MULT * INFANTRY_FANATICISM_ROF_MULT;
+    assert!(
+        (rof - expected).abs() < 0.001,
+        "FANATICISM stacks on NATIONALISM got {rof} expected {expected}"
+    );
+}
+
 
 #[test]
 fn effective_max_lift_uses_damaged_locomotor() {

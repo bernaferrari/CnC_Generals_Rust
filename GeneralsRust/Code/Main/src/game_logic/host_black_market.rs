@@ -48,8 +48,9 @@ pub const BLACK_MARKET_DEPOSIT_TIMING_MS: u32 = 2000;
 /// Retail DepositTiming = 2000 ms → frames at 30 FPS (parseDurationUnsignedInt).
 pub const BLACK_MARKET_DEPOSIT_INTERVAL_FRAMES: u32 = 60;
 
-/// Audio residual when black market deposits (fail-closed host cue name).
-pub const BLACK_MARKET_DEPOSIT_AUDIO: &str = "BlackMarketDeposit";
+/// C++ AutoDepositUpdate → Money::deposit → MiscAudio MoneyDepositSound.
+pub const BLACK_MARKET_DEPOSIT_AUDIO: &str = "MoneyDepositSound";
+
 
 /// C++ AutoDepositUpdate floating text Z lift (pos.z += 10.0f). Host Y-up → Y + 10.
 pub const BLACK_MARKET_FLOATING_TEXT_Z_OFFSET: f32 = 10.0;
@@ -311,7 +312,8 @@ pub fn honesty_black_market_deposit_residual_ok() -> bool {
         && BLACK_MARKET_DEPOSIT_INTERVAL_FRAMES
             == black_market_ms_to_frames(BLACK_MARKET_DEPOSIT_TIMING_MS)
         && BLACK_MARKET_INITIAL_CAPTURE_BONUS == 0
-        && BLACK_MARKET_DEPOSIT_AUDIO == "BlackMarketDeposit"
+        && BLACK_MARKET_DEPOSIT_AUDIO == "MoneyDepositSound"
+
 }
 
 pub fn honesty_black_market_body_residual_ok() -> bool {

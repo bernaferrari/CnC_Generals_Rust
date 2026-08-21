@@ -780,6 +780,7 @@ impl GameLogic {
         // -----------------------------------------------------------------------
         // Weapon fire and damage application as part of the object update pass.
         self.update_combat(&object_ids, dt);
+        self.flush_pending_garrison_really_damaged_ejects();
         // Nested AttackStateMachine residual (privateAttackObject enter path).
         let frame = self.frame;
         let t = frame as f32 * LOGIC_FRAME_TIMESTEP;
@@ -835,7 +836,7 @@ impl GameLogic {
             hits
         };
         for victim in self.combat_system.take_pending_under_attack() {
-            let _ = self.try_under_attack_event(victim);
+            let _ = self.try_under_attack_from_damage(victim);
         }
         // Wave 470: countermeasure flare spawn/object residual stays host-owned
         // even when GameWorld sole-integrates projectile flight.

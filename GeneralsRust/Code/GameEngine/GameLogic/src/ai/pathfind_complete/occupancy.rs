@@ -1034,8 +1034,74 @@ impl PathfindingSystem {
             return;
         };
         walls.clear();
-        // Without live object positions here, keep explicit stamps from classify_wall_cell_at.
-        let _ = &self.wall_pieces;
+        if self.wall_pieces.is_empty() {
+            return;
+        }
+        let pieces = self.wall_pieces.clone();
+        let w = self.width as i32;
+        let h = self.height as i32;
+        let mut types: HashMap<(i32, i32), crate::path::PathfindCellType> = HashMap::new();
+        for y in 0..h {
+            for x in 0..w {
+                let mut cell = crate::path::PathfindCell::new();
+                crate::path::pathfind_layer_classify::classify_wall_map_cell(
+                    x, y, &mut cell, &pieces,
+                );
+                types.insert((x, y), cell.get_type());
+            }
+        }
+        let mut pinched = HashSet::new();
+        for y in 1..h.saturating_sub(1) {
+            for x in 1..w.saturating_sub(1) {
+                let mut pinch = false;
+                'adj: for dy in -1..=1 {
+                    for dx in -1..=1 {
+                        if types.get(&(x + dx, y + dy)).copied()
+                            != Some(crate::path::PathfindCellType::Clear)
+                        {
+                            pinch = true;
+                            break 'adj;
+                        }
+                    }
+                }
+                if pinch {
+                    pinched.insert((x, y));
+                }
+            }
+        }
+        let mut pf = self.pathfinder.lock();
+        for y in 0..h {
+            for x in 0..w {
+                let mut ty = types
+                    .get(&(x, y))
+                    .copied()
+                    .unwrap_or(crate::path::PathfindCellType::Impassable);
+                if pinched.contains(&(x, y)) && ty == crate::path::PathfindCellType::Clear {
+                    ty = crate::path::PathfindCellType::Cliff;
+                }
+                if ty == crate::path::PathfindCellType::Clear {
+                    walls.insert((x, y));
+                }
+                if let Ok(finder) = &mut pf {
+                    let astar_ty = match ty {
+                        crate::path::PathfindCellType::Clear => PathfindCellType::Clear,
+                        crate::path::PathfindCellType::Water => PathfindCellType::Water,
+                        crate::path::PathfindCellType::Cliff => PathfindCellType::Cliff,
+                        crate::path::PathfindCellType::Rubble => PathfindCellType::Rubble,
+                        crate::path::PathfindCellType::Obstacle => PathfindCellType::Obstacle,
+                        crate::path::PathfindCellType::BridgeImpassable => {
+                            PathfindCellType::BridgeImpassable
+                        }
+                        crate::path::PathfindCellType::Impassable => PathfindCellType::Impassable,
+                    };
+                    finder.set_cell_type_on_layer(
+                        GridCoord::new(x, y),
+                        PathfindLayerEnum::Wall,
+                        astar_ty,
+                    );
+                }
+            }
+        }
     }
 
     /// Stamp a single wall cell (used when object positions are known).

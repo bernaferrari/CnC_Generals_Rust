@@ -62,6 +62,7 @@ fn host_named_unit_found_with_empty_object_registry() {
                 x: 10.0,
                 z: 20.0,
                 alive: true,
+                ..Default::default()
             });
         snap.areas.insert("ScoutPad".into(), (0.0, 0.0, 15.0, 25.0));
         snap.areas
@@ -85,6 +86,146 @@ fn host_named_unit_found_with_empty_object_registry() {
     }
     clear_host_script_query_snapshot();
 }
+
+#[test]
+fn live_executor_named_team_conditions_use_host_snapshot() {
+    use gamelogic::object::registry::OBJECT_REGISTRY;
+    use gamelogic::scripting::core::{Condition, ConditionType, Parameter, ParameterType};
+    use gamelogic::scripting::engine::get_named_object_tracker;
+    use gamelogic::scripting::executor::{ScriptConditionEvaluator, ScriptConditionResult};
+    use gamelogic::scripting::{clear_host_script_query_snapshot, ScriptContext};
+    use std::sync::{Arc, RwLock};
+
+    assert!(OBJECT_REGISTRY.is_empty());
+    clear_host_script_query_snapshot();
+    get_named_object_tracker().clear().unwrap();
+
+    let mut logic = GameLogic::new();
+    let mut t = ThingTemplate::new("NamedScout");
+    t.set_health(100.0);
+    logic.templates.insert("NamedScout".into(), t);
+    let id = logic
+        .create_object("NamedScout", Team::USA, Vec3::new(10.0, 0.0, 20.0))
+        .expect("unit");
+    if let Some(o) = logic.host_object_mut(id) {
+        o.name = "MapNamedScout".into();
+        o.team_instance_name = "USA_RangerSquad".into();
+        o.owner_player_id = Some(1);
+    }
+    if let Some(p) = logic.players.get_mut(&1) {
+        p.name = "PlyrAmerica".into();
+    } else {
+        // Host player 1 may already exist; keep whatever name inject reads.
+    }
+    logic.inject_host_named_unit_map_into_crate_tracker();
+
+    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+
+    let mut created = Condition::new(ConditionType::NamedCreated);
+    created
+        .add_parameter(Parameter::with_string(
+            ParameterType::Unit,
+            "MapNamedScout".into(),
+        ))
+        .unwrap();
+    assert_eq!(
+        evaluator.evaluate_condition(&mut created).unwrap(),
+        ScriptConditionResult::True
+    );
+
+    let mut totally_dead = Condition::new(ConditionType::NamedTotallyDead);
+    totally_dead
+        .add_parameter(Parameter::with_string(
+            ParameterType::Unit,
+            "MapNamedScout".into(),
+        ))
+        .unwrap();
+    assert_eq!(
+        evaluator.evaluate_condition(&mut totally_dead).unwrap(),
+        ScriptConditionResult::False
+    );
+
+    let mut destroyed = Condition::new(ConditionType::TeamDestroyed);
+    destroyed
+        .add_parameter(Parameter::with_string(
+            ParameterType::Team,
+            "USA_RangerSquad".into(),
+        ))
+        .unwrap();
+    assert_eq!(
+        evaluator.evaluate_condition(&mut destroyed).unwrap(),
+        ScriptConditionResult::False
+    );
+
+    let mut has_units = Condition::new(ConditionType::TeamHasUnits);
+    has_units
+        .add_parameter(Parameter::with_string(
+            ParameterType::Team,
+            "USA_RangerSquad".into(),
+        ))
+        .unwrap();
+    assert_eq!(
+        evaluator.evaluate_condition(&mut has_units).unwrap(),
+        ScriptConditionResult::True
+    );
+
+    clear_host_script_query_snapshot();
+    get_named_object_tracker().clear().unwrap();
+}
+
+
+#[test]
+fn host_player_census_injected_for_script_player_conditions() {
+    use gamelogic::object::registry::OBJECT_REGISTRY;
+    use gamelogic::scripting::{clear_host_script_query_snapshot, host_query_player_census};
+
+    assert!(OBJECT_REGISTRY.is_empty());
+    clear_host_script_query_snapshot();
+
+    let mut logic = GameLogic::new();
+    let mut player = Player::new(1, Team::USA, "PlyrAmerica", true);
+    player.resources.supplies = 4_000;
+    player.power_produced = 10;
+    player.power_consumed = 5;
+    logic.add_player(player);
+
+    let mut cc = ThingTemplate::new("AmericaCommandCenter");
+    cc.set_health(2000.0);
+    cc.add_kind_of(KindOf::Structure);
+    cc.add_kind_of(KindOf::CommandCenter);
+    cc.add_kind_of(KindOf::MpCountForVictory);
+    logic.templates.insert("AmericaCommandCenter".into(), cc);
+
+    let id = logic
+        .create_object_for_player("AmericaCommandCenter", 1, Vec3::new(10.0, 0.0, 20.0))
+        .expect("command center");
+    assert!(logic.host_object(id).is_some());
+
+    logic.inject_host_script_query_snapshot();
+    let census = host_query_player_census("PlyrAmerica").expect("host census");
+    assert_eq!(census.money, 4_000);
+    assert!(census.has_sufficient_power());
+    assert!(census.has_any_objects);
+    assert!(census.has_any_build_facility);
+    assert_eq!(census.building_count, 1);
+    assert_eq!(census.faction_building_count, 1);
+
+    player = Player::new(2, Team::China, "PlyrChina", false);
+    player.resources.supplies = 0;
+    player.power_produced = 0;
+    player.power_consumed = 8;
+    logic.add_player(player);
+    logic.inject_host_script_query_snapshot();
+    let china = host_query_player_census("PlyrChina").expect("china census");
+    assert_eq!(china.money, 0);
+    assert!(!china.has_sufficient_power());
+    assert!(!china.has_any_objects);
+    assert!(!china.has_any_build_facility);
+    assert_eq!(china.building_count, 0);
+
+    clear_host_script_query_snapshot();
+}
+
 
 #[test]
 fn create_object_script_request_spawns_named_host_unit() {
@@ -490,7 +631,7 @@ fn asset_template_catalogue_seed_keeps_curated_templates_and_uses_exact_retail_f
             ("AmericaTankCrusader".to_string(), existing),
             ("AmbientOnlyRetailAnchor".to_string(), ambient_only),
         ]),
-        1
+        2
     );
 
     let curated_after = logic
@@ -520,7 +661,11 @@ fn asset_template_catalogue_seed_keeps_curated_templates_and_uses_exact_retail_f
         Some("PaladinPointDefenseLaser")
     );
     assert!(seeded.is_kind_of(KindOf::Vehicle));
-    assert!(!logic.templates.contains_key("AmbientOnlyRetailAnchor"));
+    let ambient = logic
+        .templates
+        .get("AmbientOnlyRetailAnchor")
+        .expect("SoundAmbient-only map object is now a live template");
+    assert_eq!(ambient.sound_ambient.as_deref(), Some("AmbientWind"));
 }
 
 #[test]

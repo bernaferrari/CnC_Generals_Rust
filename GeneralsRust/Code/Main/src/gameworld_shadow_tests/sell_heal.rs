@@ -810,10 +810,11 @@ fn map_ground_support_pose_movement_authority_source() {
         .expect("building damage");
     let bldg_body = &src[bldg..src.len().min(bldg + 8000)];
     assert!(
-        bldg_body.contains("building_pos + offset")
+        bldg_body.contains("evacuate_container_now")
             && bldg_body.contains("gameworld_movement_authority")
-            && bldg_body.contains("host_move_log::record"),
-        "building rubble/eject dump must log move under movement authority"
+            && bldg_body.contains("host_move_log::record")
+            && bldg_body.contains("record_stop_attack"),
+        "ReallyDamaged garrison eject must walk via evacuate_container_now and log move/stop"
     );
 }
 

@@ -573,9 +573,24 @@ pub fn lookup_pristine_bone_translation(
     scale: Real,
     bone: &str,
 ) -> Option<Coord3D> {
+    lookup_pristine_bone_pose(model, scale, bone).map(|(translation, _)| translation)
+}
+
+/// C++ `getPristineBonePositions` translation + `Matrix3D::Get_Z_Rotation`.
+/// `Get_Z_Rotation` is `atan2(Row[1][0], Row[0][0])` (column-major m10, m00).
+pub fn lookup_pristine_bone_pose(
+    model: &str,
+    scale: Real,
+    bone: &str,
+) -> Option<(Coord3D, Real)> {
     let (_, mtx) = lookup_pristine_bone(model, scale, 0, bone)?;
     let (_, _, translation) = mtx.to_scale_rotation_translation();
-    Some(Coord3D::new(translation.x, translation.y, translation.z))
+    let cols = mtx.to_cols_array();
+    let z_rotation = cols[1].atan2(cols[0]);
+    Some((
+        Coord3D::new(translation.x, translation.y, translation.z),
+        z_rotation,
+    ))
 }
 
 /// C++ `doSingleBoneName`: base name plus numbered `name01`..`name99` variants.

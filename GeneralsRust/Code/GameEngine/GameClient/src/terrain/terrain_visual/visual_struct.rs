@@ -152,6 +152,14 @@ pub struct TerrainVisualImpl {
     bridge_meshes: Vec<GpuRoadMesh>,
     /// Cached GPU mesh for C++ terrain scorch marks.
     scorch_meshes: Vec<GpuRoadMesh>,
+    /// Bind group 1: `EXScorch01.tga` (C++ `ScorchTextureClass`).
+    scorch_texture: Option<Texture>,
+    scorch_sampler: Option<Sampler>,
+    scorch_texture_bind_group: Option<BindGroup>,
+    scorch_texture_name: String,
+    scorch_texture_is_fallback: bool,
+    /// Last frame had `createLightPulse` scene lights (force one static restore).
+    had_dynamic_lights: bool,
     /// C++ `W3DRoadBuffer::loadRoads` uploads once; only rebuild GPU overlays
     /// after map/load/device/scorch changes. Re-uploading every frame is 250ms+.
     overlay_gpu_meshes_dirty: bool,

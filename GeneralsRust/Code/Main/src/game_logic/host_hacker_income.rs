@@ -55,8 +55,9 @@ pub const HACKER_CASH_HEROIC: u32 = 10;
 /// Retail XpPerCashUpdate.
 pub const HACKER_XP_PER_CASH_UPDATE: f32 = 1.0;
 
-/// Audio residual when hacker deposits (UnitCashPing residual cue).
-pub const HACKER_CASH_PING_AUDIO: &str = "HackerCashPing";
+/// C++ HackInternet → Money::deposit → MiscAudio MoneyDepositSound.
+pub const HACKER_CASH_PING_AUDIO: &str = "MoneyDepositSound";
+
 
 /// C++ HackInternet floating text Z lift (pos.z += 20.0f). Host Y-up → Y + 20.
 pub const HACKER_FLOATING_TEXT_Z_OFFSET: f32 = 20.0;
@@ -520,7 +521,8 @@ pub fn honesty_hacker_income_cash_residual_ok() -> bool {
         && cash_amount_for_level(VeterancyLevel::Heroic) == 10
         && cash_interval_frames(false) == 60
         && cash_interval_frames(true) == 54
-        && HACKER_CASH_PING_AUDIO == "HackerCashPing"
+        && HACKER_CASH_PING_AUDIO == "MoneyDepositSound"
+
         && HACKER_UNPACK_TIME_MS == 7_300
         && HACKER_PACK_TIME_MS == 5_133
         && (HACKER_PACK_UNPACK_VARIATION - 0.5).abs() < 0.01
@@ -914,7 +916,7 @@ mod tests {
         );
         let rider = logic.host_object(hacker).expect("rider");
         assert!(rider.contained_by.is_none());
-        assert!(!rider.status.moving);
+        assert_ne!(rider.ai_state, crate::game_logic::AIState::Docked);
 
         logic.frame = HACKER_CASH_INTERVAL_FRAMES + 2;
         logic.update_hacker_income();

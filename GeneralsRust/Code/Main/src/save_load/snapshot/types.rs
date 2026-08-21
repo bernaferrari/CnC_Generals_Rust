@@ -47,11 +47,15 @@ use std::time::SystemTime;
 /// `Energy::xfer` v3 `m_powerSabotagedTillFrame` as a world tail so nested
 /// `PlayerSnapshot` records stay aligned with v1-v14 streams. Version 16
 /// `ObjectSnapshot` / `object_persist` records stay aligned with v1-v15 streams.
+/// `ObjectSnapshot` / `object_persist` records stay aligned with v1-v15 streams.
 /// Version 17 appends C++ `GameLogic::xfer` scoring + superweapon restriction,
 /// `CaveSystem` / player `TunnelTracker` communal pools, and airfield /
 /// FlightDeck stall occupancy as a world tail so nested records stay aligned
-/// with v1-v16 streams.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 17;
+/// with v1-v16 streams. Version 18 appends InGameUI timers/SW display,
+/// TacticalView camera, ScriptEngine counters/flags/actives, GameLogic v5-v9
+/// globals, TerrainLogic water updates, Radar hidden/force-on/event ring,
+/// and remaining Drawable::xfer residuals as a world tail.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 18;
 
 /// Direct Common Xfer keeps an independent positional envelope from bincode.
 ///
@@ -59,7 +63,7 @@ pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 17;
 /// and object records.  Do not derive object-tail gates from the bincode
 /// version: a historical direct v3 stream still contains HDB even once the
 /// bincode writer has advanced to v4.
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 17;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 18;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_HDB_VERSION: u32 = 3;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V4_TAIL_VERSION: u32 = 4;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V5_TAIL_VERSION: u32 = 5;
@@ -75,6 +79,7 @@ pub const WORLD_SNAPSHOT_DIRECT_XFER_V14_TAIL_VERSION: u32 = 14;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V15_TAIL_VERSION: u32 = 15;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V16_TAIL_VERSION: u32 = 16;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V17_TAIL_VERSION: u32 = 17;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_V18_TAIL_VERSION: u32 = 18;
 
 /// Reject unknown direct-Xfer outer layouts before consuming any body bytes.
 /// Known historical writers are accepted so focused fixtures can verify their
@@ -84,7 +89,9 @@ pub(crate) fn validate_direct_world_snapshot_version(version: u32) -> SaveLoadRe
         // Keep these arms deliberately explicit. Advancing the current writer
         // must not accidentally make a future positional body acceptable
         // before its object/world gates and exact predecessor fixtures exist.
-        1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 => Ok(()),
+        1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 => {
+            Ok(())
+        }
         actual => Err(crate::save_load::SaveLoadError::VersionMismatch {
             expected: WORLD_SNAPSHOT_DIRECT_XFER_VERSION,
             actual,
@@ -244,10 +251,40 @@ pub struct WorldSnapshot {
     #[serde(default)]
     pub tunnel_network: crate::game_logic::HostTunnelNetworkRegistry,
 
-    /// C++ `ParkingPlaceBehavior::xfer` / `FlightDeckBehavior::xfer` stalls.
+    /// C++ ParkingPlace / FlightDeck persist tail.
     #[serde(default)]
     pub airfield_parking: AirfieldParkingWorldSnapshot,
+
+    /// C++ InGameUI / View / ScriptEngine / GameLogic v5-v9 / TerrainLogic /
+    /// Radar / remaining Drawable::xfer residuals. World tail so v1-v17
+    /// nested records stay aligned.
+    #[serde(default)]
+    pub persist_v18: super::persist_v18::WorldPersistV18,
+
+    /// Reserved v18 sibling for FixW1805Vet experience_sink/scalar persist.
+    #[serde(default)]
+    pub object_experience_trackers: Vec<ObjectExperienceTrackerSnapshot>,
 }
+
+/// C++ `ExperienceTracker::xfer` `m_experienceSink` + `m_experienceScalar`.
+/// World tail so nested `ObjectSnapshot` stays aligned with v1-v17 streams.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ObjectExperienceTrackerSnapshot {
+    pub object_id: ObjectId,
+    pub experience_sink: Option<ObjectId>,
+    pub experience_scalar: f32,
+}
+
+impl Default for ObjectExperienceTrackerSnapshot {
+    fn default() -> Self {
+        Self {
+            object_id: ObjectId(0),
+            experience_sink: None,
+            experience_scalar: 1.0,
+        }
+    }
+}
+
 
 /// C++ `OverchargeBehavior::xfer` (`OverchargeBehavior.cpp:275-289`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -474,6 +511,8 @@ impl Default for WorldSnapshot {
             cave_system: crate::game_logic::HostCaveSystem::new(),
             tunnel_network: crate::game_logic::HostTunnelNetworkRegistry::new(),
             airfield_parking: AirfieldParkingWorldSnapshot::default(),
+            persist_v18: super::persist_v18::WorldPersistV18::default(),
+            object_experience_trackers: Vec::new(),
         }
     }
 }

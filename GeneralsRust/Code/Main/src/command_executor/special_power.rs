@@ -236,6 +236,8 @@ impl<'a> CommandExecutor<'a> {
                 )
             });
             return if any {
+                // C++ CommandXlat.cpp:637-651 MSG_DO_SPECIAL_POWER* InitiateSound.
+                self.play_special_power_initiate_sound(&casters, power_type);
                 CommandResult::Success
             } else {
                 CommandResult::InvalidCommand
@@ -257,6 +259,7 @@ impl<'a> CommandExecutor<'a> {
                 )
             });
             return if any {
+                self.play_special_power_initiate_sound(&casters, power_type);
                 CommandResult::Success
             } else {
                 CommandResult::InvalidCommand
@@ -727,9 +730,51 @@ impl<'a> CommandExecutor<'a> {
 
         }
         if any {
+            // C++ CommandXlat.cpp:637-651 spmInterface->getInitiateSound().
+            self.play_special_power_initiate_sound(&casters, power_type);
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
+        }
+    }
+
+    /// C++ `pickAndPlayUnitVoiceResponse` MSG_DO_SPECIAL_POWER* (skip=TRUE).
+    fn play_special_power_initiate_sound(
+        &mut self,
+        casters: &[ObjectId],
+        power_type: &SpecialPowerType,
+    ) {
+        let power_key = format!("{power_type:?}");
+        let retail = crate::game_logic::special_power_strikes::HostSuperweaponKind::from_command_power(
+            power_type,
+        )
+        .map(|kind| kind.retail_initiate_sound());
+        for &id in casters {
+            let Some(obj) = self.game_logic.host_object(id) else {
+                continue;
+            };
+            let module_name = obj
+                .thing
+                .template
+                .special_power_module_for_command(power_type)
+                .map(|m| m.special_power_template.clone());
+            let pos = obj.get_position();
+            let Some(event) =
+                crate::game_logic::audio_dispatch_impl::resolve_special_power_initiate_sound(
+                    &power_key,
+                    module_name.as_deref(),
+                    retail,
+                )
+            else {
+                continue;
+            };
+            self.game_logic.queue_audio_event(
+                AudioEventRequest::new(&event)
+                    .with_object(id)
+                    .with_position(pos)
+                    .with_priority(100),
+            );
+            return;
         }
     }
 

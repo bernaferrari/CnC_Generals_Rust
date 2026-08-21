@@ -18,6 +18,7 @@ struct ParticleInstance {
     @location(3) uv_rect: vec4<f32>,
     @location(4) rotation: f32,
     @location(5) alpha: f32,
+    @location(8) billboard: f32,
 };
 
 struct BillboardVertex {
@@ -43,10 +44,17 @@ fn vs_main(
 ) -> VertexOutput {
     var output: VertexOutput;
 
-    // Calculate billboard vectors (camera-facing)
-    let view_inv = transpose(uniforms.view_matrix);
-    let right = vec3<f32>(view_inv[0].x, view_inv[0].y, view_inv[0].z);
-    let up = vec3<f32>(view_inv[1].x, view_inv[1].y, view_inv[1].z);
+    // C++ PointGroupClass: camera billboard, or world-XY (Z-up). Host is Y-up → world-XZ.
+    var right: vec3<f32>;
+    var up: vec3<f32>;
+    if particle.billboard > 0.5 {
+        let view_inv = transpose(uniforms.view_matrix);
+        right = vec3<f32>(view_inv[0].x, view_inv[0].y, view_inv[0].z);
+        up = vec3<f32>(view_inv[1].x, view_inv[1].y, view_inv[1].z);
+    } else {
+        right = vec3<f32>(1.0, 0.0, 0.0);
+        up = vec3<f32>(0.0, 0.0, 1.0);
+    }
 
     // Apply rotation to billboard corners
     let cos_rot = cos(particle.rotation);

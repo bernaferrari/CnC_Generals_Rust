@@ -95,8 +95,9 @@ pub use particle_ini_loader::ParticleSystemINIParser;
 
 pub use particle_presets::{destruction, environment, explosions, get_preset_by_name, weapons};
 pub use particle_renderer::{
-    bake_particle_gpu_vertex, bake_particle_system_gpu_mesh, ParticleBatch, ParticleRenderStats,
-    ParticleRenderer, ParticleUniforms, ParticleVertex,
+    bake_particle_gpu_vertex, bake_particle_system_gpu_mesh, begin_particle_heat_smudge_frame,
+    feed_system_heat_smudges, particle_type_name_is_smud, system_is_heat_smudge, ParticleBatch,
+    ParticleRenderStats, ParticleRenderer, ParticleUniforms, ParticleVertex,
 };
 pub use particle_system::{Particle, ParticleInfo, ParticleSystem};
 

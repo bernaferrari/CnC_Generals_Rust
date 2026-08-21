@@ -1241,3 +1241,100 @@ fn empty_object_registry_still_progresses_sequential_scripts() {
         "orphan sequential node must be cleaned up when no object/team exists"
     );
 }
+
+#[test]
+fn host_named_unit_sequential_progresses_when_registry_empty() {
+    let _lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    crate::scripting::clear_host_script_query_snapshot();
+    let object_id = 0x51_5E_0002;
+    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+        objects: vec![crate::scripting::HostScriptQueryObject {
+            id: object_id,
+            name: "SeqHero".into(),
+            alive: true,
+            idle: true,
+            ..Default::default()
+        }],
+        ..Default::default()
+    });
+
+    let engine = ScriptEngine::new().unwrap();
+    let mut sequence = SequentialScript::new();
+    sequence.object_id = object_id;
+    sequence.script_to_execute_sequentially = Some(Box::new({
+        let mut script = Script::new();
+        script.script_name = "HostSeq".to_string();
+        script.action = Some(set_flag_action("host_seq_ran"));
+        script
+    }));
+    engine.append_sequential_script(sequence);
+    engine
+        .with_active(|| engine.evaluate_and_progress_all_sequential_scripts())
+        .expect("host unit sequential must progress when leftover registry is empty");
+    assert!(
+        engine
+            .get_flag("host_seq_ran")
+            .is_some_and(|flag| flag.value),
+        "SET_FLAG in a host-bound sequential script must run"
+    );
+    assert_eq!(
+        engine.sequential_script_count(),
+        0,
+        "idle one-action host sequence must complete"
+    );
+    crate::scripting::clear_host_script_query_snapshot();
+}
+
+#[test]
+fn leftover_team_sequential_progresses_when_host_members_idle() {
+    let _lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    crate::scripting::clear_host_script_query_snapshot();
+    get_team_factory().lock().unwrap().reset();
+    {
+        let mut factory = get_team_factory().lock().unwrap();
+        factory.init_team(
+            crate::common::AsciiString::from("HostSeqTeam"),
+            crate::common::AsciiString::default(),
+            false,
+            None,
+        );
+        factory
+            .create_team("HostSeqTeam")
+            .expect("leftover team should exist");
+    }
+    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+        objects: vec![crate::scripting::HostScriptQueryObject {
+            id: 42,
+            name: "SeqRanger".into(),
+            alive: true,
+            idle: true,
+            ..Default::default()
+        }],
+        team_instance_ids: [("HostSeqTeam".into(), vec![42])].into_iter().collect(),
+        ..Default::default()
+    });
+
+    let engine = ScriptEngine::new().unwrap();
+    let mut sequence = SequentialScript::new();
+    sequence.team_to_exec_on = Some("HostSeqTeam".to_string());
+    sequence.script_to_execute_sequentially = Some(Box::new({
+        let mut script = Script::new();
+        script.script_name = "HostTeamSeq".to_string();
+        script.action = Some(set_flag_action("host_team_seq_ran"));
+        script
+    }));
+    engine.append_sequential_script(sequence);
+    engine
+        .with_active(|| engine.evaluate_and_progress_all_sequential_scripts())
+        .expect("host team sequential must progress when leftover members are empty");
+    assert!(
+        engine
+            .get_flag("host_team_seq_ran")
+            .is_some_and(|flag| flag.value),
+        "SET_FLAG in a host-team sequential script must run"
+    );
+    get_team_factory().lock().unwrap().reset();
+    crate::scripting::clear_host_script_query_snapshot();
+}

@@ -399,6 +399,46 @@ impl DrawModule for PresentationSpecializedDrawModule {
     fn do_draw(&mut self, _transform: &Matrix4, _view: &Matrix4, _projection: &Matrix4) {
         store_specialized_draw_snapshot(self.snapshot());
     }
+
+    /// C++ `ObjectDrawInterface::getCurrentBonePositions` via W3D HTree.
+    fn get_current_bone_positions(
+        &self,
+        bone_name_prefix: &str,
+        start_index: i32,
+        positions: &mut [Vector3],
+        transforms: &mut [Matrix4],
+    ) -> i32 {
+        if bone_name_prefix.is_empty() || self.model_name.is_empty() {
+            return 0;
+        }
+        let start = start_index.max(0);
+        let end_index = if start == 0 { 0 } else { 99 };
+        let limit = positions.len().min(transforms.len());
+        let mut count = 0;
+        for idx in start..=end_index {
+            if count >= limit {
+                break;
+            }
+            let bone_name = if idx == 0 {
+                bone_name_prefix.to_string()
+            } else {
+                format!("{bone_name_prefix}{idx:02}")
+            };
+            let Some((_, mtx)) = crate::drawable::logic_visual_hooks::lookup_w3d_client_bone(
+                &self.model_name,
+                1.0,
+                0,
+                &bone_name,
+            ) else {
+                break;
+            };
+            let (_, _, translation) = mtx.to_scale_rotation_translation();
+            positions[count] = Vector3::new(translation.x, translation.y, translation.z);
+            transforms[count] = Matrix4::from_glam(mtx);
+            count += 1;
+        }
+        count as i32
+    }
 }
 
 fn presentation_draw_module_names_for(e: &PresentationDrawableSync) -> Vec<String> {

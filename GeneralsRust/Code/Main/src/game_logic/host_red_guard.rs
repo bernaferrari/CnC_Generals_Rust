@@ -92,6 +92,9 @@ pub const BAYONET_DAMAGE_TYPE: &str = "MELEE";
 pub const INFANTRY_HORDE_ROF_MULT: f32 = 1.5;
 /// NATIONALISM WeaponBonus RATE_OF_FIRE 125% (stacks with horde when both active).
 pub const INFANTRY_NATIONALISM_ROF_MULT: f32 = 1.25;
+/// FANATICISM WeaponBonus RATE_OF_FIRE 125% (stacks with nationalism; Infantry General).
+pub const INFANTRY_FANATICISM_ROF_MULT: f32 = 1.25;
+
 
 /// Retail HordeUpdate Radius for China infantry (Red Guard / Tank Hunter).
 pub const INFANTRY_HORDE_RADIUS: f32 = 30.0;

@@ -209,10 +209,13 @@ impl<'a> CommandExecutor<'a> {
                 for p in unit.contained_units() {
                     if p != target_id
                         && !extra_passengers.contains(&p)
-                        && self
-                            .game_logic
-                            .host_object(p)
-                            .is_some_and(|o| o.is_alive() && o.can_attack())
+                        && self.game_logic.host_object(p).is_some_and(|o| {
+                            o.is_alive()
+                                && o.can_attack()
+                                && gamelogic::object::contain::transport_contain_passenger_kind_allowed_to_fire(
+                                    o.is_kind_of(KindOf::Infantry),
+                                )
+                        })
                     {
                         extra_passengers.push(p);
                     }
@@ -265,6 +268,16 @@ impl<'a> CommandExecutor<'a> {
         }
 
         if any_attacker {
+            // C++ MSG_DO_ATTACK_OBJECT VoiceAttack / VoiceAttackAir (`:496-508`).
+            let air = self.game_logic.host_object(target_id).is_some_and(|t| {
+                t.is_kind_of(KindOf::Aircraft) || t.status.airborne_target
+            });
+            let slot = if air {
+                crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::AttackAir
+            } else {
+                crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Attack
+            };
+            self.game_logic.queue_picked_unit_voice(units, slot);
             CommandResult::Success
         } else {
             CommandResult::CannotAttackTarget
@@ -329,9 +342,17 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
             // Collect fire-capable passengers (garrison residual).
+            // C++ TransportContain::isPassengerAllowedToFire — infantry only.
             if unit.passengers_allowed_to_fire {
                 for p in unit.contained_units() {
-                    extra_passengers.push(p);
+                    if self.game_logic.host_object(p).is_some_and(|o| {
+                        gamelogic::object::contain::transport_contain_passenger_kind_allowed_to_fire(
+                            o.is_kind_of(KindOf::Infantry),
+                        )
+                    })
+                    {
+                        extra_passengers.push(p);
+                    }
                 }
             }
         }

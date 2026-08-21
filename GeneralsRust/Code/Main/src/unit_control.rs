@@ -860,10 +860,11 @@ impl UnitControlSystem {
         if let Some(control_group) = self.control_groups.get_mut(&group_num) {
             let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
-            // Prefer presentation identity for alive/selectable + center poses.
+            // C++ SELECT_TEAM: getLiveObjects() + local owner. Not CanSelectDrawable
+            // (garrisoned / transported / FireBase members stay on the squad).
             let valid_objects: Vec<ObjectId> = if let Some(frame) = self.presentation_frame.as_ref()
             {
-                frame.filter_alive_selectable_ids(&control_group.objects, self.local_player_team)
+                frame.filter_live_squad_ids(&control_group.objects, true)
             } else {
                 // Wave 951: fail-closed without presentation freeze.
                 Vec::new()

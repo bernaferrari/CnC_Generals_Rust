@@ -264,15 +264,55 @@ fn leftover_first_selected_object_id() -> Option<u32> {
         .and_then(|selection| selection.get_selected_objects().first().copied())
 }
 
+fn leftover_append_presentation_can_make(
+    description: &mut String,
+    command_button: &IniCommandButton,
+) {
+    if command_button.object.is_empty() {
+        return;
+    }
+    let Some(status) = crate::gui::control_bar::ControlBar::leftover_stamped_can_make_status(
+        &command_button.object,
+    ) else {
+        return;
+    };
+    // C++ CanMakeType ordinals (BuildAssistant.h).
+    const CANMAKE_NO_MONEY: u32 = 2;
+    const CANMAKE_QUEUE_FULL: u32 = 4;
+    const CANMAKE_PARKING_PLACES_FULL: u32 = 5;
+    const CANMAKE_MAXED_OUT_FOR_PLAYER: u32 = 6;
+    let key = match status {
+        CANMAKE_NO_MONEY => Some("TOOLTIP:TooltipNotEnoughMoneyToBuild"),
+        CANMAKE_QUEUE_FULL => Some("TOOLTIP:TooltipCannotPurchaseBecauseQueueFull"),
+        CANMAKE_PARKING_PLACES_FULL => Some("TOOLTIP:TooltipCannotBuildUnitBecauseParkingFull"),
+        CANMAKE_MAXED_OUT_FOR_PLAYER => {
+            let is_struct = TheThingFactory::find_template(&command_button.object)
+                .is_some_and(|t| t.is_kind_of(gamelogic::common::types::KindOf::Structure));
+            Some(if is_struct {
+                "TOOLTIP:TooltipCannotBuildBuildingBecauseMaximumNumber"
+            } else {
+                "TOOLTIP:TooltipCannotBuildUnitBecauseMaximumNumber"
+            })
+        }
+        _ => None,
+    };
+    if let Some(key) = key {
+        leftover_append_line(description, &format!("\n{}", GameText::fetch(key)));
+    }
+}
+
+
 fn leftover_append_can_make_and_overcharge(
     description: &mut String,
     command_button: &IniCommandButton,
     player: &Player,
 ) {
     let Some(obj_id) = leftover_first_selected_object_id() else {
+        leftover_append_presentation_can_make(description, command_button);
         return;
     };
     let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+        leftover_append_presentation_can_make(description, command_button);
         return;
     };
     let Ok(obj) = obj_arc.read() else {

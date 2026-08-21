@@ -1477,6 +1477,146 @@ fn condition_player_has_credits_compares_threshold_to_player_money_like_cxx() {
 }
 
 #[test]
+fn player_conditions_use_host_census_instead_of_stale_leftover_player() {
+    // Live host OBJECT_REGISTRY is empty; leftover Player money/energy/objects
+    // are unsynced. C++ ScriptConditions read the same Player as the HUD.
+    let _test_lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    crate::scripting::clear_host_script_query_snapshot();
+    player_list().write().unwrap().clear();
+
+    let leftover = Arc::new(RwLock::new(crate::player::Player::new(0)));
+    {
+        let mut player_guard = leftover.write().unwrap();
+        player_guard.set_display_name("PlyrAmerica");
+        player_guard.get_money_mut().set_money(0);
+    }
+    player_list().write().unwrap().add_player(leftover);
+
+    let mut snap = crate::scripting::HostScriptQuerySnapshot::default();
+    snap.player_census.insert(
+        "plyramerica".into(),
+        crate::scripting::HostScriptPlayerCensus {
+            money: 2500,
+            energy_production: 10,
+            energy_consumption: 20,
+            power_sabotaged: false,
+            has_any_objects: true,
+            has_any_build_facility: true,
+            building_count: 3,
+            faction_building_count: 2,
+        },
+    );
+    crate::scripting::set_host_script_query_snapshot(snap);
+
+    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+
+    let mut credits = Condition::new(ConditionType::PlayerHasCredits);
+    credits
+        .add_parameter(Parameter::with_int(ParameterType::Int, 500))
+        .unwrap();
+    credits
+        .add_parameter(Parameter::with_int(ParameterType::Comparison, 0))
+        .unwrap();
+    credits
+        .add_parameter(Parameter::with_string(
+            ParameterType::Side,
+            "PlyrAmerica".to_string(),
+        ))
+        .unwrap();
+    assert_eq!(
+        evaluator.evaluate_condition(&mut credits).unwrap(),
+        ScriptConditionResult::True,
+        "PLAYER_HAS_CREDITS must compare against host money, not leftover 0"
+    );
+
+    let mut power = Condition::new(ConditionType::PlayerHasPower);
+    power
+        .add_parameter(Parameter::with_string(
+            ParameterType::Side,
+            "PlyrAmerica".to_string(),
+        ))
+        .unwrap();
+    assert_eq!(
+        evaluator.evaluate_condition(&mut power).unwrap(),
+        ScriptConditionResult::False,
+        "PLAYER_HAS_POWER is false when host consumption exceeds production"
+    );
+
+    let mut no_power = Condition::new(ConditionType::PlayerHasNoPower);
+    no_power
+        .add_parameter(Parameter::with_string(
+            ParameterType::Side,
+            "PlyrAmerica".to_string(),
+        ))
+        .unwrap();
+    assert_eq!(
+        evaluator.evaluate_condition(&mut no_power).unwrap(),
+        ScriptConditionResult::True,
+        "PLAYER_HAS_NO_POWER is the inverse of host hasSufficientPower"
+    );
+
+    let mut destroyed = Condition::new(ConditionType::PlayerAllDestroyed);
+    destroyed
+        .add_parameter(Parameter::with_string(
+            ParameterType::Side,
+            "PlyrAmerica".to_string(),
+        ))
+        .unwrap();
+    assert_eq!(
+        evaluator.evaluate_condition(&mut destroyed).unwrap(),
+        ScriptConditionResult::False,
+        "PLAYER_ALL_DESTROYED is false while the host player still has objects"
+    );
+
+    let mut facilities = Condition::new(ConditionType::PlayerAllBuildfacilitiesDestroyed);
+    facilities
+        .add_parameter(Parameter::with_string(
+            ParameterType::Side,
+            "PlyrAmerica".to_string(),
+        ))
+        .unwrap();
+    assert_eq!(
+        evaluator.evaluate_condition(&mut facilities).unwrap(),
+        ScriptConditionResult::False,
+        "PLAYER_ALL_BUILDFACILITIES_DESTROYED is false while a factory remains"
+    );
+
+    let mut few = Condition::new(ConditionType::PlayerHasNOrFewerBuildings);
+    few.add_parameter(Parameter::with_string(
+        ParameterType::Side,
+        "PlyrAmerica".to_string(),
+    ))
+    .unwrap();
+    few.add_parameter(Parameter::with_int(ParameterType::Int, 2))
+        .unwrap();
+    assert_eq!(
+        evaluator.evaluate_condition(&mut few).unwrap(),
+        ScriptConditionResult::False,
+        "N_OR_FEWER_BUILDINGS 2 is false when host has 3 structures"
+    );
+
+    let mut enough = Condition::new(ConditionType::PlayerHasNOrFewerBuildings);
+    enough
+        .add_parameter(Parameter::with_string(
+            ParameterType::Side,
+            "PlyrAmerica".to_string(),
+        ))
+        .unwrap();
+    enough
+        .add_parameter(Parameter::with_int(ParameterType::Int, 3))
+        .unwrap();
+    assert_eq!(
+        evaluator.evaluate_condition(&mut enough).unwrap(),
+        ScriptConditionResult::True,
+        "N_OR_FEWER_BUILDINGS 3 is true when host has 3 structures"
+    );
+
+    crate::scripting::clear_host_script_query_snapshot();
+}
+
+
+#[test]
 fn named_destroyed_false_if_name_never_existed_like_cxx() {
     // C++ ScriptConditions::evaluateNamedUnitDestroyed (ScriptConditions.cpp:274-286)
     let _test_lock = crate::test_sync::lock();
@@ -4098,5 +4238,311 @@ fn ai_player_build_actions_queue_host_when_dual_world_empty() {
         )]
     );
 }
+
+fn live_host_named_object(name: &str, id: u32, alive: bool) -> crate::scripting::HostScriptQueryObject {
+    crate::scripting::HostScriptQueryObject {
+        id,
+        name: name.into(),
+        team: 1,
+        x: 2.0,
+        z: 2.0,
+        alive,
+        effectively_dead: !alive,
+        health: if alive { 100.0 } else { 0.0 },
+        initial_health: 100.0,
+        owner_player: "PlyrAmerica".into(),
+        template_name: "AmericaInfantryRanger".into(),
+        has_contain: true,
+        contain_count: 0,
+        contain_max: 5,
+        last_damage_source_id: 9,
+        last_damage_template: "AmericaTankCrusader".into(),
+        last_damage_player: "PlyrChina".into(),
+        discovered_by: vec!["PlyrAmerica".into()],
+        waypoint_labels: vec!["HeroPath".into()],
+        ..Default::default()
+    }
+}
+
+#[test]
+fn live_named_created_true_from_host_snapshot() {
+    let _test_lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    crate::scripting::clear_host_script_query_snapshot();
+    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+        named: [("Hero".into(), 7)].into_iter().collect(),
+        objects: vec![live_host_named_object("Hero", 7, true)],
+        ..Default::default()
+    });
+    let mut condition = Condition::new(ConditionType::NamedCreated);
+    condition
+        .add_parameter(Parameter::with_string(ParameterType::Unit, "Hero".into()))
+        .unwrap();
+    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    assert_eq!(
+        evaluator.evaluate_condition(&mut condition).unwrap(),
+        ScriptConditionResult::True
+    );
+    crate::scripting::clear_host_script_query_snapshot();
+}
+
+#[test]
+fn live_named_totally_dead_false_at_load_when_host_unit_lives() {
+    let _test_lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    get_named_object_tracker().clear().unwrap();
+    get_named_object_tracker()
+        .register_named_object("MapHero".to_string(), 7)
+        .unwrap();
+    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+        named: [("MapHero".into(), 7)].into_iter().collect(),
+        objects: vec![live_host_named_object("MapHero", 7, true)],
+        ..Default::default()
+    });
+    let mut condition = Condition::new(ConditionType::NamedTotallyDead);
+    condition
+        .add_parameter(Parameter::with_string(ParameterType::Unit, "MapHero".into()))
+        .unwrap();
+    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    assert_eq!(
+        evaluator.evaluate_condition(&mut condition).unwrap(),
+        ScriptConditionResult::False,
+        "NAMED_TOTALLY_DEAD must stay false while the host unit still exists"
+    );
+    crate::scripting::clear_host_script_query_snapshot();
+    get_named_object_tracker().clear().unwrap();
+}
+
+#[test]
+fn live_named_destroyed_true_after_host_destroy_list() {
+    // C++ evaluateNamedUnitDestroyed: after processDestroyList the pointer is
+    // NULL and didUnitExist keeps the condition TRUE even if other units live.
+    let _test_lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    get_named_object_tracker().clear().unwrap();
+    get_named_object_tracker()
+        .register_named_object("MapHero".to_string(), 7)
+        .unwrap();
+    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+        named: [("OtherScout".into(), 8)].into_iter().collect(),
+        objects: vec![live_host_named_object("OtherScout", 8, true)],
+        ..Default::default()
+    });
+    let mut condition = Condition::new(ConditionType::NamedDestroyed);
+    condition
+        .add_parameter(Parameter::with_string(ParameterType::Unit, "MapHero".into()))
+        .unwrap();
+    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    assert_eq!(
+        evaluator.evaluate_condition(&mut condition).unwrap(),
+        ScriptConditionResult::True,
+        "NAMED_DESTROYED must stay true after host destroy-list removes the unit"
+    );
+    crate::scripting::clear_host_script_query_snapshot();
+    get_named_object_tracker().clear().unwrap();
+}
+
+#[test]
+fn live_named_selected_true_from_host_snapshot() {
+    let _test_lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    crate::scripting::clear_host_script_query_snapshot();
+    let mut selected = live_host_named_object("TutorialRanger", 11, true);
+    selected.selected = true;
+    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+        named: [("TutorialRanger".into(), 11)].into_iter().collect(),
+        objects: vec![selected],
+        ..Default::default()
+    });
+    let mut condition = Condition::new(ConditionType::NamedSelected);
+    condition
+        .add_parameter(Parameter::with_string(
+            ParameterType::Unit,
+            "TutorialRanger".into(),
+        ))
+        .unwrap();
+    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    assert_eq!(
+        evaluator.evaluate_condition(&mut condition).unwrap(),
+        ScriptConditionResult::True,
+        "NAMED_SELECTED must read host UI selection when OBJECT_REGISTRY is empty"
+    );
+    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+        named: [("TutorialRanger".into(), 11)].into_iter().collect(),
+        objects: vec![live_host_named_object("TutorialRanger", 11, true)],
+        ..Default::default()
+    });
+    assert_eq!(
+        evaluator.evaluate_condition(&mut condition).unwrap(),
+        ScriptConditionResult::False,
+        "NAMED_SELECTED is false when the host unit is not selected"
+    );
+    crate::scripting::clear_host_script_query_snapshot();
+}
+
+#[test]
+fn live_team_destroyed_false_when_host_members_live() {
+    let _test_lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+        objects: vec![live_host_named_object("Ranger", 7, true)],
+        team_instance_ids: [("USA_RangerSquad".into(), vec![7])].into_iter().collect(),
+        ..Default::default()
+    });
+    let mut destroyed = Condition::new(ConditionType::TeamDestroyed);
+    destroyed
+        .add_parameter(Parameter::with_string(
+            ParameterType::Team,
+            "USA_RangerSquad".into(),
+        ))
+        .unwrap();
+    let mut has_units = Condition::new(ConditionType::TeamHasUnits);
+    has_units
+        .add_parameter(Parameter::with_string(
+            ParameterType::Team,
+            "USA_RangerSquad".into(),
+        ))
+        .unwrap();
+    let mut created = Condition::new(ConditionType::TeamCreated);
+    created
+        .add_parameter(Parameter::with_string(
+            ParameterType::Team,
+            "USA_RangerSquad".into(),
+        ))
+        .unwrap();
+    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    assert_eq!(
+        evaluator.evaluate_condition(&mut destroyed).unwrap(),
+        ScriptConditionResult::False
+    );
+    assert_eq!(
+        evaluator.evaluate_condition(&mut has_units).unwrap(),
+        ScriptConditionResult::True
+    );
+    assert_eq!(
+        evaluator.evaluate_condition(&mut created).unwrap(),
+        ScriptConditionResult::True
+    );
+    crate::scripting::clear_host_script_query_snapshot();
+}
+
+#[test]
+fn live_named_entered_uses_host_trigger_flags() {
+    let _test_lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    crate::scripting::clear_host_script_query_snapshot();
+    crate::terrain::get_terrain_logic()
+        .write()
+        .expect("terrain")
+        .add_trigger_area(crate::polygon_trigger::PolygonTrigger::new(
+            1814,
+            crate::common::AsciiString::from("Wave18PolyPad"),
+            vec![
+                crate::common::ICoord3D::new(0, 0, 0),
+                crate::common::ICoord3D::new(20, 0, 0),
+                crate::common::ICoord3D::new(0, 20, 0),
+            ],
+        ));
+    crate::system::game_logic::get_game_logic()
+        .lock()
+        .expect("logic")
+        .set_current_frame(20);
+    crate::scripting::update_host_object_trigger_flags(7, 18.0, 18.0, 19, false, Some("teamUSA"));
+    crate::scripting::update_host_object_trigger_flags(7, 2.0, 2.0, 20, false, Some("teamUSA"));
+    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+        named: [("Scout".into(), 7)].into_iter().collect(),
+        objects: vec![live_host_named_object("Scout", 7, true)],
+        team_instance_ids: [("teamUSA".into(), vec![7])].into_iter().collect(),
+        ..Default::default()
+    });
+    let mut entered = Condition::new(ConditionType::NamedEnteredArea);
+    entered
+        .add_parameter(Parameter::with_string(ParameterType::Unit, "Scout".into()))
+        .unwrap();
+    entered
+        .add_parameter(Parameter::with_string(
+            ParameterType::TriggerArea,
+            "Wave18PolyPad".into(),
+        ))
+        .unwrap();
+    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    assert_eq!(
+        evaluator.evaluate_condition(&mut entered).unwrap(),
+        ScriptConditionResult::True
+    );
+    crate::scripting::clear_host_script_query_snapshot();
+}
+
+#[test]
+fn live_named_body_state_reads_host_snapshot() {
+    let _test_lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+        named: [("Hero".into(), 7)].into_iter().collect(),
+        objects: vec![live_host_named_object("Hero", 7, true)],
+        ..Default::default()
+    });
+    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+
+    let mut health = Condition::new(ConditionType::UnitHealth);
+    health
+        .add_parameter(Parameter::with_string(ParameterType::Unit, "Hero".into()))
+        .unwrap();
+    health
+        .add_parameter(Parameter::with_int(ParameterType::Comparison, 2))
+        .unwrap();
+    health
+        .add_parameter(Parameter::with_int(ParameterType::Int, 100))
+        .unwrap();
+    assert_eq!(
+        evaluator.evaluate_condition(&mut health).unwrap(),
+        ScriptConditionResult::True
+    );
+
+    let mut owned = Condition::new(ConditionType::NamedOwnedByPlayer);
+    owned
+        .add_parameter(Parameter::with_string(ParameterType::Unit, "Hero".into()))
+        .unwrap();
+    owned
+        .add_parameter(Parameter::with_string(
+            ParameterType::Side,
+            "PlyrAmerica".into(),
+        ))
+        .unwrap();
+    assert_eq!(
+        evaluator.evaluate_condition(&mut owned).unwrap(),
+        ScriptConditionResult::True
+    );
+
+    let mut empty = Condition::new(ConditionType::NamedBuildingIsEmpty);
+    empty
+        .add_parameter(Parameter::with_string(ParameterType::Unit, "Hero".into()))
+        .unwrap();
+    assert_eq!(
+        evaluator.evaluate_condition(&mut empty).unwrap(),
+        ScriptConditionResult::True
+    );
+
+    let mut slots = Condition::new(ConditionType::NamedHasFreeContainerSlots);
+    slots
+        .add_parameter(Parameter::with_string(ParameterType::Unit, "Hero".into()))
+        .unwrap();
+    assert_eq!(
+        evaluator.evaluate_condition(&mut slots).unwrap(),
+        ScriptConditionResult::True
+    );
+
+    let mut dying = Condition::new(ConditionType::NamedDying);
+    dying
+        .add_parameter(Parameter::with_string(ParameterType::Unit, "Hero".into()))
+        .unwrap();
+    assert_eq!(
+        evaluator.evaluate_condition(&mut dying).unwrap(),
+        ScriptConditionResult::False
+    );
+
+    crate::scripting::clear_host_script_query_snapshot();
+}
+
 
 

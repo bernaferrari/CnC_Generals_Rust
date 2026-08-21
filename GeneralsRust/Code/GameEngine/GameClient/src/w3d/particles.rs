@@ -14,13 +14,10 @@
 //! performs the equivalent data flow: collecting particle data from active
 //! ParticleSystem instances and submitting it to the ParticleRenderer.
 
-use std::sync::Arc;
-
 use crate::effects::decals::DecalRenderItem;
-use crate::effects::particle_manager::{ParticleSystemManager, ParticleType};
+use crate::effects::particle_manager::ParticleSystemManager;
 use crate::effects::particle_renderer::{ParticleRenderer, ParticleUniforms};
 use crate::system::smudge::get_smudge_manager;
-use game_engine::common::global_data as runtime_global_data;
 
 /// W3D Particle System Bridge
 ///
@@ -82,21 +79,14 @@ impl W3DParticleSystemBridge {
 
         let systems: Vec<_> = particle_manager.all_particle_systems().collect();
 
-        let mut smudges = if runtime_global_data::read().use_heat_effects {
-            collect_smudge_render_items(&systems)
-        } else {
-            Vec::new()
-        };
-        smudges.extend(collect_manager_smudge_render_items());
-        if let Ok(mut smudge_manager) = get_smudge_manager().lock() {
-            smudge_manager
-                .set_smudge_count_last_frame(i32::try_from(smudges.len()).unwrap_or(i32::MAX));
-        }
+        // C++ fills smudges during the system loop, draws point groups, then
+        // `W3DSmudgeManager::render`. Live `render_particles` does the same
+        // SMUD*/SMUDGE `addSmudgeToSet` feed; draw the set afterwards.
+        renderer.render_particles(encoder, view, depth_view, &systems, uniforms);
+        let smudges = collect_manager_smudge_render_items();
         if !smudges.is_empty() {
             renderer.render_decals(encoder, view, depth_view, &smudges, uniforms);
         }
-
-        renderer.render_particles(encoder, view, depth_view, &systems, uniforms);
         renderer.render_tracer_and_ray_fx(encoder, view, depth_view, uniforms);
 
         self.on_screen_particle_count = renderer.stats.particles_rendered as i32;
@@ -111,81 +101,6 @@ impl W3DParticleSystemBridge {
     pub fn is_ready_to_render(&self) -> bool {
         self.ready_to_render
     }
-}
-
-fn is_smudge_system(info: &crate::effects::particle_manager::ParticleSystemInfo) -> bool {
-    info.particle_type == ParticleType::Smudge
-        || info
-            .particle_type_name
-            .as_bytes()
-            .get(..4)
-            .is_some_and(|prefix| prefix == b"SMUD")
-}
-
-fn collect_smudge_render_items(
-    systems: &[&crate::effects::particle_system::ParticleSystem],
-) -> Vec<DecalRenderItem> {
-    let mut items = Vec::new();
-    let use_heat = runtime_global_data::read().use_heat_effects;
-    let mut heat_set = if use_heat {
-        get_smudge_manager()
-            .lock()
-            .ok()
-            .map(|mut mgr| {
-                if mgr.get_hardware_support() {
-                    Some(mgr.add_smudge_set())
-                } else {
-                    None
-                }
-            })
-            .flatten()
-    } else {
-        None
-    };
-
-    for system in systems {
-        let info = system.template().info();
-        if !is_smudge_system(info) {
-            continue;
-        }
-
-        for particle in system.particles() {
-            if particle.lifetime_left == 0 || particle.is_culled {
-                continue;
-            }
-
-            if let Some(set) = heat_set.as_mut() {
-                if let Ok(mut set_guard) = set.lock() {
-                    let smudge = set_guard.add_smudge_to_set();
-                    smudge.pos = glam::Vec3::new(
-                        particle.position.x,
-                        particle.position.y,
-                        particle.position.z,
-                    );
-                    smudge.offset = glam::Vec2::new(
-                        rand::random::<f32>() * 0.12 - 0.06,
-                        rand::random::<f32>() * 0.06 - 0.03,
-                    );
-                    smudge.size = particle.size;
-                    smudge.opacity = particle.alpha;
-                }
-            }
-
-            items.push(DecalRenderItem {
-                position: particle.position,
-                size: particle.size,
-                rotation: particle.angle_z,
-                color: [
-                    particle.color[0],
-                    particle.color[1],
-                    particle.color[2],
-                    particle.alpha,
-                ],
-            });
-        }
-    }
-
-    items
 }
 
 fn collect_manager_smudge_render_items() -> Vec<DecalRenderItem> {

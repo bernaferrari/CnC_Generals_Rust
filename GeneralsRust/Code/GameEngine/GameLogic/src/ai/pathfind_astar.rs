@@ -954,6 +954,7 @@ impl AStarPathfinder {
             start,
             goal,
             PathfindLayerEnum::Ground,
+            PathfindLayerEnum::Ground,
             surfaces,
             is_crusher,
             max_iterations,
@@ -987,6 +988,7 @@ impl AStarPathfinder {
             start,
             goal,
             layer,
+            layer,
             surfaces,
             is_crusher,
             max_iterations,
@@ -1009,6 +1011,7 @@ impl AStarPathfinder {
         start: GridCoord,
         goal: GridCoord,
         start_layer: PathfindLayerEnum,
+        dest_layer: PathfindLayerEnum,
         surfaces: u32,
         is_crusher: bool,
         max_iterations: usize,
@@ -1036,15 +1039,19 @@ impl AStarPathfinder {
             PathfindLayerEnum::Invalid => PathfindLayerEnum::Ground,
             layer => layer,
         };
+        let dest_layer = match dest_layer {
+            PathfindLayerEnum::Invalid => PathfindLayerEnum::Ground,
+            layer => layer,
+        };
         let start_key: SearchKey = (start, start_layer);
         let mut best_key = start_key;
         let mut best_dist = start.diagonal_distance(&goal);
 
-        // Validate start and goal (tunneling may force start passable).
-        let pass = |c: GridCoord| -> bool {
+        // C++ getClippedCell(obj->getLayer(), from) / getCell(destinationLayer, to).
+        let pass_on = |c: GridCoord, layer: PathfindLayerEnum| -> bool {
             if self.is_passable_on_layer_with_ignore(
                 c,
-                start_layer,
+                layer,
                 surfaces,
                 is_crusher,
                 ignore_cells,
@@ -1053,19 +1060,15 @@ impl AStarPathfinder {
             }
             force_passable.map(|f| f(c)).unwrap_or(false)
         };
-        if !pass(start) || !pass(goal) {
-            // Goal may still be obstacle when ignore obstacle / tunneling into building.
-            if !pass(start) {
+        if !pass_on(start, start_layer) {
+            return None;
+        }
+        if !pass_on(goal, dest_layer) {
+            if force_passable.is_none() {
                 return None;
             }
-            if !pass(goal) && force_passable.is_none() {
+            if !force_passable.map(|f| f(goal)).unwrap_or(false) {
                 return None;
-            }
-            if !pass(goal) {
-                // Allow goal when force_passable says so, else fail.
-                if !force_passable.map(|f| f(goal)).unwrap_or(false) {
-                    return None;
-                }
             }
         }
 
@@ -1116,8 +1119,8 @@ impl AStarPathfinder {
             open_members.remove(&current_key);
 
             // Goal reached!
-            // Matches C++ at AIPathfind.cpp:6595-6622
-            if current.coord == goal {
+            // C++ compares PathfindCell pointers: dest XY on destinationLayer.
+            if current.coord == goal && current.layer == dest_layer {
                 return Some((self.reconstruct_path(&came_from, current_key), iterations));
             }
 

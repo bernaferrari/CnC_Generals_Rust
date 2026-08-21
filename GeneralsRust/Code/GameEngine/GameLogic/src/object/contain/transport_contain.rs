@@ -35,6 +35,14 @@ fn dual_world_registry_unavailable() -> bool {
     false
 }
 
+/// C++ `TransportContain::isPassengerAllowedToFire` (TransportContain.cpp:576-578):
+/// only infantry may fire out. Vehicles ride silent (Combat Chinook
+/// `AllowInsideKindOf = INFANTRY VEHICLE`).
+#[inline]
+pub fn transport_contain_passenger_kind_allowed_to_fire(is_infantry: bool) -> bool {
+    is_infantry
+}
+
 type ObjectId = ObjectID;
 
 /// Initial payload configuration
@@ -1020,7 +1028,9 @@ impl TransportContain {
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
             {
                 if let Ok(passenger_guard) = passenger.read() {
-                    if !passenger_guard.is_kind_of(KindOf::Infantry) {
+                    if !transport_contain_passenger_kind_allowed_to_fire(
+                        passenger_guard.is_kind_of(KindOf::Infantry),
+                    ) {
                         return false;
                     }
                 }
@@ -1149,8 +1159,10 @@ impl TransportContain {
                     .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
                 {
                     if let Ok(rider) = rider_obj.read() {
-                        // Only infantry can have viable weapons for this purpose
-                        if !rider.is_kind_of(KindOf::Infantry) {
+                        // C++ letRidersUpgradeWeaponSet: skip non-infantry.
+                        if !transport_contain_passenger_kind_allowed_to_fire(
+                            rider.is_kind_of(KindOf::Infantry),
+                        ) {
                             continue;
                         }
 

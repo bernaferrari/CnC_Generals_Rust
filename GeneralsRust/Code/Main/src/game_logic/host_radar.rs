@@ -32,11 +32,11 @@ use game_engine::common::system::radar::{
 /// Logic frames per second (host fixed step).
 pub const RADAR_LOGIC_FPS: f32 = 30.0;
 
-/// Audio residual when radar comes online (MiscAudio RadarNotifyOnlineSound).
-pub const RADAR_ONLINE_AUDIO: &str = "RadarOnline";
+/// Audio residual when radar comes online (MiscAudio RadarNotifyOnlineSound = RadarOn).
+pub const RADAR_ONLINE_AUDIO: &str = "RadarOn";
 
-/// Audio residual when radar goes offline (MiscAudio RadarNotifyOfflineSound).
-pub const RADAR_OFFLINE_AUDIO: &str = "RadarOffline";
+/// Audio residual when radar goes offline (MiscAudio RadarNotifyOfflineSound = RadarOff).
+pub const RADAR_OFFLINE_AUDIO: &str = "RadarOff";
 
 /// Retail GrantUpgradeCreate / RadarUpgrade trigger residual.
 pub const UPGRADE_GLA_RADAR: &str = "Upgrade_GLARadar";
@@ -249,8 +249,8 @@ impl HostRadarRegistry {
 
 /// Wave 63 residual honesty: radar provider + audio residual peel.
 pub fn honesty_radar_provider_residual_ok() -> bool {
-    RADAR_ONLINE_AUDIO == "RadarOnline"
-        && RADAR_OFFLINE_AUDIO == "RadarOffline"
+    RADAR_ONLINE_AUDIO == "RadarOn"
+        && RADAR_OFFLINE_AUDIO == "RadarOff"
         && is_radar_command_center_template("AmericaCommandCenter")
         && is_radar_command_center_template("ChinaCommandCenter")
         && is_radar_command_center_template("GLA_CommandCenter")
@@ -384,5 +384,14 @@ mod tests {
         assert_eq!(RADAR_VAN_BUILD_TIME_FRAMES, 300);
         assert!(RADAR_VAN_DISABLE_PROOF);
         assert_eq!(SPECIAL_POWER_RADAR_VAN_SCAN, "SpecialPowerRadarVanScan");
+    }
+
+    #[test]
+    fn radar_edge_audio_uses_retail_misc_audio_event_names() {
+        // Retail MiscAudio.ini: RadarNotifyOnlineSound = RadarOn, Offline = RadarOff.
+        // SoundEffects.ini defines AudioEvent RadarOn / RadarOff; no RadarOnline/Offline.
+        assert_eq!(RADAR_ONLINE_AUDIO, "RadarOn");
+        assert_eq!(RADAR_OFFLINE_AUDIO, "RadarOff");
+        assert!(honesty_radar_provider_residual_ok());
     }
 }

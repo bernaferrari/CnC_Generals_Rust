@@ -3292,9 +3292,14 @@ fn sentry_drone_residual_detect_and_auto_fire() {
             s.detection_range
         );
         assert!(
-            s.status.stealthed,
-            "sentry innate stealth residual on spawn"
+            !s.status.stealthed,
+            "sentry ctor waits StealthDelay before first cloak"
         );
+        assert_eq!(
+            s.stealth_allowed_frame,
+            crate::game_logic::host_sentry_drone::SENTRY_STEALTH_DELAY_FRAMES
+        );
+
         assert!(s.innate_stealth, "sentry InnateStealth Yes");
         assert!(s.stealth_breaks_on_move, "sentry uncloaks while MOVING");
         assert!(
@@ -3531,11 +3536,14 @@ fn sentry_drone_uncloaks_while_moving_and_recloaks_after_fire_delay() {
         .expect("sentry");
     {
         let s = game_logic.host_object(sentry_id).expect("sentry");
-        assert!(s.status.stealthed);
+        assert!(!s.status.stealthed, "sentry ctor is visible until StealthDelay");
         assert!(s.innate_stealth);
         assert!(s.stealth_breaks_on_move);
         assert_eq!(s.stealth_delay_frames, SENTRY_STEALTH_DELAY_FRAMES);
+        assert_eq!(s.stealth_allowed_frame, SENTRY_STEALTH_DELAY_FRAMES);
     }
+
+
 
     // MOVING forbids stealth.
     {
@@ -3579,9 +3587,11 @@ fn sentry_drone_uncloaks_while_moving_and_recloaks_after_fire_delay() {
     // FIRING_PRIMARY forbids stealth; after fire, wait delay again.
     {
         let s = game_logic.host_object_mut(sentry_id).unwrap();
-        s.set_ai_state(AIState::Attacking);
-        s.set_status_attacking(true);
+        s.set_status_firing_weapon(true);
+        s.last_fire_slot = 0;
+        s.last_fire_frame = game_logic.frame.saturating_add(1);
     }
+
     game_logic.frame = allowed.saturating_add(1);
     game_logic.update_stealth_and_detection();
     assert!(
@@ -3592,7 +3602,9 @@ fn sentry_drone_uncloaks_while_moving_and_recloaks_after_fire_delay() {
         let s = game_logic.host_object_mut(sentry_id).unwrap();
         s.set_ai_state(AIState::Idle);
         s.set_status_attacking(false);
+        s.set_status_firing_weapon(false);
     }
+
     let after_fire = game_logic.frame.saturating_add(1);
     game_logic.frame = after_fire;
     game_logic.update_stealth_and_detection();

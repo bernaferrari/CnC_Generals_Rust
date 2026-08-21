@@ -12,6 +12,7 @@ pub struct MiscAudioEvents {
     pub crate_free_unit: AudioEventRts,
     pub crate_money: AudioEventRts,
     pub battle_cry_sound: AudioEventRts,
+    pub all_cheer_sound: AudioEventRts,
     pub money_deposit: AudioEventRts,
     pub money_withdraw: AudioEventRts,
     pub sabotage_shut_down_building: AudioEventRts,
@@ -28,6 +29,7 @@ impl Default for MiscAudioEvents {
             crate_free_unit: AudioEventRts::new("crate_free_unit"),
             crate_money: AudioEventRts::new("crate_money"),
             battle_cry_sound: AudioEventRts::new("battle_cry_sound"),
+            all_cheer_sound: AudioEventRts::new("UI_AllCheerSound"),
             money_deposit: AudioEventRts::new("money_deposit"),
             money_withdraw: AudioEventRts::new("money_withdraw"),
             sabotage_shut_down_building: AudioEventRts::new("sabotage_shut_down_building"),
@@ -394,6 +396,9 @@ impl TheAudio {
             battle_cry_sound: AudioEventRts::new(leftover_misc_event_name(
                 &misc_audio.battle_cry_sound,
             )),
+            all_cheer_sound: AudioEventRts::new(leftover_misc_event_name(
+                &misc_audio.all_cheer_sound,
+            )),
             money_deposit: AudioEventRts::new(leftover_misc_event_name(
                 &misc_audio.money_deposit_sound,
             )),
@@ -603,6 +608,21 @@ mod leftover_the_audio_tests {
         }
         let events = TheAudio::get_misc_audio();
         assert_eq!(events.crate_heal.get_event_name(), "CrateHeal");
+    }
+
+    #[test]
+    fn leftover_get_misc_audio_maps_all_cheer_sound() {
+        // C++ MiscAudio.ini AllCheerSound = UI_AllCheerSound.
+        let handle = game_engine::common::ini::ini_misc_audio::ensure_misc_audio();
+        {
+            let mut misc = handle.write();
+            misc.all_cheer_sound =
+                game_engine::common::ini::ini_misc_audio::AudioEventRTS::from_event_name(
+                    "UI_AllCheerSound".to_string(),
+                );
+        }
+        let events = TheAudio::get_misc_audio();
+        assert_eq!(events.all_cheer_sound.get_event_name(), "UI_AllCheerSound");
     }
 
     #[test]

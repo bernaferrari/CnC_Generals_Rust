@@ -14,7 +14,16 @@ impl GameLogic {
             return;
         }
         // C++ pickAndPlay VoiceSelect — queue_audio_event in select_object_list.
-        self.select_object_list(1u32 << player_id.min(31), object_ids, true);
+        self.select_object_list_ex(1u32 << player_id.min(31), object_ids, true, true);
+    }
+
+    /// C++ `MSG_CREATE_SELECTED_GROUP_NO_SOUND` / `MSG_ADD_TEAM` /
+    /// `MSG_REMOVE_FROM_SELECTED_GROUP` — same select writeback, no VoiceSelect.
+    pub fn select_objects_no_sound(&mut self, player_id: u32, object_ids: Vec<ObjectId>) {
+        if self.players.get(&player_id).is_none() {
+            return;
+        }
+        self.select_object_list_ex(1u32 << player_id.min(31), object_ids, true, false);
     }
 
     /// C++ `GameLogic::selectObject` over a host id list.
@@ -27,6 +36,16 @@ impl GameLogic {
         player_mask: u32,
         object_ids: Vec<ObjectId>,
         create_new_selection: bool,
+    ) {
+        self.select_object_list_ex(player_mask, object_ids, create_new_selection, true);
+    }
+
+    fn select_object_list_ex(
+        &mut self,
+        player_mask: u32,
+        object_ids: Vec<ObjectId>,
+        create_new_selection: bool,
+        play_voice: bool,
     ) {
         if player_mask == 0 {
             return;
@@ -108,8 +127,9 @@ impl GameLogic {
         }
 
         // C++ VoiceSelect from ThingTemplate INI (not `{template}VoiceSelect` / UnitVoiceSelect).
-        if any_local {
-            self.queue_picked_unit_voice(&accepted, crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Select);
+        // CommandXlat.cpp:3502-3516 weeds to isLocallyControlled before pickAndPlay.
+        if play_voice && any_local {
+            self.queue_create_selected_group_voice(&accepted);
         }
 
         log::debug!(
@@ -117,6 +137,23 @@ impl GameLogic {
             player_mask,
             accepted.len(),
             create_new_selection
+        );
+    }
+
+    /// C++ CommandXlat.cpp:3490-3516 `MSG_CREATE_SELECTED_GROUP` / `SELECT_TEAM`
+    /// pickAndPlay after weeding to `isLocallyControlled()`.
+    pub fn queue_create_selected_group_voice(&mut self, unit_ids: &[ObjectId]) {
+        let voice_ids: Vec<ObjectId> = unit_ids
+            .iter()
+            .copied()
+            .filter(|&id| self.is_object_locally_controlled(id))
+            .collect();
+        if voice_ids.is_empty() {
+            return;
+        }
+        self.queue_picked_unit_voice(
+            &voice_ids,
+            crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Select,
         );
     }
 
@@ -1876,8 +1913,26 @@ fn host_object_is_mass_selectable(obj: &Object) -> bool {
 #[cfg(test)]
 mod select_object_cpp_parity_tests {
     use super::*;
+    use crate::game_logic::audio_dispatch_impl::{
+        clear_test_template_voices, set_test_template_voice, UnitVoiceSlot,
+    };
     use crate::game_logic::{KindOf, ObjectId, Player, Team, ThingTemplate};
     use glam::Vec3;
+
+    const TEST_VOICE_SELECT: &str = "AmericaRangerVoiceSelect";
+
+    fn bind_select_voice() {
+        set_test_template_voice("SelectParityUnit", UnitVoiceSlot::Select, TEST_VOICE_SELECT);
+    }
+
+    fn queued_select_voices(logic: &GameLogic) -> Vec<&str> {
+        logic
+            .queued_audio_events
+            .iter()
+            .filter(|e| e.event_type == TEST_VOICE_SELECT)
+            .map(|e| e.event_type.as_str())
+            .collect()
+    }
 
     fn ensure_tpl(logic: &mut GameLogic, name: &str, kinds: &[KindOf]) {
         if logic.templates.contains_key(name) {
@@ -2001,6 +2056,117 @@ mod select_object_cpp_parity_tests {
             logic.get_player(0).expect("p0").selected_objects,
             vec![a, b]
         );
+    }
+
+    #[test]
+    fn select_objects_keeps_garrisoned_and_transported_members() {
+        // C++ GameLogic::selectObject has no isSelectable/contained gate;
+        // SelectionXlat selectDrawable recalls getLiveObjects members in bunkers.
+        let mut logic = two_player_logic();
+        let walker = spawn(&mut logic, "SelectParityUnit", 0, 0.0);
+        let rider = spawn(&mut logic, "SelectParityUnit", 0, 10.0);
+        {
+            let o = logic.host_object_mut(rider).expect("rider");
+            o.set_contained_by(Some(ObjectId(99)));
+            o.set_ai_state(crate::game_logic::AIState::Garrisoned);
+            o.status.masked = true;
+        }
+        logic.select_objects(0, vec![walker, rider]);
+        assert_eq!(
+            logic.get_player(0).expect("p0").selected_objects,
+            vec![walker, rider],
+            "control-group recall must keep garrisoned/transported members"
+        );
+        assert!(logic.host_object(rider).expect("rider").selected);
+    }
+
+    #[test]
+    fn inspect_enemy_select_is_silent() {
+        // C++ CommandXlat.cpp:3502-3516 weeds to isLocallyControlled.
+        bind_select_voice();
+        let mut logic = two_player_logic();
+        let theirs = spawn(&mut logic, "SelectParityUnit", 1, 20.0);
+        logic.queued_audio_events.clear();
+        logic.select_objects(0, vec![theirs]);
+        assert_eq!(
+            logic.get_player(0).expect("p0").selected_objects,
+            vec![theirs]
+        );
+        assert!(
+            queued_select_voices(&logic).is_empty(),
+            "inspect-select enemy must not VoiceSelect: {:?}",
+            logic.queued_audio_events
+        );
+        clear_test_template_voices();
+    }
+
+    #[test]
+    fn local_select_plays_voice_select() {
+        bind_select_voice();
+        let mut logic = two_player_logic();
+        let mine = spawn(&mut logic, "SelectParityUnit", 0, 0.0);
+        logic.queued_audio_events.clear();
+        logic.select_objects(0, vec![mine]);
+        assert_eq!(queued_select_voices(&logic), vec![TEST_VOICE_SELECT]);
+        clear_test_template_voices();
+    }
+
+    #[test]
+    fn mixed_select_weeds_to_local_voice() {
+        bind_select_voice();
+        let mut logic = two_player_logic();
+        let mine = spawn(&mut logic, "SelectParityUnit", 0, 0.0);
+        let theirs = spawn(&mut logic, "SelectParityUnit", 1, 20.0);
+        logic.queued_audio_events.clear();
+        logic.select_objects(0, vec![theirs, mine]);
+        let voices: Vec<_> = logic
+            .queued_audio_events
+            .iter()
+            .filter(|e| e.event_type == TEST_VOICE_SELECT)
+            .map(|e| e.object_id)
+            .collect();
+        assert_eq!(voices, vec![Some(mine)]);
+        clear_test_template_voices();
+    }
+
+    #[test]
+    fn select_objects_no_sound_is_silent() {
+        // C++ MSG_CREATE_SELECTED_GROUP_NO_SOUND / ADD_TEAM / REMOVE_FROM_SELECTED_GROUP.
+        bind_select_voice();
+        let mut logic = two_player_logic();
+        let mine = spawn(&mut logic, "SelectParityUnit", 0, 0.0);
+        logic.queued_audio_events.clear();
+        logic.select_objects_no_sound(0, vec![mine]);
+        assert_eq!(
+            logic.get_player(0).expect("p0").selected_objects,
+            vec![mine]
+        );
+        assert!(
+            queued_select_voices(&logic).is_empty(),
+            "NO_SOUND / ADD_TEAM / deselect must not VoiceSelect: {:?}",
+            logic.queued_audio_events
+        );
+        clear_test_template_voices();
+    }
+
+    #[test]
+    fn reclick_create_selected_group_replays_voice() {
+        // C++ always posts MSG_CREATE_SELECTED_GROUP on re-click.
+        bind_select_voice();
+        let mut logic = two_player_logic();
+        let mine = spawn(&mut logic, "SelectParityUnit", 0, 0.0);
+        logic.select_objects(0, vec![mine]);
+        logic.queued_audio_events.clear();
+        logic.queue_create_selected_group_voice(&[mine]);
+        assert_eq!(queued_select_voices(&logic), vec![TEST_VOICE_SELECT]);
+        logic.queued_audio_events.clear();
+        logic.queue_create_selected_group_voice(&[mine]);
+        assert_eq!(
+            queued_select_voices(&logic),
+            vec![TEST_VOICE_SELECT],
+            "re-click already-selected must replay VoiceSelect"
+        );
+        clear_test_template_voices();
     }
 }
 

@@ -843,6 +843,124 @@ fn dozer_mine_clear_residual_infantry_still_triggers() {
     assert_eq!(game_logic.mine_residual_proximity_detonations(), 1);
 }
 
+/// C++ MinefieldBehavior::onCollide: vehicle geometry overlapping the mine
+/// disk trips even when the center is outside trigger_range 8.
+#[test]
+fn land_mine_trips_on_vehicle_geometry_contact() {
+    let mut game_logic = GameLogic::new();
+    ensure_test_infantry_template(&mut game_logic);
+
+    let mine_id = game_logic
+        .place_land_mine(Team::USA, Vec3::new(0.0, 0.0, 0.0), None)
+        .expect("mine");
+    let trigger = game_logic
+        .host_object(mine_id)
+        .unwrap()
+        .mine_data
+        .as_ref()
+        .unwrap()
+        .trigger_range;
+    assert!((trigger - 8.0).abs() < 0.01);
+
+    // Center 12 wu away: old center-distance gate misses; geometry 8+8 overlaps.
+    let enemy_id = game_logic
+        .create_object("TestInfantry", Team::GLA, Vec3::new(12.0, 0.0, 0.0))
+        .expect("vehicle");
+    {
+        let e = game_logic.host_object_mut(enemy_id).unwrap();
+        e.selection_radius = 8.0;
+        e.thing.template.geometry_info.authored = true;
+        e.thing.template.geometry_info.major_radius = 8.0;
+        e.thing.template.geometry_info.minor_radius = 8.0;
+        e.thing.template.add_kind_of(KindOf::Vehicle);
+    }
+
+    game_logic.update_mines_and_demo_traps();
+    assert_eq!(
+        game_logic.mine_residual_proximity_detonations(),
+        1,
+        "geometry contact must trip the pad"
+    );
+}
+
+/// Center far enough that even inflated vehicle geometry misses the mine disk.
+#[test]
+fn land_mine_does_not_trip_when_geometry_misses() {
+    let mut game_logic = GameLogic::new();
+    ensure_test_infantry_template(&mut game_logic);
+
+    let _mine_id = game_logic
+        .place_land_mine(Team::USA, Vec3::new(0.0, 0.0, 0.0), None)
+        .expect("mine");
+    let enemy_id = game_logic
+        .create_object("TestInfantry", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
+        .expect("vehicle");
+    {
+        let e = game_logic.host_object_mut(enemy_id).unwrap();
+        e.selection_radius = 8.0;
+        e.thing.template.geometry_info.authored = true;
+        e.thing.template.geometry_info.major_radius = 8.0;
+        e.thing.template.geometry_info.minor_radius = 8.0;
+        e.thing.template.add_kind_of(KindOf::Vehicle);
+    }
+
+    game_logic.update_mines_and_demo_traps();
+    assert_eq!(
+        game_logic.mine_residual_proximity_detonations(),
+        0,
+        "non-overlapping geometry must not trip"
+    );
+}
+
+/// C++ GLADemoTrap is not KINDOF_MINE: dozer DISARM cannot silent-delete it.
+#[test]
+fn dozer_mine_clear_does_not_silent_delete_demo_trap() {
+    use crate::game_logic::host_mines::DOZER_MINE_CLEAR_PRE_ATTACK_FRAMES;
+
+    let mut game_logic = GameLogic::new();
+    ensure_test_dozer_template(&mut game_logic);
+
+    let trap_id = game_logic
+        .place_demo_trap(Team::GLA, Vec3::new(0.0, 0.0, 0.0), None)
+        .expect("trap");
+    // Outside TriggerDetonationRange 40, inside dozer scan 100.
+    let dozer_id = game_logic
+        .create_object("TestDozer", Team::USA, Vec3::new(50.0, 0.0, 0.0))
+        .expect("dozer");
+    if let Some(d) = game_logic.host_object_mut(dozer_id) {
+        d.set_weapon_set_mine_clearing_detail(true);
+    }
+
+    assert!(
+        !game_logic.clear_mine_internal(trap_id, dozer_id),
+        "DISARM must refuse demo traps"
+    );
+    assert!(
+        !game_logic
+            .host_object(trap_id)
+            .unwrap()
+            .is_disarmable_mine(),
+        "demo trap is not a LandMineInterface target"
+    );
+
+    game_logic.frame = 1;
+    game_logic.update_mines_and_demo_traps();
+    game_logic.frame = 1 + DOZER_MINE_CLEAR_PRE_ATTACK_FRAMES;
+    game_logic.update_mines_and_demo_traps();
+
+    assert_eq!(
+        game_logic.mine_residual_clears(),
+        0,
+        "dozer must not silently clear a demo trap"
+    );
+    let trap = game_logic.host_object(trap_id).expect("trap remains");
+    assert!(trap.is_alive(), "refused clear must leave the trap standing");
+    assert!(
+        trap.mine_data.as_ref().is_some_and(|md| !md.detonated),
+        "out-of-range refused clear must not detonate"
+    );
+}
+
 #[test]
 fn china_regen_pad_survives_disarm_and_refills() {
     use crate::game_logic::host_mines::{
@@ -914,6 +1032,73 @@ fn weapon_fire_trips_virtual_mines_on_health_band() {
         .and_then(|o| o.mine_data.as_ref().map(|m| m.virtual_mines_remaining))
         .unwrap_or(0);
     assert!(left < 8, "virtual count must drop, left={left}");
+}
+
+#[test]
+fn lethal_weapon_hit_chain_detonates_virtual_mines() {
+    use crate::game_logic::host_mines::{MINE_MIN_HEALTH, STANDARD_MINE_NUM_VIRTUAL};
+    let mut logic = GameLogic::new();
+    let mine_id = logic
+        .place_land_mine_named(
+            "ChinaStandardMine",
+            Team::China,
+            Vec3::new(0.0, 0.0, 0.0),
+            None,
+        )
+        .expect("pad");
+    {
+        let m = logic.host_object_mut(mine_id).unwrap();
+        m.health.current = 100.0;
+        m.health.maximum = 100.0;
+        if let Some(md) = m.mine_data.as_mut() {
+            md.last_synced_health = Some(100.0);
+        }
+        let killed = m.take_damage_from(100.0, None);
+        assert!(!killed, "lethal hit must not silently destroy the pad");
+        assert!(!m.status.destroyed);
+        assert!(m.health.current <= 0.0);
+    }
+    logic.update_mines_and_demo_traps();
+    assert!(
+        logic.mine_residual_proximity_detonations() >= STANDARD_MINE_NUM_VIRTUAL,
+        "lethal hit must chain-detonate remaining virtuals, got {}",
+        logic.mine_residual_proximity_detonations()
+    );
+    let pad = logic.host_object(mine_id).expect("regen pad kept");
+    assert!(
+        pad.is_alive(),
+        "China regen pad must survive at MIN_HEALTH after chain"
+    );
+    assert!((pad.health.current - MINE_MIN_HEALTH).abs() < 1e-3);
+    assert_eq!(
+        pad.mine_data.as_ref().unwrap().virtual_mines_remaining,
+        0
+    );
+}
+
+#[test]
+fn sold_demo_trap_stops_proximity_scan() {
+    let mut logic = GameLogic::new();
+    ensure_test_infantry_template(&mut logic);
+    let trap_id = logic
+        .place_demo_trap(Team::GLA, Vec3::new(0.0, 0.0, 0.0), None)
+        .expect("trap");
+    let _enemy = logic
+        .create_object("TestInfantry", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+        .expect("enemy");
+    {
+        let trap = logic.host_object_mut(trap_id).unwrap();
+        trap.set_status_sold(true);
+    }
+    logic.update_mines_and_demo_traps();
+    assert_eq!(
+        logic.mine_residual_proximity_detonations(),
+        0,
+        "sold DemoTrapUpdate must return before proximity scan"
+    );
+    let trap = logic.host_object(trap_id).expect("trap kept");
+    assert!(trap.is_alive());
+    assert!(!trap.mine_data.as_ref().unwrap().detonated);
 }
 
 #[test]
@@ -1987,15 +2172,15 @@ fn camo_netting_structure_attack_and_damage_reveal_residual() {
         "must remain uncloaked during StealthDelay"
     );
 
-    // ATTACKING residual: mark attacking while stealthed → uncloak.
+    // ATTACKING residual: IS_FIRING_WEAPON destalths; approach does not.
     {
         let s = game_logic.host_object_mut(stinger_id).unwrap();
         s.set_status_stealthed(true);
         s.stealth_allowed_frame = 0;
         s.stealth_delay_pending = false;
-        s.set_status_attacking(true);
-        s.set_ai_state(AIState::Attacking);
+        s.set_status_firing_weapon(true);
     }
+
     game_logic.frame = 2;
     game_logic.update_stealth_and_detection();
     assert!(
@@ -2013,6 +2198,7 @@ fn camo_netting_structure_attack_and_damage_reveal_residual() {
         s.stealth_allowed_frame = 0;
         s.stealth_delay_pending = false;
         s.set_status_attacking(false);
+        s.set_status_firing_weapon(false);
         s.set_ai_state(AIState::Idle);
         s.set_status_using_ability(true);
     }
@@ -2059,8 +2245,9 @@ fn camo_netting_structure_attack_and_damage_reveal_residual() {
         t.set_ai_state(AIState::Idle);
         t.stealth_allowed_frame = 0;
         t.stealth_delay_pending = false;
-        t.set_status_attacking(true); // force uncloak this frame
+        t.set_status_firing_weapon(true); // force uncloak this frame
     }
+
     let order_before = game_logic.camo_netting_order_idle_enemies_count();
     game_logic.frame = 4;
     game_logic.update_stealth_and_detection();
@@ -2094,6 +2281,7 @@ fn camo_netting_structure_attack_and_damage_reveal_residual() {
     {
         let t = game_logic.host_object_mut(tunnel_id).unwrap();
         t.set_status_attacking(false);
+        t.set_status_firing_weapon(false);
         t.set_status_using_ability(false);
         t.set_ai_state(AIState::Idle);
         t.target = None;
@@ -2102,6 +2290,7 @@ fn camo_netting_structure_attack_and_damage_reveal_residual() {
         t.stealth_allowed_frame = recloak_frame;
         t.stealth_delay_pending = false;
     }
+
     game_logic.update_stealth_and_detection();
     assert!(
         game_logic

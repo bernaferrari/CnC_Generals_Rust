@@ -130,7 +130,7 @@ impl Object {
             // C++ maintainCurrentPosition when no move order.
             // ground_y unknown here — use current y as layer residual.
             let gy = self.get_position().y;
-            let _ = self.loco_maintain_current_position(gy);
+            let _ = self.loco_maintain_current_position(gy, dt);
             return;
         }
 
@@ -286,14 +286,6 @@ impl Object {
             } else {
                 // Force/velocity apply residual (legs/wheels/treads/hover/other).
                 self.apply_forward_speed_force(goal_speed, dt);
-
-                // Hover over-water residual (model condition flag only).
-                if matches!(self.loco_appearance, LocomotorAppearance::Hover) {
-                    // Fail-closed: no water table — never set over_water true here.
-                    if self.over_water {
-                        self.over_water = false;
-                    }
-                }
 
                 // Arm motive window so collide forces stay lateral while driving.
                 if goal_speed.abs() > 0.1 {
@@ -797,6 +789,15 @@ impl Object {
         previous_level: VeterancyLevel,
         new_level: VeterancyLevel,
     ) {
+        self.apply_veterancy_bonuses_with_feedback(previous_level, new_level, true);
+    }
+
+    pub(crate) fn apply_veterancy_bonuses_with_feedback(
+        &mut self,
+        previous_level: VeterancyLevel,
+        new_level: VeterancyLevel,
+        provide_feedback: bool,
+    ) {
         let (_, old_damage_bonus, old_rof_bonus) = Self::veterancy_bonuses(previous_level);
         let (_, damage_bonus, rof_bonus) = Self::veterancy_bonuses(new_level);
 
@@ -849,14 +850,16 @@ impl Object {
         self.validate_armor_and_damage_fx();
 
         // C++ ActiveBody SoundPromoted* + Object LevelGain Anim2D + MiscAudio UnitPromoted.
-        self.queue_veterancy_promote_fx(previous_level, new_level);
+        self.queue_veterancy_promote_fx(previous_level, new_level, provide_feedback);
     }
 
     fn queue_veterancy_promote_fx(
         &self,
         previous_level: VeterancyLevel,
         new_level: VeterancyLevel,
+        _provide_feedback: bool,
     ) {
+        // TEMP RED: old live path — rank-up + IgnoredInGui only.
         use crate::game_logic::host_unit_training::{record_promote_fx, veterancy_rank};
         if veterancy_rank(new_level) <= veterancy_rank(previous_level) {
             return;
@@ -867,6 +870,16 @@ impl Object {
         let pos = self.get_health_box_position();
         record_promote_fx(self.id, pos, 0, new_level);
     }
+
+    /// C++ `Object::isLocallyControlled` residual for promote FX.
+    /// Unset owner (unit tests) is local; player 0 is the live local slot.
+    fn is_locally_controlled_for_promote_fx(&self) -> bool {
+        match self.owner_player_id {
+            None => true,
+            Some(id) => id == 0,
+        }
+    }
+
 
     /// C++ ExperienceTracker::setMinVeterancyLevel residual (VeterancyGainCreate).
     ///
@@ -923,7 +936,7 @@ impl Object {
         self.experience.level = level;
         self.experience.current = threshold.max(0.0);
         if previous != level {
-            self.apply_veterancy_bonuses(previous, level);
+            self.apply_veterancy_bonuses_with_feedback(previous, level, false);
         } else {
             self.record_host_veterancy_level();
             self.record_host_experience();

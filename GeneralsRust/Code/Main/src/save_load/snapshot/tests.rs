@@ -3856,6 +3856,49 @@ fn snapshot_round_trips_sole_heal_contain_original_team_formation() {
 }
 
 #[test]
+fn snapshot_round_trips_experience_sink_and_scalar() {
+    let mut source = GameLogic::new();
+    source
+        .templates
+        .insert("XpUnit".to_string(), ThingTemplate::new("XpUnit"));
+    source.add_player(Player::new(1, Team::USA, "USA", true));
+    let tank = source
+        .create_object("XpUnit", Team::USA, Vec3::new(1.0, 0.0, 1.0))
+        .expect("tank");
+    let rider = source
+        .create_object("XpUnit", Team::USA, Vec3::new(2.0, 0.0, 2.0))
+        .expect("rider");
+    {
+        let object = source.host_object_mut(rider).expect("rider");
+        object.set_experience_sink(Some(tank));
+        object.set_experience_scalar(2.0);
+    }
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder
+        .create_world_snapshot(&source)
+        .expect("xp snapshot");
+    assert!(
+        snapshot.object_experience_trackers.iter().any(|entry| {
+            entry.object_id == rider
+                && entry.experience_sink == Some(tank)
+                && (entry.experience_scalar - 2.0).abs() < f32::EPSILON
+        }),
+        "C++ ExperienceTracker::xfer sink+scalar must persist"
+    );
+
+    let mut restored = GameLogic::new();
+    restored.templates = source.templates.clone();
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .expect("restore xp");
+    let rider_obj = restored.host_object(rider).expect("rider restored");
+    assert_eq!(rider_obj.experience_sink, Some(tank));
+    assert!((rider_obj.experience_scalar - 2.0).abs() < f32::EPSILON);
+}
+
+
+#[test]
 fn bincode_v13_migrates_without_object_persist_tail() {
     let mut source = WorldSnapshot::default();
     source.version = 13;
@@ -3963,4 +4006,93 @@ fn snapshot_pre_v17_defaults_scoring_and_empty_pools() {
     assert!(!restored.skirmish_rules().limit_superweapons);
     assert_eq!(restored.cave_system_residual().contain_count(0), 0);
 }
+
+#[test]
+fn snapshot_round_trips_v18_ui_script_radar_water_drawable() {
+    gamelogic::helpers::TheGameLogic::set_rank_level_limit(8);
+    gamelogic::helpers::TheGameLogic::set_draw_icon_ui(false);
+    gamelogic::helpers::TheGameLogic::set_hulk_max_lifetime_override(42);
+    gamelogic::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(15);
+    let _ = gamelogic::scripting::engine::initialize_script_engine();
+    let _ = gamelogic::scripting::engine::with_script_engine_mut(|engine| {
+        engine.restore_named_trackers(
+            &[("MissionClock".into(), 90, true)],
+            &[("GateOpen".into(), true)],
+        )
+    });
+    let mut source = GameLogic::new();
+    source.upsert_script_named_timer("LaunchClock", "Launch in", true);
+    source.restore_script_named_timer_display_shown(false);
+    source.restore_script_superweapon_display_enabled(false);
+    source.restore_script_superweapon_hidden_objects([ObjectId(88)]);
+    source.restore_radar_script_state(false, true);
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
+    assert_eq!(snapshot.persist_v18.rank_level_limit, 8);
+    assert!(!snapshot.persist_v18.draw_icon_ui);
+    assert_eq!(snapshot.persist_v18.script_hulk_max_lifetime_override, 42);
+    assert_eq!(snapshot.persist_v18.rank_points_to_add_at_game_start, 15);
+    assert!(!snapshot.persist_v18.named_timer_display_shown);
+    assert_eq!(snapshot.persist_v18.named_timers[0].name, "LaunchClock");
+    assert!(snapshot.persist_v18.superweapon_hidden_by_script);
+    assert!(snapshot.persist_v18.radar_forced);
+    assert!(snapshot.persist_v18.radar_hidden);
+
+    gamelogic::helpers::TheGameLogic::set_rank_level_limit(1000);
+    gamelogic::helpers::TheGameLogic::set_draw_icon_ui(true);
+    gamelogic::helpers::TheGameLogic::set_hulk_max_lifetime_override(-1);
+    gamelogic::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(0);
+    let mut restored = GameLogic::new();
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .expect("restore");
+    assert_eq!(gamelogic::helpers::TheGameLogic::get_rank_level_limit(), 8);
+    assert!(!gamelogic::helpers::TheGameLogic::get_draw_icon_ui());
+    assert_eq!(
+        gamelogic::helpers::TheGameLogic::get_hulk_max_lifetime_override(),
+        42
+    );
+    assert_eq!(
+        gamelogic::helpers::TheGameLogic::get_rank_points_to_add_at_game_start(),
+        15
+    );
+    assert_eq!(
+        restored.peek_script_named_timers().get("LaunchClock"),
+        Some(&("Launch in".to_string(), true))
+    );
+    assert!(!restored.peek_script_named_timer_display_shown());
+    assert!(!restored.peek_script_superweapon_display_enabled());
+    assert!(restored
+        .peek_script_superweapon_hidden_objects()
+        .contains(&ObjectId(88)));
+    assert!(restored.radar_forced());
+    assert!(!restored.radar_script_enabled());
+    let _ = gamelogic::scripting::engine::with_script_engine_ref(|engine| {
+        let counter = engine.get_counter("MissionClock").expect("counter");
+        assert_eq!(counter.value, 90);
+        assert!(counter.is_countdown_timer);
+        assert_eq!(engine.get_flag("GateOpen").map(|f| f.value), Some(true));
+    });
+    gamelogic::helpers::TheGameLogic::set_rank_level_limit(1000);
+    gamelogic::helpers::TheGameLogic::set_draw_icon_ui(true);
+    gamelogic::helpers::TheGameLogic::set_hulk_max_lifetime_override(-1);
+    gamelogic::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(0);
+}
+
+#[test]
+fn snapshot_pre_v18_defaults_persist_tail() {
+    let mut snapshot = WorldSnapshot::default();
+    snapshot.version = WORLD_SNAPSHOT_DIRECT_XFER_V17_TAIL_VERSION;
+    snapshot.persist_v18.draw_icon_ui = false;
+    snapshot.persist_v18.named_timer_display_shown = false;
+    let builder = SnapshotBuilder::new();
+    let mut restored = GameLogic::new();
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .expect("restore");
+    assert!(gamelogic::helpers::TheGameLogic::get_draw_icon_ui());
+    assert!(restored.peek_script_named_timer_display_shown());
+}
+
 

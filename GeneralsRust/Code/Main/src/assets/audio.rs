@@ -142,15 +142,38 @@ fn spawn_output_stream_owner() -> Result<(OutputStreamKeepalive, OutputStreamHan
     ))
 }
 
+/// Build leftover `AudioEventRts` for TheAudio, keeping world pose.
+///
+/// `position_host_yup` is Main Y-up `(x, height, z_ground)`. Leftover / C++
+/// Coord3D is Z-up `(x, y_ground, z_height)` so Miles `playSample3D` pans.
+pub fn leftover_world_sfx_event(
+    event_name: &str,
+    position_host_yup: Option<(f32, f32, f32)>,
+) -> gamelogic::common::audio::AudioEventRts {
+    let mut event = gamelogic::common::audio::AudioEventRts::new(event_name);
+    if let Some((x, y, z)) = position_host_yup {
+        event.set_position(&(x, z, y));
+    }
+    event
+}
+
 /// C++ `TheAudio->addAudioEvent` (`AudioManager::addAudioEvent`, GameAudio.cpp).
 ///
 /// Live UI/SFX play API. Routes only when Common `AudioManager` already has a
 /// live handle (`get_global_audio_manager`). Special values
 /// (`AHSV_NO_SOUND`/`AHSV_ERROR`/…) are treated as “no handle”.
 pub fn play_sound_through_the_audio(event_name: &str) -> Option<u32> {
+    play_sound_through_the_audio_at(event_name, None)
+}
+
+/// Same as [`play_sound_through_the_audio`] with a world pose for SpatialSink.
+pub fn play_sound_through_the_audio_at(
+    event_name: &str,
+    position_host_yup: Option<(f32, f32, f32)>,
+) -> Option<u32> {
     game_engine::common::audio::game_audio::get_global_audio_manager()?;
     let audio = gamelogic::helpers::TheAudio::get()?;
-    let event = gamelogic::common::audio::AudioEventRts::new(event_name);
+    let event = leftover_world_sfx_event(event_name, position_host_yup);
     let handle = audio.add_audio_event(&event);
     // C++ `AHSV_FIRST_HANDLE` is 1000; sentinels occupy the 0xFFFF_FFF0 band.
     if (1000..0xFFFF_FFF0).contains(&handle) {
@@ -1275,6 +1298,17 @@ mod tests {
         assert_eq!(silent, 0.0, "C++ mutes at objDistance >= objMaxDistance");
         // 50/25 → gain 0.5; sound3DVolume default 0.75 → 0.375
         assert!((mid - 0.375).abs() < 1.0e-5);
+    }
+
+    #[test]
+    fn leftover_world_sfx_event_keeps_host_pose_as_cpp_z_up() {
+        use gamelogic::common::audio::LeftoverAudioOwner;
+        let event = leftover_world_sfx_event("Explosion", Some((10.0, 4.0, 20.0)));
+        assert_eq!(event.owner_type, LeftoverAudioOwner::Positional);
+        assert_eq!(event.position, Some((10.0, 20.0, 4.0)));
+        let ui = leftover_world_sfx_event("GUIClick", None);
+        assert_eq!(ui.owner_type, LeftoverAudioOwner::Invalid);
+        assert!(ui.position.is_none());
     }
 
 

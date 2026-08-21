@@ -18,7 +18,7 @@ use crate::display::cinematic_camera::CameraShakeSystem;
 use crate::display::view::{
     with_tactical_view, CameraShakeType as ViewShakeKind, Point3 as ViewPoint3,
 };
-use crate::effects::decals::{DecalManager, DecalSettings};
+use crate::effects::decals::DecalManager;
 use crate::effects::fxlist_integration::ParticleSystemFXNugget;
 use crate::effects::particle_manager::{get_particle_system_manager_mut, GameClientRandomVariable};
 use crate::effects::ray_effect_system::create_ray_effect_by_template;
@@ -551,16 +551,6 @@ fn with_ray_manager<F: FnOnce(&mut RayEffectManager)>(f: F) {
     }
 }
 
-fn with_decal_manager<F: FnOnce(&mut DecalManager)>(f: F) {
-    let Some(manager) = FX_DECAL_MANAGER.get() else {
-        return;
-    };
-    if let Some(manager) = manager.read().ok().and_then(|guard| guard.clone()) {
-        if let Ok(mut guard) = manager.lock() {
-            f(&mut guard);
-        }
-    }
-}
 
 fn with_shake_system<F: FnOnce(&mut CameraShakeSystem)>(f: F) {
     let Some(system) = FX_SHAKE_SYSTEM.get() else {
@@ -1487,14 +1477,8 @@ impl FXNugget for TerrainScorchFXNugget {
             return;
         };
         let scorch_idx = resolve_scorch_type(self.scorch);
+        // C++ TerrainScorchFXNugget::doFXPos calls only TheGameClient->addScorch.
         let _ = add_terrain_scorch([primary.x, primary.y, primary.z], self.radius, scorch_idx);
-        with_decal_manager(|manager| {
-            let settings = DecalSettings::scorch_mark(
-                nalgebra::Point3::new(primary.x, primary.y, primary.z),
-                self.radius.max(0.1),
-            );
-            manager.create_decal(settings);
-        });
     }
 }
 
@@ -1577,6 +1561,40 @@ impl FXNugget for ParticleSystemWrapper {
     }
 }
 
+/// C++ `obj->getDrawable()->getCurrentClientBonePositions`.
+/// Prefers the live GameClient `BasicDrawable` W3D walk, then GameLogic
+/// Drawable's draw-module walk (same C++ loop). Never the empty skeleton.
+fn current_client_bone_positions(
+    primary: &Object,
+    bone_name: &str,
+    start: i32,
+    positions: &mut [Coord3D],
+    transforms: &mut [Matrix3D],
+) -> i32 {
+    let max_bones = positions.len().min(transforms.len());
+    let live = crate::core::game_client::query_live_current_client_bone_positions(
+        primary.get_id(),
+        bone_name,
+        start,
+        max_bones,
+    );
+    if !live.is_empty() {
+        let count = live.len().min(max_bones);
+        for (i, (pos, mtx)) in live.into_iter().take(count).enumerate() {
+            positions[i] = pos;
+            transforms[i] = mtx;
+        }
+        return count as i32;
+    }
+    let Some(drawable) = primary.get_drawable() else {
+        return 0;
+    };
+    let Ok(draw) = drawable.read() else {
+        return 0;
+    };
+    draw.get_current_client_bone_positions(bone_name, start, positions, transforms)
+}
+
 struct FXListAtBonePosFXNugget {
     fx_name: String,
     bone_name: String,
@@ -1620,21 +1638,19 @@ impl FXListAtBonePosFXNugget {
         if self.bone_name.is_empty() {
             return;
         }
-        let Some(drawable) = primary.get_drawable() else {
-            return;
-        };
-        let Ok(draw) = drawable.read() else {
-            return;
-        };
-        let start = start.max(0);
-        let end = Self::client_bone_end_index(start);
-        for index in start..=end {
-            let bone_name = Self::client_bone_name(&self.bone_name, index);
-            let Some(bone_mtx) = draw.get_bone_local_transform(&bone_name) else {
-                break;
-            };
-            let (_, _, bone_pos) = bone_mtx.to_scale_rotation_translation();
-            let world = primary.convert_bone_pos_to_world_pos(Some(&bone_pos), Some(&bone_mtx));
+        let mut positions = [Coord3D::ZERO; Self::MAX_BONE_POINTS];
+        let mut transforms = [Matrix3D::IDENTITY; Self::MAX_BONE_POINTS];
+        let count = current_client_bone_positions(
+            primary,
+            &self.bone_name,
+            start,
+            &mut positions,
+            &mut transforms,
+        );
+        for i in 0..count as usize {
+            // C++ convertBonePosToWorldPos: worldMtx = obj * boneMtx,
+            // worldPos = obj.Transform_Vector(bonePos). bonePos is boneMtx translation.
+            let world = primary.convert_bone_pos_to_world_pos(None, Some(&transforms[i]));
             let (_, _, world_pos) = world.to_scale_rotation_translation();
             let _ = self.orient_to_bone;
             fx.do_fx_pos(Some(&world_pos), Some(&world), 0.0, None, 0.0);
@@ -1704,6 +1720,7 @@ mod tests {
             .expect("known retail runtime FXList stored");
         assert!(tank.nuggets.len() >= 4);
     }
+
 
     #[test]
     fn fx_list_at_bone_pos_queries_cpp_current_client_bone_sequence() {

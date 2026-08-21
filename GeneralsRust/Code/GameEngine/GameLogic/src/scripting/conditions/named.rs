@@ -82,14 +82,18 @@ impl ScriptCondition for NamedUnitDestroyedCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        // Empty dual-world: host snapshot is the named-unit source of truth.
-        // C++ evaluateNamedUnitDestroyed: never existed → false.
+        // Empty dual-world: host snapshot while the unit still exists; after
+        // processDestroyList C++ getUnitNamed is NULL and didUnitExist stays true.
         if dual_world_registry_unavailable() {
             let unit_name = get_str_param(parameters, "unit_name")?;
+            if let Some(obj) = super::helpers::host_script_query_object(&unit_name) {
+                return Ok(obj.effectively_dead || !obj.alive);
+            }
             if let Some(alive) = super::helpers::host_script_named_unit_alive(&unit_name) {
                 return Ok(!alive);
             }
-            return Ok(false);
+            let tracker = get_named_object_tracker();
+            return tracker.did_object_exist(&unit_name);
         }
 
         let unit_name = get_str_param(parameters, "unit_name")?;
@@ -175,9 +179,15 @@ impl ScriptCondition for NamedUnitTotallyDeadCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        // Wave 271: empty dual-world → fail-closed condition.
+        // C++ evaluateNamedUnitTotallyDead: getUnitNamed succeeds → false;
+        // didUnitExist (name known, object gone) → true; never existed → false.
         if dual_world_registry_unavailable() {
-            return Ok(false);
+            let unit_name = get_str_param(parameters, "unit_name")?;
+            if super::helpers::host_script_named_unit_alive(&unit_name).is_some() {
+                return Ok(false);
+            }
+            let tracker = get_named_object_tracker();
+            return tracker.did_object_exist(&unit_name);
         }
 
         let unit_name = get_str_param(parameters, "unit_name")?;
@@ -587,6 +597,10 @@ impl ScriptCondition for NamedSelectedCondition {
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
         let unit_name = get_str_param(parameters, "unit_name")?;
+        if dual_world_registry_unavailable() {
+            return Ok(super::helpers::host_script_named_unit_selected(&unit_name)
+                .unwrap_or(false));
+        }
         let object_id = match lookup_named_object_id(&unit_name)? {
             Some(id) => id,
             None => return Ok(false),

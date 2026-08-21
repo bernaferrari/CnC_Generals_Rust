@@ -747,7 +747,7 @@ mod particle_renderer_tests {
             uv_rect: [0.0, 0.0, 1.0, 1.0],
             rotation: 1.57, // 90 degrees
             alpha: 0.75,
-            _padding: [0.0; 2],
+            billboard: 1.0,
         };
 
         assert_eq!(vertex.position, [1.0, 2.0, 3.0]);

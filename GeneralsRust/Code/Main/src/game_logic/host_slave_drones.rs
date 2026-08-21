@@ -154,6 +154,25 @@ pub const SCOUT_DIST_TO_TARGET_RANGE_BONUS: f32 = 20.0;
 /// Retail GameData.ini WeaponBonus DRONE_SPOTTING RANGE **150%** (Scout range-extend).
 pub const DRONE_SPOTTING_RANGE_MULT: f32 = 1.50;
 
+/// C++ `SpawnBehavior::computeAggregateStates` (SpawnBehavior.cpp:888-897):
+/// whoever has the higher veterancy, set the other to that level.
+pub fn synced_spawn_veterancy(
+    master: crate::game_logic::VeterancyLevel,
+    spawn: crate::game_logic::VeterancyLevel,
+) -> (
+    crate::game_logic::VeterancyLevel,
+    crate::game_logic::VeterancyLevel,
+) {
+    use crate::game_logic::host_unit_training::veterancy_rank;
+    let high = if veterancy_rank(spawn) > veterancy_rank(master) {
+        spawn
+    } else {
+        master
+    };
+    (high, high)
+}
+
+
 
 // --- Wave 61 body / spawn / upgrade residual ---
 
@@ -801,4 +820,90 @@ mod tests {
         assert!((SLAVE_GUARD_MAX_RANGE - 35.0).abs() < 0.01);
         assert!((BATTLE_DRONE_REPAIR_MIN_ALTITUDE - 18.0).abs() < 0.01);
     }
+
+    #[test]
+    fn compute_aggregate_syncs_to_higher_rank() {
+        use crate::game_logic::VeterancyLevel;
+        let (m, s) = synced_spawn_veterancy(VeterancyLevel::Elite, VeterancyLevel::Rookie);
+        assert_eq!(m, VeterancyLevel::Elite);
+        assert_eq!(s, VeterancyLevel::Elite);
+        let (m, s) = synced_spawn_veterancy(VeterancyLevel::Rookie, VeterancyLevel::Veteran);
+        assert_eq!(m, VeterancyLevel::Veteran);
+        assert_eq!(s, VeterancyLevel::Veteran);
+        let (m, s) = synced_spawn_veterancy(VeterancyLevel::Elite, VeterancyLevel::Elite);
+        assert_eq!(m, VeterancyLevel::Elite);
+        assert_eq!(s, VeterancyLevel::Elite);
+    }
+
+    fn veteran_humvee() -> (
+        crate::game_logic::GameLogic,
+        crate::game_logic::ObjectId,
+    ) {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, VeterancyLevel};
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mid = ObjectId(7100);
+        let mut mt = ThingTemplate::new("AmericaVehicleHumvee");
+        mt.add_kind_of(KindOf::Vehicle);
+        logic.objects.insert(mid, {
+            let mut o = Object::new(mt, mid, Team::USA);
+            o.set_position(glam::Vec3::ZERO);
+            let _ = o.set_min_veterancy_level(VeterancyLevel::Veteran);
+            o
+        });
+        (logic, mid)
+    }
+
+    #[test]
+    fn slave_drone_veteran_humvee_spawn_yields_veteran_drone() {
+        use crate::game_logic::VeterancyLevel;
+        let kinds = [
+            SlaveDroneKind::Scout,
+            SlaveDroneKind::Battle,
+            SlaveDroneKind::Hellfire,
+        ];
+        for kind in kinds {
+            let (mut logic, mid) = veteran_humvee();
+            let drone = logic
+                .residual_attach_slave_drone(mid, kind)
+                .expect("drone attach");
+            assert_eq!(
+                logic.objects[&drone].experience.level,
+                VeterancyLevel::Veteran,
+                "{kind:?} must inherit veteran Humvee rank"
+            );
+        }
+    }
+
+    #[test]
+    fn slave_drone_elite_promotes_master_on_host_tick() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, VeterancyLevel};
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mid = ObjectId(7200);
+        let mut mt = ThingTemplate::new("AmericaVehicleHumvee");
+        mt.add_kind_of(KindOf::Vehicle);
+        logic.objects.insert(mid, {
+            let mut o = Object::new(mt, mid, Team::USA);
+            o.set_position(glam::Vec3::ZERO);
+            o
+        });
+        let drone = logic
+            .residual_attach_slave_drone(mid, SlaveDroneKind::Scout)
+            .expect("scout attach");
+        assert_eq!(
+            logic.objects[&drone].experience.level,
+            VeterancyLevel::Rookie
+        );
+        let _ = logic
+            .objects
+            .get_mut(&drone)
+            .expect("drone")
+            .set_min_veterancy_level(VeterancyLevel::Elite);
+        logic.update_with_dt(1.0 / 30.0);
+        assert_eq!(
+            logic.objects[&mid].experience.level,
+            VeterancyLevel::Elite,
+            "drone elite must promote master on live host tick"
+        );
+    }
+
 }

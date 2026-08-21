@@ -331,8 +331,7 @@ impl Projectile {
             shock_wave_amount: 0.0,
             shock_wave_radius: 0.0,
             shock_wave_taper_off: 0.0,
-            radius_damage_affects: crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
-                | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
+            radius_damage_affects: crate::game_logic::weapon_bootstrap::WEAPON_AFFECTS_DEFAULT,
             projectile_collides: crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT,
             historic_weapon_key: String::new(),
             historic_bonus_time_frames: 0,
@@ -1129,6 +1128,26 @@ impl CombatSystem {
         std::mem::take(&mut self.pending_under_attack)
     }
 
+    /// C++ Object.cpp:1847-1849: enqueue only when actual HP was dealt and
+    /// the type is not DAMAGE_PENALTY / DAMAGE_HEALING. Local-player,
+    /// sourcePlayerMask, and radar-data gates run in
+    /// `GameLogic::try_under_attack_from_damage`.
+    fn queue_under_attack_if_dealt(
+        &mut self,
+        victim_id: ObjectId,
+        damage_type: DamageType,
+        hp_lost: f32,
+    ) {
+        if hp_lost > 0.0
+            && !matches!(
+                damage_type,
+                DamageType::Penalty | DamageType::Healing
+            )
+        {
+            self.pending_under_attack.push(victim_id);
+        }
+    }
+
     /// Drain FireOCL events emitted while pending shots were materialized.
     pub fn take_fire_ocl(&mut self) -> Vec<WeaponFireOcl> {
         std::mem::take(&mut self.fire_ocl)
@@ -1747,13 +1766,15 @@ impl CombatSystem {
                         *damage_type,
                     );
                     if let Some(target) = objects.get_mut(target_id) {
+                        let before = target.health.current;
                         let destroyed = target.take_damage_from_typed_death(
                             *damage,
                             Some(*shooter_id),
                             *damage_type,
                             *death_type,
                         );
-                        self.pending_under_attack.push(*target_id);
+                        let hp_lost = (before - target.health.current).max(0.0);
+                        self.queue_under_attack_if_dealt(*target_id, *damage_type, hp_lost);
                         if destroyed {
                             log::debug!(
                                 "Projectile destroyed object {} (damage: {:.1}, type: {:?})",
@@ -1818,8 +1839,7 @@ impl CombatSystem {
                             != 0
                             && *vid == *shooter_id;
                         if !is_primary && !kills_self {
-                            let airborne =
-                                obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target;
+                            let airborne = obj.is_significantly_above_terrain();
                             let same_tmpl = !shooter_template.is_empty()
                                 && obj.template_name == *shooter_template;
                             let allowed =
@@ -1850,42 +1870,33 @@ impl CombatSystem {
                                 crate::game_logic::host_transition_damage_fx::set_damage_fx_source(
                                     splash_fx_source.clone(),
                                 );
+                                let before = obj.health.current;
                                 obj.take_damage_from_typed_death(
                                     area_damage,
                                     Some(*shooter_id),
                                     *damage_type,
                                     *death_type,
                                 );
-                                self.pending_under_attack.push(*vid);
+                                let hp_lost = (before - obj.health.current).max(0.0);
+                                self.queue_under_attack_if_dealt(*vid, *damage_type, hp_lost);
                             }
                         }
-                        // C++ ShockWave residual: push mobile units outward from blast.
-                        // Fail-closed: not full PhysicsBehavior / ground friction matrix.
-                        // Mobile residual: can_move OR non-structure alive (simple objects
-                        // may not flag is_mobile yet). Structures never push.
-                        let pushable = obj.is_alive()
-                            && !obj.is_kind_of(KindOf::Structure)
-                            && (obj.can_move()
-                                || obj.is_kind_of(KindOf::Infantry)
-                                || obj.is_kind_of(KindOf::Vehicle));
-                        if shock_amt > 0.0 && shock_r > 0.0 && dist <= shock_r && pushable {
-                            let mut dir = op - *position;
-                            dir.y = 0.0;
-                            if dir.length_squared() < 1e-8 {
-                                // Degenerate center hit: push along +X residual.
-                                dir = Vec3::X;
-                            } else {
-                                dir = dir.normalize();
+                        // C++ Object.cpp:1801-1835: attemptDamage applies PhysicsBehavior
+                        // shock / random rotation / setStunned / STUNNED_FLAILING.
+                        // Live projectile splash must use apply_shock_wave_impulse, not a
+                        // one-frame XZ position nudge.
+                        if shock_amt > 0.0 && shock_r > 0.0 && dist <= shock_r {
+                            if let Some(force) =
+                                crate::game_logic::weapon_bootstrap::compute_shock_wave_force(
+                                    *position,
+                                    op,
+                                    shock_amt,
+                                    shock_r,
+                                    shock_taper,
+                                )
+                            {
+                                let _ = obj.apply_shock_wave_impulse(force);
                             }
-                            let t = (dist / shock_r).clamp(0.0, 1.0);
-                            // Strength falls from amount at center toward amount*taper at edge.
-                            let strength = shock_amt * (1.0 - t * (1.0 - shock_taper));
-                            // Convert residual amount into a one-frame position nudge.
-                            let nudge = (strength * 0.02).min(12.0);
-                            let new_pos = op + dir * nudge;
-                            obj.set_position(new_pos);
-                            // Kick residual velocity so movement/update observes push.
-                            obj.movement.velocity += dir * (strength * 0.15).min(40.0);
                         }
                     }
                 }
@@ -2077,7 +2088,11 @@ const HUGE_DAMAGE_AMOUNT: f32 = 999_999.0;
 
 /// C++ `DAMAGE_RANGE_CALC_TYPE = FROM_BOUNDINGSPHERE_3D` (Weapon.cpp:70):
 /// center-to-center minus victim bounding-sphere radius, clamped at 0.
-fn splash_from_bounding_sphere_3d(center: Vec3, victim_pos: Vec3, victim_sphere: f32) -> f32 {
+pub(crate) fn splash_from_bounding_sphere_3d(
+    center: Vec3,
+    victim_pos: Vec3,
+    victim_sphere: f32,
+) -> f32 {
     let center_dist = victim_pos.distance(center);
     let sphere = victim_sphere.max(0.0);
     if center_dist <= sphere {
@@ -2087,7 +2102,7 @@ fn splash_from_bounding_sphere_3d(center: Vec3, victim_pos: Vec3, victim_sphere:
     }
 }
 
-fn victim_splash_sphere_radius(obj: &Object) -> f32 {
+pub(crate) fn victim_splash_sphere_radius(obj: &Object) -> f32 {
     let geom = &obj.thing.template.geometry_info;
     crate::game_logic::host_battlemaster::leftover_horde_bounding_sphere_radius(
         geom.authored,
@@ -3044,13 +3059,19 @@ mod tests {
         }
         let pos0 = objects.get(&tgt).unwrap().get_position();
         let _ = combat.update_projectiles(1.0 / 30.0, &mut objects);
-        let pos1 = objects.get(&tgt).unwrap().get_position();
-        // Pushed away from blast origin.
-        let d0 = pos0.length();
-        let d1 = pos1.length();
+        let victim = objects.get(&tgt).unwrap();
         assert!(
-            d1 > d0 + 0.1 || (pos1 - pos0).length() > 0.1,
-            "shockwave must push unit outward ({pos0:?} -> {pos1:?})"
+            victim.is_shock_stunned(),
+            "C++ attemptDamage must stun / STUNNED_FLAILING"
+        );
+        assert!(
+            victim.movement.velocity.length() > 0.0,
+            "shockwave must toss via apply_shock_wave_impulse"
+        );
+        assert!(
+            (victim.get_position() - pos0).length() < 0.01,
+            "detonation frame must not nudge position ({pos0:?} -> {:?})",
+            victim.get_position()
         );
     }
 
@@ -3121,8 +3142,152 @@ mod tests {
         let _ = combat.update_projectiles(1.0 / 30.0, &mut objects);
         let ally1 = objects.get(&ally).unwrap().health.current;
         let enemy1 = objects.get(&enemy).unwrap().health.current;
-        assert_eq!(ally1, ally0, "default affects must skip allies");
+        assert_eq!(ally1, ally0, "ENEMIES|NEUTRALS INI must skip allies");
         assert!(enemy1 < enemy0 - 1.0, "enemies must take splash");
+    }
+
+    #[test]
+    fn radius_damage_affects_cpp_default_hits_allies() {
+        ensure_unit_test_direct_damage();
+        let mut objects = HashMap::new();
+        let atk = ObjectId(70);
+        let ally = ObjectId(71);
+        objects.insert(
+            atk,
+            make_obj(
+                "USA_Ranger",
+                atk,
+                Team::USA,
+                Vec3::ZERO,
+                &[KindOf::Infantry, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        objects.insert(
+            ally,
+            make_obj(
+                "USA_Ranger",
+                ally,
+                Team::USA,
+                Vec3::new(3.0, 0.0, 0.0),
+                &[KindOf::Infantry, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        let ally0 = objects.get(&ally).unwrap().health.current;
+        let mut combat = CombatSystem::new();
+        let w = Weapon {
+            damage: 40.0,
+            splash_radius: 20.0,
+            projectile_speed: 0.0,
+            ..Weapon::default()
+        };
+        let pid = combat.fire_projectile_ex(
+            Vec3::ZERO,
+            Vec3::new(3.0, 0.0, 0.0),
+            &w,
+            atk,
+            Some(ally),
+            0.0,
+            false,
+        );
+        if let Some(p) = combat.projectile_mut(pid) {
+            p.explosion_radius = 20.0;
+            p.radius_damage_affects =
+                crate::game_logic::weapon_bootstrap::WEAPON_AFFECTS_DEFAULT;
+            p.target_id = None; // splash neighbor, not primary victim
+        }
+        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects);
+        let ally1 = objects.get(&ally).unwrap().health.current;
+        assert!(
+            ally1 < ally0 - 1.0,
+            "C++ default ALLIES|ENEMIES|NEUTRALS must friendly-fire"
+        );
+    }
+
+    #[test]
+    fn radius_damage_affects_not_airborne_skips_significantly_above() {
+        ensure_unit_test_direct_damage();
+        let mut objects = HashMap::new();
+        let atk = ObjectId(72);
+        let ground = ObjectId(73);
+        let high = ObjectId(74);
+        objects.insert(
+            atk,
+            make_obj(
+                "USA_Ranger",
+                atk,
+                Team::USA,
+                Vec3::ZERO,
+                &[KindOf::Infantry, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        objects.insert(
+            ground,
+            make_obj(
+                "GLARebel",
+                ground,
+                Team::GLA,
+                Vec3::new(5.0, 0.0, 0.0),
+                &[KindOf::Vehicle, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        let mut flyer = make_obj(
+            "GLAQuad",
+            high,
+            Team::GLA,
+            Vec3::new(5.0, 12.0, 0.0),
+            &[KindOf::Vehicle, KindOf::Attackable],
+            5.0,
+        );
+        flyer.ground_height = 0.0;
+        flyer.selection_radius = 0.0;
+        flyer.thing.template.geometry_info.authored = true;
+        flyer.thing.template.geometry_info.major_radius = 0.0;
+        flyer.thing.template.geometry_info.geom_type =
+            crate::game_logic::HostGeometryType::Sphere;
+        flyer.thing.template.geometry_info.height = 0.0;
+        objects.insert(high, flyer);
+        let ground0 = objects.get(&ground).unwrap().health.current;
+        let high0 = objects.get(&high).unwrap().health.current;
+
+        let mut combat = CombatSystem::new();
+        let w = Weapon {
+            damage: 40.0,
+            splash_radius: 20.0,
+            projectile_speed: 0.0,
+            ..Weapon::default()
+        };
+        let pid = combat.fire_projectile_ex(
+            Vec3::ZERO,
+            Vec3::new(5.0, 0.0, 0.0),
+            &w,
+            atk,
+            Some(ground),
+            0.0,
+            false,
+        );
+        if let Some(p) = combat.projectile_mut(pid) {
+            p.explosion_radius = 20.0;
+            p.radius_damage_affects =
+                crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
+                    | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS
+                    | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_DOESNT_AFFECT_AIRBORNE;
+            p.target_id = None;
+        }
+        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects);
+        let ground1 = objects.get(&ground).unwrap().health.current;
+        let high1 = objects.get(&high).unwrap().health.current;
+        assert!(
+            ground1 < ground0 - 1.0,
+            "grounded enemy must take splash ({ground0}->{ground1})"
+        );
+        assert_eq!(
+            high1, high0,
+            "NOT_AIRBORNE must use isSignificantlyAboveTerrain, not KindOf::Aircraft"
+        );
     }
 
     #[test]

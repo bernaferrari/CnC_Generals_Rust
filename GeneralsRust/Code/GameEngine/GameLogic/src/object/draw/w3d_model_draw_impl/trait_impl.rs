@@ -301,53 +301,55 @@ impl ObjectDrawInterface for W3DModelDraw {
         transforms: &mut [Matrix3D],
         max_bones: usize,
     ) -> usize {
-        let limit = max_bones.min(positions.len()).min(transforms.len()).min(64);
-        if limit == 0 {
+        // C++ `W3DModelDraw::getCurrentBonePositions` (W3DModelDraw.cpp:3545-3621):
+        // walk `Name` (start==0) or `Name01`… until the first miss, using the live
+        // W3D render-object HTree — not GameLogic Drawable's empty skeleton.
+        const MAX_BONE_GET: usize = 64;
+        let limit = max_bones
+            .min(positions.len())
+            .min(transforms.len())
+            .min(MAX_BONE_GET);
+        if limit == 0 || bone_name_prefix.is_empty() {
             return 0;
         }
 
         let start = start_index.max(0);
-        let Some((to_model_space, world_bones)) = self.with_owner_drawable(|drawable| {
-            let inverse = drawable.get_transform_matrix().inverse();
-            let inverse = if inverse.is_finite() {
-                inverse
-            } else {
-                Matrix3D::IDENTITY
-            };
-            let uniform_scale = drawable.get_world_scale().x;
-            let to_model_space = inverse * Matrix3D::from_scale(Coord3D::splat(uniform_scale));
-
-            let mut world_bones = Vec::new();
-            let end_index = if start == 0 { 0 } else { 99 };
-            for idx in start..=end_index {
-                let bone_name = if idx == 0 {
-                    bone_name_prefix.to_string()
+        let end_index = if start == 0 { 0 } else { 99 };
+        let scale = self
+            .with_owner_drawable(|drawable| {
+                let scale = drawable.get_world_scale().x;
+                if scale.is_finite() && scale > 0.0 {
+                    scale
                 } else {
-                    format!("{bone_name_prefix}{idx:02}")
-                };
-
-                let Some(world_bone) = drawable.get_bone_transform(&bone_name) else {
-                    break;
-                };
-                world_bones.push(world_bone);
-                if world_bones.len() >= limit {
-                    break;
+                    1.0
                 }
-            }
-
-            (to_model_space, world_bones)
-        }) else {
-            return 0;
-        };
+            })
+            .unwrap_or(1.0);
+        let model = self
+            .current_state()
+            .map(|state| state.model_name.as_str().to_string())
+            .unwrap_or_default();
+        let frame = self.current_anim_frame;
 
         let mut count = 0usize;
-        for world_bone in world_bones {
-            let local_bone = to_model_space * world_bone;
-            transforms[count] = local_bone;
-            positions[count] = local_bone.w_axis.truncate();
+        for idx in start..=end_index {
+            if count >= limit {
+                break;
+            }
+            let bone_name = if idx == 0 {
+                bone_name_prefix.to_string()
+            } else {
+                format!("{bone_name_prefix}{idx:02}")
+            };
+            let Some(local) = self.lookup_current_client_bone(&model, scale, frame, &bone_name)
+            else {
+                break;
+            };
+            transforms[count] = local;
+            let (_, _, translation) = local.to_scale_rotation_translation();
+            positions[count] = translation;
             count += 1;
         }
-
         count
     }
 

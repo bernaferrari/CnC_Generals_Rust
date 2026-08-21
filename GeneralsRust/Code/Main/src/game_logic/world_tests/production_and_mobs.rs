@@ -4807,6 +4807,38 @@ fn combat_chinook_residual_allows_vehicle_enter() {
     assert_eq!(tank.ai_state, AIState::Docked);
 }
 
+/// C++ TransportContain::letRidersUpgradeWeaponSet skips non-infantry.
+#[test]
+fn combat_chinook_vehicle_rider_does_not_arm_weapon_set() {
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let chinook_id = create_test_combat_chinook(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+    let tank_id = game_logic
+        .create_object("TestTank", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+        .expect("tank");
+    {
+        let unit = game_logic.host_object_mut(tank_id).unwrap();
+        unit.weapon = Some(Weapon {
+            damage: 20.0,
+            range: 80.0,
+            ..Weapon::default()
+        });
+        unit.set_contained_by(Some(chinook_id));
+        unit.set_ai_state(AIState::Docked);
+    }
+    {
+        let chinook = game_logic.host_object_mut(chinook_id).unwrap();
+        assert!(chinook.add_occupant(tank_id), "Combat Chinook admits vehicles");
+    }
+    game_logic.refresh_battle_bus_armed_riders_weapon_set(chinook_id);
+    let chinook = game_logic.host_object(chinook_id).expect("chinook");
+    assert!(
+        !chinook.weapon_set_player_upgrade,
+        "vehicle-only load must not set WEAPONSET_PLAYER_UPGRADE"
+    );
+}
+
+
 // -----------------------------------------------------------------------
 // China Listening Outpost residual (detect 300 + transport 2 + TankHunter payload)
 // Fail-closed: not IR FX / multi-door / RIDERS_ATTACKING uncloak matrix.
@@ -5008,6 +5040,19 @@ fn tunnel_network_oneshot_spawns_two_rpg_world_objects() {
         2,
         "C++ SpawnBehavior OneShot must create two GLAInfantryTunnelDefender world objects"
     );
+    for id in &troopers {
+        let trooper = logic.host_object(*id).expect("trooper");
+        assert!(
+            trooper.status.disabled_held,
+            "C++ exitObjectViaDoor setDisabled(DISABLED_HELD)"
+        );
+        assert!(!trooper.can_move(), "HELD spawn-point units cannot march off");
+        let pos = trooper.get_position();
+        assert!(
+            (pos.x - 8.0).abs() > 0.5,
+            "must not invent forward*8 + lateral*6 tunnel line, got {pos:?}"
+        );
+    }
 
     // OneShot must not fire again after children die.
     for id in troopers {
@@ -5064,6 +5109,20 @@ fn stinger_site_spawns_three_soldier_world_objects() {
         3,
         "C++ SpawnBehavior must create three GLAInfantryStingerSoldier world objects"
     );
+    for id in &soldiers {
+        let soldier = logic.host_object(*id).expect("soldier");
+        assert!(
+            soldier.status.disabled_held,
+            "C++ exitObjectViaDoor setDisabled(DISABLED_HELD)"
+        );
+        assert!(!soldier.can_move(), "HELD hive soldiers cannot march off");
+        let pos = soldier.get_position();
+        let ring_r2 = pos.x * pos.x + pos.z * pos.z;
+        assert!(
+            (ring_r2 - 144.0).abs() > 4.0,
+            "must not invent 12wu 120° stinger ring, got {pos:?}"
+        );
+    }
 
     logic.mark_object_for_destruction(site_id, None);
     let living = logic
@@ -5080,6 +5139,105 @@ fn stinger_site_spawns_three_soldier_world_objects() {
         living, 0,
         "SpawnedRequireSpawner must kill remaining stinger soldiers with the site"
     );
+}
+
+#[test]
+fn spawn_point_exit_uses_pristine_bones_and_refuses_full_slots() {
+    use gamelogic::common::{Coord3D, Matrix3D};
+    use gamelogic::object::draw::register_pristine_bone_lookup_hook;
+    use std::f32::consts::FRAC_PI_2;
+
+    register_pristine_bone_lookup_hook(Some(std::sync::Arc::new(
+        |model, _scale, _frame, bone| {
+            if model != "UBStingerSTest" {
+                return None;
+            }
+            match bone {
+                "SpawnPoint01" => Some((
+                    1,
+                    Matrix3D::from_rotation_translation(
+                        glam::Quat::from_rotation_z(FRAC_PI_2),
+                        glam::Vec3::new(4.0, 0.0, 0.0),
+                    ),
+                )),
+                "SpawnPoint02" => Some((
+                    2,
+                    Matrix3D::from_translation(Coord3D::new(0.0, 5.0, 0.0)),
+                )),
+                "SpawnPoint03" => Some((
+                    3,
+                    Matrix3D::from_translation(Coord3D::new(-3.0, -2.0, 0.0)),
+                )),
+                _ => None,
+            }
+        },
+    )));
+
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, crate::game_logic::Player::new(0, Team::GLA, "GLA", true));
+    let mut site = ThingTemplate::new("GLAStingerSite");
+    site.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::FSBaseDefense)
+        .set_health(1000.0);
+    site.model_name = Some("UBStingerSTest".into());
+    logic.templates.insert("GLAStingerSite".into(), site);
+    let mut soldier = ThingTemplate::new("GLAInfantryStingerSoldier");
+    soldier
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    logic
+        .templates
+        .insert("GLAInfantryStingerSoldier".into(), soldier);
+
+    let site_id = logic
+        .create_object("GLAStingerSite", Team::GLA, Vec3::new(10.0, 2.0, 20.0))
+        .expect("stinger");
+    let mut soldiers: Vec<(ObjectId, Vec3, f32)> = logic
+        .objects
+        .values()
+        .filter(|o| {
+            o.producer_id == Some(site_id)
+                && o.template_name.eq_ignore_ascii_case("GLAInfantryStingerSoldier")
+        })
+        .map(|o| (o.id, o.get_position(), o.get_orientation()))
+        .collect();
+    soldiers.sort_by(|a, b| a.1.x.partial_cmp(&b.1.x).unwrap());
+    assert_eq!(soldiers.len(), 3, "three bone slots");
+
+    // C++ convertBonePosToWorldPos: parent (10,2,20) + local (x,z,y).
+    // SpawnPoint03 (-3, -2, 0) → host (-3, 0, -2) → world (7, 2, 18)
+    // SpawnPoint01 (4, 0, 0) rot Z 90° → host (4, 0, 0) → world (14, 2, 20)
+    // SpawnPoint02 (0, 5, 0) → host (0, 0, 5) → world (10, 2, 25)
+    assert!((soldiers[0].1.x - 7.0).abs() < 0.05 && (soldiers[0].1.z - 18.0).abs() < 0.05);
+    assert!((soldiers[1].1.x - 10.0).abs() < 0.05 && (soldiers[1].1.z - 25.0).abs() < 0.05);
+    assert!((soldiers[2].1.x - 14.0).abs() < 0.05 && (soldiers[2].1.z - 20.0).abs() < 0.05);
+    assert!(
+        (soldiers[2].2 - FRAC_PI_2).abs() < 0.05,
+        "bone 01 world yaw is parent + Get_Z_Rotation"
+    );
+    for (id, _, _) in &soldiers {
+        let obj = logic.host_object(*id).expect("held");
+        assert!(obj.status.disabled_held);
+        assert!(!obj.can_move());
+    }
+
+    logic.apply_spawn_behavior_on_build_complete(site_id);
+    let again = logic
+        .objects
+        .values()
+        .filter(|o| {
+            o.producer_id == Some(site_id)
+                && o.template_name.eq_ignore_ascii_case("GLAInfantryStingerSoldier")
+                && o.is_alive()
+        })
+        .count();
+    assert_eq!(again, 3, "reserveDoorForExit refuses when every bone is occupied");
+
+    register_pristine_bone_lookup_hook(None);
 }
 
 #[test]

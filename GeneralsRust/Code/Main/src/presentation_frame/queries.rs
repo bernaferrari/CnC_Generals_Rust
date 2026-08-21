@@ -363,6 +363,24 @@ impl PresentationFrame {
                     };
                     input.presentation_opacity = stealth;
                 }
+                let is_mine = object.has_mine
+                    || object
+                        .kind_of
+                        .iter()
+                        .any(|k| matches!(k, KindOf::Mine | KindOf::DemoTrap));
+                let hint = !object.stealthed
+                    && object.innate_stealth
+                    && object.owner_player_id == Some(self.local_player_id)
+                    && (object.is_firing_weapon || object.using_ability);
+                input.second_material_pass_opacity =
+                    crate::game_logic::stealth_second_material_pass_opacity(
+                        object.stealthed,
+                        object.detected,
+                        object.can_disguise_as_team,
+                        is_mine,
+                        object.drawable_shroud.effectively_dead,
+                        hint,
+                    );
                 let fade = crate::game_logic::drawable_explicit_fade_opacity(
                     object.drawable_fade_mode,
                     object.drawable_fade_start_frame,

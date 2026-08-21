@@ -54,6 +54,11 @@ impl Object {
         if self.status.weapons_jammed || self.is_disabled() {
             return None;
         }
+        // C++ Object::isAbleToAttack (Object.cpp:3171-3176): sold / under
+        // construction cannot discharge even if a weapon is otherwise ready.
+        if self.status.under_construction || self.status.sold {
+            return None;
+        }
         // C++ setWeaponBonusCondition → onWeaponBonusChange: restart an
         // in-progress wait with the new RATE_OF_FIRE delay before the ready
         // check so mid-reload bonuses cannot fire sooner than C++.
@@ -248,10 +253,7 @@ impl Object {
             .unwrap_or(0.0);
         let radius_damage_affects = name
             .map(crate::game_logic::weapon_bootstrap::host_radius_damage_affects_for_weapon_name)
-            .unwrap_or(
-                crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
-                    | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
-            );
+            .unwrap_or(crate::game_logic::weapon_bootstrap::WEAPON_AFFECTS_DEFAULT);
         let projectile_collides = name
             .map(crate::game_logic::weapon_bootstrap::host_projectile_collides_for_weapon_name)
             .unwrap_or(crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT);
@@ -495,6 +497,13 @@ impl Object {
     }
 
     pub fn stop_moving(&mut self) {
+        if let Some(name) = self.move_loop_audio.take() {
+            crate::game_logic::host_move_ambient_audio::record_move_loop_stop(
+                self.id,
+                name,
+                self.get_position(),
+            );
+        }
         self.movement.target_position = None;
         self.movement.velocity = Vec3::ZERO;
         crate::game_logic::host_move_log::record(self.id, None);
@@ -830,5 +839,23 @@ mod tests {
         assert!(unit.stealth_delay_pending);
         assert!(unit.try_recloak_after_stealth_delay(31, false));
         assert!(unit.status.stealthed);
+    }
+
+    #[test]
+    fn fire_at_rejects_sold_and_under_construction() {
+        let mut unit = Object::new(ThingTemplate::new("PatriotBattery"), ObjectId(1), Team::USA);
+        unit.weapon = Some(Weapon {
+            damage: 20.0,
+            range: 150.0,
+            last_fire_time: -10.0,
+            ..Weapon::default()
+        });
+        unit.status.under_construction = true;
+        assert!(!unit.fire_at(ObjectId(2), 1.0));
+        unit.status.under_construction = false;
+        unit.status.sold = true;
+        assert!(!unit.fire_at(ObjectId(2), 1.0));
+        unit.status.sold = false;
+        assert!(unit.fire_at(ObjectId(2), 1.0));
     }
 }

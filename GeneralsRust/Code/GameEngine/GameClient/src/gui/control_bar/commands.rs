@@ -35,6 +35,10 @@ impl ControlBarCommandProcessor {
         // structure placement preview before evaluating command behavior.
         TheInGameUI::place_build_available(None, None);
 
+        // C++ ControlBarCommandProcessing.cpp:183-189 — play UnitSpecificSound
+        // with the local player index before the command is dispatched.
+        play_command_button_unit_specific_sound(button);
+
         if command_needs_target(button.options) {
             if (button.options & CommandOption::UsesMineClearingWeaponSet as u32) != 0 {
                 if let Ok(mut stream) = get_message_stream().write() {
@@ -710,6 +714,25 @@ fn local_player_index() -> Option<PlayerIndex> {
     }
 }
 
+/// C++ ControlBarCommandProcessing.cpp:183-189.
+/// `AudioEventRTS sound = *commandButton->getUnitSpecificSound();`
+/// `sound.setPlayerIndex(localPlayer); TheAudio->addAudioEvent(&sound);`
+pub(crate) fn play_command_button_unit_specific_sound(button: &CommandButton) {
+    let Some(player_index) = local_player_index() else {
+        return;
+    };
+    let Some(audio) = gamelogic::helpers::TheAudio::get() else {
+        return;
+    };
+    let name = button.unit_specific_sound.playable_event_name();
+    if name.is_empty() {
+        return;
+    }
+    let mut sound = gamelogic::common::audio::AudioEventRts::new(name);
+    sound.set_player_index(player_index as u32);
+    let _ = audio.add_audio_event(&sound);
+}
+
 fn selected_objects_for_local_player() -> Vec<u32> {
     let Some(player_index) = local_player_index() else {
         return Vec::new();
@@ -731,5 +754,43 @@ fn map_command_source(source: CommandSourceType) -> gamelogic::common::CommandSo
         CommandSourceType::FromScript => gamelogic::common::CommandSourceType::FromScript,
         CommandSourceType::FromAI => gamelogic::common::CommandSourceType::FromAi,
         CommandSourceType::None => gamelogic::common::CommandSourceType::FromPlayer,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unit_specific_sound_plays_named_event_for_local_player() {
+        // C++ processCommandUI plays getUnitSpecificSound with local player index.
+        if let Ok(mut list) = logic_player_list().write() {
+            list.set_local_player_index(0);
+        }
+        let mut button = CommandButton::default();
+        button.command_name = "Command_BlackLotusHackBuilding".into();
+        button.unit_specific_sound =
+            game_engine::ini::AudioEventRTS::from_event_name("BlackLotusVoiceModeBuilding".into());
+        play_command_button_unit_specific_sound(&button);
+        assert_eq!(
+            button.unit_specific_sound.playable_event_name(),
+            "BlackLotusVoiceModeBuilding"
+        );
+        if let Ok(mut list) = logic_player_list().write() {
+            list.set_local_player_index(PLAYER_INDEX_INVALID);
+        }
+    }
+
+    #[test]
+    fn empty_unit_specific_sound_is_a_no_op() {
+        if let Ok(mut list) = logic_player_list().write() {
+            list.set_local_player_index(0);
+        }
+        let button = CommandButton::default();
+        play_command_button_unit_specific_sound(&button);
+        assert!(button.unit_specific_sound.playable_event_name().is_empty());
+        if let Ok(mut list) = logic_player_list().write() {
+            list.set_local_player_index(PLAYER_INDEX_INVALID);
+        }
     }
 }

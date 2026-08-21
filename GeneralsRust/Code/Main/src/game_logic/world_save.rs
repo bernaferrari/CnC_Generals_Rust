@@ -876,6 +876,11 @@ impl GameLogic {
         };
         drop(roads);
 
+        let bridge_indestructible = self
+            .objects
+            .get(&bridge_id)
+            .is_some_and(|o| o.indestructible);
+
         let mut width = gamelogic::common::Coord3D::new(
             info.to_left.x - info.to_right.x,
             info.to_left.y - info.to_right.y,
@@ -928,7 +933,11 @@ impl GameLogic {
             };
             if let Some(tower) = self.objects.get_mut(&tower_id) {
                 tower.set_orientation(tower_angle);
+                if bridge_indestructible {
+                    tower.set_indestructible(true);
+                }
             }
+
             tower_ids[index] = tower_id.0;
         }
         if let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() {
@@ -947,6 +956,47 @@ impl GameLogic {
             });
         }
     }
+
+    /// C++ ActiveBody::setIndestructible + TerrainLogic.cpp:181 tower inherit.
+    pub fn set_object_indestructible(&mut self, id: ObjectId, indestructible: bool) {
+        let is_bridge = if let Some(obj) = self.objects.get_mut(&id) {
+            obj.set_indestructible(indestructible);
+            obj.is_kind_of(crate::game_logic::KindOf::Bridge)
+                || crate::game_logic::host_bridge_behavior::is_bridge_span_template(
+                    &obj.template_name,
+                )
+        } else {
+            return;
+        };
+        if is_bridge {
+            self.mirror_indestructible_to_bridge_towers(id, indestructible);
+        }
+    }
+
+    /// C++ ActiveBody.cpp:1355-1380 KINDOF_BRIDGE mirrors to tower bodies.
+    pub fn mirror_indestructible_to_bridge_towers(
+        &mut self,
+        bridge_id: ObjectId,
+        indestructible: bool,
+    ) {
+        let mut tower_ids = [0u32; 4];
+        if let Ok(terrain) = gamelogic::terrain::get_terrain_logic().read() {
+            terrain.for_each_bridge(|bridge| {
+                if bridge.get_bridge_info().bridge_object_id == bridge_id.0 {
+                    tower_ids = bridge.get_bridge_info().tower_object_id;
+                }
+            });
+        }
+        for tid in tower_ids {
+            if tid == 0 {
+                continue;
+            }
+            if let Some(tower) = self.objects.get_mut(&ObjectId(tid)) {
+                tower.set_indestructible(indestructible);
+            }
+        }
+    }
+
 
 
 
@@ -995,7 +1045,7 @@ impl GameLogic {
         if full_path.is_empty() {
             return false;
         }
-        if let Some(unit) = self.objects.get_mut(&unit_id) {
+        let started = if let Some(unit) = self.objects.get_mut(&unit_id) {
             unit.waiting_for_path = false;
             unit.movement.current_path_index = 0;
             unit.movement.path = full_path;
@@ -1005,7 +1055,11 @@ impl GameLogic {
             true
         } else {
             false
+        };
+        if started {
+            self.start_move_sound(unit_id);
         }
+        started
     }
 
     pub fn assign_unit_path(
@@ -1121,6 +1175,8 @@ impl GameLogic {
             if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 1);
             }
+            self.start_move_sound(unit_id);
+
             return true;
         }
 
@@ -1135,7 +1191,11 @@ impl GameLogic {
         ) else {
             return false;
         };
-        self.apply_computed_unit_path(unit_id, start, destination, full_path)
+        let ok = self.apply_computed_unit_path(unit_id, start, destination, full_path);
+        if ok {
+            self.start_move_sound(unit_id);
+        }
+        ok
     }
 
     fn compute_assigned_unit_path(
@@ -1965,6 +2025,9 @@ impl GameLogic {
         // C++ GameLogic.cpp:1254-1256 TheCampaignManager->SetVictorious(FALSE).
         clear_live_campaign_victorious_for_new_game();
         self.reset();
+        // C++ TheAI already holds AIData.ini EnableRepulsors after GameEngine init.
+        // Live GameLogic ctor stays false (TAiData default); apply on the player path.
+        self.apply_aidata_enable_repulsors();
         self.game_mode = mode;
         // C++ GameLogic.cpp:1606 TheVictoryConditions->setVictoryConditions(VICTORY_NOBUILDINGS)
         if matches!(mode, GameMode::Skirmish) {
@@ -2984,31 +3047,10 @@ impl GameLogic {
                 Some(dict),
             );
 
-            let team = team_factory
-                .find_team(&team_name)
-                .or_else(|| team_factory.create_team(&team_name));
-
-            let Some(team_arc) = team else {
-                log::warn!("Failed to instantiate legacy team '{}'", team_name);
-                continue;
-            };
-
-            if let Ok(mut team_guard) = team_arc.write() {
-                if !owner.is_empty() {
-                    if let Ok(player_list) = ThePlayerList().try_read() {
-                        if let Some(player_arc) = player_list.find_player_by_name(&owner) {
-                            if let Ok(player_guard) = player_arc.try_read() {
-                                team_guard.set_controlling_player_id(Some(
-                                    player_guard.get_player_index() as u32,
-                                ));
-                            }
-                        }
-                    }
-                }
-                if singleton {
-                    team_guard.set_active();
-                }
-            };
+            // C++ TeamFactory::initFromSides only initTeam: prototype plus an
+            // inactive singleton instance. Do not findTeam/createTeam here —
+            // that would make getTeamNamed see empty teams at map load so
+            // TEAM_DESTROYED is true before any units spawn.
         }
     }
 
@@ -3339,6 +3381,17 @@ impl GameLogic {
                                 ),
                             };
                             if let Some(id) = created {
+                                if let Some(team_name) = obj
+                                    .team_name
+                                    .as_deref()
+                                    .map(str::trim)
+                                    .filter(|name| !name.is_empty())
+                                {
+                                    if let Some(created) = self.objects.get_mut(&id) {
+                                        created.team_instance_name = team_name.to_string();
+                                    }
+                                    self.activate_leftover_team_for_host_object(id);
+                                }
                                 spawned_object_ids.push((id, index));
                                 if obj.unsellable == Some(true) {
                                     if let Some(created) = self.objects.get_mut(&id) {
@@ -3355,6 +3408,10 @@ impl GameLogic {
                                         created.set_script_underpowered(true);
                                     }
                                 }
+                                if let Some(indestructible) = obj.indestructible {
+                                    self.set_object_indestructible(id, indestructible);
+                                }
+
                                 self.apply_spawned_object_weather(
                                     id,
                                     obj.object_weather.unwrap_or(0),

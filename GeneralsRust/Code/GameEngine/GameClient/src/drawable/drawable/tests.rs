@@ -145,6 +145,28 @@ fn test_drawable_creation() {
 }
 
 #[test]
+fn get_current_client_bone_positions_reads_w3d_bone_data() {
+    let mut drawable = BasicDrawable::new(DrawableId(1));
+    let mut bones = BoneData::default();
+    bones.add_current_bone(
+        "WeaponFireFXBone",
+        Vector3::new(1.0, 2.0, 3.0),
+        Matrix4::translation(Vector3::new(1.0, 2.0, 3.0)),
+    );
+    drawable.set_bone_data(bones);
+    let mut positions = [Vector3::zero(); 4];
+    let mut transforms = [Matrix4::identity(); 4];
+    let count = drawable.get_current_client_bone_positions(
+        "WeaponFireFXBone",
+        0,
+        &mut positions,
+        &mut transforms,
+    );
+    assert_eq!(count, 1);
+    assert_eq!(positions[0], Vector3::new(1.0, 2.0, 3.0));
+}
+
+#[test]
 fn direct_shroud_history_is_volatile_but_survives_live_rebinds() {
     use game_engine::common::system::xfer_load::XferLoad;
     use game_engine::common::system::xfer_save::XferSave;

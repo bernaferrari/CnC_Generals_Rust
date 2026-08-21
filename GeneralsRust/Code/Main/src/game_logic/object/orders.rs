@@ -1283,10 +1283,11 @@ impl Object {
     }
 
     /// True when UndeadBody should intercept a lethal hit (first life only).
+    /// `raw_amount` is C++ `DamageInfo.in.m_amount` (PRE-armor).
     pub fn battle_bus_should_intercept_lethal(
         &self,
         damage_type: crate::game_logic::combat::DamageType,
-        actual_damage: f32,
+        raw_amount: f32,
     ) -> bool {
         if !self.is_battle_bus_transport {
             return false;
@@ -1306,7 +1307,8 @@ impl Object {
             .as_ref()
             .map(|b| b.is_second_life)
             .unwrap_or(false);
-        !second && actual_damage >= self.health.current && self.health.current > 0.0
+        !second && raw_amount >= self.health.current && self.health.current > 0.0
+
     }
 
     /// Install residual GLA Tunnel Network structure:
@@ -1531,6 +1533,9 @@ impl Object {
         self.stealth_breaks_on_move = true;
         // Fire does not break stealth on the vehicle itself (passengers fire residual).
         self.stealth_breaks_on_attack = false;
+        self.stealth_delay_frames =
+            crate::game_logic::host_listening_outpost::LISTENING_OUTPOST_STEALTH_DELAY_FRAMES;
+        self.record_host_stealth_delay();
         // Retail WeaponSet Conditions=None has PRIMARY NONE until PLAYER_UPGRADE.
         self.weapon = None;
         self.weapon_set_player_upgrade = false;
@@ -1580,6 +1585,23 @@ impl Object {
             || self.is_listening_outpost_style_container()
             || self.is_technical_style_container()
             || self.template_name.to_ascii_lowercase().contains("chinook")
+    }
+
+    /// C++ OpenContainModuleData::m_numberOfExitPaths.
+    pub fn transport_number_of_exit_paths(&self) -> i32 {
+        if self.is_humvee_style_container() {
+            crate::game_logic::host_humvee::HUMVEE_NUMBER_OF_EXIT_PATHS as i32
+        } else if self.is_battle_bus_style_container() {
+            crate::game_logic::host_battle_bus::BATTLE_BUS_NUMBER_OF_EXIT_PATHS as i32
+        } else if self.is_troop_crawler_style_container() {
+            crate::game_logic::host_troop_crawler::TROOP_CRAWLER_NUMBER_OF_EXIT_PATHS as i32
+        } else if self.is_listening_outpost_style_container() {
+            crate::game_logic::host_listening_outpost::LISTENING_OUTPOST_NUMBER_OF_EXIT_PATHS as i32
+        } else if self.is_combat_chinook_style_container() {
+            crate::game_logic::host_combat_chinook::COMBAT_CHINOOK_NUMBER_OF_EXIT_PATHS as i32
+        } else {
+            1
+        }
     }
 
     /// C++ `Object::isAboveTerrain` residual for DelayExitInAir.

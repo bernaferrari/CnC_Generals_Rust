@@ -309,6 +309,17 @@ impl ScriptEvaluator {
         })?;
         let unit_name = unit_param.get_string();
 
+        // C++ ScriptConditions::evaluateNamedUnitTotallyDead (ScriptConditions.cpp:323-335):
+        // if (getUnitNamed) return false; if (didUnitExist) return true; else false.
+        if dual_world_registry_unavailable() {
+            if crate::scripting::host_script_named_unit_alive(unit_name).is_some() {
+                return Ok(false);
+            }
+            let tracker = get_named_object_tracker();
+            return Ok(tracker.did_object_exist(unit_name).unwrap_or(false));
+        }
+
+
         let tracker = get_named_object_tracker();
         if tracker.get_object_id(unit_name).ok().flatten().is_some() {
             return Ok(false);

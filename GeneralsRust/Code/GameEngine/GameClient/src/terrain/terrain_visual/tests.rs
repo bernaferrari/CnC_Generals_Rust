@@ -298,4 +298,94 @@ mod tests {
         assert_eq!(unknown, 0, "unknown template must not bake granite");
     }
 
+    #[test]
+    fn live_chunk_upload_bakes_do_the_dynamic_light() {
+        use crate::fx_list::{
+            clear_scene_dynamic_lights, create_display_light_pulse, do_the_dynamic_light,
+            drain_display_light_pulses, scene_dynamic_lights, DisplayLightPulse,
+        };
+
+        let _ = drain_display_light_pulses();
+        clear_scene_dynamic_lights();
+        assert!(create_display_light_pulse(DisplayLightPulse {
+            pos: [0.0, 0.0, 3.0],
+            color: [1.0, 0.0, 0.0],
+            inner_radius: 10.0,
+            outer_radius: 20.0,
+            increase_frames: 1,
+            decay_frames: 1,
+        }));
+        let lights = scene_dynamic_lights();
+        let static_rgba = [0.2, 0.2, 0.2, 1.0];
+        let baked = TerrainVisualImpl::bake_terrain_vertex_dynamic_light(
+            [0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            static_rgba,
+            &lights,
+        );
+        let expected = {
+            let packed = ((0.2 * 255.0) as u32)
+                | (((0.2 * 255.0) as u32) << 8)
+                | (((0.2 * 255.0) as u32) << 16)
+                | (255 << 24);
+            let lit = do_the_dynamic_light([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], packed, &lights);
+            [
+                ((lit >> 16) & 0xFF) as f32 / 255.0,
+                ((lit >> 8) & 0xFF) as f32 / 255.0,
+                (lit & 0xFF) as f32 / 255.0,
+                ((lit >> 24) & 0xFF) as f32 / 255.0,
+            ]
+        };
+        assert_eq!(baked, expected);
+        assert_ne!(baked, static_rgba, "pulse must change sun-lit terrain color");
+
+        let src = crate::terrain::terrain_visual::TERRAIN_VISUAL_SRC;
+        assert!(
+            src.contains("bake_terrain_vertex_dynamic_light")
+                && src.contains("needs_light_rebake"),
+            "live TerrainVisual chunk upload must rebake createLightPulse"
+        );
+        clear_scene_dynamic_lights();
+    }
+
+    #[test]
+    fn add_terrain_scorch_forces_visual_rebuild_and_exscorch01() {
+        use crate::terrain::scorch_mesh::{
+            add_terrain_scorch, bake_terrain_scorch_gpu_mesh, clear_terrain_scorches,
+            terrain_scorch_count, terrain_scorches_in_buffer,
+        };
+
+        clear_terrain_scorches();
+        let visual = TerrainVisualImpl::new();
+        assert!(
+            !visual.scorches_need_gpu_rebuild(),
+            "empty buffer should not rebuild"
+        );
+        assert!(add_terrain_scorch([12.0, 8.0, 0.0], 18.0, 2));
+        assert_eq!(terrain_scorches_in_buffer(), 0);
+        assert!(terrain_scorch_count() > 0);
+        assert!(
+            visual.scorches_need_gpu_rebuild(),
+            "addScorch zeros m_scorchesInBuffer so drawScorches rebuilds"
+        );
+
+        let height = HeightMap::new(8, 8, 0.0, 10.0);
+        let mesh = bake_terrain_scorch_gpu_mesh(&height, 0xffff_ffff);
+        assert!(!mesh.vertices.is_empty());
+        assert!(terrain_scorches_in_buffer() > 0);
+
+        assert_eq!(
+            TerrainVisualImpl::scorch_overlay_texture_name(),
+            "EXScorch01.tga"
+        );
+        let src = crate::terrain::terrain_visual::TERRAIN_VISUAL_SRC;
+        assert!(
+            src.contains("scorch_texture_bind_group")
+                && src.contains("EXScorch01.tga")
+                && src.contains("scorches_need_gpu_rebuild"),
+            "live draw must bind EXScorch01, not road texture"
+        );
+        clear_terrain_scorches();
+    }
+
 }

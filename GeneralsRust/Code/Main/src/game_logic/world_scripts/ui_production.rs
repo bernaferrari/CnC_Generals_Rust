@@ -1484,6 +1484,12 @@ impl GameLogic {
         let owner_player_id = producer.owner_player_id;
         let factory_disabled = producer.is_disabled();
         let Some(building) = producer.building_data.as_ref() else {
+            // C++ dozer/worker GUI_COMMAND_DOZER_CONSTRUCT still runs
+            // Player::canBuild + BuildAssistant::canMakeUnit (prereq / money /
+            // maxed). There is no ProductionUpdate queue or parking place.
+            if producer.is_kind_of(KindOf::Dozer) || producer.is_kind_of(KindOf::Worker) {
+                return self.can_make_dozer_construct(producer_id, template_name);
+            }
             return crate::game_logic::host_production_buildable_command_residual::CANMAKE_FACTORY_IS_DISABLED;
         };
         // C++ BuildAssistant::isPossibleToMakeUnit: CommandSet UNIT_BUILD scan.
@@ -1609,6 +1615,65 @@ impl GameLogic {
     pub fn can_make_unit_ok(&self, producer_id: ObjectId, template_name: &str) -> bool {
         use crate::game_logic::host_production_buildable_command_residual::CANMAKE_OK;
         self.can_make_unit(producer_id, template_name) == CANMAKE_OK
+    }
+
+    /// C++ ControlBarCommand.cpp:1185-1198 for GUI_COMMAND_DOZER_CONSTRUCT.
+    /// Prereq / money / maxed only — no factory queue or parking place.
+    fn can_make_dozer_construct(&self, producer_id: ObjectId, template_name: &str) -> u32 {
+        use crate::game_logic::host_production_buildable_command_residual::{
+            can_make_type_from_checks_residual, command_set_allows_unit,
+            CANMAKE_FACTORY_IS_DISABLED, CANMAKE_NO_PREREQ,
+        };
+
+        let Some(template) = self.templates.get(template_name) else {
+            return CANMAKE_NO_PREREQ;
+        };
+        let Some(producer) = self.objects.get(&producer_id) else {
+            return CANMAKE_FACTORY_IS_DISABLED;
+        };
+        if !producer.is_alive() {
+            return CANMAKE_FACTORY_IS_DISABLED;
+        }
+        if let Some(false) = command_set_allows_unit(&producer.template_name, template_name) {
+            return CANMAKE_NO_PREREQ;
+        }
+        let team = producer.team;
+        let owner_player_id = producer.owner_player_id;
+        let factory_disabled = producer.is_disabled();
+        let has_prereq = match owner_player_id {
+            Some(player_id) => {
+                self.player_satisfies_build_prerequisites(player_id, template_name)
+                    && self.can_start_superweapon_building_for_player(player_id, template_name)
+            }
+            None => {
+                self.team_satisfies_build_prerequisites(team, template_name)
+                    && self.can_start_superweapon_building(team, template_name)
+            }
+        };
+        let owner = match owner_player_id {
+            Some(player_id) => self.get_player(player_id),
+            None => self.get_player_by_team(team),
+        };
+        let has_money = match owner {
+            Some(p) => {
+                let cost = self.modified_build_cost_supplies(
+                    p.id,
+                    template_name,
+                    template.build_cost.supplies,
+                );
+                p.resources.supplies >= cost
+            }
+            None => false,
+        };
+        let maxed_out = !self.can_build_more_of_type(owner_player_id, team, template_name);
+        can_make_type_from_checks_residual(
+            has_prereq,
+            has_money,
+            factory_disabled,
+            false,
+            false,
+            maxed_out,
+        )
     }
 
     /// C++ ProductionUpdate::queueUpgrade OBJECT gate: already-completed

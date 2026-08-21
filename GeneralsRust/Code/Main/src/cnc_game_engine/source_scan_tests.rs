@@ -548,8 +548,10 @@ fn context_mouse_cursor_residual() {
     assert!(
         src.contains("fn sync_context_mouse_cursor")
             && src.contains("fn resolve_context_cursor_icon")
-            && src.contains("set_cursor"),
-        "InGame mouse move must apply context cursor residual"
+            && src.contains("set_cursor")
+            && src.contains("fn sync_ingame_mouseover_hint")
+            && src.contains("create_mouseover_hint"),
+        "InGame mouse move must apply context cursor residual and InGameUI mouseover hints"
     );
     assert!(
         src.contains("\"AttackObj\"")

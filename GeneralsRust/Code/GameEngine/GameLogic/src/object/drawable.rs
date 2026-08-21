@@ -3521,6 +3521,40 @@ impl Drawable {
         self.get_bone_transform(bone_name)
     }
 
+    /// C++ `Drawable::getCurrentClientBonePositions` (Drawable.cpp:776-802).
+    /// Walks W3D draw modules' current (animated) client bones.
+    pub fn get_current_client_bone_positions(
+        &self,
+        bone_name_prefix: &str,
+        start_index: i32,
+        positions: &mut [Coord3D],
+        transforms: &mut [Matrix3D],
+    ) -> i32 {
+        let mut count = 0;
+        let mut remaining = positions.len().min(transforms.len());
+        for module_handle in self.get_draw_modules_with_interface(ModuleInterfaceType::DRAW) {
+            if remaining == 0 {
+                break;
+            }
+            let sub = module_handle
+                .with_object_draw_interface(|draw| {
+                    draw.get_current_bone_positions(
+                        bone_name_prefix,
+                        start_index,
+                        &mut positions[count..],
+                        &mut transforms[count..],
+                        remaining,
+                    )
+                })
+                .unwrap_or(0);
+            if sub > 0 {
+                count += sub;
+                remaining = remaining.saturating_sub(sub);
+            }
+        }
+        count as i32
+    }
+
     /// Set animation to loop in N frames
     ///
     /// This call says, "I want the current animation (if any) to take n frames to complete a single cycle".

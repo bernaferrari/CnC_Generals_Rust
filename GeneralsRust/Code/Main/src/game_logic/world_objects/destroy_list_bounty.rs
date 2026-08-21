@@ -138,6 +138,39 @@ impl GameLogic {
             // C++ FireWeaponWhenDeadBehavior::onDie residual.
             self.apply_fire_weapon_when_dead(event.id);
 
+            // C++ classifyObjectFootprint: kill anyone still on LAYER_WALL
+            // for this piece, then reclassify (AIPathfind.cpp:4126-4153).
+            if self
+                .objects
+                .get(&event.id)
+                .is_some_and(|o| o.is_kind_of(KindOf::WalkOnTopOfWall))
+            {
+                let splat = self
+                    .pathfinding_system
+                    .splat_units_on_wall_piece(event.id, &self.objects);
+                self.pathfinding_system.remove_wall_piece(event.id);
+                for sid in splat {
+                    if sid == event.id {
+                        continue;
+                    }
+                    if let Some(unit) = self.objects.get_mut(&sid) {
+                        // C++ DAMAGE_FALLING / DEATH_SPLATTED / HUGE_DAMAGE_AMOUNT
+                        // (AIPathfind.cpp:4143-4148).
+                        if unit.take_damage_from_immediate_typed_death(
+                            1.0e9,
+                            Some(event.id),
+                            crate::game_logic::combat::DamageType::Falling,
+                            crate::game_logic::host_usa_pilot::HostDeathType::Splatted,
+                        ) {
+                            self.objects_to_destroy.push_back(DestructionEvent {
+                                id: sid,
+                                killer: event.killer,
+                            });
+                        }
+                    }
+                }
+            }
+
             if let Some(obj) = self.objects.remove(&event.id) {
                 self.host_radar_remove_object(event.id);
                 crate::game_logic::host_destroy_log::record(event.id);
@@ -201,18 +234,9 @@ impl GameLogic {
                     );
                 }
 
-                // Audio residual (hq-7zxm slice): unit/structure death → AudioEventRequest.
-                // DeathType residual selects die cue family (not full voice bank).
-                let death_event = crate::game_logic::combat_particles::CombatParticleRegistry::death_audio_event_name(
-                    is_structure,
-                    death_type,
-                );
-                self.queue_audio_event(
-                    AudioEventRequest::new(death_event)
-                        .with_object(event.id)
-                        .with_position(death_pos)
-                        .with_priority(200),
-                );
+                // C++ death audio is DamageFX + FXList Sound nuggets (Wave 535 particles).
+                // Never invent UnitDie / BuildingDie / UnitDieBurned.
+
 
                 let eject_origin = obj.get_position();
 

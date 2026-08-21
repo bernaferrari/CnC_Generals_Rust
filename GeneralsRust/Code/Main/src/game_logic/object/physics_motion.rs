@@ -105,18 +105,8 @@ impl Object {
     }
 
 
-    /// Clear per-frame blocked residual at start of AI/physics tick.
+    /// Collision pass reset. Frame counters increment in doLocomotor (update_movement).
     pub fn clear_blocked_frame_state(&mut self) {
-        if self.is_blocked {
-            self.num_frames_blocked = self.num_frames_blocked.saturating_add(1);
-            // Stuck residual: blocked for > 1 second (30 frames).
-            if self.num_frames_blocked > 30 {
-                self.is_blocked_and_stuck = true;
-            }
-        } else {
-            self.num_frames_blocked = 0;
-            self.is_blocked_and_stuck = false;
-        }
         self.is_blocked = false;
         self.cur_max_blocked_speed = f32::MAX;
         self.request_other_move_away = None;

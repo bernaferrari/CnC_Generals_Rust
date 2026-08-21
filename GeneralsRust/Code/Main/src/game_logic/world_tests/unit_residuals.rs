@@ -2816,21 +2816,21 @@ fn combat_cycle_use_rider_stealth_cloaks_from_rider() {
 
     {
         let b = game_logic.host_object_mut(bike_id).expect("bike");
-        b.status.attacking = true;
+        b.set_status_firing_weapon(true);
     }
     game_logic.update_stealth_and_detection();
     {
         let b = game_logic.host_object(bike_id).expect("bike");
         assert!(
             !b.status.stealthed,
-            "ATTACKING destalths a UseRiderStealth bike"
+            "FIRING destalths a UseRiderStealth bike"
         );
     }
 
     assert!(game_logic.apply_combat_cycle_rider(bike_id, CombatCycleRider::Rebel));
     {
         let b = game_logic.host_object_mut(bike_id).expect("bike");
-        b.status.attacking = false;
+        b.set_status_firing_weapon(false);
         b.stealth_allowed_frame = 0;
         b.stealth_delay_pending = false;
     }

@@ -277,6 +277,8 @@ pub struct ControlBar {
     displayed_ocl_timer_seconds: u32,
     /// C++ InGameUI.cpp lastMoney — skip MoneyDisplay set_text when unchanged.
     last_displayed_money: i32,
+    /// Presentation CanMake residual (template → CANMAKE_* ordinal).
+    presentation_can_make: Vec<(String, u32)>,
 
     border_colors: CommandBarBorderColors,
 }

@@ -290,6 +290,8 @@ pub struct UnitRenderInput {
     /// from FOW alpha: C++ friendly stealth uses alpha blending while FOW
     /// remains fully visible for the allied viewer.
     pub presentation_opacity: f32,
+    /// C++ `Drawable::m_secondMaterialPassOpacity` heat-vision overlay.
+    pub second_material_pass_opacity: f32,
     /// Frozen C++ Drawable tint-status RGB (signed additive; 0 = none).
     pub status_tint: [f32; 3],
     /// Frozen stored supply boxes/cash used to stamp MODELCONDITION_CARRYING.
@@ -426,6 +428,7 @@ impl UnitRenderInput {
             engine_bridged: ro.engine_bridged,
             fow_visibility: ro.fow_visibility,
             presentation_opacity: 1.0,
+            second_material_pass_opacity: 0.0,
             status_tint: crate::game_logic::sample_drawable_status_tint(
                 ro.id.0,
                 0,
@@ -1852,6 +1855,10 @@ mod tests {
             .find(|u| u.id == id)
             .expect("detected input");
         assert!(!input.shadows_enabled);
+        assert!(
+            (input.second_material_pass_opacity - 1.0).abs() < 1e-5,
+            "detected stealthed unit must use heat-vision second pass"
+        );
     }
 
     #[test]

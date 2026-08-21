@@ -125,6 +125,9 @@ pub const SABOTEUR_GROUND_LOCOMOTOR: &str = "SaboteurGroundLocomotor";
 pub const MISSILE_DEFENDER_LOCOMOTOR: &str = "MissileDefenderLocomotor";
 /// Retail GLAInfantryAngryMobNexus SET_NORMAL residual (Speed 18).
 pub const ANGRY_MOB_NEXUS_LOCOMOTOR: &str = "AngryMobNexusLocomotor";
+/// Retail cliff climber used on SET_NORMAL rows for Burton / Pathfinder / Saboteur.
+pub const HUMAN_CLIFF_LOCOMOTOR: &str = "HumanCliffLocomotor";
+
 
 /// Wave 81/92/103 residual seed table: (name, Speed, Acceleration, TurnRate deg).
 /// Values match retail Locomotor.ini for common host units.
@@ -304,6 +307,8 @@ pub fn ensure_host_locomotor_store() -> usize {
     added += seed_exact_combat_bike_normal_locomotors();
     added += seed_exact_combat_bike_sluggish_locomotors();
     added += seed_exact_aircraft_set_switch_locomotors();
+    added += seed_exact_human_cliff_locomotor();
+
 
     // Always fill missing golden / Wave 81 common-unit locomotors.
     // (INI load may have BasicHuman but omit some residual names.)
@@ -388,6 +393,29 @@ pub fn locomotor_name_for_unit(template_name: &str) -> Option<&'static str> {
         _ => None,
     }
 }
+
+/// Authored SET_NORMAL members in declaration order for known multi-surface units.
+/// C++ `chooseGoodLocomotorFromCurrentSet` picks one by cell surface.
+pub fn locomotor_set_names_for_unit(template_name: &str) -> Vec<String> {
+    let names: &[&str] = match template_name {
+        "GLA_CombatBike" | "GLAVehicleCombatBike" => {
+            &[COMBAT_BIKE_GROUND_LOCOMOTOR, COMBAT_BIKE_CLIFF_LOCOMOTOR]
+        }
+        "USA_ColonelBurton"
+        | "AmericaInfantryColonelBurton"
+        | "USA_Pathfinder"
+        | "AmericaInfantryPathfinder"
+        | "Lazr_AmericaInfantryPathfinder" => {
+            &[COLONEL_BURTON_GROUND_LOCOMOTOR, HUMAN_CLIFF_LOCOMOTOR]
+        }
+        "GLA_Saboteur" | "GLAInfantrySaboteur" => {
+            &[SABOTEUR_GROUND_LOCOMOTOR, HUMAN_CLIFF_LOCOMOTOR]
+        }
+        _ => return Vec::new(),
+    };
+    names.iter().map(|n| (*n).to_string()).collect()
+}
+
 
 /// Wave 81 residual honesty: common-unit locomotor seed residual table.
 ///
@@ -595,11 +623,10 @@ pub fn resolve_host_locomotor_binding(locomotor_name: &str) -> Option<HostLocomo
     host_locomotor_binding_from_template(template)
 }
 
-/// Resolve a C++ `Locomotor = SET_* ...` row without collapsing its ordered
-/// surface members.  It is deliberately restrictive: if two members cover
-/// the same surface or any active behavior differs, a caller cannot emulate
-/// `chooseGoodLocomotorFromCurrentSet` with Main's one live movement profile
-/// and must reject the row rather than quietly choose one member.
+/// Resolve a C++ `Locomotor = SET_* ...` row when every member shares one
+/// live movement profile. RiderChange still needs that guarantee. Live
+/// march uses [`choose_best_locomotor_name_for_surfaces`] instead of
+/// collapsing heterogeneous cliff/water/rubble members.
 pub fn resolve_uniform_host_locomotor_set(
     locomotor_names: &[String],
 ) -> Option<HostUniformLocomotorSetBinding> {
@@ -638,6 +665,67 @@ pub fn resolve_uniform_host_locomotor_set(
         binding: representative,
         locomotor_surfaces: surfaces,
     })
+}
+
+/// C++ `Pathfinder::validLocomotorSurfacesForCellType` (AIPathfind.cpp:4734-4757).
+pub fn valid_locomotor_surfaces_for_cell_type(
+    ty: gamelogic::ai::pathfind_astar::PathfindCellType,
+) -> u32 {
+    use crate::game_logic::object::{
+        LOCO_SURFACE_AIR, LOCO_SURFACE_CLIFF, LOCO_SURFACE_GROUND, LOCO_SURFACE_RUBBLE,
+        LOCO_SURFACE_WATER,
+    };
+    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    match ty {
+        PathfindCellType::Obstacle
+        | PathfindCellType::Impassable
+        | PathfindCellType::BridgeImpassable => LOCO_SURFACE_AIR,
+        PathfindCellType::Clear => LOCO_SURFACE_GROUND | LOCO_SURFACE_AIR,
+        PathfindCellType::Water => LOCO_SURFACE_WATER | LOCO_SURFACE_AIR,
+        PathfindCellType::Rubble => LOCO_SURFACE_RUBBLE | LOCO_SURFACE_AIR,
+        PathfindCellType::Cliff => LOCO_SURFACE_CLIFF | LOCO_SURFACE_AIR,
+    }
+}
+
+/// C++ `LocomotorSet::findLocomotor` — first member whose surfaces intersect.
+pub fn choose_best_locomotor_name_for_surfaces(
+    locomotor_names: &[String],
+    acceptable: u32,
+) -> Option<String> {
+    for raw in locomotor_names {
+        let name = raw.trim();
+        if name.is_empty() || name.eq_ignore_ascii_case("none") {
+            continue;
+        }
+        let Some(binding) = resolve_host_locomotor_binding(name) else {
+            continue;
+        };
+        if (binding.locomotor_surfaces & acceptable) != 0 {
+            return Some(name.to_string());
+        }
+    }
+    None
+}
+
+/// Canonical SET_* names that resolve, including heterogeneous members.
+pub fn resolve_host_locomotor_set_names(locomotor_names: &[String]) -> Vec<String> {
+    let mut out = Vec::with_capacity(locomotor_names.len());
+    for raw in locomotor_names {
+        let name = raw.trim();
+        if name.is_empty() || name.eq_ignore_ascii_case("none") {
+            continue;
+        }
+        if out
+            .iter()
+            .any(|prior: &String| prior.eq_ignore_ascii_case(name))
+        {
+            continue;
+        }
+        if resolve_host_locomotor_binding(name).is_some() {
+            out.push(name.to_string());
+        }
+    }
+    out
 }
 
 /// Convert a Common LocomotorTemplate (per-frame) into host Movement units (per-sec).
@@ -1074,6 +1162,41 @@ fn seed_exact_combat_bike_normal_locomotors() -> usize {
     added
 }
 
+fn seed_exact_human_cliff_locomotor() -> usize {
+    if store_has(HUMAN_CLIFF_LOCOMOTOR) {
+        return 0;
+    }
+    let mut props = HashMap::new();
+    props.insert("Surfaces".to_string(), "CLIFF".to_string());
+    props.insert("Speed".to_string(), "30".to_string());
+    props.insert("SpeedDamaged".to_string(), "20".to_string());
+    props.insert("TurnRate".to_string(), "500".to_string());
+    props.insert("TurnRateDamaged".to_string(), "500".to_string());
+    props.insert("Acceleration".to_string(), "100".to_string());
+    props.insert("AccelerationDamaged".to_string(), "80".to_string());
+    props.insert("Braking".to_string(), "50".to_string());
+    props.insert("ZAxisBehavior".to_string(), "NO_Z_MOTIVE_FORCE".to_string());
+    props.insert("Appearance".to_string(), "CLIMBER".to_string());
+    match parse_locomotor_template_definition(HUMAN_CLIFF_LOCOMOTOR, &props) {
+        Ok(template) => match get_locomotor_store_mut().add_template(template) {
+            Ok(()) => 1,
+            Err(error) => {
+                log::warn!(
+                    "Host LocomotorStore: cannot seed {HUMAN_CLIFF_LOCOMOTOR}: {error}"
+                );
+                0
+            }
+        },
+        Err(error) => {
+            log::warn!(
+                "Host LocomotorStore: cannot parse {HUMAN_CLIFF_LOCOMOTOR}: {error}"
+            );
+            0
+        }
+    }
+}
+
+
 fn seed_exact_combat_bike_sluggish_locomotors() -> usize {
     let mut added = 0usize;
     for (name, surfaces) in [
@@ -1467,4 +1590,36 @@ mod tests {
             obj.movement.max_speed
         );
     }
+
+    #[test]
+    fn locomotor_set_names_for_unit_lists_cliff_members() {
+        ensure_host_locomotor_store();
+        let bike = locomotor_set_names_for_unit("GLAVehicleCombatBike");
+        assert_eq!(
+            bike,
+            vec![
+                COMBAT_BIKE_GROUND_LOCOMOTOR.to_string(),
+                COMBAT_BIKE_CLIFF_LOCOMOTOR.to_string()
+            ]
+        );
+        let burton = locomotor_set_names_for_unit("AmericaInfantryColonelBurton");
+        assert_eq!(
+            burton,
+            vec![
+                COLONEL_BURTON_GROUND_LOCOMOTOR.to_string(),
+                HUMAN_CLIFF_LOCOMOTOR.to_string()
+            ]
+        );
+        let cliff = resolve_host_locomotor_binding(HUMAN_CLIFF_LOCOMOTOR)
+            .expect("HumanCliffLocomotor seed");
+        assert_eq!(
+            cliff.locomotor_surfaces & crate::game_logic::object::LOCO_SURFACE_CLIFF,
+            crate::game_logic::object::LOCO_SURFACE_CLIFF
+        );
+        assert_eq!(
+            cliff.appearance,
+            crate::game_logic::LocomotorAppearance::Climber
+        );
+    }
+
 }

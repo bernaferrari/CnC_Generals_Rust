@@ -273,6 +273,17 @@ impl InGameUI {
         )
     }
 
+    fn append_presentation_warehouse_tooltip(tooltip: &mut String, boxes: Option<i32>) {
+        let Some(boxes) = boxes else {
+            return;
+        };
+        let base_value = global_data::read_safe()
+            .map(|data| data.base_value_per_supply_box)
+            .unwrap_or(100);
+        tooltip.push_str(&Self::supply_warehouse_tooltip_feedback(boxes, base_value));
+    }
+
+
     fn supply_warehouse_boxes_for_object(object: &Object) -> Option<i32> {
         for behavior in object.get_behavior_modules() {
             let Ok(mut behavior) = behavior.lock() else {

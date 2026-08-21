@@ -522,6 +522,7 @@ impl RenderPipeline {
                                 );
                                 render_item.apply_status_tint(u.status_tint);
                                 render_item.set_presentation_opacity(u.presentation_opacity);
+                                render_item.apply_heat_vision_second_pass(u.second_material_pass_opacity);
                                 render_item.apply_house_color_livery(&mesh.name);
                                 render_item.animation_frame = anim_frame;
                                 render_item.animation_binding = animation_binding.clone();
@@ -580,6 +581,8 @@ impl RenderPipeline {
                                 );
                                 aggregate_parent_item
                                     .set_presentation_opacity(u.presentation_opacity);
+                                aggregate_parent_item
+                                    .apply_heat_vision_second_pass(u.second_material_pass_opacity);
                                 self.render_items.extend(
                                     super::hlod_aggregate_render::collect_cached_hlod_aggregate_render_items(
                                         graphics_system,
@@ -669,6 +672,7 @@ impl RenderPipeline {
                                     );
                                     render_item.apply_status_tint(u.status_tint);
                                     render_item.set_presentation_opacity(u.presentation_opacity);
+                                    render_item.apply_heat_vision_second_pass(u.second_material_pass_opacity);
 
                                     self.render_items.push(render_item);
                                 }
@@ -726,6 +730,7 @@ impl RenderPipeline {
                                     );
                                     render_item.apply_status_tint(u.status_tint);
                                     render_item.set_presentation_opacity(u.presentation_opacity);
+                                    render_item.apply_heat_vision_second_pass(u.second_material_pass_opacity);
 
                                     self.render_items.push(render_item);
                                 }

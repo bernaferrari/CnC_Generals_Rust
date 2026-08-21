@@ -198,6 +198,12 @@ impl ScriptCondition for TeamDestroyedCondition {
                 ))
             }
         };
+        if dual_world_registry_unavailable() {
+            if !super::helpers::host_team_was_fielded(&team_name) {
+                return Ok(false);
+            }
+            return Ok(!super::helpers::host_team_has_any_live_objects(&team_name));
+        }
         let factory = get_team_factory();
         let mut guard = factory.lock().map_err(|e| {
             GameLogicError::Threading(format!("Failed to acquire team factory: {}", e))
@@ -249,15 +255,7 @@ impl ScriptCondition for TeamHasUnitsCondition {
             }
         };
         if dual_world_registry_unavailable() {
-            // Match Main `Team` discriminants: GLA=0, USA=1, China=2, Neutral=3.
-            let team_ord = match team_name.to_ascii_lowercase().as_str() {
-                "gla" => 0,
-                "usa" | "america" => 1,
-                "china" => 2,
-                "neutral" => 3,
-                _ => team_name.parse::<u32>().unwrap_or(u32::MAX),
-            };
-            return Ok(!super::helpers::host_script_team_unit_ids(team_ord).is_empty());
+            return Ok(super::helpers::host_team_has_any_live_units(&team_name));
         }
         let factory = get_team_factory();
         let guard = factory.lock().map_err(|e| {
@@ -543,6 +541,9 @@ impl ScriptCondition for TeamCreatedCondition {
                 ))
             }
         };
+        if dual_world_registry_unavailable() {
+            return Ok(super::helpers::host_team_was_fielded(&team_name));
+        }
         let factory = get_team_factory();
         let mut guard = factory.lock().map_err(|e| {
             GameLogicError::Threading(format!("Failed to acquire team factory: {}", e))
@@ -594,6 +595,17 @@ impl ScriptCondition for TeamInsideAreaPartiallyCondition {
             }
         };
         let area_name = get_str_param(parameters, "area_name")?;
+
+        if dual_world_registry_unavailable() {
+            let Some(trigger) = super::helpers::host_script_lookup_polygon_trigger(&area_name)
+            else {
+                return Ok(false);
+            };
+            return Ok(
+                super::helpers::host_team_some_inside_some_outside(&team_name, &trigger, 1)
+                    || super::helpers::host_team_all_inside(&team_name, &trigger, 1),
+            );
+        }
 
         let factory = get_team_factory();
         let mut guard = factory.lock().map_err(|e| {
@@ -667,6 +679,14 @@ impl ScriptCondition for TeamInsideAreaEntirelyCondition {
             }
         };
         let area_name = get_str_param(parameters, "area_name")?;
+
+        if dual_world_registry_unavailable() {
+            let Some(trigger) = super::helpers::host_script_lookup_polygon_trigger(&area_name)
+            else {
+                return Ok(false);
+            };
+            return Ok(super::helpers::host_team_all_inside(&team_name, &trigger, 1));
+        }
 
         let factory = get_team_factory();
         let mut guard = factory.lock().map_err(|e| {

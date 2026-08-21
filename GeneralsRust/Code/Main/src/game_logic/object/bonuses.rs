@@ -156,7 +156,7 @@ impl Object {
             ENTHUSIASTIC_RATE_OF_FIRE_MULT, SUBLIMINAL_RATE_OF_FIRE_MULT,
         };
         use crate::game_logic::host_red_guard::{
-            INFANTRY_HORDE_ROF_MULT, INFANTRY_NATIONALISM_ROF_MULT,
+            INFANTRY_FANATICISM_ROF_MULT, INFANTRY_HORDE_ROF_MULT, INFANTRY_NATIONALISM_ROF_MULT,
         };
         use crate::game_logic::host_strategy_center::{
             BOMBARDMENT_DAMAGE_MULT, SEARCH_AND_DESTROY_RANGE_MULT,
@@ -185,6 +185,17 @@ impl Object {
         }
         if self.weapon_bonus_nationalism {
             rof *= INFANTRY_NATIONALISM_ROF_MULT;
+        }
+        // C++ WEAPONBONUSCONDITION_FANATICISM (GameData RATE_OF_FIRE 125%).
+        // evaluateMoraleBonus nests this under NATIONALISM; the stored flag
+        // is already gated that way. Stacks extra ROF on Infantry General.
+        if self.weapon_bonus_fanaticism {
+            rof *= INFANTRY_FANATICISM_ROF_MULT;
+        }
+        // C++ WEAPONBONUSCONDITION_PLAYER_UPGRADE (GameData DAMAGE 125%).
+        // Uranium Shells / AP Bullets / Chain Guns / AP Rockets.
+        if self.weapon_bonus_player_upgrade {
+            damage *= 1.25;
         }
         damage *= self.frenzy_damage_multiplier();
         if self.weapon_bonus_battle_plan_bombardment {
@@ -552,7 +563,8 @@ impl Object {
             if self.experience.current < need.max(vehicle_xp) {
                 self.experience.current = need.max(vehicle_xp);
             }
-            self.apply_veterancy_bonuses(prev, highest);
+            self.apply_veterancy_bonuses_with_feedback(prev, highest, false);
+
         }
     }
 
@@ -627,7 +639,8 @@ impl Object {
                 if self.experience.current < need {
                     self.experience.current = need;
                 }
-                self.apply_veterancy_bonuses(prev, highest);
+                self.apply_veterancy_bonuses_with_feedback(prev, highest, false);
+
             }
         }
     }
@@ -679,6 +692,11 @@ impl Object {
         // weapons_jammed: C++ canFireWeapon DISABLED_SUBDUED residual (ECM field).
         // shock stun: C++ Physics IS_STUNNED residual — cannot acquire/fire while stunned.
         // C++ Object::isAbleToAttack: OBJECT_STATUS_CAN_ATTACK (garrisoned building).
+        // C++ Object::isAbleToAttack (Object.cpp:3171-3176): UNDER_CONSTRUCTION
+        // and SOLD cannot fire — Patriots/Stingers/Gattling stay silent.
+        if self.status.under_construction || self.status.sold {
+            return false;
+        }
         let parked_aircraft = self.is_parked_at_airfield();
         let garrison_can = self.has_object_status_bit("CAN_ATTACK");
         let has_weapon = [0u8, 1, 2]

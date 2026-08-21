@@ -381,15 +381,10 @@ impl SimpleInputProcessor {
 
         let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
         // Wave 953: control-group filter presentation-only (fail-closed without freeze).
+        // C++ SELECT_TEAM: getLiveObjects / isSelectable — not CanSelectDrawable.
         let mut selection = Vec::new();
         if let Some(frame) = self.presentation_frame.as_ref() {
-            for id in stored {
-                if let Some(o) = frame.objects.iter().find(|o| o.id == id) {
-                    if frame.is_owned_by_local(o) && Self::presentation_is_selectable(o) {
-                        selection.push(id);
-                    }
-                }
-            }
+            selection = frame.filter_live_squad_ids(&stored, true);
         }
         logic.select_objects(self.local_player_id, selection.clone());
         println!(

@@ -61,18 +61,23 @@ impl Squad {
         self.object_ids.clear();
     }
 
-    /// Get all live object IDs (best effort when object handles are missing)
+    /// C++ `Squad::getLiveObjects` — prune `!Object::isSelectable()` only.
+    /// A leftover-registry miss is not C++ `findObjectByID` NULL (destroyed):
+    /// live-host objects live in Main, so keep the member (garrisoned/transported
+    /// riders stay on the squad).
     pub fn get_live_object_ids(&mut self) -> Vec<ObjectID> {
         let mut live = Vec::new();
         let mut valid_ids = Vec::new();
         for &obj_id in &self.object_ids {
             let Some(obj) = self.find_object_by_id(obj_id) else {
+                valid_ids.push(obj_id);
+                live.push(obj_id);
                 continue;
             };
             valid_ids.push(obj_id);
             if obj
                 .try_read()
-                .map(|obj_ref| obj_ref.is_selectable() && !obj_ref.is_effectively_dead())
+                .map(|obj_ref| obj_ref.is_selectable())
                 .unwrap_or(false)
             {
                 live.push(obj_id);

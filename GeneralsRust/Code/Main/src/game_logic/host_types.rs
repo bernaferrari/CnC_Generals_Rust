@@ -226,6 +226,9 @@ pub enum KindOf {
     /// C++ `KINDOF_DEFENSIVE_WALL`. FenceWidth objects with this bit stay solid walls.
     /// Gameplay-only: the compact presentation KindOf bank is full.
     DefensiveWall,
+    /// C++ `KINDOF_WALK_ON_TOP_OF_WALL`. Infantry path on these structure decks.
+    /// Gameplay-only: the compact presentation KindOf bank is full.
+    WalkOnTopOfWall,
     /// C++ `KINDOF_BRIDGE`. Map-span GenericBridge objects are targetable.
     /// Gameplay-only: the compact presentation KindOf bank is full.
     Bridge,
@@ -265,6 +268,7 @@ impl KindOf {
             "TRANSPORT" => Some(Self::Transport),
             "IMMUNE_TO_CAPTURE" | "IMMUNETOCAPTURE" => Some(Self::ImmuneToCapture),
             "DEFENSIVE_WALL" | "DEFENSIVEWALL" => Some(Self::DefensiveWall),
+            "WALK_ON_TOP_OF_WALL" | "WALKONTOPOFWALL" => Some(Self::WalkOnTopOfWall),
             "BRIDGE" => Some(Self::Bridge),
             "LANDMARK_BRIDGE" | "LANDMARKBRIDGE" => Some(Self::LandmarkBridge),
             "BRIDGE_TOWER" | "BRIDGETOWER" => Some(Self::BridgeTower),
@@ -338,6 +342,10 @@ pub struct ObjectStatus {
     /// C++ DAMAGE_KILL_GARRISONED residual: floor(amount) occupants pending clear.
     #[serde(default)]
     pub pending_kill_garrisoned: u32,
+    /// C++ GarrisonContain::onBodyDamageStateChange — walk occupants out on
+    /// the edge into BODY_REALLYDAMAGED (unless GARRISONABLE_UNTIL_DESTROYED).
+    #[serde(default)]
+    pub pending_garrison_really_damaged_eject: bool,
     /// C++ DISABLED_HACKED residual (Black Lotus DisableVehicleHack).
     /// Vehicle stays alive on its team but cannot move/attack until frame expires.
     #[serde(default)]

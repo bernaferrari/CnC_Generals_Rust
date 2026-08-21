@@ -1694,8 +1694,12 @@ pub struct ThingTemplate {
     pub fire_weapon_when_dead_behaviors:
         Vec<crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadMetadata>,
     /// Locomotor.ini SET_NORMAL template name (resolved via Common LocomotorStore).
-    /// Fail-closed residual: single primary locomotor only (not multi-set / surface matrix).
+    /// Primary member only; the full SET_* row lives in `locomotor_set_names`.
     pub locomotor_name: Option<String>,
+    /// Authored SET_NORMAL (or current SET_*) members in declaration order.
+    /// C++ `chooseGoodLocomotorFromCurrentSet` picks one by cell surface.
+    #[serde(default)]
+    pub locomotor_set_names: Vec<String>,
     /// C++ CreateCrateDieModuleData::m_crateNameList residual (CrateData names).
     #[serde(default)]
     pub create_crate_data: Vec<String>,
@@ -1771,6 +1775,31 @@ pub struct ThingTemplate {
     /// 0=INVALID, 1=NOT_ON_RADAR, 2=STRUCTURE, 3=UNIT, 4=LOCAL_UNIT_ONLY.
     #[serde(default)]
     pub radar_priority: u8,
+    /// C++ `TTAUDIO_soundMoveStart`.
+    #[serde(default)]
+    pub sound_move_start: Option<String>,
+    /// C++ `TTAUDIO_soundMoveStartDamaged`.
+    #[serde(default)]
+    pub sound_move_start_damaged: Option<String>,
+    /// C++ `TTAUDIO_soundMoveLoop`.
+    #[serde(default)]
+    pub sound_move_loop: Option<String>,
+    /// C++ `TTAUDIO_soundMoveLoopDamaged`.
+    #[serde(default)]
+    pub sound_move_loop_damaged: Option<String>,
+    /// C++ `TTAUDIO_soundAmbient`.
+    #[serde(default)]
+    pub sound_ambient: Option<String>,
+    /// C++ `TTAUDIO_soundAmbientDamaged`.
+    #[serde(default)]
+    pub sound_ambient_damaged: Option<String>,
+    /// C++ `TTAUDIO_soundAmbientReallyDamaged`.
+    #[serde(default)]
+    pub sound_ambient_really_damaged: Option<String>,
+    /// C++ `TTAUDIO_soundAmbientRubble`.
+    #[serde(default)]
+    pub sound_ambient_rubble: Option<String>,
+
 
     /// C++ `ThingTemplate::m_geometryInfo` from Object INI Geometry*.
     #[serde(default)]
@@ -1871,6 +1900,7 @@ impl ThingTemplate {
             fire_weapon_when_damaged_behaviors: Vec::new(),
             fire_weapon_when_dead_behaviors: Vec::new(),
             locomotor_name: None,
+            locomotor_set_names: Vec::new(),
             create_crate_data: Vec::new(),
             armor_sets: Vec::new(),
             subdual_damage_cap: 0.0,
@@ -1896,6 +1926,15 @@ impl ThingTemplate {
             shadow_size_x: 0.0,
             shadow_size_y: 0.0,
             radar_priority: 0,
+            sound_move_start: None,
+            sound_move_start_damaged: None,
+            sound_move_loop: None,
+            sound_move_loop_damaged: None,
+            sound_ambient: None,
+            sound_ambient_damaged: None,
+            sound_ambient_really_damaged: None,
+            sound_ambient_rubble: None,
+
 
             geometry_info: HostGeometryInfo::default(),
         }
@@ -2123,6 +2162,22 @@ impl ThingTemplate {
         let n = name.trim();
         if !n.is_empty() && !n.eq_ignore_ascii_case("none") {
             self.locomotor_name = Some(n.to_string());
+        }
+        self
+    }
+
+    /// Store every authored SET_* member so live march can surface-switch.
+    pub fn set_locomotor_set_names(&mut self, names: &[String]) -> &mut Self {
+        self.locomotor_set_names = names
+            .iter()
+            .map(|n| n.trim())
+            .filter(|n| !n.is_empty() && !n.eq_ignore_ascii_case("none"))
+            .map(|n| n.to_string())
+            .collect();
+        if self.locomotor_name.is_none() {
+            if let Some(first) = self.locomotor_set_names.first() {
+                self.locomotor_name = Some(first.clone());
+            }
         }
         self
     }

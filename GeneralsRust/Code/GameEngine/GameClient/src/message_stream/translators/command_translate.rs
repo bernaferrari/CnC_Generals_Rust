@@ -1,4 +1,5 @@
 use super::*;
+use gamelogic::helpers::TheAudio;
 
 impl GameMessageTranslator for CommandTranslator {
     fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
@@ -103,6 +104,13 @@ impl GameMessageTranslator for CommandTranslator {
             }
             GameMessageType::MetaAllCheer => {
                 if TheGameLogic::is_in_multiplayer_game() {
+                    // C++ CommandXlat.cpp:3468-3476 — play MiscAudio AllCheerSound
+                    // before appending MSG_DO_CHEER.
+                    if let Some(audio) = TheAudio::get() {
+                        let _ = audio.add_audio_event(
+                            &TheAudio::get_misc_audio().all_cheer_sound,
+                        );
+                    }
                     dispatch_translated_message(&GameMessageType::DoCheer);
                 }
                 return GameMessageDisposition::DestroyMessage;

@@ -846,6 +846,24 @@ impl RenderItem {
         d.z = (d.z + rgb[2]).clamp(0.0, 2.0);
     }
 
+    /// C++ W3DScene heat-vision second material pass (orange emissive overlay).
+    pub fn apply_heat_vision_second_pass(&mut self, opacity: f32) {
+        if !opacity.is_finite() || opacity <= 0.0 {
+            return;
+        }
+        let o = opacity.clamp(0.0, 1.0);
+        const HEAT: [f32; 3] = [1.0, 0.35, 0.05];
+        let e = &mut self.material.emissive_color;
+        e.x = (e.x + HEAT[0] * o).min(2.0);
+        e.y = (e.y + HEAT[1] * o).min(2.0);
+        e.z = (e.z + HEAT[2] * o).min(2.0);
+        let d = &mut self.material.diffuse_color;
+        d.x = d.x * (1.0 - 0.25 * o) + HEAT[0] * 0.25 * o;
+        d.y = d.y * (1.0 - 0.25 * o) + HEAT[1] * 0.25 * o;
+        d.z = d.z * (1.0 - 0.25 * o) + HEAT[2] * 0.25 * o;
+    }
+
+
     /// C++ Recolor_Vertex_Material / Recolor_Texture on HOUSECOLOR meshes and ZHC.
     /// Capture/owner change recolors because the next collect uses the new house color.
     pub fn apply_house_color_livery(&mut self, mesh_name: &str) {

@@ -359,15 +359,17 @@ pub fn combat_chinook_pdl_weapon() -> Weapon {
 }
 
 
-/// Residual of C++ TransportContain armed-rider check for Combat Chinook:
-/// infantry or vehicle with a non-contact damage weapon counts as "armed".
-/// (AllowInsideKindOf = INFANTRY VEHICLE residual.)
+/// Residual of C++ TransportContain `letRidersUpgradeWeaponSet`
+/// (TransportContain.cpp:226-229): only infantry with a non-contact damage
+/// weapon count as armed. Vehicles may ride a Combat Chinook
+/// (`AllowInsideKindOf = INFANTRY VEHICLE`) but never arm the rider weapon set.
 pub fn combat_chinook_rider_has_viable_weapon(
     weapon: Option<&Weapon>,
     is_infantry: bool,
     is_vehicle: bool,
 ) -> bool {
-    if !is_infantry && !is_vehicle {
+    let _ = is_vehicle;
+    if !gamelogic::object::contain::transport_contain_passenger_kind_allowed_to_fire(is_infantry) {
         return false;
     }
     let Some(w) = weapon else {
@@ -1099,22 +1101,21 @@ mod tests {
     }
 
     #[test]
-    fn armed_rider_allows_infantry_and_vehicle() {
+    fn armed_rider_allows_infantry_not_vehicle() {
         let rifle = Weapon {
             damage: 10.0,
             range: 100.0,
             ..Weapon::default()
-};
+        };
         assert!(combat_chinook_rider_has_viable_weapon(
             Some(&rifle),
             true,
             false
         ));
-        assert!(combat_chinook_rider_has_viable_weapon(
-            Some(&rifle),
-            false,
-            true
-        ));
+        assert!(
+            !combat_chinook_rider_has_viable_weapon(Some(&rifle), false, true),
+            "C++ letRidersUpgradeWeaponSet skips non-infantry riders"
+        );
         assert!(!combat_chinook_rider_has_viable_weapon(
             Some(&rifle),
             false,
@@ -1124,7 +1125,7 @@ mod tests {
             damage: 20.0,
             range: 3.0,
             ..Weapon::default()
-};
+        };
         assert!(!combat_chinook_rider_has_viable_weapon(
             Some(&melee),
             true,

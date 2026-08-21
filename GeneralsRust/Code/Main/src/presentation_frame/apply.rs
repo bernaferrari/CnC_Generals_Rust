@@ -608,7 +608,7 @@ impl PresentationFrame {
                     };
                     hud.add_radar_message(text, pos, ping_kind);
                 }
-                // C++: VoiceCreated / UnitReady / UpgradeComplete / EVA audio only.
+                // C++: VoiceCreated / getVoiceTaskComplete / Eva SideSounds only.
                 PresentationEvent::ConstructionComplete { .. }
                 | PresentationEvent::UpgradeComplete { .. }
                 | PresentationEvent::ProductionComplete { .. }
@@ -670,37 +670,23 @@ impl PresentationFrame {
                 continue;
             }
             let mapped: Option<(&str, Option<crate::game_logic::ObjectId>)> = match ev {
-                PresentationEvent::ObjectDestroyed { id, .. } => Some(("UnitDie", Some(*id))),
-                PresentationEvent::ConstructionComplete { id, .. } => {
-                    Some(("BuildingComplete", Some(*id)))
-                }
-                PresentationEvent::UpgradeComplete { .. } => Some(("UpgradeComplete", None)),
-                PresentationEvent::ProductionComplete { spawned, .. } => {
-                    Some(("UnitReady", Some(*spawned)))
-                }
+                // C++ ActiveBody::doDamageFX + death FXList Sound nuggets — never UnitDie/WeaponHit.
+                PresentationEvent::ObjectDestroyed { .. } => None,
+                // C++ DozerAIUpdate getVoiceTaskComplete / ProductionUpdate
+                // getVoiceCreated / getResearchCompleteSound + Eva UpgradeComplete.
+                // Never invented BuildingComplete / UnitReady / UpgradeComplete SFX.
+                PresentationEvent::ConstructionComplete { .. }
+                | PresentationEvent::UpgradeComplete { .. }
+                | PresentationEvent::ProductionComplete { .. } => None,
                 PresentationEvent::AttackTargeted { attacker, .. } => {
                     Some(("WeaponFire", Some(*attacker)))
                 }
-                PresentationEvent::DamageApplied {
-                    target,
-                    destroyed: true,
-                    ..
-                } => Some(("UnitDie", Some(*target))),
-                PresentationEvent::DamageApplied {
-                    target,
-                    amount,
-                    destroyed: false,
-                    ..
-                } => {
-                    if *amount > 0.0 {
-                        Some(("WeaponHit", Some(*target)))
-                    } else {
-                        None
-                    }
-                }
+                PresentationEvent::DamageApplied { .. } => None,
                 PresentationEvent::HealApplied { target, .. } => Some(("UnitHeal", Some(*target))),
-                PresentationEvent::EconomyChanged { .. } => Some(("MoneyTick", None)),
+                // C++ Money::withdraw/deposit play MiscAudio; EconomyChanged is HUD only.
+                PresentationEvent::EconomyChanged { .. } => None,
                 PresentationEvent::Victory { .. } => Some(("Victory", None)),
+
                 // C++ pickAndPlayUnitVoiceResponse plays ThingTemplate VoiceMove only.
                 PresentationEvent::MoveOrdered { unit: _, .. } => None,
                 PresentationEvent::WeaponFireLoopStarted { .. }
@@ -728,6 +714,27 @@ impl PresentationFrame {
             }
             out.push(req);
         }
+
+        // C++ Money.cpp withdraw/deposit — MiscAudio tokens, not invented MoneyTick.
+        for ev in crate::game_logic::host_economy_log::take_money_audio() {
+            let token = crate::game_logic::host_economy_log::money_audio_token(ev.kind);
+            let name = crate::game_logic::host_economy_log::resolve_misc_audio_event(token);
+            let _ = ev.player_id;
+            out.push(AudioEventRequest::new(name.as_str()));
+        }
+
+        // C++ Object::setDisabledUntil / clearDisabled MiscAudio.
+        for ev in crate::game_logic::host_disable_timers_log::take_audio() {
+            let name = crate::game_logic::host_economy_log::resolve_misc_audio_event(&ev.event_name);
+            let pos = glam::Vec3::new(ev.position[0], ev.position[1], ev.position[2]);
+            out.push(
+                AudioEventRequest::new(name.as_str())
+                    .with_object(ev.object)
+                    .with_position(pos)
+                    .with_priority(160),
+            );
+        }
+
 
         // Wave 530: capture/hijack ownership transfer audio residual.
         for ev in &self.events {
@@ -761,7 +768,8 @@ impl PresentationFrame {
 
         // Wave 535: combat particle spawn → presentation audio residual (snapshot pose).
         // Fail-closed: not full FXList/FXParticleSystemNames Miles matrix — kind→name map only.
-        // Skip muzzle (WeaponFire already) and impact (WeaponHit already from DamageApplied).
+        // Skip muzzle (WeaponFire already) and impact (DamageFX via ActiveBody::doDamageFX).
+
         for ev in &self.events {
             let PresentationEvent::ParticleSystemSpawned {
                 kind,
@@ -1120,6 +1128,13 @@ impl PresentationFrame {
         };
         let _ = control_bar.update_for_selection(ids);
         control_bar.apply_presentation_money(self.local_supplies as i32);
+        control_bar.apply_presentation_can_make(
+            &self
+                .can_make_cameos
+                .iter()
+                .map(|c| (c.template_name.clone(), c.can_make))
+                .collect::<Vec<_>>(),
+        );
 
         control_bar.sync_selection_display_from_presentation(
             panel.visible.then_some(panel.primary_name.as_str()),

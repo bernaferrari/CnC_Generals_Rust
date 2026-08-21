@@ -333,16 +333,22 @@ impl ScriptEvaluator {
             comparison
         );
 
-        // C++ returns false when playerFromParam cannot resolve the Side.  Do
-        // not manufacture a zero-credit player: equality with zero would turn
-        // a missing player into a successful script condition.
-        let Some(player_arc) = self.resolve_player_from_param(player_param) else {
-            return Ok(false);
+        let current_credits = if let Some(census) =
+            crate::scripting::host_query_player_census(player_name)
+        {
+            census.money
+        } else {
+            // C++ returns false when playerFromParam cannot resolve the Side.  Do
+            // not manufacture a zero-credit player: equality with zero would turn
+            // a missing player into a successful script condition.
+            let Some(player_arc) = self.resolve_player_from_param(player_param) else {
+                return Ok(false);
+            };
+            let Ok(player) = player_arc.read() else {
+                return Ok(false);
+            };
+            player.get_money().get_money()
         };
-        let Ok(player) = player_arc.read() else {
-            return Ok(false);
-        };
-        let current_credits = player.get_money().get_money();
 
         match comparison {
             0 => Ok(target_credits < current_credits),  // LessThan
@@ -368,6 +374,10 @@ impl ScriptEvaluator {
 
         let player_name = player_param.get_string();
         log::debug!("Evaluating PlayerHasPower for player: {}", player_name);
+
+        if let Some(census) = crate::scripting::host_query_player_census(player_name) {
+            return Ok(census.has_sufficient_power());
+        }
 
         let Some(player_arc) = self.resolve_player_from_param(player_param) else {
             return Ok(false);
@@ -508,6 +518,10 @@ impl ScriptEvaluator {
             player_name
         );
 
+        if let Some(census) = crate::scripting::host_query_player_census(player_name) {
+            return Ok(max_buildings >= census.building_count);
+        }
+
         let Some(player_arc) = self.resolve_player_from_param(player_param) else {
             return Ok(false);
         };
@@ -542,6 +556,10 @@ impl ScriptEvaluator {
             "Evaluating PlayerHasNOrFewerFactionBuildings for player: {}",
             player_name
         );
+
+        if let Some(census) = crate::scripting::host_query_player_census(player_name) {
+            return Ok(max_buildings >= census.faction_building_count);
+        }
 
         let Some(player_arc) = self.resolve_player_from_param(player_param) else {
             return Ok(false);
