@@ -24,6 +24,15 @@ use crate::system::smudge::{get_smudge_manager, SmudgeSetHandle};
 /// renderer throughput limit: merging systems changes translucent blend order.
 pub const MAX_PARTICLES_PER_BATCH: usize = 512;
 
+/// C++ `SC_MUL_SPRITE`: SRCBLEND_ZERO, DSTBLEND_SRC_COLOR → dest * src.
+pub fn particle_multiply_color_blend() -> wgpu::BlendComponent {
+    wgpu::BlendComponent {
+        src_factor: wgpu::BlendFactor::Zero,
+        dst_factor: wgpu::BlendFactor::Src,
+        operation: wgpu::BlendOperation::Add,
+    }
+}
+
 /// Particle vertex data for GPU (matches C++ billboard rendering)
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
@@ -445,6 +454,7 @@ pub struct ParticleRenderer {
     alpha_test_pipeline: wgpu::RenderPipeline,
     multiply_pipeline: wgpu::RenderPipeline,
     decal_pipeline: wgpu::RenderPipeline,
+    heat_haze_pipeline: wgpu::RenderPipeline,
 
     /// Uniform buffer
     uniform_buffer: wgpu::Buffer,
@@ -901,11 +911,7 @@ impl ParticleRenderer {
                 targets: &[Some(wgpu::ColorTargetState {
                     format: surface_format,
                     blend: Some(wgpu::BlendState {
-                        color: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::Dst,
-                            dst_factor: wgpu::BlendFactor::Src,
-                            operation: wgpu::BlendOperation::Subtract,
-                        },
+                        color: particle_multiply_color_blend(),
                         alpha: wgpu::BlendComponent::OVER,
                     }),
                     write_mask: wgpu::ColorWrites::ALL,
@@ -914,6 +920,66 @@ impl ParticleRenderer {
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: depth_format,
+                depth_write_enabled: false,
+                depth_compare: wgpu::CompareFunction::LessEqual,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        let heat_haze_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Heat Haze Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/particle_heat_haze.wgsl").into()),
+        });
+        let heat_haze_layout = wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<crate::effects::heat_haze::HeatHazeGpuVertex>() as u64,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x3,
+                    offset: 0,
+                    shader_location: 0,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x2,
+                    offset: 12,
+                    shader_location: 1,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32,
+                    offset: 20,
+                    shader_location: 2,
+                },
+            ],
+        };
+        let heat_haze_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Heat Haze Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &heat_haze_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[heat_haze_layout],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &heat_haze_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: surface_format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
                 ..Default::default()
             },
             depth_stencil: Some(wgpu::DepthStencilState {
@@ -977,6 +1043,7 @@ impl ParticleRenderer {
             alpha_test_pipeline,
             multiply_pipeline,
             decal_pipeline,
+            heat_haze_pipeline,
 
             uniform_buffer,
             uniform_bind_group,
@@ -1314,6 +1381,73 @@ impl ParticleRenderer {
         }
         self.stats.draw_calls += 1;
         self.stats.particles_rendered += vertices.len();
+    }
+
+    pub fn render_heat_haze(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+        depth_view: &wgpu::TextureView,
+        smudges: &[crate::effects::heat_haze::HeatHazeSmudge],
+        uniforms: &ParticleUniforms,
+    ) {
+        let (vertices, indices) = crate::effects::heat_haze::heat_haze_gpu_mesh(
+            smudges,
+            &uniforms.view_matrix,
+            &uniforms.projection_matrix,
+            [0.5, 0.5],
+            [1.0, 1.0],
+        );
+        if vertices.is_empty() || indices.is_empty() {
+            return;
+        }
+        self.queue
+            .write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[*uniforms]));
+        let vertex_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Heat Haze Vertex Buffer"),
+                contents: bytemuck::cast_slice(&vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+        let index_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Heat Haze Index Buffer"),
+                contents: bytemuck::cast_slice(&indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Heat Haze Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+            render_pass.set_pipeline(&self.heat_haze_pipeline);
+            render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.default_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+            render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
+        }
+        self.stats.draw_calls += 1;
     }
 
     pub fn render_decals(
@@ -1985,5 +2119,28 @@ mod tests {
         begin_particle_heat_smudge_frame();
     }
 
+    #[test]
+    fn multiply_blend_is_dest_times_src_not_subtract_to_black() {
+        let blend = particle_multiply_color_blend();
+        assert_eq!(blend.src_factor, wgpu::BlendFactor::Zero);
+        assert_eq!(blend.dst_factor, wgpu::BlendFactor::Src);
+        assert_eq!(blend.operation, wgpu::BlendOperation::Add);
+        let dest = 0.8_f32;
+        let src = 0.5_f32;
+        let src_term = src * blend_factor_value(src, dest, blend.src_factor);
+        let dest_term = dest * blend_factor_value(src, dest, blend.dst_factor);
+        let out = src_term + dest_term;
+        assert!((out - dest * src).abs() < 1.0e-5);
+        assert!((out - 0.4).abs() < 1.0e-5);
+    }
 
+    fn blend_factor_value(src: f32, dest: f32, factor: wgpu::BlendFactor) -> f32 {
+        match factor {
+            wgpu::BlendFactor::Zero => 0.0,
+            wgpu::BlendFactor::One => 1.0,
+            wgpu::BlendFactor::Src => src,
+            wgpu::BlendFactor::Dst => dest,
+            _ => panic!("unexpected factor"),
+        }
+    }
 }
