@@ -799,6 +799,12 @@ pub struct RenderableObject {
     /// C++ `ThingTemplate::m_upgradeCameoUpgradeNames` (`UpgradeCameo1..5`).
     #[serde(default)]
     pub upgrade_cameo_names: [String; 5],
+    /// C++ SubObjectsUpgrade show/hide residual (Bombload / BombWing).
+    /// Reveal halfpoint `forceRefreshSubObjectUpgradeStatus` rebuilds this
+    /// after the disguise drawable discarded the previous W3D children.
+    #[serde(default)]
+    pub sub_object_visibility: crate::game_logic::host_sub_objects_upgrade::HostSubObjectVisibility,
+
 
     /// Secondary weapon present residual.
     pub has_secondary_weapon: bool,

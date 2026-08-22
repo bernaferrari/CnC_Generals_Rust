@@ -305,6 +305,9 @@ pub struct UnitRenderInput {
     /// Frozen direct-object C++ shroud facts.  Renderer code receives this
     /// owned input and must not derive an ordinal status from FOW alpha.
     pub drawable_shroud: PresentationDrawableShroudFacts,
+    /// C++ SubObjectsUpgrade show/hide residual (Bombload / BombWing).
+    /// Applied after INI ConditionState so disguise-reveal restore wins last.
+    pub sub_object_visibility: crate::game_logic::host_sub_objects_upgrade::HostSubObjectVisibility,
 }
 
 impl UnitRenderInput {
@@ -463,6 +466,7 @@ impl UnitRenderInput {
             },
             dock_kind: ro.dock_kind,
             drawable_shroud: ro.drawable_shroud,
+            sub_object_visibility: ro.sub_object_visibility.clone(),
         }
     }
 
@@ -543,6 +547,23 @@ impl UnitRenderInput {
             self.drawable_supply_boxes,
             self.drawable_supply_max_boxes,
         ));
+        // C++ SubObjectsUpgrade::upgradeImplementation / forceRefresh runs
+        // after ConditionState hide/show. Skip while disguised: the live
+        // visual is the replacement template, which has no Bombload children.
+        if !self.disguised {
+            for name in &self.sub_object_visibility.hidden {
+                directives.push(crate::assets::AuthoredDrawSubobjectVisibility {
+                    name: name.clone(),
+                    hidden: true,
+                });
+            }
+            for name in &self.sub_object_visibility.shown {
+                directives.push(crate::assets::AuthoredDrawSubobjectVisibility {
+                    name: name.clone(),
+                    hidden: false,
+                });
+            }
+        }
         directives
     }
 
@@ -1847,6 +1868,7 @@ mod tests {
             let o = logic.host_object_mut(id).expect("kell obj");
             o.status.stealthed = true;
             o.status.detected = true;
+            o.camo_heat_vision_opacity = 1.0;
             o.camo_stealth_look = HostCamoStealthLook::VisibleDetected as u8;
         }
         let input = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0)

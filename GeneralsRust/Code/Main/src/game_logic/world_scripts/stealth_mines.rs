@@ -14,6 +14,12 @@ impl GameLogic {
     /// - Stealth Fighter + mines innate cloak; contained detectors do not scan
     pub fn update_stealth_and_detection(&mut self) {
         let frame = self.frame;
+        // C++ Drawable::draw fades m_secondMaterialPassOpacity * 0.8 every frame
+        // before the next detector pulse re-arms 1.0.
+        for obj in self.objects.values_mut() {
+            obj.fade_heat_vision_second_pass();
+        }
+
         // C++ StealthUpdate.cpp:725-780 cloak/destalth/detect SoundStealthOn/Off.
         let stealth_snap: Vec<(ObjectId, bool, bool)> = self
             .objects
@@ -391,18 +397,26 @@ impl GameLogic {
 
                 // StealthLook residual for enemy observer (default host residual view).
                 // Detected stealthed structures → heat-vision second material pass.
+                // C++ setStealthLook writes opacity only when look *changes*;
+                // Drawable::draw fades the residual between detector pulses.
                 let look = camo_netting_stealth_look(
                     obj.status.stealthed,
                     obj.status.detected,
                     false, // enemy observer residual (non-friendly)
                 );
                 let hv = camo_netting_heat_vision_opacity(look);
-                if hv > 0.0 && obj.camo_heat_vision_opacity < 0.5 {
+                let look_u8 = look.as_u8();
+                let look_changed = obj.camo_stealth_look != look_u8;
+                if look_changed && hv > 0.0 && obj.camo_heat_vision_opacity < 0.5 {
                     heat_vision = heat_vision.saturating_add(1);
                 }
-                obj.camo_stealth_look = look.as_u8();
+                if look_changed {
+                    obj.camo_heat_vision_opacity = hv;
+                } else if hv == 0.0 {
+                    obj.camo_heat_vision_opacity = 0.0;
+                }
+                obj.camo_stealth_look = look_u8;
                 obj.record_host_vision_camo();
-                obj.camo_heat_vision_opacity = hv;
                 // CamoNetting sub-object net mesh residual presentation.
                 if obj.camo_net_sub_object_shown || obj.has_upgrade_tag(UPGRADE_GLA_CAMO_NETTING) {
                     use crate::game_logic::host_upgrades::{
@@ -1222,7 +1236,26 @@ impl GameLogic {
         if obj.status.stealthed && !self.is_object_locally_controlled(det_id) {
             return false;
         }
-        true
+        // C++ Object::getShroudedStatus (Object.cpp:1778-1788): ALWAYS_VISIBLE
+        // or no PartitionData (garrisoned) → CLEAR.
+        if obj.get_template().always_visible || obj.contained_by.is_some() {
+            return true;
+        }
+        let Some(local) = self.local_player_id() else {
+            return true;
+        };
+        let status = gamelogic::system::shroud_manager::get_shroud_manager()
+            .lock()
+            .ok()
+            .and_then(|mgr| mgr.get_host_object_shroud_status(local, det_id.0));
+        match status {
+            Some(shroud) => {
+                (shroud as u8)
+                    <= (gamelogic::common::types::ObjectShroudStatus::PartialClear as u8)
+            }
+            // C++ Object.cpp:1786-1788: no PartitionData → CLEAR.
+            None => true,
+        }
     }
 
     /// C++ StealthDetectorUpdate.cpp:292-308 IR grid on a newly spotted target.
@@ -1248,7 +1281,7 @@ impl GameLogic {
     /// CamoNetting structures keep their existing enemy-observer residual write.
     fn apply_local_stealth_look_and_heat_vision(&mut self) {
         use crate::game_logic::host_upgrades::{
-            camo_netting_stealth_look, is_camo_netting_structure_template,
+            calc_stealthed_status_for_player, is_camo_netting_structure_template,
         };
         let local = self.local_player_id();
         let local_inactive = local
@@ -1287,7 +1320,22 @@ impl GameLogic {
                 && (obj.stealth_is_firing_weapon()
                     || obj.status.using_ability
                     || matches!(obj.ai_state, AIState::SpecialAbility));
-            let look = camo_netting_stealth_look(obj.status.stealthed, obj.status.detected, friendly);
+            let can_disguise = crate::game_logic::host_bomb_truck_disguise::has_disguises_as_team_stealth_residual(
+                &obj.template_name,
+            );
+            // C++ isDisguised() is `m_disguiseAsTemplate != NULL` (set on
+            // disguiseAsObject, before halfpoint). Host keeps the template in
+            // pending until halfpoint, then `status.disguised`.
+            let is_disguised = obj.status.disguised
+                || obj.disguise_as_template.is_some()
+                || obj.disguise_pending_template.is_some();
+            let look = calc_stealthed_status_for_player(
+                obj.status.stealthed,
+                obj.status.detected,
+                friendly,
+                can_disguise,
+                is_disguised,
+            );
             let hv = crate::game_logic::stealth_second_material_pass_opacity(
                 obj.status.stealthed,
                 obj.status.detected,
@@ -1300,8 +1348,14 @@ impl GameLogic {
                 hint,
             );
             if let Some(obj) = self.objects.get_mut(&id) {
-                obj.camo_stealth_look = look.as_u8();
-                if hv > obj.camo_heat_vision_opacity {
+                let look_u8 = look.as_u8();
+                let look_changed = obj.camo_stealth_look != look_u8;
+                obj.camo_stealth_look = look_u8;
+                if look_changed {
+                    // C++ setStealthLook writes m_secondMaterialPassOpacity only on change.
+                    obj.camo_heat_vision_opacity = hv;
+                } else if hint {
+                    // C++ hintDetectableWhileUnstealthed re-arms 1.0 each destalth update.
                     obj.camo_heat_vision_opacity = hv;
                 } else if !obj.status.stealthed && !hint {
                     obj.camo_heat_vision_opacity = hv;

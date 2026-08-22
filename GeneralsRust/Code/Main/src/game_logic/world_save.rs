@@ -365,6 +365,65 @@ impl GameLogic {
         self.terrain_height_at(world_pos)
     }
 
+    /// C++ `PartitionManager::getGroundOrStructureHeight` (`PartitionManager.cpp:4674`).
+    /// Tallest live `KINDOF_STRUCTURE` whose 2D bounding sphere is within 1wu,
+    /// plus leftover partition when that world is populated.
+    pub fn ground_or_structure_height_at(&self, world_pos: Vec3, terrain_y: f32) -> f32 {
+        const RANGE: f32 = 1.0;
+        let leftover = gamelogic::object::collide::partition_manager::PARTITION_MANAGER
+            .read()
+            .ok()
+            .map(|pm| pm.get_ground_or_structure_height(world_pos.x, world_pos.z));
+        let structure_height = |other: &Object| -> Option<f32> {
+            if !other.is_kind_of(KindOf::Structure) {
+                return None;
+            }
+            let op = other.get_position();
+            let dx = op.x - world_pos.x;
+            let dz = op.z - world_pos.z;
+            let dist = (dx * dx + dz * dz).sqrt();
+            let geom = &other.thing.template.geometry_info;
+            let radius = if geom.authored {
+                geom.major_radius
+            } else {
+                other.selection_radius
+            };
+            if dist - radius > RANGE {
+                return None;
+            }
+            Some(if geom.authored {
+                geom.max_height_above_position()
+            } else {
+                other.selection_radius.max(1.0)
+            })
+        };
+        let mut tallest = 0.0f32;
+        let neighbors = self
+            .partition_manager
+            .neighbor_object_ids(world_pos.x, world_pos.z);
+        if neighbors.is_empty() {
+            for other in self.objects.values() {
+                if let Some(h) = structure_height(other) {
+                    tallest = tallest.max(h);
+                }
+            }
+        } else {
+            for id in neighbors {
+                if let Some(other) = self.objects.get(&ObjectId(id)) {
+                    if let Some(h) = structure_height(other) {
+                        tallest = tallest.max(h);
+                    }
+                }
+            }
+        }
+        let live = terrain_y + tallest;
+        match leftover {
+            Some(h) if h > live + 1.0e-3 => h,
+            _ => live,
+        }
+    }
+
+
     fn cached_pathfind_height(
         &self,
         world_pos: Vec3,

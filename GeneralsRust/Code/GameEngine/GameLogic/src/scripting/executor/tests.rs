@@ -1494,6 +1494,12 @@ fn player_conditions_use_host_census_instead_of_stale_leftover_player() {
     player_list().write().unwrap().add_player(leftover);
 
     let mut snap = crate::scripting::HostScriptQuerySnapshot::default();
+    let mut template_counts = std::collections::HashMap::new();
+    template_counts.insert("americawarfactory".into(), 1);
+    template_counts.insert("americainfantryranger".into(), 2);
+    template_counts.insert("americacommandcenter".into(), 1);
+    let mut template_counts_ignore_dead = template_counts.clone();
+    template_counts.insert("americatankcrusader".into(), 1);
     snap.player_census.insert(
         "plyramerica".into(),
         crate::scripting::HostScriptPlayerCensus {
@@ -1505,6 +1511,8 @@ fn player_conditions_use_host_census_instead_of_stale_leftover_player() {
             has_any_build_facility: true,
             building_count: 3,
             faction_building_count: 2,
+            template_counts,
+            template_counts_ignore_dead,
             ..Default::default()
         },
     );
@@ -1613,7 +1621,113 @@ fn player_conditions_use_host_census_instead_of_stale_leftover_player() {
         "N_OR_FEWER_BUILDINGS 3 is true when host has 3 structures"
     );
 
+    let mut built = Condition::new(ConditionType::BuiltByPlayer);
+    built
+        .add_parameter(Parameter::with_string(
+            ParameterType::ObjectType,
+            "AmericaWarFactory".to_string(),
+        ))
+        .unwrap();
+    built
+        .add_parameter(Parameter::with_string(
+            ParameterType::Side,
+            "PlyrAmerica".to_string(),
+        ))
+        .unwrap();
+    assert_eq!(
+        evaluator.evaluate_condition(&mut built).unwrap(),
+        ScriptConditionResult::True,
+        "BUILT_BY_PLAYER must see host War Factory census, not leftover 0"
+    );
+
+    let mut has_rangers = Condition::new(ConditionType::PlayerHasObjectComparison);
+    has_rangers
+        .add_parameter(Parameter::with_string(
+            ParameterType::Side,
+            "PlyrAmerica".to_string(),
+        ))
+        .unwrap();
+    has_rangers
+        .add_parameter(Parameter::with_int(ParameterType::Comparison, 4))
+        .unwrap();
+    has_rangers
+        .add_parameter(Parameter::with_int(ParameterType::Int, 0))
+        .unwrap();
+    has_rangers
+        .add_parameter(Parameter::with_string(
+            ParameterType::ObjectType,
+            "AmericaInfantryRanger".to_string(),
+        ))
+        .unwrap();
+    assert_eq!(
+        evaluator.evaluate_condition(&mut has_rangers).unwrap(),
+        ScriptConditionResult::True,
+        "HAS_OBJECT_COMPARISON > 0 Rangers must use host census"
+    );
+
+    let mut few_cc = Condition::new(ConditionType::PlayerHasObjectComparison);
+    few_cc
+        .add_parameter(Parameter::with_string(
+            ParameterType::Side,
+            "PlyrAmerica".to_string(),
+        ))
+        .unwrap();
+    few_cc
+        .add_parameter(Parameter::with_int(ParameterType::Comparison, 0))
+        .unwrap();
+    few_cc
+        .add_parameter(Parameter::with_int(ParameterType::Int, 1))
+        .unwrap();
+    few_cc
+        .add_parameter(Parameter::with_string(
+            ParameterType::ObjectType,
+            "AmericaCommandCenter".to_string(),
+        ))
+        .unwrap();
+    assert_eq!(
+        evaluator.evaluate_condition(&mut few_cc).unwrap(),
+        ScriptConditionResult::False,
+        "HAS fewer than 1 Command Center is false while host CC stands"
+    );
+
+    let mut lost = Condition::new(ConditionType::PlayerLostObjectType);
+    lost.add_parameter(Parameter::with_string(
+        ParameterType::Side,
+        "PlyrAmerica".to_string(),
+    ))
+    .unwrap();
+    lost.add_parameter(Parameter::with_string(
+        ParameterType::ObjectType,
+        "AmericaTankCrusader".to_string(),
+    ))
+    .unwrap();
+    assert_eq!(
+        evaluator.evaluate_condition(&mut lost).unwrap(),
+        ScriptConditionResult::False,
+        "LOST first census sample stores ignoreDead count and is not yet lost"
+    );
+    {
+        let mut snap = crate::scripting::HostScriptQuerySnapshot::default();
+        let mut template_counts = std::collections::HashMap::new();
+        template_counts.insert("americatankcrusader".into(), 1);
+        snap.player_census.insert(
+            "plyramerica".into(),
+            crate::scripting::HostScriptPlayerCensus {
+                template_counts,
+                template_counts_ignore_dead: std::collections::HashMap::new(),
+                ..Default::default()
+            },
+        );
+        crate::scripting::set_host_script_query_snapshot(snap);
+    }
+    assert_eq!(
+        evaluator.evaluate_condition(&mut lost).unwrap(),
+        ScriptConditionResult::True,
+        "LOST fires when ignoreDead census drops vs ScriptEngine cache"
+    );
+
     crate::scripting::clear_host_script_query_snapshot();
+    player_list().write().unwrap().clear();
 }
 
 
@@ -4086,6 +4200,116 @@ fn create_object_queues_host_when_dual_world_empty() {
         }]
     );
 }
+
+#[test]
+fn named_team_kill_delete_damage_queue_host_when_dual_world_empty() {
+    let _test_lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+
+    let _ = take_host_script_kill_delete_damage_requests();
+    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+
+    let mut named_delete = ScriptAction::new(ScriptActionType::NamedDelete);
+    named_delete
+        .add_parameter(Parameter::with_string(ParameterType::Unit, "Flyover".into()))
+        .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&named_delete).unwrap(),
+        ScriptActionResult::Success
+    );
+
+    let mut named_kill = ScriptAction::new(ScriptActionType::NamedKill);
+    named_kill
+        .add_parameter(Parameter::with_string(ParameterType::Unit, "Civilian".into()))
+        .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&named_kill).unwrap(),
+        ScriptActionResult::Success
+    );
+
+    let mut named_damage = ScriptAction::new(ScriptActionType::NamedDamage);
+    named_damage
+        .add_parameter(Parameter::with_string(ParameterType::Unit, "Hero".into()))
+        .unwrap();
+    named_damage
+        .add_parameter(Parameter::with_int(ParameterType::Int, 25))
+        .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&named_damage).unwrap(),
+        ScriptActionResult::Success
+    );
+
+    let mut team_delete = ScriptAction::new(ScriptActionType::TeamDelete);
+    team_delete
+        .add_parameter(Parameter::with_string(ParameterType::Team, "teamAmerica".into()))
+        .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&team_delete).unwrap(),
+        ScriptActionResult::Success
+    );
+
+    let mut team_kill = ScriptAction::new(ScriptActionType::TeamKill);
+    team_kill
+        .add_parameter(Parameter::with_string(ParameterType::Team, "teamChina".into()))
+        .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&team_kill).unwrap(),
+        ScriptActionResult::Success
+    );
+
+    let mut team_damage = ScriptAction::new(ScriptActionType::DamageMembersOfTeam);
+    team_damage
+        .add_parameter(Parameter::with_string(ParameterType::Team, "teamGLA".into()))
+        .unwrap();
+    team_damage
+        .add_parameter(Parameter::with_real(ParameterType::Real, 40.0))
+        .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&team_damage).unwrap(),
+        ScriptActionResult::Success
+    );
+
+    let mut team_delete_living = ScriptAction::new(ScriptActionType::TeamDeleteLiving);
+    team_delete_living
+        .add_parameter(Parameter::with_string(ParameterType::Team, "teamUSA".into()))
+        .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&team_delete_living).unwrap(),
+        ScriptActionResult::Success
+    );
+
+    assert_eq!(
+        take_host_script_kill_delete_damage_requests(),
+        vec![
+            HostScriptKillDeleteDamageRequest::NamedDelete {
+                unit: "Flyover".to_string()
+            },
+            HostScriptKillDeleteDamageRequest::NamedKill {
+                unit: "Civilian".to_string()
+            },
+            HostScriptKillDeleteDamageRequest::NamedDamage {
+                unit: "Hero".to_string(),
+                amount: 25
+            },
+            HostScriptKillDeleteDamageRequest::TeamDelete {
+                team: "teamAmerica".to_string(),
+                ignore_dead: false
+            },
+            HostScriptKillDeleteDamageRequest::TeamKill {
+                team: "teamChina".to_string()
+            },
+            HostScriptKillDeleteDamageRequest::TeamDamage {
+                team: "teamGLA".to_string(),
+                amount: 40.0
+            },
+            HostScriptKillDeleteDamageRequest::TeamDelete {
+                team: "teamUSA".to_string(),
+                ignore_dead: true
+            },
+        ]
+    );
+}
+
 
 #[test]
 fn team_set_attitude_queues_host_when_dual_world_empty() {

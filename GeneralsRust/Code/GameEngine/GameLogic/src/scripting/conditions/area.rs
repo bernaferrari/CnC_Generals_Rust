@@ -583,10 +583,16 @@ impl ScriptCondition for BuildingEnteredByPlayerCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        // Wave 271: empty dual-world → fail-closed condition.
+        // Wave 271: empty dual-world → host snapshot (C++ getPlayerWhoEntered).
         if dual_world_registry_unavailable() {
-            return Ok(false);
+            let building_name = get_str_param(parameters, "building_name")?;
+            let player_name = get_str_param(parameters, "player")?;
+            return Ok(
+                super::helpers::host_building_entered_by_player(&building_name, &player_name)
+                    .unwrap_or(false),
+            );
         }
+
 
         let building_name = get_str_param(parameters, "building_name")?;
         let player_arc = match get_player_arc(parameters, "player")? {

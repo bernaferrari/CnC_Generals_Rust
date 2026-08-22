@@ -845,6 +845,9 @@ impl GameLogic {
                 | LocomotorBehaviorZ::SmoothRelativeToHighestLayer
                 | LocomotorBehaviorZ::AbsoluteHeight
                 | LocomotorBehaviorZ::SeaLevel
+                | LocomotorBehaviorZ::FixedSurfaceRelativeHeight
+                | LocomotorBehaviorZ::FixedAbsoluteHeight
+                | LocomotorBehaviorZ::RelativeToGroundAndBuildings
         );
         if !z_motive && !hover {
             return;

@@ -392,6 +392,17 @@ impl Snapshot for WorldSnapshot {
             self.object_command_sets.clear();
         }
 
+        if self.version >= WORLD_SNAPSHOT_DIRECT_XFER_V20_TAIL_VERSION {
+            xfer.xfer_marker_label("ObjectDisguises")?;
+            xfer_vec_default(
+                xfer,
+                &mut self.object_disguises,
+                ObjectDisguiseSnapshot::default(),
+            )?;
+        } else if xfer.get_mode() == XferMode::Load {
+            self.object_disguises.clear();
+        }
+
         Ok(())
     }
 

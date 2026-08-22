@@ -56,8 +56,11 @@ use std::time::SystemTime;
 /// globals, TerrainLogic water updates, Radar hidden/force-on/event ring,
 /// and remaining Drawable::xfer residuals as a world tail. Version 19 appends
 /// C++ `Object::xfer` `m_commandSetStringOverride` as a world tail so nested
-/// `ObjectSnapshot` records stay aligned with v1-v18 streams.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 19;
+/// `ObjectSnapshot` records stay aligned with v1-v18 streams. Version 20
+/// appends C++ `StealthUpdate::xfer` disguise identity / transition
+/// (`StealthUpdate.cpp:1141-1177`) as a world tail so nested object records
+/// stay aligned with v1-v19 streams.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 20;
 
 /// Direct Common Xfer keeps an independent positional envelope from bincode.
 ///
@@ -65,7 +68,7 @@ pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 19;
 /// and object records.  Do not derive object-tail gates from the bincode
 /// version: a historical direct v3 stream still contains HDB even once the
 /// bincode writer has advanced to v4.
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 19;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 20;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_HDB_VERSION: u32 = 3;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V4_TAIL_VERSION: u32 = 4;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V5_TAIL_VERSION: u32 = 5;
@@ -83,6 +86,7 @@ pub const WORLD_SNAPSHOT_DIRECT_XFER_V16_TAIL_VERSION: u32 = 16;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V17_TAIL_VERSION: u32 = 17;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V18_TAIL_VERSION: u32 = 18;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V19_TAIL_VERSION: u32 = 19;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_V20_TAIL_VERSION: u32 = 20;
 
 /// Reject unknown direct-Xfer outer layouts before consuming any body bytes.
 /// Known historical writers are accepted so focused fixtures can verify their
@@ -92,9 +96,8 @@ pub(crate) fn validate_direct_world_snapshot_version(version: u32) -> SaveLoadRe
         // Keep these arms deliberately explicit. Advancing the current writer
         // must not accidentally make a future positional body acceptable
         // before its object/world gates and exact predecessor fixtures exist.
-        1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 => {
-            Ok(())
-        }
+        1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19
+        | 20 => Ok(()),
         actual => Err(crate::save_load::SaveLoadError::VersionMismatch {
             expected: WORLD_SNAPSHOT_DIRECT_XFER_VERSION,
             actual,
@@ -272,6 +275,12 @@ pub struct WorldSnapshot {
     /// World tail so nested `ObjectSnapshot` stays aligned with v1-v18 streams.
     #[serde(default)]
     pub object_command_sets: Vec<ObjectCommandSetSnapshot>,
+
+    /// C++ `StealthUpdate::xfer` disguise identity + transition
+    /// (`StealthUpdate.cpp:1141-1177`). World tail so nested
+    /// `ObjectSnapshot` / `ObjectStatusSnapshot` stay aligned with v1-v19.
+    #[serde(default)]
+    pub object_disguises: Vec<ObjectDisguiseSnapshot>,
 }
 
 /// C++ `ExperienceTracker::xfer` `m_experienceSink` + `m_experienceScalar`.
@@ -299,6 +308,23 @@ impl Default for ObjectExperienceTrackerSnapshot {
 pub struct ObjectCommandSetSnapshot {
     pub object_id: ObjectId,
     pub command_set_override: String,
+}
+
+/// C++ `StealthUpdate::xfer` disguise persist (`StealthUpdate.cpp:1141-1177`).
+/// Empty template / team 255 is none. Pending fields cover pre-halfpoint live
+/// residual (`disguise_pending_*`); C++ stores the target on
+/// `m_disguiseAsTemplate` before the visual swap.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ObjectDisguiseSnapshot {
+    pub object_id: ObjectId,
+    pub disguise_as_template: String,
+    pub disguise_as_team: u8,
+    pub disguise_pending_template: String,
+    pub disguise_pending_team: u8,
+    pub disguised: bool,
+    pub disguise_transition_frames: u32,
+    pub disguise_transitioning_to: bool,
+    pub disguise_halfpoint_reached: bool,
 }
 
 
@@ -530,6 +556,7 @@ impl Default for WorldSnapshot {
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
+            object_disguises: Vec::new(),
         }
     }
 }

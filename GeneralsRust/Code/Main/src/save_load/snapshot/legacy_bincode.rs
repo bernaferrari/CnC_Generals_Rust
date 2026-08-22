@@ -35,10 +35,12 @@ use std::time::SystemTime;
 /// Version 16 predates the v17 GameLogic persist tail (scoring, restriction,
 /// CaveSystem, TunnelTracker, airfield stalls). Version 17 predates the v18
 /// persist_v18 / experience-tracker tail. Version 18 predates the v19
-/// Object command-set override tail.
+/// Object command-set override tail. Version 19 predates the v20
+/// StealthUpdate disguise identity/transition tail.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BincodeWorldSnapshotDecodePath {
     Current,
+    LegacyPreV20V19,
     LegacyPreV19V18,
     LegacyPreV18V17,
     LegacyPreV17V16,
@@ -68,6 +70,14 @@ pub(crate) fn decode_bincode_world_snapshot(
     match version {
         WORLD_SNAPSHOT_BINCODE_VERSION => bincode_exact::<WorldSnapshot>(payload)
             .map(|snapshot| (snapshot, BincodeWorldSnapshotDecodePath::Current))
+            .map_err(|error| SaveLoadError::Serialization(error.to_string())),
+        19 => bincode_exact::<PreV20WorldSnapshot>(payload)
+            .map(|snapshot| {
+                (
+                    snapshot.into(),
+                    BincodeWorldSnapshotDecodePath::LegacyPreV20V19,
+                )
+            })
             .map_err(|error| SaveLoadError::Serialization(error.to_string())),
         18 => bincode_exact::<PreV19WorldSnapshot>(payload)
             .map(|snapshot| {
@@ -717,6 +727,7 @@ impl From<PreV18WorldSnapshot> for WorldSnapshot {
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
+            object_disguises: Vec::new(),
         }
     }
 }
@@ -812,9 +823,108 @@ impl From<PreV19WorldSnapshot> for WorldSnapshot {
             persist_v18: snapshot.persist_v18,
             object_experience_trackers: snapshot.object_experience_trackers,
             object_command_sets: Vec::new(),
+            object_disguises: Vec::new(),
         }
     }
 }
+
+/// Complete v19 world record before the v20 StealthUpdate disguise tail.
+#[derive(Debug, Deserialize, Serialize)]
+struct PreV20WorldSnapshot {
+    version: u32,
+    timestamp: SystemTime,
+    frame_number: u64,
+    random_seed: u64,
+    objects: HashMap<ObjectId, ObjectSnapshot>,
+    players: Vec<PlayerSnapshot>,
+    teams: Vec<TeamSnapshot>,
+    terrain: TerrainSnapshot,
+    weather: WeatherSnapshot,
+    resource_manager: ResourceManagerSnapshot,
+    combat_tracker: CombatTrackerSnapshot,
+    experience_tracker: ExperienceTrackerSnapshot,
+    pathfinding_cache: PathfindingCacheSnapshot,
+    ai_players: Vec<AIPlayerSnapshot>,
+    global_ai_state: GlobalAIStateSnapshot,
+    special_power_strikes: SpecialPowerStrikeRegistrySnapshot,
+    combat_particles: CombatParticleRegistrySnapshot,
+    host_upgrades: HostUpgradeRegistrySnapshot,
+    next_weapon_discharge_sequence: u64,
+    client_drawables: ClientDrawableWorldSnapshot,
+    player_template_bindings: Vec<PlayerTemplateBindingSnapshot>,
+    shroud: ShroudSnapshot,
+    lifecycle_tail: Vec<u8>,
+    player_ranks: Vec<PlayerRankSnapshot>,
+    object_instance_guards: Vec<ObjectInstanceGuardSnapshot>,
+    overcharge_active: Vec<ObjectOverchargeSnapshot>,
+    cia_intelligence: crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry,
+    vision_spied: Vec<ObjectVisionSpiedSnapshot>,
+    builder_tasks: Vec<ObjectBuilderTaskSnapshot>,
+    sell_list: Vec<SellListEntrySnapshot>,
+    object_persist: Vec<ObjectPersistTailSnapshot>,
+    client_drawable_visuals: Vec<ClientDrawableVisualSnapshot>,
+    player_energy: Vec<PlayerEnergySnapshot>,
+    object_triggers: Vec<ObjectTriggerPersistSnapshot>,
+    is_scoring_enabled: bool,
+    limit_superweapons: bool,
+    cave_system: crate::game_logic::HostCaveSystem,
+    tunnel_network: crate::game_logic::HostTunnelNetworkRegistry,
+    airfield_parking: AirfieldParkingWorldSnapshot,
+    persist_v18: super::persist_v18::WorldPersistV18,
+    object_experience_trackers: Vec<ObjectExperienceTrackerSnapshot>,
+    object_command_sets: Vec<ObjectCommandSetSnapshot>,
+}
+
+impl From<PreV20WorldSnapshot> for WorldSnapshot {
+    fn from(snapshot: PreV20WorldSnapshot) -> Self {
+        Self {
+            version: WORLD_SNAPSHOT_BINCODE_VERSION,
+            timestamp: snapshot.timestamp,
+            frame_number: snapshot.frame_number,
+            random_seed: snapshot.random_seed,
+            objects: snapshot.objects,
+            players: snapshot.players,
+            teams: snapshot.teams,
+            terrain: snapshot.terrain,
+            weather: snapshot.weather,
+            resource_manager: snapshot.resource_manager,
+            combat_tracker: snapshot.combat_tracker,
+            experience_tracker: snapshot.experience_tracker,
+            pathfinding_cache: snapshot.pathfinding_cache,
+            ai_players: snapshot.ai_players,
+            global_ai_state: snapshot.global_ai_state,
+            special_power_strikes: snapshot.special_power_strikes,
+            combat_particles: snapshot.combat_particles,
+            host_upgrades: snapshot.host_upgrades,
+            next_weapon_discharge_sequence: snapshot.next_weapon_discharge_sequence,
+            client_drawables: snapshot.client_drawables,
+            player_template_bindings: snapshot.player_template_bindings,
+            shroud: snapshot.shroud,
+            lifecycle_tail: snapshot.lifecycle_tail,
+            player_ranks: snapshot.player_ranks,
+            object_instance_guards: snapshot.object_instance_guards,
+            overcharge_active: snapshot.overcharge_active,
+            cia_intelligence: snapshot.cia_intelligence,
+            vision_spied: snapshot.vision_spied,
+            builder_tasks: snapshot.builder_tasks,
+            sell_list: snapshot.sell_list,
+            object_persist: snapshot.object_persist,
+            client_drawable_visuals: snapshot.client_drawable_visuals,
+            player_energy: snapshot.player_energy,
+            object_triggers: snapshot.object_triggers,
+            is_scoring_enabled: snapshot.is_scoring_enabled,
+            limit_superweapons: snapshot.limit_superweapons,
+            cave_system: snapshot.cave_system,
+            tunnel_network: snapshot.tunnel_network,
+            airfield_parking: snapshot.airfield_parking,
+            persist_v18: snapshot.persist_v18,
+            object_experience_trackers: snapshot.object_experience_trackers,
+            object_command_sets: snapshot.object_command_sets,
+            object_disguises: Vec::new(),
+        }
+    }
+}
+
 
 
 
@@ -1155,6 +1265,7 @@ impl From<LegacyWorldSnapshot> for WorldSnapshot {
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
+            object_disguises: Vec::new(),
         }
     }
 }
@@ -1295,6 +1406,7 @@ impl From<PreHackerDisableWorldSnapshot> for WorldSnapshot {
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
+            object_disguises: Vec::new(),
         }
     }
 }
@@ -1381,6 +1493,7 @@ impl From<PreV4WorldSnapshot> for WorldSnapshot {
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
+            object_disguises: Vec::new(),
         }
     }
 }
@@ -1434,6 +1547,7 @@ impl From<PreV6WorldSnapshot> for WorldSnapshot {
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
+            object_disguises: Vec::new(),
         }
     }
 }
@@ -1487,6 +1601,7 @@ impl From<PreV8WorldSnapshot> for WorldSnapshot {
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
+            object_disguises: Vec::new(),
         }
     }
 }
@@ -1536,6 +1651,7 @@ impl From<PreV9WorldSnapshot> for WorldSnapshot {
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
+            object_disguises: Vec::new(),
         }
     }
 }
@@ -1585,6 +1701,7 @@ impl From<PreV10WorldSnapshot> for WorldSnapshot {
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
+            object_disguises: Vec::new(),
         }
     }
 }
@@ -1634,6 +1751,7 @@ impl From<PreV11WorldSnapshot> for WorldSnapshot {
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
+            object_disguises: Vec::new(),
         }
     }
 }
@@ -1683,6 +1801,7 @@ impl From<PreV12WorldSnapshot> for WorldSnapshot {
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
+            object_disguises: Vec::new(),
         }
     }
 }
@@ -1732,6 +1851,7 @@ impl From<PreV13WorldSnapshot> for WorldSnapshot {
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
+            object_disguises: Vec::new(),
         }
     }
 }
@@ -1781,6 +1901,7 @@ impl From<PreV14WorldSnapshot> for WorldSnapshot {
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
+            object_disguises: Vec::new(),
         }
     }
 }
@@ -1830,6 +1951,7 @@ impl From<PreV15WorldSnapshot> for WorldSnapshot {
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
+            object_disguises: Vec::new(),
         }
     }
 }
@@ -1879,6 +2001,7 @@ impl From<PreV16WorldSnapshot> for WorldSnapshot {
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
+            object_disguises: Vec::new(),
         }
     }
 }
@@ -1928,6 +2051,7 @@ impl From<PreV17WorldSnapshot> for WorldSnapshot {
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
+            object_disguises: Vec::new(),
         }
     }
 }
@@ -2017,6 +2141,7 @@ impl From<PreV7WorldSnapshot> for WorldSnapshot {
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
+            object_disguises: Vec::new(),
         }
     }
 }
@@ -2103,6 +2228,7 @@ impl From<PreV5WorldSnapshot> for WorldSnapshot {
             persist_v18: super::persist_v18::WorldPersistV18::default(),
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
+            object_disguises: Vec::new(),
         }
     }
 }

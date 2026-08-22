@@ -1079,6 +1079,26 @@ impl ScriptConditionEvaluator {
             object_type
         );
 
+        let leftover_player = player_list().read().ok().and_then(|players| {
+            players
+                .find_player_by_name(&player_name)
+                .and_then(|arc| arc.read().ok().map(|p| p.get_player_index()))
+        });
+
+        if let Some(sum_of_objs) =
+            self.host_player_object_type_count(&player_name, &object_type, true)
+        {
+            let player_index = leftover_player.unwrap_or(0);
+            return Ok(self.finish_player_lost_object_type(
+                player_index,
+                &object_type,
+                sum_of_objs,
+            ));
+        }
+
+        let Some(player_index) = leftover_player else {
+            return Ok(ScriptConditionResult::False);
+        };
         let Ok(players) = player_list().read() else {
             return Ok(ScriptConditionResult::False);
         };
@@ -1088,7 +1108,6 @@ impl ScriptConditionEvaluator {
         let Ok(player) = player_arc.read() else {
             return Ok(ScriptConditionResult::False);
         };
-        let player_index = player.get_player_index();
 
         let types = self.resolve_object_types_param(&object_type);
         let (templates, mut counts) = types.prep_for_player_counting();
@@ -1098,18 +1117,26 @@ impl ScriptConditionEvaluator {
         // C++ countObjectsByThingTemplate(..., ignoreDead=TRUE)
         player.count_objects_by_thing_template(&templates, true, true, &mut counts);
         let sum_of_objs: i32 = counts.iter().copied().sum();
+        Ok(self.finish_player_lost_object_type(player_index, &object_type, sum_of_objs))
+    }
 
+    fn finish_player_lost_object_type(
+        &self,
+        player_index: i32,
+        object_type: &str,
+        sum_of_objs: i32,
+    ) -> ScriptConditionResult {
         let current_count =
-            with_script_engine_ref(|engine| engine.get_object_count(player_index, &object_type))
+            with_script_engine_ref(|engine| engine.get_object_count(player_index, object_type))
                 .unwrap_or(0);
 
         if sum_of_objs != current_count {
             let _ = with_script_engine_mut(|engine| {
-                engine.set_object_count(player_index, &object_type, sum_of_objs);
+                engine.set_object_count(player_index, object_type, sum_of_objs);
             });
         }
 
-        Ok(bool_result(sum_of_objs < current_count))
+        bool_result(sum_of_objs < current_count)
     }
 
     /// C++ Reference: ScriptConditions::evaluatePlayerDestroyedNOrMoreBuildings()
@@ -1177,30 +1204,36 @@ impl ScriptConditionEvaluator {
             }
         }
 
-        let Ok(players) = player_list().read() else {
-            return Ok(ScriptConditionResult::False);
-        };
-        let Some(player_arc) = players.find_player_by_name(&player_name) else {
-            return Ok(ScriptConditionResult::False);
-        };
-        let Ok(player) = player_arc.read() else {
-            return Ok(ScriptConditionResult::False);
-        };
+        let object_count = if let Some(count) =
+            self.host_player_object_type_count(&player_name, &object_type, false)
+        {
+            count
+        } else {
+            let Ok(players) = player_list().read() else {
+                return Ok(ScriptConditionResult::False);
+            };
+            let Some(player_arc) = players.find_player_by_name(&player_name) else {
+                return Ok(ScriptConditionResult::False);
+            };
+            let Ok(player) = player_arc.read() else {
+                return Ok(ScriptConditionResult::False);
+            };
 
-        let types = self.resolve_object_types_param(&object_type);
-        let (templates, mut counts) = types.prep_for_player_counting();
-        // C++ countObjectsByThingTemplate(..., ignoreDead=FALSE)
-        if !templates.is_empty() {
-            player.count_objects_by_thing_template(&templates, false, true, &mut counts);
-        }
-        let object_count: i32 = counts.iter().copied().sum();
+            let types = self.resolve_object_types_param(&object_type);
+            let (templates, mut counts) = types.prep_for_player_counting();
+            // C++ countObjectsByThingTemplate(..., ignoreDead=FALSE)
+            if !templates.is_empty() {
+                player.count_objects_by_thing_template(&templates, false, true, &mut counts);
+            }
+            counts.iter().copied().sum()
+        };
 
         let result = match comparison {
             ComparisonType::LessThan => object_count < target_count,
             ComparisonType::LessEqual => object_count <= target_count,
-            ComparisonType::Equal => object_count == target_count,
             ComparisonType::GreaterEqual => object_count >= target_count,
             ComparisonType::Greater => object_count > target_count,
+            ComparisonType::Equal => object_count == target_count,
             ComparisonType::NotEqual => object_count != target_count,
         };
 
@@ -1358,6 +1391,12 @@ impl ScriptConditionEvaluator {
         );
 
         let types = self.resolve_object_types_param(&types_param);
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            return Ok(bool_result(host_team_attacked_by_object_types(
+                &team_name, &types,
+            )));
+        }
+
         let Some(team_arc) = self.lookup_condition_team(&team_name) else {
             return Ok(ScriptConditionResult::False);
         };
@@ -1385,6 +1424,12 @@ impl ScriptConditionEvaluator {
             team_name,
             player_name
         );
+
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            return Ok(bool_result(host_team_attacked_by_player(
+                &team_name, &player_name,
+            )));
+        }
 
         let Ok(players) = player_list().read() else {
             return Ok(ScriptConditionResult::False);
@@ -1476,6 +1521,12 @@ impl ScriptConditionEvaluator {
             team_name,
             player_name
         );
+
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            return Ok(bool_result(host_team_discovered_by_player(
+                &team_name, &player_name,
+            )));
+        }
 
         let Ok(players) = player_list().read() else {
             return Ok(ScriptConditionResult::False);
@@ -1775,6 +1826,18 @@ impl ScriptConditionEvaluator {
             team_name
         );
 
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            return Ok(bool_result(
+                crate::scripting::host_eval_team_has_object_status(
+                    &team_name,
+                    status_mask.bits(),
+                    true,
+                )
+                .unwrap_or(false),
+            ));
+        }
+
+
         let Ok(mut factory) = get_team_factory().lock() else {
             return Ok(ScriptConditionResult::False);
         };
@@ -1813,6 +1876,18 @@ impl ScriptConditionEvaluator {
             "Evaluating if some of team '{}' have object status",
             team_name
         );
+
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            return Ok(bool_result(
+                crate::scripting::host_eval_team_has_object_status(
+                    &team_name,
+                    status_mask.bits(),
+                    false,
+                )
+                .unwrap_or(false),
+            ));
+        }
+
 
         let Ok(mut factory) = get_team_factory().lock() else {
             return Ok(ScriptConditionResult::False);
@@ -1857,6 +1932,30 @@ impl ScriptConditionEvaluator {
 
         types.add_object_type(AsciiString::from(type_or_list_name));
         types
+    }
+
+    /// C++ Player::countObjectsByThingTemplate via host census when leftover
+    /// OBJECT_REGISTRY is empty. None when no census row exists for the side.
+    pub(crate) fn host_player_object_type_count(
+        &self,
+        player_name: &str,
+        type_or_list: &str,
+        ignore_dead: bool,
+    ) -> Option<i32> {
+        let census = crate::scripting::host_query_player_census(player_name)?;
+        let types = self.resolve_object_types_param(type_or_list);
+        let (templates, _) = types.prep_for_player_counting();
+        let mut names: Vec<String> = templates
+            .iter()
+            .map(|template| template.get_name().to_string())
+            .collect();
+        if names.is_empty() {
+            names.extend(types.iter().map(|name| name.to_string()));
+        }
+        if names.is_empty() && !type_or_list.is_empty() {
+            names.push(type_or_list.to_string());
+        }
+        Some(census.count_templates(&names, ignore_dead))
     }
 
     pub(crate) fn get_condition_string_param(
@@ -2116,4 +2215,62 @@ fn object_is_discovered_by_player(obj: &crate::object::Object, player_index: i32
         obj.get_shrouded_status(player_index),
         crate::common::ObjectShroudStatus::Clear | crate::common::ObjectShroudStatus::PartialClear
     )
+}
+
+/// C++ evaluateTeamAttackedByType over host team_instance_ids + last_damage_*.
+fn host_team_attacked_by_object_types(
+    team_name: &str,
+    types: &crate::object::object_types::ObjectTypes,
+) -> bool {
+    for id in crate::scripting::host_script_team_member_ids(team_name) {
+        let Some(obj) = crate::scripting::host_script_query_object_by_id(id) else {
+            continue;
+        };
+        if !obj.last_damage_template.is_empty() {
+            if types.is_in_set(&crate::common::AsciiString::from(
+                obj.last_damage_template.as_str(),
+            )) {
+                return true;
+            }
+            continue;
+        }
+        if obj.last_damage_source_id == 0 {
+            continue;
+        }
+        let Some(src) =
+            crate::scripting::host_script_query_object_by_id(obj.last_damage_source_id)
+        else {
+            continue;
+        };
+        if types.is_in_set(&crate::common::AsciiString::from(src.template_name.as_str())) {
+            return true;
+        }
+    }
+    false
+}
+
+/// C++ evaluateTeamAttackedByPlayer over host last_damage_player (live attacker owner).
+fn host_team_attacked_by_player(team_name: &str, player_name: &str) -> bool {
+    crate::scripting::host_script_team_member_ids(team_name)
+        .into_iter()
+        .filter_map(crate::scripting::host_script_query_object_by_id)
+        .any(|obj| {
+            !obj.last_damage_player.is_empty()
+                && obj.last_damage_player.eq_ignore_ascii_case(player_name)
+        })
+}
+
+/// C++ evaluateTeamDiscovered over host discovered_by (CLEAR|PARTIAL_CLEAR census).
+fn host_team_discovered_by_player(team_name: &str, player_name: &str) -> bool {
+    crate::scripting::host_script_team_member_ids(team_name)
+        .into_iter()
+        .filter_map(crate::scripting::host_script_query_object_by_id)
+        .any(|obj| {
+            if obj.held || obj.stealthed_hidden {
+                return false;
+            }
+            obj.discovered_by
+                .iter()
+                .any(|name| name.eq_ignore_ascii_case(player_name))
+        })
 }

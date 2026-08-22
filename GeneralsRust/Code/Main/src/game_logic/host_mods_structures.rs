@@ -81,7 +81,7 @@ pub mod host_strategy_center;
 pub mod host_structure_collapse;
 
 #[path = "host_sub_objects_upgrade.rs"]
-pub(super) mod host_sub_objects_upgrade;
+pub mod host_sub_objects_upgrade;
 
 #[path = "host_supply_drop_zone.rs"]
 pub mod host_supply_drop_zone;

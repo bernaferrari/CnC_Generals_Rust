@@ -13,6 +13,53 @@ impl Object {
         self.status.disguised
     }
 
+    /// C++ `StealthUpdate::isDisguised` (`m_disguiseAsTemplate != NULL`).
+    pub fn has_disguise_template(&self) -> bool {
+        self.disguise_as_template
+            .as_deref()
+            .is_some_and(|name| !name.is_empty())
+            || self
+                .disguise_pending_template
+                .as_deref()
+                .is_some_and(|name| !name.is_empty())
+    }
+
+    /// C++ `StealthUpdate::loadPostProcess` + `changeVisualDisguise` restore.
+    /// Persist writes identity/transition; this rebuilds the apparent look
+    /// after load without replaying halfpoint FX.
+    pub fn restore_disguise_from_save(
+        &mut self,
+        as_template: Option<String>,
+        as_team: Option<Team>,
+        pending_template: Option<String>,
+        pending_team: Option<Team>,
+        disguised: bool,
+        transition_frames: u32,
+        transitioning_to: bool,
+        halfpoint: bool,
+    ) {
+        self.disguise_as_template = as_template.filter(|name| !name.is_empty());
+        self.disguise_as_team = as_team;
+        self.disguise_pending_template = pending_template.filter(|name| !name.is_empty());
+        self.disguise_pending_team = pending_team;
+        self.set_status_disguised(disguised);
+        self.status.disguise_transition_frames = transition_frames;
+        self.set_status_disguise_transitioning_to(transitioning_to);
+        self.set_status_disguise_halfpoint_reached(halfpoint);
+        if transition_frames == 0 {
+            self.status.disguise_transition_opacity = 1.0;
+        }
+        self.record_host_ai_request();
+        // C++ loadPostProcess sets m_xferRestoreDisguise when the disguise
+        // template is present so changeVisualDisguise rebuilds the drawable.
+        if self.has_disguise_template() && (self.status.disguised || self.status.disguise_halfpoint_reached)
+        {
+            self.record_model_mesh_from_template();
+            self.record_kind_of_bits_from_template();
+        }
+        self.record_host_disguise();
+    }
+
     /// Apply Bomb Truck disguise residual (StealthUpdate::disguiseAsObject).
     ///
     /// C++ residual: start DisguiseTransitionTime frames; at halfpoint
@@ -78,6 +125,10 @@ impl Object {
         self.set_status_disguise_transitioning_to(false);
         self.set_status_disguise_halfpoint_reached(false);
         self.status.disguise_transition_opacity = 1.0;
+        // C++ changeVisualDisguise reveal: new true drawable + payload restore.
+        self.record_model_mesh_from_template();
+        self.record_kind_of_bits_from_template();
+        self.force_refresh_sub_object_upgrade_status();
         self.record_host_disguise();
     }
 
@@ -131,6 +182,12 @@ impl Object {
                 self.disguise_pending_template = None;
                 self.record_host_ai_request();
                 self.disguise_pending_team = None;
+                // C++ changeVisualDisguise (StealthUpdate.cpp:1052-1057): after
+                // swapping back to the true bomb-truck drawable, rebuild W3D
+                // payload subobjects (BioBomb / HighExplosiveBomb barrels).
+                self.record_model_mesh_from_template();
+                self.record_kind_of_bits_from_template();
+                self.force_refresh_sub_object_upgrade_status();
             }
         }
 
@@ -144,6 +201,23 @@ impl Object {
         }
         self.record_host_disguise();
         halfpoint
+    }
+
+    /// C++ `Object::forceRefreshSubObjectUpgradeStatus`.
+    ///
+    /// Re-applies already-completed SubObjectsUpgrade peels onto this object's
+    /// drawable hide/show residual. Disguise replaces the visual; reveal must
+    /// restore Bio/HE Bombload (and Helix BombWing) children that lived on the
+    /// previous W3DDrawModule.
+    pub fn force_refresh_sub_object_upgrade_status(&mut self) {
+        let applied = crate::game_logic::host_sub_objects_upgrade::sub_objects_for_upgrade_tags(
+            &self.applied_upgrades,
+            &self.template_name,
+        );
+        if applied.matched {
+            self.sub_object_visibility
+                .apply_show_hide(&applied.show, &applied.hide);
+        }
     }
 
     /// Whether disguise transition residual is active.
@@ -350,7 +424,7 @@ impl Object {
         false
     }
 
-    /// C++ `StealthDetectorUpdate.cpp:284-290` first-spot heat-vision, mines skipped.
+    /// C++ `StealthDetectorUpdate.cpp:284-290` — every detector scan (not only first-spot).
     pub fn apply_detected_heat_vision_second_pass(&mut self) {
         if self.is_kind_of(KindOf::Mine) || self.is_kind_of(KindOf::DemoTrap) || self.mine_data.is_some()
         {
@@ -359,6 +433,31 @@ impl Object {
         }
         self.camo_heat_vision_opacity = 1.0;
         self.record_host_vision_camo();
+        self.record_host_stealth_delay();
+    }
+
+    /// C++ `Drawable::draw` (`Drawable.cpp:2615-2622`) heat-vision overlay fade.
+    ///
+    /// Called once per logic frame *before* detector pulse / `setStealthLook` so a
+    /// scan this frame still leaves residual 1.0 (C++ logic writes 1.0; draw fades
+    /// the next client tick). Frenzy tint skips fade.
+    pub fn fade_heat_vision_second_pass(&mut self) {
+        // C++ `TINT_STATUS_FRENZY` (`Drawable.h`).
+        const TINT_STATUS_FRENZY_BIT: u32 = 0x0000_0010;
+        if self.drawable_tint_status & TINT_STATUS_FRENZY_BIT != 0 {
+            return;
+        }
+        let before = self.camo_heat_vision_opacity;
+        if !self.is_alive() {
+            self.camo_heat_vision_opacity = 0.0;
+        } else if self.camo_heat_vision_opacity > VERY_TRANSPARENT_MATERIAL_PASS_OPACITY {
+            self.camo_heat_vision_opacity *= MATERIAL_PASS_OPACITY_FADE_SCALAR;
+        } else {
+            self.camo_heat_vision_opacity = 0.0;
+        }
+        if (self.camo_heat_vision_opacity - before).abs() > f32::EPSILON {
+            self.record_host_stealth_delay();
+        }
     }
 
 
@@ -735,10 +834,17 @@ pub fn friendly_stealth_pulse_opacity(min: f32, object_id: u32, logic_frame: u32
     (floor + (1.0 - floor) * pulse).clamp(0.0, 1.0)
 }
 
-/// C++ `Drawable::setStealthLook` second-material opacity for the local viewer.
+/// C++ `VERY_TRANSPARENT_MATERIAL_PASS_OPACITY` (`Drawable.cpp:67`).
+pub const VERY_TRANSPARENT_MATERIAL_PASS_OPACITY: f32 = 0.001;
+/// C++ `MATERIAL_PASS_OPACITY_FADE_SCALAR` (`Drawable.cpp:68`).
+pub const MATERIAL_PASS_OPACITY_FADE_SCALAR: f32 = 0.8;
+
+/// C++ `Drawable::setStealthLook` second-material *arm* value for the local viewer.
 ///
 /// Detected stealth (enemy or friendly) is 1.0 except mines. Destalth HintDetectable
 /// (`IS_FIRING_WEAPON` / `IS_USING_ABILITY`) is 1.0 for the local owner.
+/// Per-frame drawn opacity is `camo_heat_vision_opacity` after `Drawable::draw`
+/// multiplies by `MATERIAL_PASS_OPACITY_FADE_SCALAR` (0.8).
 pub fn stealth_second_material_pass_opacity(
     stealthed: bool,
     detected: bool,

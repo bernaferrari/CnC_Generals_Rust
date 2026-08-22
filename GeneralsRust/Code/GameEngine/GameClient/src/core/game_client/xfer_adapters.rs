@@ -352,12 +352,9 @@ pub(crate) fn xfer_live_game_client_state(
         }
 
         if version >= 2 {
-            let mut briefing_entry_count: i32 = 0;
-            xfer.xfer_int(&mut briefing_entry_count)?;
-            for _ in 0..briefing_entry_count.max(0) {
-                let mut entry = String::new();
-                xfer.xfer_string(&mut entry)?;
-            }
+            let mut adapter = RuntimeCommonXferAdapter::new(xfer);
+            xfer_diplomacy_briefing_history(&mut adapter, version)
+                .map_err(|_| RuntimeXferStatus::InvalidData)?;
         }
 
         Ok(())

@@ -547,9 +547,10 @@ impl Object {
         self.wander_angle_offset
     }
 
-    /// C++ Locomotor::handleBehaviorZ residual (fail-closed subset).
+    /// C++ `Locomotor::handleBehaviorZ` (`Locomotor.cpp:2196-2323`).
     ///
-    /// `ground_y` is terrain height at object XZ. Returns true if needs constant calling.
+    /// `ground_y` is surface height at object XZ (water when underwater).
+    /// Returns true if needs constant calling.
     pub fn handle_behavior_z(&mut self, ground_y: f32, goal_y: Option<f32>) -> bool {
         match self.loco_behavior_z {
             LocomotorBehaviorZ::NoZMotiveForce => false,
@@ -557,6 +558,28 @@ impl Object {
                 // Fail-closed: no water table — snap to ground layer.
                 let mut p = self.get_position();
                 p.y = ground_y;
+                self.set_position(p);
+                true
+            }
+            LocomotorBehaviorZ::FixedSurfaceRelativeHeight
+            | LocomotorBehaviorZ::RelativeToGroundAndBuildings => {
+                // C++ Locomotor.cpp:2223-2246 — hard-snap, ignore physics.
+                let surface = if matches!(
+                    self.loco_behavior_z,
+                    LocomotorBehaviorZ::RelativeToGroundAndBuildings
+                ) {
+                    leftover_ground_or_structure_height(self.get_position(), ground_y)
+                } else {
+                    ground_y
+                };
+                let mut p = self.get_position();
+                p.y = self.loco_preferred_height + surface;
+                self.set_position(p);
+                true
+            }
+            LocomotorBehaviorZ::FixedAbsoluteHeight => {
+                let mut p = self.get_position();
+                p.y = self.loco_preferred_height;
                 self.set_position(p);
                 true
             }
@@ -647,6 +670,9 @@ impl Object {
                 LocomotorBehaviorZ::SurfaceRelativeHeight
                     | LocomotorBehaviorZ::SmoothRelativeToHighestLayer
                     | LocomotorBehaviorZ::AbsoluteHeight
+                    | LocomotorBehaviorZ::FixedSurfaceRelativeHeight
+                    | LocomotorBehaviorZ::FixedAbsoluteHeight
+                    | LocomotorBehaviorZ::RelativeToGroundAndBuildings
             );
         if !airborne_loco {
             self.scrub_velocity_2d(0.0);
@@ -1559,3 +1585,18 @@ impl Object {
         self.invalidate_velocity_magnitude();
     }
 }
+
+/// C++ `PartitionManager::getGroundOrStructureHeight` via leftover cells
+/// (`PartitionManager.cpp:4674`). Host XZ maps to leftover XY. If leftover
+/// partition is empty or shorter than the live surface, keep `ground_y`.
+fn leftover_ground_or_structure_height(pos: glam::Vec3, ground_y: f32) -> f32 {
+    let leftover = gamelogic::object::collide::partition_manager::PARTITION_MANAGER
+        .read()
+        .ok()
+        .map(|pm| pm.get_ground_or_structure_height(pos.x, pos.z));
+    match leftover {
+        Some(h) if h > ground_y + 1.0e-3 => h,
+        _ => ground_y,
+    }
+}
+

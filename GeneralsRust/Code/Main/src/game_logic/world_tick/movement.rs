@@ -205,6 +205,14 @@ impl GameLogic {
                 let pos = obj.get_position();
                 let gy = self.terrain_height_at(pos).unwrap_or(obj.ground_height);
                 let sy = self.surface_ht_at(pos).unwrap_or(gy);
+                let sy = if matches!(
+                    obj.loco_behavior_z,
+                    LocomotorBehaviorZ::RelativeToGroundAndBuildings
+                ) {
+                    self.ground_or_structure_height_at(pos, gy)
+                } else {
+                    sy
+                };
                 let ahead_y = if matches!(obj.loco_appearance, LocomotorAppearance::Climber)
                 {
                     if let Some(tgt) = obj.movement.target_position {
@@ -309,6 +317,9 @@ impl GameLogic {
                     LocomotorBehaviorZ::SurfaceRelativeHeight
                         | LocomotorBehaviorZ::SmoothRelativeToHighestLayer
                         | LocomotorBehaviorZ::AbsoluteHeight
+                        | LocomotorBehaviorZ::FixedSurfaceRelativeHeight
+                        | LocomotorBehaviorZ::FixedAbsoluteHeight
+                        | LocomotorBehaviorZ::RelativeToGroundAndBuildings
                 ) || matches!(
                     obj.loco_appearance,
                     LocomotorAppearance::Hover | LocomotorAppearance::Wings
@@ -421,16 +432,25 @@ impl GameLogic {
                             Self::apply_live_handle_behavior_z(obj, surface_y, None);
                             continue;
                         }
-                        // C++ moveTowardsPositionTreads angleCoeff (Locomotor.cpp:1170-1192).
-                        if matches!(obj.loco_appearance, LocomotorAppearance::Treads) {
+                        // C++ moveTowardsPositionTreads/Legs/Climb angleCoeff
+                        // (Locomotor.cpp:1170-1180, 1638-1646, 1760-1767).
+                        if matches!(
+                            obj.loco_appearance,
+                            LocomotorAppearance::Treads
+                                | LocomotorAppearance::LegsTwo
+                                | LocomotorAppearance::Climber
+                        ) {
                             let mut angle_coeff = delta.abs() / std::f32::consts::FRAC_PI_4;
                             if angle_coeff > 1.0 {
                                 angle_coeff = 1.0;
                             }
                             speed = (1.0 - angle_coeff) * speed;
-                            let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
-                            if dist < 2.0 * cell && angle_coeff > 0.05 {
-                                speed = obj.movement.velocity.length() * 0.6;
+                            // Treads-only near-goal tight pivot (Locomotor.cpp:1190-1192).
+                            if matches!(obj.loco_appearance, LocomotorAppearance::Treads) {
+                                let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
+                                if dist < 2.0 * cell && angle_coeff > 0.05 {
+                                    speed = obj.movement.velocity.length() * 0.6;
+                                }
                             }
                         }
                         if !obj.no_slow_down_as_approaching_dest {

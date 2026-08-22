@@ -785,6 +785,7 @@ impl StealthUpdateController {
             let _ = OBJECT_REGISTRY.with_object_mut(self.object_id, |guard| {
                 guard.set_status(ObjectStatusMaskType::DISGUISED, false);
                 guard.clear_model_condition_state(ModelConditionFlags::DISGUISED);
+                guard.force_refresh_sub_object_upgrade_status();
             });
             // Play reveal sound (C++ lines 1072-1082)
             // Audio events are managed by the audio system, triggered by status bits
@@ -1510,9 +1511,10 @@ impl Snapshotable for StealthUpdate {
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        // Matches C++ StealthUpdate::loadPostProcess lines 1189-1205
+        // C++ StealthUpdate::loadPostProcess: if (isDisguised())
+        // isDisguised() is m_disguiseAsTemplate != NULL, not m_disguised.
         if let Ok(mut ctrl) = self.controller.lock() {
-            if ctrl.disguised {
+            if ctrl.disguise_as_template_name.is_some() {
                 ctrl.xfer_restore_disguise = true;
             }
         }

@@ -87,6 +87,7 @@ impl SnapshotBuilder {
             persist_v18: super::persist_v18::capture_persist_v18(game_logic),
             object_experience_trackers: self.snapshot_object_experience_trackers(game_logic),
             object_command_sets: self.snapshot_object_command_sets(game_logic),
+            object_disguises: self.snapshot_object_disguises(game_logic),
         };
 
         log::info!(
@@ -144,6 +145,7 @@ impl SnapshotBuilder {
         self.restore_overcharge_active(snapshot, game_logic)?;
         self.restore_object_experience_trackers(snapshot, game_logic)?;
         self.restore_object_command_sets(snapshot, game_logic)?;
+        self.restore_object_disguises(snapshot, game_logic)?;
 
 
         self.restore_cia_vision_builder_sell(snapshot, game_logic)?;
@@ -1066,6 +1068,93 @@ impl SnapshotBuilder {
         }
         Ok(())
     }
+
+    /// C++ `StealthUpdate::xfer` disguise identity + transition
+    /// (`StealthUpdate.cpp:1141-1177`).
+    fn snapshot_object_disguises(
+        &self,
+        game_logic: &GameLogic,
+    ) -> Vec<ObjectDisguiseSnapshot> {
+        let mut ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+        ids.sort();
+        let mut entries = Vec::new();
+        for id in ids {
+            let Some(object) = game_logic.host_object(id) else {
+                continue;
+            };
+            if !object.status.disguised
+                && object.disguise_as_template.is_none()
+                && object.disguise_pending_template.is_none()
+                && object.status.disguise_transition_frames == 0
+            {
+                continue;
+            }
+            entries.push(ObjectDisguiseSnapshot {
+                object_id: id,
+                disguise_as_template: object.disguise_as_template.clone().unwrap_or_default(),
+                disguise_as_team: disguise_team_to_u8(object.disguise_as_team),
+                disguise_pending_template: object
+                    .disguise_pending_template
+                    .clone()
+                    .unwrap_or_default(),
+                disguise_pending_team: disguise_team_to_u8(object.disguise_pending_team),
+                disguised: object.status.disguised,
+                disguise_transition_frames: object.status.disguise_transition_frames,
+                disguise_transitioning_to: object.status.disguise_transitioning_to,
+                disguise_halfpoint_reached: object.status.disguise_halfpoint_reached,
+            });
+        }
+        entries
+    }
+
+    fn restore_object_disguises(
+        &self,
+        snapshot: &WorldSnapshot,
+        game_logic: &mut GameLogic,
+    ) -> SaveLoadResult<()> {
+        if snapshot.version < WORLD_SNAPSHOT_DIRECT_XFER_V20_TAIL_VERSION
+            && snapshot.object_disguises.is_empty()
+        {
+            return Ok(());
+        }
+        let mut seen = HashSet::new();
+        for entry in &snapshot.object_disguises {
+            if !seen.insert(entry.object_id) {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "Duplicate disguise snapshot for object {}",
+                    entry.object_id
+                )));
+            }
+            let Some(object) = game_logic.host_object_mut(entry.object_id) else {
+                log::warn!(
+                    "Disguise snapshot references missing object {}",
+                    entry.object_id
+                );
+                continue;
+            };
+            object.restore_disguise_from_save(
+                if entry.disguise_as_template.is_empty() {
+                    None
+                } else {
+                    Some(entry.disguise_as_template.clone())
+                },
+                disguise_team_from_u8(entry.disguise_as_team),
+                if entry.disguise_pending_template.is_empty() {
+                    None
+                } else {
+                    Some(entry.disguise_pending_template.clone())
+                },
+                disguise_team_from_u8(entry.disguise_pending_team),
+                entry.disguised,
+                entry.disguise_transition_frames,
+                entry.disguise_transitioning_to,
+                entry.disguise_halfpoint_reached,
+            );
+        }
+        Ok(())
+    }
+
+
 
 
     fn snapshot_client_drawable_visuals(
@@ -2034,3 +2123,24 @@ impl SnapshotBuilder {
     }
 
 }
+
+fn disguise_team_to_u8(team: Option<Team>) -> u8 {
+    match team {
+        Some(Team::USA) => 0,
+        Some(Team::China) => 1,
+        Some(Team::GLA) => 2,
+        Some(Team::Neutral) => 3,
+        None => 255,
+    }
+}
+
+fn disguise_team_from_u8(value: u8) -> Option<Team> {
+    match value {
+        0 => Some(Team::USA),
+        1 => Some(Team::China),
+        2 => Some(Team::GLA),
+        3 => Some(Team::Neutral),
+        _ => None,
+    }
+}
+

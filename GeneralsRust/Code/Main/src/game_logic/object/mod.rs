@@ -255,7 +255,7 @@ impl PhysicsTurningType {
     }
 }
 
-/// C++ LocomotorBehaviorZ residual (subset).
+/// C++ `LocomotorBehaviorZ` (`Locomotor.h:68-78`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum LocomotorBehaviorZ {
@@ -264,25 +264,25 @@ pub enum LocomotorBehaviorZ {
     SeaLevel = 1,
     SurfaceRelativeHeight = 2,
     AbsoluteHeight = 3,
-    SmoothRelativeToHighestLayer = 4,
+    FixedSurfaceRelativeHeight = 4,
+    FixedAbsoluteHeight = 5,
+    RelativeToGroundAndBuildings = 6,
+    SmoothRelativeToHighestLayer = 7,
 }
 
 impl LocomotorBehaviorZ {
     pub fn to_ordinal(self) -> u8 {
-        match self {
-            LocomotorBehaviorZ::NoZMotiveForce => 0,
-            LocomotorBehaviorZ::SeaLevel => 1,
-            LocomotorBehaviorZ::SurfaceRelativeHeight => 2,
-            LocomotorBehaviorZ::AbsoluteHeight => 3,
-            LocomotorBehaviorZ::SmoothRelativeToHighestLayer => 4,
-        }
+        self as u8
     }
     pub fn from_ordinal(v: u8) -> Self {
         match v {
             1 => LocomotorBehaviorZ::SeaLevel,
             2 => LocomotorBehaviorZ::SurfaceRelativeHeight,
             3 => LocomotorBehaviorZ::AbsoluteHeight,
-            4 => LocomotorBehaviorZ::SmoothRelativeToHighestLayer,
+            4 => LocomotorBehaviorZ::FixedSurfaceRelativeHeight,
+            5 => LocomotorBehaviorZ::FixedAbsoluteHeight,
+            6 => LocomotorBehaviorZ::RelativeToGroundAndBuildings,
+            7 => LocomotorBehaviorZ::SmoothRelativeToHighestLayer,
             _ => LocomotorBehaviorZ::NoZMotiveForce,
         }
     }
@@ -1013,6 +1013,11 @@ pub struct Object {
 
     /// Tracked occupants for transports/garrisons
     pub occupants: Vec<ObjectId>,
+    /// C++ OpenContain::m_playerEnteredMask — last rider's controlling player name.
+    /// Sticky after exit (only reset with the object).
+    #[serde(default)]
+    pub player_who_entered: String,
+
 
     /// Residual transport slot capacity (vehicles).
     /// `0` = use footprint heuristic (existing host residual default).
@@ -2914,9 +2919,10 @@ pub use stealth::{
     drawable_status_tint_rgb, friendly_stealth_pulse_opacity, is_live_stealth_black_market,
     order_idle_enemies_on_reveal, restore_drawable_tint_envelope, sample_drawable_status_tint,
     stealth_second_material_pass_opacity, DrawableTintEnvelopePersist, DRAWABLE_FADE_IN,
-    DRAWABLE_FADE_NONE, DRAWABLE_FADE_OUT, SOUND_STEALTH_OFF, SOUND_STEALTH_ON,
-    TINT_DISABLED_ATTACK_FRAMES, TINT_DISABLED_COLOR, TINT_FRENZY_COLOR, TINT_FRENZY_COLOR_INFANTRY,
-    TINT_SUBDUAL_ATTACK_FRAMES, TINT_SUBDUAL_COLOR,
+    DRAWABLE_FADE_NONE, DRAWABLE_FADE_OUT, MATERIAL_PASS_OPACITY_FADE_SCALAR, SOUND_STEALTH_OFF,
+    SOUND_STEALTH_ON, TINT_DISABLED_ATTACK_FRAMES, TINT_DISABLED_COLOR, TINT_FRENZY_COLOR,
+    TINT_FRENZY_COLOR_INFANTRY, TINT_SUBDUAL_ATTACK_FRAMES, TINT_SUBDUAL_COLOR,
+    VERY_TRANSPARENT_MATERIAL_PASS_OPACITY,
 };
 #[cfg(test)]
 pub use stealth::reset_drawable_tint_envelopes;

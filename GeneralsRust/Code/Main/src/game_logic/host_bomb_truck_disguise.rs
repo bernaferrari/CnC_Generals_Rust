@@ -25,7 +25,7 @@
 //! Fail-closed honesty:
 //! - Not full StealthUpdate transition opacity / half-point model swap
 //! - Not full drawable indicator-color night/day matrix for disguised players
-//! - Not full academy stats / subobject upgrade restore on disguise
+//! - Not full academy stats on disguise
 //! - Not full radar / selection portrait swap to disguise template art
 //! - Not network disguise replication (network deferred)
 

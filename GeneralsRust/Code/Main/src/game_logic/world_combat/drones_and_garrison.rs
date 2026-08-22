@@ -1045,6 +1045,36 @@ impl GameLogic {
                 occupant.set_ai_state(AIState::Garrisoned);
             }
             self.apply_garrison_contain_on_enter(container_id, occupant_id);
+            self.stamp_player_who_entered(container_id, occupant_id);
+        }
+    }
+
+    /// C++ OpenContain::addToContain `m_playerEnteredMask = rider->getControllingPlayer()`.
+    /// Sticky last enterer; not cleared on exit.
+    pub(in super::super) fn stamp_player_who_entered(
+        &mut self,
+        container_id: ObjectId,
+        occupant_id: ObjectId,
+    ) {
+        let name = {
+            let Some(occupant) = self.objects.get(&occupant_id) else {
+                return;
+            };
+            if let Some(pid) = occupant.owner_player_id {
+                self.player_name(pid)
+            } else {
+                let team = occupant.team;
+                self.players
+                    .values()
+                    .find(|p| p.team == team)
+                    .map(|p| p.name.clone())
+            }
+        };
+        let Some(name) = name.filter(|n| !n.is_empty()) else {
+            return;
+        };
+        if let Some(container) = self.objects.get_mut(&container_id) {
+            container.player_who_entered = name;
         }
     }
 
@@ -1064,6 +1094,7 @@ impl GameLogic {
             container.set_garrison_can_attack(true);
         }
         self.place_occupant_at_garrison_station(container_id, occupant_id);
+        self.stamp_player_who_entered(container_id, occupant_id);
         self.recalc_garrison_apparent_controller(container_id);
         let occupant_owner = self
             .objects

@@ -986,6 +986,22 @@ impl ScriptConditionEvaluator {
             .get_object_status();
         log::debug!("Evaluating if unit '{}' has object status", unit_name);
 
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            return Ok(
+                if crate::scripting::host_eval_unit_has_object_status(
+                    &unit_name,
+                    status_mask.bits(),
+                )
+                .unwrap_or(false)
+                {
+                    ScriptConditionResult::True
+                } else {
+                    ScriptConditionResult::False
+                },
+            );
+        }
+
+
         let tracker = get_named_object_tracker();
         let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) else {
             return Ok(ScriptConditionResult::False);
@@ -1033,12 +1049,8 @@ impl ScriptConditionEvaluator {
 
     pub(crate) fn eval_built_by_player(
         &self,
-        condition: &Condition,
+        condition: &mut Condition,
     ) -> Result<ScriptConditionResult, ScriptError> {
-        if dual_world_registry_unavailable() {
-            return Ok(ScriptConditionResult::False);
-        }
-
         let type_or_list_name = self.get_condition_string_param(condition, 0)?;
         let player_name = self.get_condition_string_param(condition, 1)?;
         log::debug!(
@@ -1047,28 +1059,68 @@ impl ScriptConditionEvaluator {
             type_or_list_name
         );
 
+        // C++ ScriptConditions.cpp:859-865 — cached while object count is unchanged.
+        if condition.custom_data != 0
+            && with_script_engine_ref(|engine| {
+                engine.get_frame_object_count_changed() == condition.custom_frame
+            })
+            .unwrap_or(false)
+        {
+            return Ok(if condition.custom_data == 1 {
+                ScriptConditionResult::True
+            } else {
+                ScriptConditionResult::False
+            });
+        }
+
         // C++ ScriptConditions.cpp:872-874 — false unless findTemplate(raw name) exists.
+        // Live leftover factory may be empty; a host object of that exact type is
+        // proof the ThingTemplate exists. ObjectTypes list names stay false.
         if crate::helpers::TheThingFactory::find_template(&type_or_list_name).is_none() {
-            return Ok(ScriptConditionResult::False);
+            let key = type_or_list_name.to_ascii_lowercase();
+            let host_has = crate::scripting::host_query_player_census(&player_name).is_some_and(
+                |c| {
+                    c.template_counts.contains_key(&key)
+                        || c.template_counts_ignore_dead.contains_key(&key)
+                },
+            );
+            if !host_has {
+                return Ok(ScriptConditionResult::False);
+            }
         }
 
-        let Ok(players) = player_list().read() else {
-            return Ok(ScriptConditionResult::False);
-        };
-        let Some(player_arc) = players.find_player_by_name(&player_name) else {
-            return Ok(ScriptConditionResult::False);
-        };
-        let Ok(player) = player_arc.read() else {
-            return Ok(ScriptConditionResult::False);
+        let sum = if let Some(count) =
+            self.host_player_object_type_count(&player_name, &type_or_list_name, false)
+        {
+            count
+        } else {
+            if dual_world_registry_unavailable() {
+                return Ok(ScriptConditionResult::False);
+            }
+            let Ok(players) = player_list().read() else {
+                return Ok(ScriptConditionResult::False);
+            };
+            let Some(player_arc) = players.find_player_by_name(&player_name) else {
+                return Ok(ScriptConditionResult::False);
+            };
+            let Ok(player) = player_arc.read() else {
+                return Ok(ScriptConditionResult::False);
+            };
+            let types = self.resolve_object_types_param(&type_or_list_name);
+            let (templates, mut counts) = types.prep_for_player_counting();
+            if templates.is_empty() {
+                return Ok(ScriptConditionResult::False);
+            }
+            player.count_objects_by_thing_template(&templates, false, true, &mut counts);
+            counts.iter().copied().sum()
         };
 
-        let types = self.resolve_object_types_param(&type_or_list_name);
-        let (templates, mut counts) = types.prep_for_player_counting();
-        if templates.is_empty() {
-            return Ok(ScriptConditionResult::False);
+        condition.custom_data = if sum != 0 { 1 } else { -1 };
+        if let Some(frame) =
+            with_script_engine_ref(|engine| engine.get_frame_object_count_changed())
+        {
+            condition.custom_frame = frame;
         }
-        player.count_objects_by_thing_template(&templates, false, true, &mut counts);
-        let sum: i32 = counts.iter().copied().sum();
         Ok(Self::bool_result(sum != 0))
     }
 
@@ -1083,6 +1135,14 @@ impl ScriptConditionEvaluator {
             building_name,
             player_name
         );
+
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            return Ok(Self::bool_result(
+                crate::scripting::host_building_entered_by_player(&building_name, &player_name)
+                    .unwrap_or(false),
+            ));
+        }
+
 
         let tracker = get_named_object_tracker();
         let Ok(Some(object_id)) = tracker.get_object_id(&building_name) else {
