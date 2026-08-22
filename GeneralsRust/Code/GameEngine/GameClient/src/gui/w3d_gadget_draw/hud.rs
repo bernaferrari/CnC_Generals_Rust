@@ -251,14 +251,14 @@ pub(super) fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
             }
         }
 
-        // Draw the radar texture scaled to the HUD area
         let rect = UIRect::new(
             ul.x as f32,
             ul.y as f32,
             scaled_width as f32,
             scaled_height as f32,
         );
-        renderer.draw_textured_rect(rect, texture, [1.0, 1.0, 1.0, 1.0], None, 0.0);
+        let radar_uv = radar_layer_vflip_uv();
+        renderer.draw_textured_rect(rect, texture, [1.0, 1.0, 1.0, 1.0], Some(radar_uv), 0.0);
 
         let mut overlay_cache = radar_object_overlay_texture_cache()
             .lock()
@@ -278,7 +278,13 @@ pub(super) fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
             overlay_cache.map_extent_signature = Some(map_extent_signature);
         }
         if let Some(object_overlay) = overlay_cache.texture.clone() {
-            renderer.draw_textured_rect(rect, object_overlay, [1.0, 1.0, 1.0, 1.0], None, 0.0);
+            renderer.draw_textured_rect(
+                rect,
+                object_overlay,
+                [1.0, 1.0, 1.0, 1.0],
+                Some(radar_uv),
+                0.0,
+            );
         }
         let hero_object_ids = overlay_cache.hero_object_ids.clone();
         drop(overlay_cache);
@@ -289,7 +295,13 @@ pub(super) fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
             game_engine::common::system::radar::RADAR_CELL_HEIGHT,
             &shroud_texture,
         );
-        renderer.draw_textured_rect(rect, shroud_texture, [1.0, 1.0, 1.0, 1.0], None, 0.0);
+        renderer.draw_textured_rect(
+            rect,
+            shroud_texture,
+            [1.0, 1.0, 1.0, 1.0],
+            Some(radar_uv),
+            0.0,
+        );
 
         if !hero_object_ids.is_empty() {
             with_window_manager_ref(|manager| {
@@ -447,6 +459,12 @@ pub(super) fn log_n(value: f32, base: f32) -> f32 {
     value.log10() / base.log10()
 }
 
+/// C++ `W3DRadar` Image UV (`lo.y=1`, `hi.y=0`): texture (0,0) is radar south
+/// and must draw at the HUD bottom so terrain/overlay/shroud match `radar_to_pixel`.
+pub fn radar_layer_vflip_uv() -> UIRect {
+    UIRect::new(0.0, 1.0, 1.0, -1.0)
+}
+
 pub(super) fn draw_tiled_horiz(
     image: &crate::gui::game_window::Image,
     x: i32,
@@ -489,4 +507,22 @@ pub(super) fn draw_tiled_vert(
             draw_y += tile_height;
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::radar_layer_vflip_uv;
+
+    #[test]
+    fn radar_layer_uv_puts_texture_origin_at_hud_bottom() {
+        let uv = radar_layer_vflip_uv();
+        assert!((uv.x - 0.0).abs() < f32::EPSILON);
+        assert!((uv.y - 1.0).abs() < f32::EPSILON);
+        assert!((uv.width - 1.0).abs() < f32::EPSILON);
+        assert!((uv.height + 1.0).abs() < f32::EPSILON);
+        let top_left_v = uv.y;
+        let bottom_left_v = uv.y + uv.height;
+        assert!((top_left_v - 1.0).abs() < f32::EPSILON);
+        assert!(bottom_left_v.abs() < f32::EPSILON);
+    }
 }
