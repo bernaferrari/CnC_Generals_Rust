@@ -313,17 +313,11 @@ impl ForwardPass {
             return false;
         };
 
-        // The current particle vertex shader uses world-space billboard size;
-        // `screen_size` remains in the C++-shaped uniform layout for effects
-        // that need it later.  Its default value is therefore preferable to
-        // inventing a second window-size ownership path here.
-        let uniforms = ParticleUniforms {
-            view_matrix: view_matrix.to_cols_array_2d(),
-            projection_matrix: projection_matrix.to_cols_array_2d(),
-            camera_position: camera_position.to_array(),
-            time,
-            ..ParticleUniforms::default()
-        };
+        // Leftover ParticleSystemManager / tracers / weather / decals are C++
+        // Z-up. C++ W3DDisplay::DoParticles uses TheTacticalView (same Z-up).
+        // Do not submit leftover world pos through the live Y-up view_matrix.
+        let uniforms = leftover_z_up_particle_uniforms(time);
+        let _ = (view_matrix, projection_matrix, camera_position);
 
         self.renderer.enqueue_post_frame_callback(move |frame| {
             let Some(depth_view) = frame.depth_view_arc() else {
@@ -1256,12 +1250,37 @@ fn pivot_local_transform(pivot: &crate::assets::W3dPivot) -> Mat4 {
     ])
 }
 
+#[cfg(feature = "game_client")]
+fn leftover_z_up_particle_uniforms(time: f32) -> ParticleUniforms {
+    game_client::display::view::with_tactical_view_ref(|view| {
+        let cam = view.get_3d_camera_position();
+        let target = view.position();
+        let camera = Vec3::new(cam.x, cam.y, cam.z);
+        let look = Vec3::new(target.x, target.y, target.z);
+        let view_matrix = Mat4::look_at_rh(camera, look, Vec3::Z);
+        let aspect = (view.width() as f32 / view.height().max(1) as f32).max(0.01);
+        let fov = game_client::display::view::vertical_fov_from_horizontal(
+            view.field_of_view(),
+            aspect,
+        );
+        let projection_matrix = Mat4::perspective_rh(fov, aspect, 1.0, 20000.0);
+        ParticleUniforms {
+            view_matrix: view_matrix.to_cols_array_2d(),
+            projection_matrix: projection_matrix.to_cols_array_2d(),
+            camera_position: [camera.x, camera.y, camera.z],
+            time,
+            ..ParticleUniforms::default()
+        }
+    })
+}
+
 fn w3d_source_transform_to_render_basis(transform: Mat4) -> Mat4 {
     let axis = Mat4::from_cols_array(&[
         1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0,
     ]);
     axis * transform * axis
 }
+
 
 
 #[cfg(test)]
@@ -1271,6 +1290,21 @@ mod tests {
     use crate::game_logic::ObjectId;
     use crate::graphics::render_item::{RenderItem, RenderItemBonePaletteSource};
     use std::collections::HashMap;
+
+    #[test]
+    fn leftover_particles_present_with_z_up_view() {
+        let src = include_str!("forward_render.rs");
+        assert!(
+            src.contains("fn leftover_z_up_particle_uniforms")
+                && src.contains("Mat4::look_at_rh(camera, look, Vec3::Z)")
+                && src.contains("leftover_z_up_particle_uniforms(time)"),
+            "Main present must submit leftover Z-up particles with leftover Z-up view"
+        );
+        assert!(
+            !src.contains("camera_position: camera_position.to_array()"),
+            "leftover ParticleSystemManager must not use the live Y-up camera_position"
+        );
+    }
 
     fn pivot(name: &str, parent_idx: u32, translation_x: f32) -> W3dPivot {
         W3dPivot {

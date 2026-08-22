@@ -552,7 +552,56 @@ impl GameLogic {
                 }
             }
         }
+        self.stamp_battle_plan_door_model_conditions();
     }
+
+    /// C++ BattlePlanUpdate::setStatus door OPENING/CLOSING/WAITING_TO_CLOSE.
+    fn stamp_battle_plan_door_model_conditions(&mut self) {
+        use crate::game_logic::host_enum_table_residual::{
+            door_1_closing_model_bit, door_1_opening_model_bit, door_1_waiting_to_close_model_bit,
+            door_2_closing_model_bit, door_2_opening_model_bit, door_2_waiting_to_close_model_bit,
+            door_3_closing_model_bit, door_3_opening_model_bit, door_3_waiting_to_close_model_bit,
+        };
+        use crate::game_logic::host_strategy_center::HostBattlePlanDoor;
+        let stamps: Vec<(ObjectId, HostBattlePlanDoor)> = self
+            .battle_plans
+            .door_states()
+            .iter()
+            .map(|s| (s.center_id, s.door))
+            .collect();
+        let clear = (1u128 << door_1_opening_model_bit())
+            | (1u128 << door_1_closing_model_bit())
+            | (1u128 << door_1_waiting_to_close_model_bit())
+            | (1u128 << door_2_opening_model_bit())
+            | (1u128 << door_2_closing_model_bit())
+            | (1u128 << door_2_waiting_to_close_model_bit())
+            | (1u128 << door_3_opening_model_bit())
+            | (1u128 << door_3_closing_model_bit())
+            | (1u128 << door_3_waiting_to_close_model_bit());
+        for (id, door) in stamps {
+            let Some(obj) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            obj.model_condition_bits &= !clear;
+            let set_bit = match door {
+                HostBattlePlanDoor::Door1Opening => Some(door_1_opening_model_bit()),
+                HostBattlePlanDoor::Door1WaitingToClose => Some(door_1_waiting_to_close_model_bit()),
+                HostBattlePlanDoor::Door1Closing => Some(door_1_closing_model_bit()),
+                HostBattlePlanDoor::Door2Opening => Some(door_2_opening_model_bit()),
+                HostBattlePlanDoor::Door2WaitingToClose => Some(door_2_waiting_to_close_model_bit()),
+                HostBattlePlanDoor::Door2Closing => Some(door_2_closing_model_bit()),
+                HostBattlePlanDoor::Door3Opening => Some(door_3_opening_model_bit()),
+                HostBattlePlanDoor::Door3WaitingToClose => Some(door_3_waiting_to_close_model_bit()),
+                HostBattlePlanDoor::Door3Closing => Some(door_3_closing_model_bit()),
+                HostBattlePlanDoor::None => None,
+            };
+            if let Some(bit) = set_bit {
+                obj.model_condition_bits |= 1u128 << bit;
+            }
+            obj.record_host_model_condition();
+        }
+    }
+
 
     /// C++ BattlePlanUpdate::setBattlePlan residual (army + building effects).
     ///
@@ -1141,6 +1190,7 @@ impl GameLogic {
                 }
             }
         }
+        self.stamp_battle_plan_door_model_conditions();
 
         // C++ announcement audio + radar event fire when UNPACKING starts
         // (and on first select). Host residual: always on select intent.

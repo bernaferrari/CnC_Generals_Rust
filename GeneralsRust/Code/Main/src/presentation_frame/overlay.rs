@@ -1568,6 +1568,7 @@ impl PresentationFrame {
                 String::new()
             },
             under_construction: ent.under_construction,
+            is_dozer_task_pending: false,
             construction_percent: ent.construction_percent,
             // Wave 1031: GW path has no host supply-drop OCL timer residual yet.
             ocl_timer_seconds: 0,

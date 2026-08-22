@@ -190,6 +190,30 @@ impl AcademyStats {
         self.chose_a_strategy_for_center = true;
     }
 
+    /// ScoreScreen War School: leftover academy_stats stay empty unless leftover
+    /// live notify (radar / sciences / upgrades / battle plan) is applied here.
+    pub fn apply_live_notify_snapshot(
+        &mut self,
+        researched_radar: bool,
+        generals_points_spent: Int,
+        upgrades_purchased: Int,
+        chose_a_strategy: bool,
+    ) {
+        if researched_radar {
+            self.researched_radar = true;
+        }
+        if generals_points_spent > self.generals_points_spent {
+            self.generals_points_spent = generals_points_spent;
+        }
+        if upgrades_purchased > self.upgrades_purchased {
+            self.upgrades_purchased = upgrades_purchased;
+        }
+        if chose_a_strategy {
+            self.chose_a_strategy_for_center = true;
+        }
+    }
+
+
     /// C++ AcademyStats::calculateAcademyAdvice — fill ScoreScreen war-school tips.
     pub fn calculate_academy_advice(
         &self,

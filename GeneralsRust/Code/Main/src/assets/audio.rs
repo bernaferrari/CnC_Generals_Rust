@@ -142,19 +142,30 @@ fn spawn_output_stream_owner() -> Result<(OutputStreamKeepalive, OutputStreamHan
     ))
 }
 
-/// Build leftover `AudioEventRts` for TheAudio, keeping world pose.
+/// Build leftover `AudioEventRts` for TheAudio, keeping world pose or object.
 ///
 /// `position_host_yup` is Main Y-up `(x, height, z_ground)`. Leftover / C++
 /// Coord3D is Z-up `(x, y_ground, z_height)` so Miles `playSample3D` pans.
+/// `object_id` is C++ `setObjectID` — `OwnerType::Object` so leftover follows
+/// the unit each frame. Object wins over a static pose (`setPosition` is a
+/// no-op once the owner is `OT_Object`).
 pub fn leftover_world_sfx_event(
     event_name: &str,
     position_host_yup: Option<(f32, f32, f32)>,
+    object_id: Option<u32>,
 ) -> gamelogic::common::audio::AudioEventRts {
     let mut event = gamelogic::common::audio::AudioEventRts::new(event_name);
-    if let Some((x, y, z)) = position_host_yup {
+    if let Some(id) = object_id.filter(|&id| id != 0) {
+        event.set_object_id(id);
+    } else if let Some((x, y, z)) = position_host_yup {
         event.set_position(&(x, z, y));
     }
     event
+}
+
+/// Leftover Miles is constructed (`THE_AUDIO`). Culled events stay silent.
+pub fn leftover_the_audio_is_live() -> bool {
+    game_engine::common::audio::game_audio::get_global_audio_manager().is_some()
 }
 
 /// C++ `TheAudio->addAudioEvent` (`AudioManager::addAudioEvent`, GameAudio.cpp).
@@ -163,17 +174,18 @@ pub fn leftover_world_sfx_event(
 /// live handle (`get_global_audio_manager`). Special values
 /// (`AHSV_NO_SOUND`/`AHSV_ERROR`/…) are treated as “no handle”.
 pub fn play_sound_through_the_audio(event_name: &str) -> Option<u32> {
-    play_sound_through_the_audio_at(event_name, None)
+    play_sound_through_the_audio_at(event_name, None, None)
 }
 
-/// Same as [`play_sound_through_the_audio`] with a world pose for SpatialSink.
+/// Same as [`play_sound_through_the_audio`] with a world pose / object owner.
 pub fn play_sound_through_the_audio_at(
     event_name: &str,
     position_host_yup: Option<(f32, f32, f32)>,
+    object_id: Option<u32>,
 ) -> Option<u32> {
     game_engine::common::audio::game_audio::get_global_audio_manager()?;
     let audio = gamelogic::helpers::TheAudio::get()?;
-    let event = leftover_world_sfx_event(event_name, position_host_yup);
+    let event = leftover_world_sfx_event(event_name, position_host_yup, object_id);
     let handle = audio.add_audio_event(&event);
     // C++ `AHSV_FIRST_HANDLE` is 1000; sentinels occupy the 0xFFFF_FFF0 band.
     if (1000..0xFFFF_FFF0).contains(&handle) {
@@ -1271,12 +1283,35 @@ mod tests {
     #[test]
     fn leftover_world_sfx_event_keeps_host_pose_as_cpp_z_up() {
         use gamelogic::common::audio::LeftoverAudioOwner;
-        let event = leftover_world_sfx_event("Explosion", Some((10.0, 4.0, 20.0)));
+        let event = leftover_world_sfx_event("Explosion", Some((10.0, 4.0, 20.0)), None);
         assert_eq!(event.owner_type, LeftoverAudioOwner::Positional);
         assert_eq!(event.position, Some((10.0, 20.0, 4.0)));
-        let ui = leftover_world_sfx_event("GUIClick", None);
+        let ui = leftover_world_sfx_event("GUIClick", None, None);
         assert_eq!(ui.owner_type, LeftoverAudioOwner::Invalid);
         assert!(ui.position.is_none());
+    }
+
+    #[test]
+    fn leftover_world_sfx_event_stamps_object_id_as_owner() {
+        use gamelogic::common::audio::LeftoverAudioOwner;
+        let event = leftover_world_sfx_event("VoiceSelect", Some((10.0, 4.0, 20.0)), Some(42));
+        assert_eq!(event.owner_type, LeftoverAudioOwner::Object);
+        assert_eq!(event.object_id, 42);
+        assert!(
+            event.position.is_none(),
+            "C++ setPosition is a no-op once owner is OT_Object"
+        );
+        let zero = leftover_world_sfx_event("Explosion", Some((10.0, 4.0, 20.0)), Some(0));
+        assert_eq!(zero.owner_type, LeftoverAudioOwner::Positional);
+        assert_eq!(zero.object_id, 0);
+    }
+
+    #[test]
+    fn leftover_the_audio_is_live_matches_global_manager() {
+        assert_eq!(
+            leftover_the_audio_is_live(),
+            game_engine::common::audio::game_audio::get_global_audio_manager().is_some()
+        );
     }
 
 

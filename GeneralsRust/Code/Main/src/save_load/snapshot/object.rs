@@ -236,6 +236,51 @@ pub struct ObjectStatusSnapshot {
     /// C++ OBJECT_STATUS_SCRIPT_UNSTEALTHED (`ObjectScriptStatusBits.h`).
     #[serde(default)]
     pub script_unstealthed: bool,
+    /// C++ DISABLED_PARALYZED residual (BattlePlanChangeParalyzeTime).
+    #[serde(default)]
+    pub disabled_paralyzed: bool,
+    /// Absolute host logic frame when DISABLED_PARALYZED expires (0 = inactive).
+    #[serde(default)]
+    pub disabled_paralyzed_until_frame: u32,
+    /// C++ SpyVisionUpdate::m_disabledUntilFrame (Internet Center sabotage).
+    #[serde(default)]
+    pub spy_vision_disabled_until_frame: u32,
+    /// C++ SpyVisionUpdate::m_resetTimersNextUpdate.
+    #[serde(default)]
+    pub spy_vision_reset_timers: bool,
+    /// C++ SpyVisionUpdate self-powered Hack II next wake (`m_deactivateFrame` + interval).
+    #[serde(default)]
+    pub spy_vision_hack_two_wake_frame: u32,
+    /// C++ OBJECT_STATUS_PARACHUTING residual.
+    #[serde(default)]
+    pub parachuting: bool,
+    /// AmericaParachute OpenClose residual (`ParachuteContain::m_opened`).
+    #[serde(default)]
+    pub parachute_open: bool,
+    /// C++ ParachuteContain::m_startZ (OpenDist freefall origin).
+    #[serde(default)]
+    pub parachute_start_height: f32,
+    /// C++ ParachuteContain `m_pitch` / `m_roll` / rates while chute open.
+    #[serde(default)]
+    pub parachute_pitch: f32,
+    #[serde(default)]
+    pub parachute_roll: f32,
+    #[serde(default)]
+    pub parachute_pitch_rate: f32,
+    #[serde(default)]
+    pub parachute_roll_rate: f32,
+    /// C++ ParachuteContain::m_landingOverride.
+    #[serde(default)]
+    pub parachute_landing_override: Option<Vec3>,
+    /// C++ ParachuteContain::m_isLandingOverrideSet.
+    #[serde(default)]
+    pub parachute_landing_override_set: bool,
+    /// C++ OBJECT_STATUS_FAERIE_FIRE residual (Avenger paint).
+    #[serde(default)]
+    pub faerie_fire: bool,
+    /// C++ StatusDamageHelper::m_frameToHeal (absolute expiry frame).
+    #[serde(default)]
+    pub faerie_fire_until_frame: u32,
 }
 
 impl Default for ObjectStatusSnapshot {
@@ -280,6 +325,22 @@ impl Default for ObjectStatusSnapshot {
             disabled_script_underpowered: false,
             script_unsellable: false,
             script_unstealthed: false,
+            disabled_paralyzed: false,
+            disabled_paralyzed_until_frame: 0,
+            spy_vision_disabled_until_frame: 0,
+            spy_vision_reset_timers: false,
+            spy_vision_hack_two_wake_frame: 0,
+            parachuting: false,
+            parachute_open: false,
+            parachute_start_height: 0.0,
+            parachute_pitch: 0.0,
+            parachute_roll: 0.0,
+            parachute_pitch_rate: 0.0,
+            parachute_roll_rate: 0.0,
+            parachute_landing_override: None,
+            parachute_landing_override_set: false,
+            faerie_fire: false,
+            faerie_fire_until_frame: 0,
         }
     }
 }
@@ -1109,6 +1170,42 @@ impl XferData for ObjectStatusSnapshot {
         xfer.xfer_bool(&mut self.script_unsellable)?;
         xfer.xfer_marker_label("ScriptUnstealthed")?;
         xfer.xfer_bool(&mut self.script_unstealthed)?;
+        // Appended residual: C++ Object::xfer DISABLED_PARALYZED + till-frame,
+        // SpyVisionUpdate::xfer v2 timers, ParachuteContain mid-fall, and
+        // StatusDamageHelper FAERIE_FIRE. Older binary residual saves without
+        // these fields fail-closed on xfer (serde JSON path uses #[serde(default)]).
+        xfer.xfer_marker_label("DisabledParalyzed")?;
+        xfer.xfer_bool(&mut self.disabled_paralyzed)?;
+        xfer.xfer_marker_label("DisabledParalyzedUntilFrame")?;
+        xfer.xfer_u32(&mut self.disabled_paralyzed_until_frame)?;
+        xfer.xfer_marker_label("SpyVisionDisabledUntilFrame")?;
+        xfer.xfer_u32(&mut self.spy_vision_disabled_until_frame)?;
+        xfer.xfer_marker_label("SpyVisionResetTimers")?;
+        xfer.xfer_bool(&mut self.spy_vision_reset_timers)?;
+        xfer.xfer_marker_label("SpyVisionHackTwoWakeFrame")?;
+        xfer.xfer_u32(&mut self.spy_vision_hack_two_wake_frame)?;
+        xfer.xfer_marker_label("Parachuting")?;
+        xfer.xfer_bool(&mut self.parachuting)?;
+        xfer.xfer_marker_label("ParachuteOpen")?;
+        xfer.xfer_bool(&mut self.parachute_open)?;
+        xfer.xfer_marker_label("ParachuteStartHeight")?;
+        xfer.xfer_f32(&mut self.parachute_start_height)?;
+        xfer.xfer_marker_label("ParachutePitch")?;
+        xfer.xfer_f32(&mut self.parachute_pitch)?;
+        xfer.xfer_marker_label("ParachuteRoll")?;
+        xfer.xfer_f32(&mut self.parachute_roll)?;
+        xfer.xfer_marker_label("ParachutePitchRate")?;
+        xfer.xfer_f32(&mut self.parachute_pitch_rate)?;
+        xfer.xfer_marker_label("ParachuteRollRate")?;
+        xfer.xfer_f32(&mut self.parachute_roll_rate)?;
+        xfer.xfer_marker_label("ParachuteLandingOverride")?;
+        xfer_option(xfer, &mut self.parachute_landing_override, Vec3::ZERO)?;
+        xfer.xfer_marker_label("ParachuteLandingOverrideSet")?;
+        xfer.xfer_bool(&mut self.parachute_landing_override_set)?;
+        xfer.xfer_marker_label("FaerieFire")?;
+        xfer.xfer_bool(&mut self.faerie_fire)?;
+        xfer.xfer_marker_label("FaerieFireUntilFrame")?;
+        xfer.xfer_u32(&mut self.faerie_fire_until_frame)?;
         Ok(())
     }
 }

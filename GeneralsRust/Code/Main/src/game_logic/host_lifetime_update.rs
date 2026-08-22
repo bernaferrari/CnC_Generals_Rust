@@ -68,8 +68,14 @@ pub fn get_hulk_max_lifetime_override() -> i32 {
 }
 
 /// C++ LifetimeUpdate.cpp:31-37 HULK override replaces Min/Max when != -1.
+/// Script action writes leftover `TheGameLogic` atomic; live hulks must read it.
 pub fn effective_lifetime_msec_range(min_msec: u32, max_msec: u32, is_hulk: bool) -> (u32, u32) {
-    let ov = get_hulk_max_lifetime_override();
+    let leftover = gamelogic::helpers::TheGameLogic::get_hulk_max_lifetime_override();
+    let ov = if leftover != -1 {
+        leftover
+    } else {
+        get_hulk_max_lifetime_override()
+    };
     if is_hulk && ov >= 0 {
         let ms = ((ov as f32) * 1000.0 / 30.0).round() as u32;
         return (ms, ms);
@@ -152,5 +158,26 @@ mod tests {
             effective_lifetime_msec_range(10_000, 20_000, true),
             (10_000, 20_000)
         );
+    }
+
+    #[test]
+    fn leftover_script_hulk_override_drives_live_range() {
+        let original = gamelogic::helpers::TheGameLogic::get_hulk_max_lifetime_override();
+        set_hulk_max_lifetime_override(-1);
+        gamelogic::helpers::TheGameLogic::set_hulk_max_lifetime_override(30);
+        assert_eq!(
+            effective_lifetime_msec_range(10_000, 20_000, true),
+            (1_000, 1_000)
+        );
+        assert_eq!(
+            effective_lifetime_msec_range(10_000, 20_000, false),
+            (10_000, 20_000)
+        );
+        gamelogic::helpers::TheGameLogic::set_hulk_max_lifetime_override(-1);
+        assert_eq!(
+            effective_lifetime_msec_range(10_000, 20_000, true),
+            (10_000, 20_000)
+        );
+        gamelogic::helpers::TheGameLogic::set_hulk_max_lifetime_override(original);
     }
 }

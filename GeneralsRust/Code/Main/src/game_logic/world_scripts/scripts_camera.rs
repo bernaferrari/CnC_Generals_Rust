@@ -814,6 +814,7 @@ impl GameLogic {
         let unit_flags = gamelogic::scripting::take_host_object_panel_flag_requests();
         let team_flags = gamelogic::scripting::take_host_team_panel_flag_requests();
         let sciences = gamelogic::scripting::take_host_science_action_requests();
+        let defenses = gamelogic::scripting::take_host_skirmish_base_defense_requests();
         if fires.is_empty()
             && builds.is_empty()
             && supply_centers.is_empty()
@@ -823,6 +824,7 @@ impl GameLogic {
             && unit_flags.is_empty()
             && team_flags.is_empty()
             && sciences.is_empty()
+            && defenses.is_empty()
         {
             return;
         }
@@ -846,6 +848,21 @@ impl GameLogic {
                 &thing_name,
                 &team_name,
             );
+        }
+        for req in defenses {
+            match req.structure.as_deref() {
+                None => {
+                    let _ = ai_mgr.build_ai_base_defense_for_token(self, &req.player, req.flank);
+                }
+                Some(thing_name) => {
+                    let _ = ai_mgr.build_ai_base_defense_structure_for_token(
+                        self,
+                        &req.player,
+                        thing_name,
+                        req.flank,
+                    );
+                }
+            }
         }
         self.ai_manager = ai_mgr;
         for (cave_name, index) in cave_indexes {
@@ -1697,9 +1714,235 @@ impl GameLogic {
                         }
                     }
                 }
+                HostScriptIdleRequest::IdleAll { player } => {
+                    let pids = self.host_script_idle_or_resume_player_ids(&player);
+                    let ids: Vec<ObjectId> = self
+                        .objects
+                        .values()
+                        .filter(|obj| {
+                            obj.is_alive()
+                                && !obj.status.destroyed
+                                && !obj.is_kind_of(crate::game_logic::KindOf::Structure)
+                                && obj
+                                    .owner_player_id
+                                    .map(|pid| pids.contains(&pid))
+                                    .unwrap_or(false)
+                        })
+                        .map(|obj| obj.id)
+                        .collect();
+                    for id in ids {
+                        let pos = self
+                            .host_object(id)
+                            .map(|o| o.get_position())
+                            .unwrap_or(glam::Vec3::ZERO);
+                        // C++ aiMoveToPosition(self) — stop in place.
+                        let _ = self.unit_command_move_to(id, pos);
+                    }
+                }
+                HostScriptIdleRequest::ResumeSupply { player } => {
+                    let pids = self.host_script_idle_or_resume_player_ids(&player);
+                    let ids: Vec<ObjectId> = self
+                        .objects
+                        .values()
+                        .filter(|obj| {
+                            obj.is_alive()
+                                && !obj.status.destroyed
+                                && !obj.is_kind_of(crate::game_logic::KindOf::Structure)
+                                && obj.ai_state == crate::game_logic::AIState::Idle
+                                && (obj.is_kind_of(crate::game_logic::KindOf::Harvester)
+                                    || obj.is_kind_of(crate::game_logic::KindOf::Dozer))
+                                && obj
+                                    .owner_player_id
+                                    .map(|pid| pids.contains(&pid))
+                                    .unwrap_or(false)
+                        })
+                        .map(|obj| obj.id)
+                        .collect();
+                    for id in ids {
+                        if let Some(obj) = self.host_object_mut(id) {
+                            obj.supply_truck_force_pending = true;
+                        }
+                    }
+                }
             }
         }
     }
+
+    /// C++ `doIdleAllPlayerUnits` / `doResumeSupplyTruckingForIdleUnits`.
+    /// Empty name walks every local/human player (dispatch always passes empty).
+    fn host_script_idle_or_resume_player_ids(&self, player: &str) -> Vec<u32> {
+        if let Some(pid) = self.host_player_id_for_script_token(player) {
+            return vec![pid];
+        }
+        let locals: Vec<u32> = self
+            .players
+            .values()
+            .filter(|p| p.is_local && !p.is_observer)
+            .map(|p| p.id)
+            .collect();
+        if !locals.is_empty() {
+            return locals;
+        }
+        self.players
+            .values()
+            .filter(|p| !p.is_observer && p.is_alive)
+            .map(|p| p.id)
+            .collect()
+    }
+
+    /// C++ `doNamedUseCommandButtonAbility*` / `doTeamUseCommandButtonAbility*`.
+    fn apply_host_use_command_button_script_requests(&mut self) {
+        use crate::command_executor::CommandExecutor;
+        use gamelogic::scripting::HostScriptUseCommandButtonRequest;
+        for req in gamelogic::scripting::take_host_script_use_command_button_requests() {
+            match req {
+                HostScriptUseCommandButtonRequest::Named { unit, button } => {
+                    let Some(id) = self.host_object_id_by_script_name(&unit) else {
+                        continue;
+                    };
+                    let pid = self
+                        .host_object(id)
+                        .and_then(|o| o.owner_player_id)
+                        .unwrap_or(0);
+                    let _ = CommandExecutor::new(self, pid).execute_do_command_button(
+                        &[id],
+                        &button,
+                        None,
+                        None,
+                    );
+                }
+                HostScriptUseCommandButtonRequest::NamedOnNamed {
+                    unit,
+                    button,
+                    target,
+                } => {
+                    let Some(id) = self.host_object_id_by_script_name(&unit) else {
+                        continue;
+                    };
+                    let Some(tid) = self.host_object_id_by_script_name(&target) else {
+                        continue;
+                    };
+                    let pid = self
+                        .host_object(id)
+                        .and_then(|o| o.owner_player_id)
+                        .unwrap_or(0);
+                    let _ = CommandExecutor::new(self, pid).execute_do_command_button(
+                        &[id],
+                        &button,
+                        None,
+                        Some(tid),
+                    );
+                }
+                HostScriptUseCommandButtonRequest::NamedAtWaypoint {
+                    unit,
+                    button,
+                    waypoint,
+                } => {
+                    let Some(id) = self.host_object_id_by_script_name(&unit) else {
+                        continue;
+                    };
+                    let Some(pos) = self.host_script_waypoint_position(&waypoint) else {
+                        continue;
+                    };
+                    let pid = self
+                        .host_object(id)
+                        .and_then(|o| o.owner_player_id)
+                        .unwrap_or(0);
+                    let _ = CommandExecutor::new(self, pid).execute_do_command_button(
+                        &[id],
+                        &button,
+                        Some(pos),
+                        None,
+                    );
+                }
+                HostScriptUseCommandButtonRequest::NamedUsingWaypointPath {
+                    unit,
+                    button,
+                    path,
+                } => {
+                    let Some(id) = self.host_object_id_by_script_name(&unit) else {
+                        continue;
+                    };
+                    let from = self
+                        .host_object(id)
+                        .map(|o| o.get_position())
+                        .unwrap_or(glam::Vec3::ZERO);
+                    let Some(wps) = self.host_script_waypoint_path_from(&path, from) else {
+                        continue;
+                    };
+                    let pid = self
+                        .host_object(id)
+                        .and_then(|o| o.owner_player_id)
+                        .unwrap_or(0);
+                    let _ = CommandExecutor::new(self, pid)
+                        .execute_do_command_button_using_waypoints(&[id], &button, &wps);
+                }
+                HostScriptUseCommandButtonRequest::Team { team, button } => {
+                    let ids = self.host_script_team_member_ids(&team);
+                    if ids.is_empty() {
+                        continue;
+                    }
+                    let pid = self
+                        .host_object(ids[0])
+                        .and_then(|o| o.owner_player_id)
+                        .unwrap_or(0);
+                    let _ = CommandExecutor::new(self, pid).execute_do_command_button(
+                        &ids,
+                        &button,
+                        None,
+                        None,
+                    );
+                }
+                HostScriptUseCommandButtonRequest::TeamOnNamed {
+                    team,
+                    button,
+                    target,
+                } => {
+                    let ids = self.host_script_team_member_ids(&team);
+                    let Some(tid) = self.host_object_id_by_script_name(&target) else {
+                        continue;
+                    };
+                    if ids.is_empty() {
+                        continue;
+                    }
+                    let pid = self
+                        .host_object(ids[0])
+                        .and_then(|o| o.owner_player_id)
+                        .unwrap_or(0);
+                    let _ = CommandExecutor::new(self, pid).execute_do_command_button(
+                        &ids,
+                        &button,
+                        None,
+                        Some(tid),
+                    );
+                }
+                HostScriptUseCommandButtonRequest::TeamAtWaypoint {
+                    team,
+                    button,
+                    waypoint,
+                } => {
+                    let ids = self.host_script_team_member_ids(&team);
+                    let Some(pos) = self.host_script_waypoint_position(&waypoint) else {
+                        continue;
+                    };
+                    if ids.is_empty() {
+                        continue;
+                    }
+                    let pid = self
+                        .host_object(ids[0])
+                        .and_then(|o| o.owner_player_id)
+                        .unwrap_or(0);
+                    let _ = CommandExecutor::new(self, pid).execute_do_command_button(
+                        &ids,
+                        &button,
+                        Some(pos),
+                        None,
+                    );
+                }
+            }
+        }
+    }
+
 
     /// C++ ScriptActions NAMED/TEAM DELETE / KILL / DAMAGE.
     /// Leftover `OBJECT_REGISTRY` is empty on the host path; leftover actions
@@ -1767,6 +2010,32 @@ impl GameLogic {
                             continue;
                         }
                         self.host_script_apply_unresistable(id, amount, HUGE_DAMAGE_AMOUNT);
+                    }
+                }
+                HostScriptKillDeleteDamageRequest::DestroyAllContained { unit } => {
+                    let Some(container) = self.host_object_id_by_script_name(&unit) else {
+                        continue;
+                    };
+                    let mut occupants = self
+                        .host_object(container)
+                        .map(|o| o.contained_units())
+                        .unwrap_or_default();
+                    occupants.extend(
+                        self.objects
+                            .values()
+                            .filter(|o| o.contained_by == Some(container) && o.is_alive())
+                            .map(|o| o.id),
+                    );
+                    occupants.sort_by_key(|id| id.0);
+                    occupants.dedup();
+                    for occ in occupants {
+                        self.host_script_kill_object(occ, HUGE_DAMAGE_AMOUNT);
+                    }
+                    if let Some(obj) = self.host_object_mut(container) {
+                        if let Some(building) = obj.building_data.as_mut() {
+                            building.garrisoned_units.clear();
+                        }
+                        obj.occupants.clear();
                     }
                 }
             }
@@ -1880,6 +2149,76 @@ impl GameLogic {
             }
         }
     }
+
+    /// C++ `doTeamFollowSkirmishApproachPath` / `doTeamMoveToSkirmishApproachPath`.
+    /// Path label is `label + (enemy mpStartIndex + 1)`.
+    fn apply_host_skirmish_approach_path_script_requests(&mut self) {
+        for req in gamelogic::scripting::take_host_skirmish_approach_path_requests() {
+            let members = self.host_script_team_member_ids(&req.team);
+            if members.is_empty() {
+                continue;
+            }
+            let mut sx = 0.0f32;
+            let mut sy = 0.0f32;
+            let mut sz = 0.0f32;
+            let mut n = 0u32;
+            for id in &members {
+                if let Some(pos) = self
+                    .host_object(*id)
+                    .filter(|u| u.is_alive())
+                    .map(|u| u.get_position())
+                {
+                    sx += pos.x;
+                    sy += pos.y;
+                    sz += pos.z;
+                    n += 1;
+                }
+            }
+            if n == 0 {
+                continue;
+            }
+            let inv = 1.0 / n as f32;
+            let center = glam::Vec3::new(sx * inv, sy * inv, sz * inv);
+            let mp_index = self.host_skirmish_enemy_mp_index(&members) + 1;
+            let path_label = format!("{}{}", req.path_label, mp_index);
+            let Some(path) = self.host_script_waypoint_path_from(&path_label, center) else {
+                continue;
+            };
+            if req.follow {
+                self.host_script_issue_follow_waypoint_path(
+                    &members,
+                    &path,
+                    false,
+                    req.as_team,
+                    &path_label,
+                );
+            } else if let Some(&dest) = path.first() {
+                for id in members {
+                    let _ = self.unit_command_move_to(id, dest);
+                }
+            }
+        }
+    }
+
+    /// C++ `TheScriptEngine->getSkirmishEnemyPlayer()->getMpStartIndex()`.
+    fn host_skirmish_enemy_mp_index(&self, members: &[ObjectId]) -> i32 {
+        let owner = members
+            .first()
+            .and_then(|id| self.host_object(*id))
+            .and_then(|obj| obj.owner_player_id);
+        for player in self.players.values() {
+            if player.is_local && Some(player.id) != owner {
+                return player.start_position.max(0);
+            }
+        }
+        for player in self.players.values() {
+            if Some(player.id) != owner && player.is_alive && !player.is_observer {
+                return player.start_position.max(0);
+            }
+        }
+        0
+    }
+
 
     /// C++ ScriptActions NAMED/TEAM FACE_NAMED / FACE_WAYPOINT live drain.
     /// Leftover queues [`gamelogic::scripting::HostScriptFaceRequest`].
@@ -3042,6 +3381,8 @@ impl GameLogic {
 
 
         self.apply_host_follow_waypoints_script_requests();
+        self.apply_host_skirmish_approach_path_script_requests();
+
 
         self.apply_host_create_script_requests();
         self.apply_host_boobytrap_script_requests();
@@ -3053,6 +3394,7 @@ impl GameLogic {
         self.apply_host_guard_supply_center_script_requests();
         self.apply_host_guard_variant_script_requests();
         self.apply_host_named_fire_special_script_requests();
+        self.apply_host_use_command_button_script_requests();
         self.apply_host_object_sound_script_requests();
 
         self.apply_host_skirmish_fight_script_requests();

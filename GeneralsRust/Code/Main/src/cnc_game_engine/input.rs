@@ -2173,6 +2173,17 @@ impl CnCGameEngine {
                         queue_index,
                     );
                 }
+                UIEvent::CancelUpgradeProduction {
+                    upgrade_name,
+                    production_id,
+                    queue_index,
+                } => {
+                    self.cancel_upgrade_production_from_ui(
+                        &upgrade_name,
+                        production_id,
+                        queue_index,
+                    );
+                }
                 UIEvent::IssueCommand { command_name } => {
                     self.issue_named_command_from_ui(&command_name);
                 }

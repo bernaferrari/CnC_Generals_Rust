@@ -95,10 +95,26 @@ impl Object {
             return true; // already toppling
         }
         let pos = self.get_position();
-        let (dx, dz) = match attacker_pos {
+        let (mut dx, mut dz) = match attacker_pos {
             Some((ax, az)) => (pos.x - ax, pos.z - az),
             None => (1.0, 0.0),
         };
+        // C++ StructureToppleUpdate/ToppleUpdate::adjustToppleDirection.
+        if !self.name.is_empty() {
+            let leftover = gamelogic::scripting::engine::with_script_engine_ref(|engine| {
+                engine.topple_direction_for_name(&self.name)
+            })
+            .flatten();
+            let mapped = leftover
+                .map(|d| (d.x, d.y))
+                .or_else(|| gamelogic::scripting::host_script_topple_direction_for(&self.name));
+            if let Some((sx, sy)) = mapped {
+                if sx * sx + sy * sy > 1e-12 {
+                    dx = sx;
+                    dz = sy;
+                }
+            }
+        }
         let mut data = crate::game_logic::host_structure_topple::HostStructureToppleData::default();
         let geom = &self.thing.template.geometry_info;
         data.bind_geometry(

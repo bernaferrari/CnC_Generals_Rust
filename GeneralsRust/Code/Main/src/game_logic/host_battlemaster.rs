@@ -769,6 +769,36 @@ pub fn leftover_infantry_horde_decal_size(shadow_size_x: f32, shadow_size_y: f32
     }
 }
 
+/// C++ `W3DProjectedShadowManager::addDecal`: when ShadowSize is 0, size is
+/// object-space bbox `Extent * 2`. Infantry EXHorde uses this fallback.
+pub fn leftover_infantry_horde_decal_size_or_bbox(
+    shadow_size_x: f32,
+    shadow_size_y: f32,
+    bbox_extent_x: f32,
+    bbox_extent_y: f32,
+) -> f32 {
+    let size = leftover_infantry_horde_decal_size(shadow_size_x, shadow_size_y);
+    if size > 0.0 {
+        return size;
+    }
+    let sx = if bbox_extent_x > 0.0 {
+        bbox_extent_x * 2.0
+    } else {
+        0.0
+    };
+    let sy = if bbox_extent_y > 0.0 {
+        bbox_extent_y * 2.0
+    } else {
+        0.0
+    };
+    if sx > 0.0 {
+        sx
+    } else {
+        sy
+    }
+}
+
+
 /// C++ `HordeUpdate.cpp:253` vehicle membership gate.
 pub fn leftover_vehicle_horde_membership_due(
     current_frame: u32,
@@ -1047,6 +1077,7 @@ pub fn honesty_battlemaster_horde_residual_ok() -> bool {
         && leftover_horde_decal_type(true, false, true) == TERRAIN_DECAL_HORDE
         && leftover_horde_decal_type(true, true, true) == TERRAIN_DECAL_HORDE_WITH_FANATICISM
         && leftover_infantry_horde_decal_size(0.0, 0.0) == 0.0
+        && (leftover_infantry_horde_decal_size_or_bbox(0.0, 0.0, 4.0, 3.0) - 8.0).abs() < 0.01
         && leftover_vehicle_horde_membership_due(31, 0, 30)
         && (leftover_vehicle_horde_decal_size(13.0) - 45.5).abs() < 0.01
 

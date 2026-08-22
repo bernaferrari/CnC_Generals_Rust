@@ -4612,6 +4612,186 @@ fn script_exclude_from_score_and_select_skillset_write_live() {
 }
 
 #[test]
+fn script_unit_destroy_all_contained_kills_live_occupants() {
+    use gamelogic::scripting::{
+        request_host_script_kill_delete_damage, HostScriptKillDeleteDamageRequest,
+    };
+
+    let mut logic = GameLogic::new();
+    logic.scripts_loaded = true;
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    ensure_test_infantry_template(&mut logic);
+    ensure_test_barracks_template(&mut logic);
+    let container = logic
+        .create_object("TestBarracks", Team::USA, glam::Vec3::ZERO)
+        .expect("container");
+    let rider = logic
+        .create_object("TestInfantry", Team::USA, glam::Vec3::new(10.0, 0.0, 0.0))
+        .expect("rider");
+    if let Some(obj) = logic.host_object_mut(container) {
+        obj.name = "NamedChinook".into();
+        let _ = obj.add_occupant(rider);
+    }
+    if let Some(obj) = logic.host_object_mut(rider) {
+        obj.contained_by = Some(container);
+    }
+
+    let _ = gamelogic::scripting::take_host_script_kill_delete_damage_requests();
+    request_host_script_kill_delete_damage(HostScriptKillDeleteDamageRequest::DestroyAllContained {
+        unit: "NamedChinook".into(),
+    });
+    logic.evaluate_and_execute_scripts(0.0);
+    let rider_gone = logic
+        .host_object(rider)
+        .map(|o| !o.is_alive() || o.status.destroyed)
+        .unwrap_or(true);
+    assert!(
+        rider_gone,
+        "UNIT_DESTROY_ALL_CONTAINED must kill live occupants"
+    );
+    assert!(
+        logic
+            .host_object(container)
+            .map(|o| o.contained_units().is_empty())
+            .unwrap_or(true),
+        "container roster must be empty after destroy-all-contained"
+    );
+}
+
+#[test]
+fn script_idle_all_units_and_resume_supply_write_live() {
+    use crate::game_logic::AIState;
+    use gamelogic::scripting::{request_host_script_idle, HostScriptIdleRequest};
+
+    let mut logic = GameLogic::new();
+    logic.scripts_loaded = true;
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    ensure_test_infantry_template(&mut logic);
+    ensure_test_dozer_template(&mut logic);
+    let tank = logic
+        .create_object("TestInfantry", Team::USA, glam::Vec3::ZERO)
+        .expect("unit");
+    let truck = logic
+        .create_object("TestDozer", Team::USA, glam::Vec3::new(20.0, 0.0, 0.0))
+        .expect("truck");
+    let far = glam::Vec3::new(400.0, 0.0, 0.0);
+    let _ = logic.unit_command_move_to(tank, far);
+    if let Some(obj) = logic.host_object_mut(truck) {
+        obj.set_ai_state(AIState::Idle);
+        obj.supply_truck_force_pending = false;
+    }
+
+    let _ = gamelogic::scripting::take_host_script_idle_requests();
+    request_host_script_idle(HostScriptIdleRequest::IdleAll {
+        player: "TestPlayer".into(),
+    });
+    logic.evaluate_and_execute_scripts(0.0);
+    let tank_pos = logic.host_object(tank).expect("tank").get_position();
+    let dest = logic
+        .host_object(tank)
+        .and_then(|o| o.movement.target_position);
+    assert!(
+        dest.map(|d| (d - tank_pos).length() < 1.0).unwrap_or(true)
+            || logic
+                .host_object(tank)
+                .map(|o| o.ai_state == AIState::Idle)
+                .unwrap_or(false),
+        "IDLE_ALL_UNITS must aiMoveToPosition(self) on live non-structures"
+    );
+
+    request_host_script_idle(HostScriptIdleRequest::ResumeSupply {
+        player: "TestPlayer".into(),
+    });
+    logic.evaluate_and_execute_scripts(0.0);
+    assert!(
+        logic
+            .host_object(truck)
+            .expect("truck")
+            .supply_truck_force_pending,
+        "RESUME_SUPPLY_TRUCKING must setForceWantingState on idle collectors"
+    );
+}
+
+#[test]
+fn script_named_use_command_button_stops_live_unit() {
+    use crate::game_logic::AIState;
+    use gamelogic::scripting::{
+        request_host_script_use_command_button, HostScriptUseCommandButtonRequest,
+    };
+
+    let mut logic = GameLogic::new();
+    logic.scripts_loaded = true;
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    ensure_test_infantry_template(&mut logic);
+    let id = logic
+        .create_object("TestInfantry", Team::USA, glam::Vec3::ZERO)
+        .expect("unit");
+    if let Some(obj) = logic.host_object_mut(id) {
+        obj.name = "Hero".into();
+        obj.team_instance_name = "teamAmerica".into();
+    }
+    let _ = logic.unit_command_move_to(id, glam::Vec3::new(300.0, 0.0, 0.0));
+
+    let _ = gamelogic::scripting::take_host_script_use_command_button_requests();
+    request_host_script_use_command_button(HostScriptUseCommandButtonRequest::Named {
+        unit: "Hero".into(),
+        button: "Command_Stop".into(),
+    });
+    logic.evaluate_and_execute_scripts(0.0);
+    assert_eq!(
+        logic.host_object(id).expect("unit").ai_state,
+        AIState::Idle,
+        "NAMED_USE_COMMANDBUTTON Command_Stop must idle the live unit"
+    );
+
+    let _ = logic.unit_command_move_to(id, glam::Vec3::new(300.0, 0.0, 0.0));
+    request_host_script_use_command_button(HostScriptUseCommandButtonRequest::Team {
+        team: "teamAmerica".into(),
+        button: "Command_Stop".into(),
+    });
+    logic.evaluate_and_execute_scripts(0.0);
+    assert_eq!(
+        logic.host_object(id).expect("unit").ai_state,
+        AIState::Idle,
+        "TEAM_USE_COMMANDBUTTON Command_Stop must idle live team members"
+    );
+}
+
+#[test]
+fn script_named_set_topple_direction_used_by_live_topple() {
+    use crate::game_logic::host_structure_topple::is_structure_topple_candidate;
+
+    let mut logic = GameLogic::new();
+    logic.scripts_loaded = true;
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    ensure_test_barracks_template(&mut logic);
+    assert!(is_structure_topple_candidate("TestBarracks", true));
+    let id = logic
+        .create_object("TestBarracks", Team::USA, glam::Vec3::ZERO)
+        .expect("bldg");
+    if let Some(obj) = logic.host_object_mut(id) {
+        obj.name = "FallingHall".into();
+    }
+    gamelogic::scripting::request_host_script_topple_direction("FallingHall", 0.0, 1.0);
+    let started = logic
+        .host_object_mut(id)
+        .expect("bldg")
+        .begin_structure_topple(0, Some((100.0, 0.0)));
+    assert!(started, "named structure must begin topple");
+    let st = logic
+        .host_object(id)
+        .and_then(|o| o.structure_topple_data.clone())
+        .expect("topple data");
+    assert!(
+        (st.dir_x - 0.0).abs() < 0.05 && (st.dir_y - 1.0).abs() < 0.05,
+        "NAMED_SET_TOPPLE_DIRECTION must replace attacker-away dir, got ({}, {})",
+        st.dir_x,
+        st.dir_y
+    );
+}
+
+
+#[test]
 fn enqueue_production_full_queue_does_not_charge_resources() {
     let mut game_logic = GameLogic::new();
     ensure_test_player_for_team(&mut game_logic, Team::USA);

@@ -147,7 +147,8 @@ impl GameLogic {
                     });
                 }
 
-                if can_attack && !ai_auto_engage_paused && should_scan(30) {
+                // C++ AIHuntState::update scans with no isAbleToAttack gate.
+                if !ai_auto_engage_paused && should_scan(30) {
                     let units_should_hunt = self.object_units_should_hunt(object_id);
                     let has_priority = self.attack_priority_info_for(object_id).is_some();
                     let team_victim = self.host_team_common_target(object_id);
@@ -739,6 +740,31 @@ impl GameLogic {
         None
     }
 
+    /// C++ AIAttackApproachTargetState: computer players do not chase an
+    /// airborne aircraft unless the parent state is AI_HUNT.
+    pub(crate) fn computer_refuses_non_hunt_airborne_chase(
+        &self,
+        unit_id: ObjectId,
+        target_id: ObjectId,
+    ) -> bool {
+        let Some(unit) = self.objects.get(&unit_id) else {
+            return false;
+        };
+        if unit.hunting {
+            return false;
+        }
+        let Some(target) = self.objects.get(&target_id) else {
+            return false;
+        };
+        if !target.is_kind_of(KindOf::Aircraft) || !target.status.airborne_target {
+            return false;
+        }
+        unit.owner_player_id
+            .and_then(|pid| self.players.get(&pid))
+            .map(|p| !p.is_local)
+            .unwrap_or(false)
+    }
+
     pub(in super::super) fn apply_engagement_decision_aware(
         &mut self,
         unit_id: ObjectId,
@@ -757,6 +783,9 @@ impl GameLogic {
             ),
             CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
         ) {
+            return false;
+        }
+        if self.computer_refuses_non_hunt_airborne_chase(unit_id, target_id) {
             return false;
         }
         // Host engagement is same-frame so residual auto-fire / continue-after-kill
@@ -970,6 +999,36 @@ mod hq_m6gcj_tests {
                 })
             ),
             "regular Hunt exits to Idle after map-clear; got {command:?}"
+        );
+    }
+
+    #[test]
+    fn weaponless_hunt_still_scans_and_exits() {
+        // C++ AIHuntState::update has no isAbleToAttack gate (hq-grlpr).
+        let mut logic = GameLogic::new();
+        let mut worker = Object::new(ThingTemplate::new("Worker"), ObjectId(1), Team::USA);
+        worker.hunting = true;
+        worker.set_ai_state(AIState::Patrolling);
+        logic.objects.insert(worker.id, worker);
+        let command = logic.process_ai_behavior(
+            ObjectId(1),
+            AIState::Patrolling,
+            None,
+            Vec3::ZERO,
+            Team::USA,
+            false,
+            30,
+            1.0 / 30.0,
+        );
+        assert!(
+            matches!(
+                command,
+                Some(AICommand::SetAIState {
+                    state: AIState::Idle,
+                    ..
+                })
+            ),
+            "weaponless Hunt must still scan and exit to Idle; got {command:?}"
         );
     }
 

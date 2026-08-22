@@ -273,6 +273,24 @@ impl HostLeafletDropRegistry {
         self.activated_this_frame.clear();
     }
 
+    pub fn next_id(&self) -> u32 {
+        self.next_id
+    }
+
+    pub fn restore_from_snapshot(
+        &mut self,
+        next_id: u32,
+        missions: impl IntoIterator<Item = HostLeafletDropMission>,
+    ) {
+        self.clear();
+        let mut max_id = 0_u32;
+        for mission in missions {
+            max_id = max_id.max(mission.id);
+            self.missions.insert(mission.id, mission);
+        }
+        self.next_id = next_id.max(max_id.saturating_add(1)).max(1);
+    }
+
     pub fn activation_count(&self) -> u32 {
         self.activation_count
     }

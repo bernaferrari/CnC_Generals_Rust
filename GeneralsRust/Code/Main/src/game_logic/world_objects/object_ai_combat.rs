@@ -745,9 +745,17 @@ impl GameLogic {
             units_affected
         );
 
-        // C++ ProductionUpdate: TheEva->setShouldPlay(EVA_UpgradeComplete).
-        // Eva::update SideSounds is the sole consumer — do not queue generic EVA_*.
-        self.try_eva_upgrade_complete(player_id);
+        // C++ ProductionUpdate.cpp:900-912: authored ResearchSound XOR generic
+        // EVA_UpgradeComplete. Leftover UpgradeTemplate::get_research_sound is
+        // the INI source; skip EVA when that event is set.
+        let has_research_sound = gamelogic::upgrade::center::with_upgrade_center(|center| {
+            center
+                .find_upgrade(upgrade_name)
+                .is_some_and(|template| template.get_research_sound().is_valid())
+        });
+        if !has_research_sound {
+            self.try_eva_upgrade_complete(player_id);
+        }
 
         // C++ TheRadar->createEvent(pos, RADAR_EVENT_UPGRADE) residual.
         self.try_radar_upgrade_complete(player_id, team, upgrade_name, source);

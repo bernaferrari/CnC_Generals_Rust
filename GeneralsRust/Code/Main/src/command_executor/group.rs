@@ -21,11 +21,45 @@ use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
 
 impl<'a> CommandExecutor<'a> {
-    /// C++ AIData::m_distanceRequiresGroup residual (force group moving when far).
-    const DISTANCE_REQUIRES_GROUP: f32 = 200.0;
+    /// C++ `TheAI->getAiData()->m_minDistanceForGroup` /
+    /// `m_distanceRequiresGroup`. Store first, leftover THE_AI, then retail
+    /// residuals (100 / 500).
+    fn group_path_distance_thresholds() -> (f32, f32) {
+        use crate::game_logic::host_ai_path_combat_residual_wave105::{
+            DISTANCE_REQUIRES_GROUP_RESIDUAL, MIN_DISTANCE_FOR_GROUP_RESIDUAL,
+        };
+        let from_store = game_engine::common::ini::get_ai_data_store()
+            .get_active()
+            .map(|d| (d.min_distance_for_group, d.distance_requires_group));
+        let (min_d, req) = from_store
+            .or_else(|| {
+                gamelogic::ai::THE_AI.read().ok().and_then(|ai| {
+                    ai.get_ai_data()
+                        .read()
+                        .ok()
+                        .map(|d| (d.min_distance_for_group, d.distance_requires_group))
+                })
+            })
+            .unwrap_or((
+                MIN_DISTANCE_FOR_GROUP_RESIDUAL,
+                DISTANCE_REQUIRES_GROUP_RESIDUAL,
+            ));
+        // C++ ctor default for DistanceRequiresGroup is 0.0; retail INI is 500.
+        // Treat non-positive as unset so short-span groups still use closest-to-dest.
+        (
+            if min_d > 0.0 {
+                min_d
+            } else {
+                MIN_DISTANCE_FOR_GROUP_RESIDUAL
+            },
+            if req > 0.0 {
+                req
+            } else {
+                DISTANCE_REQUIRES_GROUP_RESIDUAL
+            },
+        )
+    }
 
-    /// C++ AIData::m_minDistanceForGroup residual.
-    const MIN_DISTANCE_FOR_GROUP: f32 = 40.0;
 
     /// C++ AIGroup::getCommandButtonSourceObject residual —
     /// first living member that can act on `command` capability.
@@ -385,8 +419,7 @@ impl<'a> CommandExecutor<'a> {
         let bbox_dx = max.x - min.x;
         let bbox_dz = max.y - min.y;
         let mut span_sqr = bbox_dx * bbox_dx + bbox_dz * bbox_dz;
-        let req = Self::DISTANCE_REQUIRES_GROUP;
-        let min_d = Self::MIN_DISTANCE_FOR_GROUP;
+        let (min_d, req) = Self::group_path_distance_thresholds();
         if span_sqr > req * req {
             // Use group span as the distance metric (C++).
             closest_sqr = span_sqr;

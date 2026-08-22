@@ -453,15 +453,21 @@ impl GameLogic {
         ) {
             return true;
         }
-        let Some(unit) = self.objects.get_mut(&id) else {
-            return false;
+        let can_move = {
+            let Some(unit) = self.objects.get_mut(&id) else {
+                return false;
+            };
+            release_hunt_temp_lock_when_entering_guard(unit);
+            unit.set_guard_position(Some(pos));
+            unit.hunting = false;
+            unit.set_ai_state(AIState::GuardingArea);
+            unit.mark_jet_command_for_reload_interrupt(true);
+            unit.can_move()
         };
-        release_hunt_temp_lock_when_entering_guard(unit);
-        unit.set_guard_position(Some(pos));
-        unit.hunting = false;
-        unit.set_ai_state(AIState::GuardingArea);
-        unit.mark_jet_command_for_reload_interrupt(true);
-
+        // C++ AIGuardState::onEnter → AI_GUARD_RETURN InternalMoveTo the post.
+        if can_move {
+            self.path_approach_with_state(id, pos, AIState::GuardingArea);
+        }
         true
     }
 
@@ -472,15 +478,27 @@ impl GameLogic {
         ) {
             return true;
         }
-        let Some(unit) = self.objects.get_mut(&id) else {
-            return false;
+        let goal = self
+            .objects
+            .get(&target_id)
+            .filter(|o| o.is_alive())
+            .map(|o| o.get_position());
+        let can_move = {
+            let Some(unit) = self.objects.get_mut(&id) else {
+                return false;
+            };
+            release_hunt_temp_lock_when_entering_guard(unit);
+            unit.set_guard_target(Some(target_id));
+            unit.hunting = false;
+            unit.set_ai_state(AIState::GuardingObject);
+            unit.mark_jet_command_for_reload_interrupt(true);
+            unit.can_move()
         };
-        release_hunt_temp_lock_when_entering_guard(unit);
-        unit.set_guard_target(Some(target_id));
-        unit.hunting = false;
-        unit.set_ai_state(AIState::GuardingObject);
-        unit.mark_jet_command_for_reload_interrupt(true);
-
+        if can_move {
+            if let Some(pos) = goal {
+                self.path_approach_with_state(id, pos, AIState::GuardingObject);
+            }
+        }
         true
     }
 
@@ -515,14 +533,16 @@ impl GameLogic {
             return true;
         }
 
-        let (can_move, can_attack) = match self.objects.get(&id) {
+        // C++ AIGroup::groupAttackMoveToPosition: no locomotor/can-move gate.
+        // Deployed artillery and turret structures still enter attack-move.
+        let (alive, can_attack) = match self.objects.get(&id) {
             Some(unit) => (
-                unit.is_alive() && unit.can_move(),
+                unit.is_alive(),
                 unit.can_attack() || unit.weapon.is_some(),
             ),
             None => return false,
         };
-        if !can_move {
+        if !alive {
             return false;
         }
         self.drop_jet_targeters_on_attack_exit(id);
@@ -862,12 +882,26 @@ impl GameLogic {
                 unit.set_guard_target(None);
                 unit.set_guard_position(Some(pos));
             }
-            unit.set_ai_state(ai_state);
+            unit.set_ai_state(ai_state.clone());
             crate::game_logic::host_guard_log::record(id, gpos, gtarget, guard_radius);
             crate::game_logic::host_attack_log::record(id, None);
-            return true;
+        } else {
+            return false;
         }
-        false
+        // C++ AIGuardState::onEnter walks to the post before Idle.
+        if let Some(pos) = position {
+            self.path_approach_with_state(id, pos, AIState::GuardingArea);
+        } else if let Some(tid) = target {
+            if let Some(tpos) = self
+                .objects
+                .get(&tid)
+                .filter(|o| o.is_alive())
+                .map(|o| o.get_position())
+            {
+                self.path_approach_with_state(id, tpos, AIState::GuardingObject);
+            }
+        }
+        true
     }
 
     /// Wave 232: set guard radius only (guard area residual).
@@ -999,23 +1033,31 @@ impl GameLogic {
             if !unit.is_alive() || unit.get_template().deploy_style_metadata.is_none() {
                 return false;
             }
-            let Some(style) = unit.deploy_style.as_mut() else {
+            if unit.deploy_style.is_none() {
                 // A template with metadata must have installed state during
                 // normal construction.  A malformed/legacy snapshot without
                 // it is not safe to silently reconstruct mid-command.
                 return false;
-            };
+            }
 
             deployed_direction = matches!(
-                style.state,
-                crate::game_logic::host_deploy_style::HostDeployStyleState::ReadyToMove
-                    | crate::game_logic::host_deploy_style::HostDeployStyleState::Undeploying
+                unit.deploy_style.as_ref().map(|s| s.state),
+                Some(
+                    crate::game_logic::host_deploy_style::HostDeployStyleState::ReadyToMove
+                        | crate::game_logic::host_deploy_style::HostDeployStyleState::Undeploying
+                )
             );
-            let transitioned = if deployed_direction {
-                style.begin_deploy(frame)
-            } else {
-                style.begin_undeploy(frame)
+            let transitioned = {
+                let Some(style) = unit.deploy_style.as_mut() else {
+                    return false;
+                };
+                if deployed_direction {
+                    style.begin_deploy(frame)
+                } else {
+                    style.begin_undeploy(frame)
+                }
             };
+            let state = unit.deploy_style.as_ref().map(|s| s.state);
             if transitioned {
                 unit.stop_moving();
                 unit.set_status_moving(false);
@@ -1025,6 +1067,13 @@ impl GameLogic {
                     // OBJECT_STATUS_DEPLOYED before the pack timer elapses.
                     unit.set_deployed(false);
                 }
+                if let Some(state) = state {
+                    crate::game_logic::host_deploy_style::leftover_stamp_deploy_style_conditions(
+                        &mut unit.model_condition_bits,
+                        state,
+                    );
+                }
+                unit.record_host_model_condition();
             }
             transitioned
         };

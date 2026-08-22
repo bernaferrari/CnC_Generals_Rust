@@ -119,8 +119,10 @@ fn live_run_loop_updates_common_the_audio_each_frame() {
     assert!(
         subsystem.contains("play_sound_through_the_audio_at")
             && subsystem.contains("event.position.map")
+            && subsystem.contains("event.object_id.map")
+            && subsystem.contains("leftover_the_audio_is_live")
             && subsystem.contains("playSample3D"),
-        "live SFX drain must keep world pose for Miles playSample3D"
+        "live SFX drain must keep pose+object_id and not rodio leftover-muted"
     );
     assert!(
         boot.contains("initialize_global_audio_manager()")

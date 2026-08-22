@@ -5,7 +5,8 @@
 
 use super::entity_lifecycle_projectiles::ProjectileFlightResiduals;
 use super::entity_lifecycle_residuals::{
-    CreateObjectDieTransferResidual, EmoticonSurrenderResidual, FireWeaponWhenDeadResidual,
+    ActiveBodyCrushResidual, CreateObjectDieTransferResidual, EmoticonSurrenderResidual,
+    FireWeaponWhenDeadResidual, PhysicsBehaviorResidual, RailroadBehaviorResidual,
     SpecialPowerCooldownResidual, WeaponLockResidual,
 };
 use super::entity_lifecycle_tags::*;
@@ -85,7 +86,7 @@ const INVENTORIED_IN_WINDOW: &[&str] = &[
 
 fn present_groups(object: &Object) -> Vec<&'static str> {
     let mut out = Vec::new();
-    let pairs: [(&'static str, bool); 56] = [
+    let pairs: [(&'static str, bool); 59] = [
         (TAG_UPGRADE_DIE, object.upgrade_die.is_some()),
         (
             TAG_SPECIAL_POWER_COMPLETION,
@@ -218,6 +219,12 @@ fn present_groups(object: &Object) -> Vec<&'static str> {
             TAG_PROJECTILE_FLIGHT,
             ProjectileFlightResiduals::present(object),
         ),
+        (TAG_ACTIVE_BODY, ActiveBodyCrushResidual::present(object)),
+        (
+            TAG_PHYSICS_BEHAVIOR,
+            PhysicsBehaviorResidual::present(object),
+        ),
+        (TAG_RAILROAD, RailroadBehaviorResidual::present(object)),
     ];
     for (tag, present) in pairs {
         if present {

@@ -3,7 +3,7 @@
 use crate::game_logic::object::{
     decode_lifecycle_snapshot_block, encode_lifecycle_snapshot_block,
 };
-use crate::game_logic::{GameLogic, ObjectId};
+use crate::game_logic::{GameLogic, ObjectId, railroad_registry_reset};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use gamelogic::world::entities::EntityLifecycleEnvelope;
 use gamelogic::world::entity_fixup::{ContainFixup, ProducerFixup};
@@ -127,6 +127,7 @@ pub fn apply_lifecycle_tail_to_host(
     tail: &LifecycleTail,
     game_logic: &mut GameLogic,
 ) -> SaveLoadResult<()> {
+    railroad_registry_reset();
     for envelope in &tail.envelopes {
         let id = ObjectId(envelope.entity_id);
         if let Some(object) = game_logic.host_object_mut(id) {
@@ -305,5 +306,49 @@ mod tests {
         };
         let decoded = decode_lifecycle_tail(&encode_lifecycle_tail(&tail)).expect("roundtrip");
         assert_eq!(decoded, tail);
+    }
+
+    #[test]
+    fn apply_tail_resets_stale_railroad_then_restores_envelope() {
+        use crate::game_logic::{
+            railroad_car, railroad_registry_reset, restore_railroad_car, HostConductorState,
+            HostRailroadCar, ObjectId,
+        };
+
+        railroad_registry_reset();
+        let mut leftover = HostRailroadCar::new_locomotive(ObjectId(99));
+        leftover.speed = 9.0;
+        restore_railroad_car(leftover);
+        assert!(railroad_car(ObjectId(99)).is_some());
+
+        apply_lifecycle_tail_to_host(&LifecycleTail::default(), &mut GameLogic::new())
+            .expect("empty tail");
+        assert!(
+            railroad_car(ObjectId(99)).is_none(),
+            "stale railroad registry must not survive load"
+        );
+
+        let mut car = HostRailroadCar::new_locomotive(ObjectId(7));
+        car.conductor_state = HostConductorState::WaitAtStation;
+        car.track_distance = 55.0;
+        car.wait_at_station_timer = 12;
+        car.held = true;
+        let mut object = crate::game_logic::Object::new(
+            crate::game_logic::ThingTemplate::new("CivilianTrainEngine"),
+            ObjectId(7),
+            crate::game_logic::Team::USA,
+        );
+        restore_railroad_car(car);
+        let envelope = object.entity_lifecycle_envelope();
+        railroad_registry_reset();
+        object
+            .entity_apply_lifecycle_envelope(&envelope)
+            .expect("apply");
+        let restored = railroad_car(ObjectId(7)).expect("restored");
+        assert_eq!(restored.conductor_state, HostConductorState::WaitAtStation);
+        assert!((restored.track_distance - 55.0).abs() < 1e-6);
+        assert_eq!(restored.wait_at_station_timer, 12);
+        assert!(restored.held);
+        railroad_registry_reset();
     }
 }

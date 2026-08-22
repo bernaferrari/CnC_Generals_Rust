@@ -531,7 +531,7 @@ impl PresentationFrame {
         // Wave 1109: HUD queue residual fail-closed on sold/unusable primary
         // (parity with control_bar_selection_panel Wave 1108).
         {
-            let mut queue_items: Vec<(String, f32, i32, f32)> = Vec::new();
+            let mut queue_items: Vec<(String, f32, i32, f32, bool)> = Vec::new();
             let usable = |o: &&RenderableObject| {
                 o.selected && !o.destroyed && !o.sold && !o.unselectable && !o.masked
             };
@@ -551,6 +551,7 @@ impl PresentationFrame {
                                 p.progress_ratio,
                                 p.cost_supplies as i32,
                                 p.total_time.max(0.01),
+                                p.is_upgrade,
                             ));
                         }
                     }
@@ -570,12 +571,8 @@ impl PresentationFrame {
             ids = infos.iter().map(|i| i.object_id).collect();
         }
         hud.sync_selection_from_presentation(ids, infos);
-        // ControlBar unit command residual from primary selection freeze.
-        let cmds: Vec<(String, bool)> = self
-            .unit_command_buttons()
-            .into_iter()
-            .map(|b| (b.command_name, b.enabled))
-            .collect();
+        // ControlBar unit command residual: keep holes, portraits, clocks.
+        let cmds = self.unit_command_buttons();
         hud.apply_presentation_unit_commands(&cmds);
         self.apply_events_to_game_hud(hud);
     }
@@ -1268,7 +1265,12 @@ impl PresentationFrame {
                 residual.script_disabled = ro.disabled_script_disabled;
                 residual.script_unpowered = ro.disabled_script_underpowered;
                 residual.unmanned = ro.disabled_unmanned;
+                residual.is_dozer_task_pending = ro.is_dozer_task_pending;
             }
+            self.stamp_host_restrict_a_availability(
+                &mut residual,
+                primary.filter(|_| controllable),
+            );
             control_bar.apply_presentation_availability(residual);
         }
 

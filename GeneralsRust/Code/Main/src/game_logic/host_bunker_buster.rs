@@ -62,8 +62,9 @@ pub const BUNKER_BUSTER_HARM_AMOUNT: f32 =
 pub const BUNKER_BUSTER_OCCUPANT_RADIUS: f32 = 10.0;
 
 /// Residual shockwave-style structure bonus when bunker is occupied (host playability).
-/// Fail-closed: not full BunkerBusterShockwaveWeaponSmall PrimaryDamage 10 radius 50.
 pub const BUNKER_BUSTER_OCCUPIED_BONUS_DAMAGE: f32 = 10.0;
+/// Retail BunkerBusterShockwaveWeaponSmall PrimaryDamage residual.
+pub const BUNKER_BUSTER_SHOCKWAVE_DAMAGE: f32 = 10.0;
 /// Retail BunkerBusterShockwaveWeaponSmall PrimaryDamageRadius residual.
 pub const BUNKER_BUSTER_SHOCKWAVE_RADIUS: f32 = 50.0;
 /// Retail BunkerBusterBehavior SeismicEffectRadius residual.
@@ -330,6 +331,7 @@ pub fn honesty_bunker_buster_behavior_residual_ok() -> bool {
         && (BUNKER_BUSTER_HARM_AMOUNT - 100.0).abs() < 0.01
         && (BUNKER_BUSTER_OCCUPANT_RADIUS - 10.0).abs() < 0.01
         && (BUNKER_BUSTER_OCCUPIED_BONUS_DAMAGE - 10.0).abs() < 0.01
+        && (BUNKER_BUSTER_SHOCKWAVE_DAMAGE - 10.0).abs() < 0.01
         && (BUNKER_BUSTER_SHOCKWAVE_RADIUS - 50.0).abs() < 0.01
         && (BUNKER_BUSTER_SEISMIC_RADIUS - 200.0).abs() < 0.01
         && (BUNKER_BUSTER_SEISMIC_MAGNITUDE - 5.0).abs() < 0.01

@@ -1922,6 +1922,55 @@ impl CnCGameEngine {
         }
     }
 
+    pub(super) fn cancel_upgrade_production_from_ui(
+        &mut self,
+        upgrade_name: &str,
+        production_id: u32,
+        queue_index: usize,
+    ) {
+        let player_id = self.current_player_id;
+        let selected = self.ui_selected_ids(player_id);
+        if selected.is_empty() {
+            return;
+        }
+        let producers: Vec<_> = selected
+            .iter()
+            .copied()
+            .filter(|&id| self.ui_object_can_produce(id))
+            .collect();
+        let targets = if producers.is_empty() {
+            selected
+        } else {
+            producers
+        };
+        self.host_queue_and_process_command_silent(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::CancelUpgrade {
+                upgrade_name: upgrade_name.to_string(),
+            },
+            player_id,
+            command_id: 0,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: targets.clone(),
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        let cancel_index = if production_id != 0 {
+            production_id as usize
+        } else {
+            queue_index
+        };
+        for id in targets {
+            let _ = self.host_cancel_production_at_index(id, cancel_index);
+        }
+        let panel = &mut self.game_hud.construction_panel;
+        if let Some(idx) = panel.building_queue.iter().position(|q| {
+            q.is_upgrade
+                && q.production_id == production_id
+                && q.queue_index == queue_index
+        }) {
+            panel.building_queue.remove(idx);
+        }
+    }
+
     pub(super) fn queue_unit_production_from_ui(&mut self, template_name: &str, quantity: u32) {
         if template_name.trim().is_empty() || quantity == 0 {
             return;

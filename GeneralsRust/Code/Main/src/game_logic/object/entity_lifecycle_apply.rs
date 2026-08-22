@@ -3,7 +3,8 @@
 use super::entity_lifecycle_inventory::{decode_payload, FireWeaponWhenDamagedBundle};
 use super::entity_lifecycle_projectiles::ProjectileFlightResiduals;
 use super::entity_lifecycle_residuals::{
-    CreateObjectDieTransferResidual, EmoticonSurrenderResidual, FireWeaponWhenDeadResidual,
+    ActiveBodyCrushResidual, CreateObjectDieTransferResidual, EmoticonSurrenderResidual,
+    FireWeaponWhenDeadResidual, PhysicsBehaviorResidual, RailroadBehaviorResidual,
     SpecialPowerCooldownResidual, WeaponLockResidual,
 };
 use super::entity_lifecycle_tags::*;
@@ -124,6 +125,18 @@ fn apply_one(
         }
         TAG_PROJECTILE_FLIGHT => {
             let residual: ProjectileFlightResiduals = decode_payload(payload)?;
+            residual.apply(object);
+        }
+        TAG_ACTIVE_BODY => {
+            let residual: ActiveBodyCrushResidual = decode_payload(payload)?;
+            residual.apply(object);
+        }
+        TAG_PHYSICS_BEHAVIOR => {
+            let residual: PhysicsBehaviorResidual = decode_payload(payload)?;
+            residual.apply(object);
+        }
+        TAG_RAILROAD => {
+            let residual: RailroadBehaviorResidual = decode_payload(payload)?;
             residual.apply(object);
         }
         _ => {}

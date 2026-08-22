@@ -9,6 +9,10 @@ const GUARD_CHASE_PHASE_INNER: u8 = 1;
 const GUARD_CHASE_PHASE_OUTER: u8 = 2;
 /// C++ AIGuardAttackAggressorState residual.
 const GUARD_CHASE_PHASE_AGGRESSOR: u8 = 3;
+/// C++ AIGuardReturnState InternalMoveTo close-enough residual.
+const GUARD_RETURN_CLOSE: f32 = 25.0;
+const GUARD_RETURN_CLOSE_SQ: f32 = GUARD_RETURN_CLOSE * GUARD_RETURN_CLOSE;
+
 
 pub(crate) fn host_guard_xy_dist_sq(a: glam::Vec3, b: glam::Vec3) -> f32 {
     let dx = a.x - b.x;
@@ -321,7 +325,9 @@ impl GameLogic {
                     {
                         continue;
                     }
-                } else if cand.team != Team::Neutral {
+                } else if cand.team != Team::Neutral
+                    || !self.can_unit_enter_normal_target(object_id, *cand_id)
+                {
                     continue;
                 }
             } else {
@@ -2855,11 +2861,24 @@ impl GameLogic {
         } else {
             GUARD_MIN_RADIUS
         };
-        let outer = if std_outer > 0.0 {
+        let mut outer = if std_outer > 0.0 {
             std_outer
         } else {
             inner * 1.5
         };
+        // C++ AIGuardOuterState::onEnter: range = max(vision, area->getRadius()).
+        if let Some(name) = self
+            .objects
+            .get(&object_id)
+            .and_then(|o| o.guard_area_trigger.as_deref())
+            .filter(|n| !n.is_empty())
+        {
+            if let Some((_, poly_r, _)) = Self::host_named_guard_area_polygon(name) {
+                if poly_r > outer {
+                    outer = poly_r;
+                }
+            }
+        }
         (inner, outer)
     }
 
@@ -2877,7 +2896,7 @@ impl GameLogic {
     }
 
     fn begin_guard_chase_acquired(&mut self, object_id: ObjectId, target_id: ObjectId) {
-        let (anchor, guard_radius) = {
+        let (mut anchor, guard_radius) = {
             let Some(o) = self.objects.get(&object_id) else {
                 return;
             };
@@ -2893,6 +2912,16 @@ impl GameLogic {
             };
             (anchor, o.guard_radius)
         };
+        if let Some(name) = self
+            .objects
+            .get(&object_id)
+            .and_then(|o| o.guard_area_trigger.as_deref())
+            .filter(|n| !n.is_empty())
+        {
+            if let Some((c, _, _)) = Self::host_named_guard_area_polygon(name) {
+                anchor = c;
+            }
+        }
         let tgt_pos = self
             .objects
             .get(&target_id)
@@ -2934,6 +2963,45 @@ impl GameLogic {
         self.stop_attack_decision_aware(object_id);
         // C++ Return/Idle onEnter re-seeds m_nextEnemyScanTime / m_nextReturnScanTime.
         self.guard_next_enemy_scan.remove(&object_id);
+        // C++ AIGuardInnerState::onExit / AttackAggressor::onExit:
+        // getTeam()->setTeamTargetObject(NULL).
+        self.set_host_team_common_target(object_id, None);
+        // C++ INNER→OUTER→GET_CRATE→RETURN: InternalMoveTo the post.
+        self.return_guard_to_post(object_id);
+    }
+
+    /// C++ AIGuardReturnState::onEnter — walk to guardee / polygon center / post.
+    fn return_guard_to_post(&mut self, object_id: ObjectId) {
+        let Some(o) = self.objects.get(&object_id) else {
+            return;
+        };
+        let (goal, state) = if let Some(gid) = o.guard_target {
+            let pos = self
+                .objects
+                .get(&gid)
+                .filter(|g| g.is_alive())
+                .map(|g| g.get_position())
+                .or(o.guard_position)
+                .unwrap_or_else(|| o.get_position());
+            (pos, AIState::GuardingObject)
+        } else if let Some(name) = o.guard_area_trigger.as_deref().filter(|n| !n.is_empty()) {
+            let center = Self::host_named_guard_area_polygon(name)
+                .map(|(c, _, _)| c)
+                .or(o.guard_position)
+                .unwrap_or_else(|| o.get_position());
+            (center, AIState::GuardingArea)
+        } else if let Some(pos) = o.guard_position {
+            (pos, AIState::GuardingArea)
+        } else {
+            return;
+        };
+        if !self.objects.get(&object_id).is_some_and(|o| o.can_move()) {
+            if let Some(o) = self.objects.get_mut(&object_id) {
+                o.set_ai_state(state);
+            }
+            return;
+        }
+        self.path_approach_with_state(object_id, goal, state);
     }
 
     /// C++ AIGuardInner / Outer / AttackAggressor ExitConditions while Attacking.
@@ -2964,7 +3032,7 @@ impl GameLogic {
             return true;
         }
         let tgt_pos = tgt.get_position();
-        let anchor = if let Some(gid) = guard_tgt {
+        let mut anchor = if let Some(gid) = guard_tgt {
             self.objects
                 .get(&gid)
                 .filter(|g| g.is_alive())
@@ -2974,6 +3042,17 @@ impl GameLogic {
         } else {
             guard_pos.unwrap_or(tgt_pos)
         };
+        // C++ AIGuardOuterState::onEnter uses polygon center as the chase leash.
+        if let Some(name) = self
+            .objects
+            .get(&object_id)
+            .and_then(|o| o.guard_area_trigger.as_deref())
+            .filter(|n| !n.is_empty())
+        {
+            if let Some((c, _, _)) = Self::host_named_guard_area_polygon(name) {
+                anchor = c;
+            }
+        }
         let (inner, outer) = self.host_guard_inner_outer_for(object_id, guard_radius);
         let dist_sq = host_guard_xy_dist_sq(anchor, tgt_pos);
         let without_pursuit = matches!(guard_mode, crate::game_logic::GuardMode::WithoutPursuit);
@@ -3202,7 +3281,6 @@ impl GameLogic {
             }
             self.expire_temporary_stealth_grant(object_id);
 
-
             if ai_state != AIState::SpecialAbility {
                 let leftover_laser_persist = self
                     .hero_abilities
@@ -3271,8 +3349,6 @@ impl GameLogic {
                     } else {
                         inner * 1.5
                     };
-                    let without_pursuit =
-                        matches!(guard_mode, crate::game_logic::GuardMode::WithoutPursuit);
                     let flying_only =
                         matches!(guard_mode, crate::game_logic::GuardMode::FlyingUnitsOnly);
                     let polygon_name = self
@@ -3313,9 +3389,7 @@ impl GameLogic {
                         inner > 0.0 && host_guard_xy_dist_sq(position, anchor) > inner * inner;
                     if self.guard_acquire_scan_due(object_id, returning) && can_attack {
                         if let Some(team_id) = self.host_team_common_target(object_id) {
-                            if !(without_pursuit && position.distance(anchor) > inner)
-                                && self.engage_guard_target(object_id, team_id, false)
-                            {
+                            if self.engage_guard_target(object_id, team_id, false) {
                                 continue;
                             }
                         }
@@ -3330,15 +3404,7 @@ impl GameLogic {
                             polygon.as_ref().map(|(_, _, t)| t),
                         ) {
                             self.set_host_team_common_target(object_id, Some(enemy_id));
-                            if without_pursuit && position.distance(anchor) > inner {
-                                if can_move {
-                                    self.path_approach_with_state(
-                                        object_id,
-                                        anchor,
-                                        AIState::GuardingArea,
-                                    );
-                                }
-                            } else if enter_guard {
+                            if enter_guard {
                                 if self.try_guard_enter_or_hijack(
                                     object_id,
                                     enemy_id,
@@ -3353,13 +3419,16 @@ impl GameLogic {
                         }
                     }
 
-
+                    let return_goal = polygon.as_ref().map(|(c, _, _)| *c).unwrap_or(anchor);
                     if can_move
                         && !picking_crate
-                        && inner > 0.0
-                        && position.distance(anchor) > inner
+                        && host_guard_xy_dist_sq(position, return_goal) > GUARD_RETURN_CLOSE_SQ
                     {
-                        self.path_approach_with_state(object_id, anchor, AIState::GuardingArea);
+                        self.path_approach_with_state(
+                            object_id,
+                            return_goal,
+                            AIState::GuardingArea,
+                        );
                     }
                 }
                 AIState::GuardingObject => {
@@ -3427,6 +3496,11 @@ impl GameLogic {
                     let returning = inner > 0.0
                         && host_guard_xy_dist_sq(position, guard_anchor) > inner * inner;
                     if self.guard_acquire_scan_due(object_id, returning) && can_attack {
+                        if let Some(team_id) = self.host_team_common_target(object_id) {
+                            if self.engage_guard_target(object_id, team_id, false) {
+                                continue;
+                            }
+                        }
                         if enter_guard {
                             if let Some(enemy_id) = self.scan_guard_inner_target(
                                 object_id,
@@ -3506,8 +3580,7 @@ impl GameLogic {
                         }
                     } else if can_move
                         && !picking_crate
-                        && inner > 0.0
-                        && position.distance(guard_anchor) > inner
+                        && host_guard_xy_dist_sq(position, guard_anchor) > GUARD_RETURN_CLOSE_SQ
                     {
                         self.path_approach_with_state(
                             object_id,
@@ -3515,7 +3588,6 @@ impl GameLogic {
                             AIState::GuardingObject,
                         );
                     }
-
                 }
                 AIState::Repairing => {
                     let Some(repair_target_id) = target_id else {
@@ -4900,6 +4972,12 @@ impl GameLogic {
                                 self.evacuate_garrison_for_capture(capture_target_id);
                                 false
                             } else {
+                                // C++ SpecialAbilityUpdate.cpp:1436-1442:
+                                // isLocallyControlled (owner player, not faction
+                                // Team) then defect. Leftover try_eva_building_stolen
+                                // already matches; call it before the flip so a
+                                // 2v2 same-faction ally victim stays silent.
+                                self.try_eva_building_stolen(capture_target_id);
                                 // C++ capture uses Object::defect (SpecialAbilityUpdate.cpp:1442).
                                 // defect cancelAndRefundAllProduction (Object.cpp:6136-6139)
                                 // before setTeam; onCapture (Object.cpp:4509) then keeps the
@@ -5002,27 +5080,8 @@ impl GameLogic {
                                 object.start_power_recharge(&power_type);
                             }
                         }
-                        // C++ EVA_BuildingStolen when victim was local before defect.
-                        // (team already flipped — use BeingStolen honesty or explicit
-                        // pre-flip: fire BuildingStolen if victim team had local player
-                        // that is no longer owner.)
-                        // BeingStolen already gated on pre-flip local control; Stolen
-                        // should also only fire for former local owner.
-                        // Re-check: after flip, former local team lost the building —
-                        // if any local player is on previous target_team.
-                        let former_local = self
-                            .players
-                            .values()
-                            .any(|p| p.is_local && p.is_alive && p.team == target_team);
-                        if former_local {
-                            let _ = gamelogic::helpers::TheEva::set_should_play(
-                                gamelogic::helpers::EvaEvent::BuildingStolen,
-                            );
-                            crate::game_logic::host_eva_log::record_event(
-                                gamelogic::helpers::EvaEvent::BuildingStolen,
-                            );
-                            self.hero_abilities.record_eva_building_stolen();
-                        }
+                        // C++ EVA_BuildingStolen already fired pre-flip via leftover
+                        // is_object_locally_controlled. Do not re-gate on faction Team.
                         let msg =
                             localization::localize("hud.capture.complete", "Building captured");
                         self.queue_radar_message_for_team(team, msg);
@@ -7057,6 +7116,13 @@ impl GameLogic {
             if obj.thing.template.contain_module.kind
                 != crate::game_logic::thing::ContainModuleKind::Garrison
             {
+                continue;
+            }
+            // C++ GarrisonContain::update heals only when HealObjects=Yes
+            // (`healObjects`). Retail bunkers author both HealObjects and
+            // TimeForFullHeal — skip this unguarded sliver so they do not
+            // double-heal with the HealObjects pass below.
+            if obj.thing.template.contain_module.heal_objects {
                 continue;
             }
             if !obj.is_alive() || obj.status.under_construction {

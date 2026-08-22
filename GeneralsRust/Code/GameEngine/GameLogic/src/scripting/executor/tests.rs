@@ -5646,6 +5646,36 @@ fn live_host_from_named_special_power_uses_host_id() {
     assert_eq!(completed, Some(()));
 }
 
+#[test]
+fn skirmish_approach_and_defense_host_queues_roundtrip() {
+    let _ = take_host_skirmish_approach_path_requests();
+    let _ = take_host_skirmish_base_defense_requests();
+    request_host_skirmish_approach_path(HostScriptSkirmishApproachPathRequest {
+        team: "teamAmerica".into(),
+        path_label: "ApproachPath".into(),
+        as_team: true,
+        follow: true,
+    });
+    request_host_skirmish_base_defense(HostScriptSkirmishBaseDefenseRequest {
+        player: "PlyrAmerica".into(),
+        structure: Some("AmericaPatriotBattery".into()),
+        flank: true,
+    });
+    let paths = take_host_skirmish_approach_path_requests();
+    assert_eq!(paths.len(), 1);
+    assert_eq!(paths[0].team, "teamAmerica");
+    assert_eq!(paths[0].path_label, "ApproachPath");
+    assert!(paths[0].as_team && paths[0].follow);
+    let defs = take_host_skirmish_base_defense_requests();
+    assert_eq!(defs.len(), 1);
+    assert_eq!(defs[0].player, "PlyrAmerica");
+    assert_eq!(defs[0].structure.as_deref(), Some("AmericaPatriotBattery"));
+    assert!(defs[0].flank);
+    assert!(take_host_skirmish_approach_path_requests().is_empty());
+    assert!(take_host_skirmish_base_defense_requests().is_empty());
+}
+
+
 
 
 

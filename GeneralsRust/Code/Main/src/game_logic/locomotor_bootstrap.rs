@@ -271,6 +271,8 @@ pub struct HostLocomotorBinding {
     /// C++ LocomotorTemplate::m_wanderLengthFactor (phase increment divisor).
     pub wander_length_factor: f32,
     pub stick_to_ground: bool,
+    /// C++ LocomotorTemplate::m_closeEnoughDist (default 1.0).
+    pub close_enough_dist: f32,
     pub locomotor_surfaces: u32,
 }
 
@@ -915,6 +917,11 @@ fn host_locomotor_binding_from_template(t: &LocomotorTemplate) -> Option<HostLoc
             t.wander_length_factor
         },
         stick_to_ground: t.stick_to_ground,
+        close_enough_dist: if t.close_enough_dist.is_finite() && t.close_enough_dist >= 0.0 {
+            t.close_enough_dist
+        } else {
+            1.0
+        },
         locomotor_surfaces: surface_mask,
     })
 }
@@ -953,6 +960,9 @@ pub fn apply_host_locomotor_binding(
     object.turn_pivot_offset = binding.turn_pivot_offset;
     object.stick_to_ground = binding.stick_to_ground;
     object.locomotor_surfaces = binding.locomotor_surfaces;
+    if object.close_enough_dist.is_none() {
+        object.close_enough_dist = Some(binding.close_enough_dist);
+    }
     object.wander_width_factor = binding.wander_width_factor;
     seed_wander_phase(object, binding.wander_length_factor);
     object.set_locomotor_physics_options();
@@ -1005,6 +1015,7 @@ fn same_host_locomotor_behavior(left: &HostLocomotorBinding, right: &HostLocomot
         && left.wander_width_factor == right.wander_width_factor
         && left.wander_length_factor == right.wander_length_factor
         && left.stick_to_ground == right.stick_to_ground
+        && left.close_enough_dist == right.close_enough_dist
 }
 
 fn store_has(name: &str) -> bool {

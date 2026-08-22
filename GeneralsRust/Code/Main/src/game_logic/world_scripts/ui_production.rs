@@ -1696,9 +1696,9 @@ impl GameLogic {
         use crate::game_logic::host_production_buildable_command_residual::CANMAKE_OK;
         self.can_make_unit(producer_id, template_name) == CANMAKE_OK
     }
-
-    /// C++ ControlBarCommand.cpp:1185-1198 for GUI_COMMAND_DOZER_CONSTRUCT.
-    /// Prereq / money / maxed only — no factory queue or parking place.
+    /// C++ ControlBarCommand.cpp:1112-1150 GUI_COMMAND_DOZER_CONSTRUCT.
+    /// Prereq / money / maxed plus `isTaskPending(DOZER_TASK_BUILD)` busy gate.
+    /// No factory queue or parking place.
     fn can_make_dozer_construct(&self, producer_id: ObjectId, template_name: &str) -> u32 {
         use crate::game_logic::host_production_buildable_command_residual::{
             can_make_type_from_checks_residual, command_set_allows_unit,
@@ -1718,7 +1718,9 @@ impl GameLogic {
             !matches!(command_set_allows_unit(&producer.template_name, template_name), Some(false));
         let team = producer.team;
         let owner_player_id = producer.owner_player_id;
-        let factory_disabled = producer.is_disabled();
+        // C++ ControlBarCommand.cpp:1139-1141 — pending BUILD greys every construct cameo.
+        let factory_disabled =
+            producer.is_disabled() || producer.dozer_task_build_target.is_some();
         let has_prereq = match owner_player_id {
             Some(player_id) => {
                 self.player_satisfies_build_prerequisites(player_id, template_name)

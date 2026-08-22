@@ -178,6 +178,17 @@ impl ScriptActionDispatcher {
             command_button,
             target_name
         );
+        super::request_host_script_use_command_button(
+            super::HostScriptUseCommandButtonRequest::TeamOnNamed {
+                team: team_name.clone(),
+                button: command_button.clone(),
+                target: target_name.clone(),
+            },
+        );
+        if super::dual_world_registry_unavailable() {
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let Some((group_arc, command_button, source_obj)) =
             self.resolve_team_command_button_context(&team_name, &command_button)?
@@ -232,6 +243,17 @@ impl ScriptActionDispatcher {
             command_button,
             waypoint
         );
+        super::request_host_script_use_command_button(
+            super::HostScriptUseCommandButtonRequest::TeamAtWaypoint {
+                team: team_name.clone(),
+                button: command_button.clone(),
+                waypoint: waypoint.clone(),
+            },
+        );
+        if super::dual_world_registry_unavailable() {
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let Some((group_arc, command_button, _source_obj)) =
             self.resolve_team_command_button_context(&team_name, &command_button)?
@@ -263,6 +285,16 @@ impl ScriptActionDispatcher {
         let team_name = self.get_string_param(action, 0)?;
         let command_button = self.get_string_param(action, 1)?;
         log::debug!("Team '{}' using command '{}'", team_name, command_button);
+        super::request_host_script_use_command_button(
+            super::HostScriptUseCommandButtonRequest::Team {
+                team: team_name.clone(),
+                button: command_button.clone(),
+            },
+        );
+        if super::dual_world_registry_unavailable() {
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let Some((group_arc, command_button, _source_obj)) =
             self.resolve_team_command_button_context(&team_name, &command_button)?

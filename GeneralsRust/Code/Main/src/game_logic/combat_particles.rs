@@ -466,6 +466,7 @@ impl CombatParticleRegistry {
             "",
             "",
             0.0,
+            0.0,
         )
     }
 
@@ -474,7 +475,9 @@ impl CombatParticleRegistry {
     /// C++ `Weapon::fireWeaponTemplate` plays the authored FireFX list at the
     /// barrel, never a generic `MuzzleFlash` preset. ParticleSystem nuggets
     /// inside that list become the registry templates. `victim` is passed as
-    /// FXList secondary so Tracer/RayEffect nuggets run.
+    /// FXList secondary so Tracer/RayEffect nuggets run. `override_radius` is
+    /// C++ `getPrimaryDamageRadius(bonus)` so `UseCallersRadius` nuggets scale
+    /// sphere/cylinder emission to the weapon splash.
     pub fn spawn_weapon_fire_fx_named_ocl(
         &mut self,
         muzzle_pos: Vec3,
@@ -487,6 +490,7 @@ impl CombatParticleRegistry {
         fire_ocl_name: &str,
         detonation_ocl_name: &str,
         primary_speed: f32,
+        override_radius: f32,
     ) -> Vec<u32> {
         self.note_muzzle_flash_unhide(shooter, frame);
         let mut ids = Vec::new();
@@ -513,7 +517,7 @@ impl CombatParticleRegistry {
                 muzzle_pos,
                 impact_pos,
                 primary_speed,
-                0.0,
+                override_radius,
             );
         } else {
             let muzzle_id = self.spawn(
@@ -550,7 +554,7 @@ impl CombatParticleRegistry {
                     impact,
                     Some(impact),
                     0.0,
-                    0.0,
+                    override_radius,
                 );
                 ids.push(impact_id);
             } else {
@@ -1792,6 +1796,7 @@ mod tests {
             "OCL_FireFieldSmall",
             "OCL_PoisonFieldMedium",
             0.0,
+            0.0,
         );
         assert_eq!(ids.len(), 2);
         let muzzle = reg.systems.get(&ids[0]).expect("muzzle");
@@ -1815,10 +1820,42 @@ mod tests {
             "",
             "",
             600.0,
+            0.0,
         );
         assert!(!ids.is_empty());
     }
 
+    #[test]
+    fn fire_fx_dispatch_threads_primary_damage_radius() {
+        let mut reg = CombatParticleRegistry::new();
+        let ids = reg.spawn_weapon_fire_fx_named_ocl(
+            Vec3::ZERO,
+            Some(Vec3::new(30.0, 0.0, 0.0)),
+            1,
+            ObjectId(1),
+            Some(ObjectId(2)),
+            "WeaponFX_TomahawkMissile",
+            "WeaponFX_TomahawkMissileDetonation",
+            "",
+            "",
+            0.0,
+            25.0,
+        );
+        assert_eq!(ids.len(), 2);
+        let src = include_str!("combat_particles.rs");
+        let start = src
+            .find("pub fn spawn_weapon_fire_fx_named_ocl")
+            .expect("spawn_weapon_fire_fx_named_ocl");
+        let body = &src[start..start + 2800];
+        assert!(
+            body.contains("override_radius"),
+            "FireFX/DetonationFX must thread C++ getPrimaryDamageRadius"
+        );
+        assert!(
+            !body.contains("primary_speed,\n                0.0"),
+            "must not hardcode overrideRadius=0 on FireFX dispatch"
+        );
+    }
     #[test]
     fn projectile_exhaust_reuses_one_named_system_and_stops_with_projectile() {
         let mut reg = CombatParticleRegistry::new();

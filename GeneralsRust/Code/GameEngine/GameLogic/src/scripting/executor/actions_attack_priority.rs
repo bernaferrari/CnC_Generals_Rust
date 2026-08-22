@@ -237,9 +237,23 @@ impl ScriptActionDispatcher {
         &mut self,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let lifetime = self.get_int_param(action, 0)?;
-        log::debug!("Scripting override hulk lifetime to {}", lifetime);
-        TheGameLogic::set_hulk_max_lifetime_override(lifetime);
+        // C++ ScriptActions::doOverrideHulkLifetime(Real seconds):
+        // seconds < 0 → -1 (off); else frames = seconds * LOGICFRAMES_PER_SECOND.
+        let seconds = match self.get_real_param(action, 0) {
+            Ok(real) if real != 0.0 => real,
+            _ => self.get_int_param(action, 0)? as f32,
+        };
+        let frames = if seconds < 0.0 {
+            -1
+        } else {
+            (seconds * crate::common::LOGICFRAMES_PER_SECOND as f32) as i32
+        };
+        log::debug!(
+            "Scripting override hulk lifetime to {}s ({} frames)",
+            seconds,
+            frames
+        );
+        TheGameLogic::set_hulk_max_lifetime_override(frames);
         Ok(ScriptActionResult::Success)
     }
 }

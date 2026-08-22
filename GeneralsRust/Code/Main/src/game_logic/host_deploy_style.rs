@@ -174,6 +174,29 @@ impl HostDeployStyleRegistry {
     }
 }
 
+/// C++ `DeployStyleAIUpdate::setMyState` model-condition matrix.
+///
+/// DEPLOY: clear PACKING, set UNPACKING.
+/// UNDEPLOY: clear UNPACKING|DEPLOYED, set PACKING.
+/// READY_TO_ATTACK: clear UNPACKING, set DEPLOYED.
+/// READY_TO_MOVE: clear PACKING.
+pub fn leftover_stamp_deploy_style_conditions(bits: &mut u128, state: HostDeployStyleState) {
+    use crate::game_logic::host_enum_table_residual::{
+        deployed_model_bit, packing_model_bit, unpacking_model_bit,
+    };
+    let packing = 1u128 << packing_model_bit();
+    let unpacking = 1u128 << unpacking_model_bit();
+    let deployed = 1u128 << deployed_model_bit();
+    *bits &= !(packing | unpacking | deployed);
+    match state {
+        HostDeployStyleState::ReadyToMove => {}
+        HostDeployStyleState::Deploying => *bits |= unpacking,
+        HostDeployStyleState::ReadyToAttack => *bits |= deployed,
+        HostDeployStyleState::Undeploying => *bits |= packing,
+    }
+}
+
+
 pub fn deploy_style_ms_to_frames(ms: u32) -> u32 {
     if ms == 0 {
         return 0;
@@ -184,11 +207,16 @@ pub fn deploy_style_ms_to_frames(ms: u32) -> u32 {
 }
 
 pub fn honesty_deploy_style_residual_ok() -> bool {
+    let mut bits = 0u128;
+    leftover_stamp_deploy_style_conditions(&mut bits, HostDeployStyleState::Deploying);
+    let unpacking = 1u128 << crate::game_logic::host_enum_table_residual::unpacking_model_bit();
     deploy_style_ms_to_frames(1_000) == 30
         && deploy_style_ms_to_frames(3_333) == 100
         && deploy_style_ms_to_frames(34) == 2
         && (DEPLOY_STYLE_LOGIC_FPS - 30.0).abs() < f32::EPSILON
+        && (bits & unpacking) != 0
 }
+
 
 #[cfg(test)]
 mod tests {

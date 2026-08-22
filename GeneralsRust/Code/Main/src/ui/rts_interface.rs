@@ -117,6 +117,18 @@ impl Renderable for RTSInterface {
 /// Snapshot-owned command button residual for the unit command panel.
 ///
 /// Fail-closed: not full CommandSet INI / WND button art parity.
+/// C++ `CommandAvailability` residual on the live GameHUD strip.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UnitCommandAvailability {
+    Hidden,
+    Restricted,
+    NotReady,
+    CantAfford,
+    Active,
+    #[default]
+    Available,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct UnitCommandButton {
     pub command_name: String,
@@ -124,6 +136,7 @@ pub struct UnitCommandButton {
     pub exit_object_id: Option<u32>,
     pub button_image: String,
     pub overlay_image: Option<String>,
+    pub availability: UnitCommandAvailability,
 }
 
 pub struct UnitCommandPanel {

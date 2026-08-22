@@ -15,6 +15,10 @@ pub struct PresentationAvailabilityResidual {
     pub occupant_count: usize,
     pub hacking_packing_or_unpacking: bool,
     pub dock_open: bool,
+    /// C++ Strategy Center BattlePlanUpdate present.
+    pub has_battle_plan_update: bool,
+    /// C++ PLANSTATUS_BOMBARDMENT (active door).
+    pub active_battle_plan_bombardment: bool,
     pub battle_plan_bombardment: bool,
     pub battle_plan_hold_the_line: bool,
     pub battle_plan_search_and_destroy: bool,
@@ -43,6 +47,8 @@ pub struct PresentationAvailabilityResidual {
     pub player_completed_upgrades: Vec<String>,
     /// OBJECT_UPGRADE names this object is not affected by.
     pub object_unaffected_upgrades: Vec<String>,
+    /// C++ `dozerAI->isTaskPending(DOZER_TASK_BUILD)` — construct cameos Restricted.
+    pub is_dozer_task_pending: bool,
 }
 
 impl ControlBar {
@@ -114,6 +120,9 @@ fn leftover_presentation_common_restricted(
         }
     }
     if command.command_type == CommandType::InternetHack && residual.hacking_packing_or_unpacking {
+        return true;
+    }
+    if command.command_type == CommandType::DozerConstruct && residual.is_dozer_task_pending {
         return true;
     }
     false

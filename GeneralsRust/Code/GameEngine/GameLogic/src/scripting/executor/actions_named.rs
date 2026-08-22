@@ -1180,6 +1180,17 @@ impl ScriptActionDispatcher {
             command_button,
             target_name
         );
+        super::request_host_script_use_command_button(
+            super::HostScriptUseCommandButtonRequest::NamedOnNamed {
+                unit: unit_name.clone(),
+                button: command_button.clone(),
+                target: target_name.clone(),
+            },
+        );
+        if super::dual_world_registry_unavailable() {
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let tracker = get_named_object_tracker();
         let Ok(Some(source_id)) = tracker.get_object_id(&unit_name) else {
@@ -1230,6 +1241,17 @@ impl ScriptActionDispatcher {
             command_button,
             waypoint
         );
+        super::request_host_script_use_command_button(
+            super::HostScriptUseCommandButtonRequest::NamedAtWaypoint {
+                unit: unit_name.clone(),
+                button: command_button.clone(),
+                waypoint: waypoint.clone(),
+            },
+        );
+        if super::dual_world_registry_unavailable() {
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let tracker = get_named_object_tracker();
         let Ok(Some(source_id)) = tracker.get_object_id(&unit_name) else {
@@ -1279,6 +1301,16 @@ impl ScriptActionDispatcher {
         let unit_name = self.get_string_param(action, 0)?;
         let command_button = self.get_string_param(action, 1)?;
         log::debug!("Unit '{}' using command '{}'", unit_name, command_button);
+        super::request_host_script_use_command_button(
+            super::HostScriptUseCommandButtonRequest::Named {
+                unit: unit_name.clone(),
+                button: command_button.clone(),
+            },
+        );
+        if super::dual_world_registry_unavailable() {
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let tracker = get_named_object_tracker();
         let Ok(Some(source_id)) = tracker.get_object_id(&unit_name) else {
@@ -1319,6 +1351,17 @@ impl ScriptActionDispatcher {
             command_button,
             waypoint_path
         );
+        super::request_host_script_use_command_button(
+            super::HostScriptUseCommandButtonRequest::NamedUsingWaypointPath {
+                unit: unit_name.clone(),
+                button: command_button.clone(),
+                path: waypoint_path.clone(),
+            },
+        );
+        if super::dual_world_registry_unavailable() {
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let tracker = get_named_object_tracker();
         let Ok(Some(source_id)) = tracker.get_object_id(&unit_name) else {
@@ -1467,6 +1510,7 @@ impl ScriptActionDispatcher {
         let _ = with_script_engine_mut(|engine| {
             engine.set_topple_direction(&unit_name, Some(direction));
         });
+        super::request_host_script_topple_direction(&unit_name, dir.x, dir.y);
         log::debug!("Setting topple direction for '{}'", unit_name);
         Ok(ScriptActionResult::Success)
     }
@@ -2039,6 +2083,15 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         log::debug!("Destroying all units contained in '{}'", unit_name);
+        super::request_host_script_kill_delete_damage(
+            super::HostScriptKillDeleteDamageRequest::DestroyAllContained {
+                unit: unit_name.clone(),
+            },
+        );
+        if super::dual_world_registry_unavailable() {
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let tracker = get_named_object_tracker();
         let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) else {

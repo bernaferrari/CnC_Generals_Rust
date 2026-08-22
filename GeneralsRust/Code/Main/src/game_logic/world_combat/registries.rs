@@ -668,6 +668,9 @@ impl GameLogic {
         if subdued {
             return false;
         }
+        // C++ privateEvacuate: markAllPassengersDetected before dump.
+        self.mark_all_passengers_detected(container_id);
+
         if is_chinook_dropper {
             if let Some(c) = self.objects.get_mut(&container_id) {
                 let p = c.get_position();
@@ -731,6 +734,7 @@ impl GameLogic {
         };
         let is_garrison = container.is_garrison_contain();
         let is_tunnel = container.is_tunnel_network_style_container();
+        let is_cave = container.is_cave_style_container();
         let container_name = container.name.clone();
         if is_garrison {
             if let Some(disp) = gamelogic::object::contain::named_evac_disposition(&container_name)
@@ -763,7 +767,7 @@ impl GameLogic {
         let yaw = container.get_orientation();
         let building_pos = container.get_position();
         let mut passengers: Vec<ObjectId> = container.contained_units();
-        if container.is_cave_style_container() {
+        if is_cave {
             let idx = container.cave_index;
             for uid in self.cave_system.contained_for_index(idx) {
                 if !passengers.contains(&uid) {
@@ -868,8 +872,8 @@ impl GameLogic {
                     // Do not teleport to an Idle 8-unit ring.
                     walked_transport = true;
                 }
-                if is_garrison || is_tunnel {
-                    // C++ GarrisonContain/TunnelContain::onRemoving.
+                if is_garrison || is_tunnel || is_cave {
+                    // C++ GarrisonContain/TunnelContain/CaveContain::onRemoving.
                     p.stamp_safe_occlusion_frame(self.frame);
                 }
 
@@ -885,6 +889,10 @@ impl GameLogic {
             }
             if walked_transport {
                 self.walk_unit_via_open_contain_exit(*pid, container_id);
+            }
+            if is_cave {
+                // Leftover CaveContain::onRemoving: record_exit + LastEmpty team revert.
+                let _ = self.exit_cave_unit(*pid, container_id);
             }
             self.record_transport_residual_unload();
         }

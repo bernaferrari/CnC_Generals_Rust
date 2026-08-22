@@ -317,6 +317,22 @@ impl SnapshotBuilder {
         // never clears after load.
         object.detection_expires_frame = status.detection_expires_frame;
         object.stealth_allowed_frame = status.stealth_allowed_frame;
+        object.status.disabled_paralyzed = status.disabled_paralyzed;
+        object.status.disabled_paralyzed_until_frame = status.disabled_paralyzed_until_frame;
+        object.status.spy_vision_disabled_until_frame = status.spy_vision_disabled_until_frame;
+        object.status.spy_vision_reset_timers = status.spy_vision_reset_timers;
+        object.status.spy_vision_hack_two_wake_frame = status.spy_vision_hack_two_wake_frame;
+        object.status.parachuting = status.parachuting;
+        object.status.parachute_open = status.parachute_open;
+        object.status.parachute_start_height = status.parachute_start_height;
+        object.status.parachute_pitch = status.parachute_pitch;
+        object.status.parachute_roll = status.parachute_roll;
+        object.status.parachute_pitch_rate = status.parachute_pitch_rate;
+        object.status.parachute_roll_rate = status.parachute_roll_rate;
+        object.status.parachute_landing_override = status.parachute_landing_override;
+        object.status.parachute_landing_override_set = status.parachute_landing_override_set;
+        object.status.faerie_fire = status.faerie_fire;
+        object.faerie_fire_until_frame = status.faerie_fire_until_frame;
 
         object.ai_state = if status.destroyed {
             AIState::Idle

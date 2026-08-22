@@ -135,7 +135,7 @@ pub struct GameLogic {
     /// Host GLA Sneak Attack residual.
     /// Queues on DoSpecialPower; after Lifetime delay spawns tunnel structure +
     /// residual shockwave damage — fail-closed vs full OCL Start animation / TunnelContain.
-    pub(super) host_sneak_attacks: crate::game_logic::host_sneak_attack::HostSneakAttackRegistry,
+    pub(crate) host_sneak_attacks: crate::game_logic::host_sneak_attack::HostSneakAttackRegistry,
 
     /// Host upgrade queue/complete residual (Capture / FlashBang / TOW / SupplyLines).
     /// Completes research into unlocked_sciences and applies observable unit unlocks.
@@ -1098,8 +1098,7 @@ pub struct GameLogic {
     pub(super) eva_low_power_active: bool,
     /// EVA InsufficientFunds residual honesty fires.
     pub(super) eva_insufficient_funds: u32,
-    /// Next frame InsufficientFunds may re-fire.
-    pub(super) eva_insufficient_funds_next_frame: u32,
+
     /// EVA UpgradeComplete residual honesty fires.
     pub(super) eva_upgrade_complete: u32,
     /// EVA GeneralLevelUp residual honesty fires.

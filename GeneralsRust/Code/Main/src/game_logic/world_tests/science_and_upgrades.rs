@@ -5968,3 +5968,485 @@ fn guard_idle_acquire_uses_scan_rate_cadence() {
         "second idle look in the same frame must wait GuardEnemyScanRate"
     );
 }
+
+#[test]
+fn end_guard_chase_attack_clears_team_attack_common_target() {
+    // C++ AIGuardInnerState::onExit / AttackAggressor::onExit:
+    // getTeam()->setTeamTargetObject(NULL) so the next lookForInnerTarget
+    // re-scans instead of re-pulling the same kite.
+    use crate::game_logic::{AIState, KindOf, Object, ObjectId, Player, Team, ThingTemplate};
+    const INNER: u8 = 1;
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(1, Team::China, "China AI", false));
+
+    let mut gt = ThingTemplate::new("W26ChaseClear");
+    gt.add_kind_of(KindOf::Infantry);
+    gt.add_kind_of(KindOf::Attackable);
+    let gid = ObjectId(6301);
+    let mut g = Object::new(gt, gid, Team::China);
+    g.set_position(glam::Vec3::ZERO);
+    g.guard_position = Some(glam::Vec3::ZERO);
+    g.vision_range = 200.0;
+    g.weapon = Some(wave21_guard_weapon());
+    g.set_ai_state(AIState::Attacking);
+    g.guard_chase_phase = INNER;
+    g.status.attacking = true;
+    g.owner_player_id = Some(1);
+    g.team_instance_name = "China_GuardSquad".into();
+    logic.objects.insert(gid, g);
+
+    let mut et = ThingTemplate::new("W26Kite");
+    et.add_kind_of(KindOf::Infantry);
+    et.add_kind_of(KindOf::Attackable);
+    let eid = ObjectId(6302);
+    let mut e = Object::new(et, eid, Team::USA);
+    e.set_position(glam::Vec3::new(20.0, 0.0, 0.0));
+    logic.objects.insert(eid, e);
+
+    logic.objects.get_mut(&gid).unwrap().target = Some(eid);
+    logic
+        .team_common_attack_targets
+        .insert("China_GuardSquad".into(), eid);
+
+    // Victim left the inner ring: chase-exit must drop the shared victim.
+    logic
+        .objects
+        .get_mut(&eid)
+        .unwrap()
+        .set_position(glam::Vec3::new(400.0, 0.0, 0.0));
+    logic.update_support_states(&[gid, eid], 1.0 / 30.0);
+    assert!(
+        !logic
+            .team_common_attack_targets
+            .contains_key("China_GuardSquad"),
+        "inner/aggressor exit must setTeamTargetObject(NULL); map={:?}",
+        logic.team_common_attack_targets
+    );
+}
+
+#[test]
+fn retaliate_chase_exit_clears_team_attack_common_target() {
+    // C++ AIGuardRetaliateInner/Aggressor onExit: setTeamTargetObject(NULL).
+    use crate::game_logic::{
+        AIState, GUARD_CHASE_PHASE_RETALIATE, KindOf, Object, ObjectId, Player, Team, ThingTemplate,
+    };
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(1, Team::USA, "USA AI", false));
+
+    let mut gt = ThingTemplate::new("W26RetClear");
+    gt.add_kind_of(KindOf::Infantry);
+    gt.add_kind_of(KindOf::Attackable);
+    let gid = ObjectId(6310);
+    let mut g = Object::new(gt, gid, Team::USA);
+    g.set_position(glam::Vec3::ZERO);
+    g.vision_range = 200.0;
+    g.weapon = Some(wave21_guard_weapon());
+    g.owner_player_id = Some(1);
+    g.team_instance_name = "USA_RetSquad".into();
+    logic.objects.insert(gid, g);
+
+    let mut et = ThingTemplate::new("W26RetKite");
+    et.add_kind_of(KindOf::Infantry);
+    et.add_kind_of(KindOf::Attackable);
+    let eid = ObjectId(6311);
+    let mut e = Object::new(et, eid, Team::GLA);
+    e.set_position(glam::Vec3::new(20.0, 0.0, 0.0));
+    logic.objects.insert(eid, e);
+
+    {
+        let o = logic.objects.get_mut(&gid).unwrap();
+        o.begin_guard_retaliate(eid, Some(glam::Vec3::ZERO), None);
+        o.guard_chase_phase = GUARD_CHASE_PHASE_RETALIATE;
+        o.guard_chase_give_up_frame = 1;
+        o.target = Some(eid);
+    }
+    logic.frame = 10;
+    logic
+        .team_common_attack_targets
+        .insert("USA_RetSquad".into(), eid);
+
+    logic.tick_guard_retaliate_states();
+    assert!(
+        !logic.team_common_attack_targets.contains_key("USA_RetSquad"),
+        "retaliate chase-exit must setTeamTargetObject(NULL); map={:?}",
+        logic.team_common_attack_targets
+    );
+}
+
+#[test]
+fn guarding_object_prefers_team_attack_common_target() {
+    // C++ lookForInnerTarget returns getTeamTargetObject first for Guard Object
+    // as well as Area. A squad guarding a dozer must focus-fire the shared victim.
+    use crate::game_logic::{AIState, KindOf, Object, ObjectId, Player, Team, ThingTemplate};
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(1, Team::USA, "USA AI", false));
+
+    let mut gt = ThingTemplate::new("W26ObjGuard");
+    gt.add_kind_of(KindOf::Infantry);
+    gt.add_kind_of(KindOf::Attackable);
+    let gid = ObjectId(6320);
+    let mut g = Object::new(gt, gid, Team::USA);
+    g.set_position(glam::Vec3::ZERO);
+    g.vision_range = 200.0;
+    g.weapon = Some(wave21_guard_weapon());
+    g.set_ai_state(AIState::GuardingObject);
+    g.owner_player_id = Some(1);
+    g.team_instance_name = "USA_DozerGuard".into();
+    logic.objects.insert(gid, g);
+
+    let mut dt = ThingTemplate::new("W26Dozer");
+    dt.add_kind_of(KindOf::Vehicle);
+    dt.add_kind_of(KindOf::Dozer);
+    dt.add_kind_of(KindOf::Attackable);
+    let did = ObjectId(6321);
+    let mut d = Object::new(dt, did, Team::USA);
+    d.set_position(glam::Vec3::ZERO);
+    logic.objects.insert(did, d);
+    logic.objects.get_mut(&gid).unwrap().guard_target = Some(did);
+
+    let mut close_t = ThingTemplate::new("W26CloseEnemy");
+    close_t.add_kind_of(KindOf::Infantry);
+    close_t.add_kind_of(KindOf::Attackable);
+    let close_id = ObjectId(6322);
+    let mut close = Object::new(close_t, close_id, Team::GLA);
+    close.set_position(glam::Vec3::new(15.0, 0.0, 0.0));
+    logic.objects.insert(close_id, close);
+
+    let mut team_t = ThingTemplate::new("W26TeamVictim");
+    team_t.add_kind_of(KindOf::Infantry);
+    team_t.add_kind_of(KindOf::Attackable);
+    let team_id = ObjectId(6323);
+    let mut team_v = Object::new(team_t, team_id, Team::GLA);
+    team_v.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
+    logic.objects.insert(team_id, team_v);
+
+    logic
+        .team_common_attack_targets
+        .insert("USA_DozerGuard".into(), team_id);
+    mark_guard_scan_due(&mut logic, gid);
+    logic.update_support_states(&[gid, did, close_id, team_id], 1.0 / 30.0);
+    assert_eq!(
+        logic.objects[&gid].target,
+        Some(team_id),
+        "GuardingObject must prefer team attackCommonTarget over closer scan"
+    );
+}
+
+#[test]
+fn enter_guard_inner_scan_requires_can_enter_object() {
+    // C++ PartitionFilterPossibleToEnter + ALLOW_NEUTRAL: closest *enterable*
+    // Neutral wins. A closer civilian/prop must not beat a garrison building.
+    use crate::game_logic::{
+        ContainAdmission, ContainModuleKind, ContainModuleMetadata, KindOf, Object, ObjectId, Team,
+        ThingTemplate,
+    };
+
+    let mut logic = GameLogic::new();
+    let mut ht = ThingTemplate::new("W26Terrorist");
+    ht.add_kind_of(KindOf::Infantry);
+    ht.add_kind_of(KindOf::Attackable);
+    ht.enter_guard = true;
+    ht.transport_slot_count = Some(1);
+    let hid = ObjectId(6330);
+    let mut h = Object::new(ht, hid, Team::GLA);
+    h.set_position(glam::Vec3::ZERO);
+    h.vision_range = 200.0;
+    logic.objects.insert(hid, h);
+
+    let mut civ_t = ThingTemplate::new("W26Civilian");
+    civ_t.add_kind_of(KindOf::Infantry);
+    let civ_id = ObjectId(6331);
+    let mut civ = Object::new(civ_t, civ_id, Team::Neutral);
+    civ.set_position(glam::Vec3::new(10.0, 0.0, 0.0));
+    logic.objects.insert(civ_id, civ);
+
+    let mut bunk_t = ThingTemplate::new("W26NeutralBunker");
+    bunk_t.add_kind_of(KindOf::Structure);
+    bunk_t.add_kind_of(KindOf::Attackable);
+    bunk_t.contain_module = ContainModuleMetadata {
+        kind: ContainModuleKind::Garrison,
+        slots: Some(5),
+        admission: ContainAdmission::InfantryOnly,
+        allow_allies_inside: true,
+        allow_enemies_inside: true,
+        allow_neutral_inside: true,
+        ..ContainModuleMetadata::default()
+    };
+    let bunk_id = ObjectId(6332);
+    let mut bunk = Object::new(bunk_t, bunk_id, Team::Neutral);
+    bunk.set_position(glam::Vec3::new(40.0, 0.0, 0.0));
+    if let Some(bd) = bunk.building_data.as_mut() {
+        bd.max_garrison = 5;
+    } else {
+        let mut bd = crate::game_logic::BuildingData::new(crate::game_logic::BuildingType::Bunker);
+        bd.max_garrison = 5;
+        bunk.building_data = Some(bd);
+    }
+    logic.objects.insert(bunk_id, bunk);
+
+    assert!(
+        logic.can_unit_enter_normal_target(hid, bunk_id),
+        "bunker must be enterable"
+    );
+    assert!(
+        !logic.can_unit_enter_normal_target(hid, civ_id),
+        "civilian must not be enterable"
+    );
+
+    let found = logic.scan_guard_inner_target_for_test(
+        hid,
+        Team::GLA,
+        glam::Vec3::ZERO,
+        200.0,
+        false,
+        true,
+        false,
+        None,
+    );
+    assert_eq!(
+        found,
+        Some(bunk_id),
+        "EnterGuard scan must pick closest enterable Neutral, not closer civilian"
+    );
+}
+
+#[test]
+fn area_guard_outer_chase_uses_polygon_radius() {
+    use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate};
+    use gamelogic::common::{AsciiString, ICoord3D};
+    use gamelogic::polygon_trigger::PolygonTrigger;
+
+    let trigger = PolygonTrigger::new(
+        6300,
+        AsciiString::from("Wave26GuardOuterPoly"),
+        vec![
+            ICoord3D::new(0, 0, 0),
+            ICoord3D::new(600, 0, 0),
+            ICoord3D::new(600, 600, 0),
+            ICoord3D::new(0, 600, 0),
+        ],
+    );
+    let poly_r = trigger.get_radius();
+    gamelogic::terrain::get_terrain_logic()
+        .write()
+        .expect("terrain")
+        .add_trigger_area(trigger);
+
+    let mut logic = GameLogic::new();
+    let mut gt = ThingTemplate::new("PolyOuterGuard");
+    gt.add_kind_of(KindOf::Infantry);
+    gt.add_kind_of(KindOf::Attackable);
+    let gid = ObjectId(6301);
+    let mut g = Object::new(gt, gid, Team::China);
+    let center = glam::Vec3::new(300.0, 0.0, 300.0);
+    g.set_position(center);
+    g.guard_position = Some(center);
+    g.guard_area_trigger = Some("Wave26GuardOuterPoly".into());
+    g.vision_range = 100.0;
+    g.weapon = Some(wave21_guard_weapon());
+    g.set_ai_state(AIState::Attacking);
+    g.guard_chase_phase = 2; // OUTER
+    g.guard_chase_give_up_frame = logic.frame.saturating_add(10_000);
+    g.status.attacking = true;
+    logic.objects.insert(gid, g);
+
+    let (inner, outer) = logic.host_std_guard_ranges(gid);
+    assert!(
+        poly_r > outer && outer > 0.0,
+        "polygon radius {poly_r} must exceed vision outer {outer}"
+    );
+    let mid = (outer + poly_r) * 0.5;
+    assert!(
+        mid > inner,
+        "chase sample must sit outside inner {inner}"
+    );
+
+    let mut et = ThingTemplate::new("PolyOuterPrey");
+    et.add_kind_of(KindOf::Infantry);
+    et.add_kind_of(KindOf::Attackable);
+    let eid = ObjectId(6302);
+    let mut e = Object::new(et, eid, Team::USA);
+    e.set_position(glam::Vec3::new(center.x + mid, 0.0, center.z));
+    logic.objects.insert(eid, e);
+    logic.objects.get_mut(&gid).unwrap().target = Some(eid);
+
+    logic.update_support_states(&[gid, eid], 1.0 / 30.0);
+    assert_eq!(
+        logic.objects[&gid].target,
+        Some(eid),
+        "area-guard outer must keep a victim inside polygon radius ({poly_r}) even past vision ({outer})"
+    );
+}
+
+#[test]
+fn guard_retaliate_scan_victim_uses_inner_1_5x_not_aggressor() {
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut t = ThingTemplate::new("ScanLeash");
+    t.add_kind_of(KindOf::Infantry);
+    t.add_kind_of(KindOf::Attackable);
+    let id = ObjectId(6310);
+    let mut o = Object::new(t, id, Team::USA);
+    o.set_position(glam::Vec3::ZERO);
+    o.vision_range = 180.0;
+    o.weapon = Some(wave21_guard_weapon());
+    logic.objects.insert(id, o);
+
+    let (inner, outer) = logic.host_std_guard_ranges(id);
+    assert!(inner > 0.0 && outer > 0.0);
+    let inner_1_5 = 1.5 * inner;
+    let aggressor = outer + inner;
+    assert!(
+        aggressor > inner_1_5,
+        "aggressor {aggressor} must exceed 1.5x inner {inner_1_5}"
+    );
+    let between = (inner_1_5 + aggressor) * 0.5;
+
+    let vid = ObjectId(6311);
+    let mut vt = ThingTemplate::new("DeadAggr26");
+    vt.add_kind_of(KindOf::Infantry);
+    logic.objects.insert(vid, {
+        let mut e = Object::new(vt, vid, Team::GLA);
+        e.set_position(glam::Vec3::new(10.0, 0.0, 0.0));
+        e
+    });
+
+    let sid = ObjectId(6312);
+    let mut st = ThingTemplate::new("ScanPrey26");
+    st.add_kind_of(KindOf::Infantry);
+    st.add_kind_of(KindOf::Attackable);
+    logic.objects.insert(sid, {
+        let mut e = Object::new(st, sid, Team::GLA);
+        e.set_position(glam::Vec3::new(between, 0.0, 0.0));
+        e
+    });
+
+    logic
+        .objects
+        .get_mut(&id)
+        .unwrap()
+        .begin_guard_retaliate(vid, Some(glam::Vec3::ZERO), None);
+    logic.objects.get_mut(&vid).unwrap().status.destroyed = true;
+    logic.objects.get_mut(&vid).unwrap().health.current = 0.0;
+    // Place the scan victim inside acquire (inner) so lookForInner finds it,
+    // then walk it out to the 1.5x..aggressor band.
+    logic.objects.get_mut(&sid).unwrap().set_position(glam::Vec3::new(inner * 0.5, 0.0, 0.0));
+    mark_guard_scan_due(&mut logic, id);
+    logic.tick_guard_retaliate_states();
+    assert_eq!(
+        logic.objects[&id].guard_retaliate_victim,
+        Some(sid),
+        "dead aggressor must re-acquire the scan victim"
+    );
+    assert_eq!(
+        logic.objects[&id].guard_chase_phase, 1,
+        "scan re-acquire must enter Inner (no aggressor timer)"
+    );
+    assert_eq!(
+        logic.objects[&id].guard_chase_give_up_frame, 0,
+        "Inner scan victims are timer-free"
+    );
+
+    logic
+        .objects
+        .get_mut(&sid)
+        .unwrap()
+        .set_position(glam::Vec3::new(between, 0.0, 0.0));
+    logic.tick_guard_retaliate_states();
+    assert!(
+        logic.objects[&id].guard_retaliate_victim.is_none(),
+        "scan victim past 1.5×stdGuard must drop (aggressor leash would keep them)"
+    );
+}
+
+#[test]
+fn guard_walks_back_to_post_after_chase() {
+    use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut gt = ThingTemplate::new("ReturnGuard");
+    gt.add_kind_of(KindOf::Infantry);
+    gt.add_kind_of(KindOf::Attackable);
+    let gid = ObjectId(6320);
+    let mut g = Object::new(gt, gid, Team::China);
+    g.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
+    g.guard_position = Some(glam::Vec3::ZERO);
+    g.vision_range = 200.0;
+    g.weapon = Some(wave21_guard_weapon());
+    g.set_ai_state(AIState::Attacking);
+    g.guard_chase_phase = 1;
+    g.status.attacking = true;
+    logic.objects.insert(gid, g);
+
+    let eid = ObjectId(6321);
+    let mut et = ThingTemplate::new("DeadInsideRing");
+    et.add_kind_of(KindOf::Infantry);
+    et.add_kind_of(KindOf::Attackable);
+    logic.objects.insert(eid, {
+        let mut e = Object::new(et, eid, Team::USA);
+        e.set_position(glam::Vec3::new(40.0, 0.0, 0.0));
+        e.status.destroyed = true;
+        e.health.current = 0.0;
+        e
+    });
+    logic.objects.get_mut(&gid).unwrap().target = Some(eid);
+
+    let (inner, _) = logic.host_std_guard_ranges(gid);
+    assert!(50.0 < inner, "kill site must sit inside the inner ring");
+
+    logic.update_support_states(&[gid, eid], 1.0 / 30.0);
+    let g = &logic.objects[&gid];
+    let dest = g
+        .movement
+        .target_position
+        .or_else(|| g.movement.path.last().copied())
+        .expect("return-to-post must issue a destination");
+    assert!(
+        dest.x.abs() < 15.0 && dest.z.abs() < 15.0,
+        "must walk back to the post, got {dest:?}"
+    );
+    assert!(
+        matches!(g.ai_state, AIState::GuardingArea),
+        "return must restore GuardingArea, got {:?}",
+        g.ai_state
+    );
+}
+
+#[test]
+fn without_pursuit_acquires_while_guarder_outside_ring() {
+    use crate::game_logic::{AIState, GuardMode, KindOf, Object, ObjectId, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut gt = ThingTemplate::new("NoPursuitGuard");
+    gt.add_kind_of(KindOf::Infantry);
+    gt.add_kind_of(KindOf::Attackable);
+    let gid = ObjectId(6330);
+    let mut g = Object::new(gt, gid, Team::China);
+    g.set_position(glam::Vec3::new(250.0, 0.0, 0.0));
+    g.guard_position = Some(glam::Vec3::ZERO);
+    g.guard_mode = GuardMode::WithoutPursuit;
+    g.vision_range = 180.0;
+    g.weapon = Some(wave21_guard_weapon());
+    g.set_ai_state(AIState::GuardingArea);
+    logic.objects.insert(gid, g);
+
+    let (inner, _) = logic.host_std_guard_ranges(gid);
+    assert!(250.0 > inner && inner > 20.0);
+
+    let mut et = ThingTemplate::new("InsideRing");
+    et.add_kind_of(KindOf::Infantry);
+    et.add_kind_of(KindOf::Attackable);
+    let eid = ObjectId(6331);
+    let mut e = Object::new(et, eid, Team::USA);
+    e.set_position(glam::Vec3::new(20.0, 0.0, 0.0));
+    logic.objects.insert(eid, e);
+
+    mark_guard_scan_due(&mut logic, gid);
+    logic.update_support_states(&[gid, eid], 1.0 / 30.0);
+    assert_eq!(
+        logic.objects[&gid].target,
+        Some(eid),
+        "WithoutPursuit must still acquire a target inside the ring while the guarder walks back"
+    );
+}

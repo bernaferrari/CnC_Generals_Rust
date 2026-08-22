@@ -32,6 +32,7 @@ mod overlay;
 mod particles;
 mod projectile;
 mod queries;
+mod restrict_a;
 mod spectre;
 mod types;
 mod unit_render;
@@ -48,6 +49,7 @@ pub use lasers::*;
 pub use particles::*;
 pub use projectile::*;
 pub use spectre::*;
+pub use restrict_a::PresentationRestrictA;
 pub use types::*;
 pub use unit_render::*;
 pub use weapon_visual_dispatch::*;
@@ -72,6 +74,7 @@ pub const PRESENTATION_FRAME_SRC: &str = concat!(
     include_str!("particles.rs"),
     include_str!("projectile.rs"),
     include_str!("queries.rs"),
+    include_str!("restrict_a.rs"),
     include_str!("spectre.rs"),
     include_str!("types.rs"),
     include_str!("unit_render.rs"),

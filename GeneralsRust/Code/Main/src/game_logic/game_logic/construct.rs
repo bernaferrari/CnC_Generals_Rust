@@ -525,7 +525,7 @@ impl GameLogic {
             eva_low_power_next_frame: 0,
             eva_low_power_active: false,
             eva_insufficient_funds: 0,
-            eva_insufficient_funds_next_frame: 0,
+
             eva_upgrade_complete: 0,
             eva_general_level_up: 0,
             eva_superweapon_ready: 0,
@@ -1106,7 +1106,7 @@ impl GameLogic {
         self.eva_low_power_next_frame = 0;
         self.eva_low_power_active = false;
         self.eva_insufficient_funds = 0;
-        self.eva_insufficient_funds_next_frame = 0;
+
         self.eva_upgrade_complete = 0;
         self.eva_general_level_up = 0;
         self.eva_superweapon_ready = 0;

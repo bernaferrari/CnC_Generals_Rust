@@ -82,12 +82,14 @@ impl GameLogic {
                     .target_pos
                     .map(|p| Vec3::new(p[0], p[1], p[2]));
                 let speed = fire_fx_weapon_speed(self.objects.get(&source), capture.weapon_slot);
+                let radius =
+                    fire_fx_primary_damage_radius(self.objects.get(&source), capture.weapon_slot);
                 let _ = crate::game_logic::dispatch_fx_list_at_pos_ex(
                     &capture.selected_fx_name,
                     pos,
                     target,
                     speed,
-                    0.0,
+                    radius,
                 );
             }
         }
@@ -172,6 +174,7 @@ impl GameLogic {
             source_pos
         };
         let speed = fire_fx_weapon_speed(self.objects.get(&source), capture.weapon_slot);
+        let radius = fire_fx_primary_damage_radius(self.objects.get(&source), capture.weapon_slot);
         let _ = self.combat_particles.spawn_weapon_fire_fx_named_ocl(
             where_pos,
             Some(target_pos),
@@ -183,6 +186,7 @@ impl GameLogic {
             "",
             "",
             speed,
+            radius,
         );
     }
 
@@ -212,6 +216,14 @@ fn fire_fx_weapon_speed(object: Option<&Object>, slot: u8) -> f32 {
     } else {
         0.0
     }
+}
+
+/// C++ `Weapon::getPrimaryDamageRadius(bonus)` for FireFX `overrideRadius`.
+fn fire_fx_primary_damage_radius(object: Option<&Object>, slot: u8) -> f32 {
+    let Some(name) = object.and_then(|o| o.weapon_name_for_slot(slot)) else {
+        return 0.0;
+    };
+    crate::game_logic::weapon_bootstrap::host_primary_damage_radius_for_weapon_name(name)
 }
 
 #[cfg(test)]
@@ -313,5 +325,18 @@ mod tests {
             object.weapon_discharge_marker(),
             WeaponDischargeMarker::unseen()
         );
+    }
+
+    #[test]
+    fn fire_fx_primary_damage_radius_uses_weapon_template() {
+        let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+        let mut tpl = ThingTemplate::new("RadiusHowitzer");
+        tpl.set_primary_weapon_name("HowitzerBogus");
+        let object = Object::new(tpl, ObjectId(703), Team::USA);
+        assert!(
+            (fire_fx_primary_damage_radius(Some(&object), 0) - 25.0).abs() < f32::EPSILON,
+            "seeded howitzer PrimaryDamageRadius residual"
+        );
+        assert_eq!(fire_fx_primary_damage_radius(None, 0), 0.0);
     }
 }

@@ -35,6 +35,14 @@ fn usable_ocl_particle_sys_name(name: &str) -> Option<&str> {
     (!name.is_empty() && !name.eq_ignore_ascii_case("none")).then_some(name)
 }
 
+/// C++ `getPrimaryDamageRadius` residual for FireFX / DetonationFX overrideRadius.
+fn host_fire_fx_override_radius(shooter: Option<&Object>) -> f32 {
+    shooter
+        .and_then(|o| o.weapon_name_for_slot(0))
+        .map(crate::game_logic::weapon_bootstrap::host_primary_damage_radius_for_weapon_name)
+        .unwrap_or(0.0)
+}
+
 impl GameLogic {
     /// Execute a parsed `Weapon.ini` OCL at a source origin.
     ///
@@ -274,6 +282,7 @@ impl GameLogic {
             if !fire.fire_fx_name.trim().is_empty()
                 && !fire.fire_fx_name.trim().eq_ignore_ascii_case("None")
             {
+                let radius = host_fire_fx_override_radius(self.objects.get(&fire.shooter_id));
                 let _ = self.combat_particles.spawn_weapon_fire_fx_named_ocl(
                     fire.origin,
                     None,
@@ -285,6 +294,7 @@ impl GameLogic {
                     &fire.fire_ocl_name,
                     "",
                     0.0,
+                    radius,
                 );
             }
             if !fire.fire_ocl_name.trim().is_empty()
@@ -327,6 +337,7 @@ impl GameLogic {
                     impact.position,
                 );
             }
+            let radius = host_fire_fx_override_radius(self.objects.get(&impact.shooter_id));
             let _ = self.combat_particles.spawn_weapon_fire_fx_named_ocl(
                 impact.position,
                 Some(impact.position),
@@ -338,13 +349,17 @@ impl GameLogic {
                 "",
                 &impact.detonation_ocl_name,
                 0.0,
+                radius,
             );
             if !impact.detonation_fx_name.trim().is_empty()
                 && !impact.detonation_fx_name.trim().eq_ignore_ascii_case("None")
             {
-                let _ = crate::game_logic::dispatch_fx_list_at_pos(
+                let _ = crate::game_logic::dispatch_fx_list_at_pos_ex(
                     &impact.detonation_fx_name,
                     impact.position,
+                    Some(impact.position),
+                    0.0,
+                    radius,
                 );
             }
         }

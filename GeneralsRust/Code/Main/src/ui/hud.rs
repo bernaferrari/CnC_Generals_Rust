@@ -265,68 +265,15 @@ impl ResourceDisplay {
     }
 }
 
-/// Residual faction bucket for construction cameo lists.
+/// Residual bucket kept for force_tab / hide; GameHUD does not invent a cameo grid.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct CommandSetCameo {
     tab: ConstructionTab,
     item_name: String,
     display_name: String,
     cost: i32,
     build_key: Option<KeyCode>,
-}
-
-fn classify_live_cameo_tab(command: &str, object: &str) -> ConstructionTab {
-    let cmd = command.to_ascii_uppercase();
-    let obj = object.to_ascii_lowercase();
-    if cmd.contains("DOZER") || cmd.contains("OBJECT_BUILD") {
-        return ConstructionTab::Buildings;
-    }
-    if obj.contains("infantry") {
-        return ConstructionTab::Infantry;
-    }
-    if obj.contains("jet")
-        || obj.contains("aircraft")
-        || obj.contains("comanche")
-        || obj.contains("raptor")
-        || obj.contains("mig")
-    {
-        return ConstructionTab::Aircraft;
-    }
-    if obj.contains("vehicle") || obj.contains("tank") || obj.contains("dozer") {
-        return ConstructionTab::Vehicles;
-    }
-    if cmd.contains("UNIT") {
-        ConstructionTab::Vehicles
-    } else {
-        ConstructionTab::Buildings
-    }
-}
-
-/// Strip faction/prefix residual for HUD display labels.
-fn friendly_buildable_label(template_name: &str) -> &str {
-    let n = template_name.trim();
-    for prefix in [
-        "AmericaInfantry",
-        "AmericaVehicle",
-        "AmericaTank",
-        "AmericaJet",
-        "America",
-        "ChinaInfantry",
-        "ChinaVehicle",
-        "ChinaTank",
-        "China",
-        "GLAInfantry",
-        "GLAVehicle",
-        "GLATank",
-        "GLA",
-    ] {
-        if let Some(rest) = n.strip_prefix(prefix) {
-            if !rest.is_empty() {
-                return rest;
-            }
-        }
-    }
-    n
 }
 
 /// Construction panel for building units and structures
@@ -373,6 +320,8 @@ pub struct BuildQueueItem {
     pub queue_index: usize,
     pub position: (i32, i32),
     pub size: (u32, u32),
+    /// C++ PRODUCTION_UPGRADE vs PRODUCTION_UNIT residual.
+    pub is_upgrade: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -527,67 +476,17 @@ impl ConstructionPanel {
         self.pending_structure_placement = None;
     }
 
-    fn setup_construction_options(&mut self, building_name: &str) {
+    fn setup_construction_options(&mut self, _building_name: &str) {
+        // C++ ControlBar::populateCommand binds CommandSet slots 1-14 on the
+        // command strip. GameHUD must not invent a second tabbed cameo grid.
         self.construction_buttons.clear();
         self.command_set_cameos.clear();
-        let override_cs = if self.command_set_override.is_empty() {
-            None
-        } else {
-            Some(self.command_set_override.as_str())
-        };
-        let Some(cs_name) =
-            crate::ui::construction_panel::resolve_command_set_name(building_name, override_cs)
-        else {
-            self.visible = true;
-            return;
-        };
-        for item in crate::ui::construction_panel::command_set_buildable_cameos(&cs_name) {
-            self.command_set_cameos.push(CommandSetCameo {
-                tab: classify_live_cameo_tab(&item.command, &item.template_name),
-                item_name: item.template_name,
-                display_name: item.display_name,
-                cost: item.cost,
-                build_key: item.hotkey,
-            });
-        }
-        if let Some(first) = self.command_set_cameos.first() {
-            self.current_tab = first.tab;
-        }
-        self.relayout_command_set_cameos();
+        self.tab_buttons.clear();
     }
 
     fn relayout_command_set_cameos(&mut self) {
+        // C++ has no Buildings/Units tab strip and no second cameo grid.
         self.construction_buttons.clear();
-        let items: Vec<&CommandSetCameo> = self
-            .command_set_cameos
-            .iter()
-            .filter(|c| c.tab == self.current_tab)
-            .collect();
-        let buttons_per_row = 4;
-        let button_size = 64u32;
-        let spacing = 8u32;
-        let start_x = self.position.0 + 10;
-        let start_y = self.position.1 + 40;
-        for (i, cameo) in items.into_iter().enumerate() {
-            let row = i / buttons_per_row;
-            let col = i % buttons_per_row;
-            let x = start_x + col as i32 * (button_size + spacing) as i32;
-            let y = start_y + row as i32 * (button_size + spacing) as i32;
-            self.construction_buttons.push(ConstructionButton {
-                item_name: cameo.item_name.clone(),
-                display_name: if cameo.display_name.is_empty() {
-                    localized_entry(friendly_buildable_label(&cameo.item_name))
-                } else {
-                    cameo.display_name.clone()
-                },
-                position: (x, y),
-                size: (button_size, button_size),
-                cost: cameo.cost,
-                enabled: true,
-                hovered: false,
-                build_key: cameo.build_key,
-            });
-        }
     }
 
     pub fn add_to_queue(
@@ -609,25 +508,15 @@ impl ConstructionPanel {
             queue_index,
             position: (0, 0),
             size: (0, 0),
+            is_upgrade: false,
         });
         self.layout_queue_slots();
     }
 
-    pub fn update_queue(&mut self, delta_time: f32) -> Vec<String> {
-        let mut completed = Vec::new();
-
-        if let Some(item) = self.building_queue.first_mut() {
-            item.remaining_time -= delta_time;
-            item.progress = 1.0 - (item.remaining_time / item.build_time);
-
-            if item.remaining_time <= 0.0 {
-                completed.push(item.display_name.clone());
-                self.building_queue.remove(0);
-                self.layout_queue_slots();
-            }
-        }
-
-        completed
+    pub fn update_queue(&mut self, _delta_time: f32) -> Vec<String> {
+        // C++ ControlBar never advances ProductionUpdate remaining time from
+        // render dt. Completion is a logic event; no invented complete toast.
+        Vec::new()
     }
 
     /// C++ ControlBar queue icons sit on the same command-button windows.
@@ -723,6 +612,11 @@ struct CommandButton {
     hotkey: Option<KeyCode>,
     enabled: bool,
     hovered: bool,
+    not_ready: bool,
+    active: bool,
+    button_image: String,
+    overlay_image: Option<String>,
+    exit_object_id: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -752,10 +646,11 @@ impl Default for GameHUD {
 }
 
 impl GameHUD {
-    /// Apply presentation PublicTimer residual (superweapon countdown strip).
-
     /// Apply presentation ControlBar unit-command residual (Command_* names).
-    pub fn apply_presentation_unit_commands(&mut self, commands: &[(String, bool)]) {
+    pub fn apply_presentation_unit_commands(
+        &mut self,
+        commands: &[crate::ui::UnitCommandButton],
+    ) {
         self.command_buttons.clear();
         if commands.is_empty() {
             return;
@@ -764,19 +659,30 @@ impl GameHUD {
         let spacing = 4u32;
         let start_x = (self.screen_size.0 / 2) as i32 - 200;
         let start_y = self.screen_size.1 as i32 - 60;
-        for (i, (name, enabled)) in commands.iter().enumerate() {
-            if name.is_empty() {
-                continue;
-            }
-            let hotkey = command_button_hotkey(name);
+        for (i, cmd) in commands.iter().enumerate() {
+            let hotkey = if cmd.command_name.is_empty() {
+                None
+            } else {
+                command_button_hotkey(&cmd.command_name)
+            };
+            let icon = if !cmd.button_image.is_empty() {
+                cmd.button_image.clone()
+            } else {
+                cmd.command_name.clone()
+            };
             self.command_buttons.push(CommandButton {
-                command: name.clone(),
+                command: cmd.command_name.clone(),
                 position: (start_x + i as i32 * (button_size + spacing) as i32, start_y),
                 size: (button_size, button_size),
-                icon: name.clone(),
+                icon,
                 hotkey,
-                enabled: *enabled,
+                enabled: cmd.enabled && !cmd.command_name.is_empty(),
                 hovered: false,
+                not_ready: cmd.availability == crate::ui::UnitCommandAvailability::NotReady,
+                active: cmd.availability == crate::ui::UnitCommandAvailability::Active,
+                button_image: cmd.button_image.clone(),
+                overlay_image: cmd.overlay_image.clone(),
+                exit_object_id: cmd.exit_object_id,
             });
         }
     }
@@ -803,13 +709,15 @@ impl GameHUD {
         &self.presentation_superweapon_timers
     }
 
-    /// Apply presentation CanMake residual onto construction buttons (enable/gray).
     /// Replace local build-queue residual with presentation production items
     /// for the primary selected producer (C++ ControlBar queue strip).
-    pub fn sync_production_queue_from_presentation(&mut self, items: &[(String, f32, i32, f32)]) {
-        // items: (template_name, progress 0..1, cost, build_time)
+    pub fn sync_production_queue_from_presentation(
+        &mut self,
+        items: &[(String, f32, i32, f32, bool)],
+    ) {
+        // items: (template_name, progress 0..1, cost, build_time, is_upgrade)
         self.construction_panel.building_queue.clear();
-        for (idx, (name, progress, cost, build_time)) in items.iter().enumerate() {
+        for (idx, (name, progress, cost, build_time, is_upgrade)) in items.iter().enumerate() {
             let progress = progress.clamp(0.0, 1.0);
             let build_time = build_time.max(0.01);
             let remaining = build_time * (1.0 - progress);
@@ -824,6 +732,7 @@ impl GameHUD {
                 queue_index: idx,
                 position: (0, 0),
                 size: (0, 0),
+                is_upgrade: *is_upgrade,
             });
         }
         self.construction_panel.layout_queue_slots();
@@ -898,16 +807,8 @@ impl GameHUD {
 
         self.resource_display.update(delta_time);
 
-        // Update construction queue
-        let completed_items = self.construction_panel.update_queue(delta_time);
-        for item in completed_items {
-            let message = localization::localize_with_args(
-                "hud.message.build_queue_complete",
-                "{name} construction complete",
-                &[("name", item.as_str())],
-            );
-            self.add_message(&message, MessageType::Construction);
-        }
+        // Production queue clocks come from ProductionUpdate via presentation.
+        // Do not locally decrement remaining_time or invent complete toasts.
 
         // Update game time
         self.game_time += Duration::from_secs_f32(delta_time);
@@ -972,10 +873,18 @@ impl GameHUD {
                         &[("name", item.display_name.as_str())],
                     );
                     self.add_message(&message, MessageType::Construction);
-                    return Some(crate::ui::UIEvent::CancelUnitProduction {
-                        template_name: item.item_name,
-                        production_id: item.production_id,
-                        queue_index: idx,
+                    return Some(if item.is_upgrade {
+                        crate::ui::UIEvent::CancelUpgradeProduction {
+                            upgrade_name: item.item_name,
+                            production_id: item.production_id,
+                            queue_index: idx,
+                        }
+                    } else {
+                        crate::ui::UIEvent::CancelUnitProduction {
+                            template_name: item.item_name,
+                            production_id: item.production_id,
+                            queue_index: idx,
+                        }
                     });
                 }
             }
@@ -1437,6 +1346,11 @@ impl GameHUD {
                 hotkey: *hotkey,
                 enabled: true,
                 hovered: false,
+                not_ready: false,
+                active: false,
+                button_image: String::new(),
+                overlay_image: None,
+                exit_object_id: None,
             });
         }
     }
@@ -1827,8 +1741,9 @@ mod tests {
                 && !src.contains("ChinaInfantryRedguard")
                 && !src.contains("ChinaTankBattleMaster")
                 && !src.contains("AmericaInfantryMissileDefender")
-                && src.contains("command_set_buildable_cameos"),
-            "GameHUD ConstructionPanel must use CommandSet objects, not faction heuristics"
+                && !src.contains("fn classify_live_cameo_tab")
+                && src.contains("must not invent a second tabbed cameo grid"),
+            "GameHUD ConstructionPanel must not invent a tabbed cameo grid"
         );
         let mut china = ConstructionPanel::new(0, 0);
         china.show_for_building("ChinaBarracks");
@@ -2056,8 +1971,16 @@ mod tests {
         let mut hud = GameHUD::new();
         hud.initialize().expect("init");
         hud.apply_presentation_unit_commands(&[
-            ("Command_HqD1a8xZap".into(), true),
-            ("Command_Scatter".into(), true),
+            crate::ui::UnitCommandButton {
+                command_name: "Command_HqD1a8xZap".into(),
+                enabled: true,
+                ..Default::default()
+            },
+            crate::ui::UnitCommandButton {
+                command_name: "Command_Scatter".into(),
+                enabled: true,
+                ..Default::default()
+            },
         ]);
 
         assert!(
@@ -2102,7 +2025,11 @@ mod tests {
 
         let mut hud = GameHUD::new();
         hud.initialize().expect("init");
-        hud.apply_presentation_unit_commands(&[("Command_HqD1a8xZap".into(), true)]);
+        hud.apply_presentation_unit_commands(&[crate::ui::UnitCommandButton {
+            command_name: "Command_HqD1a8xZap".into(),
+            enabled: true,
+            ..Default::default()
+        }]);
         hud.toggle_visibility();
         assert!(
             !hud.hud_visible() && !hud.handle_letter_hotkey(KeyCode::Q),
@@ -2111,7 +2038,11 @@ mod tests {
         assert!(hud.drain_pending_ui_events().is_empty());
 
         hud.toggle_visibility();
-        hud.apply_presentation_unit_commands(&[("Command_HqD1a8xZap".into(), false)]);
+        hud.apply_presentation_unit_commands(&[crate::ui::UnitCommandButton {
+            command_name: "Command_HqD1a8xZap".into(),
+            enabled: false,
+            ..Default::default()
+        }]);
         assert!(
             !hud.handle_letter_hotkey(KeyCode::Q),
             "disabled visible button must not consume (HotKey.cpp:166-171)"
@@ -2165,5 +2096,106 @@ mod tests {
             hud.construction_panel.building_queue[1].item_name,
             "MissileDefender"
         );
+    }
+
+    #[test]
+    fn apply_presentation_unit_commands_keeps_holes_portraits_and_clocks() {
+        let mut hud = GameHUD::new();
+        hud.initialize().expect("init");
+        hud.apply_presentation_unit_commands(&[
+            crate::ui::UnitCommandButton {
+                command_name: "Command_Move".into(),
+                enabled: true,
+                ..Default::default()
+            },
+            crate::ui::UnitCommandButton::default(),
+            crate::ui::UnitCommandButton {
+                command_name: "Command_StructureExit".into(),
+                enabled: true,
+                exit_object_id: Some(7),
+                button_image: "Ranger.tga".into(),
+                overlay_image: Some("SSChevron1L".into()),
+                availability: crate::ui::UnitCommandAvailability::NotReady,
+                ..Default::default()
+            },
+        ]);
+        assert_eq!(hud.command_buttons.len(), 3);
+        assert_eq!(hud.command_buttons[0].command, "Command_Move");
+        assert!(hud.command_buttons[1].command.is_empty());
+        assert!(!hud.command_buttons[1].enabled);
+        assert_eq!(
+            hud.command_buttons[2].position.0 - hud.command_buttons[0].position.0,
+            2 * (48 + 4)
+        );
+        assert_eq!(hud.command_buttons[2].button_image, "Ranger.tga");
+        assert_eq!(hud.command_buttons[2].exit_object_id, Some(7));
+        assert!(hud.command_buttons[2].not_ready);
+        assert!(!hud.command_buttons[2].active);
+    }
+
+    #[test]
+    fn lmb_upgrade_queue_slot_emits_cancel_upgrade_production() {
+        let mut hud = GameHUD::new();
+        hud.initialize().expect("init");
+        hud.construction_panel.visible = true;
+        hud.sync_production_queue_from_presentation(&[(
+            "Upgrade_AmericaFlashBangGrenade".into(),
+            0.4,
+            400,
+            10.0,
+            true,
+        )]);
+        let slot = hud.construction_panel.building_queue[0].position;
+        let ev = hud
+            .handle_mouse_click(slot.0 + 8, slot.1 + 8, MouseButton::Left)
+            .expect("upgrade cancel");
+        match ev {
+            UIEvent::CancelUpgradeProduction {
+                upgrade_name,
+                production_id,
+                queue_index,
+            } => {
+                assert_eq!(upgrade_name, "Upgrade_AmericaFlashBangGrenade");
+                assert_eq!(production_id, 0);
+                assert_eq!(queue_index, 0);
+            }
+            other => panic!("expected CancelUpgradeProduction, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn game_hud_does_not_locally_tick_production_queue() {
+        let mut hud = GameHUD::new();
+        hud.initialize().expect("init");
+        hud.sync_production_queue_from_presentation(&[("Ranger".into(), 0.9, 225, 5.0, false)]);
+        assert_eq!(hud.construction_panel.building_queue.len(), 1);
+        let remaining_before = hud.construction_panel.building_queue[0].remaining_time;
+        hud.update(10.0).expect("update");
+        assert_eq!(hud.construction_panel.building_queue.len(), 1);
+        assert_eq!(
+            hud.construction_panel.building_queue[0].remaining_time,
+            remaining_before
+        );
+        assert!(
+            !hud.messages
+                .iter()
+                .any(|m| m.text.contains("construction complete")),
+            "HUD must not invent queue-complete toast"
+        );
+        assert!(
+            hud.construction_panel.update_queue(10.0).is_empty(),
+            "update_queue must not pop presentation-owned items"
+        );
+    }
+
+    #[test]
+    fn construction_panel_show_does_not_build_tabbed_cameo_grid() {
+        let mut panel = ConstructionPanel::new(0, 0);
+        panel.show_for_building("AmericaBarracks");
+        assert!(
+            panel.construction_buttons.is_empty() && panel.command_set_cameos.is_empty(),
+            "producer selection must not invent a second cameo grid beside CommandSet"
+        );
+        assert!(panel.visible);
     }
 }

@@ -591,6 +591,9 @@ pub struct RenderableObject {
     /// C++ DeathType residual name for death FX (empty when alive).
     pub death_type_name: String,
     pub under_construction: bool,
+    /// C++ `dozerAI->isTaskPending(DOZER_TASK_BUILD)` (`dozer_task_build_target`).
+    #[serde(default)]
+    pub is_dozer_task_pending: bool,
     /// Construction progress 0..1 residual (structures / dozer builds).
     pub construction_percent: f32,
     /// Wave 1031: OCL timer residual seconds (ControlBar OclTimer dual path).

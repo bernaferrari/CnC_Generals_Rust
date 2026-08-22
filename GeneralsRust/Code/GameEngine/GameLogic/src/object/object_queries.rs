@@ -586,9 +586,21 @@ impl Object {
         guard.get_cur_locomotor()
     }
 
-    /// C++ parity: Object::isDozerTaskPending()
+    /// C++ ControlBarCommand.cpp:1140 `dozerAI->isTaskPending(DOZER_TASK_BUILD)`.
     pub fn is_dozer_task_pending(&self) -> bool {
-        self.get_ai_update_interface().is_some()
+        let Some(ai) = self.get_ai_update_interface() else {
+            return false;
+        };
+        let Ok(mut guard) = ai.lock() else {
+            return false;
+        };
+        guard
+            .get_dozer_ai_update_interface_mut()
+            .is_some_and(|dozer| {
+                dozer.is_task_pending(
+                    crate::object::update::ai_update::dozer_ai_update::DozerTask::Build,
+                )
+            })
     }
 
     /// C++ parity: Object::hasContainedObjects()
