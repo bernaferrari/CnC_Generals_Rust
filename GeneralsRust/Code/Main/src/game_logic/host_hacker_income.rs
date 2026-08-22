@@ -214,6 +214,26 @@ pub fn is_legal_hacker_income_source(
     is_alive && !is_neutral && !is_disabled_hacked
 }
 
+/// C++ HackInternetAIUpdate state-machine pose.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HackerInternetPhase {
+    Unpacking,
+    Hacking,
+    Packing,
+}
+
+/// Command held until PACKING finishes (C++ `m_pendingCommand`).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum PendingHackerCommand {
+    MoveTo(Vec3),
+    Attack(ObjectId),
+    Stop,
+}
+
+/// C++ per-unit `UnitUnpack` / `UnitPack` events.
+pub const HACKER_UNIT_UNPACK_AUDIO: &str = "UnitUnpack";
+pub const HACKER_UNIT_PACK_AUDIO: &str = "UnitPack";
+
 /// Host residual honesty + active hacking schedule.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostHackerIncomeRegistry {
@@ -243,6 +263,15 @@ pub struct HostHackerIncomeRegistry {
     active_hackers: HashSet<ObjectId>,
     /// Next absolute logic frame each hacker may deposit.
     next_deposit_frame: HashMap<ObjectId, u32>,
+    /// C++ UNPACKING / HACK_INTERNET / PACKING pose.
+    #[serde(default)]
+    pack_phase: HashMap<ObjectId, HackerInternetPhase>,
+    /// Frame when the current unpack/pack pose completes.
+    #[serde(default)]
+    pack_until_frame: HashMap<ObjectId, u32>,
+    /// Command stored while PACKING (C++ `m_hasPendingCommand`).
+    #[serde(default)]
+    pending_command: HashMap<ObjectId, PendingHackerCommand>,
 }
 
 impl HostHackerIncomeRegistry {
@@ -309,6 +338,77 @@ impl HostHackerIncomeRegistry {
             hacker_id,
             Self::first_cash_update_after(current_frame, unpack_frames, initial_delay_frames),
         );
+        self.pack_phase
+            .insert(hacker_id, HackerInternetPhase::Unpacking);
+        self.pack_until_frame
+            .insert(hacker_id, current_frame.saturating_add(unpack_frames));
+        self.pending_command.remove(&hacker_id);
+    }
+
+    pub fn pack_phase(&self, hacker_id: ObjectId) -> Option<HackerInternetPhase> {
+        self.pack_phase.get(&hacker_id).copied()
+    }
+
+    pub fn is_packing(&self, hacker_id: ObjectId) -> bool {
+        self.pack_phase.get(&hacker_id) == Some(&HackerInternetPhase::Packing)
+    }
+
+    /// C++ `aiDoCommand` while HACK_INTERNET/PACKING: hold the order and pack.
+    pub fn request_pack(
+        &mut self,
+        hacker_id: ObjectId,
+        current_frame: u32,
+        pack_frames: u32,
+        pending: PendingHackerCommand,
+    ) -> bool {
+        match self.pack_phase.get(&hacker_id).copied() {
+            Some(HackerInternetPhase::Hacking) | Some(HackerInternetPhase::Packing) => {
+                self.active_hackers.remove(&hacker_id);
+                self.next_deposit_frame.remove(&hacker_id);
+                self.pack_phase
+                    .insert(hacker_id, HackerInternetPhase::Packing);
+                self.pack_until_frame
+                    .insert(hacker_id, current_frame.saturating_add(pack_frames));
+                self.pending_command.insert(hacker_id, pending);
+                true
+            }
+            Some(HackerInternetPhase::Unpacking) | None => false,
+        }
+    }
+
+    pub fn finish_unpack_if_due(&mut self, hacker_id: ObjectId, current_frame: u32) -> bool {
+        if self.pack_phase.get(&hacker_id) != Some(&HackerInternetPhase::Unpacking) {
+            return false;
+        }
+        let until = self.pack_until_frame.get(&hacker_id).copied().unwrap_or(0);
+        if current_frame < until {
+            return false;
+        }
+        self.pack_phase
+            .insert(hacker_id, HackerInternetPhase::Hacking);
+        self.pack_until_frame.remove(&hacker_id);
+        true
+    }
+
+    pub fn take_finished_pack(
+        &mut self,
+        hacker_id: ObjectId,
+        current_frame: u32,
+    ) -> Option<PendingHackerCommand> {
+        if self.pack_phase.get(&hacker_id) != Some(&HackerInternetPhase::Packing) {
+            return None;
+        }
+        let until = self.pack_until_frame.get(&hacker_id).copied().unwrap_or(0);
+        if current_frame < until {
+            return None;
+        }
+        self.pack_phase.remove(&hacker_id);
+        self.pack_until_frame.remove(&hacker_id);
+        self.pending_command.remove(&hacker_id)
+    }
+
+    pub fn tracked_pack_ids(&self) -> Vec<ObjectId> {
+        self.pack_phase.keys().copied().collect()
     }
 
     /// Auto-start when contained in Internet Center (InternetHackContain residual).
@@ -331,6 +431,10 @@ impl HostHackerIncomeRegistry {
             hacker_id,
             Self::first_cash_update_after(current_frame, unpack_frames, initial_delay_frames),
         );
+        self.pack_phase
+            .insert(hacker_id, HackerInternetPhase::Unpacking);
+        self.pack_until_frame
+            .insert(hacker_id, current_frame.saturating_add(unpack_frames));
         true
     }
 
@@ -338,6 +442,11 @@ impl HostHackerIncomeRegistry {
     pub fn stop_hacking(&mut self, hacker_id: ObjectId) {
         self.active_hackers.remove(&hacker_id);
         self.next_deposit_frame.remove(&hacker_id);
+        if !self.is_packing(hacker_id) {
+            self.pack_phase.remove(&hacker_id);
+            self.pack_until_frame.remove(&hacker_id);
+            self.pending_command.remove(&hacker_id);
+        }
     }
 
     /// When due, deposit and reschedule with the given interval.
@@ -429,6 +538,9 @@ impl HostHackerIncomeRegistry {
     pub fn forget(&mut self, hacker_id: ObjectId) {
         self.active_hackers.remove(&hacker_id);
         self.next_deposit_frame.remove(&hacker_id);
+        self.pack_phase.remove(&hacker_id);
+        self.pack_until_frame.remove(&hacker_id);
+        self.pending_command.remove(&hacker_id);
     }
 
     /// Snapshot of tracked / active hacker ids (for stale cleanup).
