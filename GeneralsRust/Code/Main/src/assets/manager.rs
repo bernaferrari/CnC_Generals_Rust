@@ -1579,6 +1579,18 @@ impl AssetManager {
         self.ww3d_manager.object_definitions_snapshot()
     }
 
+    /// Overlay leftover map.ini Object CREATE_OVERRIDES onto WW3D object definitions.
+    pub fn overlay_object_create_overrides(
+        &mut self,
+        name: &str,
+        reskin_from: &str,
+        properties: &std::collections::HashMap<String, String>,
+    ) {
+        self.ww3d_manager
+            .overlay_object_create_overrides(name, reskin_from, properties);
+    }
+
+
     /// Get all texture filenames from WW3D Asset Manager for preloading
     pub fn get_all_texture_filenames(&self) -> Vec<String> {
         self.ww3d_manager.get_all_texture_filenames()

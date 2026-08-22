@@ -725,6 +725,12 @@ pub fn is_china_vehicle_horde_unit(template_name: &str) -> bool {
         || is_overlord_horde_template(&n)
 }
 
+/// Any retail HordeUpdate chassis (infantry or ExactMatch vehicle).
+/// C++ `evaluateMoraleBonus` runs on every unit with `getHordeUpdateInterface`.
+pub fn is_china_horde_update_unit(template_name: &str) -> bool {
+    is_china_vehicle_horde_unit(template_name) || leftover_china_infantry_horde_name(template_name)
+}
+
 /// C++ ExactMatch: same ThingTemplate identity (live: exact template name).
 /// Does not lump Emperor+Overlord or name-variant chassis.
 pub fn same_vehicle_horde_family(a: &str, b: &str) -> bool {
@@ -1031,6 +1037,11 @@ pub fn honesty_battlemaster_horde_residual_ok() -> bool {
         && is_china_vehicle_horde_unit("ChinaVehicleInfernoCannon")
         && is_china_vehicle_horde_unit("ChinaTankGattling")
         && is_china_vehicle_horde_unit("ChinaTankOverlord")
+        && is_china_horde_update_unit("ChinaTankDragon")
+        && is_china_horde_update_unit("ChinaVehicleInfernoCannon")
+        && is_china_horde_update_unit("ChinaTankGattling")
+        && is_china_horde_update_unit("ChinaTankOverlord")
+        && is_china_horde_update_unit("ChinaInfantryRedguard")
         && !is_china_vehicle_horde_unit("OverlordGattlingCannon")
         && leftover_horde_decal_type(false, false, false) == TERRAIN_DECAL_HORDE_VEHICLE
         && leftover_horde_decal_type(true, false, true) == TERRAIN_DECAL_HORDE

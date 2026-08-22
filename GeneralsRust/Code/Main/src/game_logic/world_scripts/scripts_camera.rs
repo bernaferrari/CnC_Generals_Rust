@@ -882,6 +882,52 @@ impl GameLogic {
         }
     }
 
+    /// C++ ScriptActions skill/rank leftover drain.
+    /// Leftover mutates crate player_list / leftover GameLogic; live rank lives on host Player.
+    fn apply_host_rank_script_requests(&mut self) {
+        use gamelogic::scripting::HostScriptRankRequest;
+        for req in gamelogic::scripting::take_host_rank_requests() {
+            match req {
+                HostScriptRankRequest::AddSkillPoints { player, delta } => {
+                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
+                        continue;
+                    };
+                    if let Some(p) = self.players.get_mut(&pid) {
+                        let _ = p.add_skill_points(delta);
+                    }
+                }
+                HostScriptRankRequest::AddRankLevel { player, delta } => {
+                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
+                        continue;
+                    };
+                    let current = self.players.get(&pid).map(|p| p.rank_level).unwrap_or(1);
+                    if let Some(p) = self.players.get_mut(&pid) {
+                        let _ = p.set_rank_level((current as i32 + delta).max(1) as u32);
+                    }
+                }
+                HostScriptRankRequest::SetRankLevel { player, level } => {
+                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
+                        continue;
+                    };
+                    if let Some(p) = self.players.get_mut(&pid) {
+                        let _ = p.set_rank_level(level.max(1) as u32);
+                    }
+                }
+                HostScriptRankRequest::SetRankLevelLimit { limit } => {
+                    gamelogic::helpers::TheGameLogic::set_rank_level_limit(limit);
+                }
+                HostScriptRankRequest::AffectReceivingExperience { player, modifier } => {
+                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
+                        continue;
+                    };
+                    if let Some(p) = self.players.get_mut(&pid) {
+                        p.skill_points_modifier = modifier;
+                    }
+                }
+            }
+        }
+    }
+
     /// C++ ScriptActions TEAM/PLAYER/NAMED TRANSFER live drain.
     /// Leftover mutates empty `OBJECT_REGISTRY`; live objects/money live on host.
     fn apply_host_transfer_script_requests(&mut self) {
@@ -1721,6 +1767,89 @@ impl GameLogic {
         }
     }
 
+    /// C++ `ScriptActions::doNamedSetBoobytrapped` / `doTeamSetBoobytrapped`.
+    /// Leftover queues [`gamelogic::scripting::HostScriptBoobytrapRequest`].
+    fn apply_host_boobytrap_script_requests(&mut self) {
+        use gamelogic::scripting::HostScriptBoobytrapRequest;
+        for req in gamelogic::scripting::take_host_script_boobytrap_requests() {
+            match req {
+                HostScriptBoobytrapRequest::Named { thing, unit } => {
+                    if let Some(id) = self.host_object_id_by_script_name(&unit) {
+                        self.host_script_plant_boobytrap(&thing, id);
+                    }
+                }
+                HostScriptBoobytrapRequest::Team { thing, team } => {
+                    for id in self.host_script_team_member_ids(&team) {
+                        self.host_script_plant_boobytrap(&thing, id);
+                    }
+                }
+            }
+        }
+    }
+
+    /// C++ `TheThingFactory->newObject(thing, obj->getTeam())` then
+    /// `StickyBombUpdate::initStickyBomb(obj, NULL, &perimeterPos)`.
+    fn host_script_plant_boobytrap(&mut self, thing: &str, target_id: ObjectId) {
+        use crate::game_logic::host_booby_trap::BOOBY_TRAP_OBJECT;
+
+        let thing = thing.trim();
+        if thing.is_empty() {
+            return;
+        }
+        let lower = thing.to_ascii_lowercase();
+        // C++ only inits when the new object has StickyBombUpdate.
+        if !(lower.contains("boobytrap")
+            || lower.contains("sticky")
+            || lower.contains("democharge")
+            || lower.contains("remotecharge"))
+        {
+            return;
+        }
+        let Some(obj) = self.objects.get(&target_id) else {
+            return;
+        };
+        if !obj.is_alive() || obj.status.destroyed {
+            return;
+        }
+        let team = obj.team;
+        let owner = obj.owner_player_id;
+        let geom = obj.selection_radius.max(8.0);
+        let p = obj.get_position();
+        let pos = glam::Vec3::new(p.x, p.y + 8.0, p.z);
+        let frame = self.frame;
+
+        let charge = if self.templates.contains_key(thing) {
+            self.create_object_for_owner_or_team(thing, team, owner, pos)
+        } else if thing.eq_ignore_ascii_case(BOOBY_TRAP_OBJECT) {
+            self.spawn_booby_trap_special_object(target_id, team, target_id)
+        } else {
+            None
+        };
+        let Some(cid) = charge else {
+            return;
+        };
+
+        let is_booby_kind = thing.to_ascii_lowercase().contains("boobytrap");
+        if let Some(o) = self.objects.get_mut(&cid) {
+            o.booby_trap_special = true;
+            o.booby_trap_attached_to = Some(target_id);
+            o.producer_id = Some(target_id);
+        }
+        if is_booby_kind {
+            let _ = self.booby_trap.install(
+                target_id,
+                target_id,
+                team,
+                frame,
+                geom,
+                Some(cid),
+            );
+            if let Some(target) = self.objects.get_mut(&target_id) {
+                target.set_status_booby_trapped(true);
+            }
+        }
+    }
+
     /// C++ `ScriptActions::doGuardSupplyCenter` live drain.
     fn apply_host_guard_supply_center_script_requests(&mut self) {
         let requests = gamelogic::scripting::take_host_guard_supply_center_requests();
@@ -2299,6 +2428,7 @@ impl GameLogic {
         }
         self.apply_host_skirmish_script_requests();
         self.apply_host_money_script_requests();
+        self.apply_host_rank_script_requests();
         self.apply_host_transfer_script_requests();
         self.apply_host_player_relates_script_requests();
 
@@ -2314,6 +2444,7 @@ impl GameLogic {
         self.apply_host_follow_waypoints_script_requests();
 
         self.apply_host_create_script_requests();
+        self.apply_host_boobytrap_script_requests();
         self.apply_host_team_attitude_script_requests();
         self.apply_host_guard_supply_center_script_requests();
         self.apply_host_guard_variant_script_requests();
@@ -2336,6 +2467,7 @@ impl GameLogic {
             .is_some_and(|(_, expires_at)| self.sim_time_seconds > *expires_at)
         {
             self.cinematic_text = None;
+            self.cinematic_font = None;
         }
 
         if self
@@ -2756,7 +2888,7 @@ impl GameLogic {
             }
         }
 
-        if let Some((text, _font, duration_seconds)) = self
+        if let Some((text, font, duration_seconds)) = self
             .mission_scripts
             .drain_cinematic_text()
             .into_iter()
@@ -2764,6 +2896,7 @@ impl GameLogic {
         {
             let duration = (duration_seconds as f32).max(0.0);
             self.cinematic_text = Some((text, self.sim_time_seconds + duration));
+            self.cinematic_font = if font.is_empty() { None } else { Some(font) };
         }
 
         if let Some(last) = self

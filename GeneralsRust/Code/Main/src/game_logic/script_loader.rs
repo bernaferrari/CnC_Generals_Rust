@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::cell::Cell;
 
-use game_engine::common::dict::Dict;
+use game_engine::common::dict::{Dict, DictType};
 use game_engine::common::ini::{try_get_terrain_roads, INILoadType, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{
@@ -604,6 +604,9 @@ pub struct PlacedObject {
     /// C++ Dict `objectWeather` (`Object.cpp:3595-3605`): 0 follow map, 1 force
     /// `MODELCONDITION_SNOW` clear, 2 force set. Missing key is follow.
     pub object_weather: Option<i32>,
+    /// Typed C++ MapObject Dict. Live spawn calls leftover
+    /// `update_obj_values_from_map_properties` from this bag.
+    pub properties: Dict,
 }
 
 
@@ -632,7 +635,7 @@ pub struct MapMetadata {
     pub objects: Vec<PlacedObject>,
     /// Wave 831: SidesList build-list entries (skirmish faction bases).
     pub side_builds: Vec<SideBuildEntry>,
-    /// Wave 831: Player_N_Start waypoints (name, position).
+    /// Wave 831: Player_N_Start / Player_N_Rally waypoints (name, position).
     pub start_waypoints: Vec<(String, Coord3D)>,
     pub world_min: Option<Coord3D>,
     pub world_max: Option<Coord3D>,
@@ -1291,10 +1294,14 @@ fn parse_map_settings_from_loaded_chunky(
 
     match parse_player_start_waypoints_from_chunky(chunky) {
         Ok(starts) => {
-            meta.start_waypoints = starts
-                .into_iter()
-                .map(|(idx, pos, _rally)| (format!("Player_{}_Start", idx + 1), pos))
-                .collect();
+            let mut wps = Vec::new();
+            for (idx, pos, rally) in starts {
+                wps.push((format!("Player_{}_Start", idx + 1), pos));
+                if let Some(rally) = rally {
+                    wps.push((format!("Player_{}_Rally", idx + 1), rally));
+                }
+            }
+            meta.start_waypoints = wps;
         }
         Err(err) => {
             warn!(
@@ -2330,9 +2337,11 @@ fn parse_map_object_chunk(
     let mut indestructible = None;
 
     let mut object_weather = None;
+    let mut properties = Dict::new();
 
     if version >= 2 && reader.remaining() > 0 {
-        let dict = parse_chunk_dict(&mut reader, toc)?;
+        properties = parse_chunk_dict_typed(&mut reader, toc)?;
+        let dict = dict_to_string_map(&properties);
 
         // Waypoints are map metadata nodes, not spawnable world objects.
         if dict_contains_key(&dict, "waypointID") {
@@ -2423,6 +2432,7 @@ fn parse_map_object_chunk(
         indestructible,
 
         object_weather,
+        properties,
     }))
 
 }
@@ -2755,6 +2765,7 @@ fn parse_object_creation_chunk(data: &[u8], _version: u16) -> LoaderResult<Optio
         indestructible: None,
 
         object_weather: None,
+        properties: Dict::new(),
     }))
 
 }
@@ -2802,9 +2813,30 @@ fn parse_chunk_dict_typed(
         let name_id = key_and_type >> 8;
         let key_name = toc.get(&name_id).cloned().unwrap_or_default();
         if key_name.is_empty() {
-            return Err(configuration_error(format!(
-                "Chunk dict key id 0x{name_id:08X} missing from table of contents"
-            )));
+            match data_type {
+                0 => {
+                    let _ = reader.read_u8()?;
+                }
+                1 => {
+                    let _ = reader.read_i32()?;
+                }
+                2 => {
+                    let _ = reader.read_f32()?;
+                }
+                3 => {
+                    let _ = reader.read_ascii_string()?;
+                }
+                4 => {
+                    let _ = reader.read_unicode_string()?;
+                }
+                _ => {
+                    return Err(configuration_error(format!(
+                        "Unknown map dict value type {}",
+                        data_type
+                    )));
+                }
+            }
+            continue;
         }
         let key = NameKeyGenerator::name_to_key(&key_name);
         match data_type {
@@ -2822,6 +2854,31 @@ fn parse_chunk_dict_typed(
         }
     }
     Ok(dict)
+}
+
+fn dict_to_string_map(dict: &Dict) -> HashMap<String, String> {
+    let mut out = HashMap::with_capacity(dict.get_pair_count());
+    for i in 0..dict.get_pair_count() {
+        let Some(key) = dict.get_nth_key(i) else {
+            continue;
+        };
+        let Some(name) = NameKeyGenerator::key_to_name(key) else {
+            continue;
+        };
+        if name.is_empty() {
+            continue;
+        }
+        let value = match dict.get_type(key) {
+            Some(DictType::Bool) => dict.get_bool(key).to_string(),
+            Some(DictType::Int) => dict.get_int(key).to_string(),
+            Some(DictType::Real) => dict.get_real(key).to_string(),
+            Some(DictType::AsciiString) => dict.get_ascii_string(key),
+            Some(DictType::UnicodeString) => dict.get_unicode_string(key),
+            None => continue,
+        };
+        out.insert(name, value);
+    }
+    out
 }
 
 fn parse_side_build_entry(

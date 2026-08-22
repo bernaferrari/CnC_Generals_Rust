@@ -100,11 +100,13 @@ pub use thing::{
 };
 
 pub use thing_factory::{
-    ensure_system_ini_drawable_only_templates, ensure_thing_factory_exists,
-    generic_tracer_template_matches_system_ini, get_thing_factory, init_thing_factory,
-    load_templates_from_ini_text, shutdown_thing_factory, DrawableStatus, ObjectStatusMaskType,
-    Team, ThingCreationError, ThingFactory, ThingLoadType, DRAWABLE_STATUS_NONE,
-    OBJECT_STATUS_MASK_NONE, SYSTEM_INI_DRAWABLE_ONLY_FALLBACK,
+    clear_object_create_overrides, ensure_system_ini_drawable_only_templates,
+    ensure_thing_factory_exists, generic_tracer_template_matches_system_ini, get_thing_factory,
+    init_thing_factory, leftover_object_create_override, leftover_object_create_overrides,
+    load_templates_from_ini_text, register_object_create_overrides_live_overlay,
+    shutdown_thing_factory, DrawableStatus, ObjectCreateOverride, ObjectCreateOverridesLiveOverlay,
+    ObjectStatusMaskType, Team, ThingCreationError, ThingFactory, ThingLoadType,
+    DRAWABLE_STATUS_NONE, OBJECT_STATUS_MASK_NONE, SYSTEM_INI_DRAWABLE_ONLY_FALLBACK,
 };
 
 pub use thing_template::{

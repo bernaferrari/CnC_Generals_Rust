@@ -460,7 +460,7 @@ impl ScriptActionDispatcher {
         &mut self,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let player_name = self.get_string_param(action, 0)?;
+        let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         let points = self.get_int_param(action, 1)?;
         log::info!("Player '{}' adding {} skill points", player_name, points);
 
@@ -476,6 +476,11 @@ impl ScriptActionDispatcher {
             }
         }
 
+        crate::scripting::executor::request_host_rank(HostScriptRankRequest::AddSkillPoints {
+            player: player_name,
+            delta: points,
+        });
+
         Ok(ScriptActionResult::Success)
     }
 
@@ -483,7 +488,7 @@ impl ScriptActionDispatcher {
         &mut self,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let player_name = self.get_string_param(action, 0)?;
+        let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         let levels = self.get_int_param(action, 1)?;
         log::info!("Player '{}' adding {} rank levels", player_name, levels);
 
@@ -504,6 +509,11 @@ impl ScriptActionDispatcher {
             }
         }
 
+        crate::scripting::executor::request_host_rank(HostScriptRankRequest::AddRankLevel {
+            player: player_name,
+            delta: levels,
+        });
+
         Ok(ScriptActionResult::Success)
     }
 
@@ -511,7 +521,7 @@ impl ScriptActionDispatcher {
         &mut self,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let player_name = self.get_string_param(action, 0)?;
+        let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         let level = self.get_int_param(action, 1)?;
         log::info!("Player '{}' setting rank level to {}", player_name, level);
 
@@ -527,6 +537,11 @@ impl ScriptActionDispatcher {
             }
         }
 
+        crate::scripting::executor::request_host_rank(HostScriptRankRequest::SetRankLevel {
+            player: player_name,
+            level,
+        });
+
         Ok(ScriptActionResult::Success)
     }
 
@@ -537,6 +552,9 @@ impl ScriptActionDispatcher {
         let limit = self.get_int_param(action, 0)?;
         log::debug!("Setting map rank level limit to {}", limit);
         TheGameLogic::set_rank_level_limit(limit);
+        crate::scripting::executor::request_host_rank(HostScriptRankRequest::SetRankLevelLimit {
+            limit,
+        });
         Ok(ScriptActionResult::Success)
     }
 
@@ -633,6 +651,13 @@ impl ScriptActionDispatcher {
                 }
             }
         }
+
+        crate::scripting::executor::request_host_rank(
+            HostScriptRankRequest::AffectReceivingExperience {
+                player: player_name,
+                modifier,
+            },
+        );
 
         Ok(ScriptActionResult::Success)
     }

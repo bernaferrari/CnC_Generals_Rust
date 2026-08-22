@@ -29,7 +29,7 @@ use std::{
     collections::{BTreeSet, HashMap, HashSet},
     env, fs,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{Arc, LazyLock, Mutex, RwLock},
 };
 
 /// Template hash size constant
@@ -117,6 +117,84 @@ pub fn set_drawable_creator(creator: Option<Arc<dyn DrawableCreator>>) {
         *guard = creator;
     }
 }
+
+/// Map.ini / solo.ini `Object` CREATE_OVERRIDES captured from leftover
+/// `ThingFactory::parseObjectDefinition`. Live spawn uses AssetManager +
+/// `GameLogic.templates`, so this store is the leftover-only handoff.
+#[derive(Clone, Debug)]
+pub struct ObjectCreateOverride {
+    pub name: String,
+    pub reskin_from: String,
+    pub properties: HashMap<String, String>,
+}
+
+pub type ObjectCreateOverridesLiveOverlay =
+    fn(name: &str, reskin_from: &str, properties: &HashMap<String, String>);
+
+static OBJECT_CREATE_OVERRIDES: LazyLock<RwLock<Vec<ObjectCreateOverride>>> =
+    LazyLock::new(|| RwLock::new(Vec::new()));
+static OBJECT_CREATE_OVERRIDES_LIVE_OVERLAY: LazyLock<
+    RwLock<Option<ObjectCreateOverridesLiveOverlay>>,
+> = LazyLock::new(|| RwLock::new(None));
+
+pub fn register_object_create_overrides_live_overlay(
+    overlay: ObjectCreateOverridesLiveOverlay,
+) {
+    if let Ok(mut guard) = OBJECT_CREATE_OVERRIDES_LIVE_OVERLAY.write() {
+        *guard = Some(overlay);
+    }
+}
+
+pub fn leftover_object_create_overrides() -> Vec<ObjectCreateOverride> {
+    OBJECT_CREATE_OVERRIDES
+        .read()
+        .map(|guard| guard.clone())
+        .unwrap_or_default()
+}
+
+pub fn leftover_object_create_override(name: &str) -> Option<ObjectCreateOverride> {
+    OBJECT_CREATE_OVERRIDES.read().ok().and_then(|guard| {
+        guard
+            .iter()
+            .rev()
+            .find(|entry| entry.name.eq_ignore_ascii_case(name))
+            .cloned()
+    })
+}
+
+pub fn clear_object_create_overrides() {
+    if let Ok(mut guard) = OBJECT_CREATE_OVERRIDES.write() {
+        guard.clear();
+    }
+}
+
+fn record_object_create_override(
+    name: &str,
+    reskin_from: &str,
+    properties: &HashMap<String, String>,
+) {
+    if let Ok(mut guard) = OBJECT_CREATE_OVERRIDES.write() {
+        if let Some(existing) = guard
+            .iter_mut()
+            .find(|entry| entry.name.eq_ignore_ascii_case(name))
+        {
+            existing.reskin_from = reskin_from.to_string();
+            existing.properties = properties.clone();
+        } else {
+            guard.push(ObjectCreateOverride {
+                name: name.to_string(),
+                reskin_from: reskin_from.to_string(),
+                properties: properties.clone(),
+            });
+        }
+    }
+    if let Ok(guard) = OBJECT_CREATE_OVERRIDES_LIVE_OVERLAY.read() {
+        if let Some(overlay) = *guard {
+            overlay(name, reskin_from, properties);
+        }
+    }
+}
+
 /// Read key=value lines from the INI stream until `End` is encountered.
 ///
 /// This mirrors the C++ `initFromINI` approach where the INI cursor is already
@@ -690,11 +768,13 @@ impl ThingFactory {
                 let tmpl = Arc::make_mut(&mut thing_template);
                 tmpl.copy_from(&reskin_template);
                 tmpl.set_copied_from_default();
-                tmpl.set_reskinned_from(reskin_template);
                 tmpl.parse_reskin_fields_from_ini(&properties)?;
 
                 self.template_hash_map
                     .insert(AsciiString::from(name), thing_template.clone());
+                if ini.get_load_type() == IniLoadType::CreateOverrides {
+                    record_object_create_override(name, reskin_from, &properties);
+                }
             } else {
                 return Err(format!(
                     "ObjectReskin must come after the original Object ({}, {})",
@@ -716,10 +796,11 @@ impl ThingFactory {
             parse_result?;
 
 
-            // Re-insert the modified template back into the hash map since
-            // Arc::make_mut may have cloned it.
             self.template_hash_map
                 .insert(AsciiString::from(name), thing_template.clone());
+            if ini.get_load_type() == IniLoadType::CreateOverrides {
+                record_object_create_override(name, reskin_from, &properties);
+            }
         }
 
         // Validate the template
@@ -815,6 +896,7 @@ impl SubsystemInterface for ThingFactory {
     }
 
     fn reset(&mut self) -> SubsystemResult<()> {
+        clear_object_create_overrides();
         // Go through all templates and delete overrides
         let mut templates_to_remove = Vec::new();
 

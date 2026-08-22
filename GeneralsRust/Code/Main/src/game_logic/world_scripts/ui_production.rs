@@ -337,6 +337,11 @@ impl GameLogic {
         self.cinematic_text.as_ref().map(|(t, _)| t.as_str())
     }
 
+    /// C++ FONT_NAME leftover for `doDisplayCinematicText`.
+    pub fn cinematic_font(&self) -> Option<&str> {
+        self.cinematic_font.as_deref()
+    }
+
     pub fn military_caption_text(&self) -> Option<&str> {
         self.military_caption.as_ref().map(|(t, _)| t.as_str())
     }
@@ -378,11 +383,10 @@ impl GameLogic {
         self.new_script_messages.push(msg);
     }
 
-    pub fn set_cinematic_letterbox(&mut self, enabled: bool) {
-        self.cinematic_letterbox = enabled;
-    }
-
     pub fn set_cinematic_text(&mut self, text: Option<String>) {
+        if text.is_none() {
+            self.cinematic_font = None;
+        }
         self.cinematic_text = text.map(|t| (t, self.sim_time_seconds + 10.0));
     }
 

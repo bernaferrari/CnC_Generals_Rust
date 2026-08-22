@@ -946,17 +946,32 @@ impl GameClient {
         font: Option<&str>,
     ) {
         let text = text.filter(|t| !t.is_empty());
+        let incoming_ms = remaining_ms.unwrap_or(-1);
         if self.last_applied_cinematic_text.as_deref() == text {
+            // C++ resets frames on every fire. Leftover remaining_ms jumps up
+            // only when DISPLAY_CINEMATIC_TEXT re-arms the same string.
+            if incoming_ms > self.last_applied_cinematic_remaining_ms.unwrap_or(-1) {
+                self.arm_cinematic_overlay(remaining_ms, font);
+            } else if let Some(font) = font.filter(|f| !f.is_empty()) {
+                self.cinematic_overlay_font = Some(font.to_string());
+            }
+            self.last_applied_cinematic_remaining_ms = remaining_ms;
             return;
         }
         self.last_applied_cinematic_text = text.map(|t| t.to_string());
-        self.cinematic_overlay_font = font
-            .filter(|f| !f.is_empty())
-            .map(|f| f.to_string());
+        self.last_applied_cinematic_remaining_ms = remaining_ms;
         let Some(_) = text else {
+            self.cinematic_overlay_font = None;
             self.cinematic_overlay_frames = 0;
             return;
         };
+        self.arm_cinematic_overlay(remaining_ms, font);
+    }
+
+    fn arm_cinematic_overlay(&mut self, remaining_ms: Option<i32>, font: Option<&str>) {
+        self.cinematic_overlay_font = font
+            .filter(|f| !f.is_empty())
+            .map(|f| f.to_string());
         // C++ frames = LOGICFRAMES_PER_SECOND * time; remaining_ms is the
         // live residual of that countdown.
         const LOGICFRAMES_PER_SECOND: u32 = 30;
@@ -964,6 +979,49 @@ impl GameClient {
             .map(|ms| ((ms.max(0) as u32) * LOGICFRAMES_PER_SECOND + 999) / 1000)
             .filter(|frames| *frames > 0)
             .unwrap_or(LOGICFRAMES_PER_SECOND * 10);
+    }
+
+    /// C++ `ScriptActions::doDisplayCinematicText` fontType parse.
+    /// WorldBuilder: `"Name - Size:N"` / `"Name - Size:N [Bold]"`.
+    /// GUIEdit: `"Name - Size: N [Bold]"`.
+    pub fn parse_cinematic_font_type(font_type: &str) -> (String, i32, bool) {
+        let bold = font_type.ends_with("[Bold]");
+        let size = font_type
+            .rsplit_once("Size:")
+            .and_then(|(_, rest)| {
+                let digits: String = rest
+                    .trim_start()
+                    .chars()
+                    .take_while(|c| c.is_ascii_digit())
+                    .collect();
+                digits.parse().ok()
+            })
+            .unwrap_or(0);
+        let name = font_type
+            .split_once(" - ")
+            .map(|(name, _)| name.trim().to_string())
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| {
+                font_type
+                    .split(|c: char| c == ' ' || c == '-')
+                    .next()
+                    .unwrap_or(font_type)
+                    .to_string()
+            });
+        (name, size, bold)
+    }
+
+    /// C++ `adjustFontSize` of the parsed FONT_NAME point size.
+    pub fn cinematic_caption_point_size(font_type: Option<&str>) -> i32 {
+        let parsed = font_type
+            .map(Self::parse_cinematic_font_type)
+            .map(|(_, size, _)| size)
+            .filter(|&size| size > 0)
+            .unwrap_or(12);
+        crate::global_language::get_global_language_data()
+            .read()
+            .map(|data| data.adjust_font_size(parsed))
+            .unwrap_or(parsed)
     }
 
     /// Live cinematic caption (text, optional font, remaining rendered frames).
@@ -985,6 +1043,7 @@ impl GameClient {
             self.cinematic_overlay_frames -= 1;
             if self.cinematic_overlay_frames == 0 {
                 self.last_applied_cinematic_text = None;
+                self.last_applied_cinematic_remaining_ms = None;
                 self.cinematic_overlay_font = None;
             }
         }

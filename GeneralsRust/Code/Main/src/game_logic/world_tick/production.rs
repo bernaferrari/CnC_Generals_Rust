@@ -683,10 +683,10 @@ impl GameLogic {
             if !obj.is_constructed() || !obj.is_alive() {
                 continue;
             }
-            // C++ GameLogic.cpp:3677 — ProductionUpdate disabledTypesToProcess is
-            // DISABLED_HELD (update still runs when HELD). Underpowered is a
-            // calcTimeToBuild speed penalty via player_power_factor, not a freeze.
-            if obj.is_disabled() && !obj.status.disabled_underpowered {
+            // C++ GameLogic.cpp:3677 / ProductionUpdate.cpp:86 — process mask is
+            // DISABLED_HELD only. UNDERPOWERED does not intersect, so brownout
+            // freezes ProductionUpdate instead of applying 50-80% power-factor.
+            if obj.is_disabled() && !obj.status.disabled_held {
                 continue;
             }
             if obj.status.sold {
@@ -1839,6 +1839,13 @@ impl GameLogic {
                 base_pos.y = h;
             }
 
+            // C++ placeNetworkBuildingsForPlayer: units at Player_%d_Rally when present.
+            let want_idx = if player.start_position >= 0 {
+                player.start_position as u32
+            } else {
+                pid
+            };
+            let rally_pos = self.player_rally_spawn_pos(want_idx);
             // --- Starting units 0..9 (C++ placeStartingUnits / MAX_MP_STARTING_UNITS) ---
             // Wave 832: walk PlayerTemplate StartingUnit0..9; retail usually
             // only unit0 (dozer).
@@ -1874,9 +1881,13 @@ impl GameLogic {
                     continue;
                 }
 
-                // Offset around yard like C++ minRadius/maxRadius residual.
-                let mut unit_pos =
-                    base_pos + Vec3::new(40.0 + (i as f32) * 12.0, 0.0, -40.0 - (i as f32) * 6.0);
+                // C++ uses rally as findPositionAround center; invented yard offsets
+                // only when the map has no Player_N_Rally.
+                let mut unit_pos = if let Some(rally) = rally_pos {
+                    rally
+                } else {
+                    base_pos + Vec3::new(40.0 + (i as f32) * 12.0, 0.0, -40.0 - (i as f32) * 6.0)
+                };
                 if let Some(h) = self.terrain_height_at(Vec3::new(unit_pos.x, 0.0, unit_pos.z)) {
                     unit_pos.y = h;
                 }

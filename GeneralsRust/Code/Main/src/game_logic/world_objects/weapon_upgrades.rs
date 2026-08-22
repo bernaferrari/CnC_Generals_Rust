@@ -913,12 +913,16 @@ impl GameLogic {
     }
 
     /// C++ Upgrade_ChinaNationalism residual — horde ROF tag on infantry/tanks.
+    /// C++ `evaluateMoraleBonus` runs on every HordeUpdate unit, not just
+    /// Battlemaster / Red Guard / Tank Hunter / MiniGunner.
     pub(in super::super) fn apply_nationalism_to_team(
         &mut self,
         team: Team,
         upgrade_name: &str,
     ) -> u32 {
-        use crate::game_logic::host_battlemaster::{is_battlemaster_template, UPGRADE_NATIONALISM};
+        use crate::game_logic::host_battlemaster::{
+            is_battlemaster_template, is_china_horde_update_unit, UPGRADE_NATIONALISM,
+        };
         use crate::game_logic::host_minigunner::is_minigunner_template;
         use crate::game_logic::host_red_guard::is_red_guard_template;
         use crate::game_logic::host_tank_hunter::is_tank_hunter_template;
@@ -936,6 +940,8 @@ impl GameLogic {
                     Some((*id, 2))
                 } else if is_minigunner_template(&o.template_name) {
                     Some((*id, 3))
+                } else if is_china_horde_update_unit(&o.template_name) {
+                    Some((*id, 4))
                 } else {
                     None
                 }
@@ -948,6 +954,13 @@ impl GameLogic {
                 1 => self.apply_red_guard_nationalism_upgrade(id),
                 2 => self.apply_tank_hunter_nationalism_upgrade(id),
                 3 => self.apply_minigunner_nationalism_upgrade(id),
+                4 => {
+                    if let Some(o) = self.objects.get_mut(&id) {
+                        o.applied_upgrades.insert(UPGRADE_NATIONALISM.to_string());
+                    }
+                    self.evaluate_horde_morale_bonus(id);
+                    true
+                }
                 _ => false,
             };
             if ok {
@@ -976,23 +989,15 @@ impl GameLogic {
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_battlemaster::{
-            is_battlemaster_template, leftover_horde_fanaticism_bonus, UPGRADE_FANATICISM,
+            is_china_horde_update_unit, leftover_horde_fanaticism_bonus, UPGRADE_FANATICISM,
         };
-
-        use crate::game_logic::host_minigunner::is_minigunner_template;
-        use crate::game_logic::host_red_guard::is_red_guard_template;
-        use crate::game_logic::host_tank_hunter::is_tank_hunter_template;
 
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
             .filter(|(_, o)| upgrade_targets_object(o, team) && o.is_alive())
             .filter_map(|(id, o)| {
-                if is_battlemaster_template(&o.template_name)
-                    || is_red_guard_template(&o.template_name)
-                    || is_tank_hunter_template(&o.template_name)
-                    || is_minigunner_template(&o.template_name)
-                {
+                if is_china_horde_update_unit(&o.template_name) {
                     Some(*id)
                 } else {
                     None

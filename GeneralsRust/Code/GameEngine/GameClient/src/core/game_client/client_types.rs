@@ -31,6 +31,8 @@ pub struct GameClient {
     last_applied_military_caption: Option<String>,
     /// Last presentation cinematic text applied (avoid per-frame re-push).
     last_applied_cinematic_text: Option<String>,
+    /// Last presentation remaining_ms (detect leftover re-fire / re-arm).
+    last_applied_cinematic_remaining_ms: Option<i32>,
     /// C++ `Display::m_cinematicFont` residual (script font name).
     cinematic_overlay_font: Option<String>,
     /// C++ `Display::m_cinematicTextFrames` — decremented per rendered frame.

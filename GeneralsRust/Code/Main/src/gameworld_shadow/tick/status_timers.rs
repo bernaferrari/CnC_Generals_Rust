@@ -116,12 +116,9 @@ impl GameWorldShadow {
         };
         let gw_horde_allies =
             |a: Option<u32>, a_team: u8, b: Option<u32>, b_team: u8| -> bool {
-                match (a, b) {
-                    (Some(a), Some(b)) => a == b,
-                    (None, None) => a_team == b_team,
-                    _ => false,
-                }
+                self.horde_allies_only(a, a_team, b, b_team)
             };
+
         let inf_units: Vec<_> = infantry_snapshot.iter().map(|u| u.3).collect();
         let inf_mem = evaluate_leftover_horde_blob_scan(
             &inf_units,

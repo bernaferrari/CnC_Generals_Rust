@@ -1261,6 +1261,8 @@ pub struct GameLogic {
     pub(super) new_script_messages: Vec<String>,
     pub(super) cinematic_letterbox: bool,
     pub(super) cinematic_text: Option<(String, f32)>,
+    /// C++ FONT_NAME leftover (`Name - Size:N [Bold]`).
+    pub(super) cinematic_font: Option<String>,
     pub(super) military_caption: Option<(String, f32)>,
     pub(super) radar_enabled: bool,
     pub(super) radar_forced: bool,

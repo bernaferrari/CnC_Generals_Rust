@@ -2506,7 +2506,7 @@ impl CnCGameEngine {
             self.game_client.apply_presentation_cinematic_text(
                 pres.cinematic_text.as_deref(),
                 pres.cinematic_text_remaining_ms,
-                None,
+                pres.cinematic_font.as_deref(),
             );
             // Wave 964: selection residual for InGameUI host empty dual-world path.
             let sel_units: Vec<game_client::gui::ingame_ui::PresentationSelectedUnitResidual> = {

@@ -4211,6 +4211,30 @@ mod tests {
     }
 
     #[test]
+    fn find_named_waypoint_resolves_player_rally() {
+        // C++ GameLogic.cpp:160 findNamedWaypoint("Player_%d_Rally").
+        let mut terrain = TerrainLogic::new();
+        terrain.add_waypoint_from_map(&MapWaypoint {
+            id: 7,
+            name: "Player_1_Rally".to_string(),
+            location: crate::system::map_loader::Coord3D::new(321.0, 654.0, 12.0),
+            path_label1: String::new(),
+            path_label2: String::new(),
+            path_label3: String::new(),
+            bi_directional: false,
+        });
+        let name = AsciiString::from("Player_1_Rally");
+        let loc = terrain
+            .get_waypoint_by_name(&name)
+            .expect("Player_1_Rally")
+            .get_location();
+        assert!(
+            (loc.x - 321.0).abs() < 0.01 && (loc.y - 654.0).abs() < 0.01,
+            "rally XY discarded: {loc:?}"
+        );
+    }
+
+    #[test]
     fn terrain_query_load_skips_new_map_finalization() {
         let mut terrain = TerrainLogic::new();
 

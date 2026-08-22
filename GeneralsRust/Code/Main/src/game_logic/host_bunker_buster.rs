@@ -4,8 +4,8 @@
 //! - `Upgrade_AmericaBunkerBusters` research tags residual Stealth Fighters
 //!   (C++ BunkerBusterBehavior::UpgradeRequired on StealthJetMissile).
 //! - Combat impact on a structure with residual bunker-buster capability:
-//!   - Kills all garrisoned occupants (C++ contain killAllContained /
-//!     harmAndForceExitAllContained residual).
+//!   - 100 typed occupant damage + force-exit (C++ `m_amount=100` then
+//!     `harmAndForceExitAllContained`; leftover `bust_the_bunker` already matches).
 //!   - Applies amplified structure damage vs bunkers ("damages bunkers more").
 //! - Optional KILL_GARRISONED residual (MicrowaveTankBuildingClearer style):
 //!   kill `floor(damage)` occupants without requiring the upgrade.
@@ -53,8 +53,11 @@ pub const MICROWAVE_BUILDING_CLEARER_WEAPON: &str = "MicrowaveTankBuildingCleare
 /// Fail-closed: not full armor / STEALTHJET_MISSILES damage-FX matrix.
 pub const BUNKER_BUSTER_STRUCTURE_DAMAGE_MULT: f32 = 1.5;
 
-/// Residual occupant kill damage (matches BunkerBusterAntiTunnel PrimaryDamage 400 residual).
+/// Residual occupant INI PrimaryDamage (BunkerBusterAntiTunnel 400). Not the live harm amount.
 pub const BUNKER_BUSTER_OCCUPANT_DAMAGE: f32 = 400.0;
+/// C++ `bustTheBunker` hardcoded 100. Leftover already matches; live host wires that amount.
+pub const BUNKER_BUSTER_HARM_AMOUNT: f32 =
+    gamelogic::object::behavior::bunker_buster_behavior::BUNKER_BUSTER_HARM_AND_FORCE_EXIT_AMOUNT;
 /// Retail BunkerBusterAntiTunnel PrimaryDamageRadius residual.
 pub const BUNKER_BUSTER_OCCUPANT_RADIUS: f32 = 10.0;
 
@@ -324,6 +327,7 @@ pub fn honesty_bunker_buster_behavior_residual_ok() -> bool {
         && BUNKER_BUSTER_OCCUPANT_WEAPON == "BunkerBusterAntiTunnelGarrisonWeaponWithABigName"
         && (BUNKER_BUSTER_STRUCTURE_DAMAGE_MULT - 1.5).abs() < 0.001
         && (BUNKER_BUSTER_OCCUPANT_DAMAGE - 400.0).abs() < 0.01
+        && (BUNKER_BUSTER_HARM_AMOUNT - 100.0).abs() < 0.01
         && (BUNKER_BUSTER_OCCUPANT_RADIUS - 10.0).abs() < 0.01
         && (BUNKER_BUSTER_OCCUPIED_BONUS_DAMAGE - 10.0).abs() < 0.01
         && (BUNKER_BUSTER_SHOCKWAVE_RADIUS - 50.0).abs() < 0.01

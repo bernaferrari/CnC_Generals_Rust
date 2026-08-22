@@ -1683,6 +1683,13 @@ impl ScriptActionDispatcher {
             unit_name,
             boobytrap_template
         );
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_boobytrap(super::HostScriptBoobytrapRequest::Named {
+                thing: boobytrap_template,
+                unit: unit_name,
+            });
+            return Ok(ScriptActionResult::Success);
+        }
 
         let tracker = get_named_object_tracker();
         if let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) {

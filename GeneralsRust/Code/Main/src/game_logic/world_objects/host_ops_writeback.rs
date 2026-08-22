@@ -735,6 +735,10 @@ impl GameLogic {
                         }
                         HordeGrantCounter::None => {}
                     }
+                    // C++ evaluateMoraleBonus on every HordeUpdate unit.
+                    // Battlemaster refresh is a no-op for Dragon/Inferno/
+                    // Gattling/Overlord; this still stamps NATIONALISM.
+                    self.evaluate_horde_morale_bonus(id);
                 }
             }
             HostResidualMutationOp::ApplyStingerHiveState {

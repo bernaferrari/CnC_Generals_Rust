@@ -37,6 +37,7 @@ impl GameClient {
             local_player_id: 0,
             last_applied_military_caption: None,
             last_applied_cinematic_text: None,
+            last_applied_cinematic_remaining_ms: None,
             cinematic_overlay_font: None,
             cinematic_overlay_frames: 0,
             letterbox_overlay_enabled: false,

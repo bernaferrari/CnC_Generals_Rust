@@ -130,16 +130,14 @@ impl FXList {
         Ok(())
     }
 
-    /// Execute a visual effect at a world-space position with a radius hint.
-    ///
-    /// C++ FXList::doFXPos accepts a radius for some effects. The current Rust
-    /// FX system ignores this hint, but we keep the API for parity.
+    /// C++ `FXList::doFXPos(fxl, pos, NULL, 0, NULL, overrideRadius)`.
+    /// StickyBomb geometry FX and projectile detonate FX pass the splash radius.
     pub fn do_fx_at_position_with_radius(
         &self,
         position: &Coord3D,
-        _radius: Real,
+        radius: Real,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.do_fx_at_position(position)
+        self.do_fx_pos(position, None, 0.0, None, radius)
     }
 }
 

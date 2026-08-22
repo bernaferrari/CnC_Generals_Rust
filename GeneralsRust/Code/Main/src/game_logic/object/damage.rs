@@ -225,24 +225,6 @@ impl Object {
             let _ = (source, death_type);
             return false;
         }
-        // C++ DAMAGE_SURRENDER residual: lethal hit on surrender-capable infantry
-        // sets surrendered instead of destroying (ActiveBody commented path residual).
-        if matches!(
-            damage_type,
-            crate::game_logic::combat::DamageType::Surrender
-        ) {
-            let _ = death_type;
-            if self.can_surrender_from_damage() {
-                let would_kill = damage >= self.health.current && self.health.current > 0.0;
-                if would_kill {
-                    self.set_surrendered(true);
-                    self.status.attacking = false;
-                    self.target = None;
-                    return false;
-                }
-            }
-            // Non-lethal or non-capable: fall through to normal HP.
-        }
         // DAMAGE_PENALTY: normal HP path (no special intercept).
         // C++ DAMAGE_HEALING residual: restore HP via attemptHealing; never destroys.
         // C++ ActiveBody.cpp:817-820 stamps lastDamageInfo + lastHealingTimestamp

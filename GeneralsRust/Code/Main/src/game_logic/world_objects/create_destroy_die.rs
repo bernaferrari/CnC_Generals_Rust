@@ -1006,6 +1006,7 @@ impl GameLogic {
     /// Object INI (14s+ on Lone Eagle).
     fn ensure_host_spawn_template(&mut self, template_name: &str) -> bool {
         if self.templates.contains_key(template_name) {
+            self.apply_pending_leftover_object_override(template_name);
             return true;
         }
         if let Some(canonical) = self
@@ -1016,6 +1017,7 @@ impl GameLogic {
         {
             if let Some(template) = self.templates.get(&canonical).cloned() {
                 self.templates.insert(template_name.to_string(), template);
+                self.apply_pending_leftover_object_override(template_name);
                 return true;
             }
         }
@@ -1075,6 +1077,7 @@ impl GameLogic {
         }
 
         if injected {
+            self.apply_pending_leftover_object_override(template_name);
             self.unresolved_spawn_templates.remove(template_name);
             true
         } else {
@@ -2244,6 +2247,59 @@ impl GameLogic {
                                     self.demo_suicide_bomb.record_command_set_upgrade(1);
                                 }
                             }
+                        }
+                    }
+                }
+            }
+
+            // C++ AIUpdate::evaluateMoraleBonus reads player->hasUpgradeComplete
+            // each refresh. Live stamps unit tags at research time; inherit
+            // those player upgrades here so late-built units get the bonus.
+            {
+                use crate::game_logic::host_battlemaster::{
+                    has_fanaticism_upgrade, has_nationalism_upgrade, is_battlemaster_template,
+                    is_china_vehicle_horde_unit, UPGRADE_FANATICISM, UPGRADE_NATIONALISM,
+                };
+                use crate::game_logic::host_minigunner::is_minigunner_template;
+                use crate::game_logic::host_red_guard::{
+                    is_china_infantry_horde_unit, is_red_guard_template,
+                };
+                use crate::game_logic::host_tank_hunter::is_tank_hunter_template;
+
+                let horde_unit = is_china_infantry_horde_unit(template_name)
+                    || is_china_vehicle_horde_unit(template_name);
+                if horde_unit {
+                    let mut upgrades = std::collections::HashSet::new();
+                    if let Some(player) =
+                        owner_player_id.and_then(|pid| self.players.get(&pid))
+                    {
+                        upgrades.extend(player.unlocked_sciences.iter().cloned());
+                        upgrades.extend(player.completed_upgrades.iter().cloned());
+                    } else {
+                        for player in self.players.values().filter(|p| p.team == team) {
+                            upgrades.extend(player.unlocked_sciences.iter().cloned());
+                            upgrades.extend(player.completed_upgrades.iter().cloned());
+                        }
+                    }
+                    let has_nat = has_nationalism_upgrade(&upgrades);
+                    let has_fan = has_fanaticism_upgrade(&upgrades);
+                    if has_nat || has_fan {
+                        if let Some(obj) = self.objects.get_mut(&id) {
+                            if has_nat {
+                                obj.apply_upgrade_tag(UPGRADE_NATIONALISM);
+                            }
+                            if has_fan {
+                                obj.apply_upgrade_tag(UPGRADE_FANATICISM);
+                            }
+                        }
+                        if is_red_guard_template(template_name) {
+                            self.refresh_red_guard_weapon(id);
+                        } else if is_tank_hunter_template(template_name) {
+                            self.refresh_tank_hunter_weapon(id);
+                        } else if is_minigunner_template(template_name) {
+                            self.refresh_minigunner_weapon(id);
+                        } else if is_battlemaster_template(template_name) {
+                            self.refresh_battlemaster_weapon(id);
                         }
                     }
                 }

@@ -776,6 +776,11 @@ impl UpdateModuleInterface for ProductionUpdate {
         BehaviorModuleInterface::update(self)?;
         Ok(UPDATE_SLEEP_NONE)
     }
+
+    fn get_disabled_types_to_process(&self) -> DisabledMaskType {
+        // C++ ProductionUpdate.cpp:86 default DisabledTypesToProcess = DISABLED_HELD.
+        DisabledMaskType::HELD
+    }
 }
 
 impl ProductionUpdateInterface for ProductionUpdate {

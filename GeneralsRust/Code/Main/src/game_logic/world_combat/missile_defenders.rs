@@ -1840,10 +1840,10 @@ impl GameLogic {
     }
 
     /// Apply BunkerBuster residual to a structure target:
-    /// kill all garrisoned occupants + amplified structure damage vs bunkers.
+    /// 100 typed occupant damage + force-exit (C++ harmAndForceExitAllContained)
+    /// and amplified structure damage vs bunkers.
     ///
     /// Returns (occupants_killed, structure_damage_applied, structure_destroyed).
-    /// Fail-closed: not full BunkerBusterBehavior FX / seismic / temp shockwave weapon.
     pub(in super::super) fn apply_bunker_buster_to_target(
         &mut self,
         target_id: ObjectId,
@@ -1853,7 +1853,7 @@ impl GameLogic {
     ) -> (u32, f32, bool) {
         use crate::game_logic::host_bunker_buster::{
             bunker_buster_structure_damage, is_bunker_structure_name, BUNKER_BUSTER_AUDIO,
-            BUNKER_BUSTER_OCCUPANT_DAMAGE,
+            BUNKER_BUSTER_HARM_AMOUNT, BUNKER_BUSTER_OCCUPANT_WEAPON,
         };
 
         let (mut occupants, is_bunker, target_pos, is_tunnel, target_player) = {
@@ -1903,7 +1903,18 @@ impl GameLogic {
                 target.remove_occupant(occ_id);
             }
         }
+        // C++ OpenContain/TunnelContain::harmAndForceExitAllContained:
+        // removeFromContain (expose) then attemptDamage(100 typed). Survivors stay ejected.
+        let occupant_damage_type =
+            crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(
+                BUNKER_BUSTER_OCCUPANT_WEAPON,
+            );
+        let occupant_death_type = crate::game_logic::host_armor_residual::resolve_host_death_type(
+            Some(BUNKER_BUSTER_OCCUPANT_WEAPON),
+            occupant_damage_type,
+        );
 
+        let mut ejected: Vec<ObjectId> = Vec::new();
         for occ_id in occupants {
             let Some(occ) = self.objects.get_mut(&occ_id) else {
                 continue;
@@ -1916,24 +1927,10 @@ impl GameLogic {
             if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 crate::game_logic::host_ai_decision_log::record_set_state(occ_id, 0);
             }
-            // Residual occupant damage (BunkerBusterAntiTunnel ~400) — lethal for infantry.
-            let _ = occ.take_damage_from(
-                BUNKER_BUSTER_OCCUPANT_DAMAGE.max(occ.health.current * 10.0),
-                attacker_id,
-            );
-            if !occ.is_alive() || occ.health.current <= 0.0 || occ.status.destroyed {
-                kills = kills.saturating_add(1);
-                destroy_ids.push(occ_id);
-            } else {
-                let _ = occ.take_damage_from(999_999.0, attacker_id);
-                kills = kills.saturating_add(1);
-                destroy_ids.push(occ_id);
-            }
+            ejected.push(occ_id);
         }
 
-        for id in destroy_ids {
-            // C++ TunnelContain::harmAndForceExitAllContained removeFromContain
-            // then attemptDamage — pool must drop the occupant.
+        for &id in &ejected {
             if let Some(player_id) = self.tunnel_network.player_holding_unit(id) {
                 if let Some(entry) = self.tunnel_network.record_exit(player_id, id, target_id) {
                     if entry != target_id {
@@ -1943,6 +1940,33 @@ impl GameLogic {
                     }
                 }
             }
+        }
+
+        for occ_id in ejected {
+            crate::game_logic::object::prime_live_damage_context(
+                attacker_id.and_then(|id| self.objects.get(&id)),
+                Some(BUNKER_BUSTER_OCCUPANT_WEAPON),
+                occupant_damage_type,
+            );
+            let Some(occ) = self.objects.get_mut(&occ_id) else {
+                continue;
+            };
+            if !occ.is_alive() {
+                continue;
+            }
+            let killed = occ.take_damage_from_typed_death(
+                BUNKER_BUSTER_HARM_AMOUNT,
+                attacker_id,
+                occupant_damage_type,
+                occupant_death_type,
+            );
+            if killed || !occ.is_alive() || occ.health.current <= 0.0 || occ.status.destroyed {
+                kills = kills.saturating_add(1);
+                destroy_ids.push(occ_id);
+            }
+        }
+
+        for id in destroy_ids {
             self.mark_object_for_destruction(id, Some(attacker_team));
         }
 
