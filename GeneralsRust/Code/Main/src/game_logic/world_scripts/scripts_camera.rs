@@ -1696,6 +1696,9 @@ impl GameLogic {
                 }
             }
         }
+        // C++ doSpecialPower* COMMAND_FIRED_BY_SCRIPT — PUC keeps SwathOfDeath.
+        self.special_power_strikes
+            .note_script_fired_special_power(id);
         self.queue_command(crate::command_system::GameCommand {
             command_type: crate::command_system::CommandType::DoSpecialPower {
                 power_type: power,

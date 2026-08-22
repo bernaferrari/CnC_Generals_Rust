@@ -1491,6 +1491,8 @@ impl GameLogic {
                 );
             if is_listening_outpost_spawn {
                 object.install_listening_outpost_transport();
+                // C++ StealthUpdate ctor: m_stealthAllowedFrame = now + StealthDelay.
+                object.rearm_stealth_delay(self.frame);
             }
 
             // Host residual: China Troop Crawler TransportContain Slots=8 +

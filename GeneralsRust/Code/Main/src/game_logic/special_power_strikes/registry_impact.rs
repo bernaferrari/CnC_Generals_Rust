@@ -143,9 +143,12 @@ impl HostSpecialPowerStrikeRegistry {
             };
 
             // C++ AttackNugget leftover: flying missiles own ScudStormDamageWeapon.
+            // C++ one CarpetBombWeapon per drop: falling bombs own the blast.
             // Registry blob is fallback only when leftover did not schedule.
             let mut hits = Vec::new();
-            if !(strike.kind.is_scud_multi_strike() && strike.live_scud_delivery) {
+            if !(strike.kind.is_scud_multi_strike() && strike.live_scud_delivery)
+                && !(strike.kind.is_line_multi_strike() && strike.live_carpet_delivery)
+            {
                 for &(id, pos, team, alive) in object_positions {
                     if !alive || id == strike.source_object {
                         continue;
@@ -275,7 +278,7 @@ impl HostSpecialPowerStrikeRegistry {
             u32,
             SpectreGunshipScienceTier,
         )> = None;
-        let mut spawn_beam: Option<(ObjectId, crate::game_logic::Team, Vec3, u32)> = None;
+        let mut spawn_beam: Option<(ObjectId, crate::game_logic::Team, Vec3, u32, bool)> = None;
         if let Some(strike) = self.strikes.get_mut(&strike_id) {
             if strike.phase == HostStrikePhase::Queued {
                 strike.total_damage_applied = strike.total_damage_applied + total_damage;
@@ -553,6 +556,7 @@ impl HostSpecialPowerStrikeRegistry {
                             strike.source_team,
                             strike.target_position,
                             strike.impact_frame,
+                            strike.manual_beam_hold,
                         ));
                     }
                 }
@@ -586,8 +590,15 @@ impl HostSpecialPowerStrikeRegistry {
                 spectre_tier,
             );
         }
-        if let Some((source, team, pos, impact_frame)) = spawn_beam {
-            self.spawn_beam_field(source, team, pos, impact_frame, strike_id);
+        if let Some((source, team, pos, impact_frame, manual_hold)) = spawn_beam {
+            self.spawn_beam_field_with_manual(
+                source,
+                team,
+                pos,
+                impact_frame,
+                strike_id,
+                manual_hold,
+            );
         }
     }
 }

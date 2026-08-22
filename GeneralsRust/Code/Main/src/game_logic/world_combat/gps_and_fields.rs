@@ -945,18 +945,20 @@ impl GameLogic {
     /// Radius=150, HealPercentEachSecond=2% (4% upgraded), ENTHUSIASTIC / SUBLIMINAL.
     /// Membership follows `m_scanDelayInFrames` (2000ms). Sold / double-contained
     /// sources `removeAllInfluence`. ALLOW_ALLIES. SCORE + hasAnyDamageWeapon.
+    /// Enclosed riders (`contained_by`) are not partition-registered
+    /// (C++ OpenContain::addToContain → unRegisterObject); live snaps them
+    /// to the hull so they must be excluded from the radius scan.
     pub fn update_propaganda_tower_pulse(&mut self, dt: f32) {
         use crate::game_logic::host_overlord_addons::{
             is_overlord_propaganda_source, overlord_propaganda_heal_amount,
-            UPGRADE_OVERLORD_PROPAGANDA,
         };
         use crate::game_logic::host_propaganda::{
             host_has_any_damage_weapon, in_propaganda_radius_2d, is_legal_propaganda_target,
             is_portable_propaganda_structure, is_propaganda_score_kind, is_propaganda_tower,
-            propaganda_applies_weapon_bonus, propaganda_heal_amount, propaganda_source_suppressed,
-            should_play_propaganda_pulse_fx, HOST_PROPAGANDA_DELAY_BETWEEN_UPDATES_FRAMES,
-            HOST_PROPAGANDA_TOWER_RADIUS, PROPAGANDA_PULSE_FX, PROPAGANDA_UPGRADED_PULSE_FX,
-            UPGRADE_CHINA_SUBLIMINAL_MESSAGING,
+            is_subliminal_upgrade_active, propaganda_applies_weapon_bonus, propaganda_heal_amount,
+            propaganda_source_suppressed, should_play_propaganda_pulse_fx,
+            HOST_PROPAGANDA_DELAY_BETWEEN_UPDATES_FRAMES, HOST_PROPAGANDA_TOWER_RADIUS,
+            PROPAGANDA_PULSE_FX, PROPAGANDA_UPGRADED_PULSE_FX, UPGRADE_CHINA_SUBLIMINAL_MESSAGING,
         };
         use gamelogic::common::Relationship;
         use std::collections::{HashMap, HashSet};
@@ -1026,18 +1028,13 @@ impl GameLogic {
                     })
                 })
             };
-            let upgraded = if overlord_style {
-                obj.has_upgrade_tag(UPGRADE_OVERLORD_PROPAGANDA)
-                    || obj.has_upgrade_tag("Upgrade_ChinaOverlordPropagandaTower")
-                    || obj.has_upgrade_tag(UPGRADE_CHINA_SUBLIMINAL_MESSAGING)
-                    || player_has(&[
-                        UPGRADE_CHINA_SUBLIMINAL_MESSAGING,
-                        UPGRADE_OVERLORD_PROPAGANDA,
-                    ])
-            } else {
-                obj.has_upgrade_tag(UPGRADE_CHINA_SUBLIMINAL_MESSAGING)
-                    || player_has(&[UPGRADE_CHINA_SUBLIMINAL_MESSAGING])
-            };
+            // C++ PropagandaTowerBehavior::effectLogic:275
+            // getControllingPlayer()->hasUpgradeComplete(m_upgradeRequired)
+            // with UpgradeRequired=Upgrade_ChinaSubliminalMessaging. Addon
+            // install tags (Overlord/Helix propaganda) are not this upgrade.
+            let upgraded = is_subliminal_upgrade_active(player_has(&[
+                UPGRADE_CHINA_SUBLIMINAL_MESSAGING,
+            ]));
             let pos = obj.get_position();
             towers.push(TowerSnap {
                 id: *id,
@@ -1078,6 +1075,11 @@ impl GameLogic {
                     return None;
                 }
                 if obj.status.under_construction {
+                    return None;
+                }
+                // C++ OpenContain.cpp:320-322: enclosing contain unregisters
+                // the rider from PartitionManager, so doScan never sees them.
+                if obj.contained_by.is_some() {
                     return None;
                 }
                 let pos = obj.get_position();

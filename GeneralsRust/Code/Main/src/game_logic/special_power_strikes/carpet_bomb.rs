@@ -4,8 +4,8 @@ use super::types::*;
 
 /// Retail `SUPERWEAPON_CarpetBomb` Payload count (`Payload = CarpetBomb 15`).
 pub const CARPET_BOMB_COUNT: u32 = 15;
-/// Residual spacing between bomb epicenters along the drop line
-/// (host residual; full DeliveryDistance flight path deferred).
+/// Residual spacing between bomb epicenters along the approach vector
+/// (C++ DeliverPayload flight path; live host residual).
 pub const CARPET_BOMB_SPACING: f32 = 25.0;
 /// Retail OCL CarpetBomb DeliverPayload DropVariance X (C++ horizontal X).
 pub const CARPET_BOMB_DROP_VARIANCE_X: f32 = 30.0;
@@ -196,7 +196,7 @@ impl CarpetBombFactionTier {
         }
     }
 
-    /// Host residual line length ≈ (count-1)*spacing (DeliveryDistance flight deferred).
+    /// Host residual line length ≈ (count-1)*spacing along the approach vector.
     pub fn line_length(self) -> f32 {
         let n = self.bomb_count().max(1);
         (n as f32 - 1.0) * CARPET_BOMB_SPACING

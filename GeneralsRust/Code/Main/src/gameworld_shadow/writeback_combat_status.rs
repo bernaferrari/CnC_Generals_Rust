@@ -11,6 +11,7 @@ impl GameWorldShadow {
         let mut updated = 0usize;
         let mut ready: Vec<ObjectId> = Vec::new();
         let mut a10_head_off_destroy: Vec<ObjectId> = Vec::new();
+        let mut carpet_head_off_destroy: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -947,6 +948,11 @@ impl GameWorldShadow {
                         ent.carpet_bomb_transport_launch_y,
                         ent.carpet_bomb_transport_launch_z,
                     );
+                    d.map_min = glam::Vec3::new(self.map_min_x, 0.0, self.map_min_z);
+                    d.map_max = glam::Vec3::new(self.map_max_x, 0.0, self.map_max_z);
+                } else if obj.carpet_bomb_transport.take().is_some() && ent.destroyed {
+                    // C++ CleanUpState::destroyObject after HeadOffMap isOffMap.
+                    carpet_head_off_destroy.push(ObjectId(hid));
                 } else {
                     obj.carpet_bomb_transport = None;
                 }
@@ -1451,6 +1457,12 @@ impl GameWorldShadow {
             }
         }
         for id in a10_head_off_destroy {
+            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
+                id,
+                team: None,
+            });
+        }
+        for id in carpet_head_off_destroy {
             logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
                 id,
                 team: None,

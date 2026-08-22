@@ -4966,7 +4966,8 @@ fn combat_chinook_vehicle_rider_does_not_arm_weapon_set() {
 fn listening_outpost_residual_capacity_detect_and_payload() {
     use crate::game_logic::host_listening_outpost::{
         is_listening_outpost_template, LISTENING_OUTPOST_DETECTION_RANGE,
-        LISTENING_OUTPOST_INITIAL_PAYLOAD_COUNT, LISTENING_OUTPOST_TRANSPORT_SLOTS,
+        LISTENING_OUTPOST_INITIAL_PAYLOAD_COUNT, LISTENING_OUTPOST_STEALTH_DELAY_FRAMES,
+        LISTENING_OUTPOST_TRANSPORT_SLOTS,
     };
 
     let mut game_logic = GameLogic::new();
@@ -4987,10 +4988,15 @@ fn listening_outpost_residual_capacity_detect_and_payload() {
         "detection range residual 300, got {}",
         outpost.detection_range
     );
-    assert!(outpost.status.stealthed, "innate stealth residual on spawn");
+    assert!(
+        !outpost.status.stealthed,
+        "C++ ctor sets CAN_STEALTH only; STEALTHED waits StealthDelay"
+    );
     assert!(outpost.innate_stealth);
     assert!(outpost.stealth_breaks_on_move);
     assert!(!outpost.stealth_breaks_on_attack);
+    assert_eq!(outpost.stealth_delay_frames, LISTENING_OUTPOST_STEALTH_DELAY_FRAMES);
+    assert_eq!(outpost.stealth_allowed_frame, LISTENING_OUTPOST_STEALTH_DELAY_FRAMES);
     // InitialPayload TankHunter × 2 residual docks when payload template available.
     assert!(
         outpost.transport_count() == LISTENING_OUTPOST_INITIAL_PAYLOAD_COUNT
@@ -5114,8 +5120,21 @@ fn listening_outpost_residual_detect_stealth_in_range() {
     {
         let o = game_logic.host_object(outpost_id).expect("outpost");
         assert!(
+            !o.status.stealthed,
+            "idle listening outpost must not re-cloak instantly after stopping"
+        );
+    }
+    let allowed = game_logic
+        .host_object(outpost_id)
+        .unwrap()
+        .stealth_allowed_frame;
+    game_logic.frame = allowed;
+    game_logic.update_stealth_and_detection();
+    {
+        let o = game_logic.host_object(outpost_id).expect("outpost");
+        assert!(
             o.status.stealthed,
-            "idle listening outpost re-cloaks residual"
+            "idle listening outpost re-cloaks after StealthDelay"
         );
     }
 }

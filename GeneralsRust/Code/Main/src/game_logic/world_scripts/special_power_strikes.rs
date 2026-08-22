@@ -88,6 +88,18 @@ impl GameLogic {
             scud_anthrax_tier,
             a10_tier,
         );
+        // C++ ParticleUplinkCannonUpdate.cpp:260-268: !COMMAND_FIRED_BY_SCRIPT
+        // arms m_manualTargetMode so the live beam holds the click.
+        if kind == HostSuperweaponKind::ParticleCannon {
+            let fired_by_script = self
+                .special_power_strikes
+                .take_script_fired_special_power(source_object);
+            if !fired_by_script {
+                if let Some(strike) = self.special_power_strikes.get_mut(id) {
+                    strike.manual_beam_hold = true;
+                }
+            }
+        }
         // C++ SpectreGunshipUpdate.cpp:532 PLAYER_HUMAN disables wide auto-acquire.
         // Host residual: local player is human; unmapped owner fail-closed (no wide).
         if kind == HostSuperweaponKind::SpectreGunship {
@@ -150,7 +162,15 @@ impl GameLogic {
             None
         };
         if let Some(tier) = carpet_flight_tier {
-            let _ = self.spawn_carpet_bomb_flight(source_object, target_position, tier);
+            // C++ one CarpetBombWeapon per drop. Flight leftover owns the blast.
+            if self
+                .spawn_carpet_bomb_flight(source_object, target_position, tier)
+                .is_some()
+            {
+                if let Some(s) = self.special_power_strikes.get_mut(id) {
+                    s.live_carpet_delivery = true;
+                }
+            }
         }
         // C++ ArtilleryBarrage DeliverPayload residual (cannon + staggered shells).
         if kind == HostSuperweaponKind::ArtilleryBarrage {
@@ -1544,12 +1564,18 @@ impl GameLogic {
         // Retail LASERSTATUS_DECAYING after TotalFiringTime shrinks m_currentWidthScalar.
         self.special_power_strikes.sample_beam_width_honesty(frame);
 
-        // TotalScorchMarks / GroundHitFX / RevealRange residual (retail STATUS_FIRING).
-        // C++: doShroudReveal + undoShroudReveal at current target with RevealRange
-        // each scorch tick (instant "gratuitous vision" pulse, not duration reveal).
+        // TotalScorchMarks / GroundHitFX / RevealRange (retail STATUS_FIRING).
+        // C++: addScorch + FXList::doFXPos(m_groundHitFX) then do/undoShroudReveal
+        // at current target with RevealRange (instant vision pulse, not duration).
         let scorch_events = self
             .special_power_strikes
             .apply_due_beam_scorch_reveals(frame);
+        for event in &scorch_events {
+            crate::game_logic::special_power_strikes::apply_particle_beam_scorch_and_ground_hit_fx(
+                event.position,
+                event.scorch_radius,
+            );
+        }
         if !scorch_events.is_empty() {
             use crate::game_logic::special_power_strikes::PARTICLE_REVEAL_RANGE;
             use gamelogic::common::Coord3D;

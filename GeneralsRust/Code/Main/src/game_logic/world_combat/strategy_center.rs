@@ -798,8 +798,7 @@ impl GameLogic {
                 self.patriot_residual_ground_fires =
                     self.patriot_residual_ground_fires.saturating_add(1);
             }
-            // Superweapon General EMP Patriot residual: EMPPatriotEffectSpheroid on impact.
-            // Fail-closed: not full OCL spheroid drawable matrix.
+            // Superweapon General EMP Patriot: EMPPatriotEffectSpheroid + EMPSparks.
             if crate::game_logic::host_base_defense::is_supw_patriot_template(&template_name) {
                 self.apply_supw_patriot_emp_residual_at(
                     impact_pos.unwrap_or(fire_pos),
@@ -1212,7 +1211,10 @@ impl GameLogic {
     /// SupW Patriot EMP residual: DISABLED_EMP for legal victims in EffectRadius 10.
     ///
     /// Retail EMPPatriotEffectSpheroid EMPUpdate residual (DisabledDuration 10000 ms).
-    /// DoesNotAffectMyOwnBuildings residual skips own faction structures.
+    /// Spawns EMPPatriotEffectSpheroid at impact and EMPSparks on disabled victims.
+    /// DoesNotAffectMyOwnBuildings skips the firing player's structures
+    /// (C++ getControllingPlayer), not the whole team.
+    /// Patch 1.01: intended airborne victim → onlyEffectAirborne (skip ground).
     pub(in super::super) fn apply_supw_patriot_emp_residual_at(
         &mut self,
         impact: glam::Vec3,
@@ -1221,9 +1223,9 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
     ) {
         use crate::game_logic::host_base_defense::{
-            is_legal_supw_patriot_emp_target, supw_emp_scatter_aim,
+            is_emp_own_building, is_legal_supw_patriot_emp_target, supw_emp_scatter_aim,
             supw_emp_scatter_misses_infantry, supw_patriot_emp_until_frame, SUPW_PATRIOT_EMP_AUDIO,
-            SUPW_PATRIOT_EMP_RADIUS,
+            SUPW_PATRIOT_EMP_DURATION_FRAMES, SUPW_PATRIOT_EMP_RADIUS,
         };
         use crate::game_logic::host_emp_pulse::is_emp_hardened_name;
 
@@ -1271,12 +1273,24 @@ impl GameLogic {
             }
         }
 
+        // C++ ProjectileDetonationOCL CreateObject EMPPatriotEffectSpheroid at impact.
+        let _ = self.spawn_emp_patriot_spheroid(impact, source_id);
+
+
+        let source_owner = self
+            .objects
+            .get(&source_id)
+            .and_then(|o| o.owner_player_id);
         let until = supw_patriot_emp_until_frame(self.frame);
         let radius = SUPW_PATRIOT_EMP_RADIUS;
         use crate::game_logic::host_emp_pulse::{
-            in_emp_pulse_radius_from_bounding_sphere_3d, leftover_emp_bounding_sphere_radius,
-            should_emp_kill_airborne,
+            emp_skip_ground_when_airborne_only, in_emp_pulse_radius_from_bounding_sphere_3d,
+            leftover_emp_bounding_sphere_radius, should_emp_kill_airborne,
         };
+        // C++ EMPUpdate.cpp:164-175 / 198-201 — producer AI victim airborne.
+        let only_effect_airborne = intended_target
+            .and_then(|id| self.objects.get(&id))
+            .is_some_and(|o| o.status.airborne_target);
         let victims: Vec<(ObjectId, bool, bool)> = self
             .objects
             .iter()
@@ -1297,9 +1311,13 @@ impl GameLogic {
                 let is_vehicle = obj.is_kind_of(KindOf::Vehicle);
                 let is_aircraft = obj.is_kind_of(KindOf::Aircraft);
                 let is_airborne = obj.status.airborne_target;
+                if emp_skip_ground_when_airborne_only(only_effect_airborne, is_airborne) {
+                    return None;
+                }
                 let emp_hardened = is_emp_hardened_name(&obj.template_name);
                 let is_structure = obj.is_kind_of(KindOf::Structure);
-                let is_own_structure = is_structure && obj.team == source_team;
+                let is_own_structure =
+                    is_emp_own_building(is_structure, source_owner, obj.owner_player_id);
                 let is_faction_structure = is_structure
                     && (obj.team == Team::USA || obj.team == Team::China || obj.team == Team::GLA);
                 if should_emp_kill_airborne(is_aircraft, is_airborne, emp_hardened) {
@@ -1321,6 +1339,7 @@ impl GameLogic {
             .collect();
         let mut any = false;
         let mut destroy_ids: Vec<ObjectId> = Vec::new();
+        let mut spark_ids: Vec<ObjectId> = Vec::new();
         for (vid, kill, disable) in victims {
             if kill {
                 destroy_ids.push(vid);
@@ -1331,11 +1350,16 @@ impl GameLogic {
                 if let Some(v) = self.objects.get_mut(&vid) {
                     v.apply_disabled_emp(until);
                     any = true;
+                    spark_ids.push(vid);
                 }
             }
         }
         for id in destroy_ids {
             self.mark_object_for_destruction(id, Some(source_team));
+        }
+        // C++ doDisableAttack EMPSparks on disabled victims (not airborne kills).
+        for vid in spark_ids {
+            self.spawn_emp_sparks_on_victim(vid, SUPW_PATRIOT_EMP_DURATION_FRAMES);
         }
         if any {
             self.supw_patriot_emp_residual_grants =

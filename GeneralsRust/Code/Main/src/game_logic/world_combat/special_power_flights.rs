@@ -335,6 +335,111 @@ impl GameLogic {
         Some(sid)
     }
 
+    /// C++ ProjectileDetonationOCL CreateObject EMPPatriotEffectSpheroid.
+    /// Shares EMPUpdate Lifetime expire with EMPPulseEffectSpheroid.
+    pub fn spawn_emp_patriot_spheroid(
+        &mut self,
+        position: Vec3,
+        producer: ObjectId,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_base_defense::EMP_PATRIOT_EFFECT_SPHEROID;
+        use crate::game_logic::host_emp_pulse::{
+            EMP_SPHEROID_GEOMETRY_RADIUS, EMP_SPHEROID_LIFETIME_FRAMES, EMP_SPHEROID_START_SCALE,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let team = self
+            .objects
+            .get(&producer)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        if !self.templates.contains_key(EMP_PATRIOT_EFFECT_SPHEROID) {
+            let mut t = ThingTemplate::new(EMP_PATRIOT_EFFECT_SPHEROID);
+            t.add_kind_of(KindOf::Immobile)
+                .set_health(1.0)
+                .set_cost(0, 0);
+            self.templates
+                .insert(EMP_PATRIOT_EFFECT_SPHEROID.to_string(), t);
+        }
+        let sid = self.create_object(EMP_PATRIOT_EFFECT_SPHEROID, team, position)?;
+        if let Some(o) = self.objects.get_mut(&sid) {
+            o.emp_pulse_spheroid = true;
+            o.producer_id = Some(producer);
+            o.emp_pulse_spheroid_expires_frame =
+                Some(self.frame.saturating_add(EMP_SPHEROID_LIFETIME_FRAMES));
+            o.thing.geometry.radius = EMP_SPHEROID_GEOMETRY_RADIUS * EMP_SPHEROID_START_SCALE;
+            o.visual_draw_state_revision = o.visual_draw_state_revision.wrapping_add(1);
+        }
+        self.supw_patriot_emp_spheroids_spawned =
+            self.supw_patriot_emp_spheroids_spawned.saturating_add(1);
+        Some(sid)
+    }
+
+    /// C++ EMPUpdate::doDisableAttack EMPSparks on each disabled victim drawable.
+    pub fn spawn_emp_sparks_on_victim(&mut self, victim_id: ObjectId, disabled_duration_frames: u32) {
+        use crate::game_logic::combat_particles::CombatParticleKind;
+        use crate::game_logic::host_emp_pulse::{
+            leftover_emp_spark_dome_clamp, leftover_emp_spark_emitter_count,
+            leftover_emp_spark_initial_delay, leftover_emp_spark_lifetime, leftover_emp_spark_z,
+            EMP_SPHEROID_DISABLE_FX,
+        };
+        use crate::game_logic::host_hero_abilities::leftover_disable_fx_footprint_area;
+
+        let Some(victim) = self.objects.get(&victim_id) else {
+            return;
+        };
+        let pos = victim.get_position();
+        let yaw = victim.get_orientation();
+        let geom = victim.thing.template.geometry_info;
+        let height = if geom.height > 0.0 {
+            geom.height
+        } else {
+            victim.selection_radius.max(1.0)
+        };
+        let footprint = leftover_disable_fx_footprint_area(
+            geom.authored,
+            geom.geom_type as u32,
+            geom.major_radius,
+            geom.minor_radius,
+            victim.selection_radius,
+        );
+        let count = leftover_emp_spark_emitter_count(footprint, height);
+        let lifetime = leftover_emp_spark_lifetime(disabled_duration_frames);
+        let frame = self.frame;
+        for _ in 0..count {
+            let mut offset =
+                crate::game_logic::host_hero_abilities::leftover_disable_fx_footprint_offset(&geom);
+            offset.y = leftover_emp_spark_z(height);
+            offset = leftover_emp_spark_dome_clamp(offset, height);
+            let Some(pid) = self.combat_particles.attach_named_to_object_local(
+                victim_id,
+                pos,
+                yaw,
+                offset,
+                frame,
+                EMP_SPHEROID_DISABLE_FX,
+                CombatParticleKind::DisableFx,
+                Some(lifetime),
+            ) else {
+                continue;
+            };
+            if let Some(client_id) = self
+                .combat_particles
+                .get(pid)
+                .and_then(|e| e.client_system_id)
+            {
+                if let Some(mgr) = gamelogic::helpers::TheParticleSystemManager::get() {
+                    mgr.set_initial_delay(client_id, leftover_emp_spark_initial_delay());
+                }
+            }
+            self.hero_abilities
+                .record_leftover_disable_fx_until(pid, frame.saturating_add(lifetime));
+            self.supw_patriot_emp_sparks_spawned =
+                self.supw_patriot_emp_sparks_spawned.saturating_add(1);
+        }
+    }
+
+
     pub fn update_emp_pulse_spheroids(&mut self) {
         let frame = self.frame;
         self.apply_due_emp_pulse_disables();

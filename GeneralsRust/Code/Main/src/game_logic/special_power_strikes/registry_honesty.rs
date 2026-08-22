@@ -688,8 +688,8 @@ impl HostSpecialPowerStrikeRegistry {
     }
 
     pub fn honesty_beam_intensity_schedule_ok(&self) -> bool {
-        // Pre-fire residual: host impact_delay (120) only covers PREPARING→
-        // ALMOST_READY→READY (full CHARGING needs BeginCharge+RaiseAntenna
+        // Pre-fire residual: host impact_delay (BeamTravelTime 75f) only covers
+        // PREPARING→ALMOST_READY→READY (full CHARGING needs BeginCharge+RaiseAntenna
         // windows that exceed impact_delay).
         let strike_ok = self.strikes.values().any(|s| {
             s.kind == HostSuperweaponKind::ParticleCannon

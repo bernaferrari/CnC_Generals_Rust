@@ -1723,15 +1723,11 @@ impl GameLogic {
             .get(&source_id)
             .map(|o| o.get_position())
             .unwrap_or(target);
-        // Edge spawn residual: offset opposite target.
-        let dx = target.x - source_pos.x;
-        let dz = target.z - source_pos.z;
-        let dist = (dx * dx + dz * dz).sqrt().max(1.0);
-        let edge = Vec3::new(
-            source_pos.x - dx / dist * 350.0,
-            150.0,
-            source_pos.z - dz / dist * 350.0,
-        );
+        // C++ CREATE_AT_EDGE_NEAR_SOURCE: TerrainLogic::findClosestEdgePoint(owner).
+        let mut edge = self.closest_map_edge_point(source_pos);
+        edge.y = 150.0;
+        let dx = target.x - edge.x;
+        let dz = target.z - edge.z;
         let transport = tier.transport();
         if !self.templates.contains_key(transport) {
             let mut t = ThingTemplate::new(transport);
@@ -1743,12 +1739,15 @@ impl GameLogic {
         let tid = self.create_object(transport, team, edge)?;
         if let Some(o) = self.objects.get_mut(&tid) {
             o.note_producer(source_id);
-            o.carpet_bomb_transport = Some(HostCarpetBombFlightData::start(edge, target, tier));
+            let mut data = HostCarpetBombFlightData::start(edge, target, tier);
+            data.map_min = self.world_min;
+            data.map_max = self.world_max;
+            o.carpet_bomb_transport = Some(data);
             o.set_orientation(dz.atan2(dx));
         }
         self.carpet_bomb_flight_reg.record_transport();
         self.carpet_bomb_flight_reg
-            .schedule_drops(self.frame, source_id.0, target, tier);
+            .schedule_drops(self.frame, source_id.0, target, edge, tier, tid.0);
         Some(tid)
     }
 
@@ -1759,13 +1758,14 @@ impl GameLogic {
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
-        // Move transports.
+        // Move transports. C++ HeadOffMapState + CleanUpState: fly off then destroy.
         let tids: Vec<ObjectId> = self
             .objects
             .iter()
             .filter(|(_, o)| o.carpet_bomb_transport.is_some() && o.is_alive())
             .map(|(id, _)| *id)
             .collect();
+        let mut leave = Vec::new();
         for id in tids {
             let Some(o) = self.objects.get_mut(&id) else {
                 continue;
@@ -1774,17 +1774,44 @@ impl GameLogic {
             let Some(data) = o.carpet_bomb_transport.as_mut() else {
                 continue;
             };
-            let (new_pos, vel, _over) = data.tick_transport(pos);
+            let (new_pos, vel, at_exit) = data.tick_transport(pos);
             drop(data);
             o.set_position(new_pos);
             o.movement.velocity = vel;
             if vel.length_squared() > 1e-6 {
                 o.set_orientation(vel.z.atan2(vel.x));
             }
+            if at_exit {
+                leave.push(id);
+            }
+        }
+        for id in leave {
+            self.mark_object_for_destruction(id, None);
         }
 
-        // Drop due bombs.
-        let due = self.carpet_bomb_flight_reg.take_due_drops(self.frame);
+        // C++ payload is contained on the transport. Dead bomber cancels remaining drops.
+        let carpet_ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.carpet_bomb_transport.is_some())
+            .map(|(id, _)| *id)
+            .collect();
+        let mut alive_transports = Vec::new();
+        for id in carpet_ids {
+            let Some(o) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            let alive = o.is_alive();
+            if let Some(data) = o.carpet_bomb_transport.as_mut() {
+                data.transport_alive = alive;
+                if data.transport_alive {
+                    alive_transports.push(id.0);
+                }
+            }
+        }
+        let due = self
+            .carpet_bomb_flight_reg
+            .take_due_drops(self.frame, &alive_transports);
         if !due.is_empty() {
             if !self.templates.contains_key(CARPET_BOMB_PAYLOAD_OBJECT) {
                 let mut t = ThingTemplate::new(CARPET_BOMB_PAYLOAD_OBJECT);
@@ -1811,6 +1838,30 @@ impl GameLogic {
                 }
             }
         }
+        // C++ DeliveringState success → HeadOffMapState (not while payload remains).
+        let pending_tids: std::collections::HashSet<u32> = self
+            .carpet_bomb_flight_reg
+            .pending_drops
+            .iter()
+            .map(|p| p.transport_id)
+            .collect();
+        let mark: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.carpet_bomb_transport.is_some())
+            .map(|(id, _)| *id)
+            .collect();
+        for id in mark {
+            let Some(o) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            if let Some(data) = o.carpet_bomb_transport.as_mut() {
+                if !pending_tids.contains(&id.0) {
+                    data.delivery_complete = true;
+                }
+            }
+        }
+
 
         // Fall payloads and detonate near ground.
         let bombs: Vec<ObjectId> = self

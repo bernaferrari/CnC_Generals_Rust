@@ -219,6 +219,13 @@ impl GameLogic {
                 if obj.stealth_delay_frames == 0 {
                     obj.stealth_delay_frames = LISTENING_OUTPOST_STEALTH_DELAY_FRAMES;
                 }
+                if !obj.status.stealthed
+                    && obj.stealth_allowed_frame == 0
+                    && !obj.stealth_delay_pending
+                {
+                    // C++ ctor: m_stealthAllowedFrame = now + StealthDelay.
+                    obj.rearm_stealth_delay(frame);
+                }
                 let moving = matches!(obj.ai_state, AIState::Moving | AIState::AttackMoving)
                     || obj.status.moving;
                 if let Some(allowed) = listening_outpost_stealth_desired(

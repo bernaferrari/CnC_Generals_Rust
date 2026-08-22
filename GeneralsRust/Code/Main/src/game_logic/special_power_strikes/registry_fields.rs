@@ -839,6 +839,7 @@ impl HostSpecialPowerStrikeRegistry {
     }
 
     /// Spawn a residual Particle Uplink continuous beam field at `position`.
+    /// Direct callers (AI residual / tests) default to SwathOfDeath.
     pub fn spawn_beam_field(
         &mut self,
         source_object: ObjectId,
@@ -846,6 +847,27 @@ impl HostSpecialPowerStrikeRegistry {
         position: Vec3,
         spawn_frame: u32,
         parent_strike_id: u32,
+    ) -> u32 {
+        self.spawn_beam_field_with_manual(
+            source_object,
+            source_team,
+            position,
+            spawn_frame,
+            parent_strike_id,
+            false,
+        )
+    }
+
+    /// Spawn a beam. `manual_target_mode` is C++ `m_manualTargetMode` at fire
+    /// (`TRUE` for human click — hold at dest; `FALSE` for script/AI swath).
+    pub fn spawn_beam_field_with_manual(
+        &mut self,
+        source_object: ObjectId,
+        source_team: crate::game_logic::Team,
+        position: Vec3,
+        spawn_frame: u32,
+        parent_strike_id: u32,
+        manual_target_mode: bool,
     ) -> u32 {
         let id = self.next_beam_id;
         self.next_beam_id = self.next_beam_id.saturating_add(1).max(1);
@@ -882,9 +904,9 @@ impl HostSpecialPowerStrikeRegistry {
             decay_samples: 0,
             last_scorch_position: position,
             last_scorch_radius: 0.0,
-            // Default swath mode (AI residual); human override via
-            // set_beam_override_destination flips to manual driving residual.
-            manual_target_mode: false,
+            // Human fire starts in manual hold (override == current == click).
+            // Script/AI residual keeps swath until set_beam_override_destination.
+            manual_target_mode,
             override_destination: position,
             current_target_position: position,
             last_driving_click_frame: 0,
