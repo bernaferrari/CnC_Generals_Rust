@@ -296,12 +296,8 @@ impl Object {
         }
         let us = self.get_position();
         let them = other.get_position();
-        let vel = self.movement.velocity;
-        let (dx_f, dz_f) = if vel.x * vel.x + vel.z * vel.z > 1e-8 {
-            (vel.x, vel.z)
-        } else {
-            (us.x - them.x, us.z - them.z)
-        };
+        // C++ PhysicsUpdate.cpp:1488 — crush ray is unit facing, not velocity.
+        let (dx_f, dz_f) = self.unit_direction_xz();
         // C++ getGeometryInfo().getMajorRadius() / 2 (PhysicsUpdate.cpp:1490).
         let geom = &other.thing.template.geometry_info;
         let major = if geom.authored {
@@ -338,30 +334,21 @@ impl Object {
             CrushTarget::TotalCrush | CrushTarget::NoCrush => (them.x, them.z),
         };
         if past_crush_point_residual((us.x, us.z), point, (dx_f, dz_f), offset) {
-            match target {
-                CrushTarget::FrontEndCrush => {
-                    other.front_crushed = true;
-                    other.record_host_crush_vision();
-                }
-                CrushTarget::BackEndCrush => {
-                    other.back_crushed = true;
-                    other.record_host_crush_vision();
-                }
-                CrushTarget::TotalCrush => {
-                    other.front_crushed = true;
-                    other.back_crushed = true;
-                    other.record_host_crush_vision();
-                }
-                CrushTarget::NoCrush => {}
-            }
-            // C++ CrushDie::onDie model condition residual.
-            other.apply_crush_die_model_conditions();
+            // C++ applies HUGE crush damage only. CrushDie::onDie writes
+            // FRONT/BACK/TOTAL from the previous (usually unset) flags.
+            let crusher_xz = (us.x, us.z);
             let _ = other.take_damage_from_typed_death(
                 PHYSICS_HUGE_DAMAGE_AMOUNT_RESIDUAL,
                 Some(self.id),
                 crate::game_logic::combat::DamageType::Crush,
                 crate::game_logic::host_usa_pilot::HostDeathType::Crushed,
             );
+            if matches!(
+                other.status.death_type,
+                crate::game_logic::host_usa_pilot::HostDeathType::Crushed
+            ) {
+                other.fire_crush_die_from_crusher(Some(crusher_xz));
+            }
         }
         true
     }
@@ -1145,8 +1132,8 @@ impl Object {
 
     /// C++ appearance-specific approach brake (not dest=0 `dist/dt` snap).
     ///
-    /// - Wings never brake (`Locomotor.cpp:1047-1050`).
-    /// - Legs/climber/other/hover: `calcSlowDownDist(actual, minSpeed, braking)`.
+    /// - Legs/climber/other/hover/thrust: `calcSlowDownDist` → minSpeed, no IS_BRAKING
+    ///   (`Locomotor.cpp:1648-1653`, `:2368-2374`). Only treads/wheels set the pose cheat.
     /// - Treads: `(actual/1.5)*(actual/braking)` + squared `braking_factor`.
     /// - Wheels: +1 frame, donut timer (40 units / 2.5s), then `braking_factor=1`.
     pub fn apply_cpp_approach_brake(
@@ -1240,13 +1227,11 @@ impl Object {
             }
             _ => {
                 // Legs / climber / hover / other / thrust: desired = minSpeed.
+                // C++ never sets IS_BRAKING here (Locomotor.cpp:1648-1653, 2368-2374).
                 let floor = self.min_speed.max(0.0);
                 let slow = crate::game_logic::calc_slow_down_dist(actual_speed, floor, braking);
                 if on_path_dist < slow {
-                    self.is_braking = true;
                     goal_speed = floor;
-                } else {
-                    self.is_braking = false;
                 }
             }
         }
