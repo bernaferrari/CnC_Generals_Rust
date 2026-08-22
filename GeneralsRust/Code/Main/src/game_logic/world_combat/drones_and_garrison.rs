@@ -1396,6 +1396,10 @@ impl GameLogic {
             unit.set_destination(dest);
             unit.set_ai_state(AIState::Moving);
             unit.status.moving = true;
+            // C++ OpenContain::exitObjectViaDoor: ignoreObstacle(NULL) +
+            // setIgnoreCollisionTime(LOGICFRAMES_PER_SECOND).
+            unit.ignore_collisions_with = None;
+            unit.ignore_collisions_until_frame = self.frame.saturating_add(30);
             if go_aggressive {
                 unit.set_ai_attitude(
                     crate::game_logic::host_strategy_center::HostAiAttitude::Aggressive,
