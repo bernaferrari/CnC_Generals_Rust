@@ -195,6 +195,16 @@ pub struct HostSpectreOrbitField {
     /// rewrite `position`.
     #[serde(default)]
     pub override_destination: Vec3,
+    /// C++ `m_gattlingTargetPosition`. Howitzer fires here after StrafingIncrement wind.
+    #[serde(default)]
+    pub gattling_target_position: Vec3,
+    /// C++ `m_positionToShootAt` (reticle / AI-wide acquire).
+    #[serde(default)]
+    pub position_to_shoot_at: Vec3,
+    /// C++ `m_okToFireHowitzerCounter`. Increments on-target, resets while winding.
+    #[serde(default)]
+    pub ok_to_fire_howitzer_counter: u32,
+
 
     pub spawn_frame: u32,
     pub expires_frame: u32,
@@ -391,6 +401,47 @@ impl HostSpectreOrbitField {
         );
     }
 
+    /// C++ lagged gattling / howitzer aim. Falls back to the orbit epicenter.
+    pub fn gattling_aim(&self) -> Vec3 {
+        if self.gattling_target_position == Vec3::ZERO && self.position != Vec3::ZERO {
+            self.position
+        } else {
+            self.gattling_target_position
+        }
+    }
+
+    /// C++ `m_positionToShootAt`. Falls back to the clamped reticle.
+    pub fn shoot_at_aim(&self) -> Vec3 {
+        if self.position_to_shoot_at == Vec3::ZERO && self.position != Vec3::ZERO {
+            self.override_aim()
+        } else {
+            self.position_to_shoot_at
+        }
+    }
+
+    /// C++ `m_okToFireHowitzerCounter > HowitzerFollowLag` (12f).
+    pub fn howitzer_follow_ready(&self) -> bool {
+        spectre_howitzer_follow_ready(self.ok_to_fire_howitzer_counter)
+    }
+
+    /// C++ howitzer-rate re-eval: `m_positionToShootAt = m_overrideTargetDestination`.
+    pub fn refresh_position_to_shoot_at(&mut self) {
+        self.position_to_shoot_at = self.override_aim();
+    }
+
+    /// C++ gattling wind: step toward shoot-at by StrafingIncrement, reset/inc lag.
+    pub fn wind_gattling_aim(&mut self) {
+        let (next, counter) = spectre_wind_gattling_aim(
+            self.gattling_aim(),
+            self.shoot_at_aim(),
+            SPECTRE_STRAFING_INCREMENT,
+            self.ok_to_fire_howitzer_counter,
+        );
+        self.gattling_target_position = next;
+        self.ok_to_fire_howitzer_counter = counter;
+    }
+
+
 }
 
 /// Deterministic residual RandomOffsetForHowitzer for howitzer tick index.
@@ -474,6 +525,12 @@ pub struct HostParticleBeamField {
     pub connector_object_ids: Vec<ObjectId>,
     /// Click / initial target epicenter residual (swath walks around this).
     pub position: Vec3,
+    /// PUC building world position for SwathOfDeath axis (C++ `me->getPosition`).
+    #[serde(default)]
+    pub source_position: Vec3,
+    /// True when [`source_position`] is the live cannon (not an unset default).
+    #[serde(default)]
+    pub source_axis_set: bool,
     pub spawn_frame: u32,
     pub expires_frame: u32,
     /// Next absolute frame at which beam damage pulses apply.
@@ -563,6 +620,12 @@ pub struct HostParticleBeamField {
     /// Honesty: advance steps that used ManualFastDrivingSpeed.
     #[serde(default)]
     pub fast_drive_applications: u32,
+    /// C++ `m_scriptedWaypointMode` — leftover chain drive, not SwathOfDeath.
+    #[serde(default)]
+    pub scripted_waypoint_mode: bool,
+    /// C++ `m_nextDestWaypointID` (leftover terrain waypoint id).
+    #[serde(default)]
+    pub next_dest_waypoint_id: u32,
     /// Honesty: outer-node particle systems created at STATUS_FIRING residual
     /// (retail OuterEffectNumBones × Intense flare).
     #[serde(default)]
@@ -823,14 +886,17 @@ impl HostParticleBeamField {
 
     /// True when a damage pulse residual is due.
     ///
-    /// Pulses stop once TotalDamagePulses is reached; the field may still live
-    /// through the WidthGrow decay tail without further damage ticks.
-    /// After an early abort (`start_decay_frame = now`) pulses stop immediately.
+    /// Pulses run across the full orbital lifetime (TotalFiringTime + WidthGrow
+    /// decay tail), matching C++ `now <= orbitalDeathFrame`. They stop once
+    /// TotalDamagePulses is reached, or immediately after an early abort
+    /// (`start_decay_frame = now` from disable/EMP).
     pub fn is_due_tick(&self, current_frame: u32) -> bool {
+        let aborted_early = self.start_decay_frame != 0
+            && self.start_decay_frame < particle_decay_start_frame(self.spawn_frame);
         !self.is_expired(current_frame)
             && self.pulses_made < PARTICLE_BEAM_TOTAL_PULSES
             && current_frame >= self.next_tick_frame
-            && current_frame < self.live_decay_start_frame()
+            && !aborted_early
     }
 
     /// True when a scorch mark residual is due (and marks remain).
@@ -928,14 +994,23 @@ impl HostParticleBeamField {
 
     /// Residual damage / scorch epicenter for the current beam mode.
     ///
-    /// Manual mode uses live `current_target_position`; swath mode uses the
-    /// S-curve offset for the given pulse index.
+    /// Manual mode uses live `current_target_position`. Swath mode walks the
+    /// S-curve; when the cannon position is bound, leftover/C++ rotates that
+    /// offset onto building→target instead of world +X.
     pub fn residual_epicenter(&self, pulse_index: u32) -> Vec3 {
-        if self.manual_target_mode {
+        if self.manual_target_mode || self.scripted_waypoint_mode {
             self.current_target_position
+        } else if self.source_axis_set {
+            particle_swath_epicenter_along(self.source_position, self.position, pulse_index)
         } else {
             particle_swath_epicenter(self.position, pulse_index)
         }
+    }
+
+    /// Stamp the live cannon position so SwathOfDeath rotates onto cannon→click.
+    pub fn bind_source_axis(&mut self, building: Vec3) {
+        self.source_position = building;
+        self.source_axis_set = true;
     }
 }
 

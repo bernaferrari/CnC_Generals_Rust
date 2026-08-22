@@ -585,6 +585,17 @@ pub fn honesty_spectre_orbit_residual_pack_wave73() -> bool {
         && SPECTRE_HOWITZER_FOLLOW_LAG_FRAMES == 12
         && duration_ms_to_logic_frames(SPECTRE_HOWITZER_FOLLOW_LAG_MS)
             == SPECTRE_HOWITZER_FOLLOW_LAG_FRAMES
+        && !spectre_howitzer_follow_ready(SPECTRE_HOWITZER_FOLLOW_LAG_FRAMES)
+        && spectre_howitzer_follow_ready(SPECTRE_HOWITZER_FOLLOW_LAG_FRAMES + 1)
+        && spectre_wind_gattling_aim(
+            Vec3::ZERO,
+            Vec3::new(SPECTRE_STRAFING_INCREMENT * 3.0, 0.0, 0.0),
+            SPECTRE_STRAFING_INCREMENT,
+            7,
+        )
+        .1
+            == 0
+
         && (SPECTRE_GUNSHIP_ORBIT_RADIUS - 250.0).abs() < 0.01
         && (SPECTRE_ORBIT_RADIUS - 200.0).abs() < 0.01
         // Gunship flight circle is larger than damage/cursor AttackAreaRadius.

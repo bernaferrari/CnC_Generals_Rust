@@ -41,10 +41,13 @@ const DIFFICULTY_NORMAL: i32 = 1;
 /// A host that owns a different snapshot implementation can publish its real
 /// save inventory here without manufacturing WND controls or pretending that
 /// Common can deserialize the host's format.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PopupSaveLoadEntry {
     pub filename: String,
     pub description: String,
+    pub display_time: String,
+    pub display_date: String,
+    pub is_mission: bool,
 }
 
 /// A completed action from the retail PopupSaveLoad controls.
@@ -408,7 +411,12 @@ fn populate_save_game_listbox(state: &mut SaveLoadMenuState) {
             } else {
                 entry.description.clone()
             };
-            let color = if (index & 0x1) != 0 {
+            // C++ populateSaveGameListbox (GameState.cpp:1194-1206): mission
+            // saves are green; others alternate white / periwinkle. Time/date
+            // fill columns 1 and 2.
+            let color = if entry.is_mission {
+                WindowColor::new(200, 255, 200, 255)
+            } else if (index & 0x1) != 0 {
                 WindowColor::new(255, 255, 255, 255)
             } else {
                 WindowColor::new(170, 170, 235, 255)
@@ -419,11 +427,17 @@ fn populate_save_game_listbox(state: &mut SaveLoadMenuState) {
                 Some(ListBoxItemData::Integer(index as i32)),
                 Some(color),
             );
-            let _ =
-                list_box.set_item_column_data(item_index, 1, ListBoxItemData::Text(String::new()));
+            let _ = list_box.set_item_column_data(
+                item_index,
+                1,
+                ListBoxItemData::Text(entry.display_time.clone()),
+            );
             let _ = list_box.set_item_column_color(item_index, 1, Some(color));
-            let _ =
-                list_box.set_item_column_data(item_index, 2, ListBoxItemData::Text(String::new()));
+            let _ = list_box.set_item_column_data(
+                item_index,
+                2,
+                ListBoxItemData::Text(entry.display_date.clone()),
+            );
             let _ = list_box.set_item_column_color(item_index, 2, Some(color));
         }
 
@@ -592,6 +606,7 @@ mod tests {
         publish_host_popup_save_load_entries(vec![PopupSaveLoadEntry {
             filename: "wnd_pause".into(),
             description: "Windowed pause save".into(),
+            ..Default::default()
         }]);
 
         assert!(host_popup_save_load_bridge_installed());
@@ -606,6 +621,7 @@ mod tests {
         dispatch_load_from_popup_confirmation(SaveLoadSelection::Host(PopupSaveLoadEntry {
             filename: "wnd_pause".into(),
             description: "Windowed pause save".into(),
+            ..Default::default()
         }));
 
         assert_eq!(
@@ -671,10 +687,12 @@ mod tests {
             PopupSaveLoadEntry {
                 filename: "older_user_save".into(),
                 description: "Older user save".into(),
+                ..Default::default()
             },
             PopupSaveLoadEntry {
                 filename: "wnd_pause".into(),
                 description: "Windowed pause save".into(),
+                ..Default::default()
             },
         ]);
 
@@ -750,6 +768,7 @@ mod tests {
         publish_host_popup_save_load_entries(vec![PopupSaveLoadEntry {
             filename: "wnd_pause".into(),
             description: "Windowed pause save".into(),
+            ..Default::default()
         }]);
 
         // No synchronous WND scope: even an explicit confirmation is unknown.
@@ -765,6 +784,7 @@ mod tests {
                     PopupSaveLoadEntry {
                         filename: "wnd_pause".into(),
                         description: "Windowed pause save".into(),
+                        ..Default::default()
                     },
                 ));
             },
@@ -778,6 +798,7 @@ mod tests {
                     PopupSaveLoadEntry {
                         filename: "wnd_pause".into(),
                         description: "Windowed pause save".into(),
+                        ..Default::default()
                     },
                 ));
                 dispatch_save_from_popup_confirmation(
@@ -789,6 +810,7 @@ mod tests {
                     PopupSaveLoadEntry {
                         filename: "wnd_pause".into(),
                         description: "Windowed pause save".into(),
+                        ..Default::default()
                     },
                 ));
             },

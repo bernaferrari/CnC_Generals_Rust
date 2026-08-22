@@ -14,9 +14,13 @@ use crate::core::DrawableId;
 use crate::effects::particle_ini_loader::ParticleSystemINIParser;
 use crate::system::SubsystemInterface;
 use game_engine::common::name_key_generator::NameKeyGenerator;
+use game_engine::common::system::xfer::Xfer as CommonXfer;
+use game_engine::common::system::xfer_load::XferLoad as CommonXferLoad;
+use game_engine::common::system::xfer_save::XferSave as CommonXferSave;
 use game_engine::common::system::Snapshotable;
 use game_engine::System::XferVersion;
 use game_engine::{Xfer, XferMode, XferStatus};
+use std::io::Cursor;
 
 /// Maximum number of keyframes for particle animation
 pub const MAX_KEYFRAMES: usize = 8;
@@ -983,9 +987,6 @@ impl ParticleSystemManager {
                     }
                 }
                 self.particle_count += 1;
-                if priority == ParticlePriorityType::AreaEffect && ground_aligned {
-                    self.field_particle_count += 1;
-                }
             }
 
             if let Some(system) = self.active_systems.get_mut(&id) {
@@ -1108,20 +1109,11 @@ impl ParticleSystemManager {
             }
         }
 
-        // Update statistics
+        // Update statistics. Field cap is last-frame on-screen count
+        // (C++ W3DParticleSys.cpp:124/205), not worldwide living particles.
         self.particle_count = self
             .active_systems
             .values()
-            .map(|s| s.particle_count())
-            .sum();
-
-        self.field_particle_count = self
-            .active_systems
-            .values()
-            .filter(|s| {
-                s.priority() == ParticlePriorityType::AreaEffect
-                    && s.template().info().is_ground_aligned
-            })
             .map(|s| s.particle_count())
             .sum();
     }
@@ -1325,7 +1317,7 @@ impl ParticleSystemManager {
         self.for_each_particle_system_mut(|system| {
             let mut kept = 0usize;
             for particle in system.particles_mut() {
-                if particle.lifetime_left == 0 {
+                if !particle.is_lifetime_active() {
                     particle.is_culled = true;
                     continue;
                 }
@@ -1341,6 +1333,26 @@ impl ParticleSystemManager {
                 }
             }
         });
+        self.recount_on_screen_field_particles();
+    }
+
+    /// C++ `m_fieldParticleCount` — AREA_EFFECT + ground-aligned particles
+    /// that passed the visible-box cull (drawn this frame).
+    fn recount_on_screen_field_particles(&mut self) {
+        self.field_particle_count = self
+            .active_systems
+            .values()
+            .filter(|s| {
+                s.priority() == ParticlePriorityType::AreaEffect
+                    && s.template().info().is_ground_aligned
+            })
+            .map(|s| {
+                s.particles()
+                    .iter()
+                    .filter(|p| p.is_draw_alive())
+                    .count()
+            })
+            .sum();
     }
 
 
@@ -1979,6 +1991,102 @@ pub fn load_post_process_particle_system_manager_state() -> Result<(), XferStatu
     Ok(())
 }
 
+/// C++ `CHUNK_ParticleSystem` payload (`ParticleSys.cpp:3232-3323`).
+pub fn capture_live_particle_system_xfer_bytes() -> Result<Vec<u8>, String> {
+    let mut bytes = Vec::new();
+    {
+        let cursor = Cursor::new(&mut bytes);
+        let mut xfer = CommonXferSave::new(cursor, 1);
+        xfer_particle_system_manager_common(&mut xfer)?;
+    }
+    Ok(bytes)
+}
+
+pub fn restore_live_particle_system_from_xfer_bytes(bytes: &[u8]) -> Result<(), String> {
+    if bytes.is_empty() || (bytes.len() == 1 && bytes[0] == 1) {
+        return Ok(());
+    }
+    let mut xfer = CommonXferLoad::new(Cursor::new(bytes.to_vec()), 1);
+    xfer_particle_system_manager_common(&mut xfer)?;
+    load_post_process_particle_system_manager_state().map_err(|e| e.to_string())
+}
+
+fn xfer_particle_system_manager_common(xfer: &mut dyn CommonXfer) -> Result<(), String> {
+    let current_version: u8 = 1;
+    let mut version = current_version;
+    xfer.xfer_version(&mut version, current_version)
+        .map_err(|e| e.to_string())?;
+
+    let mut manager_guard = get_particle_system_manager_mut().map_err(|e| e.to_string())?;
+    let manager = manager_guard.get_or_insert_with(ParticleSystemManager::new);
+
+    xfer.xfer_unsigned_int(&mut manager.next_system_id)
+        .map_err(|e| e.to_string())?;
+    let system_ids = manager.active_system_ids_in_order();
+    let mut system_count = system_ids.len() as u32;
+    xfer.xfer_unsigned_int(&mut system_count)
+        .map_err(|e| e.to_string())?;
+
+    if xfer.get_xfer_mode() == game_engine::common::system::xfer::XferMode::Save {
+        for system_id in system_ids {
+            let Some(system) = manager.active_systems.get_mut(&system_id) else {
+                return Err("missing particle system during save".into());
+            };
+            let mut template_name = if system.is_destroyed() || !system.is_saveable() {
+                String::new()
+            } else {
+                system.template().name().to_string()
+            };
+            xfer.xfer_ascii_string(&mut template_name)
+                .map_err(|e| e.to_string())?;
+            if template_name.is_empty() {
+                continue;
+            }
+            Snapshotable::xfer(&mut **system, xfer)?;
+        }
+    } else {
+        manager.active_systems.clear();
+        manager.active_system_order.clear();
+        manager.particle_count = 0;
+        manager.field_particle_count = 0;
+        manager.system_count = 0;
+        manager.on_screen_particle_count = 0;
+
+        for _ in 0..system_count {
+            let mut template_name = String::new();
+            xfer.xfer_ascii_string(&mut template_name)
+                .map_err(|e| e.to_string())?;
+            if template_name.is_empty() {
+                continue;
+            }
+            let template = manager
+                .find_template(template_name.as_str())
+                .ok_or_else(|| format!("unknown particle template '{template_name}'"))?;
+            let mut system = Box::new(ParticleSystem::new(template, 1, false));
+            Snapshotable::xfer(&mut *system, xfer)?;
+            let system_id = system.system_id();
+            if system_id == INVALID_PARTICLE_SYSTEM_ID
+                || manager.active_systems.contains_key(&system_id)
+            {
+                return Err("invalid restored particle system id".into());
+            }
+            manager.next_system_id = manager.next_system_id.max(system_id.saturating_add(1));
+            manager.active_systems.insert(system_id, system);
+            manager.active_system_order.push(system_id);
+        }
+
+        manager.system_count = manager.active_systems.len();
+        manager.particle_count = manager
+            .active_systems
+            .values()
+            .map(|system| system.particle_count())
+            .sum();
+        manager.field_particle_count = manager.particle_count;
+    }
+
+    Ok(())
+}
+
 pub fn register_particle_system_manager_bridge() {
     let _ =
         gamelogic::helpers::register_particle_system_manager(Arc::new(ParticleSystemManagerBridge));
@@ -2309,6 +2417,51 @@ mod tests {
     }
 
     #[test]
+    fn live_particle_system_xfer_keeps_mid_flight_explosion() {
+        let _ = initialize_particle_system_manager();
+        let template_name = format!("LiveSaveBurst_{}", std::process::id());
+        let system_id = {
+            let mut guard = get_particle_system_manager_mut().expect("global particle manager");
+            let mgr = guard.get_or_insert_with(ParticleSystemManager::new);
+            mgr.active_systems.clear();
+            mgr.active_system_order.clear();
+            mgr.system_count = 0;
+            mgr.particle_count = 0;
+            let template = mgr.new_template(template_name.clone());
+            let id = mgr.create_particle_system(&template, false).unwrap();
+            if let Some(system) = mgr.find_particle_system_mut(id) {
+                system.set_position(nalgebra::Point3::new(40.0, 8.0, 12.0));
+            }
+            id
+        };
+
+        let bytes = capture_live_particle_system_xfer_bytes().expect("capture particle xfer");
+        assert!(
+            bytes.len() > 1,
+            "CHUNK_ParticleSystem must not be NullSnapshot v1"
+        );
+        assert_eq!(bytes[0], 1);
+
+        {
+            let mut guard = get_particle_system_manager_mut().expect("global particle manager");
+            let mgr = guard.get_or_insert_with(ParticleSystemManager::new);
+            mgr.active_systems.clear();
+            mgr.active_system_order.clear();
+            mgr.system_count = 0;
+            mgr.particle_count = 0;
+        }
+
+        restore_live_particle_system_from_xfer_bytes(&bytes).expect("restore particle xfer");
+        let guard = get_particle_system_manager().expect("global particle manager");
+        let mgr = guard.as_ref().expect("manager after restore");
+        let system = mgr
+            .find_particle_system(system_id)
+            .expect("mid-flight system must survive load");
+        assert_eq!(system.template().name(), template_name);
+        assert!(!system.is_destroyed());
+    }
+
+    #[test]
     fn visible_box_cull_marks_offscreen_and_caps_batch() {
         let mut manager = ParticleSystemManager::new();
         let template = manager.new_template("CullBox".to_string());
@@ -2340,6 +2493,46 @@ mod tests {
         assert!(!particles[0].is_culled);
         assert!(particles[1].is_culled);
     }
+
+    #[test]
+    fn field_particle_count_is_on_screen_area_effect_only() {
+        let mut manager = ParticleSystemManager::new();
+        let mut template = manager.new_template("FieldCap".to_string());
+        {
+            let tmpl = std::sync::Arc::make_mut(&mut template);
+            tmpl.info_mut().priority = ParticlePriorityType::AreaEffect;
+            tmpl.info_mut().is_ground_aligned = true;
+        }
+        let system_id = manager.create_particle_system(&template, false).unwrap();
+        {
+            let system = manager.find_particle_system_mut(system_id).expect("system");
+            let mut near = crate::effects::particle_system::Particle::new(
+                &crate::effects::particle_system::ParticleInfo::default(),
+                0,
+                0,
+            );
+            near.lifetime_left = 10;
+            near.position = nalgebra::Point3::new(0.0, 0.0, 0.0);
+            near.size = 1.0;
+            system.push_particle(near);
+            let mut far = crate::effects::particle_system::Particle::new(
+                &crate::effects::particle_system::ParticleInfo::default(),
+                0,
+                0,
+            );
+            far.lifetime_left = 10;
+            far.position = nalgebra::Point3::new(1000.0, 0.0, 0.0);
+            far.size = 1.0;
+            system.push_particle(far);
+        }
+        manager.cull_particles_to_visible_box([0.0, 0.0, 0.0], [10.0, 10.0, 10.0], 512);
+        assert_eq!(
+            manager.field_particle_count(),
+            1,
+            "C++ m_fieldParticleCount counts only on-screen AREA_EFFECT ground-aligned particles"
+        );
+    }
+
 
     /// Empty destroyed systems are still removed on the next manager update
     /// (C++ ParticleSys.cpp:2059 `m_isDestroyed && !m_systemParticlesHead`).

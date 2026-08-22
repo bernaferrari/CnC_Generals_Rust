@@ -112,14 +112,61 @@ impl GameLogic {
         if let Some(state) = state_to_apply {
             apply_state(self, state);
         }
-        let mover_pos = self
+        let mover_radius = self
             .objects
             .get(&object_id)
-            .map(|o| o.get_position())
-            .unwrap_or(start_pos);
+            .map(|o| o.selection_radius)
+            .unwrap_or(0.0);
+        let mover_path = self
+            .objects
+            .get(&object_id)
+            .map(|o| o.movement.path.clone())
+            .unwrap_or_default();
         for ally in nudge_allies {
-            if let Some(obj) = self.objects.get_mut(&ally) {
-                obj.ai_move_away_from_unit(object_id, mover_pos);
+            let Some(obj) = self.objects.get(&ally) else {
+                continue;
+            };
+            let from = obj.get_position();
+            let surfaces = if obj.locomotor_surfaces != 0 {
+                obj.locomotor_surfaces
+            } else {
+                gamelogic::ai::pathfind_complete::SURFACE_GROUND
+            };
+            let is_crusher = obj.crusher_level > 0;
+            let unit_radius = obj.selection_radius;
+            let seeker_player = obj.owner_player_id.or(Some(obj.team as u32));
+            let crusher_level = obj.crusher_level;
+            let can_tunnel = obj.can_path_through_units;
+            let mut yield_path = self.pathfinding_system.get_move_away_from_path(
+                from,
+                &mover_path,
+                None,
+                surfaces,
+                is_crusher,
+                unit_radius,
+                mover_radius,
+                seeker_player,
+                crusher_level,
+                false,
+            );
+            if yield_path.is_none() && !can_tunnel {
+                yield_path = self.pathfinding_system.get_move_away_from_path(
+                    from,
+                    &mover_path,
+                    None,
+                    surfaces,
+                    is_crusher,
+                    unit_radius,
+                    mover_radius,
+                    seeker_player,
+                    crusher_level,
+                    true,
+                );
+            }
+            if let Some(path) = yield_path {
+                if let Some(obj) = self.objects.get_mut(&ally) {
+                    obj.apply_move_away_path(object_id, &path);
+                }
             }
         }
 
@@ -210,6 +257,11 @@ impl GameLogic {
                     LocomotorBehaviorZ::RelativeToGroundAndBuildings
                 ) {
                     self.ground_or_structure_height_at(pos, gy)
+                } else if matches!(
+                    obj.loco_behavior_z,
+                    LocomotorBehaviorZ::SmoothRelativeToHighestLayer
+                ) {
+                    obj.highest_layer_surface_ht(sy)
                 } else {
                     sy
                 };

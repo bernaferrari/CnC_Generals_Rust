@@ -27,6 +27,18 @@ pub struct PresentationAvailabilityResidual {
     pub has_tertiary_weapon: bool,
     pub active_weapon_slot: u8,
     pub mine_clearing_weaponset: bool,
+    /// C++ OBJECT_STATUS_SCRIPT_DISABLED — entire command set Hidden.
+    pub script_disabled: bool,
+    /// C++ OBJECT_STATUS_SCRIPT_UNPOWERED — entire command set Hidden.
+    pub script_unpowered: bool,
+    /// C++ DISABLED_UNMANNED — entire command set Hidden.
+    pub unmanned: bool,
+    /// Object-level applied upgrades (OBJECT_UPGRADE hasUpgrade).
+    pub object_applied_upgrades: Vec<String>,
+    /// Player-level completed upgrades (PLAYER_UPGRADE hasUpgradeComplete).
+    pub player_completed_upgrades: Vec<String>,
+    /// OBJECT_UPGRADE names this object is not affected by.
+    pub object_unaffected_upgrades: Vec<String>,
 }
 
 impl ControlBar {

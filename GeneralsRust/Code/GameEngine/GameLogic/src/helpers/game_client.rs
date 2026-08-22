@@ -414,6 +414,35 @@ impl TheGameClient {
             hook(info);
         }
     }
+    /// C++ `W3DGameClient::createRayEffectByTemplate` visuals from W3DLaserDraw.
+    pub fn ray_effect_template_visuals(
+        template_name: &str,
+    ) -> Option<RayEffectTemplateVisuals> {
+        let template = TheThingFactory::find_template(template_name)?;
+        laser_visuals_from_thing_template(template.as_ref())
+    }
+
+    /// C++ `TheThingFactory->newDrawable` + midpoint + `initLaser`.
+    pub fn create_ray_effect_drawable(
+        &self,
+        template_name: &str,
+        start: &Coord3D,
+        end: &Coord3D,
+    ) -> Option<u32> {
+        let template = TheThingFactory::find_template(template_name)?;
+        let id = self.create_drawable(template.as_ref());
+        if id == 0 {
+            return None;
+        }
+        let mid = Coord3D::new(
+            (end.x - start.x) * 0.5 + start.x,
+            (end.y - start.y) * 0.5 + start.y,
+            (end.z - start.z) * 0.5 + start.z,
+        );
+        self.set_drawable_position(id, &mid);
+        self.init_drawable_laser(id, start, end, 0);
+        Some(id)
+    }
 
     pub fn create_drawable(&self, template: &dyn crate::common::ThingTemplate) -> u32 {
         let id = Drawable::allocate_drawable_id();
@@ -544,7 +573,55 @@ impl TheGameClient {
         );
         id
     }
+}
 
+/// Authored W3DLaserDraw fields used by FXList RayEffect present.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RayEffectTemplateVisuals {
+    pub outer_beam_width: Real,
+    pub color: [f32; 4],
+    pub texture_name: String,
+    pub max_intensity_frames: u32,
+    pub fade_frames: u32,
+}
+
+fn laser_visuals_from_thing_template(
+    template: &dyn crate::common::ThingTemplate,
+) -> Option<RayEffectTemplateVisuals> {
+    template
+        .as_any()
+        .downcast_ref::<EngineThingTemplateAdapter>()
+        .and_then(|adapter| {
+            adapter.draw_modules.iter().find_map(|entry| {
+                if !entry.name.as_str().eq_ignore_ascii_case("W3DLaserDraw") {
+                    return None;
+                }
+                let data = entry
+                    .data
+                    .as_any()
+                    .downcast_ref::<W3DLaserDrawModuleData>()?;
+                let a = if data.outer_color.a == 0 {
+                    1.0
+                } else {
+                    data.outer_color.a as f32 / 255.0
+                };
+                Some(RayEffectTemplateVisuals {
+                    outer_beam_width: data.outer_beam_width.max(0.05),
+                    color: [
+                        data.outer_color.r as f32 / 255.0,
+                        data.outer_color.g as f32 / 255.0,
+                        data.outer_color.b as f32 / 255.0,
+                        a,
+                    ],
+                    texture_name: data.texture_name.to_string(),
+                    max_intensity_frames: data.max_intensity_frames,
+                    fade_frames: data.fade_frames,
+                })
+            })
+        })
+}
+
+impl TheGameClient {
     pub fn destroy_drawable(&self, id: u32) {
         let mut map = DRAWABLE_STATE.lock().unwrap();
         let removed_drawable = map

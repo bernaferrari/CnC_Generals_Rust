@@ -1401,6 +1401,17 @@ impl CnCGameEngine {
 
     /// Wave 928: single load authority boundary.
     pub(super) fn host_load_game_authority(&mut self, slot: &str) -> Result<SaveGameInfo, String> {
+        let save_path = self.save_file_manager.get_save_path(slot);
+        let result = self.host_try_load_game_authority(slot);
+        // C++ GameState::loadGame (GameState.cpp:695-712): MessageBoxOk
+        // GUI:Error / GUI:ErrorLoadingGame with the filepath on xfer or
+        // loadPostProcess failure. Missing, truncated, and non-host
+        // CHUNK_GameLogic saves must not fail silently.
+        Self::surface_load_game_ui_feedback(&save_path, &result);
+        result
+    }
+
+    fn host_try_load_game_authority(&mut self, slot: &str) -> Result<SaveGameInfo, String> {
         let save_info = self
             .save_file_manager
             .get_save_info(slot)
@@ -1428,6 +1439,21 @@ impl CnCGameEngine {
             self.game_logic.get_current_map_name()
         );
         Ok(save_info)
+    }
+
+    /// C++ `GameState::loadGame` user feedback (`GameState.cpp:695-712`).
+    fn surface_load_game_ui_feedback(
+        save_path: &std::path::Path,
+        result: &Result<SaveGameInfo, String>,
+    ) {
+        #[cfg(feature = "game_client")]
+        if result.is_err() {
+            let filepath = save_path.display().to_string();
+            let (title, body) = crate::save_load::format_error_loading_game(&filepath);
+            let _ = game_client::gui::message_box_ok(&title, &body, None);
+        }
+        #[cfg(not(feature = "game_client"))]
+        let _ = (save_path, result);
     }
 
     /// C++ `GameState::loadGame` (`GameState.cpp:706-742`) for
@@ -1589,14 +1615,31 @@ impl CnCGameEngine {
             return;
         }
 
+        // C++ GameState::missionSave uses GUI:MissionSave. PopupSaveLoad
+        // setEditDescription never invents "Save {slot}".
+        let description = if display_name.trim().is_empty() {
+            Self::default_ui_save_description(&self.presentation_or_boot_map_name())
+        } else {
+            display_name.to_string()
+        };
         let save_info =
-            self.build_save_info(slot, display_name, display_name, SaveFileType::Normal);
+            self.build_save_info(slot, &description, &description, SaveFileType::Normal);
 
         if let Err(err) = self.host_save_game_authority(slot, &save_info) {
             warn!("Save failed for '{}': {}", slot, err);
         } else {
             info!("Saved game to slot '{}'", slot);
         }
+    }
+
+    /// Empty UI names: `GUI:MissionSave` while a campaign is live, else
+    /// C++ `setEditDescription` map-leaf / campaign+number.
+    fn default_ui_save_description(map_name: &str) -> String {
+        let mission = crate::save_load::current_mission_save_description();
+        if !mission.is_empty() && !mission.contains("MISSING:") {
+            return mission;
+        }
+        crate::save_load::default_save_edit_description(map_name)
     }
 
     /// Wave 611: via `host_load_game_from_ui`.
@@ -1953,6 +1996,23 @@ mod staged_restore_tests {
         assert!(!error.contains("invalidate_world_visual_state"));
         assert!(!error.contains("invalidate_presentation_drawable_world"));
     }
+
+    #[test]
+    fn load_failure_surfaces_gui_error_loading_game() {
+        let source = include_str!("host_authority.rs");
+        let start = source
+            .find("fn surface_load_game_ui_feedback")
+            .expect("load error UI");
+        let body = &source[start..];
+        assert!(body.contains("GUI:ErrorLoadingGame") || body.contains("format_error_loading_game"));
+        assert!(body.contains("message_box_ok"));
+        let authority = source
+            .find("pub(super) fn host_load_game_authority")
+            .expect("load authority");
+        let authority_body = &source[authority..];
+        assert!(authority_body.contains("surface_load_game_ui_feedback"));
+    }
+
 
     #[test]
     fn staged_restore_rejects_unavailable_map_before_snapshot_restore() {

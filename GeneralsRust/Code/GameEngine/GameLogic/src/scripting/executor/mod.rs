@@ -251,6 +251,35 @@ pub enum HostScriptRankRequest {
     SetRankLevelLimit { limit: i32 },
     AffectReceivingExperience { player: String, modifier: f32 },
 }
+/// Live host drain: NAMED/TEAM SET_UNMANNED_STATUS / DELETE_ALL_UNMANNED.
+/// C++ `ScriptActions::doNamedSetUnmanned` / `doTeamSetUnmanned` /
+/// `deleteAllUnmanned` (`DISABLED_UNMANNED` + Neutral team / destroyObject).
+/// Leftover walks empty `OBJECT_REGISTRY`; live husks live on host.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostScriptUnmannedRequest {
+    Named { unit: String },
+    Team { team: String },
+    DeleteAll,
+}
+
+/// Live host drain: OBJECT/TEAM CREATE_RADAR_EVENT.
+/// C++ `ScriptActions::doObjectRadarCreateEvent` / `doTeamRadarCreateEvent`
+/// (`TheRadar->createEvent` at named unit or team estimate position).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostScriptRadarEventRequest {
+    Object { unit: String, event_type: i32 },
+    Team { team: String, event_type: i32 },
+}
+
+/// Live host drain: NAMED/TEAM SET_STEALTH_ENABLED.
+/// C++ `ScriptActions::doNamedEnableStealth` / `doTeamEnableStealth`
+/// (`setScriptStatus(OBJECT_STATUS_SCRIPT_UNSTEALTHED, !enabled)`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostScriptStealthEnabledRequest {
+    Named { unit: String, enabled: bool },
+    Team { team: String, enabled: bool },
+}
+
 
 
 
@@ -319,6 +348,13 @@ thread_local! {
         RefCell::new(Vec::new());
     static HOST_SCRIPT_RANK_REQUESTS: RefCell<Vec<HostScriptRankRequest>> =
         RefCell::new(Vec::new());
+    static HOST_SCRIPT_UNMANNED_REQUESTS: RefCell<Vec<HostScriptUnmannedRequest>> =
+        RefCell::new(Vec::new());
+    static HOST_SCRIPT_RADAR_EVENT_REQUESTS: RefCell<Vec<HostScriptRadarEventRequest>> =
+        RefCell::new(Vec::new());
+    static HOST_SCRIPT_STEALTH_ENABLED_REQUESTS: RefCell<Vec<HostScriptStealthEnabledRequest>> =
+        RefCell::new(Vec::new());
+
 
 
 
@@ -674,6 +710,34 @@ pub fn request_host_rank(req: HostScriptRankRequest) {
 pub fn take_host_rank_requests() -> Vec<HostScriptRankRequest> {
     HOST_SCRIPT_RANK_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
+
+/// Live host drain: NAMED/TEAM SET_UNMANNED / DELETE_ALL_UNMANNED.
+pub fn request_host_script_unmanned(req: HostScriptUnmannedRequest) {
+    HOST_SCRIPT_UNMANNED_REQUESTS.with(|q| q.borrow_mut().push(req));
+}
+
+pub fn take_host_script_unmanned_requests() -> Vec<HostScriptUnmannedRequest> {
+    HOST_SCRIPT_UNMANNED_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: OBJECT/TEAM CREATE_RADAR_EVENT.
+pub fn request_host_script_radar_event(req: HostScriptRadarEventRequest) {
+    HOST_SCRIPT_RADAR_EVENT_REQUESTS.with(|q| q.borrow_mut().push(req));
+}
+
+pub fn take_host_script_radar_event_requests() -> Vec<HostScriptRadarEventRequest> {
+    HOST_SCRIPT_RADAR_EVENT_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: NAMED/TEAM SET_STEALTH_ENABLED.
+pub fn request_host_script_stealth_enabled(req: HostScriptStealthEnabledRequest) {
+    HOST_SCRIPT_STEALTH_ENABLED_REQUESTS.with(|q| q.borrow_mut().push(req));
+}
+
+pub fn take_host_script_stealth_enabled_requests() -> Vec<HostScriptStealthEnabledRequest> {
+    HOST_SCRIPT_STEALTH_ENABLED_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
 
 
 

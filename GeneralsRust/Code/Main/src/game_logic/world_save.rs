@@ -359,6 +359,22 @@ impl GameLogic {
         self.pending_special_abilities.remove(&object_id);
     }
 
+    /// Live pending special-ability command (C++ SpecialAbilityUpdate target).
+    pub fn pending_special_ability(&self, object_id: ObjectId) -> Option<PendingSpecialAbility> {
+        self.pending_special_abilities.get(&object_id).copied()
+    }
+
+    /// Load-time pending ability insert. Does not abort an already-restored leftover channel.
+    pub fn restore_pending_special_ability(
+        &mut self,
+        object_id: ObjectId,
+        ability: PendingSpecialAbility,
+    ) {
+        self.pending_special_abilities.insert(object_id, ability);
+    }
+
+
+
     /// C++ GameLogic.cpp:1436-1459 always adds a ReplayObserver side/team.
     pub fn ensure_replay_observer_player(&mut self) -> u32 {
         if let Some(existing) = self.replay_observer_player_id {
@@ -811,6 +827,22 @@ impl GameLogic {
             .grid
             .import_static_block_mask(width as i32, height as i32, mask)
     }
+
+    /// C++ `Pathfinder::queueForPath` residual for save/load.
+    pub fn snapshot_pending_host_paths(&self) -> Vec<super::pathfinding::PendingHostPath> {
+        self.pathfinding_system.pending_paths().cloned().collect()
+    }
+
+    /// Re-queue deferred pathfind requests after load.
+    pub fn restore_pending_host_paths(
+        &mut self,
+        paths: impl IntoIterator<Item = super::pathfinding::PendingHostPath>,
+    ) {
+        for req in paths {
+            let _ = self.pathfinding_system.queue_path(req);
+        }
+    }
+
 
     /// Sample terrain heights into the current pathfinding grid resolution for save/load parity.
     pub fn snapshot_terrain_heights_for_path_grid(&self) -> Option<Vec<f32>> {
@@ -1454,6 +1486,7 @@ impl GameLogic {
             } else if unit.is_deployed() {
                 unit.set_deployed(false);
             }
+            unit.clear_pending_waypoint_labels();
         }
         if started_undeploy {
             self.deploy_style_reg.record_undeploy();

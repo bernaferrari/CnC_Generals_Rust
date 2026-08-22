@@ -550,7 +550,7 @@ pub fn particle_next_pulse_frame(spawn_frame: u32, pulses_made: u32) -> u32 {
         return spawn_frame.saturating_add(PARTICLE_BEAM_TICK_INTERVAL_FRAMES);
     }
     let factor = (pulses_made as f32) / (PARTICLE_BEAM_TOTAL_PULSES as f32);
-    let offset = (factor * (PARTICLE_BEAM_DURATION_FRAMES as f32)).floor() as u32;
+    let offset = (factor * (PARTICLE_BEAM_ORBITAL_LIFETIME_FRAMES as f32)).floor() as u32;
     let next = spawn_frame.saturating_add(offset);
     // Ensure strictly forward progress of at least 1 frame when pulses remain.
     next.max(spawn_frame.saturating_add(1))
@@ -565,9 +565,10 @@ pub fn particle_next_pulse_frame(spawn_frame: u32, pulses_made: u32) -> u32 {
 /// `cxHeight = sin(radians) * SwathOfDeathAmplitude`,
 /// then rotate onto building→target axis.
 ///
-/// Host residual uses pulse index as time factor and applies offset in host
-/// x/z plane relative to the click epicenter (fail-closed vs full building
-/// orientation rotation matrix / terrain Z).
+/// Host residual uses pulse index as time factor. Local cartesian lives in the
+/// host x/z plane (`C++ x → host x`, `C++ y → host z`). Callers that know the
+/// cannon position must rotate via [`particle_swath_offset_along`] /
+/// [`particle_swath_epicenter_along`] (leftover already matches C++).
 pub fn particle_swath_offset(pulses_made_before_this_pulse: u32) -> Vec3 {
     let factor = if PARTICLE_BEAM_TOTAL_PULSES == 0 {
         0.0
@@ -583,9 +584,48 @@ pub fn particle_swath_offset(pulses_made_before_this_pulse: u32) -> Vec3 {
     Vec3::new(cx_distance, 0.0, cx_height)
 }
 
+/// Rotate local SwathOfDeath offset onto the building→target ground axis.
+///
+/// Leftover `ParticleUplinkCannonUpdate` already matches C++: S-curve is
+/// authored with the click on +X from the cannon, then rotated onto
+/// `building → initialTarget` (`x' = x nx − y ny`, `y' = x ny + y nx`).
+/// Degenerate axis (cannon on the click) keeps world +X.
+pub fn particle_swath_offset_along(
+    pulses_made_before_this_pulse: u32,
+    building: Vec3,
+    target: Vec3,
+) -> Vec3 {
+    let local = particle_swath_offset(pulses_made_before_this_pulse);
+    let dx = target.x - building.x;
+    let dz = target.z - building.z;
+    let len_sq = dx * dx + dz * dz;
+    if len_sq <= 1.0e-4 {
+        return local;
+    }
+    let inv = 1.0 / len_sq.sqrt();
+    let nx = dx * inv;
+    let nz = dz * inv;
+    Vec3::new(
+        local.x * nx - local.z * nz,
+        0.0,
+        local.x * nz + local.z * nx,
+    )
+}
+
 /// Absolute residual damage epicenter for a pulse at field spawn position.
+/// World-axis offset; prefer [`particle_swath_epicenter_along`] when the cannon
+/// position is known.
 pub fn particle_swath_epicenter(base: Vec3, pulses_made_before_this_pulse: u32) -> Vec3 {
     base + particle_swath_offset(pulses_made_before_this_pulse)
+}
+
+/// Absolute SwathOfDeath epicenter rotated onto cannon→click (C++ / leftover).
+pub fn particle_swath_epicenter_along(
+    building: Vec3,
+    target: Vec3,
+    pulses_made_before_this_pulse: u32,
+) -> Vec3 {
+    target + particle_swath_offset_along(pulses_made_before_this_pulse, building, target)
 }
 
 /// Absolute frame when WidthGrow decay starts (`LaserUpdate::setDecayFrames`).
@@ -1084,10 +1124,10 @@ pub fn apply_particle_beam_scorch_and_ground_hit_fx(position: Vec3, scorch_radiu
 /// `m_nextScorchMarkFrame = orbitalBirth + nextFactor * orbitalLifetime`.
 pub fn particle_next_scorch_frame(spawn_frame: u32, scorch_marks_made: u32) -> u32 {
     if PARTICLE_TOTAL_SCORCH_MARKS == 0 {
-        return spawn_frame.saturating_add(PARTICLE_BEAM_DURATION_FRAMES);
+        return spawn_frame.saturating_add(PARTICLE_BEAM_ORBITAL_LIFETIME_FRAMES);
     }
     let factor = (scorch_marks_made as f32) / (PARTICLE_TOTAL_SCORCH_MARKS as f32);
-    let offset = (factor * (PARTICLE_BEAM_DURATION_FRAMES as f32)).floor() as u32;
+    let offset = (factor * (PARTICLE_BEAM_ORBITAL_LIFETIME_FRAMES as f32)).floor() as u32;
     let next = spawn_frame.saturating_add(offset);
     next.max(spawn_frame.saturating_add(1))
 }

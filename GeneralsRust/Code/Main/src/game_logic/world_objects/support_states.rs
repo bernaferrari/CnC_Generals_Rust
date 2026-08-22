@@ -110,6 +110,94 @@ enum LeftoverSaTick {
 
 
 impl GameLogic {
+    /// C++ TerrainLogic::getTriggerAreaByName + PolygonTrigger center/radius.
+    pub(crate) fn host_named_guard_area_polygon(
+        name: &str,
+    ) -> Option<(glam::Vec3, f32, gamelogic::polygon_trigger::PolygonTrigger)> {
+        let trigger = gamelogic::terrain::get_terrain_logic()
+            .read()
+            .ok()
+            .and_then(|terrain| terrain.get_trigger_area_by_name(name).cloned())?;
+        let c = trigger.get_center_point();
+        let center = glam::Vec3::new(c.x, c.z, c.y);
+        let radius = trigger.get_radius();
+        Some((center, radius, trigger))
+    }
+
+    fn host_point_in_guard_area(
+        trigger: &gamelogic::polygon_trigger::PolygonTrigger,
+        pos: glam::Vec3,
+    ) -> bool {
+        trigger.point_in_trigger(&gamelogic::common::Coord2D::new(pos.x, pos.z))
+    }
+
+    /// C++ AIGuardMachine::lookForInnerTarget residual (polygon + flying + inner ring).
+    fn scan_guard_inner_target(
+        &self,
+        object_id: ObjectId,
+        team: Team,
+        scan_anchor: glam::Vec3,
+        acquire_radius: f32,
+        flying_only: bool,
+        enter_guard: bool,
+        hijack_guard: bool,
+        polygon: Option<&gamelogic::polygon_trigger::PolygonTrigger>,
+    ) -> Option<ObjectId> {
+        if acquire_radius <= 0.0 {
+            return None;
+        }
+        let mut best: Option<(ObjectId, f32)> = None;
+        for (cand_id, cand) in self.objects.iter() {
+            if *cand_id == object_id || !cand.is_alive() {
+                continue;
+            }
+            let cand_pos = cand.get_position();
+            if let Some(trigger) = polygon {
+                if !Self::host_point_in_guard_area(trigger, cand_pos) {
+                    continue;
+                }
+            }
+            let d = scan_anchor.distance(cand_pos);
+            if d > acquire_radius {
+                continue;
+            }
+            if flying_only && !(cand.is_above_terrain() || cand.status.airborne_target) {
+                continue;
+            }
+            if enter_guard {
+                if hijack_guard {
+                    if !cand.is_targetable_by_enemy_of(team)
+                        || !cand.is_kind_of(KindOf::Vehicle)
+                        || cand.is_hijacked()
+                    {
+                        continue;
+                    }
+                } else if cand.team != Team::Neutral {
+                    continue;
+                }
+            } else {
+                if !cand.is_targetable_by_enemy_of(team) {
+                    continue;
+                }
+                if !matches!(
+                    self.get_able_to_attack_specific_object(
+                        object_id,
+                        *cand_id,
+                        AbleToAttackType::NewTarget,
+                        false,
+                    ),
+                    CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+                ) {
+                    continue;
+                }
+            }
+            if best.map(|(_, bd)| d < bd).unwrap_or(true) {
+                best = Some((*cand_id, d));
+            }
+        }
+        best.map(|(id, _)| id)
+    }
+
     /// End an interrupted C++ capture SpecialAbilityUpdate.  An order may be
     /// cancelled while approaching, unpacking, or preparing; in all cases the
     /// source must not retain a stale channel or `IS_USING_ABILITY` bit.
@@ -1373,11 +1461,35 @@ impl GameLogic {
             remaining_seconds,
             preparation_time_ms,
         ) {
+            // C++ continuePreparation: capturer getIndicatorColor, saturateRGB,
+            // flashAsSelected(&myHouseColor), DefectorTimerTickSound on target.
+            let capturer_owner = self.objects.get(&object_id).and_then(|o| o.owner_player_id);
+            let house = capturer_owner
+                .and_then(|id| self.player_color_rgb(id))
+                .map(|(r, g, b)| [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0])
+                .unwrap_or([1.0, 1.0, 1.0]);
+            let flash = crate::game_logic::host_hero_abilities::saturate_selection_flash_rgb(
+                house,
+                crate::game_logic::host_hero_abilities::SELECTION_FLASH_SATURATION_FACTOR,
+            );
+
+            let target_pos = self.objects.get(&target_id).map(|t| t.get_position());
             if let Some(target) = self.objects.get_mut(&target_id) {
-                target.flash_as_selected();
+                target.flash_as_selected_with_color(flash);
+            }
+            if let Some(pos) = target_pos {
+                self.queue_audio_event(
+                    crate::game_logic::AudioEventRequest::new(
+                        crate::game_logic::host_defector_special_power::DEFECTOR_TIMER_TICK_AUDIO,
+                    )
+                    .with_object(target_id)
+                    .with_position(pos)
+                    .with_priority(160),
+                );
             }
         }
     }
+
 
 
     /// Validate every mutable participant in the RiderChange replacement
@@ -2889,7 +3001,7 @@ impl GameLogic {
                     } else {
                         GUARD_MIN_RADIUS
                     };
-                    let outer = if std_outer > 0.0 {
+                    let _outer = if std_outer > 0.0 {
                         std_outer
                     } else {
                         inner * 1.5
@@ -2898,7 +3010,20 @@ impl GameLogic {
                         matches!(guard_mode, crate::game_logic::GuardMode::WithoutPursuit);
                     let flying_only =
                         matches!(guard_mode, crate::game_logic::GuardMode::FlyingUnitsOnly);
-                    let acquire_radius = if without_pursuit { inner } else { outer };
+                    let polygon_name = self
+                        .objects
+                        .get(&object_id)
+                        .and_then(|o| o.guard_area_trigger.clone());
+                    let polygon = polygon_name
+                        .as_deref()
+                        .filter(|n| !n.is_empty())
+                        .and_then(Self::host_named_guard_area_polygon);
+                    // C++ lookForInnerTarget: inner ring, or polygon bounding radius + point-in-trigger.
+                    let (scan_anchor, acquire_radius) = if let Some((c, r, _)) = polygon.as_ref() {
+                        (*c, if *r > 0.0 { *r } else { inner })
+                    } else {
+                        (anchor, inner)
+                    };
                     let enter_guard = self
                         .objects
                         .get(&object_id)
@@ -2930,53 +3055,16 @@ impl GameLogic {
                         }
                     }
                     if can_attack {
-                        let mut best: Option<(ObjectId, f32)> = None;
-                        for (cand_id, cand) in self.objects.iter() {
-                            if *cand_id == object_id || !cand.is_alive() {
-                                continue;
-                            }
-                            let d = anchor.distance(cand.get_position());
-                            if d > acquire_radius {
-                                continue;
-                            }
-                            if flying_only
-                                && !(cand.is_above_terrain() || cand.status.airborne_target)
-                            {
-                                continue;
-                            }
-                            if enter_guard {
-                                if hijack_guard {
-                                    if !cand.is_targetable_by_enemy_of(team)
-                                        || !cand.is_kind_of(KindOf::Vehicle)
-                                        || cand.is_hijacked()
-                                    {
-                                        continue;
-                                    }
-                                } else if cand.team != Team::Neutral {
-                                    continue;
-                                }
-                            } else {
-                                if !cand.is_targetable_by_enemy_of(team) {
-                                    continue;
-                                }
-                                if !matches!(
-                                    self.get_able_to_attack_specific_object(
-                                        object_id,
-                                        *cand_id,
-                                        AbleToAttackType::NewTarget,
-                                        false,
-                                    ),
-                                    CanAttackResult::Possible
-                                        | CanAttackResult::PossibleAfterMoving
-                                ) {
-                                    continue;
-                                }
-                            }
-                            if best.map(|(_, bd)| d < bd).unwrap_or(true) {
-                                best = Some((*cand_id, d));
-                            }
-                        }
-                        if let Some((enemy_id, _)) = best {
+                        if let Some(enemy_id) = self.scan_guard_inner_target(
+                            object_id,
+                            team,
+                            scan_anchor,
+                            acquire_radius,
+                            flying_only,
+                            enter_guard,
+                            hijack_guard,
+                            polygon.as_ref().map(|(_, _, t)| t),
+                        ) {
                             self.set_host_team_common_target(object_id, Some(enemy_id));
                             if without_pursuit && position.distance(anchor) > inner {
                                 if can_move {
@@ -3034,7 +3122,7 @@ impl GameLogic {
                         continue;
                     };
 
-                    let (std_inner, std_outer) = self.host_std_guard_ranges(object_id);
+                    let (std_inner, _) = self.host_std_guard_ranges(object_id);
                     let mood = self
                         .objects
                         .get(&object_id)
@@ -3049,15 +3137,10 @@ impl GameLogic {
                     } else {
                         GUARD_MIN_RADIUS
                     };
-                    let outer = if std_outer > 0.0 {
-                        std_outer
-                    } else {
-                        inner * 1.5
-                    };
-                    let acquire_radius = match guard_mode {
-                        crate::game_logic::GuardMode::WithoutPursuit => inner,
-                        _ => outer,
-                    };
+                    let flying_only =
+                        matches!(guard_mode, crate::game_logic::GuardMode::FlyingUnitsOnly);
+                    // C++ lookForInnerTarget always uses getStdGuardRange (inner).
+                    let acquire_radius = inner;
                     let picking_crate = self
                         .objects
                         .get(&object_id)
@@ -3078,30 +3161,16 @@ impl GameLogic {
                         continue;
                     }
                     if can_attack && enter_guard {
-                        let mut best: Option<(ObjectId, f32)> = None;
-                        for (cand_id, cand) in self.objects.iter() {
-                            if *cand_id == object_id || !cand.is_alive() {
-                                continue;
-                            }
-                            let d = guard_anchor.distance(cand.get_position());
-                            if d > acquire_radius {
-                                continue;
-                            }
-                            if hijack_guard {
-                                if !cand.is_targetable_by_enemy_of(team)
-                                    || !cand.is_kind_of(KindOf::Vehicle)
-                                    || cand.is_hijacked()
-                                {
-                                    continue;
-                                }
-                            } else if cand.team != Team::Neutral {
-                                continue;
-                            }
-                            if best.map(|(_, bd)| d < bd).unwrap_or(true) {
-                                best = Some((*cand_id, d));
-                            }
-                        }
-                        if let Some((enemy_id, _)) = best {
+                        if let Some(enemy_id) = self.scan_guard_inner_target(
+                            object_id,
+                            team,
+                            guard_anchor,
+                            acquire_radius,
+                            flying_only,
+                            true,
+                            hijack_guard,
+                            None,
+                        ) {
                             if self.try_guard_enter_or_hijack(
                                 object_id,
                                 enemy_id,
@@ -3137,15 +3206,16 @@ impl GameLogic {
                                 continue;
                             }
                         }
-                        if let Some((enemy_id, _)) =
-                            crate::ai_decisions::AIDecisionSystem::find_nearest_enemy_for_attacker(
-                                self,
-                                object_id,
-                                guard_anchor,
-                                team,
-                                acquire_radius,
-                            )
-                        {
+                        if let Some(enemy_id) = self.scan_guard_inner_target(
+                            object_id,
+                            team,
+                            guard_anchor,
+                            acquire_radius,
+                            flying_only,
+                            false,
+                            false,
+                            None,
+                        ) {
                             if self.engage_guard_target(object_id, enemy_id, false) {
 
                                 continue;
@@ -6563,6 +6633,7 @@ impl GameLogic {
         // FIREPOINT/STATION slots free before survivors pick a window.
         crate::game_logic::buildings::BuildingBehavior::sweep_dead_garrison_occupants(
             &mut self.objects,
+            self.frame,
         );
 
         let mut heal_jobs: Vec<(ObjectId, u32, Vec<ObjectId>)> = Vec::new();

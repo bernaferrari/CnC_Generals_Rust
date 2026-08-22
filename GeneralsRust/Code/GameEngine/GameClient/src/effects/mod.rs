@@ -85,12 +85,14 @@ pub use particles::{
 // C++-parity particle system types (matches C++ ParticleSys.h/.cpp behavior exactly)
 // These are the authoritative types used by the game logic and rendering pipeline.
 pub use particle_manager::{
-    get_particle_system_manager, get_particle_system_manager_mut,
-    initialize_particle_system_manager, register_particle_system_manager_bridge, EmissionVelocity,
-    EmissionVelocityType, EmissionVolume, EmissionVolumeType, GameClientRandomVariable, Keyframe,
-    ObjectId as ParticleObjectId, ParticlePriorityType, ParticleShaderType, ParticleSystemId,
-    ParticleSystemManager, ParticleSystemTemplate, ParticleType as CppParticleTypeEnum,
-    RGBColorKeyframe, RandomKeyframe, WindMotion, INVALID_PARTICLE_SYSTEM_ID, MAX_KEYFRAMES,
+    capture_live_particle_system_xfer_bytes, get_particle_system_manager,
+    get_particle_system_manager_mut, initialize_particle_system_manager,
+    register_particle_system_manager_bridge, restore_live_particle_system_from_xfer_bytes,
+    EmissionVelocity, EmissionVelocityType, EmissionVolume, EmissionVolumeType,
+    GameClientRandomVariable, Keyframe, ObjectId as ParticleObjectId, ParticlePriorityType,
+    ParticleShaderType, ParticleSystemId, ParticleSystemManager, ParticleSystemTemplate,
+    ParticleType as CppParticleTypeEnum, RGBColorKeyframe, RandomKeyframe, WindMotion,
+    INVALID_PARTICLE_SYSTEM_ID, MAX_KEYFRAMES,
 };
 pub use particle_ini_loader::ParticleSystemINIParser;
 

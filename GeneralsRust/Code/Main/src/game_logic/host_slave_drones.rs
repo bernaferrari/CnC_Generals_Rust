@@ -34,7 +34,9 @@
 //! Fail-closed honesty:
 //! - Hellfire ScatterRadiusVsInfantry **10** residual miss cone closed (deterministic aim offset)
 //! - Not full SlavedUpdate AI wander pathfinding / master layer lock beyond residual flags
-//! - Not full ObjectCreationUpgrade ConflictsWith / ProductionUpdate queue UI
+//! - ObjectCreationUpgrade ConflictsWith mux: Scout/Battle/Hellfire pairwise exclusive
+//!   (leftover UpgradeMux::wouldUpgrade already matches C++; host objects have no leftover
+//!   modules, so live queue/giveUpgrade uses the retail name residual)
 //! - Not full drone armor MaxHealthUpgrade / death OCL explode matrix beyond residual constants
 //! - Not full Battle Drone arm pack/unpack weld FX anim interleave (duty cycle is live)
 //! - Not network drone / upgrade replication (network deferred)
@@ -266,6 +268,103 @@ impl SlaveDroneKind {
             None
         }
     }
+}
+
+/// C++ AmericaVehicle.ini ObjectCreationUpgrade ConflictsWith (the other two drones).
+pub fn slave_drone_conflicts_with(kind: SlaveDroneKind) -> [SlaveDroneKind; 2] {
+    match kind {
+        SlaveDroneKind::Scout => [SlaveDroneKind::Battle, SlaveDroneKind::Hellfire],
+        SlaveDroneKind::Battle => [SlaveDroneKind::Scout, SlaveDroneKind::Hellfire],
+        SlaveDroneKind::Hellfire => [SlaveDroneKind::Scout, SlaveDroneKind::Battle],
+    }
+}
+
+/// C++ UpgradeMux::wouldUpgrade ConflictsWith for drone ObjectCreationUpgrade.
+/// Leftover mux already matches; host objects compare completed names.
+pub fn slave_drone_conflicts_with_owned<'a>(
+    next: &str,
+    owned: impl IntoIterator<Item = &'a str>,
+) -> bool {
+    let Some(kind) = SlaveDroneKind::from_upgrade_name(next) else {
+        return false;
+    };
+    let conflicts = slave_drone_conflicts_with(kind);
+    owned
+        .into_iter()
+        .filter_map(SlaveDroneKind::from_upgrade_name)
+        .any(|have| conflicts.contains(&have))
+}
+
+/// C++ Object::affectedByUpgrade residual for Scout/Battle/Hellfire OBJECT_UPGRADE.
+/// Non-drone upgrades are not this mux (return true).
+pub fn slave_drone_affected_by_upgrade<'a>(
+    next: &str,
+    owned: impl IntoIterator<Item = &'a str>,
+) -> bool {
+    let Some(kind) = SlaveDroneKind::from_upgrade_name(next) else {
+        return true;
+    };
+    let owned: Vec<&str> = owned.into_iter().collect();
+    if owned
+        .iter()
+        .any(|name| SlaveDroneKind::from_upgrade_name(name) == Some(kind))
+    {
+        return false;
+    }
+    !slave_drone_conflicts_with_owned(next, owned)
+}
+
+/// OBJECT_UPGRADE names ConflictsWith would hide once `owned` has a drone.
+pub fn slave_drone_unaffected_upgrade_names<'a>(
+    owned: impl IntoIterator<Item = &'a str>,
+) -> Vec<&'static str> {
+    let owned: Vec<&str> = owned.into_iter().collect();
+    [
+        SlaveDroneKind::Scout,
+        SlaveDroneKind::Battle,
+        SlaveDroneKind::Hellfire,
+    ]
+    .into_iter()
+    .filter(|kind| slave_drone_conflicts_with_owned(kind.upgrade_name(), owned.iter().copied()))
+    .map(SlaveDroneKind::upgrade_name)
+    .collect()
+}
+
+/// Wave residual honesty: pairwise ConflictsWith mux (one drone per vehicle).
+pub fn honesty_slave_drones_conflicts_with_ok() -> bool {
+    let scout = slave_drone_conflicts_with(SlaveDroneKind::Scout);
+    let battle = slave_drone_conflicts_with(SlaveDroneKind::Battle);
+    let hellfire = slave_drone_conflicts_with(SlaveDroneKind::Hellfire);
+    scout.contains(&SlaveDroneKind::Battle)
+        && scout.contains(&SlaveDroneKind::Hellfire)
+        && battle.contains(&SlaveDroneKind::Scout)
+        && battle.contains(&SlaveDroneKind::Hellfire)
+        && hellfire.contains(&SlaveDroneKind::Scout)
+        && hellfire.contains(&SlaveDroneKind::Battle)
+        && !slave_drone_conflicts_with_owned(UPGRADE_AMERICA_BATTLE_DRONE, None::<&str>)
+        && slave_drone_conflicts_with_owned(
+            UPGRADE_AMERICA_BATTLE_DRONE,
+            [UPGRADE_AMERICA_SCOUT_DRONE],
+        )
+        && slave_drone_conflicts_with_owned(
+            UPGRADE_AMERICA_SCOUT_DRONE,
+            [UPGRADE_AMERICA_HELLFIRE_DRONE],
+        )
+        && !slave_drone_affected_by_upgrade(
+            UPGRADE_AMERICA_HELLFIRE_DRONE,
+            [UPGRADE_AMERICA_BATTLE_DRONE],
+        )
+        && slave_drone_affected_by_upgrade(UPGRADE_AMERICA_SCOUT_DRONE, None::<&str>)
+        && !slave_drone_affected_by_upgrade(
+            UPGRADE_AMERICA_SCOUT_DRONE,
+            [UPGRADE_AMERICA_SCOUT_DRONE],
+        )
+        && slave_drone_unaffected_upgrade_names([UPGRADE_AMERICA_SCOUT_DRONE])
+            == [UPGRADE_AMERICA_BATTLE_DRONE, UPGRADE_AMERICA_HELLFIRE_DRONE]
+        && !slave_drone_conflicts_with_owned(
+            "Upgrade_AmericaTOWMissile",
+            [UPGRADE_AMERICA_SCOUT_DRONE],
+        )
 }
 
 /// Normalize alnum-lowercase template/upgrade name.
@@ -672,6 +771,33 @@ pub fn drone_armor_add_max_health(kind: SlaveDroneKind) -> f32 {
     }
 }
 
+/// Living slave-drone kind for MaxHealthUpgrade / spawn inherit.
+pub fn slave_drone_kind_from_template(template_name: &str) -> Option<SlaveDroneKind> {
+    if is_battle_drone_template(template_name) {
+        Some(SlaveDroneKind::Battle)
+    } else if is_hellfire_drone_template(template_name) {
+        Some(SlaveDroneKind::Hellfire)
+    } else if is_scout_drone_template(template_name) {
+        Some(SlaveDroneKind::Scout)
+    } else {
+        None
+    }
+}
+
+/// Apply DroneArmor MaxHealthUpgrade residual: +AddMaxHealth current+max
+/// (`ADD_CURRENT_HEALTH_TOO`, same as C++ `setMaxHealth` at initObject).
+pub fn apply_drone_armor_health(
+    kind: SlaveDroneKind,
+    max_health: &mut f32,
+    current: &mut f32,
+    maximum: &mut f32,
+) {
+    let add = drone_armor_add_max_health(kind);
+    *max_health = (*max_health + add).max(1.0);
+    *maximum = (*maximum + add).max(1.0);
+    *current = (*current + add).min(*maximum);
+}
+
 // --- Wave 61 residual honesty packs ---
 
 /// Wave 61 residual honesty: SlavedUpdate wander residual.
@@ -829,6 +955,7 @@ pub fn honesty_slave_drones_residual_pack_ok() -> bool {
         && honesty_slave_drones_spawn_residual_ok()
         && honesty_slave_drones_repair_residual_ok()
         && honesty_hellfire_scatter_vs_infantry_ok()
+        && honesty_slave_drones_conflicts_with_ok()
 }
 
 #[cfg(test)]
@@ -937,6 +1064,7 @@ mod tests {
         );
         assert!(hellfire_auto_fire_eligible(true, true, true, true, true));
         assert!(!hellfire_auto_fire_eligible(true, false, true, true, true));
+        assert!(honesty_slave_drones_conflicts_with_ok());
     }
 
     #[test]

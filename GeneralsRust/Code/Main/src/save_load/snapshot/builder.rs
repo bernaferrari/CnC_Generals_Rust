@@ -79,8 +79,13 @@ impl SnapshotBuilder {
                 super::hotkey_squad_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
                 super::booby_trap_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
                 super::carpet_bomb_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::production_door_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::dozer_repair_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::rebuild_hole_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::weapon_set_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::ability_hijack_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
 
-
+                super::ai_team_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
 
 
                 bytes
@@ -106,6 +111,8 @@ impl SnapshotBuilder {
             object_command_sets: self.snapshot_object_command_sets(game_logic),
             object_disguises: self.snapshot_object_disguises(game_logic),
         };
+
+        super::player_team_persist::stamp_from_live(game_logic);
 
         log::info!(
             "World snapshot complete: {} objects, {} players",
@@ -153,6 +160,7 @@ impl SnapshotBuilder {
 
         // C++ parity order: players/teams before objects, then world systems.
         self.restore_all_players(&snapshot.players, game_logic)?;
+        super::player_team_persist::apply_pending(game_logic);
         self.restore_player_ranks(snapshot, game_logic)?;
         self.restore_player_energy(snapshot, game_logic)?;
         self.restore_player_template_bindings(snapshot, game_logic)?;
@@ -197,6 +205,12 @@ impl SnapshotBuilder {
             restore_game_client_from_xfer_bytes(&client_bytes)?;
         }
         restore_objectless_from_client_drawables(&snapshot.client_drawables);
+        if let Some(particle_bytes) = take_loaded_particle_system_xfer() {
+            restore_particle_system_from_xfer_bytes(&particle_bytes)?;
+        }
+        if let Some(terrain_visual_bytes) = take_loaded_terrain_visual_xfer() {
+            restore_terrain_visual_from_xfer_bytes(&terrain_visual_bytes)?;
+        }
 
         // Map loading initializes a fresh shroud grid and may reveal
         // staging-map objects. Replace that singleton only when this save
@@ -240,7 +254,30 @@ impl SnapshotBuilder {
             &snapshot.lifecycle_tail,
             game_logic,
         )?;
-
+        super::production_door_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::dozer_repair_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::rebuild_hole_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::weapon_set_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::ai_team_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::ability_hijack_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
 
 
 
@@ -515,6 +552,22 @@ impl SnapshotBuilder {
             );
         }
 
+        // C++ Object::xfer writes TransportContain / StealthUpdate /
+        // StealthDetectorUpdate as template modules. Live host identity is
+        // residual flags; persist the transport hull so load can reinstall
+        // even if the template catalog is missing.
+        if object.is_listening_outpost_style_container() {
+            modules.insert(
+                "Contain".to_string(),
+                ModuleSnapshot::Contain(ContainModuleSnapshot {
+                    contained_objects: object.occupants.clone(),
+                    max_capacity: object.max_transport,
+                    contain_type: "ListeningOutpost".to_string(),
+                    exit_positions: Vec::new(),
+                }),
+            );
+        }
+
         Ok(modules)
     }
 
@@ -536,7 +589,8 @@ impl SnapshotBuilder {
                         )),
                     formation_id: (object.formation_id != 0).then_some(object.formation_id),
                     group_id: None,
-                    waypoints: Vec::new(),
+                    waypoints: remaining_unit_waypoints(object),
+
                 }))
             }
             ObjectType::Building => Ok(ObjectTypeSnapshot::Building(BuildingSnapshot {
@@ -2190,4 +2244,13 @@ fn disguise_team_from_u8(value: u8) -> Option<Team> {
         _ => None,
     }
 }
+
+fn remaining_unit_waypoints(object: &Object) -> Vec<Vec3> {
+    let idx = object
+        .movement
+        .current_path_index
+        .min(object.movement.path.len());
+    object.movement.path[idx..].to_vec()
+}
+
 

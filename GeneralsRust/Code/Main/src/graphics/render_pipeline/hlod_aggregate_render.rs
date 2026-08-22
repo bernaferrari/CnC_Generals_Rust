@@ -919,7 +919,9 @@ mod tests {
             selection_intensity,
             team_color,
             true,
+            [1.0, 1.0, 1.0, 1.0],
         );
+
 
         let mut aggregate_parent = parent_item();
         aggregate_parent.apply_frozen_presentation_visuals(
@@ -927,7 +929,9 @@ mod tests {
             selection_intensity,
             team_color,
             true,
+            [1.0, 1.0, 1.0, 1.0],
         );
+
         let poses = [W3dHlodAggregatePose {
             name: "ATTACHED.Body".to_string(),
             bone_index: 1,

@@ -22,6 +22,14 @@ pub struct LiveRayEffect {
     pub fade_start_frame: u32,
     /// 0 = no auto-expire (`addRayEffect` drawable-owned lifetime).
     pub expire_frame: u32,
+    /// C++ W3DLaserDraw OuterBeamWidth (world units).
+    pub outer_beam_width: f32,
+    /// C++ W3DLaserDraw OuterColor (or InnerColor if outer is black).
+    pub color: [f32; 4],
+    /// C++ W3DLaserDraw Texture name.
+    pub texture_name: String,
+    /// True when TheThingFactory produced a real template drawable.
+    pub from_template_drawable: bool,
 }
 
 /// C++ `LOGICFRAMES_PER_SECOND` (30). Leftover `RayEffectConfig` default
@@ -30,8 +38,25 @@ pub struct LiveRayEffect {
 /// cannot accumulate forever.
 const DEFAULT_RAY_MAX_INTENSITY_FRAMES: u32 = 15;
 const DEFAULT_RAY_FADE_FRAMES: u32 = 3;
+const DEFAULT_RAY_COLOR: [f32; 4] = [0.85, 0.95, 1.0, 1.0];
+const DEFAULT_RAY_WIDTH: f32 = 0.4;
 
-fn fx_list_ray_lifetime_frames(_template_name: &str) -> (u32, u32) {
+fn fx_list_ray_lifetime_frames(template_name: &str) -> (u32, u32) {
+    if let Some(visuals) =
+        gamelogic::helpers::TheGameClient::ray_effect_template_visuals(template_name)
+    {
+        let max_i = if visuals.max_intensity_frames == 0 {
+            DEFAULT_RAY_MAX_INTENSITY_FRAMES
+        } else {
+            visuals.max_intensity_frames
+        };
+        let fade = if visuals.fade_frames == 0 {
+            DEFAULT_RAY_FADE_FRAMES
+        } else {
+            visuals.fade_frames
+        };
+        return (max_i, fade);
+    }
     (DEFAULT_RAY_MAX_INTENSITY_FRAMES, DEFAULT_RAY_FADE_FRAMES)
 }
 
@@ -98,19 +123,48 @@ pub fn create_ray_effect_by_template(
     if template_name.is_empty() {
         return None;
     }
+    let midpoint = ray_effect_midpoint(start, end);
+    let start_c = gamelogic::common::Coord3D::new(start[0], start[1], start[2]);
+    let end_c = gamelogic::common::Coord3D::new(end[0], end[1], end[2]);
+    let visuals =
+        gamelogic::helpers::TheGameClient::ray_effect_template_visuals(template_name);
+    let template_drawable_id = gamelogic::helpers::TheGameClient.create_ray_effect_drawable(
+        template_name,
+        &start_c,
+        &end_c,
+    );
     let mut store = global_rays().lock().unwrap_or_else(|e| e.into_inner());
     let Some(idx) = store.free_index() else {
+        if let Some(id) = template_drawable_id {
+            gamelogic::helpers::TheGameClient.destroy_drawable(id);
+        }
         return None;
     };
-    let id = store.next_id;
-    store.next_id = store.next_id.wrapping_add(1).max(1);
-    let midpoint = ray_effect_midpoint(start, end);
+    let drawable_id = template_drawable_id.unwrap_or_else(|| {
+        let id = store.next_id;
+        store.next_id = store.next_id.wrapping_add(1).max(1);
+        id
+    });
+    if template_drawable_id.is_some() {
+        store.next_id = store.next_id.max(drawable_id.saturating_add(1));
+    }
     let now = store.frame;
     let (max_intensity, fade) = fx_list_ray_lifetime_frames(template_name);
     let fade_start_frame = now.saturating_add(max_intensity);
     let expire_frame = fade_start_frame.saturating_add(fade.max(1));
+    let (outer_beam_width, color, texture_name) = match &visuals {
+        Some(v) => {
+            let color = if v.color[0] + v.color[1] + v.color[2] <= 0.001 {
+                DEFAULT_RAY_COLOR
+            } else {
+                v.color
+            };
+            (v.outer_beam_width, color, v.texture_name.clone())
+        }
+        None => (DEFAULT_RAY_WIDTH, DEFAULT_RAY_COLOR, String::new()),
+    };
     let entry = LiveRayEffect {
-        drawable_id: id,
+        drawable_id,
         template_name: template_name.to_string(),
         start,
         end,
@@ -119,6 +173,10 @@ pub fn create_ray_effect_by_template(
         created_frame: now,
         fade_start_frame,
         expire_frame,
+        outer_beam_width,
+        color,
+        texture_name,
+        from_template_drawable: template_drawable_id.is_some(),
     };
     store.slots[idx] = Some(entry.clone());
     Some(entry)
@@ -139,6 +197,10 @@ pub fn add_ray_effect(drawable_id: u32, start: [f32; 3], end: [f32; 3]) -> bool 
         created_frame: now,
         fade_start_frame: 0,
         expire_frame: 0,
+        outer_beam_width: DEFAULT_RAY_WIDTH,
+        color: DEFAULT_RAY_COLOR,
+        texture_name: String::new(),
+        from_template_drawable: false,
     });
     true
 }
@@ -171,7 +233,14 @@ pub fn update_ray_effects(current_frame: u32) {
             continue;
         }
         if current_frame >= ray.expire_frame {
+            let id = ray.drawable_id;
+            let from_template = ray.from_template_drawable;
             *slot = None;
+            if from_template {
+                drop(store);
+                gamelogic::helpers::TheGameClient.destroy_drawable(id);
+                return update_ray_effects(current_frame);
+            }
             continue;
         }
         if current_frame < ray.fade_start_frame {
@@ -189,7 +258,12 @@ pub fn delete_ray_effect(drawable_id: u32) -> bool {
     let mut store = global_rays().lock().unwrap_or_else(|e| e.into_inner());
     for slot in &mut store.slots {
         if slot.as_ref().is_some_and(|e| e.drawable_id == drawable_id) {
+            let from_template = slot.as_ref().is_some_and(|e| e.from_template_drawable);
             *slot = None;
+            drop(store);
+            if from_template {
+                gamelogic::helpers::TheGameClient.destroy_drawable(drawable_id);
+            }
             return true;
         }
     }
@@ -213,10 +287,23 @@ pub fn live_ray_effects() -> Vec<LiveRayEffect> {
 
 /// C++ `RayEffectSystem::reset` / `init`.
 pub fn reset_ray_effects() {
-    global_rays()
+    let mut store = global_rays()
         .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .init();
+        .unwrap_or_else(|e| e.into_inner());
+    let ids: Vec<u32> = store
+        .slots
+        .iter()
+        .filter_map(|s| {
+            s.as_ref()
+                .filter(|e| e.from_template_drawable)
+                .map(|e| e.drawable_id)
+        })
+        .collect();
+    store.init();
+    drop(store);
+    for id in ids {
+        gamelogic::helpers::TheGameClient.destroy_drawable(id);
+    }
 }
 
 /// GPU line endpoints for the registered ray (start → end).

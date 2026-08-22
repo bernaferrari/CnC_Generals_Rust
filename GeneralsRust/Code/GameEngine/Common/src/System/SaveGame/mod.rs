@@ -13,9 +13,9 @@ pub mod campaign_xfer;
 
 
 pub use game_state::{
-    register_partition_manager_update, register_world_dict_map_name, AvailableGameInfo, GameState,
-    SaveCode, SaveDate, SaveFileType, SaveGameInfo, SaveLoadLayoutType, SnapshotType,
-    SAVELOAD_BLOCK_NAMES,
+    format_mission_save_description, register_partition_manager_update, register_world_dict_map_name,
+    AvailableGameInfo, GameState, SaveCode, SaveDate, SaveFileType, SaveGameInfo,
+    SaveLoadLayoutType, SnapshotType, SAVELOAD_BLOCK_NAMES,
 };
 
 pub use game_state_map::{GameStateMap, PORTABLE_MAPS, PORTABLE_SAVE, PORTABLE_USER_MAPS};

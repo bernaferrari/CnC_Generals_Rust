@@ -196,9 +196,9 @@ impl Particle {
         current_frame: u32,
         shader_type: ParticleShaderType,
     ) -> bool {
-        if self.lifetime_left == 0 {
-            return false;
-        }
+        // C++ ParticleSys.cpp:453 — `if (m_lifetimeLeft && --m_lifetimeLeft == 0)`.
+        // Lifetime 0 is infinite and is never decremented.
+
 
         // Integrate acceleration into velocity (C++ lines 316-318)
         self.velocity += self.acceleration;
@@ -295,14 +295,14 @@ impl Particle {
         // Clear acceleration for next frame (C++ line 447)
         self.acceleration = Vector3::zeros();
 
-        // Monitor lifetime (C++ lines 450-451)
+        // Monitor lifetime (C++ ParticleSys.cpp:453-456)
         if self.lifetime_left > 0 {
             self.lifetime_left -= 1;
+            if self.lifetime_left == 0 {
+                return false;
+            }
         }
 
-        if self.lifetime_left == 0 {
-            return false;
-        }
 
         // Check if invisible (C++ lines 454-455)
         if self.is_invisible(shader_type) {
@@ -310,6 +310,16 @@ impl Particle {
         }
 
         true
+    }
+
+    /// Still in the live list: finite remaining life, or authored Lifetime=0 (forever).
+    pub fn is_lifetime_active(&self) -> bool {
+        self.lifetime == 0 || self.lifetime_left > 0
+    }
+
+    /// Visible for draw/cull: not box-culled and not a finished finite life.
+    pub fn is_draw_alive(&self) -> bool {
+        !self.is_culled && self.is_lifetime_active()
     }
 
     /// Apply force to particle (matches C++ Particle::applyForce)
@@ -997,11 +1007,17 @@ fn affine_from_glam_cols(cols: [f32; 16]) -> (Matrix3<f32>, Vector3<f32>) {
     (rot, trans)
 }
 
-/// C++ drawable attach uses getFullyObscuredByShroud, synced from object fog.
+/// C++ drawable attach uses `getFullyObscuredByShroud()` (black shroud),
+/// not the object-attach Fogged test.
 fn drawable_state_is_shrouded(
     state: &gamelogic::helpers::DrawableState,
     local_player_index: i32,
 ) -> bool {
+    if let Some(draw) = state.drawable.as_ref() {
+        if let Ok(guard) = draw.read() {
+            return guard.fully_obscured_by_shroud();
+        }
+    }
     if state.shroud_status_object_id == 0 {
         return false;
     }
@@ -1014,7 +1030,9 @@ fn drawable_state_is_shrouded(
         return false;
     };
     use gamelogic::common::types::ObjectShroudStatus;
-    (guard.get_shrouded_status(local_player_index) as u8) >= (ObjectShroudStatus::Fogged as u8)
+    // Fallback when the drawable flag is unavailable: full black shroud only.
+    (guard.get_shrouded_status(local_player_index) as u8)
+        >= (ObjectShroudStatus::Shrouded as u8)
 }
 
 
@@ -2920,6 +2938,26 @@ mod tests {
     }
 
     #[test]
+    fn lifetime_zero_lives_forever_until_invisible() {
+        let mut info = ParticleInfo::default();
+        info.lifetime = 0;
+        info.alpha_keys[0] = Keyframe {
+            value: 1.0,
+            frame: 0,
+        };
+        let mut particle = Particle::new(&info, 1, 0);
+        assert_eq!(particle.lifetime_left, 0);
+        assert!(particle.is_lifetime_active());
+        for frame in 0..40 {
+            assert!(
+                particle.update(Vector3::zeros(), frame, ParticleShaderType::AlphaTest),
+                "Lifetime=0 must not expire at frame {frame}"
+            );
+            assert_eq!(particle.lifetime_left, 0);
+        }
+    }
+
+    #[test]
     fn test_saveable_cascade_flag() {
         let template = Arc::new(ParticleSystemTemplate::new("Test".to_string()));
         let mut system = ParticleSystem::new(template, 1, false);
@@ -2928,4 +2966,14 @@ mod tests {
         system.set_saveable(false);
         assert!(!system.is_saveable());
     }
+
+    #[test]
+    fn system_lifetime_zero_is_forever() {
+        let mut template = ParticleSystemTemplate::new("Forever".to_string());
+        template.info_mut().system_lifetime = 0;
+        let system = ParticleSystem::new(Arc::new(template), 1, false);
+        assert!(system.is_system_forever());
+        assert!(system.system_lifetime_left == 0 || system.is_system_forever());
+    }
+
 }

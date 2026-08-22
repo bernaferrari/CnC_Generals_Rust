@@ -216,6 +216,8 @@ impl RenderPipeline {
             let selection_flash_intensity = u.selection_flash_intensity();
             // Wave 499: defector_flash folded into selection_flash_intensity(); poison via apply_poison_tint.
             let team_color = u.team_color;
+            let selection_flash_color = u.selection_flash_color_rgba();
+
             // `UnitRenderInput::from_renderable` normalizes old snapshots to
             // one module. Keep the same compatibility at this boundary for
             // direct test/boot inputs which still provide only `model_key`.
@@ -519,7 +521,9 @@ impl RenderPipeline {
                                     selection_flash_intensity,
                                     team_color,
                                     u.poison_tinted,
+                                    selection_flash_color,
                                 );
+
                                 render_item.apply_status_tint(u.status_tint);
                                 render_item.set_presentation_opacity(u.presentation_opacity);
                                 render_item.apply_heat_vision_second_pass(u.second_material_pass_opacity);
@@ -570,7 +574,9 @@ impl RenderPipeline {
                                     selection_flash_intensity,
                                     team_color,
                                     u.poison_tinted,
+                                    selection_flash_color,
                                 );
+
                                 aggregate_parent_item.apply_status_tint(u.status_tint);
                                 aggregate_parent_item.apply_house_color_livery(
                                     w3d_model
@@ -669,7 +675,9 @@ impl RenderPipeline {
                                         selection_flash_intensity,
                                         team_color,
                                         u.poison_tinted,
+                                        selection_flash_color,
                                     );
+
                                     render_item.apply_status_tint(u.status_tint);
                                     render_item.set_presentation_opacity(u.presentation_opacity);
                                     render_item.apply_heat_vision_second_pass(u.second_material_pass_opacity);
@@ -727,7 +735,9 @@ impl RenderPipeline {
                                         selection_flash_intensity,
                                         team_color,
                                         u.poison_tinted,
+                                        selection_flash_color,
                                     );
+
                                     render_item.apply_status_tint(u.status_tint);
                                     render_item.set_presentation_opacity(u.presentation_opacity);
                                     render_item.apply_heat_vision_second_pass(u.second_material_pass_opacity);

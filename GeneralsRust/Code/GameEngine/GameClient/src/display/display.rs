@@ -189,10 +189,11 @@ impl Display {
         };
         let depth_texture = Self::create_depth_texture(&graphics);
         let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let particle_renderer = match GpuParticleRenderer::new(
+        let particle_renderer = match GpuParticleRenderer::new_with_depth_format(
             graphics.device_arc(),
             graphics.queue_arc(),
             surface_format,
+            wgpu::TextureFormat::Depth32Float,
         ) {
             Ok(renderer) => {
                 let renderer = Arc::new(Mutex::new(renderer));
@@ -966,7 +967,10 @@ impl DisplayInterface for Display {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Store,
                     }),
-                    stencil_ops: None,
+                    stencil_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(0),
+                        store: wgpu::StoreOp::Store,
+                    }),
                 }),
                 occlusion_query_set: None,
                 timestamp_writes: None,
@@ -1016,7 +1020,10 @@ impl DisplayInterface for Display {
                                         load: wgpu::LoadOp::Load,
                                         store: wgpu::StoreOp::Store,
                                     }),
-                                    stencil_ops: None,
+                                    stencil_ops: Some(wgpu::Operations {
+                                        load: wgpu::LoadOp::Load,
+                                        store: wgpu::StoreOp::Store,
+                                    }),
                                 },
                             ),
                             occlusion_query_set: None,
@@ -1046,7 +1053,10 @@ impl DisplayInterface for Display {
                             load: wgpu::LoadOp::Load,
                             store: wgpu::StoreOp::Store,
                         }),
-                        stencil_ops: None,
+                        stencil_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        }),
                     }),
                     occlusion_query_set: None,
                     timestamp_writes: None,
@@ -1062,7 +1072,29 @@ impl DisplayInterface for Display {
                     manager.render_pass_through(&mut pass, &view_glam, &proj_glam);
                 });
             }
+
+            // C++ DoShadows(true) after opaque flush, then
+            // flushOccludedObjectsIntoStencil + renderStenciledPlayerColor.
+            let light_pos = self
+                .lighting_state
+                .lights
+                .first()
+                .map(|light| light.position)
+                .unwrap_or([0.0, 0.0, -1.0]);
+            shadow_pass::record_shadow_and_occlusion_passes(
+                self.graphics.device(),
+                &mut encoder,
+                scene_view,
+                &self.depth_view,
+                proj_glam * view_glam,
+                [camera_pos.x, camera_pos.y, camera_pos.z],
+                light_pos,
+                self.graphics.config().format,
+                wgpu::TextureFormat::Depth32Float,
+            );
         });
+
+
 
         // C++ W3DParticleSys::doParticles — terrain visible-box cull.
         if let Ok(mut guard) = crate::effects::particle_manager::get_particle_system_manager_mut()

@@ -1570,6 +1570,36 @@ fn chem_demo_trap_gamma_and_demo_he_residual() {
     let _ = far; // secondary-ring placement residual (optional observability)
 }
 
+#[test]
+fn chem_demo_trap_construction_applies_anthrax_gamma_puddle() {
+    use crate::game_logic::host_mines::DemoTrapProfile;
+    use crate::game_logic::host_upgrades::UPGRADE_CHEM_ANTHRAX_GAMMA;
+    use crate::game_logic::KindOf;
+
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::GLA);
+    if let Some(p) = logic.get_player_mut(2) {
+        p.add_completed_upgrade(UPGRADE_CHEM_ANTHRAX_GAMMA);
+    }
+    let mut trap_t = ThingTemplate::new("Chem_GLADemoTrap");
+    trap_t.add_kind_of(KindOf::Structure).set_health(100.0);
+    logic.templates.insert("Chem_GLADemoTrap".into(), trap_t);
+    let id = logic
+        .create_object("Chem_GLADemoTrap", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("constructed chem trap");
+    let md = logic
+        .host_object(id)
+        .and_then(|o| o.mine_data.as_ref())
+        .expect("mine bind");
+    assert_eq!(md.demo_trap_profile, DemoTrapProfile::ChemGamma);
+    assert!(md.demo_trap_profile.spawns_poison());
+    assert_eq!(
+        md.demo_trap_profile.poison_anthrax_tier(),
+        crate::game_logic::host_toxin_tractor::AnthraxResidualTier::Gamma
+    );
+}
+
+
 /// Residual: SCIENCE unit-training grants StartingLevel on spawn
 /// (RedGuard VETERAN, Battlemaster ELITE, etc.).
 #[test]

@@ -13,7 +13,8 @@
 //! empty-gates on the live host (`OBJECT_REGISTRY` empty). This residual
 //! is the live spawn-plan path.
 //!
-//! Fail-closed: not full gattling contain / howitzer projectile / decal pair.
+//! Live AttackAreaDecal + TargetingReticleDecal: `HostRadiusDecal` enqueue
+//! (C++ `createRadiusDecal` / `setPosition` / `update` / `cleanUp`).
 
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
@@ -21,9 +22,14 @@ use serde::{Deserialize, Serialize};
 use crate::game_logic::host_spectre_gunship_deployment::{
     default_map_extents, SPECTRE_PREFERRED_ELEVATION,
 };
+use crate::game_logic::host_radius_decal_update::{
+    radius_decal_ms_to_frames, HostRadiusDecal, HostRadiusDecalTemplate,
+};
 use crate::game_logic::special_power_strikes::{
-    clamp_spectre_override_destination, HostSpectreOrbitField, SPECTRE_GUNSHIP_ORBIT_RADIUS,
+    clamp_spectre_override_destination, HostSpectreOrbitField, SPECTRE_ATTACK_AREA_DECAL_TEXTURE,
+    SPECTRE_ATTACK_AREA_DECAL_THROB_MS, SPECTRE_DECAL_COLOR, SPECTRE_GUNSHIP_ORBIT_RADIUS,
     SPECTRE_ORBIT_DURATION_FRAMES, SPECTRE_ORBIT_INSERTION_SLOPE, SPECTRE_ORBIT_RADIUS,
+    SPECTRE_TARGETING_RETICLE_DECAL_TEXTURE, SPECTRE_TARGETING_RETICLE_DECAL_THROB_MS,
     SPECTRE_TARGETING_RETICLE_RADIUS,
 };
 use crate::game_logic::ObjectId;
@@ -74,6 +80,12 @@ pub struct HostSpectreGunshipUpdateData {
     pub afterburners_on: bool,
     /// True → `DOOR_1_OPENING`; false → `DOOR_1_CLOSING`.
     pub door_opening: bool,
+    /// C++ `m_attackAreaDecal` — owner-only AttackArea ring (SCCSpecTarg).
+    #[serde(default)]
+    pub attack_area_decal: HostRadiusDecal,
+    /// C++ `m_targetingReticleDecal` — owner-only reticle (SCCSpecRet).
+    #[serde(default)]
+    pub targeting_reticle_decal: HostRadiusDecal,
 }
 
 impl Default for HostSpectreGunshipUpdateData {
@@ -93,6 +105,8 @@ impl Default for HostSpectreGunshipUpdateData {
             preferred_elevation: SPECTRE_PREFERRED_ELEVATION,
             afterburners_on: false,
             door_opening: false,
+            attack_area_decal: HostRadiusDecal::default(),
+            targeting_reticle_decal: HostRadiusDecal::default(),
         }
     }
 }
@@ -106,6 +120,35 @@ pub struct SpectreGunshipTick {
     pub afterburners_on: bool,
     pub door_opening: bool,
     pub panic_loco: bool,
+}
+
+fn spectre_decal_argb() -> u32 {
+    let (r, g, b, a) = SPECTRE_DECAL_COLOR;
+    ((a as u32) << 24) | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32)
+}
+
+fn spectre_attack_area_decal_template() -> HostRadiusDecalTemplate {
+    HostRadiusDecalTemplate {
+        name: "SpectreAttackArea".into(),
+        texture: SPECTRE_ATTACK_AREA_DECAL_TEXTURE.into(),
+        opacity_min: 0.25,
+        opacity_max: 0.50,
+        throb_frames: radius_decal_ms_to_frames(SPECTRE_ATTACK_AREA_DECAL_THROB_MS),
+        only_visible_to_owner: true,
+        color: spectre_decal_argb(),
+    }
+}
+
+fn spectre_targeting_reticle_decal_template() -> HostRadiusDecalTemplate {
+    HostRadiusDecalTemplate {
+        name: "SpectreTargetingReticle".into(),
+        texture: SPECTRE_TARGETING_RETICLE_DECAL_TEXTURE.into(),
+        opacity_min: 0.50,
+        opacity_max: 1.00,
+        throb_frames: radius_decal_ms_to_frames(SPECTRE_TARGETING_RETICLE_DECAL_THROB_MS),
+        only_visible_to_owner: true,
+        color: spectre_decal_argb(),
+    }
 }
 
 impl HostSpectreGunshipUpdateData {
@@ -128,6 +171,7 @@ impl HostSpectreGunshipUpdateData {
         self.status = HostGunshipStatus::Inserting;
         self.afterburners_on = true;
         self.door_opening = false;
+        self.create_engagement_decals(target, 0);
     }
 
     pub fn initiate_at(target: Vec3) -> Self {
@@ -206,22 +250,67 @@ impl HostSpectreGunshipUpdateData {
         );
     }
 
+    fn create_engagement_decals(&mut self, pos: Vec3, frame: u32) {
+        self.attack_area_decal = HostRadiusDecal::create_with_owner(
+            spectre_attack_area_decal_template(),
+            self.attack_area_radius,
+            pos,
+            frame,
+            None,
+        );
+        self.targeting_reticle_decal = HostRadiusDecal::create_with_owner(
+            spectre_targeting_reticle_decal_template(),
+            self.targeting_reticle_radius,
+            pos,
+            frame,
+            None,
+        );
+    }
+
+    fn ensure_engagement_decals(&mut self, frame: u32) {
+        if self.attack_area_decal.is_empty() || self.targeting_reticle_decal.is_empty() {
+            self.create_engagement_decals(self.initial_target, frame);
+        }
+    }
+
+    fn update_engagement_decals(&mut self, frame: u32) {
+        self.ensure_engagement_decals(frame);
+        self.attack_area_decal.update(frame);
+        self.targeting_reticle_decal.update(frame);
+    }
+
+    fn place_engagement_decals(&mut self) {
+        self.attack_area_decal.set_position(self.initial_target);
+        self.targeting_reticle_decal.set_position(self.override_target);
+    }
+
+    /// C++ `SpectreGunshipUpdate::cleanUp` — clear AttackArea + Reticle.
+    pub fn clean_up_decals(&mut self) {
+        self.attack_area_decal.clear();
+        self.targeting_reticle_decal.clear();
+    }
+
 
     /// C++ `SpectreGunshipUpdate::update` insertion / orbit / depart slice.
     pub fn tick(&mut self, pos: Vec3, facing: f32, frame: u32) -> SpectreGunshipTick {
         let (min_x, min_z, max_x, max_z) = default_map_extents();
         match self.status {
-            HostGunshipStatus::Idle => SpectreGunshipTick {
-                pos,
-                vel: Vec3::ZERO,
-                destroy: false,
-                afterburners_on: self.afterburners_on,
-                door_opening: self.door_opening,
-                panic_loco: false,
-            },
+            HostGunshipStatus::Idle => {
+                self.clean_up_decals();
+                SpectreGunshipTick {
+                    pos,
+                    vel: Vec3::ZERO,
+                    destroy: false,
+                    afterburners_on: self.afterburners_on,
+                    door_opening: self.door_opening,
+                    panic_loco: false,
+                }
+            }
             HostGunshipStatus::Inserting | HostGunshipStatus::Orbiting => {
                 self.satellite_position = self.compute_satellite(pos);
+                self.update_engagement_decals(frame);
                 self.constrain_override();
+                self.place_engagement_decals();
                 let (new_pos, vel) =
                     Self::step_toward(pos, self.satellite_position, self.preferred_elevation);
                 let dist = self.distance_to_target(new_pos);
@@ -247,6 +336,8 @@ impl HostSpectreGunshipUpdateData {
                 }
             }
             HostGunshipStatus::Departing => {
+                self.attack_area_decal.update(frame);
+                self.targeting_reticle_decal.update(frame);
                 if self.exit_point.length_squared() < 1.0 {
                     self.exit_point = Self::facing_exit(pos, facing, self.preferred_elevation);
                 }
@@ -256,6 +347,7 @@ impl HostSpectreGunshipUpdateData {
                 if off {
                     self.status = HostGunshipStatus::Idle;
                     self.afterburners_on = false;
+                    self.clean_up_decals();
                 }
                 SpectreGunshipTick {
                     pos: new_pos,
@@ -278,15 +370,28 @@ pub fn honesty_spectre_gunship_update_residual_ok() -> bool {
         && SPECTRE_ORBIT_DURATION_FRAMES == 450
         && {
             let mut d = HostSpectreGunshipUpdateData::initiate_at(Vec3::new(250.0, 0.0, 250.0));
+            let created = !d.attack_area_decal.is_empty()
+                && !d.targeting_reticle_decal.is_empty()
+                && (d.attack_area_decal.radius - SPECTRE_ORBIT_RADIUS).abs() < 0.01
+                && (d.targeting_reticle_decal.radius - SPECTRE_TARGETING_RETICLE_RADIUS).abs()
+                    < 0.01;
+            #[cfg(feature = "game_client")]
+            let created = created
+                && d.attack_area_decal.has_projected_shadow()
+                && d.targeting_reticle_decal.has_projected_shadow();
             d.status == HostGunshipStatus::Inserting
                 && d.afterburners_on
                 && !d.door_opening
+                && created
                 && {
                     let start = Vec3::new(-250.0, 120.0, -250.0);
                     let tick = d.tick(start, 0.785_398_2, 0);
                     let moved = (tick.pos.x - start.x).abs() > 1.0
                         || (tick.pos.z - start.z).abs() > 1.0;
-                    moved && tick.afterburners_on && !tick.door_opening && !tick.destroy
+                    let placed = (d.attack_area_decal.position - d.initial_target).length() < 0.01
+                        && (d.targeting_reticle_decal.position - d.override_target).length()
+                            < 0.01;
+                    moved && tick.afterburners_on && !tick.door_opening && !tick.destroy && placed
                 }
         }
 }

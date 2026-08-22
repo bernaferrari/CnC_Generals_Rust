@@ -13,6 +13,8 @@ use std::cell::RefCell;
 pub struct AnthraxDropEvent {
     pub team: Team,
     pub target: Vec3,
+    /// C++ contained payload exits at the transport pose, not over the click.
+    pub plane_pos: Vec3,
     pub producer: ObjectId,
     pub tier: AnthraxBombPayloadTier,
 }

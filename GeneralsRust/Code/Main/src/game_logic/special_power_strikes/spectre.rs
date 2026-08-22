@@ -454,6 +454,44 @@ pub fn clamp_spectre_override_destination(
     }
 }
 
+/// C++ `m_okToFireHowitzerCounter > m_howitzerFollowLag` (HowitzerFollowLag 12f).
+#[inline]
+pub fn spectre_howitzer_follow_ready(ok_to_fire_counter: u32) -> bool {
+    ok_to_fire_counter > SPECTRE_HOWITZER_FOLLOW_LAG_FRAMES
+}
+
+/// C++ `SpectreGunshipUpdate.cpp:609-623` StrafingIncrement wind + FollowLag counter.
+///
+/// Host ground plane is XZ. Dist < increment → snap to shoot-at and increment
+/// the howitzer counter. Otherwise reset the counter and step toward shoot-at.
+#[inline]
+pub fn spectre_wind_gattling_aim(
+    gattling_target: Vec3,
+    position_to_shoot_at: Vec3,
+    strafing_increment: f32,
+    ok_to_fire_counter: u32,
+) -> (Vec3, u32) {
+    let dx = position_to_shoot_at.x - gattling_target.x;
+    let dz = position_to_shoot_at.z - gattling_target.z;
+    let dist = (dx * dx + dz * dz).sqrt();
+    if dist < strafing_increment {
+        (position_to_shoot_at, ok_to_fire_counter.saturating_add(1))
+    } else if dist > 1.0e-4 {
+        let scale = strafing_increment / dist;
+        (
+            Vec3::new(
+                gattling_target.x + dx * scale,
+                position_to_shoot_at.y,
+                gattling_target.z + dz * scale,
+            ),
+            0,
+        )
+    } else {
+        (position_to_shoot_at, ok_to_fire_counter.saturating_add(1))
+    }
+}
+
+
 
 /// C++ `SpectreGunshipUpdate.cpp:498-507` acquire filters as a pure residual.
 ///

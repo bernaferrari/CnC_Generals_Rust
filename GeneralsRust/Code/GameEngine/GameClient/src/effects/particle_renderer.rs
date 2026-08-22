@@ -120,7 +120,96 @@ pub struct ParticleBatch {
 pub struct DecalVertex {
     pub position: [f32; 3],
     pub color: [f32; 4],
+    pub uv: [f32; 2],
 }
+
+const SHADOW_DECAL_TYPE: u32 = 0x0000_0001;
+const SHADOW_ADDITIVE_DECAL_TYPE: u32 = 0x0000_0040;
+const DECAL_DRAPE_GRID: usize = 4;
+const DECAL_HEIGHT_LIFT: f32 = 0.15;
+
+fn decal_half_extents(decal: &DecalRenderItem) -> (f32, f32) {
+    let hx = if decal.size_x > 0.0 {
+        decal.size_x
+    } else {
+        decal.size
+    } * 0.5;
+    let hy = if decal.size_y > 0.0 {
+        decal.size_y
+    } else {
+        decal.size
+    } * 0.5;
+    (hx.max(0.0), hy.max(0.0))
+}
+
+fn sample_decal_ground_z(x: f32, y: f32, fallback: f32) -> f32 {
+    gamelogic::helpers::TheTerrainLogic::get()
+        .map(|terrain| terrain.get_ground_height(x, y, None))
+        .filter(|height| height.is_finite())
+        .unwrap_or(fallback)
+}
+
+fn drape_decal_vertices(decal: &DecalRenderItem) -> Vec<DecalVertex> {
+    let (half_x, half_y) = decal_half_extents(decal);
+    if half_x <= 0.0 || half_y <= 0.0 {
+        return Vec::new();
+    }
+    let sin_r = decal.rotation.sin();
+    let cos_r = decal.rotation.cos();
+    let base = decal.position;
+    let color = decal.color;
+    let cells = DECAL_DRAPE_GRID;
+    let mut vertices = Vec::with_capacity(cells * cells * 6);
+    for iy in 0..cells {
+        let v0 = iy as f32 / cells as f32;
+        let v1 = (iy + 1) as f32 / cells as f32;
+        for ix in 0..cells {
+            let u0 = ix as f32 / cells as f32;
+            let u1 = (ix + 1) as f32 / cells as f32;
+            let corners = [
+                (u0, v0, -half_x + u0 * half_x * 2.0, -half_y + v0 * half_y * 2.0),
+                (u1, v0, -half_x + u1 * half_x * 2.0, -half_y + v0 * half_y * 2.0),
+                (u0, v1, -half_x + u0 * half_x * 2.0, -half_y + v1 * half_y * 2.0),
+                (u1, v1, -half_x + u1 * half_x * 2.0, -half_y + v1 * half_y * 2.0),
+            ];
+            let mut world = [[0.0f32; 3]; 4];
+            for (i, &(u, v, lx, ly)) in corners.iter().enumerate() {
+                let _ = (u, v);
+                let rot_x = lx * cos_r - ly * sin_r;
+                let rot_y = lx * sin_r + ly * cos_r;
+                let wx = base.x + rot_x;
+                let wy = base.y + rot_y;
+                let wz = sample_decal_ground_z(wx, wy, base.z) + DECAL_HEIGHT_LIFT;
+                world[i] = [wx, wy, wz];
+            }
+            let verts = [
+                DecalVertex {
+                    position: world[0],
+                    color,
+                    uv: [corners[0].0, corners[0].1],
+                },
+                DecalVertex {
+                    position: world[1],
+                    color,
+                    uv: [corners[1].0, corners[1].1],
+                },
+                DecalVertex {
+                    position: world[2],
+                    color,
+                    uv: [corners[2].0, corners[2].1],
+                },
+                DecalVertex {
+                    position: world[3],
+                    color,
+                    uv: [corners[3].0, corners[3].1],
+                },
+            ];
+            vertices.extend_from_slice(&[verts[0], verts[1], verts[2], verts[2], verts[1], verts[3]]);
+        }
+    }
+    vertices
+}
+
 
 impl ParticleBatch {
     pub fn new(shader_type: ParticleShaderType, texture_name: String) -> Self {
@@ -274,7 +363,7 @@ pub fn bake_particle_system_gpu_mesh(system: &ParticleSystem) -> Vec<ParticleVer
         return vertices;
     }
     for particle in system.particles() {
-        if particle.lifetime_left == 0 || particle.is_culled {
+        if !particle.is_draw_alive() {
             continue;
         }
         match info.particle_type {
@@ -348,7 +437,7 @@ pub fn feed_system_heat_smudges(system: &ParticleSystem) -> usize {
     let mut visible = 0usize;
     if let Ok(mut set) = set.lock() {
         for particle in system.particles() {
-            if particle.lifetime_left == 0 || particle.is_culled {
+            if !particle.is_draw_alive() {
                 continue;
             }
             let smudge = set.add_smudge_to_set();
@@ -400,7 +489,7 @@ fn live_streak_particles(system: &ParticleSystem) -> Vec<&Particle> {
     system
         .particles()
         .iter()
-        .filter(|particle| particle.lifetime_left > 0 && !particle.is_culled)
+        .filter(|particle| particle.is_draw_alive())
         .collect()
 }
 
@@ -454,6 +543,8 @@ pub struct ParticleRenderer {
     alpha_test_pipeline: wgpu::RenderPipeline,
     multiply_pipeline: wgpu::RenderPipeline,
     decal_pipeline: wgpu::RenderPipeline,
+    decal_modulate_pipeline: wgpu::RenderPipeline,
+    decal_additive_pipeline: wgpu::RenderPipeline,
     heat_haze_pipeline: wgpu::RenderPipeline,
 
     /// Uniform buffer
@@ -773,6 +864,11 @@ impl ParticleRenderer {
                     offset: 12,
                     shader_location: 1,
                 },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x2,
+                    offset: 28,
+                    shader_location: 2,
+                },
             ],
         };
 
@@ -1005,7 +1101,7 @@ impl ParticleRenderer {
             vertex: wgpu::VertexState {
                 module: &decal_shader,
                 entry_point: Some("vs_main"),
-                buffers: &[decal_vertex_layout],
+                buffers: &[decal_vertex_layout.clone()],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -1014,6 +1110,94 @@ impl ParticleRenderer {
                 targets: &[Some(wgpu::ColorTargetState {
                     format: surface_format,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: depth_format,
+                depth_write_enabled: false,
+                depth_compare: wgpu::CompareFunction::LessEqual,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        let decal_modulate_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Decal Modulate Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &decal_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[decal_vertex_layout.clone()],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &decal_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: surface_format,
+                    blend: Some(wgpu::BlendState {
+                        color: particle_multiply_color_blend(),
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::Zero,
+                            dst_factor: wgpu::BlendFactor::One,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                    }),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: depth_format,
+                depth_write_enabled: false,
+                depth_compare: wgpu::CompareFunction::LessEqual,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        let decal_additive_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Decal Additive Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &decal_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[decal_vertex_layout],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &decal_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: surface_format,
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::SrcAlpha,
+                            dst_factor: wgpu::BlendFactor::One,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::One,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                    }),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
@@ -1059,6 +1243,8 @@ impl ParticleRenderer {
             alpha_test_pipeline,
             multiply_pipeline,
             decal_pipeline,
+            decal_modulate_pipeline,
+            decal_additive_pipeline,
             heat_haze_pipeline,
 
             uniform_buffer,
@@ -1347,10 +1533,16 @@ impl ParticleRenderer {
             let dz = ray.end[2] - ray.start[2];
             let length = (dx * dx + dy * dy + dz * dz).sqrt().max(0.001);
             let alpha = ray.width_scalar.clamp(0.0, 1.0);
+            let width = (ray.outer_beam_width * alpha.max(0.05)).max(0.05);
+            let mut color = ray.color;
+            color[3] *= alpha;
+            if !ray.texture_name.is_empty() {
+                self.ensure_authored_texture_loaded(&ray.texture_name);
+            }
             vertices.push(ParticleVertex {
                 position: ray.midpoint,
-                size: [length, 0.4 * alpha.max(0.05)],
-                color: [0.85, 0.95, 1.0, alpha],
+                size: [length, width],
+                color,
                 uv_rect: [0.0, 0.0, 1.0, 1.0],
                 rotation: dy.atan2(dx),
                 alpha,
@@ -1496,95 +1688,87 @@ impl ParticleRenderer {
         self.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[*uniforms]));
 
-        let mut vertices: Vec<DecalVertex> = Vec::new();
+        // C++ flushDecals batches by texture + ShadowType. Group the same way.
+        let mut groups: Vec<(String, u32, Vec<DecalVertex>)> = Vec::new();
         for decal in decals {
-            let half = decal.size * 0.5;
-            let sin_r = decal.rotation.sin();
-            let cos_r = decal.rotation.cos();
-
-            let offset = |x: f32, y: f32| {
-                let rot_x = x * cos_r - y * sin_r;
-                let rot_y = x * sin_r + y * cos_r;
-                (rot_x, rot_y)
-            };
-
-            let (x0, y0) = offset(-half, -half);
-            let (x1, y1) = offset(half, -half);
-            let (x2, y2) = offset(-half, half);
-            let (x3, y3) = offset(half, half);
-
-            let base = decal.position;
-            let z = base.z + 0.01;
-            let color = decal.color;
-
-            let v0 = DecalVertex {
-                position: [base.x + x0, base.y + y0, z],
-                color,
-            };
-            let v1 = DecalVertex {
-                position: [base.x + x1, base.y + y1, z],
-                color,
-            };
-            let v2 = DecalVertex {
-                position: [base.x + x2, base.y + y2, z],
-                color,
-            };
-            let v3 = DecalVertex {
-                position: [base.x + x3, base.y + y3, z],
-                color,
-            };
-
-            vertices.extend_from_slice(&[v0, v1, v2, v2, v1, v3]);
+            let verts = drape_decal_vertices(decal);
+            if verts.is_empty() {
+                continue;
+            }
+            if !decal.texture_name.is_empty() {
+                self.ensure_authored_texture_loaded(&decal.texture_name);
+            }
+            let key = (decal.texture_name.clone(), decal.shadow_type);
+            if let Some((_, _, existing)) = groups
+                .iter_mut()
+                .find(|(tex, kind, _)| tex == &key.0 && *kind == key.1)
+            {
+                existing.extend(verts);
+            } else {
+                groups.push((key.0, key.1, verts));
+            }
         }
 
-        if vertices.is_empty() {
+        if groups.is_empty() {
             return;
         }
 
-        let vertex_buffer = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Decal Vertex Buffer"),
-                contents: bytemuck::cast_slice(&vertices),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
-
         let start_time = std::time::Instant::now();
-        {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Decal Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: depth_view,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
+        for (texture_name, shadow_type, vertices) in groups {
+            let vertex_buffer = self
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Decal Vertex Buffer"),
+                    contents: bytemuck::cast_slice(&vertices),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+            {
+                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Decal Render Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: depth_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
                     }),
-                    stencil_ops: None,
-                }),
-                occlusion_query_set: None,
-                timestamp_writes: None,
-            });
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                });
 
-            render_pass.set_pipeline(&self.decal_pipeline);
-            render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.default_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-            render_pass.draw(0..vertices.len() as u32, 0..1);
+                let pipeline = if shadow_type == SHADOW_ADDITIVE_DECAL_TYPE {
+                    &self.decal_additive_pipeline
+                } else if shadow_type == SHADOW_DECAL_TYPE {
+                    &self.decal_modulate_pipeline
+                } else {
+                    &self.decal_pipeline
+                };
+                let bind_group = self
+                    .texture_bind_groups
+                    .get(&texture_name)
+                    .unwrap_or(&self.default_bind_group);
+                render_pass.set_pipeline(pipeline);
+                render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+                render_pass.set_bind_group(1, bind_group, &[]);
+                render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                render_pass.draw(0..vertices.len() as u32, 0..1);
+            }
+            self.stats.draw_calls += 1;
+            self.stats.particles_rendered += vertices.len();
         }
-
-        self.stats.draw_calls += 1;
-        self.stats.particles_rendered += vertices.len();
         self.stats.render_time_ms += start_time.elapsed().as_secs_f64() * 1000.0;
     }
+
 
     /// Collect particles from a system into appropriate batches
     fn collect_system_particles(&mut self, system: &ParticleSystem, camera_position: [f32; 3]) {
@@ -1624,23 +1808,24 @@ impl ParticleRenderer {
             self.stats.particles_rendered += batch.vertices.len().saturating_sub(before);
         } else {
             for particle in system.particles() {
-                if particle.lifetime_left > 0 && !particle.is_culled {
-                    match info.particle_type {
-                        ParticleType::VolumeParticle => {
-                            let before = batch.vertices.len();
-                            batch.add_volume_particle(particle, system, camera_position);
-                            self.stats.particles_rendered +=
-                                batch.vertices.len().saturating_sub(before);
-                            continue;
-                        }
-                        ParticleType::Particle => batch.add_particle(particle, system),
-                        ParticleType::Streak
-                        | ParticleType::Invalid
-                        | ParticleType::Drawable
-                        | ParticleType::Smudge => continue,
-                    }
-                    self.stats.particles_rendered += 1;
+                if !particle.is_draw_alive() {
+                    continue;
                 }
+                match info.particle_type {
+                    ParticleType::VolumeParticle => {
+                        let before = batch.vertices.len();
+                        batch.add_volume_particle(particle, system, camera_position);
+                        self.stats.particles_rendered +=
+                            batch.vertices.len().saturating_sub(before);
+                        continue;
+                    }
+                    ParticleType::Particle => batch.add_particle(particle, system),
+                    ParticleType::Streak
+                    | ParticleType::Invalid
+                    | ParticleType::Drawable
+                    | ParticleType::Smudge => continue,
+                }
+                self.stats.particles_rendered += 1;
             }
         }
 

@@ -183,6 +183,7 @@ pub fn query_live_drawable_fx_pose(
             position: gamelogic::common::Coord3D::new(pos.x, pos.y, pos.z),
             transform: xf.to_glam(),
             player_index: -1,
+            bounding_circle_radius: 0.0,
         })
     })
     .flatten()

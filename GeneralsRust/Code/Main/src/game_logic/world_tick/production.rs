@@ -1461,20 +1461,12 @@ impl GameLogic {
             let mut spawn_pos = Vec3::new(ev.spawn_pos[0], ev.spawn_pos[1], ev.spawn_pos[2]);
             let rally = ev.rally.map(|r| Vec3::new(r[0], r[1], r[2]));
             // Wave 739: under production sole-tick, GameWorld ready-log pose is
-            // authoritative — do not re-jitter/reposition the unit here (host
-            // create_object already placed at GW exit pose). Non-sole path keeps
-            // host stacking jitter residual.
+            // authoritative — do not reposition the unit here (host
+            // create_object already placed at GW exit pose). Non-sole path
+            // places at the exact transformed UnitCreatePoint (C++ Queue/Default
+            // exitObjectViaDoor). Anti-stack is the doubled natural-rally
+            // waypoint, not a spawn offset.
             let sole = crate::gameworld_shadow::gameworld_production_sole_tick_enabled();
-            let jitter_dir = if sole {
-                Vec3::ZERO
-            } else {
-                Vec3::new(
-                    (spawn_pos.x * 17.0 + spawn_pos.z).sin(),
-                    0.0,
-                    (spawn_pos.z * 31.0 + spawn_pos.x).cos(),
-                )
-                .normalize_or_zero()
-            };
             // C++ VoiceCreated + UnitReady residual.
             self.notify_unit_production_complete(new_id, producer_id, &template);
             // C++ ProductionUpdate.cpp:827-832: first unit of a QuantityModifier
@@ -1560,13 +1552,8 @@ impl GameLogic {
                 .is_some_and(|unit| unit.is_parked_at_airfield());
 
             // Wave 739: sole-tick keeps create_object/GW exit pose; non-sole
-            // applies host stacking jitter + factory exit pose residual.
+            // applies factory exit pose residual at UnitCreatePoint (no spawn jitter).
             if !sole && !parked_jet {
-
-                if let Some(unit) = self.objects.get(&new_id) {
-                    let selection_radius = unit.selection_radius.max(4.0);
-                    spawn_pos += jitter_dir * selection_radius;
-                }
                 // C++ Default/SupplyCenter snap spawn Z to terrain. Queue keeps
                 // transformed Z only when AllowAirborneCreation is set.
                 let snap_spawn_z = !producer_exit_metadata

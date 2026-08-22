@@ -731,6 +731,13 @@ impl ControlBar {
         self.mark_ui_dirty();
     }
 
+    pub fn sync_presentation_occupants(
+        &mut self,
+        occupants: Vec<super::control_bar_structure_inventory::StructureInventoryOccupant>,
+    ) {
+        self.presentation_occupants = occupants;
+    }
+
     pub fn sync_structure_context_from_presentation(
         &mut self,
         max_garrison: usize,
@@ -767,12 +774,14 @@ impl ControlBar {
                         &mut context,
                         max_garrison,
                         garrisoned_count,
+                        &self.presentation_occupants,
                     );
                 } else {
                     let _ = super::control_bar_structure_inventory::do_transport_inventory_ui(
                         &mut context,
                         max_garrison,
                         garrisoned_count,
+                        &self.presentation_occupants,
                     );
                 }
                 context.ui_dirty = true;

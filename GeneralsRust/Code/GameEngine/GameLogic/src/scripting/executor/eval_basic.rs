@@ -1617,6 +1617,18 @@ impl ScriptConditionEvaluator {
             waypoint_path
         );
 
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            let any = crate::scripting::host_script_team_member_ids(&team_name)
+                .into_iter()
+                .filter_map(crate::scripting::host_script_query_object_by_id)
+                .any(|obj| {
+                    obj.waypoint_labels
+                        .iter()
+                        .any(|label| label == &waypoint_path)
+                });
+            return Ok(bool_result(any));
+        }
+
         // C++ parity: ScriptConditions::evaluateTeamReachedWaypointsEnd
         let Ok(mut factory) = get_team_factory().lock() else {
             return Ok(ScriptConditionResult::False);

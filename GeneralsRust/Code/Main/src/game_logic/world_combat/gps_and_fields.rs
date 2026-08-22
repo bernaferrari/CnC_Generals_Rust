@@ -1444,6 +1444,14 @@ impl GameLogic {
         &self.hero_abilities
     }
 
+    /// Restore leftover SpecialAbilityUpdate channels after load.
+    pub fn hero_abilities_mut(
+        &mut self,
+    ) -> &mut crate::game_logic::host_hero_abilities::HostHeroAbilityRegistry {
+        &mut self.hero_abilities
+    }
+
+
     /// Residual honesty: Jarmen Kell snipe unmanned a vehicle at least once.
     pub fn honesty_snipe_vehicle_ok(&self) -> bool {
         self.hero_abilities.honesty_snipe_ok()
@@ -2019,6 +2027,121 @@ mod tests {
             "receiveGrant sets CAN_STEALTH / innate_stealth"
         );
         assert!(logic.host_object(rng).unwrap().innate_stealth);
+    }
+
+    /// C++ ThingTemplate.cpp:391 KINDOF_MOB_NEXUS is ImmuneToGPS — no default
+    /// StealthUpdate, so GrantStealthBehavior.cpp:170-173 skips receiveGrant.
+    #[test]
+    fn gps_does_not_cloak_angry_mob_nexus() {
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(2, Player::new(2, Team::GLA, "GLA", true));
+
+        let mut nexus = ThingTemplate::new("GLAInfantryAngryMobNexus");
+        nexus
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(99999.0);
+        logic
+            .templates
+            .insert("GLAInfantryAngryMobNexus".into(), nexus);
+        let mut rebel = ThingTemplate::new("GLAInfantryRebel");
+        rebel.add_kind_of(KindOf::Infantry).set_health(120.0);
+        logic.templates.insert("GLAInfantryRebel".into(), rebel);
+
+        let nid = logic
+            .create_object(
+                "GLAInfantryAngryMobNexus",
+                Team::GLA,
+                Vec3::new(5.0, 0.0, 0.0),
+            )
+            .expect("nexus");
+        let rid = logic
+            .create_object("GLAInfantryRebel", Team::GLA, Vec3::new(8.0, 0.0, 0.0))
+            .expect("rebel");
+
+        assert!(
+            logic.host_object(nid).unwrap().is_kind_of(KindOf::MobNexus),
+            "nexus spawn must stamp KINDOF_MOB_NEXUS"
+        );
+        assert!(
+            !logic.host_object(nid).unwrap().has_gps_stealth_module(),
+            "MOB_NEXUS ImmuneToGPS strips default StealthUpdate"
+        );
+        assert!(
+            logic.host_object(rid).unwrap().has_gps_stealth_module(),
+            "plain Rebel still inherits default StealthUpdate"
+        );
+
+        assert!(logic.activate_gps_scrambler(2, Vec3::ZERO, Some(nid)));
+        assert!(
+            !logic.host_object(nid).unwrap().is_effectively_stealthed(),
+            "Angry Mob nexus must stay visible under GPS Scrambler"
+        );
+        assert!(
+            logic.host_object(rid).unwrap().is_effectively_stealthed(),
+            "nearby Rebel still receives GPS grant"
+        );
+        assert_eq!(
+            logic.host_object(nid).unwrap().selection_flash_remaining,
+            0,
+            "ungranted nexus must not flashAsSelected"
+        );
+    }
+
+    /// C++ StealthUpdate.cpp:184-185 receiveGrant skips only canDisguise()
+    /// (Bomb Truck). Hijacker InnateStealth must receive GPS grant immediately.
+    #[test]
+    fn gps_recloaks_destalthed_hijacker() {
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(2, Player::new(2, Team::GLA, "GLA", true));
+
+        let mut hijacker = ThingTemplate::new("GLAInfantryHijacker");
+        hijacker.add_kind_of(KindOf::Infantry).set_health(120.0);
+        logic
+            .templates
+            .insert("GLAInfantryHijacker".into(), hijacker);
+
+        let hid = logic
+            .create_object(
+                "GLAInfantryHijacker",
+                Team::GLA,
+                Vec3::new(5.0, 0.0, 0.0),
+            )
+            .expect("hijacker");
+        {
+            let h = logic.host_object_mut(hid).expect("hijacker mut");
+            assert!(h.innate_stealth, "Hijacker spawn stamps InnateStealth");
+            h.set_status_stealthed(false);
+            h.stealth_delay_pending = true;
+            h.stealth_allowed_frame = 75;
+        }
+
+        assert!(
+            logic.host_object(hid).unwrap().has_gps_stealth_module(),
+            "Hijacker authored StealthUpdate qualifies for receiveGrant"
+        );
+        assert!(
+            !crate::game_logic::host_gps_scrambler::is_gps_scrambler_disguise_name(
+                "GLAInfantryHijacker"
+            ),
+            "Hijacker is not canDisguise"
+        );
+
+        assert!(logic.activate_gps_scrambler(2, Vec3::ZERO, Some(hid)));
+        assert!(
+            logic.host_object(hid).unwrap().is_effectively_stealthed(),
+            "GPS must recloak a destalthed Hijacker"
+        );
+        assert_eq!(
+            logic.host_object(hid).unwrap().selection_flash_remaining,
+            crate::game_logic::host_saboteur::SABOTEUR_FLASH_DECAY_FRAMES,
+            "granted Hijacker must flashAsSelected"
+        );
     }
 
     /// C++ GrantStealthBehavior ALLOW_ALLIES — mixed-faction coop teammate.

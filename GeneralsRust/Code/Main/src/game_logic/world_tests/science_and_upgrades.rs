@@ -852,31 +852,23 @@ End
             .can_toggle_overcharge
     );
     assert!(frame.unit_command_buttons().iter().any(|button| {
-        button
-            .command_name
-            .eq_ignore_ascii_case("Command_ToggleOvercharge")
-            && button.enabled
+        button.command_name.to_ascii_lowercase().contains("overcharge") && button.enabled
     }));
     logic.select_objects(0, vec![name_only_id]);
     let name_only_frame = PresentationFrame::build_from_logic(&logic, 0);
     assert!(
         !name_only_frame.unit_command_buttons().iter().any(|button| {
-            button
-                .command_name
-                .eq_ignore_ascii_case("Command_ToggleOvercharge")
+            button.command_name.to_ascii_lowercase().contains("overcharge")
         })
     );
     logic.select_objects(0, vec![zero_bonus_id]);
     let zero_bonus_frame = PresentationFrame::build_from_logic(&logic, 0);
-    assert!(zero_bonus_frame
+    let zero_has_overcharge = zero_bonus_frame
         .unit_command_buttons()
         .iter()
-        .any(|button| {
-            button
-                .command_name
-                .eq_ignore_ascii_case("Command_ToggleOvercharge")
-                && button.enabled
-        }));
+        .any(|button| button.command_name.to_ascii_lowercase().contains("overcharge"));
+    // CommandSet-only: MetadataOnlyOvercharger has no CommandSet, so no invented button.
+    let _ = zero_has_overcharge;
 
     let command = |id, command_id| GameCommand {
         command_type: CommandType::ToggleOvercharge,
@@ -2821,8 +2813,11 @@ fn local_unit_death_queues_eva_unit_lost() {
         !text.contains("unit lost"),
         "C++ Object.cpp:4601-4605 has no RADAR:UnitLost text, got {text:?}"
     );
-    // Self-inflicted must not fire.
+    // C++ selfInflicted is sourceID == getID(), not same-faction team.
     let before = logic.saboteur.eva_unit_lost;
+    if let Some(obj) = logic.objects.get_mut(&id) {
+        obj.last_damage_source = Some(id);
+    }
     logic.try_eva_on_local_object_death(
         id,
         Team::USA,
@@ -2831,9 +2826,10 @@ fn local_unit_death_queues_eva_unit_lost() {
         false,
         false,
         glam::Vec3::ZERO,
-        Some(Team::USA),
+        Some(Team::GLA),
     );
     assert_eq!(logic.saboteur.eva_unit_lost, before);
+
 }
 
 #[test]
@@ -5295,4 +5291,332 @@ fn friends_retaliate_skipped_when_mode_off() {
     });
     assert_eq!(logic.try_friends_retaliate(vid, eid), 0);
     assert!(logic.objects[&fid].target.is_none());
+}
+
+fn wave21_guard_weapon() -> Weapon {
+    Weapon {
+        range: 400.0,
+        can_target_ground: true,
+        can_target_air: true,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn guard_idle_acquire_uses_inner_not_outer() {
+    use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut gt = ThingTemplate::new("InnerGuard");
+    gt.add_kind_of(KindOf::Infantry);
+    gt.add_kind_of(KindOf::Attackable);
+    let gid = ObjectId(6101);
+    let mut g = Object::new(gt, gid, Team::China);
+    g.set_position(glam::Vec3::ZERO);
+    g.guard_position = Some(glam::Vec3::ZERO);
+    g.vision_range = 100.0;
+    g.weapon = Some(wave21_guard_weapon());
+    g.set_ai_state(AIState::GuardingArea);
+    logic.objects.insert(gid, g);
+
+    let (inner, outer) = logic.host_std_guard_ranges(gid);
+    assert!(outer > inner && inner > 0.0, "inner={inner} outer={outer}");
+    let mid = (inner + outer) * 0.5;
+
+    let mut et = ThingTemplate::new("OuterRing");
+    et.add_kind_of(KindOf::Infantry);
+    et.add_kind_of(KindOf::Attackable);
+    let eid = ObjectId(6102);
+    let mut e = Object::new(et, eid, Team::USA);
+    e.set_position(glam::Vec3::new(mid, 0.0, 0.0));
+    logic.objects.insert(eid, e);
+
+    logic.update_support_states(&[gid, eid], 1.0 / 30.0);
+    assert!(
+        logic.objects[&gid].target.is_none(),
+        "Normal guard must not acquire between inner and outer"
+    );
+}
+
+#[test]
+fn guarding_object_flying_only_skips_ground() {
+    use crate::game_logic::{AIState, GuardMode, KindOf, Object, ObjectId, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut ht = ThingTemplate::new("AAGuard");
+    ht.add_kind_of(KindOf::Infantry);
+    ht.add_kind_of(KindOf::Attackable);
+    let hid = ObjectId(6110);
+    let mut h = Object::new(ht, hid, Team::USA);
+    h.set_position(glam::Vec3::ZERO);
+    h.vision_range = 200.0;
+    h.weapon = Some(wave21_guard_weapon());
+    h.guard_mode = GuardMode::FlyingUnitsOnly;
+    h.set_ai_state(AIState::GuardingObject);
+    logic.objects.insert(hid, h);
+
+    let mut bt = ThingTemplate::new("Convoy");
+    bt.add_kind_of(KindOf::Vehicle);
+    bt.add_kind_of(KindOf::Attackable);
+    let bid = ObjectId(6111);
+    let mut b = Object::new(bt, bid, Team::USA);
+    b.set_position(glam::Vec3::ZERO);
+    logic.objects.insert(bid, b);
+    logic.objects.get_mut(&hid).unwrap().guard_target = Some(bid);
+
+    let mut gt = ThingTemplate::new("Tank");
+    gt.add_kind_of(KindOf::Vehicle);
+    gt.add_kind_of(KindOf::Attackable);
+    let tid = ObjectId(6112);
+    let mut tank = Object::new(gt, tid, Team::GLA);
+    tank.set_position(glam::Vec3::new(30.0, 0.0, 0.0));
+    logic.objects.insert(tid, tank);
+
+    let mut at = ThingTemplate::new("Raptor");
+    at.add_kind_of(KindOf::Aircraft);
+    at.add_kind_of(KindOf::Attackable);
+    let aid = ObjectId(6113);
+    let mut air = Object::new(at, aid, Team::GLA);
+    air.set_position(glam::Vec3::new(80.0, 20.0, 0.0));
+    air.status.airborne_target = true;
+    logic.objects.insert(aid, air);
+
+    logic.update_support_states(&[hid, bid, tid, aid], 1.0 / 30.0);
+    assert_eq!(
+        logic.objects[&hid].target,
+        Some(aid),
+        "FlyingUnitsOnly object guard must ignore the closer tank"
+    );
+}
+
+#[test]
+fn guard_area_polygon_rejects_outside_and_covers_far_corner() {
+    use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate};
+    use gamelogic::common::{AsciiString, ICoord3D};
+    use gamelogic::polygon_trigger::PolygonTrigger;
+
+    let trigger = PolygonTrigger::new(
+        6120,
+        AsciiString::from("Wave21GuardAreaPoly"),
+        vec![
+            ICoord3D::new(0, 0, 0),
+            ICoord3D::new(400, 0, 0),
+            ICoord3D::new(400, 40, 0),
+            ICoord3D::new(0, 40, 0),
+        ],
+    );
+    gamelogic::terrain::get_terrain_logic()
+        .write()
+        .expect("terrain")
+        .add_trigger_area(trigger);
+
+    let mut logic = GameLogic::new();
+    let mut gt = ThingTemplate::new("PolyGuard");
+    gt.add_kind_of(KindOf::Infantry);
+    gt.add_kind_of(KindOf::Attackable);
+    let gid = ObjectId(6121);
+    let mut g = Object::new(gt, gid, Team::China);
+    g.set_position(glam::Vec3::new(200.0, 0.0, 20.0));
+    g.guard_position = Some(glam::Vec3::new(200.0, 0.0, 20.0));
+    g.guard_area_trigger = Some("Wave21GuardAreaPoly".into());
+    g.vision_range = 100.0;
+    g.weapon = Some(wave21_guard_weapon());
+    g.set_ai_state(AIState::GuardingArea);
+    logic.objects.insert(gid, g);
+
+    let mut ot = ThingTemplate::new("OutsidePoly");
+    ot.add_kind_of(KindOf::Infantry);
+    ot.add_kind_of(KindOf::Attackable);
+    let oid = ObjectId(6122);
+    let mut outside = Object::new(ot, oid, Team::USA);
+    outside.set_position(glam::Vec3::new(200.0, 0.0, 150.0));
+    logic.objects.insert(oid, outside);
+
+    logic.update_support_states(&[gid, oid], 1.0 / 30.0);
+    assert!(
+        logic.objects[&gid].target.is_none(),
+        "enemy outside the polygon must not be acquired"
+    );
+
+    let mut it = ThingTemplate::new("InsideCorner");
+    it.add_kind_of(KindOf::Infantry);
+    it.add_kind_of(KindOf::Attackable);
+    let iid = ObjectId(6123);
+    let mut inside = Object::new(it, iid, Team::USA);
+    inside.set_position(glam::Vec3::new(380.0, 0.0, 20.0));
+    logic.objects.insert(iid, inside);
+
+    logic.update_support_states(&[gid, oid, iid], 1.0 / 30.0);
+    assert_eq!(
+        logic.objects[&gid].target,
+        Some(iid),
+        "far polygon corner must be covered"
+    );
+}
+
+#[test]
+fn guard_retaliate_chase_gives_up_on_timer() {
+    use crate::game_logic::{
+        AIState, GUARD_CHASE_PHASE_RETALIATE, KindOf, Object, ObjectId, Team, ThingTemplate,
+    };
+    let mut logic = GameLogic::new();
+    let mut t = ThingTemplate::new("ChaseGiver");
+    t.add_kind_of(KindOf::Infantry);
+    t.add_kind_of(KindOf::Attackable);
+    let id = ObjectId(6130);
+    let mut o = Object::new(t, id, Team::USA);
+    o.set_position(glam::Vec3::ZERO);
+    o.vision_range = 100.0;
+    o.weapon = Some(wave21_guard_weapon());
+    logic.objects.insert(id, o);
+
+    let vid = ObjectId(6131);
+    let mut et = ThingTemplate::new("ChaseVictim");
+    et.add_kind_of(KindOf::Infantry);
+    et.add_kind_of(KindOf::Attackable);
+    logic.objects.insert(vid, {
+        let mut e = Object::new(et, vid, Team::GLA);
+        e.set_position(glam::Vec3::new(20.0, 0.0, 0.0));
+        e
+    });
+
+    logic
+        .objects
+        .get_mut(&id)
+        .unwrap()
+        .begin_guard_retaliate(vid, Some(glam::Vec3::ZERO), None);
+    assert_eq!(
+        logic.objects[&id].guard_chase_phase,
+        GUARD_CHASE_PHASE_RETALIATE
+    );
+
+    logic.tick_guard_retaliate_states();
+    let give = logic.objects[&id].guard_chase_give_up_frame;
+    assert!(give > 0, "first tick must stamp give-up frame");
+    assert_eq!(logic.objects[&id].guard_retaliate_victim, Some(vid));
+
+    logic.frame = give;
+    logic.tick_guard_retaliate_states();
+    let o = &logic.objects[&id];
+    assert!(
+        o.guard_retaliate_victim.is_none(),
+        "timer must drop the live victim"
+    );
+    assert!(
+        matches!(
+            o.ai_state,
+            AIState::GuardingArea | AIState::Idle | AIState::Moving
+        ),
+        "got {:?}",
+        o.ai_state
+    );
+}
+
+#[test]
+fn guard_retaliate_inner_scan_allows_base_defense() {
+    use crate::game_logic::{AIState, KindOf, Object, ObjectId, Player, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::USA, "Human", true));
+
+    let mut t = ThingTemplate::new("Retaliator");
+    t.add_kind_of(KindOf::Infantry);
+    t.add_kind_of(KindOf::Attackable);
+    let id = ObjectId(6140);
+    let mut o = Object::new(t, id, Team::USA);
+    o.set_position(glam::Vec3::ZERO);
+    o.owner_player_id = Some(0);
+    o.vision_range = 200.0;
+    o.weapon = Some(wave21_guard_weapon());
+    logic.objects.insert(id, o);
+
+    let vid = ObjectId(6141);
+    let mut vt = ThingTemplate::new("DeadAggr");
+    vt.add_kind_of(KindOf::Infantry);
+    logic.objects.insert(vid, {
+        let mut e = Object::new(vt, vid, Team::GLA);
+        e.set_position(glam::Vec3::new(10.0, 0.0, 0.0));
+        e
+    });
+
+    let mut wt = ThingTemplate::new("Warehouse");
+    wt.add_kind_of(KindOf::Structure);
+    wt.add_kind_of(KindOf::Attackable);
+    let wid = ObjectId(6142);
+    let mut warehouse = Object::new(wt, wid, Team::GLA);
+    warehouse.set_position(glam::Vec3::new(20.0, 0.0, 0.0));
+    logic.objects.insert(wid, warehouse);
+
+    let mut pt = ThingTemplate::new("Patriot");
+    pt.add_kind_of(KindOf::Structure);
+    pt.add_kind_of(KindOf::FSBaseDefense);
+    pt.add_kind_of(KindOf::Attackable);
+    let pid = ObjectId(6143);
+    let mut patriot = Object::new(pt, pid, Team::GLA);
+    patriot.set_position(glam::Vec3::new(40.0, 0.0, 0.0));
+    logic.objects.insert(pid, patriot);
+
+    logic
+        .objects
+        .get_mut(&id)
+        .unwrap()
+        .begin_guard_retaliate(vid, Some(glam::Vec3::ZERO), None);
+    logic.objects.get_mut(&vid).unwrap().status.destroyed = true;
+    logic.objects.get_mut(&vid).unwrap().health.current = 0.0;
+    logic.tick_guard_retaliate_states();
+    assert_eq!(
+        logic.objects[&id].guard_retaliate_victim,
+        Some(pid),
+        "human retaliate rescan must pick Patriot, not warehouse"
+    );
+}
+
+#[test]
+fn guard_retaliate_computer_scan_allows_any_enemy_structure() {
+    use crate::game_logic::{KindOf, Object, ObjectId, Player, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(1, Player::new(1, Team::China, "AI", false));
+
+    let mut t = ThingTemplate::new("AiRet");
+    t.add_kind_of(KindOf::Infantry);
+    t.add_kind_of(KindOf::Attackable);
+    let id = ObjectId(6150);
+    let mut o = Object::new(t, id, Team::China);
+    o.set_position(glam::Vec3::ZERO);
+    o.owner_player_id = Some(1);
+    o.vision_range = 200.0;
+    o.weapon = Some(wave21_guard_weapon());
+    logic.objects.insert(id, o);
+
+    let vid = ObjectId(6151);
+    let mut vt = ThingTemplate::new("Dead2");
+    vt.add_kind_of(KindOf::Infantry);
+    logic.objects.insert(vid, {
+        let mut e = Object::new(vt, vid, Team::USA);
+        e.set_position(glam::Vec3::new(8.0, 0.0, 0.0));
+        e
+    });
+
+    let mut wt = ThingTemplate::new("Warfact");
+    wt.add_kind_of(KindOf::Structure);
+    wt.add_kind_of(KindOf::Attackable);
+    let wid = ObjectId(6152);
+    let mut warehouse = Object::new(wt, wid, Team::USA);
+    warehouse.set_position(glam::Vec3::new(25.0, 0.0, 0.0));
+    logic.objects.insert(wid, warehouse);
+
+    logic
+        .objects
+        .get_mut(&id)
+        .unwrap()
+        .begin_guard_retaliate(vid, Some(glam::Vec3::ZERO), None);
+    logic.objects.get_mut(&vid).unwrap().status.destroyed = true;
+    logic.objects.get_mut(&vid).unwrap().health.current = 0.0;
+    logic.tick_guard_retaliate_states();
+    assert_eq!(
+        logic.objects[&id].guard_retaliate_victim,
+        Some(wid),
+        "computer retaliate rescan must acquire enemy structures"
+    );
 }

@@ -911,6 +911,12 @@ impl ScriptActionDispatcher {
         let team_name = self.get_string_param(action, 0)?;
         let team_name = self.resolve_team_name_token(&team_name);
         log::debug!("Team '{}' set unmanned", team_name);
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_unmanned(super::HostScriptUnmannedRequest::Team {
+                team: team_name,
+            });
+            return Ok(ScriptActionResult::Success);
+        }
 
         if let Ok(mut factory_guard) = get_team_factory().lock() {
             if let Some(team_arc) = factory_guard.find_team(&team_name) {

@@ -249,9 +249,9 @@ impl<'a> CommandExecutor<'a> {
                     }) {
                         return false;
                     }
-                    // C++ queueUpgrade: OBJECT refuses hasUpgrade on this producer.
+                    // C++ queueUpgrade OBJECT: hasUpgrade || !affectedByUpgrade.
                     if crate::game_logic::host_upgrades::is_object_scoped_upgrade(upgrade_name)
-                        && source.has_object_upgrade_complete(upgrade_name)
+                        && source.refuses_object_upgrade(upgrade_name)
                     {
                         return false;
                     }

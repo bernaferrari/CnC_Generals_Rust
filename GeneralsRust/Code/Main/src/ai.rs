@@ -2937,28 +2937,43 @@ impl AIPlayer {
                 current_time - started >= READY_TEAM_FORCE_SECONDS
             };
             let (mut all_idle, mut any_idle) = (true, false);
-            let member_ids: Vec<ObjectId> = self.team_ready_queue[i]
-                .work_orders
-                .iter()
-                .flat_map(|order| order.observed_unit_ids.iter().copied())
-                .collect();
-            if member_ids.is_empty() {
-                all_idle = false;
+            if self.team_ready_queue[i].reinforcement {
+                // C++ AIPlayer.cpp:2740-2745 — only the reinforcement object.
+                if let Some(obj_id) = self.team_ready_queue[i].reinforcement_id {
+                    if let Some(obj) = game_logic.host_object(obj_id) {
+                        let idle = obj.is_alive() && obj.ai_state == AIState::Idle;
+                        all_idle = idle;
+                        any_idle = idle;
+                    }
+                }
             } else {
-                for id in &member_ids {
-                    let idle = game_logic
-                        .host_object(*id)
-                        .map(|o| o.is_alive() && o.ai_state == AIState::Idle)
-                        .unwrap_or(false);
-                    if idle {
-                        any_idle = true;
-                    } else {
-                        all_idle = false;
+                let member_ids: Vec<ObjectId> = self.team_ready_queue[i]
+                    .work_orders
+                    .iter()
+                    .flat_map(|order| order.observed_unit_ids.iter().copied())
+                    .collect();
+                if member_ids.is_empty() {
+                    all_idle = false;
+                } else {
+                    for id in &member_ids {
+                        let idle = game_logic
+                            .host_object(*id)
+                            .map(|o| o.is_alive() && o.ai_state == AIState::Idle)
+                            .unwrap_or(false);
+                        if idle {
+                            any_idle = true;
+                        } else {
+                            all_idle = false;
+                        }
                     }
                 }
             }
+            // C++ AIPlayer.cpp:2755-2761 — anyIdle shortcut only when
+            // ExecutesActionsOnCreate and ProductionCondition has an Action.
             if any_idle && self.team_ready_queue[i].execute_actions {
-                all_idle = true;
+                if Self::production_condition_has_action(&self.team_ready_queue[i].name) {
+                    all_idle = true;
+                }
             }
             if time_expired {
                 all_idle = true;
@@ -3343,6 +3358,21 @@ impl AIPlayer {
             .unwrap_or_default()
     }
 
+    /// C++ `TheScriptEngine->findScriptByName(m_productionCondition)` + `getAction()`.
+    fn production_condition_has_action(team_name: &str) -> bool {
+        let cond = Self::prototype_production_condition(team_name);
+        if cond.is_empty() {
+            return false;
+        }
+        gamelogic::scripting::engine::get_script_engine()
+            .read()
+            .ok()
+            .and_then(|eng| eng.as_ref().and_then(|e| e.find_script_clone_by_name(&cond)))
+            .and_then(|script| script.get_action().cloned())
+            .is_some()
+    }
+
+
     fn execute_production_condition_actions(
         &mut self,
         game_logic: &mut GameLogic,
@@ -3657,7 +3687,7 @@ impl AIPlayer {
             return false;
         }
         if crate::game_logic::host_upgrades::is_object_scoped_upgrade(upgrade_name)
-            && object.has_object_upgrade_complete(upgrade_name)
+            && object.refuses_object_upgrade(upgrade_name)
         {
             return false;
         }
@@ -3905,7 +3935,7 @@ impl AIPlayer {
         };
         let mut order = AIWorkOrder::new(thing.clone(), 1, 100);
         let home = self.team_home_or_base(&team_name);
-        if let Some(unit_id) = self.try_to_recruit(game_logic, &thing, home, None) {
+        if let Some(unit_id) = self.try_to_recruit(game_logic, &team_name, &thing, home, None) {
             order.num_completed = 1;
             order.observed_unit_ids.push(unit_id);
             if let Some(obj) = game_logic.host_object_mut(unit_id) {
@@ -4013,6 +4043,7 @@ impl AIPlayer {
     fn try_to_recruit(
         &self,
         game_logic: &GameLogic,
+        dest_team_name: &str,
         template_name: &str,
         home: Vec3,
         max_dist: Option<f32>,
@@ -4025,6 +4056,7 @@ impl AIPlayer {
         }
         self.try_to_recruit_excluding(
             game_logic,
+            dest_team_name,
             template_name,
             home,
             max_dist.unwrap_or_else(Self::aidata_max_recruit_distance),
@@ -4032,16 +4064,71 @@ impl AIPlayer {
         )
     }
 
+    fn dest_team_production_priority(dest_team_name: &str) -> i32 {
+        gamelogic::team::get_team_factory()
+            .lock()
+            .ok()
+            .and_then(|factory| {
+                factory
+                    .find_team_prototype(dest_team_name)
+                    .map(|proto| proto.get_production_priority())
+            })
+            .unwrap_or(i32::MAX)
+    }
+
+    fn source_is_default_team(game_logic: &GameLogic, object: &crate::game_logic::Object) -> bool {
+        let name = object.team_instance_name.trim();
+        if name.is_empty() {
+            return true;
+        }
+        let default = game_logic.default_host_team_instance_name(object.owner_player_id, object.team);
+        if name.eq_ignore_ascii_case(&default) {
+            return true;
+        }
+        name.eq_ignore_ascii_case(&format!("team{}", object.team.get_name()))
+    }
+
+    /// `(active, proto_ai_recruitable, recruitability_set, priority, override_recruitable)`.
+    fn leftover_source_team_state(name: &str) -> (bool, bool, bool, i32, bool) {
+        let Ok(factory) = gamelogic::team::get_team_factory().lock() else {
+            return (true, false, false, 0, false);
+        };
+        let proto = factory.find_team_prototype(name);
+        let priority = proto
+            .as_ref()
+            .map(|p| p.get_production_priority())
+            .unwrap_or(0);
+        let proto_ai = proto.as_ref().map(|p| p.is_ai_recruitable()).unwrap_or(false);
+        if let Some(team) = factory.find_team_instances(name).into_iter().next() {
+            if let Ok(tg) = team.read() {
+                return (
+                    tg.is_active(),
+                    proto_ai,
+                    tg.is_recruitability_set(),
+                    priority,
+                    tg.is_recruitable(),
+                );
+            }
+        }
+        (true, proto_ai, false, priority, false)
+    }
+
+    fn recruit_template_matches(dest_template: &str, candidate: &str) -> bool {
+        crate::game_logic::weapon_bootstrap::splash_templates_equivalent(dest_template, candidate)
+    }
+
     fn try_to_recruit_excluding(
         &self,
         game_logic: &GameLogic,
+        dest_team_name: &str,
         template_name: &str,
         home: Vec3,
         max_dist: f32,
         assigned: &HashSet<ObjectId>,
     ) -> Option<ObjectId> {
-        let max_d2 = max_dist * max_dist;
-        let mut best: Option<(f32, ObjectId)> = None;
+        let dest_priority = Self::dest_team_production_priority(dest_team_name);
+        let mut dist_sqr = max_dist * max_dist;
+        let mut recruit: Option<ObjectId> = None;
         for (&id, object) in game_logic.host_objects() {
             if !Self::pad_object_still_ours(object, self.player_id, self.team) {
                 continue;
@@ -4050,25 +4137,59 @@ impl AIPlayer {
                 continue;
             }
             // C++ Team::tryToRecruit DISABLED_HELD (Team.cpp:2353-2356).
-            if object.contained_by.is_some() {
+            if object.contained_by.is_some() || object.status.disabled_held {
                 continue;
             }
-            if !object.template_name.eq_ignore_ascii_case(template_name) {
+            // C++ AIUpdateInterface::isRecruitable (Team.cpp:2350-2352).
+            if !object.is_recruitable {
+                continue;
+            }
+            if !Self::recruit_template_matches(template_name, &object.template_name) {
                 continue;
             }
             if assigned.contains(&id) {
                 continue;
             }
-            let pos = object.get_position();
-            let d2 = (pos - home).length_squared();
-            if d2 > max_d2 {
+
+            let source_name = if object.team_instance_name.is_empty() {
+                game_logic.default_host_team_instance_name(object.owner_player_id, object.team)
+            } else {
+                object.team_instance_name.clone()
+            };
+            let is_default = Self::source_is_default_team(game_logic, object);
+            let (active, proto_ai, recruitability_set, source_priority, override_recruitable) =
+                Self::leftover_source_team_state(&source_name);
+            // C++: do not steal from a team still building (Team.cpp:2333-2335).
+            if !active {
                 continue;
             }
-            if best.map(|(d, _)| d2 < d).unwrap_or(true) {
-                best = Some((d2, id));
+            // C++ source productionPriority < dest (Team.cpp:2336-2338).
+            if source_priority >= dest_priority {
+                continue;
             }
+            let team_is_recruitable = if recruitability_set {
+                override_recruitable
+            } else {
+                is_default || proto_ai
+            };
+            if !team_is_recruitable {
+                continue;
+            }
+
+            let pos = object.get_position();
+            let d2 = (pos - home).length_squared();
+            // C++ default-team fallback even if farther than maxDist (Team.cpp:2361-2370).
+            if is_default && recruit.is_none() {
+                recruit = Some(id);
+                dist_sqr = d2;
+            }
+            if d2 > dist_sqr {
+                continue;
+            }
+            dist_sqr = d2;
+            recruit = Some(id);
         }
-        best.map(|(_, id)| id)
+        recruit
     }
 
     fn recruit_waiting_work_orders(&mut self, game_logic: &mut GameLogic) {
@@ -4079,12 +4200,13 @@ impl AIPlayer {
                 assigned.extend(order.observed_unit_ids.iter().copied());
             }
         }
-        let jobs: Vec<(usize, usize, String, Vec3, bool, u32)> = self
+        let jobs: Vec<(usize, usize, String, String, Vec3, bool, u32)> = self
             .team_queue
             .iter()
             .enumerate()
             .flat_map(|(ti, team)| {
                 let home = self.team_home_or_base(&team.name);
+                let dest_name = team.name.clone();
                 let has_home = gamelogic::team::get_team_factory()
                     .lock()
                     .ok()
@@ -4098,6 +4220,7 @@ impl AIPlayer {
                             Some((
                                 ti,
                                 oi,
+                                dest_name.clone(),
                                 order.template_name.clone(),
                                 home,
                                 has_home,
@@ -4111,11 +4234,17 @@ impl AIPlayer {
             })
             .collect();
         let mut found: Vec<(usize, usize, ObjectId, Vec3, bool)> = Vec::new();
-        for (ti, oi, thing, home, has_home, need) in jobs {
+        for (ti, oi, dest_name, thing, home, has_home, need) in jobs {
             let mut got = 0u32;
             while got < need {
-                let Some(unit_id) =
-                    self.try_to_recruit_excluding(game_logic, &thing, home, max_dist, &assigned)
+                let Some(unit_id) = self.try_to_recruit_excluding(
+                    game_logic,
+                    &dest_name,
+                    &thing,
+                    home,
+                    max_dist,
+                    &assigned,
+                )
                 else {
                     break;
                 };
@@ -4280,8 +4409,13 @@ impl AIPlayer {
         let mut recruited = 0u32;
         for order in &mut orders {
             while order.num_completed < order.num_required {
-                let Some(unit_id) =
-                    self.try_to_recruit(game_logic, &order.template_name, home, Some(radius))
+                let Some(unit_id) = self.try_to_recruit(
+                    game_logic,
+                    team_name,
+                    &order.template_name,
+                    home,
+                    Some(radius),
+                )
                 else {
                     break;
                 };
@@ -7739,6 +7873,12 @@ mod cpp_parity_tests {
         logic
             .templates
             .insert("AmericaInfantryRanger".into(), ranger);
+        if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
+            let mut proto = gamelogic::team::TeamPrototype::new("USA_RangerSquad".into());
+            proto.set_production_priority(50);
+            tf.replace_team_prototype(proto);
+        }
+
 
         let existing = logic
             .create_object("AmericaInfantryRanger", Team::USA, Vec3::new(10.0, 0.0, 0.0))
@@ -7796,6 +7936,203 @@ mod cpp_parity_tests {
         );
         assert!(team.work_orders[0].observed_unit_ids.is_empty());
     }
+
+    fn w21_ranger_logic() -> (
+        crate::game_logic::GameLogic,
+        crate::game_logic::ObjectId,
+    ) {
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
+        player.resources.supplies = 50_000;
+        logic.add_player(player);
+        let mut ranger = crate::game_logic::ThingTemplate::new("AmericaInfantryRanger");
+        ranger.add_kind_of(crate::game_logic::KindOf::Infantry);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".into(), ranger);
+        let existing = logic
+            .create_object("AmericaInfantryRanger", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("ranger");
+        if let Some(obj) = logic.host_object_mut(existing) {
+            obj.owner_player_id = Some(1);
+            obj.set_ai_state(crate::game_logic::AIState::Idle);
+        }
+        (logic, existing)
+    }
+
+    fn w21_enqueue_and_recruit(
+        logic: &mut crate::game_logic::GameLogic,
+        dest: &str,
+    ) -> u32 {
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        let order = AIWorkOrder::new("AmericaInfantryRanger".into(), 1, 100);
+        ai.team_queue
+            .push_back(AITeamQueue::new(dest.into(), vec![order], false, 0));
+        ai.process_team_queue(logic, 0.0);
+        ai.team_queue.front().unwrap().work_orders[0].num_completed
+    }
+
+    #[test]
+    fn try_to_recruit_skips_inactive_higher_priority_and_unrecruitable() {
+        // C++ Team::tryToRecruit isActive / productionPriority / isRecruitable.
+        let (mut logic, existing) = w21_ranger_logic();
+        if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
+            let mut dest = gamelogic::team::TeamPrototype::new("W21_DestHigh".into());
+            dest.set_production_priority(50);
+            tf.replace_team_prototype(dest);
+            let mut src = gamelogic::team::TeamPrototype::new("W21_InactiveSrc".into());
+            src.set_production_priority(0);
+            src.set_ai_recruitable(true);
+            tf.replace_team_prototype(src);
+            if let Some(team) = tf.create_inactive_team("W21_InactiveSrc") {
+                if let Ok(mut tg) = team.write() {
+                    tg.add_member(existing.0);
+                }
+            }
+        }
+        if let Some(obj) = logic.host_object_mut(existing) {
+            obj.team_instance_name = "W21_InactiveSrc".into();
+        }
+        assert_eq!(
+            w21_enqueue_and_recruit(&mut logic, "W21_DestHigh"),
+            0,
+            "must not steal from a still-building team"
+        );
+
+        let (mut logic, existing) = w21_ranger_logic();
+        if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
+            let mut dest = gamelogic::team::TeamPrototype::new("W21_DestLow".into());
+            dest.set_production_priority(10);
+            tf.replace_team_prototype(dest);
+            let mut src = gamelogic::team::TeamPrototype::new("W21_HighPriSrc".into());
+            src.set_production_priority(50);
+            src.set_ai_recruitable(true);
+            tf.replace_team_prototype(src);
+            if let Some(team) = tf.create_team("W21_HighPriSrc") {
+                if let Ok(mut tg) = team.write() {
+                    tg.add_member(existing.0);
+                }
+            }
+        }
+        if let Some(obj) = logic.host_object_mut(existing) {
+            obj.team_instance_name = "W21_HighPriSrc".into();
+        }
+        assert_eq!(
+            w21_enqueue_and_recruit(&mut logic, "W21_DestLow"),
+            0,
+            "must not steal from equal-or-higher priority"
+        );
+
+        let (mut logic, existing) = w21_ranger_logic();
+        if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
+            let mut dest = gamelogic::team::TeamPrototype::new("W21_DestRecruit".into());
+            dest.set_production_priority(50);
+            tf.replace_team_prototype(dest);
+            let mut src = gamelogic::team::TeamPrototype::new("W21_NoRecruitSrc".into());
+            src.set_production_priority(0);
+            src.set_ai_recruitable(false);
+            tf.replace_team_prototype(src);
+            if let Some(team) = tf.create_team("W21_NoRecruitSrc") {
+                if let Ok(mut tg) = team.write() {
+                    tg.add_member(existing.0);
+                }
+            }
+        }
+        if let Some(obj) = logic.host_object_mut(existing) {
+            obj.team_instance_name = "W21_NoRecruitSrc".into();
+        }
+        assert_eq!(
+            w21_enqueue_and_recruit(&mut logic, "W21_DestRecruit"),
+            0,
+            "must not steal from a non-recruitable team"
+        );
+
+        let (mut logic, existing) = w21_ranger_logic();
+        if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
+            let mut dest = gamelogic::team::TeamPrototype::new("W21_DestUnitFlag".into());
+            dest.set_production_priority(50);
+            tf.replace_team_prototype(dest);
+        }
+        if let Some(obj) = logic.host_object_mut(existing) {
+            obj.is_recruitable = false;
+        }
+        assert_eq!(
+            w21_enqueue_and_recruit(&mut logic, "W21_DestUnitFlag"),
+            0,
+            "must not recruit a unit with isRecruitable=false"
+        );
+    }
+
+    #[test]
+    fn check_ready_teams_execute_actions_requires_production_condition_action() {
+        // C++ anyIdle shortcut needs ProductionCondition script WITH an action.
+        let mut logic = crate::game_logic::GameLogic::new();
+        logic.add_player(crate::game_logic::Player::new(1, Team::USA, "USA AI", false));
+        let mut ranger = crate::game_logic::ThingTemplate::new("AmericaInfantryRanger");
+        ranger.add_kind_of(crate::game_logic::KindOf::Infantry);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".into(), ranger);
+        let idle = logic
+            .create_object("AmericaInfantryRanger", Team::USA, Vec3::ZERO)
+            .expect("idle");
+        let busy = logic
+            .create_object("AmericaInfantryRanger", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+            .expect("busy");
+        if let Some(o) = logic.host_object_mut(busy) {
+            o.set_ai_state(crate::game_logic::AIState::Moving);
+        }
+        let mut order = AIWorkOrder::new("AmericaInfantryRanger".into(), 2, 100);
+        order.num_completed = 2;
+        order.observed_unit_ids.push(idle);
+        order.observed_unit_ids.push(busy);
+        let mut team = AITeamQueue::new("W21_NoCondTeam".into(), vec![order], false, 0);
+        team.execute_actions = true;
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        ai.team_ready_queue.push_back(team);
+        ai.check_ready_teams(&mut logic, 1.0);
+        assert_eq!(
+            ai.team_ready_queue.len(),
+            1,
+            "without ProductionCondition action, wait for allIdle"
+        );
+    }
+
+    #[test]
+    fn check_ready_teams_reinforcement_idles_only_reinforcement_unit() {
+        // C++ m_reinforcement idle gate uses only m_reinforcementID.
+        let mut logic = crate::game_logic::GameLogic::new();
+        logic.add_player(crate::game_logic::Player::new(1, Team::USA, "USA AI", false));
+        let mut ranger = crate::game_logic::ThingTemplate::new("AmericaInfantryRanger");
+        ranger.add_kind_of(crate::game_logic::KindOf::Infantry);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".into(), ranger);
+        let reinforce = logic
+            .create_object("AmericaInfantryRanger", Team::USA, Vec3::ZERO)
+            .expect("reinforce");
+        let fielded = logic
+            .create_object("AmericaInfantryRanger", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+            .expect("fielded");
+        if let Some(o) = logic.host_object_mut(fielded) {
+            o.set_ai_state(crate::game_logic::AIState::Moving);
+        }
+        let mut order = AIWorkOrder::new("AmericaInfantryRanger".into(), 2, 100);
+        order.num_completed = 2;
+        order.observed_unit_ids.push(reinforce);
+        order.observed_unit_ids.push(fielded);
+        let mut team = AITeamQueue::new("W21_ReinforceTeam".into(), vec![order], false, 0);
+        team.reinforcement = true;
+        team.reinforcement_id = Some(reinforce);
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        ai.team_ready_queue.push_back(team);
+        ai.check_ready_teams(&mut logic, 1.0);
+        assert!(
+            ai.team_ready_queue.is_empty(),
+            "idle reinforcement unit activates even if fielded teammates are busy"
+        );
+    }
+
 
     #[test]
     fn select_team_to_reinforce_tops_up_short_auto_team() {

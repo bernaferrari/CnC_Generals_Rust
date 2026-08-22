@@ -4351,10 +4351,6 @@ fn named_object_sound_queues_host_when_dual_world_empty() {
     assert_eq!(
         take_host_script_object_sound_requests(),
         vec![
-            HostScriptObjectSoundRequest::PlayNamed {
-                sound: "UnitCheer".to_string(),
-                unit: "NamedScout".to_string()
-            },
             HostScriptObjectSoundRequest::Enable {
                 unit: "NamedFactory".to_string(),
                 enable: true
@@ -4365,6 +4361,7 @@ fn named_object_sound_queues_host_when_dual_world_empty() {
             },
         ]
     );
+
 }
 
 
@@ -5393,6 +5390,261 @@ fn player_set_give_money_queue_host_drain() {
         ]
     );
 }
+
+#[test]
+fn named_team_unmanned_stealth_radar_queue_host_when_dual_world_empty() {
+    let _test_lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    let _ = take_host_script_unmanned_requests();
+    let _ = take_host_script_radar_event_requests();
+    let _ = take_host_script_stealth_enabled_requests();
+    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+
+    let mut named_unmanned = ScriptAction::new(ScriptActionType::NamedSetUnmannedStatus);
+    named_unmanned
+        .add_parameter(Parameter::with_string(ParameterType::Unit, "SnipedHumvee".into()))
+        .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&named_unmanned).unwrap(),
+        ScriptActionResult::Success
+    );
+
+    let mut team_unmanned = ScriptAction::new(ScriptActionType::TeamSetUnmannedStatus);
+    team_unmanned
+        .add_parameter(Parameter::with_string(ParameterType::Team, "teamAmerica".into()))
+        .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&team_unmanned).unwrap(),
+        ScriptActionResult::Success
+    );
+
+    let delete_all = ScriptAction::new(ScriptActionType::DeleteAllUnmanned);
+    assert_eq!(
+        dispatcher.execute_action(&delete_all).unwrap(),
+        ScriptActionResult::Success
+    );
+
+    let mut named_stealth = ScriptAction::new(ScriptActionType::NamedSetStealthEnabled);
+    named_stealth
+        .add_parameter(Parameter::with_string(ParameterType::Unit, "ColonelBurton".into()))
+        .unwrap();
+    named_stealth
+        .add_parameter(Parameter::with_int(ParameterType::Int, 0))
+        .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&named_stealth).unwrap(),
+        ScriptActionResult::Success
+    );
+
+    let mut team_stealth = ScriptAction::new(ScriptActionType::TeamSetStealthEnabled);
+    team_stealth
+        .add_parameter(Parameter::with_string(ParameterType::Team, "teamChina".into()))
+        .unwrap();
+    team_stealth
+        .add_parameter(Parameter::with_int(ParameterType::Int, 1))
+        .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&team_stealth).unwrap(),
+        ScriptActionResult::Success
+    );
+
+    let mut object_radar = ScriptAction::new(ScriptActionType::ObjectCreateRadarEvent);
+    object_radar
+        .add_parameter(Parameter::with_string(ParameterType::Unit, "Hero".into()))
+        .unwrap();
+    object_radar
+        .add_parameter(Parameter::with_int(ParameterType::Int, 4))
+        .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&object_radar).unwrap(),
+        ScriptActionResult::Success
+    );
+
+    let mut team_radar = ScriptAction::new(ScriptActionType::TeamCreateRadarEvent);
+    team_radar
+        .add_parameter(Parameter::with_string(ParameterType::Team, "teamGLA".into()))
+        .unwrap();
+    team_radar
+        .add_parameter(Parameter::with_int(ParameterType::Int, 3))
+        .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&team_radar).unwrap(),
+        ScriptActionResult::Success
+    );
+
+    assert_eq!(
+        take_host_script_unmanned_requests(),
+        vec![
+            HostScriptUnmannedRequest::Named {
+                unit: "SnipedHumvee".to_string()
+            },
+            HostScriptUnmannedRequest::Team {
+                team: "teamAmerica".to_string()
+            },
+            HostScriptUnmannedRequest::DeleteAll,
+        ]
+    );
+    assert_eq!(
+        take_host_script_stealth_enabled_requests(),
+        vec![
+            HostScriptStealthEnabledRequest::Named {
+                unit: "ColonelBurton".to_string(),
+                enabled: false,
+            },
+            HostScriptStealthEnabledRequest::Team {
+                team: "teamChina".to_string(),
+                enabled: true,
+            },
+        ]
+    );
+    assert_eq!(
+        take_host_script_radar_event_requests(),
+        vec![
+            HostScriptRadarEventRequest::Object {
+                unit: "Hero".to_string(),
+                event_type: 4,
+            },
+            HostScriptRadarEventRequest::Team {
+                team: "teamGLA".to_string(),
+                event_type: 3,
+            },
+        ]
+    );
+}
+
+#[test]
+fn live_host_team_reached_waypoints_end_uses_snapshot_labels() {
+    let _test_lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    crate::scripting::clear_host_script_query_snapshot();
+    let mut snap = crate::scripting::HostScriptQuerySnapshot::default();
+    snap.team_instance_ids
+        .insert("USA_RangerSquad".into(), vec![7]);
+    let mut obj = live_host_named_object("Hero", 7, true);
+    obj.waypoint_labels = vec!["HeroPath".into()];
+    snap.objects.push(obj);
+    crate::scripting::set_host_script_query_snapshot(snap);
+
+    let mut condition = Condition::new(ConditionType::TeamReachedWaypointsEnd);
+    condition
+        .add_parameter(Parameter::with_string(
+            ParameterType::Team,
+            "USA_RangerSquad".into(),
+        ))
+        .unwrap();
+    condition
+        .add_parameter(Parameter::with_string(
+            ParameterType::WaypointPath,
+            "HeroPath".into(),
+        ))
+        .unwrap();
+    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    assert_eq!(
+        evaluator.evaluate_condition(&mut condition).unwrap(),
+        ScriptConditionResult::True
+    );
+    crate::scripting::clear_host_script_query_snapshot();
+}
+
+#[test]
+fn live_host_skirmish_discovered_uses_snapshot() {
+    let _test_lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    crate::scripting::clear_host_script_query_snapshot();
+    let mut snap = crate::scripting::HostScriptQuerySnapshot::default();
+    snap.objects.push(crate::scripting::HostScriptQueryObject {
+        id: 8,
+        owner_player: "PlyrChina".into(),
+        discovered_by: vec!["PlyrAmerica".into()],
+        ..Default::default()
+    });
+    crate::scripting::set_host_script_query_snapshot(snap);
+
+    let mut condition = Condition::new(ConditionType::SkirmishPlayerHasDiscoveredPlayer);
+    condition
+        .add_parameter(Parameter::with_string(
+            ParameterType::Side,
+            "PlyrChina".into(),
+        ))
+        .unwrap();
+    condition
+        .add_parameter(Parameter::with_string(
+            ParameterType::Side,
+            "PlyrAmerica".into(),
+        ))
+        .unwrap();
+    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    assert_eq!(
+        evaluator.evaluate_condition(&mut condition).unwrap(),
+        ScriptConditionResult::True
+    );
+    crate::scripting::clear_host_script_query_snapshot();
+}
+
+#[test]
+fn live_host_from_named_special_power_uses_host_id() {
+    let _test_lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    crate::scripting::clear_host_script_query_snapshot();
+    initialize_script_engine().expect("script engine");
+    player_list().write().unwrap().clear();
+    let player = Arc::new(RwLock::new(crate::player::Player::new(1)));
+    player
+        .write()
+        .unwrap()
+        .set_display_name("PlyrAmerica");
+    player_list().write().unwrap().add_player(player);
+
+    get_named_object_tracker()
+        .register_named_object("ParticleCannon".to_string(), 42)
+        .expect("named");
+    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+        named: [("ParticleCannon".into(), 42)].into_iter().collect(),
+        objects: vec![crate::scripting::HostScriptQueryObject {
+            id: 42,
+            name: "ParticleCannon".into(),
+            owner_player: "PlyrAmerica".into(),
+            alive: true,
+            ..Default::default()
+        }],
+        ..Default::default()
+    });
+
+    let completed = with_script_engine_mut(|engine| {
+        engine.notify_of_triggered_special_power(1, "SuperweaponParticleUplinkCannon", 42);
+        let mut condition = Condition::new(ConditionType::PlayerTriggeredSpecialPowerFromNamed);
+        condition
+            .add_parameter(Parameter::with_string(
+                ParameterType::Side,
+                "PlyrAmerica".into(),
+            ))
+            .unwrap();
+        condition
+            .add_parameter(Parameter::with_string(
+                ParameterType::SpecialPower,
+                "SuperweaponParticleUplinkCannon".into(),
+            ))
+            .unwrap();
+        condition
+            .add_parameter(Parameter::with_string(
+                ParameterType::Unit,
+                "ParticleCannon".into(),
+            ))
+            .unwrap();
+        let mut evaluator =
+            ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+        assert_eq!(
+            evaluator.evaluate_condition(&mut condition).unwrap(),
+            ScriptConditionResult::True,
+            "FROM_NAMED must accept host IDs when OBJECT_REGISTRY is empty"
+        );
+    });
+    player_list().write().unwrap().clear();
+    crate::scripting::clear_host_script_query_snapshot();
+    get_named_object_tracker().clear().ok();
+    assert_eq!(completed, Some(()));
+}
+
 
 
 

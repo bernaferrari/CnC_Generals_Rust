@@ -134,14 +134,15 @@ impl GameLogic {
     /// C++ America Scout/Battle/Hellfire drone object-upgrade residual.
     ///
     /// Attaches the residual slave drone to each living master vehicle that does
-    /// not already have the upgrade tag (ObjectCreationUpgrade attach residual).
+    /// not already have the upgrade tag (ObjectCreationUpgrade attach residual)
+    /// and is not ConflictsWith another drone (leftover UpgradeMux::wouldUpgrade).
     pub(in super::super) fn apply_slave_drone_upgrade_to_team(
         &mut self,
         team: Team,
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_slave_drones::{
-            is_slave_drone_master_template, SlaveDroneKind,
+            is_slave_drone_master_template, slave_drone_conflicts_with_owned, SlaveDroneKind,
         };
 
         let kind = SlaveDroneKind::from_upgrade_name(upgrade_name).unwrap_or(SlaveDroneKind::Scout);
@@ -157,6 +158,10 @@ impl GameLogic {
                     && is_slave_drone_master_template(&o.template_name)
                     && !o.has_upgrade_tag(tag)
                     && !o.has_upgrade_tag(upgrade_name)
+                    && !slave_drone_conflicts_with_owned(
+                        upgrade_name,
+                        o.applied_upgrades.iter().map(String::as_str),
+                    )
             })
             .map(|(id, _)| *id)
             .collect();
@@ -1743,6 +1748,9 @@ impl GameLogic {
         team: Team,
         upgrade_name: &str,
     ) -> u32 {
+        use crate::game_logic::host_mines::{
+            is_demo_trap_template, DemoTrapProfile, HostMineKind,
+        };
         use crate::game_logic::host_toxin_tractor::{
             is_toxin_tractor_template, UPGRADE_GLA_ANTHRAX_GAMMA, UPGRADE_GLA_ANTHRAX_GAMMA_ALT,
         };
@@ -1755,10 +1763,20 @@ impl GameLogic {
             if !upgrade_targets_object(obj, team) || !obj.is_alive() {
                 continue;
             }
+            let demo_trap = is_demo_trap_template(&obj.template_name)
+                && obj.mine_data.as_ref().is_some_and(|md| {
+                    matches!(md.kind, HostMineKind::DemoTrap) && md.demo_trap_profile.spawns_poison()
+                });
             if !is_anthrax_gamma_unit_template(&obj.template_name)
                 && !is_toxin_tractor_template(&obj.template_name)
+                && !demo_trap
             {
                 continue;
+            }
+            if demo_trap {
+                if let Some(md) = obj.mine_data.as_mut() {
+                    md.demo_trap_profile = DemoTrapProfile::ChemGamma;
+                }
             }
             obj.apply_upgrade_tag(upgrade_name);
             obj.apply_upgrade_tag(UPGRADE_CHEM_ANTHRAX_GAMMA);

@@ -90,6 +90,7 @@ impl ControlBar {
             context,
             self.presentation_max_garrison,
             self.presentation_garrisoned_count,
+            &self.presentation_occupants,
         )?;
         super::control_bar_beacon::append_beacon_commands_with_presentation(
             context,
@@ -172,6 +173,7 @@ impl ControlBar {
             context,
             self.presentation_max_garrison,
             self.presentation_garrisoned_count,
+            &self.presentation_occupants,
         )?;
         Ok(())
     }
@@ -321,6 +323,22 @@ impl ControlBar {
         required_from_power != SCIENCE_INVALID && !player_has_required
     }
 
+    /// Live host leftover PlayerList is empty; consult stamped player sciences.
+    fn presentation_player_has_required_science(required: ScienceType) -> bool {
+        if required == SCIENCE_INVALID {
+            return true;
+        }
+        let names = Self::presentation_unlocked_sciences();
+        if let Some(store) = get_science_store() {
+            let name = store.get_internal_name_for_science(required);
+            let name = name.as_str();
+            if !name.is_empty() {
+                return names.iter().any(|owned| owned.eq_ignore_ascii_case(name));
+            }
+        }
+        false
+    }
+
     /// C++ populateCommand NEED_SPECIAL_POWER_SCIENCE hide + copyImagesFrom rank 1/3/8.
     fn apply_need_special_power_science(
         cmd: &mut CommandButton,
@@ -335,24 +353,32 @@ impl ControlBar {
         ) {
             return;
         }
-        let player_arc = logic_player_list()
+        let required = logic_button
+            .get_special_power_template()
+            .map(|sp| sp.get_required_science())
+            .unwrap_or(SCIENCE_INVALID);
+        let leftover_player = logic_player_list()
             .read()
             .ok()
             .and_then(|list| list.get_local_player().cloned());
-        let Some(player_arc) = player_arc else {
+        let leftover_has = leftover_player.as_ref().and_then(|arc| {
+            arc.read()
+                .ok()
+                .map(|player| player.has_science(required))
+        });
+        let player_has = leftover_has.unwrap_or_else(|| {
+            Self::presentation_player_has_required_science(required)
+        });
+        if Self::hide_need_special_power_science(required, player_has) {
+            cmd.button_hidden = true;
+            return;
+        }
+        let Some(player_arc) = leftover_player else {
             return;
         };
         let Ok(player) = player_arc.read() else {
             return;
         };
-        let required = logic_button
-            .get_special_power_template()
-            .map(|sp| sp.get_required_science())
-            .unwrap_or(SCIENCE_INVALID);
-        if Self::hide_need_special_power_science(required, player.has_science(required)) {
-            cmd.button_hidden = true;
-            return;
-        }
         let mut best_index: Option<usize> = None;
         for (i, science) in cmd.sciences_ids.iter().copied().enumerate() {
             if player.has_science(science) {

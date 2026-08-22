@@ -46,7 +46,7 @@ impl GameLogic {
         self.force_fire_named_temporary(source, &template_name, barrel, Some(key), fields)
     }
 
-    pub(super) fn create_and_fire_temp_weapon(
+    pub(crate) fn create_and_fire_temp_weapon(
         &mut self,
         source: ObjectId,
         spec: &crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadEphemeralWeaponSpec,

@@ -1881,16 +1881,12 @@ impl SpecialPowerUpdateInterface for ParticleUplinkCannonUpdate {
             self.current_target_position = pos;
             self.override_target_destination = pos;
             self.next_dest_waypoint_id = way.id;
-            let link_count = way.get_num_links();
-            if link_count > 0 {
-                let which = game_logic_random_value(0, (link_count as u32) - 1) as usize;
-                if let Some(next_id) = way.get_link(which) {
+            if let Some(terrain) = TheTerrainLogic::get() {
+                if let Some((next_id, next_pos)) =
+                    terrain.scripted_waypoint_initial_override(way.id)
+                {
                     self.next_dest_waypoint_id = next_id;
-                    if let Some(terrain) = TheTerrainLogic::get() {
-                        if let Some(next_pos) = terrain.get_waypoint_location(next_id) {
-                            self.override_target_destination = next_pos;
-                        }
-                    }
+                    self.override_target_destination = next_pos;
                 }
             }
         } else {

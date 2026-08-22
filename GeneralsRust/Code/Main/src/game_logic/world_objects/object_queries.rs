@@ -2374,13 +2374,22 @@ impl GameLogic {
 
         if let Some(obj) = self.objects.get_mut(&object_id) {
             // C++ UpgradeMux::isAlreadyUpgraded — first give only.
+            // C++ wouldUpgrade ConflictsWith: leftover ObjectCreationUpgrade already
+            // matches; host objects skip OCL when another drone tag is complete.
             let first_give = !obj.has_upgrade_tag(upgrade);
+            let drone_conflicts =
+                crate::game_logic::host_slave_drones::slave_drone_conflicts_with_owned(
+                    upgrade,
+                    obj.applied_upgrades.iter().map(String::as_str),
+                );
             obj.apply_upgrade_tag(upgrade);
             if first_give {
-                attach_slave_drone =
-                    crate::game_logic::host_slave_drones::SlaveDroneKind::from_upgrade_name(
-                        upgrade,
-                    );
+                if !drone_conflicts {
+                    attach_slave_drone =
+                        crate::game_logic::host_slave_drones::SlaveDroneKind::from_upgrade_name(
+                            upgrade,
+                        );
+                }
                 if let Some(spec) =
                     crate::game_logic::host_satellite_hack::satellite_hack_spy_spec(upgrade)
                 {

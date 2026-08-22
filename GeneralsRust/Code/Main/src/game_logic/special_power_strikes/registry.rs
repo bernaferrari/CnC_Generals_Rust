@@ -82,6 +82,9 @@ pub struct HostSpecialPowerStrikeRegistry {
     pub(crate) spectre_ai_controllers: std::collections::HashSet<ObjectId>,
     /// C++ `COMMAND_FIRED_BY_SCRIPT` latch until `queue_special_power_strike`.
     pub(crate) script_fired_special_power_sources: std::collections::HashSet<ObjectId>,
+    /// C++ `initiateIntent` waypoint: next ParticleCannon queue from this
+    /// source drives leftover `scriptedWaypointMode` (waypoint id).
+    pub(crate) scripted_waypoint_special_power_sources: std::collections::HashMap<ObjectId, u32>,
 
 
 }
@@ -105,6 +108,26 @@ impl HostSpecialPowerStrikeRegistry {
     /// Consume the script-fire latch for `source_object`.
     pub fn take_script_fired_special_power(&mut self, source_object: ObjectId) -> bool {
         self.script_fired_special_power_sources.remove(&source_object)
+    }
+
+    /// Mark the next ParticleCannon queue from this source as leftover
+    /// `scriptedWaypointMode` (drive the waypoint chain).
+    pub fn note_scripted_waypoint_special_power(
+        &mut self,
+        source_object: ObjectId,
+        waypoint_id: u32,
+    ) {
+        self.scripted_waypoint_special_power_sources
+            .insert(source_object, waypoint_id);
+    }
+
+    /// Consume the scripted-waypoint latch for `source_object`.
+    pub fn take_scripted_waypoint_special_power(
+        &mut self,
+        source_object: ObjectId,
+    ) -> Option<u32> {
+        self.scripted_waypoint_special_power_sources
+            .remove(&source_object)
     }
 
 
@@ -169,7 +192,7 @@ impl HostSpecialPowerStrikeRegistry {
             view_objects_spawned_total: 0,
             spectre_ai_controllers: std::collections::HashSet::new(),
             script_fired_special_power_sources: std::collections::HashSet::new(),
-
+            scripted_waypoint_special_power_sources: std::collections::HashMap::new(),
         }
 
     }
@@ -220,7 +243,7 @@ impl HostSpecialPowerStrikeRegistry {
         self.view_objects_spawned_total = 0;
         self.spectre_ai_controllers.clear();
         self.script_fired_special_power_sources.clear();
-
+        self.scripted_waypoint_special_power_sources.clear();
 
     }
 
@@ -923,6 +946,9 @@ impl HostSpecialPowerStrikeRegistry {
             live_carpet_delivery: false,
             live_anthrax_delivery: false,
             manual_beam_hold: false,
+            scripted_waypoint_mode: false,
+            next_dest_waypoint_id: 0,
+            waypoint_override: Vec3::ZERO,
         };
         // Once-at-queue multi-strike OCL residual: store epicenters + shell
         // frames so plan_due reuses the same ADC draws (retail once-at-create).

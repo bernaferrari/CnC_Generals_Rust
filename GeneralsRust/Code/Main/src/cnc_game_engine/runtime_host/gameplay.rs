@@ -25,9 +25,14 @@ impl CnCGameEngine {
                     } else {
                         save.save_info.description
                     };
+                    let (display_time, display_date) =
+                        crate::save_load::format_save_list_date_time(save.save_info.save_date);
                     PopupSaveLoadEntry {
                         filename: save.filename,
                         description,
+                        display_time,
+                        display_date,
+                        is_mission: save.save_info.save_type == SaveFileType::Mission,
                     }
                 })
                 .collect(),
@@ -98,14 +103,29 @@ impl CnCGameEngine {
                         .take()
                         .filter(|name| !name.trim().is_empty())
                         .unwrap_or_else(|| {
-                            if description.trim().is_empty() {
-                                format!("Save {slot}")
-                            } else {
+                            if !description.trim().is_empty() {
                                 description.clone()
+                            } else if matches!(
+                                save_file_type,
+                                ::game_engine::SaveFileType::Mission
+                            ) {
+                                crate::save_load::current_mission_save_description()
+                            } else {
+                                crate::save_load::default_save_edit_description(
+                                    &self.presentation_or_boot_map_name(),
+                                )
                             }
                         });
                     let description = if description.trim().is_empty() {
-                        display_name.clone()
+                        if matches!(save_file_type, ::game_engine::SaveFileType::Mission) {
+                            crate::save_load::current_mission_save_description()
+                        } else if !display_name.trim().is_empty() {
+                            display_name.clone()
+                        } else {
+                            crate::save_load::default_save_edit_description(
+                                &self.presentation_or_boot_map_name(),
+                            )
+                        }
                     } else {
                         description
                     };

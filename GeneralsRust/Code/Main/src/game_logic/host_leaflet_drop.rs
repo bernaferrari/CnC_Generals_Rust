@@ -89,6 +89,8 @@ pub const LEAFLET_TRANSPORT: &str = "AmericaJetB52";
 pub const LEAFLET_CONTAINER_OBJECT: &str = "LeafletContainer";
 /// Retail DeliveryDistance residual.
 pub const LEAFLET_DELIVERY_DISTANCE: f32 = 160.0;
+/// Retail SUPERWEAPON_LeafletDrop DeliveryDecalRadius residual (America B52 peel).
+pub const LEAFLET_DECAL_RADIUS: f32 = 100.0;
 /// Retail LeafletDropBehavior LeafletFXParticleSystem residual.
 pub const LEAFLET_FX_PARTICLE: &str = "LeafletParticles1";
 

@@ -561,12 +561,10 @@ impl Object {
             target.is_kind_of(KindOf::Vehicle) && !target.is_kind_of(KindOf::Aircraft);
         let target_is_air = target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target;
 
-        let primary_damage = self.weapon_slot(0).map(|w| w.damage).unwrap_or(0.0);
-        let secondary_damage = self
-            .secondary_weapon
-            .as_ref()
-            .map(|w| w.damage)
-            .unwrap_or(0.0);
+        // C++ chooseBestWeaponForTarget compares estimateWeaponDamage
+        // (armor-adjusted), not raw PrimaryDamage.
+        let primary_damage = self.estimated_slot_damage_vs(0, target);
+        let secondary_damage = self.estimated_slot_damage_vs(1, target);
 
         // SCUD residual: PreferredAgainst SECONDARY INFANTRY (toxin warhead)
         // even though secondary primary-damage is lower than explosive.
@@ -648,6 +646,25 @@ impl Object {
             return false;
         }
         !(weapon.clip_size > 0 && weapon.ammo == Some(0) && !weapon.reloading_clip)
+    }
+
+    /// C++ `Weapon::estimateWeaponDamage` for one live slot vs a victim.
+    fn estimated_slot_damage_vs(&self, slot: u8, target: &Object) -> f32 {
+        let Some(weapon) = self.weapon_slot(slot) else {
+            return 0.0;
+        };
+        let name = self.weapon_name_for_slot(slot).unwrap_or("");
+        let est = crate::game_logic::weapon_bootstrap::host_estimate_weapon_from_name(
+            name,
+            weapon.damage,
+        );
+        let dt = crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(name);
+        let victim = crate::game_logic::weapon_bootstrap::host_estimate_victim_from_object(
+            target,
+            target.garrison_count() as u32,
+            crate::game_logic::host_armor_residual::apply_residual_armor(target, dt, 1.0),
+        );
+        crate::game_logic::weapon_bootstrap::estimate_weapon_template_damage(&est, Some(&victim))
     }
 
     /// C++ Weapon.cpp:2655-2665 / 1898-1909 ShareWeaponReloadTime.

@@ -317,6 +317,17 @@ pub struct HostSpecialPowerStrike {
     /// instead of walking SwathOfDeath. Script-without-waypoint stays false.
     #[serde(default)]
     pub manual_beam_hold: bool,
+    /// C++ `m_scriptedWaypointMode` — script waypoint fire drives the chain
+    /// instead of SwathOfDeath. `manual_beam_hold` stays false.
+    #[serde(default)]
+    pub scripted_waypoint_mode: bool,
+    /// C++ `m_nextDestWaypointID` after initiate first-link pick.
+    #[serde(default)]
+    pub next_dest_waypoint_id: u32,
+    /// C++ `m_overrideTargetDestination` (first outgoing link, leftover Z-up
+    /// converted to host Y-up).
+    #[serde(default)]
+    pub waypoint_override: Vec3,
 }
 
 /// Damage application plan for a single victim (computed before mutable apply).

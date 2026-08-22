@@ -2138,22 +2138,22 @@ impl PathfindingGrid {
                 && (!obj.movement.path.is_empty()
                     || obj.movement.velocity.length_squared() > 0.25);
             let infantry = obj.is_kind_of(KindOf::Infantry);
-            let radius_cells = ((obj.selection_radius / self.grid_size).ceil() as i32)
-                .max(if obj.is_kind_of(KindOf::Structure) {
-                    1
-                } else {
-                    0
-                });
+            let (radius, center_in_cell) =
+                Self::radius_and_center(obj.selection_radius, self.grid_size);
+            let mut num_above = radius;
+            if center_in_cell {
+                num_above += 1;
+            }
             let pos = obj.get_position();
             let pos_layer = self.layer_for_destination(pos);
             let pos_at_end =
                 self.object_interacts_with_bridge_end(pos, obj.selection_radius, pos_layer);
             let pos_do_layer = pos_layer != PathfindLayerEnum::Ground;
             let pos_do_ground = !pos_do_layer || pos_at_end;
-            let grid_pos = self.world_to_grid(pos);
-            for dy in -radius_cells..=radius_cells {
-                for dx in -radius_cells..=radius_cells {
-                    let p = GridPos::new(grid_pos.x + dx, grid_pos.y + dy);
+            let grid_pos = self.cell_for_unit_position(pos, center_in_cell);
+            for i in (grid_pos.x - radius)..(grid_pos.x + num_above) {
+                for j in (grid_pos.y - radius)..(grid_pos.y + num_above) {
+                    let p = GridPos::new(i, j);
                     if self.is_valid_pos(p) {
                         // C++ canCrushOrSquish TEST_CRUSH_OR_SQUISH: module
                         // presence is crush-through even at CrushableLevel 255.
@@ -2209,10 +2209,10 @@ impl PathfindingGrid {
                     );
                     let goal_do_layer = goal_layer != PathfindLayerEnum::Ground;
                     let goal_do_ground = !goal_do_layer || goal_at_end;
-                    let goal_cell = self.world_to_grid(goal);
-                    for dy in -radius_cells..=radius_cells {
-                        for dx in -radius_cells..=radius_cells {
-                            let p = GridPos::new(goal_cell.x + dx, goal_cell.y + dy);
+                    let goal_cell = self.cell_for_unit_position(goal, center_in_cell);
+                    for i in (goal_cell.x - radius)..(goal_cell.x + num_above) {
+                        for j in (goal_cell.y - radius)..(goal_cell.y + num_above) {
+                            let p = GridPos::new(i, j);
                             if self.is_valid_pos(p) {
                                 if goal_do_ground {
                                     self.mark_occupancy(
@@ -2429,7 +2429,13 @@ impl PathfindingGrid {
         }
     }
 
-    fn check_for_landing(&self, cell: GridPos, layer: PathfindLayerEnum) -> bool {
+    fn check_for_landing(
+        &self,
+        cell: GridPos,
+        layer: PathfindLayerEnum,
+        radius: i32,
+        center_in_cell: bool,
+    ) -> bool {
         if !self.is_valid_pos(cell) {
             return false;
         }
@@ -2442,11 +2448,46 @@ impl PathfindingGrid {
         if self.has_other_aircraft_goal(cell) {
             return false;
         }
-        if self.has_allied_goal_on(cell, None, layer) {
-            return false;
+        // C++ checkDestination(NULL, cell, layer, iRadius, center): footprint
+        // refuses CELL_OBSTACLE / IS_IMPASSABLE / any UNIT_GOAL / off-map.
+        self.check_destination_null(cell, layer, radius, center_in_cell)
+    }
+
+    fn check_destination_null(
+        &self,
+        cell: GridPos,
+        layer: PathfindLayerEnum,
+        radius: i32,
+        center_in_cell: bool,
+    ) -> bool {
+        let mut num_above = radius;
+        if center_in_cell {
+            num_above += 1;
         }
-        if self.has_blocking_fixed_occupant_on(cell, 0, layer) {
-            return false;
+        for i in (cell.x - radius)..(cell.x + num_above) {
+            for j in (cell.y - radius)..(cell.y + num_above) {
+                let p = GridPos::new(i, j);
+                if !self.is_valid_pos(p) {
+                    return false;
+                }
+                match self.resolved_cell_type(layer, p) {
+                    PathfindCellType::Obstacle
+                    | PathfindCellType::Impassable
+                    | PathfindCellType::BridgeImpassable => {
+                        return false;
+                    }
+                    _ => {}
+                }
+                if self.has_other_aircraft_goal(p) {
+                    return false;
+                }
+                if self.has_allied_goal_on(p, None, layer) {
+                    return false;
+                }
+                if self.has_blocking_fixed_occupant_on(p, 0, layer) {
+                    return false;
+                }
+            }
         }
         true
     }
@@ -2458,10 +2499,21 @@ impl PathfindingGrid {
         max_cells: i32,
         layer: PathfindLayerEnum,
     ) -> Option<GridPos> {
+        self.adjust_to_landing_destination_for(dest, max_cells, layer, 0, true)
+    }
+
+    pub fn adjust_to_landing_destination_for(
+        &self,
+        dest: GridPos,
+        max_cells: i32,
+        layer: PathfindLayerEnum,
+        radius: i32,
+        center_in_cell: bool,
+    ) -> Option<GridPos> {
         if !self.is_valid_pos(dest) {
             return None;
         }
-        if self.check_for_landing(dest, layer) {
+        if self.check_for_landing(dest, layer, radius, center_in_cell) {
             return Some(dest);
         }
         let mut i = dest.x;
@@ -2473,7 +2525,7 @@ impl PathfindingGrid {
                 i += 1;
                 limit -= 1;
                 let c = GridPos::new(i, j);
-                if self.check_for_landing(c, layer) {
+                if self.check_for_landing(c, layer, radius, center_in_cell) {
                     return Some(c);
                 }
             }
@@ -2481,7 +2533,7 @@ impl PathfindingGrid {
                 j += 1;
                 limit -= 1;
                 let c = GridPos::new(i, j);
-                if self.check_for_landing(c, layer) {
+                if self.check_for_landing(c, layer, radius, center_in_cell) {
                     return Some(c);
                 }
             }
@@ -2490,7 +2542,7 @@ impl PathfindingGrid {
                 i -= 1;
                 limit -= 1;
                 let c = GridPos::new(i, j);
-                if self.check_for_landing(c, layer) {
+                if self.check_for_landing(c, layer, radius, center_in_cell) {
                     return Some(c);
                 }
             }
@@ -2498,7 +2550,7 @@ impl PathfindingGrid {
                 j -= 1;
                 limit -= 1;
                 let c = GridPos::new(i, j);
-                if self.check_for_landing(c, layer) {
+                if self.check_for_landing(c, layer, radius, center_in_cell) {
                     return Some(c);
                 }
             }
@@ -2559,6 +2611,59 @@ impl PathfindingGrid {
             center_in_cell = true;
         }
         (radius, center_in_cell)
+    }
+
+    /// C++ getRadiusAndCenter + worldToCell (AIPathfind.cpp:9748-9753).
+    pub fn cell_for_unit_position(&self, pos: Vec3, center_in_cell: bool) -> GridPos {
+        if center_in_cell {
+            self.world_to_grid(pos)
+        } else {
+            GridPos {
+                x: ((pos.x - self.origin.x) / self.grid_size + 0.5).floor() as i32,
+                y: ((pos.z - self.origin.z) / self.grid_size + 0.5).floor() as i32,
+            }
+        }
+    }
+
+    fn check_destination_for(
+        &self,
+        cell: GridPos,
+        layer: PathfindLayerEnum,
+        radius: i32,
+        center_in_cell: bool,
+        surfaces: u32,
+        is_crusher: bool,
+        seeker_player: Option<u32>,
+        crusher_level: u8,
+    ) -> bool {
+        let mut num_above = radius;
+        if center_in_cell {
+            num_above += 1;
+        }
+        for i in (cell.x - radius)..(cell.x + num_above) {
+            for j in (cell.y - radius)..(cell.y + num_above) {
+                let p = GridPos::new(i, j);
+                if !self.destination_cell_ok(
+                    p,
+                    surfaces,
+                    is_crusher,
+                    seeker_player,
+                    crusher_level,
+                    layer,
+                ) {
+                    return false;
+                }
+                match self.resolved_cell_type(layer, p) {
+                    PathfindCellType::Obstacle
+                    | PathfindCellType::Impassable
+                    | PathfindCellType::BridgeImpassable => {
+                        return false;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        true
     }
 
     /// Vehicle path width in cells. Infantry stay single-cell.
@@ -3429,16 +3534,37 @@ impl PathfindingSystem {
 
     /// C++ `Pathfinder::adjustToLandingDestination`. Off-map unit+dest is scripted OK.
     pub fn adjust_to_landing_destination(&self, from: Vec3, dest: Vec3) -> Vec3 {
+        self.adjust_to_landing_destination_radius(from, dest, 0.0)
+    }
+
+    pub fn adjust_to_landing_destination_radius(
+        &self,
+        from: Vec3,
+        dest: Vec3,
+        unit_radius: f32,
+    ) -> Vec3 {
         let dest_cell = self.grid.world_to_grid(dest);
         let from_cell = self.grid.world_to_grid(from);
         if !self.grid.is_valid_pos(dest_cell) && !self.grid.is_valid_pos(from_cell) {
             return dest;
         }
+        let (radius, center_in_cell) =
+            PathfindingGrid::radius_and_center(unit_radius, self.grid.grid_size());
+        let mut adjust = dest;
+        if !center_in_cell {
+            let half = self.grid.grid_size() * 0.5;
+            adjust.x += half;
+            adjust.z += half;
+        }
+        let dest_cell = self.grid.world_to_grid(adjust);
         let layer = self.grid.layer_for_destination(dest);
-        let Some(adj) = self
-            .grid
-            .adjust_to_landing_destination(dest_cell, 400, layer)
-        else {
+        let Some(adj) = self.grid.adjust_to_landing_destination_for(
+            dest_cell,
+            400,
+            layer,
+            radius,
+            center_in_cell,
+        ) else {
             return dest;
         };
         let mut world = self.grid.grid_to_world(adj);
@@ -3456,7 +3582,11 @@ impl PathfindingSystem {
     ) -> Vec3 {
         self.grid.update_dynamic_obstacles(objects);
         self.grid.query_seeker_id = seeker;
-        let adj = self.adjust_to_landing_destination(from, dest);
+        let unit_radius = objects
+            .get(&ObjectId(seeker))
+            .map(|o| o.selection_radius)
+            .unwrap_or(0.0);
+        let adj = self.adjust_to_landing_destination_radius(from, dest, unit_radius);
         self.grid.query_seeker_id = 0;
         adj
     }
@@ -3926,6 +4056,11 @@ impl PathfindingSystem {
     pub fn pending_path_count(&self) -> usize {
         self.pending_paths.len()
     }
+
+    pub fn pending_paths(&self) -> impl Iterator<Item = &PendingHostPath> {
+        self.pending_paths.iter()
+    }
+
 
     pub fn stamp_rubble_at_world(&mut self, world: Vec3, radius_cells: i32) {
         let cell = self.grid.world_to_grid(world);
@@ -4660,6 +4795,146 @@ impl PathfindingSystem {
         Some(prefix)
     }
 
+    /// C++ `Pathfinder::getMoveAwayFromPath` (AIPathfind.cpp:10171-10338).
+    /// A* to a cell whose clearance box does not overlap avoided path segments.
+    pub fn get_move_away_from_path(
+        &mut self,
+        from: Vec3,
+        path_to_avoid: &[Vec3],
+        path_to_avoid2: Option<&[Vec3]>,
+        surfaces: u32,
+        is_crusher: bool,
+        unit_radius: f32,
+        other_radius: f32,
+        seeker_player: Option<u32>,
+        crusher_level: u8,
+        tunnel: bool,
+    ) -> Option<Vec<Vec3>> {
+        if path_to_avoid.len() < 2 {
+            return None;
+        }
+        let (radius, center_in_cell) =
+            PathfindingGrid::radius_and_center(unit_radius, self.grid.grid_size());
+        let (other_r, other_center) =
+            PathfindingGrid::radius_and_center(other_radius, self.grid.grid_size());
+        let start = self.grid.cell_for_unit_position(from, center_in_cell);
+        if !self.grid.is_valid_pos(start) {
+            return None;
+        }
+        let cell = self.grid.grid_size();
+        let mut box_half = radius as f32 * cell - cell / 4.0;
+        if center_in_cell {
+            box_half += cell / 2.0;
+        }
+        box_half += other_r as f32 * cell;
+        if other_center {
+            box_half += cell / 2.0;
+        }
+        let layer = self.grid.layer_for_destination(from);
+        let mut open: BinaryHeap<std::cmp::Reverse<(i32, i32, i32)>> = BinaryHeap::new();
+        let mut g_score: HashMap<GridPos, i32> = HashMap::new();
+        let mut closed: HashSet<GridPos> = HashSet::new();
+        open.push(std::cmp::Reverse((0, start.x, start.y)));
+        g_score.insert(start, 0);
+        let mut found: Option<GridPos> = None;
+        let mut expanded = 0i32;
+        const MAX_EXPAND: i32 = 2500;
+        let overlaps = |cell_pos: GridPos| -> bool {
+            let mut center = self.grid.grid_to_world(cell_pos);
+            if center_in_cell {
+                center.x += cell * 0.5;
+                center.z += cell * 0.5;
+            }
+            let region = CellXz {
+                lo_x: center.x - box_half,
+                lo_z: center.z - box_half,
+                hi_x: center.x + box_half,
+                hi_z: center.z + box_half,
+            };
+            let check = |path: &[Vec3]| {
+                path.windows(2).any(|w| {
+                    line_in_region_xz(w[0].x, w[0].z, w[1].x, w[1].z, &region)
+                })
+            };
+            check(path_to_avoid) || path_to_avoid2.is_some_and(check)
+        };
+        while let Some(std::cmp::Reverse((g, cx, cy))) = open.pop() {
+            let cell_pos = GridPos::new(cx, cy);
+            if !closed.insert(cell_pos) {
+                continue;
+            }
+            expanded += 1;
+            if expanded > MAX_EXPAND {
+                break;
+            }
+            let overlap = cell_pos == start || overlaps(cell_pos);
+            if !overlap
+                && self.grid.check_destination_for(
+                    cell_pos,
+                    layer,
+                    radius,
+                    center_in_cell,
+                    surfaces,
+                    is_crusher,
+                    seeker_player,
+                    crusher_level,
+                )
+            {
+                found = Some(cell_pos);
+                break;
+            }
+            for n in cell_pos.neighbors() {
+                if !self.grid.is_valid_pos(n) || closed.contains(&n) {
+                    continue;
+                }
+                if !tunnel
+                    && !self.grid.cell_passable_for_layer(n, layer, surfaces, is_crusher)
+                    && !(self.grid.is_obstacle_fence(n) && is_crusher)
+                {
+                    continue;
+                }
+                let step = if (n.x - cx).abs() + (n.y - cy).abs() == 2 {
+                    14
+                } else {
+                    10
+                };
+                let ng = g + step;
+                if g_score.get(&n).is_some_and(|&og| ng >= og) {
+                    continue;
+                }
+                g_score.insert(n, ng);
+                open.push(std::cmp::Reverse((ng, n.x, n.y)));
+            }
+        }
+        let dest = found?;
+        if dest == start {
+            return None;
+        }
+        let world_dest = {
+            let mut w = self.grid.grid_to_world(dest);
+            if center_in_cell {
+                w.x += cell * 0.5;
+                w.z += cell * 0.5;
+            }
+            w.y = from.y;
+            w
+        };
+        if let Some(path) = self.find_path_via_crate(
+            start,
+            dest,
+            surfaces,
+            is_crusher,
+            layer,
+            layer,
+        ) {
+            if path.len() >= 2 {
+                return Some(path);
+            }
+        }
+        Some(vec![from, world_dest])
+    }
+
+
 
     /// C++ `Pathfinder::findSafePath` Dijkstra flee (AIPathfind.cpp:10885+).
     pub fn find_safe_path(
@@ -4883,6 +5158,16 @@ impl PathfindingSystem {
         best
     }
 
+    fn is_allied_to(&self, mover: &Object, other: &Object) -> bool {
+        let mover_p = mover.owner_player_id.unwrap_or(mover.team as u32);
+        let other_p = other.owner_player_id.unwrap_or(other.team as u32);
+        if mover_p == other_p {
+            return true;
+        }
+        let bit = 1u16 << other_p.min(15);
+        (self.grid.ally_mask_for(mover_p) & bit) != 0
+    }
+
     /// C++ `Pathfinder::moveAllies` — idle allies occupying the new path scoot.
     pub fn allies_to_nudge_off_path(
         &self,
@@ -4896,21 +5181,55 @@ impl PathfindingSystem {
         if path.len() < 2 {
             return Vec::new();
         }
+        let is_dozer = mover.is_kind_of(KindOf::Dozer);
+        let is_harvester = mover.is_kind_of(KindOf::Harvester);
         let mover_infantry = mover.is_kind_of(KindOf::Infantry);
+        let (radius, center_in_cell) =
+            PathfindingGrid::radius_and_center(mover.selection_radius, self.grid.grid_size());
+        let mut num_above = radius;
+        if center_in_cell {
+            num_above += 1;
+        }
+        let ignore = self.ignore_obstacle_id;
+        let blocked_by_ally = path.iter().skip(1).any(|wp| {
+            let cell = self.grid.world_to_grid(*wp);
+            objects.values().any(|obj| {
+                if obj.id == mover_id || !obj.is_alive() || ignore == Some(obj.id) {
+                    return false;
+                }
+                if !self.is_allied_to(mover, obj) {
+                    return false;
+                }
+                let oc = self.grid.world_to_grid(obj.get_position());
+                oc.x >= cell.x - radius
+                    && oc.x < cell.x + num_above
+                    && oc.y >= cell.y - radius
+                    && oc.y < cell.y + num_above
+            })
+        });
+        if !is_dozer && !is_harvester && !blocked_by_ally {
+            return Vec::new();
+        }
         let mut nudged = Vec::new();
-        for wp in path.iter().skip(1) {
+        for wp in path.iter().skip(1).rev() {
             let cell = self.grid.world_to_grid(*wp);
             for obj in objects.values() {
                 if obj.id == mover_id || !obj.is_alive() {
                     continue;
                 }
-                if obj.team != mover.team {
+                if ignore == Some(obj.id) {
+                    continue;
+                }
+                if !self.is_allied_to(mover, obj) {
                     continue;
                 }
                 if obj.is_kind_of(KindOf::Structure) || obj.is_kind_of(KindOf::Immobile) {
                     continue;
                 }
                 if mover_infantry && obj.is_kind_of(KindOf::Infantry) {
+                    continue;
+                }
+                if mover_infantry && !obj.is_kind_of(KindOf::Infantry) && !blocked_by_ally {
                     continue;
                 }
                 if !obj.movement.path.is_empty()
@@ -4922,7 +5241,11 @@ impl PathfindingSystem {
                     continue;
                 }
                 let oc = self.grid.world_to_grid(obj.get_position());
-                if (oc.x - cell.x).abs() <= 1 && (oc.y - cell.y).abs() <= 1 && !nudged.contains(&obj.id)
+                if oc.x >= cell.x - radius
+                    && oc.x < cell.x + num_above
+                    && oc.y >= cell.y - radius
+                    && oc.y < cell.y + num_above
+                    && !nudged.contains(&obj.id)
                 {
                     nudged.push(obj.id);
                 }
@@ -6743,5 +7066,161 @@ mod tests {
             "ground unit on the footprint must live"
         );
     }
+
+    /// hq-1bkmw: infantry occupancy is getRadiusAndCenter (1 cell), not 3×3.
+    #[test]
+    fn infantry_occupancy_is_single_cell() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut g = open_grid(16, 16);
+        let mut objects = HashMap::new();
+        let mut tmpl = ThingTemplate::new("Ranger");
+        tmpl.add_kind_of(KindOf::Infantry);
+        let mut inf = Object::new(tmpl, ObjectId(1), Team::USA);
+        inf.set_position(Vec3::new(55.0, 0.0, 55.0));
+        inf.owner_player_id = Some(0);
+        inf.selection_radius = 5.0;
+        g.update_dynamic_obstacles(&objects);
+        let center = g.world_to_grid(Vec3::new(55.0, 0.0, 55.0));
+        assert!(g.is_blocked(center), "infantry center cell must occupy");
+        assert!(
+            !g.is_blocked(GridPos::new(center.x + 1, center.y)),
+            "r=5 infantry must not stamp a 3x3 Chebyshev"
+        );
+        assert!(
+            !g.is_blocked(GridPos::new(center.x, center.y + 1)),
+            "r=5 infantry must not stamp a 3x3 Chebyshev"
+        );
+    }
+
+    /// hq-7q7d9: landing dest rejects Obstacle and scans aircraft radius.
+    #[test]
+    fn landing_dest_rejects_obstacle_and_uses_radius() {
+        let mut g = open_grid(16, 16);
+        let obstacle = GridPos::new(5, 5);
+        g.set_cell_type(obstacle, PathfindCellType::Obstacle);
+        let land = g
+            .adjust_to_landing_destination(obstacle, 400, PathfindLayerEnum::Ground)
+            .expect("spiral off obstacle");
+        assert_ne!(land, obstacle);
+        assert_ne!(g.cell_type(land), PathfindCellType::Obstacle);
+
+        let rail = GridPos::new(8, 8);
+        g.set_cell_type(rail, PathfindCellType::BridgeImpassable);
+        let land_rail = g
+            .adjust_to_landing_destination(rail, 400, PathfindLayerEnum::Ground)
+            .expect("spiral off bridge rail");
+        assert_ne!(g.cell_type(land_rail), PathfindCellType::BridgeImpassable);
+
+        let mut g2 = open_grid(16, 16);
+        g2.set_cell_type(GridPos::new(6, 5), PathfindCellType::Obstacle);
+        let dest = GridPos::new(5, 5);
+        assert_eq!(
+            g2.adjust_to_landing_destination_for(dest, 400, PathfindLayerEnum::Ground, 0, true),
+            Some(dest),
+            "radius 0 may land on a clear center"
+        );
+        let wide = g2
+            .adjust_to_landing_destination_for(dest, 400, PathfindLayerEnum::Ground, 1, true)
+            .expect("spiral off radius-1 obstacle");
+        assert_ne!(wide, dest, "radius 1 footprint must refuse neighbor Obstacle");
+    }
+
+    /// hq-lhwsl: yield A* walks off the avoided path, not a 20wu shove.
+    #[test]
+    fn get_move_away_from_path_leaves_avoided_route() {
+        let mut sys = PathfindingSystem::new(200.0, 200.0);
+        let from = Vec3::new(50.0, 0.0, 50.0);
+        let avoided = vec![
+            Vec3::new(10.0, 0.0, 50.0),
+            Vec3::new(50.0, 0.0, 50.0),
+            Vec3::new(150.0, 0.0, 50.0),
+        ];
+        let path = sys
+            .get_move_away_from_path(
+                from,
+                &avoided,
+                None,
+                SURFACE_GROUND,
+                false,
+                6.0,
+                15.0,
+                Some(0),
+                0,
+                false,
+            )
+            .expect("yield path");
+        assert!(path.len() >= 2);
+        let dest = *path.last().unwrap();
+        assert!(
+            (dest.x - from.x).abs() > 1.0 || (dest.z - from.z).abs() > 1.0,
+            "must leave the start cell, dest={dest:?}"
+        );
+        assert!(
+            (dest.z - 50.0).abs() > 5.0 || dest.x < 20.0 || dest.x > 140.0,
+            "dest must not sit on the avoided corridor, dest={dest:?}"
+        );
+    }
+
+    /// hq-fyn6i: moveAllies uses ALLIES / ignoreObstacle / mover radius.
+    #[test]
+    fn move_allies_uses_allies_radius_and_ignore() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut sys = PathfindingSystem::new(200.0, 200.0);
+        let mut masks = [0u16; 16];
+        masks[0] = 1u16 << 0 | 1u16 << 1;
+        masks[1] = 1u16 << 0 | 1u16 << 1;
+        sys.set_player_ally_masks(masks);
+
+        let mut objects = HashMap::new();
+        let mut mover_t = ThingTemplate::new("Overlord");
+        mover_t.add_kind_of(KindOf::Vehicle);
+        let mut mover = Object::new(mover_t, ObjectId(1), Team::USA);
+        mover.set_position(Vec3::new(10.0, 0.0, 10.0));
+        mover.selection_radius = 25.0;
+        mover.owner_player_id = Some(0);
+        objects.insert(mover.id, mover);
+
+        let mut ally_t = ThingTemplate::new("Battlemaster");
+        ally_t.add_kind_of(KindOf::Vehicle);
+        let mut ally = Object::new(ally_t, ObjectId(2), Team::China);
+        ally.set_position(Vec3::new(70.0, 0.0, 10.0));
+        ally.owner_player_id = Some(1);
+        objects.insert(ally.id, ally);
+
+        let mut ignored_t = ThingTemplate::new("Dozer");
+        ignored_t.add_kind_of(KindOf::Vehicle);
+        ignored_t.add_kind_of(KindOf::Dozer);
+        let mut ignored = Object::new(ignored_t, ObjectId(3), Team::USA);
+        ignored.set_position(Vec3::new(80.0, 0.0, 10.0));
+        ignored.owner_player_id = Some(0);
+        objects.insert(ignored.id, ignored);
+
+        let mut off_t = ThingTemplate::new("Humvee");
+        off_t.add_kind_of(KindOf::Vehicle);
+        let mut off = Object::new(off_t, ObjectId(4), Team::USA);
+        off.set_position(Vec3::new(70.0, 0.0, 40.0));
+        off.owner_player_id = Some(0);
+        objects.insert(off.id, off);
+
+        let path = vec![
+            Vec3::new(10.0, 0.0, 10.0),
+            Vec3::new(80.0, 0.0, 10.0),
+        ];
+        sys.set_ignore_obstacle(Some(ObjectId(3)));
+        let nudged = sys.allies_to_nudge_off_path(ObjectId(1), &path, &objects);
+        assert!(
+            nudged.contains(&ObjectId(2)),
+            "allied other-player unit on the Overlord radius must scoot"
+        );
+        assert!(
+            !nudged.contains(&ObjectId(3)),
+            "ignoreObstacle must stay planted"
+        );
+        assert!(
+            !nudged.contains(&ObjectId(4)),
+            "unit off the mover footprint must not fidget"
+        );
+    }
+
 
 }

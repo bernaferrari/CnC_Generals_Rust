@@ -83,6 +83,27 @@ impl GameLogic {
         .map(|(id, _, _)| id)
     }
 
+    /// C++ `AIUpdateInterface::isAllowedToRespondToAiCommands` Sleep + dead gate.
+    /// AI-controlled Sleep units ignore Hunt/Guard/AttackMove until attitude rises.
+    fn unit_sleep_mood_blocks_ai_command(&self, id: ObjectId) -> bool {
+        let Some(unit) = self.objects.get(&id) else {
+            return true;
+        };
+        if unit.status.effectively_dead || !unit.is_alive() {
+            return true;
+        }
+        if unit.ai_attitude() != crate::game_logic::host_strategy_center::HostAiAttitude::Sleep {
+            return false;
+        }
+        match unit.owner_player_id.and_then(|pid| self.players.get(&pid)) {
+            Some(player) => !player.is_local,
+            None => true,
+        }
+    }
+
+
+
+
     #[inline]
     pub fn unit_is_dead_or_missing(&self, id: ObjectId) -> bool {
         match self.objects.get(&id) {
@@ -453,6 +474,10 @@ impl GameLogic {
         destination: glam::Vec3,
         max_shots: i32,
     ) -> bool {
+        if self.unit_sleep_mood_blocks_ai_command(id) {
+            return false;
+        }
+
         if self.note_hacker_ai_command(
             id,
             crate::game_logic::host_hacker_income::PendingHackerCommand::MoveTo(destination),
@@ -483,14 +508,15 @@ impl GameLogic {
             unit.stop_attack();
             unit.set_force_attack(false);
             unit.set_max_shots_to_fire(max_shots);
+            // C++ AIAttackMoveToState::onEnter: ATTACK_RETRY_COUNT=5, sleep 0.
+            unit.attack_move_retry_count = 5;
+            unit.attack_move_sleep_until = 0;
         }
-        let path_ok = self.assign_unit_path(id, destination, &[]);
-        if !path_ok {
-            if let Some(unit) = self.objects.get_mut(&id) {
-                unit.set_destination(destination);
-            } else {
-                return false;
-            }
+        let _path_ok = self.assign_unit_path(id, destination, &[]);
+        // C++ does not walk a raw dest line when pathing fails (hq-65aus).
+        // Retry / 3s sleep / close-enough live in process_ai_behavior.
+        if self.objects.get(&id).is_none() {
+            return false;
         }
         if let Some(unit) = self.objects.get_mut(&id) {
             if can_attack {
@@ -522,6 +548,8 @@ impl GameLogic {
                 unit.set_active_weapon_slot(slot);
             }
             unit.is_attack_path = true;
+            unit.attack_move_retry_count = 5;
+            unit.attack_move_sleep_until = 0;
             if unit.requested_destination.is_none() {
                 unit.requested_destination = unit
                     .movement
@@ -761,6 +789,10 @@ impl GameLogic {
         if !can {
             return false;
         }
+        if self.unit_sleep_mood_blocks_ai_command(id) {
+            return false;
+        }
+
         // For object guard, require living target position when provided.
         let (gpos, gtarget, ai_state) = if let Some(tid) = target {
             let tpos = self
@@ -863,6 +895,10 @@ impl GameLogic {
         if !can {
             return false;
         }
+        if self.unit_sleep_mood_blocks_ai_command(id) {
+            return false;
+        }
+
         self.drop_jet_targeters_on_attack_exit(id);
         if let Some(unit) = self.objects.get_mut(&id) {
             unit.set_target(None);
@@ -1738,9 +1774,9 @@ impl GameLogic {
         let Some(obj) = self.objects.get_mut(&id) else {
             return false;
         };
-        // C++ ProductionUpdate::queueUpgrade OBJECT hasUpgrade gate.
+        // C++ ProductionUpdate::queueUpgrade OBJECT hasUpgrade / !affectedByUpgrade.
         if crate::game_logic::host_upgrades::is_object_scoped_upgrade(upgrade_name)
-            && obj.has_object_upgrade_complete(upgrade_name)
+            && obj.refuses_object_upgrade(upgrade_name)
         {
             return false;
         }
@@ -2021,4 +2057,47 @@ mod tests {
         assert_eq!(object.weapon_lock_slot, 2);
         assert_eq!(object.weapon_lock_type, WeaponLockType::LockedPermanently);
     }
+
+    /// hq-65aus: path fail must not set_destination (straight-line through obstacles).
+    #[test]
+    fn attack_move_path_fail_does_not_set_destination() {
+        use crate::game_logic::host_deploy_style::{
+            HostDeployStyleData, HostDeployStyleState,
+        };
+        let mut logic = GameLogic::new();
+        logic.templates.insert(
+            "AtkMvBlock".to_string(),
+            ThingTemplate::new("AtkMvBlock"),
+        );
+        let id = logic
+            .create_object("AtkMvBlock", Team::USA, glam::Vec3::ZERO)
+            .expect("unit");
+        {
+            let unit = logic.host_object_mut(id).expect("unit");
+            unit.weapon = Some(Weapon {
+                range: 80.0,
+                damage: 10.0,
+                ..Weapon::default()
+            });
+            unit.deploy_style = Some(HostDeployStyleData {
+                state: HostDeployStyleState::ReadyToAttack,
+                ready_frame: 0,
+                pack_frames: 30,
+                unpack_frames: 30,
+            });
+        }
+        let dest = glam::Vec3::new(250.0, 0.0, 0.0);
+        assert!(logic.unit_command_attack_move_to(id, dest));
+        let unit = logic.host_object(id).expect("unit");
+        assert_eq!(unit.ai_state, AIState::AttackMoving);
+        assert_eq!(unit.requested_destination, Some(dest));
+        assert_eq!(unit.attack_move_retry_count, 5);
+        assert_eq!(unit.attack_move_sleep_until, 0);
+        assert!(
+            unit.movement.target_position.is_none(),
+            "path fail must not walk a raw dest line; got {:?}",
+            unit.movement.target_position
+        );
+    }
+
 }

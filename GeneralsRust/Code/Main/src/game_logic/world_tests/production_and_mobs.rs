@@ -2040,6 +2040,61 @@ fn command_button_hunt_hijack_issues_nearest_enemy_vehicle() {
 }
 
 #[test]
+fn command_button_hunt_named_arms_capture_and_flashbang() {
+    use crate::game_logic::host_command_button_hunt::HostCommandButtonHuntMode;
+    use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon, WeaponLockType};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    ensure_test_infantry_template(&mut logic);
+    let ranger = logic
+        .create_object("TestInfantry", Team::USA, Vec3::ZERO)
+        .expect("ranger");
+    {
+        let r = logic.host_object_mut(ranger).unwrap();
+        r.template_name = "AmericaInfantryRanger".into();
+        r.secondary_weapon = Some(Weapon {
+            range: 100.0,
+            damage: 5.0,
+            ..Weapon::default()
+        });
+        r.set_ai_state(AIState::Idle);
+    }
+    assert!(logic.start_command_button_hunt_named(
+        ranger,
+        Some("Command_AmericaRangerFlashBangGrenade")
+    ));
+    {
+        let r = logic.host_object(ranger).unwrap();
+        assert_eq!(
+            r.command_button_hunt.as_ref().map(|h| h.mode),
+            Some(HostCommandButtonHuntMode::FireWeapon)
+        );
+        assert_eq!(r.command_button_hunt.as_ref().map(|h| h.weapon_slot), Some(1));
+    }
+    logic.frame = 0;
+    logic.tick_command_button_hunt_updates();
+    let r = logic.host_object(ranger).unwrap();
+    assert_eq!(r.ai_state, AIState::Patrolling);
+    assert_eq!(r.weapon_lock_type, WeaponLockType::LockedTemporarily);
+    assert_eq!(r.weapon_lock_slot, 1);
+
+    let lotus = logic
+        .create_object("TestInfantry", Team::USA, Vec3::new(5.0, 0.0, 0.0))
+        .expect("lotus");
+    {
+        let l = logic.host_object_mut(lotus).unwrap();
+        l.template_name = "AmericaInfantryColonelBurton".into();
+        l.set_ai_state(AIState::Idle);
+    }
+    assert!(
+        logic.start_command_button_hunt_named(lotus, Some("Command_CaptureBuilding")),
+        "capture hunt must arm"
+    );
+}
+
+
+#[test]
 fn preorder_create_sets_model_bit_on_command_center_complete() {
     use crate::game_logic::host_preorder_create::{has_preorder_model_bit, MC_BIT_PREORDER};
     use crate::game_logic::{KindOf, Team, ThingTemplate};
@@ -2870,6 +2925,90 @@ fn moab_flight_uses_jet_b3() {
 }
 
 #[test]
+fn daisy_science_moab_upgrades_b52_to_b3() {
+    use crate::command_system::SpecialPowerType;
+    use crate::game_logic::host_daisy_cutter_flight::DaisyFlightPayloadTier;
+    use crate::game_logic::KindOf;
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    let mut cc = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
+    cc.add_kind_of(KindOf::Structure).set_health(5000.0);
+    logic.templates.insert("AmericaCommandCenter".into(), cc);
+    let cc_id = logic
+        .create_object("AmericaCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let jet = logic
+        .spawn_daisy_cutter_flight(
+            cc_id,
+            Vec3::new(180.0, 0.0, 0.0),
+            DaisyFlightPayloadTier::DaisyCutter,
+        )
+        .expect("b52");
+    assert_eq!(
+        logic.host_object(jet).unwrap().template_name,
+        "AmericaJetB52",
+        "without SCIENCE_MOAB, Daisy stays B52 + DaisyCutterBomb"
+    );
+
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    logic.templates.insert("AmericaCommandCenter".into(), {
+        let mut cc = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(KindOf::Structure).set_health(5000.0);
+        cc
+    });
+    if let Some(p) = logic.get_player_mut(0) {
+        let _ = p.unlock_science("SCIENCE_MOAB");
+    }
+    let cc_id = logic
+        .create_object("AmericaCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    logic.queue_special_power_strike(
+        &SpecialPowerType::DaisyCutter,
+        cc_id,
+        Vec3::new(180.0, 0.0, 0.0),
+    );
+    let b3 = logic
+        .host_objects()
+        .values()
+        .any(|o| o.template_name == "AmericaJetB3");
+    assert!(
+        b3,
+        "SCIENCE_MOAB UpgradeOCL must send AmericaJetB3, not B52"
+    );
+    assert!(logic.daisy_cutter_flight_reg.moab_transports_spawned >= 1);
+}
+
+#[test]
+fn daisy_upgrade_americamoab_grants_findocl() {
+    use crate::game_logic::host_daisy_cutter_flight::DaisyFlightPayloadTier;
+    use crate::game_logic::KindOf;
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    let mut cc = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
+    cc.add_kind_of(KindOf::Structure).set_health(5000.0);
+    logic.templates.insert("AmericaCommandCenter".into(), cc);
+    if let Some(p) = logic.get_player_mut(0) {
+        p.completed_upgrades.insert("Upgrade_AmericaMOAB".into());
+    }
+    let cc_id = logic
+        .create_object("AmericaCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let jet = logic
+        .spawn_daisy_cutter_flight(
+            cc_id,
+            Vec3::new(180.0, 0.0, 0.0),
+            DaisyFlightPayloadTier::DaisyCutter,
+        )
+        .expect("b3");
+    assert_eq!(
+        logic.host_object(jet).unwrap().template_name,
+        "AmericaJetB3",
+        "Upgrade_AmericaMOAB must grant SCIENCE_MOAB for findOCL"
+    );
+}
+
+#[test]
 fn daisy_cutter_flight_drops_bomb() {
     use crate::game_logic::KindOf;
     let mut logic = GameLogic::new();
@@ -3000,6 +3139,34 @@ fn leaflet_b52_drops_container() {
         .expect("leaflet");
     assert!(id >= 1);
     assert!(logic.host_leaflet_drops.transports_spawned >= 1);
+    assert!(
+        logic.special_power_strikes().view_object_count() >= 1,
+        "Leaflet Drop must spawn SpecialPowerViewObject at the click"
+    );
+    let vo = &logic.special_power_strikes().view_objects()[0];
+    assert!((vo.range - 250.0).abs() < 0.1);
+    assert_eq!(vo.duration_frames(), 900);
+    let jet = logic
+        .host_objects()
+        .iter()
+        .find(|(_, o)| o.leaflet_transport_target.is_some())
+        .map(|(id, _)| *id);
+    if let Some(jid) = jet {
+        let o = logic.host_object(jid).unwrap();
+        let p = o.get_position();
+        let (min, max) = logic.world_bounds();
+        let on_edge = (p.x - min.x).abs() < 1.0
+            || (p.x - max.x).abs() < 1.0
+            || (p.z - min.z).abs() < 1.0
+            || (p.z - max.z).abs() < 1.0;
+        assert!(on_edge, "leaflet B52 must spawn at map edge, pos={p:?}");
+        assert!(
+            o.radius_decal_update
+                .as_ref()
+                .is_some_and(|rd| !rd.delivery_decal.is_empty()),
+            "inbound leaflet DeliveryDecal ring missing"
+        );
+    }
     for f in 0..200 {
         logic.frame = f;
         logic.update_leaflet_b52_flights();
@@ -3008,6 +3175,24 @@ fn leaflet_b52_drops_container() {
         }
     }
     assert!(logic.host_leaflet_drops.containers_dropped >= 1);
+    if let Some(jid) = jet {
+        for f in 200..500 {
+            logic.frame = f;
+            logic.update_leaflet_b52_flights();
+            let gone = logic
+                .host_object(jid)
+                .map(|o| !o.is_alive())
+                .unwrap_or(true);
+            if gone {
+                break;
+            }
+        }
+        let gone = logic
+            .host_object(jid)
+            .map(|o| !o.is_alive())
+            .unwrap_or(true);
+        assert!(gone, "leaflet B52 must HeadOffMap and destroy after drop");
+    }
     // Disable residual still applies via existing delay path.
     for f in 0..120 {
         logic.frame = f;
@@ -3143,25 +3328,50 @@ fn artillery_barrage_flight_drops_shells() {
     let mut foe_t = crate::game_logic::ThingTemplate::new("GLATankScorpion");
     foe_t.add_kind_of(KindOf::Vehicle).set_health(400.0);
     logic.templates.insert("GLATankScorpion".into(), foe_t);
+    // CC and click on the east side so closest-to-source ≠ farthest-from-target.
     let cc_id = logic
-        .create_object("ChinaCommandCenter", Team::China, Vec3::new(0.0, 0.0, 0.0))
+        .create_object(
+            "ChinaCommandCenter",
+            Team::China,
+            Vec3::new(200.0, 0.0, 0.0),
+        )
         .unwrap();
     let _foe = logic
-        .create_object("GLATankScorpion", Team::GLA, Vec3::new(150.0, 0.0, 0.0))
+        .create_object("GLATankScorpion", Team::GLA, Vec3::new(200.0, 0.0, 0.0))
         .unwrap();
+    let target = Vec3::new(200.0, 0.0, 0.0);
     let transport = logic
-        .spawn_artillery_barrage_flight(
-            cc_id,
-            Vec3::new(150.0, 0.0, 0.0),
-            ArtilleryBarrageScienceTier::Level1,
-        )
+        .spawn_artillery_barrage_flight(cc_id, target, ArtilleryBarrageScienceTier::Level1)
         .expect("cannon");
     assert!(logic
         .host_object(transport)
         .unwrap()
         .artillery_barrage_transport
         .is_some());
+    let cannons: Vec<_> = logic
+        .host_objects()
+        .values()
+        .filter(|o| o.artillery_barrage_transport.is_some())
+        .collect();
+    assert_eq!(
+        cannons.len(),
+        12,
+        "C++ FormationSize 12 ChinaArtilleryCannon, got {}",
+        cannons.len()
+    );
+    let closest = logic.closest_map_edge_point(Vec3::new(200.0, 0.0, 0.0));
+    let lead = logic.host_object(transport).unwrap().get_position();
+    assert!(
+        lead.x < closest.x - 50.0,
+        "lead must come from farthest edge (west), not closest (east). lead={lead:?} closest={closest:?}"
+    );
+    assert!(
+        lead.y >= 300.0,
+        "CREATE_AT_EDGE_FARTHEST_FROM_TARGET z+=300 then preferred height, y={}",
+        lead.y
+    );
     assert!(logic.artillery_barrage_flight_reg.shells_scheduled >= 12);
+    assert_eq!(logic.artillery_barrage_flight_reg.transports_spawned, 12);
     for f in 0..400 {
         logic.frame = f;
         logic.update_artillery_barrage_flights();
@@ -3172,6 +3382,33 @@ fn artillery_barrage_flight_drops_shells() {
     assert!(logic.artillery_barrage_flight_reg.shells_dropped >= 1);
     assert!(logic.artillery_barrage_flight_reg.impacts >= 1);
     assert!(logic.honesty_artillery_barrage_flight_ok());
+}
+
+#[test]
+fn artillery_barrage_l3_spawns_formation_size_36() {
+    use crate::game_logic::special_power_strikes::ArtilleryBarrageScienceTier;
+    use crate::game_logic::KindOf;
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::China);
+    let mut cc = crate::game_logic::ThingTemplate::new("ChinaCommandCenter");
+    cc.add_kind_of(KindOf::Structure).set_health(5000.0);
+    logic.templates.insert("ChinaCommandCenter".into(), cc);
+    let cc_id = logic
+        .create_object("ChinaCommandCenter", Team::China, Vec3::new(200.0, 0.0, 0.0))
+        .unwrap();
+    let _ = logic
+        .spawn_artillery_barrage_flight(
+            cc_id,
+            Vec3::new(200.0, 0.0, 0.0),
+            ArtilleryBarrageScienceTier::Level3,
+        )
+        .expect("cannon");
+    let n = logic
+        .host_objects()
+        .values()
+        .filter(|o| o.artillery_barrage_transport.is_some())
+        .count();
+    assert_eq!(n, 36, "C++ SUPERWEAPON_ArtilleryBarrage3 FormationSize 36");
 }
 
 #[test]

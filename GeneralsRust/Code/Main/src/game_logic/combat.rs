@@ -1555,12 +1555,17 @@ impl CombatSystem {
                         if obj.status.under_construction {
                             continue;
                         }
-                        // Aircraft/airborne projectiles residual: skip structure block
-                        // when intended target is airborne (AA fire).
-                        if let Some(tid) = intended {
-                            if let Some(t) = objects.get(&tid) {
-                                if t.is_kind_of(KindOf::Aircraft) || t.status.airborne_target {
-                                    continue;
+                        // C++ Weapon.cpp:679-699 — only skip KINDOF_FS_AIRFIELD
+                        // when the intended victim reserved a parking space.
+                        // Other buildings still detonate AA / airborne shots.
+                        if obj.is_kind_of(KindOf::FSAirfield)
+                            && obj.thing.template.parking_place.is_some()
+                        {
+                            if let Some(tid) = intended {
+                                if let Some(t) = objects.get(&tid) {
+                                    if t.producer_id == Some(oid) || t.contained_by == Some(oid) {
+                                        continue;
+                                    }
                                 }
                             }
                         }
@@ -2467,6 +2472,84 @@ mod tests {
         assert!(
             (tgt_hp1 - tgt_hp0).abs() < 0.01,
             "target behind wall must not be hit (tgt {tgt_hp0}->{tgt_hp1})"
+        );
+    }
+
+    #[test]
+    fn aa_projectile_detonates_on_intervening_building() {
+        ensure_unit_test_direct_damage();
+
+        let mut objects = HashMap::new();
+        let atk = ObjectId(21);
+        let factory = ObjectId(22);
+        let jet = ObjectId(23);
+        objects.insert(
+            atk,
+            make_obj(
+                "AaAtk",
+                atk,
+                Team::USA,
+                Vec3::new(0.0, 5.0, 0.0),
+                &[KindOf::Structure, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        objects.insert(
+            factory,
+            make_obj(
+                "AaFactory",
+                factory,
+                Team::Neutral,
+                Vec3::new(40.0, 0.0, 0.0),
+                &[KindOf::Structure],
+                20.0,
+            ),
+        );
+        objects.insert(
+            jet,
+            make_obj(
+                "AaJet",
+                jet,
+                Team::GLA,
+                Vec3::new(80.0, 20.0, 0.0),
+                &[KindOf::Aircraft, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        objects.get_mut(&jet).unwrap().status.airborne_target = true;
+        let mut combat = CombatSystem::new();
+        let w = Weapon {
+            damage: 40.0,
+            range: 200.0,
+            projectile_speed: 40.0,
+            can_target_air: true,
+            ..Weapon::default()
+        };
+        combat.fire_projectile(
+            Vec3::new(0.0, 5.0, 0.0),
+            Vec3::new(80.0, 20.0, 0.0),
+            &w,
+            atk,
+            Some(jet),
+            40.0,
+        );
+        let factory_hp0 = objects.get(&factory).unwrap().health.current;
+        let jet_hp0 = objects.get(&jet).unwrap().health.current;
+        for _ in 0..120 {
+            let _ = combat.update_projectiles(1.0 / 30.0, &mut objects);
+            if combat.projectile_count() == 0 {
+                break;
+            }
+        }
+        let factory_hp1 = objects.get(&factory).unwrap().health.current;
+        let jet_hp1 = objects.get(&jet).unwrap().health.current;
+        assert!(
+            factory_hp1 < factory_hp0 - 1.0,
+            "AA shot must detonate on intervening building ({factory_hp0}->{factory_hp1})"
+        );
+        assert!(
+            (jet_hp1 - jet_hp0).abs() < 0.01,
+            "jet behind factory must not be hit ({jet_hp0}->{jet_hp1})"
         );
     }
 

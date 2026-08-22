@@ -1,4 +1,6 @@
 use super::*;
+include!("command_set_strip.rs");
+
 
 impl PresentationFrame {
     /// Selected unit identity (health/name/type) from snapshot only.
@@ -1183,6 +1185,11 @@ impl PresentationFrame {
         } else {
             0
         };
+        let occupants = primary
+            .filter(|_| garrison_max > 0)
+            .map(|ro| self.presentation_inventory_occupants(ro))
+            .unwrap_or_default();
+        control_bar.sync_presentation_occupants(occupants);
         control_bar.sync_structure_context_from_presentation(
             garrison_max,
             if garrison_max > 0 {
@@ -1222,6 +1229,15 @@ impl PresentationFrame {
             let mut residual =
                 game_client::gui::control_bar::PresentationAvailabilityResidual {
                     completed_upgrades: completed_upgrades.clone(),
+                    object_applied_upgrades: panel.applied_upgrades.clone(),
+                    player_completed_upgrades: self.local_completed_upgrades.clone(),
+                    object_unaffected_upgrades:
+                        crate::game_logic::host_slave_drones::slave_drone_unaffected_upgrade_names(
+                            panel.applied_upgrades.iter().map(String::as_str),
+                        )
+                        .into_iter()
+                        .map(str::to_string)
+                        .collect(),
                     ..Default::default()
                 };
             if let Some(ro) = primary.filter(|_| controllable) {
@@ -1242,6 +1258,9 @@ impl PresentationFrame {
                 residual.battle_plan_hold_the_line = ro.weapon_bonus_battle_plan_hold_the_line;
                 residual.battle_plan_search_and_destroy =
                     ro.weapon_bonus_battle_plan_search_and_destroy;
+                residual.script_disabled = ro.disabled_script_disabled;
+                residual.script_unpowered = ro.disabled_script_underpowered;
+                residual.unmanned = ro.disabled_unmanned;
             }
             control_bar.apply_presentation_availability(residual);
         }
@@ -1292,6 +1311,7 @@ impl PresentationFrame {
             );
         }
         control_bar.sync_sciences_from_presentation(&self.local_unlocked_sciences);
+        control_bar.apply_presentation_science_hide_names(&self.local_unlocked_sciences);
         control_bar.sync_rank_progress_from_presentation(
             self.local_rank_progress_percent,
             self.local_skill_points,
@@ -1364,421 +1384,10 @@ impl PresentationFrame {
 
     /// Apply selection panel to unit command grid (context-sensitive residual).
 
-    /// Derive unit-command-panel buttons from primary selection residual.
-    ///
-    /// Fail-closed: not full CommandSet INI matrix / per-faction button layout.
+    /// C++ `ControlBar::populateCommand` — CommandSet.ini slots 1-14 only.
+    /// Never invent Patrol / Scatter / Attitude / Cheer / Deploy / PurchaseScience.
     pub fn unit_command_buttons(&self) -> Vec<crate::ui::UnitCommandButton> {
-        use crate::ui::UnitCommandButton;
-        let panel = self.control_bar_selection_panel();
-        let Some(id) = panel.primary_object_id else {
-            return Vec::new();
-        };
-        // C++ getCommandAvailability: disabled objects still show Sell/Stop/Rally/
-        // Evacuate/SwitchWeapon/BeaconDelete (Restricted, not missing).
-        let Some(ro) = self.objects.iter().find(|o| {
-            o.id == id && !o.destroyed && !o.sold && !o.unselectable && !o.masked
-        }) else {
-            return Vec::new();
-        };
-        // C++ ControlBar.cpp:1716-1778 + InGameUI::areSelectedObjectsControllable.
-        // Non-local selection is CB_CONTEXT_NONE. Exceptions: beacon context,
-        // and NEUTRAL garrisonable inventory (enemy/ally containers never peek).
-        if !self.is_owned_by_local(ro) {
-            let mut cmds = Vec::new();
-            let n = ro.template_name.to_ascii_lowercase();
-            if n.contains("beacon") {
-                cmds.push(UnitCommandButton {
-                    command_name: "Command_BeaconDelete".into(),
-                    enabled: true,
-                });
-                return cmds;
-            }
-            if ro.team == crate::game_logic::Team::Neutral && ro.max_garrison > 0 {
-                cmds.push(UnitCommandButton {
-                    command_name: "Command_StructureExit".into(),
-                    enabled: true,
-                });
-                if !ro.garrisoned_units.is_empty() {
-                    cmds.push(UnitCommandButton {
-                        command_name: "Command_Evacuate".into(),
-                        enabled: true,
-                    });
-                }
-                return cmds;
-            }
-            return Vec::new();
-        }
-
-        let mut cmds = Vec::new();
-        let push = |cmds: &mut Vec<UnitCommandButton>, name: &str, enabled: bool| {
-            if !cmds
-                .iter()
-                .any(|c| c.command_name.eq_ignore_ascii_case(name))
-            {
-                cmds.push(UnitCommandButton {
-                    command_name: name.into(),
-                    enabled,
-                });
-            }
-        };
-        if ro.is_mobile || ro.is_unit {
-            push(&mut cmds, "Command_Stop", true);
-            push(&mut cmds, "Command_AttackMove", ro.has_weapon);
-            push(&mut cmds, "Command_Guard", true);
-            push(&mut cmds, "Command_Patrol", true);
-            push(&mut cmds, "Command_Scatter", true);
-            push(&mut cmds, "Command_AttitudeAggressive", true);
-            push(&mut cmds, "Command_AttitudePassive", true);
-            push(&mut cmds, "Command_AttitudeSleep", true);
-            push(&mut cmds, "Command_SwitchWeapons", true);
-            {
-                let n = ro.template_name.to_ascii_lowercase();
-                if n.contains("supply")
-                    || n.contains("harvester")
-                    || n.contains("chinook")
-                    || (n.contains("worker") && !n.contains("dozer"))
-                {
-                    push(&mut cmds, "Command_ReturnSupplies", true);
-                }
-            }
-            {
-                let n = ro.template_name.to_ascii_lowercase();
-                if n.contains("chinook") {
-                    push(
-                        &mut cmds,
-                        "Command_CombatDrop",
-                        self.host_rappeller_count(ro) > 0,
-                    );
-                }
-                if n.contains("jet")
-                    || n.contains("raptor")
-                    || n.contains("mig")
-                    || n.contains("aurora")
-                    || n.contains("stealth")
-                    || n.contains("comanche")
-                    || n.contains("helicopter")
-                    || n.contains("chinook")
-                {
-                    push(&mut cmds, "Command_ReturnToBase", true);
-                }
-            }
-            // Dozer/Worker repair residual (R key / strip).
-            {
-                let n = ro.template_name.to_ascii_lowercase();
-                if n.contains("dozer")
-                    || n.contains("worker")
-                    || n.contains("chinook")
-                    || n.contains("construction")
-                    || n.contains("supplytruck")
-                    || n.contains("supply_truck")
-                {
-                    push(&mut cmds, "Command_Repair", true);
-                }
-                if n.contains("dozer") || n.contains("worker") {
-                    push(&mut cmds, "Command_ClearMines", true);
-                }
-            }
-            push(&mut cmds, "Command_Cheer", true);
-            // Multi-select formation residual.
-            if self.selection_ids_for_consumers().len() >= 2 {
-                push(&mut cmds, "Command_CreateFormation", true);
-            }
-            // C++ Deploy residual (DeployStyle / sentry / crawler family).
-            let n = ro.template_name.to_ascii_lowercase();
-            if n.contains("sentry")
-                || n.contains("nukecannon")
-                || n.contains("scud")
-                || n.contains("dozer")
-                || n.contains("worker")
-                || n.contains("stinger")
-                || n.contains("tunnel")
-                || n.contains("tomahawk")
-                || n.contains("humvee")
-                || n.contains("buggy")
-                || n.contains("crawler")
-                || n.contains("quadcannon")
-                || n.contains("inferno")
-                || n.contains("artillery")
-                || n.contains("spectrum")
-            {
-                push(&mut cmds, "Command_Deploy", true);
-            }
-            // Hero / special-ability residual (target-click armed by engine).
-            if n.contains("jarmenkell") || n.contains("jarmen_kell") {
-                push(&mut cmds, "Command_SnipeVehicle", true);
-            }
-            if n.contains("colonelburton") || n.contains("colonel_burton") || n.contains("burton") {
-                push(&mut cmds, "Command_PlantTimedDemoCharge", true);
-                push(&mut cmds, "Command_PlantRemoteDemoCharge", true);
-                // C++ isPowerCurrentlyInUse SPECIAL_REMOTE_CHARGES without
-                // CONTEXTMODE_COMMAND: in-use (gray) when getSpecialObjectCount()==0.
-                let has_remote = self.objects.iter().any(|charge| {
-                    charge.producer_id == Some(ro.id)
-                        && !charge.destroyed
-                        && crate::game_logic::host_mines::is_remote_demo_charge_template(
-                            &charge.template_name,
-                        )
-                });
-                push(&mut cmds, "Command_DetonateRemoteDemoCharges", has_remote);
-            }
-            if n.contains("blacklotus") || n.contains("black_lotus") {
-                push(
-                    &mut cmds,
-                    "Command_CaptureBuilding",
-                    ro.capture_power_ready && !ro.using_ability,
-                );
-                push(&mut cmds, "Command_StealCashHack", true);
-                push(&mut cmds, "Command_DisableVehicleHack", true);
-            }
-            if n.contains("chinainfantryhacker")
-                || (n.contains("hacker") && n.contains("china"))
-                || n.contains("china_hacker")
-            {
-                push(
-                    &mut cmds,
-                    "Command_HackInternet",
-                    !ro.hacking_packing_or_unpacking,
-                );
-            }
-            if n.contains("ambulance") {
-                push(&mut cmds, "Command_CleanupArea", true);
-            }
-            if n.contains("hijacker") {
-                push(&mut cmds, "Command_Hijack", true);
-            }
-            if n.contains("saboteur") {
-                push(&mut cmds, "Command_Sabotage", true);
-            }
-            if n.contains("bombtruck") || n.contains("bomb_truck") {
-                push(&mut cmds, "Command_DisguiseAsVehicle", true);
-                push(&mut cmds, "Command_ConvertToCarbomb", true);
-            }
-            if n.contains("rebel") && !n.contains("scud") {
-                push(
-                    &mut cmds,
-                    "Command_CaptureBuilding",
-                    ro.capture_power_ready && !ro.using_ability,
-                );
-                push(&mut cmds, "Command_PlantBoobyTrap", true);
-            }
-            if n.contains("ranger") || n.contains("redguard") {
-                push(
-                    &mut cmds,
-                    "Command_CaptureBuilding",
-                    ro.capture_power_ready && !ro.using_ability,
-                );
-            }
-            if n.contains("demo")
-                && (n.contains("terrorist") || n.contains("bike") || n.contains("trap"))
-            {
-                push(&mut cmds, "Command_DemoTertiarySuicide", true);
-            }
-        }
-        // C++ HDB is a paired SpecialAbility/SpecialAbilityUpdate channel,
-        // not a China Hacker name.  Keep it outside the legacy hacker block
-        // so a modded or renamed object gets exactly its parsed button, and a
-        // stale/charging module produces a visible but disabled control.
-        if ro.hacker_disable_building_capable {
-            push(
-                &mut cmds,
-                "Command_HackerDisableBuilding",
-                ro.hacker_disable_building_ready,
-            );
-        }
-        // C++ command availability comes from the concrete behavior module,
-        // not a China/power-plant name.  It is intentionally outside the
-        // structure-only branch: an authored module remains the authority.
-        if ro.can_toggle_overcharge {
-            push(&mut cmds, "Command_ToggleOvercharge", true);
-        }
-        if ro.is_structure || ro.can_produce {
-            if ro.under_construction {
-                push(&mut cmds, "Command_CancelConstruction", true);
-                push(&mut cmds, "Command_ResumeConstruction", true);
-            } else if ro.is_structure {
-                // C++ Command_Sell residual — completed structures only.
-                push(&mut cmds, "Command_Sell", true);
-                let n = ro.template_name.to_ascii_lowercase();
-                // USA Strategy Center battle plans residual.
-                if n.contains("strategycenter") || n.contains("strategy_center") {
-                    push(&mut cmds, "Command_InitiateBattlePlanBombardment", true);
-                    push(&mut cmds, "Command_InitiateBattlePlanHoldTheLine", true);
-                    push(
-                        &mut cmds,
-                        "Command_InitiateBattlePlanSearchAndDestroy",
-                        true,
-                    );
-                    push(&mut cmds, "Command_CIAIntelligence", true);
-                }
-                // Structure superweapon buttons come from the exact parsed
-                // SpecialPowerTemplate frozen into this frame.  A structure
-                // basename is not authority: a name-spoof without an actual
-                // SpecialPowerModule must not expose a fire button.
-                match ro
-                    .special_power_ready_template_name
-                    .as_deref()
-                    .and_then(crate::command_system::special_power_type_from_template_name)
-                {
-                    Some(
-                        crate::command_system::SpecialPowerType::ParticleCannon
-                        | crate::command_system::SpecialPowerType::SuperweaponParticleCannon
-                        | crate::command_system::SpecialPowerType::LaserCannon,
-                    ) => push(&mut cmds, "Command_ParticleCannon", true),
-                    Some(
-                        crate::command_system::SpecialPowerType::NuclearMissile
-                        | crate::command_system::SpecialPowerType::NukeNeutronMissile
-                        | crate::command_system::SpecialPowerType::SuperweaponNeutronMissile,
-                    ) => push(&mut cmds, "Command_NuclearMissile", true),
-                    Some(crate::command_system::SpecialPowerType::ScudStorm) => {
-                        push(&mut cmds, "Command_ScudStorm", true)
-                    }
-                    _ => {}
-                }
-                if n.contains("spysat") || (n.contains("satellite") && n.contains("uplink")) {
-                    push(&mut cmds, "Command_SpySatelliteScan", true);
-                }
-                if n.contains("airfield") {
-                    push(&mut cmds, "Command_SpyDrone", true);
-                    push(&mut cmds, "Command_EmergencyRepair", true);
-                    push(&mut cmds, "Command_Airstrike", true);
-                    push(&mut cmds, "Command_CarpetBomb", true);
-                }
-                if n.contains("commandcenter") || n.contains("command_center") {
-                    push(&mut cmds, "Command_ArtilleryBarrage", true);
-                    push(&mut cmds, "Command_EmergencyRepair", true);
-                    // Faction generals-power residual buttons on CC.
-                    if n.contains("gla") {
-                        push(&mut cmds, "Command_Ambush", true);
-                        push(&mut cmds, "Command_SneakAttack", true);
-                        push(&mut cmds, "Command_AnthraxBomb", true);
-                    }
-                    if n.contains("america") || n.contains("usa") {
-                        push(&mut cmds, "Command_LeafletDrop", true);
-                        push(&mut cmds, "Command_GpsScrambler", true);
-                        push(&mut cmds, "Command_SpectreGunship", true);
-                    }
-                    if n.contains("china") {
-                        push(&mut cmds, "Command_ArtilleryBarrage", true);
-                        push(&mut cmds, "Command_CarpetBomb", true);
-                    }
-                }
-            }
-            if ro.can_produce {
-                push(&mut cmds, "Command_SetRallyPoint", true);
-            }
-            if ro.max_garrison > 0 {
-                push(&mut cmds, "Command_StructureExit", true);
-                if !ro.garrisoned_units.is_empty() {
-                    push(&mut cmds, "Command_Evacuate", true);
-                }
-            }
-        }
-        if ro.special_power_ready {
-            push(&mut cmds, "Command_SpecialPower", true);
-        } else if ro.special_power_cooldown > 0.0 {
-            push(&mut cmds, "Command_SpecialPower", false);
-        }
-        // GeneralsExperience residual: offer purchase when SPP available.
-        if self.local_science_purchase_points > 0 {
-            push(&mut cmds, "Command_PurchaseScience", true);
-        }
-        if panel.production_progress.is_some() {
-            // C++ cancel queue head: unit vs upgrade residual.
-            if panel.production_is_upgrade {
-                push(&mut cmds, "Command_CancelUpgrade", true);
-            } else {
-                push(&mut cmds, "Command_CancelUnit", true);
-            }
-        }
-        // C++ GUI_COMMAND_PLAYER_UPGRADE residual: disable upgrade commands that
-        // are already complete or currently researching (COMMAND_RESTRICTED).
-        let queued = &self.local_queued_upgrades;
-        let unlocked = &self.local_unlocked_sciences;
-        for name in unlocked.iter().chain(queued.iter()) {
-            let cmd = format!(
-                "Command_Upgrade{}",
-                name.trim_start_matches("Upgrade_")
-                    .trim_start_matches("upgrade_")
-            );
-            // Also try full Upgrade_ name suffix residual.
-            let cmd_full = format!("Command_{}", name);
-            for cname in [cmd, cmd_full] {
-                // Only mark disabled if a matching enable was not already pushed.
-                if let Some(existing) = cmds
-                    .iter_mut()
-                    .find(|c| c.command_name.eq_ignore_ascii_case(&cname))
-                {
-                    existing.enabled = false;
-                }
-            }
-        }
-        // Structure producers: expose residual upgrade research buttons from
-        // applied/known host upgrades that are NOT unlocked and NOT queued.
-        // Fail-closed: sample residual set only (not full CommandSet INI matrix).
-        if ro.can_produce || ro.is_structure {
-            const SAMPLE_UPGRADE_COMMANDS: &[(&str, &str)] = &[
-                (
-                    "Command_UpgradeAmericaRangerFlashBangGrenade",
-                    "Upgrade_AmericaRangerFlashBangGrenade",
-                ),
-                (
-                    "Command_UpgradeAmericaRangerCaptureBuilding",
-                    "Upgrade_AmericaRangerCaptureBuilding",
-                ),
-                (
-                    "Command_UpgradeAmericaSupplyLines",
-                    "Upgrade_AmericaSupplyLines",
-                ),
-                ("Command_UpgradeGLACamouflage", "Upgrade_GLACamouflage"),
-            ];
-            let norm = |s: &str| {
-                s.chars()
-                    .filter(|c| c.is_ascii_alphanumeric())
-                    .flat_map(|c| c.to_lowercase())
-                    .collect::<String>()
-            };
-            for (cmd, upgrade) in SAMPLE_UPGRADE_COMMANDS {
-                let u = norm(upgrade);
-                let owned = unlocked.iter().any(|x| norm(x) == u)
-                    || unlocked
-                        .iter()
-                        .any(|x| norm(x).contains(&u) || u.contains(&norm(x)));
-                let researching = queued.iter().any(|x| norm(x) == u)
-                    || queued
-                        .iter()
-                        .any(|x| norm(x).contains(&u) || u.contains(&norm(x)))
-                    || (panel.production_is_upgrade
-                        && panel
-                            .production_template
-                            .as_ref()
-                            .map(|t| norm(t) == u || norm(t).contains(&u))
-                            .unwrap_or(false));
-                let queue_full = ro.production_queue.len()
-                    == crate::game_logic::host_production_buildable_command_residual::MAX_BUILD_QUEUE_BUTTONS_RESIDUAL;
-                let enabled = !owned && !researching && !queue_full;
-                // Only push when structure can produce (barracks/war factory/etc residual).
-                if ro.can_produce {
-                    push(&mut cmds, cmd, enabled);
-                }
-            }
-        }
-        if self.can_make_producer_id == Some(ro.id.0) {
-            let queue_full = ro.production_queue.len()
-                == crate::game_logic::host_production_buildable_command_residual::MAX_BUILD_QUEUE_BUTTONS_RESIDUAL;
-            for cameo in &self.can_make_cameos {
-                if cameo.buildable_hidden {
-                    continue;
-                }
-                let name = format!("Command_Construct{}", cameo.template_name);
-                push(&mut cmds, &name, cameo.available && !queue_full);
-            }
-        }
-        if ro.template_name.to_ascii_lowercase().contains("beacon") {
-            push(&mut cmds, "Command_BeaconDelete", true);
-        }
-        cmds.retain(|c| self.host_need_special_power_science_owned(&c.command_name));
-        self.apply_host_disabled_command_strip(&mut cmds, ro);
-        cmds
+        self.populate_command_set_strip()
     }
 
     pub fn apply_to_unit_command_panel(&self, panel: &mut crate::ui::UnitCommandPanel) {
@@ -1849,6 +1458,10 @@ impl PresentationFrame {
         cmds: &mut Vec<crate::ui::UnitCommandButton>,
         ro: &RenderableObject,
     ) {
+        if ro.disabled_script_disabled || ro.disabled_script_underpowered || ro.disabled_unmanned {
+            cmds.clear();
+            return;
+        }
         if !ro.disabled || ro.under_construction {
             return;
         }

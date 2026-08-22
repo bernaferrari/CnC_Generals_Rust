@@ -471,6 +471,14 @@ impl GameLogic {
         // (same as A10/Daisy skip execute_ocl). LeafletDropBehavior disable
         // stays host-owned via host_leaflet_drops.queue.
         let _ = self.spawn_leaflet_b52_flight(source_object, target_position);
+        // C++ SpecialPowerModule::triggerSpecialPower createViewObject
+        // SuperweaponLeafletDrop ViewObjectRange 250 / Duration 30000ms.
+        let _ = self.create_special_power_view_object_at(
+            source_object,
+            target_position,
+            crate::game_logic::host_leaflet_drop::LEAFLET_VIEW_OBJECT_RANGE,
+            crate::game_logic::host_leaflet_drop::LEAFLET_VIEW_OBJECT_DURATION_FRAMES,
+        );
 
         self.queue_audio_event(
             AudioEventRequest::new(kind.activate_audio())

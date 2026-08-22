@@ -282,47 +282,77 @@ impl GameLogic {
         !object.team_instance_name.is_empty()
     }
 
-    pub(crate) fn host_team_common_target(&self, object_id: ObjectId) -> Option<ObjectId> {
+    pub(crate) fn host_team_common_target(&mut self, object_id: ObjectId) -> Option<ObjectId> {
         if !self.team_wants_common_attack(object_id) {
             return None;
         }
-        let object = self.objects.get(&object_id)?;
-        let name = Self::host_team_instance_key(object);
+        let name = {
+            let object = self.objects.get(&object_id)?;
+            Self::host_team_instance_key(object)
+        };
         let target_id = *self.team_common_attack_targets.get(&name)?;
-        let target = self.objects.get(&target_id)?;
-        if !target.is_alive() {
+        let reject = match self.objects.get(&target_id) {
+            None => true,
+            Some(target) => {
+                !target.is_alive()
+                    || (target.status.stealthed
+                        && !target.status.detected
+                        && !target.status.disguised)
+                    || target.contained_by.is_some()
+                    || target.is_kind_of(KindOf::Aircraft)
+                    || !matches!(
+                        self.get_able_to_attack_specific_object(
+                            object_id,
+                            target_id,
+                            AbleToAttackType::NewTarget,
+                            false,
+                        ),
+                        CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+                    )
+            }
+        };
+        if reject {
+            // C++ Team::getTeamTargetObject clears m_commonAttackTarget.
+            self.team_common_attack_targets.remove(&name);
             return None;
         }
-        if target.status.stealthed && !target.status.detected && !target.status.disguised {
-            return None;
-        }
-        let ok = matches!(
-            self.get_able_to_attack_specific_object(
-                object_id,
-                target_id,
-                AbleToAttackType::NewTarget,
-                false,
-            ),
-            CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
-        );
-        ok.then_some(target_id)
+        Some(target_id)
     }
 
-    pub(crate) fn set_host_team_common_target(&mut self, object_id: ObjectId, target: Option<ObjectId>) {
+    pub(crate) fn set_host_team_common_target(
+        &mut self,
+        object_id: ObjectId,
+        target: Option<ObjectId>,
+    ) {
+        let Some(object) = self.objects.get(&object_id) else {
+            return;
+        };
+        let name = Self::host_team_instance_key(object);
+        // C++ Team::setTeamTargetObject: NULL always clears, even for humans.
+        if target.is_none() {
+            self.team_common_attack_targets.remove(&name);
+            return;
+        }
         if !self.team_wants_common_attack(object_id) {
             return;
         }
         let Some(object) = self.objects.get(&object_id) else {
             return;
         };
-        let name = Self::host_team_instance_key(object);
-        match target {
-            Some(id) => {
-                self.team_common_attack_targets.insert(name, id);
-            }
-            None => {
-                self.team_common_attack_targets.remove(&name);
-            }
+        // C++ PLAYER_COMPUTER only; Easy never shares a victim.
+        let is_computer = object
+            .owner_player_id
+            .and_then(|pid| self.players.get(&pid))
+            .map(|p| !p.is_local)
+            .unwrap_or(false);
+        if !is_computer {
+            return;
+        }
+        if self.get_difficulty() == crate::ai::AIDifficulty::Easy {
+            return;
+        }
+        if let Some(id) = target {
+            self.team_common_attack_targets.insert(name, id);
         }
     }
 
@@ -797,28 +827,47 @@ impl GameLogic {
                 .values()
                 .filter(|o| o.contained_by == Some(v.id))
                 .count() as u32;
-            let victim_est = crate::game_logic::weapon_bootstrap::HostEstimateVictim {
-                kind_structure: v.is_kind_of(KindOf::Structure),
-                kind_shrubbery: v.template_name.to_ascii_lowercase().contains("shrub"),
-                kind_mine: v.is_kind_of(KindOf::Mine) || v.is_disarmable_mine(),
-                kind_booby_trap: v.is_disarmable_mine(),
-                kind_demo_trap: v.is_kind_of(KindOf::Mine) || v.is_disarmable_mine(),
-                under_construction: v.status.under_construction,
-                contain_count,
-                garrisonable: v.thing.template.contain_module.slots.unwrap_or(0) > 0,
-                immune_to_clear_building: false,
-                airborne_target: v.status.airborne_target,
+            let current_is_primary = if source.is_weapon_locked() {
+                source.weapon_lock_slot == 0
+            } else {
+                source.active_weapon_slot == 0
             };
+            // C++ WeaponSet.cpp:706 — skip DAMAGE_KILLPILOT on heroes while
+            // current is PRIMARY and no specific slot (rifle-mode Jarmen).
+            let skip_hero_kill_pilot = (source.is_kind_of(KindOf::Hero)
+                || crate::game_logic::host_jarmen_kell::is_jarmen_kell_template(
+                    &source.template_name,
+                ))
+                && current_is_primary
+                && !source.is_weapon_locked();
             let has_legal_weapon = candidate_slots.iter().copied().any(|slot| {
                 source.weapon_slot(slot).is_some_and(|weapon| {
                     if !kind_ok(slot, weapon) {
                         return false;
                     }
                     let name = source.weapon_name_for_slot(slot).unwrap_or("");
+                    if skip_hero_kill_pilot
+                        && crate::game_logic::weapon_bootstrap::host_weapon_is_kill_pilot_cursor_slot(
+                            name,
+                        )
+                    {
+                        return false;
+                    }
                     let est = crate::game_logic::weapon_bootstrap::host_estimate_weapon_from_name(
                         name,
                         weapon.damage,
                     );
+                    let dt = crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(
+                        name,
+                    );
+                    let victim_est =
+                        crate::game_logic::weapon_bootstrap::host_estimate_victim_from_object(
+                            v,
+                            contain_count,
+                            crate::game_logic::host_armor_residual::apply_residual_armor(
+                                v, dt, 1.0,
+                            ),
+                        );
                     crate::game_logic::weapon_bootstrap::estimate_weapon_template_damage(
                         &est,
                         Some(&victim_est),
@@ -878,3 +927,115 @@ impl GameLogic {
         }
     }
 }
+
+#[cfg(test)]
+mod common_target_parity {
+    use super::*;
+    use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
+
+    fn reset_session_difficulty() {
+        crate::game_logic::host_faction_skirmish_residual::set_live_host_session_difficulty(
+            i32::MIN,
+        );
+    }
+
+    #[test]
+    fn set_common_target_skips_easy_and_human() {
+        reset_session_difficulty();
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "USA AI", false));
+        logic.add_player(Player::new(2, Team::USA, "Human", true));
+        let mut ranger = ThingTemplate::new("W21Ranger");
+        ranger.add_kind_of(KindOf::Infantry);
+        ranger.add_kind_of(KindOf::Attackable);
+        logic.templates.insert("W21Ranger".into(), ranger);
+        let attacker = logic
+            .create_object("W21Ranger", Team::USA, glam::Vec3::ZERO)
+            .expect("atk");
+        if let Some(o) = logic.host_object_mut(attacker) {
+            o.owner_player_id = Some(1);
+            o.team_instance_name = "USA_AttackSquad".into();
+        }
+        let victim = logic
+            .create_object("W21Ranger", Team::GLA, glam::Vec3::new(12.0, 0.0, 0.0))
+            .expect("vic");
+
+        crate::game_logic::host_faction_skirmish_residual::set_live_host_session_difficulty(0);
+        logic.set_host_team_common_target(attacker, Some(victim));
+        assert!(
+            logic.team_common_attack_targets.is_empty(),
+            "Easy must not seed a shared victim"
+        );
+        reset_session_difficulty();
+
+        crate::game_logic::host_faction_skirmish_residual::set_live_host_session_difficulty(1);
+        if let Some(o) = logic.host_object_mut(attacker) {
+            o.owner_player_id = Some(2);
+        }
+        logic.set_host_team_common_target(attacker, Some(victim));
+        assert!(
+            logic.team_common_attack_targets.is_empty(),
+            "human teams must not seed a shared victim"
+        );
+
+        if let Some(o) = logic.host_object_mut(attacker) {
+            o.owner_player_id = Some(1);
+        }
+        logic.set_host_team_common_target(attacker, Some(victim));
+        assert_eq!(
+            logic.team_common_attack_targets.get("USA_AttackSquad"),
+            Some(&victim),
+            "computer Medium may share a victim"
+        );
+        reset_session_difficulty();
+    }
+
+    #[test]
+    fn get_common_target_clears_garrisoned_and_aircraft() {
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "USA AI", false));
+        let mut ranger = ThingTemplate::new("W21Ranger2");
+        ranger.add_kind_of(KindOf::Infantry);
+        ranger.add_kind_of(KindOf::Attackable);
+        logic.templates.insert("W21Ranger2".into(), ranger);
+        let mut jet = ThingTemplate::new("W21Jet");
+        jet.add_kind_of(KindOf::Aircraft);
+        jet.add_kind_of(KindOf::Attackable);
+        logic.templates.insert("W21Jet".into(), jet);
+
+        let attacker = logic
+            .create_object("W21Ranger2", Team::USA, glam::Vec3::ZERO)
+            .expect("atk");
+        if let Some(o) = logic.host_object_mut(attacker) {
+            o.owner_player_id = Some(1);
+            o.team_instance_name = "USA_AttackSquad2".into();
+        }
+        let plane = logic
+            .create_object("W21Jet", Team::GLA, glam::Vec3::new(20.0, 40.0, 0.0))
+            .expect("plane");
+        logic
+            .team_common_attack_targets
+            .insert("USA_AttackSquad2".into(), plane);
+        assert!(logic.host_team_common_target(attacker).is_none());
+        assert!(
+            !logic.team_common_attack_targets.contains_key("USA_AttackSquad2"),
+            "aircraft common target must be cleared"
+        );
+
+        let garrisoned = logic
+            .create_object("W21Ranger2", Team::GLA, glam::Vec3::new(8.0, 0.0, 0.0))
+            .expect("garr");
+        if let Some(o) = logic.host_object_mut(garrisoned) {
+            o.contained_by = Some(crate::game_logic::ObjectId(99));
+        }
+        logic
+            .team_common_attack_targets
+            .insert("USA_AttackSquad2".into(), garrisoned);
+        assert!(logic.host_team_common_target(attacker).is_none());
+        assert!(
+            !logic.team_common_attack_targets.contains_key("USA_AttackSquad2"),
+            "garrisoned common target must be cleared"
+        );
+    }
+}
+

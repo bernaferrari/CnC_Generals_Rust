@@ -89,6 +89,8 @@ pub fn is_smart_bomb_homing_template(name: &str) -> bool {
         || n.contains("daisy_cutter")
         || n.contains("smartbomb")
         || n.contains("fuelairbomb")
+        || n.contains("anthraxbomb")
+        || n.contains("clusterminesbomb")
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -124,6 +126,9 @@ pub fn honesty_smart_bomb_target_homing_residual_ok() -> bool {
         && (MOAB_COURSE_CORRECTION_SCALAR - 0.99).abs() < 1.0e-6
         && is_smart_bomb_homing_template("MOAB")
         && is_smart_bomb_homing_template("AmericaMOAB")
+        && is_smart_bomb_homing_template("AnthraxBomb")
+        && is_smart_bomb_homing_template("AnthraxBombGamma")
+        && is_smart_bomb_homing_template("ClusterMinesBomb")
         && !is_smart_bomb_homing_template("AmericaTankCrusader")
         && {
             let mut d = HostSmartBombTargetHomingData::with_scalar(0.99);

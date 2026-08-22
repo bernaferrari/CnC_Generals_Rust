@@ -641,6 +641,21 @@ pub fn leftover_flee_position(
     dest
 }
 
+/// C++ `TheGlobalData->m_selectionFlashSaturationFactor` default (GameData 0.5).
+pub const SELECTION_FLASH_SATURATION_FACTOR: f32 = 0.5;
+
+/// C++ `Drawable::saturateRGB` used by capture prep before `flashAsSelected`.
+#[inline]
+pub fn saturate_selection_flash_rgb(color: [f32; 3], factor: f32) -> [f32; 3] {
+    let half = factor * 0.5;
+    [
+        color[0] * factor - half,
+        color[1] * factor - half,
+        color[2] * factor - half,
+    ]
+}
+
+
 /// C++ `continuePreparation` DoCaptureFX flash edge (odd→even falling).
 pub fn leftover_capture_fx_should_flash(
     phase: &mut f32,

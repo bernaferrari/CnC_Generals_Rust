@@ -25,6 +25,17 @@ pub struct HostEmpPulseFlightData {
     pub launch: Vec3,
     pub player_id: u32,
     pub caster_id: u32,
+    /// C++ DeliveringState finished → HeadOffMapState.
+    #[serde(default)]
+    pub delivery_complete: bool,
+    /// C++ HeadOffMapState: dest is HUGE_DIST after delivery.
+    #[serde(default)]
+    pub passed_target: bool,
+    /// Map extent for C++ `isOffMap` / HeadOffMap HUGE_DIST (world_min/max).
+    #[serde(default)]
+    pub map_min: Vec3,
+    #[serde(default)]
+    pub map_max: Vec3,
 }
 
 impl HostEmpPulseFlightData {
@@ -34,26 +45,69 @@ impl HostEmpPulseFlightData {
             launch,
             player_id,
             caster_id,
+            delivery_complete: false,
+            passed_target: false,
+            map_min: Vec3::ZERO,
+            map_max: Vec3::ZERO,
         }
     }
 
+    pub fn map_extent_ok(&self) -> bool {
+        self.map_max.x > self.map_min.x && self.map_max.z > self.map_min.z
+    }
+
+    /// C++ DeliveringState `isCloseEnoughToTarget` residual (live band).
+    pub fn in_delivery_band(&self, pos: Vec3) -> bool {
+        let dx = self.target.x - pos.x;
+        let dz = self.target.z - pos.z;
+        let dist = (dx * dx + dz * dz).sqrt();
+        dist < 5.0 || dist <= EMP_PULSE_DELIVERY_DISTANCE * 0.5
+    }
+
+    /// C++ Approach/Delivering toward moveToPos, then HeadOffMap HUGE_DIST.
+    /// Returns (new_pos, vel, off_map / CLEAN_UP).
     pub fn tick_transport(&mut self, pos: Vec3) -> (Vec3, Vec3, bool) {
-        let dest = self.target;
+        use crate::game_logic::host_deliver_payload::{
+            head_off_map_exit_point_residual, is_off_map_residual, RESIDUAL_MAP_EXTENT_MAX_X,
+            RESIDUAL_MAP_EXTENT_MAX_Z, RESIDUAL_MAP_EXTENT_MIN_X, RESIDUAL_MAP_EXTENT_MIN_Z,
+        };
+        let hx = self.target.x - self.launch.x;
+        let hz = self.target.z - self.launch.z;
+        if self.delivery_complete && !self.passed_target {
+            self.passed_target = true;
+        }
+        let (min_x, min_z, max_x, max_z) = if self.map_extent_ok() {
+            (self.map_min.x, self.map_min.z, self.map_max.x, self.map_max.z)
+        } else {
+            (
+                RESIDUAL_MAP_EXTENT_MIN_X,
+                RESIDUAL_MAP_EXTENT_MIN_Z,
+                RESIDUAL_MAP_EXTENT_MAX_X,
+                RESIDUAL_MAP_EXTENT_MAX_Z,
+            )
+        };
+        let dest = if self.delivery_complete {
+            head_off_map_exit_point_residual(pos, hx, hz, min_x, min_z, max_x, max_z)
+        } else {
+            self.target
+        };
         let dx = dest.x - pos.x;
         let dz = dest.z - pos.z;
         let dist = (dx * dx + dz * dz).sqrt();
         let speed = 18.0_f32;
         let mut new_pos = pos;
         new_pos.y = new_pos.y.max(150.0);
-        if dist < 5.0 {
-            return (new_pos, Vec3::ZERO, true);
-        }
-        let step = speed.min(dist);
-        new_pos.x += dx / dist * step;
-        new_pos.z += dz / dist * step;
-        let vel = new_pos - pos;
-        let over = dist <= EMP_PULSE_DELIVERY_DISTANCE * 0.5;
-        (new_pos, vel, over)
+        let vel = if dist >= 1.0 {
+            let step = speed.min(dist);
+            new_pos.x += dx / dist * step;
+            new_pos.z += dz / dist * step;
+            new_pos - pos
+        } else {
+            Vec3::ZERO
+        };
+        let at_exit = self.delivery_complete
+            && is_off_map_residual(new_pos, min_x, min_z, max_x, max_z);
+        (new_pos, vel, at_exit)
     }
 }
 
@@ -108,5 +162,34 @@ mod tests {
     #[test]
     fn honesty_pack() {
         assert!(honesty_emp_pulse_flight_residual_ok());
+    }
+
+    #[test]
+    fn head_off_map_flies_past_target_then_destroys() {
+        let mut data = HostEmpPulseFlightData::start(
+            Vec3::new(0.0, 150.0, 0.0),
+            Vec3::new(100.0, 0.0, 0.0),
+            0,
+            0,
+        );
+        data.map_min = Vec3::new(0.0, 0.0, 0.0);
+        data.map_max = Vec3::new(200.0, 0.0, 200.0);
+        data.delivery_complete = true;
+        let mut pos = Vec3::new(98.0, 150.0, 0.0);
+        let mut left = false;
+        let mut destroyed = false;
+        for _ in 0..80 {
+            let (next, vel, at_exit) = data.tick_transport(pos);
+            assert!(vel.x > 0.0 || at_exit, "must keep flying past the target");
+            pos = next;
+            if pos.x > 100.0 {
+                left = true;
+            }
+            if at_exit {
+                destroyed = true;
+                break;
+            }
+        }
+        assert!(left && destroyed, "C++ HeadOffMap+CleanUp after delivery, pos={pos:?}");
     }
 }

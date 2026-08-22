@@ -181,8 +181,12 @@ impl SmudgeManager {
             .map(|smudge| DecalRenderItem {
                 position: Point3::new(smudge.pos.x, smudge.pos.y, smudge.pos.z),
                 size: smudge.size,
+                size_x: smudge.size,
+                size_y: smudge.size,
                 rotation: 0.0,
                 color: [1.0, 1.0, 1.0, smudge.opacity],
+                texture_name: String::new(),
+                shadow_type: 0,
             })
             .collect()
     }

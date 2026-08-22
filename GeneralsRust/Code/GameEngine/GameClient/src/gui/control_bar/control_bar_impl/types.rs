@@ -265,6 +265,8 @@ pub struct ControlBar {
     /// Structure inventory residual from PresentationFrame.
     presentation_max_garrison: usize,
     presentation_garrisoned_count: usize,
+    /// Occupant portraits residual from PresentationFrame garrisoned_units.
+    presentation_occupants: Vec<super::control_bar_structure_inventory::StructureInventoryOccupant>,
     /// Under-construction residual from PresentationFrame.
     presentation_under_construction: bool,
     /// Wave 1033: sold residual from PresentationFrame.

@@ -112,6 +112,11 @@ struct LookAtHostModes {
     camera_follow_lock_broken: bool,
     /// Player setAngle/setZoom/lookAt this frame; residual must not re-apply.
     scripted_camera_player_cancel: ScriptedCameraPlayerCancel,
+    /// C++ `MSG_RAW_MOUSE_WHEEL` fallthrough `stopScrolling` — KEY/EDGE stay
+    /// down until the next RAW_KEY / RAW_MOUSE_POSITION.
+    wheel_stopped_scroll: bool,
+    /// Live OS cursor hidden because it sits under cinematic letterbox bars.
+    letterbox_os_cursor_hidden: bool,
 }
 
 fn live_camera_zoom_limited() -> bool {
@@ -165,6 +170,8 @@ fn look_at_host_modes() -> std::sync::MutexGuard<'static, LookAtHostModes> {
                 desired_height_above_ground: None,
                 camera_follow_lock_broken: false,
                 scripted_camera_player_cancel: ScriptedCameraPlayerCancel::None,
+                wheel_stopped_scroll: false,
+                letterbox_os_cursor_hidden: false,
             })
         });
     STATE.lock().unwrap_or_else(|e| e.into_inner())
@@ -183,7 +190,19 @@ fn lookat_note_mouse_moved(frame: u32, pixel: (f32, f32)) {
     if modes.last_mouse_pixel != pixel {
         modes.last_mouse_move_frame = frame;
         modes.last_mouse_pixel = pixel;
+        // C++ RAW_MOUSE_POSITION can restart SCREENEDGE after a wheel abort.
+        modes.wheel_stopped_scroll = false;
     }
+}
+
+/// C++ LookAtXlat.cpp:199,214,226,239,335 — stamp even if the cursor did not move.
+fn lookat_stamp_mouse_activity(frame: u32) {
+    look_at_host_modes().last_mouse_move_frame = frame;
+}
+
+/// C++ RAW_KEY can restart KEY scroll after a wheel `stopScrolling`.
+pub(super) fn lookat_note_raw_key_activity() {
+    look_at_host_modes().wheel_stopped_scroll = false;
 }
 
 fn lookat_has_mouse_moved_recently(frame: u32) -> bool {
@@ -286,6 +305,9 @@ fn lookat_resolve_scroll_type(
     // RMB is started on button-down (`start_rmb_lookat_scroll`), not here.
     if is_rmb_scrolling {
         return LookAtScrollType::Rmb;
+    }
+    if look_at_host_modes().wheel_stopped_scroll {
+        return LookAtScrollType::None;
     }
     let current = if current == LookAtScrollType::Rmb {
         LookAtScrollType::None
@@ -985,6 +1007,8 @@ impl CnCGameEngine {
             self.host_game_logic_mut()
                 .queue_create_selected_group_voice(&[object_id]);
         }
+        // C++ SelectionXlat.cpp:704-705: successful LMB select resets last group.
+        self.last_control_group_select = None;
         self.play_sound_effect(SoundType::Select);
     }
 
@@ -1047,6 +1071,8 @@ impl CnCGameEngine {
             // C++ MSG_CREATE_SELECTED_GROUP (addToGroup) — VoiceSelect.
             self.host_set_selection(self.current_player_id, selection);
         }
+        // C++ SelectionXlat.cpp:704-705 after DESTROY_MESSAGE LMB select.
+        self.last_control_group_select = None;
         self.play_sound_effect(SoundType::Select);
     }
 
@@ -1548,6 +1574,7 @@ impl CnCGameEngine {
         // C++ CommandXlat.cpp:326-329 — VoiceSelect via pickAndPlay on
         // MSG_CREATE_SELECTED_GROUP. host_set_selection → select_objects already
         // queues that line. Do not layer an invented UnitSelect beep.
+        self.last_control_group_select = None;
     }
 
 
@@ -1858,6 +1885,9 @@ impl CnCGameEngine {
             MouseScrollDelta::PixelDelta(pos) => pos.y as f32 / 100.0,
         };
 
+        // C++ LookAtXlat.cpp:335 stamps m_lastMouseMoveFrame on every wheel.
+        lookat_stamp_mouse_activity(self.frame_counter);
+
         #[cfg(feature = "game_client")]
         self.inject_game_client_mouse_scroll(delta_y);
 
@@ -1889,6 +1919,15 @@ impl CnCGameEngine {
                 self.sync_context_mouse_cursor();
             }
         }
+
+        // C++ LookAtXlat.cpp:333-358 MSG_RAW_MOUSE_WHEEL falls through into
+        // MSG_META_OPTIONS and stopScrolling() — abort RMB / key / edge pan.
+        if self.is_rmb_scrolling {
+            self.stop_rmb_lookat_scroll();
+        }
+        let mut modes = look_at_host_modes();
+        modes.scroll_type = LookAtScrollType::None;
+        modes.wheel_stopped_scroll = true;
     }
 
     /// C++ GameLogicDispatch.cpp:1970-1984 deselectAllDrawables + selectDrawable.
@@ -1926,6 +1965,7 @@ impl CnCGameEngine {
         if game_client::core::script_action_handler::take_look_at_reset_modes() {
             self.apply_look_at_reset_modes();
         }
+        self.sync_letterbox_os_cursor_visibility();
         if !self.lookat_input_enabled() {
             // C++ LookAtXlat.cpp:270-274: input disabled stops any scroll.
             if self.is_rmb_scrolling {
@@ -1972,7 +2012,12 @@ impl CnCGameEngine {
             && !self.diplomacy_panel.is_active();
         if edge_allowed {
             let (mx, my) = self.mouse_position;
-            let (win_w, tac_h) = self.tactical_viewport_size();
+            // C++ LookAtXlat.cpp:267-291 / 427-447 uses TheDisplay getWidth/Height,
+            // not the 80% tactical view. Treating tac_h as the bottom edge starts
+            // downward pan across the whole command bar.
+            let size = self.window.inner_size();
+            let win_w = size.width.max(1) as f32;
+            let win_h = size.height.max(1) as f32;
             if mx < EDGE_SCROLL_SIZE {
                 edge_dx = -1.0;
             } else if mx >= win_w - EDGE_SCROLL_SIZE {
@@ -1980,7 +2025,7 @@ impl CnCGameEngine {
             }
             if my < EDGE_SCROLL_SIZE {
                 edge_dy = -1.0;
-            } else if my >= tac_h - EDGE_SCROLL_SIZE {
+            } else if my >= win_h - EDGE_SCROLL_SIZE {
                 edge_dy = 1.0;
             }
         }
@@ -3614,8 +3659,36 @@ impl CnCGameEngine {
     }
 
 
+    /// C++ W3DDisplay.cpp:1883-1900 draws the software cursor then letterbox
+    /// bars on top. Live has only the OS cursor, so hide it over the bars.
+    fn sync_letterbox_os_cursor_visibility(&mut self) {
+        #[cfg(feature = "game_client")]
+        {
+            if look_at_host_mouse_locked() {
+                return;
+            }
+            let fade = self.game_client.letterbox_overlay_fade();
+            let enabled = self.game_client.letterbox_overlay_enabled();
+            let size = self.window.inner_size();
+            let width = size.width.max(1) as f32;
+            let height = size.height.max(1) as f32;
+            let plan = game_client::display::display_fx::letterbox_plan(
+                width, height, fade, enabled,
+            );
+            let my = self.mouse_position.1;
+            let over_bar = (plan.draw_top && my < plan.bar_height)
+                || (plan.draw_bottom && my >= height - plan.bar_height);
+            let hidden = look_at_host_modes().letterbox_os_cursor_hidden;
+            if over_bar != hidden {
+                self.window.set_cursor_visible(!over_bar);
+                look_at_host_modes().letterbox_os_cursor_hidden = over_bar;
+            }
+        }
+    }
+
     /// C++ `LookAtXlat.cpp:50-62` `setScrolling(SCROLL_RMB)`.
     pub(super) fn start_rmb_lookat_scroll(&mut self) {
+        lookat_stamp_mouse_activity(self.frame_counter);
         self.rmb_scroll_anchor = Some(self.mouse_position);
         // C++ :204-206: start only when `!isSelecting() && !m_isScrolling`.
         if self.is_dragging || self.is_rmb_scrolling {
@@ -3628,6 +3701,7 @@ impl CnCGameEngine {
             return;
         }
         let mut modes = look_at_host_modes();
+        modes.wheel_stopped_scroll = false;
         modes.prev_cursor = self.last_context_cursor;
         modes.mouse_locked = true;
         modes.scroll_type = LookAtScrollType::Rmb;
@@ -3645,6 +3719,7 @@ impl CnCGameEngine {
 
     /// C++ `LookAtXlat.cpp:65-76` `stopScrolling`.
     pub(super) fn stop_rmb_lookat_scroll(&mut self) {
+        lookat_stamp_mouse_activity(self.frame_counter);
         let prev = {
             let mut modes = look_at_host_modes();
             modes.mouse_locked = false;
@@ -3687,6 +3762,7 @@ impl CnCGameEngine {
 
     /// C++ `LookAtXlat.cpp:224-233` middle-button down.
     pub(super) fn begin_mmb_lookat_rotate(&mut self) {
+        lookat_stamp_mouse_activity(self.frame_counter);
         self.is_mmb_rotating = true;
         self.mmb_anchor = Some(self.mouse_position);
         let mut modes = look_at_host_modes();
@@ -3696,6 +3772,7 @@ impl CnCGameEngine {
 
     /// C++ `LookAtXlat.cpp:237-254` short MMB click resets angle/pitch/zoom.
     pub(super) fn end_mmb_lookat_rotate(&mut self) {
+        lookat_stamp_mouse_activity(self.frame_counter);
         let (original, press_frame) = {
             let mut modes = look_at_host_modes();
             (
@@ -3777,11 +3854,8 @@ impl CnCGameEngine {
         } else if let Some(pos) = self.camera_view_bookmarks[slot] {
             // Older position-only bookmark: restore look-at, keep current pose extras.
             let _ = self.host_center_camera_and_request_focus(pos);
-        } else {
-            let msg = format!("Camera view {} is empty", slot + 1);
-            self.game_hud.push_info_message(&msg);
-            self.ui_manager.game_hud_mut().push_info_message(&msg);
         }
+        // C++ View::setLocation no-ops when !m_valid. Unsaved F1-F8 is silent.
     }
 
     pub(super) fn clear_look_at_host_modes(&mut self) {
@@ -4281,6 +4355,104 @@ mod camera_pick_tests {
             LookAtScrollType::None
         );
     }
+
+    #[test]
+    fn wheel_stop_blocks_key_and_edge_until_next_input() {
+        // C++ MSG_RAW_MOUSE_WHEEL fallthrough stopScrolling; KEY/EDGE stay down
+        // until the next RAW_KEY / RAW_MOUSE_POSITION.
+        look_at_host_modes().wheel_stopped_scroll = true;
+        assert_eq!(
+            lookat_resolve_scroll_type(
+                LookAtScrollType::None,
+                true,
+                false,
+                false,
+                true,
+                true
+            ),
+            LookAtScrollType::None
+        );
+        lookat_note_raw_key_activity();
+        assert_eq!(
+            lookat_resolve_scroll_type(
+                LookAtScrollType::None,
+                true,
+                false,
+                false,
+                true,
+                false
+            ),
+            LookAtScrollType::Key
+        );
+    }
+
+    #[test]
+    fn click_and_wheel_stamp_activity_without_pixel_change() {
+        look_at_host_modes().last_mouse_move_frame = 0;
+        look_at_host_modes().last_mouse_pixel = (10.0, 10.0);
+        lookat_note_mouse_moved(50, (10.0, 10.0));
+        assert_eq!(look_at_host_modes().last_mouse_move_frame, 0);
+        lookat_stamp_mouse_activity(50);
+        assert_eq!(look_at_host_modes().last_mouse_move_frame, 50);
+        assert!(lookat_has_mouse_moved_recently(50));
+    }
+
+    #[test]
+    fn wheel_zoom_stops_scroll_and_lmb_resets_group_tap() {
+        let src = include_str!("mouse.rs");
+        let wheel = src
+            .find("fn handle_mouse_wheel")
+            .map(|i| &src[i..src.len().min(i + 1800)])
+            .expect("handle_mouse_wheel");
+        assert!(
+            wheel.contains("stop_rmb_lookat_scroll")
+                && wheel.contains("LookAtScrollType::None")
+                && wheel.contains("wheel_stopped_scroll = true")
+                && wheel.contains("lookat_stamp_mouse_activity"),
+            "wheel must stamp activity and stop RMB/key/edge scroll"
+        );
+        let edge = src
+            .find("if edge_allowed")
+            .map(|i| &src[i..src.len().min(i + 700)])
+            .expect("edge_allowed");
+        assert!(
+            edge.contains("window.inner_size()") && edge.contains("win_h"),
+            "bottom edge-scroll must use Display height, not tactical 80%"
+        );
+        assert!(
+            !edge.contains("tactical_viewport_size()"),
+            "edge-scroll must not use the 80% tactical viewport"
+        );
+        assert!(
+            src.contains("last_control_group_select = None"),
+            "manual LMB select must reset control-group double-tap"
+        );
+        let recall = src
+            .find("fn save_or_recall_camera_view")
+            .map(|i| &src[i..src.len().min(i + 2800)])
+            .expect("save_or_recall_camera_view");
+        assert!(
+            !recall.contains("push_info_message")
+                || recall.contains("lookat_bookmark_message"),
+            "empty F1-F8 bookmark must stay silent"
+        );
+        assert!(
+            recall.contains("Unsaved F1-F8 is silent"),
+            "empty bookmark path must remain a silent no-op"
+        );
+        assert!(
+            src.contains("fn sync_letterbox_os_cursor_visibility")
+                && src.contains("set_cursor_visible(!over_bar)"),
+            "OS cursor must hide under cinematic letterbox bars"
+        );
+        assert!(
+            src.contains("lookat_stamp_mouse_activity(self.frame_counter)")
+                && src.contains("fn start_rmb_lookat_scroll")
+                && src.contains("fn begin_mmb_lookat_rotate"),
+            "RMB/MMB/wheel must stamp hasMouseMovedRecently"
+        );
+    }
+
 
     #[test]
     fn update_camera_does_not_gate_arrows_on_modifiers() {

@@ -25,6 +25,8 @@ fn unit_render_input_world_matrix_applies_mesh_scale() {
         selected: false,
         selection_radius: 5.0,
         selection_flash_remaining: 0,
+        selection_flash_color: None,
+
         model_condition_bits: 0,
         production_door_phase: 0,
         is_structure: false,
@@ -206,6 +208,8 @@ fn unit_render_input_fixture() -> UnitRenderInput {
         selected: false,
         selection_radius: 5.0,
         selection_flash_remaining: 0,
+        selection_flash_color: None,
+
         model_condition_bits: 0,
         production_door_phase: 0,
         is_structure: false,

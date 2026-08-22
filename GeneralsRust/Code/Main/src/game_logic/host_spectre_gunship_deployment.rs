@@ -2,7 +2,7 @@
 //!
 //! C++: `SpectreGunshipDeploymentUpdate::initiateIntentToDoSpecialPower`
 //! - Validate SpecialPowerTemplate link
-//! - Destroy prior gunship id if still alive
+//! - Forget prior gunship id if still bound (prior ship keeps orbiting)
 //! - Spawn `GunshipTemplateName` on caster team with producer = CC
 //! - Creation edge from `CreateLocation` (retail: **FARTHEST_FROM_TARGET**)
 //! - Push spawn further off-map by `distance + GunshipOrbitRadius`

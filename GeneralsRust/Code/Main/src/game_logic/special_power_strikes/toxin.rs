@@ -24,6 +24,13 @@ pub const ANTHRAX_TOXIN_WEAPON_SPEED: f32 = 600.0;
 pub const ANTHRAX_TOXIN_OCL: &str = "OCL_PoisonFieldAnthraxBomb";
 /// Retail OCL_PoisonFieldAnthraxBomb CreateObject residual.
 pub const ANTHRAX_TOXIN_OBJECT_NAME: &str = "PoisonFieldAnthraxBomb";
+/// Retail `AnthraxGammaBombPoisonFieldWeapon` DeathType residual.
+pub const ANTHRAX_TOXIN_DEATH_TYPE_GAMMA: &str = "POISONED_GAMMA";
+/// Retail AnthraxBombGammaWeapon FireOCL residual.
+pub const ANTHRAX_TOXIN_OCL_GAMMA: &str = "OCL_PoisonFieldAnthraxGammaBomb";
+/// Retail OCL_PoisonFieldAnthraxGammaBomb CreateObject residual.
+pub const ANTHRAX_TOXIN_OBJECT_NAME_GAMMA: &str = "PoisonFieldAnthraxGammaBomb";
+
 /// Retail PoisonFieldAnthraxBomb MaxHealth residual.
 pub const ANTHRAX_TOXIN_FIELD_MAX_HEALTH: f32 = 120.0;
 /// Retail AnthraxBombWeapon impact blast residual name.

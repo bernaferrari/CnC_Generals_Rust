@@ -1081,6 +1081,79 @@ fn able_to_attack_possible_in_range_enemy() {
 }
 
 #[test]
+fn jarmen_rifle_mode_has_no_vehicle_attack_cursor() {
+    use crate::game_logic::{
+        AbleToAttackType, CanAttackResult, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon,
+    };
+    use glam::Vec3;
+    let mut logic = GameLogic::new();
+    let mut jt = ThingTemplate::new("GLAInfantryJarmenKell");
+    jt.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Hero)
+        .add_kind_of(KindOf::Attackable)
+        .set_primary_weapon_name("GLAJarmenKellRifle")
+        .set_secondary_weapon_name("GLAJarmenKellVehiclePilotSniperRifle");
+    let jid = ObjectId(2321);
+    logic.objects.insert(jid, {
+        let mut o = Object::new(jt, jid, Team::GLA);
+        o.set_position(Vec3::ZERO);
+        o.weapon = Some(Weapon {
+            range: 225.0,
+            damage: 180.0,
+            can_target_ground: true,
+            ..Default::default()
+        });
+        o.secondary_weapon = Some(Weapon {
+            range: 225.0,
+            damage: 1.0,
+            can_target_ground: true,
+            ..Default::default()
+        });
+        o.active_weapon_slot = 0;
+        o
+    });
+    let mut tank_t = ThingTemplate::new("GLATankScorpion");
+    tank_t
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(400.0);
+    let tid = ObjectId(2322);
+    logic.objects.insert(tid, {
+        let mut o = Object::new(tank_t, tid, Team::USA);
+        o.set_position(Vec3::new(40.0, 0.0, 0.0));
+        o
+    });
+    let r = logic.get_able_to_use_weapon_against_target(
+        jid,
+        Some(tid),
+        None,
+        AbleToAttackType::NewTarget,
+    );
+    assert_eq!(
+        r,
+        CanAttackResult::InvalidShot,
+        "rifle-mode Jarmen must not get a tank cursor via KILLPILOT"
+    );
+
+    logic.objects.get_mut(&jid).unwrap().weapon_lock_type =
+        crate::game_logic::WeaponLockType::LockedPermanently;
+    logic.objects.get_mut(&jid).unwrap().weapon_lock_slot = 1;
+    let r_snipe = logic.get_able_to_use_weapon_against_target(
+        jid,
+        Some(tid),
+        None,
+        AbleToAttackType::NewTarget,
+    );
+    assert!(
+        matches!(
+            r_snipe,
+            CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+        ),
+        "snipe-mode lock must still allow the vehicle cursor, got {r_snipe:?}"
+    );
+}
+
+#[test]
 fn player_attack_command_uses_weaponset_target_legality_before_stamping_target() {
     use crate::game_logic::{
         KindOf, Object, ObjectId, Team, ThingTemplate, Weapon, WeaponLockType,
@@ -2418,6 +2491,76 @@ fn handle_behavior_z_sea_level_snaps() {
     o.set_position(Vec3::new(0.0, 12.0, 0.0));
     assert!(o.handle_behavior_z(3.0, None));
     assert!((o.get_position().y - 3.0).abs() < 1e-4);
+}
+
+#[test]
+fn physics_get_mass_adds_contained_riders() {
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    use glam::Vec3;
+    let mut logic = GameLogic::new();
+    let mut hull_t = ThingTemplate::new("ChinookHull");
+    hull_t.add_kind_of(KindOf::Vehicle);
+    let hid = ObjectId(7701);
+    let mut hull = Object::new(hull_t, hid, Team::USA);
+    hull.physics_mass = 50.0;
+    hull.max_transport = 8;
+    hull.set_position(Vec3::ZERO);
+    logic.objects.insert(hid, hull);
+
+    let mut rider_t = ThingTemplate::new("RangerRider");
+    rider_t.add_kind_of(KindOf::Infantry);
+    let rid = ObjectId(7702);
+    let mut rider = Object::new(rider_t, rid, Team::USA);
+    rider.physics_mass = 25.0;
+    logic.objects.insert(rid, rider);
+
+    {
+        let h = logic.objects.get_mut(&hid).unwrap();
+        assert!(h.add_occupant(rid));
+        assert!((h.physics_get_mass() - 50.0).abs() < 1e-3, "cache stale until sync");
+    }
+    logic.sync_contained_items_mass(hid);
+    let loaded = logic.objects.get(&hid).unwrap().physics_get_mass();
+    assert!(
+        (loaded - 75.0).abs() < 1e-3,
+        "loaded hull must include rider mass, got {loaded}"
+    );
+    logic.tick_physics_collisions_all();
+    let after_tick = logic.objects.get(&hid).unwrap().physics_get_mass();
+    assert!((after_tick - 75.0).abs() < 1e-3);
+}
+
+#[test]
+fn highest_layer_surface_falls_back_to_ground() {
+    use crate::game_logic::{KindOf, LocomotorBehaviorZ, Object, ObjectId, Team, ThingTemplate};
+    use glam::Vec3;
+    let mut t = ThingTemplate::new("FlyerLayer");
+    t.add_kind_of(KindOf::Aircraft);
+    let mut o = Object::new(t, ObjectId(7703), Team::USA);
+    o.loco_behavior_z = LocomotorBehaviorZ::SmoothRelativeToHighestLayer;
+    o.loco_preferred_height = 10.0;
+    o.set_position(Vec3::new(0.0, 4.0, 0.0));
+    let surface = o.highest_layer_surface_ht(3.0);
+    assert!(
+        (surface - 3.0).abs() < 1e-3,
+        "empty leftover terrain keeps ground_y, got {surface}"
+    );
+    assert!(o.handle_behavior_z(3.0, None));
+}
+
+#[test]
+fn group_speed_factor_caps_do_locomotor_speed() {
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    let mut t = ThingTemplate::new("FastForm");
+    t.add_kind_of(KindOf::Vehicle);
+    let mut o = Object::new(t, ObjectId(7704), Team::USA);
+    o.movement.max_speed = 40.0;
+    o.group_speed_factor = 0.5;
+    let capped = o.apply_do_locomotor_blocked_speed(40.0);
+    assert!(
+        (capped - 20.0).abs() < 1e-3,
+        "formation desired speed must scale, got {capped}"
+    );
 }
 
 #[test]

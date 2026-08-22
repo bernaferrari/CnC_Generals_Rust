@@ -173,7 +173,7 @@ impl GameLogic {
         button: Option<&str>,
     ) -> bool {
         use crate::game_logic::host_command_button_hunt::{
-            hunt_mode_from_button_name, hunt_mode_from_template,
+            hunt_mode_from_button_name, hunt_mode_from_template, weapon_slot_from_button_name,
         };
         let Some(unit) = self.objects.get(&unit_id) else {
             return false;
@@ -187,21 +187,35 @@ impl GameLogic {
         let Some(mode) = mode else {
             return false;
         };
-        self.start_command_button_hunt(unit_id, mode)
+        if !self.start_command_button_hunt(unit_id, mode) {
+            return false;
+        }
+        if let Some(btn) = button {
+            if let Some(h) = self
+                .objects
+                .get_mut(&unit_id)
+                .and_then(|o| o.command_button_hunt.as_mut())
+            {
+                h.button_name = btn.to_string();
+                h.weapon_slot = weapon_slot_from_button_name(btn);
+            }
+        }
+        true
     }
 
-    /// C++ CommandButtonHuntUpdate::update residual for enter modes.
+
+    /// C++ CommandButtonHuntUpdate::update residual.
     pub fn tick_command_button_hunt_updates(&mut self) {
         use crate::game_logic::host_command_button_hunt::{
-            hunt_allows_kind, hunt_allows_team, HostCommandButtonHuntMode,
-            COMMAND_BUTTON_HUNT_SCAN_RANGE,
+            hunt_allows_kind, hunt_allows_team, HostCommandButtonHuntData,
+            HostCommandButtonHuntMode, COMMAND_BUTTON_HUNT_SCAN_RANGE,
         };
 
         let frame = self.frame;
 
         let busy: std::collections::HashSet<ObjectId> =
             self.pending_special_abilities.keys().copied().collect();
-        let hunters: Vec<(ObjectId, HostCommandButtonHuntMode, Team, glam::Vec3)> = self
+        let hunters: Vec<(ObjectId, HostCommandButtonHuntData, Team, glam::Vec3, AIState)> = self
             .objects
             .iter()
             .filter_map(|(id, o)| {
@@ -209,18 +223,11 @@ impl GameLogic {
                 if !h.due(frame) {
                     return None;
                 }
-                // C++: quit if last command not from AI — host residual: only when Idle.
-                if !matches!(o.ai_state, AIState::Idle) {
-                    return None;
-                }
-                if busy.contains(id) {
-                    return None;
-                }
-                Some((*id, h.mode, o.team, o.get_position()))
+                Some((*id, h.clone(), o.team, o.get_position(), o.ai_state.clone()))
             })
             .collect();
 
-        for (hunter_id, mode, hunter_team, hunter_pos) in hunters {
+        for (hunter_id, hunt, hunter_team, hunter_pos, ai_state) in hunters {
             self.command_button_hunt_reg.record_scan();
             if let Some(h) = self
                 .objects
@@ -230,6 +237,51 @@ impl GameLogic {
                 h.schedule_next(frame);
             }
 
+            match hunt.mode {
+                HostCommandButtonHuntMode::FireWeapon => {
+                    // C++ huntWeapon: if idle then aiHunt; always temp-lock slot.
+                    if matches!(ai_state, AIState::Idle) {
+                        let _ = self.unit_command_patrol(hunter_id);
+                    }
+                    if let Some(u) = self.objects.get_mut(&hunter_id) {
+                        let _ = u.set_weapon_lock(
+                            hunt.weapon_slot,
+                            crate::game_logic::WeaponLockType::LockedTemporarily,
+                        );
+                    }
+                    self.command_button_hunt_reg.record_target();
+                    continue;
+                }
+                HostCommandButtonHuntMode::SpecialPower => {
+                    if !matches!(ai_state, AIState::Idle) || busy.contains(&hunter_id) {
+                        continue;
+                    }
+                    let Some(target_id) = self.scan_command_button_hunt_special_target(
+                        hunter_id,
+                        hunter_team,
+                        hunter_pos,
+                        &hunt.button_name,
+                    ) else {
+                        continue;
+                    };
+                    if self.issue_command_button_hunt_special(
+                        hunter_id,
+                        target_id,
+                        &hunt.button_name,
+                    ) {
+                        self.command_button_hunt_reg.record_target();
+                    }
+                    continue;
+                }
+                HostCommandButtonHuntMode::HijackVehicle
+                | HostCommandButtonHuntMode::ConvertToCarBomb
+                | HostCommandButtonHuntMode::SabotageBuilding => {}
+            }
+
+            if !matches!(ai_state, AIState::Idle) || busy.contains(&hunter_id) {
+                continue;
+            }
+
             let mut best: Option<(ObjectId, f32)> = None;
             for (tid, t) in self.objects.iter() {
                 if *tid == hunter_id || !t.is_alive() {
@@ -237,17 +289,17 @@ impl GameLogic {
                 }
                 let same_team = t.team == hunter_team;
                 let target_neutral = t.team == Team::Neutral;
-                if !hunt_allows_team(mode, same_team, target_neutral) {
+                if !hunt_allows_team(hunt.mode, same_team, target_neutral) {
                     continue;
                 }
                 let is_veh = t.is_kind_of(KindOf::Vehicle);
                 let is_str = t.is_kind_of(KindOf::Structure);
                 let is_air = t.is_kind_of(KindOf::Aircraft) || t.status.airborne_target;
-                if !hunt_allows_kind(mode, is_veh, is_str, is_air) {
+                if !hunt_allows_kind(hunt.mode, is_veh, is_str, is_air) {
                     continue;
                 }
-                // Hijack residual: cannot re-hijack.
-                if matches!(mode, HostCommandButtonHuntMode::HijackVehicle) && t.is_hijacked() {
+                if matches!(hunt.mode, HostCommandButtonHuntMode::HijackVehicle) && t.is_hijacked()
+                {
                     continue;
                 }
                 let d = hunter_pos.distance(t.get_position());
@@ -263,7 +315,7 @@ impl GameLogic {
                 continue;
             };
 
-            let ability = match mode {
+            let ability = match hunt.mode {
                 HostCommandButtonHuntMode::HijackVehicle => {
                     PendingSpecialAbility::Hijack { target_id }
                 }
@@ -273,9 +325,10 @@ impl GameLogic {
                 HostCommandButtonHuntMode::SabotageBuilding => {
                     PendingSpecialAbility::Sabotage { target_id }
                 }
+                HostCommandButtonHuntMode::SpecialPower
+                | HostCommandButtonHuntMode::FireWeapon => continue,
             };
             self.queue_pending_special_ability(hunter_id, ability);
-            // Walk/path toward target residual.
             if let Some(tp) = self.objects.get(&target_id).map(|t| t.get_position()) {
                 if let Some(u) = self.objects.get_mut(&hunter_id) {
                     u.target = Some(target_id);
@@ -286,6 +339,123 @@ impl GameLogic {
             self.command_button_hunt_reg.record_target();
         }
     }
+
+    fn scan_command_button_hunt_special_target(
+        &self,
+        hunter_id: ObjectId,
+        hunter_team: Team,
+        hunter_pos: glam::Vec3,
+        button: &str,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_command_button_hunt::COMMAND_BUTTON_HUNT_SCAN_RANGE;
+        let kind = classify_command_button_hunt_special(button);
+        let mut best: Option<(ObjectId, f32)> = None;
+        for (tid, t) in self.objects.iter() {
+            if *tid == hunter_id || !t.is_alive() {
+                continue;
+            }
+            if t.team == hunter_team {
+                continue;
+            }
+            if t.status.stealthed && !t.status.detected && !t.status.disguised {
+                continue;
+            }
+            let is_veh = t.is_kind_of(KindOf::Vehicle);
+            let is_str = t.is_kind_of(KindOf::Structure);
+            let is_air = t.is_kind_of(KindOf::Aircraft) || t.status.airborne_target;
+            let ok = match kind {
+                CommandButtonHuntSpecial::Capture => is_str && t.team != hunter_team,
+                CommandButtonHuntSpecial::Snipe => {
+                    is_veh && !is_air && !t.is_unmanned() && t.team != Team::Neutral
+                }
+                CommandButtonHuntSpecial::Tnt | CommandButtonHuntSpecial::DemoCharge => {
+                    (is_str || is_veh) && t.team != Team::Neutral
+                }
+                CommandButtonHuntSpecial::HackVehicle => {
+                    is_veh && !is_air && t.team != Team::Neutral && !t.is_disabled()
+                }
+                CommandButtonHuntSpecial::HackBuilding | CommandButtonHuntSpecial::StealCash => {
+                    is_str && t.team != Team::Neutral
+                }
+                CommandButtonHuntSpecial::Booby => is_str,
+                CommandButtonHuntSpecial::Unknown => {
+                    (is_str || is_veh) && t.team != Team::Neutral
+                }
+            };
+            if !ok {
+                continue;
+            }
+            let d = hunter_pos.distance(t.get_position());
+            if d > COMMAND_BUTTON_HUNT_SCAN_RANGE {
+                continue;
+            }
+            if best.map(|(_, bd)| d < bd).unwrap_or(true) {
+                best = Some((*tid, d));
+            }
+        }
+        best.map(|(id, _)| id)
+    }
+
+    fn issue_command_button_hunt_special(
+        &mut self,
+        hunter_id: ObjectId,
+        target_id: ObjectId,
+        button: &str,
+    ) -> bool {
+        let kind = classify_command_button_hunt_special(button);
+        let Some(tp) = self.objects.get(&target_id).map(|t| t.get_position()) else {
+            return false;
+        };
+        match kind {
+            CommandButtonHuntSpecial::Capture => {
+                if !self.unit_command_begin_capture(hunter_id, target_id) {
+                    return false;
+                }
+                if let Some(u) = self.objects.get_mut(&hunter_id) {
+                    u.target = Some(target_id);
+                    u.set_ai_state(AIState::Capturing);
+                }
+                let _ = self.assign_unit_path(hunter_id, tp, &[]);
+                true
+            }
+            other => {
+                let ability = match other {
+                    CommandButtonHuntSpecial::Snipe => {
+                        PendingSpecialAbility::SnipeVehicle { target_id }
+                    }
+                    CommandButtonHuntSpecial::Tnt => {
+                        PendingSpecialAbility::PlantTimedDemoCharge { target_id }
+                    }
+                    CommandButtonHuntSpecial::DemoCharge => {
+                        PendingSpecialAbility::PlantRemoteDemoCharge { target_id }
+                    }
+                    CommandButtonHuntSpecial::HackVehicle => {
+                        PendingSpecialAbility::DisableVehicleHack { target_id }
+                    }
+                    CommandButtonHuntSpecial::HackBuilding => {
+                        PendingSpecialAbility::HackerDisableBuilding { target_id }
+                    }
+                    CommandButtonHuntSpecial::StealCash => {
+                        PendingSpecialAbility::StealCashHack { target_id }
+                    }
+                    CommandButtonHuntSpecial::Booby => {
+                        PendingSpecialAbility::PlantBoobyTrap { target_id }
+                    }
+                    CommandButtonHuntSpecial::Capture | CommandButtonHuntSpecial::Unknown => {
+                        PendingSpecialAbility::PlantTimedDemoCharge { target_id }
+                    }
+                };
+                self.queue_pending_special_ability(hunter_id, ability);
+                if let Some(u) = self.objects.get_mut(&hunter_id) {
+                    u.target = Some(target_id);
+                    u.set_ai_state(AIState::SpecialAbility);
+                }
+                let _ = self.assign_unit_path(hunter_id, tp, &[]);
+                true
+            }
+        }
+    }
+
 
     /// C++ DeployStyleAIUpdate pack/unpack timer residual.
     pub fn tick_deploy_style_updates(&mut self) {
@@ -1245,3 +1415,46 @@ impl GameLogic {
         }
     }
 }
+
+#[derive(Clone, Copy)]
+enum CommandButtonHuntSpecial {
+    Capture,
+    Snipe,
+    Tnt,
+    DemoCharge,
+    HackVehicle,
+    HackBuilding,
+    StealCash,
+    Booby,
+    Unknown,
+}
+
+fn classify_command_button_hunt_special(button: &str) -> CommandButtonHuntSpecial {
+    let n: String = button
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .flat_map(|c| c.to_lowercase())
+        .collect();
+    if n.contains("snipe") || n.contains("jarmenkell") {
+        CommandButtonHuntSpecial::Snipe
+    } else if n.contains("tnt") || n.contains("tankhunter") {
+        CommandButtonHuntSpecial::Tnt
+    } else if n.contains("remotecharge") || n.contains("remotedemo") {
+        CommandButtonHuntSpecial::DemoCharge
+    } else if n.contains("timedcharge") || n.contains("timeddemo") || n.contains("burton") {
+        CommandButtonHuntSpecial::Tnt
+    } else if n.contains("stealcash") {
+        CommandButtonHuntSpecial::StealCash
+    } else if n.contains("disablevehicle") || n.contains("hackvehicle") {
+        CommandButtonHuntSpecial::HackVehicle
+    } else if n.contains("hackbuilding") || n.contains("disablebuilding") {
+        CommandButtonHuntSpecial::HackBuilding
+    } else if n.contains("booby") {
+        CommandButtonHuntSpecial::Booby
+    } else if n.contains("capture") || n.contains("blacklotus") {
+        CommandButtonHuntSpecial::Capture
+    } else {
+        CommandButtonHuntSpecial::Unknown
+    }
+}
+

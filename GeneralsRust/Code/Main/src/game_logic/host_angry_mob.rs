@@ -265,7 +265,9 @@ pub fn is_angry_mob_nexus_template(template_name: &str) -> bool {
 ///
 /// C++ members auto-acquire ENEMIES only (`getNextMoodTarget` →
 /// `findClosestEnemy`, AIUpdate.cpp:4619; MobMemberSlavedUpdate.cpp:300).
-/// Residual: alive non-self enemy combat kinds, not under construction.
+/// `same_team` is "not player ENEMIES" (Allies / same controller), not
+/// faction `Team` equality — 2v2 GLA+China is Allies; FFA same-faction is
+/// Enemies. Residual: alive non-self enemy combat kinds, not under construction.
 pub fn is_legal_angry_mob_damage_target(
     is_alive: bool,
     same_team: bool,
@@ -308,7 +310,10 @@ pub fn angry_mob_possible_to_attack(
     (victim_anti_mask & ANGRY_MOB_WEAPON_ANTI_MASK) != 0
 }
 
-/// True when mob vs target is C++ ENEMIES. Neutral (oil derricks) is not hostile.
+/// True when mob vs target is C++ ENEMIES (`Object::getRelationship`).
+/// `same_team` means not ENEMIES (Allies / same controller). Neutral
+/// (oil derricks) is not hostile. Faction `Team` equality is leftover
+/// fallback only — live host wires player relationship.
 pub fn is_angry_mob_hostile_team(
     mob_team_is_neutral: bool,
     same_team: bool,
@@ -801,11 +806,33 @@ impl HostAngryMobRegistry {
     ///
     /// C++ each member attacks one victim. After filters, assign independently
     /// (closest from member/orbit origin) — do not apply 4*N to every hostile.
+    /// Faction `Team` residual for leftover tests; live host uses
+    /// [`Self::plan_due_ticks_with_enemies`].
     pub fn plan_due_ticks(
         &self,
         current_frame: u32,
         candidates: &[(ObjectId, Vec3, super::Team, bool, bool, bool, bool)],
         armed_by_team: impl Fn(super::Team) -> bool,
+    ) -> Vec<HostAngryMobTickPlan> {
+        self.plan_due_ticks_with_enemies(current_frame, candidates, armed_by_team, |_, mob_team, _, team| {
+            is_angry_mob_hostile_team(
+                mob_team == super::Team::Neutral,
+                team == mob_team,
+                team == super::Team::Neutral,
+            )
+        })
+    }
+
+    /// Like [`Self::plan_due_ticks`], but hostility is C++ ENEMIES
+    /// (`Object::getRelationship` / `Player::getRelationship`). Live host
+    /// passes player relationship so 2v2 cross-faction allies are skipped
+    /// and FFA same-faction enemies are acquired.
+    pub fn plan_due_ticks_with_enemies(
+        &self,
+        current_frame: u32,
+        candidates: &[(ObjectId, Vec3, super::Team, bool, bool, bool, bool)],
+        armed_by_team: impl Fn(super::Team) -> bool,
+        is_enemies: impl Fn(ObjectId, super::Team, ObjectId, super::Team) -> bool,
     ) -> Vec<HostAngryMobTickPlan> {
         let mut plans = Vec::new();
         for mob in &self.active {
@@ -821,7 +848,9 @@ impl HostAngryMobRegistry {
                 if id == mob.object_id {
                     continue;
                 }
-                let same_team = team == mob.team;
+                let enemies = is_enemies(mob.object_id, mob.team, id, team);
+                // Leftover helpers take `same_team` = not player ENEMIES.
+                let same_team = !enemies;
                 let target_neutral = team == super::Team::Neutral;
                 if !is_angry_mob_hostile_team(mob_neutral, same_team, target_neutral) {
                     continue;

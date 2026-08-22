@@ -175,8 +175,9 @@ impl ScriptActionDispatcher {
         &mut self,
         _action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
-        // Wave 284: empty dual-world → no-op success.
+        // Wave 284: empty dual-world → live host drain.
         if dual_world_registry_unavailable() {
+            super::request_host_script_unmanned(super::HostScriptUnmannedRequest::DeleteAll);
             return Ok(ScriptActionResult::Success);
         }
 

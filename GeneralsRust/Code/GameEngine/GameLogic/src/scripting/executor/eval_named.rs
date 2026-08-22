@@ -1361,11 +1361,7 @@ impl ScriptConditionEvaluator {
             unit_name
         );
 
-        let tracker = get_named_object_tracker();
-        let Ok(Some(source_id)) = tracker.get_object_id(&unit_name) else {
-            return Ok(ScriptConditionResult::False);
-        };
-        let Some(_) = TheGameLogic::find_object_by_id(source_id) else {
+        let Some(source_id) = leftover_named_source_id(&unit_name) else {
             return Ok(ScriptConditionResult::False);
         };
 
@@ -1408,11 +1404,7 @@ impl ScriptConditionEvaluator {
             unit_name
         );
 
-        let tracker = get_named_object_tracker();
-        let Ok(Some(source_id)) = tracker.get_object_id(&unit_name) else {
-            return Ok(ScriptConditionResult::False);
-        };
-        let Some(_) = TheGameLogic::find_object_by_id(source_id) else {
+        let Some(source_id) = leftover_named_source_id(&unit_name) else {
             return Ok(ScriptConditionResult::False);
         };
 
@@ -1455,11 +1447,7 @@ impl ScriptConditionEvaluator {
             unit_name
         );
 
-        let tracker = get_named_object_tracker();
-        let Ok(Some(source_id)) = tracker.get_object_id(&unit_name) else {
-            return Ok(ScriptConditionResult::False);
-        };
-        let Some(_) = TheGameLogic::find_object_by_id(source_id) else {
+        let Some(source_id) = leftover_named_source_id(&unit_name) else {
             return Ok(ScriptConditionResult::False);
         };
 
@@ -1546,11 +1534,7 @@ impl ScriptConditionEvaluator {
             unit_name
         );
 
-        let tracker = get_named_object_tracker();
-        let Ok(Some(source_id)) = tracker.get_object_id(&unit_name) else {
-            return Ok(ScriptConditionResult::False);
-        };
-        let Some(_) = TheGameLogic::find_object_by_id(source_id) else {
+        let Some(source_id) = leftover_named_source_id(&unit_name) else {
             return Ok(ScriptConditionResult::False);
         };
 
@@ -2100,4 +2084,25 @@ impl ScriptConditionEvaluator {
             ScriptConditionResult::False
         })
     }
+}
+
+/// C++ TheScriptEngine->getUnitNamed then Object::getID. Host IDs are not leftover crate Objects.
+fn leftover_named_source_id(unit_name: &str) -> Option<u32> {
+    let tracker_id = get_named_object_tracker()
+        .get_object_id(unit_name)
+        .ok()
+        .flatten();
+    if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+        if let Some(obj) = crate::scripting::host_script_query_object(unit_name) {
+            return Some(obj.id);
+        }
+        if let Some(id) = tracker_id {
+            if crate::scripting::host_script_query_object_by_id(id).is_some() {
+                return Some(id);
+            }
+        }
+        return crate::scripting::host_script_named_unit_id(unit_name).or(tracker_id);
+    }
+    let id = tracker_id?;
+    TheGameLogic::find_object_by_id(id).map(|_| id)
 }

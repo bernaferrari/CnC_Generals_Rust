@@ -6,7 +6,7 @@ use super::super::*;
 impl GameLogic {
     pub fn update_anthrax_bomb_flights(&mut self) {
         use crate::game_logic::combat::DamageType;
-        use crate::game_logic::host_anthrax_bomb_flight::AnthraxBombPayloadTier;
+        use crate::game_logic::host_anthrax_bomb_flight::anthrax_payload_drop_pos;
         use crate::game_logic::special_power_strikes::{
             ANTHRAX_BOMB_IMPACT_DAMAGE, ANTHRAX_BOMB_IMPACT_RADIUS,
         };
@@ -17,7 +17,8 @@ impl GameLogic {
             .filter(|(_, o)| o.anthrax_bomb_transport.is_some() && o.is_alive())
             .map(|(id, _)| *id)
             .collect();
-        let mut drops: Vec<(Team, Vec3, ObjectId, AnthraxBombPayloadTier)> = Vec::new();
+        let mut drops: Vec<(Team, Vec3, ObjectId, crate::game_logic::host_anthrax_bomb_flight::AnthraxBombPayloadTier, Vec3, Vec3)> =
+            Vec::new();
         let mut leave = Vec::new();
         for id in tids {
             let Some(o) = self.objects.get_mut(&id) else {
@@ -39,6 +40,9 @@ impl GameLogic {
             let target = data.target;
             let tier = data.tier;
             let _ = data;
+            if should_drop {
+                o.kill_delivery_radius_decal();
+            }
             o.set_position(new_pos);
             o.movement.velocity = vel;
             o.movement.target_position = None;
@@ -48,7 +52,7 @@ impl GameLogic {
             if should_drop {
                 let team = o.team;
                 let producer = o.producer_id.unwrap_or(id);
-                drops.push((team, target, producer, tier));
+                drops.push((team, target, producer, tier, new_pos, vel));
             }
             if at_exit {
                 leave.push(id);
@@ -57,19 +61,20 @@ impl GameLogic {
         for id in leave {
             self.mark_object_for_destruction(id, None);
         }
-        for (team, target, producer, tier) in drops {
+        for (team, target, producer, tier, plane_pos, plane_vel) in drops {
             let bomb = tier.bomb();
-            let drop_pos = Vec3::new(target.x, 90.0, target.z);
+            let drop_pos = anthrax_payload_drop_pos(plane_pos);
             if let Some(bid) = self.create_object(bomb, team, drop_pos) {
                 if let Some(o) = self.objects.get_mut(&bid) {
                     o.producer_id = Some(producer);
                     o.anthrax_bomb_payload = true;
-                    o.movement.velocity = Vec3::new(0.0, -14.0, 0.0);
+                    o.movement.velocity = Vec3::new(plane_vel.x, -14.0, plane_vel.z);
                     let _ = o.set_smart_bomb_target(target);
                 }
                 self.anthrax_bomb_flight_reg.record_drop();
             }
         }
+
 
         let bombs: Vec<ObjectId> = self
             .objects
@@ -99,11 +104,32 @@ impl GameLogic {
                     ANTHRAX_BOMB_IMPACT_RADIUS,
                     DamageType::Explosive,
                 );
-                // OCL_PoisonFieldAnthraxBomb residual.
+                // C++ FireOCL OCL_PoisonFieldAnthraxBomb / AnthraxGammaBomb.
                 let src = producer.unwrap_or(id);
-                let _ = self
-                    .special_power_strikes
-                    .spawn_toxin_field(src, team, impact, self.frame, 0);
+                let toxin_object = {
+                    let bomb_name = self
+                        .objects
+                        .get(&id)
+                        .map(|o| o.template_name.clone())
+                        .unwrap_or_default();
+                    if bomb_name.to_ascii_lowercase().contains("gamma") {
+                        crate::game_logic::special_power_strikes::ANTHRAX_TOXIN_OBJECT_NAME_GAMMA
+                    } else {
+                        crate::game_logic::special_power_strikes::ANTHRAX_TOXIN_OBJECT_NAME
+                    }
+                };
+                let _ = self.special_power_strikes.spawn_toxin_field_with_params(
+                    src,
+                    team,
+                    impact,
+                    self.frame,
+                    0,
+                    crate::game_logic::special_power_strikes::ANTHRAX_TOXIN_DAMAGE_PER_TICK,
+                    crate::game_logic::special_power_strikes::ANTHRAX_TOXIN_RADIUS,
+                    crate::game_logic::special_power_strikes::ANTHRAX_TOXIN_TICK_INTERVAL_FRAMES,
+                    crate::game_logic::special_power_strikes::ANTHRAX_TOXIN_DURATION_FRAMES,
+                    toxin_object,
+                );
                 self.anthrax_bomb_flight_reg.record_toxin_field();
                 let _ = self.combat_particles.spawn(
                     CombatParticleKind::DeathExplosion,
@@ -179,14 +205,11 @@ impl GameLogic {
             .get(&source_id)
             .map(|o| o.get_position())
             .unwrap_or(target);
-        let dx = target.x - source_pos.x;
-        let dz = target.z - source_pos.z;
-        let dist = (dx * dx + dz * dz).sqrt().max(1.0);
-        let edge = Vec3::new(
-            source_pos.x - dx / dist * 340.0,
-            150.0,
-            source_pos.z - dz / dist * 340.0,
-        );
+        // C++ CREATE_AT_EDGE_NEAR_SOURCE: TerrainLogic::findClosestEdgePoint(owner).
+        let mut edge = self.closest_map_edge_point(source_pos);
+        edge.y = 150.0;
+        let dx = target.x - edge.x;
+        let dz = target.z - edge.z;
         if !self.templates.contains_key(CLUSTER_MINES_OCL_TRANSPORT) {
             let mut t = ThingTemplate::new(CLUSTER_MINES_OCL_TRANSPORT);
             t.set_health(600.0)
@@ -204,7 +227,10 @@ impl GameLogic {
         let tid = self.create_object(CLUSTER_MINES_OCL_TRANSPORT, team, edge)?;
         if let Some(o) = self.objects.get_mut(&tid) {
             o.note_producer(source_id);
-            o.cluster_mines_transport = Some(HostClusterMinesFlightData::start(edge, target));
+            let mut data = HostClusterMinesFlightData::start(edge, target);
+            data.map_min = self.world_min;
+            data.map_max = self.world_max;
+            o.cluster_mines_transport = Some(data);
             o.set_orientation(dz.atan2(dx));
         }
         self.cluster_mines_flight_reg.record_transport();
@@ -216,11 +242,18 @@ impl GameLogic {
             crate::game_logic::host_mines::CLUSTER_MINES_VIEW_OBJECT_RANGE,
             crate::game_logic::host_mines::CLUSTER_MINES_VIEW_OBJECT_DURATION_FRAMES,
         );
+        let _ = self.create_delivery_radius_decal_with_radius(
+            tid,
+            target,
+            crate::game_logic::host_mines::CLUSTER_MINES_DELIVERY_DECAL_RADIUS,
+        );
         Some(tid)
     }
 
     pub fn update_cluster_mines_flights(&mut self) {
-        use crate::game_logic::host_cluster_mines_flight::CLUSTER_MINES_BOMB_OBJECT;
+        use crate::game_logic::host_cluster_mines_flight::{
+            cluster_mines_payload_drop_pos, CLUSTER_MINES_BOMB_OBJECT,
+        };
 
         let tids: Vec<ObjectId> = self
             .objects
@@ -228,7 +261,8 @@ impl GameLogic {
             .filter(|(_, o)| o.cluster_mines_transport.is_some() && o.is_alive())
             .map(|(id, _)| *id)
             .collect();
-        let mut drops: Vec<(Team, Vec3, ObjectId)> = Vec::new();
+        let mut drops: Vec<(Team, Vec3, ObjectId, Vec3, Vec3)> = Vec::new();
+        let mut leave = Vec::new();
         for id in tids {
             let Some(o) = self.objects.get_mut(&id) else {
                 continue;
@@ -237,39 +271,56 @@ impl GameLogic {
             let Some(data) = o.cluster_mines_transport.as_mut() else {
                 continue;
             };
-            let (new_pos, vel, over) = data.tick_transport(pos);
+            if !data.map_extent_ok() {
+                data.map_min = self.world_min;
+                data.map_max = self.world_max;
+            }
+            let should_drop = !data.delivery_complete && data.in_delivery_band(pos);
+            if should_drop {
+                data.delivery_complete = true;
+            }
+            let (new_pos, vel, at_exit) = data.tick_transport(pos);
             let target = data.target;
             let _ = data;
+            if should_drop {
+                o.kill_delivery_radius_decal();
+            }
             o.set_position(new_pos);
             o.movement.velocity = vel;
             if vel.length_squared() > 1e-6 {
                 o.set_orientation(vel.z.atan2(vel.x));
             }
-            if over {
+            if should_drop {
                 let team = o.team;
                 let producer = o.producer_id.unwrap_or(id);
-                o.cluster_mines_transport = None;
-                drops.push((team, target, producer));
+                drops.push((team, target, producer, pos, vel));
+            }
+            if at_exit {
+                leave.push(id);
             }
         }
-        for (team, target, producer) in drops {
+        for id in leave {
+            self.mark_object_for_destruction(id, None);
+        }
+        for (team, target, producer, plane_pos, plane_vel) in drops {
             use crate::game_logic::host_mines::{
                 apply_cluster_mines_drop_variance, cluster_mines_drop_unit_samples,
             };
             let seed = producer.0.wrapping_add(self.frame);
             let (ux, uy) = cluster_mines_drop_unit_samples(seed);
             let target = apply_cluster_mines_drop_variance(target, ux, uy);
-            let drop_pos = Vec3::new(target.x, 80.0, target.z);
+            let drop_pos = cluster_mines_payload_drop_pos(plane_pos);
             if let Some(bid) = self.create_object(CLUSTER_MINES_BOMB_OBJECT, team, drop_pos) {
                 if let Some(o) = self.objects.get_mut(&bid) {
                     o.producer_id = Some(producer);
                     o.cluster_mines_bomb = true;
-                    o.movement.velocity = Vec3::new(0.0, -14.0, 0.0);
+                    o.movement.velocity = Vec3::new(plane_vel.x, -14.0, plane_vel.z);
                     let _ = o.set_smart_bomb_target(target);
                 }
                 self.cluster_mines_flight_reg.record_drop();
             }
         }
+
 
         let bombs: Vec<ObjectId> = self
             .objects
@@ -514,14 +565,11 @@ impl GameLogic {
             .get(&source_id)
             .map(|o| o.get_position())
             .unwrap_or(target);
-        let dx = target.x - source_pos.x;
-        let dz = target.z - source_pos.z;
-        let dist = (dx * dx + dz * dz).sqrt().max(1.0);
-        let edge = Vec3::new(
-            source_pos.x - dx / dist * 340.0,
-            150.0,
-            source_pos.z - dz / dist * 340.0,
-        );
+        // C++ CREATE_AT_EDGE_NEAR_SOURCE: TerrainLogic::findClosestEdgePoint(owner).
+        let mut edge = self.closest_map_edge_point(source_pos);
+        edge.y = 150.0;
+        let dx = target.x - edge.x;
+        let dz = target.z - edge.z;
         if !self.templates.contains_key(EMP_PULSE_OCL_TRANSPORT) {
             let mut t = ThingTemplate::new(EMP_PULSE_OCL_TRANSPORT);
             t.set_health(600.0)
@@ -539,15 +587,18 @@ impl GameLogic {
         let tid = self.create_object(EMP_PULSE_OCL_TRANSPORT, team, edge)?;
         if let Some(o) = self.objects.get_mut(&tid) {
             o.note_producer(source_id);
-            o.emp_pulse_transport = Some(HostEmpPulseFlightData::start(
-                edge,
-                target,
-                player_id,
-                source_id.0,
-            ));
+            let mut data = HostEmpPulseFlightData::start(edge, target, player_id, source_id.0);
+            data.map_min = self.world_min;
+            data.map_max = self.world_max;
+            o.emp_pulse_transport = Some(data);
             o.set_orientation(dz.atan2(dx));
         }
         self.emp_pulse_flight_reg.record_transport();
+        let _ = self.create_delivery_radius_decal_with_radius(
+            tid,
+            target,
+            crate::game_logic::host_emp_pulse::EMP_PULSE_DELIVERY_DECAL_RADIUS,
+        );
         Some(tid)
     }
 
@@ -561,6 +612,9 @@ impl GameLogic {
             .map(|(id, _)| *id)
             .collect();
         let mut drops: Vec<(Team, Vec3, ObjectId, u32, u32)> = Vec::new();
+        let mut leave = Vec::new();
+        let world_min = self.world_min;
+        let world_max = self.world_max;
         for id in tids {
             let Some(o) = self.objects.get_mut(&id) else {
                 continue;
@@ -569,22 +623,38 @@ impl GameLogic {
             let Some(data) = o.emp_pulse_transport.as_mut() else {
                 continue;
             };
-            let (new_pos, vel, over) = data.tick_transport(pos);
+            if !data.map_extent_ok() {
+                data.map_min = world_min;
+                data.map_max = world_max;
+            }
+            let should_drop = !data.delivery_complete && data.in_delivery_band(pos);
+            if should_drop {
+                data.delivery_complete = true;
+            }
+            let (new_pos, vel, at_exit) = data.tick_transport(pos);
             let target = data.target;
             let player_id = data.player_id;
             let caster = data.caster_id;
             let _ = data;
+            if should_drop {
+                o.kill_delivery_radius_decal();
+            }
             o.set_position(new_pos);
             o.movement.velocity = vel;
             if vel.length_squared() > 1e-6 {
                 o.set_orientation(vel.z.atan2(vel.x));
             }
-            if over {
+            if should_drop {
                 let team = o.team;
                 let producer = o.producer_id.unwrap_or(id);
-                o.emp_pulse_transport = None;
                 drops.push((team, target, producer, player_id, caster));
             }
+            if at_exit {
+                leave.push(id);
+            }
+        }
+        for id in leave {
+            self.mark_object_for_destruction(id, None);
         }
         for (_team, target, producer, player_id, caster) in drops {
             let drop_pos = Vec3::new(target.x, 80.0, target.z);
@@ -592,11 +662,8 @@ impl GameLogic {
                 if let Some(o) = self.objects.get_mut(&bid) {
                     o.producer_id = Some(producer);
                     o.emp_pulse_bomb = true;
-                    // Stash player/caster in unused fields via producer already set.
                     o.movement.velocity = Vec3::new(0.0, -14.0, 0.0);
                     let _ = o.set_smart_bomb_target(target);
-                    // Encode player_id in a residual marker via template tag is overkill;
-                    // store on bomb via producer and call activate with player from producer team.
                     let _ = (player_id, caster);
                 }
                 self.emp_pulse_flight_reg.record_drop();
@@ -622,7 +689,6 @@ impl GameLogic {
             };
             if pos.y <= 5.0 {
                 let impact = Vec3::new(pos.x, 0.0, pos.z);
-                // Resolve player_id from producer team.
                 let player_id = producer
                     .and_then(|pid| self.objects.get(&pid))
                     .and_then(|o| {
@@ -1573,6 +1639,11 @@ impl GameLogic {
                 container.remove_occupant(unit_id);
             }
         }
+        // C++ TunnelContain::onRemoving setSafeOcclusionFrame(frame + OcclusionDelay).
+        if let Some(unit) = self.objects.get_mut(&unit_id) {
+            unit.stamp_safe_occlusion_frame(self.frame);
+        }
+
         true
     }
 

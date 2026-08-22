@@ -181,6 +181,7 @@ impl<'a> CommandExecutor<'a> {
             }
             return result;
         }
+        self.apply_group_desired_speed(units, false);
         let goals = self.group_move_destinations(units, destination);
         if units.len() > 1 && self.compute_ground_path_should_group(units, destination) {
             if self.game_logic.assign_shared_group_paths(&goals, destination) {
@@ -249,6 +250,7 @@ impl<'a> CommandExecutor<'a> {
             }
             return result;
         }
+        self.apply_group_desired_speed(units, self.group_is_stamped_formation(units));
         let goals = self.group_move_destinations(units, destination);
         let mut moved: Vec<ObjectId> = Vec::new();
         for (unit_id, goal) in goals {
@@ -749,6 +751,8 @@ impl<'a> CommandExecutor<'a> {
             let db = (b.1.x - first.x).hypot(b.1.z - first.z);
             da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
         });
+        self.apply_group_desired_speed(units, as_team || use_formation);
+
 
         let mut any = false;
         for (unit_id, pos, form_off) in movers {
@@ -934,6 +938,14 @@ impl<'a> CommandExecutor<'a> {
         let destination = self.clamp_group_waypoint(units, destination);
         let mut any = false;
         for &unit_id in units {
+            if self
+                .game_logic
+                .host_object(unit_id)
+                .is_some_and(|u| u.forbid_player_commands)
+            {
+                continue;
+            }
+
             let (can_move, can_attack) = match self.game_logic.host_object(unit_id) {
                 Some(unit) => (
                     unit.is_alive() && unit.can_move(),
@@ -973,6 +985,7 @@ impl<'a> CommandExecutor<'a> {
         destination: Vec3,
     ) -> CommandResult {
         // Wave 232: force-move via GameLogic unit_command_force_move_to.
+        self.apply_group_desired_speed(units, self.group_is_stamped_formation(units));
         let goals = self.group_move_destinations(units, destination);
         let mut moved: Vec<ObjectId> = Vec::new();
         for (unit_id, goal) in goals {
@@ -1062,6 +1075,7 @@ impl<'a> CommandExecutor<'a> {
         if need_stamp {
             let _ = self.execute_create_formation(units);
         }
+        self.apply_group_desired_speed(units, true);
         let goals = self.group_move_destinations(units, destination);
         let mut any = false;
         for (unit_id, goal) in goals {
@@ -1092,10 +1106,18 @@ impl<'a> CommandExecutor<'a> {
         // Wave 232: patrol last-writes via GameLogic unit_command_patrol.
         let mut any = false;
         for &unit_id in units {
+            if self
+                .game_logic
+                .host_object(unit_id)
+                .is_some_and(|u| u.forbid_player_commands)
+            {
+                continue;
+            }
             if self.game_logic.unit_command_patrol(unit_id) {
                 any = true;
             }
         }
+
         if any {
             CommandResult::Success
         } else {

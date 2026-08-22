@@ -1338,6 +1338,7 @@ fn estimate_sniper_refuses_empty_and_uc_structures() {
         garrisonable: true,
         immune_to_clear_building: false,
         airborne_target: false,
+        armor_coeff: 1.0,
     };
     assert_eq!(estimate_weapon_template_damage(&sniper, Some(&empty)), 0.0);
     let uc = HostEstimateVictim {
@@ -1351,6 +1352,66 @@ fn estimate_sniper_refuses_empty_and_uc_structures() {
         ..empty
     };
     assert!(estimate_weapon_template_damage(&sniper, Some(&occupied)) > 0.0);
+    let occupied_armored = HostEstimateVictim {
+        armor_coeff: 0.0,
+        ..occupied
+    };
+    assert_eq!(
+        estimate_weapon_template_damage(&sniper, Some(&occupied_armored)),
+        0.0
+    );
+    let tank = HostEstimateVictim {
+        kind_structure: false,
+        garrisonable: false,
+        armor_coeff: 0.0,
+        ..empty
+    };
+    assert_eq!(estimate_weapon_template_damage(&sniper, Some(&tank)), 0.0);
+    assert!(host_weapon_is_kill_pilot_cursor_slot(
+        "GLAJarmenKellVehiclePilotSniperRifle"
+    ));
+    assert!(!host_weapon_is_kill_pilot_cursor_slot("GLAJarmenKellRifle"));
+    assert!(!host_weapon_is_kill_pilot_cursor_slot(
+        "AmericaInfantryPathfinderSniperRifle"
+    ));
+}
+
+#[test]
+fn estimate_sniper_vs_tank_applies_residual_armor() {
+    ensure_host_weapon_store();
+    let mut tmpl = ThingTemplate::new("GLATankScorpion");
+    tmpl.add_kind_of(KindOf::Vehicle).set_health(400.0);
+    let tank = crate::game_logic::Object::new(
+        tmpl,
+        crate::game_logic::ObjectId(1),
+        Team::GLA,
+    );
+    let est = host_estimate_weapon_from_name("GLAJarmenKellRifle", 180.0);
+    let dt = crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(
+        "GLAJarmenKellRifle",
+    );
+    let victim = host_estimate_victim_from_object(
+        &tank,
+        0,
+        crate::game_logic::host_armor_residual::apply_residual_armor(&tank, dt, 1.0),
+    );
+    assert_eq!(estimate_weapon_template_damage(&est, Some(&victim)), 0.0);
+    let infantry_t = {
+        let mut t = ThingTemplate::new("GLAInfantryRebel");
+        t.add_kind_of(KindOf::Infantry).set_health(100.0);
+        t
+    };
+    let infantry = crate::game_logic::Object::new(
+        infantry_t,
+        crate::game_logic::ObjectId(2),
+        Team::USA,
+    );
+    let inf_victim = host_estimate_victim_from_object(
+        &infantry,
+        0,
+        crate::game_logic::host_armor_residual::apply_residual_armor(&infantry, dt, 1.0),
+    );
+    assert!(estimate_weapon_template_damage(&est, Some(&inf_victim)) > 0.0);
 }
 
 #[test]
@@ -1376,6 +1437,7 @@ fn estimate_disarm_only_vs_mines() {
         garrisonable: false,
         immune_to_clear_building: false,
         airborne_target: false,
+        armor_coeff: 1.0,
     };
     assert_eq!(estimate_weapon_template_damage(&disarm, Some(&tank)), 0.0);
     let mine = HostEstimateVictim {

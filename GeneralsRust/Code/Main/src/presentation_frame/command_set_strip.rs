@@ -1,8 +1,8 @@
-//! C++ `ControlBar::populateCommand` (`ControlBarCommand.cpp:246-323`).
-//!
-//! GameHUD binds CommandSet.ini slots 1-14. Empty and SCRIPT_ONLY slots stay
-//! hidden. Never invent Patrol / Scatter / Attitude / Cheer / Deploy /
-//! PurchaseScience or name-heuristic extras.
+// C++ `ControlBar::populateCommand` (`ControlBarCommand.cpp:246-323`).
+//
+// GameHUD binds CommandSet.ini slots 1-14. Empty and SCRIPT_ONLY slots stay
+// hidden. Never invent Patrol / Scatter / Attitude / Cheer / Deploy /
+// PurchaseScience or name-heuristic extras.
 
 use super::*;
 use crate::ui::UnitCommandButton;
@@ -26,6 +26,7 @@ impl PresentationFrame {
                 cmds.push(UnitCommandButton {
                     command_name: "Command_BeaconDelete".into(),
                     enabled: true,
+                    ..Default::default()
                 });
                 return cmds;
             }
@@ -33,13 +34,16 @@ impl PresentationFrame {
                 cmds.push(UnitCommandButton {
                     command_name: "Command_StructureExit".into(),
                     enabled: true,
+                    ..Default::default()
                 });
                 if !ro.garrisoned_units.is_empty() {
                     cmds.push(UnitCommandButton {
                         command_name: "Command_Evacuate".into(),
                         enabled: true,
+                        ..Default::default()
                     });
                 }
+                self.overlay_command_set_occupants(&mut cmds, ro);
                 return cmds;
             }
             return Vec::new();
@@ -49,6 +53,7 @@ impl PresentationFrame {
             let mut cmds = vec![UnitCommandButton {
                 command_name: "Command_CancelConstruction".into(),
                 enabled: true,
+                ..Default::default()
             }];
             self.apply_host_disabled_command_strip(&mut cmds, ro);
             return cmds;
@@ -73,7 +78,7 @@ impl PresentationFrame {
         for command_name in names {
             if cmds
                 .iter()
-                .any(|c| c.command_name.eq_ignore_ascii_case(&command_name))
+                .any(|c: &UnitCommandButton| c.command_name.eq_ignore_ascii_case(&command_name))
             {
                 continue;
             }
@@ -81,14 +86,15 @@ impl PresentationFrame {
             cmds.push(UnitCommandButton {
                 command_name,
                 enabled,
+                ..Default::default()
             });
         }
 
         cmds.retain(|c| self.host_need_special_power_science_owned(&c.command_name));
+        self.overlay_command_set_occupants(&mut cmds, ro);
         self.apply_command_set_upgrade_restrictions(&mut cmds, ro, &panel);
         self.apply_command_set_can_make(&mut cmds, ro);
         self.apply_host_disabled_command_strip(&mut cmds, ro);
-        self.apply_host_restrict_a_command_strip(&mut cmds, ro);
         cmds
     }
 
@@ -192,6 +198,64 @@ impl PresentationFrame {
                 cmd.enabled = cameo.available;
             }
         }
+    }
+
+    fn overlay_command_set_occupants(
+        &self,
+        cmds: &mut [UnitCommandButton],
+        ro: &RenderableObject,
+    ) {
+        let occupants = self.presentation_inventory_occupants(ro);
+        if occupants.is_empty() {
+            return;
+        }
+        let mut occ_iter = occupants.into_iter();
+        for cmd in cmds.iter_mut() {
+            let n = cmd.command_name.to_ascii_lowercase();
+            let is_exit = (n.contains("exit") || n.contains("transport"))
+                && !n.contains("evacuate")
+                && !n.contains("beacon");
+            if !is_exit {
+                continue;
+            }
+            let Some(occ) = occ_iter.next() else {
+                break;
+            };
+            if occ.object_id != 0 {
+                cmd.exit_object_id = Some(occ.object_id);
+                cmd.enabled = true;
+            }
+            if !occ.button_image.is_empty() {
+                cmd.button_image = occ.button_image;
+            }
+            cmd.overlay_image = occ.overlay_image;
+        }
+    }
+
+    fn presentation_inventory_occupants(
+        &self,
+        ro: &RenderableObject,
+    ) -> Vec<game_client::gui::control_bar::StructureInventoryOccupant> {
+        ro.garrisoned_units
+            .iter()
+            .filter_map(|id| {
+                let occ = self.objects.iter().find(|o| o.id == *id && !o.destroyed)?;
+                Some(game_client::gui::control_bar::occupant_from_presentation(
+                    occ.id.0,
+                    &occ.template_name,
+                    presentation_veterancy_overlay(occ.veterancy),
+                ))
+            })
+            .collect()
+    }
+}
+
+fn presentation_veterancy_overlay(level: PresentationVeterancy) -> Option<String> {
+    match level {
+        PresentationVeterancy::Veteran => Some("SSChevron1L".to_string()),
+        PresentationVeterancy::Elite => Some("SSChevron2L".to_string()),
+        PresentationVeterancy::Heroic => Some("SSChevron3L".to_string()),
+        _ => None,
     }
 }
 

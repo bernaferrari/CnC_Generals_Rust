@@ -289,13 +289,27 @@ impl GameLogic {
     /// C++ ProneUpdate residual countdown + NO_ATTACK / PRONE condition.
     /// C++ OCL DeliveryDecal residual: create radius decal on SW host.
     pub fn create_delivery_radius_decal(&mut self, host_id: ObjectId, target_pos: Vec3) -> bool {
+        self.create_delivery_radius_decal_with_radius(host_id, target_pos, 0.0)
+    }
+
+    /// `radius <= 0` uses the host-template default (Scud/nuke). Cargo flights pass the OCL peel.
+    pub fn create_delivery_radius_decal_with_radius(
+        &mut self,
+        host_id: ObjectId,
+        target_pos: Vec3,
+        radius: f32,
+    ) -> bool {
         let frame = self.frame as u32;
         let Some(obj) = self.objects.get_mut(&host_id) else {
             return false;
         };
-        if obj.create_delivery_radius_decal(target_pos, frame) {
+        let ok = if radius > 0.0 {
+            obj.create_delivery_radius_decal_with_radius(target_pos, frame, radius)
+        } else {
+            obj.create_delivery_radius_decal(target_pos, frame)
+        };
+        if ok {
             self.radius_decal_update_reg.record_create();
-            // Mark attacking so killWhenNoLongerAttacking stays alive until attack ends.
             obj.status.attacking = true;
             true
         } else {
@@ -336,21 +350,12 @@ impl GameLogic {
         };
         let _ = source_pos;
 
-        // Clear prior gunship residual.
-        // Wave 750: under damage authority, do not zero host HP mid-frame
-        // (dual with GW HP writeback). Project lethal via damage log + destroyed
-        // flag; non-authority path keeps host HP clear.
-        if let Some(prior) = plan.replace_prior {
-            if let Some(p) = self.objects.get_mut(&prior) {
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = p.health.current.max(1.0);
-                    crate::game_logic::host_damage_log::record(prior, hp, None, true);
-                } else {
-                    p.health.current = 0.0;
-                }
-                p.status.destroyed = true;
-                self.spectre_gunship_deployment_reg.record_prior_clear();
-            }
+        // C++ initiateIntent: if prior gunship exists, only `m_gunshipID = INVALID_ID`.
+        // `disengageAndDepartAO` is commented out — prior ship keeps orbiting.
+        // Clear prior gunship residual = unbind id, never destroy.
+        // Wave 750: no mid-frame HP zero, no host_damage_log::record, no
+        // gameworld_damage_authority_live() kill path (C++ never kills on recast).
+        if plan.replace_prior.is_some() {
             if let Some(dep) = self
                 .objects
                 .get_mut(&caster_id)
@@ -358,6 +363,7 @@ impl GameLogic {
             {
                 dep.clear_gunship();
             }
+            self.spectre_gunship_deployment_reg.record_prior_clear();
         }
 
         // Ensure gunship template exists.

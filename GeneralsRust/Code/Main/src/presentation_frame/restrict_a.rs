@@ -185,6 +185,7 @@ mod restrict_a_tests {
         UnitCommandButton {
             command_name: name.into(),
             enabled,
+            ..Default::default()
         }
     }
 

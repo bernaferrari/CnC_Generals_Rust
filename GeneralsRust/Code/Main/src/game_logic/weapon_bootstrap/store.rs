@@ -167,6 +167,13 @@ pub(super) fn seed_damage_type_for(name: &str, weapon_speed: f32) -> gamelogic::
     if n.contains("emp") || n.contains("microwave") {
         return D::Microwave;
     }
+    if n.contains("vehiclepilot")
+        || n.contains("pilotsniper")
+        || n.contains("killpilot")
+        || n.contains("kill_pilot")
+    {
+        return D::KillPilot;
+    }
     if n.contains("sniper") || n.contains("jarmen") {
         return D::Sniper;
     }

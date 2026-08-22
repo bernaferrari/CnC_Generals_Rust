@@ -233,6 +233,66 @@ impl SaveDate {
     }
 }
 
+/// C++ `UnicodeString::format(TheGameText->fetch("GUI:MissionSave"), label, n)`.
+pub fn format_mission_save_description(
+    format: &str,
+    campaign_label: &str,
+    mission_number: i32,
+) -> String {
+    let mut out = String::with_capacity(format.len() + campaign_label.len() + 8);
+    let mut chars = format.chars().peekable();
+    let mut used_s = false;
+    let mut used_d = false;
+    while let Some(ch) = chars.next() {
+        if ch != '%' {
+            out.push(ch);
+            continue;
+        }
+        match chars.peek().copied() {
+            Some('%') => {
+                chars.next();
+                out.push('%');
+            }
+            Some('s') | Some('S') => {
+                chars.next();
+                out.push_str(campaign_label);
+                used_s = true;
+            }
+            Some('d') | Some('i') | Some('u') => {
+                chars.next();
+                out.push_str(&mission_number.to_string());
+                used_d = true;
+            }
+            Some('l') => {
+                chars.next();
+                if matches!(chars.peek().copied(), Some('s') | Some('S')) {
+                    chars.next();
+                    out.push_str(campaign_label);
+                    used_s = true;
+                } else {
+                    out.push('%');
+                    out.push('l');
+                }
+            }
+            Some(_) | None => out.push('%'),
+        }
+    }
+    if !used_s && !used_d {
+        if !campaign_label.is_empty() {
+            if !out.is_empty() {
+                out.push(' ');
+            }
+            out.push_str(campaign_label);
+        }
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(&mission_number.to_string());
+    }
+    out
+}
+
+
 // ------------------------------------------------------------------------------------------------
 // Save Game Info
 // ------------------------------------------------------------------------------------------------
@@ -873,17 +933,30 @@ impl GameState {
         }
     }
 
-    /// Create a mission save (best-effort without campaign integration).
+    /// Create a mission save.
+    ///
+    /// C++ `GameState::missionSave` (`GameState.cpp:606-621`) fetches
+    /// `GUI:MissionSave` and formats it with the campaign name label plus
+    /// `currentMissionNumber+1`.
     pub fn mission_save(&mut self) -> Result<SaveCode, XferStatus> {
-        let mission_number = self.game_info.mission_number.saturating_add(1);
-        let description = if self.game_info.campaign_side.is_empty() {
-            format!("Mission Save {}", mission_number)
-        } else {
-            format!(
-                "Mission Save {} {}",
-                self.game_info.campaign_side, mission_number
+        let (campaign_side, mission_number, _) = notify_get_campaign_snapshot().unwrap_or_else(|| {
+            (
+                self.game_info.campaign_side.clone(),
+                self.game_info.mission_number,
+                String::new(),
             )
+        });
+        let mission_number = mission_number.saturating_add(1);
+        let campaign_label = if campaign_side.is_empty() {
+            self.game_info.campaign_side.clone()
+        } else {
+            campaign_side
         };
+        // Common cannot fetch GameText; callers with GameClient (ScoreScreen,
+        // live host) pass the localized `GUI:MissionSave` string. The English
+        // retail token is `%s Mission %d`.
+        let description =
+            format_mission_save_description("%s Mission %d", &campaign_label, mission_number);
         self.save_game(
             String::new(),
             description,
@@ -1690,5 +1763,19 @@ mod tests {
         register_save_load_mission_hooks(None, None);
         let _ = fs::remove_dir_all(save_dir);
     }
+
+    #[test]
+    fn mission_save_description_formats_gui_mission_save_like_cpp() {
+        // C++ GameState.cpp:616-618 UnicodeString::format(GUI:MissionSave, label, n).
+        assert_eq!(
+            format_mission_save_description("%s Mission %d", "USA Campaign", 2),
+            "USA Campaign Mission 2"
+        );
+        assert_eq!(
+            format_mission_save_description("GUI:AutoSave", "China", 1),
+            "GUI:AutoSave China 1"
+        );
+    }
+
 
 }
