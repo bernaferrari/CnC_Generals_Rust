@@ -3969,6 +3969,97 @@ fn hijacker_hill_tank_uses_height_above_terrain_not_world_y() {
 
 #[test]
 #[test]
+fn mixed_selection_hijack_skips_rebel() {
+    use crate::command_executor::CommandExecutor;
+    use crate::command_system::CommandResult;
+    use crate::game_logic::{KindOf, PendingSpecialAbility, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut hijacker_t = ThingTemplate::new("GLAInfantryHijacker");
+    hijacker_t.add_kind_of(KindOf::Infantry).set_health(100.0);
+    let mut rebel_t = ThingTemplate::new("GLAInfantryRebel");
+    rebel_t.add_kind_of(KindOf::Infantry).set_health(100.0);
+    let mut tank_t = ThingTemplate::new("AmericaTankCrusader");
+    tank_t
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(400.0);
+    for template in [hijacker_t, rebel_t, tank_t] {
+        logic.templates.insert(template.name.clone(), template);
+    }
+    let hijacker = logic
+        .create_object("GLAInfantryHijacker", Team::GLA, glam::Vec3::ZERO)
+        .expect("hijacker");
+    let rebel = logic
+        .create_object(
+            "GLAInfantryRebel",
+            Team::GLA,
+            glam::Vec3::new(2.0, 0.0, 0.0),
+        )
+        .expect("rebel");
+    let tank = logic
+        .create_object(
+            "AmericaTankCrusader",
+            Team::USA,
+            glam::Vec3::new(20.0, 0.0, 0.0),
+        )
+        .expect("tank");
+    let result = {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        exec.execute_hijack(&[hijacker, rebel], tank)
+    };
+    assert_eq!(result, CommandResult::Success);
+    assert!(matches!(
+        logic.pending_special_abilities.get(&hijacker),
+        Some(PendingSpecialAbility::Hijack { target_id }) if *target_id == tank
+    ));
+    assert!(logic.pending_special_abilities.get(&rebel).is_none());
+}
+
+#[test]
+fn mixed_selection_carbomb_skips_rebel() {
+    use crate::command_executor::CommandExecutor;
+    use crate::command_system::CommandResult;
+    use crate::game_logic::{KindOf, PendingSpecialAbility, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut terrorist_t = ThingTemplate::new("GLAInfantryTerrorist");
+    terrorist_t.add_kind_of(KindOf::Infantry).set_health(100.0);
+    let mut rebel_t = ThingTemplate::new("GLAInfantryRebel");
+    rebel_t.add_kind_of(KindOf::Infantry).set_health(100.0);
+    let mut car_t = ThingTemplate::new("CivilianCar");
+    car_t.add_kind_of(KindOf::Vehicle).set_health(80.0);
+    for template in [terrorist_t, rebel_t, car_t] {
+        logic.templates.insert(template.name.clone(), template);
+    }
+    let terrorist = logic
+        .create_object("GLAInfantryTerrorist", Team::GLA, glam::Vec3::ZERO)
+        .expect("terrorist");
+    let rebel = logic
+        .create_object(
+            "GLAInfantryRebel",
+            Team::GLA,
+            glam::Vec3::new(2.0, 0.0, 0.0),
+        )
+        .expect("rebel");
+    let car = logic
+        .create_object(
+            "CivilianCar",
+            Team::Neutral,
+            glam::Vec3::new(20.0, 0.0, 0.0),
+        )
+        .expect("car");
+    let result = {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        exec.execute_convert_carbomb(&[terrorist, rebel], car)
+    };
+    assert_eq!(result, CommandResult::Success);
+    assert!(matches!(
+        logic.pending_special_abilities.get(&terrorist),
+        Some(PendingSpecialAbility::CarBomb { target_id }) if *target_id == car
+    ));
+    assert!(logic.pending_special_abilities.get(&rebel).is_none());
+}
+
+#[test]
 fn deliver_payload_parachute_directly_arms_landing_override() {
     use crate::game_logic::host_deliver_payload::{
         HostDeliverPayloadKind, SUPPLY_DROP_PARACHUTE_DIRECTLY,

@@ -37,7 +37,7 @@ impl<'a> CommandExecutor<'a> {
 
     // === Special Unit Abilities ===
 
-    pub(super) fn execute_hijack(
+    pub(crate) fn execute_hijack(
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
@@ -79,7 +79,12 @@ impl<'a> CommandExecutor<'a> {
             let can_issue = self
                 .game_logic
                 .host_object(unit_id)
-                .map(|unit| unit.is_alive() && unit.can_move() && unit.team != target_team)
+                .map(|unit| {
+                    unit.is_alive()
+                        && unit.can_move()
+                        && unit.team != target_team
+                        && unit.template_name.to_ascii_lowercase().contains("hijacker")
+                })
                 .unwrap_or(false);
             if !can_issue {
                 continue;
@@ -173,14 +178,14 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
-    pub(super) fn execute_convert_carbomb(
+    pub(crate) fn execute_convert_carbomb(
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> CommandResult {
         // C++ ConvertToCarBombCrateCollide: vehicle only (not aircraft/boat),
         // not already IS_CARBOMB. Neutral civilian cars are valid.
-        let (target_pos, target_ok) = match self.game_logic.host_object(target_id) {
+        let (target_pos, target_team, target_ok) = match self.game_logic.host_object(target_id) {
             Some(target) if target.is_alive() => {
                 let is_vehicle = target.is_kind_of(KindOf::Vehicle);
                 let is_airborne =
@@ -188,6 +193,7 @@ impl<'a> CommandExecutor<'a> {
                 let already_bomb = target.status.is_carbomb;
                 (
                     target.get_position(),
+                    target.team,
                     is_vehicle && !is_airborne && !already_bomb,
                 )
             }
@@ -204,7 +210,12 @@ impl<'a> CommandExecutor<'a> {
             let can_issue = self
                 .game_logic
                 .host_object(unit_id)
-                .map(|unit| unit.is_alive() && unit.can_move() && unit_id != target_id)
+                .map(|unit| {
+                    unit.is_alive()
+                        && unit.can_move()
+                        && unit_id != target_id
+                        && crate::game_logic::is_terrorist_template(&unit.template_name)
+                })
                 .unwrap_or(false);
             if !can_issue {
                 continue;
@@ -946,7 +957,14 @@ impl<'a> CommandExecutor<'a> {
             let can_issue = self
                 .game_logic
                 .host_object(unit_id)
-                .map(|unit| unit.is_alive() && is_bomb_truck_template(&unit.template_name))
+                .map(|unit| {
+                    unit.is_alive()
+                        && unit.can_move()
+                        && unit_id != target_id
+                        && crate::game_logic::host_terrorist::is_terrorist_template(
+                            &unit.template_name,
+                        )
+                })
                 .unwrap_or(false);
             if !can_issue {
                 continue;
