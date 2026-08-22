@@ -921,6 +921,7 @@ impl HostSpecialPowerStrikeRegistry {
             live_neutron_delivery: false,
             live_scud_delivery: false,
             live_carpet_delivery: false,
+            live_anthrax_delivery: false,
             manual_beam_hold: false,
         };
         // Once-at-queue multi-strike OCL residual: store epicenters + shell

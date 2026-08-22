@@ -308,6 +308,10 @@ pub struct HostSpecialPowerStrike {
     /// leftover scheduled live bombs, skip registry line-wave 300/50 (one path).
     #[serde(default)]
     pub live_carpet_delivery: bool,
+    /// C++ one FireWeaponWhenDead on the falling AnthraxBomb. When flight
+    /// leftover scheduled the cargo plane + bomb, skip registry 200/100 + toxin.
+    #[serde(default)]
+    pub live_anthrax_delivery: bool,
     /// C++ `initiateIntentToDoSpecialPower` `!COMMAND_FIRED_BY_SCRIPT`:
     /// human fire arms `m_manualTargetMode` so the beam holds the click
     /// instead of walking SwathOfDeath. Script-without-waypoint stays false.

@@ -18,6 +18,7 @@ impl GameLogic {
             .map(|(id, _)| *id)
             .collect();
         let mut drops: Vec<(Team, Vec3, ObjectId, AnthraxBombPayloadTier)> = Vec::new();
+        let mut leave = Vec::new();
         for id in tids {
             let Some(o) = self.objects.get_mut(&id) else {
                 continue;
@@ -26,7 +27,11 @@ impl GameLogic {
             let Some(data) = o.anthrax_bomb_transport.as_mut() else {
                 continue;
             };
-            let (new_pos, vel, over) = data.tick_transport(pos);
+            let should_drop = !data.delivery_complete && data.in_delivery_band(pos);
+            if should_drop {
+                data.delivery_complete = true;
+            }
+            let (new_pos, vel, at_exit) = data.tick_transport(pos);
             let target = data.target;
             let tier = data.tier;
             let _ = data;
@@ -35,12 +40,17 @@ impl GameLogic {
             if vel.length_squared() > 1e-6 {
                 o.set_orientation(vel.z.atan2(vel.x));
             }
-            if over {
+            if should_drop {
                 let team = o.team;
                 let producer = o.producer_id.unwrap_or(id);
-                o.anthrax_bomb_transport = None;
                 drops.push((team, target, producer, tier));
             }
+            if at_exit {
+                leave.push(id);
+            }
+        }
+        for id in leave {
+            self.mark_object_for_destruction(id, None);
         }
         for (team, target, producer, tier) in drops {
             let bomb = tier.bomb();
@@ -710,6 +720,32 @@ impl GameLogic {
         Some(mid)
     }
 
+    /// C++ GrantStealthBehavior.cpp:147-150 `TheGameLogic->destroyObject(self)`
+    /// after the FinalRadius scan. Invisible marker has no SlowDeath — hard-remove
+    /// like Frenzy DeletionUpdate teardown.
+    fn destroy_gps_scrambler_marker(&mut self, id: ObjectId) {
+        if !self
+            .objects
+            .get(&id)
+            .map(|o| o.gps_scrambler_marker)
+            .unwrap_or(false)
+        {
+            return;
+        }
+        if let Some(o) = self.objects.get_mut(&id) {
+            if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                let hp = o.health.current.max(1.0);
+                let oid = o.id;
+                crate::game_logic::host_damage_log::record(oid, hp, None, true);
+            } else {
+                o.health.current = 0.0;
+            }
+            o.status.destroyed = true;
+            o.status.effectively_dead = true;
+        }
+        self.mark_object_for_destruction(id, None);
+    }
+
     /// C++ GrantStealthBehavior radius grow pulse residual (Start 20 → Final 100).
     pub fn update_gps_scrambler_grow(&mut self) {
         use crate::game_logic::host_gps_scrambler::{
@@ -719,6 +755,7 @@ impl GameLogic {
         };
 
         // Collect grow work without holding registry mut across object mut.
+        let mut markers_to_destroy: Vec<ObjectId> = Vec::new();
         let work: Vec<(u32, Vec3, f32, Team, Option<ObjectId>, u32)> = {
             let mut out = Vec::new();
             for a in self.gps_scramblers.growing_missions_mut() {
@@ -726,15 +763,22 @@ impl GameLogic {
                     a.growing = false;
                     a.radius =
                         gps_scrambler_scan_radius_after_updates(a.grow_index.saturating_sub(1));
+                    if let Some(mid) = a.marker_id.take() {
+                        markers_to_destroy.push(mid);
+                    }
                     continue;
                 }
                 let radius = gps_scrambler_scan_radius_after_updates(a.grow_index);
                 a.radius = radius;
                 a.grow_index = a.grow_index.saturating_add(1);
-                if gps_scrambler_grow_is_final(a.grow_index.saturating_sub(1))
-                    || a.grow_index >= GPS_SCRAMBLER_GROW_UPDATES_TO_FINAL
-                {
+                let this_is_final = gps_scrambler_grow_is_final(a.grow_index.saturating_sub(1))
+                    || a.grow_index >= GPS_SCRAMBLER_GROW_UPDATES_TO_FINAL;
+                if this_is_final {
                     a.growing = false;
+                    // C++ GrantStealthBehavior.cpp:147-150 after the FinalRadius scan.
+                    if let Some(mid) = a.marker_id.take() {
+                        markers_to_destroy.push(mid);
+                    }
                 }
                 let team = a
                     .caster_id
@@ -823,6 +867,11 @@ impl GameLogic {
                     self.gps_scramblers.grant_count.saturating_add(grants);
             }
             let _ = caster_id;
+        }
+
+        // C++ GrantStealthBehavior.cpp:147-150 destroyObject after the final scan.
+        for mid in markers_to_destroy {
+            self.destroy_gps_scrambler_marker(mid);
         }
     }
 

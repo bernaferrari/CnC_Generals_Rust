@@ -1,10 +1,10 @@
-//! Host GLA Angry Mob residual (nexus damages nearby enemies / SpawnBehavior members).
+//! Host GLA Angry Mob residual (SpawnBehavior members fire independently).
 //!
 //! Residual slice (playability):
 //! - `GLAInfantryAngryMobNexus` (and Chem_/Demo_/Slth_ / Boss_ variants) is the
-//!   playable residual "mob" unit. It continuously damages nearby enemies inside
-//!   residual AttackRange, representing aggregate fire from SpawnBehavior members
-//!   (pistol / rock / molotov residual).
+//!   playable residual "mob" unit. Each live member independently attacks one
+//!   closest victim inside residual AttackRange (C++ MobMemberSlavedUpdate
+//!   `getNextMoodTarget` + `aiAttackObject`) — not full stack on every hostile.
 //! - **SpawnBehavior residual**: rapid-spawns all `SpawnNumber = 10` members, then
 //!   `SpawnReplaceDelay = 30000` ms replacements on death. `member_count` tracks
 //!   live members (DPS shrinks as they die). Last member death destroys the nexus
@@ -263,8 +263,9 @@ pub fn is_angry_mob_nexus_template(template_name: &str) -> bool {
 
 /// Whether residual target can take Angry Mob damage.
 ///
-/// Retail members fire on ENEMIES (and neutrals via RadiusDamageAffects). Residual:
-/// alive non-self enemy/neutral combat kinds, not under construction.
+/// C++ members auto-acquire ENEMIES only (`getNextMoodTarget` →
+/// `findClosestEnemy`, AIUpdate.cpp:4619; MobMemberSlavedUpdate.cpp:300).
+/// Residual: alive non-self enemy combat kinds, not under construction.
 pub fn is_legal_angry_mob_damage_target(
     is_alive: bool,
     same_team: bool,
@@ -282,30 +283,133 @@ pub fn in_angry_mob_range_2d(mob_pos: (f32, f32), target_pos: (f32, f32), range:
     dx * dx + dy * dy <= range * range
 }
 
-/// True when mob team vs target is residual-hostile (enemy) or Neutral victim.
+/// Retail GLAAngryMobPistol/Rock/Molotov: AntiAirborneVehicle/Infantry = No.
+/// C++ WeaponTemplate ctor `m_antiMask = WEAPON_ANTI_GROUND` (Weapon.cpp:287).
+pub const ANGRY_MOB_ANTI_AIR: bool = false;
+/// C++ `WEAPON_ANTI_GROUND` — leftover `get_victim_anti_mask` overlap bit.
+pub const ANGRY_MOB_WEAPON_ANTI_MASK: u32 = 0x02;
+
+/// C++ `getVictimAntiMask` airborne path plus live Aircraft residual.
+/// `PartitionFilterPossibleToAttack` AntiAir=No cannot engage these.
+pub fn is_angry_mob_air_target(is_aircraft: bool, airborne_target: bool) -> bool {
+    is_aircraft || airborne_target
+}
+
+/// Residual PossibleToAttack: GROUND-only weapons skip air victims.
+/// Wires leftover `get_victim_anti_mask` / live `weapon_target_anti_mask`.
+pub fn angry_mob_possible_to_attack(
+    is_aircraft: bool,
+    airborne_target: bool,
+    victim_anti_mask: u32,
+) -> bool {
+    if !ANGRY_MOB_ANTI_AIR && is_angry_mob_air_target(is_aircraft, airborne_target) {
+        return false;
+    }
+    (victim_anti_mask & ANGRY_MOB_WEAPON_ANTI_MASK) != 0
+}
+
+/// True when mob vs target is C++ ENEMIES. Neutral (oil derricks) is not hostile.
 pub fn is_angry_mob_hostile_team(
     mob_team_is_neutral: bool,
     same_team: bool,
     target_is_neutral: bool,
 ) -> bool {
-    if mob_team_is_neutral {
+    if mob_team_is_neutral || target_is_neutral {
         return false;
     }
-    !same_team || target_is_neutral
+    !same_team
 }
 
-/// Residual damage for one fire tick given **live** member count and ArmTheMob.
-/// C++ aggregate fire scales with `m_spawnCount`; dead members do not contribute.
-pub fn angry_mob_damage_for_tick(member_count: u32, armed: bool) -> f32 {
-    if member_count == 0 {
-        return 0.0;
-    }
-    let base = ANGRY_MOB_DAMAGE_PER_MEMBER_TICK * member_count as f32;
+/// Per-member residual fire (C++ one victim per member).
+pub fn angry_mob_damage_per_member(armed: bool) -> f32 {
     if armed {
-        base * ANGRY_MOB_ARMED_DAMAGE_MULT
+        ANGRY_MOB_DAMAGE_PER_MEMBER_TICK * ANGRY_MOB_ARMED_DAMAGE_MULT
     } else {
-        base
+        ANGRY_MOB_DAMAGE_PER_MEMBER_TICK
     }
+}
+
+/// Residual damage if every live member independently hits the **same** victim.
+/// C++ scales with `m_spawnCount`; dead members do not contribute.
+pub fn angry_mob_damage_for_tick(member_count: u32, armed: bool) -> f32 {
+    angry_mob_damage_per_member(armed) * member_count as f32
+}
+
+fn angry_mob_dist2_xz(a: Vec3, b: Vec3) -> f32 {
+    let dx = a.x - b.x;
+    let dz = a.z - b.z;
+    dx * dx + dz * dz
+}
+
+/// C++ MobMemberSlavedUpdate.cpp:300-304: each member independently
+/// `getNextMoodTarget` (findClosestEnemy from that member) + `aiAttackObject`.
+/// Same victim may be chosen by several members; distinct victims never each
+/// take the full member-stack.
+pub fn assign_angry_mob_member_hits(
+    mob_id: ObjectId,
+    nexus_pos: Vec3,
+    member_origins: &[Vec3],
+    victims: &[(ObjectId, Vec3)],
+    armed: bool,
+) -> Vec<HostAngryMobDamageHit> {
+    if member_origins.is_empty() || victims.is_empty() {
+        return Vec::new();
+    }
+    let per = angry_mob_damage_per_member(armed);
+    let mut stacked: Vec<(ObjectId, f32)> = Vec::new();
+    for &origin in member_origins {
+        let Some(&(vid, _)) = victims.iter().min_by(|a, b| {
+            let da = angry_mob_dist2_xz(origin, a.1);
+            let db = angry_mob_dist2_xz(origin, b.1);
+            da.partial_cmp(&db)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.0.0.cmp(&b.0.0))
+        }) else {
+            break;
+        };
+        if let Some(entry) = stacked.iter_mut().find(|e| e.0 == vid) {
+            entry.1 += per;
+        } else {
+            stacked.push((vid, per));
+        }
+    }
+    stacked.sort_by(|a, b| {
+        let pa = victims
+            .iter()
+            .find(|v| v.0 == a.0)
+            .map(|v| v.1)
+            .unwrap_or(nexus_pos);
+        let pb = victims
+            .iter()
+            .find(|v| v.0 == b.0)
+            .map(|v| v.1)
+            .unwrap_or(nexus_pos);
+        angry_mob_dist2_xz(nexus_pos, pa)
+            .partial_cmp(&angry_mob_dist2_xz(nexus_pos, pb))
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.0.0.cmp(&b.0.0))
+    });
+    stacked
+        .into_iter()
+        .map(|(target_id, damage)| HostAngryMobDamageHit {
+            target_id,
+            damage,
+            mob_id,
+        })
+        .collect()
+}
+
+/// C++ `PartitionFilterStealthedAndUndetected(me, false)` reject.
+/// Leftover `PartitionFilterStealthedAndUndetected` already matches C++
+/// (`partition_filters.rs`). Live residual applies the same predicate as
+/// `Object::is_effectively_stealthed`: STEALTHED && !DETECTED && !DISGUISED.
+#[inline]
+pub fn angry_mob_skips_stealthed_undetected(
+    stealthed: bool,
+    detected: bool,
+    disguised: bool,
+) -> bool {
+    stealthed && !detected && !disguised
 }
 
 /// C++ SpawnBehavior::computeAggregateStates sets OBJECT_STATUS_MASKED
@@ -692,11 +796,15 @@ impl HostAngryMobRegistry {
 
     /// Plan damage ticks for all mobs due this frame.
     ///
-    /// `candidates`: (id, pos, team, alive, legal_combat_kind, under_construction)
+    /// `candidates`: (id, pos, team, alive, legal_combat_kind,
+    /// under_construction, stealthed_undetected)
+    ///
+    /// C++ each member attacks one victim. After filters, assign independently
+    /// (closest from member/orbit origin) — do not apply 4*N to every hostile.
     pub fn plan_due_ticks(
         &self,
         current_frame: u32,
-        candidates: &[(ObjectId, Vec3, super::Team, bool, bool, bool)],
+        candidates: &[(ObjectId, Vec3, super::Team, bool, bool, bool, bool)],
         armed_by_team: impl Fn(super::Team) -> bool,
     ) -> Vec<HostAngryMobTickPlan> {
         let mut plans = Vec::new();
@@ -705,10 +813,11 @@ impl HostAngryMobRegistry {
                 continue;
             }
             let armed = armed_by_team(mob.team);
-            let damage = angry_mob_damage_for_tick(mob.member_count, armed);
             let mob_neutral = mob.team == super::Team::Neutral;
-            let mut hits = Vec::new();
-            for &(id, pos, team, alive, combat_kind, under_construction) in candidates {
+            let mut victims: Vec<(ObjectId, Vec3)> = Vec::new();
+            for &(id, pos, team, alive, combat_kind, under_construction, stealthed_undetected) in
+                candidates
+            {
                 if id == mob.object_id {
                     continue;
                 }
@@ -733,12 +842,35 @@ impl HostAngryMobRegistry {
                 ) {
                     continue;
                 }
-                hits.push(HostAngryMobDamageHit {
-                    target_id: id,
-                    damage,
-                    mob_id: mob.object_id,
-                });
+                // C++ PartitionFilterStealthedAndUndetected(me, false).
+                if stealthed_undetected {
+                    continue;
+                }
+                victims.push((id, pos));
             }
+            let mut origins = Vec::with_capacity(mob.member_count as usize);
+            for slot in 0..mob.member_count {
+                let origin = mob
+                    .member_ids
+                    .get(slot as usize)
+                    .and_then(|mid| {
+                        candidates
+                            .iter()
+                            .find(|(id, ..)| *id == *mid)
+                            .map(|c| c.1)
+                    })
+                    .unwrap_or_else(|| {
+                        angry_mob_member_orbit_destination(mob.position, slot)
+                    });
+                origins.push(origin);
+            }
+            let hits = assign_angry_mob_member_hits(
+                mob.object_id,
+                mob.position,
+                &origins,
+                &victims,
+                armed,
+            );
             plans.push(HostAngryMobTickPlan {
                 mob_id: mob.object_id,
                 source_team: mob.team,
@@ -875,6 +1007,15 @@ pub fn honesty_angry_mob_weapon_residual_ok() -> bool {
         && ANGRY_MOB_FIRE_AUDIO == "AngryMobWeaponPistol"
         && (angry_mob_damage_for_tick(5, false) - 20.0).abs() < 0.01
         && (angry_mob_damage_for_tick(5, true) - 25.0).abs() < 0.01
+        && !ANGRY_MOB_ANTI_AIR
+        && ANGRY_MOB_WEAPON_ANTI_MASK == 0x02
+        && !angry_mob_possible_to_attack(true, false, 0x02)
+        && !angry_mob_possible_to_attack(false, true, 0x01)
+        && angry_mob_possible_to_attack(false, false, 0x02)
+        && angry_mob_skips_stealthed_undetected(true, false, false)
+        && !angry_mob_skips_stealthed_undetected(true, true, false)
+        && !angry_mob_skips_stealthed_undetected(true, false, true)
+        && !angry_mob_skips_stealthed_undetected(false, false, false)
 }
 
 /// Wave 69 residual honesty: nexus body residual peel.
@@ -980,7 +1121,7 @@ mod tests {
         assert!(in_angry_mob_range_2d((0.0, 0.0), (50.0, 0.0), 100.0));
         assert!(!in_angry_mob_range_2d((0.0, 0.0), (150.0, 0.0), 100.0));
         assert!(is_angry_mob_hostile_team(false, false, false));
-        assert!(is_angry_mob_hostile_team(false, false, true));
+        assert!(!is_angry_mob_hostile_team(false, false, true));
         assert!(!is_angry_mob_hostile_team(false, true, false));
         assert!(!is_angry_mob_hostile_team(true, false, false));
     }
@@ -1014,13 +1155,14 @@ mod tests {
         assert_eq!(reg.member_count_of(mob_id), Some(ANGRY_MOB_MAX_MEMBERS));
 
         let candidates = vec![
-            (mob_id, Vec3::ZERO, Team::GLA, true, true, false),
+            (mob_id, Vec3::ZERO, Team::GLA, true, true, false, false),
             (
                 enemy_id,
                 Vec3::new(50.0, 0.0, 0.0),
                 Team::USA,
                 true,
                 true,
+                false,
                 false,
             ),
             (
@@ -1029,6 +1171,7 @@ mod tests {
                 Team::USA,
                 true,
                 true,
+                false,
                 false,
             ),
         ];

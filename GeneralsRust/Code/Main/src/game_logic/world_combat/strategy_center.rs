@@ -1286,6 +1286,7 @@ impl GameLogic {
         use crate::game_logic::host_emp_pulse::{
             emp_skip_ground_when_airborne_only, in_emp_pulse_radius_from_bounding_sphere_3d,
             leftover_emp_bounding_sphere_radius, should_emp_kill_airborne,
+            should_emp_skip_hardened_airborne,
         };
         // C++ EMPUpdate.cpp:164-175 / 198-201 — producer AI victim airborne.
         let only_effect_airborne = intended_target
@@ -1318,10 +1319,15 @@ impl GameLogic {
                 let is_structure = obj.is_kind_of(KindOf::Structure);
                 let is_own_structure =
                     is_emp_own_building(is_structure, source_owner, obj.owner_player_id);
-                let is_faction_structure = is_structure
-                    && (obj.team == Team::USA || obj.team == Team::China || obj.team == Team::GLA);
+                // C++ isFactionStructure = any KINDOFMASK_FS bit, not current team.
+                // Captured derricks/tech stay non-FS and must not freeze.
+                let is_faction_structure = is_structure && obj.is_faction_structure();
                 if should_emp_kill_airborne(is_aircraft, is_airborne, emp_hardened) {
                     return Some((*id, true, false));
+                }
+                // C++ EMPUpdate.cpp:240-241 — EMP_HARDENED airborne continue.
+                if should_emp_skip_hardened_airborne(is_aircraft, is_airborne, emp_hardened) {
+                    return None;
                 }
                 if !is_legal_supw_patriot_emp_target(
                     is_vehicle,

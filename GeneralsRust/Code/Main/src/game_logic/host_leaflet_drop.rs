@@ -20,7 +20,7 @@
 //!
 //! Fail-closed honesty:
 //! - Not full OCL AmericaJetB52 / LeafletContainer drawable / LeafletFX particles
-//! - Not full relationship matrix beyond residual enemy-team filter
+//! - Not full relationship matrix beyond player ENEMIES (C++ getRelationship)
 //! - Not EarlyLeafletDrop science shortcut timer matrix
 //! - Not network leaflet replication (network deferred)
 

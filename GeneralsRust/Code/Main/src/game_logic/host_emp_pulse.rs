@@ -126,9 +126,9 @@ pub const EMP_HARDENED_NAME_MARKERS: &[&str] = &[
 /// Retail EMPUpdate::doDisableAttack:
 /// - VEHICLE, STRUCTURE (faction only), SPAWNS_ARE_THE_WEAPONS
 /// - Not infantry (unless SPAWNS_ARE_THE_WEAPONS)
-/// - KINDOF_EMP_HARDENED is consulted only on the airborne-aircraft kill
-///   branch (`should_emp_kill_airborne`). Ground hardened vehicles/structures
-///   still receive `setDisabledUntil(DISABLED_EMP, …)`.
+/// - KINDOF_EMP_HARDENED is consulted only on the airborne-aircraft branch
+///   (`should_emp_kill_airborne` / `should_emp_skip_hardened_airborne`).
+///   Ground hardened vehicles/structures
 /// - C++ has no under-construction skip.
 pub fn is_legal_emp_disable_target(
     is_vehicle: bool,
@@ -146,13 +146,24 @@ pub fn is_legal_emp_disable_target(
 
 /// True when residual EMP should kill instead of disable (airborne aircraft).
 ///
-/// C++: KINDOF_AIRCRAFT && isAirborneTarget && !KINDOF_EMP_HARDENED → kill.
+/// C++ EMPUpdate.cpp:231-249: KINDOF_AIRCRAFT && isAirborneTarget &&
+/// !KINDOF_EMP_HARDENED → kill. Hardened airborne `continue` (no disable).
 pub fn should_emp_kill_airborne(
     is_aircraft: bool,
     is_airborne: bool,
     is_emp_hardened: bool,
 ) -> bool {
     is_aircraft && is_airborne && !is_emp_hardened
+}
+
+/// C++ EMPUpdate.cpp:240-241 — airborne EMP_HARDENED aircraft `continue`
+/// (neither kill nor `setDisabledUntil(DISABLED_EMP)`).
+pub fn should_emp_skip_hardened_airborne(
+    is_aircraft: bool,
+    is_airborne: bool,
+    is_emp_hardened: bool,
+) -> bool {
+    is_aircraft && is_airborne && is_emp_hardened
 }
 
 /// C++ EMPUpdate.cpp Patch 1.01 (`onlyEffectAirborne`): when the producer's
@@ -623,6 +634,10 @@ mod tests {
         assert!(!emp_skip_ground_when_airborne_only(false, true));
         assert!(!should_emp_kill_airborne(true, false, false));
         assert!(!should_emp_kill_airborne(true, true, true));
+        assert!(should_emp_skip_hardened_airborne(true, true, true));
+        assert!(!should_emp_skip_hardened_airborne(true, true, false));
+        assert!(!should_emp_skip_hardened_airborne(true, false, true));
+        assert!(!should_emp_skip_hardened_airborne(false, true, true));
         assert!(!should_emp_kill_airborne(false, true, false));
         assert!(in_emp_pulse_radius_2d((0.0, 0.0), (100.0, 0.0), 200.0));
         assert!(!in_emp_pulse_radius_2d((0.0, 0.0), (250.0, 0.0), 200.0));

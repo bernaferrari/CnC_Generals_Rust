@@ -1560,19 +1560,29 @@ impl GameLogic {
         }
 
         // Candidates for residual aggregate fire.
-        let candidates: Vec<(ObjectId, Vec3, Team, bool, bool, bool)> = self
+        // C++ member weapons AntiAir=No (`Weapon.cpp:287` WEAPON_ANTI_GROUND).
+        // Leftover `get_victim_anti_mask` already matches; live
+        // `weapon_target_anti_mask` is the same exclusive mask. KindOf::Aircraft
+        // is residual-air so jets without AIRBORNE_TARGET still miss.
+        use crate::game_logic::host_angry_mob::angry_mob_possible_to_attack;
+        let candidates: Vec<(ObjectId, Vec3, Team, bool, bool, bool, bool)> = self
             .objects
             .iter()
             .map(|(id, obj)| {
-                let combat_kind = obj.is_kind_of(KindOf::Attackable)
-                    || obj.is_kind_of(KindOf::Structure)
-                    || obj.is_kind_of(KindOf::Infantry)
-                    || obj.is_kind_of(KindOf::Vehicle)
-                    || obj.is_kind_of(KindOf::Aircraft)
-                    || obj.object_type == ObjectType::Building
-                    || obj.object_type == ObjectType::Infantry
-                    || obj.object_type == ObjectType::Vehicle
-                    || obj.object_type == ObjectType::Aircraft;
+                let air_ok = angry_mob_possible_to_attack(
+                    obj.is_kind_of(KindOf::Aircraft)
+                        || obj.object_type == ObjectType::Aircraft,
+                    obj.status.airborne_target,
+                    obj.weapon_target_anti_mask(),
+                );
+                let combat_kind = air_ok
+                    && (obj.is_kind_of(KindOf::Attackable)
+                        || obj.is_kind_of(KindOf::Structure)
+                        || obj.is_kind_of(KindOf::Infantry)
+                        || obj.is_kind_of(KindOf::Vehicle)
+                        || obj.object_type == ObjectType::Building
+                        || obj.object_type == ObjectType::Infantry
+                        || obj.object_type == ObjectType::Vehicle);
                 (
                     *id,
                     obj.get_position(),
@@ -1580,6 +1590,11 @@ impl GameLogic {
                     obj.is_alive(),
                     combat_kind,
                     obj.status.under_construction,
+                    crate::game_logic::host_angry_mob::angry_mob_skips_stealthed_undetected(
+                        obj.status.stealthed,
+                        obj.status.detected,
+                        obj.status.disguised,
+                    ),
                 )
             })
             .collect();
@@ -1596,7 +1611,13 @@ impl GameLogic {
             .angry_mobs
             .plan_due_ticks(frame, &candidates, |team| armed_teams.contains(&team));
 
-        for plan in plans {
+        for mut plan in plans {
+            plan.hits.retain(|hit| {
+                self.objects
+                    .get(&hit.target_id)
+                    .map(|o| o.is_alive() && !o.is_effectively_stealthed())
+                    .unwrap_or(false)
+            });
             let mut total_damage = 0.0_f32;
             let mut applications = 0_u32;
             let mut destroyed = 0_u32;
@@ -1628,7 +1649,7 @@ impl GameLogic {
 
             for hit in &plan.hits {
                 if let Some(target) = self.objects.get_mut(&hit.target_id) {
-                    if !target.is_alive() {
+                    if !target.is_alive() || target.is_effectively_stealthed() {
                         continue;
                     }
                     if audio_pos.is_none() {

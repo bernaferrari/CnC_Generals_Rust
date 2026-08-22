@@ -20,11 +20,11 @@ pub use super::host_ambush::{
     AMBUSH_RESIDUAL_TEMPLATE, AMBUSH_SPAWN_RADIUS, GLA_AMBUSH1_UNIT_COUNT,
 };
 pub use super::host_angry_mob::{
-    angry_mob_damage_for_tick, is_angry_mob_nexus_template, is_legal_angry_mob_damage_target,
-    HostAngryMobRegistry, HostAngryMobState, ANGRY_MOB_ATTACK_RANGE,
-    ANGRY_MOB_DAMAGE_PER_MEMBER_TICK, ANGRY_MOB_EXPAND_INTERVAL_FRAMES, ANGRY_MOB_INITIAL_MEMBERS,
-    ANGRY_MOB_MAX_MEMBERS, ANGRY_MOB_RESIDUAL_WEAPON, ANGRY_MOB_TICK_INTERVAL_FRAMES,
-    UPGRADE_GLA_ARM_THE_MOB,
+    angry_mob_damage_for_tick, angry_mob_skips_stealthed_undetected, is_angry_mob_nexus_template,
+    is_legal_angry_mob_damage_target, HostAngryMobRegistry, HostAngryMobState,
+    ANGRY_MOB_ATTACK_RANGE, ANGRY_MOB_DAMAGE_PER_MEMBER_TICK, ANGRY_MOB_EXPAND_INTERVAL_FRAMES,
+    ANGRY_MOB_INITIAL_MEMBERS, ANGRY_MOB_MAX_MEMBERS, ANGRY_MOB_RESIDUAL_WEAPON,
+    ANGRY_MOB_TICK_INTERVAL_FRAMES, UPGRADE_GLA_ARM_THE_MOB,
 };
 pub use super::host_armor_residual::honesty_armor_residual_expand_wave103;
 pub use super::host_armor_residual::honesty_armor_residual_expand_wave92;

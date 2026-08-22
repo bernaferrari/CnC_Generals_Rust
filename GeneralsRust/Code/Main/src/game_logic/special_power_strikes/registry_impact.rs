@@ -144,10 +144,12 @@ impl HostSpecialPowerStrikeRegistry {
 
             // C++ AttackNugget leftover: flying missiles own ScudStormDamageWeapon.
             // C++ one CarpetBombWeapon per drop: falling bombs own the blast.
+            // C++ one FireWeaponWhenDead on AnthraxBomb: falling bomb owns 200/100 + toxin.
             // Registry blob is fallback only when leftover did not schedule.
             let mut hits = Vec::new();
             if !(strike.kind.is_scud_multi_strike() && strike.live_scud_delivery)
                 && !(strike.kind.is_line_multi_strike() && strike.live_carpet_delivery)
+                && !(strike.kind == HostSuperweaponKind::AnthraxBomb && strike.live_anthrax_delivery)
             {
                 for &(id, pos, team, alive) in object_positions {
                     if !alive || id == strike.source_object {
@@ -515,7 +517,11 @@ impl HostSpecialPowerStrikeRegistry {
                         ));
                     }
                     // AnthraxBomb toxin (not Scud — Scud already spawned per-missile).
-                    if strike.kind.spawns_toxin_field() && !strike.kind.spawns_scud_poison_field() {
+                    // Live falling bomb leftover owns OCL_PoisonFieldAnthraxBomb.
+                    if strike.kind.spawns_toxin_field()
+                        && !strike.kind.spawns_scud_poison_field()
+                        && !strike.live_anthrax_delivery
+                    {
                         spawn_toxin = Some((
                             strike.source_object,
                             strike.source_team,

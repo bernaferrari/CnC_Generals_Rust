@@ -192,8 +192,16 @@ impl GameLogic {
             let _ = self.spawn_daisy_cutter_flight(source_object, target_position, tier);
         }
         // C++ AnthraxBomb DeliverPayload residual (GLAJetCargoPlane + bomb).
+        // C++ one FireWeaponWhenDead — flight leftover owns the blast + toxin.
         if kind == HostSuperweaponKind::AnthraxBomb {
-            let _ = self.spawn_anthrax_bomb_flight(source_object, target_position);
+            if self
+                .spawn_anthrax_bomb_flight(source_object, target_position)
+                .is_some()
+            {
+                if let Some(s) = self.special_power_strikes.get_mut(id) {
+                    s.live_anthrax_delivery = true;
+                }
+            }
         }
         // C++ OCL FireWeaponNugget / AttackNugget residual (Neutron / Cruise / ScudStorm).
         if let Some(nugget) =
@@ -489,13 +497,19 @@ impl GameLogic {
 
             // C++ one SlowDeath on the flying missile — no registry instant blast.
             // C++ A10 is OCL jets + per-missile FX — no DeathExplosion at the click.
+            // C++ one FireWeaponWhenDead on AnthraxBomb — flight leftover owns FX.
             let skip_registry_nuke_blast = plan.kind.spawns_radiation()
                 && self
                     .special_power_strikes
                     .get(plan.strike_id)
                     .is_some_and(|s| s.live_neutron_delivery);
             let skip_a10_consolidated_blast = plan.kind == HostSuperweaponKind::A10Strike;
-            if !skip_registry_nuke_blast && !skip_a10_consolidated_blast {
+            let skip_anthrax_live_blast = plan.kind == HostSuperweaponKind::AnthraxBomb
+                && self
+                    .special_power_strikes
+                    .get(plan.strike_id)
+                    .is_some_and(|s| s.live_anthrax_delivery);
+            if !skip_registry_nuke_blast && !skip_a10_consolidated_blast && !skip_anthrax_live_blast {
                 // Impact feedback residual: explosion particle + audio at epicenter.
                 let _ = self.combat_particles.spawn(
                     CombatParticleKind::DeathExplosion,

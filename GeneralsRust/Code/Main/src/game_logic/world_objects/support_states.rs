@@ -91,6 +91,17 @@ fn apply_rider_change_locomotor_binding(
     crate::game_logic::locomotor_bootstrap::apply_host_locomotor_binding(container, binding);
 }
 
+/// C++ `SpecialAbilityUpdate::startPacking` / `onExit` always drop
+/// `MODELCONDITION_RAISING_FLAG` so infantry capturers leave the flag pose.
+fn clear_raising_flag_model(object: &mut Object) {
+    use crate::game_logic::host_enum_table_residual::raising_flag_model_bit;
+    let bit = 1u128 << raising_flag_model_bit();
+    if object.model_condition_bits & bit != 0 {
+        object.model_condition_bits &= !bit;
+        object.record_host_model_condition();
+    }
+}
+
 enum LeftoverSaTick {
     Waiting,
     Trigger,
@@ -108,7 +119,12 @@ impl GameLogic {
             object.capture_channel = None;
             object.set_status_using_ability(false);
             object.set_target(None);
+            clear_raising_flag_model(object);
         }
+        self.leftover_sa_set_pack_model(object_id, false, false, false);
+        // C++ shouldAbort: aiIdle(CMD_FROM_AI) then onExit. Pack-abort
+        // without a replacement order must leave the source Idle.
+        self.set_ai_state_decision_aware(object_id, AIState::Idle);
         self.hero_abilities.clear_capture_flash(object_id);
     }
 
@@ -120,7 +136,11 @@ impl GameLogic {
             object.capture_channel = None;
             object.set_status_using_ability(false);
             object.set_target(None);
+            clear_raising_flag_model(object);
         }
+        self.leftover_sa_set_pack_model(object_id, false, false, false);
+        // C++ handlePackingProcessing pack-complete → finishAbility → aiIdle.
+        self.set_ai_state_decision_aware(object_id, AIState::Idle);
         self.hero_abilities.clear_capture_flash(object_id);
     }
 
@@ -130,7 +150,9 @@ impl GameLogic {
         if let Some(object) = self.objects.get_mut(&object_id) {
             object.capture_channel = None;
             object.set_status_using_ability(false);
+            clear_raising_flag_model(object);
         }
+        self.leftover_sa_set_pack_model(object_id, false, false, false);
         self.hero_abilities.clear_capture_flash(object_id);
     }
 
@@ -317,7 +339,7 @@ impl GameLogic {
         firing_a: bool,
     ) {
         use crate::game_logic::host_enum_table_residual::{
-            firing_a_model_bit, packing_model_bit, unpacking_model_bit,
+            firing_a_model_bit, packing_model_bit, raising_flag_model_bit, unpacking_model_bit,
         };
         let Some(object) = self.objects.get_mut(&object_id) else {
             return;
@@ -326,6 +348,8 @@ impl GameLogic {
         object.model_condition_bits &= !(1u128 << unpacking_model_bit());
         object.model_condition_bits &= !(1u128 << packing_model_bit());
         object.model_condition_bits &= !(1u128 << firing_a_model_bit());
+        // C++ startPacking/onExit always clear RAISING_FLAG.
+        object.model_condition_bits &= !(1u128 << raising_flag_model_bit());
         if unpacking {
             object.model_condition_bits |= 1u128 << unpacking_model_bit();
         }
@@ -364,6 +388,118 @@ impl GameLogic {
                 .with_priority(150),
         );
     }
+
+    /// C++ `SpecialAbilityUpdate::startUnpacking` / `startPacking` audio.
+    /// Authored PackSound/UnpackSound first; Lotus falls back to retail
+    /// `BlackLotusPack` / `BlackLotusUnpack` when the module omitted them.
+    fn queue_capture_pack_unpack_sound(
+        &mut self,
+        object_id: ObjectId,
+        power: crate::game_logic::CapturePowerKind,
+        packing: bool,
+    ) {
+        let authored = self.objects.get(&object_id).and_then(|object| {
+            if packing {
+                object.thing.template.capture_pack_sound.clone()
+            } else {
+                object.thing.template.capture_unpack_sound.clone()
+            }
+        });
+        let name = authored.or_else(|| {
+            if matches!(power, crate::game_logic::CapturePowerKind::BlackLotus) {
+                Some(if packing {
+                    crate::game_logic::host_hero_abilities::LOTUS_PACK_SOUND.to_string()
+                } else {
+                    crate::game_logic::host_hero_abilities::LOTUS_UNPACK_SOUND.to_string()
+                })
+            } else {
+                None
+            }
+        });
+        let Some(name) = name.filter(|name| !name.is_empty()) else {
+            return;
+        };
+        self.queue_audio_event(
+            AudioEventRequest::new(&name)
+                .with_object(object_id)
+                .with_priority(150),
+        );
+    }
+
+    /// C++ `startPacking(success)` VoiceCaptureBuildingComplete / VoiceTaskComplete.
+    /// Never queues the slot token; skip when the authored event is empty.
+    fn queue_capture_task_complete_voice(
+        &mut self,
+        object_id: ObjectId,
+        power: crate::game_logic::CapturePowerKind,
+    ) {
+        let Some(template_name) = self
+            .objects
+            .get(&object_id)
+            .map(|object| object.thing.template.name.clone())
+        else {
+            return;
+        };
+        let event = match power {
+            crate::game_logic::CapturePowerKind::BlackLotus => {
+                crate::game_logic::audio_dispatch_impl::resolve_per_unit_sound(
+                    &template_name,
+                    "VoiceCaptureBuildingComplete",
+                )
+            }
+            _ => crate::game_logic::audio_dispatch_impl::resolve_per_unit_sound(
+                &template_name,
+                "VoiceTaskComplete",
+            )
+            .or_else(|| {
+                let factory =
+                    game_engine::common::thing::thing_factory::try_get_thing_factory()?;
+                let factory = factory.as_ref()?;
+                let tmpl = factory.find_template(&template_name, false)?;
+                tmpl.get_voice_task_complete().and_then(|event| {
+                    let name = event.get_event_name();
+                    if name.is_empty() {
+                        None
+                    } else {
+                        Some(name.to_string())
+                    }
+                })
+            }),
+        };
+        let Some(event) = event else {
+            return;
+        };
+        self.queue_audio_event(
+            AudioEventRequest::new(&event)
+                .with_object(object_id)
+                .with_priority(150),
+        );
+    }
+
+    /// C++ `startUnpacking`: UNPACKING + UnpackSound.
+    fn begin_capture_unpacking_pose(
+        &mut self,
+        object_id: ObjectId,
+        power: crate::game_logic::CapturePowerKind,
+    ) {
+        self.leftover_sa_set_pack_model(object_id, true, false, false);
+        self.queue_capture_pack_unpack_sound(object_id, power, false);
+    }
+
+    /// C++ `startPacking(success)`: PACKING + PackSound + VoiceTaskComplete.
+    fn begin_capture_packing_pose(
+        &mut self,
+        object_id: ObjectId,
+        power: crate::game_logic::CapturePowerKind,
+        success: bool,
+    ) {
+        self.leftover_sa_set_pack_model(object_id, false, true, false);
+        self.queue_capture_pack_unpack_sound(object_id, power, true);
+        if success {
+            self.queue_capture_task_complete_voice(object_id, power);
+        }
+    }
+
 
     fn leftover_sa_flip_orientation(&mut self, object_id: ObjectId) {
         if let Some(object) = self.objects.get_mut(&object_id) {
@@ -4220,6 +4356,7 @@ impl GameLogic {
                                             unpack_time_ms,
                                         ));
                                 }
+                                self.begin_capture_unpacking_pose(object_id, capture_power);
 
                                 continue;
                             }
@@ -4393,6 +4530,8 @@ impl GameLogic {
                         if object.is_alive() {
                             object.stop_moving();
                             object.set_status_using_ability(false);
+                            // C++ startPacking: clear UNPACKING|RAISING_FLAG, set PACKING.
+                            clear_raising_flag_model(object);
                             object.capture_channel =
                                 Some(crate::game_logic::CaptureChannelState::new(
                                     crate::game_logic::CaptureChannelPhase::Packing,
@@ -4405,6 +4544,14 @@ impl GameLogic {
                             object.set_ai_state(AIState::Capturing);
                         }
                     }
+                    if self.objects.get(&object_id).is_some_and(|object| {
+                        object.is_alive()
+                            && object.capture_channel.map(|channel| channel.phase)
+                                == Some(crate::game_logic::CaptureChannelPhase::Packing)
+                    }) {
+                        self.begin_capture_packing_pose(object_id, capture_power, true);
+                    }
+
                     if pack_time_ms == 0 {
                         self.finish_capture_channel(object_id);
                     }

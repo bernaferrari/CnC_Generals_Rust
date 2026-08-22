@@ -999,6 +999,7 @@ impl GameWorldShadow {
                         e.anthrax_transport_launch_x = d.launch.x;
                         e.anthrax_transport_launch_y = d.launch.y;
                         e.anthrax_transport_launch_z = d.launch.z;
+                        e.anthrax_delivery_complete = d.delivery_complete;
                     } else {
                         e.anthrax_transport_active = false;
                     }

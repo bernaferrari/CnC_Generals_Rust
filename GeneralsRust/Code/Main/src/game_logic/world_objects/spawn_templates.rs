@@ -3409,6 +3409,9 @@ impl GameLogic {
                 template.capture_preparation_time_ms = None;
                 template.capture_pack_time_ms = None;
                 template.capture_pack_unpack_variation_factor = 0.0;
+                template.capture_unpack_sound = None;
+                template.capture_pack_sound = None;
+
                 return;
             }
             power = candidate;
@@ -3422,6 +3425,9 @@ impl GameLogic {
         template.capture_preparation_time_ms = None;
         template.capture_pack_time_ms = None;
         template.capture_pack_unpack_variation_factor = 0.0;
+        template.capture_unpack_sound = None;
+        template.capture_pack_sound = None;
+
         if power == CapturePowerKind::None {
             return;
         }
@@ -3467,6 +3473,17 @@ impl GameLogic {
                     .and_then(|value| value.trim().parse::<f32>().ok())
                     .filter(|value| value.is_finite() && *value >= 0.0)
                     .unwrap_or(0.0);
+                template.capture_unpack_sound = module
+                    .attribute("UnpackSound")
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string);
+                template.capture_pack_sound = module
+                    .attribute("PackSound")
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string);
+
             } else if module
                 .class_name
                 .eq_ignore_ascii_case("UnpauseSpecialPowerUpgrade")

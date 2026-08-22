@@ -1622,6 +1622,13 @@ pub struct ThingTemplate {
     /// `SpecialAbilityUpdate::PackUnpackVariationFactor` for the capture pair.
     #[serde(default)]
     pub capture_pack_unpack_variation_factor: f32,
+    /// `SpecialAbilityUpdate::UnpackSound` for the capture module.
+    #[serde(default)]
+    pub capture_unpack_sound: Option<String>,
+    /// `SpecialAbilityUpdate::PackSound` for the capture module.
+    #[serde(default)]
+    pub capture_pack_sound: Option<String>,
+
 
     pub special_power_cooldown: f32,
     /// C++ parity: XP awarded to the killer when this object is destroyed.
@@ -1932,6 +1939,9 @@ impl ThingTemplate {
             capture_preparation_time_ms: None,
             capture_pack_time_ms: None,
             capture_pack_unpack_variation_factor: 0.0,
+            capture_unpack_sound: None,
+            capture_pack_sound: None,
+
             special_power_cooldown: 10.0,
 
             experience_value: 0.0,
