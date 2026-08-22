@@ -1207,7 +1207,7 @@ pub struct CnCGameEngine {
     /// Screen-space drag origin for selection box overlay residual.
     pub(crate) selection_start_screen: Option<(f32, f32)>,
     pub(crate) last_click_time: Option<Instant>,
-    pub(crate) last_click_position: Option<Vec3>,
+    pub(crate) last_click_position: Option<(f32, f32)>,
     pub(crate) last_right_click_time: Option<Instant>,
     pub(crate) last_right_click_position: Option<Vec3>,
     pub(crate) left_click_release_behavior: LeftMouseReleaseBehavior,
