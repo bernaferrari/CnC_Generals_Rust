@@ -215,11 +215,36 @@ impl<'a> CommandExecutor<'a> {
         destination: Vec3,
         waypoints: &[Vec3],
     ) -> CommandResult {
+        self.execute_move_to_with_voice(units, destination, waypoints, true)
+    }
+
+    /// C++ CommandXlat.cpp:1921-1937 MSG_DO_SALVAGE mimics MSG_DO_MOVETO,
+    /// then pickAndPlay replaces VoiceMove with VoiceSalvage when valid
+    /// (`CommandXlat.cpp:423-431`, skip=true).
+    pub(super) fn execute_salvage(
+        &mut self,
+        units: &[ObjectId],
+        destination: Vec3,
+    ) -> CommandResult {
+        let result = self.execute_move_to_with_voice(units, destination, &[], false);
+        if matches!(result, CommandResult::Success) {
+            self.play_salvage_or_move_voice(units);
+        }
+        result
+    }
+
+    fn execute_move_to_with_voice(
+        &mut self,
+        units: &[ObjectId],
+        destination: Vec3,
+        waypoints: &[Vec3],
+        play_voice: bool,
+    ) -> CommandResult {
         // Wave 232: move last-writes via GameLogic unit_command_move_to_waypoints.
         let destination = self.clamp_group_waypoint(units, destination);
         if waypoints.is_empty() && self.should_tighten_group_move(units, destination) {
             let result = self.execute_tighten_to_position(units, destination);
-            if matches!(result, CommandResult::Success) {
+            if play_voice && matches!(result, CommandResult::Success) {
                 self.play_context_move_voice(units);
             }
             return result;
@@ -237,16 +262,36 @@ impl<'a> CommandExecutor<'a> {
             debug!("Unit {} moving via waypoints to {:?}", unit_id.0, goal);
         }
         self.apply_player_stealth_mood_delay(&moved);
-        self.play_context_move_voice(units);
+        if play_voice {
+            self.play_context_move_voice(units);
+        }
         CommandResult::Success
     }
 
-    /// C++ pickAndPlay VoiceMove (`CommandXlat.cpp:384-412`) — last-wins scan.
-    fn play_context_move_voice(&mut self, units: &[ObjectId]) {
-        self.game_logic.queue_picked_unit_voice(
-            units,
-            crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Move,
-        );
+    /// C++ pickAndPlay VoiceMove / VoiceMoveUpgraded (`CommandXlat.cpp:384-443`).
+    pub(super) fn play_context_move_voice(&mut self, units: &[ObjectId]) {
+        self.game_logic.queue_picked_move_voice(units);
+    }
+
+
+    /// C++ `CommandXlat.cpp:423-431`: valid PerUnitSound VoiceSalvage replaces
+    /// VoiceMove; otherwise keep the move line.
+    fn play_salvage_or_move_voice(&mut self, units: &[ObjectId]) {
+        use crate::game_logic::audio_dispatch_impl::{
+            resolve_unit_voice_event, UnitVoiceSlot,
+        };
+        let has_salvage = units.iter().any(|&id| {
+            self.game_logic
+                .host_object(id)
+                .and_then(|obj| resolve_unit_voice_event(&obj.template_name, UnitVoiceSlot::Salvage))
+                .is_some()
+        });
+        if has_salvage {
+            self.game_logic
+                .queue_picked_unit_voice(units, UnitVoiceSlot::Salvage);
+        } else {
+            self.play_context_move_voice(units);
+        }
     }
 
     /// C++ AIGroup::groupMoveToPosition / computeIndividualDestination residual.
@@ -935,12 +980,14 @@ impl<'a> CommandExecutor<'a> {
         }
         self.apply_player_stealth_mood_delay(&moved);
         let crush = self.force_move_has_crush_target(&moved, destination);
-        let slot = if crush {
-            crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Crush
+        if crush {
+            self.game_logic.queue_picked_unit_voice(
+                &moved,
+                crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Crush,
+            );
         } else {
-            crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Move
-        };
-        self.game_logic.queue_picked_unit_voice(&moved, slot);
+            self.play_context_move_voice(&moved);
+        }
         CommandResult::Success
     }
 
@@ -978,10 +1025,7 @@ impl<'a> CommandExecutor<'a> {
         }
         self.apply_player_stealth_mood_delay(&moved);
         if !voice.is_empty() {
-            self.game_logic.queue_picked_unit_voice(
-                &voice,
-                crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Move,
-            );
+            self.play_context_move_voice(&voice);
         }
         CommandResult::Success
     }

@@ -904,6 +904,19 @@ impl<'a> CommandExecutor<'a> {
         }
 
         if any {
+            // C++ MSG_DO_WEAPON_AT_OBJECT / MSG_DO_WEAPON_AT_LOCATION
+            // (`CommandXlat.cpp:511-627`) — VoiceAttack then specialty upgrade.
+            let (target_id, at_location) = match target {
+                WeaponTarget::Object(id) => (Some(*id), false),
+                WeaponTarget::Location(_) => (None, true),
+            };
+            self.game_logic.queue_attack_voice(
+                units,
+                target_id,
+                true,
+                at_location,
+                Some(slot),
+            );
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand

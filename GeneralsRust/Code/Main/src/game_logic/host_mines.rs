@@ -69,6 +69,13 @@ pub const MINE_AUTO_HEAL_DELAY_FRAMES: u32 = 30;
 pub const STANDARD_MINE_NUM_VIRTUAL: u32 = 8;
 /// ChinaStandardMine / ChinaEMPMine / ChinaClusterMine GeometryMajorRadius residual.
 pub const LAND_MINE_GEOMETRY_RADIUS: f32 = 30.0;
+/// Retail ChinaStandardMine / ChinaClusterMine / ChinaEMPMine ScootFromStartingPointTime **1000**ms.
+pub const MINE_SCOOT_FROM_STARTING_POINT_MS: u32 = 1_000;
+/// 1000ms → 30f @ 30 FPS (`INI::parseDurationUnsignedInt`).
+pub const MINE_SCOOT_FROM_STARTING_POINT_FRAMES: u32 = 30;
+/// Leftover `MinefieldBehavior::set_scoot_parms` / C++ `GlobalData` default gravity.
+pub const MINE_SCOOT_GRAVITY: f32 = -1.0;
+
 /// NeutronMineWeapon PrimaryDamage residual (ChinaEMPMine detonation).
 pub const NEUTRON_MINE_WEAPON_DAMAGE: f32 = 1.0;
 /// NeutronBlastBehavior BlastRadius residual (ChinaEMPMine NeutronBlastObject).
@@ -424,6 +431,19 @@ pub struct HostMineData {
     /// DemoTrap SlowDeath warning fuse (absolute frame when splash may fire).
     #[serde(default)]
     pub warning_detonate_at_frame: Option<u32>,
+    /// C++ MinefieldBehaviorModuleData m_scootFromStartingPointTime (frames).
+    #[serde(default)]
+    pub scoot_from_starting_point_time: u32,
+    /// C++ MinefieldBehavior m_scootFramesLeft.
+    #[serde(default)]
+    pub scoot_frames_left: u32,
+    /// C++ MinefieldBehavior m_scootVel (host Y-up).
+    #[serde(default)]
+    pub scoot_vel: [f32; 3],
+    /// C++ MinefieldBehavior m_scootAccel (host Y-up).
+    #[serde(default)]
+    pub scoot_accel: [f32; 3],
+
 
 }
 
@@ -491,6 +511,11 @@ impl HostMineData {
             next_ping_frame: None,
             neutron_blast: false,
             warning_detonate_at_frame: None,
+            scoot_from_starting_point_time: 0,
+            scoot_frames_left: 0,
+            scoot_vel: [0.0; 3],
+            scoot_accel: [0.0; 3],
+
         }
     }
 
@@ -526,6 +551,7 @@ impl HostMineData {
             data.num_virtual_mines = CLUSTER_MINE_NUM_VIRTUAL;
             data.virtual_mines_remaining = CLUSTER_MINE_NUM_VIRTUAL;
             data.regenerates = false;
+            data.scoot_from_starting_point_time = MINE_SCOOT_FROM_STARTING_POINT_FRAMES;
         } else if n.contains("empmine") {
             data.num_virtual_mines = STANDARD_MINE_NUM_VIRTUAL;
             data.virtual_mines_remaining = STANDARD_MINE_NUM_VIRTUAL;
@@ -533,11 +559,14 @@ impl HostMineData {
             data.neutron_blast = true;
             data.detonation_damage = NEUTRON_MINE_WEAPON_DAMAGE;
             data.detonation_radius = NEUTRON_MINE_BLAST_RADIUS;
+            data.scoot_from_starting_point_time = MINE_SCOOT_FROM_STARTING_POINT_FRAMES;
         } else if n.contains("standardmine") {
             data.num_virtual_mines = STANDARD_MINE_NUM_VIRTUAL;
             data.virtual_mines_remaining = STANDARD_MINE_NUM_VIRTUAL;
             data.regenerates = true;
+            data.scoot_from_starting_point_time = MINE_SCOOT_FROM_STARTING_POINT_FRAMES;
         }
+
         data
     }
 
@@ -598,6 +627,77 @@ impl HostMineData {
     pub fn is_active(&self) -> bool {
         !self.detonated && self.has_virtual_charge()
     }
+
+    /// C++ MinefieldBehavior::onCollide :360-362 — inert while sliding.
+    pub fn is_scooting(&self) -> bool {
+        matches!(self.kind, HostMineKind::LandMine) && self.scoot_frames_left > 0
+    }
+
+    /// C++ MinefieldBehavior::setScootParms (host Y-up leftover port).
+    /// Returns the spawn pose: producer/start while scooting, dest otherwise.
+    pub fn set_scoot_parms(&mut self, start: Vec3, end: Vec3, ground_y: f32) -> Vec3 {
+        if !matches!(self.kind, HostMineKind::LandMine) {
+            return end;
+        }
+        let mut end_on_ground = end;
+        end_on_ground.y = ground_y;
+        let mut scoot_time = self.scoot_from_starting_point_time;
+        if start.y > end_on_ground.y {
+            let fall = start.y - end_on_ground.y;
+            let gravity = MINE_SCOOT_GRAVITY.abs().max(1e-6);
+            let falling_time = (2.0 * fall / gravity).sqrt().ceil() as u32;
+            scoot_time = scoot_time.max(falling_time);
+        }
+        if scoot_time == 0 {
+            self.clear_scoot();
+            return end_on_ground;
+        }
+        let dx = end_on_ground.x - start.x;
+        let dz = end_on_ground.z - start.z;
+        let dy = end_on_ground.y - start.y;
+        let dist = (dx * dx + dz * dz).sqrt();
+        if dist <= 0.1 && dy.abs() <= 0.1 {
+            self.clear_scoot();
+            return end_on_ground;
+        }
+        let t = scoot_time as f32;
+        let speed = dist / t;
+        let accel_mag = (2.0 * (dist - speed * t) / (t * t)).abs();
+        let dx_norm = if dist <= 0.1 { 0.0 } else { dx / dist };
+        let dz_norm = if dist <= 0.1 { 0.0 } else { dz / dist };
+        self.scoot_vel = [dx_norm * speed, 0.0, dz_norm * speed];
+        self.scoot_accel = [-dx_norm * accel_mag, MINE_SCOOT_GRAVITY, -dz_norm * accel_mag];
+        self.scoot_frames_left = scoot_time;
+        start
+    }
+
+    fn clear_scoot(&mut self) {
+        self.scoot_frames_left = 0;
+        self.scoot_vel = [0.0; 3];
+        self.scoot_accel = [0.0; 3];
+    }
+
+    /// C++ MinefieldBehavior::update scoot integrate. `None` when not scooting.
+    pub fn tick_scoot(&mut self, pos: Vec3, ground_y: f32) -> Option<Vec3> {
+        if !self.is_scooting() {
+            return None;
+        }
+        let mut vel = Vec3::from_array(self.scoot_vel);
+        let accel = Vec3::from_array(self.scoot_accel);
+        vel += accel;
+        let mut next = pos + vel;
+        if next.y < ground_y || self.scoot_frames_left <= 1 {
+            next.y = ground_y;
+        }
+        self.scoot_vel = vel.to_array();
+        self.scoot_frames_left = self.scoot_frames_left.saturating_sub(1);
+        if self.scoot_frames_left == 0 {
+            self.scoot_vel = [0.0; 3];
+            self.scoot_accel = [0.0; 3];
+        }
+        Some(next)
+    }
+
 
     /// C++ onCollide early-out when m_virtualMinesRemaining == 0.
     pub fn has_virtual_charge(&self) -> bool {
@@ -1659,6 +1759,13 @@ pub fn honesty_mines_residual_pack_ok() -> bool {
         && honesty_demo_trap_weapon_rings_residual_ok()
         && honesty_burton_charge_max_residual_ok()
         && honesty_cluster_mines_ocl_residual_ok()
+        && MINE_SCOOT_FROM_STARTING_POINT_MS == 1_000
+        && MINE_SCOOT_FROM_STARTING_POINT_FRAMES
+            == mine_ms_to_frames(MINE_SCOOT_FROM_STARTING_POINT_MS)
+        && HostMineData::land_mine_for_template("ChinaStandardMine").scoot_from_starting_point_time
+            == MINE_SCOOT_FROM_STARTING_POINT_FRAMES
+        && HostMineData::land_mine().scoot_from_starting_point_time == 0
+
 }
 
 /// Wave 78 residual honesty: ClusterMines DeliveryDecal / ViewObject / science residual deepen.

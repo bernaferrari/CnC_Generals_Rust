@@ -17,8 +17,20 @@ use serde::{Deserialize, Serialize};
 
 /// Default detection time residual frames.
 pub const DEFECTOR_DETECTION_FRAMES: u32 = DEFAULT_DEFECTION_PROTECTION_FRAMES;
-/// C++ ThingTemplate VoiceDefect residual.
-pub const DEFECTOR_VOICE_AUDIO: &str = "VoiceDefect";
+/// C++ `ThingTemplate::getVoiceDefect` — authored Voice.ini name, never the slot token.
+pub fn resolve_voice_defect(template_name: &str) -> Option<String> {
+    let factory = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
+    let factory = factory.as_ref()?;
+    let tmpl = factory.find_template(template_name, false)?;
+    let event = tmpl.get_voice_defect()?;
+    let name = event.get_event_name();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_string())
+    }
+}
+
 /// C++ MiscAudio DefectorTimerTickSound residual.
 pub const DEFECTOR_TIMER_TICK_AUDIO: &str = "DefectorTimerTickSound";
 

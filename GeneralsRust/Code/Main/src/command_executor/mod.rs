@@ -138,8 +138,8 @@ impl<'a> CommandExecutor<'a> {
                 waypoints,
             } => self.execute_move_to(&command.selected_units, *destination, waypoints),
             CommandType::DoSalvage { destination } => {
-                // C++ CommandXlat.cpp:1921-1937 / MSG_DO_SALVAGE mimics MSG_DO_MOVETO.
-                self.execute_move_to(&command.selected_units, *destination, &[])
+                // C++ CommandXlat.cpp:1921-1937 / 423-431 — move, then VoiceSalvage.
+                self.execute_salvage(&command.selected_units, *destination)
             }
             CommandType::AttackMoveTo {
                 destination,

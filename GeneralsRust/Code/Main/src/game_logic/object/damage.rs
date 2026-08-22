@@ -631,6 +631,9 @@ impl Object {
         }
 
         self.refresh_model_condition_bits();
+        let voice_fear_id = self.id;
+        let voice_fear_pos = self.get_position();
+        let voice_fear_player = self.owner_player_id;
         crate::game_logic::host_transition_damage_fx::queue_voice_fear_event(
             &mut self.pending_transition_damage_fx,
             &self.template_name,
@@ -639,6 +642,9 @@ impl Object {
             prev_health,
             self.health.current,
             max_health,
+            voice_fear_id,
+            voice_fear_pos,
+            voice_fear_player,
         );
         if battle_bus_start_second {
             false
@@ -1221,6 +1227,7 @@ mod tests {
             TemplateDamageAudio,
         };
         crate::game_logic::host_transition_damage_fx::clear_test_template_audio();
+        crate::game_logic::host_voice_fear_log::clear();
         set_test_template_audio(
             "FearRanger",
             TemplateDamageAudio {
@@ -1239,6 +1246,7 @@ mod tests {
         ranger.health.maximum = 100.0;
         ranger.owner_player_id = Some(1);
         ranger.template_name = "FearRanger".into();
+        ranger.set_position(glam::Vec3::new(120.0, 4.0, 80.0));
         assert!(!ranger.take_damage_from_typed(20.0, Some(ObjectId(77)), DamageType::Unresistable));
         assert!((ranger.health.current - 20.0).abs() < 1e-3);
         let pending = ranger.take_pending_transition_damage_fx();
@@ -1248,6 +1256,13 @@ mod tests {
                 .any(|e| e.audio_name.as_deref() == Some("RangerVoiceFear")),
             "VoiceFear must queue on yellow cross, got {pending:?}"
         );
+        let fear = crate::game_logic::host_voice_fear_log::drain();
+        assert_eq!(fear.len(), 1);
+        assert_eq!(fear[0].event_name, "RangerVoiceFear");
+        assert_eq!(fear[0].victim, ObjectId(62));
+        assert_eq!(fear[0].position, glam::Vec3::new(120.0, 4.0, 80.0));
+        assert_eq!(fear[0].player_id, Some(1));
+        assert_ne!(fear[0].event_name, "FearRangerVoiceFear");
         let attacked = take_pending_attacked_by();
         assert_eq!(attacked, vec![(1, ObjectId(77))]);
         set_test_voice_fear_roll(None);

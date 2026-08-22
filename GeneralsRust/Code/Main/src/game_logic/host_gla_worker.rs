@@ -149,6 +149,32 @@ pub fn is_worker_shoes_upgrade_name(name: &str) -> bool {
     n.contains("workershoes") || n.contains("glaworkershoes")
 }
 
+/// C++ `getPerUnitSound("VoiceMoveUpgraded")` (`CommandXlat.cpp:440`).
+pub const WORKER_VOICE_MOVE_UPGRADED: &str = "VoiceMoveUpgraded";
+
+/// C++ infantry+dozer+harvester worker identity (`CommandXlat.cpp:438`).
+/// Host residual also accepts named GLA workers whose kindof bits are incomplete.
+pub fn is_worker_for_voice_move_upgraded(
+    is_infantry: bool,
+    is_dozer: bool,
+    is_harvester: bool,
+    template_name: &str,
+) -> bool {
+    (is_infantry && is_dozer && is_harvester) || is_gla_worker_template(template_name)
+}
+
+/// C++ `player->hasUpgradeComplete(Upgrade_GLAWorkerShoes)` plus host tag residual.
+pub fn worker_shoes_voice_upgrade_complete(
+    object_has_shoes_tag: bool,
+    player_upgrade_names: impl IntoIterator<Item = impl AsRef<str>>,
+) -> bool {
+    object_has_shoes_tag
+        || player_upgrade_names
+            .into_iter()
+            .any(|n| is_worker_shoes_upgrade_name(n.as_ref()))
+}
+
+
 /// Host residual honesty counters for GLA Worker residual.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostGlaWorkerRegistry {
@@ -213,6 +239,12 @@ pub fn honesty_worker_shoes_residual_ok() -> bool {
         && residual_worker_shoes_drop_off_boost(true, true) == 8
         && residual_worker_shoes_drop_off_boost(true, false) == 0
         && is_worker_shoes_upgrade_name("Upgrade_GLAWorkerShoes")
+        && WORKER_VOICE_MOVE_UPGRADED == "VoiceMoveUpgraded"
+        && is_worker_for_voice_move_upgraded(true, true, true, "GLAInfantryWorker")
+        && !is_worker_for_voice_move_upgraded(true, false, false, "GLAInfantryRebel")
+        && worker_shoes_voice_upgrade_complete(true, None::<&str>)
+        && worker_shoes_voice_upgrade_complete(false, ["Upgrade_GLAWorkerShoes"])
+        && !worker_shoes_voice_upgrade_complete(false, ["Upgrade_GLACamouflage"])
 }
 
 /// Wave 63 residual honesty: worker body + supply timing residual.
@@ -267,6 +299,31 @@ mod tests {
         assert!(is_worker_shoes_upgrade_name("Upgrade_GLAWorkerShoes"));
         assert!(is_worker_shoes_upgrade_name("upgrade_gla_worker_shoes"));
         assert!(!is_worker_shoes_upgrade_name("Upgrade_GLACamouflage"));
+        assert!(is_worker_for_voice_move_upgraded(
+            true,
+            true,
+            true,
+            "GLAInfantryWorker"
+        ));
+        assert!(is_worker_for_voice_move_upgraded(
+            false,
+            false,
+            false,
+            "Chem_GLAInfantryWorker"
+        ));
+        assert!(!is_worker_for_voice_move_upgraded(
+            true,
+            false,
+            false,
+            "GLAInfantryRebel"
+        ));
+        assert!(worker_shoes_voice_upgrade_complete(
+            false,
+            ["Upgrade_GLAWorkerShoes"]
+        ));
+        assert!(!worker_shoes_voice_upgrade_complete(false, ["Upgrade_Radar"]));
+        assert_eq!(WORKER_VOICE_MOVE_UPGRADED, "VoiceMoveUpgraded");
+
     }
 
     #[test]

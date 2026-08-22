@@ -668,32 +668,52 @@ impl ScriptEvaluator {
 
                 let comparison = comparison_param.get_int() as u32;
                 let target_count = count_param.get_int();
+                let player_name = player_param.get_string().to_string();
+                let type_name = type_param.get_string().to_string();
                 let types = self.resolve_object_types(type_param);
 
-                let Some(player_arc) = self.resolve_player_from_param(player_param) else {
-                    return Ok(false);
-                };
-                let Ok(player_guard) = player_arc.read() else {
-                    return Ok(false);
-                };
+                let count = if let Some(sum) = crate::scripting::host_query_player_template_count(
+                    &player_name,
+                    &{
+                        let mut names: Vec<String> = types
+                            .iter()
+                            .map(|name| name.to_string())
+                            .collect();
+                        if names.is_empty() {
+                            names.push(type_name);
+                        }
+                        names
+                    },
+                    false,
+                ) {
+                    sum
+                } else {
+                    let Some(player_arc) = self.resolve_player_from_param(player_param) else {
+                        return Ok(false);
+                    };
+                    let Ok(player_guard) = player_arc.read() else {
+                        return Ok(false);
+                    };
 
-                let mut count = 0;
-                for obj_id in player_guard.get_object_ids() {
-                    let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-                    else {
-                        continue;
-                    };
-                    let Ok(obj_guard) = obj_arc.read() else {
-                        continue;
-                    };
-                    if obj_guard.is_effectively_dead() || obj_guard.is_destroyed() {
-                        continue;
+                    let mut count = 0;
+                    for obj_id in player_guard.get_object_ids() {
+                        let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+                            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+                        else {
+                            continue;
+                        };
+                        let Ok(obj_guard) = obj_arc.read() else {
+                            continue;
+                        };
+                        if obj_guard.is_effectively_dead() || obj_guard.is_destroyed() {
+                            continue;
+                        }
+                        if types.contains_template(Some(obj_guard.get_template())) {
+                            count += 1;
+                        }
                     }
-                    if types.contains_template(Some(obj_guard.get_template())) {
-                        count += 1;
-                    }
-                }
+                    count
+                };
 
                 match comparison {
                     0 => Ok(count < target_count),  // LessThan
@@ -2127,37 +2147,64 @@ impl ScriptEvaluator {
                     )
                 })?;
 
-                let Some(player_arc) = self.resolve_player_from_param(player_param) else {
-                    return Ok(false);
-                };
-                let player_index = player_arc.read().ok().map(|p| p.get_player_index() as i32);
-                let Some(player_index) = player_index else {
-                    return Ok(false);
-                };
-
-                let type_name = type_param.get_string();
+                let player_name = player_param.get_string().to_string();
+                let type_name = type_param.get_string().to_string();
                 let types = self.resolve_object_types(type_param);
 
-                let Ok(player_guard) = player_arc.read() else {
-                    return Ok(false);
+                let leftover_index = self
+                    .resolve_player_from_param(player_param)
+                    .and_then(|arc| arc.read().ok().map(|p| p.get_player_index() as i32));
+
+                let current_count = if let Some(sum) =
+                    crate::scripting::host_query_player_template_count(
+                        &player_name,
+                        &{
+                            let mut names: Vec<String> =
+                                types.iter().map(|name| name.to_string()).collect();
+                            if names.is_empty() {
+                                names.push(type_name.clone());
+                            }
+                            names
+                        },
+                        true,
+                    ) {
+                    sum
+                } else {
+                    let Some(player_arc) = self.resolve_player_from_param(player_param) else {
+                        return Ok(false);
+                    };
+                    let Ok(player_guard) = player_arc.read() else {
+                        return Ok(false);
+                    };
+
+                    let mut current_count = 0i32;
+                    for obj_id in player_guard.get_object_ids() {
+                        let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+                            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+                        else {
+                            continue;
+                        };
+                        let Ok(obj_guard) = obj_arc.read() else {
+                            continue;
+                        };
+                        if !obj_guard.is_destroyed()
+                            && types.contains_template(Some(obj_guard.get_template()))
+                        {
+                            current_count += 1;
+                        }
+                    }
+                    current_count
                 };
 
-                let mut current_count = 0i32;
-                for obj_id in player_guard.get_object_ids() {
-                    let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-                    else {
-                        continue;
-                    };
-                    let Ok(obj_guard) = obj_arc.read() else {
-                        continue;
-                    };
-                    if !obj_guard.is_destroyed()
-                        && types.contains_template(Some(obj_guard.get_template()))
-                    {
-                        current_count += 1;
+                let player_index = match leftover_index {
+                    Some(index) => index,
+                    None => {
+                        if crate::scripting::host_query_player_census(&player_name).is_none() {
+                            return Ok(false);
+                        }
+                        0
                     }
-                }
+                };
 
                 // C++ compares current count to previously stored count via
                 // ScriptEngine.  ScriptEngine::update installs a lexical
@@ -2165,11 +2212,11 @@ impl ScriptEvaluator {
                 // deadlock the live campaign path.
                 let stored_count = self
                     .with_evaluation_engine_ref(|engine| {
-                        engine.get_object_count(player_index, type_name)
+                        engine.get_object_count(player_index, &type_name)
                     })
                     .unwrap_or(current_count);
                 let _ = self.with_evaluation_engine_mut(|engine| {
-                    engine.set_object_count(player_index, type_name, current_count);
+                    engine.set_object_count(player_index, &type_name, current_count);
                 });
 
                 Ok(current_count < stored_count)

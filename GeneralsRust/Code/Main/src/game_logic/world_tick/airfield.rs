@@ -398,21 +398,24 @@ impl GameLogic {
             .get_mut(&jet_id)
             .is_some_and(|jet| jet.enter_circling_dead_airfield(self.frame));
         if entered {
+            // C++ JetOrHeliCirclingDeadAirfieldState::onEnter (JetAIUpdate.cpp:338-341):
+            // play getPerUnitSound("VoiceLowFuel") at the jet object id. Missing
+            // UnitSpecificSounds is silent (NoSound) — never the slot token or
+            // an invented `{template}VoiceLowFuel` concat.
             if let Some(jet) = self.objects.get(&jet_id) {
                 let pos = jet.get_position();
-                let event = format!("{}VoiceLowFuel", jet.template_name);
-                self.queue_audio_event(
-                    crate::game_logic::AudioEventRequest::new("VoiceLowFuel")
-                        .with_object(jet_id)
-                        .with_position(pos)
-                        .with_priority(90),
-                );
-                self.queue_audio_event(
-                    crate::game_logic::AudioEventRequest::new(&event)
-                        .with_object(jet_id)
-                        .with_position(pos)
-                        .with_priority(90),
-                );
+                let template_name = jet.template_name.clone();
+                if let Some(event) = crate::game_logic::audio_dispatch_impl::resolve_per_unit_sound(
+                    &template_name,
+                    "VoiceLowFuel",
+                ) {
+                    self.queue_audio_event(
+                        crate::game_logic::AudioEventRequest::new(&event)
+                            .with_object(jet_id)
+                            .with_position(pos)
+                            .with_priority(90),
+                    );
+                }
             }
         }
         if let Some(jet) = self.objects.get_mut(&jet_id) {

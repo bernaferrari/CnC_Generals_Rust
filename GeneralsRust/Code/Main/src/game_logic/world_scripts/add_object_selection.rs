@@ -298,10 +298,7 @@ impl GameLogic {
                 .map(|p| p.is_local)
                 .unwrap_or(false);
             if local {
-                self.queue_picked_unit_voice(
-                    &selected,
-                    crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Move,
-                );
+                self.queue_picked_move_voice(&selected);
             }
         }
     }

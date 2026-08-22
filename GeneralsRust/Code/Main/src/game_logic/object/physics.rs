@@ -476,12 +476,15 @@ impl Object {
             (amount, PhysicsTurningType::TurnNone)
         };
         if let Some(tp) = turn_pos {
+            // C++ T(pivot)*Rz(amount)*T(-pivot). Host set_orientation is
+            // T*Ry(angle) with local +X → (cos, 0, -sin), so the same
+            // pre-rotate about the pivot is Ry, not a raw XY Rz.
             let cos_a = amount.cos();
             let sin_a = amount.sin();
             let rx = us.x - tp.x;
             let rz = us.z - tp.z;
-            let nx = tp.x + rx * cos_a - rz * sin_a;
-            let nz = tp.z + rx * sin_a + rz * cos_a;
+            let nx = tp.x + rx * cos_a + rz * sin_a;
+            let nz = tp.z - rx * sin_a + rz * cos_a;
             self.set_position(glam::Vec3::new(nx, us.y, nz));
         }
         self.set_orientation(angle + amount);

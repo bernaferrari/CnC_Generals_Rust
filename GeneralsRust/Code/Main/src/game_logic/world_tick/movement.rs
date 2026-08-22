@@ -529,15 +529,22 @@ impl GameLogic {
                         let new_angle = if sliding {
                             current_angle
                         } else {
-                            let mut max_turn = obj.effective_turn_rate() * dt;
-                            if wheeled {
-                                // C++ Locomotor.cpp:1437-1454: stationary trucks cannot yaw.
-                                max_turn *= obj.wheeled_turn_factor();
-                            }
-                            let applied = delta.clamp(-max_turn, max_turn);
-                            current_angle + applied
+                            // C++ rotateTowardsPosition always calls
+                            // rotateObjAroundLocoPivot (Locomotor.cpp:901-907,
+                            // 2113-2187). TurnPivotOffset != 0 (combat bikes
+                            // seed -0.60) yaws around the rear axle so the
+                            // hull center translates. Aim at a far point on
+                            // the already-biased desired heading so wander /
+                            // climber reverse / nearby reverse survive.
+                            let rotate_goal = glam::Vec3::new(
+                                current_pos.x + desired_angle.cos() * 1000.0,
+                                current_pos.y,
+                                current_pos.z + (-desired_angle.sin()) * 1000.0,
+                            );
+                            let (_turning, _rel) =
+                                obj.rotate_towards_position(rotate_goal, dt);
+                            obj.get_orientation()
                         };
-                        obj.set_orientation(new_angle);
 
                         let heading = if sliding {
                             glam::Vec3::new(direction.x, 0.0, direction.z)
@@ -564,10 +571,13 @@ impl GameLogic {
                         obj.movement.velocity = new_velocity;
                         obj.record_host_movement();
 
-                        let mut new_position = current_pos + new_velocity * dt;
+                        // Pivot rotate already translated the hull; integrate
+                        // from that pose (C++ setTransformMatrix then physics).
+                        let march_from = obj.get_position();
+                        let mut new_position = march_from + new_velocity * dt;
                         if obj.is_braking {
                             // C++ OBJECT_STATUS_BRAKING pose cheat (Locomotor.cpp:1092-1138).
-                            new_position = obj.braking_cheat_step(current_pos, flat_target, dt);
+                            new_position = obj.braking_cheat_step(march_from, flat_target, dt);
                         }
                         let reached_target = dist < 1.0;
 
@@ -1424,6 +1434,41 @@ mod tests {
             obj.get_orientation().abs() < 0.2,
             "nearby reverse must not flip heading, yaw={}",
             obj.get_orientation()
+        );
+    }
+
+    /// hq-t505c: live march must yaw about TurnPivotOffset, not hull center.
+    #[test]
+    fn march_yaws_around_turn_pivot_offset() {
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let mut logic = GameLogic::new();
+        let mk = |id, offset| {
+            let mut tmpl = ThingTemplate::new("CombatBike");
+            tmpl.add_kind_of(KindOf::Vehicle);
+            let mut bike = Object::new(tmpl, ObjectId(id), Team::USA);
+            bike.set_position(Vec3::ZERO);
+            bike.set_orientation(0.0);
+            bike.loco_appearance = LocomotorAppearance::Motorcycle;
+            bike.turn_pivot_offset = offset;
+            bike.selection_radius = 10.0;
+            bike.min_turn_speed = 5.0;
+            bike.movement.turn_rate = std::f32::consts::PI;
+            bike.movement.max_speed = 40.0;
+            bike.movement.acceleration = 10_000.0;
+            bike.movement.velocity = Vec3::new(20.0, 0.0, 0.0);
+            bike.no_slow_down_as_approaching_dest = true;
+            bike.movement.target_position = Some(Vec3::new(0.0, 0.0, 80.0));
+            bike
+        };
+        logic.objects.insert(ObjectId(9610), mk(9610, 0.0));
+        logic.objects.insert(ObjectId(9611), mk(9611, -0.60));
+        logic.update_movement_for_test(&[ObjectId(9610), ObjectId(9611)], 1.0 / 30.0);
+        let center = logic.objects.get(&ObjectId(9610)).unwrap().get_position();
+        let pivoted = logic.objects.get(&ObjectId(9611)).unwrap().get_position();
+        let drift = (pivoted.x - center.x).abs() + (pivoted.z - center.z).abs();
+        assert!(
+            drift > 1e-3,
+            "TurnPivotOffset must translate hull vs center yaw, center={center:?} pivoted={pivoted:?}"
         );
     }
 

@@ -56,7 +56,19 @@ pub(super) fn pick_and_play_unit_voice_response(
             GameMessageType::ResumeConstruction(_)
             | GameMessageType::DozerConstruct(_, _, _)
             | GameMessageType::DozerConstructLine(_, _, _, _) => Some("VoiceBuildResponse"),
-            GameMessageType::DoForceAttackGround(_) => Some("VoiceBombard"),
+            GameMessageType::DoForceAttackGround(_) => {
+                // C++ CommandXlat.cpp:460-472: VoiceBombard if valid, else VoiceAttack.
+                let bombard = template
+                    .get_per_unit_sound("VoiceBombard")
+                    .filter(|event| !event.get_event_name().is_empty());
+                if bombard.is_some() {
+                    Some("VoiceBombard")
+                } else if info.air {
+                    Some("VoiceAttackAir")
+                } else {
+                    Some("VoiceAttack")
+                }
+            }
             GameMessageType::DoForceAttackObject(_)
             | GameMessageType::DoAttackObject(_)
             | GameMessageType::DoWeaponAtObject(_, _)
@@ -71,6 +83,9 @@ pub(super) fn pick_and_play_unit_voice_response(
                 Some("VoiceGuard")
             }
             GameMessageType::InternetHack => Some("VoiceHackInternet"),
+            GameMessageType::SwitchWeapons(0) => Some("VoicePrimaryWeaponMode"),
+            GameMessageType::SwitchWeapons(1) => Some("VoiceSecondaryWeaponMode"),
+            GameMessageType::SwitchWeapons(2) => Some("VoiceTertiaryWeaponMode"),
             GameMessageType::DoSpecialPower(_, _, _)
             | GameMessageType::DoSpecialPowerAtLocation(_, _, _, _, _, _)
             | GameMessageType::DoSpecialPowerAtObject(_, _, _, _) => Some("VoiceSpecialPower"),
@@ -173,11 +188,30 @@ fn move_voice_name(
     if guard.is_kind_of(KindOf::Infantry)
         && guard.is_kind_of(KindOf::Dozer)
         && guard.is_kind_of(KindOf::Harvester)
+        && leftover_player_has_worker_shoes(guard)
     {
         return Some("VoiceMoveUpgraded");
     }
     Some("VoiceMove")
 }
+
+fn leftover_player_has_worker_shoes(guard: &gamelogic::object::Object) -> bool {
+    let Some(upgrade) = gamelogic::upgrade::center::with_upgrade_center(|center| {
+        center.find_upgrade("Upgrade_GLAWorkerShoes")
+    }) else {
+        return false;
+    };
+    if guard.has_upgrade(upgrade.as_ref()) {
+        return true;
+    }
+    guard.get_controlling_player().is_some_and(|player_arc| {
+        player_arc
+            .read()
+            .ok()
+            .is_some_and(|player| player.has_upgrade_complete(upgrade.as_ref()))
+    })
+}
+
 
 fn named_template_voice(
     template: &dyn gamelogic::thing_template::ThingTemplate,
