@@ -523,6 +523,15 @@ impl CnCGameEngine {
                 self.pending_map_command.is_some() || self.pending_structure_placement.is_some();
             let world_action =
                 world_mouse_action(button, self.use_alternate_mouse, targeting_active);
+            if matches!(button, MouseButton::Left)
+                && !super::selection_hud::world_lmb_selection_allowed(
+                    self.host_quit_menu_blocks_world_selection(),
+                )
+            {
+                if !pressed {
+                    self.cancel_area_select_from_control_bar();
+                }
+            } else {
             match (button, pressed) {
                 (MouseButton::Left, true) => {
                     self.lmb_context_started_physically =
@@ -597,6 +606,7 @@ impl CnCGameEngine {
                     self.end_mmb_lookat_rotate();
                 }
                 _ => {}
+            }
             }
         }
     }
@@ -2375,5 +2385,13 @@ mod tests {
             None,
             "retail CommandMap only binds KEY_1, never KEY_KP1"
         );
+    }
+
+    #[test]
+    fn quit_menu_destroys_world_left_click() {
+        assert!(!super::selection_hud::world_lmb_selection_allowed(true));
+        let src = include_str!("input.rs");
+        assert!(src.contains("world_lmb_selection_allowed"));
+        assert!(src.contains("host_quit_menu_blocks_world_selection"));
     }
 }
