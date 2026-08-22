@@ -1347,6 +1347,7 @@ impl GameLogic {
     pub fn honesty_spectre_gunship_deployment_ok(&self) -> bool {
         self.spectre_gunship_deployment_reg.honesty_host_path_ok()
             && crate::game_logic::host_spectre_gunship_deployment::honesty_spectre_gunship_deployment_residual_ok()
+            && crate::game_logic::host_spectre_gunship_update::honesty_spectre_gunship_update_residual_ok()
     }
 
     pub fn honesty_smart_bomb_target_homing_ok(&self) -> bool {

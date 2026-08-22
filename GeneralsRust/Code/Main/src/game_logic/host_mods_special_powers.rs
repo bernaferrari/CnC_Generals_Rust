@@ -60,6 +60,9 @@ pub mod host_special_power_update_module;
 #[path = "host_spectre_gunship_deployment.rs"]
 pub mod host_spectre_gunship_deployment;
 
+#[path = "host_spectre_gunship_update.rs"]
+pub mod host_spectre_gunship_update;
+
 #[path = "host_ambush.rs"]
 pub mod host_ambush;
 

@@ -10,7 +10,8 @@
 
 use crate::common::audio::{
     audio_event_rts::{AudioEventRts, AudioHandle},
-    game_audio::with_sound_playback_hook,
+    audio_request::{AudioRequest, RequestType},
+    game_audio::get_global_audio_manager,
 };
 
 // Type aliases
@@ -103,42 +104,30 @@ impl MusicManagerImpl {
         }
     }
 
-    /// Play a music track using the provided audio event
+    /// C++ `MusicManager::playTrack` (GameMusic.cpp:70-75):
+    /// allocate AR_Play and append to TheAudio — do not hit the hook here.
     pub fn play_track(&mut self, event_to_use: AudioEventRts) {
-        match with_sound_playback_hook(|hook| hook.play(&event_to_use)) {
-            Some(Ok(())) => {
-                self.current_handle = Some(event_to_use.get_playing_handle());
-                self.is_playing = true;
-            }
-            Some(Err(err)) => {
-                self.current_handle = None;
-                self.is_playing = false;
-                log::debug!(
-                    "MusicManagerImpl::play_track backend rejected '{}': {}",
-                    event_to_use.get_event_name(),
-                    err
-                );
-            }
-            None => {
-                self.current_handle = None;
-                self.is_playing = false;
-                log::debug!(
-                    "MusicManagerImpl::play_track called with no playback hook for '{}'",
-                    event_to_use.get_event_name()
-                );
-            }
-        }
+        self.current_handle = Some(event_to_use.get_playing_handle());
+        self.is_playing = true;
+        append_the_audio_request(AudioRequest::new_with_event(
+            RequestType::Play,
+            event_to_use,
+        ));
     }
 
-    /// Stop the currently playing track
+    /// C++ `MusicManager::stopTrack` (GameMusic.cpp:79-85):
+    /// allocate AR_Stop and append to TheAudio — do not hit the hook here.
     pub fn stop_track(&mut self, event_to_remove: AudioHandle) {
-        let _ = with_sound_playback_hook(|hook| hook.stop(event_to_remove));
-
-        // Reset our state
-        if Some(event_to_remove) == self.current_handle {
+        if Some(event_to_remove) == self.current_handle
+            || event_to_remove == AHSV_STOP_THE_MUSIC
+        {
             self.current_handle = None;
             self.is_playing = false;
         }
+        append_the_audio_request(AudioRequest::new_with_handle(
+            RequestType::Stop,
+            event_to_remove,
+        ));
     }
 
     /// Add a new track to our collection
@@ -335,15 +324,21 @@ impl super::game_audio::MusicManager for MusicManagerImpl {
     }
 
     fn remove_audio_event(&mut self, handle: AudioHandle) {
-        if handle == AHSV_STOP_THE_MUSIC_FADE {
-            // Fade is owned by AudioManager::processFadingList; keep the sink alive.
-            return;
-        }
-        if handle == AHSV_STOP_THE_MUSIC {
-            self.stop_all();
-            return;
-        }
+        // C++ MusicManager::removeAudioEvent (GameMusic.cpp:94-97) is stopTrack.
         self.stop_track(handle);
+    }
+}
+
+/// C++ `TheAudio->allocateAudioRequest` + `appendAudioRequest`.
+/// Leftover callers sit outside the THE_AUDIO mutex (music-menu / standalone).
+fn append_the_audio_request(request: AudioRequest) {
+    let Some(manager) = get_global_audio_manager() else {
+        log::debug!("MusicManagerImpl queue skipped: THE_AUDIO not initialized");
+        return;
+    };
+    match manager.try_lock() {
+        Ok(mut audio) => audio.append_audio_request(request),
+        Err(_) => log::debug!("MusicManagerImpl queue skipped: THE_AUDIO busy"),
     }
 }
 

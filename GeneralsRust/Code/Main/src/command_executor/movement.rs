@@ -274,12 +274,14 @@ impl<'a> CommandExecutor<'a> {
     }
 
 
-    /// C++ `CommandXlat.cpp:423-431`: valid PerUnitSound VoiceSalvage replaces
-    /// VoiceMove; otherwise keep the move line.
+    /// C++ `CommandXlat.cpp:423-443`: VoiceSalvage then VoiceMoveUpgraded overwrite.
     fn play_salvage_or_move_voice(&mut self, units: &[ObjectId]) {
         use crate::game_logic::audio_dispatch_impl::{
             resolve_unit_voice_event, UnitVoiceSlot,
         };
+        if self.game_logic.try_queue_picked_voice_move_upgraded(units) {
+            return;
+        }
         let has_salvage = units.iter().any(|&id| {
             self.game_logic
                 .host_object(id)
@@ -293,6 +295,7 @@ impl<'a> CommandExecutor<'a> {
             self.play_context_move_voice(units);
         }
     }
+
 
     /// C++ AIGroup::groupMoveToPosition / computeIndividualDestination residual.
     ///

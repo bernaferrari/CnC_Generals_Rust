@@ -48,23 +48,8 @@ fn passes_kindof_filters(
     required_mask: KindOfMaskType,
     forbidden_mask: KindOfMaskType,
 ) -> bool {
-    if required_mask != 0 {
-        for kind in KIND_VARIANTS {
-            if mask_contains_kind(required_mask, *kind) && !obj.is_kind_of(*kind) {
-                return false;
-            }
-        }
-    }
-
-    if forbidden_mask != 0 {
-        for kind in KIND_VARIANTS {
-            if mask_contains_kind(forbidden_mask, *kind) && obj.is_kind_of(*kind) {
-                return false;
-            }
-        }
-    }
-
-    true
+    // C++ PartitionFilterAcceptByKindOf → Object::isKindOfMulti
+    obj.is_kind_of_multi(required_mask, forbidden_mask)
 }
 
 fn eva_event_from_name(name: &str) -> Option<EvaEvent> {

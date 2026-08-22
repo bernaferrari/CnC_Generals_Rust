@@ -524,8 +524,8 @@ pub fn deliver_payload_for_ocl(ocl: &str) -> Option<OclDeliverPayloadPeel> {
         return Some(OclDeliverPayloadPeel {
             ocl_name: "SUPERWEAPON_CrateDrop".into(),
             transport: "AmericaJetCargoPlane".into(),
-            payload: "SupplyDropZoneCrate".into(),
-            delivery_distance: 160.0,
+            payload: "200DollarCrate".into(),
+            delivery_distance: 250.0,
             drop_offset_y: -10.0,
             start_at_preferred_height: true,
             start_at_max_speed: true,
@@ -579,7 +579,11 @@ pub enum OclExecuteMode {
 
 pub fn ocl_execute_mode_for_template(power_template: &str) -> OclExecuteMode {
     let n = power_template.to_ascii_lowercase();
-    if n.contains("leaflet") || n.contains("paradrop") || n.contains("airborne") {
+    if n.contains("leaflet")
+        || n.contains("paradrop")
+        || n.contains("airborne")
+        || n.contains("cratedrop")
+    {
         OclExecuteMode::TransportOnly
     } else if n.contains("spydrone") || n.contains("spysatellite") {
         OclExecuteMode::CreateObject

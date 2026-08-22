@@ -172,6 +172,10 @@ fn present_groups(object: &Object) -> Vec<&'static str> {
             object.spectre_gunship_deployment.is_some(),
         ),
         (
+            TAG_SPECTRE_GUNSHIP_UPDATE,
+            object.spectre_gunship_update.is_some(),
+        ),
+        (
             TAG_SMART_BOMB_HOMING,
             object.smart_bomb_target_homing.is_some(),
         ),

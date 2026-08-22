@@ -88,6 +88,8 @@ pub const TAG_RADIUS_DECAL: &str = "RadiusDecalUpdate";
 pub const TAG_CHECKPOINT: &str = "CheckpointUpdate";
 /// C++ SpectreGunshipDeploymentUpdate residual.
 pub const TAG_SPECTRE_GUNSHIP_DEPLOYMENT: &str = "SpectreGunshipDeployment";
+/// C++ SpectreGunshipUpdate residual.
+pub const TAG_SPECTRE_GUNSHIP_UPDATE: &str = "SpectreGunshipUpdate";
 /// C++ SmartBombTargetHomingUpdate residual.
 pub const TAG_SMART_BOMB_HOMING: &str = "SmartBombTargetHoming";
 /// C++ HelicopterSlowDeathBehavior residual.
@@ -162,6 +164,7 @@ pub const INVENTORY_TAGS: &[&str] = &[
     TAG_RADIUS_DECAL,
     TAG_CHECKPOINT,
     TAG_SPECTRE_GUNSHIP_DEPLOYMENT,
+    TAG_SPECTRE_GUNSHIP_UPDATE,
     TAG_SMART_BOMB_HOMING,
     TAG_HELICOPTER_SLOW_DEATH,
     TAG_JET_SLOW_DEATH,

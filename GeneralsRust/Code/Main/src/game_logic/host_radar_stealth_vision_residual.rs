@@ -687,6 +687,160 @@ pub fn detector_effective_range_residual(detection_range: f32, vision_range: f32
     }
 }
 
+/// C++ `PartitionFilterAcceptByKindOf` / leftover `stealth_detector_kindof_allows`.
+#[inline]
+pub fn detector_accepts_kindof_residual(
+    target_mask: u128,
+    extra_required: u128,
+    extra_forbidden: u128,
+) -> bool {
+    gamelogic::object::behavior::stealth_detector_kindof_allows(
+        target_mask,
+        extra_required,
+        extra_forbidden,
+    )
+}
+
+/// C++ `KindOf.h` bit for one live host KindOf token.
+#[inline]
+pub fn live_kind_of_cpp_mask(kind: crate::game_logic::KindOf) -> u128 {
+    use crate::game_logic::KindOf;
+    use game_engine::common::system::kind_of::KindOfMask as M;
+    match kind {
+        KindOf::Structure => M::STRUCTURE.bits(),
+        KindOf::Infantry => M::INFANTRY.bits(),
+        KindOf::Vehicle => M::VEHICLE.bits(),
+        KindOf::Aircraft => M::AIRCRAFT.bits(),
+        KindOf::Projectile => M::PROJECTILE.bits(),
+        KindOf::Selectable => M::SELECTABLE.bits(),
+        KindOf::Attackable => M::CAN_ATTACK.bits(),
+        KindOf::CommandCenter => M::COMMANDCENTER.bits(),
+        KindOf::Hero => M::HERO.bits(),
+        KindOf::SupplyCenter => M::FS_SUPPLY_CENTER.bits(),
+        KindOf::PowerPlant => M::FS_POWER.bits(),
+        KindOf::FSBarracks => M::FS_BARRACKS.bits(),
+        KindOf::FSWarFactory => M::FS_WARFACTORY.bits(),
+        KindOf::FSAirfield => M::FS_AIRFIELD.bits(),
+        KindOf::FSInternetCenter => M::FS_INTERNET_CENTER.bits(),
+        KindOf::FSPower => M::FS_POWER.bits(),
+        KindOf::FSBaseDefense => M::FS_BASE_DEFENSE.bits(),
+        KindOf::FSSupplyDropzone => M::FS_SUPPLY_DROPZONE.bits(),
+        KindOf::FSSupplyCenter => M::FS_SUPPLY_CENTER.bits(),
+        KindOf::FSSuperweapon => M::FS_SUPERWEAPON.bits(),
+        KindOf::FSStrategyCenter => M::FS_STRATEGY_CENTER.bits(),
+        KindOf::FSFake => M::FS_FAKE.bits(),
+        KindOf::FSTechnology => M::FS_TECHNOLOGY.bits(),
+        KindOf::FSBlackMarket => M::FS_BLACK_MARKET.bits(),
+        KindOf::FSAdvancedTech => M::FS_ADVANCED_TECH.bits(),
+        KindOf::Powered => M::POWERED.bits(),
+        KindOf::AttackNeedsLineOfSight => M::ATTACK_NEEDS_LINE_OF_SIGHT.bits(),
+        KindOf::Immobile => M::IMMOBILE.bits(),
+        KindOf::CanBeRepulsed => M::CAN_BE_REPULSED.bits(),
+        KindOf::CannotRetaliate => M::CANNOT_RETALIATE.bits(),
+        KindOf::Drone => M::DRONE.bits(),
+        KindOf::IgnoredInGui => M::IGNORED_IN_GUI.bits(),
+        KindOf::Salvager => M::SALVAGER.bits(),
+        KindOf::WeaponSalvager => M::WEAPON_SALVAGER.bits(),
+        KindOf::ArmorSalvager => M::ARMOR_SALVAGER.bits(),
+        KindOf::AircraftPathAround => M::AIRCRAFT_PATH_AROUND.bits(),
+        KindOf::WaveGuide => M::WAVEGUIDE.bits(),
+        KindOf::Dozer => M::DOZER.bits(),
+        KindOf::Harvester => M::HARVESTER.bits(),
+        KindOf::Unattackable => M::UNATTACKABLE.bits(),
+        KindOf::Mine => M::MINE.bits(),
+        KindOf::DemoTrap => M::DEMOTRAP.bits(),
+        KindOf::SmallMissile => M::SMALL_MISSILE.bits(),
+        KindOf::BallisticMissile => M::BALLISTIC_MISSILE.bits(),
+        KindOf::Parachute => M::PARACHUTE.bits(),
+        KindOf::Disguiser => M::DISGUISER.bits(),
+        KindOf::RepairPad => M::REPAIR_PAD.bits(),
+        KindOf::HealPad => M::HEAL_PAD.bits(),
+        KindOf::MoneyHacker => M::MONEY_HACKER.bits(),
+        KindOf::SupplySource => M::SUPPLY_SOURCE.bits(),
+        KindOf::CannotBuildNearSupplies => M::CANNOT_BUILD_NEAR_SUPPLIES.bits(),
+        KindOf::Crate => M::CRATE.bits(),
+        KindOf::IgnoresSelectAll => M::IGNORES_SELECT_ALL.bits(),
+        KindOf::AlwaysSelectable => M::ALWAYS_SELECTABLE.bits(),
+        KindOf::MpCountForVictory => M::MP_COUNT_FOR_VICTORY.bits(),
+        KindOf::Score => M::SCORE.bits(),
+        KindOf::ScoreCreate => M::SCORE_CREATE.bits(),
+        KindOf::ScoreDestroy => M::SCORE_DESTROY.bits(),
+        KindOf::CanSeeThrough => M::CAN_SEE_THROUGH_STRUCTURE.bits(),
+        KindOf::NoGarrison => M::NO_GARRISON.bits(),
+        KindOf::GarrisonableUntilDestroyed => M::GARRISONABLE_UNTIL_DESTROYED.bits(),
+        KindOf::Boat => M::BOAT.bits(),
+        KindOf::Transport => M::TRANSPORT.bits(),
+        KindOf::ImmuneToCapture => M::IMMUNE_TO_CAPTURE.bits(),
+        KindOf::DefensiveWall => M::DEFENSIVE_WALL.bits(),
+        KindOf::WalkOnTopOfWall => M::WALK_ON_TOP_OF_WALL.bits(),
+        KindOf::Bridge => M::BRIDGE.bits(),
+        KindOf::BridgeTower => M::BRIDGE_TOWER.bits(),
+        KindOf::StealthGarrison => M::STEALTH_GARRISON.bits(),
+        KindOf::TechBuilding => M::TECH_BUILDING.bits(),
+        KindOf::LandmarkBridge => M::LANDMARK_BRIDGE.bits(),
+        KindOf::AutoRallypoint => M::AUTO_RALLYPOINT.bits(),
+        KindOf::Resource | KindOf::Worker | KindOf::Harvestable => 0,
+    }
+}
+
+/// C++ `ThingTemplate::m_kindof` mask from live host KindOf bits.
+#[inline]
+pub fn live_object_kind_of_cpp_mask<'a>(
+    kinds: impl IntoIterator<Item = &'a crate::game_logic::KindOf>,
+) -> u128 {
+    kinds.into_iter().fold(0u128, |acc, k| acc | live_kind_of_cpp_mask(*k))
+}
+
+fn parse_extra_detect_kindof_ini(value: &str) -> u128 {
+    use game_engine::common::system::kind_of::KindOfMask;
+    KindOfMask::parse_ini(KindOfMask::empty(), value)
+        .map(|m| m.bits())
+        .unwrap_or(0)
+}
+
+/// Leftover ThingFactory `StealthDetectorUpdate` ExtraRequired/ForbiddenKindOf.
+pub fn extra_detect_kindof_from_leftover_template(template_name: &str) -> Option<(u128, u128)> {
+    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
+    let factory = guard.as_ref()?;
+    let tmpl = factory.find_template(template_name, false)?;
+    for entry in tmpl.get_behavior_module_info().iter() {
+        if !entry.name.as_str().eq_ignore_ascii_case("StealthDetectorUpdate") {
+            continue;
+        }
+        if let Some(data) = entry
+            .data
+            .downcast_ref::<gamelogic::object::behavior::StealthDetectorUpdateModuleData>()
+        {
+            return Some((data.extra_detect_kindof, data.extra_detect_kindof_not));
+        }
+        let required = parse_extra_detect_kindof_ini(
+            entry
+                .data
+                .get_ini_field("ExtraRequiredKindOf")
+                .unwrap_or(""),
+        );
+        let forbidden = parse_extra_detect_kindof_ini(
+            entry
+                .data
+                .get_ini_field("ExtraForbiddenKindOf")
+                .unwrap_or(""),
+        );
+        return Some((required, forbidden));
+    }
+    None
+}
+
+/// ExtraRequired/ForbiddenKindOf for a detector: leftover module, else host fields.
+#[inline]
+pub fn extra_detect_kindof_for_detector(
+    template_name: &str,
+    extra_required: u128,
+    extra_forbidden: u128,
+) -> (u128, u128) {
+    extra_detect_kindof_from_leftover_template(template_name)
+        .unwrap_or((extra_required, extra_forbidden))
+}
+
 /// Wave 97 detector residual deepen honesty pack.
 pub fn honesty_detector_residual_deepen_pack_wave97() -> bool {
     DETECTOR_UPDATE_RATE_CTOR_DEFAULT_RESIDUAL == 1

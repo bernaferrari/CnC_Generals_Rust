@@ -510,6 +510,22 @@ pub fn stealth_detector_ctor_wake_frames(update_rate: u32) -> u32 {
     crate::helpers::game_logic_random_value(1, update_rate.max(1)).max(1)
 }
 
+/// C++ `PartitionFilterAcceptByKindOf` / `Thing::isKindOfMulti`
+/// (`StealthDetectorUpdate.cpp:168`, `Thing.cpp:251-253`).
+/// Empty ExtraRequired/Forbidden (ctor `KINDOFMASK_NONE`) accepts every kind.
+#[inline]
+pub fn stealth_detector_kindof_allows(
+    target_mask: KindOfMaskType,
+    extra_required: KindOfMaskType,
+    extra_forbidden: KindOfMaskType,
+) -> bool {
+    use game_engine::common::system::kind_of::KindOfMask;
+    KindOfMask::from_bits_truncate(target_mask).test_multi(
+        KindOfMask::from_bits_truncate(extra_required),
+        KindOfMask::from_bits_truncate(extra_forbidden),
+    )
+}
+
 /// StealthDetectorUpdate behavior module
 pub struct StealthDetectorUpdate {
     object_id: ObjectID,
@@ -598,33 +614,13 @@ impl StealthDetectorUpdate {
         }
     }
 
-    fn mask_contains_kind(mask: KindOfMaskType, kind: KindOf) -> bool {
-        (mask & (kind.cpp_mask())) != 0
-    }
-
     fn passes_kindof_filters(
         &self,
         obj: &GameObject,
         required_mask: KindOfMaskType,
         forbidden_mask: KindOfMaskType,
     ) -> bool {
-        if required_mask != 0 {
-            for kind in ALL_KIND_OF {
-                if Self::mask_contains_kind(required_mask, *kind) && !obj.is_kind_of(*kind) {
-                    return false;
-                }
-            }
-        }
-
-        if forbidden_mask != 0 {
-            for kind in ALL_KIND_OF {
-                if Self::mask_contains_kind(forbidden_mask, *kind) && obj.is_kind_of(*kind) {
-                    return false;
-                }
-            }
-        }
-
-        true
+        obj.is_kind_of_multi(required_mask, forbidden_mask)
     }
 
     /// Perform detection scan

@@ -413,6 +413,15 @@ impl GameInitializer {
         sides.add_team(&team);
     }
 
+    /// C++ `GameLogic::loadMapINI` (GameLogic.cpp:2367).
+    pub fn load_map_ini(map_name: &str) {
+        if map_name.is_empty() || map_name.len() < 4 {
+            return;
+        }
+        Self::load_map_sidecar_resources(map_name);
+    }
+
+
 
     fn load_map_sidecar_resources(map_path: &str) {
         let map_for_sidecars = Self::resolve_sidecar_map_path(map_path);
@@ -488,11 +497,20 @@ impl GameInitializer {
             return;
         }
 
-        let mut ini = INI::new();
-        if let Err(err) = ini.load(&path, INILoadType::CreateOverrides) {
+        if let Err(err) = load_map_ini_create_overrides_from_path(&path) {
             log::warn!("Failed to load map override INI '{}': {}", path, err);
+            if let Some(contents) = Self::read_text_file(&path) {
+                if let Err(err) = load_map_ini_ui_overrides_from_contents(&contents) {
+                    log::warn!(
+                        "map.ini CommandSet/CommandButton/Upgrade fallback failed for '{}': {}",
+                        path,
+                        err
+                    );
+                }
+            }
         }
     }
+
 
     fn smart_asset_purge_from_usage_manifest(path: &str) {
         let resources = Self::read_asset_usage_manifest(path);
@@ -565,7 +583,109 @@ impl GameInitializer {
         }
         false
     }
+}
 
+
+/// C++ GameLogic.cpp:2407-2408 `ini.load(..., INI_LOAD_CREATE_OVERRIDES)`.
+pub fn load_map_ini_create_overrides_from_contents(contents: &str) -> Result<(), String> {
+    if contents.trim().is_empty() {
+        return Ok(());
+    }
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let path = std::env::temp_dir().join(format!(
+        "map_ini_create_overrides_{}_{}.ini",
+        std::process::id(),
+        nanos
+    ));
+    fs::write(&path, contents).map_err(|err| err.to_string())?;
+    let result = load_map_ini_create_overrides_from_path(&path);
+    let _ = fs::remove_file(&path);
+    result
+}
+
+/// C++ loadMapINI dispatches the full block table. If a mixed Object block
+/// aborts the file, still apply CommandSet/CommandButton/Upgrade overrides.
+pub fn load_map_ini_ui_overrides_from_contents(contents: &str) -> Result<usize, String> {
+    const UI_BLOCKS: &[&str] = &["CommandButton", "CommandSet", "Upgrade"];
+    match load_map_ini_create_overrides_from_contents(contents) {
+        Ok(()) => Ok(count_map_ini_blocks(contents, UI_BLOCKS)),
+        Err(full_err) => {
+            let mut applied = 0usize;
+            let mut last_err = full_err;
+            for token in UI_BLOCKS {
+                let extracted = extract_map_ini_named_blocks(contents, &[token]);
+                if extracted.trim().is_empty() {
+                    continue;
+                }
+                match load_map_ini_create_overrides_from_contents(&extracted) {
+                    Ok(()) => applied += count_map_ini_blocks(&extracted, &[token]),
+                    Err(err) => last_err = err,
+                }
+            }
+            if applied == 0 {
+                Err(last_err)
+            } else {
+                Ok(applied)
+            }
+        }
+    }
+}
+
+fn load_map_ini_create_overrides_from_path<P: AsRef<Path>>(path: P) -> Result<(), String> {
+    let mut ini = INI::new();
+    ini.load(path, INILoadType::CreateOverrides)
+        .map_err(|err| err.to_string())
+}
+
+
+fn extract_map_ini_named_blocks(contents: &str, block_names: &[&str]) -> String {
+    let mut out = String::new();
+    let mut in_block = false;
+    for raw in contents.lines() {
+        let line = raw.split(';').next().unwrap_or("").trim_end();
+        let trimmed = line.trim();
+        if !in_block {
+            if trimmed.split_whitespace().next().is_some_and(|token| {
+                block_names
+                    .iter()
+                    .any(|name| token.eq_ignore_ascii_case(name))
+            }) {
+                in_block = true;
+                out.push_str(line);
+                out.push('\n');
+            }
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+        if trimmed.eq_ignore_ascii_case("End") {
+            in_block = false;
+        }
+    }
+    out
+}
+
+fn count_map_ini_blocks(contents: &str, block_names: &[&str]) -> usize {
+    contents
+        .lines()
+        .filter(|line| {
+            line.trim()
+                .split_whitespace()
+                .next()
+                .is_some_and(|token| {
+                    block_names
+                        .iter()
+                        .any(|name| token.eq_ignore_ascii_case(name))
+                })
+        })
+        .count()
+}
+
+
+impl GameInitializer {
     /// Phase 2: Initialize players from map data and templates
     fn initialize_players(game_state: &mut GameState, params: &GameInitParams) -> io::Result<()> {
         println!(

@@ -170,6 +170,9 @@ pub struct GameUIState {
     pub minimap_unit_dots: Vec<MinimapDot>,
     pub minimap_beacons: Vec<MinimapDot>,
     pub minimap_viewport: UiRect,
+    /// C++ W3DRadar view box: four projected tactical corners (UL, UR, LR, LL)
+    /// in normalized minimap space so the box rotates with the camera.
+    pub minimap_view_box: [UiPos2; 4],
     pub minimap_texture_id: Option<UiTextureId>,
     pub minimap_coordinates: Option<MinimapCoordinates>,
     pub radar_messages: Vec<String>,
@@ -276,6 +279,7 @@ impl Default for GameUIState {
             minimap_unit_dots: Vec::new(),
             minimap_beacons: Vec::new(),
             minimap_viewport: default_minimap_viewport(),
+            minimap_view_box: default_minimap_view_box(),
             minimap_texture_id: None,
             minimap_coordinates: None,
             radar_messages: Vec::new(),
@@ -554,6 +558,15 @@ pub fn normalized_minimap_rect(min_x: f32, min_y: f32, max_x: f32, max_y: f32) -
 
 pub fn default_minimap_viewport() -> UiRect {
     UiRect::from_min_size(UiPos2::ZERO, UiVec2::new(1.0, 1.0))
+}
+
+pub fn default_minimap_view_box() -> [UiPos2; 4] {
+    [
+        UiPos2::new(0.0, 0.0),
+        UiPos2::new(1.0, 0.0),
+        UiPos2::new(1.0, 1.0),
+        UiPos2::new(0.0, 1.0),
+    ]
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

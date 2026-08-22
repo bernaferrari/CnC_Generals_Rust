@@ -89,8 +89,19 @@ impl GameLogic {
                     }
                     self.ocl_special_power_reg.record_payload_spawn();
                 } else {
-                // Residual MoneyCrateCollide registration (unit + BuildingPickup).
-                self.host_money_crates.register_supply_drop_crate(id);
+                // Residual MoneyCrateCollide registration.
+                if plan.kind
+                    == crate::game_logic::host_deliver_payload::HostDeliverPayloadKind::SuperweaponCrateDrop
+                {
+                    self.host_money_crates.register(
+                        id,
+                        crate::game_logic::host_money_crate::SUPERWEAPON_CRATE_DROP_MONEY,
+                        false,
+                        0,
+                    );
+                } else {
+                    self.host_money_crates.register_supply_drop_crate(id);
+                }
                 self.host_money_crates.arm_default_deletion(
                     id,
                     self.frame,
@@ -108,7 +119,7 @@ impl GameLogic {
                             .record_parachute_directly_override();
                     }
                 }
-                } // else supply-drop crate path
+                } // else crate path
             }
             self.host_deliver_payloads
                 .record_item_spawned(plan.mission_id, spawned_id);

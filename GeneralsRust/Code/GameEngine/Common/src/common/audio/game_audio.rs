@@ -2130,28 +2130,27 @@ impl AudioManager {
         true
     }
 
-    /// Check if a sound with the same event name is already playing.
-    /// Used for interrupting sounds of the same type.
+    /// C++ `MilesAudioManager::isPlayingAlready` (1886-1905).
+    /// 2D events scan 2D samples only; 3D events scan 3D samples only.
     pub fn is_playing_already(&self, event: &AudioEventRts) -> Bool {
         let event_name = event.get_event_name();
+        let positional = event.is_positional_audio();
+
+        let same_name_same_partition = |playing: &AudioEventRts| {
+            playing.get_event_name() == event_name
+                && playing.is_positional_audio() == positional
+        };
 
         with_sound_playback_hook(|hook| {
-            self.active_audio_events
-                .values()
-                .filter_map(|e| {
-                    if e.get_event_name() == event_name && hook.is_playing(e.get_playing_handle()) {
-                        Some(())
-                    } else {
-                        None
-                    }
-                })
-                .next()
-                .is_some()
+            self.active_audio_events.values().any(|playing| {
+                same_name_same_partition(playing)
+                    && hook.is_playing(playing.get_playing_handle())
+            })
         })
         .unwrap_or_else(|| {
             self.active_audio_events
                 .values()
-                .any(|e| e.get_event_name() == event_name)
+                .any(same_name_same_partition)
         })
     }
 
@@ -2206,12 +2205,17 @@ impl AudioManager {
         self.audio_settings.sample_count_3d
     }
 
-    /// Adjust the volume of currently playing audio events matching the given name
+    /// C++ `MilesAudioManager::adjustVolumeOfPlayingAudio` (MilesAudioManager.cpp:2079-2116).
+    /// Sets event volume then immediately re-applies `AIL_set_*_volume` as sink volume.
     pub fn adjust_volume_of_playing_audio(&mut self, event_name: &str, new_volume: Real) {
         for event in self.active_audio_events.values_mut() {
             if event.get_event_name() == event_name {
                 event.set_volume(new_volume);
-                let _ = with_sound_playback_hook(|hook| hook.set_event_volume(event));
+                let desired_volume = event.get_volume() * event.get_volume_shift();
+                let handle = event.get_playing_handle();
+                let _ = with_sound_playback_hook(|hook| {
+                    hook.set_sink_volume(handle, desired_volume);
+                });
             }
         }
     }
@@ -3882,6 +3886,50 @@ mod tests {
             "lowest-priority 3D sample must be evicted for the new higher-priority play"
         );
     }
+
+    #[test]
+    fn is_playing_already_partitions_2d_from_3d() {
+        // C++ MilesAudioManager::isPlayingAlready (1886-1905) scans only
+        // m_playingSounds or m_playing3DSounds, never both.
+        let mut manager = AudioManager::new();
+        manager.init();
+
+        let mut world = test_info("Boom", AudioType::SoundEffect, 0, 0);
+        world.type_field = ST_WORLD;
+        let mut playing_3d = event_with(world, 1.0);
+        playing_3d.set_position(&Coord3D {
+            x: 10.0,
+            y: 0.0,
+            z: 0.0,
+        });
+        playing_3d.set_playing_handle(1001);
+        manager.insert_playing_event_for_test(playing_3d);
+
+        let probe_2d = event_with(test_info("Boom", AudioType::SoundEffect, 0, 0), 1.0);
+        assert!(
+            !probe_2d.is_positional_audio(),
+            "UI/2D probe must not be positional"
+        );
+        assert!(
+            !manager.is_playing_already(&probe_2d),
+            "same-name 3D must not count as already-playing for a 2D AC_INTERRUPT"
+        );
+
+        let mut world_probe = test_info("Boom", AudioType::SoundEffect, 0, 0);
+        world_probe.type_field = ST_WORLD;
+        let mut probe_3d = event_with(world_probe, 1.0);
+        probe_3d.set_position(&Coord3D {
+            x: 20.0,
+            y: 0.0,
+            z: 0.0,
+        });
+        assert!(probe_3d.is_positional_audio());
+        assert!(
+            manager.is_playing_already(&probe_3d),
+            "same-name 3D must count as already-playing in the 3D partition"
+        );
+    }
+
     #[test]
     fn should_play_locally_player_allies_enemies_match_cpp() {
         // Missing restriction bits default Everyone.

@@ -665,6 +665,7 @@ impl GameLogic {
         {
             self.update_smart_bomb_target_homing();
         }
+        self.update_spectre_gunship_flights();
         self.update_fuel_air_gas_slow_death();
         self.update_neutron_missile_flights();
         self.update_scud_storm_missile_flights();

@@ -152,6 +152,17 @@ fn read_text_with_fallback(path: &Path) -> Option<String> {
     }
 }
 
+fn first_readable_map_ini_companion(dir: &Path, names: &[&str]) -> Option<(PathBuf, String)> {
+    for name in names {
+        let path = dir.join(name);
+        if let Some(contents) = read_text_with_fallback(&path) {
+            return Some((path, contents));
+        }
+    }
+    None
+}
+
+
 fn path_is_accessible(path: &Path) -> bool {
     resolve_with_file_system(path).is_some() || path.exists()
 }
@@ -1166,6 +1177,20 @@ pub fn extract_map_ini_weather_blocks(contents: &str) -> String {
     out
 }
 
+/// C++ `GameLogic::loadMapINI` — dispatch the full INI block table with
+/// `INI_LOAD_CREATE_OVERRIDES` so map-authored CommandSet/CommandButton/Upgrade
+/// (and the rest of the table) actually apply.
+pub fn overlay_map_ini_create_overrides(contents: &str) -> usize {
+    match gamelogic::system::load_map_ini_ui_overrides_from_contents(contents) {
+        Ok(applied) => applied,
+        Err(err) => {
+            warn!("map.ini CREATE_OVERRIDES dispatch failed: {err}");
+            0
+        }
+    }
+}
+
+
 /// Overlay map.ini `Weather` onto `TheWeatherSetting` via CREATE_OVERRIDES
 /// (C++ GameLogic.cpp:2407-2408 `ini.load(..., INI_LOAD_CREATE_OVERRIDES)`).
 /// Returns whether a Weather block was applied.
@@ -1285,15 +1310,15 @@ fn parse_map_settings_from_loaded_chunky(
     // Heightmap hint: look for common heightmap filenames next to the .map.
     if let Some(map_path) = locate_map_file(map_name) {
         if let Some(dir) = map_path.parent() {
-            let companion_ini_candidates = [dir.join("Map.ini"), dir.join("map.ini")];
-            for ini_path in companion_ini_candidates {
-                let Some(contents) = read_text_with_fallback(&ini_path) else {
-                    continue;
-                };
-                // C++ GameLogic.cpp:2404-2408 loadMapINI — ParticleSystem overlays
-                // TheParticleSystemManager, not a dead Common-only registry.
+            if let Some((_, contents)) =
+                first_readable_map_ini_companion(dir, &["Map.ini", "map.ini"])
+            {
+                // C++ GameLogic.cpp:2404-2408 loadMapINI — full block table
+                // via INI_LOAD_CREATE_OVERRIDES (CommandSet/CommandButton/Upgrade).
+                let _ = overlay_map_ini_create_overrides(&contents);
+                // ParticleSystem still needs the live GameClient manager hook.
                 let _ = overlay_map_ini_particle_systems(&contents);
-                // C++ same loadMapINI pass: Weather CREATE_OVERRIDES → SnowEnabled.
+                // Weather CREATE_OVERRIDES + SnowManager flake spacing.
                 let _ = overlay_map_ini_weather(&contents);
 
                 let mut skybox_textures: [Option<String>; 5] = [None, None, None, None, None];
@@ -1327,9 +1352,16 @@ fn parse_map_settings_from_loaded_chunky(
                         skybox_textures[3].clone().unwrap(),
                         skybox_textures[4].clone().unwrap(),
                     ]);
-                    break;
                 }
             }
+
+            // C++ loadMapINI also loads companion solo.ini CREATE_OVERRIDES.
+            if let Some((_, contents)) =
+                first_readable_map_ini_companion(dir, &["Solo.ini", "solo.ini"])
+            {
+                let _ = overlay_map_ini_create_overrides(&contents);
+            }
+
 
             // C++ parity: only treat dedicated heightmap companions as terrain sources.
             // Generic *.tga beside a map is commonly preview/sky art, not elevation data.
@@ -3842,6 +3874,51 @@ End\n";
             "map.ini Weather SnowEnabled must reach TheWeatherSetting"
         );
     }
+
+    #[test]
+    fn map_ini_create_overrides_applies_command_set() {
+        // C++ loadMapINI full table: CommandSet CREATE_OVERRIDES must apply
+        // even when mixed Object/Weather content is present.
+        use game_engine::common::ini::ini_command_set::{
+            get_command_set_manager, initialize_command_set_manager,
+        };
+        initialize_command_set_manager();
+        let mixed = "\
+Object SomeUnit\n\
+  KindOf = STRUCTURE\n\
+End\n\
+\n\
+CommandSet MapIniDozerCommandSet\n\
+  1 = Command_ConstructAmericaPowerPlant\n\
+  2 = Command_ConstructAmericaBarracks\n\
+End\n\
+\n\
+Upgrade MapIniRangerCapture\n\
+  DisplayName = MapOverrideCapture\n\
+End\n\
+\n\
+Weather\n\
+  SnowEnabled = Yes\n\
+End\n";
+        let applied = overlay_map_ini_create_overrides(mixed);
+        assert!(
+            applied >= 1,
+            "map.ini CommandSet/Upgrade CREATE_OVERRIDES must apply"
+        );
+        let manager = get_command_set_manager().expect("CommandSet manager");
+        let set = manager
+            .find_command_set_resolved("MapIniDozerCommandSet")
+            .expect("map.ini CommandSet override must reach TheControlBar table");
+        assert_eq!(
+            set.get_button_at_position(0).map(String::as_str),
+            Some("Command_ConstructAmericaPowerPlant")
+        );
+        assert_eq!(
+            set.get_button_at_position(1).map(String::as_str),
+            Some("Command_ConstructAmericaBarracks")
+        );
+    }
+
 
     #[test]
     fn world_weather_and_object_weather_values_match_cpp() {

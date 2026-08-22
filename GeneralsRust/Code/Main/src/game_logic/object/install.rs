@@ -9,6 +9,11 @@ impl Object {
             || self.status.disabled_hacked
     }
 
+    /// C++ `Object::getTemplate` / `Thing::getTemplate`.
+    pub fn get_template(&self) -> &crate::game_logic::ThingTemplate {
+        &self.thing.template
+    }
+
     /// C++ Object.cpp:2078-2088 / 2237-2247 Building/Vehicle Disabled/Reenabled.
     pub(crate) fn queue_power_disable_misc_audio(&self, becoming: bool) {
 
@@ -448,6 +453,19 @@ impl Object {
             )
         {
             self.spectre_gunship_deployment = Some(data);
+        }
+    }
+
+    pub fn install_spectre_gunship_update_if_needed(&mut self) {
+        if self.spectre_gunship_update.is_some() {
+            return;
+        }
+        if let Some(data) =
+            crate::game_logic::host_spectre_gunship_update::HostSpectreGunshipUpdateData::for_template(
+                &self.template_name,
+            )
+        {
+            self.spectre_gunship_update = Some(data);
         }
     }
 

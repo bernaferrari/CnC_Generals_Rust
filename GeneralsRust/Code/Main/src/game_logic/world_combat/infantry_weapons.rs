@@ -387,12 +387,37 @@ impl GameLogic {
             let mut p = g.get_position();
             p.y = plan.spawn_pos.y;
             g.set_position(p);
-            // C++ SpectreGunshipUpdate::initiateIntent sets
-            // m_overrideTargetDestination so later clicks steer the reticle.
+            // C++ SpectreGunshipUpdate::initiateIntent: INSERTING, doors CLOSING,
+            // afterburners on, panic loco, overridable reticle dest.
             g.set_special_power_overridable_destination(
                 target_pos,
                 Some(crate::command_system::SpecialPowerType::SpectreGunship),
             );
+            g.install_spectre_gunship_update_if_needed();
+            let mut flight =
+                crate::game_logic::host_spectre_gunship_update::HostSpectreGunshipUpdateData::initiate_at(
+                    target_pos,
+                );
+            if let Some(existing) = g.spectre_gunship_update.as_ref() {
+                flight.orbit_radius = existing.orbit_radius;
+                flight.orbit_frames = existing.orbit_frames;
+                flight.orbit_insertion_slope = existing.orbit_insertion_slope;
+                flight.attack_area_radius = existing.attack_area_radius;
+                flight.targeting_reticle_radius = existing.targeting_reticle_radius;
+                flight.preferred_elevation = existing.preferred_elevation;
+                flight.initiate(target_pos);
+            }
+            crate::game_logic::host_spectre_gunship_update::apply_spectre_door_and_afterburner(
+                g,
+                flight.door_opening,
+                flight.afterburners_on,
+            );
+            crate::game_logic::host_upgrade_module_residuals::apply_choose_locomotor_set(
+                g,
+                crate::game_logic::host_upgrade_module_residuals::HostLocomotorSetKind::Panic,
+                false,
+            );
+            g.spectre_gunship_update = Some(flight);
         }
         if let Some(dep) = self
             .objects
@@ -411,7 +436,109 @@ impl GameLogic {
         {
             self.select_object_list(1u32 << pid.min(31), vec![gunship_id], true);
         }
+        // C++ friend_enableAfterburners(TRUE) starts Afterburner per-unit sound.
+        if let Some(g) = self.objects.get(&gunship_id) {
+            let pos = g.get_position();
+            self.queue_audio_event(
+                crate::game_logic::AudioEventRequest::new(
+                    crate::game_logic::object::JET_AFTERBURNER_SOUND,
+                )
+                .with_object(gunship_id)
+                .with_position(pos)
+                .looping(),
+            );
+        }
+        if let Some(g) = self.objects.get_mut(&gunship_id) {
+            g.jet_ai.afterburner_sound_playing = true;
+        }
         Some(gunship_id)
+    }
+
+    /// C++ SpectreGunshipUpdate::update insertion / orbit / departure residual.
+    pub(in super::super) fn update_spectre_gunship_flights(&mut self) {
+        use crate::game_logic::host_spectre_gunship_update::apply_spectre_door_and_afterburner;
+        use crate::game_logic::host_upgrade_module_residuals::{
+            apply_choose_locomotor_set, HostLocomotorSetKind,
+        };
+        use crate::game_logic::object::{JET_AFTERBURNER_SOUND, JET_AFTERBURNER_SOUND_STOP};
+
+        let frame = self.frame as u32;
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.is_alive() && o.spectre_gunship_update.is_some())
+            .map(|(id, _)| *id)
+            .collect();
+        let mut destroy = Vec::new();
+        let mut audio: Vec<(ObjectId, Vec3, bool)> = Vec::new();
+        for id in ids {
+            let Some(o) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            if o.status.destroyed || !o.is_alive() {
+                continue;
+            }
+            if o.spectre_gunship_update.as_ref().is_none_or(|data| {
+                data.status
+                    == crate::game_logic::host_spectre_gunship_update::HostGunshipStatus::Idle
+            }) {
+                continue;
+            }
+            let pos = o.get_position();
+            let facing = o.get_orientation();
+            let Some(data) = o.spectre_gunship_update.as_mut() else {
+                continue;
+            };
+            let was_ab = data.afterburners_on;
+            let tick = data.tick(pos, facing, frame);
+            o.set_position(tick.pos);
+            o.movement.velocity = tick.vel;
+            if tick.vel.length_squared() > 1.0e-6 {
+                o.set_orientation(tick.vel.z.atan2(tick.vel.x));
+            }
+            apply_spectre_door_and_afterburner(o, tick.door_opening, tick.afterburners_on);
+            apply_choose_locomotor_set(
+                o,
+                if tick.panic_loco {
+                    HostLocomotorSetKind::Panic
+                } else {
+                    HostLocomotorSetKind::Normal
+                },
+                false,
+            );
+            if was_ab != tick.afterburners_on {
+                audio.push((id, tick.pos, tick.afterburners_on));
+            }
+            if tick.destroy {
+                destroy.push(id);
+            }
+        }
+        for (id, pos, on) in audio {
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.jet_ai.afterburner_sound_playing = on;
+            }
+            if on {
+                self.queue_audio_event(
+                    crate::game_logic::AudioEventRequest::new(JET_AFTERBURNER_SOUND)
+                        .with_object(id)
+                        .with_position(pos)
+                        .looping(),
+                );
+            } else {
+                self.queue_audio_event(
+                    crate::game_logic::AudioEventRequest::new(JET_AFTERBURNER_SOUND_STOP)
+                        .with_object(id)
+                        .with_position(pos)
+                        .stopping(),
+                );
+            }
+        }
+        for id in destroy {
+            self.mark_object_for_destruction(id, None);
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.spectre_gunship_update = None;
+            }
+        }
     }
 
     /// C++ ObjectCreationList CreateDebris residual with disposition force.

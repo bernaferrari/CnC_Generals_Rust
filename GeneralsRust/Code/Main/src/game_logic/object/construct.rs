@@ -542,6 +542,7 @@ impl Object {
             radius_decal_update: None,
             checkpoint_update: None,
             spectre_gunship_deployment: None,
+            spectre_gunship_update: None,
             smart_bomb_target_homing: None,
             helicopter_slow_death: None,
             jet_slow_death: None,
@@ -809,6 +810,8 @@ impl Object {
             is_detector: false,
             detection_range: 0.0,
             detection_rate_frames: 0,
+            extra_detect_kindof: 0,
+            extra_detect_kindof_not: 0,
             next_detection_scan_frame: 0,
             detection_expires_frame: 0,
             stealth_breaks_on_attack: true,
@@ -1375,6 +1378,7 @@ impl Object {
             radius_decal_update: None,
             checkpoint_update: None,
             spectre_gunship_deployment: None,
+            spectre_gunship_update: None,
             smart_bomb_target_homing: None,
             helicopter_slow_death: None,
             jet_slow_death: None,
@@ -1642,6 +1646,8 @@ impl Object {
             is_detector: false,
             detection_range: 0.0,
             detection_rate_frames: 0,
+            extra_detect_kindof: 0,
+            extra_detect_kindof_not: 0,
             next_detection_scan_frame: 0,
             detection_expires_frame: 0,
             stealth_breaks_on_attack: true,
@@ -1787,13 +1793,26 @@ impl Object {
         obj
     }
 
-    pub fn get_template(&self) -> &ThingTemplate {
-        self.thing.get_template()
-    }
-
     pub fn is_kind_of(&self, kind: KindOf) -> bool {
         self.thing.is_kind_of(kind)
     }
+
+    /// C++ `ThingTemplate::m_kindof` bits for PartitionFilterAcceptByKindOf.
+    pub fn kind_of_cpp_mask(&self) -> u128 {
+        crate::game_logic::host_radar_stealth_vision_residual::live_object_kind_of_cpp_mask(
+            self.thing.template.kind_of.iter(),
+        )
+    }
+
+    /// C++ `Thing::isKindOfMulti` / leftover `stealth_detector_kindof_allows`.
+    pub fn is_kind_of_multi(&self, required: u128, forbidden: u128) -> bool {
+        crate::game_logic::host_radar_stealth_vision_residual::detector_accepts_kindof_residual(
+            self.kind_of_cpp_mask(),
+            required,
+            forbidden,
+        )
+    }
+
 
     /// C++ PoisonedBehavior::onDamage residual.
     pub fn notify_poisoned_on_damage(

@@ -1201,6 +1201,9 @@ pub enum HostDeliverPayloadKind {
     /// OCLSpecialPower DeliverPayload bomb residual (Daisy/MOAB/A10/Leaflet bomb path).
     /// Single payload after approach; transport may be a live Object from execute_ocl.
     SuperweaponOclBomb,
+    /// SuperweaponCrateDrop cargo-plane DeliverPayload (`SUPERWEAPON_CrateDrop`).
+    /// AmericaJetCargoPlane + 200DollarCrate × 10, DropDelay 300ms.
+    SuperweaponCrateDrop,
 }
 
 impl HostDeliverPayloadKind {
@@ -1209,6 +1212,7 @@ impl HostDeliverPayloadKind {
             HostDeliverPayloadKind::SupplyDropZoneCrate => "SupplyDropZoneCrate",
             HostDeliverPayloadKind::AmericaParadrop => "AmericaParadrop",
             HostDeliverPayloadKind::SuperweaponOclBomb => "SuperweaponOclBomb",
+            HostDeliverPayloadKind::SuperweaponCrateDrop => "SuperweaponCrateDrop",
         }
     }
 
@@ -1220,6 +1224,7 @@ impl HostDeliverPayloadKind {
             HostDeliverPayloadKind::SuperweaponOclBomb => {
                 SUPERWEAPON_OCL_BOMB_APPROACH_DELAY_FRAMES
             }
+            HostDeliverPayloadKind::SuperweaponCrateDrop => CARGO_PLANE_APPROACH_DELAY_FRAMES,
         }
     }
 
@@ -1229,6 +1234,7 @@ impl HostDeliverPayloadKind {
             HostDeliverPayloadKind::SupplyDropZoneCrate => CARGO_PLANE_DOOR_DELAY_FRAMES,
             HostDeliverPayloadKind::AmericaParadrop => CARGO_PLANE_DOOR_DELAY_FRAMES,
             HostDeliverPayloadKind::SuperweaponOclBomb => SUPERWEAPON_OCL_BOMB_DOOR_DELAY_FRAMES,
+            HostDeliverPayloadKind::SuperweaponCrateDrop => CARGO_PLANE_DOOR_DELAY_FRAMES,
         }
     }
 
@@ -1239,6 +1245,9 @@ impl HostDeliverPayloadKind {
             // Paradrop infantry stagger owned by host_paradrop residual.
             HostDeliverPayloadKind::AmericaParadrop => 0,
             HostDeliverPayloadKind::SuperweaponOclBomb => 0,
+            HostDeliverPayloadKind::SuperweaponCrateDrop => {
+                crate::game_logic::host_money_crate::SUPERWEAPON_CRATE_DROP_DELAY_FRAMES
+            }
         }
     }
 
@@ -1248,6 +1257,7 @@ impl HostDeliverPayloadKind {
             HostDeliverPayloadKind::SupplyDropZoneCrate => SUPPLY_DROP_CARGO_TRANSPORT,
             HostDeliverPayloadKind::AmericaParadrop => PARADROP_CARGO_TRANSPORT,
             HostDeliverPayloadKind::SuperweaponOclBomb => "AmericaJetB52",
+            HostDeliverPayloadKind::SuperweaponCrateDrop => SUPPLY_DROP_CARGO_TRANSPORT,
         }
     }
 
@@ -1257,6 +1267,7 @@ impl HostDeliverPayloadKind {
             HostDeliverPayloadKind::SupplyDropZoneCrate => SUPPLY_DROP_PUT_IN_CONTAINER,
             HostDeliverPayloadKind::AmericaParadrop => PARADROP_PUT_IN_CONTAINER,
             HostDeliverPayloadKind::SuperweaponOclBomb => "",
+            HostDeliverPayloadKind::SuperweaponCrateDrop => SUPPLY_DROP_PUT_IN_CONTAINER,
         }
     }
 
@@ -1266,6 +1277,9 @@ impl HostDeliverPayloadKind {
             HostDeliverPayloadKind::SupplyDropZoneCrate => SUPPLY_DROP_PAYLOAD_COUNT,
             HostDeliverPayloadKind::AmericaParadrop => 0,
             HostDeliverPayloadKind::SuperweaponOclBomb => 1,
+            HostDeliverPayloadKind::SuperweaponCrateDrop => {
+                crate::game_logic::host_money_crate::SUPERWEAPON_CRATE_DROP_COUNT
+            }
         }
     }
 
@@ -1276,6 +1290,7 @@ impl HostDeliverPayloadKind {
             HostDeliverPayloadKind::AmericaParadrop => "",
             // Overridden at queue time via payload_template string.
             HostDeliverPayloadKind::SuperweaponOclBomb => "DaisyCutterBomb",
+            HostDeliverPayloadKind::SuperweaponCrateDrop => "200DollarCrate",
         }
     }
 
@@ -1285,6 +1300,9 @@ impl HostDeliverPayloadKind {
             HostDeliverPayloadKind::SupplyDropZoneCrate => SUPPLY_DROP_CRATE_SPACING,
             HostDeliverPayloadKind::AmericaParadrop => 0.0,
             HostDeliverPayloadKind::SuperweaponOclBomb => 0.0,
+            HostDeliverPayloadKind::SuperweaponCrateDrop => {
+                crate::game_logic::host_money_crate::SUPERWEAPON_CRATE_DROP_SPACING
+            }
         }
     }
 
@@ -1298,6 +1316,7 @@ impl HostDeliverPayloadKind {
             ),
             HostDeliverPayloadKind::AmericaParadrop => Vec3::new(0.0, -10.0, 0.0),
             HostDeliverPayloadKind::SuperweaponOclBomb => Vec3::new(0.0, -10.0, 0.0),
+            HostDeliverPayloadKind::SuperweaponCrateDrop => Vec3::new(0.0, -10.0, 0.0),
         }
     }
 
@@ -1307,6 +1326,7 @@ impl HostDeliverPayloadKind {
             HostDeliverPayloadKind::SupplyDropZoneCrate => SUPPLY_DROP_MAX_ATTEMPTS,
             HostDeliverPayloadKind::AmericaParadrop => PARADROP_MAX_ATTEMPTS,
             HostDeliverPayloadKind::SuperweaponOclBomb => PARADROP_MAX_ATTEMPTS,
+            HostDeliverPayloadKind::SuperweaponCrateDrop => SUPPLY_DROP_MAX_ATTEMPTS,
         }
     }
 
@@ -1316,6 +1336,7 @@ impl HostDeliverPayloadKind {
             HostDeliverPayloadKind::SupplyDropZoneCrate => SUPPLY_DROP_PRE_OPEN_DISTANCE,
             HostDeliverPayloadKind::AmericaParadrop => PARADROP_PRE_OPEN_DISTANCE,
             HostDeliverPayloadKind::SuperweaponOclBomb => PARADROP_PRE_OPEN_DISTANCE,
+            HostDeliverPayloadKind::SuperweaponCrateDrop => SUPPLY_DROP_PRE_OPEN_DISTANCE,
         }
     }
 
@@ -1325,6 +1346,9 @@ impl HostDeliverPayloadKind {
             HostDeliverPayloadKind::SupplyDropZoneCrate => SUPPLY_DROP_DELIVERY_DISTANCE,
             HostDeliverPayloadKind::AmericaParadrop => 0.0,
             HostDeliverPayloadKind::SuperweaponOclBomb => 140.0,
+            HostDeliverPayloadKind::SuperweaponCrateDrop => {
+                crate::game_logic::host_money_crate::SUPERWEAPON_CRATE_DROP_DELIVERY_DISTANCE
+            }
         }
     }
 
@@ -1334,6 +1358,7 @@ impl HostDeliverPayloadKind {
             self,
             HostDeliverPayloadKind::SupplyDropZoneCrate
                 | HostDeliverPayloadKind::SuperweaponOclBomb
+                | HostDeliverPayloadKind::SuperweaponCrateDrop
         )
     }
 
@@ -1347,6 +1372,7 @@ impl HostDeliverPayloadKind {
             HostDeliverPayloadKind::SupplyDropZoneCrate => SUPPLY_DROP_CARGO_APPROACH_AUDIO,
             HostDeliverPayloadKind::AmericaParadrop => "SuperweaponParadrop",
             HostDeliverPayloadKind::SuperweaponOclBomb => "SuperweaponDaisyCutter",
+            HostDeliverPayloadKind::SuperweaponCrateDrop => SUPPLY_DROP_CARGO_APPROACH_AUDIO,
         }
     }
 
@@ -1355,6 +1381,7 @@ impl HostDeliverPayloadKind {
             HostDeliverPayloadKind::SupplyDropZoneCrate => SUPPLY_DROP_CARGO_DROP_AUDIO,
             HostDeliverPayloadKind::AmericaParadrop => "ParadropLanding",
             HostDeliverPayloadKind::SuperweaponOclBomb => "BombDrop",
+            HostDeliverPayloadKind::SuperweaponCrateDrop => SUPPLY_DROP_CARGO_DROP_AUDIO,
         }
     }
 
@@ -1867,6 +1894,8 @@ impl HostDeliverPayloadRegistry {
                 // B52 preferred height residual honesty.
                 flight.preferred_height = flight.preferred_height.max(120.0);
                 flight.delivery_distance = 140.0;
+            } else if kind == HostDeliverPayloadKind::SuperweaponCrateDrop {
+                flight.delivery_distance = kind.delivery_distance();
             }
             self.create_at_edge_spawns = self.create_at_edge_spawns.saturating_add(1);
             self.cargo_flights.insert(id, flight);

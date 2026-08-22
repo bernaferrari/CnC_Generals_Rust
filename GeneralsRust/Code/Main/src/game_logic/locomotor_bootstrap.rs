@@ -127,6 +127,8 @@ pub const MISSILE_DEFENDER_LOCOMOTOR: &str = "MissileDefenderLocomotor";
 pub const ANGRY_MOB_NEXUS_LOCOMOTOR: &str = "AngryMobNexusLocomotor";
 /// Retail cliff climber used on SET_NORMAL rows for Burton / Pathfinder / Saboteur.
 pub const HUMAN_CLIFF_LOCOMOTOR: &str = "HumanCliffLocomotor";
+/// Retail AmericaVehicleSpyDrone SET_NORMAL residual.
+pub const SPY_DRONE_LOCOMOTOR: &str = "SpyDroneLocomotor";
 
 
 /// Wave 81/92/103 residual seed table: (name, Speed, Acceleration, TurnRate deg).
@@ -175,6 +177,7 @@ pub const HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE: &[(&str, f32, f32, f32)] = &[
     (SABOTEUR_GROUND_LOCOMOTOR, 30.0, 100.0, 500.0),
     (MISSILE_DEFENDER_LOCOMOTOR, 20.0, 100.0, 500.0),
     (ANGRY_MOB_NEXUS_LOCOMOTOR, 18.0, 100.0, 500.0),
+    (SPY_DRONE_LOCOMOTOR, 75.0, 100.0, 180.0),
 ];
 
 /// Logic FPS used by C++ Locomotor.ini unit conversion (Speed / 30 → dist/frame).
@@ -310,6 +313,7 @@ pub fn ensure_host_locomotor_store() -> usize {
     added += seed_exact_combat_bike_sluggish_locomotors();
     added += seed_exact_aircraft_set_switch_locomotors();
     added += seed_exact_human_cliff_locomotor();
+    added += seed_exact_spy_drone_locomotor();
 
 
     // Always fill missing golden / Wave 81 common-unit locomotors.
@@ -392,6 +396,7 @@ pub fn locomotor_name_for_unit(template_name: &str) -> Option<&'static str> {
         "USA_MissileDefender" | "AmericaInfantryMissileDefender" => {
             Some(MISSILE_DEFENDER_LOCOMOTOR)
         }
+        "USA_SpyDrone" | "AmericaVehicleSpyDrone" => Some(SPY_DRONE_LOCOMOTOR),
         _ => None,
     }
 }
@@ -1078,6 +1083,7 @@ fn seed_known_host_locomotors() -> usize {
             || name == CHINOOK_LOCOMOTOR
             || name == A10_THUNDERBOLT_LOCOMOTOR
             || name == B52_LOCOMOTOR
+            || name == SPY_DRONE_LOCOMOTOR
         {
             "AIR"
         } else {
@@ -1332,6 +1338,49 @@ fn seed_exact_aircraft_set_switch_locomotors() -> usize {
         }
     }
     added
+}
+
+/// Seed SpyDroneLocomotor even after the generic store bootstrap completed.
+pub fn ensure_spy_drone_locomotor() -> usize {
+    let _ = ensure_host_locomotor_store();
+    seed_exact_spy_drone_locomotor()
+}
+
+fn seed_exact_spy_drone_locomotor() -> usize {
+    if store_has(SPY_DRONE_LOCOMOTOR) {
+        return 0;
+    }
+    let mut props = HashMap::new();
+    props.insert("Surfaces".to_string(), "AIR".to_string());
+    props.insert("Appearance".to_string(), "HOVER".to_string());
+    props.insert("Speed".to_string(), "75".to_string());
+    props.insert("SpeedDamaged".to_string(), "75".to_string());
+    props.insert("Acceleration".to_string(), "100".to_string());
+    props.insert("AccelerationDamaged".to_string(), "100".to_string());
+    props.insert("TurnRate".to_string(), "180".to_string());
+    props.insert("TurnRateDamaged".to_string(), "180".to_string());
+    props.insert("MinSpeed".to_string(), "0".to_string());
+    props.insert("Braking".to_string(), "50".to_string());
+    props.insert("PreferredHeight".to_string(), "40".to_string());
+    props.insert("PreferredHeightDamping".to_string(), "0.8".to_string());
+    props.insert("ZAxisBehavior".to_string(), "SURFACE_RELATIVE_HEIGHT".to_string());
+    props.insert("AllowAirborneMotiveForce".to_string(), "Yes".to_string());
+    props.insert("StickToGround".to_string(), "No".to_string());
+    match parse_locomotor_template_definition(SPY_DRONE_LOCOMOTOR, &props) {
+        Ok(template) => match get_locomotor_store_mut().add_template(template) {
+            Ok(()) => 1,
+            Err(error) => {
+                log::warn!(
+                    "Host LocomotorStore: cannot seed SpyDroneLocomotor: {error}"
+                );
+                0
+            }
+        },
+        Err(error) => {
+            log::warn!("Host LocomotorStore: cannot parse SpyDroneLocomotor: {error}");
+            0
+        }
+    }
 }
 
 

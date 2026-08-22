@@ -1900,7 +1900,19 @@ impl GameLogic {
     /// C++ MSG_DO_MOVETO / ATTACKMOVETO / GET_REPAIRED / GET_HEALED (`CommandXlat.cpp:384-443`).
     /// Worker Shoes complete + infantry/dozer/harvester → PerUnitSound VoiceMoveUpgraded (skip).
     pub fn queue_picked_move_voice(&mut self, unit_ids: &[ObjectId]) {
-        use crate::game_logic::audio_dispatch_impl::{resolve_per_unit_sound, UnitVoiceSlot};
+        if self.try_queue_picked_voice_move_upgraded(unit_ids) {
+            return;
+        }
+        self.queue_picked_unit_voice(
+            unit_ids,
+            crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Move,
+        );
+    }
+
+    /// C++ `CommandXlat.cpp:433-443` — first matching worker wins (`skip=true`).
+    /// Always plays the PerUnitSound key; C++ does not `isValidAudioEvent` this line.
+    pub fn try_queue_picked_voice_move_upgraded(&mut self, unit_ids: &[ObjectId]) -> bool {
+        use crate::game_logic::audio_dispatch_impl::resolve_per_unit_sound;
         use crate::game_logic::host_gla_worker::{
             is_worker_for_voice_move_upgraded, worker_shoes_voice_upgrade_complete,
             UPGRADE_GLA_WORKER_SHOES, WORKER_VOICE_MOVE_UPGRADED,
@@ -1942,11 +1954,8 @@ impl GameLogic {
             if !object_has_shoes && !player_has_shoes {
                 continue;
             }
-            let Some(event) =
-                resolve_per_unit_sound(&obj.template_name, WORKER_VOICE_MOVE_UPGRADED)
-            else {
-                continue;
-            };
+            let event = resolve_per_unit_sound(&obj.template_name, WORKER_VOICE_MOVE_UPGRADED)
+                .unwrap_or_else(|| WORKER_VOICE_MOVE_UPGRADED.to_string());
             let pos = obj.get_position();
             self.queue_audio_event(
                 AudioEventRequest::new(&event)
@@ -1954,10 +1963,11 @@ impl GameLogic {
                     .with_position(pos)
                     .with_priority(100),
             );
-            return;
+            return true;
         }
-        self.queue_picked_unit_voice(unit_ids, UnitVoiceSlot::Move);
+        false
     }
+
 
 
     /// C++ `pickAndPlayUnitVoiceResponse` — authored Voice.ini plus carbomb extra.
