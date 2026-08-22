@@ -530,6 +530,8 @@ impl Object {
         self.ensure_fx_list_die();
         let upgrades: Vec<String> = self.applied_upgrades.iter().cloned().collect();
         let death_type = self.status.death_type;
+        // C++ FXListDie::onDie → doFXObj(deathFX, obj, source)
+        let killer = self.last_damage_source.map(|id| id.0);
         let Some(fx) = self.fx_list_die.as_mut() else {
             return;
         };
@@ -543,7 +545,7 @@ impl Object {
                     self.pending_death_audio = a;
                 }
             } else if let Some(name) = f {
-                let _ = crate::game_logic::dispatch_fx_list_at_object(&name, self.id.0, None);
+                let _ = crate::game_logic::dispatch_fx_list_at_object(&name, self.id.0, killer);
                 if self.pending_death_audio.is_none() {
                     self.pending_death_audio = a;
                 }

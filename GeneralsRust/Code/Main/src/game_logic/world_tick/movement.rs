@@ -73,6 +73,7 @@ impl GameLogic {
                     obj.record_host_movement();
                     obj.movement.current_path_index = 1; // skip start node
                     obj.movement.target_position = Some(obj.movement.path[1]);
+                    obj.start_move();
                     obj.set_status_moving(true);
                     crate::game_logic::host_move_log::record(
                         object_id,
@@ -86,6 +87,7 @@ impl GameLogic {
                     obj.record_host_movement();
                     obj.movement.current_path_index = 1;
                     obj.movement.target_position = Some(dest);
+                    obj.start_move();
                     obj.set_status_moving(true);
                     crate::game_logic::host_move_log::record(
                         object_id,
@@ -308,6 +310,8 @@ impl GameLogic {
                     .is_some_and(|t| t.is_underwater_at_world(pos));
                 (gy, sy, ahead_y, cell_type, underwater)
             };
+            let mut plant_snap = false;
+            'unit: {
             if let Some(obj) = self.objects.get_mut(&id) {
                 // C++ GameLogic.cpp:3677-3718: UpdateModules (including AI/locomotor
                 // movement) are skipped while any disabled flag is set and does not
@@ -316,13 +320,13 @@ impl GameLogic {
                 if obj.is_disabled() {
                     obj.movement.velocity = Vec3::ZERO;
                     obj.record_host_movement();
-                    continue;
+                    break 'unit;
                 }
                 // C++ Locomotor.cpp:954-958 getIsStunned — no motive walk.
                 // Leave velocity for PhysicsBehavior tumble / shock tick.
                 if obj.is_shock_stunned() {
                     Self::stamp_object_airborne_target(obj, ground_y);
-                    continue;
+                    break 'unit;
                 }
                 // C++ locoUpdate_moveTowardsPosition always applyMotiveForce(0)
                 // so collide/friction treat the unit as driven (Locomotor.cpp:1010-1014).
@@ -339,13 +343,13 @@ impl GameLogic {
                     if height_above > 9.0 && !obj.allow_motive_force_while_airborne {
                         Self::apply_live_handle_behavior_z(obj, surface_y, None);
                         Self::stamp_object_airborne_target(obj, ground_y);
-                        continue;
+                        break 'unit;
                     }
                 }
                 if obj.is_rappelling() {
                     // C++ AIRappelState owns Z; handleBehaviorZ must not snap to Y=0.
                     Self::stamp_object_airborne_target(obj, ground_y);
-                    continue;
+                    break 'unit;
                 }
                 if obj.waiting_for_path {
                     // C++ queueForPath: locomotor does not integrate until Path is installed.
@@ -353,7 +357,7 @@ impl GameLogic {
                     obj.record_host_movement();
                     Self::apply_live_handle_behavior_z(obj, surface_y, None);
                     Self::stamp_object_airborne_target(obj, ground_y);
-                    continue;
+                    break 'unit;
                 }
                 if matches!(obj.ai_state, AIState::AttackMoving) && obj.target.is_some() {
                     // C++ AIAttackMoveToState::update: setLocomotorGoalNone while
@@ -373,7 +377,7 @@ impl GameLogic {
                         obj.set_status_moving(false);
                         Self::apply_live_handle_behavior_z(obj, surface_y, None);
                         Self::stamp_object_airborne_target(obj, ground_y);
-                        continue;
+                        break 'unit;
                     }
                 }
 
@@ -425,6 +429,7 @@ impl GameLogic {
                                 let _ = obj.loco_maintain_current_position(surface_y, dt);
                             } else {
                                 obj.stop_moving();
+                                plant_snap = true;
                             }
                             if do_evac {
                                 obj.pending_evacuate_on_stop = true;
@@ -432,7 +437,7 @@ impl GameLogic {
                             }
                             Self::apply_live_handle_behavior_z(obj, surface_y, None);
                             Self::stamp_object_airborne_target(obj, ground_y);
-                            continue;
+                            break 'unit;
                         }
                     }
 
@@ -508,13 +513,43 @@ impl GameLogic {
                             delta += std::f32::consts::TAU;
                         }
                         let dist = horiz(current_pos, flat_target);
+                        // C++ Path::computePointOnPath distAlongPath (AIPathfind.cpp:997)
+                        // then locoUpdate_moveTowardsPosition raise (Locomotor.cpp:980-992).
+                        let path_for_dist = if obj.movement.path.is_empty() {
+                            None
+                        } else {
+                            Some(
+                                &obj.movement.path
+                                    [obj.movement.current_path_index.saturating_sub(1)..],
+                            )
+                        };
+                        let mut on_path_dist = path_for_dist
+                            .map(|wps| {
+                                crate::game_logic::PathfindingSystem::dist_along_path(
+                                    current_pos,
+                                    wps,
+                                )
+                            })
+                            .unwrap_or(dist);
+                        const PATHFIND_CLOSE_ENOUGH: f32 = 1.0;
+                        if dist > on_path_dist && on_path_dist > PATHFIND_CLOSE_ENOUGH {
+                            on_path_dist = dist;
+                        }
+                        if dist > on_path_dist {
+                            let projectile = obj.is_kind_of(KindOf::Projectile)
+                                || obj.object_type == crate::game_logic::ObjectType::Projectile;
+                            if !projectile && dist > 2.0 * on_path_dist {
+                                obj.is_braking = true;
+                            }
+                            on_path_dist = dist;
+                        }
                         // C++ getIsDownhillOnly: refuse uphill goals (Locomotor.cpp:1596-1598).
                         if obj.downhill_only_blocks_goal(current_pos.y, target_pos.y) {
                             obj.movement.velocity = Vec3::ZERO;
                             obj.record_host_movement();
                             Self::apply_live_handle_behavior_z(obj, surface_y, None);
                             Self::stamp_object_airborne_target(obj, ground_y);
-                            continue;
+                            break 'unit;
                         }
                         // C++ moveTowardsPositionTreads/Legs/Climb angleCoeff
                         // (Locomotor.cpp:1170-1180, 1638-1646, 1760-1767).
@@ -539,7 +574,7 @@ impl GameLogic {
                         }
                         if !obj.no_slow_down_as_approaching_dest {
                             speed = obj.apply_cpp_approach_brake(
-                                dist,
+                                on_path_dist,
                                 obj.movement.velocity.length(),
                                 speed,
                                 self.frame,
@@ -559,14 +594,7 @@ impl GameLogic {
                             } else {
                                 obj.selection_radius.max(1.0)
                             };
-                            let mut on_path = dist;
-                            let idx = obj.movement.current_path_index;
-                            if idx < obj.movement.path.len() {
-                                on_path = horiz(current_pos, obj.movement.path[idx]);
-                                for w in idx..obj.movement.path.len().saturating_sub(1) {
-                                    on_path += horiz(obj.movement.path[w], obj.movement.path[w + 1]);
-                                }
-                            }
+                            let on_path = on_path_dist;
                             if actual_stopped {
                                 obj.moving_backwards = false;
                                 if obj.can_move_backward
@@ -645,7 +673,7 @@ impl GameLogic {
                                 obj.record_host_movement();
                                 Self::apply_live_handle_behavior_z(obj, surface_y, None);
                                 Self::stamp_object_airborne_target(obj, ground_y);
-                                continue;
+                                break 'unit;
                             }
                         }
                         // C++ Locomotor.cpp:2344-2361 ULTRA_ACCURATE slide-into-place.
@@ -729,6 +757,7 @@ impl GameLogic {
                                     let _ = obj.loco_maintain_current_position(surface_y, dt);
                                 } else {
                                     obj.stop_moving();
+                                    plant_snap = true;
                                 }
                             } else {
                                 obj.movement.current_path_index += 1;
@@ -765,6 +794,7 @@ impl GameLogic {
                                 obj.movement.target_position = None;
                             } else {
                                 obj.stop_moving();
+                                plant_snap = true;
                             }
                         }
                     }
@@ -782,9 +812,50 @@ impl GameLogic {
                 }
                 Self::stamp_object_airborne_target(obj, ground_y);
             }
+            }
+            if plant_snap {
+                self.apply_arrival_goal_snap(id);
+            }
         }
 
         self.drain_pending_transport_exits();
+    }
+
+    /// C++ `Pathfinder::snapClosestGoalPosition` when the unit plants.
+    /// Group-move later arrivers offset onto a free 3×3 neighbor.
+    fn apply_arrival_goal_snap(&mut self, id: ObjectId) {
+        let Some(obj) = self.objects.get(&id) else {
+            return;
+        };
+        if obj.holds_air_position_when_idle() {
+            return;
+        }
+        if obj.is_kind_of(KindOf::Aircraft)
+            || obj.object_type == crate::game_logic::ObjectType::Aircraft
+        {
+            return;
+        }
+        let pos = obj.get_position();
+        let surfaces = if obj.locomotor_surfaces != 0 {
+            obj.locomotor_surfaces
+        } else {
+            gamelogic::ai::pathfind_complete::SURFACE_GROUND
+        };
+        let is_crusher = obj.crusher_level > 0;
+        let radius = obj.selection_radius;
+        let player = obj.owner_player_id.or(Some(obj.team as u32));
+        let snapped = self.pathfinding_system.snap_plant_goal(
+            pos,
+            surfaces,
+            is_crusher,
+            radius,
+            id,
+            player,
+            &self.objects,
+        );
+        if let Some(obj) = self.objects.get_mut(&id) {
+            obj.set_position(snapped);
+        }
     }
 
     /// C++ `applyMotiveForce(0)` at locoUpdate_moveTowardsPosition entry.
@@ -1922,6 +1993,143 @@ mod tests {
         );
     }
 
+    #[test]
+    fn start_move_resets_donut_so_short_order_does_not_instant_brake() {
+        let mut truck = {
+            let mut tmpl = ThingTemplate::new("Humvee");
+            tmpl.add_kind_of(KindOf::Vehicle);
+            Object::new(tmpl, ObjectId(9810), Team::USA)
+        };
+        truck.loco_appearance = LocomotorAppearance::WheelsFour;
+        truck.braking = 10.0;
+        truck.movement.max_speed = 20.0;
+        truck.donut_timer = 0;
+        truck.start_move();
+        assert_eq!(truck.donut_timer, u32::MAX);
+        let _ = truck.apply_cpp_approach_brake(35.0, 10.0, 20.0, 0);
+        assert!(
+            !truck.is_braking,
+            "startMove must open a 2.5s donut window (Locomotor.cpp:761-765)"
+        );
+    }
+
+    #[test]
+    fn maintain_resets_donut_and_clears_braking() {
+        let mut truck = {
+            let mut tmpl = ThingTemplate::new("Humvee");
+            tmpl.add_kind_of(KindOf::Vehicle);
+            Object::new(tmpl, ObjectId(9811), Team::USA)
+        };
+        truck.loco_appearance = LocomotorAppearance::WheelsFour;
+        truck.is_braking = true;
+        truck.donut_timer = 0;
+        let _ = truck.loco_maintain_current_position(0.0, 1.0 / 30.0);
+        assert!(!truck.is_braking, "maintain must clear IS_BRAKING");
+        assert_eq!(
+            truck.donut_timer,
+            u32::MAX,
+            "maintain must reset donut timer (Locomotor.cpp:2420-2421)"
+        );
+    }
+
+    #[test]
+    fn hover_maintain_bleeds_speed_not_scrub() {
+        let mut hover = {
+            let mut tmpl = ThingTemplate::new("Comanche");
+            tmpl.add_kind_of(KindOf::Aircraft);
+            Object::new(tmpl, ObjectId(9812), Team::USA)
+        };
+        hover.loco_appearance = LocomotorAppearance::Hover;
+        hover.min_speed = 0.0;
+        hover.braking = 5.0;
+        hover.movement.acceleration = 5.0;
+        hover.set_orientation(0.0);
+        let dir = hover.unit_direction_vector_2d();
+        hover.movement.velocity = Vec3::new(dir.x * 20.0, 0.0, dir.y * 20.0);
+        hover.motive_frames_remaining = 3;
+        let _ = hover.loco_maintain_current_position(0.0, 1.0 / 30.0);
+        let speed = hover.forward_speed_2d();
+        assert!(
+            speed > 1.0,
+            "hover maintain must not scrub vel to 0, speed={speed}"
+        );
+        assert!(
+            speed < 20.0,
+            "hover maintain must apply brake force, speed={speed}"
+        );
+    }
+
+    #[test]
+    fn dist_along_path_is_remaining_not_lead() {
+        let path = [
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(100.0, 0.0, 0.0),
+            Vec3::new(100.0, 0.0, 100.0),
+        ];
+        let pos = Vec3::new(50.0, 0.0, 0.0);
+        let remaining = crate::game_logic::PathfindingSystem::dist_along_path(pos, &path);
+        assert!(
+            (remaining - 150.0).abs() < 0.5,
+            "closest-point remaining must be 150, got {remaining}"
+        );
+        let lead = crate::game_logic::PathfindingSystem::compute_point_on_path(pos, &path);
+        let lead_d = {
+            let dx = pos.x - lead.x;
+            let dz = pos.z - lead.z;
+            (dx * dx + dz * dz).sqrt()
+        };
+        assert!(
+            remaining > lead_d + 40.0,
+            "distAlongPath {remaining} must exceed lead range {lead_d}"
+        );
+    }
+
+    #[test]
+    fn approach_brake_does_not_trigger_mid_long_path() {
+        let mut tank = {
+            let mut tmpl = ThingTemplate::new("Crusader");
+            tmpl.add_kind_of(KindOf::Vehicle);
+            Object::new(tmpl, ObjectId(9813), Team::USA)
+        };
+        tank.loco_appearance = LocomotorAppearance::Treads;
+        tank.braking = 10.0;
+        tank.movement.max_speed = 30.0;
+        tank.movement.velocity = Vec3::new(30.0, 0.0, 0.0);
+        tank.is_braking = true;
+        let _ = tank.apply_cpp_approach_brake(200.0, 30.0, 30.0, 0);
+        assert!(
+            !tank.is_braking,
+            "mid-path distAlongPath must clear IS_BRAKING (Locomotor.cpp:941-946)"
+        );
+    }
+
+
+
+    /// hq-cg5on: arriving onto an occupied pad snaps to a free neighbor.
+    #[test]
+    fn arrival_snap_offsets_off_occupied_pad() {
+        let mut logic = GameLogic::new();
+        let pad = Vec3::new(80.0, 0.0, 80.0);
+        let parked_id = ObjectId(7001);
+        let arriver_id = ObjectId(7002);
+        logic.objects.insert(parked_id, ranger_at(7001, pad));
+        let mut arriver = ranger_at(7002, pad);
+        arriver.movement.path = vec![Vec3::new(70.0, 0.0, 80.0), pad];
+        arriver.movement.current_path_index = 1;
+        arriver.movement.target_position = Some(pad);
+        arriver.set_status_moving(true);
+        arriver.set_ai_state(AIState::Moving);
+        logic.objects.insert(arriver_id, arriver);
+        logic.update_movement_for_test(&[parked_id, arriver_id], 1.0 / 30.0);
+        let pos = logic.objects.get(&arriver_id).expect("arriver").get_position();
+        let dx = pos.x - pad.x;
+        let dz = pos.z - pad.z;
+        let dist = (dx * dx + dz * dz).sqrt();
+        assert!(
+            dist > 1.0,
+            "arriver must snap off the occupied pad, pos={pos:?}"
+        );
+    }
 
     }
 

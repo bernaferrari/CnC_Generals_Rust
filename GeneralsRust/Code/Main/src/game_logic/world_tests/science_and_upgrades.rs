@@ -1466,6 +1466,11 @@ fn capture_non_last_tunnel_keeps_old_team_pool() {
     logic.tunnel_network.on_tunnel_created(gla_key, t1);
     logic.tunnel_network.on_tunnel_created(gla_key, t2);
     assert!(logic.tunnel_network.record_enter(gla_key, uid, t1));
+    if let Some(u) = logic.host_object_mut(uid) {
+        u.set_contained_by(Some(t1));
+    }
+    logic.tunnel_network.stamp_contained_by_frame(uid, 0);
+    logic.frame = 25;
 
     if let Some(o) = logic.host_object_mut(t1) {
         o.set_team_and_owner(Team::USA, Some(0));
@@ -1476,6 +1481,15 @@ fn capture_non_last_tunnel_keeps_old_team_pool() {
     assert_eq!(logic.capture_tunnel_last_ejects, 0);
     // Pool stays with GLA (second entrance remains).
     assert_eq!(logic.tunnel_network.contain_count(gla_key), 1);
+    assert_eq!(
+        logic.host_object(uid).and_then(|u| u.contained_by),
+        Some(t2)
+    );
+    assert_eq!(
+        logic.tunnel_network.contained_by_frame(uid),
+        Some(25),
+        "capture remap must restart TimeForFullHeal"
+    );
     let _ = t2;
 }
 
@@ -5180,6 +5194,7 @@ fn hijack_guard_boards_enemy_vehicle() {
     v.set_position(glam::Vec3::new(30.0, 0.0, 0.0));
     logic.objects.insert(vid, v);
 
+    mark_guard_scan_due(&mut logic, hid);
     logic.update_support_states(&[hid, vid], 1.0 / 30.0);
     let h = &logic.objects[&hid];
     assert_eq!(h.target, Some(vid), "HijackGuard must pick the vehicle");
@@ -5470,6 +5485,11 @@ fn wave21_guard_weapon() -> Weapon {
     }
 }
 
+/// Force Idle/Return scan due this frame (C++ `m_nextEnemyScanTime <= now`).
+fn mark_guard_scan_due(logic: &mut GameLogic, id: crate::game_logic::ObjectId) {
+    logic.guard_next_enemy_scan.insert(id, logic.frame);
+}
+
 #[test]
 fn guard_idle_acquire_uses_inner_not_outer() {
     use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate};
@@ -5547,6 +5567,7 @@ fn guarding_object_flying_only_skips_ground() {
     air.status.airborne_target = true;
     logic.objects.insert(aid, air);
 
+    mark_guard_scan_due(&mut logic, hid);
     logic.update_support_states(&[hid, bid, tid, aid], 1.0 / 30.0);
     assert_eq!(
         logic.objects[&hid].target,
@@ -5598,6 +5619,7 @@ fn guard_area_polygon_rejects_outside_and_covers_far_corner() {
     outside.set_position(glam::Vec3::new(200.0, 0.0, 150.0));
     logic.objects.insert(oid, outside);
 
+    mark_guard_scan_due(&mut logic, gid);
     logic.update_support_states(&[gid, oid], 1.0 / 30.0);
     assert!(
         logic.objects[&gid].target.is_none(),
@@ -5612,6 +5634,7 @@ fn guard_area_polygon_rejects_outside_and_covers_far_corner() {
     inside.set_position(glam::Vec3::new(380.0, 0.0, 20.0));
     logic.objects.insert(iid, inside);
 
+    mark_guard_scan_due(&mut logic, gid);
     logic.update_support_states(&[gid, oid, iid], 1.0 / 30.0);
     assert_eq!(
         logic.objects[&gid].target,
@@ -5730,6 +5753,7 @@ fn guard_retaliate_inner_scan_allows_base_defense() {
         .begin_guard_retaliate(vid, Some(glam::Vec3::ZERO), None);
     logic.objects.get_mut(&vid).unwrap().status.destroyed = true;
     logic.objects.get_mut(&vid).unwrap().health.current = 0.0;
+    mark_guard_scan_due(&mut logic, id);
     logic.tick_guard_retaliate_states();
     assert_eq!(
         logic.objects[&id].guard_retaliate_victim,
@@ -5781,10 +5805,166 @@ fn guard_retaliate_computer_scan_allows_any_enemy_structure() {
         .begin_guard_retaliate(vid, Some(glam::Vec3::ZERO), None);
     logic.objects.get_mut(&vid).unwrap().status.destroyed = true;
     logic.objects.get_mut(&vid).unwrap().health.current = 0.0;
+    mark_guard_scan_due(&mut logic, id);
     logic.tick_guard_retaliate_states();
     assert_eq!(
         logic.objects[&id].guard_retaliate_victim,
         Some(wid),
         "computer retaliate rescan must acquire enemy structures"
+    );
+}
+
+#[test]
+fn host_guardee_follow_is_per_axis_two_cells_not_inner_radius() {
+    use crate::game_logic::host_repair::PATHFIND_CELL_SIZE_F;
+    use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate};
+
+    // C++ AIGuard.cpp:722-730 — 2.5 cells on X (25wu) is still well inside
+    // inner vision (~80+). Pre-fix live only followed when farther than inner.
+
+    let mut logic = GameLogic::new();
+    let mut gt = ThingTemplate::new("RangerFollow");
+    gt.add_kind_of(KindOf::Infantry);
+    gt.add_kind_of(KindOf::Attackable);
+    let gid = ObjectId(6201);
+    let mut g = Object::new(gt, gid, Team::USA);
+    g.set_position(glam::Vec3::ZERO);
+    g.vision_range = 200.0;
+    g.weapon = Some(wave21_guard_weapon());
+    g.set_ai_state(AIState::GuardingObject);
+    logic.objects.insert(gid, g);
+
+    let mut ct = ThingTemplate::new("CrusaderFollow");
+    ct.add_kind_of(KindOf::Vehicle);
+    ct.add_kind_of(KindOf::Attackable);
+    let cid = ObjectId(6202);
+    let mut crusader = Object::new(ct, cid, Team::USA);
+    crusader.set_position(glam::Vec3::ZERO);
+    logic.objects.insert(cid, crusader);
+    logic.objects.get_mut(&gid).unwrap().guard_target = Some(cid);
+
+    logic.update_support_states(&[gid, cid], 1.0 / 30.0);
+    assert!(
+        logic.objects[&gid].movement.target_position.is_none(),
+        "first idle tick only stamps m_guardeePos"
+    );
+
+    logic
+        .objects
+        .get_mut(&cid)
+        .unwrap()
+        .set_position(glam::Vec3::new(PATHFIND_CELL_SIZE_F * 2.5, 0.0, 0.0));
+    logic.update_support_states(&[gid, cid], 1.0 / 30.0);
+    let dest = logic.objects[&gid].movement.target_position;
+    assert!(
+        dest.is_some_and(|p| (p.x - PATHFIND_CELL_SIZE_F * 2.5).abs() < 1.0),
+        "2.5-cell guardee walk must path even while still inside inner vision; dest={dest:?}"
+    );
+}
+
+#[test]
+fn inner_guard_attack_switches_to_new_last_attacker() {
+    use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate};
+    const INNER: u8 = 1;
+    const AGGRESSOR: u8 = 3;
+
+    let mut logic = GameLogic::new();
+    let mut gt = ThingTemplate::new("InnerSwitch");
+    gt.add_kind_of(KindOf::Infantry);
+    gt.add_kind_of(KindOf::Attackable);
+    let gid = ObjectId(6210);
+    let mut g = Object::new(gt, gid, Team::USA);
+    g.set_position(glam::Vec3::ZERO);
+    g.guard_position = Some(glam::Vec3::ZERO);
+    g.guard_radius = 200.0;
+    g.vision_range = 200.0;
+    g.weapon = Some(wave21_guard_weapon());
+    g.set_ai_state(AIState::Attacking);
+    g.target = Some(ObjectId(6211));
+    g.guard_chase_phase = INNER;
+    g.status.attacking = true;
+    logic.objects.insert(gid, g);
+
+    let mut at = ThingTemplate::new("EnemyA");
+    at.add_kind_of(KindOf::Infantry);
+    at.add_kind_of(KindOf::Attackable);
+    let aid = ObjectId(6211);
+    let mut a = Object::new(at, aid, Team::GLA);
+    a.set_position(glam::Vec3::new(20.0, 0.0, 0.0));
+    logic.objects.insert(aid, a);
+
+    let mut bt = ThingTemplate::new("EnemyB");
+    bt.add_kind_of(KindOf::Infantry);
+    bt.add_kind_of(KindOf::Attackable);
+    let bid = ObjectId(6212);
+    let mut b = Object::new(bt, bid, Team::GLA);
+    b.set_position(glam::Vec3::new(25.0, 0.0, 0.0));
+    logic.objects.insert(bid, b);
+
+    logic.objects.get_mut(&gid).unwrap().last_damage_source = Some(bid);
+    logic.update_support_states(&[gid, aid, bid], 1.0 / 30.0);
+    let g = &logic.objects[&gid];
+    assert_eq!(g.target, Some(bid), "INNER attack must switch to new last attacker");
+    assert_eq!(
+        g.guard_chase_phase, AGGRESSOR,
+        "switch must enter AttackAggressor, not stay INNER"
+    );
+}
+
+#[test]
+fn guard_idle_acquire_uses_scan_rate_cadence() {
+    use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate};
+
+    let mut logic = GameLogic::new();
+    let mut gt = ThingTemplate::new("ScanCadence");
+    gt.add_kind_of(KindOf::Infantry);
+    gt.add_kind_of(KindOf::Attackable);
+    let gid = ObjectId(6220);
+    let mut g = Object::new(gt, gid, Team::China);
+    g.set_position(glam::Vec3::ZERO);
+    g.guard_position = Some(glam::Vec3::ZERO);
+    g.vision_range = 200.0;
+    g.weapon = Some(wave21_guard_weapon());
+    g.set_ai_state(AIState::GuardingArea);
+    logic.objects.insert(gid, g);
+
+    let mut et = ThingTemplate::new("ScanPrey");
+    et.add_kind_of(KindOf::Infantry);
+    et.add_kind_of(KindOf::Attackable);
+    let eid = ObjectId(6221);
+    let mut e = Object::new(et, eid, Team::USA);
+    e.set_position(glam::Vec3::new(20.0, 0.0, 0.0));
+    logic.objects.insert(eid, e);
+
+    let rate = logic.host_guard_enemy_scan_rate().max(1);
+    logic.guard_next_enemy_scan.insert(gid, logic.frame.saturating_add(rate));
+    logic.update_support_states(&[gid, eid], 1.0 / 30.0);
+    assert!(
+        logic.objects[&gid].target.is_none(),
+        "idle must not acquire before GuardEnemyScanRate"
+    );
+
+    logic.frame = logic.frame.saturating_add(rate);
+    mark_guard_scan_due(&mut logic, gid);
+    logic.update_support_states(&[gid, eid], 1.0 / 30.0);
+    assert_eq!(
+        logic.objects[&gid].target,
+        Some(eid),
+        "idle acquire must fire when scan time is due"
+    );
+
+    // Return to idle; same-frame rescan must wait the rate.
+    {
+        let g = logic.objects.get_mut(&gid).unwrap();
+        g.target = None;
+        g.status.attacking = false;
+        g.clear_guard_chase();
+        g.set_ai_state(AIState::GuardingArea);
+        g.last_damage_source = None;
+    }
+    logic.update_support_states(&[gid, eid], 1.0 / 30.0);
+    assert!(
+        logic.objects[&gid].target.is_none(),
+        "second idle look in the same frame must wait GuardEnemyScanRate"
     );
 }

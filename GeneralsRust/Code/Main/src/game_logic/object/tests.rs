@@ -1601,6 +1601,27 @@ fn fx_list_die_queues_on_rubble() {
 }
 
 #[test]
+fn fx_list_die_extra_module_uses_last_damage_source() {
+    use crate::game_logic::host_fx_list_die::HostFxListDieData;
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut t = ThingTemplate::new("AmericaTankCrusader");
+    t.set_health(100.0);
+    t.add_kind_of(KindOf::Vehicle);
+    let mut o = Object::new(t, ObjectId(2), Team::USA);
+    o.fx_list_die = Some(HostFxListDieData {
+        death_fx: Some("FX_VehicleDie".into()),
+        more: vec![HostFxListDieData::with_fx("FX_RicochetDie")],
+        ..Default::default()
+    });
+    o.last_damage_source = Some(ObjectId(99));
+    o.fire_fx_list_die();
+    let (fx, _) = o.take_pending_death_fx_audio();
+    assert_eq!(fx.as_deref(), Some("FX_VehicleDie"));
+    assert_eq!(o.last_damage_source, Some(ObjectId(99)));
+}
+
+
+#[test]
 fn structure_collapse_on_lethal() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut t = ThingTemplate::new("CivilianBarn01");

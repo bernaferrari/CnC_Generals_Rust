@@ -1542,8 +1542,22 @@ impl CombatSystem {
                     let intended = projectile.target_id;
                     let pos = projectile.position;
                     let sneak_now = crate::game_logic::host_historic_bonus::logic_frame();
+                    // C++ Weapon.cpp:663-666 — never collide with the launcher's container.
+                    let launcher_contained_by =
+                        objects.get(&shooter).and_then(|s| s.contained_by);
+                    // C++ Weapon.cpp:670-677 — Flame/ParticleBeam skip already-burned.
+                    let skip_burned = matches!(
+                        projectile.damage_type,
+                        DamageType::Flame | DamageType::ParticleBeam
+                    );
                     for (&oid, obj) in objects.iter() {
                         if oid == shooter || Some(oid) == intended {
+                            continue;
+                        }
+                        if launcher_contained_by == Some(oid) {
+                            continue;
+                        }
+                        if skip_burned && obj.has_object_status_bit("BURNED") {
                             continue;
                         }
                         if obj.get_sneaky_targeting_offset(sneak_now).is_some() {

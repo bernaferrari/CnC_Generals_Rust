@@ -22,7 +22,7 @@
 //!
 //! Fail-closed honesty:
 //! - Not CaveSystem multi-index (player TunnelTracker last-tunnel cave-in IS live)
-//! - Not full ExitStart bone / multi-door exit interface
+//! - ExitStart/End walk is OpenContain inherit (default NumberOfExitPaths=1)
 //! - Sneak-attack PRIMARY is `TunnelNetworkGunDUMMY` (0.01 / 175 / 1000ms)
 //! - Not network tunnel-network replication (network deferred)
 
@@ -400,7 +400,9 @@ impl HostTunnelNetworkRegistry {
     /// `remaining_other_tunnels` is the live player tunnel list after `dead_tunnel`
     /// is already gone (host scans objects). Last tunnel cave-in kills the
     /// shared pool via `record_exit` + returned IDs; otherwise occupants stay
-    /// and entry tunnels that pointed at the dead entrance remap to `front()`.
+    /// and entry tunnels that pointed at the dead entrance remap to
+    /// `m_tunnelIDs.front()` (oldest registered surviving entrance), not the
+    /// HashMap scan order of `remaining_other_tunnels`.
     pub fn on_tunnel_destroyed(
         &mut self,
         player_id: u32,
@@ -424,7 +426,15 @@ impl HostTunnelNetworkRegistry {
                 remapped_to: None,
             }
         } else {
-            let remapped_to = remaining_other_tunnels[0];
+            let remapped_to = {
+                let registered = self
+                    .networks
+                    .get(&player_id)
+                    .map(|n| n.tunnel_ids.as_slice())
+                    .unwrap_or(&[]);
+                oldest_surviving_tunnel(registered, remaining_other_tunnels)
+                    .unwrap_or(remaining_other_tunnels[0])
+            };
             if let Some(net) = self.networks.get_mut(&player_id) {
                 for entry in net.entry_tunnel.values_mut() {
                     if *entry == dead_tunnel {
@@ -806,6 +816,17 @@ pub fn heal_contain_done(contained_frames: u32, frames_for_full_heal: u32) -> bo
     contained_frames >= frames_for_full_heal
 }
 
+/// C++ `TunnelTracker::onTunnelDestroyed` remaps to `m_tunnelIDs.front()`
+/// (oldest registered surviving entrance). Fall back to the smallest ObjectId
+/// among `remaining` when registration was missed (IDs are monotonic).
+fn oldest_surviving_tunnel(registered: &[ObjectId], remaining: &[ObjectId]) -> Option<ObjectId> {
+    registered
+        .iter()
+        .copied()
+        .find(|id| remaining.iter().any(|r| r == id))
+        .or_else(|| remaining.iter().copied().min_by_key(|id| id.0))
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -1013,6 +1034,25 @@ mod tests {
         assert!(reg.is_in_network(gla_key(), u1));
         assert_eq!(reg.entry_tunnel_of(u1), Some(t2));
         assert!(!reg.honesty_cave_in_ok());
+    }
+
+    #[test]
+    fn non_last_tunnel_remaps_to_oldest_registered_not_scan_front() {
+        // C++ TunnelTracker.cpp:201 — m_tunnelIDs.front() after remove, not
+        // remaining_other_tunnels[0] HashMap-scan order.
+        let mut reg = HostTunnelNetworkRegistry::new();
+        let t1 = ObjectId(10);
+        let t2 = ObjectId(20);
+        let t3 = ObjectId(30);
+        let u1 = ObjectId(1);
+        reg.on_tunnel_created(gla_key(), t1);
+        reg.on_tunnel_created(gla_key(), t2);
+        reg.on_tunnel_created(gla_key(), t3);
+        assert!(reg.record_enter(gla_key(), u1, t1));
+        let out = reg.on_tunnel_destroyed(gla_key(), t1, &[t3, t2]);
+        assert!(!out.cave_in);
+        assert_eq!(out.remapped_to, Some(t2), "oldest surviving registered");
+        assert_eq!(reg.entry_tunnel_of(u1), Some(t2));
     }
 
     #[test]

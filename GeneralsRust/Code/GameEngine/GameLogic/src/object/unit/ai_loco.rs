@@ -1638,6 +1638,11 @@ impl UnitAIUpdate {
         if let Some(unit) = get_unit_arc(self.unit_id) {
             if let Ok(mut guard) = unit.write() {
                 guard.movement_state = MovementState::Moving;
+                if let Some(loco) = guard.current_locomotor.as_ref() {
+                    if let Ok(mut loco_guard) = loco.lock() {
+                        loco_guard.start_move();
+                    }
+                }
             }
         }
     }

@@ -72,6 +72,7 @@ impl Object {
         self.movement.path = path.to_vec();
         self.movement.current_path_index = 1;
         self.movement.target_position = path.last().copied();
+        self.start_move();
         self.set_status_moving(true);
         self.move_away_from = Some(threat_id);
         self.move_away_destination = path.last().copied();
@@ -1211,6 +1212,13 @@ impl Object {
         }
 
         let braking = self.braking.max(1.0e-3);
+        // C++ Locomotor.cpp:941-946 — far from dest clears IS_BRAKING.
+        let max_speed = self.effective_max_speed();
+        let dist_to_stop = (max_speed / braking) * max_speed / 2.0;
+        if on_path_dist > cell && on_path_dist > dist_to_stop {
+            self.is_braking = false;
+            self.braking_factor = 1.0;
+        }
         let mut goal_speed = desired_speed;
 
         match self.loco_appearance {
@@ -1255,9 +1263,12 @@ impl Object {
                 if on_path_dist > cell && on_path_dist > 2.0 * slow_down_dist {
                     self.is_braking = false;
                 }
+                if self.donut_timer == u32::MAX {
+                    self.donut_timer = logic_frame.saturating_add(DONUT_TIME_FRAMES);
+                }
                 if on_path_dist > DONUT_DISTANCE {
                     self.donut_timer = logic_frame.saturating_add(DONUT_TIME_FRAMES);
-                } else if logic_frame >= self.donut_timer {
+                } else if self.donut_timer < logic_frame {
                     self.is_braking = true;
                 }
                 if self.is_braking {

@@ -500,22 +500,16 @@ impl<'a> CommandExecutor<'a> {
                         .game_logic
                         .unit_command_exit_drop(unit_id, drop_position);
                 }
-            } else if !was_tunnel {
+            } else if let Some(cid) = container_id {
                 // C++ OpenContain::exitObjectViaDoor — ExitStart/End walk.
+                // TunnelContain does not override; walk the *exit* entrance.
                 // Do not Idle-teleport a 6-unit ring around the hull.
-                if let Some(cid) = container_id {
-                    if !self.game_logic.unit_command_exit_via_open_contain(unit_id, cid) {
-                        let _ = self
-                            .game_logic
-                            .unit_command_exit_drop(unit_id, drop_position);
-                    }
-                } else {
+                if !self.game_logic.unit_command_exit_via_open_contain(unit_id, cid) {
                     let _ = self
                         .game_logic
                         .unit_command_exit_drop(unit_id, drop_position);
                 }
             } else {
-                // Wave 233: tunnel exit drop via GameLogic authority API.
                 let _ = self
                     .game_logic
                     .unit_command_exit_drop(unit_id, drop_position);
@@ -1781,6 +1775,70 @@ mod tests {
         assert!((rider.get_position() - hull).length() < 1.0);
         let dest = rider.movement.target_position.expect("exit dest");
         assert!((dest - hull).length() > 8.0);
+    }
+
+    #[test]
+    fn execute_exit_tunnel_walks_exit_start_not_idle_drop() {
+        // C++ TunnelContain does not override exitObjectViaDoor.
+        let mut logic = GameLogic::new();
+        let mut tn = ThingTemplate::new("GLATunnelNetwork");
+        tn.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(1000.0);
+        tn.contain_module = ContainModuleMetadata {
+            kind: ContainModuleKind::Tunnel,
+            slots: Some(10),
+            ..Default::default()
+        };
+        logic.templates.insert("GLATunnelNetwork".into(), tn);
+        let mut rebel = ThingTemplate::new("GLARebel");
+        rebel.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("GLARebel".into(), rebel);
+
+        let tunnel = logic
+            .create_object(
+                "GLATunnelNetwork",
+                Team::GLA,
+                Vec3::new(12.0, 0.0, 4.0),
+            )
+            .unwrap();
+        let pax = logic
+            .create_object("GLARebel", Team::GLA, Vec3::new(13.0, 0.0, 4.0))
+            .unwrap();
+        if let Some(t) = logic.host_object_mut(tunnel) {
+            t.set_status_under_construction(false);
+            t.construction_percent = 1.0;
+            let _ = t.add_occupant(pax);
+        }
+        if let Some(p) = logic.host_object_mut(pax) {
+            p.set_contained_by(Some(tunnel));
+            p.set_ai_state(AIState::Garrisoned);
+        }
+        let key = logic
+            .host_object(tunnel)
+            .unwrap()
+            .tunnel_system_key();
+        assert!(logic.tunnel_network.record_enter(key, pax, tunnel));
+
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(exec.execute_exit(&[pax]), CommandResult::Success);
+        }
+        let hull = logic.host_object(tunnel).unwrap().get_position();
+        let rider = logic.host_object(pax).unwrap();
+        assert!(rider.contained_by.is_none());
+        assert_eq!(
+            rider.ai_state,
+            AIState::Moving,
+            "tunnel inventory exit must walk ExitStart/End"
+        );
+        assert!(rider.status.moving);
+        assert!((rider.get_position() - hull).length() < 1.0);
+        let dest = rider.movement.target_position.expect("exit dest");
+        assert!(
+            (dest - hull).length() > 8.0,
+            "must path toward ExitEnd, not Idle at the door"
+        );
     }
 
 

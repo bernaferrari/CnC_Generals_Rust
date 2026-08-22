@@ -87,6 +87,8 @@ impl SnapshotBuilder {
 
                 super::ai_team_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
                 super::dock_queue_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::module_runtime_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+
 
 
 
@@ -284,6 +286,11 @@ impl SnapshotBuilder {
             &snapshot.lifecycle_tail,
             game_logic,
         )?;
+        super::module_runtime_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+
 
 
 
@@ -507,6 +514,12 @@ impl SnapshotBuilder {
             camo_stealth_look: object.camo_stealth_look,
             detection_expires_frame: object.detection_expires_frame,
             stealth_allowed_frame: object.stealth_allowed_frame,
+            unselectable: object.status.unselectable,
+            deployed: object.status.deployed,
+            disabled_script_disabled: object.status.disabled_script_disabled,
+            disabled_script_underpowered: object.status.disabled_script_underpowered,
+            script_unsellable: object.script_unsellable,
+            script_unstealthed: object.script_unstealthed,
         }
     }
 

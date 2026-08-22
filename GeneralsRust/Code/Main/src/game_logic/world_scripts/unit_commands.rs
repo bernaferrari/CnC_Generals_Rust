@@ -15,6 +15,15 @@ pub(crate) fn format_rally_point_set_message(template: &str, display_name: &str)
     }
 }
 
+/// C++ `AIHuntState::onExit` (`AIStates.cpp:7099-7111`) releases
+/// `LOCKED_TEMPORARILY` on any hunt exit. Guard dispatch has no
+/// `releaseWeaponLockForGroup`; leftover `classic_on_exit` is that path.
+fn release_hunt_temp_lock_when_entering_guard(unit: &mut Object) {
+    if unit.hunting || matches!(unit.ai_state, AIState::Patrolling) {
+        unit.release_weapon_lock(WeaponLockType::LockedTemporarily);
+    }
+}
+
 impl GameLogic {
     /// Wave 246: world-position object pick without exposing object dual-walk to callers.
     ///
@@ -447,6 +456,7 @@ impl GameLogic {
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
+        release_hunt_temp_lock_when_entering_guard(unit);
         unit.set_guard_position(Some(pos));
         unit.hunting = false;
         unit.set_ai_state(AIState::GuardingArea);
@@ -465,6 +475,7 @@ impl GameLogic {
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
+        release_hunt_temp_lock_when_entering_guard(unit);
         unit.set_guard_target(Some(target_id));
         unit.hunting = false;
         unit.set_ai_state(AIState::GuardingObject);
@@ -842,6 +853,7 @@ impl GameLogic {
             unit.clear_guard_chase();
 
             unit.end_guard_retaliate();
+            release_hunt_temp_lock_when_entering_guard(unit);
             unit.hunting = false;
             if let Some(tid) = target {
                 unit.guard_position = None;
@@ -1480,7 +1492,10 @@ impl GameLogic {
 
     /// Wave 233: exit-unit drop residual (position/contain/target/ai).
     /// C++ OpenContain::exitObjectViaDoor walks ExitStart/End; TransportContain
-    /// onRemoving applies GoAggressiveOnExit. Garrison/tunnel keep drop_position.
+    /// onRemoving applies GoAggressiveOnExit. Garrison keeps drop_position.
+    /// TunnelContain does not override exitObjectViaDoor — execute_exit must
+    /// walk the *exit* entrance (not `contained_by` / entry) via
+    /// `unit_command_exit_via_open_contain`.
     pub fn unit_command_exit_drop(&mut self, id: ObjectId, drop_position: glam::Vec3) -> bool {
         let container_id = self.objects.get(&id).and_then(|u| u.contained_by);
         let walk = container_id.is_some_and(|cid| {
@@ -1514,6 +1529,7 @@ impl GameLogic {
 
     /// C++ OpenContain::exitObjectViaDoor — walk ExitStart/End even after
     /// `remove_occupant` cleared the container list.
+    /// TunnelContain inherits this path (no override). Garrison stays burst/side.
     pub fn unit_command_exit_via_open_contain(
         &mut self,
         id: ObjectId,
@@ -1525,7 +1541,7 @@ impl GameLogic {
         if self
             .objects
             .get(&container_id)
-            .is_some_and(|c| c.is_garrison_contain() || c.is_tunnel_network_style_container())
+            .is_some_and(|c| c.is_garrison_contain())
         {
             return false;
         }

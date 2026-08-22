@@ -360,7 +360,8 @@ impl GameLogic {
                         .objects
                         .values()
                         .filter(|o| {
-                            o.is_alive()
+                            o.id != event.id
+                                && o.is_alive()
                                 && o.tunnel_system_key() == player_id
                                 && !o.status.sold
                                 && (o.is_tunnel_network_style_container()
@@ -388,12 +389,21 @@ impl GameLogic {
                         }
                     } else if let Some(valid) = outcome.remapped_to {
                         let pool = self.tunnel_network.contained_for_player(player_id);
-                        for uid in pool {
+                        let remapped: Vec<ObjectId> = pool
+                            .into_iter()
+                            .filter(|&uid| {
+                                self.objects
+                                    .get(&uid)
+                                    .is_some_and(|u| u.contained_by == Some(event.id))
+                            })
+                            .collect();
+                        for uid in remapped {
                             if let Some(unit) = self.objects.get_mut(&uid) {
-                                if unit.contained_by == Some(event.id) {
-                                    unit.set_contained_by(Some(valid));
-                                }
+                                unit.set_contained_by(Some(valid));
                             }
+                            // C++ Object::onContainedBy restamps m_containedByFrame.
+                            self.tunnel_network
+                                .stamp_contained_by_frame(uid, self.frame);
                         }
                     }
                 } else {
@@ -927,11 +937,10 @@ mod tests {
         if let Some(u) = logic.host_object_mut(uid) {
             u.set_contained_by(Some(t1));
         }
-        assert!(logic.tunnel_network.record_enter(
-            crate::game_logic::host_tunnel_network::tunnel_system_key(None, Team::GLA),
-            uid,
-            t1,
-        ));
+        let key = crate::game_logic::host_tunnel_network::tunnel_system_key(None, Team::GLA);
+        logic.tunnel_network.on_tunnel_created(key, t1);
+        logic.tunnel_network.on_tunnel_created(key, t2);
+        assert!(logic.tunnel_network.record_enter(key, uid, t1));
         (logic, t1, t2, uid)
     }
 
@@ -970,6 +979,51 @@ mod tests {
                 crate::game_logic::host_tunnel_network::tunnel_system_key(None, Team::GLA),
             ),
             1,
+        );
+    }
+
+    #[test]
+    fn tunnel_on_die_remaps_to_oldest_registered_entrance() {
+        // C++ TunnelTracker.cpp:201 m_tunnelIDs.front() after remove.
+        let (mut logic, t1, t2, uid) = setup_two_tunnels_and_rider();
+        let t3 = logic
+            .create_object(
+                "GLATunnelNetwork",
+                Team::GLA,
+                glam::Vec3::new(160.0, 0.0, 0.0),
+            )
+            .expect("t3");
+        if let Some(o) = logic.host_object_mut(t3) {
+            o.set_status_under_construction(false);
+            o.construction_percent = 1.0;
+        }
+        logic.tunnel_network.on_tunnel_created(
+            crate::game_logic::host_tunnel_network::tunnel_system_key(None, Team::GLA),
+            t3,
+        );
+        logic.mark_object_for_destruction(t1, None);
+        logic.process_destroy_list();
+        let u = logic.host_object(uid).expect("rider lives");
+        assert_eq!(
+            u.contained_by,
+            Some(t2),
+            "oldest surviving registered entrance, not later scan hit"
+        );
+        let _ = t3;
+    }
+
+    #[test]
+    fn tunnel_on_die_remap_restarts_time_for_full_heal() {
+        // C++ Object::onContainedBy restamps m_containedByFrame.
+        let (mut logic, t1, _t2, uid) = setup_two_tunnels_and_rider();
+        logic.tunnel_network.stamp_contained_by_frame(uid, 0);
+        logic.frame = 40;
+        logic.mark_object_for_destruction(t1, None);
+        logic.process_destroy_list();
+        assert_eq!(
+            logic.tunnel_network.contained_by_frame(uid),
+            Some(40),
+            "remap must restart TimeForFullHeal"
         );
     }
 

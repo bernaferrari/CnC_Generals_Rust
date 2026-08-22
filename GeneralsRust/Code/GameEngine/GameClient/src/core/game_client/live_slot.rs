@@ -169,6 +169,25 @@ pub fn query_live_current_client_bone_positions(
     .unwrap_or_default()
 }
 
+fn live_host_object_is_shrouded(object_id: ObjectID) -> bool {
+    use gamelogic::common::types::ObjectShroudStatus;
+    let player = gamelogic::player::player_list()
+        .read()
+        .ok()
+        .map(|list| list.get_local_player_index())
+        .unwrap_or(-1);
+    if player < 0 {
+        return false;
+    }
+    let Ok(shroud) = gamelogic::system::shroud_manager::get_shroud_manager().lock() else {
+        return false;
+    };
+    match shroud.get_host_object_shroud_status(player as u32, object_id) {
+        Some(status) => (status as u8) >= (ObjectShroudStatus::Fogged as u8),
+        None => false,
+    }
+}
+
 /// Live drawable pose for leftover `doFXObj` when leftover `OBJECT_REGISTRY` is empty.
 pub fn query_live_drawable_fx_pose(
     object_id: ObjectID,
@@ -184,6 +203,7 @@ pub fn query_live_drawable_fx_pose(
             transform: xf.to_glam(),
             player_index: -1,
             bounding_circle_radius: 0.0,
+            is_shrouded: live_host_object_is_shrouded(object_id),
         })
     })
     .flatten()

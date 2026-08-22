@@ -67,6 +67,8 @@ pub struct HostFxObjectPose {
     pub player_index: i32,
     /// C++ `Object::getGeometryInfo().getBoundingCircleRadius()` for LightPulse.
     pub bounding_circle_radius: f32,
+    /// C++ object-attach `getShroudedStatus(local) >= OBJECTSHROUD_FOGGED`.
+    pub is_shrouded: bool,
 }
 
 

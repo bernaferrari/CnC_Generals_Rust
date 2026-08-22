@@ -1619,6 +1619,8 @@ impl ScriptConditionEvaluator {
     ) -> Result<ScriptConditionResult, ScriptError> {
         let name = self.get_condition_string_param(_condition, 0)?;
         log::debug!("Evaluating if video '{}' finished", name);
+        // C++ evaluateVideoHasCompleted → TheScriptEngine->isVideoComplete(name, true).
+        // Live handler waits leftover m_completedVideo; unknown names stay false.
         if let Some(Some(finished)) = with_script_engine_ref(|script_engine| {
             script_engine
                 .action_handler()
@@ -1630,7 +1632,13 @@ impl ScriptConditionEvaluator {
                 ScriptConditionResult::False
             });
         }
-        Ok(ScriptConditionResult::False)
+        let finished = with_script_engine_ref(|engine| engine.is_video_complete(&name, true))
+            .unwrap_or(false);
+        Ok(if finished {
+            ScriptConditionResult::True
+        } else {
+            ScriptConditionResult::False
+        })
     }
 
     pub(crate) fn eval_has_finished_speech(
@@ -1659,6 +1667,8 @@ impl ScriptConditionEvaluator {
     ) -> Result<ScriptConditionResult, ScriptError> {
         let name = self.get_condition_string_param(_condition, 0)?;
         log::debug!("Evaluating if audio '{}' finished", name);
+        // C++ evaluateAudioHasCompleted → TheScriptEngine->isAudioComplete(name, true).
+        // Live handler waits leftover TheAudio length on the live frame clock.
         if let Some(Some(finished)) = with_script_engine_ref(|script_engine| {
             script_engine
                 .action_handler()
@@ -1670,7 +1680,13 @@ impl ScriptConditionEvaluator {
                 ScriptConditionResult::False
             });
         }
-        Ok(ScriptConditionResult::False)
+        let finished = with_script_engine_ref(|engine| engine.is_audio_complete(&name, true))
+            .unwrap_or(false);
+        Ok(if finished {
+            ScriptConditionResult::True
+        } else {
+            ScriptConditionResult::False
+        })
     }
 
     pub(crate) fn eval_music_track_has_completed(
@@ -1684,6 +1700,7 @@ impl ScriptConditionEvaluator {
             track,
             param
         );
+        // C++ evaluateMusicHasCompleted → TheAudio->hasMusicTrackCompleted(track, N).
         if let Some(Some(finished)) = with_script_engine_ref(|script_engine| {
             script_engine
                 .action_handler()
@@ -1695,7 +1712,14 @@ impl ScriptConditionEvaluator {
                 ScriptConditionResult::False
             });
         }
-        Ok(ScriptConditionResult::False)
+        let finished = crate::helpers::TheAudio::get()
+            .map(|audio| audio.has_music_track_completed(&track, param))
+            .unwrap_or(false);
+        Ok(if finished {
+            ScriptConditionResult::True
+        } else {
+            ScriptConditionResult::False
+        })
     }
 
     // ============================================================================

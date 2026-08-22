@@ -15,6 +15,11 @@ pub struct GameLogic {
     pub attack_priority_sets: std::collections::HashMap<String, AttackPriorityInfo>,
     /// C++ `Team::m_commonAttackTarget` residual, keyed by team instance name.
     pub team_common_attack_targets: std::collections::HashMap<String, ObjectId>,
+    /// C++ AIGuardIdleState::m_nextEnemyScanTime residual.
+    pub(crate) guard_next_enemy_scan: HashMap<ObjectId, u32>,
+    /// C++ AIGuardIdleState::m_guardeePos residual.
+    pub(crate) guard_guardee_pos: HashMap<ObjectId, glam::Vec3>,
+
     /// C++ TAiData::m_enableRepulsors residual (AI.ini EnableRepulsors).
     pub enable_repulsors: bool,
     /// C++ TAiData::m_retaliateFriendsRadius residual (default 120).
@@ -1254,6 +1259,10 @@ pub struct GameLogic {
     pub(super) script_named_timer_display_shown: bool,
     pub(super) script_superweapon_display_enabled: bool,
     pub(super) script_superweapon_hidden_objects: HashSet<ObjectId>,
+    /// C++ SuperweaponInfo::m_hiddenByScience latch (InGameUI.cpp:559).
+    /// Presence means snapshotted at timer-create; `true` skips SuperweaponReady EVA
+    /// and never clears, matching srj InGameUI.cpp:568-570.
+    pub(super) eva_superweapon_science_hidden: HashMap<ObjectId, bool>,
     /// Host-owned active beacon world positions (presentation freeze; Wave 211).
     /// Mirrors beacon_manager place/remove without mid-frame Mutex dual-read.
     pub(super) host_beacons: Vec<Vec3>,

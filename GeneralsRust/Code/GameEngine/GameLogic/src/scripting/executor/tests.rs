@@ -3824,12 +3824,13 @@ fn named_face_named_clears_waypoint_queue() {
 #[test]
 fn has_finished_media_fails_closed_without_handler() {
     // C++ ScriptConditions.cpp:1419-1437 queries TheScriptEngine; missing handler is not complete.
+    // HAS_FINISHED_AUDIO without a live handler still uses leftover ScriptEngine
+    // TheAudio length (C++ isAudioComplete), so it is not in this fail-closed set.
     let _test_lock = crate::test_sync::lock();
     let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
     for (kind, name) in [
         (ConditionType::HasFinishedVideo, "IntroMovie"),
         (ConditionType::HasFinishedSpeech, "Briefing"),
-        (ConditionType::HasFinishedAudio, "Boom"),
     ] {
         let mut condition = Condition::new(kind);
         condition

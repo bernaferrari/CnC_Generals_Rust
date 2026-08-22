@@ -232,6 +232,43 @@ impl GameLogic {
         )
     }
 
+    /// C++ TAiData::m_guardEnemyScanRate — leftover AIData, else 0.5s.
+    pub fn host_guard_enemy_scan_rate(&self) -> u32 {
+        game_engine::common::ini::get_ai_data_store()
+            .get_active()
+            .map(|d| d.guard_enemy_scan_rate)
+            .filter(|&rate| rate > 0)
+            .or_else(|| {
+                gamelogic::ai::THE_AI.read().ok().and_then(|ai| {
+                    ai.get_ai_data()
+                        .read()
+                        .ok()
+                        .map(|d| d.guard_enemy_scan_rate)
+                        .filter(|&rate| rate > 0)
+                })
+            })
+            .unwrap_or(30)
+    }
+
+    /// C++ TAiData::m_guardEnemyReturnScanRate — leftover AIData, else 1s.
+    pub fn host_guard_enemy_return_scan_rate(&self) -> u32 {
+        game_engine::common::ini::get_ai_data_store()
+            .get_active()
+            .map(|d| d.guard_enemy_return_scan_rate)
+            .filter(|&rate| rate > 0)
+            .or_else(|| {
+                gamelogic::ai::THE_AI.read().ok().and_then(|ai| {
+                    ai.get_ai_data()
+                        .read()
+                        .ok()
+                        .map(|d| d.guard_enemy_return_scan_rate)
+                        .filter(|&rate| rate > 0)
+                })
+            })
+            .unwrap_or(60)
+    }
+
+
 
 
     /// C++ PartitionFilterRejectBuildings — keep non-buildings; computer
@@ -302,15 +339,38 @@ impl GameLogic {
         if inner <= 0.0 {
             return None;
         }
+        let (world_min, world_max) = self.world_bounds();
+        let owner_off = crate::game_logic::host_deliver_payload::is_off_map_residual(
+            me.get_position(),
+            world_min.x,
+            world_min.z,
+            world_max.x,
+            world_max.z,
+        );
         let enter_guard = me.thing.template.enter_guard;
         let hijack_guard = me.thing.template.hijack_guard;
+        let radius_sq = inner * inner;
         let mut best: Option<(ObjectId, f32)> = None;
         for (cid, cand) in self.objects.iter() {
             if *cid == unit_id || !cand.is_alive() || cand.status.destroyed {
                 continue;
             }
-            let d = anchor.distance(cand.get_position());
-            if d > inner {
+            let cand_pos = cand.get_position();
+            if owner_off
+                != crate::game_logic::host_deliver_payload::is_off_map_residual(
+                    cand_pos,
+                    world_min.x,
+                    world_min.z,
+                    world_max.x,
+                    world_max.z,
+                )
+            {
+                continue;
+            }
+            let dx = anchor.x - cand_pos.x;
+            let dz = anchor.z - cand_pos.z;
+            let d_sq = dx * dx + dz * dz;
+            if d_sq > radius_sq {
                 continue;
             }
             if enter_guard {
@@ -344,12 +404,13 @@ impl GameLogic {
                     continue;
                 }
             }
-            if best.map(|(_, bd)| d < bd).unwrap_or(true) {
-                best = Some((*cid, d));
+            if best.map(|(_, bd)| d_sq < bd).unwrap_or(true) {
+                best = Some((*cid, d_sq));
             }
         }
         best.map(|(id, _)| id)
     }
+
 
     /// C++ AIUpdateInterface::getNextMoodTarget residual.
     ///
@@ -878,15 +939,38 @@ impl GameLogic {
                 continue;
             }
             if !alive {
-                if let Some(next) = self.scan_guard_retaliate_inner(id) {
-                    if let Some(o) = self.objects.get_mut(&id) {
-                        o.guard_retaliate_victim = Some(next);
-                        o.target = Some(next);
-                        o.status.attacking = true;
+                let (inner, _) = self.host_std_guard_ranges(id);
+                let returning = self.objects.get(&id).is_some_and(|o| {
+                    let center = o
+                        .guard_retaliate_anchor
+                        .or(o.guard_position)
+                        .unwrap_or_else(|| o.get_position());
+                    let us = o.get_position();
+                    let dx = us.x - center.x;
+                    let dz = us.z - center.z;
+                    inner > 0.0 && dx * dx + dz * dz > inner * inner
+                });
+
+                if self.guard_acquire_scan_due(id, returning) {
+                    if let Some(team_id) = self.host_team_common_target(id) {
+                        if let Some(o) = self.objects.get_mut(&id) {
+                            o.guard_retaliate_victim = Some(team_id);
+                            o.target = Some(team_id);
+                            o.status.attacking = true;
+                        }
+                        continue;
                     }
-                    continue;
+                    if let Some(next) = self.scan_guard_retaliate_inner(id) {
+                        if let Some(o) = self.objects.get_mut(&id) {
+                            o.guard_retaliate_victim = Some(next);
+                            o.target = Some(next);
+                            o.status.attacking = true;
+                        }
+                        continue;
+                    }
                 }
             }
+
             // C++ hasAttackedMeAndICanReturnFire on RETURN/IDLE.
             let last = self
                 .objects
@@ -1390,6 +1474,11 @@ impl GameLogic {
     pub fn test_wander_in_place_hop(&self, id: ObjectId) -> Option<glam::Vec3> {
         wander_in_place_lock().get(&id.0).map(|session| session.hop)
     }
+
+    pub fn scan_guard_retaliate_inner_for_test(&self, unit_id: ObjectId) -> Option<ObjectId> {
+        self.scan_guard_retaliate_inner(unit_id)
+    }
+
 }
 
 #[cfg(test)]
@@ -1469,5 +1558,250 @@ mod tests {
         obj.jet_ai.cur_locomotor_set = None;
         assert_eq!(host_wander_about_point_delta(&obj), 3);
     }
+
+    fn w25_guard_weapon() -> crate::game_logic::Weapon {
+        crate::game_logic::Weapon {
+            range: 400.0,
+            can_target_ground: true,
+            can_target_air: true,
+            ..Default::default()
+        }
+    }
+
+    fn w25_spawn_fighter(
+        logic: &mut GameLogic,
+        id: ObjectId,
+        name: &str,
+        team: Team,
+        pos: glam::Vec3,
+    ) {
+        let mut tmpl = ThingTemplate::new(name);
+        tmpl.add_kind_of(KindOf::Infantry);
+        tmpl.add_kind_of(KindOf::Attackable);
+        let mut obj = crate::game_logic::object::Object::new(tmpl, id, team);
+        obj.set_position(pos);
+        obj.vision_range = 200.0;
+        obj.weapon = Some(w25_guard_weapon());
+        logic.objects.insert(id, obj);
+    }
+
+    #[test]
+    fn guard_inner_skips_off_map_same_map_status() {
+        // C++ PartitionFilterSameMapStatus: on-map guard ignores off-map cargo/A10.
+        let mut logic = GameLogic::new();
+        let gid = ObjectId(25091);
+        let off_id = ObjectId(25092);
+        let on_id = ObjectId(25093);
+        w25_spawn_fighter(&mut logic, gid, "W25GuardOn", Team::China, glam::Vec3::ZERO);
+        w25_spawn_fighter(
+            &mut logic,
+            off_id,
+            "W25CargoOff",
+            Team::USA,
+            glam::Vec3::new(-300.0, 80.0, 0.0),
+        );
+        w25_spawn_fighter(
+            &mut logic,
+            on_id,
+            "W25RangerOn",
+            Team::USA,
+            glam::Vec3::new(40.0, 0.0, 0.0),
+        );
+        let found = logic.scan_guard_inner_target_for_test(
+            gid,
+            Team::China,
+            glam::Vec3::ZERO,
+            200.0,
+            false,
+            false,
+            false,
+            None,
+        );
+        assert_eq!(found, Some(on_id), "off-map candidate must lose to on-map");
+    }
+
+    #[test]
+    fn guard_inner_acquire_uses_from_center_2d() {
+        // C++ getClosestObject(..., FROM_CENTER_2D): height is ignored.
+        let mut logic = GameLogic::new();
+        let gid = ObjectId(25094);
+        let flyer = ObjectId(25095);
+        let ground = ObjectId(25096);
+        w25_spawn_fighter(&mut logic, gid, "W25Guard2d", Team::China, glam::Vec3::ZERO);
+        w25_spawn_fighter(
+            &mut logic,
+            flyer,
+            "W25Comanche",
+            Team::USA,
+            glam::Vec3::new(20.0, 180.0, 0.0),
+        );
+        if let Some(o) = logic.objects.get_mut(&flyer) {
+            o.status.airborne_target = true;
+        }
+        w25_spawn_fighter(
+            &mut logic,
+            ground,
+            "W25GroundFar",
+            Team::USA,
+            glam::Vec3::new(80.0, 0.0, 0.0),
+        );
+        let found = logic.scan_guard_inner_target_for_test(
+            gid,
+            Team::China,
+            glam::Vec3::ZERO,
+            200.0,
+            false,
+            false,
+            false,
+            None,
+        );
+        assert_eq!(
+            found,
+            Some(flyer),
+            "high flyer closer in XZ must beat farther ground unit"
+        );
+        assert!(
+            20.0f32 * 20.0 < 80.0f32 * 80.0,
+            "sanity: flyer XZ closer than ground"
+        );
+    }
+
+    #[test]
+    fn guard_area_scan_skips_when_trigger_stamp_expired() {
+        use gamelogic::common::{AsciiString, ICoord3D};
+        use gamelogic::polygon_trigger::PolygonTrigger;
+        let trigger = PolygonTrigger::new(
+            25097,
+            AsciiString::from("W25GuardAreaStamp"),
+            vec![
+                ICoord3D::new(-50, -50, 0),
+                ICoord3D::new(50, -50, 0),
+                ICoord3D::new(50, 50, 0),
+                ICoord3D::new(-50, 50, 0),
+            ],
+        );
+        let mut logic = GameLogic::new();
+        let gid = ObjectId(25098);
+        let eid = ObjectId(25099);
+        w25_spawn_fighter(&mut logic, gid, "W25AreaGuard", Team::China, glam::Vec3::ZERO);
+        w25_spawn_fighter(
+            &mut logic,
+            eid,
+            "W25AreaEnemy",
+            Team::USA,
+            glam::Vec3::new(10.0, 0.0, 10.0),
+        );
+        logic.frame = 1;
+        let first = logic.scan_guard_inner_target_for_test(
+            gid,
+            Team::China,
+            glam::Vec3::ZERO,
+            80.0,
+            false,
+            false,
+            false,
+            Some(&trigger),
+        );
+        assert_eq!(first, Some(eid), "fresh occupancy must scan");
+        let rate = logic.host_guard_enemy_scan_rate();
+        logic.frame = 1 + rate + 5;
+        let second = logic.scan_guard_inner_target_for_test(
+            gid,
+            Team::China,
+            glam::Vec3::ZERO,
+            80.0,
+            false,
+            false,
+            false,
+            Some(&trigger),
+        );
+        assert!(
+            second.is_none(),
+            "C++ lookForInnerTarget returns false after stamp+scan_rate"
+        );
+    }
+
+    #[test]
+    fn guard_retaliate_inner_skips_off_map_and_uses_2d() {
+        let mut logic = GameLogic::new();
+        let id = ObjectId(25100);
+        let off_id = ObjectId(25101);
+        let on_id = ObjectId(25102);
+        w25_spawn_fighter(&mut logic, id, "W25RetOn", Team::USA, glam::Vec3::ZERO);
+        if let Some(o) = logic.objects.get_mut(&id) {
+            o.guard_retaliate_anchor = Some(glam::Vec3::ZERO);
+            o.owner_player_id = Some(0);
+        }
+        logic.add_player(Player::new(0, Team::USA, "Human", true));
+        w25_spawn_fighter(
+            &mut logic,
+            off_id,
+            "W25A10Off",
+            Team::GLA,
+            glam::Vec3::new(-280.0, 120.0, 0.0),
+        );
+        w25_spawn_fighter(
+            &mut logic,
+            on_id,
+            "W25OnMap",
+            Team::GLA,
+            glam::Vec3::new(30.0, 0.0, 0.0),
+        );
+        assert_eq!(
+            logic.scan_guard_retaliate_inner_for_test(id),
+            Some(on_id),
+            "retaliate must ignore off-map strike aircraft"
+        );
+    }
+
+    #[test]
+    fn guard_retaliate_rescan_uses_team_attack_common_target() {
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "USA AI", false));
+        let id = ObjectId(25103);
+        let dead = ObjectId(25104);
+        let near = ObjectId(25105);
+        let shared = ObjectId(25106);
+        w25_spawn_fighter(&mut logic, id, "W25RetCommon", Team::USA, glam::Vec3::ZERO);
+        if let Some(o) = logic.objects.get_mut(&id) {
+            o.owner_player_id = Some(1);
+            o.team_instance_name = "USA_RetaliateSquad".into();
+            o.begin_guard_retaliate(dead, Some(glam::Vec3::ZERO), None);
+        }
+        w25_spawn_fighter(
+            &mut logic,
+            dead,
+            "W25DeadVic",
+            Team::GLA,
+            glam::Vec3::new(8.0, 0.0, 0.0),
+        );
+        logic.objects.get_mut(&dead).unwrap().status.destroyed = true;
+        logic.objects.get_mut(&dead).unwrap().health.current = 0.0;
+        w25_spawn_fighter(
+            &mut logic,
+            near,
+            "W25NearLocal",
+            Team::GLA,
+            glam::Vec3::new(15.0, 0.0, 0.0),
+        );
+        w25_spawn_fighter(
+            &mut logic,
+            shared,
+            "W25TeamVictim",
+            Team::GLA,
+            glam::Vec3::new(60.0, 0.0, 0.0),
+        );
+        logic
+            .team_common_attack_targets
+            .insert("USA_RetaliateSquad".into(), shared);
+        logic.guard_next_enemy_scan.insert(id, logic.frame);
+        logic.tick_guard_retaliate_states();
+        assert_eq!(
+            logic.objects[&id].guard_retaliate_victim,
+            Some(shared),
+            "C++ lookForInnerTarget must seed nemesis from team common target first"
+        );
+    }
+
 }
 

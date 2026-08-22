@@ -684,6 +684,12 @@ impl GameLogic {
         let Some(container) = self.objects.get(&cid) else {
             return;
         };
+        // C++ ActiveBody::onSubdualChange → OpenContain::orderAllPassengersToIdle
+        // (flashbang / ECM-jammed Humvee/Chinook). Garrison sibling already
+        // gates DISABLED_SUBDUED (hq-8ikxi); transport residual fire did not.
+        if container.status.disabled_subdued {
+            return;
+        }
         // C++ OverlordContain::isPassengerAllowedToFire — nested contain voids fire.
         let nested = container.contained_by.is_some();
         let bunker_slots = container.overlord_bunker_slot_capacity();
@@ -1067,7 +1073,8 @@ impl GameLogic {
         let flash_muzzle = self.objects.get(&garrisoned_id).is_some_and(|a| {
             !occupant_weapon_is_poison(a, slot)
         });
-        self.ensure_garrison_gun_effect(container_id, point_index, fire_pos, flash_muzzle);
+        let aim_at = self.objects.get(&target_id).map(|t| t.get_position());
+        self.ensure_garrison_gun_effect(container_id, point_index, fire_pos, flash_muzzle, aim_at);
     }
 
     /// C++ GarrisonContain::onContaining setTeam + academy + CAN_ATTACK + stations.
@@ -1539,13 +1546,15 @@ impl GameLogic {
     }
 
 
-    /// C++ putObjectAtGarrisonPoint + updateEffects GarrisonGun / FIRING_A.
+    /// C++ putObjectAtGarrisonPoint + updateEffects GarrisonGun / FIRING_A
+    /// + trackTargets `v.toAngle()` barrel aim.
     fn ensure_garrison_gun_effect(
         &mut self,
         container_id: Option<ObjectId>,
         point_index: usize,
         pos: glam::Vec3,
         flash_muzzle: bool,
+        aim_at: Option<glam::Vec3>,
     ) {
         const MUZZLE_FLASH_LIFETIME: u32 = 30 / 7;
         let Some(cid) = container_id else {
@@ -1581,6 +1590,12 @@ impl GameLogic {
         if let Some(gid) = gun_id {
             if let Some(gun) = self.objects.get_mut(&gid) {
                 gun.set_position(pos);
+                if let Some(target) = aim_at {
+                    // C++ GarrisonContain::trackTargets Coord2D::toAngle();
+                    // leftover dy.atan2(dx). Host Y-up ground plane is XZ.
+                    let yaw = (target.z - pos.z).atan2(target.x - pos.x);
+                    gun.set_orientation(yaw);
+                }
                 // C++ updateEffects: no MODELCONDITION_FIRING_A for DAMAGE_POISON.
                 if flash_muzzle {
                     gun.model_condition_bits |=
@@ -3349,6 +3364,98 @@ mod tests {
         );
     }
 
+    /// hq-8eobz: C++ onSubdualChange → orderAllPassengersToIdle.
+    #[test]
+    fn subdued_transport_stops_passenger_residual_fire() {
+        let mut logic = GameLogic::new();
+        let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");
+        humvee
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(240.0);
+        logic
+            .templates
+            .insert("AmericaVehicleHumvee".to_string(), humvee);
+        let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
+        ranger
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(120.0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".to_string(), ranger);
+        let mut enemy = ThingTemplate::new("GLARebel");
+        enemy
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0);
+        logic.templates.insert("GLARebel".to_string(), enemy);
+
+        let truck = logic
+            .create_object("AmericaVehicleHumvee", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("humvee");
+        {
+            let t = logic.host_object_mut(truck).unwrap();
+            t.passengers_allowed_to_fire = true;
+        }
+        let rider = logic
+            .create_object(
+                "AmericaInfantryRanger",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("ranger");
+        {
+            let o = logic.host_object_mut(truck).unwrap();
+            assert!(o.add_occupant(rider), "humvee must accept infantry");
+        }
+        {
+            let r = logic.host_object_mut(rider).unwrap();
+            r.contained_by = Some(truck);
+            r.set_ai_state(AIState::Docked);
+            r.weapon = Some(crate::game_logic::Weapon {
+                last_fire_time: -10.0,
+                reload_time: 0.1,
+                range: 150.0,
+                damage: 10.0,
+                ..crate::game_logic::Weapon::default()
+            });
+        }
+        let victim = logic
+            .create_object("GLARebel", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
+            .expect("victim");
+        let hp_before = logic.host_object(victim).unwrap().health.current;
+        logic.set_current_frame(30);
+        logic.try_transport_passenger_residual_fire(rider);
+        let hp_after_open = logic.host_object(victim).unwrap().health.current;
+        assert!(
+            hp_after_open < hp_before - 0.01,
+            "unjammed Humvee passengers must fire (before={hp_before} after={hp_after_open})"
+        );
+
+        {
+            let t = logic.host_object_mut(truck).unwrap();
+            t.set_disabled_subdued(true);
+        }
+        {
+            let r = logic.host_object_mut(rider).unwrap();
+            if let Some(w) = r.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+            }
+        }
+        logic.set_current_frame(60);
+        logic.try_transport_passenger_residual_fire(rider);
+        let hp_after_jam = logic.host_object(victim).unwrap().health.current;
+        assert!(
+            (hp_after_jam - hp_after_open).abs() < 0.01,
+            "subdued Humvee must stop passenger fire (open={hp_after_open} jammed={hp_after_jam})"
+        );
+    }
+
+
 
     fn garrison_template(name: &str, immune: bool, enclosing: bool) -> ThingTemplate {
         use crate::game_logic::{ContainAdmission, ContainModuleKind, ContainModuleMetadata};
@@ -3589,7 +3696,97 @@ mod tests {
         let r = logic.host_object(ranger_id).unwrap();
         assert!(!r.selected);
         assert!(!logic.selected_objects.contains(&ranger_id));
+        assert!(r.status.unselectable, "hq-4ai0f enter sets UNSELECTABLE");
+        assert!(r.status.masked, "hq-4ai0f enclosing enter sets MASKED");
+        assert!(!r.is_selectable());
     }
+
+    /// hq-4ai0f: live enter path sets UNSELECTABLE/MASKED (enclosing bunker).
+    #[test]
+    fn support_states_enter_sets_unselectable_and_masked() {
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        logic.templates.insert(
+            "CivBunker".into(),
+            garrison_template("CivBunker", false, true),
+        );
+        logic
+            .templates
+            .insert("AmericaRanger".into(), infantry_template("AmericaRanger"));
+        let bunker = logic
+            .create_object("CivBunker", Team::USA, Vec3::ZERO)
+            .unwrap();
+        {
+            let b = logic.host_object_mut(bunker).unwrap();
+            b.owner_player_id = Some(0);
+            if b.building_data.is_none() {
+                b.building_data = Some(crate::game_logic::BuildingData::new(
+                    crate::game_logic::BuildingType::Bunker,
+                ));
+            }
+        }
+        let ranger_id = logic
+            .create_object("AmericaRanger", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let r = logic.host_object_mut(ranger_id).unwrap();
+            r.owner_player_id = Some(0);
+            r.set_ai_state(AIState::Entering);
+            r.target = Some(bunker);
+        }
+        logic.update_support_states(&[ranger_id], 1.0 / 30.0);
+        let r = logic.host_object(ranger_id).unwrap();
+        assert_eq!(r.contained_by, Some(bunker), "ranger must enter bunker");
+        assert!(r.status.unselectable, "enter sets UNSELECTABLE");
+        assert!(r.status.masked, "enclosing bunker sets MASKED");
+        assert!(!r.is_selectable());
+    }
+
+    /// hq-4ai0f: Fire Base (IsEnclosingContainer=No) is UNSELECTABLE but not MASKED.
+    #[test]
+    fn support_states_firebase_enter_does_not_mask() {
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        logic.templates.insert(
+            "AmericaFireBase".into(),
+            garrison_template("AmericaFireBase", false, false),
+        );
+        logic
+            .templates
+            .insert("AmericaRanger".into(), infantry_template("AmericaRanger"));
+        let fb = logic
+            .create_object("AmericaFireBase", Team::USA, Vec3::ZERO)
+            .unwrap();
+        {
+            let b = logic.host_object_mut(fb).unwrap();
+            b.owner_player_id = Some(0);
+            if b.building_data.is_none() {
+                b.building_data = Some(crate::game_logic::BuildingData::new(
+                    crate::game_logic::BuildingType::Bunker,
+                ));
+            }
+        }
+        let ranger_id = logic
+            .create_object("AmericaRanger", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let r = logic.host_object_mut(ranger_id).unwrap();
+            r.owner_player_id = Some(0);
+            r.set_ai_state(AIState::Entering);
+            r.target = Some(fb);
+        }
+        logic.update_support_states(&[ranger_id], 1.0 / 30.0);
+        let r = logic.host_object(ranger_id).unwrap();
+        assert_eq!(r.contained_by, Some(fb), "ranger must enter Fire Base");
+        assert!(r.status.unselectable, "enter still sets UNSELECTABLE");
+        assert!(!r.status.masked, "non-enclosing Fire Base must not MASK");
+        assert!(!r.is_selectable());
+    }
+
 
     fn infantry_template(name: &str) -> ThingTemplate {
         let mut t = ThingTemplate::new(name);
@@ -4646,6 +4843,76 @@ mod tests {
         );
         let _ = enemy;
     }
+
+    /// hq-csl6v: GarrisonGun barrels aim at the occupant's victim.
+    #[test]
+    fn garrison_gun_aims_at_occupant_target() {
+        let mut logic = GameLogic::new();
+        logic.templates.insert(
+            "CivBunker".into(),
+            garrison_template("CivBunker", false, true),
+        );
+        logic
+            .templates
+            .insert("AmericaRanger".into(), infantry_template("AmericaRanger"));
+        logic
+            .templates
+            .insert("GLARebel".into(), infantry_template("GLARebel"));
+        logic
+            .templates
+            .insert("GarrisonGun".into(), garrison_gun_template());
+
+        let bunker = logic
+            .create_object("CivBunker", Team::USA, Vec3::ZERO)
+            .unwrap();
+        {
+            let b = logic.host_object_mut(bunker).unwrap();
+            if b.building_data.is_none() {
+                b.building_data = Some(crate::game_logic::BuildingData::new(
+                    crate::game_logic::BuildingType::Bunker,
+                ));
+            }
+        }
+        let ranger = logic
+            .create_object("AmericaRanger", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        let enemy = logic
+            .create_object("GLARebel", Team::GLA, Vec3::new(20.0, 0.0, 10.0))
+            .unwrap();
+        {
+            let r = logic.host_object_mut(ranger).unwrap();
+            r.weapon = Some(crate::game_logic::Weapon {
+                damage: 25.0,
+                range: 100.0,
+                reload_time: 0.1,
+                last_fire_time: -10.0,
+                ..crate::game_logic::Weapon::default()
+            });
+            r.set_contained_by(Some(bunker));
+            r.set_ai_state(AIState::Garrisoned);
+        }
+        assert!(logic.host_object_mut(bunker).unwrap().add_occupant(ranger));
+
+        logic.set_current_frame(30);
+        logic.try_garrison_residual_fire(ranger);
+        assert!(logic.honesty_garrison_fire_ok());
+        let gun_id = logic
+            .host_object(bunker)
+            .and_then(|c| c.building_data.as_ref())
+            .and_then(|bd| bd.garrison_guns.iter().find_map(|g| g.drawable_id));
+        let Some(gid) = gun_id else {
+            panic!("enclosing bunker must spawn GarrisonGun");
+        };
+        let gun_pos = logic.host_object(gid).unwrap().get_position();
+        let enemy_pos = logic.host_object(enemy).unwrap().get_position();
+        let expected = (enemy_pos.z - gun_pos.z).atan2(enemy_pos.x - gun_pos.x);
+        let got = logic.host_object(gid).unwrap().get_orientation();
+        assert!(
+            (got - expected).abs() < 0.01,
+            "GarrisonGun yaw {got} must face victim {expected} (gun={gun_pos:?} tgt={enemy_pos:?})"
+        );
+    }
+
 
 }
 

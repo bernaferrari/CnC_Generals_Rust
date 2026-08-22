@@ -259,26 +259,47 @@ impl Object {
 
     /// C++ ProductionUpdate::setHoldDoorOpen residual.
     ///
-    /// When hold becomes true and every door is idle, starts OPENING residual.
-    /// While hold is true, tick will not leave WAITING_OPEN / CLOSING.
+    /// Door 0 wrapper for factory / save callers. Hangar stalls use
+    /// `set_production_door_hold_open_at`.
     pub fn set_production_door_hold_open(&mut self, hold: bool, now: u32) {
-        self.production_door_hold_open = hold;
-        if hold && self.production_door_phases.iter().all(|&p| p == 0) && self.production_door_phase == 0
-        {
-            self.start_production_door_cycle(now);
+        self.set_production_door_hold_open_at(0, hold, now);
+    }
+
+    /// C++ `ProductionUpdate::setHoldDoorOpen(exitDoor, holdIt)` — one stall.
+    /// Starts OPENING on that door only when it is fully closed.
+    pub fn set_production_door_hold_open_at(&mut self, door: usize, hold: bool, now: u32) {
+        let door = door.min(3);
+        self.production_door_hold_opens[door] = hold;
+        if door == 0 {
+            self.production_door_hold_open = hold;
         }
-        if !hold {
-            for i in 0..4 {
-                if matches!(self.production_door_phases[i], 2 | 4) {
-                    self.production_door_phase_end_frames[i] = now;
-                }
+        if hold {
+            let phase = if self.production_door_phases[door] != 0 {
+                self.production_door_phases[door]
+            } else if door == 0 {
+                self.production_door_phase
+            } else {
+                0
+            };
+            if phase == 0 {
+                self.start_production_door_cycle_at(now, door);
             }
-            if matches!(self.production_door_phase, 2 | 4) {
+        } else if matches!(self.production_door_phases[door], 2 | 4)
+            || (door == 0 && matches!(self.production_door_phase, 2 | 4))
+        {
+            self.production_door_phase_end_frames[door] = now;
+            if door == 0 {
                 self.production_door_phase_end_frame = now;
             }
         }
         self.sync_primary_production_door();
         self.record_host_production_door();
+    }
+
+    /// C++ DoorInfo::m_holdOpen for this ExitDoorType index.
+    pub fn production_door_is_held(&self, door: usize) -> bool {
+        let door = door.min(3);
+        self.production_door_hold_opens[door] || (door == 0 && self.production_door_hold_open)
     }
 
     /// Advance production door residual; returns true when every door fully closed.
@@ -360,11 +381,15 @@ impl Object {
             self.production_door_phases[0] = self.production_door_phase;
             self.production_door_phase_end_frames[0] = self.production_door_phase_end_frame;
         }
+        if !self.production_door_hold_opens[0] && self.production_door_hold_open {
+            self.production_door_hold_opens[0] = true;
+        }
     }
 
     fn sync_primary_production_door(&mut self) {
         self.production_door_phase = self.production_door_phases[0];
         self.production_door_phase_end_frame = self.production_door_phase_end_frames[0];
+        self.production_door_hold_open = self.production_door_hold_opens[0];
     }
 
     fn tick_one_production_door(&mut self, door: usize, now: u32) -> bool {
@@ -383,7 +408,7 @@ impl Object {
                 false
             }
             2 => {
-                if self.production_door_hold_open {
+                if self.production_door_is_held(door) {
                     self.production_door_phase_end_frames[door] =
                         now.saturating_add(producer_door_phase_duration(name.as_str(), 2));
                     return false;
@@ -400,7 +425,7 @@ impl Object {
                 false
             }
             3 | 4 => {
-                if self.production_door_hold_open {
+                if self.production_door_is_held(door) {
                     self.clear_production_door_bits(door);
                     self.set_production_door_phase_bits(door, 2);
                     self.production_door_phases[door] = 2;

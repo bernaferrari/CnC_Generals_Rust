@@ -50,7 +50,7 @@ use gamelogic::common::{
     Coord3D, ICoord2D, IRegion2D, KindOf, ObjectID, ObjectShroudStatus, Relationship,
     MAX_PLAYER_COUNT,
 };
-use gamelogic::helpers::{TheAudio, TheGameLogic, TheThingFactory};
+use gamelogic::helpers::{TheAudio, TheGameLogic, TheScriptEngine, TheThingFactory};
 use gamelogic::object::production::construction::FoundationValidator;
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::object::special_power_template::get_special_power_store;

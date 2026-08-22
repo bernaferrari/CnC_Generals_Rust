@@ -1240,12 +1240,12 @@ pub fn shadow_session_after_host_tick(
                     obj.apply_heli_death_phase(ev);
                 }
             }
-            if let Some(fx) = logic
-                .objects
-                .get(&id)
-                .and_then(|o| o.pending_death_fx.clone())
-            {
-                let _ = logic.dispatch_fx_list_at_host_object(&fx, id, None);
+            if let Some((fx, killer)) = logic.objects.get(&id).and_then(|o| {
+                o.pending_death_fx
+                    .clone()
+                    .map(|fx| (fx, o.last_damage_source))
+            }) {
+                let _ = logic.dispatch_fx_list_at_host_object(&fx, id, killer);
             }
             if let Some(a) = logic
                 .objects

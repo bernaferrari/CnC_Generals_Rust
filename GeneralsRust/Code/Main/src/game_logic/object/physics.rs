@@ -650,6 +650,8 @@ impl Object {
             self.record_host_combat_attack();
             self.maintain_pos_valid = true;
         }
+        // C++ Locomotor.cpp:2420-2421 — reset donut window and clear IS_BRAKING.
+        self.start_move();
         self.is_braking = false;
         self.physics_turning = PhysicsTurningType::TurnNone;
         self.record_host_locomotor();
@@ -671,7 +673,9 @@ impl Object {
             LocomotorAppearance::Hover => {
                 self.physics_turning = PhysicsTurningType::TurnNone;
                 if self.is_motive() {
-                    self.scrub_velocity_2d(0.0);
+                    // C++ maintainCurrentPositionHover (Locomotor.cpp:2527-2576):
+                    // motive force along heading toward minSpeed. No vel scrub.
+                    self.apply_hover_maintain_brake();
                 }
                 let maintain_y = self.maintain_pos.map(|p| p.y);
                 let _ = self.handle_behavior_z(ground_y, maintain_y);
@@ -1213,7 +1217,13 @@ impl Object {
         self.movement.target_position = self.movement.path.first().copied();
         self.waiting_for_path = false;
         self.is_braking = false;
+        self.start_move();
         self.record_host_movement();
+    }
+
+    /// C++ Locomotor::startMove (Locomotor.cpp:761-765) — reset donut timer only.
+    pub fn start_move(&mut self) {
+        self.donut_timer = u32::MAX;
     }
 
     /// True if effectively moving (C++ isMoving || isWaitingForPath).
@@ -1410,6 +1420,35 @@ impl Object {
         }
         let p = us + self.movement.velocity * dt;
         self.set_position(p);
+    }
+
+    /// C++ `Locomotor::maintainCurrentPositionHover` (Locomotor.cpp:2527-2576).
+    /// Apply motive force along heading to close speedDelta; do not teleport vel.
+    fn apply_hover_maintain_brake(&mut self) {
+        let min_speed = self.min_speed.max(1.0e-10);
+        let actual = self.forward_speed_2d();
+        let speed_delta = min_speed - actual;
+        if speed_delta.abs() <= min_speed {
+            return;
+        }
+        let mass = self.physics_get_mass();
+        let acceleration = if speed_delta > 0.0 {
+            self.movement.acceleration
+        } else {
+            -self.braking.max(0.0)
+        };
+        let mut accel_force = mass * acceleration;
+        let max_force_needed = mass * speed_delta;
+        if accel_force.abs() > max_force_needed.abs() {
+            accel_force = max_force_needed;
+        }
+        let dir = self.unit_direction_vector_2d();
+        self.apply_motive_force(glam::Vec3::new(
+            accel_force * dir.x,
+            0.0,
+            accel_force * dir.y,
+        ));
+        self.integrate_physics_accel();
     }
 
     /// Apply forward motive force to close speedDelta (C++ legs/other residual).

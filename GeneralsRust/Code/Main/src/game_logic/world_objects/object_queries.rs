@@ -2625,6 +2625,12 @@ impl GameLogic {
                 }
             }
         }
+        // C++ RadarUpgrade::upgradeImplementation → RadarUpdate::extendRadar.
+        if crate::game_logic::host_upgrades::HostUpgradeKind::from_name(upgrade)
+            == crate::game_logic::host_upgrades::HostUpgradeKind::Radar
+        {
+            self.maybe_start_radar_extend(object_id);
+        }
     }
 
     /// C++ `ObjectCreationUpgrade::upgradeImplementation` on this vehicle.

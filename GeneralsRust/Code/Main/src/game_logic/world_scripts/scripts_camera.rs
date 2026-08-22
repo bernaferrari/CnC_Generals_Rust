@@ -2301,7 +2301,7 @@ impl GameLogic {
         }
     }
 
-    fn host_script_radar_event_type(event_type: i32) -> game_engine::common::system::radar::RadarEventType {
+    pub(in super::super) fn host_script_radar_event_type(event_type: i32) -> game_engine::common::system::radar::RadarEventType {
         use game_engine::common::system::radar::RadarEventType;
         match event_type {
             1 => RadarEventType::Construction,

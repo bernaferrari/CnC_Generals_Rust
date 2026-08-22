@@ -391,10 +391,15 @@ fn windowed_edge_scroll_residual() {
         src.contains("EDGE_SCROLL_SIZE: f32 = 3.0"),
         "C++ edgeScrollSize is 3px"
     );
+    let edge = body
+        .find("let edge_allowed")
+        .map(|off| &body[off..body.len().min(off + 400)])
+        .expect("edge_allowed");
     assert!(
-        body.contains("!self.chat_panel.is_open()")
-            && body.contains("!self.diplomacy_panel.is_active()"),
-        "edge/arrow scroll suppressed during chat/diplomacy modal"
+        !edge.contains("GameState")
+            && !edge.contains("chat_panel")
+            && !edge.contains("diplomacy_panel"),
+        "C++ LookAtXlat SCREENEDGE has no InGame/chat/diplomacy gates"
     );
 }
 

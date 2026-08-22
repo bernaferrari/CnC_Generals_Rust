@@ -7,7 +7,7 @@ use super::helpers::{
 };
 use super::{ConditionRegistry, ScriptCondition, ScriptContext, ScriptValue};
 use crate::common::{Coord3D, KindOf, Relationship, LOGICFRAMES_PER_SECOND};
-use crate::helpers::{TheGameLogic, ThePartitionManager, TheVictoryConditions};
+use crate::helpers::{TheAudio, TheGameLogic, ThePartitionManager, TheVictoryConditions};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object_manager::get_object_manager;
 use crate::player::{player_list, Player, PlayerType};
@@ -374,14 +374,9 @@ impl ScriptCondition for MusicTrackCompletedCondition {
             })
             .unwrap_or(0);
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(engine) = engine_guard.as_ref() {
-                if let Some(handler) = engine.action_handler() {
-                    return Ok(handler.has_music_track_completed(&track, param as i32));
-                }
-            }
-        }
-        Ok(false)
+        Ok(TheAudio::get()
+            .map(|audio| audio.has_music_track_completed(&track, param as i32))
+            .unwrap_or(false))
     }
 
     fn name(&self) -> &str {

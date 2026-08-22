@@ -1511,7 +1511,8 @@ pub fn particle_sys_bones_for_template(
 }
 
 fn mirror_update_client_system_position(system_id: u32, position: Vec3) {
-    let position = gamelogic::common::Coord3D::new(position.x, position.y, position.z);
+    // Leftover ParticleSystemManager is Z-up; host world is Y-up.
+    let position = host_local_to_cpp(position);
     if let Some(manager) = gamelogic::helpers::TheParticleSystemManager::get() {
         manager.set_particle_system_position(system_id, &position);
     }
@@ -1551,8 +1552,9 @@ pub(crate) fn mirror_spawn_to_client_manager(template_name: &str, position: Vec3
             return None;
         };
         let manager = guard.get_or_insert_with(ParticleSystemManager::new);
+        let leftover = host_local_to_cpp(position);
         manager
-            .create_preset_system_xyz(template_name, position.x, position.y, position.z)
+            .create_preset_system_xyz(template_name, leftover.x, leftover.y, leftover.z)
             .ok()
     }
     #[cfg(not(feature = "game_client"))]
@@ -1565,6 +1567,15 @@ pub(crate) fn mirror_spawn_to_client_manager(template_name: &str, position: Vec3
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn leftover_manager_feed_swizzles_host_y_up_to_z_up() {
+        // Host `(x, height, z_ground)` → leftover/C++ `(x, y_ground, z_height)`.
+        let leftover = host_local_to_cpp(Vec3::new(10.0, 20.0, 30.0));
+        assert!((leftover.x - 10.0).abs() < f32::EPSILON);
+        assert!((leftover.y - 30.0).abs() < f32::EPSILON);
+        assert!((leftover.z - 20.0).abs() < f32::EPSILON);
+    }
 
     #[test]
     fn registry_spawn_death_creates_explosion_and_smoke_entries() {
