@@ -90,6 +90,11 @@ impl SnapshotBuilder {
                 super::module_runtime_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
                 super::deliver_payload_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
                 super::object_module_xfer_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::auto_deposit_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::supply_drop_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::jet_ai_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::chinook_ai_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::hacker_income_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
 
 
 
@@ -297,6 +302,26 @@ impl SnapshotBuilder {
             game_logic,
         )?;
         super::object_module_xfer_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::auto_deposit_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::supply_drop_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::jet_ai_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::chinook_ai_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::hacker_income_persist::apply_from_lifecycle_tail(
             &snapshot.lifecycle_tail,
             game_logic,
         )?;

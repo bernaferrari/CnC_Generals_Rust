@@ -1197,6 +1197,9 @@ pub struct CnCGameEngine {
     pub(crate) last_eva_insufficient_funds_count: u32,
     pub(crate) last_eva_base_under_attack_count: u32,
     pub(crate) last_eva_ally_under_attack_count: u32,
+    /// LogicFrame whose EvaAlerts were already pushed to chat/HUD.
+    /// Same freeze is re-applied every render until the next logic tick.
+    pub(crate) last_applied_eva_alert_frame: Option<u32>,
     /// C++ sticky waypoint mode residual (Alt hold still works; Z toggles).
     pub(crate) sticky_waypoint_mode: bool,
     /// Sticky auto-attack residual (Ctrl+Shift+A): convert plain moves to attack-move.

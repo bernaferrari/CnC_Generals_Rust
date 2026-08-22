@@ -187,6 +187,12 @@ impl GameLogic {
                         let _ = container.remove_occupant(event.id);
                     }
                 }
+                // C++ TunnelTracker::removeFromContain on occupant death.
+                // Any non-container death (splash, scripts) must free the slot.
+                if let Some(player_id) = self.tunnel_network.player_holding_unit(event.id) {
+                    let exit_at = obj.contained_by.unwrap_or(event.id);
+                    let _ = self.tunnel_network.record_exit(player_id, event.id, exit_at);
+                }
                 self.host_radar_remove_object(event.id);
                 crate::game_logic::host_destroy_log::record(event.id);
                 // Wave 681: mid-frame GameWorld Destroy while coupled shadow tick is live.
@@ -728,8 +734,14 @@ impl GameLogic {
                     if !under_construction {
                         if counts_destroyed_building {
                             player.record_structure_destroyed();
+                            if victim_owner_player_id == Some(player_id) {
+                                player.record_self_structure_destroyed();
+                            }
                         } else if counts_destroyed_unit {
                             player.record_unit_destroyed();
+                            if victim_owner_player_id == Some(player_id) {
+                                player.record_self_unit_destroyed();
+                            }
                         }
                     }
 
@@ -861,6 +873,106 @@ impl GameLogic {
         true
     }
 
+    fn object_owned_by_player(&self, object: &Object, player_id: u32) -> bool {
+        if object.owner_player_id == Some(player_id) {
+            return true;
+        }
+        self.players
+            .get(&player_id)
+            .is_some_and(|player| object.owner_player_id.is_none() && object.team == player.team)
+    }
+
+    fn cash_bounty_module_percent(
+        module: &crate::game_logic::SpecialPowerModuleMetadata,
+        science_name: Option<&str>,
+        player_has_science: impl Fn(&str) -> bool,
+    ) -> Option<f32> {
+        if module.module_kind != crate::game_logic::SpecialPowerModuleKind::CashBountyPower {
+            return None;
+        }
+        let required = module.required_science.as_deref().unwrap_or("");
+        let template = module.special_power_template.as_str();
+        let pct = crate::game_logic::host_cash_bounty::cash_bounty_percent_for_science(required)
+            .or_else(|| {
+                crate::game_logic::host_cash_bounty::cash_bounty_percent_for_science(template)
+            })?;
+        if let Some(science) = science_name {
+            let sci_pct =
+                crate::game_logic::host_cash_bounty::cash_bounty_percent_for_science(science);
+            if sci_pct != Some(pct)
+                && !required.eq_ignore_ascii_case(science)
+                && !template.eq_ignore_ascii_case(science)
+            {
+                return None;
+            }
+        } else if !required.is_empty() && !player_has_science(required) {
+            return None;
+        }
+        Some(pct)
+    }
+
+    /// C++ Player::addScience walks owned SpecialPowerModules and calls
+    /// CashBountyPower::onSpecialPowerCreation. No palace module ⇒ no bounty.
+    pub fn apply_cash_bounty_from_palace_modules(
+        &mut self,
+        player_id: u32,
+        science_name: Option<&str>,
+    ) -> bool {
+        let Some(player) = self.players.get(&player_id) else {
+            return false;
+        };
+        let sciences = player.unlocked_sciences.clone();
+        let has_science = |name: &str| {
+            sciences
+                .iter()
+                .any(|owned| owned.eq_ignore_ascii_case(name))
+        };
+        let mut best = 0.0f32;
+        let mut found = false;
+        for object in self.objects.values() {
+            if !self.object_owned_by_player(object, player_id) {
+                continue;
+            }
+            for module in &object.thing.template.special_power_modules {
+                if let Some(pct) =
+                    Self::cash_bounty_module_percent(module, science_name, has_science)
+                {
+                    found = true;
+                    if pct > best {
+                        best = pct;
+                    }
+                }
+            }
+        }
+        if !found {
+            return false;
+        }
+        self.set_player_cash_bounty(player_id, best)
+    }
+
+    /// C++ CashBountyPower::onObjectCreated — apply if the owner already has
+    /// the module's required science.
+    pub fn apply_cash_bounty_on_object_created(&mut self, object_id: ObjectId) {
+        let Some(object) = self.objects.get(&object_id) else {
+            return;
+        };
+        let has_cash_bounty = object.thing.template.special_power_modules.iter().any(|m| {
+            m.module_kind == crate::game_logic::SpecialPowerModuleKind::CashBountyPower
+        });
+        if !has_cash_bounty {
+            return;
+        }
+        let player_id = object.owner_player_id.or_else(|| {
+            let team = object.team;
+            self.unique_player_id_for_team(team)
+        });
+        let Some(player_id) = player_id else {
+            return;
+        };
+        let _ = self.apply_cash_bounty_from_palace_modules(player_id, None);
+    }
+
+
     /// Residual honesty: cash bounty was configured and at least one award paid.
     /// Fail-closed: not full palace module / floating-text parity.
     pub fn honesty_cash_bounty_ok(&self) -> bool {
@@ -893,7 +1005,7 @@ impl GameLogic {
 #[cfg(test)]
 mod tests {
     use super::super::*;
-    use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+    use crate::game_logic::{GameLogic, KindOf, ObjectId, Player, Team, ThingTemplate};
 
     fn setup_two_tunnels_and_rider() -> (GameLogic, ObjectId, ObjectId, ObjectId) {
         let mut logic = GameLogic::new();
@@ -1066,6 +1178,61 @@ mod tests {
             ),
             "bunker-buster must record_exit the shared pool occupant"
         );
+    }
+
+    #[test]
+    fn tunnel_occupant_immune_to_entrance_splash() {
+        // hq-vsp1v: C++ Weapon.cpp dealDamageInternal partition-world only.
+        let (mut logic, t1, _t2, uid) = setup_two_tunnels_and_rider();
+        logic
+            .players
+            .insert(1, Player::new(1, Team::USA, "USA", true));
+        let mut gun = ThingTemplate::new("SplashGun");
+        gun.add_kind_of(KindOf::Vehicle).set_health(100.0);
+        logic.templates.insert("SplashGun".into(), gun);
+        let gun_id = logic
+            .create_object(
+                "SplashGun",
+                Team::USA,
+                glam::Vec3::new(-80.0, 0.0, 0.0),
+            )
+            .expect("gun");
+        let hp_before = logic.host_object(uid).unwrap().health.current;
+        let key = crate::game_logic::host_tunnel_network::tunnel_system_key(None, Team::GLA);
+        let _hits = logic.apply_instant_hit_splash_at(
+            glam::Vec3::new(0.0, 0.0, 0.0),
+            500.0,
+            500.0,
+            50.0,
+            80.0,
+            gun_id,
+            Team::USA,
+            t1,
+            None,
+        );
+        let rider = logic.host_object(uid).expect("rider lives");
+        assert!(
+            rider.is_alive(),
+            "tunnel occupant must survive entrance splash"
+        );
+        assert_eq!(rider.health.current, hp_before);
+        assert!(logic.tunnel_network.is_in_network(key, uid));
+        assert_eq!(logic.tunnel_network.contain_count(key), 1);
+    }
+
+    #[test]
+    fn tunnel_occupant_death_frees_shared_slot() {
+        // hq-vsp1v: C++ removeFromContain → TunnelTracker::removeFromContain.
+        let (mut logic, _t1, _t2, uid) = setup_two_tunnels_and_rider();
+        let key = crate::game_logic::host_tunnel_network::tunnel_system_key(None, Team::GLA);
+        assert_eq!(logic.tunnel_network.contain_count(key), 1);
+        logic.mark_object_for_destruction(uid, None);
+        logic.process_destroy_list();
+        assert!(
+            !logic.tunnel_network.is_in_network(key, uid),
+            "dead occupant must leave the shared MaxTunnelCapacity pool"
+        );
+        assert_eq!(logic.tunnel_network.contain_count(key), 0);
     }
 
     #[test]

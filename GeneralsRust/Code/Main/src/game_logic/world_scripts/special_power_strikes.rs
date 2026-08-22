@@ -1006,6 +1006,21 @@ impl GameLogic {
                 .map(|w| w.preferred_height)
                 .unwrap_or(crate::game_logic::host_wave_guide::WAVE_PREFERRED_HEIGHT);
 
+            // C++ WaveGuideUpdate.cpp:411-415 `doWaterMotion` → addWaterVelocity.
+            if let Some(tv) = gamelogic::helpers::TheTerrainVisual::get() {
+                let facing = self
+                    .objects
+                    .get(&gid)
+                    .map(|o| o.get_orientation())
+                    .unwrap_or(gori);
+                let vel = crate::game_logic::host_wave_guide::WAVE_WATER_VELOCITY;
+                for (wx, wy) in crate::game_logic::host_wave_guide::wave_shape_world_points(
+                    gpos.x, gpos.z, facing,
+                ) {
+                    tv.add_water_velocity(wx, wy, vel, preferred);
+                }
+            }
+
             let victims: Vec<ObjectId> = self
                 .objects
                 .iter()

@@ -432,26 +432,6 @@ impl CnCGameEngine {
                     self.ui_manager.game_hud_mut().push_info_message(msg);
                 }
             }
-            Key::Named(NamedKey::Home)
-                if ctrl_down && self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
-            {
-                // Unfinished construction cycle residual (Ctrl+Alt+Home).
-                self.cycle_unfinished_construction(1);
-            }
-            Key::Named(NamedKey::End)
-                if ctrl_down && self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
-            {
-                // Unfinished construction cycle residual (Ctrl+Alt+End).
-                self.cycle_unfinished_construction(-1);
-            }
-            Key::Named(NamedKey::Home) if !ctrl_down => {
-                // SELECT_NEXT_STRUCTURE residual (Home).
-                self.cycle_friendly_structure_selection(1);
-            }
-            Key::Named(NamedKey::End) if !ctrl_down => {
-                // SELECT_PREV_STRUCTURE residual (End).
-                self.cycle_friendly_structure_selection(-1);
-            }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("a")
                     && self.keys_pressed.contains(&Key::Named(NamedKey::Control)) =>
@@ -1021,18 +1001,6 @@ impl CnCGameEngine {
             {
                 // Damaged structure cycle residual (Ctrl+Alt+Left).
                 self.cycle_damaged_structure_selection(-1);
-            }
-            Key::Named(NamedKey::ArrowRight)
-                if ctrl_down && self.keys_pressed.contains(&Key::Named(NamedKey::Shift)) =>
-            {
-                // SELECT_NEXT_STRUCTURE residual (Ctrl+Shift+Right).
-                self.cycle_friendly_structure_selection(1);
-            }
-            Key::Named(NamedKey::ArrowLeft)
-                if ctrl_down && self.keys_pressed.contains(&Key::Named(NamedKey::Shift)) =>
-            {
-                // SELECT_PREV_STRUCTURE residual (Ctrl+Shift+Left).
-                self.cycle_friendly_structure_selection(-1);
             }
             Key::Named(NamedKey::ArrowRight) if ctrl_down => {
                 // Retail SELECT_NEXT_UNIT Ctrl+Right residual.

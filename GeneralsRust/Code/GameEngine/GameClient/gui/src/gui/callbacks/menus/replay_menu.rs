@@ -382,7 +382,9 @@ impl ReplayMenuPort {
 
             let display_time = header.time_val.to_display_string();
 
-            let map_name = info.map_name.clone();
+            // C++ ReplayMenu.cpp:157-165 cache miss falls back to the map path leaf.
+            let map_name = replay_map_display_name(&info.map_name);
+
 
             let version_is_compatible = header.version_string == version_string
                 && header.version_number == version_number
@@ -570,6 +572,17 @@ impl TimeValuePort {
             self.year, self.month, self.day, self.hour, self.minute
         )
     }
+}
+
+fn replay_map_display_name(map_name: &str) -> String {
+    if map_name.is_empty() {
+        return String::new();
+    }
+    map_name
+        .rsplit(['\\', '/'])
+        .next()
+        .unwrap_or(map_name)
+        .to_string()
 }
 
 #[derive(Clone, Debug, Default)]
@@ -895,6 +908,35 @@ mod tests {
         assert_eq!(menu.entries[1].replay_name, "MPReplay");
         assert_eq!(menu.entries[1].replay_kind, ReplayKindPort::Multiplayer);
     }
+
+    #[test]
+    fn populate_map_column_uses_path_leaf_like_cpp_cache_miss() {
+        assert_eq!(
+            replay_map_display_name(r"maps\alpine_war\alpine_war.map"),
+            "alpine_war.map"
+        );
+        assert_eq!(
+            replay_map_display_name("Tournament Desert"),
+            "Tournament Desert"
+        );
+
+        let tmp = tempfile::tempdir().unwrap();
+        let header = build_test_replay_header(
+            "PathMap.rep",
+            "1.04",
+            100,
+            0,
+            0,
+            -1,
+            "Map=maps\\tournament\\tournament.map\n",
+        );
+        fs::write(tmp.path().join("PathMap.rep"), &header).unwrap();
+        let mut menu = ReplayMenuPort::init(vec![]);
+        menu.populate_replay_file_list(tmp.path(), ".rep", "LastReplay", "1.04", 100, 0, 0);
+        assert_eq!(menu.entries.len(), 1);
+        assert_eq!(menu.entries[0].map_name, "tournament.map");
+    }
+
 
     fn build_test_replay_header(
         filename: &str,

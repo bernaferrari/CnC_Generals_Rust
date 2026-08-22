@@ -236,11 +236,22 @@ impl Object {
     }
 
     pub fn set_weapon_bonus_condition(&mut self, condition: WeaponBonusConditionType) {
+        // C++ Object.cpp:4650-4659 — notify WeaponSet only when the mask changes
+        // so in-flight RELOADING_CLIP / BETWEEN_FIRING_SHOTS restart at the new ROF.
+        let old = self.weapon_bonus_condition;
         self.weapon_bonus_condition.set_condition(condition);
+        if old != self.weapon_bonus_condition {
+            let _ = self.weapon_set.weapon_set_on_weapon_bonus_change(self.id);
+        }
     }
 
     pub fn clear_weapon_bonus_condition(&mut self, condition: WeaponBonusConditionType) {
+        // C++ Object.cpp:4663-4672
+        let old = self.weapon_bonus_condition;
         self.weapon_bonus_condition.clear(condition);
+        if old != self.weapon_bonus_condition {
+            let _ = self.weapon_set.weapon_set_on_weapon_bonus_change(self.id);
+        }
     }
 
     /// Set a multiplicative weapon bonus (e.g., from upgrades/veterancy).

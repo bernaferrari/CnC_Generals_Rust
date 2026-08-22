@@ -2103,6 +2103,7 @@ impl GameLogic {
             is_aircraft,
             loco,
             is_crusher,
+            Some(id),
         ) else {
             return false;
         };

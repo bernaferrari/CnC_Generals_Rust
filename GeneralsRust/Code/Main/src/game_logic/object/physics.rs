@@ -599,11 +599,16 @@ impl Object {
                 self.apply_surface_relative_lift(surface, goal_y)
             }
             LocomotorBehaviorZ::AbsoluteHeight => {
-                if self.loco_preferred_height == 0.0 && goal_y.is_none() {
+                if self.loco_preferred_height == 0.0 && !self.precise_z_pos {
                     return true;
                 }
                 let mut p = self.get_position();
-                let preferred = goal_y.unwrap_or(self.loco_preferred_height);
+                // C++ Locomotor.cpp:2298-2300 — goal Z only when PRECISE_Z_POS.
+                let preferred = if self.precise_z_pos {
+                    goal_y.unwrap_or(self.loco_preferred_height)
+                } else {
+                    self.loco_preferred_height
+                };
                 let mut delta = preferred - p.y;
                 delta *= self.loco_preferred_height_damping.clamp(0.0, 1.0);
                 p.y += delta;
@@ -616,15 +621,17 @@ impl Object {
     /// C++ `Z_SURFACE_RELATIVE_HEIGHT` / `Z_SMOOTH_RELATIVE_TO_HIGHEST_LAYER`
     /// lift residual (`Locomotor.cpp:2288-2317` / `:2248-2285`).
     fn apply_surface_relative_lift(&mut self, surface_y: f32, goal_y: Option<f32>) -> bool {
-        if self.loco_preferred_height == 0.0 && goal_y.is_none() {
+        if self.loco_preferred_height == 0.0 && !self.precise_z_pos {
             return true;
         }
         let p = self.get_position();
-        let preferred_raw = if let Some(gy) = goal_y {
-            gy
-        } else {
-            self.loco_preferred_height + surface_y
-        };
+        // C++ Locomotor.cpp:2296-2300 / :2265-2267 — goal Z only when PRECISE_Z_POS.
+        let mut preferred_raw = self.loco_preferred_height + surface_y;
+        if self.precise_z_pos {
+            if let Some(gy) = goal_y {
+                preferred_raw = gy;
+            }
+        }
         let mut delta = preferred_raw - p.y;
         delta *= self.loco_preferred_height_damping.clamp(0.0, 1.0);
         let preferred = p.y + delta;
@@ -913,15 +920,49 @@ impl Object {
         self.get_position().y > self.ground_height
     }
 
+    /// C++ `GeometryInfo::getBoundingSphereRadius`, or pick radius when unauthored.
+    pub fn physics_collide_sphere_radius(&self) -> f32 {
+        let g = &self.thing.template.geometry_info;
+        if g.authored {
+            g.bounding_sphere_radius().max(1.0)
+        } else {
+            self.selection_radius.max(1.0)
+        }
+    }
+
+    /// C++ `GeometryInfo::getBoundingCircleRadius`, or pick radius when unauthored.
+    pub fn physics_collide_circle_radius(&self) -> f32 {
+        let g = &self.thing.template.geometry_info;
+        if g.authored {
+            g.bounding_circle_radius().max(1.0)
+        } else {
+            self.selection_radius.max(1.0)
+        }
+    }
+
+    /// C++ onCollide radius: 3D sphere if above terrain, else 2D circle.
+    pub fn physics_on_collide_radius(&self) -> f32 {
+        if self.is_above_terrain() {
+            self.physics_collide_sphere_radius()
+        } else {
+            self.physics_collide_circle_radius()
+        }
+    }
+
     /// C++ mobile collide force: -min(overlap, 5) * delta/dist via applyForce.
+    /// Airborne (`isAboveTerrain`) uses full 3D delta including host Y.
     pub fn apply_overlap_collide_force(&mut self, other_center: glam::Vec3, overlap: f32) {
         if !self.allow_collide_force {
             return;
         }
         let us = self.get_position();
         let mut dx = other_center.x - us.x;
+        let mut dy = other_center.y - us.y;
         let mut dz = other_center.z - us.z;
-        let mut dist = (dx * dx + dz * dz).sqrt();
+        if !self.is_above_terrain() {
+            dy = 0.0;
+        }
+        let mut dist = (dx * dx + dy * dy + dz * dz).sqrt();
         if dist < 1.0 {
             dist = 1.0;
         }
@@ -929,7 +970,7 @@ impl Object {
         let factor = -overlap;
         self.apply_physics_force(glam::Vec3::new(
             factor * dx / dist,
-            0.0,
+            factor * dy / dist,
             factor * dz / dist,
         ));
     }
@@ -1611,8 +1652,12 @@ impl Object {
 
     /// C++ Thing::isSignificantlyAboveTerrain — height > -(3*3)*gravity.
     pub fn is_significantly_above_terrain(&self) -> bool {
-        let height = self.get_position().y - self.ground_height;
-        height > -(3.0 * 3.0) * leftover_loco_gravity()
+        Self::height_treats_as_airborne(self.get_position().y - self.ground_height)
+    }
+
+    /// C++ Locomotor.cpp:1005-1008 treatAsAirborne — 3 frames of gravity.
+    pub fn height_treats_as_airborne(height_above_surface: f32) -> bool {
+        height_above_surface > -(3.0 * 3.0) * leftover_loco_gravity()
     }
 
     /// C++ DISABLED_HELD: garrisoned / parachute-cargo / prison / Battle Bus hulk.

@@ -517,6 +517,9 @@ impl Object {
         self.record_host_locomotor();
         self.is_safe_path = false;
         self.temporary_move_frames = 0;
+        // C++ AIFollowPathState::onExit — setCanPathThroughUnits(false)
+        // (AIStates.cpp:3298). Live only set this on factory exit.
+        self.can_path_through_units = false;
         self.record_host_combat_attack();
         self.is_blocked = false;
         self.is_blocked_and_stuck = false;

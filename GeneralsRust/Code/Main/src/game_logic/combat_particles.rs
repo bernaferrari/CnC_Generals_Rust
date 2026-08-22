@@ -492,6 +492,38 @@ impl CombatParticleRegistry {
         primary_speed: f32,
         override_radius: f32,
     ) -> Vec<u32> {
+        self.spawn_weapon_fire_fx_named_ocl_oriented(
+            muzzle_pos,
+            impact_pos,
+            frame,
+            shooter,
+            target,
+            fire_fx_name,
+            detonation_fx_name,
+            fire_ocl_name,
+            detonation_ocl_name,
+            primary_speed,
+            override_radius,
+            None,
+        )
+    }
+
+    /// Same as [`Self::spawn_weapon_fire_fx_named_ocl`] with C++ drawable matrix.
+    pub fn spawn_weapon_fire_fx_named_ocl_oriented(
+        &mut self,
+        muzzle_pos: Vec3,
+        impact_pos: Option<Vec3>,
+        frame: u32,
+        shooter: ObjectId,
+        target: Option<ObjectId>,
+        fire_fx_name: &str,
+        detonation_fx_name: &str,
+        fire_ocl_name: &str,
+        detonation_ocl_name: &str,
+        primary_speed: f32,
+        override_radius: f32,
+        drawable_matrix: Option<glam::Mat4>,
+    ) -> Vec<u32> {
         self.note_muzzle_flash_unhide(shooter, frame);
         let mut ids = Vec::new();
         if let Some(fx) = usable_particle_template_name(fire_fx_name) {
@@ -512,12 +544,13 @@ impl CombatParticleRegistry {
                 }
             }
             ids.push(muzzle_id);
-            let _ = crate::game_logic::dispatch_fx_list_at_pos_ex(
+            let _ = crate::game_logic::dispatch_fx_list_at_pos_oriented(
                 fx,
                 muzzle_pos,
                 impact_pos,
                 primary_speed,
                 override_radius,
+                drawable_matrix,
             );
         } else {
             let muzzle_id = self.spawn(
@@ -549,12 +582,13 @@ impl CombatParticleRegistry {
                         e.ocl_list_name = detonation_ocl_name.to_string();
                     }
                 }
-                let _ = crate::game_logic::dispatch_fx_list_at_pos_ex(
+                let _ = crate::game_logic::dispatch_fx_list_at_pos_oriented(
                     fx,
                     impact,
                     Some(impact),
                     0.0,
                     override_radius,
+                    drawable_matrix,
                 );
                 ids.push(impact_id);
             } else {

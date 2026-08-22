@@ -45,6 +45,28 @@ fn is_legal_superweapon_cash_hack_victim(victim: &Object, caster_team: Option<Te
     )
 }
 
+/// C++ `Object::look` lookingMask: controller `getRelationship(current->defaultTeam) == ALLIES`.
+/// FFA same-faction enemies do not share RadarVanScan / SpySat ping disks.
+fn looker_mask_for_controller(
+    players: &std::collections::HashMap<u32, crate::game_logic::Player>,
+    controller_id: u32,
+) -> u32 {
+    use gamelogic::common::Relationship;
+    let mut mask = 0u32;
+    for &pid in players.keys() {
+        if GameLogic::player_relationship_from_map(players, controller_id, pid)
+            == Relationship::Allies
+        {
+            mask |= 1u32 << pid.min(31);
+        }
+    }
+    if mask == 0 {
+        mask = 1u32 << controller_id.min(31);
+    }
+    mask
+}
+
+
 impl GameLogic {
     // -----------------------------------------------------------------------
     // China Nuclear Tanks residual (death blast + radiation + speed)
@@ -1083,16 +1105,8 @@ impl GameLogic {
         let world_w = self.world_width.max(1.0);
         let world_h = self.world_height.max(1.0);
 
-        let mut player_mask = 0u32;
-        for (&pid, player) in &self.players {
-            if player.team == team {
-                player_mask |= 1u32 << pid.min(31);
-            }
-        }
-        if player_mask == 0 {
-            // No registered players for team: fall back to commanding player bit.
-            player_mask = 1u32 << player_id.min(31);
-        }
+        // C++ Object::look: Allies via Player relationship, not faction Team.
+        let player_mask = looker_mask_for_controller(&self.players, player_id);
 
         // ShroudManager grid axes are (x, y). Host residual gameplay uses glam
         // (x, z) as the ground plane (y = height). Feed horizontal plane into
@@ -1477,16 +1491,8 @@ impl GameLogic {
         let world_w = self.world_width.max(1.0);
         let world_h = self.world_height.max(1.0);
 
-        let mut player_mask = 0u32;
-        for (&pid, player) in &self.players {
-            if player.team == team {
-                player_mask |= 1u32 << pid.min(31);
-            }
-        }
-        if player_mask == 0 {
-            // No registered players for team: fall back to commanding player bit.
-            player_mask = 1u32 << player_id.min(31);
-        }
+        // C++ Object::look: Allies via Player relationship, not faction Team.
+        let player_mask = looker_mask_for_controller(&self.players, player_id);
 
         // ShroudManager grid axes are (x, y). Host residual gameplay uses glam
         // (x, z) as the ground plane (y = height). Feed horizontal plane into

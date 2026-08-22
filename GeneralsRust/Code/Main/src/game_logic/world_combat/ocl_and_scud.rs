@@ -283,7 +283,11 @@ impl GameLogic {
                 && !fire.fire_fx_name.trim().eq_ignore_ascii_case("None")
             {
                 let radius = host_fire_fx_override_radius(self.objects.get(&fire.shooter_id));
-                let _ = self.combat_particles.spawn_weapon_fire_fx_named_ocl(
+                let matrix = self
+                    .objects
+                    .get(&fire.shooter_id)
+                    .map(|o| o.get_transform_matrix());
+                let _ = self.combat_particles.spawn_weapon_fire_fx_named_ocl_oriented(
                     fire.origin,
                     None,
                     self.frame,
@@ -295,6 +299,7 @@ impl GameLogic {
                     "",
                     0.0,
                     radius,
+                    matrix,
                 );
             }
             if !fire.fire_ocl_name.trim().is_empty()
@@ -338,7 +343,11 @@ impl GameLogic {
                 );
             }
             let radius = host_fire_fx_override_radius(self.objects.get(&impact.shooter_id));
-            let _ = self.combat_particles.spawn_weapon_fire_fx_named_ocl(
+            let matrix = self
+                .objects
+                .get(&impact.shooter_id)
+                .map(|o| o.get_transform_matrix());
+            let _ = self.combat_particles.spawn_weapon_fire_fx_named_ocl_oriented(
                 impact.position,
                 Some(impact.position),
                 self.frame,
@@ -350,16 +359,18 @@ impl GameLogic {
                 &impact.detonation_ocl_name,
                 0.0,
                 radius,
+                matrix,
             );
             if !impact.detonation_fx_name.trim().is_empty()
                 && !impact.detonation_fx_name.trim().eq_ignore_ascii_case("None")
             {
-                let _ = crate::game_logic::dispatch_fx_list_at_pos_ex(
+                let _ = crate::game_logic::dispatch_fx_list_at_pos_oriented(
                     &impact.detonation_fx_name,
                     impact.position,
                     Some(impact.position),
                     0.0,
                     radius,
+                    matrix,
                 );
             }
         }

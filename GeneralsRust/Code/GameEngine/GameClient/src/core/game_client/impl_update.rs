@@ -858,11 +858,21 @@ impl GameClient {
         remaining_ms: Option<i32>,
     ) {
         let text = caption.filter(|t| !t.is_empty());
-        // Only push when caption text changes (presentation freezes each frame).
+        let incoming_ms = remaining_ms.unwrap_or(-1);
+        // Presentation freezes each frame. C++ militarySubtitle always
+        // remove+recreate. Re-arm when leftover remaining_ms jumps up
+        // for the same string (scripts_camera re-fire).
         if self.last_applied_military_caption.as_deref() == text {
+            if incoming_ms > self.last_applied_military_caption_remaining_ms.unwrap_or(-1) {
+                if let Some(text) = text {
+                    self.push_presentation_military_caption(text, remaining_ms);
+                }
+            }
+            self.last_applied_military_caption_remaining_ms = remaining_ms;
             return;
         }
         self.last_applied_military_caption = text.map(|t| t.to_string());
+        self.last_applied_military_caption_remaining_ms = remaining_ms;
         let Some(text) = text else {
             // C++ removeMilitarySubtitle deletes the subtitle — nothing remains.
             if let Some(ui) = &self.subsystem_manager.in_game_ui {
@@ -872,6 +882,10 @@ impl GameClient {
             }
             return;
         };
+        self.push_presentation_military_caption(text, remaining_ms);
+    }
+
+    fn push_presentation_military_caption(&mut self, text: &str, remaining_ms: Option<i32>) {
         let Some(ui) = &self.subsystem_manager.in_game_ui else {
             return;
         };

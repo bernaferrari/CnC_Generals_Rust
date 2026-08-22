@@ -544,6 +544,37 @@ fn similar_unit_ids_use_equivalent_to_and_skip_contained() {
 }
 
 #[test]
+fn similar_unit_ids_skip_off_map() {
+    // C++ InGameUI.cpp:170-175 — !object->isOffMap() (playable extent).
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = crate::game_logic::GameLogic::new();
+    let mut t = ThingTemplate::new("Ranger");
+    t.set_health(100.0);
+    t.add_kind_of(KindOf::Infantry);
+    t.add_kind_of(KindOf::Selectable);
+    t.add_kind_of(KindOf::Attackable);
+    logic.templates.insert("Ranger".into(), t);
+    let on_map = logic
+        .create_object("Ranger", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let (wmin, wmax) = logic.world_bounds();
+    let off_pos = glam::Vec3::new(wmax.x + 80.0, 40.0, wmax.z + 80.0);
+    let off_map = logic
+        .create_object("Ranger", Team::USA, off_pos)
+        .unwrap();
+    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    assert!(crate::game_logic::host_deliver_payload::is_off_map_residual(
+        off_pos, wmin.x, wmin.z, wmax.x, wmax.z
+    ));
+    let ids = frame.similar_unit_ids(on_map, Team::USA);
+    assert!(ids.contains(&on_map));
+    assert!(
+        !ids.contains(&off_map),
+        "jets/helis/gunships past playable extent must not type-select"
+    );
+}
+
+#[test]
 fn box_select_firebase_propagates_occupant_to_container() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = crate::game_logic::GameLogic::new();

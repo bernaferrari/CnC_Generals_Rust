@@ -464,6 +464,39 @@ impl GameLogic {
                     }
                 }
             }
+            // C++ BoneFXUpdate::update — leftover authored FXList/OCL/PSys at bone pos.
+            {
+                let pose = self.objects.get(&object_id).map(|o| {
+                    (
+                        o.get_position(),
+                        o.get_orientation(),
+                        o.thing.template.get_model_name().to_string(),
+                        o.thing.template.asset_scale,
+                    )
+                });
+                let events = if let Some(o) = self.objects.get_mut(&object_id) {
+                    if let Some(bfx) = o.bone_fx_damage.as_mut() {
+                        bfx.tick(self.frame as i32);
+                        bfx.drain_pending()
+                    } else {
+                        Vec::new()
+                    }
+                } else {
+                    Vec::new()
+                };
+                if let Some((origin, yaw, model, scale)) = pose {
+                    for ev in events {
+                        crate::game_logic::host_bone_fx_damage::play_bone_fx_event(
+                            &ev,
+                            object_id.0,
+                            origin,
+                            yaw,
+                            &model,
+                            scale,
+                        );
+                    }
+                }
+            }
             // C++ CreateObjectDie residual (spawn after death FX).
             self.apply_pending_create_object_die(object_id);
             if lifetime_kill {

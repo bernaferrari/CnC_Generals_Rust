@@ -313,6 +313,57 @@ pub fn combat_drop_into_allowed(
     true
 }
 
+/// C++ `ThingTemplate::getPerUnitFX("CombatDropKillFX")` key (AIStates.cpp:563).
+/// Slot name, not an FXList template — do not invent a fallback list.
+pub const COMBAT_DROP_KILL_FX_KEY: &str = "CombatDropKillFX";
+
+/// Authored UnitSpecificFX CombatDropKillFX list name for `template_name`.
+///
+/// C++ `obj->getTemplate()->getPerUnitFX("CombatDropKillFX")`. Missing
+/// leftover template or `None` slot stays silent.
+pub fn leftover_combat_drop_kill_fx_name(template_name: &str) -> Option<String> {
+    leftover_combat_drop_kill_fx_from_factory(template_name)
+        .or_else(|| leftover_combat_drop_kill_fx_from_assets(template_name))
+}
+
+fn leftover_combat_drop_kill_fx_from_factory(template_name: &str) -> Option<String> {
+    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
+    let factory = guard.as_ref()?;
+    let tmpl = factory.find_template(template_name, false)?;
+    let key = COMBAT_DROP_KILL_FX_KEY.to_string();
+    let fx = tmpl.get_per_unit_fx(&key)?;
+    nonempty_fx_list_name(fx.name.as_str())
+}
+
+fn leftover_combat_drop_kill_fx_from_assets(template_name: &str) -> Option<String> {
+    let manager = crate::assets::get_asset_manager()?;
+    let manager = manager.lock().ok()?;
+    let definition = manager.get_object_definition(template_name)?;
+    let key = format!("UnitSpecificFX.{COMBAT_DROP_KILL_FX_KEY}");
+    let raw = definition
+        .attributes
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case(&key))
+        .map(|(_, v)| v.as_str())
+        .or_else(|| {
+            definition
+                .attributes
+                .get(COMBAT_DROP_KILL_FX_KEY)
+                .map(String::as_str)
+        })?;
+    nonempty_fx_list_name(raw)
+}
+
+fn nonempty_fx_list_name(name: &str) -> Option<String> {
+    let name = name.trim();
+    if name.is_empty() || name.eq_ignore_ascii_case("None") {
+        None
+    } else {
+        Some(name.to_string())
+    }
+}
+
+
 
 /// Residual `ListeningOutpostUpgradedDummyWeapon` bound when armed riders
 /// upgrade weapon set (PLAYER_UPGRADE set). Negligible damage — passengers

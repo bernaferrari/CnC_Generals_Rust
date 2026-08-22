@@ -411,6 +411,9 @@ impl GameLogic {
     ///
     /// Default containers kick passengers on capture (tunnels/caves do not).
     /// Unmanned vehicles eject instantly (residual: same eject path).
+    /// Overlord/Helix portable addon is `setTeam`'d and stays attached
+    /// (`OverlordContain.cpp:227-235` / `HelixContain.cpp:217-222`). Infantry
+    /// inside the addon still eject (`Object.cpp:6187-6191` removeAllContained).
     pub fn on_capture_kick_passengers(
         &mut self,
         container_id: ObjectId,
@@ -432,28 +435,68 @@ impl GameLogic {
         {
             return;
         }
+
+        // C++ OverlordContain/HelixContain::onCapture: setTeam portable rider.
+        let portable_id = self.on_capture_overlord_helix_portable_addon(container_id, new_team);
+
+        let Some(container) = self.objects.get(&container_id) else {
+            return;
+        };
+        // C++ OverlordContain::isKickOutOnCapture: FALSE unless redirected bunker.
+        let overlord_no_redirect = container.is_overlord_style_container()
+            && !container.is_helix_transport
+            && container.overlord_bunker_slot_capacity() == 0;
+        if overlord_no_redirect {
+            return;
+        }
+
         let pos = container.get_position();
         let unmanned = container.status.disabled_unmanned;
-        let walk_exit = !unmanned
-            && !container.is_garrison_contain()
-            && (container.uses_transport_contain_exit_busy()
-                || container.can_contain()
+        let is_garrison = container.is_garrison_contain();
+        let uses_exit_busy = container.uses_transport_contain_exit_busy();
+        let can_contain = container.can_contain();
+        let template_lc = container.template_name.to_ascii_lowercase();
+        let is_overlord_helix = container.is_overlord_style_container()
+            || container.is_helix_transport
+            || portable_id.is_some();
+        let walk_exit = !is_overlord_helix
+            && !unmanned
+            && !is_garrison
+            && (uses_exit_busy
+                || can_contain
                 || {
-                    let n = container.template_name.to_ascii_lowercase();
-                    n.contains("humvee")
-                        || n.contains("chinook")
-                        || n.contains("crawler")
-                        || n.contains("battlebus")
-                        || n.contains("technical")
-                        || n.contains("outpost")
-                        || n.contains("helix")
+                    template_lc.contains("humvee")
+                        || template_lc.contains("chinook")
+                        || template_lc.contains("crawler")
+                        || template_lc.contains("battlebus")
+                        || template_lc.contains("technical")
+                        || template_lc.contains("outpost")
+                        || template_lc.contains("helix")
                 });
-        let occupants: Vec<ObjectId> = container.contained_units();
+        let portable_id = portable_id.or(container.overlord_portable_occupant);
+        let mut occupants: Vec<ObjectId> = container
+            .contained_units()
+            .into_iter()
+            .filter(|&id| Some(id) != portable_id)
+            .collect();
+        occupants.retain(|&id| {
+            !self.objects.get(&id).is_some_and(|occ| {
+                crate::game_logic::host_battlemaster::is_portable_structure_template(
+                    &occ.template_name,
+                )
+            })
+        });
+        if let Some(pid) = portable_id {
+            if let Some(addon) = self.objects.get(&pid) {
+                occupants.extend(addon.contained_units());
+            }
+        }
         if occupants.is_empty() {
             return;
         }
         // C++ TransportContain::onCapture: unmanned → removeAllContained;
         // otherwise orderAllPassengersToExit (walk + ExitDelay).
+        // Overlord/Helix infantry use Object.cpp:6187-6191 removeAllContained.
         if walk_exit {
             let n = occupants.len() as u32;
             if let Some(c) = self.objects.get_mut(&container_id) {
@@ -488,9 +531,13 @@ impl GameLogic {
             if let Some(c) = self.objects.get_mut(&container_id) {
                 let _ = c.remove_occupant(uid);
             }
+            if let Some(pid) = portable_id {
+                if let Some(addon) = self.objects.get_mut(&pid) {
+                    let _ = addon.remove_occupant(uid);
+                }
+            }
             self.capture_kick_outs = self.capture_kick_outs.saturating_add(1);
         }
-
     }
 
     /// C++ OpenContain::onSelling + ParkingPlaceBehavior::killAllParkedUnits residual.

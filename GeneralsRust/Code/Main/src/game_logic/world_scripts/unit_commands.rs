@@ -24,7 +24,21 @@ fn release_hunt_temp_lock_when_entering_guard(unit: &mut Object) {
     }
 }
 
+/// C++ AIUpdateInterface last command source. Player/script orders are not
+/// CMD_FROM_AI, so CommandButtonHuntUpdate quits on the next scan.
+fn stamp_last_command_from_player(unit: &mut Object) {
+    unit.last_command_source =
+        crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_PLAYER;
+}
+
+
 impl GameLogic {
+    fn stamp_player_command_source(&mut self, id: ObjectId) {
+        if let Some(unit) = self.objects.get_mut(&id) {
+            stamp_last_command_from_player(unit);
+        }
+    }
+
     /// Wave 246: world-position object pick without exposing object dual-walk to callers.
     ///
     /// Priority bands mirror command_integration residual acquire:
@@ -173,6 +187,7 @@ impl GameLogic {
     /// Prepare move: stop attack then assign path (fallback set_destination).
     /// Wave 230/232: stop attack residual then path or set destination + Moving.
     pub fn unit_command_move_to(&mut self, id: ObjectId, destination: glam::Vec3) -> bool {
+        self.stamp_player_command_source(id);
         if !self.unit_can_move(id) {
             return false;
         }
@@ -206,6 +221,7 @@ impl GameLogic {
         destination: glam::Vec3,
         waypoints: &[glam::Vec3],
     ) -> bool {
+        self.stamp_player_command_source(id);
         if self.objects.get(&id).is_none() {
             return false;
         }
@@ -221,6 +237,7 @@ impl GameLogic {
 
     /// Wave 232: force-move — stop attack, path, force Moving state.
     pub fn unit_command_force_move_to(&mut self, id: ObjectId, destination: glam::Vec3) -> bool {
+        self.stamp_player_command_source(id);
         if self.objects.get(&id).is_none() {
             return false;
         }
@@ -242,6 +259,7 @@ impl GameLogic {
 
     /// Wave 230/232: attack target (records host attack log).
     pub fn unit_command_attack(&mut self, id: ObjectId, target_id: ObjectId) -> bool {
+        self.stamp_player_command_source(id);
         if self.note_hacker_ai_command(
             id,
             crate::game_logic::host_hacker_income::PendingHackerCommand::Attack(target_id),
@@ -356,6 +374,7 @@ impl GameLogic {
     /// rider (`AIUpdate.cpp:3067-3090`) so Humvee/Chinook Stop parks
     /// PassengersAllowedToFire infantry.
     pub fn unit_command_stop(&mut self, id: ObjectId) -> bool {
+        self.stamp_player_command_source(id);
         let occupants = self
             .objects
             .get(&id)
@@ -438,6 +457,7 @@ impl GameLogic {
     }
 
     pub fn unit_command_guard_position(&mut self, id: ObjectId, pos: glam::Vec3) -> bool {
+        self.stamp_player_command_source(id);
         if self.flight_deck_ai_do_command(
             id,
             crate::game_logic::host_flight_deck::HostFlightDeckCommand::GuardPosition,
@@ -472,6 +492,7 @@ impl GameLogic {
     }
 
     pub fn unit_command_guard_object(&mut self, id: ObjectId, target_id: ObjectId) -> bool {
+        self.stamp_player_command_source(id);
         if self.note_hacker_ai_command(
             id,
             crate::game_logic::host_hacker_income::PendingHackerCommand::Stop,
@@ -514,6 +535,7 @@ impl GameLogic {
         destination: glam::Vec3,
         max_shots: i32,
     ) -> bool {
+        self.stamp_player_command_source(id);
         if self.unit_sleep_mood_blocks_ai_command(id) {
             return false;
         }
@@ -608,6 +630,7 @@ impl GameLogic {
 
     /// Wave 231: force-attack ground location.
     pub fn unit_command_attack_ground(&mut self, id: ObjectId, location: glam::Vec3) -> bool {
+        self.stamp_player_command_source(id);
         if self.note_hacker_ai_command(
             id,
             crate::game_logic::host_hacker_income::PendingHackerCommand::MoveTo(location),
@@ -638,6 +661,7 @@ impl GameLogic {
 
     /// Wave 231: move helper that always leaves unit in Moving state (scatter/formation).
     pub fn unit_command_move_to_moving(&mut self, id: ObjectId, destination: glam::Vec3) -> bool {
+        self.stamp_player_command_source(id);
         if !self.unit_can_move(id) {
             return false;
         }
@@ -827,6 +851,7 @@ impl GameLogic {
         guard_radius: f32,
         mode: GuardMode,
     ) -> bool {
+        self.stamp_player_command_source(id);
         let can = self
             .objects
             .get(&id)
@@ -920,6 +945,7 @@ impl GameLogic {
         location: glam::Vec3,
         max_shots: i32,
     ) -> bool {
+        self.stamp_player_command_source(id);
         if !matches!(
             self.get_able_to_use_weapon_against_target(
                 id,
@@ -948,15 +974,13 @@ impl GameLogic {
 
     /// Wave 232: hunt/patrol residual.
     pub fn unit_command_patrol(&mut self, id: ObjectId) -> bool {
+        self.stamp_player_command_source(id);
+        // C++ AIGroup::groupHunt: AI present → aiHunt. No can_move / Immobile /
+        // Structure gate (attack-move is the path that branches on isAbleToAttack).
         let can = self
             .objects
             .get(&id)
-            .map(|u| {
-                u.is_alive()
-                    && u.can_move()
-                    && !u.is_kind_of(KindOf::Immobile)
-                    && !u.is_kind_of(KindOf::Structure)
-            })
+            .map(|u| u.is_alive())
             .unwrap_or(false);
         if !can {
             return false;

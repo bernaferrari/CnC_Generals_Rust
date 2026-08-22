@@ -1284,6 +1284,16 @@ impl GameLogic {
         self.templates.get_mut(&key)
     }
 
+    /// C++ `Player::setRankLevel` with the bound PlayerTemplate so rank-down
+    /// re-seeds IntrinsicSciences / IntrinsicSciencePurchasePoints.
+    pub fn set_player_rank_level(&mut self, player_id: u32, new_level: u32) -> bool {
+        let template = self.resolved_player_template(player_id);
+        let Some(player) = self.players.get_mut(&player_id) else {
+            return false;
+        };
+        player.set_rank_level_from_template(new_level, template.as_ref())
+    }
+
     /// C++ ScriptActions skill/rank leftover drain.
     /// Leftover mutates crate player_list / leftover GameLogic; live rank lives on host Player.
     fn apply_host_rank_script_requests(&mut self) {
@@ -1302,10 +1312,7 @@ impl GameLogic {
                     };
                     let current = self.players.get(&pid).map(|p| p.rank_level).unwrap_or(1);
                     let changed = self
-                        .players
-                        .get_mut(&pid)
-                        .map(|p| p.set_rank_level((current as i32 + delta).max(1) as u32))
-                        .unwrap_or(false);
+                        .set_player_rank_level(pid, (current as i32 + delta).max(1) as u32);
                     if changed {
                         self.try_eva_general_level_up(pid);
                     }
@@ -1314,11 +1321,7 @@ impl GameLogic {
                     let Some(pid) = self.host_player_id_for_script_token(&player) else {
                         continue;
                     };
-                    let changed = self
-                        .players
-                        .get_mut(&pid)
-                        .map(|p| p.set_rank_level(level.max(1) as u32))
-                        .unwrap_or(false);
+                    let changed = self.set_player_rank_level(pid, level.max(1) as u32);
                     if changed {
                         self.try_eva_general_level_up(pid);
                     }

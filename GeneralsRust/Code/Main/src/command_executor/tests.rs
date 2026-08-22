@@ -3490,6 +3490,110 @@ fn attack_team_reacquires_after_victim_dies() {
 }
 
 #[test]
+fn attack_team_sleep_ai_picks_no_victim() {
+    use super::CommandExecutor;
+    use crate::command_system::CommandResult;
+    use crate::game_logic::host_strategy_center::HostAiAttitude;
+    use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate, Weapon};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(1, Team::USA, "USA AI", false));
+    for name in ["ATS_U", "ATS_E"] {
+        let mut tpl = ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.add_kind_of(KindOf::Attackable);
+        tpl.set_health(200.0);
+        logic.templates.insert(name.to_string(), tpl);
+    }
+    let u = logic.create_object("ATS_U", Team::USA, Vec3::ZERO).unwrap();
+    let _e = logic
+        .create_object("ATS_E", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
+        .unwrap();
+    {
+        let o = logic.host_object_mut(u).unwrap();
+        o.owner_player_id = Some(1);
+        o.set_ai_attitude(HostAiAttitude::Sleep);
+        o.weapon = Some(Weapon {
+            damage: 10.0,
+            range: 200.0,
+            ..Weapon::default()
+        });
+    }
+    assert_eq!(
+        logic.choose_attack_team_victim(u, Team::GLA, false),
+        None,
+        "leftover choose_victim Sleep returns none"
+    );
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 1);
+        assert_eq!(
+            exec.execute_attack_team(&[u], 0, -1),
+            CommandResult::Success
+        );
+    }
+    assert_eq!(
+        logic.host_object(u).unwrap().target,
+        None,
+        "Sleep AI must not acquire an attack-team victim"
+    );
+}
+
+#[test]
+fn attack_team_passive_ai_uses_last_attacker() {
+    use super::CommandExecutor;
+    use crate::command_system::CommandResult;
+    use crate::game_logic::host_strategy_center::HostAiAttitude;
+    use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate, Weapon};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(1, Team::USA, "USA AI", false));
+    for name in ["ATP_U", "ATP_E"] {
+        let mut tpl = ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.add_kind_of(KindOf::Attackable);
+        tpl.set_health(200.0);
+        logic.templates.insert(name.to_string(), tpl);
+    }
+    let u = logic.create_object("ATP_U", Team::USA, Vec3::ZERO).unwrap();
+    let near = logic
+        .create_object("ATP_E", Team::GLA, Vec3::new(15.0, 0.0, 0.0))
+        .unwrap();
+    let far = logic
+        .create_object("ATP_E", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
+        .unwrap();
+    {
+        let o = logic.host_object_mut(u).unwrap();
+        o.owner_player_id = Some(1);
+        o.set_ai_attitude(HostAiAttitude::Passive);
+        o.last_damage_source = Some(far);
+        o.weapon = Some(Weapon {
+            damage: 10.0,
+            range: 200.0,
+            ..Weapon::default()
+        });
+    }
+    assert_eq!(
+        logic.choose_attack_team_victim(u, Team::GLA, false),
+        Some(far),
+        "leftover choose_victim Passive uses last attacker, not nearest"
+    );
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 1);
+        assert_eq!(
+            exec.execute_attack_team(&[u], 0, -1),
+            CommandResult::Success
+        );
+    }
+    assert_eq!(logic.host_object(u).unwrap().target, Some(far));
+    let _ = near;
+}
+
+
+#[test]
 fn group_min_max_skips_buildings_without_ai() {
     // C++ AIGroup::getMinMaxAndCenter (AIGroup.cpp:331-362) counts AI only.
     use super::CommandExecutor;

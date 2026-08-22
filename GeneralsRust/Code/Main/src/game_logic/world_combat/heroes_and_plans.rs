@@ -922,7 +922,9 @@ impl GameLogic {
     /// - Radius residual 200 (RadiusCursorRadius / BonusRange)
     /// - BonusDuration 10000/20000/30000 ms by level (FRENZY_ONE/TWO/THREE)
     /// - DAMAGE 110% / 120% / 130% while buffed
-    /// - Allies (same-team residual), CAN_ATTACK residual, not STRUCTURE
+    /// - Allies (player relationship ALLOW_ALLIES), CAN_ATTACK residual, not STRUCTURE
+    /// - iterateContained: garrison/transport passengers of an in-range ally
+    ///   container get the buff even when the container is STRUCTURE
     ///
     /// Fail-closed: not full OCL marker object / science upgrade matrix / particle.
     /// Returns true when the residual activation was recorded (even if 0 targets).
@@ -937,13 +939,14 @@ impl GameLogic {
             in_frenzy_radius_2d, is_legal_frenzy_target, HostFrenzy, FRENZY_ACTIVATE_AUDIO,
             HOST_FRENZY_RADIUS,
         };
+        use gamelogic::common::Relationship;
+        use std::collections::HashSet;
 
         let frame = self.frame;
         let duration = level.duration_frames();
         let until = frame.saturating_add(duration);
         let center = (location.x, location.z);
 
-        // Caster team residual (same-team ally filter).
         let caster_team = caster_id
             .and_then(|cid| self.objects.get(&cid).map(|o| o.team))
             .unwrap_or_else(|| match player_id {
@@ -952,9 +955,16 @@ impl GameLogic {
                 2 => Team::GLA,
                 _ => Team::Neutral,
             });
+        let caster_owner = caster_id
+            .and_then(|cid| self.objects.get(&cid))
+            .and_then(|c| self.player_owner_for_host_object(c))
+            .or(Some(player_id));
+        let caster_team_instance = caster_id
+            .and_then(|cid| self.objects.get(&cid).map(|o| o.team_instance_name.clone()))
+            .unwrap_or_default();
 
-        // Snapshot candidates (avoid borrow conflicts while mutating).
-        let candidates: Vec<(ObjectId, bool, bool, bool, bool)> = self
+        // Snapshot in-range objects (include STRUCTURE so contained walk can fire).
+        let candidates: Vec<(ObjectId, bool, bool, bool, bool, Vec<ObjectId>)> = self
             .objects
             .iter()
             .filter_map(|(id, obj)| {
@@ -966,27 +976,53 @@ impl GameLogic {
                     return None;
                 }
                 let is_structure = obj.is_kind_of(KindOf::Structure);
-                let same_team = obj.team == caster_team;
-                // Residual CAN_ATTACK: has weapon binding or can_attack residual path.
+                let obj_owner = self.player_owner_for_host_object(obj);
+                let is_ally = match (caster_owner, obj_owner) {
+                    (Some(_), Some(_)) => {
+                        GameLogic::object_relationship_from_owners(
+                            &self.players,
+                            caster_owner,
+                            &caster_team_instance,
+                            obj.owner_player_id,
+                            &obj.team_instance_name,
+                        ) == Relationship::Allies
+                    }
+                    _ => obj.team == caster_team && caster_team != Team::Neutral,
+                };
                 let can_attack = obj.can_attack()
                     || obj.weapon.is_some()
                     || obj.secondary_weapon.is_some()
                     || obj.tertiary_weapon.is_some();
                 let under_construction =
                     obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
-                Some((*id, is_structure, same_team, can_attack, under_construction))
+                Some((
+                    *id,
+                    is_structure,
+                    is_ally,
+                    can_attack,
+                    under_construction,
+                    obj.contained_units(),
+                ))
             })
             .collect();
 
         let mut buffs: u32 = 0;
-        for (id, is_structure, same_team, can_attack, under_construction) in candidates {
+        let mut applied: HashSet<ObjectId> = HashSet::new();
+        let mut contained_ids: Vec<ObjectId> = Vec::new();
+        for (id, is_structure, is_ally, can_attack, under_construction, occupants) in candidates {
+            if is_ally {
+                contained_ids.extend(occupants);
+            }
             if !is_legal_frenzy_target(
                 is_structure,
                 true,
-                same_team,
+                is_ally,
                 can_attack,
                 under_construction,
             ) {
+                continue;
+            }
+            if !applied.insert(id) {
                 continue;
             }
             let Some(target) = self.objects.get_mut(&id) else {
@@ -997,7 +1033,40 @@ impl GameLogic {
             }
             let was_buffed = target.weapon_bonus_frenzy;
             target.apply_weapon_bonus_frenzy(level.as_u8(), until);
-            // Count new grants and refreshes as residual buff events for honesty.
+            if !was_buffed || target.weapon_bonus_frenzy {
+                buffs = buffs.saturating_add(1);
+            }
+        }
+
+        // C++ WeaponBonusUpdate iterateContained — KindOf only (container already Allies).
+        for occ_id in contained_ids {
+            if !applied.insert(occ_id) {
+                continue;
+            }
+            let Some(occ) = self.objects.get(&occ_id) else {
+                continue;
+            };
+            if !occ.is_alive() {
+                continue;
+            }
+            let is_structure = occ.is_kind_of(KindOf::Structure);
+            let can_attack = occ.can_attack()
+                || occ.weapon.is_some()
+                || occ.secondary_weapon.is_some()
+                || occ.tertiary_weapon.is_some();
+            let under_construction =
+                occ.status.under_construction || occ.construction_percent + 0.001 < 1.0;
+            if !is_legal_frenzy_target(is_structure, true, true, can_attack, under_construction) {
+                continue;
+            }
+            let Some(target) = self.objects.get_mut(&occ_id) else {
+                continue;
+            };
+            if !target.is_alive() {
+                continue;
+            }
+            let was_buffed = target.weapon_bonus_frenzy;
+            target.apply_weapon_bonus_frenzy(level.as_u8(), until);
             if !was_buffed || target.weapon_bonus_frenzy {
                 buffs = buffs.saturating_add(1);
             }

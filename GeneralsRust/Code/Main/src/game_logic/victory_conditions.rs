@@ -13,7 +13,7 @@ use std::sync::OnceLock;
 use crate::config::{ConfigValue, IniParser, LoadMode};
 
 use super::{
-    game_logic::{GameMode, Player},
+    game_logic::{GameMode, Player, PlayerTemplateIdentity},
     object::Object,
     victory::VictoryCondition,
     KindOf, ObjectId, Team,
@@ -86,13 +86,17 @@ pub fn is_multiplayer_or_skirmish_victory(mode: GameMode) -> bool {
     )
 }
 
-fn unique_faction_owner(players: &HashMap<u32, Player>, team: Team) -> Option<u32> {
+fn unique_faction_owner(
+    players: &HashMap<u32, Player>,
+    team: Team,
+    identities: &HashMap<u32, PlayerTemplateIdentity>,
+) -> Option<u32> {
     if team == Team::Neutral {
         return None;
     }
     let mut found = None;
     for player in players.values() {
-        if player.team != team || !is_playable_victory_player(player) {
+        if player.team != team || !is_playable_victory_player(player, identities) {
             continue;
         }
         if found.is_some() {
@@ -114,15 +118,44 @@ fn object_belongs_to_player(
     }
 }
 
-fn is_playable_victory_player(player: &Player) -> bool {
+/// C++ `VictoryConditions::cachePlayerPtrs`: Neutral pointer, template-less
+/// after a failed resolve, `FactionCivilian` template identity, and
+/// `isPlayerObserver()`. Slot display names are never consulted.
+fn is_playable_victory_player(
+    player: &Player,
+    identities: &HashMap<u32, PlayerTemplateIdentity>,
+) -> bool {
     if player.team == Team::Neutral || player.is_observer {
         return false;
     }
-    let name = player.name.to_ascii_lowercase();
-    if name.contains("observer") || name.contains("civilian") {
+    if leftover_player_is_observer(player.id) || leftover_player_is_faction_civilian(player.id) {
         return false;
     }
-    !leftover_player_is_observer(player.id)
+    if let Some(ident) = identities.get(&player.id) {
+        match ident.resolve() {
+            Some(template) => {
+                if template.is_observer()
+                    || template.get_name().eq_ignore_ascii_case("FactionCivilian")
+                {
+                    return false;
+                }
+            }
+            None => return false,
+        }
+    }
+    true
+}
+
+fn leftover_player_is_faction_civilian(player_id: u32) -> bool {
+    leftover_player_arc_for_host(player_id, "", false)
+        .and_then(|player| {
+            player.read().ok().map(|guard| {
+                guard.get_player_template().is_some_and(|template| {
+                    template.get_name().eq_ignore_ascii_case("FactionCivilian")
+                })
+            })
+        })
+        .unwrap_or(false)
 }
 
 fn leftover_player_is_markable(player: &gamelogic::player::Player) -> bool {
@@ -272,6 +305,7 @@ pub struct VictoryConditions {
     alliance_events: Vec<AllianceNotification>,
     winning_alliance: Option<i32>,
     pending_kills: Vec<u32>,
+    player_templates: HashMap<u32, PlayerTemplateIdentity>,
 }
 
 impl Default for VictoryConditions {
@@ -291,6 +325,7 @@ impl VictoryConditions {
             alliance_events: Vec::new(),
             winning_alliance: None,
             pending_kills: Vec::new(),
+            player_templates: HashMap::new(),
         }
     }
 
@@ -303,6 +338,7 @@ impl VictoryConditions {
         self.alliance_events.clear();
         self.winning_alliance = None;
         self.pending_kills.clear();
+        self.player_templates.clear();
         // C++ VictoryConditions::reset clears m_singleAllianceRemaining.
         gamelogic::helpers::TheVictoryConditions::set_local_allied_victory(false);
         gamelogic::helpers::TheVictoryConditions::set_local_allied_defeat(false);
@@ -330,6 +366,21 @@ impl VictoryConditions {
         frame: u32,
         game_mode: GameMode,
     ) -> Option<VictoryCondition> {
+        self.evaluate_with_templates(players, objects, frame, game_mode, &HashMap::new())
+    }
+
+    /// C++ `cachePlayerPtrs` template identity: live host bindings, never names.
+    pub fn evaluate_with_templates(
+        &mut self,
+        players: &HashMap<u32, Player>,
+        objects: &HashMap<ObjectId, Object>,
+        frame: u32,
+        game_mode: GameMode,
+        identities: &HashMap<u32, PlayerTemplateIdentity>,
+    ) -> Option<VictoryCondition> {
+        self.player_templates.clear();
+        self.player_templates
+            .extend(identities.iter().map(|(&id, ident)| (id, ident.clone())));
         // C++ VictoryConditions.cpp:125 — early-return unless isMultiplayer.
         if !is_multiplayer_or_skirmish_victory(game_mode) {
             return None;
@@ -342,7 +393,7 @@ impl VictoryConditions {
         let mut active_alliances: HashMap<i32, Vec<u32>> = HashMap::new();
 
         for (&player_id, player) in players {
-            if !is_playable_victory_player(player) {
+            if !is_playable_victory_player(player, &self.player_templates) {
                 continue;
             }
 
@@ -350,7 +401,8 @@ impl VictoryConditions {
                 continue;
             }
 
-            let unique_owner = unique_faction_owner(players, player.team);
+            let unique_owner =
+                unique_faction_owner(players, player.team, &self.player_templates);
             let state = PlayerArmyState::from_objects(objects, player, unique_owner);
             if self.is_defeated(state) {
                 if self.defeated_players.insert(player_id) {
@@ -421,7 +473,7 @@ impl VictoryConditions {
         };
         players.values().any(|player| {
             player.is_local
-                && is_playable_victory_player(player)
+                && is_playable_victory_player(player, &self.player_templates)
                 && alliance_key(player) == key
         })
     }
@@ -496,7 +548,7 @@ impl VictoryConditions {
 
     fn refresh_alliance_states(&mut self, players: &HashMap<u32, Player>) {
         for (&player_id, player) in players {
-            if !is_playable_victory_player(player) {
+            if !is_playable_victory_player(player, &self.player_templates) {
                 continue;
             }
             let new_state = if self.defeated_players.contains(&player_id) {
@@ -933,5 +985,52 @@ mod tests {
         assert!(!gamelogic::helpers::TheVictoryConditions::is_local_allied_defeat());
         vc.reset();
     }
+
+    #[test]
+    fn playable_census_ignores_observer_civilian_slot_names() {
+        let mut vc = VictoryConditions::new();
+        let mut named = player(0, Team::USA, 1);
+        named.name = "CivilianCrusherObserver".into();
+        let mut players = HashMap::new();
+        players.insert(0, named);
+        players.insert(1, player(1, Team::GLA, 2));
+        let mut objects = HashMap::new();
+        let (a, oa) = obj(1, 0, Team::USA, &[KindOf::Infantry]);
+        let (b, ob) = obj(2, 1, Team::GLA, &[KindOf::Infantry]);
+        objects.insert(a, oa);
+        objects.insert(b, ob);
+        assert!(
+            vc.evaluate(&players, &objects, 12, GameMode::Skirmish)
+                .is_none(),
+            "a living army named Civilian/Observer still counts in cachePlayerPtrs"
+        );
+
+        let mut civilian_idents = HashMap::new();
+        if let Some(ident) = PlayerTemplateIdentity::from_exact_name("FactionCivilian") {
+            civilian_idents.insert(0, ident);
+        }
+        let mut named_only = HashMap::new();
+        named_only.insert(0, {
+            let mut p = player(0, Team::USA, 1);
+            p.name = "CivilianCrusherObserver".into();
+            p
+        });
+        named_only.insert(1, player(1, Team::GLA, 2));
+        let outcome = vc.evaluate_with_templates(
+            &named_only,
+            &objects,
+            13,
+            GameMode::Skirmish,
+            &civilian_idents,
+        );
+        if !civilian_idents.is_empty() {
+            assert!(
+                matches!(outcome, Some(VictoryCondition::Winner(1))),
+                "FactionCivilian template identity is excluded, got {outcome:?}"
+            );
+        }
+        vc.reset();
+    }
+
 }
 

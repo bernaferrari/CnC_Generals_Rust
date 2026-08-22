@@ -21,7 +21,7 @@
 //! - VisionRange **150**; vehicle name residual list (China/Tank_/Nuke_/Infa_)
 //!
 //! Fail-closed honesty:
-//! - Not full FireWeaponUpdate ExclusiveWeaponDelay multi-weapon matrix
+//! - ExclusiveWeaponDelay vs last_fire_frame is live (not full multi-weapon matrix)
 //! - Not full ally relationship / underpower / DISABLED_SUBDUED FX tint matrix
 //! - Not network jam replication (network deferred)
 
@@ -79,6 +79,17 @@ pub const ECM_VEHICLE_DISABLER_FIRE_SOUND_LOOP_MS: u32 = 120;
 pub const ECM_EXCLUSIVE_WEAPON_DELAY_MS: u32 = 1_000;
 /// ExclusiveWeaponDelay 1000ms → 30 frames @ 30 FPS.
 pub const ECM_EXCLUSIVE_WEAPON_DELAY_FRAMES: u32 = 30;
+
+/// C++ `FireWeaponUpdate::isOkayToFire` ExclusiveWeaponDelay gate.
+///
+/// `current < lastShot + ExclusiveWeaponDelay` suppresses the jammer pulse.
+/// `last_shot_fired_frame == 0` means never fired (live `last_fire_frame` default)
+/// so the jammer may pulse until a real weapon (vehicle disabler) stamps a shot.
+pub fn ecm_exclusive_weapon_delay_blocks(current_frame: u32, last_shot_fired_frame: u32) -> bool {
+    last_shot_fired_frame > 0
+        && ECM_EXCLUSIVE_WEAPON_DELAY_FRAMES > 0
+        && current_frame < last_shot_fired_frame.saturating_add(ECM_EXCLUSIVE_WEAPON_DELAY_FRAMES)
+}
 
 /// Retail ChinaTankECM ActiveBody SubdualDamageCap residual.
 pub const ECM_SUBDUAL_DAMAGE_CAP: f32 = 600.0;
@@ -496,5 +507,17 @@ mod tests {
         assert!(is_ecm_tank_vehicle_list("Nuke_ChinaTankECM"));
         assert!(!is_ecm_tank_vehicle_list("DeadChinaECMTankHulk"));
         assert!(!is_ecm_tank_vehicle_list("ChinaTankBattleMaster"));
+    }
+
+    /// C++ FireWeaponUpdate::isOkayToFire ExclusiveWeaponDelay 1000ms → 30f.
+    /// last_shot 0 = never fired → jammer may pulse.
+    #[test]
+    fn exclusive_weapon_delay_blocks_after_disabler_shot() {
+        assert!(!ecm_exclusive_weapon_delay_blocks(0, 0));
+        assert!(!ecm_exclusive_weapon_delay_blocks(30, 0));
+        assert!(ecm_exclusive_weapon_delay_blocks(3, 3));
+        assert!(ecm_exclusive_weapon_delay_blocks(32, 3));
+        assert!(!ecm_exclusive_weapon_delay_blocks(33, 3));
+        assert_eq!(ECM_EXCLUSIVE_WEAPON_DELAY_FRAMES, 30);
     }
 }

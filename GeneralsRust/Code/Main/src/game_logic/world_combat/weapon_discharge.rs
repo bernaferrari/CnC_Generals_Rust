@@ -84,12 +84,14 @@ impl GameLogic {
                 let speed = fire_fx_weapon_speed(self.objects.get(&source), capture.weapon_slot);
                 let radius =
                     fire_fx_primary_damage_radius(self.objects.get(&source), capture.weapon_slot);
-                let _ = crate::game_logic::dispatch_fx_list_at_pos_ex(
+                let matrix = self.objects.get(&source).map(|o| o.get_transform_matrix());
+                let _ = crate::game_logic::dispatch_fx_list_at_pos_oriented(
                     &capture.selected_fx_name,
                     pos,
                     target,
                     speed,
                     radius,
+                    matrix,
                 );
             }
         }
@@ -175,7 +177,8 @@ impl GameLogic {
         };
         let speed = fire_fx_weapon_speed(self.objects.get(&source), capture.weapon_slot);
         let radius = fire_fx_primary_damage_radius(self.objects.get(&source), capture.weapon_slot);
-        let _ = self.combat_particles.spawn_weapon_fire_fx_named_ocl(
+        let matrix = self.objects.get(&source).map(|o| o.get_transform_matrix());
+        let _ = self.combat_particles.spawn_weapon_fire_fx_named_ocl_oriented(
             where_pos,
             Some(target_pos),
             capture.logic_frame,
@@ -187,6 +190,7 @@ impl GameLogic {
             "",
             speed,
             radius,
+            matrix,
         );
     }
 

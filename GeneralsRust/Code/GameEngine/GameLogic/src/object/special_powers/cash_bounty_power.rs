@@ -159,8 +159,8 @@ impl CashBountyPower {
         &mut self,
         command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
     ) {
+        // C++ CashBountyPower does not override doSpecialPower*.
         self.base_module.do_special_power(command_options);
-        self.apply_bounty_if_applicable();
     }
 
     fn dispatch_do_special_power_at_object(
@@ -170,7 +170,6 @@ impl CashBountyPower {
     ) {
         self.base_module
             .do_special_power_at_object(object_id, command_options);
-        self.apply_bounty_if_applicable();
     }
 
     fn dispatch_do_special_power_at_location(
@@ -181,7 +180,6 @@ impl CashBountyPower {
     ) {
         self.base_module
             .do_special_power_at_location(location, angle, command_options);
-        self.apply_bounty_if_applicable();
     }
 
     fn dispatch_reference_thing_template(&self) -> Option<String> {

@@ -829,10 +829,8 @@ fn structure_placement_rotate_residual() {
 fn structure_cycle_and_auto_attack_residual() {
     let src = crate::cnc_game_engine::ENGINE_SRC;
     assert!(
-        src.contains("fn cycle_friendly_structure_selection")
-            && src.contains("SELECT_NEXT_STRUCTURE")
-            && src.contains("sticky_auto_attack"),
-        "structure cycle + sticky auto-attack residual required"
+        src.contains("sticky_auto_attack"),
+        "sticky auto-attack residual required"
     );
     assert!(
         src.contains("Auto-attack: ON") && src.contains("AttackMoveTo"),
@@ -849,10 +847,8 @@ fn force_attack_ground_t_key_and_home_structure_residual() {
             && src.contains("Force-attack ground"),
         "T must issue ForceAttackGround at cursor residual"
     );
-    assert!(
-        src.contains("NamedKey::Home") && src.contains("cycle_friendly_structure_selection(1)"),
-        "Home/End must cycle structures residual"
-    );
+    // Home/End are CommandMap-bindable (VIEW_COMMAND_CENTER), not
+    // invented SELECT_NEXT_STRUCTURE.
 }
 
 #[test]
@@ -1305,12 +1301,6 @@ fn clear_mines_and_unfinished_construction_residual() {
             && src.contains("eq_ignore_ascii_case(\"x\")")
             && src.contains("NamedKey::Alt"),
         "Alt+X must ClearMines residual"
-    );
-    assert!(
-        src.contains("fn cycle_unfinished_construction")
-            && src.contains("No unfinished construction")
-            && src.contains("cycle_unfinished_construction(1)"),
-        "Ctrl+Alt+Home/End must cycle unfinished construction residual"
     );
     let cs = crate::command_system::COMMAND_SYSTEM_SRC;
     assert!(

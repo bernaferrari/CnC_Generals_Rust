@@ -1434,9 +1434,6 @@ impl GameLogic {
         if path.is_empty() {
             return;
         }
-        if let Some(unit) = self.objects.get_mut(&unit_id) {
-            unit.can_path_through_units = true;
-        }
         self.path_approach_with_state_ignoring(
             unit_id,
             path[0],
@@ -1464,6 +1461,11 @@ impl GameLogic {
             } else {
                 let _ = self.append_unit_waypoint(unit_id, wp);
             }
+        }
+        // After the path is installed — move_object_with_pathfinding
+        // clears this on new orders (C++ FollowPath onExit).
+        if let Some(unit) = self.objects.get_mut(&unit_id) {
+            unit.can_path_through_units = true;
         }
     }
 

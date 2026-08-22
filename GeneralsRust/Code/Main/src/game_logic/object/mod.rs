@@ -2455,6 +2455,11 @@ pub struct Object {
     /// C++ CommandButtonHuntUpdate residual (special-button hunt).
     pub command_button_hunt:
         Option<crate::game_logic::host_command_button_hunt::HostCommandButtonHuntData>,
+    /// C++ AIUpdateInterface::getLastCommandSource residual.
+    /// CommandButtonHuntUpdate quits unless this is CMD_FROM_AI.
+    #[serde(default = "crate::game_logic::host_command_button_hunt::default_last_command_source")]
+    pub last_command_source: u32,
+
 
     /// Host residual: Overlord / Helix portable GattlingCannon addon installed
     /// (`Upgrade_ChinaOverlordGattlingCannon` / Helix equivalent). Equips AA

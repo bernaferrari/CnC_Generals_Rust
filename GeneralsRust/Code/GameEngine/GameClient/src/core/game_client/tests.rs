@@ -1623,6 +1623,29 @@ mod tests {
     }
 
     #[test]
+    fn military_caption_same_text_rearms_when_remaining_ms_jumps() {
+        // C++ InGameUI::militarySubtitle always remove+recreate. Live
+        // apply used to ignore same-text re-fires; remaining_ms increase
+        // is the leftover re-arm edge (scripts_camera re-fire).
+        let mut client = GameClient::new().unwrap();
+        client.subsystem_manager.in_game_ui =
+            Some(Arc::new(Mutex::new(InGameUISubsystem::default())));
+        client.apply_presentation_military_caption(Some("General: Hold the line!"), Some(2500));
+        client.apply_presentation_military_caption(Some("General: Hold the line!"), Some(2000));
+        client.apply_presentation_military_caption(Some("General: Hold the line!"), Some(5000));
+        let ui = client.subsystem_manager.in_game_ui.as_ref().unwrap();
+        let ui = ui.lock().expect("in-game UI lock");
+        let subs = ui.military_subtitles();
+        assert_eq!(
+            subs.len(),
+            2,
+            "countdown must not re-push; remaining_ms jump must re-arm"
+        );
+        assert_eq!(subs[0], ("General: Hold the line!".to_string(), 2500));
+        assert_eq!(subs[1], ("General: Hold the line!".to_string(), 5000));
+    }
+
+    #[test]
     fn named_timers_do_not_replace_superweapon_strip() {
         let mut client = GameClient::new().unwrap();
         client.subsystem_manager.in_game_ui =

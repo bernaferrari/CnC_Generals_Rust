@@ -1,13 +1,12 @@
 //! Host cash bounty residual (GLA SCIENCE_CashBounty).
 //!
 //! Residual slice (playability):
-//! - Player holds a cash-bounty percent (from science unlock / direct set).
+//! - Player holds a cash-bounty percent (CashBountyPower module / direct set).
 //! - On enemy unit/structure kill, killer player receives
 //!   `ceil(victim_build_cost * cash_bounty_percent)` cash.
 //! - SCIENCE_CashBounty1/2/3 map to retail residual 5% / 10% / 20%.
-//!
-//! Matches C++ Player::doBountyForKill + CashBountyPower on science path:
-//! - No bounty when percent is 0
+//! - Unlocking those sciences does not set the percent; a palace
+//!   CashBountyPower module must apply leftover findBounty().
 //! - No bounty for under-construction victims
 //! - No bounty for same-team / non-enemy kills
 //!

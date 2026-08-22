@@ -3234,12 +3234,13 @@ impl AIPlayer {
 
     /// C++ `AIGroup::groupHunt` residual (`ScriptActions::doTeamHunt`).
     fn hunt_units(&mut self, game_logic: &mut GameLogic, units: &[ObjectId]) {
+        // C++ AIGroup::groupHunt: every member with AIUpdateInterface → aiHunt.
+        // No can_move / Immobile / Structure gate.
         for &unit_id in units {
-            let mobile = game_logic
+            let alive = game_logic
                 .host_object(unit_id)
-                .map(|u| u.is_mobile() && u.is_alive())
-                .unwrap_or(false);
-            if mobile {
+                .is_some_and(|u| u.is_alive());
+            if alive {
                 let _ = game_logic.unit_command_patrol(unit_id);
             }
         }

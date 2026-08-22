@@ -19,6 +19,36 @@ pub const COMMAND_BUTTON_HUNT_LOGIC_FPS: f32 = 30.0;
 pub const COMMAND_BUTTON_HUNT_SCAN_FRAMES: u32 = 30;
 /// Retail ScanRange default.
 pub const COMMAND_BUTTON_HUNT_SCAN_RANGE: f32 = 9999.0;
+/// C++ `CMD_FROM_PLAYER` — player order ends CommandButtonHunt.
+pub const HUNT_CMD_FROM_PLAYER: u32 = 0;
+/// C++ `CMD_FROM_SCRIPT` — script order ends CommandButtonHunt.
+pub const HUNT_CMD_FROM_SCRIPT: u32 = 1;
+/// C++ `CMD_FROM_AI` — only this source keeps CommandButtonHunt armed.
+pub const HUNT_CMD_FROM_AI: u32 = 2;
+
+/// serde default: newly spawned units have no player/script order yet.
+pub fn default_last_command_source() -> u32 {
+    HUNT_CMD_FROM_AI
+}
+
+/// C++ `getLastCommandSource() == CMD_FROM_AI`.
+pub fn hunt_last_command_is_from_ai(source: u32) -> bool {
+    source == HUNT_CMD_FROM_AI
+}
+
+/// C++ PartitionFilterSameMapStatus: both on-map or both off-map.
+pub fn hunt_same_map_status(hunter_off_map: bool, target_off_map: bool) -> bool {
+    hunter_off_map == target_off_map
+}
+
+/// C++ PartitionFilterStealthedAndUndetected (undetected stealth is illegal).
+pub fn hunt_stealthed_undetected(stealthed: bool, detected: bool) -> bool {
+    stealthed && !detected
+}
+
+/// C++ TimedCharges / TankHunterTNT ViewObjectRange residual (Burton 100).
+pub const HUNT_PLACE_EXPLOSIVE_VIEW_RANGE: f32 = 100.0;
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HostCommandButtonHuntMode {
@@ -250,6 +280,72 @@ pub fn hunt_allows_kind(
 
 }
 
+/// C++ ActionManager enter-hunt gates (canHijack / canConvert / canSabotage).
+/// Relationship and KindOf are precomputed so this module stays Team-free.
+pub fn hunt_enter_action_ok(
+    mode: HostCommandButtonHuntMode,
+    relationship_enemies: bool,
+    relationship_neutral: bool,
+    is_vehicle: bool,
+    is_structure: bool,
+    is_aircraft: bool,
+    is_drone: bool,
+    hijack_rejected: bool,
+    already_carbomb: bool,
+) -> bool {
+    match mode {
+        HostCommandButtonHuntMode::HijackVehicle => {
+            relationship_enemies
+                && is_vehicle
+                && !is_aircraft
+                && !is_drone
+                && !hijack_rejected
+        }
+        HostCommandButtonHuntMode::ConvertToCarBomb => {
+            relationship_neutral && is_vehicle && !is_aircraft && !already_carbomb
+        }
+        HostCommandButtonHuntMode::SabotageBuilding => {
+            relationship_enemies && is_structure
+        }
+        HostCommandButtonHuntMode::SpecialPower | HostCommandButtonHuntMode::FireWeapon => false,
+    }
+}
+
+/// Capture hunt: C++ skips same controlling player and ALLIES.
+pub fn hunt_special_capture_skips(same_player: bool, relationship_allies: bool) -> bool {
+    same_player || relationship_allies
+}
+
+/// TNT / timed / remote charges: skip if an owned mine is in ViewObjectRange.
+pub fn hunt_special_is_place_explosive(button: &str) -> bool {
+    let n: String = button
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .flat_map(|c| c.to_lowercase())
+        .collect();
+    n.contains("tnt")
+        || n.contains("tankhunter")
+        || n.contains("timedcharge")
+        || n.contains("timeddemo")
+        || n.contains("remotecharge")
+        || n.contains("remotedemo")
+        || n.contains("burton")
+}
+
+/// C++ `curPriority - dist/AttackPriorityDistanceModifier`, min 1.
+pub fn hunt_effective_priority(raw_priority: i32, dist: f32, distance_modifier: f32) -> i32 {
+    if raw_priority == 0 {
+        return 0;
+    }
+    let modifier = if distance_modifier > 0.0 {
+        (dist / distance_modifier) as i32
+    } else {
+        0
+    };
+    (raw_priority - modifier).max(1)
+}
+
+
 pub fn honesty_command_button_hunt_residual_ok() -> bool {
     COMMAND_BUTTON_HUNT_SCAN_FRAMES == 30
         && (COMMAND_BUTTON_HUNT_SCAN_RANGE - 9999.0).abs() < 0.1
@@ -292,6 +388,62 @@ mod tests {
             true,
             false
         ));
+        assert!(hunt_enter_action_ok(
+            HostCommandButtonHuntMode::HijackVehicle,
+            true,
+            false,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false
+        ));
+        assert!(
+            !hunt_enter_action_ok(
+                HostCommandButtonHuntMode::HijackVehicle,
+                false,
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false
+            ),
+            "2v2 ally is not Enemies"
+        );
+        assert!(
+            !hunt_enter_action_ok(
+                HostCommandButtonHuntMode::HijackVehicle,
+                true,
+                false,
+                true,
+                false,
+                false,
+                true,
+                false,
+                false
+            ),
+            "drone rejected"
+        );
+        assert!(hunt_enter_action_ok(
+            HostCommandButtonHuntMode::ConvertToCarBomb,
+            false,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false
+        ));
+        assert!(hunt_special_capture_skips(false, true));
+        assert!(hunt_special_is_place_explosive("Command_ChinaTankHunterTNT"));
+        assert_eq!(hunt_effective_priority(80, 100.0, 50.0), 78);
+        assert!(hunt_last_command_is_from_ai(HUNT_CMD_FROM_AI));
+        assert!(!hunt_last_command_is_from_ai(HUNT_CMD_FROM_PLAYER));
+
     }
 
     #[test]

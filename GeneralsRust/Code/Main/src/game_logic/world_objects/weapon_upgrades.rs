@@ -108,7 +108,8 @@ impl GameLogic {
 
         let pct = cash_bounty_percent_for_science(upgrade_name).unwrap_or(0.05);
         let mut n = 0u32;
-        for p in self.players.values_mut() {
+        let mut player_ids = Vec::new();
+        for (id, p) in self.players.iter_mut() {
             if !upgrade_targets_player(p, team) {
                 continue;
             }
@@ -124,12 +125,16 @@ impl GameLogic {
                 p.unlocked_sciences
                     .insert("SCIENCE_CashBounty1".to_string());
             }
-            p.set_cash_bounty(pct);
-            self.cash_bounty.record_bounty_set(p.cash_bounty_percent);
+            player_ids.push(*id);
             n = n.saturating_add(1);
+        }
+        // C++ CashBountyPower::onSpecialPowerCreation only runs on a palace module.
+        for player_id in player_ids {
+            let _ = self.apply_cash_bounty_from_palace_modules(player_id, Some(upgrade_name));
         }
         n
     }
+
 
     /// C++ America Scout/Battle/Hellfire drone object-upgrade residual.
     ///

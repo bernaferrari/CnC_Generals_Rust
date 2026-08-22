@@ -189,13 +189,8 @@ impl<'a> CommandExecutor<'a> {
         };
 
         if unlocked {
-            // Cash bounty residual: SCIENCE_CashBounty* raises percent + honesty registry.
-            if let Some(pct) =
-                crate::game_logic::host_cash_bounty::cash_bounty_percent_for_science(science_name)
-            {
-                let _ = self.game_logic.set_player_cash_bounty(player_id, pct);
-            }
             // SCIENCE_StealthFighter residual: record unlock honesty on purchase.
+
             if crate::game_logic::host_stealth_fighter::is_stealth_fighter_science(science_name) {
                 self.game_logic.record_stealth_fighter_science_unlock();
             }

@@ -614,8 +614,14 @@ impl ControlBar {
         self.science_state.rank_title_label = format!("SCIENCE:Rank{rank_level}");
         self.science_state.experience_progress = (percent as f32 / 100.0).clamp(0.0, 1.0);
         leftover_set_progress(GEN_EXP_PROGRESS, percent);
+        // C++ getStarImage / onPlayerSciencePurchasePointsChanged.
+        if science_purchase_points > 0 {
+            self.gen_star_flash = true;
+            if self.last_flashed_at_point_value < science_purchase_points {
+                self.last_flashed_at_point_value = science_purchase_points;
+            }
+        }
         self.leftover_apply_purchase_science_windows();
-
     }
 
     /// Feed unlocked science names from PresentationFrame into purchase UI residual.
@@ -1468,10 +1474,8 @@ impl ControlBar {
             }
         }
 
-        // Gen-star residual: flash when upgrades are queued (purchase-points proxy).
-        if !self.presentation_queued_upgrades.is_empty() {
-            self.gen_star_flash = true;
-        }
+        // Gen-star flash is SPP-driven (sync_rank_progress + update_star_image).
+        // Queued upgrades are not C++ getStarImage.
         self.mark_ui_dirty();
     }
 

@@ -759,12 +759,33 @@ impl Player {
 
     /// C++ Player::resetRank — rank 1, skill 0, intrinsic+Rank1 SPP, sciences reset.
     pub fn reset_rank(&mut self) {
+        self.reset_rank_from_template(None);
+    }
+
+    /// C++ `Player::resetRank` + `resetSciences` with a resolved PlayerTemplate.
+    /// Intrinsic sciences / IntrinsicSciencePurchasePoints come from the
+    /// template when present; otherwise the base-faction residual is used.
+    pub(crate) fn reset_rank_from_template(
+        &mut self,
+        template: Option<&game_engine::common::rts::player_template::PlayerTemplate>,
+    ) {
         use crate::game_logic::host_rank_ui_residual::reset_rank_residual;
-        let reset = reset_rank_residual(0);
+        use crate::game_logic::host_science_rank::SCIENCE_RANK1;
+
+        let intrinsic_spp = template
+            .map(|t| t.get_intrinsic_science_purchase_points())
+            .unwrap_or(0);
+        let reset = reset_rank_residual(intrinsic_spp);
         self.rank_level = reset.rank_level;
         self.skill_points = reset.skill_points;
         self.unlocked_sciences.clear();
-        self.apply_faction_intrinsic_sciences();
+        if let Some(template) = template {
+            self.unlocked_sciences
+                .extend(template.get_intrinsic_sciences().iter().cloned());
+            self.unlocked_sciences.insert(SCIENCE_RANK1.to_string());
+        } else {
+            self.apply_faction_intrinsic_sciences();
+        }
         self.science_purchase_points = reset.science_purchase_points;
         self.record_host_progress();
         self.record_host_sciences();
@@ -773,6 +794,14 @@ impl Player {
 
     /// C++ Player::setRankLevel — downgrade calls resetRank then climbs.
     pub fn set_rank_level(&mut self, new_level: u32) -> bool {
+        self.set_rank_level_from_template(new_level, None)
+    }
+
+    pub(crate) fn set_rank_level_from_template(
+        &mut self,
+        new_level: u32,
+        template: Option<&game_engine::common::rts::player_template::PlayerTemplate>,
+    ) -> bool {
         use crate::game_logic::host_rank_ui_residual::{
             set_rank_level_residual, rank_level_down_threshold_residual,
             rank_level_up_threshold_residual, RankSkillStateResidual,
@@ -788,7 +817,7 @@ impl Player {
             return false;
         }
         if target < old {
-            self.reset_rank();
+            self.reset_rank_from_template(template);
             if target == 1 {
                 return true;
             }
@@ -1118,17 +1147,14 @@ impl Player {
             return false;
         }
         let inserted = self.unlocked_sciences.insert(science_name.to_string());
-        // Cash bounty residual: SCIENCE_CashBounty1/2/3 raise player bounty percent.
-        if let Some(pct) =
-            crate::game_logic::host_cash_bounty::cash_bounty_percent_for_science(science_name)
-        {
-            self.set_cash_bounty(pct);
-        }
+        // C++ Player::addScience never sets m_cashBountyPercent. CashBountyPower
+        // on an existing palace module is the only setter (onSpecialPowerCreation).
         if inserted {
             self.record_host_sciences();
         }
         inserted
     }
+
 
     /// C++ `Player::grantScience` — refuse when `ScienceStore::isScienceGrantable` is false.
     pub fn grant_science(&mut self, science_name: &str) -> bool {
@@ -1295,19 +1321,38 @@ impl Player {
             self.statistics.structures_destroyed.saturating_add(1);
     }
 
+    /// C++ `ScoreKeeper::addObjectDestroyed` still increments the per-victim
+    /// array for self-kills; `calculateScore` skips `i == m_myPlayerIdx`.
+    pub fn record_self_unit_destroyed(&mut self) {
+        self.statistics.units_destroyed_self =
+            self.statistics.units_destroyed_self.saturating_add(1);
+    }
+
+    pub fn record_self_structure_destroyed(&mut self) {
+        self.statistics.structures_destroyed_self = self
+            .statistics
+            .structures_destroyed_self
+            .saturating_add(1);
+    }
+
     pub fn record_structure_lost(&mut self) {
         self.statistics.structures_lost = self.statistics.structures_lost.saturating_add(1);
     }
 
-    /// C++ `ScoreKeeper::calculateScore`.
+    /// C++ `ScoreKeeper::calculateScore` — self-kills stay in display totals
+    /// but never enter the score.
     pub fn calculate_score(&self) -> i32 {
         let s = &self.statistics;
+        let enemy_units = s.units_destroyed.saturating_sub(s.units_destroyed_self);
+        let enemy_structures = s
+            .structures_destroyed
+            .saturating_sub(s.structures_destroyed_self);
         (s.units_built as i32)
             .saturating_mul(100)
             .saturating_add(s.money_earned as i32)
             .saturating_add((s.structures_built as i32).saturating_mul(100))
-            .saturating_add((s.units_destroyed as i32).saturating_mul(100))
-            .saturating_add((s.structures_destroyed as i32).saturating_mul(100))
+            .saturating_add((enemy_units as i32).saturating_mul(100))
+            .saturating_add((enemy_structures as i32).saturating_mul(100))
     }
 
     pub fn record_resources_spent(&mut self, amount: u32) {

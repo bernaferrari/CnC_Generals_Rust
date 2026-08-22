@@ -197,6 +197,16 @@ impl HostSupplyDropZoneRegistry {
         })
     }
 
+    /// Peek scheduled next drop frame without inserting.
+    pub fn peek_next_drop(&self, zone_id: ObjectId) -> Option<u32> {
+        self.next_drop_frame.get(&zone_id).copied()
+    }
+
+    /// Force-set next drop frame (save/load writeback residual).
+    pub fn set_next_drop(&mut self, zone_id: ObjectId, frame: u32) {
+        self.next_drop_frame.insert(zone_id, frame);
+    }
+
     /// When OCL interval is due, schedule next interval and record a cargo flight
     /// start (CreateAtEdge residual). Returns true when a flight should queue.
     ///

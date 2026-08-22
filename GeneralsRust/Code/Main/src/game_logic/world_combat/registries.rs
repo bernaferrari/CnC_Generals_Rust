@@ -1144,6 +1144,21 @@ impl GameLogic {
         }
         const MAX_TO_KILL: i32 = 2;
         let num_killed = self.kill_enemies_in_container(pid, bldg_id, MAX_TO_KILL);
+        // C++ AIStates.cpp:561-564: getPerUnitFX(CombatDropKillFX) on the
+        // rappeller, FXList::doFXObj on the building, even if the rappeller dies.
+        if num_killed > 0 {
+            if let Some(fx) = self
+                .objects
+                .get(&pid)
+                .and_then(|p| {
+                    crate::game_logic::host_combat_chinook::leftover_combat_drop_kill_fx_name(
+                        &p.template_name,
+                    )
+                })
+            {
+                let _ = self.dispatch_fx_list_at_host_object(&fx, bldg_id, None);
+            }
+        }
         if num_killed == MAX_TO_KILL {
             if let Some(p) = self.objects.get_mut(&pid) {
                 p.kill();

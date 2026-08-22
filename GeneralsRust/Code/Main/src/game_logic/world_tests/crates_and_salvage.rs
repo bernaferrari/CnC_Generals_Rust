@@ -3363,6 +3363,77 @@ fn apply_vehicle_crash_into_building_destroys() {
 }
 
 #[test]
+fn try_physics_collide_skips_container_contained() {
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    use glam::Vec3;
+    let mut logic = GameLogic::new();
+    let mut ct = ThingTemplate::new("FireBaseHull");
+    ct.add_kind_of(KindOf::Structure);
+    let cid = ObjectId(801);
+    let mut hull = Object::new(ct, cid, Team::USA);
+    hull.set_position(Vec3::ZERO);
+    hull.selection_radius = 20.0;
+    hull.allow_collide_force = true;
+    logic.objects.insert(cid, hull);
+
+    let mut it = ThingTemplate::new("FireBaseOcc");
+    it.add_kind_of(KindOf::Infantry);
+    let iid = ObjectId(802);
+    let mut occ = Object::new(it, iid, Team::USA);
+    occ.set_position(Vec3::new(1.0, 0.0, 0.0));
+    occ.selection_radius = 8.0;
+    occ.set_contained_by(Some(cid));
+    occ.allow_collide_force = true;
+    occ.is_panicking = true;
+    occ.movement.velocity = Vec3::new(4.0, 0.0, 0.0);
+    logic.objects.insert(iid, occ);
+
+    assert!(logic.try_physics_collide(iid, cid, 8.0));
+    let occ = logic.objects.get(&iid).unwrap();
+    assert!(
+        occ.physics_accel.length_squared() < 1e-8,
+        "occupant must not bounce off container; accel={:?}",
+        occ.physics_accel
+    );
+    assert!(
+        (occ.movement.velocity.x - 4.0).abs() < 1e-4,
+        "container/contained skip must not stiffness-zero vel; vel={:?}",
+        occ.movement.velocity
+    );
+    assert_eq!(occ.last_collidee, None);
+}
+
+#[test]
+fn apply_vehicle_crash_destroys_non_vehicle_into_structure() {
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    use glam::Vec3;
+    let mut logic = GameLogic::new();
+    let mut it = ThingTemplate::new("TossedCrew");
+    it.add_kind_of(KindOf::Infantry);
+    let iid = ObjectId(63);
+    let mut inf = Object::new(it, iid, Team::USA);
+    inf.set_position(Vec3::new(0.0, 4.0, 0.0));
+    inf.movement.velocity = Vec3::new(0.0, -2.0, 0.0);
+    inf.health.current = 100.0;
+    logic.objects.insert(iid, inf);
+
+    let mut st = ThingTemplate::new("WarFactory");
+    st.add_kind_of(KindOf::Structure);
+    st.add_kind_of(KindOf::Immobile);
+    let sid = ObjectId(64);
+    logic.objects.insert(sid, Object::new(st, sid, Team::GLA));
+
+    let w = logic
+        .apply_vehicle_crash_into_immobile(iid, sid)
+        .expect("destroy-only residual");
+    assert_eq!(w, "");
+    assert!(
+        logic.objects.get(&iid).unwrap().status.destroyed,
+        "non-vehicle fall into structure must destroyObject"
+    );
+}
+
+#[test]
 fn tick_shock_stun_all_queues_bounce_audio() {
     use crate::game_logic::{
         bounce_sound_volume_residual, KindOf, Object, ObjectId, Team, ThingTemplate,

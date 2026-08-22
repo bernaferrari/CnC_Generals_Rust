@@ -699,6 +699,49 @@ impl GameLogic {
         self.set_turret_target_position(source_id, Some(location));
         true
     }
+
+    /// C++ FireWeaponPower::doSpecialPowerAtObject residual.
+    /// Reload, `aiAttackObject`, and `setTurretTargetObject` for every turret.
+    pub fn activate_fire_weapon_power_at_object(
+        &mut self,
+        source_id: ObjectId,
+        target_id: ObjectId,
+    ) -> bool {
+        if self.objects.get(&target_id).is_none() {
+            return false;
+        }
+        if let Some(obj) = gamelogic::helpers::TheGameLogic::find_object_by_id(source_id.0) {
+            if let Ok(guard) = obj.read() {
+                guard.do_special_power_at_object(
+                    "SpecialPowerBattleshipBombardment",
+                    target_id.0,
+                    gamelogic::object::special_power_module::SpecialPowerCommandOptions::NONE,
+                    false,
+                );
+            }
+        }
+
+        let ok = self.objects.get_mut(&source_id).is_some_and(|o| {
+            o.activate_fire_weapon_power_at_object(target_id)
+        });
+        if !ok {
+            return false;
+        }
+        if let Some(o) = self.objects.get_mut(&source_id) {
+            o.set_target(Some(target_id));
+            o.target_location = None;
+            o.set_ai_state(crate::game_logic::AIState::Attacking);
+            let shots = o
+                .fire_weapon_power
+                .as_ref()
+                .map(|r| r.shots_remaining as i32)
+                .unwrap_or(1);
+            o.set_max_shots_to_fire(shots);
+        }
+        self.set_turret_target_object(source_id, Some(target_id), false);
+        true
+    }
+
     /// C++ AttackNugget::create residual — multi-shot attack position + delivery decal.
     pub fn execute_ocl_attack(
         &mut self,

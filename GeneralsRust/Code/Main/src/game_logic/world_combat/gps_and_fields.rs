@@ -306,6 +306,17 @@ impl GameLogic {
         let mut jam_ticks: u32 = 0;
         let pulse = self.frame % ECM_VEHICLE_DISABLER_DELAY_FRAMES.max(1) == 0;
         if pulse {
+            // C++ WeaponSet fire updates FiringTracker lastShotFiredFrame.
+            // ExclusiveWeaponDelay 1000ms → 30f then suppresses ECMTankMissileJammer.
+            let mut fired: HashSet<ObjectId> = HashSet::new();
+            for (jammer_id, _) in &jam_links {
+                fired.insert(*jammer_id);
+            }
+            for jid in fired {
+                if let Some(j) = self.objects.get_mut(&jid) {
+                    j.last_fire_frame = self.frame;
+                }
+            }
             for target_id in &covered {
                 let Some(target) = self.objects.get_mut(target_id) else {
                     continue;
@@ -351,7 +362,8 @@ impl GameLogic {
         }
 
         // C++ LaserName ECMDisableStream residual (VehicleDisabler WEAPONA01 bone).
-        // Cadence residual: DelayBetweenShots 100ms → 3f (ExclusiveWeaponDelay fail-closed).
+        // Cadence residual: DelayBetweenShots 100ms → 3f. ExclusiveWeaponDelay
+        // stamps last_fire_frame so FireWeaponUpdate jammer stays suppressed.
         {
             use crate::game_logic::host_ecm_jam::{
                 ECM_DISABLE_STREAM_BONE, ECM_DISABLE_STREAM_LASER,
@@ -419,9 +431,9 @@ impl GameLogic {
     /// clear tracking. `DumbProjectileBehavior::projectileNowJammed` is empty.
     pub fn update_ecm_missile_jam(&mut self) {
         use crate::game_logic::host_ecm_jam::{
-            ecm_missile_scatter_offset, in_ecm_jam_radius_2d, is_dumb_projectile_shell_name,
-            is_ecm_jam_projectile_flags, is_ecm_jammer, ECM_MISSILE_JAM_MAX_PER_PULSE,
-            HOST_ECM_JAM_RADIUS,
+            ecm_exclusive_weapon_delay_blocks, ecm_missile_scatter_offset, in_ecm_jam_radius_2d,
+            is_dumb_projectile_shell_name, is_ecm_jam_projectile_flags, is_ecm_jammer,
+            ECM_MISSILE_JAM_MAX_PER_PULSE, HOST_ECM_JAM_RADIUS,
         };
 
         let frame = self.frame;
@@ -439,6 +451,9 @@ impl GameLogic {
                     || obj.status.disabled_hacked
                     || obj.status.disabled_emp
                 {
+                    return None;
+                }
+                if ecm_exclusive_weapon_delay_blocks(frame, obj.last_fire_frame) {
                     return None;
                 }
                 let pos = obj.get_position();
@@ -2691,5 +2706,81 @@ mod tests {
         let aim_after = o.technical_cannon_shell_aim.expect("aim after");
         assert_eq!(aim_before, aim_after);
         assert_eq!(logic.ecm_missiles_jammed, 0);
+    }
+
+    /// C++ FireWeaponUpdate ExclusiveWeaponDelay: disabler shot stamps last_fire_frame
+    /// so ECMTankMissileJammer stays silent while the beam is up.
+    #[test]
+    fn ecm_jammer_honors_exclusive_weapon_delay_while_disabler_fires() {
+        use crate::game_logic::host_ecm_jam::{
+            ecm_exclusive_weapon_delay_blocks, ECM_EXCLUSIVE_WEAPON_DELAY_FRAMES,
+            ECM_VEHICLE_DISABLER_DELAY_FRAMES,
+        };
+
+        let mut logic = GameLogic::new();
+        let mut ecm_tpl = ThingTemplate::new("ChinaTankECM");
+        ecm_tpl.add_kind_of(KindOf::Vehicle).set_health(300.0);
+        logic.templates.insert("ChinaTankECM".to_string(), ecm_tpl);
+        let mut tank_tpl = ThingTemplate::new("AmericaTankCrusader");
+        tank_tpl.add_kind_of(KindOf::Vehicle).set_health(400.0);
+        logic
+            .templates
+            .insert("AmericaTankCrusader".to_string(), tank_tpl);
+        let mut tom_tpl = ThingTemplate::new("AmericaVehicleTomahawk");
+        tom_tpl.add_kind_of(KindOf::Vehicle).set_health(180.0);
+        logic
+            .templates
+            .insert("AmericaVehicleTomahawk".to_string(), tom_tpl);
+
+        let ecm = logic
+            .create_object("ChinaTankECM", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let _enemy = logic
+            .create_object(
+                "AmericaTankCrusader",
+                Team::USA,
+                Vec3::new(50.0, 0.0, 0.0),
+            )
+            .unwrap();
+        let tom = logic
+            .create_object(
+                "AmericaVehicleTomahawk",
+                Team::USA,
+                Vec3::new(80.0, 0.0, 0.0),
+            )
+            .unwrap();
+        let missile = logic
+            .spawn_tomahawk_missile_projectile(
+                tom,
+                Vec3::new(10.0, 5.0, 0.0),
+                Vec3::new(200.0, 0.0, 0.0),
+                None,
+            )
+            .expect("missile");
+        if let Some(o) = logic.objects.get_mut(&missile) {
+            o.set_position(Vec3::new(10.0, 5.0, 0.0));
+        }
+
+        logic.frame = ECM_VEHICLE_DISABLER_DELAY_FRAMES;
+        logic.update_ecm_jam_field();
+        let last = logic.host_object(ecm).unwrap().last_fire_frame;
+        assert_eq!(last, logic.frame, "disabler pulse stamps last_fire_frame");
+        assert!(ecm_exclusive_weapon_delay_blocks(logic.frame, last));
+
+        logic.update_ecm_missile_jam();
+        assert!(
+            !logic.objects.get(&missile).unwrap().ecm_missile_jammed,
+            "jammer must stay silent while ExclusiveWeaponDelay is live"
+        );
+
+        logic.frame = last.saturating_add(ECM_EXCLUSIVE_WEAPON_DELAY_FRAMES);
+        if let Some(o) = logic.objects.get_mut(&missile) {
+            o.ecm_missile_jammed = false;
+        }
+        logic.update_ecm_missile_jam();
+        assert!(
+            logic.objects.get(&missile).unwrap().ecm_missile_jammed,
+            "jammer pulses again after ExclusiveWeaponDelay"
+        );
     }
 }

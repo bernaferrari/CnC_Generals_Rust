@@ -1591,7 +1591,7 @@ fn cash_bounty_zero_percent_does_not_award() {
     );
 }
 
-/// Residual: SCIENCE_CashBounty unlock raises player cash_bounty_percent.
+/// Residual: SCIENCE_CashBounty unlock does not raise bounty without a palace module.
 #[test]
 fn cash_bounty_science_unlock_sets_percent() {
     let mut game_logic = GameLogic::new();
@@ -1600,15 +1600,56 @@ fn cash_bounty_science_unlock_sets_percent() {
     let player = game_logic.get_player_mut(2).expect("gla player");
     assert!((player.cash_bounty_percent - 0.0).abs() < 1e-6);
     assert!(player.unlock_science("SCIENCE_CashBounty1"));
-    assert!((player.cash_bounty_percent - 0.05).abs() < 1e-6);
+    assert!((player.cash_bounty_percent - 0.0).abs() < 1e-6);
     assert!(player.unlock_science("SCIENCE_CashBounty2"));
-    assert!((player.cash_bounty_percent - 0.10).abs() < 1e-6);
+    assert!((player.cash_bounty_percent - 0.0).abs() < 1e-6);
     assert!(player.unlock_science("SCIENCE_CashBounty3"));
-    assert!((player.cash_bounty_percent - 0.20).abs() < 1e-6);
+    assert!((player.cash_bounty_percent - 0.0).abs() < 1e-6);
     // Already unlocked — no change / false.
     assert!(!player.unlock_science("SCIENCE_CashBounty3"));
-    assert!((player.cash_bounty_percent - 0.20).abs() < 1e-6);
+    assert!((player.cash_bounty_percent - 0.0).abs() < 1e-6);
 }
+
+/// C++ CashBountyPower::onSpecialPowerCreation — palace module required.
+#[test]
+fn cash_bounty_science_unlock_requires_palace_module() {
+    use crate::game_logic::{
+        SpecialPowerModuleKind, SpecialPowerModuleMetadata, ThingTemplate,
+    };
+    let mut game_logic = GameLogic::new();
+    ensure_test_player_for_team(&mut game_logic, Team::GLA);
+    let player = game_logic.get_player_mut(2).expect("gla player");
+    assert!(player.unlock_science("SCIENCE_CashBounty1"));
+    assert!((player.cash_bounty_percent - 0.0).abs() < 1e-6);
+
+    let mut palace = ThingTemplate::new("GLAPalace");
+    palace.add_kind_of(crate::game_logic::KindOf::Structure).set_health(3000.0);
+    palace.special_power_modules.push(SpecialPowerModuleMetadata {
+        source_index: 0,
+        module_tag: Some("ModuleTag_15".into()),
+        module_kind: SpecialPowerModuleKind::CashBountyPower,
+        special_power_template: "SpecialAbilityCashBounty1".into(),
+        special_power_template_id: 1,
+        command_power: None,
+        reload_time_frames: 0,
+        required_science: Some("SCIENCE_CashBounty1".into()),
+        public_timer: false,
+        shared_n_sync: false,
+        shortcut_power: false,
+        update_module_starts_attack: false,
+        starts_paused: false,
+        scripted_special_power_only: false,
+    });
+    game_logic.templates.insert("GLAPalace".into(), palace);
+    let _ = game_logic
+        .create_object_for_player("GLAPalace", 2, Vec3::new(0.0, 0.0, 0.0))
+        .expect("palace");
+    assert!(
+        (game_logic.get_player(2).unwrap().cash_bounty_percent - 0.05).abs() < 1e-6,
+        "onObjectCreated must apply bounty when palace exists and science is owned"
+    );
+}
+
 
 #[test]
 fn combat_fire_without_kill_still_spawns_muzzle_particle() {

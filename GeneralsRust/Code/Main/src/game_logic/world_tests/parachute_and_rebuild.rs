@@ -2018,7 +2018,8 @@ fn science_purchase_spends_points_not_supplies() {
         p.science_purchase_points = 0;
         assert!(!p.attempt_to_purchase_science("SCIENCE_PaladinTank"));
     }
-    // CashBounty prereq chain residual.
+    // CashBounty prereq chain residual. C++ addScience never sets bounty;
+    // no palace CashBountyPower module ⇒ percent stays 0.
     {
         let p = logic.get_player_mut(pid).unwrap();
         p.unlocked_sciences.insert("SCIENCE_GLA".into());
@@ -2026,7 +2027,7 @@ fn science_purchase_spends_points_not_supplies() {
         p.science_purchase_points = 3;
         assert!(p.attempt_to_purchase_science("SCIENCE_CashBounty1"));
         assert!(p.attempt_to_purchase_science("SCIENCE_CashBounty2"));
-        assert!((p.cash_bounty_percent - 0.10).abs() < 1e-6);
+        assert!((p.cash_bounty_percent - 0.0).abs() < 1e-6);
     }
 }
 
@@ -2989,6 +2990,122 @@ fn missile_defender_laser_guided_spawns_laser_beam_object() {
         .unwrap_or(true));
     let _ = LASER_GUIDED_ATTACH_BONE;
 }
+
+#[test]
+fn missile_defender_laser_endpoints_follow_moving_target() {
+    use crate::game_logic::host_missile_defender::{
+        missile_defender_laser_guided_weapon, missile_defender_primary_weapon,
+    };
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+    let mut logic = GameLogic::new();
+    let mut md = ThingTemplate::new("AmericaInfantryMissileDefender");
+    md.add_kind_of(KindOf::Infantry).set_health(100.0);
+    logic
+        .templates
+        .insert("AmericaInfantryMissileDefender".into(), md);
+    let mut tgt_t = ThingTemplate::new("AmericaTankCrusader");
+    tgt_t.add_kind_of(KindOf::Vehicle).set_health(400.0);
+    tgt_t.geometry_info.authored = true;
+    tgt_t.geometry_info.height = 20.0;
+    logic.templates.insert("AmericaTankCrusader".into(), tgt_t);
+
+    let shooter = logic
+        .create_object(
+            "AmericaInfantryMissileDefender",
+            Team::USA,
+            Vec3::new(0.0, 0.0, 0.0),
+        )
+        .unwrap();
+    {
+        let o = logic.host_object_mut(shooter).unwrap();
+        o.weapon = Some(missile_defender_primary_weapon());
+        o.secondary_weapon = Some(missile_defender_laser_guided_weapon());
+    }
+    let target = logic
+        .create_object("AmericaTankCrusader", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
+        .unwrap();
+
+    assert!(logic.activate_missile_defender_laser_guided(shooter, target));
+    let first = logic
+        .weapon_lasers
+        .iter()
+        .find(|l| l.from_id == shooter && l.to_id == Some(target))
+        .map(|l| l.to_pos())
+        .expect("beam");
+
+    if let Some(o) = logic.host_object_mut(target) {
+        o.set_position(Vec3::new(140.0, 0.0, 30.0));
+    }
+    logic.update_leftover_laser_guided_channels(0.1);
+    let second = logic
+        .weapon_lasers
+        .iter()
+        .find(|l| l.from_id == shooter && l.to_id == Some(target))
+        .map(|l| l.to_pos())
+        .expect("beam after move");
+    assert!(
+        (second.0 - first.0).abs() > 1.0 || (second.2 - first.2).abs() > 1.0,
+        "MD laser end must follow a moving target, got {first:?} then {second:?}"
+    );
+}
+
+
+#[test]
+fn lotus_disable_laser_endpoints_follow_moving_vehicle() {
+    use crate::game_logic::host_hero_abilities::LOTUS_DISABLE_SPECIAL_OBJECT;
+    use crate::game_logic::host_weapon_laser::ResidualWeaponLaser;
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+    let mut logic = GameLogic::new();
+    let mut lotus = ThingTemplate::new("GLAInfantryBlackLotus");
+    lotus.add_kind_of(KindOf::Infantry).set_health(100.0);
+    logic.templates.insert("GLAInfantryBlackLotus".into(), lotus);
+    let mut veh = ThingTemplate::new("AmericaTankCrusader");
+    veh.add_kind_of(KindOf::Vehicle).set_health(400.0);
+    veh.geometry_info.authored = true;
+    veh.geometry_info.height = 16.0;
+    logic.templates.insert("AmericaTankCrusader".into(), veh);
+
+    let caster = logic
+        .create_object(
+            "GLAInfantryBlackLotus",
+            Team::GLA,
+            Vec3::new(0.0, 0.0, 0.0),
+        )
+        .unwrap();
+    let target = logic
+        .create_object("AmericaTankCrusader", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+        .unwrap();
+    let (from, to) = logic
+        .special_ability_laser_endpoints(caster, target)
+        .expect("endpoints");
+    logic.weapon_lasers.push(ResidualWeaponLaser {
+        laser_name: LOTUS_DISABLE_SPECIAL_OBJECT.to_string(),
+        laser_bone_name: String::new(),
+        from_id: caster,
+        to_id: Some(target),
+        from_x: from.x,
+        from_y: from.y,
+        from_z: from.z,
+        to_x: to.x,
+        to_y: to.y,
+        to_z: to.z,
+        expires_frame: logic.frame.saturating_add(180),
+        scroll_offset: 0.0,
+    });
+    let first = logic.weapon_lasers[0].to_pos();
+    if let Some(o) = logic.host_object_mut(target) {
+        o.set_position(Vec3::new(90.0, 0.0, 25.0));
+    }
+    assert!(logic.reinit_special_ability_laser(caster, target, None));
+    let second = logic.weapon_lasers[0].to_pos();
+    assert!(
+        (second.0 - first.0).abs() > 1.0 || (second.2 - first.2).abs() > 1.0,
+        "Lotus BinaryDataStream end must follow the vehicle, got {first:?} then {second:?}"
+    );
+}
+
 
 #[test]
 fn missile_defender_laser_guided_special_locks_secondary() {
@@ -4391,7 +4508,9 @@ fn paradrop_science_tier_selects_unit_count() {
 #[test]
 fn host_upgrade_complete_cash_bounty_sets_player_percent() {
     use crate::game_logic::host_cash_bounty::{CASH_BOUNTY1_PERCENT, CASH_BOUNTY3_PERCENT};
-    use crate::game_logic::Team;
+    use crate::game_logic::{
+        KindOf, SpecialPowerModuleKind, SpecialPowerModuleMetadata, Team, ThingTemplate,
+    };
     let mut logic = GameLogic::new();
     logic
         .players
@@ -4400,14 +4519,57 @@ fn host_upgrade_complete_cash_bounty_sets_player_percent() {
     let n = logic.apply_cash_bounty_upgrade_to_team(Team::GLA, "Upgrade_CashBounty");
     assert_eq!(n, 1);
     let p = logic.players.get(&0).unwrap();
-    assert!((p.cash_bounty_percent - CASH_BOUNTY1_PERCENT).abs() < 0.001);
+    assert!((p.cash_bounty_percent - 0.0).abs() < 0.001);
     assert!(p.unlocked_sciences.contains("SCIENCE_CashBounty1"));
+
+    let mut palace = ThingTemplate::new("GLAPalace");
+    palace.add_kind_of(KindOf::Structure).set_health(3000.0);
+    palace.special_power_modules.push(SpecialPowerModuleMetadata {
+        source_index: 0,
+        module_tag: Some("ModuleTag_15".into()),
+        module_kind: SpecialPowerModuleKind::CashBountyPower,
+        special_power_template: "SpecialAbilityCashBounty1".into(),
+        special_power_template_id: 1,
+        command_power: None,
+        reload_time_frames: 0,
+        required_science: Some("SCIENCE_CashBounty1".into()),
+        public_timer: false,
+        shared_n_sync: false,
+        shortcut_power: false,
+        update_module_starts_attack: false,
+        starts_paused: false,
+        scripted_special_power_only: false,
+    });
+    palace.special_power_modules.push(SpecialPowerModuleMetadata {
+        source_index: 1,
+        module_tag: Some("ModuleTag_17".into()),
+        module_kind: SpecialPowerModuleKind::CashBountyPower,
+        special_power_template: "SpecialAbilityCashBounty3".into(),
+        special_power_template_id: 3,
+        command_power: None,
+        reload_time_frames: 0,
+        required_science: Some("SCIENCE_CashBounty3".into()),
+        public_timer: false,
+        shared_n_sync: false,
+        shortcut_power: false,
+        update_module_starts_attack: false,
+        starts_paused: false,
+        scripted_special_power_only: false,
+    });
+    logic.templates.insert("GLAPalace".into(), palace);
+    let _ = logic
+        .create_object_for_player("GLAPalace", 0, glam::Vec3::new(0.0, 0.0, 0.0))
+        .expect("palace");
+    assert!(
+        (logic.players.get(&0).unwrap().cash_bounty_percent - CASH_BOUNTY1_PERCENT).abs() < 0.001
+    );
 
     let n3 = logic.apply_cash_bounty_upgrade_to_team(Team::GLA, "SCIENCE_CashBounty3");
     assert_eq!(n3, 1);
     let p = logic.players.get(&0).unwrap();
     assert!((p.cash_bounty_percent - CASH_BOUNTY3_PERCENT).abs() < 0.001);
 }
+
 
 #[test]
 fn host_upgrade_complete_slave_drone_attaches_to_humvee() {

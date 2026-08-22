@@ -365,6 +365,8 @@ impl CnCGameEngine {
         self.ui_manager.handle_mouse_move(mx, my);
         if matches!(self.current_state, GameState::InGame | GameState::Paused) {
             self.update_mouse_world_position();
+            self.update_anchored_placement_from_cursor();
+            self.sync_host_selecting_flag();
             self.sync_context_mouse_cursor();
         }
     }
@@ -395,9 +397,13 @@ impl CnCGameEngine {
             // C++ first-run reveal on first real mouse (CHAR path).
             let _ = game_client::gui::reveal_main_menu_first_input_like_cpp();
         }
-        // C++ WindowXlat.cpp: mouse lock (LookAt setScrolling) keeps events off gadgets.
+        // C++ WindowXlat.cpp:147-172 (Kris Aug-15-2003): while mouse-locked,
+        // KEEP the stream message except LMB down/up when InGameUI is scrolling
+        // so ControlBar still receives clicks during keyboard/RMB scroll.
         let lookat_locked = super::mouse::look_at_host_mouse_locked();
-        let wnd_used_raw = if lookat_locked {
+        let scrolling_lmb = super::mouse::look_at_host_is_scrolling()
+            && matches!(button, MouseButton::Left);
+        let wnd_used_raw = if lookat_locked && !scrolling_lmb {
             false
         } else {
             self.dispatch_os_mouse_to_window_manager(button, pressed, x, y, origin)
@@ -2321,6 +2327,15 @@ impl CnCGameEngine {
         pres: &crate::presentation_frame::PresentationFrame,
     ) {
         use crate::presentation_frame::PresentationEvent;
+        // Same freeze is re-applied every render. C++ Eva::update consumes
+        // each setShouldPlay edge once (Eva.cpp:264-525).
+        if self.last_applied_eva_alert_frame == Some(pres.frame.0) {
+            self.publish_eva_host_frame_and_tick();
+            return;
+        }
+        self.last_applied_eva_alert_frame = Some(pres.frame.0);
+
+        let eva_on = crate::game_logic::host_eva_log::is_enabled();
         for ev in &pres.events {
             let PresentationEvent::EvaAlert { name } = ev else {
                 continue;
@@ -2351,6 +2366,10 @@ impl CnCGameEngine {
                         .max(pres.eva_ally_under_attack_count);
                 }
                 _ => {}
+            }
+
+            if !eva_on {
+                continue;
             }
 
             let human = Self::eva_alert_human_message(name);
@@ -2410,6 +2429,17 @@ impl CnCGameEngine {
         base: u32,
         ally: u32,
     ) {
+        // C++ Eva::update early-returns when disabled (Eva.cpp:264-267).
+        if !crate::game_logic::host_eva_log::is_enabled() {
+            self.last_eva_low_power_count = self.last_eva_low_power_count.max(low_power);
+            self.last_eva_insufficient_funds_count =
+                self.last_eva_insufficient_funds_count.max(funds);
+            self.last_eva_base_under_attack_count =
+                self.last_eva_base_under_attack_count.max(base);
+            self.last_eva_ally_under_attack_count =
+                self.last_eva_ally_under_attack_count.max(ally);
+            return;
+        }
         let mut push = |msg: &str| {
             self.chat_panel.add_eva_message(msg);
             self.game_hud.push_info_message(msg);
@@ -2559,5 +2589,26 @@ mod tests {
         let src = include_str!("input.rs");
         assert!(src.contains("world_lmb_selection_allowed"));
         assert!(src.contains("host_quit_menu_blocks_world_selection"));
+    }
+
+    #[test]
+    fn mouse_lock_passes_scrolling_lmb_to_window_manager() {
+        // C++ WindowXlat.cpp:147-172 — leftover os_mouse_blocked_by_mouse_lock.
+        let src = include_str!("input.rs");
+        let start = src
+            .find("fn handle_mouse_button_input")
+            .expect("handle_mouse_button_input");
+        let body = &src[start..src.len().min(start + 1100)];
+        assert!(
+            body.contains("look_at_host_mouse_locked")
+                && body.contains("look_at_host_is_scrolling")
+                && body.contains("scrolling_lmb")
+                && body.contains("MouseButton::Left"),
+            "mouse-lock must pass LMB to WM while scrolling"
+        );
+        assert!(
+            body.contains("lookat_locked && !scrolling_lmb"),
+            "must not drop all WM dispatch while locked"
+        );
     }
 }

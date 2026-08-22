@@ -1616,6 +1616,7 @@ impl GameLogic {
                 is_aircraft,
                 loco,
                 is_crusher,
+                Some(unit_id),
             );
 
             match segment {
@@ -1783,8 +1784,11 @@ impl GameLogic {
 
     /// C++ Pathfinder::processPathfindQueue residual (AI.cpp:332-339).
     pub(crate) fn process_pathfind_queue(&mut self) {
-        let pending = self.pathfinding_system.take_pending_paths();
-        for req in pending {
+        self.pathfinding_system.begin_pathfind_queue_frame();
+        while self.pathfinding_system.pathfind_budget_remaining() {
+            let Some(req) = self.pathfinding_system.pop_pending_path() else {
+                break;
+            };
             let (start, can_move, is_aircraft, surfaces, is_crusher) =
                 match self.objects.get(&req.unit_id) {
                     Some(unit) if unit.is_alive() => (

@@ -92,6 +92,11 @@ mod dock_queue_persist;
 mod module_runtime_persist;
 mod deliver_payload_persist;
 mod object_module_xfer_persist;
+mod auto_deposit_persist;
+mod supply_drop_persist;
+mod jet_ai_persist;
+mod chinook_ai_persist;
+mod hacker_income_persist;
 
 
 mod particle_system_save;
@@ -193,6 +198,11 @@ pub const SNAPSHOT_SRC: &str = concat!(
     include_str!("module_runtime_persist.rs"),
     include_str!("deliver_payload_persist.rs"),
     include_str!("object_module_xfer_persist.rs"),
+    include_str!("auto_deposit_persist.rs"),
+    include_str!("supply_drop_persist.rs"),
+    include_str!("jet_ai_persist.rs"),
+    include_str!("chinook_ai_persist.rs"),
+    include_str!("hacker_income_persist.rs"),
 
 
     include_str!("particle_system_save.rs"),

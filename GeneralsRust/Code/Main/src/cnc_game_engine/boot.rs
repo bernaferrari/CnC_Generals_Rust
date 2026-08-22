@@ -499,6 +499,7 @@ impl CnCGameEngine {
             last_eva_insufficient_funds_count: 0,
             last_eva_base_under_attack_count: 0,
             last_eva_ally_under_attack_count: 0,
+            last_applied_eva_alert_frame: None,
             sticky_waypoint_mode: false,
             sticky_auto_attack: false,
             use_alternate_mouse,

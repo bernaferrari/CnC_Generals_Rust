@@ -67,6 +67,8 @@ impl<'a> CommandExecutor<'a> {
     }
 
     /// C++ AIGroup::groupAttackTeam — persistent `aiAttackTeam` (`AIGroup.cpp:2179-2193`).
+    /// Victim pick is C++ `AIAttackSquadState::chooseVictim` (`AIStates.cpp:5904-5988`)
+    /// on live host objects (CMD_FROM_PLAYER → Hard).
     pub(crate) fn execute_attack_team(
         &mut self,
         units: &[ObjectId],
@@ -83,36 +85,27 @@ impl<'a> CommandExecutor<'a> {
         let tag = attack_team_persist_tag(enemy_team);
         let mut any = false;
         for &unit_id in units {
-            let (alive, skip_struct, my_team, origin) = match self.game_logic.host_object(unit_id)
-            {
+            let (alive, skip_struct, my_team) = match self.game_logic.host_object(unit_id) {
                 Some(unit) => (
                     unit.is_alive(),
                     unit.is_kind_of(crate::game_logic::KindOf::Structure) && !unit.can_attack(),
                     unit.team,
-                    unit.get_position(),
                 ),
                 None => continue,
             };
             if !alive || skip_struct || my_team == enemy_team {
                 continue;
             }
-            let mut best: Option<(ObjectId, f32)> = None;
-            for (cid, cand) in self.game_logic.host_objects().iter() {
-                if cand.team != enemy_team || !cand.is_alive() {
-                    continue;
-                }
-                let d = origin.distance(cand.get_position());
-                if best.map(|(_, bd)| d < bd).unwrap_or(true) {
-                    best = Some((*cid, d));
-                }
-            }
+            let victim = self
+                .game_logic
+                .choose_attack_team_victim(unit_id, enemy_team, true);
             if let Some(unit) = self.game_logic.host_object_mut(unit_id) {
                 unit.set_max_shots_to_fire(max_shots);
                 unit.auto_acquire_when_idle = true;
                 unit.attack_priority_set = Some(tag.clone());
             }
             any = true;
-            if let Some((tid, _)) = best {
+            if let Some(tid) = victim {
                 let _ = self.game_logic.unit_command_attack_soft(unit_id, tid);
                 if let Some(unit) = self.game_logic.host_object_mut(unit_id) {
                     unit.set_max_shots_to_fire(max_shots);
@@ -790,6 +783,103 @@ fn parse_attack_team_persist(tag: Option<&str>) -> Option<crate::game_logic::Tea
 }
 
 impl crate::game_logic::GameLogic {
+    /// C++ `AIAttackSquadState::chooseVictim` (`AIStates.cpp:5904-5988`) on live
+    /// host objects. Does not consult leftover `OBJECT_REGISTRY`.
+    pub(crate) fn choose_attack_team_victim(
+        &self,
+        unit_id: ObjectId,
+        enemy_team: crate::game_logic::Team,
+        from_player: bool,
+    ) -> Option<ObjectId> {
+        use crate::ai::AIDifficulty;
+        use crate::game_logic::host_deliver_payload::is_off_map_default_residual;
+        use crate::game_logic::host_strategy_center::HostAiAttitude;
+
+        let me = self.host_object(unit_id)?;
+        let owner_off_map = is_off_map_default_residual(me.get_position());
+        let origin = me.get_position();
+        let owner_pid = me.owner_player_id;
+        let attitude = me.ai_attitude();
+        let last_dmg = me.last_damage_source;
+
+        let is_ai_controller = owner_pid
+            .and_then(|pid| self.get_player(pid))
+            .map(|p| !p.is_local)
+            .unwrap_or(false);
+        if is_ai_controller {
+            match attitude {
+                HostAiAttitude::Sleep => return None,
+                HostAiAttitude::Passive => return last_dmg,
+                _ => {}
+            }
+        }
+
+        let mut difficulty = owner_pid
+            .and_then(|pid| self.host_ai_difficulty(pid))
+            .unwrap_or_else(|| self.get_difficulty());
+        if from_player {
+            difficulty = AIDifficulty::Hard;
+        }
+        let force_normal = gamelogic::scripting::engine::get_script_engine()
+            .read()
+            .ok()
+            .and_then(|guard| {
+                guard
+                    .as_ref()
+                    .map(|engine| engine.get_choose_victim_always_uses_normal())
+            })
+            .unwrap_or(false);
+        if force_normal {
+            difficulty = AIDifficulty::Medium;
+        }
+
+        let mut live: Vec<(ObjectId, Vec3, bool)> = Vec::new();
+        for (cid, cand) in self.host_objects().iter() {
+            if cand.team != enemy_team || !cand.is_alive() {
+                continue;
+            }
+            let pos = cand.get_position();
+            let off = is_off_map_default_residual(pos);
+            live.push((*cid, pos, off));
+        }
+        live.sort_by_key(|(id, _, _)| *id);
+
+        match difficulty {
+            AIDifficulty::Easy => {
+                if live.is_empty() {
+                    return None;
+                }
+                let hi = live.len().saturating_sub(1) as i32;
+                let idx = gamelogic::helpers::get_game_logic_random_value(0, hi) as usize;
+                live.get(idx).map(|(id, _, _)| *id)
+            }
+            AIDifficulty::Medium => {
+                let mut best: Option<(ObjectId, f32)> = None;
+                for (id, pos, off) in &live {
+                    if *off != owner_off_map {
+                        continue;
+                    }
+                    let dx = origin.x - pos.x;
+                    let dz = origin.z - pos.z;
+                    let d2 = dx * dx + dz * dz;
+                    if best.map(|(_, bd)| d2 < bd).unwrap_or(true) {
+                        best = Some((*id, d2));
+                    }
+                }
+                best.map(|(id, _)| id)
+            }
+            AIDifficulty::Hard | AIDifficulty::Brutal => live.first().map(|(id, _, _)| *id),
+        }
+    }
+
+    fn attack_team_cmd_from_player(&self, unit_id: ObjectId) -> bool {
+        self.host_object(unit_id)
+            .and_then(|o| o.owner_player_id)
+            .and_then(|pid| self.get_player(pid))
+            .map(|p| p.is_local)
+            .unwrap_or(true)
+    }
+
     /// C++ `aiAttackTeam` / AttackSquad re-acquire (`AIGroup.cpp:2179-2193`).
     pub fn tick_attack_team_persist(&mut self, object_ids: &[ObjectId]) {
         let mut jobs: Vec<(ObjectId, ObjectId, i32, String)> = Vec::new();
@@ -814,20 +904,10 @@ impl crate::game_logic::GameLogic {
             if current_ok {
                 continue;
             }
-            let origin = o.get_position();
             let shots = o.max_shots_to_fire;
             let tag = o.attack_priority_set.clone().unwrap_or_default();
-            let mut best: Option<(ObjectId, f32)> = None;
-            for (cid, cand) in self.host_objects().iter() {
-                if cand.team != team || !cand.is_alive() {
-                    continue;
-                }
-                let d = origin.distance(cand.get_position());
-                if best.map(|(_, bd)| d < bd).unwrap_or(true) {
-                    best = Some((*cid, d));
-                }
-            }
-            if let Some((tid, _)) = best {
+            let from_player = self.attack_team_cmd_from_player(id);
+            if let Some(tid) = self.choose_attack_team_victim(id, team, from_player) {
                 jobs.push((id, tid, shots, tag));
             }
         }

@@ -284,9 +284,9 @@ impl Object {
                         victim_h,
                     )
                 {
-                    other.front_crushed = true;
-                    other.back_crushed = true;
-                    other.apply_crush_die_model_conditions();
+                    // C++ SquishCollide.cpp:88-93: HUGE_DAMAGE then CrushDie::onDie
+                    // writes front/back flags + TotalCrushSound. Pre-stamping both
+                    // flags skipped fire_crush_die_from_crusher.
                     let _ = other.take_damage_from_typed_death(
                         SQUISH_HUGE_DAMAGE,
                         Some(self.id),
@@ -450,9 +450,9 @@ impl Object {
     ) -> glam::Vec3 {
         use crate::game_logic::host_partition_collision_physics_residual::structure_immobile_bounce_factor;
         let us = self.get_position();
-        let mut dx = other_center.x - us.x;
-        let mut dy = other_center.y - us.y;
-        let mut dz = other_center.z - us.z;
+        let dx = other_center.x - us.x;
+        let dy = other_center.y - us.y;
+        let dz = other_center.z - us.z;
         let mut dist = (dx * dx + dy * dy + dz * dz).sqrt();
         if dist < 1.0 {
             dist = 1.0;
@@ -461,10 +461,12 @@ impl Object {
         let stiffness = leftover_structure_stiffness();
         let factor = structure_immobile_bounce_factor(mag, mass, stiffness);
         let dir = glam::Vec3::new(dx / dist, dy / dist, dz / dist);
-        // Force on us is opposite separation (push away from other): -delta direction * |factor|
-        // factor is already negative; force = factor * unit(delta) pushes us away when factor<0?
-        // C++: force = factor * (delta/dist) with factor negative → toward -delta = away from other. Good.
+        // C++: force = factor * (delta/dist) with factor negative → away from other.
         let force = dir * factor;
+        // C++ PhysicsUpdate.cpp:1377-1384 — nuke vel first so the graze
+        // becomes a rebound instead of slide-through (hq-yunv0).
+        self.movement.velocity = glam::Vec3::ZERO;
+        self.invalidate_velocity_magnitude();
         // mass≈1 → velocity += force (host residual, no separate accel integrate).
         self.movement.velocity += force;
         self.record_host_movement();
@@ -833,6 +835,20 @@ impl Object {
                     self.invalidate_velocity_magnitude();
                 }
             }
+        }
+
+        // C++ PhysicsUpdate.cpp:665-669 — NaN translation destroyObject.
+        if !new_pos.x.is_finite() || !new_pos.y.is_finite() || !new_pos.z.is_finite() {
+            let hp = self.health.current.max(1.0);
+            if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                crate::game_logic::host_damage_log::record(self.id, hp, Some(self.id), true);
+            } else {
+                self.health.current = 0.0;
+            }
+            self.status.destroyed = true;
+            self.movement.velocity = glam::Vec3::ZERO;
+            self.invalidate_velocity_magnitude();
+            return false;
         }
 
         self.set_position_keep_rotation(new_pos);

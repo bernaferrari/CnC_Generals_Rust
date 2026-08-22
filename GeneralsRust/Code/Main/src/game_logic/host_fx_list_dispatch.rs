@@ -34,6 +34,23 @@ fn host_to_leftover_coord(pos: Vec3) -> gamelogic::common::Coord3D {
     gamelogic::common::Coord3D::new(pos.x, pos.z, pos.y)
 }
 
+/// Host Y-up `Mat4` → leftover/C++ Z-up `Mat4` (`P * T * P`, P swaps Y/Z).
+///
+/// C++ `Weapon.cpp:939` passes `sourceObj->getDrawable()->getTransformMatrix()`
+/// so ParticleSystem Offset / OrientToObject follow the unit, not world axes.
+pub fn host_to_leftover_mat4(host: glam::Mat4) -> glam::Mat4 {
+    let x = host.x_axis;
+    let y = host.y_axis;
+    let z = host.z_axis;
+    let t = host.w_axis;
+    glam::Mat4::from_cols(
+        glam::Vec4::new(x.x, x.z, x.y, x.w),
+        glam::Vec4::new(z.x, z.z, z.y, z.w),
+        glam::Vec4::new(y.x, y.z, y.y, y.w),
+        glam::Vec4::new(t.x, t.z, t.y, t.w),
+    )
+}
+
 /// C++ `FXList::doFXPos` — run every nugget via the registered GameClient runner.
 ///
 /// Returns `true` when a manager was registered (the C++ client path owns
@@ -54,6 +71,18 @@ pub fn dispatch_fx_list_at_pos_ex(
     primary_speed: f32,
     override_radius: f32,
 ) -> bool {
+    dispatch_fx_list_at_pos_oriented(name, pos, secondary, primary_speed, override_radius, None)
+}
+
+/// Same as [`dispatch_fx_list_at_pos_ex`] with C++ drawable transform.
+pub fn dispatch_fx_list_at_pos_oriented(
+    name: &str,
+    pos: Vec3,
+    secondary: Option<Vec3>,
+    primary_speed: f32,
+    override_radius: f32,
+    matrix: Option<glam::Mat4>,
+) -> bool {
     let name = strip_fx_list_prefix(name);
     if is_none_fx_list(name) {
         return false;
@@ -63,12 +92,14 @@ pub fn dispatch_fx_list_at_pos_ex(
     };
     let leftover_pos = host_to_leftover_coord(pos);
     let leftover_secondary = secondary.map(host_to_leftover_coord);
+    let leftover_matrix = matrix.map(host_to_leftover_mat4);
     fx.do_fx_at_position_ex(
         name,
         &leftover_pos,
         leftover_secondary.as_ref(),
         primary_speed,
         override_radius,
+        leftover_matrix.as_ref(),
     );
     gamelogic::helpers::get_fx_list_manager().is_some()
 }
@@ -378,4 +409,85 @@ mod tests {
         assert!((leftover.y - 30.0).abs() < f32::EPSILON);
         assert!((leftover.z - 20.0).abs() < f32::EPSILON);
     }
+
+    #[test]
+    fn host_to_leftover_mat4_swaps_y_up_to_z_up() {
+        let host = glam::Mat4::from_translation(glam::Vec3::new(10.0, 20.0, 30.0));
+        let leftover = host_to_leftover_mat4(host);
+        let t = leftover.w_axis;
+        assert!((t.x - 10.0).abs() < f32::EPSILON);
+        assert!((t.y - 30.0).abs() < f32::EPSILON);
+        assert!((t.z - 20.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn fire_fx_dispatch_threads_drawable_matrix() {
+        let discharge = include_str!("world_combat/weapon_discharge.rs");
+        assert!(
+            discharge.contains("dispatch_fx_list_at_pos_oriented"),
+            "FireFX fallback must pass drawable transform"
+        );
+        assert!(
+            discharge.contains("spawn_weapon_fire_fx_named_ocl_oriented"),
+            "play_dispatch_fire_fx must pass drawable transform"
+        );
+        assert!(discharge.contains("get_transform_matrix()"));
+        let particles = include_str!("combat_particles.rs");
+        let start = particles
+            .find("pub fn spawn_weapon_fire_fx_named_ocl_oriented")
+            .expect("oriented spawn");
+        let body = &particles[start..start + 3200];
+        assert!(body.contains("dispatch_fx_list_at_pos_oriented"));
+        assert!(body.contains("drawable_matrix"));
+        let leftover = include_str!(
+            "../../../GameEngine/GameLogic/src/helpers/particles.rs"
+        );
+        let start = leftover
+            .find("pub fn do_fx_at_position_ex")
+            .expect("do_fx_at_position_ex");
+        let body = &leftover[start..start + 600];
+        assert!(
+            !body.contains("do_fx_pos_ex(fx_id, pos, None,"),
+            "leftover do_fx_at_position_ex must forward drawable matrix"
+        );
+        assert!(body.contains("matrix"));
+    }
+
+    #[test]
+    fn crushing_fx_uses_terrain_height() {
+        let src = include_str!("world_objects/create_destroy_die.rs");
+        let start = src
+            .find("pub(crate) fn apply_structure_topple_crush_samples")
+            .expect("crush samples");
+        let body = &src[start..start + 1800];
+        assert!(
+            body.contains("terrain_height_at"),
+            "CrushingFX must sit on terrain, not height 0"
+        );
+        assert!(
+            body.contains("glam::Vec3::new(s.x, height, s.z)"),
+            "CrushingFX dispatch must use sampled terrain height"
+        );
+    }
+
+    #[test]
+    fn bone_fx_tick_drains_leftover_authored() {
+        let tick = include_str!("world_tick/ai.rs");
+        assert!(tick.contains("play_bone_fx_event"));
+        assert!(tick.contains("bfx.tick(self.frame as i32)"));
+        let bone = include_str!("host_bone_fx_damage.rs");
+        assert!(bone.contains("peel_authored_bone_fx"));
+        assert!(!bone.contains("FX_ScudDamagedBoneFX"));
+    }
+
+    #[test]
+    fn combat_drop_kill_fx_looks_up_unit_specific() {
+        let chinook = include_str!("host_combat_chinook.rs");
+        assert!(chinook.contains("leftover_combat_drop_kill_fx_name"));
+        assert!(chinook.contains("COMBAT_DROP_KILL_FX_KEY"));
+        let regs = include_str!("world_combat/registries.rs");
+        assert!(regs.contains("leftover_combat_drop_kill_fx_name"));
+        assert!(regs.contains("dispatch_fx_list_at_host_object(&fx, bldg_id, None)"));
+    }
+
 }

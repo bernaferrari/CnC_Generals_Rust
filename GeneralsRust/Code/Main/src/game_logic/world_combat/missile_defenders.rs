@@ -75,15 +75,19 @@ impl GameLogic {
             o.health.maximum = LASER_GUIDED_BEAM_MAX_HEALTH;
             Self::write_object_health_authority_aware(o, LASER_GUIDED_BEAM_MAX_HEALTH);
         }
-        self.weapon_lasers.push(ResidualWeaponLaser::with_bone(
-            beam_name,
-            LASER_GUIDED_ATTACH_BONE,
-            shooter_id,
-            Some(target_id),
-            (from.x, from.y, from.z),
-            (to.x, to.y, to.z),
-            self.frame,
-        ));
+        self.weapon_lasers
+            .retain(|laser| laser.from_id != shooter_id || laser.laser_name != beam_name);
+        self.weapon_lasers
+            .push(ResidualWeaponLaser::with_bone_lifetime(
+                beam_name,
+                LASER_GUIDED_ATTACH_BONE,
+                shooter_id,
+                Some(target_id),
+                (from.x, from.y, from.z),
+                (to.x, to.y, to.z),
+                self.frame,
+                LASER_GUIDED_BEAM_LIFETIME_FRAMES,
+            ));
         self.missile_defender_laser_beams_spawned =
             self.missile_defender_laser_beams_spawned.saturating_add(1);
         Some(bid)
@@ -223,7 +227,9 @@ impl GameLogic {
         use crate::game_logic::host_hero_abilities::{
             leftover_sa_timings, LeftoverSaChannel, LeftoverSaKind, LeftoverSaPhase,
         };
-        use crate::game_logic::host_missile_defender::LASER_GUIDED_INITIATE_AUDIO;
+        use crate::game_logic::host_missile_defender::{
+            LASER_GUIDED_ATTACH_BONE, LASER_GUIDED_INITIATE_AUDIO,
+        };
 
         let timings = leftover_sa_timings(LeftoverSaKind::LaserGuided);
         if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -231,17 +237,25 @@ impl GameLogic {
             obj.set_ai_state(AIState::SpecialAbility);
             obj.set_status_using_ability(true);
         }
-        self.hero_abilities.set_leftover_channel(
-            object_id,
-            LeftoverSaChannel::new(
-                LeftoverSaKind::LaserGuided,
+        let (beam_from, beam_to) = self
+            .special_ability_laser_endpoints_from_bone(
+                object_id,
                 target_id,
-                LeftoverSaPhase::Preparing,
-                timings.prep_ms,
-            ),
-        );
+                LASER_GUIDED_ATTACH_BONE,
+            )
+            .unwrap_or((src_pos, tgt_pos));
         // C++ startPreparation creates LaserBeam SpecialObject immediately.
-        let _ = self.spawn_missile_defender_laser_beam(object_id, target_id, src_pos, tgt_pos);
+        let special_object_id =
+            self.spawn_missile_defender_laser_beam(object_id, target_id, beam_from, beam_to);
+        let mut channel = LeftoverSaChannel::new(
+            LeftoverSaKind::LaserGuided,
+            target_id,
+            LeftoverSaPhase::Preparing,
+            timings.prep_ms,
+        );
+        channel.special_object_id = special_object_id;
+        self.hero_abilities.set_leftover_channel(object_id, channel);
+
         self.queue_audio_event(
             AudioEventRequest::new(LASER_GUIDED_INITIATE_AUDIO)
                 .with_object(object_id)
@@ -333,6 +347,12 @@ impl GameLogic {
                 self.hero_abilities.take_leftover_channel(object_id);
                 continue;
             }
+            // C++ continuePreparation re-initLaser each prep / persist-prep frame.
+            let _ = self.reinit_special_ability_laser(
+                object_id,
+                channel.target_id,
+                channel.special_object_id,
+            );
             let remaining = (channel.remaining_seconds - dt.max(0.0)).max(0.0);
             if remaining > EPS {
                 self.hero_abilities.set_leftover_channel(
@@ -353,15 +373,15 @@ impl GameLogic {
                 .missile_defender_residual_laser_specials
                 .saturating_add(1);
             // PersistentPrepTime 500ms keeps the beam and re-triggers.
-            self.hero_abilities.set_leftover_channel(
-                object_id,
-                crate::game_logic::host_hero_abilities::LeftoverSaChannel::new(
-                    LeftoverSaKind::LaserGuided,
-                    channel.target_id,
-                    LeftoverSaPhase::Preparing,
-                    timings.persist_prep_ms,
-                ),
+            let mut persist = crate::game_logic::host_hero_abilities::LeftoverSaChannel::new(
+                LeftoverSaKind::LaserGuided,
+                channel.target_id,
+                LeftoverSaPhase::Preparing,
+                timings.persist_prep_ms,
             );
+            persist.special_object_id = channel.special_object_id;
+            self.hero_abilities.set_leftover_channel(object_id, persist);
+
         }
     }
 

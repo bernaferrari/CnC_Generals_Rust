@@ -1,17 +1,20 @@
 //! Host FireWeaponPower residual (special power fires weapon N times).
 //!
-//! C++: `FireWeaponPower::doSpecialPower[AtLocation]` reloads ammo then
-//! `aiAttackPosition(loc, maxShotsToFire)`. Used by Spectre howitzer markers etc.
+//! C++: `FireWeaponPower::doSpecialPower[AtLocation|AtObject]` reloads ammo then
+//! `aiAttackPosition` / `aiAttackObject`. Used by Spectre howitzer markers etc.
 //!
 //! Residual playability slice:
 //! - MaxShotsToFire default **1**, retail peels **3**
-//! - On activate: queue attack-position residual with shot count
+//! - On activate: queue attack-position or attack-object residual with shot count
 //! - Disabled objects skip
 //!
 //! Fail-closed: not full turret slot matrix / SpecialPowerModule base recharge
 //! beyond host special power registry.
 
+
+use super::ObjectId;
 use serde::{Deserialize, Serialize};
+
 
 /// Retail MaxShotsToFire residual for common FireWeaponPower peels.
 pub const FIRE_WEAPON_POWER_DEFAULT_SHOTS: u32 = 1;
@@ -23,7 +26,11 @@ pub struct HostFireWeaponPowerRequest {
     pub target_x: f32,
     pub target_z: f32,
     pub has_location: bool,
+    /// C++ `doSpecialPowerAtObject` victim. Distinct from a frozen attack-position.
+    #[serde(default)]
+    pub target_object_id: Option<ObjectId>,
 }
+
 
 impl HostFireWeaponPowerRequest {
     pub fn at_self(shots: u32) -> Self {
@@ -32,6 +39,7 @@ impl HostFireWeaponPowerRequest {
             target_x: 0.0,
             target_z: 0.0,
             has_location: false,
+            target_object_id: None,
         }
     }
 
@@ -41,6 +49,17 @@ impl HostFireWeaponPowerRequest {
             target_x: x,
             target_z: z,
             has_location: true,
+            target_object_id: None,
+        }
+    }
+
+    pub fn at_object(shots: u32, target_id: ObjectId) -> Self {
+        Self {
+            shots_remaining: shots.max(1),
+            target_x: 0.0,
+            target_z: 0.0,
+            has_location: false,
+            target_object_id: Some(target_id),
         }
     }
 }

@@ -29,6 +29,8 @@ pub struct GameClient {
     local_player_id: i32,
     /// Last presentation military caption applied (avoid per-frame re-push).
     last_applied_military_caption: Option<String>,
+    /// Last presentation remaining_ms (detect leftover re-fire / re-arm).
+    last_applied_military_caption_remaining_ms: Option<i32>,
     /// Last presentation cinematic text applied (avoid per-frame re-push).
     last_applied_cinematic_text: Option<String>,
     /// Last presentation remaining_ms (detect leftover re-fire / re-arm).
