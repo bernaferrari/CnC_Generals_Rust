@@ -2308,6 +2308,39 @@ mod tests {
         assert_eq!(manager.particle_count(), 0);
     }
 
+    #[test]
+    fn visible_box_cull_marks_offscreen_and_caps_batch() {
+        let mut manager = ParticleSystemManager::new();
+        let template = manager.new_template("CullBox".to_string());
+        let system_id = manager.create_particle_system(&template, false).unwrap();
+        {
+            let system = manager.find_particle_system_mut(system_id).expect("system");
+            let mut near = crate::effects::particle_system::Particle::new(
+                &crate::effects::particle_system::ParticleInfo::default(),
+                0,
+                0,
+            );
+            near.lifetime_left = 10;
+            near.position = nalgebra::Point3::new(0.0, 0.0, 0.0);
+            near.size = 1.0;
+            system.push_particle(near);
+            let mut far = crate::effects::particle_system::Particle::new(
+                &crate::effects::particle_system::ParticleInfo::default(),
+                0,
+                0,
+            );
+            far.lifetime_left = 10;
+            far.position = nalgebra::Point3::new(1000.0, 0.0, 0.0);
+            far.size = 1.0;
+            system.push_particle(far);
+        }
+        manager.cull_particles_to_visible_box([0.0, 0.0, 0.0], [10.0, 10.0, 10.0], 512);
+        let system = manager.find_particle_system(system_id).unwrap();
+        let particles: Vec<_> = system.particles().iter().collect();
+        assert!(!particles[0].is_culled);
+        assert!(particles[1].is_culled);
+    }
+
     /// Empty destroyed systems are still removed on the next manager update
     /// (C++ ParticleSys.cpp:2059 `m_isDestroyed && !m_systemParticlesHead`).
     #[test]
