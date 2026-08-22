@@ -923,12 +923,13 @@ impl<'a> CommandExecutor<'a> {
         use crate::game_logic::host_bomb_truck_disguise::{
             is_bomb_truck_template, is_legal_disguise_target,
         };
+        use crate::game_logic::host_car_bomb::object_definition_has_kind;
 
         let (
             target_alive,
             target_is_vehicle,
             target_is_airborne,
-            target_is_bomb_truck,
+            target_is_boat,
             target_disguised,
             target_template,
             target_pos,
@@ -937,7 +938,8 @@ impl<'a> CommandExecutor<'a> {
                 target.is_alive(),
                 target.is_kind_of(KindOf::Vehicle),
                 target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target,
-                is_bomb_truck_template(&target.template_name),
+                target.is_kind_of(KindOf::Boat)
+                    || object_definition_has_kind(&target.template_name, "BOAT"),
                 target.status.disguised,
                 target.template_name.clone(),
                 target.get_position(),
@@ -949,7 +951,7 @@ impl<'a> CommandExecutor<'a> {
             target_alive,
             target_is_vehicle,
             target_is_airborne,
-            target_is_bomb_truck,
+            target_is_boat,
             &target_template,
             target_disguised,
         ) {
@@ -966,9 +968,7 @@ impl<'a> CommandExecutor<'a> {
                     unit.is_alive()
                         && unit.can_move()
                         && unit_id != target_id
-                        && crate::game_logic::host_terrorist::is_terrorist_template(
-                            &unit.template_name,
-                        )
+                        && is_bomb_truck_template(&unit.template_name)
                 })
                 .unwrap_or(false);
             if !can_issue {

@@ -329,8 +329,8 @@ impl GameLogic {
             self.update_crate_deletion_updates();
         }
 
-        // Host GLA Rebel Ambush residual: spawn infantry near target after fade delay.
-        // Fail-closed vs full OCL CreateObject / science upgrade tiers.
+        // Host GLA Rebel Ambush residual: leftover OCLSpecialPower CreateObject
+        // (science UpgradeOCL) plus FadeIn/DiesOnBadLand after the fire-frame spawn.
         self.update_ambushes();
 
         // Host USA Leaflet Drop residual: disable enemy infantry/vehicles after Delay.
@@ -537,6 +537,7 @@ impl GameLogic {
 
         // Host CIA Intelligence residual: expire vision-spied marks + FOW undos.
         // Fail-closed vs full SpyVisionUpdate setUnitsVisionSpied module path.
+        self.update_satellite_hack_spy_vision();
         self.update_cia_intelligence();
 
         // Host China FireWall residual: tick fire damage along wall segments.

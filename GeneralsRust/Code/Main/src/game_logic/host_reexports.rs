@@ -99,6 +99,11 @@ pub use super::host_cia_intelligence::{
     CIA_INTELLIGENCE_ACTIVATE_AUDIO, CIA_INTELLIGENCE_DEFAULT_VISION_RADIUS,
     CIA_INTELLIGENCE_DURATION_FRAMES,
 };
+pub use super::host_satellite_hack::{
+    is_satellite_hack_upgrade, object_authors_spy_vision_update, satellite_hack_spy_spec,
+    SatelliteHackSpySpec, SATELLITE_HACK_TWO_DURATION_FRAMES,
+    SATELLITE_HACK_TWO_INTERVAL_FRAMES,
+};
 pub use super::host_cleanup_area::{
     in_cleanup_radius_2d, is_cleanup_area_caster, HostCleanupArea, HostCleanupAreaRegistry,
     CLEANUP_AREA_ACTIVATE_AUDIO, CLEANUP_AREA_HAZARD_AUDIO, CLEANUP_AREA_MINE_AUDIO,
@@ -244,8 +249,9 @@ pub use super::host_gla_worker::{
     HostGlaWorkerRegistry, UPGRADE_GLA_WORKER_SHOES, WORKER_SHOES_SPEED, WORKER_SHOES_SUPPLY_BOOST,
 };
 pub use super::host_gps_scrambler::{
-    is_legal_gps_scrambler_target, HostGpsScrambler, HostGpsScramblerRegistry,
-    GPS_SCRAMBLER_ACTIVATE_AUDIO, HOST_GPS_SCRAMBLER_RADIUS,
+    host_has_gps_stealth_module, is_immune_to_default_gps_stealth, is_legal_gps_scrambler_target,
+    HostGpsScrambler, HostGpsScramblerRegistry, GPS_SCRAMBLER_ACTIVATE_AUDIO,
+    HOST_GPS_SCRAMBLER_RADIUS,
 };
 pub use super::host_hacker_income::{
     cash_amount_for_level, cash_interval_frames, is_hacker_template, is_internet_center_template,

@@ -4144,9 +4144,15 @@ fn jet_stop_and_enter_airfield_land() {
 
 #[test]
 fn jet_hangar_taxi_then_afterburner_at_runway_head_and_rtb_approach() {
-    use crate::game_logic::object::{JET_AFTERBURNER_SOUND, JET_AFTERBURNER_SOUND_STOP};
+    use crate::game_logic::audio_dispatch_impl::{
+        clear_test_template_voices, set_test_per_unit_sound,
+    };
+    use crate::game_logic::object::JET_AFTERBURNER_SOUND_STOP;
     use crate::game_logic::{GameLogic, KindOf, ParkingPlaceMetadata, Team, ThingTemplate};
     use glam::Vec3;
+    clear_test_template_voices();
+    const AFTERBURNER_EVENT: &str = "RaptorAfterburner";
+    set_test_per_unit_sound("AmericaJetRaptor", "Afterburner", AFTERBURNER_EVENT);
     let mut logic = GameLogic::new();
     let mut af_t = ThingTemplate::new("AmericaAirfield");
     af_t.add_kind_of(KindOf::Structure)
@@ -4197,7 +4203,7 @@ fn jet_hangar_taxi_then_afterburner_at_runway_head_and_rtb_approach() {
             !logic
                 .queued_audio_events
                 .iter()
-                .any(|e| e.event_type == JET_AFTERBURNER_SOUND),
+                .any(|e| e.event_type == AFTERBURNER_EVENT || e.event_type == "Afterburner"),
             "Afterburner sound must not start at taxi-out"
         );
         assert!(
@@ -4224,7 +4230,15 @@ fn jet_hangar_taxi_then_afterburner_at_runway_head_and_rtb_approach() {
         logic
             .queued_audio_events
             .iter()
-            .any(|e| e.event_type == JET_AFTERBURNER_SOUND && e.is_looping && !e.stop)
+            .any(|e| e.event_type == AFTERBURNER_EVENT && e.is_looping && !e.stop),
+        "Afterburner must queue the per-unit event, not the slot token"
+    );
+    assert!(
+        !logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == "Afterburner"),
+        "must not queue the Afterburner slot token"
     );
     if let Some(j) = logic.objects.get_mut(&jet) {
         j.finish_jet_takeoff();

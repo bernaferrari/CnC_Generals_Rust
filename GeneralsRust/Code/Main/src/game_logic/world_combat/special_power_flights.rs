@@ -663,7 +663,7 @@ impl GameLogic {
                     let under_construction =
                         obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
                     let is_disguise = is_gps_scrambler_disguise_name(&obj.template_name);
-                    let has_stealth_module = obj.innate_stealth;
+                    let has_stealth_module = obj.has_gps_stealth_module();
                     Some((
                         *id,
                         is_vehicle,
@@ -701,7 +701,7 @@ impl GameLogic {
                 let Some(target) = self.objects.get_mut(&id) else {
                     continue;
                 };
-                if !target.innate_stealth {
+                if !target.is_alive() {
                     continue;
                 }
                 let was = target.is_effectively_stealthed();

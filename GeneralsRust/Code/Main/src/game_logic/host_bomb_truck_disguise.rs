@@ -145,19 +145,34 @@ pub fn has_disguises_as_team_stealth_residual(template_name: &str) -> bool {
 
 /// Whether a template is a legal disguise target residual.
 ///
-/// C++ ActionManager SPECIAL_DISGUISE_AS_VEHICLE:
-/// - Must be vehicle (ground residual; aircraft rejected)
-/// - Not another bomb truck ("that's just plain dumb")
-/// - Not a train (no KINDOF_TRAIN residual — name skip)
+/// C++ `ActionManager::canDoSpecialPowerAtObject` `SPECIAL_DISGUISE_AS_VEHICLE`:
+/// vehicle && !aircraft && !boat && !cliff_jumper && no `RailroadBehavior`.
+/// The same-template bomb-truck reject is commented out in retail, so bomb
+/// trucks are legal disguise targets.
 pub fn is_legal_disguise_target_template(template_name: &str) -> bool {
     let n = alnum_lower(template_name);
     if n.is_empty() {
         return false;
     }
-    if is_bomb_truck_template(template_name) {
+    // C++ `RailroadBehavior` module reject (no KINDOF_TRAIN).
+    if n.contains("train") {
         return false;
     }
-    if n.contains("train") {
+    // C++ `KINDOF_BOAT` — KindOf bit, INI token, or name residual.
+    if n.contains("boat")
+        || n.contains("battleship")
+        || crate::game_logic::host_car_bomb::object_definition_has_kind(template_name, "BOAT")
+    {
+        return false;
+    }
+    // C++ `KINDOF_CLIFF_JUMPER` (same ActionManager conjunction).
+    if n.contains("combatbike")
+        || n.contains("cliffjumper")
+        || crate::game_logic::host_car_bomb::object_definition_has_kind(
+            template_name,
+            "CLIFF_JUMPER",
+        )
+    {
         return false;
     }
     true
@@ -165,25 +180,18 @@ pub fn is_legal_disguise_target_template(template_name: &str) -> bool {
 
 /// Runtime legal target residual (kind + status).
 ///
-/// `is_already_disguised`: C++ disguiseAsObject may target a disguised unit
-/// (including bomb trucks) to copy their appearance — true template bomb-truck
-/// reject is waived when the target is already DISGUISED.
+/// `is_boat` is C++ `KINDOF_BOAT`. `is_already_disguised` is unused by the
+/// ActionManager gate (retail does not special-case DISGUISED here).
 pub fn is_legal_disguise_target(
     is_alive: bool,
     is_vehicle: bool,
     is_aircraft: bool,
-    is_bomb_truck: bool,
+    is_boat: bool,
     template_name: &str,
-    is_already_disguised: bool,
+    _is_already_disguised: bool,
 ) -> bool {
-    if !is_alive || !is_vehicle || is_aircraft {
+    if !is_alive || !is_vehicle || is_aircraft || is_boat {
         return false;
-    }
-    if is_bomb_truck && !is_already_disguised {
-        return false;
-    }
-    if is_already_disguised && is_bomb_truck {
-        return true;
     }
     is_legal_disguise_target_template(template_name)
 }
@@ -385,7 +393,7 @@ mod tests {
     }
 
     #[test]
-    fn legal_disguise_target_rejects_bomb_truck_and_aircraft() {
+    fn legal_disguise_target_allows_bomb_truck_rejects_boats() {
         assert!(is_legal_disguise_target(
             true,
             true,
@@ -394,14 +402,16 @@ mod tests {
             "AmericaTankCrusader",
             false
         ));
-        assert!(!is_legal_disguise_target(
+        // C++ bomb-truck same-template reject is commented out.
+        assert!(is_legal_disguise_target(
             true,
             true,
             false,
-            true,
+            false,
             "GLAVehicleBombTruck",
             false
         ));
+        assert!(is_legal_disguise_target_template("GLAVehicleBombTruck"));
         assert!(!is_legal_disguise_target(
             true,
             true,
@@ -418,16 +428,16 @@ mod tests {
             "AmericaTankCrusader",
             false
         ));
-        assert!(!is_legal_disguise_target_template("CivilianTrainEngine"));
-        // Already-disguised bomb truck is a legal copy residual target.
-        assert!(is_legal_disguise_target(
+        assert!(!is_legal_disguise_target(
             true,
             true,
             false,
             true,
-            "GLAVehicleBombTruck",
-            true
+            "AmericaVehicleBattleship",
+            false
         ));
+        assert!(!is_legal_disguise_target_template("CivilianFishingBoat"));
+        assert!(!is_legal_disguise_target_template("CivilianTrainEngine"));
     }
 
     #[test]

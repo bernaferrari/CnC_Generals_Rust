@@ -280,6 +280,269 @@ impl GameLogic {
         }
     }
 
+    /// C++ `SpyVisionUpdate::upgradeImplementation` → `activateSpyVision`.
+    pub(crate) fn activate_satellite_hack_spy_vision(
+        &mut self,
+        center_id: ObjectId,
+        spec: crate::game_logic::host_satellite_hack::SatelliteHackSpySpec,
+    ) -> bool {
+        use crate::game_logic::host_cia_intelligence::{
+            HostCiaIntelligence, HostCiaIntelligenceSpiedUnit,
+            CIA_INTELLIGENCE_DEFAULT_VISION_RADIUS,
+        };
+        use crate::game_logic::host_satellite_hack::spy_vision_deactivate_frame;
+        use crate::game_logic::host_upgrades::{
+            UPGRADE_CHINA_SATELLITE_HACK_ONE, UPGRADE_CHINA_SATELLITE_HACK_TWO,
+        };
+        use gamelogic::common::Coord3D;
+
+        let Some(center) = self.objects.get(&center_id) else {
+            return false;
+        };
+        if !center.is_alive() {
+            return false;
+        }
+        if center.is_spy_vision_disabled(self.frame) {
+            return false;
+        }
+        let team = center.team;
+        let player_id = center.owner_player_id.unwrap_or_else(|| {
+            self.players
+                .iter()
+                .find(|(_, p)| p.team == team)
+                .map(|(id, _)| *id)
+                .unwrap_or(0)
+        });
+
+        let mut player_mask = 0u32;
+        for (&pid, player) in &self.players {
+            if player.team == team {
+                player_mask |= 1u32 << pid.min(31);
+            }
+        }
+        if player_mask == 0 {
+            player_mask = 1u32 << player_id.min(31);
+        }
+
+        let world_w = self.world_width.max(1.0);
+        let world_h = self.world_height.max(1.0);
+        let command_centers_only = spec.command_centers_only;
+        let enemy_snapshots: Vec<(ObjectId, Vec3, f32)> = self
+            .objects
+            .values()
+            .filter(|obj| {
+                obj.is_alive()
+                    && obj.team != team
+                    && obj.team != Team::Neutral
+                    && obj.id != center_id
+                    && (!command_centers_only || obj.is_command_center())
+            })
+            .map(|obj| {
+                let sight = obj.get_template().sight_range;
+                let radius = if sight > 0.0 {
+                    sight
+                } else {
+                    CIA_INTELLIGENCE_DEFAULT_VISION_RADIUS
+                };
+                (obj.id, obj.get_position(), radius)
+            })
+            .collect();
+
+        {
+            let shroud = get_shroud_manager();
+            if let Ok(mut shroud_mgr) = shroud.lock() {
+                if !shroud_mgr.has_shroud_grid() {
+                    shroud_mgr.init_shroud_grid(world_w, world_h);
+                }
+            }
+        }
+
+        let mut spied_units = Vec::with_capacity(enemy_snapshots.len());
+        let mut any_vision_spied = false;
+        let mut any_fow = false;
+        for (obj_id, location, radius) in enemy_snapshots {
+            if let Some(obj) = self.objects.get_mut(&obj_id) {
+                obj.set_vision_spied_by_player(player_id, true);
+                any_vision_spied = true;
+            }
+            let center_pos = Coord3D::new(location.x, location.z, location.y);
+            let fow_reveal_ok = {
+                let shroud = get_shroud_manager();
+                let Ok(mut shroud_mgr) = shroud.lock() else {
+                    spied_units.push(HostCiaIntelligenceSpiedUnit {
+                        object_id: obj_id,
+                        location,
+                        radius,
+                        fow_reveal_ok: false,
+                        detected_ok: false,
+                    });
+                    continue;
+                };
+                let duration = if spec.duration_frames == 0 {
+                    u32::MAX / 4
+                } else {
+                    spec.duration_frames
+                };
+                shroud_mgr.do_shroud_reveal(&center_pos, radius, player_mask);
+                shroud_mgr.queue_undo_shroud_reveal(
+                    &center_pos,
+                    radius,
+                    player_mask,
+                    duration,
+                    self.frame,
+                );
+                let mut visible = shroud_mgr.is_position_visible(player_id.min(31), &center_pos);
+                if !visible {
+                    for bit in 0..32u32 {
+                        if (player_mask & (1u32 << bit)) != 0
+                            && shroud_mgr.is_position_visible(bit, &center_pos)
+                        {
+                            visible = true;
+                            break;
+                        }
+                    }
+                }
+                visible
+            };
+            if fow_reveal_ok {
+                any_fow = true;
+            }
+            spied_units.push(HostCiaIntelligenceSpiedUnit {
+                object_id: obj_id,
+                location,
+                radius,
+                fow_reveal_ok,
+                detected_ok: false,
+            });
+        }
+
+        let expires_frame = spy_vision_deactivate_frame(self.frame, spec.duration_frames);
+        let act_id = self.cia_intelligence.alloc_id();
+        self.cia_intelligence
+            .record_activation(HostCiaIntelligence {
+                captured_count: 0,
+                id: act_id,
+                player_id,
+                player_mask,
+                spying_team: team,
+                activate_frame: self.frame,
+                expires_frame,
+                caster_id: Some(center_id),
+                spied_units,
+                vision_spied_ok: any_vision_spied,
+                fow_reveal_ok: any_fow,
+                detect_ok: false,
+            });
+
+        if let Some(center) = self.objects.get_mut(&center_id) {
+            if spec.command_centers_only {
+                center.apply_upgrade_tag(UPGRADE_CHINA_SATELLITE_HACK_ONE);
+            } else {
+                center.apply_upgrade_tag(UPGRADE_CHINA_SATELLITE_HACK_TWO);
+                if spec.interval_frames > 0 && expires_frame != u32::MAX {
+                    center.status.spy_vision_hack_two_wake_frame =
+                        expires_frame.saturating_add(spec.interval_frames);
+                }
+            }
+        }
+        true
+    }
+
+    /// C++ `SpyVisionUpdate::update` self-powered cycle + sabotage reset.
+    pub(in super::super) fn update_satellite_hack_spy_vision(&mut self) {
+        use crate::game_logic::host_satellite_hack::satellite_hack_spy_spec;
+        use crate::game_logic::host_upgrades::{
+            UPGRADE_CHINA_SATELLITE_HACK_ONE, UPGRADE_CHINA_SATELLITE_HACK_TWO,
+        };
+
+        let frame = self.frame;
+
+        // Expire scans whose Internet Center caster died or is sabotaged.
+        let mut expire_casters = std::collections::HashSet::new();
+        for act in self.cia_intelligence.active_scans() {
+            let Some(cid) = act.caster_id else {
+                continue;
+            };
+            let dead_or_disabled = match self.objects.get(&cid) {
+                None => true,
+                Some(o) => !o.is_alive() || o.is_spy_vision_disabled(frame),
+            };
+            if dead_or_disabled {
+                expire_casters.insert(cid);
+            }
+        }
+        if !expire_casters.is_empty() {
+            for act in &mut self.cia_intelligence.active {
+                if act.caster_id.is_some_and(|c| expire_casters.contains(&c)) {
+                    act.expires_frame = frame;
+                }
+            }
+        }
+
+        let mut activate = Vec::new();
+        let center_ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| {
+                o.is_alive()
+                    && (o.is_kind_of(KindOf::FSInternetCenter)
+                        || crate::game_logic::host_satellite_hack::object_authors_spy_vision_update(
+                            &o.template_name,
+                        ))
+            })
+            .map(|(id, _)| *id)
+            .collect();
+
+        for id in center_ids {
+            let Some(obj) = self.objects.get(&id) else {
+                continue;
+            };
+            if obj.is_spy_vision_disabled(frame) {
+                continue;
+            }
+            let reset = obj.status.spy_vision_reset_timers;
+            let has_one = obj.has_upgrade_tag(UPGRADE_CHINA_SATELLITE_HACK_ONE);
+            let has_two = obj.has_upgrade_tag(UPGRADE_CHINA_SATELLITE_HACK_TWO);
+            let wake_two = obj.status.spy_vision_hack_two_wake_frame;
+            if reset {
+                if let Some(obj) = self.objects.get_mut(&id) {
+                    obj.status.spy_vision_reset_timers = false;
+                }
+                if has_one {
+                    if let Some(spec) = satellite_hack_spy_spec(UPGRADE_CHINA_SATELLITE_HACK_ONE) {
+                        activate.push((id, spec));
+                    }
+                }
+                if has_two {
+                    if let Some(spec) = satellite_hack_spy_spec(UPGRADE_CHINA_SATELLITE_HACK_TWO) {
+                        if let Some(obj) = self.objects.get_mut(&id) {
+                            obj.status.spy_vision_hack_two_wake_frame =
+                                frame.saturating_add(spec.interval_frames);
+                        }
+                    }
+                }
+                continue;
+            }
+            if has_two && wake_two > 0 && frame >= wake_two {
+                if let Some(spec) = satellite_hack_spy_spec(UPGRADE_CHINA_SATELLITE_HACK_TWO) {
+                    let already_pulsing = self.cia_intelligence.active_scans().iter().any(|a| {
+                        a.caster_id == Some(id)
+                            && a.expires_frame != u32::MAX
+                            && !a.is_expired(frame)
+                    });
+                    if !already_pulsing {
+                        activate.push((id, spec));
+                    }
+                }
+            }
+        }
+
+        for (id, spec) in activate {
+            let _ = self.activate_satellite_hack_spy_vision(id, spec);
+        }
+    }
+
+
     // -----------------------------------------------------------------------
     // China FireWall / Firestorm residual (Dragon Tank FIRE_WEAPON secondary)
     // Fail-closed: not full OCL FireWallSegment / InchForwardLocomotor / projectile stream.

@@ -1,16 +1,16 @@
 //! Host GLA Rebel Ambush special-power residual.
 //!
 //! Residual slice: host `DoSpecialPower` for SPECIAL_AMBUSH / SuperweaponRebelAmbush
-//! queues a spawn at the target location. After a residual fade/approach delay
-//! (retail OCL FadeTime = 3000 ms), infantry units spawn near the target
-//! (spread-formation residual).
+//! creates infantry at the target immediately (C++ `OCLSpecialPower::doSpecialPowerAtLocation`
+//! → `ObjectCreationList::create`). Science `UpgradeOCL` picks Ambush1/2/3 and
+//! Chem/Demo/Slth rebel templates. FadeTime is visual FadeIn after spawn, not a
+//! pre-spawn delay.
 //!
 //! Fail-closed honesty:
 //! - FadeIn residual: spawned rebels STEALTHED until FadeTime elapses
-//! - Science tier Ambush1/2/3 payload counts via AmbushScienceTier residual
+//! - Science tier Ambush1/2/3 payload counts via leftover UpgradeOCL
 //! - DiesOnBadLand residual: underwater/cliff spawn cells kill rebels (drown)
-//! - Fail-closed: not full OCLAdjustPositionToPassable snap-to-passable path
-//! - Not SharedSyncedTimer / multiplayer academy classification
+//! - Fail-closed: not full ObjectCreationList spread-nugget / SharedSyncedTimer
 
 use super::ObjectId;
 use crate::command_system::SpecialPowerType;
@@ -56,12 +56,11 @@ impl HostAmbushKind {
             HostAmbushKind::GLARebelAmbush => "GLARebelAmbush",
         }
     }
-
-    /// Fade / approach delay in logic frames before infantry spawn.
-    /// Residual of retail OCL FadeTime = 3000 ms → ~3s @ 30 FPS = 90 frames.
+    /// C++ `OCLSpecialPower` creates the OCL on the fire frame. FadeTime is
+    /// visual FadeIn after spawn, not a queue delay.
     pub fn spawn_delay_frames(self) -> u32 {
         match self {
-            HostAmbushKind::GLARebelAmbush => 90,
+            HostAmbushKind::GLARebelAmbush => 0,
         }
     }
 
@@ -575,6 +574,52 @@ impl AmbushScienceTier {
     }
 }
 
+/// Leftover `OCLSpecialPower::findOCL` + CreateObject payload for Rebel Ambush.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AmbushOclPayload {
+    pub ocl_name: String,
+    pub unit_template: String,
+    pub unit_count: u32,
+}
+
+/// Resolve UpgradeOCL science tiers to OCL name, rebel template, and count.
+///
+/// C++ `OCLSpecialPower::findOCL` walks UpgradeOCL first-owned-science-wins,
+/// then CreateObject ObjectNames/Count. Chem/Demo/Slth Ambush1 stay on their
+/// own templates instead of falling through to `GLAInfantryRebel`.
+pub fn resolve_ambush_ocl_payload<'a, I>(sciences: I) -> AmbushOclPayload
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    use crate::game_logic::host_ocl_special_power::{
+        create_object_for_ocl, find_ocl_name, peel_for_special_power,
+    };
+    let owned: Vec<String> = sciences.into_iter().map(|s| s.to_string()).collect();
+    let ocl_name = peel_for_special_power(AMBUSH_SPECIAL_POWER_TEMPLATE)
+        .map(|peel| {
+            find_ocl_name(peel, |s| owned.iter().any(|u| u.eq_ignore_ascii_case(s))).to_string()
+        })
+        .unwrap_or_else(|| AMBUSH_OCL_AMBUSH1.to_string());
+    if let Some(create) = create_object_for_ocl(&ocl_name) {
+        let unit_template = create
+            .object_names
+            .first()
+            .cloned()
+            .unwrap_or_else(|| GLA_REBEL_TEMPLATE.to_string());
+        return AmbushOclPayload {
+            ocl_name,
+            unit_template,
+            unit_count: create.count.max(1),
+        };
+    }
+    AmbushOclPayload {
+        ocl_name,
+        unit_template: GLA_REBEL_TEMPLATE.to_string(),
+        unit_count: AmbushScienceTier::highest_from_sciences(owned.iter().map(|s| s.as_str()))
+            .rebel_count(),
+    }
+}
+
 /// Retail SpreadFormation MinDistanceA residual.
 pub const AMBUSH_MIN_DISTANCE_A: f32 = 20.0;
 /// Retail SpreadFormation MinDistanceB residual.
@@ -621,7 +666,15 @@ pub fn honesty_ambush_spawn_ocl_residual_ok() -> bool {
         && AMBUSH_FADE_TIME_MS == 3_000
         && AMBUSH_FADE_TIME_FRAMES == ambush_ms_to_frames(AMBUSH_FADE_TIME_MS)
         && AMBUSH_FADE_TIME_FRAMES == 90
-        && HostAmbushKind::GLARebelAmbush.spawn_delay_frames() == AMBUSH_FADE_TIME_FRAMES
+        && HostAmbushKind::GLARebelAmbush.spawn_delay_frames() == 0
+        && resolve_ambush_ocl_payload(["SCIENCE_RebelAmbush3"]).unit_template == GLA_REBEL_TEMPLATE
+        && resolve_ambush_ocl_payload(["SCIENCE_RebelAmbush3"]).unit_count == GLA_AMBUSH3_UNIT_COUNT
+        && resolve_ambush_ocl_payload(["Chem_SCIENCE_RebelAmbush1"]).unit_template
+            == "Chem_GLAInfantryRebel"
+        && resolve_ambush_ocl_payload(["Demo_SCIENCE_RebelAmbush2"]).unit_template
+            == "Demo_GLAInfantryRebel"
+        && resolve_ambush_ocl_payload(["Slth_SCIENCE_RebelAmbush3"]).unit_count
+            == GLA_AMBUSH3_UNIT_COUNT
         && HostAmbushKind::GLARebelAmbush.unit_count() == GLA_AMBUSH1_UNIT_COUNT
         && (AMBUSH_SPAWN_RADIUS - 40.0).abs() < 0.01
         && (AMBUSH_MIN_DISTANCE_A - 20.0).abs() < 0.01
@@ -674,13 +727,11 @@ mod tests {
         assert!(!reg.honesty_complete_ok(HostAmbushKind::GLARebelAmbush));
 
         let mission = reg.get(id).expect("mission");
-        assert_eq!(mission.spawn_frame, 90);
+        assert_eq!(mission.spawn_frame, 0);
         assert_eq!(mission.phase, HostAmbushPhase::Queued);
         assert_eq!(mission.unit_count, GLA_AMBUSH1_UNIT_COUNT);
 
-        assert!(reg.plan_due_spawns(89).is_empty());
-
-        let plans = reg.plan_due_spawns(90);
+        let plans = reg.plan_due_spawns(0);
         assert_eq!(plans.len(), 1);
         assert_eq!(
             plans[0].spawn_positions.len(),
@@ -731,7 +782,7 @@ mod tests {
         loaded.restore_from_snapshot(next, snap);
         assert_eq!(loaded.pending_count(), 1);
         let m = loaded.get(id).expect("restored mission");
-        assert_eq!(m.spawn_frame, 100);
+        assert_eq!(m.spawn_frame, 10);
         assert_eq!(m.phase, HostAmbushPhase::Queued);
         assert_eq!(loaded.next_id(), next);
     }
@@ -750,5 +801,22 @@ mod tests {
         assert_eq!(AMBUSH_REQUIRED_SCIENCE, "SCIENCE_RebelAmbush1");
         assert!(AMBUSH_SHARED_SYNCED_TIMER);
         assert!(!AMBUSH_PUBLIC_TIMER);
+    }
+
+    #[test]
+    fn leftover_upgrade_ocl_picks_chem_demo_slth_templates() {
+        let chem = resolve_ambush_ocl_payload(["Chem_SCIENCE_RebelAmbush3"]);
+        assert_eq!(chem.ocl_name, "Chem_SUPERWEAPON_RebelAmbush3");
+        assert_eq!(chem.unit_template, "Chem_GLAInfantryRebel");
+        assert_eq!(chem.unit_count, 16);
+        let demo = resolve_ambush_ocl_payload(["Demo_SCIENCE_RebelAmbush1"]);
+        assert_eq!(demo.unit_template, "Demo_GLAInfantryRebel");
+        assert_eq!(demo.unit_count, 4);
+        let slth = resolve_ambush_ocl_payload(["Slth_SCIENCE_RebelAmbush2"]);
+        assert_eq!(slth.unit_template, "Slth_GLAInfantryRebel");
+        assert_eq!(slth.unit_count, 8);
+        let base = resolve_ambush_ocl_payload(["SCIENCE_RebelAmbush1"]);
+        assert_eq!(base.unit_template, GLA_REBEL_TEMPLATE);
+        assert_eq!(base.unit_count, 4);
     }
 }

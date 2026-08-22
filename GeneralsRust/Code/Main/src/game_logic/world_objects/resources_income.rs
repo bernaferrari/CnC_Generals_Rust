@@ -226,7 +226,7 @@ impl GameLogic {
         use crate::game_logic::host_oil_derrick::HostAutoDepositFloatingText;
 
         let frame = self.frame;
-        let markets: Vec<(ObjectId, Team, Option<u32>, Vec3, bool, bool, bool)> = self
+        let markets: Vec<(ObjectId, Team, Option<u32>, Vec3, bool, bool, bool, bool)> = self
             .objects
             .iter()
             .filter_map(|(id, obj)| {
@@ -237,12 +237,14 @@ impl GameLogic {
                 if !is_bm {
                     return None;
                 }
-                // C++ AutoDepositUpdate: neutral / under construction skip.
+                // Track constructed non-neutral markets even while disabled so
+                // C++ GameLogic sleepy-skip freezes m_depositOnFrame (no forget).
                 let is_neutral = obj.team == Team::Neutral;
                 if !is_legal_black_market_income_source(
                     obj.is_alive(),
                     obj.is_constructed() && !obj.status.under_construction,
                     is_neutral,
+                    false,
                 ) {
                     return None;
                 }
@@ -254,13 +256,14 @@ impl GameLogic {
                     obj.status.stealthed,
                     obj.status.detected,
                     !fake,
+                    obj.is_disabled(),
                 ))
             })
             .collect();
 
         // Forget destroyed markets so re-builds reschedule cleanly.
         let live: std::collections::HashSet<ObjectId> =
-            markets.iter().map(|(id, _, _, _, _, _, _)| *id).collect();
+            markets.iter().map(|(id, _, _, _, _, _, _, _)| *id).collect();
         let stale: Vec<ObjectId> = self
             .black_markets
             .next_deposit_keys()
@@ -271,7 +274,15 @@ impl GameLogic {
             self.black_markets.forget(id);
         }
 
-        for (market_id, team, object_owner, pos, stealthed, detected, actual_money) in markets {
+        for (market_id, team, object_owner, pos, stealthed, detected, actual_money, disabled) in
+            markets
+        {
+            // C++ GameLogic.cpp:3715-3718: AutoDepositUpdate is not called while
+            // disabled; m_depositOnFrame stays put (freeze, not miss-and-reschedule).
+            self.black_markets.ensure_scheduled(market_id, frame);
+            if disabled {
+                continue;
+            }
             let deposited =
                 self.black_markets
                     .try_deposit(market_id, frame, BLACK_MARKET_DEPOSIT_AMOUNT);
@@ -387,7 +398,10 @@ impl GameLogic {
             derricks
         {
             let is_neutral = team == Team::Neutral;
-            if !is_legal_oil_derrick_income_source(alive, constructed, is_neutral) {
+            if is_neutral {
+                self.oil_derricks.mark_neutral_owner(derrick_id);
+            }
+            if !is_legal_oil_derrick_income_source(alive, constructed, is_neutral, false) {
                 continue;
             }
 
@@ -405,13 +419,21 @@ impl GameLogic {
             use crate::game_logic::host_oil_derrick::should_display_stealthed_floating_cash;
             let show_float = should_display_stealthed_floating_cash(stealthed, detected, is_local);
 
-            // InitialCaptureBonus residual: first non-neutral ownership.
+            // C++ awardInitialCaptureBonus always resets depositOnFrame on
+            // becomingTeamMember(yes), even when InitialCaptureBonus is spent.
+            let owner_key = owner_player_id.unwrap_or(u32::MAX);
+            if self
+                .oil_derricks
+                .note_non_neutral_gain(derrick_id, owner_key)
+            {
+                self.oil_derricks
+                    .reschedule_after_capture(derrick_id, frame);
+            }
+            // InitialCaptureBonus residual: first non-neutral ownership only.
             let bonus = self
                 .oil_derricks
                 .try_capture_bonus(derrick_id, OIL_DERRICK_INITIAL_CAPTURE_BONUS);
             if bonus > 0 {
-                self.oil_derricks
-                    .reschedule_after_capture(derrick_id, frame);
                 if let Some(player_id) = owner_player_id {
                     if let Some(player) = self.get_player_mut(player_id) {
                         player.credit_supplies(bonus);
@@ -445,7 +467,17 @@ impl GameLogic {
                         frame,
                         true,
                     ));
+            }
 
+            // C++ GameLogic.cpp:3715-3718: skip AutoDepositUpdate while disabled;
+            // freeze depositOnFrame (ensure schedule, do not try_deposit).
+            let disabled = self
+                .objects
+                .get(&derrick_id)
+                .is_some_and(|obj| obj.is_disabled());
+            self.oil_derricks.ensure_scheduled(derrick_id, frame);
+            if disabled {
+                continue;
             }
 
             let (amount, boost) = oil_derrick_deposit_amount(has_supply_lines);

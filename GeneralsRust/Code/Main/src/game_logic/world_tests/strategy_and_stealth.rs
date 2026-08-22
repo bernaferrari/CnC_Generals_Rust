@@ -2955,9 +2955,9 @@ fn america_paradrop_host_path_queues_and_spawns_infantry() {
     );
 }
 
-/// Residual: GLA Rebel Ambush DoSpecialPower queues a spawn and
-/// creates infantry near the target after fade delay.
-/// Fail-closed: not full OCL CreateObject / science upgrade tiers.
+/// Residual: GLA Rebel Ambush DoSpecialPower creates infantry at the target
+/// immediately via leftover OCLSpecialPower UpgradeOCL (C++ findOCL + CreateObject).
+/// FadeTime is visual FadeIn after spawn, not a 90-frame queue delay.
 #[test]
 fn gla_ambush_host_path_queues_and_spawns_infantry() {
     use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
@@ -3002,8 +3002,8 @@ fn gla_ambush_host_path_queues_and_spawns_infantry() {
     assert!(
         game_logic
             .host_ambushes()
-            .honesty_queue_ok(HostAmbushKind::GLARebelAmbush),
-        "Ambush must queue a pending host mission"
+            .honesty_complete_ok(HostAmbushKind::GLARebelAmbush),
+        "Ambush must spawn on the fire frame (C++ synchronous OCL)"
     );
     let caster = game_logic.host_object(caster_id).expect("caster after cmd");
     assert!(!caster.special_power_ready);
@@ -3018,23 +3018,12 @@ fn gla_ambush_host_path_queues_and_spawns_infantry() {
     );
     assert_eq!(
         game_logic.host_objects().len(),
-        objects_before,
-        "no infantry before ambush fade delay"
-    );
-    assert!(!game_logic
-        .host_ambushes()
-        .honesty_complete_ok(HostAmbushKind::GLARebelAmbush));
-
-    game_logic.frame = 89;
-    game_logic.update_ambushes();
-    assert_eq!(
-        game_logic.host_objects().len(),
-        objects_before,
-        "still no infantry one frame before spawn"
+        objects_before + GLA_AMBUSH1_UNIT_COUNT as usize,
+        "infantry spawn on the fire frame"
     );
 
-    game_logic.frame = 90;
     game_logic.update_ambushes();
+
 
     assert!(
         game_logic

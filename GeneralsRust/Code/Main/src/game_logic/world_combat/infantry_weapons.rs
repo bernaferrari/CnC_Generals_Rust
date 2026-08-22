@@ -438,14 +438,8 @@ impl GameLogic {
         // C++ friend_enableAfterburners(TRUE) starts Afterburner per-unit sound.
         if let Some(g) = self.objects.get(&gunship_id) {
             let pos = g.get_position();
-            self.queue_audio_event(
-                crate::game_logic::AudioEventRequest::new(
-                    crate::game_logic::object::JET_AFTERBURNER_SOUND,
-                )
-                .with_object(gunship_id)
-                .with_position(pos)
-                .looping(),
-            );
+            let template_name = g.template_name.clone();
+            self.queue_afterburner_per_unit_sound(gunship_id, &template_name, pos, true);
         }
         if let Some(g) = self.objects.get_mut(&gunship_id) {
             g.jet_ai.afterburner_sound_playing = true;
@@ -459,8 +453,6 @@ impl GameLogic {
         use crate::game_logic::host_upgrade_module_residuals::{
             apply_choose_locomotor_set, HostLocomotorSetKind,
         };
-        use crate::game_logic::object::{JET_AFTERBURNER_SOUND, JET_AFTERBURNER_SOUND_STOP};
-
         let frame = self.frame as u32;
         let ids: Vec<ObjectId> = self
             .objects
@@ -469,7 +461,7 @@ impl GameLogic {
             .map(|(id, _)| *id)
             .collect();
         let mut destroy = Vec::new();
-        let mut audio: Vec<(ObjectId, Vec3, bool)> = Vec::new();
+        let mut audio: Vec<(ObjectId, String, Vec3, bool)> = Vec::new();
         for id in ids {
             let Some(o) = self.objects.get_mut(&id) else {
                 continue;
@@ -506,31 +498,17 @@ impl GameLogic {
                 false,
             );
             if was_ab != tick.afterburners_on {
-                audio.push((id, tick.pos, tick.afterburners_on));
+                audio.push((id, o.template_name.clone(), tick.pos, tick.afterburners_on));
             }
             if tick.destroy {
                 destroy.push(id);
             }
         }
-        for (id, pos, on) in audio {
+        for (id, template_name, pos, on) in audio {
             if let Some(o) = self.objects.get_mut(&id) {
                 o.jet_ai.afterburner_sound_playing = on;
             }
-            if on {
-                self.queue_audio_event(
-                    crate::game_logic::AudioEventRequest::new(JET_AFTERBURNER_SOUND)
-                        .with_object(id)
-                        .with_position(pos)
-                        .looping(),
-                );
-            } else {
-                self.queue_audio_event(
-                    crate::game_logic::AudioEventRequest::new(JET_AFTERBURNER_SOUND_STOP)
-                        .with_object(id)
-                        .with_position(pos)
-                        .stopping(),
-                );
-            }
+            self.queue_afterburner_per_unit_sound(id, &template_name, pos, on);
         }
         for id in destroy {
             self.mark_object_for_destruction(id, None);
@@ -793,6 +771,10 @@ impl GameLogic {
         use crate::game_logic::host_scud_storm_missile_flight::HostScudStormMissileFlightData;
         use crate::game_logic::special_power_strikes::SCUD_STORM_MISSILE_OBJECT;
 
+        // C++ WeaponSet.cpp:428-432 — dead building cannot fire remaining clip shots.
+        // Leftover weapon_set_able already matches; live registry must drop unlaunched.
+        self.cancel_unlaunched_scud_storm_for_dead_pads();
+
         let due = self
             .scud_storm_missile_flight_reg
             .take_due_spawns(self.frame);
@@ -825,6 +807,34 @@ impl GameLogic {
             n = n.saturating_add(1);
         }
         self.scud_storm_missile_flight_reg.record_launch(n);
+    }
+
+    /// C++ AttackNugget fires via the pad weapon; dead pad stops the remaining salvo.
+    fn cancel_unlaunched_scud_storm_for_dead_pads(&mut self) {
+        let mut dead = Vec::new();
+        for p in &self.scud_storm_missile_flight_reg.pending {
+            if !dead.contains(&p.source_id) && !self.scud_storm_pad_can_fire(p.source_id) {
+                dead.push(p.source_id);
+            }
+        }
+        for id in dead {
+            self.scud_storm_missile_flight_reg
+                .cancel_unlaunched_for_source(id);
+        }
+    }
+
+    /// Leftover `isEffectivelyDead` (C++ WeaponSet.cpp:428-432) plus host `is_alive`.
+    fn scud_storm_pad_can_fire(&self, source_id: u32) -> bool {
+        if let Some(obj) = gamelogic::helpers::TheGameLogic::find_object_by_id(source_id) {
+            if let Ok(guard) = obj.read() {
+                if guard.is_effectively_dead() || guard.is_destroyed() {
+                    return false;
+                }
+            }
+        }
+        self.objects
+            .get(&ObjectId(source_id))
+            .is_some_and(|o| o.is_alive())
     }
 
     /// C++ ObjectCreationList::create residual after OCLSpecialPower plan.

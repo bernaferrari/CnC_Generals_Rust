@@ -681,6 +681,29 @@ impl GameLogic {
         }
     }
 
+    /// Terrain argument for `tick_height_die` so HAT matches C++ HeightDieUpdate
+    /// (`getGroundHeight` + optional structure rooftop, HeightDieUpdate.cpp:132-195).
+    pub fn height_die_terrain_at(
+        &self,
+        world_pos: Vec3,
+        template: &str,
+        fallback: f32,
+    ) -> f32 {
+        use crate::game_logic::host_height_die::{
+            height_die_ini_for_template, height_die_target_world_y,
+        };
+        let terrain = self.terrain_height_at(world_pos).unwrap_or(fallback);
+        let Some(ini) = height_die_ini_for_template(template) else {
+            return terrain;
+        };
+        if !ini.includes_structures {
+            return terrain;
+        }
+        let surface = self.ground_or_structure_height_at(world_pos, terrain);
+        let structure_h = (surface - terrain).max(0.0);
+        height_die_target_world_y(terrain, &ini, structure_h) - ini.target_height
+    }
+
 
     fn cached_pathfind_height(
         &self,

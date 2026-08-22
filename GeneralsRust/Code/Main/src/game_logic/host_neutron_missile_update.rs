@@ -4,7 +4,7 @@
 //! Retail peel (`NeutronMissile` in WeaponObjects.ini):
 //! - DistanceToTravelBeforeTurning **300**
 //! - MaxTurnRate **7200** (deg/sec residual honesty)
-//! - ForwardDamping **0.1**, RelativeSpeed **2.0**
+//! - ForwardDamping **0.1**, RelativeSpeed **2.0** (`doAttack` speed = RelativeSpeed)
 //! - TargetFromDirectlyAbove **500**
 //! - SpecialSpeedTime **1500**ms → **45**f, SpecialSpeedHeight **160**
 //! - SpecialAccelFactor **1.0** → `z = heightAtLaunch + timeFrac² * 160`
@@ -41,8 +41,8 @@ pub const NEUTRON_LAUNCH_FX: &str = "FX_NeutronMissileLaunch";
 pub const NEUTRON_IGNITION_FX: &str = "FX_NeutronMissileIgnition";
 /// Retail SpecialJitterDistance residual.
 pub const NEUTRON_SPECIAL_JITTER_DISTANCE: f32 = 0.4;
-/// Host residual speed units per frame at RelativeSpeed=1.
-pub const NEUTRON_BASE_SPEED_PER_FRAME: f32 = 12.0;
+/// C++ `doAttack` terminal lag is `RelativeSpeed / ForwardDamping` = **20** u/f.
+/// There is no extra per-frame base multiplier.
 /// Default geometry sphere for the C++ FROM_CENTER_3D intermediate test.
 pub const NEUTRON_DEFAULT_BOUNDING_SPHERE: f32 = 10.0;
 
@@ -289,7 +289,9 @@ impl HostNeutronMissileUpdateData {
             self.intermediate
         };
 
-        let mut speed = NEUTRON_BASE_SPEED_PER_FRAME * NEUTRON_RELATIVE_SPEED;
+        // C++ NeutronMissileUpdate::doAttack: `speed = m_relativeSpeed` (not a 12 u/f base).
+        // Lag: vel' = (1-damp)*vel + speed*dir → terminal = RelativeSpeed/ForwardDamping = 20.
+        let mut speed = NEUTRON_RELATIVE_SPEED;
         if self.reached_intermediate {
             speed *= NEUTRON_STRAIGHT_DOWN_SLOW;
         }
@@ -472,6 +474,15 @@ pub fn honesty_neutron_missile_update_residual_ok() -> bool {
             // Quadratic loft: mid-loft is well below linear 80.
             let mid = special_loft_world_y(0.0, 22, 45, 1.0, 160.0);
             (mid - 160.0 * (22.0_f32 / 45.0).powi(2)).abs() < 0.2 && mid < 50.0
+        }
+        && {
+            // C++ accel = speed*dir - damp*vel; terminal = RelativeSpeed / ForwardDamping.
+            let mut vel = 0.0_f32;
+            for _ in 0..200 {
+                vel += NEUTRON_RELATIVE_SPEED - NEUTRON_FORWARD_DAMPING * vel;
+            }
+            let expected = NEUTRON_RELATIVE_SPEED / NEUTRON_FORWARD_DAMPING;
+            (vel - expected).abs() < 0.05 && (expected - 20.0).abs() < 1e-5
         }
         && {
             let mut d = HostNeutronMissileUpdateData::launch_at(

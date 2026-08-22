@@ -37,12 +37,12 @@ impl GameLogic {
             let mut defector_audio: Vec<String> = Vec::new();
             let mut disguise_halfpoint: Option<(glam::Vec3, bool, bool)> = None;
             let height_die_terrain = {
-                let (pos, ground) = match self.objects.get(&object_id) {
-                    Some(o) => (o.get_position(), o.ground_height),
-                    None => (glam::Vec3::ZERO, 0.0),
+                let (pos, ground, name) = match self.objects.get(&object_id) {
+                    Some(o) => (o.get_position(), o.ground_height, o.template_name.clone()),
+                    None => (glam::Vec3::ZERO, 0.0, String::new()),
                 };
-                // C++ HeightDieUpdate.cpp:133 TheTerrainLogic->getGroundHeight
-                self.terrain_height_at(pos).unwrap_or(ground)
+                // C++ HeightDieUpdate.cpp:132-195 getGroundHeight + structures.
+                self.height_die_terrain_at(pos, &name, ground)
             };
             if let Some(obj) = self.objects.get_mut(&object_id) {
                 obj.tick_terrain_decal_fade();

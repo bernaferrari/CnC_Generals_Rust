@@ -326,6 +326,13 @@ impl SpyVisionUpdate {
         }
     }
 
+    /// C++ `SpyVisionUpdate::upgradeImplementation`.
+    pub fn upgrade_implementation(&self) {
+        if self.data.needs_upgrade && !self.upgrade_mux.is_already_upgraded() {
+            self.activate_spy_vision(self.data.self_powered_duration);
+        }
+    }
+
     pub fn set_disabled_until_frame(&mut self, frame: UnsignedInt) {
         if let Ok(mut controller) = self.controller.lock() {
             controller.set_disabled_until_frame(frame);
@@ -360,7 +367,6 @@ impl SpyVisionUpdate {
             return;
         }
 
-        let duration = self.data.self_powered_duration;
         let mux_data = self.upgrade_mux.data.clone();
         let would = OBJECT_REGISTRY.with_object_mut(self.object_id, |obj_guard| {
             let upgrade_mask = self.build_upgrade_mask(obj_guard);
@@ -373,7 +379,8 @@ impl SpyVisionUpdate {
             }
         });
         if would == Some(true) {
-            self.activate_spy_vision(duration);
+            // C++ UpgradeMux::giveSelfUpgrade → upgradeImplementation.
+            self.upgrade_implementation();
             self.upgrade_mux.set_upgrade_executed(true);
         }
     }

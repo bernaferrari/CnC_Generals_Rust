@@ -4096,6 +4096,40 @@ fn ambush_science_tier_selects_unit_count() {
         AmbushScienceTier::highest_from_sciences([SCIENCE_AMBUSH3]).rebel_count(),
         GLA_AMBUSH3_UNIT_COUNT
     );
+    assert_eq!(
+        logic
+            .host_ambushes()
+            .get(id1)
+            .map(|m| m.unit_template.as_str()),
+        Some("GLAInfantryRebel")
+    );
+    logic
+        .players
+        .get_mut(&0)
+        .unwrap()
+        .unlocked_sciences
+        .clear();
+    logic
+        .players
+        .get_mut(&0)
+        .unwrap()
+        .unlocked_sciences
+        .insert("Chem_SCIENCE_RebelAmbush1".to_string());
+    let idc = logic
+        .queue_ambush(
+            &SpecialPowerType::Ambush,
+            src,
+            glam::Vec3::new(240.0, 0.0, 0.0),
+        )
+        .expect("qc");
+    assert_eq!(
+        logic
+            .host_ambushes()
+            .get(idc)
+            .map(|m| m.unit_template.as_str()),
+        Some("Chem_GLAInfantryRebel")
+    );
+    assert_eq!(logic.ambush_mission_unit_count(idc), Some(4));
 }
 
 #[test]

@@ -2369,9 +2369,24 @@ impl GameLogic {
         let mut installed_gattling = false;
         let mut installed_propaganda = false;
         let mut installed_bunker = false;
+        let mut satellite_hack_activate = None;
 
         if let Some(obj) = self.objects.get_mut(&object_id) {
+            // C++ UpgradeMux::isAlreadyUpgraded — first give only.
+            let first_satellite_hack = !obj.has_upgrade_tag(upgrade);
             obj.apply_upgrade_tag(upgrade);
+            if first_satellite_hack {
+                if let Some(spec) =
+                    crate::game_logic::host_satellite_hack::satellite_hack_spy_spec(upgrade)
+                {
+                    if crate::game_logic::host_satellite_hack::object_authors_spy_vision_update(
+                        &obj.template_name,
+                    ) || obj.is_kind_of(KindOf::FSInternetCenter)
+                    {
+                        satellite_hack_activate = Some(spec);
+                    }
+                }
+            }
             // C++ StatusBitsUpgrade::upgradeImplementation — INI StatusToSet/Clear.
             {
                 let pairs = crate::game_logic::host_status_bits_upgrade::collect_status_bits_for_upgrade(
@@ -2503,6 +2518,10 @@ impl GameLogic {
             }
         }
 
+        // C++ SpyVisionUpdate::upgradeImplementation — activate on upgrade.
+        if let Some(spec) = satellite_hack_activate {
+            let _ = self.activate_satellite_hack_spy_vision(object_id, spec);
+        }
         if installed_gattling {
             self.overlord_addons.record_gattling_install();
         }

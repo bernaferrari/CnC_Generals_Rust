@@ -210,12 +210,18 @@ impl GameWorldShadow {
             let alive = e.health > 0.0 && !e.destroyed;
             let constructed = !e.under_construction && e.construction_percent + 0.001 >= 1.0;
             let neutral = e.team_ordinal == 255;
-            if is_legal_black_market_income_source(alive, constructed, neutral) {
+            let disabled = e.is_disabled();
+            // Keep the ctor-style schedule while disabled (C++ GameLogic.cpp
+            // sleepy skip does not call AutoDepositUpdate; m_depositOnFrame stays).
+            if is_legal_black_market_income_source(alive, constructed, neutral, false) {
                 if e.black_market_next_deposit_frame == 0 {
                     e.black_market_next_deposit_frame =
                         frame.saturating_add(BLACK_MARKET_DEPOSIT_INTERVAL_FRAMES.max(1));
                     changed = true;
-                } else if frame >= e.black_market_next_deposit_frame {
+                } else if !disabled
+                    && is_legal_black_market_income_source(alive, constructed, neutral, disabled)
+                    && frame >= e.black_market_next_deposit_frame
+                {
                     e.black_market_next_deposit_frame =
                         frame.saturating_add(BLACK_MARKET_DEPOSIT_INTERVAL_FRAMES.max(1));
                     if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
@@ -247,12 +253,16 @@ impl GameWorldShadow {
             let alive = e.health > 0.0 && !e.destroyed;
             let constructed = !e.under_construction && e.construction_percent + 0.001 >= 1.0;
             let neutral = e.team_ordinal == 255;
-            if is_legal_oil_derrick_income_source(alive, constructed, neutral) {
+            let disabled = e.is_disabled();
+            if is_legal_oil_derrick_income_source(alive, constructed, neutral, false) {
                 if e.oil_derrick_next_deposit_frame == 0 {
                     e.oil_derrick_next_deposit_frame =
                         frame.saturating_add(OIL_DERRICK_DEPOSIT_INTERVAL_FRAMES.max(1));
                     changed = true;
-                } else if frame >= e.oil_derrick_next_deposit_frame {
+                } else if !disabled
+                    && is_legal_oil_derrick_income_source(alive, constructed, neutral, disabled)
+                    && frame >= e.oil_derrick_next_deposit_frame
+                {
                     e.oil_derrick_next_deposit_frame =
                         frame.saturating_add(OIL_DERRICK_DEPOSIT_INTERVAL_FRAMES.max(1));
                     // Supply lines boost resolved on host drain (player upgrades).

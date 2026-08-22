@@ -294,6 +294,16 @@ pub struct HostSpecialPowerStrike {
     /// Honesty: Anthrax toxin residual pack applications (on parent strike).
     #[serde(default)]
     pub anthrax_toxin_residual_pack_applications: u32,
+    /// C++ NeutronMissileSlowDeath lives on the flying missile. When OCL
+    /// FireWeapon spawned a live (non-cruise) NeutronMissile, skip the
+    /// registry instant blast + second SlowDeath at impact_frame.
+    #[serde(default)]
+    pub live_neutron_delivery: bool,
+    /// C++ AttackNugget fires 9 ScudStormMissiles; FireWeaponWhenDead is
+    /// ScudStormDamageWeapon. When leftover Attack scheduled live missiles,
+    /// skip the registry blob warhead + FireOCL poison (one path only).
+    #[serde(default)]
+    pub live_scud_delivery: bool,
 }
 
 /// Damage application plan for a single victim (computed before mutable apply).

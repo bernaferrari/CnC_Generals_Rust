@@ -27,7 +27,8 @@
 //! - Not full InitialCaptureBonus (retail = 0) / UpgradedBoost (none in GLABlackMarket)
 //! - Oil derrick / hacker residuals live in host_oil_derrick / host_hacker_income
 //!   (this module is black-market only)
-//! - Not disabled / underpowered / neutral-owner gates beyond is_alive + constructed
+//! - C++ GameLogic.cpp sleepy skip: AutoDeposit freezes while `isDisabled`
+//!   (EMP / subdued / hacked / underpowered). Schedule stays; cash does not print.
 //! - Network deferred
 
 use super::ObjectId;
@@ -143,14 +144,16 @@ pub fn is_black_market_structure(name: &str) -> bool {
 
 /// Whether residual Black Market can award cash this frame.
 ///
-/// Matches C++ AutoDepositUpdate::update gates (subset):
-/// alive, construction complete, not neutral-controlled.
+/// Matches C++ AutoDepositUpdate::update plus GameLogic.cpp:3715-3718:
+/// alive, construction complete, not neutral-controlled, not disabled.
+/// Disabled objects keep their deposit schedule (module not called).
 pub fn is_legal_black_market_income_source(
     is_alive: bool,
     is_constructed: bool,
     is_neutral: bool,
+    is_disabled: bool,
 ) -> bool {
-    is_alive && is_constructed && !is_neutral
+    is_alive && is_constructed && !is_neutral && !is_disabled
 }
 
 /// Host residual honesty + per-market deposit schedule.
@@ -393,10 +396,11 @@ mod tests {
 
     #[test]
     fn legal_income_source_matrix() {
-        assert!(is_legal_black_market_income_source(true, true, false));
-        assert!(!is_legal_black_market_income_source(false, true, false));
-        assert!(!is_legal_black_market_income_source(true, false, false));
-        assert!(!is_legal_black_market_income_source(true, true, true));
+        assert!(is_legal_black_market_income_source(true, true, false, false));
+        assert!(!is_legal_black_market_income_source(false, true, false, false));
+        assert!(!is_legal_black_market_income_source(true, false, false, false));
+        assert!(!is_legal_black_market_income_source(true, true, true, false));
+        assert!(!is_legal_black_market_income_source(true, true, false, true));
     }
 
     #[test]

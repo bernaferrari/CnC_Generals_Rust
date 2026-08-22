@@ -4599,28 +4599,34 @@ impl GameLogic {
                     }
 
 
-                    // Disguise: reject bomb-truck / train name residual targets,
-                    // unless the target is already disguised (C++ disguiseAsObject
-                    // copies that appearance — true template may still be bomb truck).
+                    // Disguise: C++ ActionManager SPECIAL_DISGUISE_AS_VEHICLE.
+                    // Bomb-truck same-template reject is commented out in retail;
+                    // boats / trains / aircraft are illegal.
                     if matches!(ability, PendingSpecialAbility::DisguiseAsVehicle { .. }) {
-                        use crate::game_logic::host_bomb_truck_disguise::{
-                            is_bomb_truck_template, is_legal_disguise_target_template,
-                        };
-                        let (target_tpl, target_disguised) = self
+                        use crate::game_logic::host_bomb_truck_disguise::is_legal_disguise_target;
+                        use crate::game_logic::host_car_bomb::object_definition_has_kind;
+                        let legal = self
                             .objects
                             .get(&special_target_id)
-                            .map(|t| (t.template_name.clone(), t.status.disguised))
-                            .unwrap_or_default();
-                        let reject_bomb = is_bomb_truck_template(&target_tpl) && !target_disguised;
-                        if reject_bomb || !is_legal_disguise_target_template(&target_tpl) {
-                            // is_legal rejects bomb trucks by name; allow when disguised.
-                            if !(target_disguised && is_bomb_truck_template(&target_tpl)) {
-                                self.pending_special_abilities.remove(&object_id);
-                                if let Some(obj) = self.objects.get_mut(&object_id) {
-                                    obj.set_target(None);
-                                }
-                                continue;
+                            .map(|t| {
+                                is_legal_disguise_target(
+                                    t.is_alive(),
+                                    t.is_kind_of(crate::game_logic::KindOf::Vehicle),
+                                    t.is_kind_of(crate::game_logic::KindOf::Aircraft)
+                                        || t.status.airborne_target,
+                                    t.is_kind_of(crate::game_logic::KindOf::Boat)
+                                        || object_definition_has_kind(&t.template_name, "BOAT"),
+                                    &t.template_name,
+                                    t.status.disguised,
+                                )
+                            })
+                            .unwrap_or(false);
+                        if !legal {
+                            self.pending_special_abilities.remove(&object_id);
+                            if let Some(obj) = self.objects.get_mut(&object_id) {
+                                obj.set_target(None);
                             }
+                            continue;
                         }
                     }
 

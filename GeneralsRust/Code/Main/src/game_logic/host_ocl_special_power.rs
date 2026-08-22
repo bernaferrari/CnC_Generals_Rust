@@ -16,6 +16,7 @@
 //! | SuperweaponA10… | SUPERWEAPON_A10…1 | EDGE_NEAR_SOURCE | Strike2/3 sciences |
 //! | SuperweaponEmergencyRepair | SUPERWEAPON_RepairVehicles1 | AT_LOCATION | Repair2/3 |
 //! | SuperweaponLeafletDrop | SUPERWEAPON_LeafletDrop | EDGE_NEAR_SOURCE | — |
+//! | SuperweaponRebelAmbush | SUPERWEAPON_RebelAmbush1 | AT_LOCATION + adjust | Ambush3/2 + Chem/Demo/Slth |
 //!
 //! Fail-closed: not full ObjectCreationList::create deliverer/payload matrix.
 //! OCLAdjustPositionToPassable snaps via findPositionAround(CLEAR_CELLS_ONLY, r=500);
@@ -188,6 +189,42 @@ pub fn america_command_center_ocl_peels() -> Vec<OclSpecialPowerPeel> {
     ]
 }
 
+fn ambush_upgrade(science: &str, ocl: &str) -> OclScienceUpgrade {
+    OclScienceUpgrade {
+        science: science.into(),
+        ocl: ocl.into(),
+    }
+}
+
+/// Retail GLA / Chem / Demo / Slth Command Center OCLSpecialPower peels.
+///
+/// C++ `FactionBuilding.ini` keeps one module per command-center object. Host
+/// merges UpgradeOCL pairs so `findOCL` still walks first-owned-science-wins
+/// (Ambush3 before Ambush2; Chem/Demo/Slth Ambush1 listed so they do not fall
+/// through to `GLAInfantryRebel`).
+pub fn gla_command_center_ocl_peels() -> Vec<OclSpecialPowerPeel> {
+    vec![OclSpecialPowerPeel {
+        special_power_template: "SuperweaponRebelAmbush".into(),
+        default_ocl: "SUPERWEAPON_RebelAmbush1".into(),
+        create_loc: OclCreateLocType::AtLocation,
+        upgrade_ocl: vec![
+            ambush_upgrade("SCIENCE_RebelAmbush3", "SUPERWEAPON_RebelAmbush3"),
+            ambush_upgrade("SCIENCE_RebelAmbush2", "SUPERWEAPON_RebelAmbush2"),
+            ambush_upgrade("Chem_SCIENCE_RebelAmbush3", "Chem_SUPERWEAPON_RebelAmbush3"),
+            ambush_upgrade("Chem_SCIENCE_RebelAmbush2", "Chem_SUPERWEAPON_RebelAmbush2"),
+            ambush_upgrade("Chem_SCIENCE_RebelAmbush1", "Chem_SUPERWEAPON_RebelAmbush1"),
+            ambush_upgrade("Demo_SCIENCE_RebelAmbush3", "Demo_SUPERWEAPON_RebelAmbush3"),
+            ambush_upgrade("Demo_SCIENCE_RebelAmbush2", "Demo_SUPERWEAPON_RebelAmbush2"),
+            ambush_upgrade("Demo_SCIENCE_RebelAmbush1", "Demo_SUPERWEAPON_RebelAmbush1"),
+            ambush_upgrade("Slth_SCIENCE_RebelAmbush3", "Slth_SUPERWEAPON_RebelAmbush3"),
+            ambush_upgrade("Slth_SCIENCE_RebelAmbush2", "Slth_SUPERWEAPON_RebelAmbush2"),
+            ambush_upgrade("Slth_SCIENCE_RebelAmbush1", "Slth_SUPERWEAPON_RebelAmbush1"),
+        ],
+        adjust_position_to_passable: true,
+        reference_object: None,
+    }]
+}
+
 /// Resolve OCL name: first owned upgrade science, else default.
 ///
 /// C++ `OCLSpecialPower::findOCL` uses `getControllingPlayer()->hasScience`.
@@ -206,8 +243,11 @@ pub fn find_ocl_name(
 
 pub fn peel_for_special_power(power_template: &str) -> Option<&'static OclSpecialPowerPeel> {
     use std::sync::LazyLock;
-    static PEELS: LazyLock<Vec<OclSpecialPowerPeel>> =
-        LazyLock::new(america_command_center_ocl_peels);
+    static PEELS: LazyLock<Vec<OclSpecialPowerPeel>> = LazyLock::new(|| {
+        let mut peels = america_command_center_ocl_peels();
+        peels.extend(gla_command_center_ocl_peels());
+        peels
+    });
     let key = power_template.to_ascii_lowercase();
     PEELS.iter().find(|p| {
         p.special_power_template
@@ -550,6 +590,29 @@ pub fn create_object_for_ocl(ocl: &str) -> Option<OclCreateObjectPeel> {
             count: 1,
         });
     }
+    if n.contains("rebelambush") {
+        let count = if n.contains("ambush3") {
+            16
+        } else if n.contains("ambush2") {
+            8
+        } else {
+            4
+        };
+        let template = if n.contains("chem_") {
+            "Chem_GLAInfantryRebel"
+        } else if n.contains("demo_") {
+            "Demo_GLAInfantryRebel"
+        } else if n.contains("slth_") {
+            "Slth_GLAInfantryRebel"
+        } else {
+            "GLAInfantryRebel"
+        };
+        return Some(OclCreateObjectPeel {
+            ocl_name: ocl.into(),
+            object_names: vec![template.into()],
+            count,
+        });
+    }
     None
 }
 
@@ -562,6 +625,7 @@ pub fn special_power_template_for_host_kind(kind_label: &str) -> Option<&'static
         "Paradrop" => Some("SuperweaponParadropAmerica"),
         "CrateDrop" => Some("SuperweaponCrateDrop"),
         "SpyDrone" => Some("SpecialPowerSpyDrone"),
+        "GLARebelAmbush" | "Ambush" => Some("SuperweaponRebelAmbush"),
         _ => None,
     }
 }
@@ -585,7 +649,11 @@ pub fn ocl_execute_mode_for_template(power_template: &str) -> OclExecuteMode {
         || n.contains("cratedrop")
     {
         OclExecuteMode::TransportOnly
-    } else if n.contains("spydrone") || n.contains("spysatellite") {
+    } else if n.contains("spydrone")
+        || n.contains("spysatellite")
+        || n.contains("rebelambush")
+        || n.contains("ambush")
+    {
         OclExecuteMode::CreateObject
     } else {
         OclExecuteMode::FullDeliver
@@ -676,6 +744,21 @@ pub fn honesty_ocl_special_power_residual_ok() -> bool {
             )
             .expect("drone");
             (plan.creation_coord.y - 300.0).abs() < 0.1 && plan.ocl_name == "SUPERWEAPON_SpyDrone"
+        }
+        && {
+            let peels = gla_command_center_ocl_peels();
+            let ambush = peels
+                .iter()
+                .find(|p| p.special_power_template.contains("RebelAmbush"))
+                .expect("ambush");
+            find_ocl_name(ambush, |_| false) == "SUPERWEAPON_RebelAmbush1"
+                && find_ocl_name(ambush, |s| s == "SCIENCE_RebelAmbush3")
+                    == "SUPERWEAPON_RebelAmbush3"
+                && find_ocl_name(ambush, |s| s == "Chem_SCIENCE_RebelAmbush1")
+                    == "Chem_SUPERWEAPON_RebelAmbush1"
+                && create_object_for_ocl("Chem_SUPERWEAPON_RebelAmbush3")
+                    .map(|c| c.object_names[0] == "Chem_GLAInfantryRebel" && c.count == 16)
+                    .unwrap_or(false)
         }
         && deliver_payload_for_ocl("SUPERWEAPON_DaisyCutter")
             .map(|d| d.transport == "AmericaJetB52" && d.payload == "DaisyCutterBomb")
