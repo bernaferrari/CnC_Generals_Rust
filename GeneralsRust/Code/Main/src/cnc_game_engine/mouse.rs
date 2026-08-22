@@ -79,6 +79,32 @@ struct LookAtHostModes {
     camera_follow_lock_broken: bool,
 }
 
+fn live_camera_zoom_limited() -> bool {
+    #[cfg(feature = "game_client")]
+    {
+        game_client::display::view::with_tactical_view_ref(|view| view.is_zoom_limited())
+    }
+    #[cfg(not(feature = "game_client"))]
+    {
+        true
+    }
+}
+
+pub fn height_after_zoom_steps(
+    current_hag: f32,
+    steps: f32,
+    min_h: f32,
+    max_h: f32,
+    zoom_limited: bool,
+) -> f32 {
+    let next = current_hag + steps * 10.0;
+    if zoom_limited {
+        next.clamp(min_h, max_h)
+    } else {
+        next
+    }
+}
+
 fn look_at_host_modes() -> std::sync::MutexGuard<'static, LookAtHostModes> {
     static STATE: std::sync::LazyLock<std::sync::Mutex<LookAtHostModes>> =
         std::sync::LazyLock::new(|| {
@@ -2270,7 +2296,8 @@ impl CnCGameEngine {
         let current_hag = look_at_host_modes()
             .desired_height_above_ground
             .unwrap_or(self.camera_zoom * basis);
-        let new_hag = (current_hag + steps * 10.0).clamp(min_h, max_h);
+        let zoom_limited = live_camera_zoom_limited();
+        let new_hag = height_after_zoom_steps(current_hag, steps, min_h, max_h, zoom_limited);
         look_at_host_modes().desired_height_above_ground = Some(new_hag);
         // C++ View::zoomIn/Out only changes HAG; W3DView eases zoom at CameraAdjustSpeed.
     }
@@ -4124,6 +4151,16 @@ mod camera_pick_tests {
         assert!((clamp_w3d_zoom(0.1) - 0.2).abs() < f32::EPSILON);
         assert!((clamp_w3d_zoom(2.0) - 1.3).abs() < f32::EPSILON);
         assert!((clamp_w3d_zoom(1.0) - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn letterbox_lifts_min_max_camera_height_clamp() {
+        let limited = height_after_zoom_steps(120.0, -20.0, 40.0, 200.0, true);
+        assert!((limited - 40.0).abs() < f32::EPSILON);
+        let unlocked = height_after_zoom_steps(120.0, -20.0, 40.0, 200.0, false);
+        assert!((unlocked - -80.0).abs() < f32::EPSILON);
+        let high = height_after_zoom_steps(180.0, 10.0, 40.0, 200.0, false);
+        assert!((high - 280.0).abs() < f32::EPSILON);
     }
 
     #[test]
