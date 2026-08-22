@@ -1276,6 +1276,51 @@ fn infantry_collision_reclaims_unmanned_vehicle() {
     assert!(!v.status.disabled_unmanned);
     assert_eq!(v.team, Team::USA);
     assert_eq!(v.experience.level, VeterancyLevel::Veteran);
+    assert!(v.is_private_captured());
+}
+
+#[test]
+fn unmanned_recrew_transfers_script_name_and_captured_bit() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::USA, "USA", true));
+    let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");
+    humvee.add_kind_of(KindOf::Vehicle).set_health(300.0);
+    logic
+        .templates
+        .insert("AmericaVehicleHumvee".into(), humvee);
+    let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
+    ranger.add_kind_of(KindOf::Infantry).set_health(100.0);
+    logic
+        .templates
+        .insert("AmericaInfantryRanger".into(), ranger);
+
+    let vid = logic
+        .create_object("AmericaVehicleHumvee", Team::GLA, glam::Vec3::ZERO)
+        .expect("humvee");
+    if let Some(v) = logic.host_object_mut(vid) {
+        v.apply_kill_pilot_unmanned();
+        v.set_team(Team::Neutral);
+        v.name.clear();
+    }
+    let iid = logic
+        .create_object(
+            "AmericaInfantryRanger",
+            Team::USA,
+            glam::Vec3::new(1.0, 0.0, 0.0),
+        )
+        .expect("ranger");
+    if let Some(i) = logic.host_object_mut(iid) {
+        i.name = "NamedRanger".into();
+        i.record_host_identity();
+    }
+
+    assert!(logic.try_infantry_unmanned_reclaim(iid, vid));
+    let v = logic.host_object(vid).expect("vehicle survives");
+    assert!(v.is_private_captured());
+    assert_eq!(v.name, "NamedRanger");
 }
 
 #[test]

@@ -92,19 +92,17 @@ impl Object {
 
     /// Residual mine / demo-trap / booby identity for DAMAGE_DISARM targeting.
     ///
-    /// C++ DISARM only hits LandMineInterface (KINDOF_MINE). GLADemoTrap is
-    /// STRUCTURE / KINDOF_DEMOTRAP, so it is not disarmable.
+    /// C++ Weapon.cpp DISARM estimate is nonzero for KINDOF_MINE | BOOBY_TRAP | DEMOTRAP.
     pub fn is_disarmable_mine(&self) -> bool {
         use crate::game_logic::host_mines::can_clear_mine_kind;
         if let Some(md) = self.mine_data.as_ref() {
             return !md.detonated && can_clear_mine_kind(md.kind);
         }
-        // Name peel residual when mine_data not attached yet.
         let n = self.template_name.to_ascii_lowercase();
-        if n.contains("demotrap") {
-            return false;
-        }
-        n.contains("mine") || n.contains("booby") || self.status.booby_trapped
+        n.contains("mine")
+            || n.contains("booby")
+            || n.contains("demotrap")
+            || self.status.booby_trapped
     }
 
     /// C++ LandMineInterface::disarm residual (safe clear, no splash).
@@ -298,6 +296,7 @@ impl Object {
         self.set_status_force_attack(false);
         self.set_ai_state(AIState::Idle);
         self.set_team_and_owner(pilot_team, pilot_owner_player_id);
+        self.set_private_captured(true);
 
         let previous = self.experience.level;
         let merged = merged_recrew_veterancy(previous, pilot_level);
