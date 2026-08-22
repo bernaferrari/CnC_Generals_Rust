@@ -710,6 +710,17 @@ pub(super) fn advance_disguise_halfpoint(game_logic: &mut GameLogic, ids: &[Obje
     }
 }
 
+/// C++ `StealthDetectorUpdate` ctor staggers first wake; run detection at that frame.
+pub(super) fn run_detector_first_scan(game_logic: &mut GameLogic, detector_id: ObjectId) {
+    let due = game_logic
+        .host_object(detector_id)
+        .map(|o| o.next_detection_scan_frame)
+        .unwrap_or(0)
+        .max(1);
+    game_logic.frame = due;
+    game_logic.update_stealth_and_detection();
+}
+
 /// Advance disguise reveal transition residual past halfpoint.
 
 /// Advance disguise reveal transition residual past halfpoint.
