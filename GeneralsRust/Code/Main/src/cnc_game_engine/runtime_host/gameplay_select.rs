@@ -414,7 +414,7 @@ impl CnCGameEngine {
             // Use the same W3D-orbit rebuild as physical centering.  Writing
             // only `camera_position` here left the actual view matrix stale
             // and made the next input update snap the command back.
-            self.host_center_camera_on(target);
+            self.host_player_look_at(target);
             self.runtime_host_last_gameplay_cmd = format!(
                 "camera_look_ok:{:.1},{:.1},{:.1}",
                 target.x, target.y, target.z
@@ -437,7 +437,7 @@ impl CnCGameEngine {
                 .unwrap_or(1.0_f32)
                 .clamp(0.2_f32, 4.0_f32);
             self.camera_zoom = z;
-            self.camera_zoom_target = None;
+            self.cancel_scripted_camera_from_player_set();
             self.apply_camera_orbit_transform();
             self.runtime_host_last_gameplay_cmd = format!("camera_zoom_ok:{:.3}", z);
         }

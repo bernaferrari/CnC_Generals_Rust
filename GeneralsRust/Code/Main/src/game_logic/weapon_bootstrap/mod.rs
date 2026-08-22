@@ -69,6 +69,9 @@ mod unit_map;
 pub use unit_map::*;
 mod store;
 pub use store::*;
+mod extra_bonus;
+pub use extra_bonus::*;
+
 
 #[cfg(test)]
 mod tests;
@@ -79,6 +82,7 @@ pub const WEAPON_BOOTSTRAP_SRC: &str = concat!(
     include_str!("collide.rs"),
     include_str!("damage_kinds.rs"),
     include_str!("estimate.rs"),
+    include_str!("extra_bonus.rs"),
     include_str!("fx.rs"),
     include_str!("historic_speed.rs"),
     include_str!("honesty.rs"),

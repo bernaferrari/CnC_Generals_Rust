@@ -193,8 +193,11 @@ impl CnCGameEngine {
         &mut self,
         pres: &crate::presentation_frame::PresentationFrame,
     ) {
+        let player_cancel = super::mouse::take_scripted_camera_player_cancel();
         if let Some(focus) = pres.camera_focus {
-            self.center_camera_on(Vec3::new(focus[0], focus[1], focus[2]));
+            if !player_cancel.cancels_move() {
+                self.center_camera_on(Vec3::new(focus[0], focus[1], focus[2]));
+            }
         }
 
         // C++ ControlBar setDefault/setLow writes TheTacticalView->setHeight.
@@ -218,103 +221,115 @@ impl CnCGameEngine {
             // C++ W3DView::resetCamera: zoom/pitch/heading animate over script duration.
             let duration = pres.camera_zoom_reset_duration.max(0.0);
             let (ease_in, ease_out) = pres.camera_zoom_reset_ease;
-            let zoom = self.compute_default_camera_zoom_for_target(
-                self.camera_target,
-                self.ui_script_default_camera_max_height(),
-            );
-            if duration <= 0.0 {
-                self.camera_zoom = zoom;
-                self.camera_zoom_target = None;
-                self.camera_zoom_start = self.camera_zoom;
-                self.camera_zoom_duration = 0.0;
-                self.camera_zoom_elapsed = 0.0;
-                self.camera_zoom_ease_in = 0.0;
-                self.camera_zoom_ease_out = 0.0;
-            } else {
-                self.camera_zoom_start = self.camera_zoom;
-                self.camera_zoom_target = Some(zoom);
-                self.camera_zoom_duration = duration;
-                self.camera_zoom_elapsed = 0.0;
-                self.camera_zoom_ease_in = ease_in;
-                self.camera_zoom_ease_out = ease_out;
+            if !player_cancel.cancels_set() {
+                let zoom = self.compute_default_camera_zoom_for_target(
+                    self.camera_target,
+                    self.ui_script_default_camera_max_height(),
+                );
+                if duration <= 0.0 {
+                    self.camera_zoom = zoom;
+                    self.camera_zoom_target = None;
+                    self.camera_zoom_start = self.camera_zoom;
+                    self.camera_zoom_duration = 0.0;
+                    self.camera_zoom_elapsed = 0.0;
+                    self.camera_zoom_ease_in = 0.0;
+                    self.camera_zoom_ease_out = 0.0;
+                } else {
+                    self.camera_zoom_start = self.camera_zoom;
+                    self.camera_zoom_target = Some(zoom);
+                    self.camera_zoom_duration = duration;
+                    self.camera_zoom_elapsed = 0.0;
+                    self.camera_zoom_ease_in = ease_in;
+                    self.camera_zoom_ease_out = ease_out;
+                }
+                self.apply_script_camera_pitch_request(CameraPitchRequest {
+                    // C++ pitchCamera(1.0, milliseconds, easeIn, easeOut)
+                    pitch: 1.0,
+                    duration_seconds: duration,
+                    ease_in_seconds: ease_in,
+                    ease_out_seconds: ease_out,
+                });
             }
-            self.apply_script_camera_pitch_request(CameraPitchRequest {
-                // C++ pitchCamera(1.0, milliseconds, easeIn, easeOut)
-                pitch: 1.0,
-                duration_seconds: duration,
-                ease_in_seconds: ease_in,
-                ease_out_seconds: ease_out,
-            });
             // C++ m_mcwpInfo.cameraAngle[2] = 0.0 — animate heading to default.
-            let target_yaw = 0.0;
-            if duration <= 0.0 {
-                self.camera_yaw_radians = target_yaw;
-                self.camera_yaw_target = None;
-                self.camera_yaw_start = self.camera_yaw_radians;
-                self.camera_yaw_duration = 0.0;
-                self.camera_yaw_elapsed = 0.0;
-                self.camera_yaw_ease_in = 0.0;
-                self.camera_yaw_ease_out = 0.0;
-                self.apply_camera_orbit_transform();
-            } else {
-                self.camera_yaw_start = self.camera_yaw_radians;
-                self.camera_yaw_target = Some(target_yaw);
-                self.camera_yaw_duration = duration;
-                self.camera_yaw_elapsed = 0.0;
-                self.camera_yaw_ease_in = ease_in;
-                self.camera_yaw_ease_out = ease_out;
+            if !player_cancel.cancels_rotate() {
+                let target_yaw = 0.0;
+                if duration <= 0.0 {
+                    self.camera_yaw_radians = target_yaw;
+                    self.camera_yaw_target = None;
+                    self.camera_yaw_start = self.camera_yaw_radians;
+                    self.camera_yaw_duration = 0.0;
+                    self.camera_yaw_elapsed = 0.0;
+                    self.camera_yaw_ease_in = 0.0;
+                    self.camera_yaw_ease_out = 0.0;
+                    self.apply_camera_orbit_transform();
+                } else {
+                    self.camera_yaw_start = self.camera_yaw_radians;
+                    self.camera_yaw_target = Some(target_yaw);
+                    self.camera_yaw_duration = duration;
+                    self.camera_yaw_elapsed = 0.0;
+                    self.camera_yaw_ease_in = ease_in;
+                    self.camera_yaw_ease_out = ease_out;
+                }
             }
         }
 
         if let Some((zoom, duration_seconds)) = pres.camera_zoom {
-            let (ease_in, ease_out) = pres.camera_zoom_ease;
-            if duration_seconds <= 0.0 {
-                self.camera_zoom = zoom;
-                self.camera_zoom_target = None;
-                self.camera_zoom_start = self.camera_zoom;
-                self.camera_zoom_duration = 0.0;
-                self.camera_zoom_elapsed = 0.0;
-                self.camera_zoom_ease_in = 0.0;
-                self.camera_zoom_ease_out = 0.0;
-            } else {
-                self.camera_zoom_start = self.camera_zoom;
-                self.camera_zoom_target = Some(zoom);
-                self.camera_zoom_duration = duration_seconds;
-                self.camera_zoom_elapsed = 0.0;
-                self.camera_zoom_ease_in = ease_in;
-                self.camera_zoom_ease_out = ease_out;
+            if !player_cancel.cancels_set() {
+                let (ease_in, ease_out) = pres.camera_zoom_ease;
+                if duration_seconds <= 0.0 {
+                    self.camera_zoom = zoom;
+                    self.camera_zoom_target = None;
+                    self.camera_zoom_start = self.camera_zoom;
+                    self.camera_zoom_duration = 0.0;
+                    self.camera_zoom_elapsed = 0.0;
+                    self.camera_zoom_ease_in = 0.0;
+                    self.camera_zoom_ease_out = 0.0;
+                } else {
+                    self.camera_zoom_start = self.camera_zoom;
+                    self.camera_zoom_target = Some(zoom);
+                    self.camera_zoom_duration = duration_seconds;
+                    self.camera_zoom_elapsed = 0.0;
+                    self.camera_zoom_ease_in = ease_in;
+                    self.camera_zoom_ease_out = ease_out;
+                }
             }
         }
 
         if let Some((pitch, duration_seconds)) = pres.camera_pitch {
-            let (ease_in, ease_out) = pres.camera_pitch_ease;
-            self.apply_script_camera_pitch_request(CameraPitchRequest {
-                pitch,
-                duration_seconds,
-                ease_in_seconds: ease_in,
-                ease_out_seconds: ease_out,
-            });
+            if !player_cancel.cancels_set() {
+                let (ease_in, ease_out) = pres.camera_pitch_ease;
+                self.apply_script_camera_pitch_request(CameraPitchRequest {
+                    pitch,
+                    duration_seconds,
+                    ease_in_seconds: ease_in,
+                    ease_out_seconds: ease_out,
+                });
+            }
         }
 
         if let Some((rotations, duration_seconds)) = pres.camera_rotate {
-            let (ease_in, ease_out) = pres.camera_rotate_ease;
-            self.apply_script_camera_rotate_request(CameraRotateRequest {
-                rotations,
-                duration_seconds,
-                ease_in_seconds: ease_in,
-                ease_out_seconds: ease_out,
-            });
+            if !player_cancel.cancels_rotate() {
+                let (ease_in, ease_out) = pres.camera_rotate_ease;
+                self.apply_script_camera_rotate_request(CameraRotateRequest {
+                    rotations,
+                    duration_seconds,
+                    ease_in_seconds: ease_in,
+                    ease_out_seconds: ease_out,
+                });
+            }
         }
 
         if let Some(look) = pres.camera_look_toward {
-            let (ease_in, ease_out) = pres.camera_look_toward_ease;
-            self.apply_camera_look_toward_request(CameraLookTowardWaypointRequest {
-                position: Vec3::new(look[0], look[1], look[2]),
-                duration_seconds: pres.camera_look_toward_duration,
-                ease_in_seconds: ease_in,
-                ease_out_seconds: ease_out,
-                reverse_rotation: false,
-            });
+            if !player_cancel.cancels_rotate() {
+                let (ease_in, ease_out) = pres.camera_look_toward_ease;
+                self.apply_camera_look_toward_request(CameraLookTowardWaypointRequest {
+                    position: Vec3::new(look[0], look[1], look[2]),
+                    duration_seconds: pres.camera_look_toward_duration,
+                    ease_in_seconds: ease_in,
+                    ease_out_seconds: ease_out,
+                    reverse_rotation: false,
+                });
+            }
         }
 
         if let Some((thing_template_name, bone_name)) = pres.camera_slave_enable.clone() {

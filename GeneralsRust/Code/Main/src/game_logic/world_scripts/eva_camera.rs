@@ -587,6 +587,44 @@ impl GameLogic {
         self.script_camera_focus_estimate = position;
     }
 
+    /// C++ `W3DView::setAngle`/`setPitch`/`setZoom`/`setHeightAboveGround`:
+    /// drop the in-flight scripted path so player input is not overwritten.
+    pub fn cancel_scripted_camera_from_player_set(&mut self) {
+        self.clear_in_flight_scripted_camera_move();
+        // Residual peeks these every frame (drain is a no-op). If they stay set,
+        // live scripted zoom/pitch/rotate re-arm after the one-frame skip.
+        self.pending_camera_rotate = None;
+        self.pending_camera_zoom = None;
+        self.pending_camera_pitch = None;
+        self.pending_camera_zoom_reset = false;
+        self.pending_camera_zoom_reset_duration = 0.0;
+        self.pending_camera_zoom_reset_ease_in = 0.0;
+        self.pending_camera_zoom_reset_ease_out = 0.0;
+    }
+
+    /// C++ `W3DView::lookAt`: drop rotate + waypoint path + scripted lock.
+    pub fn cancel_scripted_camera_from_player_look_at(&mut self) {
+        self.clear_in_flight_scripted_camera_move();
+        self.pending_camera_rotate = None;
+    }
+
+    /// C++ player `TheTacticalView->lookAt`: cancel then queue the snap.
+    pub fn request_player_camera_look_at(&mut self, position: Vec3) {
+        self.cancel_scripted_camera_from_player_look_at();
+        self.request_camera_focus(position);
+    }
+
+    fn clear_in_flight_scripted_camera_move(&mut self) {
+        self.script_camera_move_to = None;
+        self.script_camera_path = None;
+        self.pending_camera_look_toward = None;
+        self.script_look_toward_object_id = None;
+        self.script_look_toward_hold_seconds = 0.0;
+        self.pending_camera_focus = None;
+        self.mission_scripts.set_camera_movement_finished(true);
+    }
+
+
     pub(in super::super) fn selected_objects_center_for_local_player(&self) -> Option<Vec3> {
         let local_player_id = self.local_player_id()?;
         let player = self.players.get(&local_player_id)?;

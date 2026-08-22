@@ -963,17 +963,16 @@ impl StateImplementation for AITNGuardIdleState {
                                     let Ok(mut exit_guard) = exit_interface.lock() else {
                                         return StateReturnType::Sleep(0);
                                     };
-                                    let door = exit_guard.reserve_door_for_exit(
-                                        Some(&*tunnel_guard),
-                                        Some(&*owner_guard),
-                                    );
-                                    if door == ExitDoorType::NoneAvailable {
+                                    // C++ AITNGuardIdleState::update (AITNGuard.cpp:697-700).
+                                    if exit_guard.is_exit_busy() {
                                         return StateReturnType::Sleep(0);
                                     }
-                                    let _ = exit_guard.exit_object_via_door(
-                                        owner.read().map(|g| g.get_id()).unwrap_or(0),
-                                        door,
-                                    );
+                                    let owner_id = owner
+                                        .read()
+                                        .ok()
+                                        .map(|g| g.get_id())
+                                        .unwrap_or(crate::common::INVALID_ID);
+                                    let _ = exit_guard.exit_object_in_a_hurry(owner_id);
                                     return StateReturnType::Sleep(0);
                                 }
                             }
@@ -1300,8 +1299,8 @@ impl StateImplementation for AITNGuardReturnState {
                             let _ = self.base.with_machine(|machine| {
                                 machine.set_goal_object_by_id(Some(nemesis_id))
                             });
+                            return StateReturnType::Failure;
                         }
-                        return StateReturnType::Failure;
                     }
                 }
             }
@@ -1645,7 +1644,7 @@ fn find_tunnel_network_inner_target(owner_id: ObjectID) -> Option<ObjectID> {
         }
         let can_attack = matches!(
             owner_guard.get_able_to_attack_specific_object(
-                AbleToAttackType::NewTarget,
+                AbleToAttackType::TunnelNetworkGuard,
                 &attacker_guard,
                 CommandSourceType::FromAi,
             ),
@@ -1726,8 +1725,10 @@ pub fn find_best_tunnel(owner_player: &Player, pos: &Coord3D) -> Option<ObjectID
             continue;
         };
         let tunnel_pos = *tunnel_guard.get_position();
-        let delta = tunnel_pos - *pos;
-        let dist_sqr = delta.length_squared();
+
+        let dx = tunnel_pos.x - pos.x;
+        let dy = tunnel_pos.y - pos.y;
+        let dist_sqr = dx * dx + dy * dy;
         let better = best
             .as_ref()
             .map(|(_, best_dist)| dist_sqr < *best_dist)

@@ -932,7 +932,8 @@ impl CnCGameEngine {
 
         match interaction.kind {
             MinimapActionKind::LeftClick | MinimapActionKind::LeftDrag => {
-                self.center_camera_on(world_pos);
+                // C++ ControlBarCallback lookAt — cancel scripted rotate/path/lock.
+                self.host_player_look_at(world_pos);
             }
             MinimapActionKind::RightClick => {
                 // C++ LeftHUD handles an armed map-target command before its
@@ -1491,6 +1492,13 @@ impl CnCGameEngine {
         // Wave 611: thin wrapper — residual via host helper.
         self.host_center_camera_on(world_pos)
     }
+
+    /// C++ player `W3DView::lookAt` — cancel scripted rotate/path then snap.
+    pub(super) fn host_player_look_at(&mut self, world_pos: Vec3) {
+        self.cancel_scripted_camera_from_player_look_at();
+        self.host_center_camera_on(world_pos);
+    }
+
 
     /// Presentation-frozen ground height under `world_pos`.
     /// Same sampler `host_center_camera_on` uses — no live GameLogic dual-read.

@@ -2012,7 +2012,7 @@ fn can_fire_honors_weapon_bonus_rof() {
     // With 2x ROF, effective reload = 0.5 → ready at t=0.5
     o.weapon_bonus_enthusiastic = true;
     // Enthusiastic mult is typically >1; if not, force via horde path.
-    let (_, _, rof, _) = o.weapon_bonus_fields();
+    let (_, _, rof, _, _) = o.weapon_bonus_fields();
     assert!(rof > 1.0, "expected ROF bonus mult, got {rof}");
     let need = 1.0 / rof;
     assert!(
@@ -2155,7 +2155,7 @@ fn continuous_fire_coasts_down_after_idle() {
         a.tick_continuous_fire_coast(110);
         assert_eq!(a.continuous_fire_level, 0);
         assert_eq!(a.consecutive_shots_at_target, 0);
-        let (_, _, rof, _) = a.weapon_bonus_fields();
+        let (_, _, rof, _, _) = a.weapon_bonus_fields();
         assert!((rof - 1.0).abs() < 0.01);
     }
 }
@@ -2183,13 +2183,13 @@ fn continuous_fire_mean_rof_after_threshold() {
         assert_eq!(a.continuous_fire_level, 0); // need consecutive > 2
         a.record_shot_at_target(tgt);
         assert_eq!(a.continuous_fire_level, 1);
-        let (_, _, rof, _) = a.weapon_bonus_fields();
+        let (_, _, rof, _, _) = a.weapon_bonus_fields();
         assert!((rof - 2.0).abs() < 0.01, "MEAN ROF 200% got {rof}");
         for _ in 0..3 {
             a.record_shot_at_target(tgt);
         }
         assert_eq!(a.continuous_fire_level, 2);
-        let (_, _, rof2, _) = a.weapon_bonus_fields();
+        let (_, _, rof2, _, _) = a.weapon_bonus_fields();
         assert!((rof2 - 3.0).abs() < 0.01, "FAST ROF 300% got {rof2}");
     }
 }
@@ -2310,10 +2310,11 @@ fn weapon_bonus_fields_stack_rof_and_damage() {
         o.weapon_bonus_enthusiastic = true;
         o.weapon_bonus_horde = true;
         o.weapon_bonus_battle_plan_bombardment = true;
-        let (dmg, _range, rof, _) = o.weapon_bonus_fields();
+        let (dmg, _range, rof, _, _) = o.weapon_bonus_fields();
+        // C++ appendBonuses: 1.0 + (1.25-1) + (1.5-1) = 1.75, not 1.25*1.5.
         assert!(
-            (rof - ENTHUSIASTIC_RATE_OF_FIRE_MULT * INFANTRY_HORDE_ROF_MULT).abs() < 0.001,
-            "ROF stacks propaganda+horde got {rof}"
+            (rof - (ENTHUSIASTIC_RATE_OF_FIRE_MULT + INFANTRY_HORDE_ROF_MULT - 1.0)).abs() < 0.001,
+            "ROF stacks propaganda+horde additively got {rof}"
         );
         assert!(
             (dmg - BOMBARDMENT_DAMAGE_MULT).abs() < 0.001,
@@ -2331,12 +2332,12 @@ fn weapon_bonus_fields_apply_player_upgrade_and_fanaticism() {
     };
 
     let mut obj = make_test_object();
-    let (dmg0, _, rof0, _) = obj.weapon_bonus_fields();
+    let (dmg0, _, rof0, _, _) = obj.weapon_bonus_fields();
     assert!((dmg0 - 1.0).abs() < 0.001);
     assert!((rof0 - 1.0).abs() < 0.001);
 
     obj.weapon_bonus_player_upgrade = true;
-    let (dmg, _, _, _) = obj.weapon_bonus_fields();
+    let (dmg, _, _, _, _) = obj.weapon_bonus_fields();
     assert!(
         (dmg - 1.25).abs() < 0.001,
         "PLAYER_UPGRADE DAMAGE 125% got {dmg}"
@@ -2345,11 +2346,12 @@ fn weapon_bonus_fields_apply_player_upgrade_and_fanaticism() {
 
     obj.weapon_bonus_nationalism = true;
     obj.weapon_bonus_fanaticism = true;
-    let (_, _, rof, _) = obj.weapon_bonus_fields();
-    let expected = INFANTRY_NATIONALISM_ROF_MULT * INFANTRY_FANATICISM_ROF_MULT;
+    let (_, _, rof, _, _) = obj.weapon_bonus_fields();
+    // C++ appendBonuses: 1.0 + (1.25-1) + (1.25-1) = 1.50, not 1.25*1.25.
+    let expected = INFANTRY_NATIONALISM_ROF_MULT + INFANTRY_FANATICISM_ROF_MULT - 1.0;
     assert!(
         (rof - expected).abs() < 0.001,
-        "FANATICISM stacks on NATIONALISM got {rof} expected {expected}"
+        "FANATICISM stacks on NATIONALISM additively got {rof} expected {expected}"
     );
 }
 

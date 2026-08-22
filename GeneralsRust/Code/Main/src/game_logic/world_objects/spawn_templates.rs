@@ -3895,9 +3895,10 @@ impl GameLogic {
                 } else {
                     tpl.sight_range
                 };
-                let mut shroud_range = if obj.status.under_construction {
-                    obj.selection_radius.max(1.0)
-                } else if obj.shroud_clearing_range > 0.0 {
+                // C++ Object::look has no UNDER_CONSTRUCTION branch on the
+                // ally/owner reveal (Object.cpp:4938-4966). Use the stored
+                // ShroudClearingRange, not the pick footprint.
+                let mut shroud_range = if obj.shroud_clearing_range > 0.0 {
                     obj.shroud_clearing_range
                 } else {
                     tpl.resolved_shroud_clearing_range()

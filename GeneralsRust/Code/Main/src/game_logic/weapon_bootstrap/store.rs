@@ -1161,6 +1161,10 @@ pub(super) fn seed_known_host_weapons() -> usize {
         if seed.name == STINGER_SECONDARY_WEAPON {
             t.primary_damage_radius = 10.0;
         }
+        if seed.name == RANGER_PRIMARY_WEAPON {
+            seed_ranger_drone_spotting_extra(&mut t);
+        }
+
         match with_weapon_store_mut(|store| {
             store.add_weapon_template(t);
         }) {

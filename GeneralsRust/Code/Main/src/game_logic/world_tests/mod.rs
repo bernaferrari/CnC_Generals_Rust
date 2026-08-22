@@ -247,3 +247,4 @@ fn campaign_does_not_run_multiplayer_annihilation() {
     );
     let _ = VictoryCondition::Draw;
 }
+

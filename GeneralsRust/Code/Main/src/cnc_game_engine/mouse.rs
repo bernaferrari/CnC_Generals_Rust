@@ -62,6 +62,39 @@ impl LookAtScrollType {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) enum ScriptedCameraPlayerCancel {
+    #[default]
+    None,
+    /// C++ setAngle/setPitch/setZoom/setHeightAboveGround.
+    Set,
+    /// C++ lookAt.
+    LookAt,
+}
+
+impl ScriptedCameraPlayerCancel {
+    pub(super) fn cancels_move(self) -> bool {
+        matches!(self, Self::Set | Self::LookAt)
+    }
+
+    pub(super) fn cancels_set(self) -> bool {
+        matches!(self, Self::Set)
+    }
+
+    pub(super) fn cancels_rotate(self) -> bool {
+        matches!(self, Self::Set | Self::LookAt)
+    }
+
+    fn raise(self, next: Self) -> Self {
+        match (self, next) {
+            (Self::Set, _) | (_, Self::Set) => Self::Set,
+            (Self::LookAt, _) | (_, Self::LookAt) => Self::LookAt,
+            _ => Self::None,
+        }
+    }
+}
+
+
 struct LookAtHostModes {
     prev_cursor: Option<&'static str>,
     mouse_locked: bool,
@@ -77,6 +110,8 @@ struct LookAtHostModes {
     desired_height_above_ground: Option<f32>,
     /// Player scroll cleared camera lock (C++ `setScrolling` + `setCameraLock`).
     camera_follow_lock_broken: bool,
+    /// Player setAngle/setZoom/lookAt this frame; residual must not re-apply.
+    scripted_camera_player_cancel: ScriptedCameraPlayerCancel,
 }
 
 fn live_camera_zoom_limited() -> bool {
@@ -105,6 +140,16 @@ pub fn height_after_zoom_steps(
     }
 }
 
+fn note_scripted_camera_player_cancel(next: ScriptedCameraPlayerCancel) {
+    let mut modes = look_at_host_modes();
+    modes.scripted_camera_player_cancel = modes.scripted_camera_player_cancel.raise(next);
+}
+
+pub(super) fn take_scripted_camera_player_cancel() -> ScriptedCameraPlayerCancel {
+    let mut modes = look_at_host_modes();
+    std::mem::take(&mut modes.scripted_camera_player_cancel)
+}
+
 fn look_at_host_modes() -> std::sync::MutexGuard<'static, LookAtHostModes> {
     static STATE: std::sync::LazyLock<std::sync::Mutex<LookAtHostModes>> =
         std::sync::LazyLock::new(|| {
@@ -119,6 +164,7 @@ fn look_at_host_modes() -> std::sync::MutexGuard<'static, LookAtHostModes> {
                 last_mouse_pixel: (0.0, 0.0),
                 desired_height_above_ground: None,
                 camera_follow_lock_broken: false,
+                scripted_camera_player_cancel: ScriptedCameraPlayerCancel::None,
             })
         });
     STATE.lock().unwrap_or_else(|e| e.into_inner())
@@ -2070,9 +2116,11 @@ impl CnCGameEngine {
         );
         if self.camera_rotate_left_held {
             self.camera_yaw_radians -= rotate_delta;
+            self.cancel_scripted_camera_from_player_set();
         }
         if self.camera_rotate_right_held {
             self.camera_yaw_radians += rotate_delta;
+            self.cancel_scripted_camera_from_player_set();
         }
         if self.camera_zoom_in_held {
             self.apply_player_height_zoom_steps(
@@ -2095,6 +2143,7 @@ impl CnCGameEngine {
                 if let Some(anchor) = self.mmb_anchor {
                     let dx = self.mouse_position.0 - anchor.0;
                     self.camera_yaw_radians += dx * LOOKAT_MMB_YAW_FACTOR;
+                    self.cancel_scripted_camera_from_player_set();
                 }
                 self.mmb_anchor = Some(self.mouse_position);
             }
@@ -2106,6 +2155,8 @@ impl CnCGameEngine {
         let mut camera_changed = false;
 
         if movement.length() > 0.0 {
+            // C++ W3DView::scrollBy cancels only rotate, not zoom/pitch/path.
+            self.cancel_scripted_camera_from_player_scroll();
             self.camera_target += movement;
             self.camera_target = self.clamp_to_world_bounds(self.camera_target);
             camera_changed = true;
@@ -2299,6 +2350,8 @@ impl CnCGameEngine {
         let zoom_limited = live_camera_zoom_limited();
         let new_hag = height_after_zoom_steps(current_hag, steps, min_h, max_h, zoom_limited);
         look_at_host_modes().desired_height_above_ground = Some(new_hag);
+        // C++ setHeightAboveGround cancels scripted rotate/pitch/zoom/path/lock.
+        self.cancel_scripted_camera_from_player_set();
         // C++ View::zoomIn/Out only changes HAG; W3DView eases zoom at CameraAdjustSpeed.
     }
 
@@ -3408,6 +3461,48 @@ impl CnCGameEngine {
             && self.camera_yaw_target.is_none()
     }
 
+    pub(super) fn cancel_scripted_camera_from_player_set(&mut self) {
+        note_scripted_camera_player_cancel(ScriptedCameraPlayerCancel::Set);
+        self.camera_zoom_target = None;
+        self.camera_pitch_target = None;
+        self.camera_yaw_target = None;
+        self.camera_zoom_duration = 0.0;
+        self.camera_pitch_duration = 0.0;
+        self.camera_yaw_duration = 0.0;
+        self.game_logic.cancel_scripted_camera_from_player_set();
+        #[cfg(feature = "game_client")]
+        {
+            game_client::display::view::with_tactical_view(|view| {
+                view.cancel_scripted_camera_from_player_set();
+            });
+        }
+    }
+
+    pub(super) fn cancel_scripted_camera_from_player_look_at(&mut self) {
+        note_scripted_camera_player_cancel(ScriptedCameraPlayerCancel::LookAt);
+        self.camera_yaw_target = None;
+        self.camera_yaw_duration = 0.0;
+        self.game_logic.cancel_scripted_camera_from_player_look_at();
+        #[cfg(feature = "game_client")]
+        {
+            game_client::display::view::with_tactical_view(|view| {
+                view.cancel_scripted_camera_from_player_look_at();
+            });
+        }
+    }
+
+    fn cancel_scripted_camera_from_player_scroll(&mut self) {
+        self.camera_yaw_target = None;
+        self.camera_yaw_duration = 0.0;
+        #[cfg(feature = "game_client")]
+        {
+            game_client::display::view::with_tactical_view(|view| {
+                view.cancel_scripted_camera_from_player_scroll();
+            });
+        }
+    }
+
+
     fn break_camera_follow_lock(&mut self) {
         look_at_host_modes().camera_follow_lock_broken = true;
         self.host_set_camera_follow_object(None);
@@ -4211,6 +4306,11 @@ mod camera_pick_tests {
         assert!(
             body.contains("apply_host_slave_camera") && body.contains("apply_airborne_follow_yaw"),
             "slave bone + airborne follow yaw must be live"
+        );
+        assert!(
+            body.contains("cancel_scripted_camera_from_player_set")
+                && body.contains("cancel_scripted_camera_from_player_scroll"),
+            "player rotate/zoom/scroll must cancel scripted camera"
         );
     }
 

@@ -518,6 +518,28 @@ impl GameLogic {
                 build_cost: obj.thing.template.build_cost.supplies as i32,
                 status_bits: host_query_object_status_bits(obj),
                 player_who_entered: host_query_player_who_entered(self, obj),
+                is_supply_warehouse: obj.thing.template.dock_kind
+                    == crate::game_logic::DockKind::SupplyWarehouse,
+                warehouse_boxes: if obj.thing.template.dock_kind
+                    == crate::game_logic::DockKind::SupplyWarehouse
+                {
+                    // C++ SupplyWarehouseDockUpdate::getBoxesStored.
+                    // drawable_supply_boxes is kept in sync by set_stored_supplies
+                    // (including 0). Cash fallback only if never initialized.
+                    if obj.drawable_supply_max_boxes > 0 || obj.drawable_supply_boxes > 0 {
+                        obj.drawable_supply_boxes as i32
+                    } else {
+                        let value = crate::game_logic::host_structure_economy_residual::VALUE_PER_SUPPLY_BOX;
+                        let value = if value > 0 { value as u32 } else { 75 };
+                        (obj.stored_resources.supplies / value) as i32
+                    }
+                } else {
+                    0
+                },
+                off_map: obj.position.x < self.world_min.x
+                    || obj.position.x > self.world_max.x
+                    || obj.position.z < self.world_min.z
+                    || obj.position.z > self.world_max.z,
 
 
                 ..Default::default()
@@ -625,7 +647,7 @@ impl GameLogic {
     /// when crate `OBJECT_REGISTRY` is empty (live host Player is authoritative).
     fn merge_host_player_census_into_snapshot(&self) {
         use crate::game_logic::KindOf;
-        use gamelogic::scripting::HostScriptPlayerCensus;
+        use gamelogic::scripting::{HostScriptPlayerCensus, HostTechBuildingCensus};
 
         let mut player_census = std::collections::HashMap::new();
         for player in self.players.values() {
@@ -637,6 +659,8 @@ impl GameLogic {
                     && self.frame < player.power_sabotaged_till_frame,
                 science_purchase_points: player.science_purchase_points,
                 unlocked_sciences: player.unlocked_sciences.iter().cloned().collect(),
+                supply_box_value:
+                    crate::game_logic::host_structure_economy_residual::VALUE_PER_SUPPLY_BOX,
                 ..Default::default()
             };
             for obj in self.host_objects().values() {
@@ -707,8 +731,30 @@ impl GameLogic {
                 _ => {}
             }
         }
+        let mut tech_buildings = Vec::new();
+        for obj in self.host_objects().values() {
+            if !obj.is_kind_of(KindOf::TechBuilding) {
+                continue;
+            }
+            if !obj.is_alive() || obj.status.destroyed || obj.status.effectively_dead {
+                continue;
+            }
+            tech_buildings.push(HostTechBuildingCensus {
+                x: obj.position.x,
+                z: obj.position.z,
+                owner_player: obj
+                    .owner_player_id
+                    .and_then(|pid| self.player_name(pid))
+                    .unwrap_or_default(),
+                team: obj.team as u32,
+                off_map: crate::game_logic::host_deliver_payload::is_off_map_default_residual(
+                    obj.position,
+                ),
+            });
+        }
         gamelogic::scripting::merge_host_script_query_snapshot(|snap| {
             snap.player_census = player_census;
+            snap.tech_buildings = tech_buildings;
         });
     }
 
@@ -814,13 +860,85 @@ impl GameLogic {
         }
     }
 
+    /// C++ ScriptActions::doSetMoney / doGiveMoney live drain.
+    /// Leftover mutates crate player_list; live cash lives on host Player.
+    fn apply_host_money_script_requests(&mut self) {
+        use gamelogic::scripting::HostScriptMoneyRequest;
+        for req in gamelogic::scripting::take_host_money_requests() {
+            match req {
+                HostScriptMoneyRequest::Set { player, amount } => {
+                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
+                        continue;
+                    };
+                    self.host_script_set_player_money(pid, amount);
+                }
+                HostScriptMoneyRequest::Give { player, amount } => {
+                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
+                        continue;
+                    };
+                    self.host_script_give_player_money(pid, amount);
+                }
+            }
+        }
+    }
+
+    /// C++ Money::withdraw(countMoney()) then Money::deposit(amount).
+    fn host_script_set_player_money(&mut self, pid: u32, amount: i32) {
+        let Some(player) = self.players.get_mut(&pid) else {
+            return;
+        };
+        let current = player.effective_supplies();
+        if current > 0 {
+            crate::game_logic::host_economy_log::record_money_audio(
+                pid,
+                crate::game_logic::host_economy_log::HostMoneyAudio::Withdraw,
+            );
+            player.apply_supply_spend_unchecked(current);
+        }
+        let deposit = amount.max(0) as u32;
+        if deposit > 0 {
+            crate::game_logic::host_economy_log::record_money_audio(
+                pid,
+                crate::game_logic::host_economy_log::HostMoneyAudio::Deposit,
+            );
+            player.apply_supply_gain(deposit);
+        }
+    }
+
+    /// C++ doGiveMoney: negative withdraws, else deposits.
+    fn host_script_give_player_money(&mut self, pid: u32, amount: i32) {
+        let Some(player) = self.players.get_mut(&pid) else {
+            return;
+        };
+        if amount < 0 {
+            let want = amount.unsigned_abs();
+            let actual = want.min(player.effective_supplies());
+            if actual > 0 {
+                crate::game_logic::host_economy_log::record_money_audio(
+                    pid,
+                    crate::game_logic::host_economy_log::HostMoneyAudio::Withdraw,
+                );
+                player.apply_supply_spend_unchecked(actual);
+            }
+        } else if amount > 0 {
+            crate::game_logic::host_economy_log::record_money_audio(
+                pid,
+                crate::game_logic::host_economy_log::HostMoneyAudio::Deposit,
+            );
+            player.apply_supply_gain(amount as u32);
+        }
+    }
+
     fn host_player_id_for_script_token(&self, token: &str) -> Option<u32> {
         let needle = token.trim();
         if needle.is_empty() {
             return None;
         }
-        let upper = needle.to_ascii_uppercase();
-        if upper == "THIS_PLAYER" || upper == "THE_PLAYER" || upper == "<LOCAL PLAYER>" {
+        // C++ ScriptEngine::getPlayerFromAsciiString: LOCAL_PLAYER / THIS_PLAYER.
+        // Tokens are "<Local Player>" / "<This Player>", not THIS_PLAYER/THE_PLAYER.
+        if needle.eq_ignore_ascii_case("<This Player>")
+            || needle.eq_ignore_ascii_case("<Local Player>")
+        {
             return self.players.values().find(|p| p.is_local).map(|p| p.id);
         }
         self.players.values().find(|p| {
@@ -1199,6 +1317,73 @@ impl GameLogic {
             }
         }
     }
+
+    /// C++ ScriptActions NAMED/TEAM FACE_NAMED / FACE_WAYPOINT live drain.
+    /// Leftover queues [`gamelogic::scripting::HostScriptFaceRequest`].
+    fn apply_host_face_script_requests(&mut self) {
+        use gamelogic::scripting::HostScriptFaceRequest;
+        for req in gamelogic::scripting::take_host_script_face_requests() {
+            match req {
+                HostScriptFaceRequest::NamedFaceNamed { unit, target } => {
+                    let Some(id) = self.host_object_id_by_script_name(&unit) else {
+                        continue;
+                    };
+                    let Some(tid) = self.host_object_id_by_script_name(&target) else {
+                        continue;
+                    };
+                    let Some(pos) = self
+                        .host_object(tid)
+                        .filter(|o| o.is_alive())
+                        .map(|o| o.get_position())
+                    else {
+                        continue;
+                    };
+                    self.host_script_face_unit(id, pos);
+                }
+                HostScriptFaceRequest::NamedFaceWaypoint { unit, waypoint } => {
+                    let Some(id) = self.host_object_id_by_script_name(&unit) else {
+                        continue;
+                    };
+                    let Some(pos) = self.host_script_waypoint_position(&waypoint) else {
+                        continue;
+                    };
+                    self.host_script_face_unit(id, pos);
+                }
+                HostScriptFaceRequest::TeamFaceNamed { team, target } => {
+                    let Some(tid) = self.host_object_id_by_script_name(&target) else {
+                        continue;
+                    };
+                    let Some(pos) = self
+                        .host_object(tid)
+                        .filter(|o| o.is_alive())
+                        .map(|o| o.get_position())
+                    else {
+                        continue;
+                    };
+                    for id in self.host_script_team_member_ids(&team) {
+                        self.host_script_face_unit(id, pos);
+                    }
+                }
+                HostScriptFaceRequest::TeamFaceWaypoint { team, waypoint } => {
+                    let Some(pos) = self.host_script_waypoint_position(&waypoint) else {
+                        continue;
+                    };
+                    for id in self.host_script_team_member_ids(&team) {
+                        self.host_script_face_unit(id, pos);
+                    }
+                }
+            }
+        }
+    }
+
+    /// C++ `clearWaypointQueue` + `leaveGroup` + `chooseLocomotorSet(NORMAL)` +
+    /// `aiFacePosition` (`CMD_FROM_SCRIPT`).
+    fn host_script_face_unit(&mut self, id: ObjectId, pos: glam::Vec3) {
+        let _ = self.unit_command_stop(id);
+        let _ = self.apply_unit_locomotor_set(id, "normal");
+        let _ = self.private_face_position(id, pos);
+    }
+
 
     /// C++ `doTeamGuardPosition` / `Object` / `Area` / `InTunnelNetwork`.
     /// Leftover queues [`gamelogic::scripting::HostScriptGuardVariantRequest`].
@@ -2005,7 +2190,10 @@ impl GameLogic {
             }
         }
         self.apply_host_skirmish_script_requests();
+        self.apply_host_money_script_requests();
         self.apply_host_loco_set_script_requests();
+        self.apply_host_face_script_requests();
+
         self.apply_host_move_attack_script_requests();
         self.apply_host_hunt_guard_script_requests();
         self.apply_host_idle_script_requests();

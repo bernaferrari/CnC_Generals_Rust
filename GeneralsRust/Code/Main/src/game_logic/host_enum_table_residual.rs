@@ -1051,6 +1051,19 @@ pub const WEAPON_BONUS_ENTHUSIASTIC_ORDINAL: u32 = 8;
 pub const WEAPON_BONUS_SUBLIMINAL_ORDINAL: u32 = 15;
 /// C++ WEAPONBONUSCONDITION_FRENZY_ONE residual ordinal.
 pub const WEAPON_BONUS_FRENZY_ONE_ORDINAL: u32 = 24;
+/// C++ WEAPONBONUSCONDITION_SOLO_HUMAN_EASY residual ordinal.
+pub const WEAPON_BONUS_SOLO_HUMAN_EASY_ORDINAL: u32 = 16;
+/// C++ WEAPONBONUSCONDITION_SOLO_HUMAN_NORMAL residual ordinal.
+pub const WEAPON_BONUS_SOLO_HUMAN_NORMAL_ORDINAL: u32 = 17;
+/// C++ WEAPONBONUSCONDITION_SOLO_HUMAN_HARD residual ordinal.
+pub const WEAPON_BONUS_SOLO_HUMAN_HARD_ORDINAL: u32 = 18;
+/// C++ WEAPONBONUSCONDITION_SOLO_AI_EASY residual ordinal.
+pub const WEAPON_BONUS_SOLO_AI_EASY_ORDINAL: u32 = 19;
+/// C++ WEAPONBONUSCONDITION_SOLO_AI_NORMAL residual ordinal.
+pub const WEAPON_BONUS_SOLO_AI_NORMAL_ORDINAL: u32 = 20;
+/// C++ WEAPONBONUSCONDITION_SOLO_AI_HARD residual ordinal.
+pub const WEAPON_BONUS_SOLO_AI_HARD_ORDINAL: u32 = 21;
+
 
 /// Lookup WeaponBonus condition name index residual.
 pub fn weapon_bonus_condition_name_index(name: &str) -> Option<usize> {
@@ -1079,6 +1092,17 @@ pub fn honesty_weapon_bonus_enum_table_wave82() -> bool {
         && WEAPON_BONUS_ENTHUSIASTIC_ORDINAL == 8
         && WEAPON_BONUS_SUBLIMINAL_ORDINAL == 15
         && WEAPON_BONUS_FRENZY_ONE_ORDINAL == 24
+        && WEAPON_BONUS_CONDITION_NAME_LIST[16] == "SOLO_HUMAN_EASY"
+        && WEAPON_BONUS_CONDITION_NAME_LIST[21] == "SOLO_AI_HARD"
+        && WEAPON_BONUS_SOLO_HUMAN_EASY_ORDINAL == 16
+        && WEAPON_BONUS_SOLO_HUMAN_NORMAL_ORDINAL == 17
+        && WEAPON_BONUS_SOLO_HUMAN_HARD_ORDINAL == 18
+        && WEAPON_BONUS_SOLO_AI_EASY_ORDINAL == 19
+        && WEAPON_BONUS_SOLO_AI_NORMAL_ORDINAL == 20
+        && WEAPON_BONUS_SOLO_AI_HARD_ORDINAL == 21
+        && weapon_bonus_condition_name_index("SOLO_HUMAN_EASY") == Some(16)
+        && weapon_bonus_condition_name_index("SOLO_AI_HARD") == Some(21)
+
         && weapon_bonus_condition_name_index("ENTHUSIASTIC") == Some(8)
         && weapon_bonus_condition_name_index("SUBLIMINAL") == Some(15)
         && weapon_bonus_condition_name_index("FRENZY_ONE") == Some(24)

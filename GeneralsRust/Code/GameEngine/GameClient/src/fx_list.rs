@@ -80,20 +80,7 @@ impl FXListManagerInterface for FXListManagerBridge {
             log::debug!("FXListManager: unknown FXList id {}", fx_list);
             return;
         };
-
-        let store = get_fx_list_store();
-        let Some(fx) = store.find_fx_list(&name) else {
-            log::debug!("FXListManager: FXList '{}' not found", name);
-            return;
-        };
-
-        let Some(object) = gamelogic::helpers::TheGameLogic::find_object_by_id(object_id) else {
-            return;
-        };
-
-        if let Ok(guard) = object.read() {
-            fx.do_fx_obj(Some(&*guard), None);
-        };
+        let _ = do_named_fx_obj(&name, Some(object_id), None);
     }
 
     fn do_fx_obj_with_source(
@@ -106,22 +93,7 @@ impl FXListManagerInterface for FXListManagerBridge {
             log::debug!("FXListManager: unknown FXList id {}", fx_list);
             return;
         };
-
-        let store = get_fx_list_store();
-        let Some(fx) = store.find_fx_list(&name) else {
-            log::debug!("FXListManager: FXList '{}' not found", name);
-            return;
-        };
-
-        let Some(object) = gamelogic::helpers::TheGameLogic::find_object_by_id(object_id) else {
-            return;
-        };
-        let source = source_id.and_then(gamelogic::helpers::TheGameLogic::find_object_by_id);
-
-        if let Ok(guard) = object.read() {
-            let source_guard = source.as_ref().and_then(|source| source.read().ok());
-            fx.do_fx_obj(Some(&*guard), source_guard.as_deref());
-        };
+        let _ = do_named_fx_obj(&name, Some(object_id), source_id);
     }
 }
 
@@ -140,26 +112,67 @@ impl game_engine::common::ini::FxListObjRuntime for DamageFxListRuntime {
     }
 }
 
+fn resolve_host_fx_object(id: u32) -> Option<gamelogic::helpers::HostFxObjectPose> {
+    gamelogic::helpers::host_fx_object_pose(id)
+        .or_else(|| crate::core::game_client::query_live_drawable_fx_pose(id))
+}
+
+fn host_fx_obj_is_visible(object_id: u32) -> bool {
+    use gamelogic::common::types::ObjectShroudStatus;
+    let player = fx_local_player_index();
+    if player < 0 {
+        return false;
+    }
+    let Ok(shroud) = gamelogic::system::shroud_manager::get_shroud_manager().lock() else {
+        return true;
+    };
+    match shroud.get_host_object_shroud_status(player as u32, object_id) {
+        Some(status) => (status as u8) <= (ObjectShroudStatus::PartialClear as u8),
+        None => true,
+    }
+}
+
 fn do_named_fx_obj(name: &str, primary_id: Option<u32>, secondary_id: Option<u32>) -> bool {
     let store = get_fx_list_store();
     let Some(fx) = store.find_fx_list(name) else {
         return false;
     };
-    let primary = primary_id.and_then(gamelogic::helpers::TheGameLogic::find_object_by_id);
-    let secondary = secondary_id.and_then(gamelogic::helpers::TheGameLogic::find_object_by_id);
-    match primary.as_ref() {
-        Some(object) => {
-            if let Ok(guard) = object.read() {
-                let source_guard = secondary.as_ref().and_then(|source| source.read().ok());
-                fx.do_fx_obj(Some(&*guard), source_guard.as_deref());
-            }
-            true
+    let leftover_primary = primary_id.and_then(gamelogic::helpers::TheGameLogic::find_object_by_id);
+    let leftover_secondary = secondary_id.and_then(gamelogic::helpers::TheGameLogic::find_object_by_id);
+    if let Some(object) = leftover_primary {
+        if let Ok(guard) = object.read() {
+            let source_guard = leftover_secondary
+                .as_ref()
+                .and_then(|source| source.read().ok());
+            fx.do_fx_obj(Some(&*guard), source_guard.as_deref());
         }
-        None if primary_id.is_none() => {
-            fx.do_fx_obj(None, None);
-            true
-        }
-        None => false,
+        return true;
+    }
+    if primary_id.is_none() {
+        fx.do_fx_obj(None, None);
+        return true;
+    }
+    let Some(primary) = primary_id.and_then(resolve_host_fx_object) else {
+        return false;
+    };
+    if !host_fx_obj_is_visible(primary.id) {
+        return true;
+    }
+    let secondary = leftover_secondary
+        .as_ref()
+        .and_then(|source| source.read().ok())
+        .map(|guard| leftover_object_fx_pose(&guard))
+        .or_else(|| secondary_id.and_then(resolve_host_fx_object));
+    fx.do_fx_obj_host(&primary, secondary.as_ref());
+    true
+}
+
+fn leftover_object_fx_pose(object: &Object) -> gamelogic::helpers::HostFxObjectPose {
+    gamelogic::helpers::HostFxObjectPose {
+        id: object.get_id(),
+        position: *object.get_position(),
+        transform: object.get_transform_matrix(),
+        player_index: controlling_player_index(object),
     }
 }
 
@@ -205,6 +218,22 @@ pub trait FXNugget: Send + Sync {
         let primary_mtx = primary.map(|obj| obj.get_transform_matrix());
         let secondary_pos = secondary.map(|obj| obj.get_position());
         self.do_fx_pos(primary_pos, primary_mtx.as_ref(), 0.0, secondary_pos, 0.0);
+    }
+
+
+    /// C++ `FXNugget::doFXObj` from a live host pose when leftover Object is absent.
+    fn do_fx_obj_host(
+        &self,
+        primary: &gamelogic::helpers::HostFxObjectPose,
+        secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
+    ) {
+        self.do_fx_pos(
+            Some(&primary.position),
+            Some(&primary.transform),
+            0.0,
+            secondary.map(|pose| &pose.position),
+            0.0,
+        );
     }
 
     /// C++ `SoundFXNugget::m_soundName`. Other nuggets have none.
@@ -701,6 +730,17 @@ impl FXList {
             nugget.do_fx_obj(primary, secondary);
         }
     }
+
+    fn do_fx_obj_host(
+        &self,
+        primary: &gamelogic::helpers::HostFxObjectPose,
+        secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
+    ) {
+        for nugget in &self.nuggets {
+            nugget.do_fx_obj_host(primary, secondary);
+        }
+    }
+
 }
 
 impl Default for FXList {
@@ -1165,6 +1205,19 @@ impl FXNugget for SoundFXNugget {
         );
     }
 
+    fn do_fx_obj_host(
+        &self,
+        primary: &gamelogic::helpers::HostFxObjectPose,
+        _secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
+    ) {
+        play_sound_fx_event(
+            &self.sound_name,
+            Some(&primary.position),
+            (primary.player_index >= 0).then_some(primary.player_index),
+        );
+    }
+
+
     fn sound_name(&self) -> Option<&str> {
         if self.sound_name.is_empty() {
             None
@@ -1559,6 +1612,45 @@ impl FXNugget for ParticleSystemWrapper {
             .do_fx_obj(primary_point, mtx.as_ref(), object_id, manager);
         drop(systems);
     }
+
+    fn do_fx_obj_host(
+        &self,
+        primary: &gamelogic::helpers::HostFxObjectPose,
+        secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
+    ) {
+        let Ok(mut manager_guard) = get_particle_system_manager_mut() else {
+            return;
+        };
+        let Some(manager) = manager_guard.as_mut() else {
+            return;
+        };
+        let position = primary.position;
+        let primary_point = nalgebra::Point3::new(position.x, position.y, position.z);
+        let mtx = if self.nugget.ricochet {
+            secondary.map(|secondary| {
+                let secondary_pos = secondary.position;
+                let aiming_angle =
+                    (position.y - secondary_pos.y).atan2(position.x - secondary_pos.x);
+                let (s, c) = aiming_angle.sin_cos();
+                nalgebra::Matrix3::from_columns(&[
+                    nalgebra::Vector3::new(c, s, 0.0),
+                    nalgebra::Vector3::new(-s, c, 0.0),
+                    nalgebra::Vector3::new(0.0, 0.0, 1.0),
+                ])
+            })
+        } else {
+            let cols = primary.transform.to_cols_array_2d();
+            Some(nalgebra::Matrix3::new(
+                cols[0][0], cols[0][1], cols[0][2], cols[1][0], cols[1][1], cols[1][2],
+                cols[2][0], cols[2][1], cols[2][2],
+            ))
+        };
+        let systems = self
+            .nugget
+            .do_fx_obj(primary_point, mtx.as_ref(), Some(primary.id), manager);
+        drop(systems);
+    }
+
 }
 
 /// C++ `obj->getDrawable()->getCurrentClientBonePositions`.
@@ -1656,6 +1748,30 @@ impl FXListAtBonePosFXNugget {
             fx.do_fx_pos(Some(&world_pos), Some(&world), 0.0, None, 0.0);
         }
     }
+
+    fn do_fx_at_bones_host(
+        &self,
+        primary: &gamelogic::helpers::HostFxObjectPose,
+        start: i32,
+        fx: &FXList,
+    ) {
+        if self.bone_name.is_empty() {
+            return;
+        }
+        let live = crate::core::game_client::query_live_current_client_bone_positions(
+            primary.id,
+            &self.bone_name,
+            start,
+            Self::MAX_BONE_POINTS,
+        );
+        for (_pos, bone_mtx) in live {
+            let world = primary.transform * bone_mtx;
+            let (_, _, world_pos) = world.to_scale_rotation_translation();
+            let _ = self.orient_to_bone;
+            fx.do_fx_pos(Some(&world_pos), Some(&world), 0.0, None, 0.0);
+        }
+    }
+
 }
 
 impl FXNugget for FXListAtBonePosFXNugget {
@@ -1682,6 +1798,19 @@ impl FXNugget for FXListAtBonePosFXNugget {
         self.do_fx_at_bones(primary, 0, &fx);
         self.do_fx_at_bones(primary, 1, &fx);
     }
+
+    fn do_fx_obj_host(
+        &self,
+        primary: &gamelogic::helpers::HostFxObjectPose,
+        _secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
+    ) {
+        let Some(fx) = get_fx_list_store().find_fx_list(&self.fx_name) else {
+            return;
+        };
+        self.do_fx_at_bones_host(primary, 0, &fx);
+        self.do_fx_at_bones_host(primary, 1, &fx);
+    }
+
 }
 
 #[cfg(test)]

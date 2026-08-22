@@ -838,10 +838,12 @@ impl GameLogic {
     }
 
     /// Drain leftover TEAM_PANIC / TEAM_WANDER / named-unit set swaps.
+    /// C++ `doTeamWander` / `doTeamPanic` / `doTeamWanderInPlace`: chooseLocomotorSet
+    /// then `aiWander` / `aiPanic` / `aiWanderInPlace` (`CMD_FROM_SCRIPT`).
     pub fn apply_host_loco_set_script_requests(&mut self) {
         self.apply_host_team_factory_script_requests();
-        for (team_name, set, _waypoint) in gamelogic::scripting::take_host_team_loco_set_requests() {
-            let _ = self.apply_team_locomotor_set(&team_name, &set);
+        for (team_name, set, waypoint) in gamelogic::scripting::take_host_team_loco_set_requests() {
+            self.host_script_apply_team_wander_panic(&team_name, &set, waypoint.as_deref());
         }
         for (unit_name, set) in gamelogic::scripting::take_host_unit_loco_set_requests() {
             if let Some(id) = self.find_object_id_by_name(&unit_name) {
@@ -849,6 +851,103 @@ impl GameLogic {
             }
         }
     }
+
+    /// C++ `doTeamWander` / `doTeamPanic` member loop: closest waypoint on path,
+    /// then wander/panic locomotor + follow. Missing path returns like C++.
+    fn host_script_apply_team_wander_panic(
+        &mut self,
+        team_name: &str,
+        set: &str,
+        waypoint: Option<&str>,
+    ) {
+        let needle = team_name.trim();
+        let faction = Self::resolve_host_team_name(team_name);
+        let members: Vec<ObjectId> = self
+            .objects
+            .values()
+            .filter(|obj| {
+                obj.is_alive()
+                    && (faction.map(|t| obj.team == t).unwrap_or(false)
+                        || (!obj.team_instance_name.is_empty()
+                            && obj.team_instance_name.eq_ignore_ascii_case(needle))
+                        || obj.team.get_name().eq_ignore_ascii_case(needle))
+            })
+            .map(|obj| obj.id)
+            .collect();
+        for id in members {
+            let Some(pos) = self
+                .host_object(id)
+                .filter(|u| u.is_alive() && u.can_move())
+                .map(|u| u.get_position())
+            else {
+                continue;
+            };
+            if let Some(label) = waypoint {
+                let Some(path) = self.host_wander_waypoint_path_from(label, pos) else {
+                    // C++ doTeamWander/doTeamPanic: first missing waypoint returns.
+                    return;
+                };
+                let _ = self.apply_unit_locomotor_set(id, set);
+                self.host_wander_issue_path(id, &path);
+            } else {
+                let _ = self.apply_unit_locomotor_set(id, set);
+                self.host_wander_in_place(id, pos);
+            }
+        }
+    }
+
+    /// C++ `TheTerrainLogic->getClosestWaypointOnPath` then `link[0]` chain.
+    fn host_wander_waypoint_path_from(
+        &self,
+        path_label: &str,
+        from: glam::Vec3,
+    ) -> Option<Vec<glam::Vec3>> {
+        let leftover_pos = gamelogic::common::Coord3D::new(from.x, from.z, from.y);
+        let terrain = gamelogic::terrain::get_terrain_logic().read().ok()?;
+        let start = terrain.get_closest_waypoint_on_path(&leftover_pos, path_label)?;
+        let chain = terrain.walk_link0_chain(start, gamelogic::terrain::WAYPOINT_PATH_LIMIT);
+        if chain.is_empty() {
+            return None;
+        }
+        Some(
+            chain
+                .into_iter()
+                .map(|wp| {
+                    let loc = *wp.get_location();
+                    let mut pos = glam::Vec3::new(loc.x, loc.z, loc.y);
+                    if let Some(h) = self.terrain_height_at(glam::Vec3::new(pos.x, 0.0, pos.z)) {
+                        pos.y = h;
+                    }
+                    pos
+                })
+                .collect(),
+        )
+    }
+
+    /// C++ `aiWander` / `aiPanic` follow the waypoint path as individuals.
+    fn host_wander_issue_path(&mut self, id: ObjectId, waypoints: &[glam::Vec3]) {
+        if waypoints.is_empty() {
+            return;
+        }
+        let goal = *waypoints.last().unwrap();
+        let via = &waypoints[..waypoints.len().saturating_sub(1)];
+        let _ = self.unit_command_waypoint_path_prep(id, false);
+        let _ = self.assign_unit_path(id, goal, via);
+    }
+
+    /// C++ `AIWanderInPlaceState::chooseNewGoal` first hop around origin.
+    fn host_wander_in_place(&mut self, id: ObjectId, origin: glam::Vec3) {
+        const CELL: f32 = 10.0;
+        let seed = id.0 as i32;
+        let mut ox = (seed.rem_euclid(7) - 3) as f32 * CELL;
+        let mut oz = ((seed / 5).rem_euclid(7) - 3) as f32 * CELL;
+        if ox.abs() < 1.0 && oz.abs() < 1.0 {
+            ox = CELL;
+        }
+        let dest = glam::Vec3::new(origin.x + ox, origin.y, origin.z + oz);
+        let _ = self.unit_command_move_to(id, dest);
+    }
+
 
     /// Drain leftover `TEAM_SET_ATTITUDE` onto live host members.
     pub fn apply_host_team_attitude_script_requests(&mut self) {

@@ -27,6 +27,13 @@ fn is_none_fx_list(name: &str) -> bool {
     name.is_empty() || name.eq_ignore_ascii_case("None")
 }
 
+/// Host world is Y-up `(x, height, z_ground)`. Leftover / C++ `Coord3D`
+/// is Z-up `(x, y_ground, z_height)` so shroud + particle nuggets land
+/// on the C++ XY ground plane.
+fn host_to_leftover_coord(pos: Vec3) -> gamelogic::common::Coord3D {
+    gamelogic::common::Coord3D::new(pos.x, pos.z, pos.y)
+}
+
 /// C++ `FXList::doFXPos` — run every nugget via the registered GameClient runner.
 ///
 /// Returns `true` when a manager was registered (the C++ client path owns
@@ -54,7 +61,15 @@ pub fn dispatch_fx_list_at_pos_ex(
     let Some(fx) = gamelogic::helpers::TheFXList::get() else {
         return false;
     };
-    fx.do_fx_at_position_ex(name, &pos, secondary.as_ref(), primary_speed, override_radius);
+    let leftover_pos = host_to_leftover_coord(pos);
+    let leftover_secondary = secondary.map(host_to_leftover_coord);
+    fx.do_fx_at_position_ex(
+        name,
+        &leftover_pos,
+        leftover_secondary.as_ref(),
+        primary_speed,
+        override_radius,
+    );
     gamelogic::helpers::get_fx_list_manager().is_some()
 }
 
@@ -77,6 +92,57 @@ pub fn dispatch_fx_list_at_object(
     fx.do_fx_obj(name, primary_id, secondary_id);
     gamelogic::helpers::get_fx_list_manager().is_some()
 }
+
+/// Publish a live host object's leftover-space pose for `doFXObj`.
+///
+/// Production never fills leftover `OBJECT_REGISTRY`. GameClient leftover
+/// `doFXObj` reads this table (then the live drawable) so death/transition
+/// FX still get `OrientToObject` / `AttachToObject` / `FXListAtBonePos`.
+pub fn publish_host_fx_object(id: u32, pos: Vec3, orientation: f32, player_index: i32) {
+    let leftover_pos = host_to_leftover_coord(pos);
+    let transform = glam::Mat4::from_translation(glam::Vec3::new(
+        leftover_pos.x,
+        leftover_pos.y,
+        leftover_pos.z,
+    )) * glam::Mat4::from_rotation_z(orientation);
+    gamelogic::helpers::set_host_fx_object_pose(gamelogic::helpers::HostFxObjectPose {
+        id,
+        position: leftover_pos,
+        transform,
+        player_index,
+    });
+}
+
+impl crate::game_logic::GameLogic {
+    /// C++ `FXList::doFXObj` using the live host object, not leftover registry.
+    pub fn dispatch_fx_list_at_host_object(
+        &self,
+        name: &str,
+        primary_id: crate::game_logic::ObjectId,
+        secondary_id: Option<crate::game_logic::ObjectId>,
+    ) -> bool {
+        if let Some(obj) = self.host_object(primary_id) {
+            publish_host_fx_object(
+                obj.id.0,
+                obj.get_position(),
+                obj.get_orientation(),
+                obj.owner_player_id.map(|p| p as i32).unwrap_or(-1),
+            );
+        }
+        if let Some(sid) = secondary_id {
+            if let Some(obj) = self.host_object(sid) {
+                publish_host_fx_object(
+                    obj.id.0,
+                    obj.get_position(),
+                    obj.get_orientation(),
+                    obj.owner_player_id.map(|p| p as i32).unwrap_or(-1),
+                );
+            }
+        }
+        dispatch_fx_list_at_object(name, primary_id.0, secondary_id.map(|id| id.0))
+    }
+}
+
 
 /// Sound nugget names (`m_soundName`) authored inside `name`.
 ///

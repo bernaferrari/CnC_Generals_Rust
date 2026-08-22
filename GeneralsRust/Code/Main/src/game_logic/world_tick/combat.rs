@@ -2195,15 +2195,22 @@ impl GameLogic {
                                         } else {
                                             (0.0, 0.0, 0.0)
                                         };
-                                        let splash_weapon = self
+                                        let (splash_weapon, radius_mult) = self
                                             .objects
                                             .get(&attacker_id)
-                                            .and_then(|a| a.weapon_slot(slot))
-                                            .map(|w| w.splash_radius.max(0.0))
-                                            .unwrap_or(0.0);
-                                        // C++ getPrimary/SecondaryDamageRadius — no invented 1.5x ring.
-                                        let primary_r = if pr > 0.0 { pr } else { splash_weapon };
-                                        let secondary_r = sr;
+                                            .map(|a| {
+                                                (
+                                                    a.weapon_slot(slot)
+                                                        .map(|w| w.splash_radius.max(0.0))
+                                                        .unwrap_or(0.0),
+                                                    a.weapon_bonus_radius(),
+                                                )
+                                            })
+                                            .unwrap_or((0.0, 1.0));
+                                        // C++ getPrimary/SecondaryDamageRadius — RADIUS field.
+                                        let primary_r = (if pr > 0.0 { pr } else { splash_weapon })
+                                            * radius_mult;
+                                        let secondary_r = sr * radius_mult;
                                         if primary_r > 0.0 || secondary_r > 0.0 {
                                             let sec_dmg = sd;
                                             let hits = self.apply_instant_hit_splash_at(

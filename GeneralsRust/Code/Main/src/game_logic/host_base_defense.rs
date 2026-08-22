@@ -439,6 +439,12 @@ pub fn honesty_stinger_site_body_residual_ok() -> bool {
         && STINGER_SITE_MODEL_KEY.eq_ignore_ascii_case("UBStingerS")
         // Vision residual: site vision > shroud clearing (detect further than clear).
         && STINGER_SITE_VISION_RANGE > STINGER_SITE_SHROUD_CLEARING_RANGE
+        && (STINGER_SOLDIER_DETECTION_RANGE - 200.0).abs() < 0.01
+        && STINGER_SOLDIER_DETECTION_RATE_MS == 500
+        && STINGER_SOLDIER_DETECTION_RATE_FRAMES == 15
+        && (STINGER_SITE_DETECTION_RANGE - STINGER_SOLDIER_DETECTION_RANGE).abs() < 0.01
+        && STINGER_SITE_DETECTION_RATE_FRAMES == STINGER_SOLDIER_DETECTION_RATE_FRAMES
+
 }
 
 /// Apply PatriotMissileWeapon ScatterRadiusVsInfantry residual to aim.
@@ -990,6 +996,22 @@ pub const STINGER_SOLDIER_DIE_AUDIO: &str = "StingerSoldierVoiceDie";
 pub const UPGRADE_GLA_AP_ROCKETS: &str = "Upgrade_GLAAPRockets";
 /// AP Rockets damage multiplier residual.
 pub const STINGER_AP_ROCKETS_DAMAGE_MULT: f32 = 1.25;
+/// Retail `GLAInfantryStingerSoldier` `StealthDetectorUpdate` DetectionRange.
+///
+/// C++ `GLAStingerSite` has no detector module. The three SpawnBehavior
+/// soldiers (`ModuleTag_16`) scan at **200** / DetectionRate **500**ms.
+/// Live hive slaves are residual-only, so the site also carries this leftover
+/// so Stealth Fighters do not overfly unscouted.
+pub const STINGER_SOLDIER_DETECTION_RANGE: f32 = 200.0;
+/// Retail soldier DetectionRate residual (msec).
+pub const STINGER_SOLDIER_DETECTION_RATE_MS: u32 = 500;
+/// DetectionRate 500ms → 15 frames @ 30 FPS.
+pub const STINGER_SOLDIER_DETECTION_RATE_FRAMES: u32 = 15;
+/// Site residual uses the soldier leftover range (no site INI module).
+pub const STINGER_SITE_DETECTION_RANGE: f32 = STINGER_SOLDIER_DETECTION_RANGE;
+/// Site residual DetectionRate frames (soldier leftover).
+pub const STINGER_SITE_DETECTION_RATE_FRAMES: u32 = STINGER_SOLDIER_DETECTION_RATE_FRAMES;
+
 
 // --- HiveStructureBody residual (Stinger Site ModuleTag_04) ---
 
@@ -1675,6 +1697,74 @@ pub fn is_stinger_site_structure(template_name: &str) -> bool {
         || n == "teststingersite"
         || (n.contains("stinger") && n.contains("site"))
 }
+
+/// Whether template is a residual GLA Stinger soldier (not the site).
+pub fn is_stinger_soldier_template(template_name: &str) -> bool {
+    let n = template_name.to_ascii_lowercase();
+    (n.contains("stingersoldier") || n.contains("stinger_soldier"))
+        && !is_stinger_site_structure(template_name)
+}
+
+/// Site residual detector: leftover soldiers scan; live hive is not a live Object.
+pub fn stinger_site_spawn_is_detector(template_name: &str) -> bool {
+    is_stinger_site_structure(template_name)
+}
+
+/// Soldier leftover `StealthDetectorUpdate` (C++ GLAInfantry.ini ModuleTag_16).
+pub fn stinger_soldier_spawn_is_detector(template_name: &str) -> bool {
+    is_stinger_soldier_template(template_name)
+}
+
+/// Effective leftover DetectionRange for a Stinger site or soldier, if any.
+pub fn stinger_detection_range(template_name: &str) -> Option<f32> {
+    if stinger_site_spawn_is_detector(template_name)
+        || stinger_soldier_spawn_is_detector(template_name)
+    {
+        Some(leftover_or_residual_stinger_detection_range(template_name))
+    } else {
+        None
+    }
+}
+
+fn leftover_or_residual_stinger_detection_range(template_name: &str) -> f32 {
+    leftover_stealth_detector_range(template_name)
+        .or_else(|| leftover_stealth_detector_range(STINGER_SPAWN_TEMPLATE))
+        .filter(|range| *range > 0.0)
+        .unwrap_or(STINGER_SOLDIER_DETECTION_RANGE)
+}
+
+/// Leftover ThingFactory first `StealthDetectorUpdate` DetectionRange, if parsed.
+fn leftover_stealth_detector_range(template_name: &str) -> Option<f32> {
+    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
+    let factory = guard.as_ref()?;
+    let tmpl = factory.find_template(template_name, false)?;
+    for entry in tmpl.get_behavior_module_info().iter() {
+        if !entry
+            .name
+            .as_str()
+            .eq_ignore_ascii_case("StealthDetectorUpdate")
+        {
+            continue;
+        }
+        if let Some(data) = entry
+            .data
+            .downcast_ref::<gamelogic::object::behavior::StealthDetectorUpdateModuleData>()
+        {
+            if data.detection_range > 0.0 {
+                return Some(data.detection_range);
+            }
+        }
+        if let Some(raw) = entry.data.get_ini_field("DetectionRange") {
+            if let Ok(range) = raw.trim().parse::<f32>() {
+                if range > 0.0 {
+                    return Some(range);
+                }
+            }
+        }
+    }
+    None
+}
+
 
 /// Whether template is a residual China Gattling Cannon structure (ramp + AA).
 ///

@@ -181,6 +181,9 @@ impl ScriptCondition for BridgeRepairedCondition {
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
         let bridge_name = get_str_param(parameters, "bridge_name")?;
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            return Ok(crate::scripting::host_bridge_repaired(&bridge_name));
+        }
         let object_id = match lookup_named_object_id(&bridge_name)? {
             Some(id) => id,
             None => return Ok(false),
@@ -188,6 +191,9 @@ impl ScriptCondition for BridgeRepairedCondition {
         let terrain = get_terrain_logic()
             .read()
             .map_err(|e| GameLogicError::Threading(format!("Failed to read terrain: {}", e)))?;
+        if !terrain.bridge_damage_states_changed() {
+            return Ok(false);
+        }
         Ok(terrain.is_bridge_repaired(object_id))
     }
 
@@ -218,6 +224,9 @@ impl ScriptCondition for BridgeBrokenCondition {
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
         let bridge_name = get_str_param(parameters, "bridge_name")?;
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            return Ok(crate::scripting::host_bridge_broken(&bridge_name));
+        }
         let object_id = match lookup_named_object_id(&bridge_name)? {
             Some(id) => id,
             None => return Ok(false),
@@ -225,6 +234,9 @@ impl ScriptCondition for BridgeBrokenCondition {
         let terrain = get_terrain_logic()
             .read()
             .map_err(|e| GameLogicError::Threading(format!("Failed to read terrain: {}", e)))?;
+        if !terrain.bridge_damage_states_changed() {
+            return Ok(false);
+        }
         Ok(terrain.is_bridge_broken(object_id))
     }
 

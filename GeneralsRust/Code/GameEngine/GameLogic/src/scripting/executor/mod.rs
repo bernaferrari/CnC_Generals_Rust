@@ -180,6 +180,26 @@ pub enum HostScriptObjectSoundRequest {
     Enable { unit: String, enable: bool },
 }
 
+/// Live host drain: NAMED/TEAM FACE_NAMED / FACE_WAYPOINT.
+/// C++ `ScriptActions::doNamedFaceNamed` / `doNamedFaceWaypoint` /
+/// `doTeamFaceNamed` / `doTeamFaceWaypoint`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostScriptFaceRequest {
+    NamedFaceNamed { unit: String, target: String },
+    NamedFaceWaypoint { unit: String, waypoint: String },
+    TeamFaceNamed { team: String, target: String },
+    TeamFaceWaypoint { team: String, waypoint: String },
+}
+
+/// Live host drain: PLAYER_SET_MONEY / PLAYER_GIVE_MONEY.
+/// C++ `ScriptActions::doSetMoney` / `doGiveMoney`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostScriptMoneyRequest {
+    Set { player: String, amount: i32 },
+    Give { player: String, amount: i32 },
+}
+
+
 
 
 
@@ -233,6 +253,11 @@ thread_local! {
         RefCell<Vec<HostScriptKillDeleteDamageRequest>> = RefCell::new(Vec::new());
     static HOST_SCRIPT_OBJECT_SOUND_REQUESTS: RefCell<Vec<HostScriptObjectSoundRequest>> =
         RefCell::new(Vec::new());
+    static HOST_SCRIPT_FACE_REQUESTS: RefCell<Vec<HostScriptFaceRequest>> =
+        RefCell::new(Vec::new());
+    static HOST_SCRIPT_MONEY_REQUESTS: RefCell<Vec<HostScriptMoneyRequest>> =
+        RefCell::new(Vec::new());
+
 
 
 
@@ -528,6 +553,27 @@ pub fn request_host_script_object_sound(req: HostScriptObjectSoundRequest) {
 pub fn take_host_script_object_sound_requests() -> Vec<HostScriptObjectSoundRequest> {
     HOST_SCRIPT_OBJECT_SOUND_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
+
+/// Live host drain: NAMED/TEAM FACE (`aiFaceObject` / `aiFacePosition`).
+pub fn request_host_script_face(req: HostScriptFaceRequest) {
+    HOST_SCRIPT_FACE_REQUESTS.with(|q| q.borrow_mut().push(req));
+}
+
+pub fn take_host_script_face_requests() -> Vec<HostScriptFaceRequest> {
+    HOST_SCRIPT_FACE_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: PLAYER_SET_MONEY / PLAYER_GIVE_MONEY.
+/// C++ `doSetMoney` withdraws all then deposits; `doGiveMoney` deposits or
+/// withdraws a signed amount.
+pub fn request_host_money(req: HostScriptMoneyRequest) {
+    HOST_SCRIPT_MONEY_REQUESTS.with(|q| q.borrow_mut().push(req));
+}
+
+pub fn take_host_money_requests() -> Vec<HostScriptMoneyRequest> {
+    HOST_SCRIPT_MONEY_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
 
 
 

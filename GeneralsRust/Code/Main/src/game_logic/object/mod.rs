@@ -2297,6 +2297,12 @@ pub struct Object {
     /// C++ WEAPONBONUSCONDITION_DRONE_SPOTTING residual (Scout drone range-extend).
     #[serde(default)]
     pub weapon_bonus_drone_spotting: bool,
+    /// C++ WEAPONBONUSCONDITION_SOLO_HUMAN_*/SOLO_AI_* residual
+    /// (`Player::friend_applyDifficultyBonusesForObject`). 0 = unset;
+    /// 16..=21 match C++ discriminants (ALLOW_DEMORALIZE off).
+    #[serde(default)]
+    pub weapon_bonus_solo: u8,
+
     /// Residual sight-range scale currently applied for SearchAndDestroy (1.0 = none).
     #[serde(default = "default_one_f32")]
     pub battle_plan_sight_scalar_applied: f32,

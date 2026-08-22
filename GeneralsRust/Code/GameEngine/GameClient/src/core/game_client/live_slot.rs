@@ -169,6 +169,26 @@ pub fn query_live_current_client_bone_positions(
     .unwrap_or_default()
 }
 
+/// Live drawable pose for leftover `doFXObj` when leftover `OBJECT_REGISTRY` is empty.
+pub fn query_live_drawable_fx_pose(
+    object_id: ObjectID,
+) -> Option<gamelogic::helpers::HostFxObjectPose> {
+    with_live_game_client_mut(|client| {
+        let drawable_id = client.get_drawable_for_object(object_id)?;
+        let drawable = client.find_drawable_by_id(drawable_id)?;
+        let pos = drawable.get_position();
+        let xf = drawable.get_transform();
+        Some(gamelogic::helpers::HostFxObjectPose {
+            id: object_id,
+            position: gamelogic::common::Coord3D::new(pos.x, pos.y, pos.z),
+            transform: xf.to_glam(),
+            player_index: -1,
+        })
+    })
+    .flatten()
+}
+
+
 /// Capture leftover `BasicDrawable::xfer` visuals for one object-bound drawable.
 pub fn capture_live_drawable_xfer_visuals(
     object_id: ObjectID,

@@ -1428,8 +1428,10 @@ impl GameLogic {
             }
 
             // Host residual: GLA Tunnel Network TunnelContain (shared MaxTunnelCapacity=10)
-            // + PRIMARY TunnelNetworkGun / sneak TunnelNetworkGunDUMMY.
+            // + PRIMARY TunnelNetworkGun / sneak TunnelNetworkGunDUMMY
+            // + StealthDetectorUpdate DetectionRange 150 / DetectionRate 500ms.
             // Fail-closed: not GuardTunnelNetwork AI / CaveSystem / heal matrix.
+            // Sneak-attack tunnels have no StealthDetectorUpdate in retail INI.
             if crate::game_logic::host_tunnel_network::is_tunnel_network_template(template_name) {
                 object.install_tunnel_network_residual();
                 object.weapon = Some(
@@ -1437,6 +1439,15 @@ impl GameLogic {
                         template_name,
                     ),
                 );
+                if crate::game_logic::host_tunnel_network::tunnel_network_spawn_is_detector(
+                    template_name,
+                ) {
+                    object.set_detector_state(
+                        true,
+                        crate::game_logic::host_tunnel_network::TUNNEL_NETWORK_DETECTION_RANGE,
+                        crate::game_logic::host_tunnel_network::TUNNEL_NETWORK_DETECTION_RATE_FRAMES,
+                    );
+                }
             }
 
             if crate::game_logic::host_cave_system::is_cave_template(template_name)
@@ -1726,6 +1737,40 @@ impl GameLogic {
                 object.hive_slave_hp = slave_hp;
                 object.record_host_hive();
                 object.hive_slave_respawn_frame = 0;
+                if crate::game_logic::host_base_defense::stinger_site_spawn_is_detector(
+                    template_name,
+                ) {
+                    let range = crate::game_logic::host_base_defense::stinger_detection_range(
+                        template_name,
+                    )
+                    .unwrap_or(
+                        crate::game_logic::host_base_defense::STINGER_SITE_DETECTION_RANGE,
+                    );
+                    object.set_detector_state(
+                        true,
+                        range,
+                        crate::game_logic::host_base_defense::STINGER_SITE_DETECTION_RATE_FRAMES,
+                    );
+                }
+            }
+
+
+            // C++ GLAInfantryStingerSoldier ModuleTag_16 leftover: DetectionRange 200 /
+            // DetectionRate 500ms. Live soldiers must scan; residual hive slots do not.
+            if crate::game_logic::host_base_defense::stinger_soldier_spawn_is_detector(
+                template_name,
+            ) {
+                let range = crate::game_logic::host_base_defense::stinger_detection_range(
+                    template_name,
+                )
+                .unwrap_or(
+                    crate::game_logic::host_base_defense::STINGER_SOLDIER_DETECTION_RANGE,
+                );
+                object.set_detector_state(
+                    true,
+                    range,
+                    crate::game_logic::host_base_defense::STINGER_SOLDIER_DETECTION_RATE_FRAMES,
+                );
             }
 
             // Host residual: USA Patriot dual ground/AA secondary.
@@ -2415,6 +2460,9 @@ impl GameLogic {
             }
             // C++ Object.cpp:473 TheRadar->addObject(this) (under construction too).
             self.host_radar_add_object(id);
+            // C++ Object::initObject → setReceivingDifficultyBonus →
+            // friend_applyDifficultyBonusesForObject (under construction too).
+            self.apply_difficulty_bonuses_for_object(id);
             // C++ DozerAIUpdate.cpp:1692-1699 flattenTerrain + Z snap + addObjectToPathfindMap.
             self.flatten_and_snap_construction(id);
             self.block_structure_object_path(id);
@@ -3630,10 +3678,16 @@ impl GameLogic {
             Some(factor) => factor,
             None => 1.0,
         };
-        if (health_factor - 1.0).abs() <= f32::EPSILON {
-            return;
-        }
+        let solo = crate::game_logic::host_faction_skirmish_residual::solo_weapon_bonus_condition(
+            is_human,
+            difficulty,
+        );
         if let Some(object) = self.objects.get_mut(&object_id) {
+            // C++ setWeaponBonusCondition even when healthFactor == 1.0 (Normal).
+            object.weapon_bonus_solo = solo;
+            if (health_factor - 1.0).abs() <= f32::EPSILON {
+                return;
+            }
             let old_max = object.health.maximum.max(object.max_health).max(1.0);
             let ratio = (object.health.current / old_max).clamp(0.0, 1.0);
             let new_max = old_max * health_factor;
@@ -3642,6 +3696,7 @@ impl GameLogic {
             object.health.current = new_max * ratio;
             object.record_host_max_health();
         }
+
     }
 }
 

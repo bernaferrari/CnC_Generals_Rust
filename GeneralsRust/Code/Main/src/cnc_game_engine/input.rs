@@ -2148,7 +2148,8 @@ fn cinematic_font_size(font: Option<&str>) -> f32 {
                     }
                 }
                 UIEvent::FocusCamera(world_pos) => {
-                    self.center_camera_on(world_pos);
+                    // C++ HUD/minimap lookAt — cancel scripted rotate/path/lock.
+                    self.host_player_look_at(world_pos);
                 }
                 UIEvent::QueueUnitProduction {
                     template_name,

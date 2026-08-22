@@ -44,7 +44,7 @@ impl ScriptEvaluator {
         }
     }
 
-    /// Evaluate flag condition
+    /// C++ ScriptEngine::evaluateFlag — stored flag, else one-frame UI pulse.
     fn evaluate_flag_condition(&self, condition: &Condition) -> GameLogicResult<bool> {
         let flag_param = condition.get_parameter(0).ok_or_else(|| {
             GameLogicError::Configuration("Flag condition missing flag parameter".to_string())
@@ -57,11 +57,11 @@ impl ScriptEvaluator {
         let target_value = value_param.get_int() != 0;
 
         if let Some(result) = self.with_evaluation_engine_ref(|engine| {
-            if let Some(flag) = engine.get_flag(flag_name) {
-                flag.value == target_value
-            } else {
-                false
-            }
+            let flag_value = engine
+                .get_flag(flag_name)
+                .map(|flag| flag.value)
+                .unwrap_or(false);
+            flag_value == target_value || engine.has_ui_interaction(flag_name)
         }) {
             return Ok(result);
         }
