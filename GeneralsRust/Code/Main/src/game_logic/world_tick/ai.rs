@@ -596,6 +596,9 @@ impl GameLogic {
             let Some(pid) = player_id else {
                 continue;
             };
+            if self.players.get(&pid).is_some_and(|p| p.is_local) {
+                continue;
+            }
 
             // Check if should produce units (every 10 seconds).
             if !self.frame.is_multiple_of(600) {
