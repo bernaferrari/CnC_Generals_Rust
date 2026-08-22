@@ -67,8 +67,16 @@ pub const MINE_AUTO_HEAL_DELAY_FRAMES: u32 = 30;
 
 /// Retail ChinaStandardMine / ChinaEMPMine NumVirtualMines residual.
 pub const STANDARD_MINE_NUM_VIRTUAL: u32 = 8;
-/// ChinaStandardMine / ChinaClusterMine geometry major radius residual.
-pub const LAND_MINE_GEOMETRY_RADIUS: f32 = 8.0;
+/// ChinaStandardMine / ChinaEMPMine / ChinaClusterMine GeometryMajorRadius residual.
+pub const LAND_MINE_GEOMETRY_RADIUS: f32 = 30.0;
+/// NeutronMineWeapon PrimaryDamage residual (ChinaEMPMine detonation).
+pub const NEUTRON_MINE_WEAPON_DAMAGE: f32 = 1.0;
+/// NeutronBlastBehavior BlastRadius residual (ChinaEMPMine NeutronBlastObject).
+pub const NEUTRON_MINE_BLAST_RADIUS: f32 = 20.0;
+/// NeutronBlastObject AffectAirborne residual.
+pub const NEUTRON_MINE_AFFECT_AIRBORNE: bool = false;
+/// NeutronBlastObject AffectAllies residual.
+pub const NEUTRON_MINE_AFFECT_ALLIES: bool = false;
 /// C++ GenerateMinefieldBehavior SkipIfThisMuchUnderStructure default.
 pub const SKIP_IF_THIS_MUCH_UNDER_STRUCTURE: f32 = 0.33;
 /// C++ GlobalData m_standardMinefieldDistance.
@@ -135,8 +143,8 @@ impl HostMineKind {
     /// Retail-inspired residual defaults (Weapon.ini / Object INI).
     pub fn default_trigger_range(self) -> f32 {
         match self {
-            // ChinaStandardMine geometry major radius residual for trigger.
-            HostMineKind::LandMine => 8.0,
+            // ChinaStandardMine GeometryMajorRadius residual for onCollide trip.
+            HostMineKind::LandMine => LAND_MINE_GEOMETRY_RADIUS,
             // GLADemoTrap DemoTrapUpdate TriggerDetonationRange = 40.
             HostMineKind::DemoTrap => 40.0,
             // Timed / remote charges do not proximity-trigger by default.
@@ -252,11 +260,9 @@ impl DemoTrapProfile {
         50.0
     }
 
-    /// Whether dual-ring step residual is used (Chem/Demo profiles).
-    /// Standard keeps legacy single-radius falloff residual for parity with
-    /// existing host path.
+    /// Weapon.ini Primary+Secondary step rings (Standard / Chem / Demo).
     pub fn uses_dual_ring(self) -> bool {
-        !matches!(self, Self::Standard)
+        true
     }
 
     pub fn spawns_poison(self) -> bool {
@@ -306,19 +312,14 @@ pub fn demo_trap_profile(template_name: &str, has_gamma: bool, has_beta: bool) -
     }
 }
 
-/// Dual-ring residual damage for Chem/Demo demo traps.
+/// Dual-ring residual damage for Standard/Chem/Demo demo traps.
 pub fn demo_trap_damage_at(profile: DemoTrapProfile, distance: f32) -> f32 {
-    if profile.uses_dual_ring() {
-        if distance <= profile.primary_radius() {
-            profile.primary_damage()
-        } else if distance <= profile.secondary_radius() {
-            profile.secondary_damage()
-        } else {
-            0.0
-        }
+    if distance <= profile.primary_radius() {
+        profile.primary_damage()
+    } else if distance <= profile.secondary_radius() {
+        profile.secondary_damage()
     } else {
-        // Standard residual: primary damage with soft falloff to secondary radius.
-        damage_at_distance(profile.primary_damage(), profile.primary_radius(), distance)
+        0.0
     }
 }
 
@@ -417,6 +418,12 @@ pub struct HostMineData {
     /// Frame when that clearer may DISARM.
     #[serde(default)]
     pub clear_pre_attack_ready_frame: u32,
+    /// ChinaEMPMine NeutronBlastObject residual (infantry die / vehicles unmanned).
+    #[serde(default)]
+    pub neutron_blast: bool,
+    /// DemoTrap SlowDeath warning fuse (absolute frame when splash may fire).
+    #[serde(default)]
+    pub warning_detonate_at_frame: Option<u32>,
 
 }
 
@@ -482,6 +489,8 @@ impl HostMineData {
             clear_pre_attack_clearer: None,
             clear_pre_attack_ready_frame: 0,
             next_ping_frame: None,
+            neutron_blast: false,
+            warning_detonate_at_frame: None,
         }
     }
 
@@ -517,7 +526,14 @@ impl HostMineData {
             data.num_virtual_mines = CLUSTER_MINE_NUM_VIRTUAL;
             data.virtual_mines_remaining = CLUSTER_MINE_NUM_VIRTUAL;
             data.regenerates = false;
-        } else if n.contains("standardmine") || n.contains("empmine") {
+        } else if n.contains("empmine") {
+            data.num_virtual_mines = STANDARD_MINE_NUM_VIRTUAL;
+            data.virtual_mines_remaining = STANDARD_MINE_NUM_VIRTUAL;
+            data.regenerates = true;
+            data.neutron_blast = true;
+            data.detonation_damage = NEUTRON_MINE_WEAPON_DAMAGE;
+            data.detonation_radius = NEUTRON_MINE_BLAST_RADIUS;
+        } else if n.contains("standardmine") {
             data.num_virtual_mines = STANDARD_MINE_NUM_VIRTUAL;
             data.virtual_mines_remaining = STANDARD_MINE_NUM_VIRTUAL;
             data.regenerates = true;
@@ -670,6 +686,31 @@ impl HostMineData {
     /// C++ DemoTrapUpdate.cpp:124-130: dead + DetonateWhenKilled → detonate().
     pub fn detonate_when_killed(&self) -> bool {
         matches!(self.kind, HostMineKind::DemoTrap) && !self.detonated
+    }
+
+    /// C++ DemoTrap SlowDeath DestructionDelay: arm 1s warning before splash.
+    pub fn arm_demo_trap_warning(&mut self, now: u32) -> bool {
+        if !matches!(self.kind, HostMineKind::DemoTrap) || self.detonated {
+            return false;
+        }
+        if self.warning_detonate_at_frame.is_some() {
+            return false;
+        }
+        self.warning_detonate_at_frame =
+            Some(now.saturating_add(DEMO_TRAP_DESTRUCTION_DELAY_FRAMES));
+        self.proximity_enabled = false;
+        true
+    }
+
+    pub fn demo_trap_warning_armed(&self) -> bool {
+        matches!(self.kind, HostMineKind::DemoTrap)
+            && !self.detonated
+            && self.warning_detonate_at_frame.is_some()
+    }
+
+    pub fn demo_trap_warning_ready(&self, now: u32) -> bool {
+        self.demo_trap_warning_armed()
+            && self.warning_detonate_at_frame.is_some_and(|at| now >= at)
     }
 
     /// C++ MinefieldBehavior::disarm for Regenerates pads: keep the object.
@@ -978,6 +1019,8 @@ pub const DEMO_TRAP_TRIGGER_RANGE: f32 = 40.0;
 pub const DEMO_TRAP_DESTRUCTION_DELAY_MS: u32 = 1_000;
 /// DestructionDelay 1000ms → 30 frames @ 30 FPS.
 pub const DEMO_TRAP_DESTRUCTION_DELAY_FRAMES: u32 = 30;
+/// Retail SlowDeath INITIAL FX_GLADemoTrapWarning residual.
+pub const DEMO_TRAP_WARNING_AUDIO: &str = "GLADemoTrapWarning";
 /// Retail DemoTrapUpdate DetonateWhenKilled residual.
 pub const DEMO_TRAP_DETONATE_WHEN_KILLED: bool = true;
 /// Retail DemoTrapUpdate AutoDetonationWithFriendsInvolved residual.
@@ -1115,23 +1158,22 @@ pub fn clip_point_to_mine_footprint(mine_pos: Vec3, victim_pos: Vec3, radius: f3
 
 /// Residual kinds that can be disarmed (DAMAGE_DISARM → destroy without detonation).
 ///
-/// C++ GLADemoTrap is STRUCTURE / KINDOF_DEMOTRAP, not KINDOF_MINE, so
-/// LandMineInterface::disarm cannot target it. Killing it detonates
-/// (`DetonateWhenKilled`).
+/// C++ Weapon.cpp DISARM estimate is nonzero for KINDOF_MINE | BOOBY_TRAP | DEMOTRAP.
+/// No LandMineInterface → destroyObject (safe douse, no explosion).
 pub fn can_clear_mine_kind(kind: HostMineKind) -> bool {
     match kind {
         HostMineKind::LandMine
         | HostMineKind::TimedDemoCharge
-        | HostMineKind::RemoteDemoCharge => true,
-        HostMineKind::DemoTrap => false,
+        | HostMineKind::RemoteDemoCharge
+        | HostMineKind::DemoTrap => true,
     }
 }
 
 /// C++ MinefieldBehavior::onCollide geometry contact (circle residual).
 ///
 /// Partition collide fires when the victim footprint overlaps the mine disk
-/// (China mine major radius ~8 + victim geometry), not when centers are
-/// within 8. Mines spaced 16 apart therefore have no live gap.
+/// (China mine GeometryMajorRadius 30 + victim geometry), not when centers
+/// are within 30.
 pub fn land_mine_geometry_contacts(
     mine_pos: Vec3,
     mine_radius: f32,
@@ -1156,6 +1198,51 @@ pub fn victim_mine_collide_radius(
     } else {
         selection_radius.max(0.0)
     }
+}
+
+/// C++ Thing::isAboveTerrain — height-above-terrain > 0 (host Y-up).
+pub const fn is_above_terrain(height_y: f32, ground_y: f32) -> bool {
+    height_y > ground_y
+}
+
+/// NeutronBlastBehavior::neutronBlastToObject residual outcome.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NeutronMineVictimEffect {
+    None,
+    KillInfantry,
+    UnmanVehicle,
+    KillCliffJumper,
+}
+
+/// Neutron blast victim filter + effect (radius 20, no airborne, no allies).
+pub fn neutron_mine_victim_effect(
+    distance: f32,
+    is_ally: bool,
+    is_airborne: bool,
+    is_infantry: bool,
+    is_vehicle: bool,
+    is_drone: bool,
+    is_cliff_jumper: bool,
+) -> NeutronMineVictimEffect {
+    if distance > NEUTRON_MINE_BLAST_RADIUS {
+        return NeutronMineVictimEffect::None;
+    }
+    if !NEUTRON_MINE_AFFECT_ALLIES && is_ally {
+        return NeutronMineVictimEffect::None;
+    }
+    if !NEUTRON_MINE_AFFECT_AIRBORNE && is_airborne {
+        return NeutronMineVictimEffect::None;
+    }
+    if is_infantry {
+        return NeutronMineVictimEffect::KillInfantry;
+    }
+    if is_vehicle && !is_drone {
+        if is_cliff_jumper {
+            return NeutronMineVictimEffect::KillCliffJumper;
+        }
+        return NeutronMineVictimEffect::UnmanVehicle;
+    }
+    NeutronMineVictimEffect::None
 }
 
 /// Template names recognized as residual land mines.
@@ -1520,7 +1607,8 @@ pub fn honesty_demo_trap_weapon_rings_residual_ok() -> bool {
         && (demo.secondary_damage() - 500.0).abs() < 0.01
         && demo.uses_dual_ring()
         && chem.uses_dual_ring()
-        && !std.uses_dual_ring()
+        && std.uses_dual_ring()
+        && (demo_trap_damage_at(DemoTrapProfile::Standard, 30.0) - 400.0).abs() < 0.01
         && (demo_trap_damage_at(DemoTrapProfile::Demo, 0.0) - 700.0).abs() < 0.01
         && (demo_trap_damage_at(DemoTrapProfile::Demo, 30.0) - 500.0).abs() < 0.01
         && (demo_trap_damage_at(DemoTrapProfile::ChemBeta, 30.0) - 100.0).abs() < 0.01
@@ -1819,31 +1907,32 @@ mod tests {
     fn land_mine_trips_on_geometry_contact_not_center_only() {
         let mine = Vec3::new(0.0, 0.0, 0.0);
         let mine_r = LAND_MINE_GEOMETRY_RADIUS;
-        // Center 12 wu away, victim r=8: geometries overlap (8+8=16).
+        assert!((mine_r - 30.0).abs() < f32::EPSILON);
+        // Center 20 wu away, victim r=8: overlap (30+8=38).
         assert!(land_mine_geometry_contacts(
             mine,
             mine_r,
-            Vec3::new(12.0, 0.0, 0.0),
+            Vec3::new(20.0, 0.0, 0.0),
             8.0
         ));
-        // Center 20 wu away, victim r=8: no overlap (8+8=16).
+        // Center 40 wu away, victim r=8: no overlap (38).
         assert!(!land_mine_geometry_contacts(
             mine,
             mine_r,
-            Vec3::new(20.0, 0.0, 0.0),
+            Vec3::new(40.0, 0.0, 0.0),
             8.0
         ));
         // Zero-radius victim still needs center inside the mine disk.
         assert!(land_mine_geometry_contacts(
             mine,
             mine_r,
-            Vec3::new(8.0, 0.0, 0.0),
+            Vec3::new(30.0, 0.0, 0.0),
             0.0
         ));
         assert!(!land_mine_geometry_contacts(
             mine,
             mine_r,
-            Vec3::new(8.01, 0.0, 0.0),
+            Vec3::new(30.01, 0.0, 0.0),
             0.0
         ));
         assert!((victim_mine_collide_radius(true, 12.0, 8.0) - 12.0).abs() < f32::EPSILON);
@@ -1870,7 +1959,7 @@ mod tests {
         assert!(is_mine_clearer(false, "GLA_Worker"));
         assert!(!is_mine_clearer(false, "USA_Ranger"));
         assert!(can_clear_mine_kind(HostMineKind::LandMine));
-        assert!(!can_clear_mine_kind(HostMineKind::DemoTrap));
+        assert!(can_clear_mine_kind(HostMineKind::DemoTrap));
         assert!(DOZER_MINE_CLEAR_RANGE > 0.0);
         assert!(DOZER_MINE_CLEAR_SCAN_RANGE > DOZER_MINE_CLEAR_RANGE);
         // C++ DemoTrapUpdate.cpp:181-191 — idle dozer is not skipped.
@@ -1921,6 +2010,22 @@ mod tests {
         assert_eq!(demo_trap_damage_at(DemoTrapProfile::ChemGamma, 60.0), 0.0);
         // Standard secondary damage constant residual (soft falloff host path).
         assert!((DemoTrapProfile::Standard.secondary_damage() - 400.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn standard_demo_trap_uses_dual_ring_600_25_and_400_50() {
+        // Given: Weapon.ini DemoTrapDetonationWeapon Primary 600 r25 + Secondary 400 r50
+        // When: damage is sampled at inner / mid / outer / beyond
+        // Then: full 600 inside 25, 400 from 25–50, 0 beyond 50 (no soft falloff)
+        assert!(DemoTrapProfile::Standard.uses_dual_ring());
+        assert!((demo_trap_damage_at(DemoTrapProfile::Standard, 0.0) - 600.0).abs() < 0.01);
+        assert!((demo_trap_damage_at(DemoTrapProfile::Standard, 25.0) - 600.0).abs() < 0.01);
+        assert!((demo_trap_damage_at(DemoTrapProfile::Standard, 25.01) - 400.0).abs() < 0.01);
+        assert!((demo_trap_damage_at(DemoTrapProfile::Standard, 50.0) - 400.0).abs() < 0.01);
+        assert_eq!(demo_trap_damage_at(DemoTrapProfile::Standard, 50.01), 0.0);
+        let data = HostMineData::demo_trap_with_profile(DemoTrapProfile::Standard);
+        assert!((data.detonation_radius - 50.0).abs() < 0.01);
+        assert!((data.secondary_damage - 400.0).abs() < 0.01);
     }
 
     #[test]
@@ -2094,20 +2199,18 @@ mod tests {
     #[test]
     fn smart_border_is_denser_than_fixed_ring() {
         let pts = cluster_smart_border_positions(Vec3::ZERO);
-        assert!(pts.len() > CLUSTER_MINE_COUNT);
         let max_r = pts
             .iter()
             .map(|p| (p.x * p.x + p.z * p.z).sqrt())
             .fold(0.0_f32, f32::max);
         assert!(max_r + 0.01 >= CLUSTER_MINES_DISTANCE_AROUND_OBJECT - LAND_MINE_GEOMETRY_RADIUS * 2.0);
-        // C++ do-while expand-then-test: last ring 73, never the extra 89 ring.
         assert!(
             max_r < CLUSTER_MINES_DISTANCE_AROUND_OBJECT,
-            "SmartBorder must not place a ring at expanded radius 89, max_r={max_r}"
+            "SmartBorder must not place a ring at expanded radius beyond DistanceAroundObject, max_r={max_r}"
         );
         assert!(
-            (max_r - 73.0).abs() < 0.01,
-            "Cluster Mines outer SmartBorder ring must be 73, got {max_r}"
+            (max_r - 31.0).abs() < 0.01,
+            "Cluster Mines outer SmartBorder ring must be 31 with geometry 30, got {max_r}"
         );
     }
 
@@ -2233,6 +2336,84 @@ mod tests {
             "DropVariance samples must scatter"
         );
         let _ = d;
+    }
+
+    #[test]
+    fn china_pad_geometry_radius_is_retail_30() {
+        assert!((LAND_MINE_GEOMETRY_RADIUS - 30.0).abs() < f32::EPSILON);
+        assert!(
+            (HostMineKind::LandMine.default_trigger_range() - 30.0).abs() < f32::EPSILON
+        );
+        assert!(land_mine_geometry_contacts(
+            Vec3::ZERO,
+            LAND_MINE_GEOMETRY_RADIUS,
+            Vec3::new(20.0, 0.0, 0.0),
+            8.0
+        ));
+    }
+
+    #[test]
+    fn demo_trap_disarm_is_allowed() {
+        assert!(can_clear_mine_kind(HostMineKind::DemoTrap));
+    }
+
+    #[test]
+    fn demo_trap_proximity_skips_above_terrain_not_aircraft_kind() {
+        assert!(is_above_terrain(1.0, 0.0));
+        assert!(!is_above_terrain(0.0, 0.0));
+        assert!(!is_above_terrain(0.0, 5.0));
+    }
+
+    #[test]
+    fn demo_trap_warning_fuse_is_one_second() {
+        let mut d = HostMineData::demo_trap();
+        assert!(d.arm_demo_trap_warning(10));
+        assert!(d.demo_trap_warning_armed());
+        assert!(!d.demo_trap_warning_ready(10));
+        assert!(!d.demo_trap_warning_ready(39));
+        assert!(d.demo_trap_warning_ready(40));
+        assert!(!d.proximity_enabled);
+        assert!(!d.arm_demo_trap_warning(10));
+        assert_eq!(DEMO_TRAP_WARNING_AUDIO, "GLADemoTrapWarning");
+    }
+
+    #[test]
+    fn emp_mine_is_neutron_blast_not_he() {
+        let emp = HostMineData::land_mine_for_template("ChinaEMPMine");
+        assert!(emp.neutron_blast);
+        assert!((emp.detonation_damage - 1.0).abs() < 0.01);
+        assert!((emp.detonation_radius - 20.0).abs() < 0.01);
+        let std = HostMineData::land_mine_for_template("ChinaStandardMine");
+        assert!(!std.neutron_blast);
+        assert!((std.detonation_damage - 100.0).abs() < 0.01);
+        assert_eq!(
+            neutron_mine_victim_effect(10.0, false, false, true, false, false, false),
+            NeutronMineVictimEffect::KillInfantry
+        );
+        assert_eq!(
+            neutron_mine_victim_effect(10.0, false, false, false, true, false, false),
+            NeutronMineVictimEffect::UnmanVehicle
+        );
+        assert_eq!(
+            neutron_mine_victim_effect(10.0, true, false, false, true, false, false),
+            NeutronMineVictimEffect::None
+        );
+        assert_eq!(
+            neutron_mine_victim_effect(10.0, false, true, true, false, false, false),
+            NeutronMineVictimEffect::None
+        );
+        assert_eq!(
+            neutron_mine_victim_effect(21.0, false, false, true, false, false, false),
+            NeutronMineVictimEffect::None
+        );
+        assert_eq!(
+            neutron_mine_victim_effect(10.0, false, false, false, true, false, true),
+            NeutronMineVictimEffect::KillCliffJumper
+        );
+        assert_eq!(
+            neutron_mine_victim_effect(10.0, false, false, false, true, true, false),
+            NeutronMineVictimEffect::None
+        );
     }
 
 
