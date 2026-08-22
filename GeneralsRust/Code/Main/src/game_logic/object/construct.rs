@@ -1,5 +1,16 @@
 use super::*;
 
+fn leftover_auto_acquire_idle_bits(template_name: &str) -> u32 {
+    let _ = template_name;
+    0
+}
+
+fn leftover_auto_acquire_idle_yes(template_name: &str) -> bool {
+    (leftover_auto_acquire_idle_bits(template_name)
+        & gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE)
+        != 0
+}
+
 impl Object {
     pub fn new(template: ThingTemplate, id: ObjectId, team: Team) -> Self {
         Self::new_with_logic_frame(template, id, team, 0)
@@ -886,7 +897,8 @@ impl Object {
             partition_last_affect: None,
             partition_last_look: None,
 
-            auto_acquire_when_idle: true,
+            auto_acquire_when_idle: leftover_auto_acquire_idle_yes(&template_name),
+            auto_acquire_idle_bits: leftover_auto_acquire_idle_bits(&template_name),
             attack_priority_set: None,
             camo_friendly_opacity: 1.0,
             camo_opacity_pulse_phase: 0.0,
@@ -1693,7 +1705,8 @@ impl Object {
             partition_last_look: None,
 
 
-            auto_acquire_when_idle: true,
+            auto_acquire_when_idle: leftover_auto_acquire_idle_yes(&template_name),
+            auto_acquire_idle_bits: leftover_auto_acquire_idle_bits(&template_name),
             attack_priority_set: None,
             camo_friendly_opacity: 1.0,
             camo_opacity_pulse_phase: 0.0,
@@ -2213,5 +2226,12 @@ mod tests {
                 .abs()
                 < 1e-5
         );
+    }
+
+    #[test]
+    fn construct_defaults_auto_acquire_idle_bits_off() {
+        let obj = Object::new(ThingTemplate::new("NoAcquireUnit"), ObjectId(9), Team::USA);
+        assert_eq!(obj.auto_acquire_idle_bits, 0);
+        assert!(!obj.auto_acquire_when_idle);
     }
 }
