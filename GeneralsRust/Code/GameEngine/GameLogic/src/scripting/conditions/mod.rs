@@ -37,6 +37,7 @@ pub use helpers::{
     host_script_named_unit_id, host_script_named_unit_in_area, host_script_named_unit_in_named_area,
     host_script_named_unit_present, host_script_named_unit_selected, host_building_entered_by_player,
     host_script_query_has_any, host_script_query_object, host_script_query_object_by_id,
+    host_bridge_broken, host_bridge_repaired,
     host_script_team_member_ids,
     host_script_team_unit_ids, host_team_all_inside, host_team_did_all_enter,
     host_team_did_all_exit, host_team_did_partial_enter, host_team_did_partial_exit,

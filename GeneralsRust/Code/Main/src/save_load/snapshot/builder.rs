@@ -32,7 +32,8 @@ impl SnapshotBuilder {
         let objects = self.snapshot_all_objects(game_logic)?;
 
         // Snapshot all players
-        let players = self.snapshot_all_players(game_logic)?;
+        let mut players = self.snapshot_all_players(game_logic)?;
+        super::player_upgrade_persist::stamp_completed_upgrades(&mut players, game_logic);
 
         // Create the world snapshot with actual game state
         let snapshot = WorldSnapshot {
@@ -65,9 +66,18 @@ impl SnapshotBuilder {
             client_drawables: ClientDrawableWorldSnapshot::default(),
             player_template_bindings: self.snapshot_player_template_bindings(game_logic)?,
             shroud: self.snapshot_shroud_state()?,
-            lifecycle_tail: super::lifecycle_tail::encode_lifecycle_tail(
-                &super::lifecycle_tail::capture_lifecycle_tail(game_logic),
-            ),
+            lifecycle_tail: {
+                let mut bytes = super::lifecycle_tail::encode_lifecycle_tail(
+                    &super::lifecycle_tail::capture_lifecycle_tail(game_logic),
+                );
+                super::special_power_cooldown_persist::append_to_lifecycle_tail(
+                    &mut bytes,
+                    game_logic,
+                );
+                super::battle_plan_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+
+                bytes
+            },
             player_ranks: self.snapshot_player_ranks(game_logic)?,
             object_instance_guards: self.snapshot_object_instance_guards(game_logic),
             overcharge_active: self.snapshot_overcharge_active(game_logic),
@@ -163,6 +173,7 @@ impl SnapshotBuilder {
         self.restore_special_power_strikes(&snapshot.special_power_strikes, game_logic)?;
         self.restore_combat_particles(&snapshot.combat_particles, game_logic)?;
         self.restore_host_upgrades(&snapshot.host_upgrades, game_logic)?;
+        super::player_upgrade_persist::apply_completed_upgrades(snapshot, game_logic);
         // The v4 counter is the next unused logical accepted-discharge ID.
         // The runtime setter clamps legacy/malformed zero to one and clears
         // transient presentation events so a load cannot replay pre-save FX.
@@ -202,6 +213,15 @@ impl SnapshotBuilder {
 
         let tail = super::lifecycle_tail::decode_lifecycle_tail(&snapshot.lifecycle_tail)?;
         super::lifecycle_tail::apply_lifecycle_tail_to_host(&tail, game_logic)?;
+        super::special_power_cooldown_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::battle_plan_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+
         self.sync_all_garrisoned_units_from_occupants(game_logic);
         self.restore_game_logic_persist_tail(snapshot, game_logic);
         if snapshot.version >= WORLD_SNAPSHOT_DIRECT_XFER_V18_TAIL_VERSION {

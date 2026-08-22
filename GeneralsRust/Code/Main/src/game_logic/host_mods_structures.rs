@@ -53,6 +53,9 @@ pub mod host_flight_deck;
 #[path = "host_overlord_addons.rs"]
 pub mod host_overlord_addons;
 
+#[path = "host_overlord_addon_damage.rs"]
+pub mod host_overlord_addon_damage;
+
 #[path = "host_overlord_gun.rs"]
 pub mod host_overlord_gun;
 

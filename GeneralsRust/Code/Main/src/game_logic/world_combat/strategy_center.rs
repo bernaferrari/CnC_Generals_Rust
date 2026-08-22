@@ -560,7 +560,6 @@ impl GameLogic {
         // Fail-closed: not full ScaleWeaponSpeed lob matrix.
         let is_fire_base = crate::game_logic::host_fire_base::is_fire_base_template(&template_name);
         let mut destroyed = false;
-        let mut kill_xp = 0.0;
         if is_fire_base {
             let impact = self
                 .objects
@@ -582,11 +581,6 @@ impl GameLogic {
                 self.apply_fire_base_residual_at(impact, Some(defense_id), Some(target_id))
             };
             destroyed = any_destroyed;
-            if destroyed {
-                if let Some(target) = self.objects.get(&target_id) {
-                    kill_xp = target.kill_experience_value();
-                }
-            }
             let _ = hits;
         } else {
             let weapon_snap = self.objects.get(&defense_id).and_then(|a| {
@@ -654,7 +648,7 @@ impl GameLogic {
                     slot,
                 );
                 destroyed = d;
-                kill_xp = xp;
+                let _ = xp;
             }
         }
 
@@ -723,7 +717,7 @@ impl GameLogic {
         let _ = self.record_accepted_weapon_discharge(defense_id, slot);
 
         if destroyed {
-            self.award_experience(defense_id, kill_xp);
+            self.award_score_the_kill_experience(defense_id, target_id);
             if !is_fire_base {
                 // Fire Base residual already mark_object_for_destruction inside apply.
                 self.mark_object_for_destruction(target_id, Some(team));
@@ -1107,7 +1101,7 @@ impl GameLogic {
                 .objects
                 .get(&clip.assistant_id)
                 .and_then(|a| a.weapon.clone());
-            let (destroyed, kill_xp) = self.residual_auto_fire_apply_damage(
+            let (destroyed, _) = self.residual_auto_fire_apply_damage(
                 clip.assistant_id,
                 clip.victim_id,
                 damage,
@@ -1167,7 +1161,7 @@ impl GameLogic {
             // not one visual event per auto-fire victim.
             let _ = self.record_accepted_weapon_discharge(clip.assistant_id, 0);
             if destroyed {
-                self.award_experience(clip.assistant_id, kill_xp);
+                self.award_score_the_kill_experience(clip.assistant_id, clip.victim_id);
                 // Clear engagement via decision authority (log-only when GW applies).
                 self.stop_attack_decision_aware(clip.assistant_id);
             }

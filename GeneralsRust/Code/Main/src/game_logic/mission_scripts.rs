@@ -1946,6 +1946,18 @@ impl MissionScriptActionHandler {
         }
         audio.add_audio_event(&event)
     }
+
+    /// C++ `ScriptActions::doSoundPlayFromNamed` (ScriptActions.cpp:2723-2733):
+    /// `AudioEventRTS(soundName, pUnit->getID())` + `setIsLogicalAudio(true)`.
+    fn play_named_sound_through_the_audio(name: &str, object_id: u32) -> u32 {
+        let Some(audio) = gamelogic::helpers::TheAudio::get() else {
+            return 0;
+        };
+        let mut event = gamelogic::common::audio::AudioEventRts::new(name);
+        event.set_object_id(object_id);
+        event.set_is_logical_audio(true);
+        audio.add_audio_event(&event)
+    }
 }
 
 impl ScriptActionHandler for MissionScriptActionHandler {
@@ -2604,6 +2616,28 @@ impl ScriptActionHandler for MissionScriptActionHandler {
             self.hooks
                 .push_military_caption(label, SPEECH_SUBTITLE_DURATION_MS);
         }
+        Ok(())
+    }
+
+    fn sound_play_named(&self, sound: &str, unit_name: &str) -> GameLogicResult<()> {
+        let Some(object_id) = gamelogic::scripting::host_script_named_unit_id(unit_name).or_else(
+            || {
+                gamelogic::scripting::engine::get_named_object_tracker()
+                    .get_object_id(unit_name)
+                    .ok()
+                    .flatten()
+            },
+        ) else {
+            return Ok(());
+        };
+        let handle = Self::play_named_sound_through_the_audio(sound, object_id);
+        self.hooks.note_audio_started(sound);
+        let _ = handle;
+        Ok(())
+    }
+
+    fn enable_object_sound(&self, _unit_name: &str, _enable: bool) -> GameLogicResult<()> {
+        // Leftover dispatcher already queued HostScriptObjectSoundRequest.
         Ok(())
     }
 

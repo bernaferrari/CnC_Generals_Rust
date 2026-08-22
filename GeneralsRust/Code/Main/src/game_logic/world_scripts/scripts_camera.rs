@@ -3,6 +3,39 @@
 //! script eval / EVA process / camera path / script camera
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+thread_local! {
+    static HOST_PREV_BRIDGE_BROKEN: RefCell<HashMap<String, bool>> =
+        RefCell::new(HashMap::new());
+}
+
+fn merge_host_bridge_states(
+    world: &GameLogic,
+    snap: &mut gamelogic::scripting::HostScriptQuerySnapshot,
+) {
+    use crate::game_logic::host_bridge_behavior::is_bridge_span_template;
+    let mut current = HashMap::new();
+    for obj in world.host_objects().values() {
+        if obj.name.is_empty() || !is_bridge_span_template(&obj.template_name) {
+            continue;
+        }
+        let broken = !obj.is_alive() || obj.status.destroyed || obj.health.current <= 0.0;
+        current.insert(obj.name.clone(), broken);
+        snap.named_bridge_broken.insert(obj.name.clone(), broken);
+        snap.named_bridge_repaired.insert(obj.name.clone(), !broken);
+    }
+    snap.any_bridges_damage_states_changed = HOST_PREV_BRIDGE_BROKEN.with(|prev| {
+        let mut prev = prev.borrow_mut();
+        let changed = !prev.is_empty()
+            && current
+                .iter()
+                .any(|(name, broken)| prev.get(name) != Some(broken));
+        *prev = current;
+        changed
+    });
+}
 
 /// C++ KINDOF_INERT from leftover ThingTemplate when the factory is already loaded.
 /// Never calls TheThingFactory::find_template (that lazy-inits Object INI).
@@ -534,6 +567,7 @@ impl GameLogic {
         for (name, aabb) in gamelogic::scripting::engine::get_area_tracker().all_area_aabbs() {
             snap.areas.insert(name, aabb);
         }
+        merge_host_bridge_states(self, &mut snap);
         gamelogic::scripting::set_host_script_query_snapshot(snap);
         self.merge_host_player_census_into_snapshot();
     }
@@ -1985,6 +2019,7 @@ impl GameLogic {
         self.apply_host_guard_supply_center_script_requests();
         self.apply_host_guard_variant_script_requests();
         self.apply_host_named_fire_special_script_requests();
+        self.apply_host_object_sound_script_requests();
 
         self.apply_host_skirmish_fight_script_requests();
 

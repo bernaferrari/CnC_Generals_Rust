@@ -3,6 +3,106 @@
 // Split from `team.rs` for module-size parity.
 // Observable behavior is unchanged.
 
+fn host_hook_member_ids(team_name: &str) -> Vec<u32> {
+    crate::scripting::host_script_team_member_ids(team_name)
+}
+
+fn host_hook_member_count(team_name: &str) -> Int {
+    host_hook_member_ids(team_name).len() as Int
+}
+
+fn host_hook_live_count(team_name: &str) -> Int {
+    host_hook_member_ids(team_name)
+        .into_iter()
+        .filter_map(crate::scripting::host_script_query_object_by_id)
+        .filter(|obj| obj.alive && !obj.effectively_dead)
+        .count() as Int
+}
+
+fn host_object_counts_as_team_ai(obj: &crate::scripting::HostScriptQueryObject) -> bool {
+    // C++ Team::updateState OnIdle only counts members with AIUpdateInterface.
+    !obj.kind_structure && !obj.kind_projectile && !obj.kind_inert && !obj.kind_mine
+}
+
+fn host_hook_idle_state(team_name: &str) -> (bool, bool) {
+    let mut is_idle = true;
+    let mut any_alive = false;
+    for id in host_hook_member_ids(team_name) {
+        let Some(obj) = crate::scripting::host_script_query_object_by_id(id) else {
+            continue;
+        };
+        if !obj.alive || obj.effectively_dead {
+            continue;
+        }
+        if !host_object_counts_as_team_ai(&obj) {
+            continue;
+        }
+        any_alive = true;
+        if !obj.idle {
+            is_idle = false;
+        }
+    }
+    (is_idle, any_alive)
+}
+
+fn host_hook_is_enemy(
+    looker: &crate::scripting::HostScriptQueryObject,
+    cand: &crate::scripting::HostScriptQueryObject,
+) -> bool {
+    if !looker.owner_player.is_empty()
+        && looker.owner_player.eq_ignore_ascii_case(&cand.owner_player)
+    {
+        return false;
+    }
+    const HOST_NEUTRAL_TEAM: u32 = 3;
+    if looker.team == HOST_NEUTRAL_TEAM || cand.team == HOST_NEUTRAL_TEAM {
+        return false;
+    }
+    looker.team != cand.team
+}
+
+fn host_hook_enemy_sighted(team_name: &str) -> (bool, bool) {
+    let members = host_hook_member_ids(team_name);
+    let mut candidates = members.clone();
+    for faction in 0..4 {
+        candidates.extend(crate::scripting::host_script_team_unit_ids(faction));
+    }
+    candidates.sort_unstable();
+    candidates.dedup();
+
+    let mut any_alive = false;
+    for mid in &members {
+        let Some(looker) = crate::scripting::host_script_query_object_by_id(*mid) else {
+            continue;
+        };
+        if !looker.alive || looker.effectively_dead {
+            continue;
+        }
+        any_alive = true;
+        let range_sq = looker.vision_range * looker.vision_range;
+        for cid in &candidates {
+            if *cid == looker.id {
+                continue;
+            }
+            let Some(cand) = crate::scripting::host_script_query_object_by_id(*cid) else {
+                continue;
+            };
+            if !cand.alive || cand.effectively_dead {
+                continue;
+            }
+            let dx = cand.x - looker.x;
+            let dz = cand.z - looker.z;
+            if dx * dx + dz * dz > range_sq {
+                continue;
+            }
+            if host_hook_is_enemy(&looker, &cand) {
+                return (true, true);
+            }
+        }
+    }
+    (false, any_alive)
+}
+
 impl Team {
 
     fn compute_enemy_sighted_state(&self) -> (Bool, Bool) {
@@ -82,6 +182,9 @@ impl Team {
             return;
         }
 
+        let host_census =
+            OBJECT_REGISTRY.is_empty() && crate::scripting::host_script_query_has_any();
+
         if self.created {
             self.created = false;
 
@@ -90,7 +193,11 @@ impl Team {
             }
 
             if !self.script_on_destroyed.is_empty() {
-                self.cur_units = self.members.len() as Int;
+                self.cur_units = if host_census {
+                    host_hook_member_count(self.name.as_str())
+                } else {
+                    self.members.len() as Int
+                };
                 self.destroy_threshold = self.cur_units
                     - (self.cur_units as Real * self.destroyed_threshold_ratio) as Int;
 
@@ -105,7 +212,11 @@ impl Team {
 
         if self.check_enemy_sighted {
             self.prev_see_enemy = self.see_enemy;
-            let (see_enemy_now, any_alive_in_team) = self.compute_enemy_sighted_state();
+            let (see_enemy_now, any_alive_in_team) = if host_census {
+                host_hook_enemy_sighted(self.name.as_str())
+            } else {
+                self.compute_enemy_sighted_state()
+            };
             self.see_enemy = see_enemy_now;
 
             if any_alive_in_team && self.prev_see_enemy != self.see_enemy {
@@ -122,18 +233,26 @@ impl Team {
 
         if !self.script_on_destroyed.is_empty() {
             let prev_units = self.cur_units;
-            self.cur_units = 0;
-
-            for &object_id in &self.members {
-                let alive = OBJECT_REGISTRY
-                    .with_object(object_id, |object_guard| {
-                        !object_guard.is_effectively_dead()
-                    })
-                    .unwrap_or(false);
-                if alive {
-                    self.cur_units += 1;
+            self.cur_units = if host_census {
+                host_hook_live_count(self.name.as_str())
+            } else if OBJECT_REGISTRY.is_empty() {
+                // No host snapshot: listed members stay counted so OnDestroyed
+                // does not fire at activation (C++ only drops live units).
+                self.members.len() as Int
+            } else {
+                let mut live = 0;
+                for &object_id in &self.members {
+                    let alive = OBJECT_REGISTRY
+                        .with_object(object_id, |object_guard| {
+                            !object_guard.is_effectively_dead()
+                        })
+                        .unwrap_or(false);
+                    if alive {
+                        live += 1;
+                    }
                 }
-            }
+                live
+            };
 
             if self.cur_units != prev_units && self.cur_units <= self.destroy_threshold {
                 queue_team_script_event(self.name.as_str(), self.script_on_destroyed.as_str());
@@ -142,30 +261,35 @@ impl Team {
         }
 
         if !self.script_on_idle.is_empty() {
-            let mut is_idle = true;
-            let mut any_alive_in_team = false;
+            let (is_idle, any_alive_in_team) = if host_census {
+                host_hook_idle_state(self.name.as_str())
+            } else {
+                let mut is_idle = true;
+                let mut any_alive_in_team = false;
 
-            for &object_id in &self.members {
-                let Some(idle) = OBJECT_REGISTRY
-                    .with_object(object_id, |object_guard| {
-                        if object_guard.is_effectively_dead() {
-                            return None;
-                        }
-                        if object_guard.get_ai_update_interface().is_none() {
-                            return None;
-                        }
-                        Some(object_guard.is_idle())
-                    })
-                    .flatten()
-                else {
-                    continue;
-                };
+                for &object_id in &self.members {
+                    let Some(idle) = OBJECT_REGISTRY
+                        .with_object(object_id, |object_guard| {
+                            if object_guard.is_effectively_dead() {
+                                return None;
+                            }
+                            if object_guard.get_ai_update_interface().is_none() {
+                                return None;
+                            }
+                            Some(object_guard.is_idle())
+                        })
+                        .flatten()
+                    else {
+                        continue;
+                    };
 
-                any_alive_in_team = true;
-                if !idle {
-                    is_idle = false;
+                    any_alive_in_team = true;
+                    if !idle {
+                        is_idle = false;
+                    }
                 }
-            }
+                (is_idle, any_alive_in_team)
+            };
 
             if any_alive_in_team && is_idle && self.was_idle {
                 queue_team_script_event(self.name.as_str(), self.script_on_idle.as_str());

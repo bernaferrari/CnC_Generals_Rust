@@ -1690,7 +1690,18 @@ impl GameLogic {
             ai.parent_idle = idle;
             ai.wanting_enter_or_exit = wanting;
             ai.contained_count = contained;
+            let was_landing = matches!(
+                ai.flight_status,
+                crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landing
+            );
             ai.tick(step);
+            let landing_now = matches!(
+                ai.flight_status,
+                crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landing
+            );
+            let landing_from = glam::Vec3::new(ai.pos[0], ai.pos[2], ai.pos[1]);
+            let landing_dest = glam::Vec3::new(ai.dest[0], ai.dest[2], ai.dest[1]);
+            let apply_landing_dest = landing_now && !was_landing;
             let evac_fly = matches!(
                 ai.state,
                 crate::game_logic::host_combat_chinook::HostChinookAIState::MoveToAndEvac
@@ -1738,6 +1749,21 @@ impl GameLogic {
             }
             if destroyed {
                 obj.status.destroyed = true;
+            }
+            drop(obj);
+            if apply_landing_dest {
+                let adj = self.pathfinding_system.adjust_landing_destination_for(
+                    id.0,
+                    &self.objects,
+                    landing_from,
+                    landing_dest,
+                );
+                if let Some(obj) = self.objects.get_mut(&id) {
+                    if let Some(ai) = obj.chinook_ai.as_mut() {
+                        ai.dest = [adj.x, adj.z, adj.y];
+                    }
+                    obj.movement.target_position = Some(adj);
+                }
             }
 
         }

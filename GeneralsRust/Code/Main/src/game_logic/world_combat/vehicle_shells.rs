@@ -259,6 +259,9 @@ impl GameLogic {
         }
 
         for (id, killer) in destroy_ids {
+            if let Some(src) = source {
+                self.award_score_the_kill_experience(src, id);
+            }
             self.mark_object_for_destruction(id, killer);
         }
 
@@ -675,6 +678,9 @@ impl GameLogic {
         }
 
         for (id, killer) in destroy_ids {
+            if let Some(src) = source {
+                self.award_score_the_kill_experience(src, id);
+            }
             self.mark_object_for_destruction(id, killer);
         }
 
@@ -1076,6 +1082,9 @@ impl GameLogic {
         }
 
         for (id, killer) in destroy_ids {
+            if let Some(src) = source {
+                self.award_score_the_kill_experience(src, id);
+            }
             self.mark_object_for_destruction(id, killer);
         }
 
@@ -1500,6 +1509,9 @@ impl GameLogic {
         }
 
         for (id, killer) in destroy_ids {
+            if let Some(src) = source {
+                self.award_score_the_kill_experience(src, id);
+            }
             self.mark_object_for_destruction(id, killer);
         }
 
@@ -1842,6 +1854,9 @@ impl GameLogic {
         }
 
         for (id, killer) in destroy_ids {
+            if let Some(src) = source {
+                self.award_score_the_kill_experience(src, id);
+            }
             self.mark_object_for_destruction(id, killer);
         }
 

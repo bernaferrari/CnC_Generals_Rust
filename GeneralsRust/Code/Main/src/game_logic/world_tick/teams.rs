@@ -345,11 +345,58 @@ impl GameLogic {
         let Ok(mut factory) = gamelogic::team::get_team_factory().lock() else {
             return;
         };
+        let team = factory
+            .find_team(team_name)
+            .or_else(|| factory.create_inactive_team(team_name));
+        let Some(team) = team else {
+            return;
+        };
+        if let Ok(mut guard) = team.write() {
+            guard.add_member(id.0);
+            guard.set_active();
+        }
+    }
+
+    /// C++ Object.cpp:4592 `m_team->notifyTeamOfObjectDeath()`.
+    pub fn notify_leftover_team_of_host_object_death(&self, id: ObjectId) {
+        let Some(obj) = self.objects.get(&id) else {
+            return;
+        };
+        let team_name = obj.team_instance_name.trim();
+        if team_name.is_empty() {
+            return;
+        }
+        let Ok(mut factory) = gamelogic::team::get_team_factory().lock() else {
+            return;
+        };
         let Some(team) = factory.find_team(team_name) else {
             return;
         };
         if let Ok(mut guard) = team.write() {
-            guard.set_active();
+            if !guard.has_member(id.0) {
+                return;
+            }
+            guard.notify_team_of_object_death();
+            guard.remove_member(id.0);
+        }
+        drop(factory);
+        gamelogic::team::flush_pending_team_script_events();
+    }
+
+    /// C++ Object destructor unlinks from TeamMemberList.
+    pub fn unlink_leftover_team_host_member(&self, id: ObjectId, team_name: &str) {
+        let team_name = team_name.trim();
+        if team_name.is_empty() {
+            return;
+        }
+        let Ok(mut factory) = gamelogic::team::get_team_factory().lock() else {
+            return;
+        };
+        let Some(team) = factory.find_team(team_name) else {
+            return;
+        };
+        if let Ok(mut guard) = team.write() {
+            guard.remove_member(id.0);
         }
     }
 

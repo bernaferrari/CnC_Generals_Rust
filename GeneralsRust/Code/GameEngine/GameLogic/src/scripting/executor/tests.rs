@@ -4310,6 +4310,64 @@ fn named_team_kill_delete_damage_queue_host_when_dual_world_empty() {
     );
 }
 
+#[test]
+fn named_object_sound_queues_host_when_dual_world_empty() {
+    let _test_lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    let _ = take_host_script_object_sound_requests();
+    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+
+    let mut play = ScriptAction::new(ScriptActionType::SoundPlayNamed);
+    play.add_parameter(Parameter::with_string(
+        ParameterType::TextString,
+        "UnitCheer".into(),
+    ))
+    .unwrap();
+    play.add_parameter(Parameter::with_string(ParameterType::Unit, "NamedScout".into()))
+        .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&play).unwrap(),
+        ScriptActionResult::Success
+    );
+
+    let mut enable = ScriptAction::new(ScriptActionType::EnableObjectSound);
+    enable
+        .add_parameter(Parameter::with_string(ParameterType::Unit, "NamedFactory".into()))
+        .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&enable).unwrap(),
+        ScriptActionResult::Success
+    );
+
+    let mut disable = ScriptAction::new(ScriptActionType::DisableObjectSound);
+    disable
+        .add_parameter(Parameter::with_string(ParameterType::Unit, "NamedFactory".into()))
+        .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&disable).unwrap(),
+        ScriptActionResult::Success
+    );
+
+    assert_eq!(
+        take_host_script_object_sound_requests(),
+        vec![
+            HostScriptObjectSoundRequest::PlayNamed {
+                sound: "UnitCheer".to_string(),
+                unit: "NamedScout".to_string()
+            },
+            HostScriptObjectSoundRequest::Enable {
+                unit: "NamedFactory".to_string(),
+                enable: true
+            },
+            HostScriptObjectSoundRequest::Enable {
+                unit: "NamedFactory".to_string(),
+                enable: false
+            },
+        ]
+    );
+}
+
+
 
 #[test]
 fn team_set_attitude_queues_host_when_dual_world_empty() {
@@ -5217,6 +5275,73 @@ fn live_skirmish_leftover_conditions_read_host_snapshot() {
         evaluator.evaluate_condition(&mut units).unwrap(),
         ScriptConditionResult::True,
         "SKIRMISH_PLAYER_HAS_UNITS_IN_AREA must see host objects in the pad"
+    );
+
+    crate::scripting::clear_host_script_query_snapshot();
+}
+
+#[test]
+fn bridge_broken_reads_host_named_state_only_on_damage_edge() {
+    let _test_lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    crate::scripting::clear_host_script_query_snapshot();
+
+    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let mut broken = Condition::new(ConditionType::BridgeBroken);
+    broken
+        .add_parameter(Parameter::with_string(
+            ParameterType::Bridge,
+            "ConvoyBridge".into(),
+        ))
+        .unwrap();
+    let mut repaired = Condition::new(ConditionType::BridgeRepaired);
+    repaired
+        .add_parameter(Parameter::with_string(
+            ParameterType::Bridge,
+            "ConvoyBridge".into(),
+        ))
+        .unwrap();
+
+    assert_eq!(
+        evaluator.evaluate_condition(&mut broken).unwrap(),
+        ScriptConditionResult::False
+    );
+
+    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+        any_bridges_damage_states_changed: true,
+        named_bridge_broken: [("ConvoyBridge".into(), true)].into_iter().collect(),
+        named_bridge_repaired: [("ConvoyBridge".into(), false)].into_iter().collect(),
+        ..Default::default()
+    });
+    assert_eq!(
+        evaluator.evaluate_condition(&mut broken).unwrap(),
+        ScriptConditionResult::True
+    );
+    assert_eq!(
+        evaluator.evaluate_condition(&mut repaired).unwrap(),
+        ScriptConditionResult::False
+    );
+
+    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+        any_bridges_damage_states_changed: false,
+        named_bridge_broken: [("ConvoyBridge".into(), true)].into_iter().collect(),
+        named_bridge_repaired: [("ConvoyBridge".into(), false)].into_iter().collect(),
+        ..Default::default()
+    });
+    assert_eq!(
+        evaluator.evaluate_condition(&mut broken).unwrap(),
+        ScriptConditionResult::False
+    );
+
+    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+        any_bridges_damage_states_changed: true,
+        named_bridge_broken: [("ConvoyBridge".into(), false)].into_iter().collect(),
+        named_bridge_repaired: [("ConvoyBridge".into(), true)].into_iter().collect(),
+        ..Default::default()
+    });
+    assert_eq!(
+        evaluator.evaluate_condition(&mut repaired).unwrap(),
+        ScriptConditionResult::True
     );
 
     crate::scripting::clear_host_script_query_snapshot();

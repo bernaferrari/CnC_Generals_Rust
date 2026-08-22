@@ -1439,7 +1439,7 @@ impl GameLogic {
         }
 
         let weapon_snap = self.objects.get(&sentry_id).and_then(|a| a.weapon.clone());
-        let (destroyed, kill_xp) = self.residual_auto_fire_apply_damage(
+        let (destroyed, _) = self.residual_auto_fire_apply_damage(
             sentry_id,
             target_id,
             damage,
@@ -1491,7 +1491,7 @@ impl GameLogic {
         let _ = self.record_accepted_weapon_discharge(sentry_id, 0);
 
         if destroyed {
-            self.award_experience(sentry_id, kill_xp);
+            self.award_score_the_kill_experience(sentry_id, target_id);
             self.mark_object_for_destruction(target_id, Some(team));
         }
 
@@ -1602,7 +1602,6 @@ impl GameLogic {
             .and_then(|a| a.weapon.clone());
         // C++ Hellfire ScatterRadiusVsInfantry residual: vs infantry may miss.
         let mut destroyed = false;
-        let mut kill_xp = 0.0;
         let target_is_infantry = self
             .objects
             .get(&target_id)
@@ -1635,7 +1634,7 @@ impl GameLogic {
             }
         }
         if !skip_damage {
-            let (d, xp) = self.residual_auto_fire_apply_damage(
+            let (d, _) = self.residual_auto_fire_apply_damage(
                 hellfire_id,
                 target_id,
                 damage,
@@ -1644,7 +1643,6 @@ impl GameLogic {
                 0,
             );
             destroyed = d;
-            kill_xp = xp;
         }
 
         if let Some(attacker) = self.objects.get_mut(&hellfire_id) {
@@ -1698,7 +1696,7 @@ impl GameLogic {
         let _ = self.record_accepted_weapon_discharge(hellfire_id, 0);
 
         if destroyed {
-            self.award_experience(hellfire_id, kill_xp);
+            self.award_score_the_kill_experience(hellfire_id, target_id);
             self.mark_object_for_destruction(target_id, Some(team));
         }
 

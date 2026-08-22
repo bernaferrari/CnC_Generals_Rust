@@ -1670,15 +1670,37 @@ pub fn update_goal_for_object(
             as i32;
         r.clamp(0, 2)
     };
-    let pf_layer = match layer {
-        PathfindLayerEnum::Ground => crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
-        _ => crate::ai::pathfind_astar::PathfindLayerEnum::Top,
+    let dest_layer = get_terrain_logic()
+        .read()
+        .ok()
+        .map(|t| t.get_layer_for_destination(goal))
+        .unwrap_or(crate::path::PathfindLayerEnum::Ground);
+    let interacts_with_bridge_end = get_terrain_logic()
+        .read()
+        .ok()
+        .map(|t| t.object_interacts_with_bridge_end(&*obj_guard, dest_layer))
+        .unwrap_or(false);
+    let pf_layer = if dest_layer != crate::path::PathfindLayerEnum::Ground {
+        crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(dest_layer as u32)
+    } else {
+        match layer {
+            PathfindLayerEnum::Ground => crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
+            PathfindLayerEnum::Wall => crate::ai::pathfind_astar::PathfindLayerEnum::Wall,
+            _ => crate::ai::pathfind_astar::PathfindLayerEnum::Top,
+        }
     };
     drop(obj_guard);
     if let Ok(ai) = THE_AI.read() {
         if let Some(pf) = ai.pathfinder() {
             if let Ok(pf) = pf.read() {
-                pf.update_goal_cells(cell, obj_id, pf_layer, radius, true, false);
+                pf.update_goal_cells(
+                    cell,
+                    obj_id,
+                    pf_layer,
+                    radius,
+                    true,
+                    interacts_with_bridge_end,
+                );
             }
         }
     }

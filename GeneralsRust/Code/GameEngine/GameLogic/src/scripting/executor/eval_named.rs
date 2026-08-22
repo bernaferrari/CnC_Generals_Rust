@@ -1188,6 +1188,11 @@ impl ScriptConditionEvaluator {
     ) -> Result<ScriptConditionResult, ScriptError> {
         let bridge_name = self.get_condition_string_param(condition, 0)?;
         log::debug!("Evaluating if bridge '{}' repaired", bridge_name);
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            return Ok(Self::bool_result(crate::scripting::host_bridge_repaired(
+                &bridge_name,
+            )));
+        }
         let tracker = get_named_object_tracker();
         let Ok(Some(bridge_id)) = tracker.get_object_id(&bridge_name) else {
             return Ok(ScriptConditionResult::False);
@@ -1208,6 +1213,11 @@ impl ScriptConditionEvaluator {
     ) -> Result<ScriptConditionResult, ScriptError> {
         let bridge_name = self.get_condition_string_param(condition, 0)?;
         log::debug!("Evaluating if bridge '{}' broken", bridge_name);
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            return Ok(Self::bool_result(crate::scripting::host_bridge_broken(
+                &bridge_name,
+            )));
+        }
         let tracker = get_named_object_tracker();
         let Ok(Some(bridge_id)) = tracker.get_object_id(&bridge_name) else {
             return Ok(ScriptConditionResult::False);

@@ -1504,6 +1504,14 @@ impl HostBattlePlanRegistry {
         *self = Self::default();
     }
 
+    /// Whether save/load must write this registry (active plan, door, or selection).
+    pub fn has_persistable_state(&self) -> bool {
+        !self.active_by_player.is_empty()
+            || !self.door_states.is_empty()
+            || !self.selections.is_empty()
+    }
+
+
     /// Drop door residual for a destroyed Strategy Center.
     pub fn clear_door_for_center(&mut self, center_id: ObjectId) {
         self.door_states.retain(|s| s.center_id != center_id);

@@ -1117,6 +1117,7 @@ impl Object {
             self.has_overlord_propaganda_addon = false;
         }
         self.record_host_overlord();
+        self.sync_overlord_addon_body_damage();
     }
 
     /// Install residual portable GattlingCannon addon
@@ -1149,6 +1150,7 @@ impl Object {
         self.record_host_continuous_fire();
         self.record_host_weapon_set();
         self.record_host_overlord();
+        self.sync_overlord_addon_body_damage();
     }
 
     /// Install residual portable PropagandaTower addon
@@ -1162,6 +1164,7 @@ impl Object {
         }
         self.has_overlord_propaganda_addon = true;
         self.record_host_overlord();
+        self.sync_overlord_addon_body_damage();
     }
 
     /// Install residual HelixContain transport (Slots=5).
@@ -1177,6 +1180,48 @@ impl Object {
         self.record_host_contain_capacity();
         self.record_host_overlord();
         self.record_host_stealth_flags();
+    }
+
+    pub fn has_portable_overlord_addon(&self) -> bool {
+        crate::game_logic::host_overlord_addon_damage::portable_addon_installed(
+            self.has_overlord_gattling_addon,
+            self.has_overlord_propaganda_addon,
+            self.overlord_bunker_slot_capacity(),
+            crate::game_logic::host_overlord_addons::is_emperor_template(&self.template_name),
+        )
+    }
+
+    pub fn sync_overlord_addon_body_damage(&mut self) {
+        if !self.has_portable_overlord_addon() {
+            self.overlord_addon_body_damage_state =
+                crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine;
+            return;
+        }
+        if let Some(state) =
+            crate::game_logic::host_overlord_addon_damage::overlord_addon_mirrored_damage_state(
+                self.body_damage_state,
+            )
+        {
+            self.overlord_addon_body_damage_state = state;
+        }
+    }
+
+    pub fn apply_overlord_addon_set_damage_state(
+        &mut self,
+        new_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
+    ) {
+        if matches!(
+            new_state,
+            crate::game_logic::host_enum_table_residual::HostBodyDamageType::Rubble
+        ) {
+            return;
+        }
+        self.health.current =
+            crate::game_logic::host_overlord_addon_damage::overlord_addon_set_damage_state_health(
+                self.health.maximum.max(0.0),
+                new_state,
+            );
+        self.refresh_model_condition_bits();
     }
 
 

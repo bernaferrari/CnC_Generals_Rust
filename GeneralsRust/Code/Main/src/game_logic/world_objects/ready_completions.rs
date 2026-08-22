@@ -1204,6 +1204,7 @@ impl GameLogic {
                     &model, scale, yaw,
                 ),
             );
+            self.mirror_overlord_addon_damage_to_occupant(owner);
             n = n.saturating_add(1);
         }
         n

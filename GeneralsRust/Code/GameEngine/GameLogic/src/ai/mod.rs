@@ -2785,7 +2785,7 @@ impl Pathfinder {
             .get_bounding_circle_radius()
             .max(0.0);
         self.inner
-            .adjust_to_landing_destination(&from, dest, unit_radius)
+            .adjust_to_landing_destination_for(&from, dest, unit_radius, obj.get_id())
     }
 
     /// C++ Pathfinder::adjustToPossibleDestination — spiral search for a reachable cell.

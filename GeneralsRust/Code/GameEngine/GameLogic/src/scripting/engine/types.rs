@@ -321,6 +321,16 @@ pub trait ScriptActionHandler: Send + Sync {
         Ok(())
     }
 
+    /// C++ `ScriptActions::doSoundPlayFromNamed` — play as though from a unit.
+    fn sound_play_named(&self, _sound: &str, _unit_name: &str) -> GameLogicResult<()> {
+        Ok(())
+    }
+
+    /// C++ `ScriptActions::doEnableObjectSound` / `DISABLE_OBJECT_SOUND`.
+    fn enable_object_sound(&self, _unit_name: &str, _enable: bool) -> GameLogicResult<()> {
+        Ok(())
+    }
+
     /// Mirrors `ScriptEngine::isSpeechComplete(name, flush)` used by `Condition::HAS_FINISHED_SPEECH`.
     fn is_speech_complete(&self, _name: &str, _flush: bool) -> bool {
         false
@@ -815,6 +825,20 @@ impl SequentialScript {
         }
     }
 }
+
+/// C++ `SequentialScript::xfer` payload (ScriptEngine.cpp:8127-8198).
+/// Heads only: `m_nextScriptInSequence` is not serialized.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SequentialScriptSnapshot {
+    pub team_id: TeamID,
+    pub object_id: ObjectID,
+    pub script_name: String,
+    pub current_instruction: i32,
+    pub times_to_loop: i32,
+    pub frames_to_wait: i32,
+    pub dont_advance_instruction: bool,
+}
+
 
 impl XferSnapshot for SequentialScript {
     fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {

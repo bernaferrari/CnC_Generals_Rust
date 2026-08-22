@@ -719,7 +719,7 @@ impl GameLogic {
             .objects
             .get(&passenger_id)
             .and_then(|a| a.weapon.clone());
-        let (destroyed, kill_xp) = self.residual_auto_fire_apply_damage(
+        let (destroyed, _) = self.residual_auto_fire_apply_damage(
             passenger_id,
             target_id,
             damage,
@@ -774,7 +774,7 @@ impl GameLogic {
         let _ = self.record_accepted_weapon_discharge(passenger_id, 0);
 
         if destroyed {
-            self.award_experience(passenger_id, kill_xp);
+            self.award_score_the_kill_experience(passenger_id, target_id);
             self.mark_object_for_destruction(target_id, Some(team));
         }
 
@@ -934,7 +934,7 @@ impl GameLogic {
             .objects
             .get(&garrisoned_id)
             .and_then(|a| a.weapon_slot(slot).cloned());
-        let (destroyed, kill_xp) = self.residual_auto_fire_apply_damage(
+        let (destroyed, _) = self.residual_auto_fire_apply_damage(
             garrisoned_id,
             target_id,
             damage,
@@ -987,7 +987,7 @@ impl GameLogic {
         let _ = self.record_accepted_weapon_discharge(garrisoned_id, slot);
 
         if destroyed {
-            self.award_experience(garrisoned_id, kill_xp);
+            self.award_score_the_kill_experience(garrisoned_id, target_id);
             self.mark_object_for_destruction(target_id, Some(team));
         }
         self.garrison_residual_fires = self.garrison_residual_fires.saturating_add(1);
@@ -2635,6 +2635,15 @@ impl GameLogic {
     pub fn battle_plans(&self) -> &crate::game_logic::host_strategy_center::HostBattlePlanRegistry {
         &self.battle_plans
     }
+
+    /// C++ `Player::xfer` (`Player.cpp:4480-4507`) restores `m_battlePlanBonuses`.
+    pub fn restore_battle_plans(
+        &mut self,
+        registry: crate::game_logic::host_strategy_center::HostBattlePlanRegistry,
+    ) {
+        self.battle_plans = registry;
+    }
+
 
     /// Residual honesty: Strategy Center battle plan selected at least once.
     pub fn honesty_battle_plan_select_ok(&self) -> bool {

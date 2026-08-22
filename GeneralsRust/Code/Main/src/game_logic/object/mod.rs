@@ -856,6 +856,9 @@ pub struct Object {
     /// C++ `Drawable::m_ambientSound` event name currently playing.
     #[serde(default)]
     pub ambient_audio: Option<String>,
+    /// C++ `Drawable::m_ambientSoundEnabledFromScript` (ctor true).
+    #[serde(default = "default_true")]
+    pub ambient_sound_enabled_from_script: bool,
 
 
     /// Health system
@@ -2387,6 +2390,17 @@ pub struct Object {
     #[serde(default)]
     pub has_overlord_propaganda_addon: bool,
 
+    /// C++ OverlordContain/HelixContain onBodyDamageStateChange setDamageState
+    /// on the portable addon. Live addons are flags, so this holds the mirrored
+    /// DAMAGED/REALLYDAMAGED visual state (never RUBBLE).
+    #[serde(default)]
+    pub overlord_addon_body_damage_state:
+        crate::game_logic::host_enum_table_residual::HostBodyDamageType,
+
+    /// Spawned portable payload object (gattling / speaker / bunker).
+    #[serde(default)]
+    pub overlord_portable_occupant: Option<ObjectId>,
+
     /// Host residual: HelixContain transport (Slots=5, infantry/vehicle/portable).
     /// Fail-closed: not multi-exit / napalm bomb special ability matrix.
     #[serde(default)]
@@ -2508,6 +2522,9 @@ pub struct Object {
     /// Last-damage source was VEHICLE/INFANTRY/faction structure (same-frame preference).
     #[serde(default)]
     pub last_damage_source_preferred: bool,
+    /// C++ ActiveBody scoreTheKill once per death (splash/residual + direct-fire).
+    #[serde(default)]
+    pub kill_experience_awarded: bool,
     /// C++ Object `m_healthBoxOffset` (SpawnBehavior averages spawn positions).
     #[serde(default)]
     pub health_box_offset: [f32; 3],

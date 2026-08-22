@@ -187,13 +187,13 @@ impl Team {
     pub fn add_member(&mut self, object_id: ObjectID) {
         if !self.members.contains(&object_id) {
             self.members.push(object_id);
-            self.cur_units = self.members.len() as Int;
+            // C++ DLINK insert does not touch m_curUnits; Team::updateState recounts.
         }
     }
 
     pub fn remove_member(&mut self, object_id: ObjectID) {
         self.members.retain(|&id| id != object_id);
-        self.cur_units = self.members.len() as Int;
+        // C++ DLINK unlink does not touch m_curUnits; Team::updateState recounts.
     }
 
     pub fn get_members(&self) -> &[ObjectID] {

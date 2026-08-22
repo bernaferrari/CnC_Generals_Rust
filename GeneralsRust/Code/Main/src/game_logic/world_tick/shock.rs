@@ -403,6 +403,7 @@ impl GameLogic {
             }
         }
         for id in destroy {
+            self.award_score_the_kill_experience(attacker_id, id);
             self.mark_object_for_destruction(id, Some(attacker_team));
         }
         let source_pos = self
@@ -539,6 +540,7 @@ impl GameLogic {
             }
         }
         for id in destroy {
+            self.award_score_the_kill_experience(attacker_id, id);
             self.mark_object_for_destruction(id, Some(attacker_team));
         }
         let source_pos = self
@@ -800,11 +802,17 @@ impl GameLogic {
         let Some(victim) = self.objects.get(&victim_id) else {
             return;
         };
+        if victim.kill_experience_awarded {
+            return;
+        }
         if victim.is_alive() && victim.health.current > 0.0 && !victim.status.destroyed {
             return;
         }
         let xp = victim.kill_experience_value();
         let team = victim.team;
+        if let Some(v) = self.objects.get_mut(&victim_id) {
+            v.kill_experience_awarded = true;
+        }
         if !self.kill_awards_unit_experience(killer_id, victim_id, team) {
             return;
         }
@@ -860,13 +868,10 @@ impl GameLogic {
         weapon_name: Option<&str>,
         kill_xp: f32,
     ) {
-        let xp = if self.kill_awards_unit_experience(attacker_id, dead_victim_id, victim_team)
-        {
-            kill_xp
-        } else {
-            0.0
-        };
-        self.award_experience(attacker_id, xp);
+        // C++ scores in ActiveBody; mark_object_for_destruction awards from
+        // last_damage_source. Keep this for callers that skip mark.
+        let _ = kill_xp;
+        self.award_score_the_kill_experience(attacker_id, dead_victim_id);
         let cont = weapon_name
             .map(crate::game_logic::weapon_bootstrap::host_continue_attack_range_for_weapon_name)
             .unwrap_or(0.0);

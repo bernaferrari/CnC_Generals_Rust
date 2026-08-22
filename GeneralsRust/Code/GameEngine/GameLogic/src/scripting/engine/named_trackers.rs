@@ -153,6 +153,88 @@ impl ScriptEngine {
         Ok(())
     }
 
+    /// C++ `ScriptEngine::xfer` sequential-script heads (ScriptEngine.cpp:8821-8869).
+    pub fn snapshot_sequential_scripts(&self) -> Vec<SequentialScriptSnapshot> {
+        self.with_inner(|inner| {
+            inner
+                .sequential_scripts
+                .iter()
+                .map(|script| SequentialScriptSnapshot {
+                    team_id: Self::sequential_team_id(script.team_to_exec_on.as_deref()),
+                    object_id: script.object_id,
+                    script_name: script
+                        .script_to_execute_sequentially
+                        .as_ref()
+                        .map(|script| script.script_name.clone())
+                        .unwrap_or_default(),
+                    current_instruction: script.current_instruction,
+                    times_to_loop: script.times_to_loop,
+                    frames_to_wait: script.frames_to_wait,
+                    dont_advance_instruction: script.dont_advance_instruction,
+                })
+                .collect()
+        })
+    }
+
+    /// Restore sequential heads without `append_sequential_script` (that resets instruction).
+    pub fn restore_sequential_scripts(&self, scripts: &[SequentialScriptSnapshot]) {
+        {
+            let mut inner = self.lock_inner_mut();
+            inner.sequential_scripts.clear();
+            inner.next_sequential_runtime_token = 1;
+        }
+
+        for snap in scripts {
+            let mut script = SequentialScript::new();
+            script.object_id = snap.object_id;
+            script.current_instruction = snap.current_instruction;
+            script.times_to_loop = snap.times_to_loop;
+            script.frames_to_wait = snap.frames_to_wait;
+            script.dont_advance_instruction = snap.dont_advance_instruction;
+            script.team_to_exec_on = Self::sequential_team_name(snap.team_id);
+            if !snap.script_name.is_empty() {
+                script.script_to_execute_sequentially =
+                    Some(Box::new(self.find_script_clone_by_name(&snap.script_name).unwrap_or_else(
+                        || {
+                            let mut stub = Script::new();
+                            stub.script_name = snap.script_name.clone();
+                            stub
+                        },
+                    )));
+            }
+
+            let mut inner = self.lock_inner_mut();
+            script.runtime_token = Self::allocate_sequential_runtime_token(&mut inner);
+            inner.sequential_scripts.push(script);
+        }
+    }
+
+    fn sequential_team_id(team_name: Option<&str>) -> TeamID {
+        let Some(team_name) = team_name else {
+            return TEAM_ID_INVALID;
+        };
+        let Ok(mut factory) = TheTeamFactory().lock() else {
+            return TEAM_ID_INVALID;
+        };
+        factory
+            .find_team(team_name)
+            .and_then(|team| team.read().ok().map(|guard| guard.get_id()))
+            .unwrap_or(TEAM_ID_INVALID)
+    }
+
+    fn sequential_team_name(team_id: TeamID) -> Option<String> {
+        if team_id == TEAM_ID_INVALID {
+            return None;
+        }
+        let Ok(factory) = TheTeamFactory().lock() else {
+            return None;
+        };
+        factory
+            .find_team_by_id(team_id)
+            .and_then(|team| team.read().ok().map(|guard| guard.get_name().to_string()))
+    }
+
+
 
     /// Increment a named counter by `amount`.
     /// C++ `ScriptEngine::addCounter`: param0 is the INT amount.
@@ -1086,6 +1168,54 @@ impl ScriptEngine {
             inner.named_reveals.remove(index);
         }
     }
+
+    /// C++ `ScriptEngine::xfer` v2+ `m_namedReveals` table.
+    pub fn snapshot_named_reveals(&self) -> Vec<(String, String, f32, String)> {
+        self.with_inner(|inner| {
+            inner
+                .named_reveals
+                .iter()
+                .map(|reveal| {
+                    (
+                        reveal.reveal_name.clone(),
+                        reveal.waypoint_name.clone(),
+                        reveal.radius_to_reveal,
+                        reveal.player_name.clone(),
+                    )
+                })
+                .collect()
+        })
+    }
+
+    /// Replace the named-reveal list. C++ load requires the vector empty first.
+    pub fn restore_named_reveals(&self, reveals: &[(String, String, f32, String)]) {
+        let mut inner = self.lock_inner_mut();
+        inner.named_reveals.clear();
+        inner.named_reveals.extend(reveals.iter().map(
+            |(reveal_name, waypoint_name, radius_to_reveal, player_name)| NamedReveal {
+                reveal_name: reveal_name.clone(),
+                waypoint_name: waypoint_name.clone(),
+                radius_to_reveal: *radius_to_reveal,
+                player_name: player_name.clone(),
+            },
+        ));
+    }
+
+    /// Re-apply every stored named reveal after load so waypoint lookers return.
+    /// C++ partition xfer keeps looker counts; live host restamps object lookers only.
+    pub fn reapply_named_map_reveals(&self) {
+        let names: Vec<String> = self.with_inner(|inner| {
+            inner
+                .named_reveals
+                .iter()
+                .map(|reveal| reveal.reveal_name.clone())
+                .collect()
+        });
+        for name in names {
+            self.do_named_map_reveal(&name);
+        }
+    }
+
 
     /// Set or clear a named topple direction for scripted objects.
     /// Matches C++ ScriptEngine::setToppleDirection.

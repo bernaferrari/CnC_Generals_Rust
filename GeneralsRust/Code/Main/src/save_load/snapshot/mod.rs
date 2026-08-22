@@ -61,6 +61,8 @@
 
 mod ai;
 mod builder;
+mod battle_plan_persist;
+
 mod client_drawable;
 mod client_drawable_xfer;
 mod game_state;
@@ -71,9 +73,11 @@ mod load_post_process;
 mod object;
 pub(crate) mod persist_v18;
 mod player;
+mod player_upgrade_persist;
 mod restore;
 mod shroud;
 mod special_powers;
+mod special_power_cooldown_persist;
 mod terrain;
 mod types;
 mod w3d_ghost_save;
@@ -119,6 +123,8 @@ pub use game_client_save::{
 pub const SNAPSHOT_SRC: &str = concat!(
     include_str!("mod.rs"),
     include_str!("ai.rs"),
+    include_str!("battle_plan_persist.rs"),
+
     include_str!("builder.rs"),
     include_str!("client_drawable.rs"),
     include_str!("client_drawable_xfer.rs"),
@@ -132,6 +138,7 @@ pub const SNAPSHOT_SRC: &str = concat!(
     include_str!("restore.rs"),
     include_str!("shroud.rs"),
     include_str!("special_powers.rs"),
+    include_str!("special_power_cooldown_persist.rs"),
     include_str!("terrain.rs"),
     include_str!("types.rs"),
     include_str!("xfer_helpers.rs"),
