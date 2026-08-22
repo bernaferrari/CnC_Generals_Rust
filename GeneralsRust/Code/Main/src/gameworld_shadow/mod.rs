@@ -71,6 +71,12 @@ pub struct GameWorldShadow {
     construction_rate_by_host: HashMap<u32, f32>,
     /// Host isDisabled/pauseCountdown freeze residual for SP sole-tick.
     special_power_frozen_by_host: HashMap<u32, bool>,
+    /// Host world XZ extent for DeliverPayload HeadOffMap / isOffMap.
+    map_min_x: f32,
+    map_min_z: f32,
+    map_max_x: f32,
+    map_max_z: f32,
+
     /// Pending A10 missile drops (mirrored from host registry under dual-tick).
     a10_pending_drops: Vec<crate::game_logic::host_a10_strike_flight::PendingA10MissileDrop>,
     artillery_pending_drops:

@@ -820,6 +820,11 @@ pub struct GameLogic {
     pub(super) battle_drone_residual_units_hit: u32,
     pub(super) battle_drone_residual_repairs: u32,
     pub(super) battle_drone_residual_repair_amount: f32,
+    /// C++ SlavedUpdate weld duty cycle per Battle Drone (`doRepairLogic`).
+    pub(super) battle_drone_weld_states: std::collections::HashMap<
+        ObjectId,
+        crate::game_logic::host_slave_drones::BattleDroneWeldState,
+    >,
 
     /// Host residual: China Overlord / Emperor main gun dual-radius + Uranium honesty.
     /// Fail-closed: not full ClipSize=2 dual-volley / Nuclear Tanks death residual.

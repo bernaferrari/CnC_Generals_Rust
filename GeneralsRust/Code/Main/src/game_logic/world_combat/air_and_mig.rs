@@ -839,13 +839,15 @@ impl GameLogic {
         (hits, any_destroyed)
     }
 
-    /// Tick residual Battle Drone master repair (RepairRatePerSecond when HP < 60%).
+    /// Tick residual Battle Drone master repair (weld SM, 12-unit closeEnough).
     ///
+    /// C++ `SlavedUpdate::doRepairLogic` (`SlavedUpdate.cpp:413-495`): heal only
+    /// when `distSqr < 12*12` and `m_repairing` after the first weld spark.
     /// Fail-closed: not full arm pack/unpack weld FX / RepairMinAltitude matrix.
     pub fn update_battle_drone_repair_residual(&mut self, dt: f32) {
         use crate::game_logic::host_slave_drones::{
             battle_drone_repair_amount_for_frame, battle_drone_should_idle_repair_master,
-            is_battle_drone_template,
+            battle_drone_weld_close_enough, is_battle_drone_template,
         };
 
         // C++ doRepairLogic heals TheGameLogic->findObjectByID(m_slaver) only.
@@ -861,19 +863,24 @@ impl GameLogic {
             })
             .collect();
         if drones.is_empty() {
+            self.battle_drone_weld_states.clear();
             return;
         }
+        let live: std::collections::HashSet<ObjectId> = drones.iter().map(|(id, _, _)| *id).collect();
+        self.battle_drone_weld_states
+            .retain(|id, _| live.contains(id));
 
         let heal = battle_drone_repair_amount_for_frame(dt);
-        if heal <= 0.0 {
-            return;
-        }
 
-        for (_drone_id, slaver_id, dpos) in drones {
+        for (drone_id, slaver_id, dpos) in drones {
             let Some(master) = self.objects.get(&slaver_id) else {
+                self.battle_drone_weld_states.remove(&drone_id);
                 continue;
             };
             if !master.is_alive() {
+                if let Some(st) = self.battle_drone_weld_states.get_mut(&drone_id) {
+                    st.end_repair();
+                }
                 continue;
             }
             let mpos = master.get_position();
@@ -884,6 +891,14 @@ impl GameLogic {
             let dist = (dx * dx + dz * dz).sqrt();
             // C++ :229-236 idle weld continues until master is full (< 100).
             if !battle_drone_should_idle_repair_master(true, mpct, true, dist) {
+                if let Some(st) = self.battle_drone_weld_states.get_mut(&drone_id) {
+                    st.end_repair();
+                }
+                continue;
+            }
+            let close = battle_drone_weld_close_enough(dist);
+            let weld = self.battle_drone_weld_states.entry(drone_id).or_default();
+            if !weld.tick(close) || heal <= 0.0 {
                 continue;
             }
             if let Some(master) = self.objects.get_mut(&slaver_id) {

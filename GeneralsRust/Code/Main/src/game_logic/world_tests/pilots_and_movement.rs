@@ -182,6 +182,62 @@ fn worker_shoes_upgrade_speed_and_supply_boost_residual() {
     let _ = barracks_id;
 }
 
+/// C++ Object::initObject updateUpgradeModules: PLAYER shoes apply to workers
+/// trained after research (not only units alive at complete).
+#[test]
+fn late_trained_worker_inherits_player_shoes_speed() {
+    use crate::game_logic::host_gla_worker::{
+        UPGRADE_GLA_WORKER_SHOES, WORKER_BASE_SPEED, WORKER_SHOES_SPEED,
+    };
+
+    let mut game_logic = GameLogic::new();
+    let mut player = Player::new(0, Team::GLA, "GLA", true);
+    player.complete_researched_upgrade(UPGRADE_GLA_WORKER_SHOES);
+    game_logic.add_player(player);
+
+    let mut other = Player::new(1, Team::GLA, "GLA2", false);
+    game_logic.add_player(other);
+
+    let mut worker_tpl = ThingTemplate::new("GLAInfantryWorker");
+    worker_tpl
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Worker)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    game_logic
+        .templates
+        .insert("GLAInfantryWorker".to_string(), worker_tpl);
+
+    let late_id = game_logic
+        .create_object_for_player("GLAInfantryWorker", 0, Vec3::new(0.0, 0.0, 0.0))
+        .expect("late worker");
+    let late = game_logic.host_object(late_id).expect("late");
+    assert!(
+        late.has_upgrade_tag(UPGRADE_GLA_WORKER_SHOES),
+        "PLAYER upgrade must stamp shoes on workers trained after research"
+    );
+    assert!(
+        (late.movement.max_speed - WORKER_SHOES_SPEED).abs() < 0.01,
+        "late worker must inherit WorkerShoes speed 30 (got {})",
+        late.movement.max_speed
+    );
+
+    let other_id = game_logic
+        .create_object_for_player("GLAInfantryWorker", 1, Vec3::new(10.0, 0.0, 0.0))
+        .expect("other worker");
+    let other_w = game_logic.host_object(other_id).expect("other");
+    assert!(
+        !other_w.has_upgrade_tag(UPGRADE_GLA_WORKER_SHOES),
+        "same-faction player without shoes must not inherit"
+    );
+    assert!(
+        (other_w.movement.max_speed - WORKER_BASE_SPEED).abs() < 0.01,
+        "other player's late worker stays 25 (got {})",
+        other_w.movement.max_speed
+    );
+}
+
+
 /// Residual: Burton PlantTimedDemoCharge walks to target then plants sticky timed C4.
 
 #[test]

@@ -16,9 +16,97 @@ use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
 use crate::game_logic::special_power_strikes::{
-    A10StrikeScienceTier, A10_DELIVERY_DISTANCE, A10_FORMATIONION_SPACING,
-    A10_MISSILE_PRIMARY_DAMAGE, A10_MISSILE_PRIMARY_RADIUS, A10_PAYLOAD_TEMPLATE, A10_TRANSPORT,
+    A10StrikeScienceTier, A10_DELIVERY_DISTANCE, A10_DIVE_END_DISTANCE, A10_DIVE_START_DISTANCE,
+    A10_FORMATIONION_SPACING, A10_MISSILE_PRIMARY_DAMAGE, A10_MISSILE_PRIMARY_RADIUS,
+    A10_PAYLOAD_TEMPLATE, A10_TRANSPORT,
 };
+
+/// C++ DeliverPayloadAIUpdate `DIVESTATE_PREDIVE`.
+pub const A10_DIVE_PREDIVE: u8 = 0;
+/// C++ DeliverPayloadAIUpdate `DIVESTATE_DIVING`.
+pub const A10_DIVE_DIVING: u8 = 1;
+/// C++ DeliverPayloadAIUpdate `DIVESTATE_POSTDIVE`.
+pub const A10_DIVE_POSTDIVE: u8 = 2;
+/// Host residual preferred-height cruise (precise-Z off).
+pub const A10_CRUISE_HEIGHT: f32 = 140.0;
+/// C++ `ThingTemplate::getPerUnitSound("StartDive")`.
+pub const A10_START_DIVE_SOUND: &str = "StartDive";
+/// C++ A10ThunderboltVulcan DelayBetweenShots 60ms → 2 frames @ 30 FPS.
+pub const A10_VULCAN_DELAY_FRAMES: u32 = 2;
+
+/// One tick of C++ DeliverPayloadAIUpdate dive + StrafingWeaponSlot (cpp:155-220).
+#[derive(Debug, Clone, Copy)]
+pub struct A10DiveTick {
+    pub new_y: f32,
+    pub start_dive: bool,
+    pub should_strafe: bool,
+    pub strafe_point: Vec3,
+}
+
+/// Live Y-up residual of leftover `DeliverPayloadAIUpdate::update_dive_logic`.
+/// C++ `velocity.z` (up) is `vel.y` here. PREDIVE uses 2D start 500; DIVING
+/// ends on 3D 300; vulcan fires while diving and `vel.y < 5`.
+pub fn tick_a10_dive(
+    dive_state: &mut u8,
+    pos: Vec3,
+    target: Vec3,
+    vel: Vec3,
+    speed: f32,
+) -> A10DiveTick {
+    let mut out = A10DiveTick {
+        new_y: pos.y,
+        start_dive: false,
+        should_strafe: false,
+        strafe_point: Vec3::new(target.x, 0.0, target.z),
+    };
+    if *dive_state == A10_DIVE_POSTDIVE {
+        if pos.y < A10_CRUISE_HEIGHT {
+            out.new_y = (pos.y + speed).min(A10_CRUISE_HEIGHT);
+        } else {
+            out.new_y = pos.y.max(A10_CRUISE_HEIGHT);
+        }
+        return out;
+    }
+    let dx = pos.x - target.x;
+    let dz = pos.z - target.z;
+    let dy = pos.y - target.y;
+    let dist2_sq = dx * dx + dz * dz;
+    if *dive_state == A10_DIVE_PREDIVE {
+        out.new_y = pos.y.max(A10_CRUISE_HEIGHT);
+        if dist2_sq <= A10_DIVE_START_DISTANCE * A10_DIVE_START_DISTANCE {
+            *dive_state = A10_DIVE_DIVING;
+            out.start_dive = true;
+        }
+        return out;
+    }
+    let dist3_sq = dist2_sq + dy * dy;
+    if dist3_sq <= A10_DIVE_END_DISTANCE * A10_DIVE_END_DISTANCE {
+        *dive_state = A10_DIVE_POSTDIVE;
+    } else {
+        let dist3 = dist3_sq.sqrt();
+        if dist3 > 1e-4 {
+            let step = speed.min(dist3);
+            out.new_y = pos.y + (target.y - pos.y) / dist3 * step;
+        }
+    }
+    if vel.y < 5.0 {
+        let current = dist3_sq.sqrt();
+        let denom = (A10_DIVE_START_DISTANCE - A10_DIVE_END_DISTANCE).max(0.001);
+        let dive_ratio = (A10_DIVE_START_DISTANCE - current) / denom;
+        let mut v = Vec3::new(vel.x, 0.0, vel.z);
+        let len = v.length();
+        if len > 1e-6 {
+            v /= len;
+        }
+        v *= dive_ratio * 100.0;
+        let backwards = v * 0.33;
+        let mut strafe = target - backwards + v;
+        strafe.y = 0.0;
+        out.strafe_point = strafe;
+        out.should_strafe = true;
+    }
+    out
+}
 
 /// Retail DropDelay residual (ms) for A10 payload sets.
 pub const A10_DROP_DELAY_MS: u32 = 500;
@@ -49,6 +137,9 @@ pub struct HostA10StrikeFlightData {
     pub passed_target: bool,
     #[serde(default)]
     pub last_vulcan_frame: u32,
+    /// C++ DeliverPayloadAIUpdate `m_diveState`.
+    #[serde(default)]
+    pub dive_state: u8,
     /// C++ DeliverPayload visible bones still to drop (VisibleNumBones 6).
     #[serde(default)]
     pub missiles_remaining: u32,
@@ -58,6 +149,12 @@ pub struct HostA10StrikeFlightData {
     /// Previous 2D dist² for inbound DeliverPayload::isCloseEnoughToTarget.
     #[serde(default = "host_a10_prev_dist_sq_default")]
     pub prev_dist_sq: f32,
+    /// Map extent for C++ `isOffMap` / HeadOffMap HUGE_DIST (world_min/max).
+    #[serde(default)]
+    pub map_min: Vec3,
+    #[serde(default)]
+    pub map_max: Vec3,
+
 }
 
 fn host_a10_prev_dist_sq_default() -> f32 {
@@ -83,17 +180,52 @@ impl HostA10StrikeFlightData {
             transport_alive: true,
             passed_target: false,
             last_vulcan_frame: 0,
+            dive_state: A10_DIVE_PREDIVE,
             missiles_remaining: A10_NUM_BONES,
             next_drop_frame: 0,
             prev_dist_sq: f32::MAX,
+            map_min: Vec3::ZERO,
+            map_max: Vec3::ZERO,
         }
     }
 
-    /// Fly launch → target, then continue off the opposite map edge.
-    /// Returns (new_pos, vel, at_exit).
+    fn map_extent_ok(&self) -> bool {
+        self.map_max.x > self.map_min.x && self.map_max.z > self.map_min.z
+    }
+
+    /// C++ HeadOffMapState: after the target, dest is HUGE_DIST ahead.
+    /// Returns (new_pos, vel, off_map / CLEAN_UP).
     pub fn tick_transport(&mut self, pos: Vec3) -> (Vec3, Vec3, bool) {
-        let dest = if self.passed_target && self.exit.length_squared() > 1.0 {
-            self.exit
+        use crate::game_logic::host_deliver_payload::{
+            head_off_map_exit_point_residual, is_off_map_residual,
+        };
+        let hx = self.target.x - self.launch.x;
+        let hz = self.target.z - self.launch.z;
+        if !self.passed_target {
+            let dx = self.target.x - pos.x;
+            let dz = self.target.z - pos.z;
+            if dx * dx + dz * dz <= 25.0
+                || (pos.x - self.target.x) * hx + (pos.z - self.target.z) * hz > 0.0
+            {
+                self.passed_target = true;
+            }
+        }
+        let dest = if self.passed_target {
+            if self.map_extent_ok() {
+                head_off_map_exit_point_residual(
+                    pos,
+                    hx,
+                    hz,
+                    self.map_min.x,
+                    self.map_min.z,
+                    self.map_max.x,
+                    self.map_max.z,
+                )
+            } else if self.exit.length_squared() > 1.0 {
+                self.exit
+            } else {
+                self.target
+            }
         } else {
             self.target
         };
@@ -103,24 +235,28 @@ impl HostA10StrikeFlightData {
         let speed = 22.0_f32;
         let mut new_pos = pos;
         new_pos.y = new_pos.y.max(140.0);
-        if dist < 5.0 {
-            if !self.passed_target {
-                self.passed_target = true;
-                return (new_pos, Vec3::ZERO, false);
-            }
-            return (new_pos, Vec3::ZERO, true);
-        }
-        let step = speed.min(dist);
-        new_pos.x += dx / dist * step;
-        new_pos.z += dz / dist * step;
-        let vel = new_pos - pos;
-        if !self.passed_target && dist <= 60.0 {
-            self.passed_target = true;
-        }
+        let vel = if dist >= 1.0 {
+            let step = speed.min(dist);
+            new_pos.x += dx / dist * step;
+            new_pos.z += dz / dist * step;
+            new_pos - pos
+        } else {
+            Vec3::ZERO
+        };
         let at_exit = self.passed_target
-            && self.exit.length_squared() > 1.0
-            && (new_pos.x - self.exit.x).abs() < 8.0
-            && (new_pos.z - self.exit.z).abs() < 8.0;
+            && if self.map_extent_ok() {
+                is_off_map_residual(
+                    new_pos,
+                    self.map_min.x,
+                    self.map_min.z,
+                    self.map_max.x,
+                    self.map_max.z,
+                )
+            } else {
+                self.exit.length_squared() > 1.0
+                    && (new_pos.x - self.exit.x).abs() < 8.0
+                    && (new_pos.z - self.exit.z).abs() < 8.0
+            };
         (new_pos, vel, at_exit)
     }
 
@@ -298,4 +434,39 @@ mod tests {
         assert_eq!(data.take_visible_payload_drops(1), 0);
         assert_eq!(data.take_visible_payload_drops(A10_DROP_DELAY_FRAMES), 2);
     }
+
+    #[test]
+    fn head_off_map_flies_past_target_then_destroys() {
+        // C++ HeadOffMapState + CleanUpState: fly HUGE_DIST, destroy when isOffMap.
+        let mut data = HostA10StrikeFlightData::start_with_exit(
+            Vec3::new(0.0, 160.0, 0.0),
+            Vec3::new(100.0, 0.0, 0.0),
+            Vec3::ZERO,
+            A10StrikeScienceTier::Level1,
+        );
+        data.map_min = Vec3::new(0.0, 0.0, 0.0);
+        data.map_max = Vec3::new(200.0, 0.0, 200.0);
+        let mut pos = Vec3::new(98.0, 160.0, 0.0);
+        let mut left = false;
+        let mut destroyed = false;
+        for _ in 0..80 {
+            let (next, vel, at_exit) = data.tick_transport(pos);
+            assert!(
+                vel.x > 0.0 || at_exit,
+                "must keep flying past the target, pos={next:?}"
+            );
+            pos = next;
+            if pos.x > 100.0 {
+                left = true;
+            }
+            if at_exit {
+                destroyed = true;
+                break;
+            }
+        }
+        assert!(left, "jet must leave the target, pos={pos:?}");
+        assert!(destroyed, "C++ isOffMap must destroy the transport, pos={pos:?}");
+        assert!(pos.x > 200.0 || pos.x < 0.0 || pos.z < 0.0 || pos.z > 200.0);
+    }
+
 }

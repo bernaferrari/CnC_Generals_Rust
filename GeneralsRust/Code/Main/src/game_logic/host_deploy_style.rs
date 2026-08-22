@@ -69,6 +69,12 @@ impl HostDeployStyleData {
         )
     }
 
+
+    /// C++ `setMyState(..., reverseDeploy)` leftover: `now + unpackTime - framesLeft`.
+    fn reverse_ready_frame(&self, current_frame: u32) -> u32 {
+        let frames_left = self.ready_frame.saturating_sub(current_frame);
+        current_frame.saturating_add(self.unpack_frames.saturating_sub(frames_left))
+    }
     /// Begin unpack when attack in range while undeployed.
     /// Returns true if transition started.
     pub fn begin_deploy(&mut self, current_frame: u32) -> bool {
@@ -79,9 +85,10 @@ impl HostDeployStyleData {
                 true
             }
             HostDeployStyleState::Undeploying => {
-                // C++ reverse undeploy at current progress residual → start deploy.
+                // C++ setMyState(DEPLOY, TRUE): leftover wait is mirrored
+                // onto unpackTime, not a full restart.
                 self.state = HostDeployStyleState::Deploying;
-                self.ready_frame = current_frame.saturating_add(self.unpack_frames.max(1));
+                self.ready_frame = self.reverse_ready_frame(current_frame);
                 true
             }
             HostDeployStyleState::Deploying | HostDeployStyleState::ReadyToAttack => false,
@@ -97,9 +104,10 @@ impl HostDeployStyleData {
                 true
             }
             HostDeployStyleState::Deploying => {
-                // Reverse deploy → undeploy.
+                // C++ setMyState(UNDEPLOY, TRUE): leftover unpack wait
+                // becomes remaining pack (totalFrames = unpackTime).
                 self.state = HostDeployStyleState::Undeploying;
-                self.ready_frame = current_frame.saturating_add(self.pack_frames.max(1));
+                self.ready_frame = self.reverse_ready_frame(current_frame);
                 true
             }
             HostDeployStyleState::Undeploying | HostDeployStyleState::ReadyToMove => false,

@@ -46,8 +46,8 @@ pub const A10_VULCAN_PRIMARY_DAMAGE: f32 = 10.0;
 pub const A10_VULCAN_PRIMARY_RADIUS: f32 = 4.0;
 /// Retail A10ThunderboltVulcan DelayBetweenShots residual (msec).
 pub const A10_VULCAN_DELAY_BETWEEN_SHOTS_MS: u32 = 60;
-/// Host residual impact audio cue.
-pub const A10_STRIKE_IMPACT_AUDIO: &str = "A10StrikeImpact";
+/// C++ has no consolidated A10 impact cue (per-missile FX_A10ThunderboltMissileExplosion).
+pub const A10_STRIKE_IMPACT_AUDIO: &str = "";
 
 // --- Wave 76: A10 science-tier FormationSize residual pack ---
 

@@ -1121,7 +1121,7 @@ impl GameLogic {
         {
             self.update_supply_drop_zone_drops();
         }
-        // USA Battle Drone residual master repair (RepairRatePerSecond when HP < 60%).
+        // USA Battle Drone residual master repair: 12-unit weld SM, not instant 48-range.
         // Fail-closed: not full arm pack/unpack weld FX / RepairMinAltitude matrix.
         self.update_battle_drone_repair_residual(dt);
         // CommandCenter / RadarVan radar-online residual (Player::hasRadar).

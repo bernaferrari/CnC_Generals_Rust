@@ -2031,9 +2031,17 @@ impl GameLogic {
             .map(|o| o.get_position())
             .unwrap_or(target);
         let edge = self.closest_map_edge_point(source_pos);
-        let exit = self.opposite_map_edge_point(edge);
         let dx = target.x - edge.x;
         let dz = target.z - edge.z;
+        let exit = crate::game_logic::host_deliver_payload::head_off_map_exit_point_residual(
+            edge,
+            dx,
+            dz,
+            self.world_min.x,
+            self.world_min.z,
+            self.world_max.x,
+            self.world_max.z,
+        );
         let dist = (dx * dx + dz * dz).sqrt().max(1.0);
         let px = -dz / dist;
         let pz = dx / dist;
@@ -2053,17 +2061,36 @@ impl GameLogic {
             let tid = self.create_object(A10_TRANSPORT, team, launch)?;
             if let Some(o) = self.objects.get_mut(&tid) {
                 o.note_producer(source_id);
-                o.a10_strike_transport =
-                    Some(HostA10StrikeFlightData::start_with_exit(launch, target, exit, tier));
+                let mut data =
+                    HostA10StrikeFlightData::start_with_exit(launch, target, exit, tier);
+                data.map_min = self.world_min;
+                data.map_max = self.world_max;
+                o.a10_strike_transport = Some(data);
                 o.set_orientation(dz.atan2(dx));
             }
             self.a10_strike_flight_reg.record_transport();
             if first.is_none() {
                 first = Some(tid);
             }
+            for i in 0..crate::game_logic::host_a10_strike_flight::A10_NUM_BONES {
+                let pair = i / crate::game_logic::host_a10_strike_flight::A10_ITEMS_PER_DROP;
+                let drop_frame = self.frame.saturating_add(
+                    pair.saturating_mul(
+                        crate::game_logic::host_a10_strike_flight::A10_DROP_DELAY_FRAMES,
+                    ),
+                );
+                self.a10_strike_flight_reg.pending_drops.push(
+                    crate::game_logic::host_a10_strike_flight::PendingA10MissileDrop {
+                        drop_frame,
+                        target,
+                        source_id: tid.0,
+                        missile_index: i,
+                    },
+                );
+                self.a10_strike_flight_reg.missiles_scheduled =
+                    self.a10_strike_flight_reg.missiles_scheduled.saturating_add(1);
+            }
         }
-        self.a10_strike_flight_reg
-            .schedule_drops(self.frame, source_id.0, target, tier);
         first
     }
 
@@ -2087,25 +2114,15 @@ impl GameLogic {
         }
     }
 
-    fn opposite_map_edge_point(&self, edge: Vec3) -> Vec3 {
-        let min = self.world_min;
-        let max = self.world_max;
-        if (edge.x - min.x).abs() <= 1.0 {
-            Vec3::new(max.x, 160.0, edge.z)
-        } else if (edge.x - max.x).abs() <= 1.0 {
-            Vec3::new(min.x, 160.0, edge.z)
-        } else if (edge.z - min.z).abs() <= 1.0 {
-            Vec3::new(edge.x, 160.0, max.z)
-        } else {
-            Vec3::new(edge.x, 160.0, min.z)
-        }
-    }
 
     pub fn update_a10_strike_flights(&mut self) {
         use crate::game_logic::combat::DamageType;
+        use crate::game_logic::host_a10_strike_flight::{
+            tick_a10_dive, A10_START_DIVE_SOUND, A10_VULCAN_DELAY_FRAMES,
+        };
         use crate::game_logic::special_power_strikes::{
             A10_MISSILE_PRIMARY_DAMAGE, A10_MISSILE_PRIMARY_RADIUS, A10_PAYLOAD_TEMPLATE,
-            A10_STRAFE_LENGTH, A10_VULCAN_PRIMARY_DAMAGE, A10_VULCAN_PRIMARY_RADIUS,
+            A10_TRANSPORT, A10_VULCAN_PRIMARY_DAMAGE, A10_VULCAN_PRIMARY_RADIUS,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
@@ -2118,7 +2135,14 @@ impl GameLogic {
         let mut leave = Vec::new();
         let mut vulcan: Vec<(ObjectId, Option<ObjectId>, crate::game_logic::Team, Vec3)> =
             Vec::new();
-        let mut payload_drops: Vec<(ObjectId, crate::game_logic::Team, Vec3, Vec3)> = Vec::new();
+        let mut dive_starts: Vec<(ObjectId, Vec3)> = Vec::new();
+        let mut payload_drops: Vec<(
+            ObjectId,
+            crate::game_logic::Team,
+            Vec3,
+            Vec3,
+            Vec3,
+        )> = Vec::new();
         for id in tids {
             let Some(o) = self.objects.get_mut(&id) else {
                 continue;
@@ -2128,29 +2152,36 @@ impl GameLogic {
                 continue;
             };
             let target = data.target;
-            let (new_pos, vel, at_exit) = data.tick_transport(pos);
-            let dx = new_pos.x - target.x;
-            let dz = new_pos.z - target.z;
-            let over_strafe = dx * dx + dz * dz <= A10_STRAFE_LENGTH * A10_STRAFE_LENGTH;
-            let due_vulcan = over_strafe
-                && self.frame.saturating_sub(data.last_vulcan_frame) >= 2;
+            let (mut new_pos, mut vel, at_exit) = data.tick_transport(pos);
+            let dive = tick_a10_dive(&mut data.dive_state, new_pos, target, vel, 22.0);
+            new_pos.y = dive.new_y;
+            vel.y = new_pos.y - pos.y;
+            if dive.start_dive {
+                dive_starts.push((id, new_pos));
+            }
+            let due_vulcan = dive.should_strafe
+                && self.frame.saturating_sub(data.last_vulcan_frame) >= A10_VULCAN_DELAY_FRAMES;
             if due_vulcan {
                 data.last_vulcan_frame = self.frame;
-                vulcan.push((id, o.producer_id, o.team, new_pos));
+                vulcan.push((id, o.producer_id, o.team, dive.strafe_point));
             }
             // C++ DeliveringState::update — drop VisiblePayload from the jet
             // only while isCloseEnoughToTarget (DeliveryDistance 450).
             if data.is_close_enough_to_target(new_pos) {
+                let remaining_before = data.missiles_remaining;
                 let n = data.take_visible_payload_drops(self.frame);
                 let team = o.team;
+                let yaw = o.get_orientation();
+                let inherit = vel;
                 for k in 0..n {
-                    let side = if k == 0 { -6.0 } else { 6.0 };
-                    payload_drops.push((
-                        id,
-                        team,
-                        Vec3::new(new_pos.x + side, new_pos.y, new_pos.z),
-                        target,
-                    ));
+                    let slot = crate::game_logic::host_a10_strike_flight::A10_NUM_BONES
+                        .saturating_sub(remaining_before)
+                        .saturating_add(k)
+                        .saturating_add(1);
+                    let spawn = crate::game_logic::host_a10_strike_drop_log::a10_weapon_a_world_pos(
+                        new_pos, yaw, slot,
+                    );
+                    payload_drops.push((id, team, spawn, target, inherit));
                 }
             }
             o.set_position(new_pos);
@@ -2167,11 +2198,22 @@ impl GameLogic {
                 id,
                 producer,
                 team,
-                Vec3::new(pos.x, 0.0, pos.z),
+                pos,
                 A10_VULCAN_PRIMARY_DAMAGE,
                 A10_VULCAN_PRIMARY_RADIUS,
                 DamageType::Bullet,
             );
+        }
+        for (id, pos) in dive_starts {
+            use crate::game_logic::audio_dispatch_impl::resolve_per_unit_sound;
+            if let Some(name) = resolve_per_unit_sound(A10_TRANSPORT, A10_START_DIVE_SOUND) {
+                self.queue_audio_event(
+                    crate::game_logic::AudioEventRequest::new(&name)
+                        .with_object(id)
+                        .with_position(pos)
+                        .with_priority(160),
+                );
+            }
         }
         for id in leave {
             self.mark_object_for_destruction(id, None);
@@ -2183,12 +2225,15 @@ impl GameLogic {
                 t.set_health(40.0).add_kind_of(KindOf::Projectile);
                 self.templates.insert(A10_PAYLOAD_TEMPLATE.to_string(), t);
             }
-            for (jet_id, team, drop_pos, target) in payload_drops {
+            for (jet_id, team, drop_pos, target, inherit) in payload_drops {
                 if let Some(mid) = self.create_object(A10_PAYLOAD_TEMPLATE, team, drop_pos) {
                     if let Some(o) = self.objects.get_mut(&mid) {
                         o.producer_id = Some(jet_id);
                         o.a10_strike_missile = true;
-                        o.movement.velocity = Vec3::new(0.0, -20.0, 0.0);
+                        o.movement.velocity =
+                            crate::game_logic::host_a10_strike_drop_log::a10_missile_fire_velocity(
+                                drop_pos, target, inherit,
+                            );
                         let _ = o.set_smart_bomb_target(target);
                     }
                     self.a10_strike_flight_reg.record_drop();
@@ -2209,7 +2254,7 @@ impl GameLogic {
                     continue;
                 };
                 let mut p = o.get_position();
-                p.y += o.movement.velocity.y;
+                p += o.movement.velocity;
                 o.set_position(p);
                 (p, o.producer_id, o.team)
             };

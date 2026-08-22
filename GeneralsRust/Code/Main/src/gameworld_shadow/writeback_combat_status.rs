@@ -10,6 +10,7 @@ impl GameWorldShadow {
     pub fn writeback_combat_status_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         let mut ready: Vec<ObjectId> = Vec::new();
+        let mut a10_head_off_destroy: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -871,12 +872,21 @@ impl GameWorldShadow {
                         ent.a10_strike_transport_launch_y,
                         ent.a10_strike_transport_launch_z,
                     );
-                } else {
-                    obj.a10_strike_transport = None;
+                    d.dive_state = ent.a10_strike_dive_state;
+                    d.last_vulcan_frame = ent.a10_strike_last_vulcan_frame;
+                    d.map_min = glam::Vec3::new(self.map_min_x, 0.0, self.map_min_z);
+                    d.map_max = glam::Vec3::new(self.map_max_x, 0.0, self.map_max_z);
+                } else if obj.a10_strike_transport.take().is_some() && ent.destroyed {
+                    // C++ CleanUpState::destroyObject after HeadOffMap isOffMap.
+                    a10_head_off_destroy.push(ObjectId(hid));
                 }
                 obj.a10_strike_missile = ent.a10_strike_missile;
                 if ent.a10_strike_missile {
-                    obj.movement.velocity.y = ent.a10_strike_missile_vel_y;
+                    obj.movement.velocity = glam::Vec3::new(
+                        ent.a10_strike_transport_launch_x,
+                        ent.a10_strike_missile_vel_y,
+                        ent.a10_strike_transport_launch_z,
+                    );
                 }
             }
             {
@@ -1439,6 +1449,12 @@ impl GameWorldShadow {
                 ready.push(ObjectId(hid));
                 updated += 1;
             }
+        }
+        for id in a10_head_off_destroy {
+            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
+                id,
+                team: None,
+            });
         }
         for oid in ready {
             crate::game_logic::host_combat_status_ready_log::record(oid);

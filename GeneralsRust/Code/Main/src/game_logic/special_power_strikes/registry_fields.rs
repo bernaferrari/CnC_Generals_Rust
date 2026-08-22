@@ -403,6 +403,8 @@ impl HostSpecialPowerStrikeRegistry {
             source_object,
             source_team,
             position,
+            override_destination: position,
+
             spawn_frame,
             expires_frame: spawn_frame.saturating_add(duration),
             // First howitzer residual tick on orbit insertion frame.
@@ -471,9 +473,11 @@ impl HostSpecialPowerStrikeRegistry {
     /// - Howitzer (`SpectreHowitzerGun`): PrimaryDamage **80** in PrimaryDamageRadius
     ///   **25** around reticle + deterministic RandomOffsetForHowitzer residual.
     /// - Gattling (`SpectreGattlingGun`): PrimaryDamage **90** to nearest living
-    ///   enemy in AttackAreaRadius **200** (single-target residual).
+    ///   enemy in TargetingReticleRadius **25**. Wide AttackAreaRadius **200**
+    ///   auto-acquire is AI-only (C++ SpectreGunshipUpdate.cpp:530-556).
     /// Both exclude source launcher and same-team friendlies.
     /// Continuous-fire ROF residual advances on record_orbit_tick_complete.
+
     /// SpectreHowitzerShell projectile residual honesty is recorded on each
     /// howitzer tick (not full DumbProjectileBehavior Object / HeightDie flight).
     pub fn plan_due_orbit_ticks(
@@ -494,11 +498,9 @@ impl HostSpecialPowerStrikeRegistry {
 
             if howitzer_due {
                 let off = spectre_howitzer_offset(field.howitzer_ticks);
-                let epicenter = Vec3::new(
-                    field.position.x + off.x,
-                    field.position.y,
-                    field.position.z + off.z,
-                );
+                let aim = field.override_aim();
+                let epicenter = Vec3::new(aim.x + off.x, aim.y, aim.z + off.z);
+
                 for &(id, pos, team, alive) in object_positions {
                     if !alive || id == field.source_object || team == field.source_team {
                         continue;
@@ -511,7 +513,8 @@ impl HostSpecialPowerStrikeRegistry {
             }
 
             if gattling_due {
-                // Pure residual acquire: nearest enemy in orbit radius (XZ).
+                // C++: reticle (override) first; wide AttackAreaRadius only if
+                // controlling player is not PLAYER_HUMAN.
                 let cands: Vec<_> = object_positions
                     .iter()
                     .filter(|&&(id, _, team, alive)| {
@@ -532,18 +535,35 @@ impl HostSpecialPowerStrikeRegistry {
                         }
                     })
                     .collect();
-                if let Some((id, _, _)) =
-                    crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
-                        Some(field.source_object),
-                        (field.position.x, field.position.z),
-                        cands,
-                        SPECTRE_ORBIT_RADIUS,
-                        |_| true,
-                    )
-                {
+                let reticle_aim = field.override_aim();
+                let reticle_origin = (reticle_aim.x, reticle_aim.z);
+                let wide_origin = (field.position.x, field.position.z);
+                let reticle = crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
+                    Some(field.source_object),
+                    reticle_origin,
+                    cands.iter().copied(),
+                    SPECTRE_TARGETING_RETICLE_RADIUS,
+                    |_| true,
+                );
+                let picked = reticle.or_else(|| {
+                    if self.spectre_wide_auto_acquire_allowed(field.source_object) {
+                        crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
+                            Some(field.source_object),
+                            wide_origin,
+                            cands,
+                            SPECTRE_ORBIT_RADIUS,
+                            |_| true,
+                        )
+                    } else {
+                        None
+                    }
+                });
+
+                if let Some((id, _, _)) = picked {
                     *dmg_map.entry(id).or_insert(0.0) += SPECTRE_GATTLING_DAMAGE;
                 }
             }
+
 
             let hits: Vec<HostSpectreOrbitDamageHit> = dmg_map
                 .into_iter()
@@ -1030,6 +1050,7 @@ impl HostSpecialPowerStrikeRegistry {
     }
 
     /// C++ SpectreGunshipUpdate::setSpecialPowerOverridableDestination residual.
+    /// Writes the clamped reticle; never drags `field.position` (orbit epicenter).
     pub fn set_orbit_override_destination(
         &mut self,
         field_id: u32,
@@ -1040,12 +1061,13 @@ impl HostSpecialPowerStrikeRegistry {
             if field.is_expired(current_frame) {
                 return false;
             }
-            field.position = destination;
+            field.apply_override_destination(destination);
             true
         } else {
             false
         }
     }
+
 
     /// Apply a live Object override click to matching PUC beam / Spectre orbit.
     pub fn apply_source_override_destination(
@@ -1076,9 +1098,11 @@ impl HostSpecialPowerStrikeRegistry {
             .iter()
             .filter(|field| field.source_object == source && !field.is_expired(current_frame))
             .filter(|field| {
-                (field.position.x - destination.x).abs() > 1e-4
-                    || (field.position.z - destination.z).abs() > 1e-4
+                let current = field.override_aim();
+                (current.x - destination.x).abs() > 1e-4
+                    || (current.z - destination.z).abs() > 1e-4
             })
+
             .map(|field| field.id)
             .collect();
         for field_id in orbit_ids {

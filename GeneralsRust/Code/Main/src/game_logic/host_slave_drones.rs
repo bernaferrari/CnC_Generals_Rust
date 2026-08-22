@@ -9,7 +9,7 @@
 //!   AutoAcquireEnemiesWhenIdle residual auto-fire.
 //! - **Battle Drone** (`AmericaVehicleBattleDrone`): PRIMARY
 //!   `BattleDroneMachineGun` (1 dmg / 110 range / 100ms) with idle auto-fire +
-//!   master repair residual (`RepairRatePerSecond` **10** when master HP < **60%**).
+//!   master repair residual (weld SM, **12** closeEnough, **10** HP/s).
 //! - Master attach residual: spawn drone near a Humvee/compatible vehicle and
 //!   tag master with the object-upgrade residual (`Upgrade_AmericaScoutDrone` /
 //!   `Upgrade_AmericaHellfireDrone` / `Upgrade_AmericaBattleDrone`).
@@ -23,7 +23,8 @@
 //!   Battle/Hellfire Offset **X:0 Y:0 Z:10**, Disposition LIKE_EXISTING, Count **1**
 //! - Upgrade residual: Scout **100**, Battle **300**, Hellfire **500** BuildCost,
 //!   BuildTime **5**s, DroneArmor **500**/40s
-//! - Repair residual (Battle only): RepairRange **8**, Min/MaxAltitude **18/24**,
+//! - Repair residual (Battle only): C++ `doRepairLogic` weld close-enough **12**
+//!   (`distSqr < 12*12`), RepairRange **8** wander, Min/MaxAltitude **18/24**,
 //!   RepairRatePerSecond **10**, RepairWhenBelowHealth% **60**, Ready **300–750**ms,
 //!   Weld **250–500**ms, RepairWeldingSys **BlueSparks**
 //! - Body residual: MaxHealth **100** all; DroneArmor +**25** Scout/Hellfire, +**50** Battle
@@ -35,7 +36,7 @@
 //! - Not full SlavedUpdate AI wander pathfinding / master layer lock beyond residual flags
 //! - Not full ObjectCreationUpgrade ConflictsWith / ProductionUpdate queue UI
 //! - Not full drone armor MaxHealthUpgrade / death OCL explode matrix beyond residual constants
-//! - Not full Battle Drone arm pack/unpack weld FX anim interleave
+//! - Not full Battle Drone arm pack/unpack weld FX anim interleave (duty cycle is live)
 //! - Not network drone / upgrade replication (network deferred)
 
 use super::Weapon;
@@ -114,8 +115,15 @@ pub const BATTLE_DRONE_AP_DAMAGE_MULT: f32 = 1.25;
 pub const BATTLE_DRONE_REPAIR_RATE_PER_SEC: f32 = 10.0;
 /// Retail RepairWhenBelowHealth% residual.
 pub const BATTLE_DRONE_REPAIR_BELOW_HEALTH_PCT: f32 = 60.0;
-/// Retail RepairRange residual (how close to master for repair).
+/// Retail RepairRange residual (wander offset in `moveToNewRepairSpot`).
 pub const BATTLE_DRONE_REPAIR_RANGE: f32 = 8.0;
+/// C++ `SlavedUpdate::doRepairLogic` (`SlavedUpdate.cpp:426`) heal/weld band.
+/// `distSqr < 12.0f * 12.0f` — not INI RepairRange (8) and not the old 48 pad.
+pub const BATTLE_DRONE_WELD_CLOSE_ENOUGH: f32 = 12.0;
+/// C++ `setRepairState(UNPACKING/PACKING)` arm frames.
+pub const BATTLE_DRONE_WELD_UNPACK_FRAMES: i32 = 15;
+/// C++ `setRepairState` EXTENDING / RETRACTING arm frames.
+pub const BATTLE_DRONE_WELD_ARM_FRAMES: i32 = 5;
 /// Retail RepairMinAltitude residual.
 pub const BATTLE_DRONE_REPAIR_MIN_ALTITUDE: f32 = 18.0;
 /// Retail RepairMaxAltitude residual.
@@ -418,32 +426,150 @@ pub fn is_legal_battle_drone_auto_fire_target(
 
 /// Whether Battle Drone should prioritize master repair residual this tick.
 ///
+/// C++ `SlavedUpdate.cpp:188-193` 1ST PRIORITY: health % only — no range pad.
 /// Retail: RepairWhenBelowHealth% = 60 → repair when master current/max < 0.60.
 pub fn battle_drone_should_repair_master(
     master_alive: bool,
     master_health_pct: f32,
     drone_alive: bool,
-    distance_to_master: f32,
+    _distance_to_master: f32,
 ) -> bool {
-    master_alive
-        && drone_alive
-        && master_health_pct < BATTLE_DRONE_REPAIR_BELOW_HEALTH_PCT
-        && distance_to_master <= BATTLE_DRONE_REPAIR_RANGE + 40.0 // host residual pad
+    master_alive && drone_alive && master_health_pct < BATTLE_DRONE_REPAIR_BELOW_HEALTH_PCT
 }
 
 /// C++ SlavedUpdate.cpp:229-236 idle repair: master health `< 100` after attack/scout.
 ///
 /// The 60% `RepairWhenBelowHealth%` gate is first-priority interrupt only.
+/// Range is the weld close-enough band (`battle_drone_weld_close_enough`), not a heal gate.
 pub fn battle_drone_should_idle_repair_master(
     master_alive: bool,
     master_health_pct: f32,
     drone_alive: bool,
-    distance_to_master: f32,
+    _distance_to_master: f32,
 ) -> bool {
-    master_alive
-        && drone_alive
-        && master_health_pct < 100.0
-        && distance_to_master <= BATTLE_DRONE_REPAIR_RANGE + 40.0
+    master_alive && drone_alive && master_health_pct < 100.0
+}
+
+/// C++ `doRepairLogic` closeEnough: `distSqr < 12.0f * 12.0f`.
+pub fn battle_drone_weld_close_enough(distance_to_master: f32) -> bool {
+    distance_to_master >= 0.0 && distance_to_master < BATTLE_DRONE_WELD_CLOSE_ENOUGH
+}
+
+/// C++ `RepairStates` (`SlavedUpdate.h:102-111`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BattleDroneRepairState {
+    #[default]
+    None = 0,
+    Unpacking = 1,
+    Packing = 2,
+    Ready = 3,
+    Extending = 4,
+    Retracting = 5,
+    Welding = 6,
+}
+
+/// Per-drone weld duty-cycle residual (`m_framesToWait` / `m_repairState` / `m_repairing`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct BattleDroneWeldState {
+    pub frames_to_wait: i32,
+    pub repair_state: BattleDroneRepairState,
+    pub repairing: bool,
+}
+
+impl BattleDroneWeldState {
+    /// C++ `SlavedUpdate::endRepair` (`SlavedUpdate.cpp:499-510`).
+    pub fn end_repair(&mut self) {
+        if self.repair_state != BattleDroneRepairState::None {
+            self.repair_state = BattleDroneRepairState::None;
+            self.frames_to_wait = (SLAVE_DRONE_LOGIC_FPS / 4.0) as i32;
+            self.repairing = false;
+        }
+    }
+
+    /// One logic frame of C++ `update` decrement + `doRepairLogic` weld SM.
+    ///
+    /// Returns whether this frame applies `RepairRatePerSecond` healing
+    /// (`closeEnough && m_repairing` — `SlavedUpdate.cpp:480`).
+    pub fn tick(&mut self, close_enough: bool) -> bool {
+        if self.frames_to_wait > 0 {
+            self.frames_to_wait -= 1;
+        }
+        if self.repair_state == BattleDroneRepairState::None && self.frames_to_wait > 0 {
+            return false;
+        }
+        if close_enough {
+            match self.repair_state {
+                BattleDroneRepairState::None => {
+                    self.set_repair_state(BattleDroneRepairState::Ready);
+                }
+                BattleDroneRepairState::Ready | BattleDroneRepairState::Extending => {
+                    if self.frames_to_wait == 0 {
+                        self.set_repair_state(BattleDroneRepairState::Welding);
+                    }
+                }
+                BattleDroneRepairState::Unpacking
+                | BattleDroneRepairState::Welding
+                | BattleDroneRepairState::Retracting => {
+                    if self.frames_to_wait == 0 {
+                        self.set_repair_state(BattleDroneRepairState::Ready);
+                    }
+                }
+                BattleDroneRepairState::Packing => {}
+            }
+        } else {
+            self.repairing = false;
+            if self.frames_to_wait == 0 {
+                self.set_repair_state(BattleDroneRepairState::Ready);
+            }
+        }
+        close_enough && self.repairing
+    }
+
+    /// C++ `setRepairState` (`SlavedUpdate.cpp:541-647`) without arm FX / spot hop.
+    fn set_repair_state(&mut self, desired: BattleDroneRepairState) {
+        if desired == self.repair_state {
+            return;
+        }
+        match desired {
+            BattleDroneRepairState::Unpacking => {
+                self.frames_to_wait = BATTLE_DRONE_WELD_UNPACK_FRAMES;
+                self.repair_state = BattleDroneRepairState::Unpacking;
+            }
+            BattleDroneRepairState::Packing => {
+                self.frames_to_wait = BATTLE_DRONE_WELD_UNPACK_FRAMES;
+                self.repair_state = BattleDroneRepairState::Packing;
+            }
+            BattleDroneRepairState::Ready => match self.repair_state {
+                BattleDroneRepairState::None => {
+                    self.repair_state = BattleDroneRepairState::Unpacking;
+                    self.frames_to_wait = BATTLE_DRONE_WELD_UNPACK_FRAMES;
+                }
+                BattleDroneRepairState::Welding => {
+                    self.repair_state = BattleDroneRepairState::Retracting;
+                    self.frames_to_wait = BATTLE_DRONE_WELD_ARM_FRAMES;
+                }
+                _ => {
+                    self.repair_state = BattleDroneRepairState::Ready;
+                    self.frames_to_wait =
+                        slave_drone_ms_to_frames(BATTLE_DRONE_REPAIR_MIN_READY_MS) as i32;
+                }
+            },
+            BattleDroneRepairState::Welding => {
+                if self.repair_state == BattleDroneRepairState::Ready {
+                    self.repair_state = BattleDroneRepairState::Extending;
+                    self.frames_to_wait = BATTLE_DRONE_WELD_ARM_FRAMES;
+                } else {
+                    self.repair_state = BattleDroneRepairState::Welding;
+                    self.frames_to_wait =
+                        slave_drone_ms_to_frames(BATTLE_DRONE_REPAIR_MIN_WELD_MS) as i32;
+                    self.repairing = true;
+                }
+            }
+            BattleDroneRepairState::None
+            | BattleDroneRepairState::Extending
+            | BattleDroneRepairState::Retracting => {}
+        }
+    }
 }
 
 /// C++ doAttackLogic DistToTargetToGrantRangeBonus² (Scout residual **20**).
@@ -610,6 +736,9 @@ pub fn honesty_slave_drones_repair_residual_ok() -> bool {
     (BATTLE_DRONE_REPAIR_RATE_PER_SEC - 10.0).abs() < 0.01
         && (BATTLE_DRONE_REPAIR_BELOW_HEALTH_PCT - 60.0).abs() < 0.01
         && (BATTLE_DRONE_REPAIR_RANGE - 8.0).abs() < 0.01
+        && (BATTLE_DRONE_WELD_CLOSE_ENOUGH - 12.0).abs() < 0.01
+        && BATTLE_DRONE_WELD_UNPACK_FRAMES == 15
+        && BATTLE_DRONE_WELD_ARM_FRAMES == 5
         && (BATTLE_DRONE_REPAIR_MIN_ALTITUDE - 18.0).abs() < 0.01
         && (BATTLE_DRONE_REPAIR_MAX_ALTITUDE - 24.0).abs() < 0.01
         && BATTLE_DRONE_REPAIR_MIN_READY_MS == 300
@@ -620,6 +749,14 @@ pub fn honesty_slave_drones_repair_residual_ok() -> bool {
         && BATTLE_DRONE_REPAIR_WELDING_FX_BONE == "Muzzle02"
         && battle_drone_should_repair_master(true, 50.0, true, 10.0)
         && !battle_drone_should_repair_master(true, 80.0, true, 10.0)
+        && battle_drone_weld_close_enough(11.9)
+        && !battle_drone_weld_close_enough(12.0)
+        && !battle_drone_weld_close_enough(48.0)
+        && {
+            let mut weld = BattleDroneWeldState::default();
+            // Instant first frame must not heal — unpack/ready/extend first.
+            !weld.tick(true)
+        }
         && (battle_drone_repair_amount_for_frame(1.0) - 10.0).abs() < 0.01
         && (BATTLE_DRONE_GUN_DAMAGE - 1.0).abs() < 0.01
         && (BATTLE_DRONE_GUN_RANGE - 110.0).abs() < 0.01

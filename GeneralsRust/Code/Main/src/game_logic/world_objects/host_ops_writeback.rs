@@ -805,7 +805,12 @@ impl GameLogic {
                         }
                         SpawnedPayloadKind::A10StrikeMissile => {
                             obj.a10_strike_missile = true;
-                            obj.movement.velocity = glam::Vec3::new(0.0, -20.0, 0.0);
+                            obj.movement.velocity =
+                                crate::game_logic::host_a10_strike_drop_log::a10_missile_fire_velocity(
+                                    obj.get_position(),
+                                    target,
+                                    glam::Vec3::ZERO,
+                                );
                         }
                         SpawnedPayloadKind::ArtilleryBarrageShell => {
                             obj.artillery_barrage_shell = true;

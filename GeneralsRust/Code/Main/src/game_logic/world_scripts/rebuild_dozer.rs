@@ -933,6 +933,45 @@ impl GameLogic {
         }
     }
 
+    /// C++ WorkerStateMachine::supplyTruckSubMachineReadyToLeave → AS_DOZER.
+    ///
+    /// Player move/attack is not idle and not AI_DOCK, so the supply brain
+    /// goes ST_BUSY (`ownerNotDockingOrIdle`) and the master machine leaves
+    /// AS_SUPPLY_TRUCK. `resetSupplyTruckBrain` returns the sub-brain to its
+    /// default. `m_preferredDock` stays — only `newTask` clears it.
+    /// Live Idle must not re-enter Wanting after this park.
+    pub fn worker_exit_supply_for_player_command(&mut self, worker_id: ObjectId) {
+        let Some(obj) = self.objects.get(&worker_id) else {
+            return;
+        };
+        let eligible = obj.is_kind_of(KindOf::Worker)
+            || obj.is_resource_collector()
+            || obj.thing.template.supply_truck_metadata.is_some()
+            || obj.template_name.to_ascii_lowercase().contains("worker");
+        if !eligible {
+            return;
+        }
+        let ferrying = matches!(
+            obj.ai_state,
+            AIState::Gathering | AIState::ReturningResources
+        ) || matches!(
+            obj.supply_truck_state,
+            crate::game_logic::SupplyTruckState::Wanting
+                | crate::game_logic::SupplyTruckState::DockingWarehouse
+                | crate::game_logic::SupplyTruckState::DockingCenter
+                | crate::game_logic::SupplyTruckState::Regrouping
+        ) || obj.supply_truck_force_pending;
+        if !ferrying {
+            return;
+        }
+        self.cancel_dock_reservation(worker_id);
+        if let Some(w) = self.objects.get_mut(&worker_id) {
+            w.supply_truck_state = crate::game_logic::SupplyTruckState::Idle;
+            w.supply_truck_force_pending = false;
+            w.supply_truck_next_dock_action_frame = 0;
+        }
+    }
+
     /// C++ ActionManager::canResumeConstructionOf residual.
     pub fn can_resume_construction_of(&self, dozer_id: ObjectId, structure_id: ObjectId) -> bool {
         let Some(dozer) = self.objects.get(&dozer_id) else {

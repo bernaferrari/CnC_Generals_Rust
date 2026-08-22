@@ -434,7 +434,8 @@ pub fn honesty_a10_strike_residual_pack() -> bool {
         && (A10_VULCAN_PRIMARY_DAMAGE - 10.0).abs() < 0.01
         && (A10_VULCAN_PRIMARY_RADIUS - 4.0).abs() < 0.01
         && A10_VULCAN_DELAY_BETWEEN_SHOTS_MS == 60
-        && A10_STRIKE_IMPACT_AUDIO == "A10StrikeImpact"
+        && A10_STRIKE_IMPACT_AUDIO.is_empty()
+        && HostSuperweaponKind::A10Strike.impact_audio() == A10_STRIKE_IMPACT_AUDIO
         && HostSuperweaponKind::A10Strike.impact_delay_frames() == A10_STRIKE_IMPACT_DELAY_FRAMES
         && (HostSuperweaponKind::A10Strike.max_damage() - A10_STRIKE_HOST_MAX_DAMAGE).abs() < 0.1
         && (HostSuperweaponKind::A10Strike.damage_radius() - A10_STRIKE_HOST_RADIUS).abs() < 0.1
@@ -589,6 +590,12 @@ pub fn honesty_spectre_orbit_residual_pack_wave73() -> bool {
         // Gunship flight circle is larger than damage/cursor AttackAreaRadius.
         && SPECTRE_GUNSHIP_ORBIT_RADIUS > SPECTRE_ORBIT_RADIUS
         && (SPECTRE_TARGETING_RETICLE_RADIUS - 25.0).abs() < 0.01
+        && (SPECTRE_OVERRIDE_CONSTRAINT_RADIUS - 175.0).abs() < 0.01
+        && (SPECTRE_ORBIT_RADIUS - SPECTRE_TARGETING_RETICLE_RADIUS
+            - SPECTRE_OVERRIDE_CONSTRAINT_RADIUS)
+            .abs()
+            < 0.01
+
         && (SPECTRE_STRAFING_INCREMENT - 20.0).abs() < 0.01
         && (SPECTRE_ORBIT_INSERTION_SLOPE - 0.7).abs() < 0.001
         && SPECTRE_GATTLING_STRAFE_FX == "SpectreGattlingArmsSmoke"

@@ -1710,6 +1710,7 @@ impl GameLogic {
             if let Some(flight) = unit.spectre_gunship_update.as_mut() {
                 if flight.status.overridable_destination_active() {
                     flight.override_target = location;
+                    flight.constrain_override();
                 }
             }
             unit.producer_id

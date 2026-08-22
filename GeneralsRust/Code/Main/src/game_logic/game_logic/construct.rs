@@ -380,6 +380,7 @@ impl GameLogic {
             battle_drone_residual_units_hit: 0,
             battle_drone_residual_repairs: 0,
             battle_drone_residual_repair_amount: 0.0,
+            battle_drone_weld_states: std::collections::HashMap::new(),
             overlord_gun_residual_fires: 0,
             overlord_gun_residual_units_hit: 0,
             overlord_gun_residual_uranium_upgrades: 0,
@@ -957,6 +958,7 @@ impl GameLogic {
         self.battle_drone_residual_units_hit = 0;
         self.battle_drone_residual_repairs = 0;
         self.battle_drone_residual_repair_amount = 0.0;
+        self.battle_drone_weld_states.clear();
         self.overlord_gun_residual_fires = 0;
         self.overlord_gun_residual_units_hit = 0;
         self.overlord_gun_residual_uranium_upgrades = 0;
