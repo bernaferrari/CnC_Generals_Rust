@@ -299,7 +299,7 @@ impl GameLogic {
                 {
                     let current_pos = obj.get_position();
                     let waypoint = obj.movement.path[obj.movement.current_path_index];
-                    if horiz(current_pos, waypoint) < 5.0 {
+                    if horiz(current_pos, waypoint) < 1.0 {
                         obj.movement.current_path_index += 1;
                         if obj.movement.current_path_index >= obj.movement.path.len() {
                             let do_evac = obj.pending_evacuate_on_stop;
@@ -529,7 +529,7 @@ impl GameLogic {
                             // C++ OBJECT_STATUS_BRAKING pose cheat (Locomotor.cpp:1092-1138).
                             new_position = obj.braking_cheat_step(current_pos, flat_target, dt);
                         }
-                        let reached_target = dist < 2.0;
+                        let reached_target = dist < 1.0;
 
                         obj.set_position(new_position);
                         // C++ Object.cpp:2580-2583 notifyTerrainObjectMoved →
@@ -1240,11 +1240,30 @@ mod tests {
         unit.braking = 20.0;
         unit.movement.velocity = Vec3::new(20.0, 0.0, 0.0);
         let goal = unit.apply_cpp_approach_brake(2.0, 20.0, 20.0, 0);
-        assert!(unit.is_braking);
+        assert!(
+            !unit.is_braking,
+            "legs must not set IS_BRAKING (Locomotor.cpp:1648-1653)"
+        );
         assert!(
             (goal - 4.0).abs() < 1e-4,
             "legs must drop to minSpeed not 0, goal={goal}"
         );
+
+        let mut hover = {
+            let mut tmpl = ThingTemplate::new("ComancheHover");
+            tmpl.add_kind_of(KindOf::Aircraft);
+            Object::new(tmpl, ObjectId(9507), Team::USA)
+        };
+        hover.loco_appearance = LocomotorAppearance::Hover;
+        hover.min_speed = 4.0;
+        hover.braking = 20.0;
+        hover.movement.velocity = Vec3::new(20.0, 0.0, 0.0);
+        let hover_goal = hover.apply_cpp_approach_brake(2.0, 20.0, 20.0, 0);
+        assert!(
+            !hover.is_braking,
+            "hover must not set IS_BRAKING (Locomotor.cpp:2368-2374)"
+        );
+        assert!((hover_goal - 4.0).abs() < 1e-4);
     }
 
     #[test]
