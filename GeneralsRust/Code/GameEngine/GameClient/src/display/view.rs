@@ -466,6 +466,8 @@ pub struct ViewFilterComposite {
     pub mode: FilterMode,
     pub fade: f32,
     pub scroll_delta: Vector2,
+    /// C++ `ScreenMotionBlurFilter::m_zoomToPos` when `setViewFilterPos` ran.
+    pub zoom_to: Option<Point3>,
 }
 
 /// Errors that can occur in view operations
@@ -623,6 +625,7 @@ pub struct View {
     view_filter_type: FilterType,
     view_filter_mode: FilterMode,
     view_filter_pos: Point3,
+    view_filter_pos_valid: bool,
     fade_total_frames: i32,
     fade_progress_frames: i32,
     fade_direction: i32,
@@ -740,6 +743,7 @@ impl View {
             view_filter_type: FilterType::Null,
             view_filter_mode: FilterMode::Null,
             view_filter_pos: Point3::zero(),
+            view_filter_pos_valid: false,
             fade_total_frames: 0,
             fade_progress_frames: 0,
             fade_direction: 0,
@@ -969,6 +973,17 @@ impl View {
         self.camera_has_moved_since_request = true;
         // C++ W3DView::scrollBy: only `m_doingRotateCamera = false`.
         self.cancel_scripted_camera_from_player_scroll();
+    }
+
+    /// Stamp C++ `W3DView::m_scrollAmount` without moving leftover pose.
+    /// Live pan (`camera_scroll_world_delta`) writes the same-frame screen
+    /// delta so `filter_composite` can feed `ScreenMotionBlurFilter`.
+    pub fn record_scroll_amount(&mut self, delta: Vector2) {
+        self.scroll_amount = delta;
+    }
+
+    pub fn scroll_amount(&self) -> Vector2 {
+        self.scroll_amount
     }
 
     // Angle and rotation
@@ -1754,6 +1769,9 @@ impl View {
             mode: self.view_filter_mode,
             fade,
             scroll_delta: self.scroll_amount,
+            zoom_to: self
+                .view_filter_pos_valid
+                .then_some(self.view_filter_pos),
         }
     }
 
@@ -1832,7 +1850,9 @@ impl View {
     }
 
     pub fn set_view_filter_pos(&mut self, pos: &Point3) {
+        // C++ `W3DView::setViewFilterPos` → `ScreenMotionBlurFilter::setZoomToPos`.
         self.view_filter_pos = *pos;
+        self.view_filter_pos_valid = true;
     }
 
     pub fn set_view_filter(&mut self, filter: FilterType) -> bool {
@@ -2203,6 +2223,21 @@ pub fn with_tactical_view<R>(f: impl FnOnce(&mut View) -> R) -> R {
 /// Access the global tactical view immutably.
 pub fn with_tactical_view_ref<R>(f: impl FnOnce(&View) -> R) -> R {
     THE_TACTICAL_VIEW.with(|view| f(&view.borrow()))
+}
+
+thread_local! {
+    /// C++ `ScreenMotionBlurFilter::postRender` `TheTacticalView->lookAt` at blur peak.
+    static PENDING_MB_ZOOM_LOOK_AT: Cell<Option<Point3>> = const { Cell::new(None) };
+}
+
+/// Queue leftover-Z-up lookAt for the live host (C++ zoom-to at MAX_COUNT).
+pub fn queue_motion_blur_zoom_look_at(pos: Point3) {
+    PENDING_MB_ZOOM_LOOK_AT.with(|slot| slot.set(Some(pos)));
+}
+
+/// Drain the peak-blur lookAt queued by leftover `filterPostRender`.
+pub fn take_motion_blur_zoom_look_at() -> Option<Point3> {
+    PENDING_MB_ZOOM_LOOK_AT.with(|slot| slot.take())
 }
 
 impl Default for View {

@@ -711,12 +711,76 @@ impl GameLogic {
             .get(&attacker_id)
             .map(|o| o.get_position())
             .unwrap_or(target_pos);
-        crate::game_logic::weapon_bootstrap::compute_approach_target_pos(
+        let dest = crate::game_logic::weapon_bootstrap::compute_approach_target_pos(
             src,
             target_pos,
             weapon_range,
+        );
+        self.adjust_aircraft_attack_approach(attacker_id, dest, target_pos, weapon_range, 0.0)
+    }
+
+    /// C++ `isAircraftThatAdjustsDestination` + leftover `adjustTargetDestination`
+    /// after range*0.9 so HOVER/WINGS do not stack on one hover cell.
+    pub(crate) fn adjust_aircraft_attack_approach(
+        &self,
+        attacker_id: ObjectId,
+        dest: glam::Vec3,
+        target_pos: glam::Vec3,
+        weapon_range: f32,
+        min_range: f32,
+    ) -> glam::Vec3 {
+        let Some(obj) = self.objects.get(&attacker_id) else {
+            return dest;
+        };
+        if !PathfindingGrid::is_aircraft_that_adjusts_destination(obj) {
+            return dest;
+        }
+        let src_r = obj.thing.template.geometry_info.bounding_circle_radius();
+        let unit_radius = obj.selection_radius.max(src_r);
+        let tgt_r = self
+            .objects
+            .values()
+            .filter(|o| o.id != attacker_id && o.is_alive())
+            .find(|o| {
+                let p = o.get_position();
+                let dx = p.x - target_pos.x;
+                let dz = p.z - target_pos.z;
+                dx * dx + dz * dz < 1.0
+            })
+            .map(|o| o.thing.template.geometry_info.bounding_circle_radius())
+            .unwrap_or(0.0);
+        let min_range = self
+            .objects
+            .get(&attacker_id)
+            .and_then(|a| {
+                a.selected_weapon_slot()
+                    .and_then(|s| a.weapon_slot(s))
+                    .map(|w| w.min_range)
+            })
+            .unwrap_or(min_range);
+        let airborne = obj.status.airborne_target
+            || obj.is_kind_of(KindOf::Aircraft)
+            || obj.object_type == crate::game_logic::ObjectType::Aircraft;
+        let surfaces = if airborne {
+            gamelogic::ai::pathfind_complete::SURFACE_AIR
+        } else {
+            gamelogic::ai::pathfind_complete::SURFACE_GROUND
+        };
+        self.pathfinding_system.adjust_target_destination(
+            attacker_id.0,
+            &self.objects,
+            dest,
+            target_pos,
+            unit_radius,
+            surfaces,
+            obj.crusher_level > 0,
+            src_r,
+            tgt_r,
+            weapon_range,
+            min_range,
         )
     }
+
 
     pub(crate) fn try_continue_attack_after_kill(
         &mut self,

@@ -1126,6 +1126,8 @@ impl GameLogic {
     /// then `aiWander` / `aiPanic` / `aiWanderInPlace` (`CMD_FROM_SCRIPT`).
     pub fn apply_host_loco_set_script_requests(&mut self) {
         self.apply_host_team_factory_script_requests();
+        self.apply_host_merge_team_script_requests();
+        self.apply_host_capture_nearest_unowned_script_requests();
         for (team_name, set, waypoint) in gamelogic::scripting::take_host_team_loco_set_requests() {
             self.host_script_apply_team_wander_panic(&team_name, &set, waypoint.as_deref());
         }
@@ -1320,6 +1322,171 @@ impl GameLogic {
         }
         self.ai_manager = ai_mgr;
     }
+
+    /// C++ `ScriptActions::doMergeTeamIntoTeam` live drain.
+    /// Leftover `set_team` misses empty `OBJECT_REGISTRY`; rewrite live
+    /// `team_instance_name` so TEAM/NAMED census follows dest.
+    pub fn apply_host_merge_team_script_requests(&mut self) {
+        for req in gamelogic::scripting::take_host_script_merge_team_requests() {
+            self.host_script_merge_team_into_team(&req.source, &req.dest);
+        }
+    }
+
+    /// C++ `obj->setTeam(teamDest)` + `updateTeamAndPlayerStuff` + dest `setActive`.
+    fn host_script_merge_team_into_team(&mut self, source: &str, dest: &str) {
+        let source = source.trim();
+        let dest = dest.trim();
+        if source.is_empty() || dest.is_empty() || source.eq_ignore_ascii_case(dest) {
+            return;
+        }
+        let dest_owner = gamelogic::team::get_team_factory()
+            .lock()
+            .ok()
+            .and_then(|mut factory| {
+                factory
+                    .find_team(dest)
+                    .or_else(|| factory.create_team(dest))
+            })
+            .and_then(|team| {
+                team.read()
+                    .ok()
+                    .and_then(|guard| guard.get_controlling_player_id())
+            });
+        let ids: Vec<ObjectId> = self
+            .host_script_team_census_member_ids(source)
+            .into_iter()
+            .map(ObjectId)
+            .collect();
+        for id in ids {
+            if let Some(obj) = self.host_object_mut(id) {
+                obj.team_instance_name = dest.to_string();
+                if let Some(pid) = dest_owner {
+                    obj.owner_player_id = Some(pid);
+                }
+            }
+            self.activate_leftover_team_for_host_object(id);
+        }
+    }
+
+    /// C++ `ScriptActions::doTeamCaptureNearestUnownedFactionUnit` live drain.
+    /// Leftover partition is empty on the player path.
+    pub fn apply_host_capture_nearest_unowned_script_requests(&mut self) {
+        for req in gamelogic::scripting::take_host_script_capture_nearest_unowned_requests() {
+            self.host_script_team_capture_nearest_unowned(&req.team);
+        }
+    }
+
+    /// C++ AIGroup center + `getClosestObject` (unmanned + enemies/neutral +
+    /// on-map) + `groupEnter(..., CMD_FROM_SCRIPT)`.
+    fn host_script_team_capture_nearest_unowned(&mut self, team_name: &str) {
+        let members: Vec<ObjectId> = self
+            .host_script_team_census_member_ids(team_name)
+            .into_iter()
+            .map(ObjectId)
+            .filter(|id| {
+                self.host_object(*id)
+                    .is_some_and(|obj| obj.is_alive() && !obj.status.destroyed)
+            })
+            .collect();
+        if members.is_empty() {
+            return;
+        }
+        let mut sum = glam::Vec3::ZERO;
+        let mut n = 0u32;
+        let mut source_owner = None;
+        let mut source_inst = String::new();
+        for id in &members {
+            let Some(obj) = self.host_object(*id) else {
+                continue;
+            };
+            sum += obj.get_position();
+            n += 1;
+            if source_owner.is_none() {
+                source_owner = obj.owner_player_id;
+                source_inst = obj.team_instance_name.clone();
+            }
+        }
+        if n == 0 {
+            return;
+        }
+        let center = sum / n as f32;
+        let Some(target_id) = self.host_script_closest_unowned_faction_unit(
+            center,
+            &members,
+            source_owner,
+            &source_inst,
+        ) else {
+            return;
+        };
+        let Some(target_pos) = self.host_object(target_id).map(|obj| obj.get_position()) else {
+            return;
+        };
+        for id in members {
+            let _ = self.unit_command_stop_moving_order_target(id, Some(target_id));
+            if !self.unit_command_path_with_state_ignoring(
+                id,
+                target_pos,
+                AIState::Entering,
+                Some(target_id),
+            ) {
+                if let Some(obj) = self.host_object_mut(id) {
+                    obj.ignored_obstacle_id = Some(target_id);
+                    obj.set_ai_state(AIState::Entering);
+                }
+            }
+        }
+    }
+
+    /// C++ `PartitionFilterUnmannedObject` + `ALLOW_ENEMIES|ALLOW_NEUTRAL` +
+    /// `PartitionFilterOnMap`, `FROM_CENTER_2D`.
+    fn host_script_closest_unowned_faction_unit(
+        &self,
+        center: glam::Vec3,
+        exclude: &[ObjectId],
+        source_owner: Option<u32>,
+        source_inst: &str,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_deliver_payload::is_off_map_default_residual;
+        use gamelogic::common::Relationship;
+
+        let mut best: Option<(ObjectId, f32)> = None;
+        for (id, obj) in self.host_objects() {
+            if exclude.contains(id) {
+                continue;
+            }
+            if !obj.is_alive() || obj.status.destroyed || !obj.is_unmanned() {
+                continue;
+            }
+            if is_off_map_default_residual(obj.get_position()) {
+                continue;
+            }
+            // C++ kill-pilot moves the husk to Neutral; affiliation is Neutral
+            // even when `unmanned_owner_player_id` is retained for recrew.
+            let rel = if obj.team == Team::Neutral || obj.is_unmanned() {
+                Relationship::Neutral
+            } else {
+                Self::object_relationship_from_owners(
+                    &self.players,
+                    source_owner,
+                    source_inst,
+                    obj.owner_player_id,
+                    &obj.team_instance_name,
+                )
+            };
+            if !matches!(rel, Relationship::Enemies | Relationship::Neutral) {
+                continue;
+            }
+            let pos = obj.get_position();
+            let dx = pos.x - center.x;
+            let dz = pos.z - center.z;
+            let dist2 = dx * dx + dz * dz;
+            if best.is_none_or(|(_, best_d)| dist2 < best_d) {
+                best = Some((*id, dist2));
+            }
+        }
+        best.map(|(id, _)| id)
+    }
+
 
     /// C++ PartitionFilterRepulsor + AI::findClosestRepulsor residual.
     ///
@@ -1819,5 +1986,139 @@ mod tests {
         );
     }
 
+    #[test]
+    fn team_merge_rewrites_live_team_instance_name() {
+        use gamelogic::object::registry::OBJECT_REGISTRY;
+        use gamelogic::scripting::{
+            request_host_script_merge_team, take_host_script_merge_team_requests,
+        };
+
+        OBJECT_REGISTRY.clear();
+        let _ = take_host_script_merge_team_requests();
+
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "PlyrAmerica", true));
+        let mut tmpl = ThingTemplate::new("W29MergeRanger");
+        tmpl.add_kind_of(KindOf::Infantry);
+        tmpl.set_health(100.0);
+        logic.templates.insert("W29MergeRanger".into(), tmpl);
+
+        let a = logic
+            .create_object("W29MergeRanger", Team::USA, glam::Vec3::new(10.0, 0.0, 10.0))
+            .expect("src a");
+        let b = logic
+            .create_object("W29MergeRanger", Team::USA, glam::Vec3::new(20.0, 0.0, 10.0))
+            .expect("src b");
+        let keep = logic
+            .create_object("W29MergeRanger", Team::USA, glam::Vec3::new(40.0, 0.0, 10.0))
+            .expect("dest keep");
+        if let Some(obj) = logic.host_object_mut(a) {
+            obj.owner_player_id = Some(1);
+            obj.team_instance_name = "USA_SrcSquad".into();
+        }
+        if let Some(obj) = logic.host_object_mut(b) {
+            obj.owner_player_id = Some(1);
+            obj.team_instance_name = "USA_SrcSquad".into();
+        }
+        if let Some(obj) = logic.host_object_mut(keep) {
+            obj.owner_player_id = Some(1);
+            obj.team_instance_name = "USA_DestSquad".into();
+        }
+
+        request_host_script_merge_team("USA_SrcSquad", "USA_DestSquad");
+        logic.apply_host_merge_team_script_requests();
+
+        assert_eq!(logic.objects[&a].team_instance_name, "USA_DestSquad");
+        assert_eq!(logic.objects[&b].team_instance_name, "USA_DestSquad");
+        assert_eq!(logic.objects[&keep].team_instance_name, "USA_DestSquad");
+        let dest = logic.host_script_team_census_member_ids("USA_DestSquad");
+        assert!(dest.contains(&a.0) && dest.contains(&b.0) && dest.contains(&keep.0));
+        assert!(
+            logic
+                .host_script_team_census_member_ids("USA_SrcSquad")
+                .is_empty(),
+            "census must follow rewritten team_instance_name"
+        );
+    }
+
+    #[test]
+    fn team_capture_nearest_unowned_enters_live_husk() {
+        use crate::game_logic::AIState;
+        use gamelogic::object::registry::OBJECT_REGISTRY;
+        use gamelogic::scripting::{
+            request_host_script_capture_nearest_unowned,
+            take_host_script_capture_nearest_unowned_requests,
+        };
+
+        OBJECT_REGISTRY.clear();
+        let _ = take_host_script_capture_nearest_unowned_requests();
+
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "PlyrAmerica", true));
+        let mut ranger = ThingTemplate::new("W29HijackRanger");
+        ranger.add_kind_of(KindOf::Infantry);
+        ranger.set_health(100.0);
+        logic.templates.insert("W29HijackRanger".into(), ranger);
+        let mut tank = ThingTemplate::new("W29HijackTank");
+        tank.add_kind_of(KindOf::Vehicle);
+        tank.set_health(400.0);
+        logic.templates.insert("W29HijackTank".into(), tank);
+
+        let infantry = logic
+            .create_object(
+                "W29HijackRanger",
+                Team::USA,
+                glam::Vec3::new(50.0, 0.0, 50.0),
+            )
+            .expect("infantry");
+        if let Some(obj) = logic.host_object_mut(infantry) {
+            obj.owner_player_id = Some(1);
+            obj.team_instance_name = "USA_HijackSquad".into();
+        }
+
+        let near = logic
+            .create_object("W29HijackTank", Team::Neutral, glam::Vec3::new(80.0, 0.0, 50.0))
+            .expect("near husk");
+        if let Some(obj) = logic.host_object_mut(near) {
+            obj.status.disabled_unmanned = true;
+            obj.owner_player_id = None;
+            obj.team_instance_name.clear();
+        }
+        let far = logic
+            .create_object(
+                "W29HijackTank",
+                Team::Neutral,
+                glam::Vec3::new(200.0, 0.0, 50.0),
+            )
+            .expect("far husk");
+        if let Some(obj) = logic.host_object_mut(far) {
+            obj.status.disabled_unmanned = true;
+            obj.owner_player_id = None;
+            obj.team_instance_name.clear();
+        }
+        let off = logic
+            .create_object(
+                "W29HijackTank",
+                Team::Neutral,
+                glam::Vec3::new(-40.0, 0.0, 50.0),
+            )
+            .expect("off-map husk");
+        if let Some(obj) = logic.host_object_mut(off) {
+            obj.status.disabled_unmanned = true;
+            obj.owner_player_id = None;
+            obj.team_instance_name.clear();
+        }
+
+        request_host_script_capture_nearest_unowned("USA_HijackSquad");
+        logic.apply_host_capture_nearest_unowned_script_requests();
+
+        let infantry = logic.host_object(infantry).expect("infantry after");
+        assert_eq!(infantry.target, Some(near), "groupEnter nearest unmanned");
+        assert_eq!(infantry.ai_state, AIState::Entering);
+        assert_ne!(infantry.target, Some(far));
+        assert_ne!(infantry.target, Some(off));
+    }
+
 }
+
 

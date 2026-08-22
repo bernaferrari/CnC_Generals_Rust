@@ -243,7 +243,7 @@ pub fn script_camera_motion_blur(zoom_in: bool, saturate: bool) {
     });
 }
 
-pub fn script_camera_motion_blur_jump(x: f32, y: f32, z: f32, saturate: bool) {
+pub fn script_camera_motion_blur_jump(x: f32, y: f32, z: f32, saturate: bool) -> bool {
     with_tactical_view(|view| {
         let target = Point3::new(x, y, z);
         let mut passed = false;
@@ -265,7 +265,8 @@ pub fn script_camera_motion_blur_jump(x: f32, y: f32, z: f32, saturate: bool) {
         if !passed {
             view.look_at(&target);
         }
-    });
+        passed
+    })
 }
 
 pub fn script_camera_motion_blur_follow(amount: i32) {

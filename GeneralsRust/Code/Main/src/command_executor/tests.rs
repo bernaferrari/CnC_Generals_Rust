@@ -538,16 +538,17 @@ fn command_button_maps_guard_modes() {
 }
 
 #[test]
-fn guard_uses_vision_radius_and_skips_structures() {
+fn guard_uses_vision_radius_and_skips_inert_structures() {
     use super::CommandExecutor;
     use crate::command_system::{CommandResult, GuardTarget};
-    use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate, Weapon};
     use glam::Vec3;
 
     let mut logic = GameLogic::new();
     for (name, kinds) in [
         ("GD_V", &[KindOf::Vehicle, KindOf::Selectable][..]),
         ("GD_S", &[KindOf::Structure, KindOf::Selectable][..]),
+        ("GD_T", &[KindOf::Structure, KindOf::Selectable][..]),
     ] {
         let mut tpl = ThingTemplate::new(name);
         for k in kinds {
@@ -562,21 +563,35 @@ fn guard_uses_vision_radius_and_skips_structures() {
     let s = logic
         .create_object("GD_S", Team::USA, Vec3::new(10.0, 0.0, 0.0))
         .unwrap();
+    let t = logic
+        .create_object("GD_T", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+        .unwrap();
     {
         let u = logic.host_object_mut(v).unwrap();
         u.vision_range = 120.0;
         u.selection_radius = 10.0;
     }
-    let mut exec = CommandExecutor::new(&mut logic, 0);
+    {
+        let turret = logic.host_object_mut(t).unwrap();
+        turret.vision_range = 200.0;
+        turret.weapon = Some(Weapon {
+            damage: 10.0,
+            range: 200.0,
+            ..Weapon::default()
+        });
+    }
     let pos = Vec3::new(50.0, 0.0, 0.0);
-    assert_eq!(
-        exec.execute_guard(
-            &[v, s],
-            &GuardTarget::Position(pos),
-            crate::game_logic::GuardMode::Normal
-        ),
-        CommandResult::Success
-    );
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_guard(
+                &[v, s, t],
+                &GuardTarget::Position(pos),
+                crate::game_logic::GuardMode::Normal
+            ),
+            CommandResult::Success
+        );
+    }
     let u = logic.host_object(v).unwrap();
     assert!(
         (u.guard_radius - 120.0).abs() < 0.1,
@@ -587,12 +602,139 @@ fn guard_uses_vision_radius_and_skips_structures() {
         u.ai_state,
         AIState::GuardingArea | AIState::Moving
     ));
-    // Structure must not enter guard.
+    // Inert structure (no leftover AI / weapon) must not enter guard.
     assert_ne!(
         logic.host_object(s).unwrap().ai_state,
         AIState::GuardingArea
     );
+    // Turret / stinger-style structure still scans from the post.
+    assert_eq!(
+        logic.host_object(t).unwrap().ai_state,
+        AIState::GuardingArea
+    );
 }
+
+#[test]
+fn group_guard_includes_stunned_member_that_cannot_move() {
+    // C++ AIGroup::groupGuardPosition: AI interface only — stun/EMP does not skip.
+    use super::CommandExecutor;
+    use crate::command_system::{CommandResult, GuardTarget};
+    use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut tpl = ThingTemplate::new("GD_STUN");
+    tpl.add_kind_of(KindOf::Vehicle);
+    tpl.add_kind_of(KindOf::Selectable);
+    tpl.set_health(200.0);
+    logic.templates.insert("GD_STUN".to_string(), tpl);
+    let id = logic
+        .create_object("GD_STUN", Team::USA, Vec3::ZERO)
+        .unwrap();
+    {
+        let u = logic.host_object_mut(id).unwrap();
+        u.shock_stun_frames = 40;
+        u.vision_range = 100.0;
+        assert!(
+            !u.can_move(),
+            "flailing stun must block can_move so the test is live"
+        );
+    }
+    assert!(
+        logic.host_unit_can_guard(id),
+        "stunned vehicle still has AIUpdate analog"
+    );
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_guard(
+                &[id],
+                &GuardTarget::Position(Vec3::new(80.0, 0.0, 0.0)),
+                crate::game_logic::GuardMode::Normal
+            ),
+            CommandResult::Success
+        );
+    }
+    let u = logic.host_object(id).unwrap();
+    assert_eq!(u.ai_state, AIState::GuardingArea);
+    assert!(
+        !u.can_move(),
+        "guard must not clear stun just to walk to the post"
+    );
+}
+
+#[test]
+fn script_team_guard_includes_turret_and_stunned() {
+    // C++ ScriptActions::doTeamGuard: AIUpdateInterface only.
+    use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let _ = gamelogic::scripting::take_host_script_hunt_guard_requests();
+    let mut logic = GameLogic::new();
+    logic.scripts_loaded = true;
+    for (name, kinds) in [
+        ("SG_V", &[KindOf::Vehicle, KindOf::Selectable][..]),
+        ("SG_S", &[KindOf::Structure, KindOf::Selectable][..]),
+        ("SG_T", &[KindOf::Structure, KindOf::Selectable][..]),
+    ] {
+        let mut tpl = ThingTemplate::new(name);
+        for k in kinds {
+            tpl.add_kind_of(*k);
+        }
+        tpl.set_health(400.0);
+        logic.templates.insert(name.to_string(), tpl);
+    }
+    let v = logic
+        .create_object("SG_V", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let stun = logic
+        .create_object("SG_V", Team::USA, Vec3::new(8.0, 0.0, 0.0))
+        .unwrap();
+    let inert = logic
+        .create_object("SG_S", Team::USA, Vec3::new(16.0, 0.0, 0.0))
+        .unwrap();
+    let turret = logic
+        .create_object("SG_T", Team::USA, Vec3::new(24.0, 0.0, 0.0))
+        .unwrap();
+    for id in [v, stun, inert, turret] {
+        if let Some(o) = logic.host_object_mut(id) {
+            o.team_instance_name = "W29GuardTeam".into();
+        }
+    }
+    {
+        let u = logic.host_object_mut(stun).unwrap();
+        u.shock_stun_frames = 40;
+        assert!(!u.can_move());
+    }
+    {
+        let t = logic.host_object_mut(turret).unwrap();
+        t.weapon = Some(crate::game_logic::Weapon {
+            damage: 10.0,
+            range: 150.0,
+            ..crate::game_logic::Weapon::default()
+        });
+    }
+    gamelogic::scripting::request_host_script_hunt_guard(
+        gamelogic::scripting::HostScriptHuntGuardRequest::TeamGuard {
+            team: "W29GuardTeam".into(),
+        },
+    );
+    logic.evaluate_and_execute_scripts(0.0);
+    assert_eq!(logic.host_object(v).unwrap().ai_state, AIState::GuardingArea);
+    assert_eq!(
+        logic.host_object(stun).unwrap().ai_state,
+        AIState::GuardingArea
+    );
+    assert_eq!(
+        logic.host_object(turret).unwrap().ai_state,
+        AIState::GuardingArea
+    );
+    assert_ne!(
+        logic.host_object(inert).unwrap().ai_state,
+        AIState::GuardingArea
+    );
+}
+
 
 #[test]
 fn patrol_enables_auto_acquire_hunt_residual() {

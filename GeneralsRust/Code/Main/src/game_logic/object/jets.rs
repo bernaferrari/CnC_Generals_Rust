@@ -659,6 +659,8 @@ impl Object {
         self.jet_ai.takeoff_runway_dist = runway_dist.max(1.0);
         self.jet_ai.takeoff_waited_for_taxi = waited_for_taxi;
         self.apply_taxiing_locomotor_set();
+        // C++ JetOrHeliTaxiState / JetAwaitingRunwayState (JetAIUpdate.cpp:259-260, :615-616).
+        self.set_precise_z_and_ultra_accurate(true);
         let _ = self.enable_jet_afterburners(false);
     }
 
@@ -695,6 +697,8 @@ impl Object {
         self.jet_ai.takeoff_runway_dist = runway_dist.max(1.0);
         self.max_lift = 0.0;
         self.apply_taxiing_locomotor_set();
+        // C++ JetTakeoffOrLandingState::onEnter (JetAIUpdate.cpp:725-726).
+        self.set_precise_z_and_ultra_accurate(true);
         let _ = self.enable_jet_afterburners(true);
     }
 
@@ -709,6 +713,8 @@ impl Object {
         }
         if !self.jet_ai.allow_air_loco {
             self.apply_airborne_locomotor_set();
+            // C++ chooseLocomotorSet then setUsePreciseZPos (JetAIUpdate.cpp:709,725-726).
+            self.set_precise_z_and_ultra_accurate(true);
         }
         let Some(end) = self.jet_ai.takeoff_runway_end else {
             return true;
@@ -740,6 +746,8 @@ impl Object {
             self.max_lift = self.jet_ai.takeoff_max_lift;
         }
         self.apply_airborne_locomotor_set();
+        // C++ JetTakeoffOrLandingState::onExit (JetAIUpdate.cpp:886-887).
+        self.set_precise_z_and_ultra_accurate(false);
         let _ = self.enable_jet_afterburners(false);
         self.jet_ai.taxi_to_takeoff = false;
         self.jet_ai.takeoff_runway_start = None;

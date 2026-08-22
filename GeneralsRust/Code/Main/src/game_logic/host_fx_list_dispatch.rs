@@ -497,6 +497,28 @@ mod tests {
             pulse_body.contains("dispatch_fx_list_at_host_object(fx, tower.id, None)"),
             "Propaganda PulseFX must doFXObj the tower object"
         );
+        let bunker = include_str!("world_combat/missile_defenders.rs");
+        let bust = bunker
+            .find("fn apply_bunker_buster_to_target")
+            .expect("apply_bunker_buster_to_target");
+        let bust_body = &bunker[bust..bust + 2800];
+        assert!(
+            bust_body.contains("BUNKER_BUSTER_DETONATION_FX"),
+            "bust must play leftover DetonationFX on the bunker"
+        );
+        assert!(
+            bust_body.contains("dispatch_fx_list_at_host_object"),
+            "DetonationFX must use doFXObj on the bunker object"
+        );
+        let stealth = include_str!("world_combat/air_and_mig.rs");
+        assert!(
+            stealth.contains("BUNKER_BUSTER_CRASH_THROUGH_FX"),
+            "kill-self hold must play leftover CrashThroughBunkerFX on the missile"
+        );
+        assert!(
+            stealth.contains("should_play_crash_through_fx"),
+            "crash FX must gate on MISSILE_KILLING_SELF cadence"
+        );
     }
 
 }

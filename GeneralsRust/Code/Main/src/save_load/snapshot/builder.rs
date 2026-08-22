@@ -100,6 +100,10 @@ impl SnapshotBuilder {
                 super::money_crate_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
                 super::gps_scrambler_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
                 super::dynamic_shroud_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::angry_mob_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::power_plant_rods_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::cleanup_hazard_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::point_defense_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
 
 
 
@@ -347,6 +351,22 @@ impl SnapshotBuilder {
             game_logic,
         )?;
         super::dynamic_shroud_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::angry_mob_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::power_plant_rods_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::cleanup_hazard_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::point_defense_persist::apply_from_lifecycle_tail(
             &snapshot.lifecycle_tail,
             game_logic,
         )?;

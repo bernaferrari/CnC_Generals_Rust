@@ -1985,7 +1985,7 @@ impl GameLogic {
             } else {
                 0.0
             };
-            let center = if standoff > 0.0 {
+            let mut center = if standoff > 0.0 {
                 glam::Vec3::new(
                     vic_pos.x + dir_x * standoff,
                     vic_pos.y,
@@ -1994,6 +1994,12 @@ impl GameLogic {
             } else {
                 vic_pos
             };
+            if !is_contact && max_range > 0.0 {
+                center = self.adjust_aircraft_attack_approach(
+                    unit_id, center, vic_pos, max_range, min_range,
+                );
+            }
+
             if !force_repath {
                 if let Some(prev) = prev_vic {
                     if crate::game_logic::is_same_position_residual(from, prev, center) {

@@ -2094,6 +2094,13 @@ impl GameLogic {
             self.mark_object_for_destruction(id, Some(attacker_team));
         }
 
+        // C++ BunkerBusterBehavior::bustTheBunker FXList::doFXObj(DetonationFX, building).
+        // Leftover authored FX_BunkerBusterExplosion — not weapon ProjectileDetonationFX.
+        let _ = self.dispatch_fx_list_at_host_object(
+            crate::game_logic::host_bunker_buster::BUNKER_BUSTER_DETONATION_FX,
+            target_id,
+            None,
+        );
         let structure_dmg =
             bunker_buster_structure_damage(base_weapon_damage, is_bunker, had_occupants);
         let mut destroyed = false;

@@ -102,6 +102,10 @@ mod helix_napalm_persist;
 mod money_crate_persist;
 mod gps_scrambler_persist;
 mod dynamic_shroud_persist;
+mod angry_mob_persist;
+mod power_plant_rods_persist;
+mod cleanup_hazard_persist;
+mod point_defense_persist;
 
 
 mod particle_system_save;
@@ -213,6 +217,10 @@ pub const SNAPSHOT_SRC: &str = concat!(
     include_str!("money_crate_persist.rs"),
     include_str!("gps_scrambler_persist.rs"),
     include_str!("dynamic_shroud_persist.rs"),
+    include_str!("angry_mob_persist.rs"),
+    include_str!("power_plant_rods_persist.rs"),
+    include_str!("cleanup_hazard_persist.rs"),
+    include_str!("point_defense_persist.rs"),
 
 
     include_str!("particle_system_save.rs"),

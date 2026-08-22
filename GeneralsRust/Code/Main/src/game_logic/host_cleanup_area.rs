@@ -278,6 +278,10 @@ impl HostCleanupAreaRegistry {
         self.orders = orders;
     }
 
+    pub fn orders(&self) -> &[HostCleanupAreaOrder] {
+        &self.orders
+    }
+
     /// Residual honesty: at least one CleanupArea activated.
     pub fn honesty_activate_ok(&self) -> bool {
         self.activation_count > 0

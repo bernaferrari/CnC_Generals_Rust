@@ -4,6 +4,52 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
+/// C++ `SpyVisionUpdate::doActivationWork` (`SpyVisionUpdate.cpp:178-182`):
+/// `playerToSetFor->getRelationship(player->getDefaultTeam()) == ENEMIES`.
+/// Leftover `SpyVisionController::do_activation_work_for_owner` uses
+/// `owner.is_enemy_with_player`. Faction `Team` equality is not a proxy —
+/// same-faction enemy slots spy, allied same-faction do not.
+fn spy_vision_target_is_enemy(
+    players: &std::collections::HashMap<u32, Player>,
+    spy_player_id: u32,
+    obj: &Object,
+) -> bool {
+    use gamelogic::common::Relationship;
+    if !obj.is_alive() || obj.team == Team::Neutral {
+        return false;
+    }
+    let owner = match obj.owner_player_id {
+        Some(pid) => players
+            .get(&pid)
+            .filter(|player| player.is_alive && player.team == obj.team)
+            .map(|player| player.id),
+        None => {
+            let mut ids = players
+                .values()
+                .filter(|player| player.is_alive && player.team == obj.team)
+                .map(|player| player.id);
+            let first = ids.next();
+            if ids.next().is_none() {
+                first
+            } else {
+                None
+            }
+        }
+    };
+    match owner {
+        Some(oid) if oid == spy_player_id => false,
+        Some(oid) => {
+            GameLogic::player_relationship_from_map(players, spy_player_id, oid)
+                == Relationship::Enemies
+        }
+        None => players
+            .get(&spy_player_id)
+            .map(|player| obj.team != player.team)
+            .unwrap_or(true),
+    }
+}
+
+
 impl GameLogic {
     // -----------------------------------------------------------------------
     // CIA Intelligence / SpyVision residual (setUnitsVisionSpied)
@@ -69,15 +115,9 @@ impl GameLogic {
         let world_w = self.world_width.max(1.0);
         let world_h = self.world_height.max(1.0);
 
-        let mut player_mask = 0u32;
-        for (&pid, player) in &self.players {
-            if player.team == team {
-                player_mask |= 1u32 << pid.min(31);
-            }
-        }
-        if player_mask == 0 {
-            player_mask = 1u32 << player_id.min(31);
-        }
+        // C++ setUnitsVisionSpied byWhom is only playerToSetFor->getPlayerIndex().
+        // Do not paint an extra shroud disk for every same-faction slot.
+        let player_mask = 1u32 << player_id.min(31);
 
         // C++ SpyVisionSpecialPower: duration += contain->getContainCount() * bonus.
         let captured_count = caster_id
@@ -93,9 +133,7 @@ impl GameLogic {
             .objects
             .values()
             .filter(|obj| {
-                obj.is_alive()
-                    && obj.team != team
-                    && obj.team != Team::Neutral
+                spy_vision_target_is_enemy(&self.players, player_id, obj)
                     && caster_id.map(|c| c != obj.id).unwrap_or(true)
             })
             .map(|obj| {
@@ -314,15 +352,8 @@ impl GameLogic {
                 .unwrap_or(0)
         });
 
-        let mut player_mask = 0u32;
-        for (&pid, player) in &self.players {
-            if player.team == team {
-                player_mask |= 1u32 << pid.min(31);
-            }
-        }
-        if player_mask == 0 {
-            player_mask = 1u32 << player_id.min(31);
-        }
+        // C++ setUnitsVisionSpied byWhom is only the caster player index.
+        let player_mask = 1u32 << player_id.min(31);
 
         let world_w = self.world_width.max(1.0);
         let world_h = self.world_height.max(1.0);
@@ -331,9 +362,7 @@ impl GameLogic {
             .objects
             .values()
             .filter(|obj| {
-                obj.is_alive()
-                    && obj.team != team
-                    && obj.team != Team::Neutral
+                spy_vision_target_is_enemy(&self.players, player_id, obj)
                     && obj.id != center_id
                     && (!command_centers_only || obj.is_command_center())
             })

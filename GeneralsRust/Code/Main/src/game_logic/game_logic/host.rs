@@ -403,7 +403,7 @@ pub struct GameLogic {
 
     /// Host Cleanup Area residual — clear toxin/radiation fields + mines at location.
     /// Fail-closed: not full CleanupHazardUpdate projectile stream / scan loop.
-    pub(super) cleanup_areas: crate::game_logic::host_cleanup_area::HostCleanupAreaRegistry,
+    pub(crate) cleanup_areas: crate::game_logic::host_cleanup_area::HostCleanupAreaRegistry,
 
     /// Host GLA GPS Scrambler residual — GrantStealth ally vehicles/infantry in radius.
     /// Fail-closed: not full OCL GPSScrambler_InvisibleMarker grow-radius pulse path.
@@ -423,7 +423,7 @@ pub struct GameLogic {
     /// Honesty: PointDefenseLaserBeam objects spawned on intercept residual.
     pub(super) point_defense_laser_beams_spawned: u32,
     /// Per-carrier next ready frame for residual PDL shot delay.
-    pub(super) point_defense_next_ready_frame: HashMap<ObjectId, u32>,
+    pub(crate) point_defense_next_ready_frame: HashMap<ObjectId, u32>,
 
     /// Host America Avenger residual honesty (FAERIE_FIRE paint / air laser / ROF).
     /// Fail-closed: not full portable laser turret / dual AirLaser stream matrix.
@@ -436,7 +436,8 @@ pub struct GameLogic {
     pub(super) neutron_shell_residual_vehicles_unmanned: u32,
 
     /// Host Bunker Buster residual (Stealth Fighter + Upgrade_AmericaBunkerBusters).
-    /// Fail-closed: not full BunkerBusterBehavior crash FX / seismic / shockwave path.
+    /// DetonationFX on the bunker + CrashThroughBunkerFX while MISSILE_KILLING_SELF.
+    /// Fail-closed: not full seismic sim path.
     pub(super) bunker_buster: crate::game_logic::host_bunker_buster::HostBunkerBusterRegistry,
 
     /// Host Comanche Rocket Pods residual honesty (area attack when secondary fires).
@@ -572,7 +573,7 @@ pub struct GameLogic {
 
     /// Host GLA Angry Mob residual (nexus damages nearby enemies / expands members).
     /// SpawnBehavior member SpecialObject residual closed.
-    pub(super) angry_mobs: crate::game_logic::host_angry_mob::HostAngryMobRegistry,
+    pub(crate) angry_mobs: crate::game_logic::host_angry_mob::HostAngryMobRegistry,
 
     /// Host SCIENCE_StealthFighter production gate residual honesty.
     /// Fail-closed: not full PrerequisiteSciences rank tree / control-bar science UI.

@@ -963,6 +963,52 @@ mod tests {
         assert!(car.speed.abs() > 0.0, "must depart after WaitAtStationTime");
     }
 
+    #[test]
+    fn script_set_train_held_blocks_station_departure() {
+        railroad_registry_reset();
+        let mut logic = GameLogic::new();
+        logic.scripts_loaded = true;
+        let id = spawn_train(&mut logic, "CivilianTrainEngine", Vec3::ZERO);
+        if let Some(obj) = logic.objects.get_mut(&id) {
+            obj.name = "CivilianTrain".into();
+        }
+        inject_railroad_track(id, straight_track(80.0, Some(40.0)));
+        with_railroad_registry_mut(|reg| {
+            let car = reg.ensure_car(id, true);
+            car.conductor_state = HostConductorState::WaitAtStation;
+            car.wait_at_station_timer = 0;
+            car.held = false;
+        });
+
+        let _ = gamelogic::scripting::take_host_set_train_held_requests();
+        gamelogic::scripting::request_host_set_train_held("CivilianTrain", true);
+        logic.evaluate_and_execute_scripts(0.0);
+        assert!(
+            railroad_car(id).expect("car").held,
+            "SET_TRAIN_HELD must write HostRailroadCar.held"
+        );
+        for _ in 0..8 {
+            logic.update_railroads();
+        }
+        assert_eq!(
+            railroad_car(id).expect("car").conductor_state,
+            HostConductorState::WaitAtStation,
+            "held train must not leave WaitAtStation"
+        );
+
+        gamelogic::scripting::request_host_set_train_held("CivilianTrain", false);
+        logic.evaluate_and_execute_scripts(0.0);
+        assert!(!railroad_car(id).expect("car").held);
+        logic.update_railroads();
+        assert_eq!(
+            railroad_car(id).expect("car").conductor_state,
+            HostConductorState::Accelerate,
+            "released train must depart the station"
+        );
+        railroad_registry_reset();
+    }
+
+
     /// C++ getPulled: carriage trackDistance = puller - 2*hitchRadius.
     #[test]
     fn hitch_pulls_carriage_behind_locomotive() {

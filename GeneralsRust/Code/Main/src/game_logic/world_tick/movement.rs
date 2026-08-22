@@ -2532,6 +2532,33 @@ mod tests {
         );
     }
 
+    /// hq-2e10h: PRECISE_Z_POS lift seeks runway/pad goal Y, not cruise PreferredHeight.
+    #[test]
+    fn landing_lift_tracks_runway_goal_y() {
+        let mut tmpl = ThingTemplate::new("AmericaJetRaptor");
+        tmpl.add_kind_of(KindOf::Aircraft);
+        let mut jet = Object::new(tmpl, ObjectId(9818), Team::USA);
+        jet.set_position(Vec3::new(0.0, 80.0, 0.0));
+        jet.ground_height = 0.0;
+        jet.loco_behavior_z = LocomotorBehaviorZ::SurfaceRelativeHeight;
+        jet.loco_appearance = LocomotorAppearance::Wings;
+        jet.loco_preferred_height = 50.0;
+        jet.loco_preferred_height_damping = 1.0;
+        jet.max_lift = 20.0;
+        jet.physics_mass = 1.0;
+        jet.physics_accel = Vec3::ZERO;
+        jet.movement.target_position = Some(Vec3::new(0.0, 5.0, 0.0));
+        jet.set_precise_z_and_ultra_accurate(true);
+        GameLogic::apply_live_handle_behavior_z_for_test(&mut jet, 0.0, None);
+        assert!(
+            jet.physics_accel.y < -1.0 || jet.get_position().y < 79.0,
+            "landing PRECISE_Z_POS must seek runway Y=5 not cruise 50; y={} accel.y={}",
+            jet.get_position().y,
+            jet.physics_accel.y
+        );
+    }
+
+
     /// hq-hq4t8: treatAsAirborne must not freeze path advance / arrival plant.
     #[test]
     fn treat_as_airborne_still_plants_near_goal() {

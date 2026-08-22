@@ -2333,6 +2333,121 @@ fn command_button_hunt_special_skips_ally_mine_and_uses_priority() {
 }
 
 #[test]
+fn command_button_hunt_script_drain_requires_module_not_mobile() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    ensure_test_infantry_template(&mut logic);
+    ensure_test_tank_template(&mut logic);
+
+    let hijacker = logic
+        .create_object("TestInfantry", Team::USA, Vec3::ZERO)
+        .expect("hijacker");
+    {
+        let u = logic.host_object_mut(hijacker).unwrap();
+        u.template_name = "GLAInfantryHijacker".into();
+        u.status.disabled_held = true;
+        assert!(!u.can_move(), "HELD hijacker cannot walk");
+    }
+    assert!(
+        logic.unit_can_team_hunt_with_command_button(
+            hijacker,
+            Some("Command_HijackVehicle")
+        ),
+        "C++ doTeamHuntWithCommandButton has no is_mobile gate"
+    );
+
+    let crusader = logic
+        .create_object("TestTank", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+        .expect("crusader");
+    {
+        let u = logic.host_object_mut(crusader).unwrap();
+        u.template_name = "AmericaTankCrusader".into();
+    }
+    assert!(
+        !logic.unit_can_team_hunt_with_command_button(
+            crusader,
+            Some("Command_ChinaTankHunterTNT")
+        ),
+        "units without CommandButtonHuntUpdate must not arm"
+    );
+
+    let mut mine_t = ThingTemplate::new("TestHuntMine");
+    mine_t.add_kind_of(KindOf::Mine).set_health(10.0);
+    logic.templates.insert("TestHuntMine".into(), mine_t);
+    let mine = logic
+        .create_object("TestHuntMine", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+        .expect("mine");
+    assert!(
+        !logic.unit_can_team_hunt_with_command_button(mine, Some("Command_HijackVehicle")),
+        "no-AI members must skip"
+    );
+}
+
+#[test]
+fn command_button_hunt_tnt_and_booby_reject_neutral() {
+    use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::China, "China", false));
+    logic.add_player(Player::new(1, Team::GLA, "GLA", false));
+    ensure_test_infantry_template(&mut logic);
+    let mut bldg = ThingTemplate::new("TestBuilding");
+    bldg.add_kind_of(KindOf::Structure).set_health(500.0);
+    logic.templates.insert("TestBuilding".into(), bldg);
+
+    let hunter = logic
+        .create_object("TestInfantry", Team::China, Vec3::ZERO)
+        .expect("th");
+    {
+        let h = logic.host_object_mut(hunter).unwrap();
+        h.template_name = "ChinaInfantryTankHunter".into();
+        h.owner_player_id = Some(0);
+        h.set_ai_state(AIState::Idle);
+    }
+    let civilian = logic
+        .create_object("TestBuilding", Team::Neutral, Vec3::new(30.0, 0.0, 0.0))
+        .expect("civ");
+    logic.host_object_mut(civilian).unwrap().owner_player_id = None;
+    let enemy = logic
+        .create_object("TestBuilding", Team::GLA, Vec3::new(90.0, 0.0, 0.0))
+        .expect("enemy");
+    logic.host_object_mut(enemy).unwrap().owner_player_id = Some(1);
+
+    assert!(logic.start_command_button_hunt_named(hunter, Some("Command_ChinaTankHunterTNT")));
+    logic.frame = 0;
+    logic.tick_command_button_hunt_updates();
+    match logic.pending_special_abilities.get(&hunter) {
+        Some(PendingSpecialAbility::PlantTimedDemoCharge { target_id }) => {
+            assert_eq!(
+                *target_id, enemy,
+                "TNT hunt must ignore Neutral civilian buildings"
+            );
+        }
+        other => panic!("expected TNT on enemy, got {other:?}"),
+    }
+
+    logic.pending_special_abilities.remove(&hunter);
+    if let Some(h) = logic.host_object_mut(hunter) {
+        h.clear_command_button_hunt();
+        h.set_ai_state(AIState::Idle);
+        h.target = None;
+    }
+    assert!(logic.start_command_button_hunt_named(hunter, Some("Command_BoobyTrapBuilding")));
+    logic.frame = 0;
+    logic.tick_command_button_hunt_updates();
+    match logic.pending_special_abilities.get(&hunter) {
+        Some(PendingSpecialAbility::PlantBoobyTrap { target_id }) => {
+            assert_eq!(*target_id, enemy, "booby hunt must ignore Neutral");
+        }
+        other => panic!("expected booby on enemy, got {other:?}"),
+    }
+}
+
+
+#[test]
 fn group_hunt_includes_immobile_and_disabled_members() {
     use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
     use glam::Vec3;

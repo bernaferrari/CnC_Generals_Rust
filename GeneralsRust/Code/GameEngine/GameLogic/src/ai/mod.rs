@@ -2777,6 +2777,27 @@ impl Pathfinder {
         )
     }
 
+    /// C++ `adjustTargetDestination` with seeker id so own goalAircraft is kept.
+    pub fn adjust_target_destination_for(
+        &self,
+        surfaces: u32,
+        is_crusher: bool,
+        unit_radius: f32,
+        ignore_id: Option<ObjectID>,
+        dest: &mut Coord3D,
+        in_range: impl Fn(&Coord3D) -> bool,
+    ) -> bool {
+        self.inner.adjust_target_destination(
+            dest,
+            unit_radius,
+            surfaces,
+            is_crusher,
+            ignore_id,
+            in_range,
+        )
+    }
+
+
     /// C++ `Pathfinder::adjustToLandingDestination`.
     pub fn adjust_to_landing_destination(&self, obj: &Object, dest: &mut Coord3D) -> bool {
         let from = *obj.get_position();

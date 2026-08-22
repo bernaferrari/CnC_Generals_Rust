@@ -968,6 +968,9 @@ impl GameLogic {
         ground_y: f32,
         goal_y: Option<f32>,
     ) {
+        // C++ handleBehaviorZ always receives locomotor goalPos; PRECISE_Z_POS
+        // selects goal.z over preferredHeight + surface (Locomotor.cpp:2296-2300).
+        let goal_y = goal_y.or_else(|| obj.movement.target_position.map(|p| p.y));
         let hover = matches!(
             obj.loco_appearance,
             LocomotorAppearance::Hover | LocomotorAppearance::Wings

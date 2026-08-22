@@ -1185,11 +1185,10 @@ fn popup_and_script_ui_requests_are_forwarded_into_runtime_state() {
             saturate: true
         } if position == Vec3::new(120.0, 20.0, 260.0)
     ));
-
-    let jump_focus = game_logic
-        .take_camera_focus_request()
-        .expect("motion blur jump should emit a camera focus fallback");
-    assert_eq!(jump_focus, Vec3::new(120.0, 20.0, 260.0));
+    assert!(
+        game_logic.take_camera_focus_request().is_none(),
+        "C++ doCameraMotionBlurJump lookAt only if leftover filter fails; live must not snap immediately"
+    );
 }
 
 #[test]

@@ -1847,7 +1847,7 @@ impl CnCGameEngine {
         self.ui_manager.game_hud_mut().push_info_message(msg);
     }
 
-    /// Retail SELECT_ALL (KEY_Q) / Ctrl+A residual.
+    /// Retail SELECT_ALL (KEY_Q) residual.
     /// C++ `InGameUI::selectAllUnitsByType`: screen pass then map fallback
     /// (`InGameUI.cpp:4877`). CommandXlat excludes DOZER/HARVESTER/IGNORES_SELECT_ALL
     /// and 1.03-incompatible current selection.

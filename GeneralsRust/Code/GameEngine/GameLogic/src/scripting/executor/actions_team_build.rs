@@ -1121,6 +1121,11 @@ impl ScriptActionDispatcher {
         let source_team = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         let target_team = self.resolve_team_name_token(&self.get_string_param(action, 1)?);
         log::debug!("Merging team '{}' into '{}'", source_team, target_team);
+        // Live host objects are not in leftover OBJECT_REGISTRY. Queue so
+        // GameLogic can rewrite `Object.team_instance_name` (census key).
+        if super::dual_world_registry_unavailable() {
+            crate::scripting::request_host_script_merge_team(&source_team, &target_team);
+        }
 
         self.merge_team_into_team(&source_team, &target_team)?;
 

@@ -852,17 +852,12 @@ impl GameLogic {
         mode: GuardMode,
     ) -> bool {
         self.stamp_player_command_source(id);
-        let can = self
+        let movable = self
             .objects
             .get(&id)
-            .map(|u| {
-                u.is_alive()
-                    && u.can_move()
-                    && !u.is_kind_of(KindOf::Immobile)
-                    && !u.is_kind_of(KindOf::Structure)
-            })
+            .map(|u| u.can_move())
             .unwrap_or(false);
-        if !can {
+        if !self.host_unit_can_guard(id) {
             return false;
         }
         if self.unit_sleep_mood_blocks_ai_command(id) {
@@ -913,17 +908,19 @@ impl GameLogic {
         } else {
             return false;
         }
-        // C++ AIGuardState::onEnter walks to the post before Idle.
-        if let Some(pos) = position {
-            self.path_approach_with_state(id, pos, AIState::GuardingArea);
-        } else if let Some(tid) = target {
-            if let Some(tpos) = self
-                .objects
-                .get(&tid)
-                .filter(|o| o.is_alive())
-                .map(|o| o.get_position())
-            {
-                self.path_approach_with_state(id, tpos, AIState::GuardingObject);
+        // C++ AIGuardState::onEnter walks to the post before Idle. Turrets stay.
+        if movable {
+            if let Some(pos) = position {
+                self.path_approach_with_state(id, pos, AIState::GuardingArea);
+            } else if let Some(tid) = target {
+                if let Some(tpos) = self
+                    .objects
+                    .get(&tid)
+                    .filter(|o| o.is_alive())
+                    .map(|o| o.get_position())
+                {
+                    self.path_approach_with_state(id, tpos, AIState::GuardingObject);
+                }
             }
         }
         true

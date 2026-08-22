@@ -40,6 +40,11 @@ fn dual_world_registry_unavailable() -> bool {
 /// C++ `BunkerBusterBehavior::bustTheBunker` hardcoded `damageInfo.in.m_amount = 100.0f`.
 /// OccupantDamageWeaponTemplate supplies DamageType/DeathType only; PrimaryDamage is unused.
 pub const BUNKER_BUSTER_HARM_AND_FORCE_EXIT_AMOUNT: f32 = 100.0;
+/// Retail WeaponObjects.ini `BunkerBusterBehavior` DetonationFX (StealthJetMissile).
+pub const BUNKER_BUSTER_DETONATION_FX_NAME: &str = "FX_BunkerBusterExplosion";
+/// Retail WeaponObjects.ini `CrashThroughBunkerFX` (authored typo `Intial`).
+pub const BUNKER_BUSTER_CRASH_THROUGH_FX_NAME: &str = "WeaponFX_BunkerBusterIntialImpact";
+
 
 /// Module data for bunker buster behavior
 #[derive(Clone, Debug)]

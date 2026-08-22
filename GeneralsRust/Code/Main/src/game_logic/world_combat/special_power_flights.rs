@@ -2251,11 +2251,20 @@ impl GameLogic {
                 ai.flight_status,
                 crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landing
             );
+            let was_taking_off = matches!(
+                ai.flight_status,
+                crate::game_logic::host_combat_chinook::HostChinookFlightStatus::TakingOff
+            );
             ai.tick(step);
             let landing_now = matches!(
                 ai.flight_status,
                 crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landing
             );
+            let taking_off_now = matches!(
+                ai.flight_status,
+                crate::game_logic::host_combat_chinook::HostChinookFlightStatus::TakingOff
+            );
+            let precise_now = landing_now || taking_off_now;
             let landing_from = glam::Vec3::new(ai.pos[0], ai.pos[2], ai.pos[1]);
             let landing_dest = glam::Vec3::new(ai.dest[0], ai.dest[2], ai.dest[1]);
             let apply_landing_dest = landing_now && !was_landing;
@@ -2313,6 +2322,12 @@ impl GameLogic {
             {
                 obj.apply_airborne_locomotor_set();
             }
+            // C++ ChinookTakeoffOrLandingState::onEnter/onExit (ChinookAIUpdate.cpp:223-225, :294-295).
+            if precise_now {
+                obj.set_precise_z_and_ultra_accurate(true);
+            } else if was_landing || was_taking_off {
+                obj.set_precise_z_and_ultra_accurate(false);
+            }
             if destroyed {
                 obj.status.destroyed = true;
             }
@@ -2329,6 +2344,12 @@ impl GameLogic {
                         ai.dest = [adj.x, adj.z, adj.y];
                     }
                     obj.movement.target_position = Some(adj);
+                    obj.set_precise_z_and_ultra_accurate(true);
+                }
+            } else if precise_now {
+                // C++ setLocomotorGoalPositionExplicit(m_destLoc) each update.
+                if let Some(obj) = self.objects.get_mut(&id) {
+                    obj.movement.target_position = Some(landing_dest);
                 }
             }
 

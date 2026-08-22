@@ -1133,15 +1133,9 @@ impl CnCGameEngine {
             return;
         }
 
-        if let Some(object_id) = clicked_object {
-            self.select_left_click_target(object_id, shift_down);
-            if self.selected_objects.is_empty() && !shift_down {
-                log::info!("force-select local object {object_id:?} after predicate miss");
-                self.host_set_selection(self.current_player_id, vec![object_id]);
-            }
-        }
-        // Empty-ground selection clear remains deferred until left-release so
-        // a potential box drag is not destroyed on its press edge.
+        // C++ SelectionXlat.cpp:890-898: RAW LMB down only sets the
+        // select-feedback anchor. Point selection commits on
+        // MSG_MOUSE_LEFT_CLICK (non-drag release at the up pixel).
     }
 
     /// Apply the selection half of C++ `SelectionXlat` for a point click that
@@ -1625,18 +1619,19 @@ impl CnCGameEngine {
         let alt_down = self.keys_pressed.contains(&Key::Named(NamedKey::Alt));
 
         // Movement within DragTolerance is a POINT CLICK, not a box.
-        // Press already selected via `select_left_click_target` — do not
-        // `box_select` + `host_set_selection([])` (hq-r5dmm).
+        // C++ SelectionXlat.cpp:575-587 commits on MSG_MOUSE_LEFT_CLICK
+        // at the *up* pixel. Do not box_select / host_set_selection([])
+        // (hq-r5dmm). Do not force-select CanSelectDrawable rejects
+        // (hq-587py).
         if is_point_click_drag(drag_dx, drag_dy) {
-            let clicked = self.find_object_at_cursor(false);
-            if clicked.is_none()
-                && alternate_mouse_blank_click_deselects(
-                    self.use_alternate_mouse,
-                    shift_down,
-                    ctrl_down,
-                    alt_down,
-                )
-            {
+            if let Some(object_id) = self.find_object_at_cursor(false) {
+                self.select_left_click_target(object_id, shift_down);
+            } else if alternate_mouse_blank_click_deselects(
+                self.use_alternate_mouse,
+                shift_down,
+                ctrl_down,
+                alt_down,
+            ) {
                 // C++ `SelectionXlat.cpp:930-943` — issuing GUI click is
                 // protected by armed command; the *next* blank LMB is
                 // protected by the one-click prevent flag.
@@ -2373,9 +2368,25 @@ impl CnCGameEngine {
                 }
                 self.mmb_anchor = Some(self.mouse_position);
             }
-
             movement = self.camera_scroll_world_delta(screen_scroll);
             scroll_amount = screen_scroll.length();
+            // Same-frame leftover View::m_scrollAmount for motion-blur follow.
+            #[cfg(feature = "game_client")]
+            {
+                game_client::display::view::with_tactical_view(|view| {
+                    view.record_scroll_amount(game_client::display::view::Vector2::new(
+                        screen_scroll.x,
+                        screen_scroll.y,
+                    ));
+                });
+            }
+        } else {
+            #[cfg(feature = "game_client")]
+            {
+                game_client::display::view::with_tactical_view(|view| {
+                    view.record_scroll_amount(game_client::display::view::Vector2::zero());
+                });
+            }
         }
 
         let mut camera_changed = false;
@@ -2394,6 +2405,15 @@ impl CnCGameEngine {
             camera_changed = true;
         }
         if self.apply_airborne_follow_yaw() {
+            camera_changed = true;
+        }
+
+        // C++ ScreenMotionBlurFilter lookAt at blur peak (after zoom-in).
+        #[cfg(feature = "game_client")]
+        if let Some(pos) = game_client::display::view::take_motion_blur_zoom_look_at() {
+            // Leftover View is Z-up; live host is Y-up.
+            self.host_set_camera_follow_object(None);
+            self.host_player_look_at(Vec3::new(pos.x, pos.z, pos.y));
             camera_changed = true;
         }
 
@@ -4689,6 +4709,32 @@ mod camera_pick_tests {
             "pick miss must not invent the first locally-owned unit"
         );
         assert!(src.contains("CommandType::Enter { target_id }"));
+        let release = src
+            .find("fn handle_left_release")
+            .expect("handle_left_release");
+        let release_end = src[release..]
+            .find("fn handle_right_click")
+            .map(|i| release + i)
+            .unwrap_or(release + 12_000);
+        let release_body = &src[release..release_end];
+        assert!(
+            release_body.contains("select_left_click_target"),
+            "point LMB must commit selection on click, not press"
+        );
+        let press = src.find("fn handle_left_click").expect("handle_left_click");
+        let press_end = src[press + 1..]
+            .find("\n    fn ")
+            .map(|i| press + 1 + i)
+            .unwrap_or(press + 2500);
+        let force = format!("{}{}", "force-select local ", "object");
+        assert!(
+            !release_body.contains(&force) && !src[press..press_end].contains(&force),
+            "empty LMB must not force-select CanSelectDrawable rejects"
+        );
+        assert!(
+            !src[press..press_end].contains("select_left_click_target"),
+            "RAW LMB down must not commit SelectionXlat"
+        );
     }
 
     #[test]

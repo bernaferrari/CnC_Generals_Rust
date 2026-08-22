@@ -203,6 +203,91 @@ impl GameLogic {
         true
     }
 
+    /// C++ leftover `get_ai_update_interface().is_some()`.
+    /// Factory module list when loaded; else combat/mobile heuristic so stunned
+    /// infantry and turret structures still receive Guard/Hunt-with-button.
+    pub(crate) fn host_unit_has_ai_update(unit: &crate::game_logic::Object) -> bool {
+        match leftover_template_has_ai_update(&unit.template_name) {
+            Some(has) => has,
+            None => {
+                if unit.is_kind_of(KindOf::Mine) || unit.is_kind_of(KindOf::Projectile) {
+                    return false;
+                }
+                if unit.is_kind_of(KindOf::Structure) || unit.is_kind_of(KindOf::Immobile) {
+                    return unit.can_attack() || unit.weapon.is_some();
+                }
+                true
+            }
+        }
+    }
+
+    /// C++ AIGroup/ScriptActions Guard: AI interface only. No canMove/Immobile/Structure.
+    pub(crate) fn host_unit_can_guard(&self, id: ObjectId) -> bool {
+        self.objects.get(&id).is_some_and(|u| {
+            u.is_alive() && !u.status.destroyed && Self::host_unit_has_ai_update(u)
+        })
+    }
+
+    /// C++ `doTeamHuntWithCommandButton`: AI + command-set + CommandButtonHuntUpdate.
+    /// No `is_mobile` gate (stunned hijackers still arm).
+    pub(crate) fn unit_can_team_hunt_with_command_button(
+        &self,
+        unit_id: ObjectId,
+        button: Option<&str>,
+    ) -> bool {
+        use crate::game_logic::host_command_button_hunt::is_command_button_hunt_template;
+        let Some(unit) = self.objects.get(&unit_id) else {
+            return false;
+        };
+        if !unit.is_alive() || unit.status.destroyed {
+            return false;
+        }
+        if !Self::host_unit_has_ai_update(unit) {
+            return false;
+        }
+        match leftover_template_has_command_button_hunt(&unit.template_name) {
+            Some(false) => return false,
+            Some(true) => {}
+            None => {
+                if !is_command_button_hunt_template(&unit.template_name) {
+                    return false;
+                }
+            }
+        }
+        let Some(btn) = button.filter(|s| !s.is_empty()) else {
+            return true;
+        };
+        match self.unit_command_set_contains_button(unit, btn) {
+            Some(false) => false,
+            Some(true) | None => true,
+        }
+    }
+
+    fn unit_command_set_contains_button(
+        &self,
+        unit: &crate::game_logic::Object,
+        button: &str,
+    ) -> Option<bool> {
+        let manager = game_engine::common::ini::ini_command_set::get_command_set_manager()?;
+        let set_name = unit
+            .command_set_override
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .or_else(|| leftover_template_command_set(&unit.template_name));
+        let Some(set_name) = set_name else {
+            return leftover_template_known(&unit.template_name).map(|_| false);
+        };
+        let Some(set) = manager.find_command_set_resolved(&set_name) else {
+            return Some(false);
+        };
+        Some(
+            set.get_all_buttons()
+                .iter()
+                .any(|b| b.eq_ignore_ascii_case(button)),
+        )
+    }
+
 
     /// C++ CommandButtonHuntUpdate::update residual.
     pub fn tick_command_button_hunt_updates(&mut self) {
@@ -436,7 +521,9 @@ impl GameLogic {
                 if hunt_special_capture_skips(same_player, rel == Relationship::Allies) {
                     continue;
                 }
-            } else if t.team == hunter_team || rel == Relationship::Allies {
+            } else if rel != Relationship::Enemies {
+                // C++ scanClosestTarget default ALLOW_ENEMIES. Car-bomb (ALLOW_NEUTRAL)
+                // is the enter scan, not this special-power path.
                 continue;
             }
             let is_veh = t.is_kind_of(KindOf::Vehicle);
@@ -448,18 +535,16 @@ impl GameLogic {
                     is_veh && !is_air && !t.is_unmanned() && rel == Relationship::Enemies
                 }
                 CommandButtonHuntSpecial::Tnt | CommandButtonHuntSpecial::DemoCharge => {
-                    (is_str || (is_veh && !is_air)) && rel != Relationship::Allies
+                    is_str || (is_veh && !is_air)
                 }
                 CommandButtonHuntSpecial::HackVehicle => {
-                    is_veh && !is_air && rel == Relationship::Enemies && !t.is_disabled()
+                    is_veh && !is_air && !t.is_disabled()
                 }
                 CommandButtonHuntSpecial::HackBuilding | CommandButtonHuntSpecial::StealCash => {
-                    is_str && rel == Relationship::Enemies
+                    is_str
                 }
                 CommandButtonHuntSpecial::Booby => is_str,
-                CommandButtonHuntSpecial::Unknown => {
-                    (is_str || is_veh) && rel != Relationship::Allies
-                }
+                CommandButtonHuntSpecial::Unknown => is_str || is_veh,
             };
             if !ok {
                 continue;
@@ -1667,6 +1752,51 @@ fn hunt_dist_2d(a: glam::Vec3, b: glam::Vec3) -> f32 {
     let dx = a.x - b.x;
     let dz = a.z - b.z;
     (dx * dx + dz * dz).sqrt()
+}
+
+fn leftover_template_known(template_name: &str) -> Option<()> {
+    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
+    let factory = guard.as_ref()?;
+    factory.find_template(template_name, false).map(|_| ())
+}
+
+fn leftover_template_has_named_module(template_name: &str, module: &str) -> Option<bool> {
+    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
+    let factory = guard.as_ref()?;
+    let tmpl = factory.find_template(template_name, false)?;
+    let want = module.to_ascii_lowercase();
+    Some(tmpl.get_behavior_module_info().iter().any(|entry| {
+        let name = entry.name.as_str();
+        name.eq_ignore_ascii_case(module)
+            || (want == "aiupdate" && leftover_module_is_ai_update(name))
+    }))
+}
+
+fn leftover_module_is_ai_update(name: &str) -> bool {
+    name.eq_ignore_ascii_case("AIUpdateInterface")
+        || name.eq_ignore_ascii_case("AIUpdate")
+        || name.to_ascii_lowercase().ends_with("aiupdate")
+}
+
+fn leftover_template_has_ai_update(template_name: &str) -> Option<bool> {
+    leftover_template_has_named_module(template_name, "AIUpdate")
+}
+
+fn leftover_template_has_command_button_hunt(template_name: &str) -> Option<bool> {
+    leftover_template_has_named_module(template_name, "CommandButtonHuntUpdate")
+}
+
+fn leftover_template_command_set(template_name: &str) -> Option<String> {
+    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
+    let factory = guard.as_ref()?;
+    let tmpl = factory.find_template(template_name, false)?;
+    let cs = tmpl.get_command_set_string();
+    let s = cs.as_str();
+    if s.is_empty() {
+        None
+    } else {
+        Some(s.to_string())
+    }
 }
 
 

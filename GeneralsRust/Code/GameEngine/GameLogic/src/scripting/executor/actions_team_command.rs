@@ -334,6 +334,15 @@ impl ScriptActionDispatcher {
             team_name,
             command_button
         );
+        super::request_host_script_use_command_button(
+            super::HostScriptUseCommandButtonRequest::TeamOnNearestEnemy {
+                team: team_name.clone(),
+                button: command_button.clone(),
+            },
+        );
+        if super::dual_world_registry_unavailable() {
+            return Ok(ScriptActionResult::Success);
+        }
 
         let Some((group_arc, command_button, source_obj)) =
             self.resolve_team_command_button_context(&team_name, &command_button)?
@@ -372,6 +381,15 @@ impl ScriptActionDispatcher {
             team_name,
             command_button
         );
+        super::request_host_script_use_command_button(
+            super::HostScriptUseCommandButtonRequest::TeamOnNearestGarrisonedBuilding {
+                team: team_name.clone(),
+                button: command_button.clone(),
+            },
+        );
+        if super::dual_world_registry_unavailable() {
+            return Ok(ScriptActionResult::Success);
+        }
 
         let Some((group_arc, command_button, source_obj)) =
             self.resolve_team_command_button_context(&team_name, &command_button)?
@@ -420,6 +438,16 @@ impl ScriptActionDispatcher {
             command_button,
             kindof
         );
+        super::request_host_script_use_command_button(
+            super::HostScriptUseCommandButtonRequest::TeamOnNearestKindof {
+                team: team_name.clone(),
+                button: command_button.clone(),
+                kindof: kindof.clone(),
+            },
+        );
+        if super::dual_world_registry_unavailable() {
+            return Ok(ScriptActionResult::Success);
+        }
 
         let Some(kind) = parse_kind_of(&kindof) else {
             return Ok(ScriptActionResult::Success);
@@ -465,6 +493,15 @@ impl ScriptActionDispatcher {
             team_name,
             command_button
         );
+        super::request_host_script_use_command_button(
+            super::HostScriptUseCommandButtonRequest::TeamOnNearestEnemyBuilding {
+                team: team_name.clone(),
+                button: command_button.clone(),
+            },
+        );
+        if super::dual_world_registry_unavailable() {
+            return Ok(ScriptActionResult::Success);
+        }
 
         let Some((group_arc, command_button, source_obj)) =
             self.resolve_team_command_button_context(&team_name, &command_button)?
@@ -508,6 +545,16 @@ impl ScriptActionDispatcher {
             command_button,
             building_class
         );
+        super::request_host_script_use_command_button(
+            super::HostScriptUseCommandButtonRequest::TeamOnNearestEnemyBuildingClass {
+                team: team_name.clone(),
+                button: command_button.clone(),
+                kindof: building_class.clone(),
+            },
+        );
+        if super::dual_world_registry_unavailable() {
+            return Ok(ScriptActionResult::Success);
+        }
 
         let Some(kind) = parse_kind_of(&building_class) else {
             return Ok(ScriptActionResult::Success);
@@ -556,6 +603,16 @@ impl ScriptActionDispatcher {
             command_button,
             object_type
         );
+        super::request_host_script_use_command_button(
+            super::HostScriptUseCommandButtonRequest::TeamOnNearestObjectType {
+                team: team_name.clone(),
+                button: command_button.clone(),
+                object_type: object_type.clone(),
+            },
+        );
+        if super::dual_world_registry_unavailable() {
+            return Ok(ScriptActionResult::Success);
+        }
 
         let wanted_types = self.resolve_object_types_for_action(&object_type);
         if wanted_types.list_size() == 0 {
@@ -609,6 +666,16 @@ impl ScriptActionDispatcher {
             command_button_name,
             percentage
         );
+        super::request_host_team_partial_command_button(
+            super::HostScriptTeamPartialCommandButtonRequest {
+                team: team_name.clone(),
+                button: command_button_name.clone(),
+                percentage,
+            },
+        );
+        if super::dual_world_registry_unavailable() {
+            return Ok(ScriptActionResult::Success);
+        }
 
         let team_arc = self.get_team_by_name(&team_name)?;
         let members = if let Ok(team_guard) = team_arc.read() {
@@ -682,11 +749,16 @@ impl ScriptActionDispatcher {
         &mut self,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let team_name = self.get_string_param(action, 0)?;
+        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         log::debug!(
             "Team '{}' capturing nearest unowned faction unit",
             team_name
         );
+        // Live host path: leftover partition / leftover crate objects are empty.
+        if super::dual_world_registry_unavailable() {
+            crate::scripting::request_host_script_capture_nearest_unowned(&team_name);
+            return Ok(ScriptActionResult::Success);
+        }
 
         let team_arc = self.get_team_by_name(&team_name)?;
         let group_arc = self.create_ai_group_from_team(&team_name)?;

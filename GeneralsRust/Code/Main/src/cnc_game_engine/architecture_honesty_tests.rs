@@ -189,16 +189,35 @@ fn live_world_clicks_follow_cpp_place_gui_selection_command_precedence() {
     let gui = left_body
         .find("pending_map_command")
         .expect("GUICommand analog second");
-    let select = left_body
-        .find("select_left_click_target")
-        .expect("Selection analog after Place/GUI");
     assert!(
-        place < gui && gui < select,
-        "handle_left_click must be Place then GUI then Selection, not GUI-first"
+        place < gui,
+        "handle_left_click must be Place then GUI, not GUI-first"
+    );
+    assert!(
+        !left_body.contains("select_left_click_target"),
+        "RAW LMB down must not commit SelectionXlat (C++ SelectionXlat.cpp:890-898)"
     );
     assert!(
         left_body.contains("classic_left_context_action_allowed"),
         "classic LMB must still probe CommandXlat context after Place/GUI"
+    );
+
+    let release = mouse
+        .find("pub(super) fn handle_left_release(")
+        .expect("handle_left_release");
+    let release_end = mouse[release..]
+        .find("pub(super) fn handle_right_click(")
+        .map(|i| release + i)
+        .unwrap_or(release + 12_000);
+    let release_body = &mouse[release..release_end];
+    assert!(
+        release_body.contains("select_left_click_target")
+            && release_body.contains("is_point_click_drag"),
+        "MSG_MOUSE_LEFT_CLICK analog must commit selection on non-drag release"
+    );
+    assert!(
+        !release_body.contains("force-select local object"),
+        "empty LMB must not force-select CanSelectDrawable rejects"
     );
 
     let cancel = mouse

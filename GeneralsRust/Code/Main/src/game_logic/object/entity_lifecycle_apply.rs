@@ -1,6 +1,8 @@
 //! Apply known envelope tags onto a Main `Object`. Unknown tags are skipped.
 
-use super::entity_lifecycle_inventory::{decode_payload, FireWeaponWhenDamagedBundle};
+use super::entity_lifecycle_inventory::{
+    decode_payload, FireWeaponWhenDamagedBundle, FiringTrackerResidual, SpawnBehaviorHiveResidual,
+};
 use super::entity_lifecycle_projectiles::ProjectileFlightResiduals;
 use super::entity_lifecycle_residuals::{
     ActiveBodyCrushResidual, CreateObjectDieTransferResidual, EmoticonSurrenderResidual,
@@ -97,6 +99,14 @@ fn apply_one(
         TAG_HELICOPTER_SLOW_DEATH => object.helicopter_slow_death = Some(decode_payload(payload)?),
         TAG_JET_SLOW_DEATH => object.jet_slow_death = Some(decode_payload(payload)?),
         TAG_MINE => object.mine_data = Some(decode_payload(payload)?),
+        TAG_SPAWN_BEHAVIOR => {
+            let residual: SpawnBehaviorHiveResidual = decode_payload(payload)?;
+            residual.apply(object);
+        }
+        TAG_FIRING_TRACKER => {
+            let residual: FiringTrackerResidual = decode_payload(payload)?;
+            residual.apply(object);
+        }
         TAG_FIRE_OCL_AFTER_COOLDOWN => {
             object.fire_ocl_after_cooldown = Some(decode_payload(payload)?);
         }

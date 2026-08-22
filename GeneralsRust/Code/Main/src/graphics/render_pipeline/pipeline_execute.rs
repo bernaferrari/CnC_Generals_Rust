@@ -342,6 +342,8 @@ impl RenderPipeline {
             });
             // C++ W3DView::draw filterPostRender + W3DStatusCircle fade overlay.
             // Leftover Display::draw is not the live 3D path.
+            // `filter_composite.scroll_delta` is leftover View.scroll_amount,
+            // stamped same-frame by live `camera_scroll_world_delta`.
             let filter_composite = {
                 game_client::display::view::with_tactical_view(|view| {
                     view.tick_filter_fade();

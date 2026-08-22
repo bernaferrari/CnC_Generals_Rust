@@ -3093,7 +3093,7 @@ impl PathfindingGrid {
         }
     }
 
-    fn aircraft_goal_dest(obj: &Object) -> Option<Vec3> {
+    pub(crate) fn aircraft_goal_dest(obj: &Object) -> Option<Vec3> {
         if let Some(ai) = obj.chinook_ai.as_ref() {
             if matches!(
                 ai.flight_status,
@@ -3265,6 +3265,173 @@ impl PathfindingGrid {
         }
         None
     }
+
+    /// C++ `Pathfinder::checkForTarget` (AIPathfind.cpp:5409-5421).
+    /// Aircraft `checkDestination` only refuses another unit's goalAircraft.
+    pub fn check_for_target(
+        &self,
+        cell_x: i32,
+        cell_y: i32,
+        radius: i32,
+        center_in_cell: bool,
+        seeker_id: u32,
+        claimed: &HashSet<GridPos>,
+        in_range: impl Fn(Vec3) -> bool,
+        dest: &mut Vec3,
+    ) -> bool {
+        let cell = GridPos::new(cell_x, cell_y);
+        if !self.is_valid_pos(cell) {
+            return false;
+        }
+        let mut num_above = radius;
+        if center_in_cell {
+            num_above += 1;
+        }
+        for i in (cell.x - radius)..(cell.x + num_above) {
+            for j in (cell.y - radius)..(cell.y + num_above) {
+                let p = GridPos::new(i, j);
+                if !self.is_valid_pos(p) {
+                    return false;
+                }
+                if claimed.contains(&p) {
+                    return false;
+                }
+                let id = self.goal_aircraft(p);
+                if id != 0 && id != seeker_id {
+                    return false;
+                }
+            }
+        }
+        let size = self.grid_size;
+        let o = self.origin;
+        let adjust = if center_in_cell {
+            Vec3::new(
+                o.x + cell.x as f32 * size + size * 0.5,
+                dest.y,
+                o.z + cell.y as f32 * size + size * 0.5,
+            )
+        } else {
+            Vec3::new(
+                o.x + cell.x as f32 * size + 0.05,
+                dest.y,
+                o.z + cell.y as f32 * size + 0.05,
+            )
+        };
+        if !in_range(adjust) {
+            return false;
+        }
+        *dest = adjust;
+        true
+    }
+
+    /// C++ `Pathfinder::adjustTargetDestination` (AIPathfind.cpp:5428-5487).
+    pub fn adjust_target_destination(
+        &self,
+        dest: &mut Vec3,
+        unit_radius: f32,
+        seeker_id: u32,
+        claimed: &HashSet<GridPos>,
+        in_range: impl Fn(Vec3) -> bool,
+    ) -> bool {
+        let (radius, center_in_cell) = Self::radius_and_center(unit_radius, self.grid_size);
+        let mut adjust_dest = *dest;
+        if !center_in_cell {
+            let half = self.grid_size * 0.5;
+            adjust_dest.x += half;
+            adjust_dest.z += half;
+        }
+        let cell = self.world_to_grid(adjust_dest);
+        if !self.is_valid_pos(cell) {
+            return false;
+        }
+        if self.check_for_target(
+            cell.x,
+            cell.y,
+            radius,
+            center_in_cell,
+            seeker_id,
+            claimed,
+            &in_range,
+            dest,
+        ) {
+            return true;
+        }
+        const MAX_CELLS_TO_TRY: i32 = 400;
+        let mut limit = MAX_CELLS_TO_TRY;
+        let mut i = cell.x;
+        let mut j = cell.y;
+        let mut delta = 1;
+        while limit > 0 {
+            for _ in 0..delta {
+                i += 1;
+                limit -= 1;
+                if self.check_for_target(
+                    i,
+                    j,
+                    radius,
+                    center_in_cell,
+                    seeker_id,
+                    claimed,
+                    &in_range,
+                    dest,
+                ) {
+                    return true;
+                }
+            }
+            for _ in 0..delta {
+                j += 1;
+                limit -= 1;
+                if self.check_for_target(
+                    i,
+                    j,
+                    radius,
+                    center_in_cell,
+                    seeker_id,
+                    claimed,
+                    &in_range,
+                    dest,
+                ) {
+                    return true;
+                }
+            }
+            delta += 1;
+            for _ in 0..delta {
+                i -= 1;
+                limit -= 1;
+                if self.check_for_target(
+                    i,
+                    j,
+                    radius,
+                    center_in_cell,
+                    seeker_id,
+                    claimed,
+                    &in_range,
+                    dest,
+                ) {
+                    return true;
+                }
+            }
+            for _ in 0..delta {
+                j -= 1;
+                limit -= 1;
+                if self.check_for_target(
+                    i,
+                    j,
+                    radius,
+                    center_in_cell,
+                    seeker_id,
+                    claimed,
+                    &in_range,
+                    dest,
+                ) {
+                    return true;
+                }
+            }
+            delta += 1;
+        }
+        false
+    }
+
 
     /// C++ linePassableCallback occupancy + pinched (AIPathfind.cpp:9553-9591).
     fn occupancy_blocks_line(
@@ -4893,6 +5060,88 @@ impl PathfindingSystem {
         world.y = dest.y;
         world
     }
+
+    /// C++ `Weapon::computeApproachTarget` aircraft branch + leftover
+    /// `Pathfinder::adjustTargetDestination` so two Comanches do not share a hover cell.
+    pub fn adjust_target_destination(
+        &self,
+        seeker: u32,
+        objects: &HashMap<ObjectId, Object>,
+        dest: Vec3,
+        target_pos: Vec3,
+        unit_radius: f32,
+        surfaces: u32,
+        is_crusher: bool,
+        source_radius: f32,
+        target_radius: f32,
+        attack_range: f32,
+        min_range: f32,
+    ) -> Vec3 {
+        let in_range = |goal: Vec3| {
+            crate::game_logic::weapon_bootstrap::is_goal_pos_within_attack_range(
+                goal,
+                target_pos,
+                attack_range,
+                min_range,
+                source_radius,
+                target_radius,
+            )
+        };
+        let mut dest = dest;
+
+        if let Ok(ai) = gamelogic::ai::THE_AI.read() {
+            if let Some(pf) = ai.pathfinder() {
+                if let Ok(pf) = pf.read() {
+                    let mut dest3 = gamelogic::common::Coord3D::new(dest.x, dest.z, dest.y);
+                    let _ = pf.adjust_target_destination_for(
+                        surfaces,
+                        is_crusher,
+                        unit_radius,
+                        Some(seeker),
+                        &mut dest3,
+                        |goal| in_range(Vec3::new(goal.x, goal.z, goal.y)),
+                    );
+                    dest = Vec3::new(dest3.x, dest.y, dest3.y);
+                }
+            }
+        }
+
+        let mut claimed = HashSet::new();
+        let cell_size = self.grid.grid_size();
+        for (id, obj) in objects {
+            if id.0 == seeker {
+                continue;
+            }
+            if !PathfindingGrid::is_aircraft_that_adjusts_destination(obj) {
+                continue;
+            }
+            let Some(goal) = PathfindingGrid::aircraft_goal_dest(obj) else {
+                continue;
+            };
+            let (or, oc) = PathfindingGrid::radius_and_center(obj.selection_radius, cell_size);
+            let cell = self.grid.world_to_grid(goal);
+            let mut num_above = or;
+            if oc {
+                num_above += 1;
+            }
+            for i in (cell.x - or)..(cell.x + num_above) {
+                for j in (cell.y - or)..(cell.y + num_above) {
+                    claimed.insert(GridPos::new(i, j));
+                }
+            }
+        }
+
+        let mut out = dest;
+        if self
+            .grid
+            .adjust_target_destination(&mut out, unit_radius, seeker, &claimed, in_range)
+        {
+            out.y = dest.y;
+            return out;
+        }
+        dest
+    }
+
 
     /// Stamp occupancy then unstack landing dest for `seeker` (C++ checkDestination objID).
     pub fn adjust_landing_destination_for(
@@ -8589,6 +8838,65 @@ mod tests {
         assert_ne!(g.cell_type(land), PathfindCellType::Water);
         assert_ne!(land, dest_cell, "landing dest refuses occupied aircraft goal");
     }
+
+    /// hq-sa4qi: HOVER attack dests spiral so two Comanches do not share a cell.
+    #[test]
+    fn aircraft_attack_dests_spiral_off_occupied_hover_cell() {
+        use crate::game_logic::{KindOf, Object, ObjectId, ObjectType, Team, ThingTemplate};
+        let sys = PathfindingSystem::new(400.0, 400.0);
+        let target = Vec3::new(200.0, 0.0, 200.0);
+        let dest = Vec3::new(110.0, 40.0, 200.0);
+        let mut objects = HashMap::new();
+        let mut tmpl_a = ThingTemplate::new("AmericaVehicleComanche");
+        tmpl_a.add_kind_of(KindOf::Aircraft);
+        tmpl_a.add_kind_of(KindOf::Vehicle);
+        let mut a = Object::new(tmpl_a, ObjectId(21), Team::USA);
+        a.object_type = ObjectType::Aircraft;
+        a.loco_appearance = LocomotorAppearance::Hover;
+        a.status.airborne_target = true;
+        a.set_position(Vec3::new(20.0, 40.0, 200.0));
+        a.movement.target_position = Some(dest);
+        a.selection_radius = 8.0;
+        objects.insert(a.id, a);
+
+        let mut tmpl_b = ThingTemplate::new("AmericaVehicleComanche");
+        tmpl_b.add_kind_of(KindOf::Aircraft);
+        tmpl_b.add_kind_of(KindOf::Vehicle);
+        let mut b = Object::new(tmpl_b, ObjectId(22), Team::USA);
+        b.object_type = ObjectType::Aircraft;
+        b.loco_appearance = LocomotorAppearance::Hover;
+        b.status.airborne_target = true;
+        b.set_position(Vec3::new(30.0, 40.0, 190.0));
+        b.selection_radius = 8.0;
+        objects.insert(b.id, b);
+
+        let adj = sys.adjust_target_destination(
+            22,
+            &objects,
+            dest,
+            target,
+            8.0,
+            SURFACE_AIR,
+            false,
+            8.0,
+            5.0,
+            150.0,
+            0.0,
+        );
+        let dest_cell = sys.grid.world_to_grid(dest);
+        let adj_cell = sys.grid.world_to_grid(adj);
+        assert_ne!(
+            adj_cell, dest_cell,
+            "second Comanche must leave first hover cell"
+        );
+        assert!(
+            crate::game_logic::weapon_bootstrap::is_goal_pos_within_attack_range(
+                adj, target, 150.0, 0.0, 8.0, 5.0
+            ),
+            "spiral dest must stay in attack range"
+        );
+    }
+
 
 
     /// hq-6p032: crushers plan through idle crushable cars (AIPathfind.cpp:5063).

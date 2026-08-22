@@ -574,10 +574,73 @@ fn shift_select_and_ctrl_force_attack_residual() {
         .unwrap_or(start + 2500);
     let body = &src[start..end];
     assert!(
-        body.contains("shift_down")
-            && body.contains("toggle_select_object")
-            && body.contains("issue_force_attack_from_left_click"),
-        "handle_left_click must branch on Shift/Ctrl residuals"
+        body.contains("shift_down") && body.contains("issue_force_attack_from_left_click"),
+        "handle_left_click must still probe Shift context and Ctrl force-attack"
+    );
+    assert!(
+        !body.contains("select_left_click_target") && !body.contains("toggle_select_object"),
+        "RAW LMB down must not commit SelectionXlat"
+    );
+    let release = src
+        .find("fn handle_left_release")
+        .expect("handle_left_release");
+    let release_end = src[release..]
+        .find("fn handle_right_click")
+        .map(|i| release + i)
+        .unwrap_or(release + 12_000);
+    let release_body = &src[release..release_end];
+    assert!(
+        release_body.contains("select_left_click_target"),
+        "point LMB must commit on non-drag release at the up pixel"
+    );
+}
+
+#[test]
+fn select_all_is_command_map_not_ctrl_a() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("Retail CommandMap SELECT_ALL KEY_Q residual"),
+        "Q residual must remain the CommandMap SELECT_ALL fallback"
+    );
+    let invented = format!("{}{}", "Convenience alias; ", "retail SELECT_ALL is KEY_Q");
+    assert!(
+        !src.contains(&invented),
+        "live host must not invent an unguarded Ctrl+A SELECT_ALL"
+    );
+}
+
+#[test]
+fn empty_lmb_does_not_force_select_can_select_rejects() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    let press = src.find("fn handle_left_click").expect("handle_left_click");
+    let press_end = src[press + 1..]
+        .find("\n    fn ")
+        .map(|i| press + 1 + i)
+        .unwrap_or(press + 2500);
+    let release = src.find("fn handle_left_release").expect("handle_left_release");
+    let release_end = src[release..]
+        .find("fn handle_right_click")
+        .map(|i| release + i)
+        .unwrap_or(release + 12_000);
+    let select = src
+        .find("fn select_left_click_target")
+        .expect("select_left_click_target");
+    let select_end = src[select + 1..]
+        .find("\n    fn ")
+        .map(|i| select + 1 + i)
+        .unwrap_or(select + 800);
+    let force = format!("{}{}", "force-select local ", "object");
+    assert!(
+        !src[press..press_end].contains(&force)
+            && !src[release..release_end].contains(&force)
+            && !src[select..select_end].contains(&force),
+        "empty LMB must not force-select after CanSelectDrawable miss"
+    );
+    let body = &src[select..select_end];
+    assert!(
+        body.contains("if !self.is_point_selectable_click_target(object_id)")
+            && body.contains("return;"),
+        "select_left_click_target must return on CanSelectDrawable reject"
     );
 }
 

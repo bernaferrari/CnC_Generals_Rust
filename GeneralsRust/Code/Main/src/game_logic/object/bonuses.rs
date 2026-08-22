@@ -855,8 +855,8 @@ impl Object {
             return None;
         }
         let af = self.contained_by.take();
-        // C++ JetAIUpdate.cpp:259-260 takeoff ULTRA_ACCURATE.
-        self.set_ultra_accurate(true);
+        // C++ JetAIUpdate.cpp:259-260 / :725-726 takeoff PRECISE_Z_POS + ULTRA_ACCURATE.
+        self.set_precise_z_and_ultra_accurate(true);
         self.set_ai_state(AIState::Idle);
         self.status.airborne_target = true;
         let helipad = crate::game_logic::host_helicopter_slow_death::is_helicopter_slow_death_template(

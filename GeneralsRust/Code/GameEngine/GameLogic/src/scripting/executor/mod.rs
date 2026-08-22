@@ -412,7 +412,8 @@ pub enum HostScriptPlayerMiscRequest {
 }
 
 /// Live host drain: NAMED/TEAM USE_COMMANDBUTTON_ABILITY.
-/// C++ `doNamedUseCommandButtonAbility*` / `doTeamUseCommandButtonAbility*`.
+/// C++ `doNamedUseCommandButtonAbility*` / `doTeamUseCommandButtonAbility*` /
+/// `doTeamUseCommandButtonOnNearest*` / `doTeamPartialUseCommandButton`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostScriptUseCommandButtonRequest {
     Named {
@@ -448,6 +449,41 @@ pub enum HostScriptUseCommandButtonRequest {
         button: String,
         waypoint: String,
     },
+    TeamOnNearestEnemy {
+        team: String,
+        button: String,
+    },
+    TeamOnNearestGarrisonedBuilding {
+        team: String,
+        button: String,
+    },
+    TeamOnNearestKindof {
+        team: String,
+        button: String,
+        kindof: String,
+    },
+    TeamOnNearestEnemyBuilding {
+        team: String,
+        button: String,
+    },
+    TeamOnNearestEnemyBuildingClass {
+        team: String,
+        button: String,
+        kindof: String,
+    },
+    TeamOnNearestObjectType {
+        team: String,
+        button: String,
+        object_type: String,
+    },
+}
+
+/// Live host drain: TEAM_PARTIAL_USE_COMMANDBUTTON (`percentage/100 * count`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct HostScriptTeamPartialCommandButtonRequest {
+    pub team: String,
+    pub button: String,
+    pub percentage: f32,
 }
 
 /// Live host drain: SKIRMISH_FOLLOW/MOVE_TO_APPROACH_PATH.
@@ -571,6 +607,11 @@ thread_local! {
         RefCell::new(Vec::new());
     static HOST_SCRIPT_USE_COMMAND_BUTTON_REQUESTS:
         RefCell<Vec<HostScriptUseCommandButtonRequest>> = RefCell::new(Vec::new());
+    static HOST_TEAM_PARTIAL_COMMAND_BUTTON_REQUESTS:
+        RefCell<Vec<HostScriptTeamPartialCommandButtonRequest>> = RefCell::new(Vec::new());
+    static HOST_SET_BASE_CONSTRUCTION_SPEED_REQUESTS: RefCell<Vec<(String, i32)>> =
+        RefCell::new(Vec::new());
+    static HOST_SET_TRAIN_HELD_REQUESTS: RefCell<Vec<(String, bool)>> = RefCell::new(Vec::new());
     static HOST_SCRIPT_TOPPLE_DIRECTIONS: RefCell<HashMap<String, (f32, f32)>> =
         RefCell::new(HashMap::new());
     static HOST_SKIRMISH_APPROACH_PATH_REQUESTS:
@@ -1083,6 +1124,40 @@ pub fn request_host_script_use_command_button(req: HostScriptUseCommandButtonReq
 pub fn take_host_script_use_command_button_requests() -> Vec<HostScriptUseCommandButtonRequest> {
     HOST_SCRIPT_USE_COMMAND_BUTTON_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
+
+/// Live host drain: TEAM_PARTIAL_USE_COMMANDBUTTON.
+pub fn request_host_team_partial_command_button(req: HostScriptTeamPartialCommandButtonRequest) {
+    HOST_TEAM_PARTIAL_COMMAND_BUTTON_REQUESTS.with(|q| q.borrow_mut().push(req));
+}
+
+pub fn take_host_team_partial_command_button_requests() -> Vec<HostScriptTeamPartialCommandButtonRequest>
+{
+    HOST_TEAM_PARTIAL_COMMAND_BUTTON_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: SET_BASE_CONSTRUCTION_SPEED → `AIPlayer::setTeamDelaySeconds`.
+pub fn request_host_set_base_construction_speed(player: &str, delay_seconds: i32) {
+    HOST_SET_BASE_CONSTRUCTION_SPEED_REQUESTS.with(|q| {
+        q.borrow_mut()
+            .push((player.to_string(), delay_seconds));
+    });
+}
+
+pub fn take_host_set_base_construction_speed_requests() -> Vec<(String, i32)> {
+    HOST_SET_BASE_CONSTRUCTION_SPEED_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: SET_TRAIN_HELD → `HostRailroadCar::held`.
+pub fn request_host_set_train_held(unit: &str, held: bool) {
+    HOST_SET_TRAIN_HELD_REQUESTS.with(|q| {
+        q.borrow_mut().push((unit.to_string(), held));
+    });
+}
+
+pub fn take_host_set_train_held_requests() -> Vec<(String, bool)> {
+    HOST_SET_TRAIN_HELD_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
 
 /// C++ `ScriptEngine::setToppleDirection` live map. Consulted by host topple.
 pub fn request_host_script_topple_direction(unit: &str, dx: f32, dy: f32) {

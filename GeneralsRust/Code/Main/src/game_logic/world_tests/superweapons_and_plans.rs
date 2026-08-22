@@ -5107,6 +5107,138 @@ fn script_named_use_command_button_stops_live_unit() {
 }
 
 #[test]
+fn script_set_base_construction_speed_writes_live_ai_team_seconds() {
+    use crate::ai::AIDifficulty;
+    use gamelogic::scripting::request_host_set_base_construction_speed;
+
+    let mut logic = GameLogic::new();
+    logic.scripts_loaded = true;
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    logic
+        .ai_manager
+        .add_ai_player(0, Team::USA, AIDifficulty::Medium);
+    assert_eq!(
+        logic
+            .ai_manager
+            .ai_players
+            .get(&0)
+            .expect("ai")
+            .team_seconds,
+        crate::ai::AIPlayer::TEAM_SECONDS
+    );
+
+    let _ = gamelogic::scripting::take_host_set_base_construction_speed_requests();
+    request_host_set_base_construction_speed("PlyrUSA", 3);
+    logic.evaluate_and_execute_scripts(0.0);
+    assert_eq!(
+        logic
+            .ai_manager
+            .ai_players
+            .get(&0)
+            .expect("ai")
+            .team_seconds,
+        3.0,
+        "SET_BASE_CONSTRUCTION_SPEED must write live AIPlayer.team_seconds"
+    );
+}
+
+#[test]
+fn script_team_nearest_and_partial_command_button_live() {
+    use crate::game_logic::AIState;
+    use gamelogic::scripting::{
+        request_host_script_use_command_button, request_host_team_partial_command_button,
+        HostScriptTeamPartialCommandButtonRequest, HostScriptUseCommandButtonRequest,
+    };
+
+    let mut logic = GameLogic::new();
+    logic.scripts_loaded = true;
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    ensure_test_player_for_team(&mut logic, Team::China);
+    ensure_test_infantry_template(&mut logic);
+    let mut hijacker = ThingTemplate::new("GLAInfantryHijacker");
+    hijacker
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    logic
+        .templates
+        .insert("GLAInfantryHijacker".into(), hijacker);
+    let near = logic
+        .create_object("GLAInfantryHijacker", Team::USA, glam::Vec3::ZERO)
+        .expect("near");
+    let far = logic
+        .create_object(
+            "GLAInfantryHijacker",
+            Team::USA,
+            glam::Vec3::new(200.0, 0.0, 0.0),
+        )
+        .expect("far");
+    if let Some(obj) = logic.host_object_mut(near) {
+        obj.team_instance_name = "teamAmerica".into();
+        obj.owner_player_id = Some(0);
+    }
+    if let Some(obj) = logic.host_object_mut(far) {
+        obj.team_instance_name = "teamAmerica".into();
+        obj.owner_player_id = Some(0);
+    }
+    let _ = logic.unit_command_move_to(near, glam::Vec3::new(300.0, 0.0, 0.0));
+    let _ = logic.unit_command_move_to(far, glam::Vec3::new(400.0, 0.0, 0.0));
+
+    let _ = gamelogic::scripting::take_host_team_partial_command_button_requests();
+    request_host_team_partial_command_button(HostScriptTeamPartialCommandButtonRequest {
+        team: "teamAmerica".into(),
+        button: "Command_Stop".into(),
+        percentage: 50.0,
+    });
+    logic.evaluate_and_execute_scripts(0.0);
+    let near_idle = logic.host_object(near).expect("near").ai_state == AIState::Idle;
+    let far_idle = logic.host_object(far).expect("far").ai_state == AIState::Idle;
+    assert!(
+        near_idle ^ far_idle,
+        "TEAM_PARTIAL 50% of two members must stop exactly one, near_idle={near_idle} far_idle={far_idle}"
+    );
+
+    let enemy_near = logic
+        .create_object("TestInfantry", Team::China, glam::Vec3::new(40.0, 0.0, 0.0))
+        .expect("enemy near");
+    let enemy_far = logic
+        .create_object(
+            "TestInfantry",
+            Team::China,
+            glam::Vec3::new(400.0, 0.0, 0.0),
+        )
+        .expect("enemy far");
+    if let Some(obj) = logic.host_object_mut(enemy_near) {
+        obj.owner_player_id = Some(1);
+    }
+    if let Some(obj) = logic.host_object_mut(enemy_far) {
+        obj.owner_player_id = Some(1);
+    }
+
+    let _ = gamelogic::scripting::take_host_script_use_command_button_requests();
+    request_host_script_use_command_button(
+        HostScriptUseCommandButtonRequest::TeamOnNearestEnemy {
+            team: "teamAmerica".into(),
+            button: "Command_Hijack".into(),
+        },
+    );
+    logic.evaluate_and_execute_scripts(0.0);
+    let near_target = logic.host_object(near).and_then(|o| o.target);
+    let far_target = logic.host_object(far).and_then(|o| o.target);
+    assert!(
+        near_target == Some(enemy_near) || far_target == Some(enemy_near),
+        "TEAM_ALL_USE_COMMANDBUTTON_ON_NEAREST_ENEMY must pick the closer China unit, near={near_target:?} far={far_target:?}"
+    );
+    assert_ne!(
+        near_target.or(far_target),
+        Some(enemy_far),
+        "nearest search must not pick the distant enemy"
+    );
+}
+
+
+
+#[test]
 fn script_named_set_topple_direction_used_by_live_topple() {
     use crate::game_logic::host_structure_topple::is_structure_topple_candidate;
 
