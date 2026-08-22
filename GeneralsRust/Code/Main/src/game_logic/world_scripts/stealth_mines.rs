@@ -2523,7 +2523,10 @@ impl GameLogic {
                 if !combatant {
                     return None;
                 }
-                if obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target {
+                let ground_y = self
+                    .terrain_height_at(obj.get_position())
+                    .unwrap_or(0.0);
+                if crate::game_logic::host_mines::is_above_terrain(obj.get_position().y, ground_y) {
                     return None;
                 }
                 let geom = &obj.thing.template.geometry_info;
@@ -2686,6 +2689,23 @@ impl GameLogic {
                     due.push((*mine_id, HostMineDetonateReason::Timed));
                     continue;
                 }
+            }
+            let warning_ready = self
+                .objects
+                .get(mine_id)
+                .and_then(|o| o.mine_data.as_ref())
+                .is_some_and(|md| md.demo_trap_warning_ready(frame));
+            if warning_ready {
+                due.push((*mine_id, HostMineDetonateReason::Proximity));
+                continue;
+            }
+            if self
+                .objects
+                .get(mine_id)
+                .and_then(|o| o.mine_data.as_ref())
+                .is_some_and(|md| md.demo_trap_warning_armed())
+            {
+                continue;
             }
             if !proximity || *trigger_range <= 0.0 {
                 continue;
@@ -2885,8 +2905,7 @@ impl GameLogic {
 
     /// Safely disarm/clear a residual mine without detonation or area damage.
     /// C++ Weapon DAMAGE_DISARM → LandMineInterface::disarm / destroyObject residual.
-    /// Demo traps are STRUCTURE / KINDOF_DEMOTRAP, not KINDOF_MINE — refuse
-    /// (do not silent-delete). Killing them detonates via DetonateWhenKilled.
+    /// Demo traps (KINDOF_DEMOTRAP) are disarmed the same way — no explosion.
     pub fn clear_mine_internal(&mut self, mine_id: ObjectId, clearer_id: ObjectId) -> bool {
         use crate::game_logic::host_mines::{can_clear_mine_kind, MINE_CLEARED_AUDIO};
 
@@ -2998,9 +3017,33 @@ impl GameLogic {
         let radius = data.detonation_radius;
         let demo_profile = data.demo_trap_profile;
         let is_demo_trap = matches!(kind, crate::game_logic::host_mines::HostMineKind::DemoTrap);
+        let neutron_blast = data.neutron_blast;
         let mine_team = mine.team;
         let mine_pos = mine.get_position();
         let producer = data.producer_id;
+        let frame = self.frame;
+
+        if is_demo_trap && !data.demo_trap_warning_ready(frame) {
+            if let Some(obj) = self.objects.get_mut(&mine_id) {
+                if let Some(md) = obj.mine_data.as_mut() {
+                    let _ = md.arm_demo_trap_warning(frame);
+                }
+            }
+            self.queue_audio_event(
+                AudioEventRequest::new(crate::game_logic::host_mines::DEMO_TRAP_WARNING_AUDIO)
+                    .with_object(mine_id)
+                    .with_position(mine_pos)
+                    .with_priority(180),
+            );
+            let _ = self.combat_particles.spawn(
+                CombatParticleKind::WeaponImpact,
+                mine_pos,
+                frame,
+                Some(mine_id),
+                None,
+            );
+            return true;
+        }
 
         // Mark detonated before applying damage.
         if let Some(obj) = self.objects.get_mut(&mine_id) {
@@ -3034,37 +3077,41 @@ impl GameLogic {
         );
 
         let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
-        let victim_ids: Vec<ObjectId> = self.objects.keys().copied().collect();
-        for vid in victim_ids {
-            if vid == mine_id {
-                continue;
-            }
-            let Some(victim) = self.objects.get(&vid) else {
-                continue;
-            };
-            if !victim.is_alive() || victim.mine_data.is_some() {
-                continue;
-            }
-            if victim.team == mine_team && !hit_allies {
-                continue;
-            }
-            let vpos = victim.get_position();
-            let dist = {
-                let dx = vpos.x - mine_pos.x;
-                let dz = vpos.z - mine_pos.z;
-                (dx * dx + dz * dz).sqrt()
-            };
-            let dmg = if is_demo_trap {
-                crate::game_logic::host_mines::demo_trap_damage_at(demo_profile, dist)
-            } else {
-                damage_at_distance(damage, radius, dist)
-            };
-            if dmg <= 0.0 {
-                continue;
-            }
-            if let Some(victim) = self.objects.get_mut(&vid) {
-                if victim.take_damage_from(dmg, Some(mine_id)) {
-                    destroy_ids.push((vid, mine_team));
+        if neutron_blast {
+            destroy_ids = self.apply_neutron_mine_blast(mine_id, mine_pos, mine_team);
+        } else {
+            let victim_ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+            for vid in victim_ids {
+                if vid == mine_id {
+                    continue;
+                }
+                let Some(victim) = self.objects.get(&vid) else {
+                    continue;
+                };
+                if !victim.is_alive() || victim.mine_data.is_some() {
+                    continue;
+                }
+                if victim.team == mine_team && !hit_allies {
+                    continue;
+                }
+                let vpos = victim.get_position();
+                let dist = {
+                    let dx = vpos.x - mine_pos.x;
+                    let dz = vpos.z - mine_pos.z;
+                    (dx * dx + dz * dz).sqrt()
+                };
+                let dmg = if is_demo_trap {
+                    crate::game_logic::host_mines::demo_trap_damage_at(demo_profile, dist)
+                } else {
+                    damage_at_distance(damage, radius, dist)
+                };
+                if dmg <= 0.0 {
+                    continue;
+                }
+                if let Some(victim) = self.objects.get_mut(&vid) {
+                    if victim.take_damage_from(dmg, Some(mine_id)) {
+                        destroy_ids.push((vid, mine_team));
+                    }
                 }
             }
         }
@@ -3117,6 +3164,32 @@ impl GameLogic {
         _producer: Option<ObjectId>,
     ) {
         use crate::game_logic::host_mines::damage_at_distance;
+        let neutron_blast = self
+            .objects
+            .get(&mine_id)
+            .and_then(|o| o.mine_data.as_ref())
+            .is_some_and(|md| md.neutron_blast);
+        if neutron_blast {
+            let destroy_ids = self.apply_neutron_mine_blast(mine_id, blast_pos, mine_team);
+            self.queue_audio_event(
+                AudioEventRequest::new(kind.detonate_audio())
+                    .with_object(mine_id)
+                    .with_position(blast_pos)
+                    .with_priority(190),
+            );
+            let _ = self.combat_particles.spawn(
+                CombatParticleKind::WeaponImpact,
+                blast_pos,
+                self.frame,
+                Some(mine_id),
+                None,
+            );
+            for (vid, killer) in destroy_ids {
+                self.award_score_the_kill_experience(mine_id, vid);
+                self.mark_object_for_destruction(vid, Some(killer));
+            }
+            return;
+        }
         let hit_allies = matches!(
             kind,
             crate::game_logic::host_mines::HostMineKind::DemoTrap
@@ -3169,6 +3242,73 @@ impl GameLogic {
             self.award_score_the_kill_experience(mine_id, vid);
             self.mark_object_for_destruction(vid, Some(killer));
         }
+    }
+
+    fn apply_neutron_mine_blast(
+        &mut self,
+        mine_id: ObjectId,
+        blast_pos: Vec3,
+        mine_team: Team,
+    ) -> Vec<(ObjectId, Team)> {
+        use crate::game_logic::host_mines::{
+            neutron_mine_victim_effect, NeutronMineVictimEffect,
+        };
+        let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+        let mut contained_kill: Vec<ObjectId> = Vec::new();
+        let victim_ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        for vid in victim_ids {
+            if vid == mine_id {
+                continue;
+            }
+            let Some(victim) = self.objects.get(&vid) else {
+                continue;
+            };
+            if !victim.is_alive() || victim.mine_data.is_some() {
+                continue;
+            }
+            let vpos = victim.get_position();
+            let dist = {
+                let dx = vpos.x - blast_pos.x;
+                let dz = vpos.z - blast_pos.z;
+                (dx * dx + dz * dz).sqrt()
+            };
+            let airborne = victim.status.airborne_target
+                || crate::game_logic::host_mines::is_above_terrain(
+                    vpos.y,
+                    self.terrain_height_at(vpos).unwrap_or(0.0),
+                );
+            let effect = neutron_mine_victim_effect(
+                dist,
+                victim.team == mine_team,
+                airborne,
+                victim.is_kind_of(KindOf::Infantry),
+                victim.is_kind_of(KindOf::Vehicle),
+                victim.is_kind_of(KindOf::Drone),
+                victim.template_name.to_ascii_lowercase().contains("bike"),
+            );
+            match effect {
+                NeutronMineVictimEffect::None => {}
+                NeutronMineVictimEffect::KillInfantry | NeutronMineVictimEffect::KillCliffJumper => {
+                    contained_kill.extend(victim.contained_units());
+                    destroy_ids.push((vid, mine_team));
+                }
+                NeutronMineVictimEffect::UnmanVehicle => {
+                    contained_kill.extend(victim.contained_units());
+                    if let Some(victim) = self.objects.get_mut(&vid) {
+                        victim.set_status_disabled_unmanned(true);
+                        victim.team = Team::Neutral;
+                    }
+                }
+            }
+        }
+        for cid in contained_kill {
+            if let Some(c) = self.objects.get_mut(&cid) {
+                if c.is_alive() {
+                    destroy_ids.push((cid, mine_team));
+                }
+            }
+        }
+        destroy_ids
     }
 
     /// C++ `Object::getRelationship`. DemoTrap: ENEMIES only.
