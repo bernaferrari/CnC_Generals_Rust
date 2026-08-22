@@ -1507,6 +1507,10 @@ fn chem_demo_trap_gamma_and_demo_he_residual() {
     let zones_before = game_logic.toxin_tractor_registry().zones_spawned;
     let hp_before = game_logic.host_object(enemy).unwrap().health.current;
     game_logic.update_mines_and_demo_traps();
+    game_logic.frame = game_logic.frame.saturating_add(
+        crate::game_logic::host_mines::DEMO_TRAP_DESTRUCTION_DELAY_FRAMES,
+    );
+    game_logic.update_mines_and_demo_traps();
     assert_eq!(game_logic.mine_residual_proximity_detonations(), 1);
     let enemy_after = game_logic.host_object(enemy);
     let damaged = enemy_after
@@ -1544,6 +1548,10 @@ fn chem_demo_trap_gamma_and_demo_he_residual() {
         .expect("near enemy");
     let far_hp = game_logic.host_object(far2).unwrap().health.current;
     let zones_mid = game_logic.toxin_tractor_registry().zones_spawned;
+    game_logic.update_mines_and_demo_traps();
+    game_logic.frame = game_logic.frame.saturating_add(
+        crate::game_logic::host_mines::DEMO_TRAP_DESTRUCTION_DELAY_FRAMES,
+    );
     game_logic.update_mines_and_demo_traps();
     assert!(
         game_logic.mine_residual_proximity_detonations() >= 2,
