@@ -175,7 +175,8 @@ pub use grant_stealth_behavior::{
 };
 pub use spy_vision_update::*;
 pub use stealth_detector_update::{
-    StealthDetectorUpdate, StealthDetectorUpdateFactory, StealthDetectorUpdateModuleData,
+    stealth_detector_ctor_wake_frames, StealthDetectorUpdate, StealthDetectorUpdateFactory,
+    StealthDetectorUpdateModuleData,
 };
 pub use stealth_update::{StealthUpdate, StealthUpdateFactory, StealthUpdateModuleData};
 

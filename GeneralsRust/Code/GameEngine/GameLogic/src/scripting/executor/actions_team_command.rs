@@ -21,6 +21,18 @@ impl ScriptActionDispatcher {
             team_name,
             command_button_name
         );
+        // Live host path: leftover OBJECT_REGISTRY is empty. Queue so GameLogic
+        // can arm CommandButtonHuntUpdate instead of collapsing to plain Hunt.
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_hunt_guard(
+                super::HostScriptHuntGuardRequest::TeamHuntWithCommandButton {
+                    team: team_name,
+                    button: command_button_name,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         // C++: Team *theTeam = TheScriptEngine->getTeamNamed(teamName); if (!theTeam) return;
         let Ok(team_arc) = self.get_team_by_name(&team_name) else {

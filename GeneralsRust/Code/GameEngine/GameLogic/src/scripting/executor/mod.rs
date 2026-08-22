@@ -91,9 +91,10 @@ pub enum HostScriptCreateRequest {
     },
 }
 
-/// Live host drain: TEAM/NAMED HUNT, TEAM/NAMED GUARD, PLAYER_HUNT.
+/// Live host drain: TEAM/NAMED HUNT, TEAM/NAMED GUARD, PLAYER_HUNT,
+/// TEAM_HUNT_WITH_COMMAND_BUTTON.
 /// C++ `ScriptActions::doNamedHunt` / `doTeamHunt` / `doNamedGuard` /
-/// `doTeamGuard` / `doPlayerHunt`.
+/// `doTeamGuard` / `doPlayerHunt` / `doTeamHuntWithCommandButton`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostScriptHuntGuardRequest {
     TeamHunt { team: String },
@@ -101,6 +102,7 @@ pub enum HostScriptHuntGuardRequest {
     TeamGuard { team: String },
     NamedGuard { unit: String },
     PlayerHunt { player: String },
+    TeamHuntWithCommandButton { team: String, button: String },
 }
 
 /// Live host drain: TEAM/NAMED FOLLOW_WAYPOINTS and EXACT variants.
@@ -149,6 +151,15 @@ pub enum HostScriptNamedFireSpecialPowerRequest {
     },
 }
 
+/// Live host drain: NAMED_STOP / TEAM_STOP / TEAM_STOP_AND_DISBAND.
+/// C++ `ScriptActions::doNamedStop` / `doTeamStop` (`aiIdle` / `groupIdle`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostScriptIdleRequest {
+    NamedStop { unit: String },
+    TeamStop { team: String, disband: bool },
+}
+
+
 
 
 
@@ -194,6 +205,9 @@ thread_local! {
         RefCell::new(Vec::new());
     static HOST_SCRIPT_NAMED_FIRE_SPECIAL_REQUESTS:
         RefCell<Vec<HostScriptNamedFireSpecialPowerRequest>> = RefCell::new(Vec::new());
+    static HOST_SCRIPT_IDLE_REQUESTS: RefCell<Vec<HostScriptIdleRequest>> =
+        RefCell::new(Vec::new());
+
 
 
 
@@ -460,6 +474,16 @@ pub fn take_host_script_named_fire_special_requests() -> Vec<HostScriptNamedFire
 {
     HOST_SCRIPT_NAMED_FIRE_SPECIAL_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
+
+/// Live host drain: NAMED_STOP / TEAM_STOP (`CMD_FROM_SCRIPT` idle).
+pub fn request_host_script_idle(req: HostScriptIdleRequest) {
+    HOST_SCRIPT_IDLE_REQUESTS.with(|q| q.borrow_mut().push(req));
+}
+
+pub fn take_host_script_idle_requests() -> Vec<HostScriptIdleRequest> {
+    HOST_SCRIPT_IDLE_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
 
 
 

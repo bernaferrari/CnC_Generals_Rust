@@ -1177,6 +1177,11 @@ impl Object {
         self.max_transport = crate::game_logic::host_battle_bus::BATTLE_BUS_TRANSPORT_SLOTS;
         self.passengers_allowed_to_fire = true;
         self.armed_riders_upgrade_weapon_set = true;
+        self.thing
+            .template
+            .contain_module
+            .weapon_bonus_passed_to_passengers =
+            crate::game_logic::host_battle_bus::BATTLE_BUS_WEAPON_BONUS_PASSED_TO_PASSENGERS;
         if self.battle_bus_body.is_none() {
             self.battle_bus_body =
                 Some(crate::game_logic::host_battle_bus::HostBattleBusBodyData::new());
@@ -1483,6 +1488,10 @@ impl Object {
         self.max_transport = crate::game_logic::host_combat_chinook::COMBAT_CHINOOK_TRANSPORT_SLOTS;
         self.passengers_allowed_to_fire = true;
         self.armed_riders_upgrade_weapon_set = true;
+        self.thing
+            .template
+            .contain_module
+            .weapon_bonus_passed_to_passengers = crate::game_logic::host_combat_chinook::COMBAT_CHINOOK_WEAPON_BONUS_PASSED_TO_PASSENGERS;
         // Combat Chinook KindOf includes CAN_ATTACK residual (vanilla Chinook does not).
         self.thing.template.add_kind_of(KindOf::Attackable);
         let p = self.get_position();

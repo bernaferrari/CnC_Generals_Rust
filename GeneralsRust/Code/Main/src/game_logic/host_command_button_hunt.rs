@@ -107,6 +107,39 @@ pub fn is_command_button_hunt_template(name: &str) -> bool {
         || n.contains("troopcrawler")
 }
 
+/// Map a TEAM_HUNT_WITH_COMMAND_BUTTON ability name to the live enter-hunt residual.
+/// C++ `doTeamHuntWithCommandButton` arms CommandButtonHuntUpdate with this button.
+pub fn hunt_mode_from_button_name(name: &str) -> Option<HostCommandButtonHuntMode> {
+    let n: String = name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .flat_map(|c| c.to_lowercase())
+        .collect();
+    if n.contains("carbomb") || n.contains("makecarbomb") {
+        Some(HostCommandButtonHuntMode::ConvertToCarBomb)
+    } else if n.contains("hijack") {
+        Some(HostCommandButtonHuntMode::HijackVehicle)
+    } else if n.contains("sabotage") {
+        Some(HostCommandButtonHuntMode::SabotageBuilding)
+    } else {
+        None
+    }
+}
+
+/// Fallback when the button name is missing: terrorist/hijacker/saboteur templates.
+pub fn hunt_mode_from_template(name: &str) -> Option<HostCommandButtonHuntMode> {
+    let n = name.to_ascii_lowercase();
+    if n.contains("terrorist") {
+        Some(HostCommandButtonHuntMode::ConvertToCarBomb)
+    } else if n.contains("hijacker") {
+        Some(HostCommandButtonHuntMode::HijackVehicle)
+    } else if n.contains("saboteur") {
+        Some(HostCommandButtonHuntMode::SabotageBuilding)
+    } else {
+        None
+    }
+}
+
 /// C++ relationship filter residual for enter hunt modes.
 ///
 /// `same_team` / `target_neutral` are precomputed by the host so this module

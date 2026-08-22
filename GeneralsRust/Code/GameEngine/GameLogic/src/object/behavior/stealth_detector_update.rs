@@ -504,6 +504,12 @@ const STEALTH_DETECTOR_UPDATE_FIELDS: &[FieldParse<StealthDetectorUpdateModuleDa
     },
 ];
 
+/// C++ `StealthDetectorUpdate.cpp:67-70` first-wake delay:
+/// `UPDATE_SLEEP(GameLogicRandomValue(1, data->m_updateRate))`.
+pub fn stealth_detector_ctor_wake_frames(update_rate: u32) -> u32 {
+    crate::helpers::game_logic_random_value(1, update_rate.max(1)).max(1)
+}
+
 /// StealthDetectorUpdate behavior module
 pub struct StealthDetectorUpdate {
     object_id: ObjectID,
@@ -536,7 +542,7 @@ impl StealthDetectorUpdate {
         // do not all scan on the same frame.
         let update_rate = specific_data.update_rate.max(1);
         let next_call_frame_and_phase = if enabled {
-            let wake = crate::helpers::game_logic_random_value(1, update_rate);
+            let wake = stealth_detector_ctor_wake_frames(update_rate);
             crate::helpers::TheGameLogic::set_wake_frame(
                 object_id,
                 UpdateSleepTime::from_u32(wake),

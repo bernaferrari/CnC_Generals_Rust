@@ -52,6 +52,7 @@ use gamelogic::upgrade::center::with_upgrade_center;
 // stay identical to the former dump.
 
 include!("types.rs");
+include!("impl_presentation_availability.rs");
 include!("impl_lifecycle.rs");
 include!("impl_context.rs");
 include!("impl_command_context.rs");
@@ -67,6 +68,7 @@ include!("tests.rs");
 pub const CONTROL_BAR_SRC: &str = concat!(
     include_str!("mod.rs"),
     include_str!("types.rs"),
+    include_str!("impl_presentation_availability.rs"),
     include_str!("impl_lifecycle.rs"),
     include_str!("impl_context.rs"),
     include_str!("impl_command_context.rs"),

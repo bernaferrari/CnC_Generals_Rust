@@ -3366,6 +3366,7 @@ fn china_barracks_quantity_modifier_spawns_two_redguards_residual() {
         allow_airborne_creation: false,
         initial_burst: 0,
         use_spawn_rally_point: false,
+        grant_temporary_stealth_frames: 0,
     });
     logic.templates.insert("ChinaBarracks".into(), bar);
     let mut rg = ThingTemplate::new("ChinaInfantryRedguard");
@@ -3520,6 +3521,7 @@ fn queue_factory_exit_follows_snapped_production_path() {
         allow_airborne_creation: false,
         initial_burst: 0,
         use_spawn_rally_point: false,
+        grant_temporary_stealth_frames: 0,
     });
     logic.templates.insert("ChinaBarracks".into(), bar);
     let mut rg = ThingTemplate::new("ChinaInfantryRedguard");
@@ -3672,6 +3674,7 @@ fn parsed_queue_exit_runtime_uses_authored_initial_burst_and_delay() {
         allow_airborne_creation: false,
         initial_burst: 2,
         use_spawn_rally_point: false,
+        grant_temporary_stealth_frames: 0,
     });
     logic.templates.insert("ChinaBarracks".into(), bar);
     let mut rg = ThingTemplate::new("ChinaInfantryRedguard");

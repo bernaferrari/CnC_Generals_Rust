@@ -252,6 +252,9 @@ pub struct ContainModuleMetadata {
     /// C++ GarrisonContainModuleData::m_initialRoster.count (0 = none).
     #[serde(default)]
     pub initial_roster_count: i32,
+    /// C++ OpenContain::isWeaponBonusPassedToPassengers residual.
+    #[serde(default)]
+    pub weapon_bonus_passed_to_passengers: bool,
 }
 
 /// Exact `OverchargeBehaviorModuleData` retained from one Object INI behavior
@@ -314,6 +317,7 @@ impl Default for ContainModuleMetadata {
             heal_objects: false,
             initial_roster_template: String::new(),
             initial_roster_count: 0,
+            weapon_bonus_passed_to_passengers: false,
         }
     }
 }
@@ -611,6 +615,9 @@ pub struct ProductionExitMetadata {
     /// spawn/parachute path; ordinary unit production always follows its
     /// authored natural/custom exit route.
     pub use_spawn_rally_point: bool,
+    /// C++ SupplyCenter production-exit temporary stealth grant frames.
+    #[serde(default)]
+    pub grant_temporary_stealth_frames: u32,
 }
 
 impl ProductionExitMetadata {

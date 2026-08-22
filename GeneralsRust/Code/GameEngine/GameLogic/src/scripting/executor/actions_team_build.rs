@@ -991,6 +991,14 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         log::info!("Team '{}' stopping", team_name);
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_idle(super::HostScriptIdleRequest::TeamStop {
+                team: team_name,
+                disband: false,
+            });
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         match self.create_ai_group_from_team(&team_name) {
             Ok(group_arc) => {
@@ -1015,6 +1023,14 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         log::info!("Team '{}' stopping and disbanding", team_name);
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_idle(super::HostScriptIdleRequest::TeamStop {
+                team: team_name,
+                disband: true,
+            });
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let Some(team_arc) = get_team_factory()
             .lock()

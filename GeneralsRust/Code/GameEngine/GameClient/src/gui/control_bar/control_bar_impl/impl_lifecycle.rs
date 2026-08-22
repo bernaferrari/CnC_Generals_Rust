@@ -60,6 +60,7 @@ impl ControlBar {
             displayed_ocl_timer_seconds: 0,
             last_displayed_money: -1,
             presentation_can_make: Vec::new(),
+            presentation_availability: PresentationAvailabilityResidual::default(),
 
             border_colors: CommandBarBorderColors::default(),
         }
@@ -94,9 +95,10 @@ impl ControlBar {
     }
 
     /// Called when a drawable is selected. Cancels pending GUI commands.
-    /// C++: ControlBar::onDrawableSelected()
+    /// C++: ControlBar::onDrawableSelected() → TheInGameUI->setGUICommand(NULL)
     pub fn on_drawable_selected(&mut self) {
         self.mark_ui_dirty();
+        TheInGameUI::clear_pending_command();
         TheInGameUI::clear_pending_special_power();
     }
 
@@ -105,6 +107,7 @@ impl ControlBar {
     pub fn on_drawable_deselected(&mut self, select_count: usize) {
         self.mark_ui_dirty();
         if select_count == 0 {
+            TheInGameUI::clear_pending_command();
             TheInGameUI::clear_pending_special_power();
         }
         TheInGameUI::place_build_available(None, None);

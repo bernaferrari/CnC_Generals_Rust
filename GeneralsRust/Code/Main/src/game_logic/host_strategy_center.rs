@@ -213,6 +213,47 @@ pub fn stealth_detector_hold_frames(rate_frames: u32) -> u32 {
     }
 }
 
+/// C++ `StealthDetectorUpdate.cpp:67-70` ctor first-wake delay.
+/// Leftover `stealth_detector_ctor_wake_frames` / `GameLogicRandomValue(1, updateRate)`.
+pub fn stealth_detector_ctor_first_wake_delay(update_rate: u32) -> u32 {
+    gamelogic::object::behavior::stealth_detector_ctor_wake_frames(update_rate)
+}
+
+/// Absolute first-scan frame after ctor stagger (`now + GameLogicRandomValue(1, rate)`).
+pub fn stealth_detector_ctor_next_scan_frame(update_rate: u32, frame: u32) -> u32 {
+    frame.saturating_add(stealth_detector_ctor_first_wake_delay(update_rate))
+}
+
+/// Retail DetectionRate frames for a detector template (C++ INI residual).
+/// Unknown detectors fall back to the common 500ms / 15f residual, not 0
+/// (0 is live legacy "scan every frame" and would ignore ctor stagger).
+pub fn stealth_detector_rate_frames_for_template(template_name: &str) -> u32 {
+    use crate::game_logic::{
+        host_listening_outpost, host_pathfinder, host_sentry_drone, host_slave_drones,
+        host_spy_drone, host_troop_crawler, host_tunnel_network,
+        host_radar_stealth_vision_residual::DETECTOR_RATE_COMMON_FRAMES_RESIDUAL,
+    };
+    if host_listening_outpost::is_listening_outpost_template(template_name) {
+        host_listening_outpost::LISTENING_OUTPOST_DETECTION_RATE_FRAMES
+    } else if host_troop_crawler::is_troop_crawler_template(template_name) {
+        host_troop_crawler::TROOP_CRAWLER_DETECTION_RATE_FRAMES
+    } else if host_sentry_drone::is_sentry_drone_template(template_name) {
+        host_sentry_drone::SENTRY_DETECTION_RATE_FRAMES
+    } else if host_pathfinder::is_pathfinder_template(template_name) {
+        host_pathfinder::PATHFINDER_DETECTION_RATE_FRAMES
+    } else if host_slave_drones::is_scout_drone_template(template_name) {
+        host_slave_drones::SCOUT_DETECTION_RATE_FRAMES
+    } else if host_tunnel_network::is_tunnel_network_template(template_name) {
+        host_tunnel_network::TUNNEL_NETWORK_DETECTION_RATE_FRAMES
+    } else if template_name.to_ascii_lowercase().contains("spydrone") {
+        crate::game_logic::host_radar_stealth_vision_residual::residual_ms_to_frames(
+            host_spy_drone::SPY_DRONE_STEALTH_DETECTION_RATE_MS,
+        )
+    } else {
+        DETECTOR_RATE_COMMON_FRAMES_RESIDUAL
+    }
+}
+
 // --- Pack/unpack door animation residual (BattlePlanUpdate) ---
 
 /// Retail BombardmentPlanAnimationTime / HoldTheLine / SearchAndDestroy (ms).
