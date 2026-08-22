@@ -1896,6 +1896,108 @@ fn capture_authority_rejects_immune_and_nonstealthed_garrison_targets() {
     );
 }
 
+#[test]
+fn infantry_capture_prep_stamps_raising_flag() {
+    use crate::game_logic::host_enum_table_residual::raising_flag_model_bit;
+    let mut game_logic = GameLogic::new();
+    ensure_test_infantry_template(&mut game_logic);
+    ensure_test_structure_template(&mut game_logic);
+    let captor_id = game_logic
+        .create_object("TestInfantry", Team::USA, Vec3::new(3.0, 0.0, 0.0))
+        .expect("captor");
+    let building_id = game_logic
+        .create_object("TestBuilding", Team::GLA, Vec3::ZERO)
+        .expect("building");
+    {
+        let captor = game_logic.host_object_mut(captor_id).expect("captor");
+        captor.target = Some(building_id);
+        captor.set_ai_state(AIState::Capturing);
+    }
+    game_logic.update_ai(&[captor_id, building_id], 3.0);
+    let bits = game_logic
+        .host_object(captor_id)
+        .expect("captor")
+        .model_condition_bits;
+    assert_ne!(
+        bits & (1u128 << raising_flag_model_bit()),
+        0,
+        "infantry capture prep must stamp RAISING_FLAG"
+    );
+}
+
+#[test]
+fn lotus_capture_prep_stamps_firing_a() {
+    use crate::game_logic::host_enum_table_residual::firing_a_model_bit;
+    use crate::game_logic::CapturePowerKind;
+    let mut game_logic = GameLogic::new();
+    ensure_test_structure_template(&mut game_logic);
+    let mut lotus = ThingTemplate::new("ChinaInfantryBlackLotus");
+    lotus
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    lotus.capture_power = CapturePowerKind::BlackLotus;
+    lotus.capture_start_ability_range = Some(5.0);
+    lotus.capture_unpack_time_ms = Some(0);
+    lotus.capture_preparation_time_ms = Some(6_000);
+    lotus.capture_pack_time_ms = Some(2_000);
+    game_logic
+        .templates
+        .insert("ChinaInfantryBlackLotus".into(), lotus);
+    let lotus_id = game_logic
+        .create_object(
+            "ChinaInfantryBlackLotus",
+            Team::China,
+            Vec3::new(3.0, 0.0, 0.0),
+        )
+        .expect("lotus");
+    let building_id = game_logic
+        .create_object("TestBuilding", Team::USA, Vec3::ZERO)
+        .expect("building");
+    {
+        let lotus = game_logic.host_object_mut(lotus_id).expect("lotus");
+        lotus.target = Some(building_id);
+        lotus.set_ai_state(AIState::Capturing);
+    }
+    game_logic.update_ai(&[lotus_id, building_id], 1.0 / 30.0);
+    let bits = game_logic
+        .host_object(lotus_id)
+        .expect("lotus")
+        .model_condition_bits;
+    assert_ne!(
+        bits & (1u128 << firing_a_model_bit()),
+        0,
+        "Lotus capture prep must stamp FIRING_A"
+    );
+}
+
+#[test]
+fn human_capture_rejects_shrouded_target() {
+    let mut game_logic = GameLogic::new();
+    ensure_test_infantry_template(&mut game_logic);
+    ensure_test_structure_template(&mut game_logic);
+    let mut player = Player::new(0, Team::USA, "USA", true);
+    player.is_local = true;
+    game_logic.add_player(player);
+    let captor_id = game_logic
+        .create_object("TestInfantry", Team::USA, Vec3::new(-3.0, 0.0, 0.0))
+        .expect("captor");
+    if let Some(o) = game_logic.host_object_mut(captor_id) {
+        o.owner_player_id = Some(0);
+    }
+    let building_id = game_logic
+        .create_object("TestBuilding", Team::GLA, Vec3::ZERO)
+        .expect("building");
+    assert!(
+        !game_logic.can_unit_capture_building(captor_id, building_id, true),
+        "human capture must refuse a fogged/shrouded structure"
+    );
+    assert!(
+        game_logic.can_unit_capture_building(captor_id, building_id, false),
+        "already-running / script channel must not re-check shroud"
+    );
+}
+
 /// Exercise the actual offline physical RMB route: frozen presentation facts
 /// classify the click, then the resulting command crosses GameLogic authority
 /// into CommandExecutor.  Two same-faction player slots are deliberately
