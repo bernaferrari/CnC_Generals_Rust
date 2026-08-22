@@ -18,6 +18,52 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use wgpu::{Device, Queue, Texture, TextureDescriptor, TextureFormat, TextureUsages, TextureView};
 
+const RADAR_CELL_W: f32 = 128.0;
+const RADAR_CELL_H: f32 = 128.0;
+
+fn letterboxed_local_pixel_to_radar(
+    local_x: i32,
+    local_y: i32,
+    width: i32,
+    height: i32,
+    extent_w: f32,
+    extent_h: f32,
+) -> Option<(i32, i32)> {
+    if width <= 0 || height <= 0 || extent_w <= 0.0 || extent_h <= 0.0 {
+        return None;
+    }
+    let ratio_width = extent_w / width as f32;
+    let ratio_height = extent_h / height as f32;
+    let (ul_x, ul_y, lr_x, lr_y) = if ratio_width >= ratio_height {
+        let radar_x = extent_w / ratio_width;
+        let radar_y = extent_h / ratio_width;
+        let ul_y = ((height as f32 - radar_y) / 2.0) as i32;
+        (0, ul_y, radar_x as i32, height - ul_y)
+    } else {
+        let radar_x = extent_w / ratio_height;
+        let radar_y = extent_h / ratio_height;
+        let ul_x = ((width as f32 - radar_x) / 2.0) as i32;
+        (ul_x, 0, width - ul_x, radar_y as i32)
+    };
+    if local_x < ul_x || local_x > lr_x || local_y < ul_y || local_y > lr_y {
+        return None;
+    }
+    let scaled_width = (lr_x - ul_x).max(1);
+    let scaled_height = (lr_y - ul_y).max(1);
+    let (radar_x, radar_y) = if scaled_width >= scaled_height {
+        let radar_x = (local_x - ul_x) * RADAR_CELL_W as i32 / scaled_width;
+        let mut radar_y = (((local_y - ul_y) as f32 / scaled_height as f32) * height as f32) as i32;
+        radar_y = (height - radar_y) * RADAR_CELL_H as i32 / height;
+        (radar_x, radar_y)
+    } else {
+        let mut radar_x = (((local_x - ul_x) as f32 / scaled_width as f32) * width as f32) as i32;
+        radar_x = radar_x * RADAR_CELL_W as i32 / width;
+        let radar_y = (height - local_y) * RADAR_CELL_H as i32 / height;
+        (radar_x, radar_y)
+    };
+    Some((radar_x, radar_y))
+}
+
 pub trait UiTextureRegistrar {
     fn free_texture(&mut self, texture_id: UiTextureId);
     fn register_native_texture(
@@ -448,6 +494,25 @@ impl MinimapCoordinates {
         )
     }
 
+    /// C++ `Radar::localPixelToRadar` + `radarToWorld`: letterbox bars miss,
+    /// Y is inverted so world +Z (north) is up.
+    pub fn letterboxed_click_to_world(&self, screen_pos: Vec2) -> Option<Vec3> {
+        let width = self.minimap_width as i32;
+        let height = self.minimap_height as i32;
+        let local_x = (screen_pos.x - self.screen_pos.x) as i32;
+        let local_y = (screen_pos.y - self.screen_pos.y) as i32;
+        let extent_w = (self.world_max.x - self.world_min.x).abs();
+        let extent_h = (self.world_max.z - self.world_min.z).abs();
+        let cell = letterboxed_local_pixel_to_radar(local_x, local_y, width, height, extent_w, extent_h)?;
+        let nx = cell.0 as f32 / RADAR_CELL_W;
+        let ny = cell.1 as f32 / RADAR_CELL_H;
+        Some(Vec3::new(
+            self.world_min.x + nx * (self.world_max.x - self.world_min.x),
+            0.0,
+            self.world_min.z + ny * (self.world_max.z - self.world_min.z),
+        ))
+    }
+
     /// Check if a screen position is within the minimap bounds
     pub fn contains_screen_pos(&self, screen_pos: Vec2) -> bool {
         screen_pos.x >= self.screen_pos.x
@@ -761,11 +826,7 @@ impl MinimapTextureRenderer {
 
     /// Convert screen position to world coordinates (for minimap clicks)
     pub fn screen_to_world(&self, screen_pos: Vec2) -> Option<Vec3> {
-        if self.coordinates.contains_screen_pos(screen_pos) {
-            Some(self.coordinates.minimap_to_world(screen_pos))
-        } else {
-            None
-        }
+        self.coordinates.letterboxed_click_to_world(screen_pos)
     }
 
     /// Convert world position to minimap screen coordinates (for unit dots)
@@ -899,6 +960,34 @@ mod tests {
         // Test bounds checking
         assert!(coords.contains_screen_pos(Vec2::new(50.0, 50.0)));
         assert!(!coords.contains_screen_pos(Vec2::new(300.0, 300.0)));
+    }
+
+    #[test]
+    fn letterboxed_click_rejects_bars_and_inverts_y() {
+        let coords = MinimapCoordinates {
+            minimap_width: 200.0,
+            minimap_height: 100.0,
+            world_min: Vec3::new(0.0, 0.0, 0.0),
+            world_max: Vec3::new(100.0, 0.0, 400.0),
+            screen_pos: Vec2::new(0.0, 0.0),
+        };
+        assert!(coords.letterboxed_click_to_world(Vec2::new(10.0, 50.0)).is_none());
+        assert!(coords.letterboxed_click_to_world(Vec2::new(190.0, 50.0)).is_none());
+
+        let square = MinimapCoordinates {
+            minimap_width: 128.0,
+            minimap_height: 128.0,
+            world_min: Vec3::new(0.0, 0.0, 0.0),
+            world_max: Vec3::new(1280.0, 0.0, 1280.0),
+            screen_pos: Vec2::new(0.0, 0.0),
+        };
+        let north = square
+            .letterboxed_click_to_world(Vec2::new(64.0, 8.0))
+            .expect("north click");
+        let south = square
+            .letterboxed_click_to_world(Vec2::new(64.0, 120.0))
+            .expect("south click");
+        assert!(north.z > south.z);
     }
 
     #[test]
