@@ -1360,6 +1360,26 @@ impl GameLogic {
                 } else {
                     0
                 };
+                let (heal_objects, initial_roster_template, initial_roster_count) =
+                    if kind == ContainModuleKind::Garrison {
+                        let heal_objects = module
+                            .attribute("HealObjects")
+                            .and_then(parse_bool)
+                            .unwrap_or(false);
+                        let roster = module
+                            .attribute("InitialRoster")
+                            .map(|raw| raw.split_whitespace().collect::<Vec<_>>())
+                            .and_then(|tokens| {
+                                gamelogic::object::contain::InitialRoster::parse_from_tokens(
+                                    &tokens,
+                                )
+                                .ok()
+                            })
+                            .unwrap_or_default();
+                        (heal_objects, roster.template_name, roster.count)
+                    } else {
+                        (false, String::new(), 0)
+                    };
                 let candidate = ContainModuleMetadata {
                     kind,
                     slots,
@@ -1384,6 +1404,9 @@ impl GameLogic {
                     immune_to_clear_building_attacks,
                     is_enclosing_container,
                     cave_index,
+                    heal_objects,
+                    initial_roster_template,
+                    initial_roster_count,
                 };
                 // Retail gives an object one active normal contain interface.
                 // A malformed/custom stack is not safely representable here;
@@ -7114,6 +7137,124 @@ End
             "TunnelTracker::healObjects must sliver-heal, {before_tunnel} -> {after_tunnel}"
         );
         assert!(logic.tunnel_network.honesty_heal_objects_ok());
+    }
+
+    #[test]
+    fn garrison_initial_roster_parses_template_and_count() {
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(
+                r#"
+Object ProbeGarrisonRosterBunker
+  Type = Structure
+  KindOf = STRUCTURE SELECTABLE
+  Behavior = GarrisonContain ModuleTag_Garrison
+    ContainMax = 5
+    InitialRoster = GLAInfantryRebel 3
+  End
+End
+"#,
+                "garrison_initial_roster_probe.ini",
+            )
+            .expect("parse garrison roster probe");
+
+        let bunker = GameLogic::build_template_from_object_definition(
+            "ProbeGarrisonRosterBunker",
+            parser
+                .get_definition("ProbeGarrisonRosterBunker")
+                .expect("roster bunker"),
+            None,
+        );
+        assert_eq!(bunker.contain_module.kind, ContainModuleKind::Garrison);
+        assert_eq!(
+            bunker.contain_module.initial_roster_template,
+            "GLAInfantryRebel"
+        );
+        assert_eq!(bunker.contain_module.initial_roster_count, 3);
+    }
+
+    #[test]
+    fn garrison_heal_objects_parses_and_heals_occupants() {
+        use glam::Vec3;
+
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(
+                r#"
+Object ProbeGarrisonHealBunker
+  Type = Structure
+  KindOf = STRUCTURE SELECTABLE
+  Behavior = GarrisonContain ModuleTag_Garrison
+    ContainMax = 5
+    HealObjects = Yes
+    TimeForFullHeal = 2000
+  End
+End
+Object ProbeGarrisonHealInfantry
+  Type = Infantry
+  KindOf = INFANTRY SELECTABLE
+  TransportSlotCount = 1
+  Body = ActiveBody ModuleTag_01
+    MaxHealth = 80.0
+  End
+End
+"#,
+                "garrison_heal_objects_probe.ini",
+            )
+            .expect("parse garrison heal probe");
+
+        let bunker = GameLogic::build_template_from_object_definition(
+            "ProbeGarrisonHealBunker",
+            parser
+                .get_definition("ProbeGarrisonHealBunker")
+                .expect("heal bunker"),
+            None,
+        );
+        assert!(bunker.contain_module.heal_objects);
+        assert_eq!(bunker.contain_module.frames_for_full_heal, Some(60));
+
+        let infantry = GameLogic::build_template_from_object_definition(
+            "ProbeGarrisonHealInfantry",
+            parser
+                .get_definition("ProbeGarrisonHealInfantry")
+                .expect("heal infantry"),
+            None,
+        );
+
+        let mut logic = GameLogic::new();
+        logic
+            .templates
+            .insert("ProbeGarrisonHealBunker".to_string(), bunker);
+        logic
+            .templates
+            .insert("ProbeGarrisonHealInfantry".to_string(), infantry);
+        let pad = logic
+            .create_object("ProbeGarrisonHealBunker", Team::USA, Vec3::ZERO)
+            .expect("heal bunker");
+        let unit = logic
+            .create_object("ProbeGarrisonHealInfantry", Team::USA, Vec3::ZERO)
+            .expect("infantry");
+        assert!(logic.host_object_mut(pad).expect("bunker").add_occupant(unit));
+        if let Some(obj) = logic.host_object_mut(unit) {
+            obj.health.current = 20.0;
+            obj.health.maximum = 80.0;
+            obj.set_contained_by(Some(pad));
+        }
+        logic.tunnel_network.stamp_contained_by_frame(unit, logic.frame);
+        logic.frame = logic.frame.saturating_add(1);
+        logic.update_support_states(&[unit], 1.0 / 30.0);
+        let after = logic
+            .host_object(unit)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            after > 20.0,
+            "GarrisonContain::healObjects must sliver-heal, got {after}"
+        );
+        assert!(
+            logic.host_object(unit).is_some_and(|o| o.contained_by == Some(pad)),
+            "garrison heal must not auto-exit like HealContain"
+        );
     }
 
     #[test]

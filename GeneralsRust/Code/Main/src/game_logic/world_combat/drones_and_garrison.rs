@@ -995,6 +995,59 @@ impl GameLogic {
     }
 
     /// C++ GarrisonContain::onContaining setTeam + academy + CAN_ATTACK + stations.
+    /// C++ GarrisonContain::onObjectCreated InitialRoster spawn + addToContain.
+    pub(in super::super) fn apply_garrison_initial_roster(
+        &mut self,
+        container_id: ObjectId,
+        team: Team,
+        position: glam::Vec3,
+    ) {
+        let Some(container) = self.objects.get(&container_id) else {
+            return;
+        };
+        if container.thing.template.contain_module.kind != ContainModuleKind::Garrison {
+            return;
+        }
+        let roster = gamelogic::object::contain::InitialRoster {
+            template_name: container
+                .thing
+                .template
+                .contain_module
+                .initial_roster_template
+                .clone(),
+            count: container.thing.template.contain_module.initial_roster_count,
+        };
+        if !roster.is_populated() {
+            return;
+        }
+        if !self.templates.contains_key(&roster.template_name) {
+            return;
+        }
+        let payload_name = roster.template_name;
+        for _ in 0..roster.count {
+            let Some(occupant_id) = self.create_object(&payload_name, team, position) else {
+                break;
+            };
+            let added = self
+                .objects
+                .get_mut(&container_id)
+                .is_some_and(|container| container.add_occupant(occupant_id));
+            if !added {
+                continue;
+            }
+            self.tunnel_network
+                .stamp_contained_by_frame(occupant_id, self.frame);
+            if let Some(occupant) = self.objects.get_mut(&occupant_id) {
+                occupant.set_contained_by(Some(container_id));
+                occupant.set_position(position);
+                occupant.stop_moving();
+                occupant.set_status_moving(false);
+                occupant.set_ai_state(AIState::Garrisoned);
+            }
+            self.apply_garrison_contain_on_enter(container_id, occupant_id);
+        }
+    }
+
     pub(in super::super) fn apply_garrison_contain_on_enter(
         &mut self,
         container_id: ObjectId,
@@ -4104,6 +4157,74 @@ mod tests {
         assert!(
             hp_after < hp_before - 0.01,
             "Helix infantry GARRISONED 133% must reach 120 with base 100 (before={hp_before} after={hp_after})"
+        );
+    }
+
+    #[test]
+    fn garrison_initial_roster_spawns_occupants_on_create() {
+        let mut logic = GameLogic::new();
+        let mut bunker = garrison_template("RosterBunker", false, true);
+        bunker.contain_module.initial_roster_template = "AmericaRanger".to_string();
+        bunker.contain_module.initial_roster_count = 3;
+        logic.templates.insert("RosterBunker".into(), bunker);
+        let mut ranger = ThingTemplate::new("AmericaRanger");
+        ranger
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(120.0);
+        logic.templates.insert("AmericaRanger".into(), ranger);
+
+        let bunker_id = logic
+            .create_object("RosterBunker", Team::USA, Vec3::ZERO)
+            .expect("roster bunker");
+        let occupants = logic
+            .host_object(bunker_id)
+            .map(|o| o.contained_units())
+            .unwrap_or_default();
+        assert_eq!(
+            occupants.len(),
+            3,
+            "C++ GarrisonContain::onObjectCreated must add InitialRoster count"
+        );
+        for occupant_id in occupants {
+            let occupant = logic.host_object(occupant_id).expect("roster occupant");
+            assert_eq!(occupant.template_name, "AmericaRanger");
+            assert_eq!(occupant.contained_by, Some(bunker_id));
+            assert_eq!(occupant.team, Team::USA);
+        }
+    }
+
+    #[test]
+    fn garrison_without_heal_objects_does_not_heal_occupants() {
+        let mut logic = GameLogic::new();
+        logic.templates.insert(
+            "CivBunker".into(),
+            garrison_template("CivBunker", false, true),
+        );
+        let mut ranger = ThingTemplate::new("AmericaRanger");
+        ranger.add_kind_of(KindOf::Infantry).set_health(120.0);
+        logic.templates.insert("AmericaRanger".into(), ranger);
+        let bunker = logic
+            .create_object("CivBunker", Team::USA, Vec3::ZERO)
+            .unwrap();
+        let ranger_id = logic
+            .create_object("AmericaRanger", Team::USA, Vec3::new(4.0, 0.0, 0.0))
+            .unwrap();
+        assert!(logic.host_object_mut(bunker).unwrap().add_occupant(ranger_id));
+        if let Some(r) = logic.host_object_mut(ranger_id) {
+            r.health.current = 40.0;
+            r.health.maximum = 120.0;
+            r.set_contained_by(Some(bunker));
+        }
+        logic
+            .tunnel_network
+            .stamp_contained_by_frame(ranger_id, logic.frame);
+        logic.frame = logic.frame.saturating_add(1);
+        logic.update_support_states(&[ranger_id], 1.0 / 30.0);
+        let after = logic.host_object(ranger_id).unwrap().health.current;
+        assert!(
+            (after - 40.0).abs() < 0.01,
+            "HealObjects=No must not regenerate occupants, got {after}"
         );
     }
 }

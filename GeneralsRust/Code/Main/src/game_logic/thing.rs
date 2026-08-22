@@ -243,6 +243,15 @@ pub struct ContainModuleMetadata {
     /// C++ CaveContainModuleData::m_caveIndexData (default 0).
     #[serde(default)]
     pub cave_index: i32,
+    /// C++ GarrisonContainModuleData::m_doIHealObjects (default false).
+    #[serde(default)]
+    pub heal_objects: bool,
+    /// C++ GarrisonContainModuleData::m_initialRoster.templateName.
+    #[serde(default)]
+    pub initial_roster_template: String,
+    /// C++ GarrisonContainModuleData::m_initialRoster.count (0 = none).
+    #[serde(default)]
+    pub initial_roster_count: i32,
 }
 
 /// Exact `OverchargeBehaviorModuleData` retained from one Object INI behavior
@@ -302,6 +311,9 @@ impl Default for ContainModuleMetadata {
             immune_to_clear_building_attacks: false,
             is_enclosing_container: true,
             cave_index: 0,
+            heal_objects: false,
+            initial_roster_template: String::new(),
+            initial_roster_count: 0,
         }
     }
 }
