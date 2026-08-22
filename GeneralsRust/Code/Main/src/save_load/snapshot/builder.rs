@@ -78,6 +78,7 @@ impl SnapshotBuilder {
                 super::subdual_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
                 super::hotkey_squad_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
                 super::booby_trap_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::carpet_bomb_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
 
 
 
@@ -232,6 +233,10 @@ impl SnapshotBuilder {
             game_logic,
         )?;
         super::booby_trap_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::carpet_bomb_persist::apply_from_lifecycle_tail(
             &snapshot.lifecycle_tail,
             game_logic,
         )?;

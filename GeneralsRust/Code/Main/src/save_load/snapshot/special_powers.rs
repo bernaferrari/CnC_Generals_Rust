@@ -264,6 +264,9 @@ impl XferData for HostSpecialPowerStrike {
         xfer.xfer_bool(&mut self.live_carpet_delivery)?;
         xfer.xfer_marker_label("ManualBeamHold")?;
         xfer.xfer_bool(&mut self.manual_beam_hold)?;
+        // Appended: skip registry 200/100 + toxin when leftover flight owns FireWeaponWhenDead.
+        xfer.xfer_marker_label("LiveAnthraxDelivery")?;
+        xfer.xfer_bool(&mut self.live_anthrax_delivery)?;
         Ok(())
     }
 }
@@ -872,6 +875,7 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 live_neutron_delivery: false,
                 live_scud_delivery: false,
                 live_carpet_delivery: false,
+                live_anthrax_delivery: false,
                 manual_beam_hold: false,
             },
         )?;

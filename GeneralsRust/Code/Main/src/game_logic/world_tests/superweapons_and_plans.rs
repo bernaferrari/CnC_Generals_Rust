@@ -2271,6 +2271,22 @@ fn gps_scrambler_grows_and_spawns_marker() {
     );
     assert!(logic.gps_scramblers.honesty_grow_ok());
     assert!(logic.gps_scramblers.honesty_marker_ok());
+    // C++ GrantStealthBehavior.cpp:147-150 destroyObject at FinalRadius.
+    assert!(
+        !logic
+            .host_objects()
+            .values()
+            .any(|o| o.gps_scrambler_marker && o.is_alive()),
+        "GPS invisible marker must be destroyObject'd at FinalRadius"
+    );
+    assert!(
+        logic
+            .gps_scramblers
+            .activations()
+            .iter()
+            .all(|a| a.marker_id.is_none()),
+        "FinalRadius takes the activation marker_id"
+    );
     let _ = GPS_SCRAMBLER_START_RADIUS;
 }
 

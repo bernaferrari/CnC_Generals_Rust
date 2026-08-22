@@ -109,8 +109,42 @@ impl GameWorldShadow {
             } else {
                 AnthraxBombPayloadTier::Base
             };
-            let dest_x = e.anthrax_transport_target_x;
-            let dest_z = e.anthrax_transport_target_z;
+            let hx = e.anthrax_transport_target_x - e.anthrax_transport_launch_x;
+            let hz = e.anthrax_transport_target_z - e.anthrax_transport_launch_z;
+            let (min_x, min_z, max_x, max_z) = if self.map_max_x > self.map_min_x
+                && self.map_max_z > self.map_min_z
+            {
+                (self.map_min_x, self.map_min_z, self.map_max_x, self.map_max_z)
+            } else {
+                use crate::game_logic::host_deliver_payload::{
+                    RESIDUAL_MAP_EXTENT_MAX_X, RESIDUAL_MAP_EXTENT_MAX_Z,
+                    RESIDUAL_MAP_EXTENT_MIN_X, RESIDUAL_MAP_EXTENT_MIN_Z,
+                };
+                (
+                    RESIDUAL_MAP_EXTENT_MIN_X,
+                    RESIDUAL_MAP_EXTENT_MIN_Z,
+                    RESIDUAL_MAP_EXTENT_MAX_X,
+                    RESIDUAL_MAP_EXTENT_MAX_Z,
+                )
+            };
+            let (dest_x, dest_z) = if e.anthrax_delivery_complete {
+                let exit = crate::game_logic::host_deliver_payload::head_off_map_exit_point_residual(
+                    glam::Vec3::new(
+                        e.transform.position.x,
+                        e.transform.position.y,
+                        e.transform.position.z,
+                    ),
+                    hx,
+                    hz,
+                    min_x,
+                    min_z,
+                    max_x,
+                    max_z,
+                );
+                (exit.x, exit.z)
+            } else {
+                (e.anthrax_transport_target_x, e.anthrax_transport_target_z)
+            };
             let pos = e.transform.position;
             let dx = dest_x - pos.x;
             let dz = dest_z - pos.z;
@@ -132,8 +166,8 @@ impl GameWorldShadow {
             if vel.length_squared() > 1e-6 {
                 e.transform.orientation = vel.z.atan2(vel.x);
             }
-            if over {
-                e.anthrax_transport_active = false;
+            if over && !e.anthrax_delivery_complete {
+                e.anthrax_delivery_complete = true;
                 if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
                     let team = Self::entity_team_from_ordinal(e.team_ordinal);
                     let producer = e
@@ -153,6 +187,19 @@ impl GameWorldShadow {
                         },
                     );
                 }
+            }
+            if e.anthrax_delivery_complete
+                && crate::game_logic::host_deliver_payload::is_off_map_residual(
+                    glam::Vec3::new(new_pos.x, new_pos.y, new_pos.z),
+                    min_x,
+                    min_z,
+                    max_x,
+                    max_z,
+                )
+            {
+                // C++ HeadOffMapState → CleanUpState::destroyObject.
+                e.anthrax_transport_active = false;
+                e.destroyed = true;
             }
             changed = true;
         }

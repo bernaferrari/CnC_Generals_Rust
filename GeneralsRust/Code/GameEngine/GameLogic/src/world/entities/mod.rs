@@ -891,6 +891,8 @@ pub struct Entity {
     pub anthrax_transport_launch_x: f32,
     pub anthrax_transport_launch_y: f32,
     pub anthrax_transport_launch_z: f32,
+    /// C++ DeliveringState finished → HeadOffMapState.
+    pub anthrax_delivery_complete: bool,
     /// Host AnthraxBomb payload residual.
     pub anthrax_bomb_payload: bool,
     pub anthrax_bomb_vel_y: f32,
@@ -2006,6 +2008,7 @@ impl EntityStore {
             anthrax_transport_launch_x: 0.0,
             anthrax_transport_launch_y: 0.0,
             anthrax_transport_launch_z: 0.0,
+            anthrax_delivery_complete: false,
             anthrax_bomb_payload: false,
             anthrax_bomb_vel_y: 0.0,
             cluster_mines_transport_active: false,

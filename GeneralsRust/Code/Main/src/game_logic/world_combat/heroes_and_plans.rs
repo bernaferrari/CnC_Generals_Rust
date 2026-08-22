@@ -1812,7 +1812,8 @@ impl GameLogic {
         kind: crate::game_logic::host_angry_mob::AngryMobProjectileKind,
     ) -> (u32, bool) {
         use crate::game_logic::host_angry_mob::{
-            angry_mob_projectile_damage_at, is_legal_angry_mob_damage_target,
+            angry_mob_possible_to_attack, angry_mob_projectile_damage_at,
+            is_legal_angry_mob_damage_target,
         };
 
         let source_team = source
@@ -1829,6 +1830,14 @@ impl GameLogic {
                     return None;
                 }
                 if obj.angry_mob_projectile {
+                    return None;
+                }
+                if !angry_mob_possible_to_attack(
+                    obj.is_kind_of(KindOf::Aircraft)
+                        || obj.object_type == ObjectType::Aircraft,
+                    obj.status.airborne_target,
+                    obj.weapon_target_anti_mask(),
+                ) {
                     return None;
                 }
                 let combat_kind = obj.is_kind_of(KindOf::Attackable)

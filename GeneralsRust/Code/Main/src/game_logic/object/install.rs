@@ -669,10 +669,6 @@ impl Object {
     }
 
 
-    /// Apply DISABLED_EMP residual until `until_frame` (absolute host logic frame).
-    /// C++ EMPUpdate::doDisableAttack: setDisabledUntil(DISABLED_EMP, now + DisabledDuration).
-    /// Refresh extends the timer if a later expiry is provided.
-
     /// Disable until_frame residual → GameWorld SetDisableTimers.
     pub fn record_disable_timers(&mut self) {
         crate::game_logic::host_disable_timers_log::record(
@@ -683,13 +679,14 @@ impl Object {
         );
     }
 
+    /// Apply DISABLED_EMP residual until `until_frame` (absolute host logic frame).
+    /// C++ Object::setDisabledUntil overwrites `m_disabledTillFrame[DISABLED_EMP]`;
+    /// a later pulse does not max-extend a longer residual.
     pub fn apply_disabled_emp(&mut self, until_frame: u32) {
         let becoming = !self.is_disabled();
         let already_power = self.is_power_style_disabled();
         self.set_status_disabled_emp(true);
-        if until_frame > self.status.disabled_emp_until_frame {
-            self.status.disabled_emp_until_frame = until_frame;
-        }
+        self.status.disabled_emp_until_frame = until_frame;
         self.record_disable_timers();
         self.set_status_attacking(false);
         self.set_status_moving(false);

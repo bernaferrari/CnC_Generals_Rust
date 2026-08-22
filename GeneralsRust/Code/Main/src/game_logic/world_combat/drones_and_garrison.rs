@@ -2501,8 +2501,8 @@ impl GameLogic {
         use crate::game_logic::host_emp_pulse::{
             in_emp_pulse_radius_from_bounding_sphere_3d, is_emp_hardened_name,
             is_legal_emp_disable_target, leftover_emp_bounding_sphere_radius,
-            should_emp_kill_airborne, HostEmpPulse, EMP_PULSE_DISABLED_DURATION_FRAMES,
-            HOST_EMP_PULSE_RADIUS,
+            should_emp_kill_airborne, should_emp_skip_hardened_airborne, HostEmpPulse,
+            EMP_PULSE_DISABLED_DURATION_FRAMES, HOST_EMP_PULSE_RADIUS,
         };
 
         let frame = self.frame;
@@ -2571,6 +2571,7 @@ impl GameLogic {
         let mut disables: u32 = 0;
         let mut airborne_kills: u32 = 0;
         let mut destroy_ids: Vec<ObjectId> = Vec::new();
+        let mut spark_ids: Vec<ObjectId> = Vec::new();
 
         for (
             id,
@@ -2586,6 +2587,10 @@ impl GameLogic {
             if should_emp_kill_airborne(is_aircraft, is_airborne, emp_hardened) {
                 destroy_ids.push(id);
                 airborne_kills = airborne_kills.saturating_add(1);
+                continue;
+            }
+            // C++ EMPUpdate.cpp:240-241 — EMP_HARDENED airborne continue.
+            if should_emp_skip_hardened_airborne(is_aircraft, is_airborne, emp_hardened) {
                 continue;
             }
 
@@ -2608,6 +2613,7 @@ impl GameLogic {
             }
             target.apply_disabled_emp(until);
             disables = disables.saturating_add(1);
+            spark_ids.push(id);
         }
 
         for id in destroy_ids {
@@ -2616,6 +2622,11 @@ impl GameLogic {
                 .unwrap_or(Team::Neutral);
             self.mark_object_for_destruction(id, Some(killer_team));
         }
+        // C++ doDisableAttack EMPSparks on disabled victims (not airborne kills).
+        for vid in spark_ids {
+            self.spawn_emp_sparks_on_victim(vid, EMP_PULSE_DISABLED_DURATION_FRAMES);
+        }
+
 
         let pulse_id = self.emp_pulses.alloc_id();
         self.emp_pulses.record_activation(HostEmpPulse {

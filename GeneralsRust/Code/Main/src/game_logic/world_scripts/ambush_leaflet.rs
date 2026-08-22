@@ -497,7 +497,7 @@ impl GameLogic {
     /// - Delay residual 2500 ms → 75 frames
     /// - AffectRadius residual 110
     /// - DisabledDuration 20000 ms → 600 frames (DISABLED_EMP)
-    /// - Enemy infantry + vehicles only
+    /// - ENEMIES infantry + vehicles only (player relationship, not faction Team)
     ///
     /// Fail-closed: not full OCL B52 / LeafletContainer drawable / LeafletFX path.
     pub fn update_leaflet_drops(&mut self) {
@@ -510,6 +510,22 @@ impl GameLogic {
         let plans = self.host_leaflet_drops.plan_due_impacts(self.frame);
         for plan in plans {
             let center = (plan.target_position.x, plan.target_position.z);
+            // C++ LeafletDropBehavior::doDisableAttack:
+            //   if (curVictim->getRelationship(object) != ENEMIES) continue;
+            // Player relationship, not faction Team equality (FFA / 2v2).
+            let (source_owner, source_inst) = if let Some(src) =
+                self.objects.get(&plan.source_object)
+            {
+                (
+                    self.player_owner_for_host_object(src),
+                    src.team_instance_name.clone(),
+                )
+            } else {
+                (
+                    self.unique_player_id_for_team(plan.source_team),
+                    String::new(),
+                )
+            };
             let candidates: Vec<(ObjectId, bool, bool, bool, bool)> = self
                 .objects
                 .iter()
@@ -527,10 +543,13 @@ impl GameLogic {
                     }
                     let is_infantry = obj.is_kind_of(KindOf::Infantry);
                     let is_vehicle = obj.is_kind_of(KindOf::Vehicle);
-                    // Enemy residual: different team, skip Neutral.
-                    let is_enemy = obj.team != plan.source_team
-                        && obj.team != Team::Neutral
-                        && plan.source_team != Team::Neutral;
+                    let is_enemy = Self::object_relationship_from_owners(
+                        &self.players,
+                        self.player_owner_for_host_object(obj),
+                        &obj.team_instance_name,
+                        source_owner,
+                        &source_inst,
+                    ) == gamelogic::common::Relationship::Enemies;
                     let under_construction =
                         obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
                     Some((*id, is_infantry, is_vehicle, is_enemy, under_construction))
