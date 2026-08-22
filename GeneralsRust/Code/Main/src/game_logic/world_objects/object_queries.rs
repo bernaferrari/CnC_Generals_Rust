@@ -1969,6 +1969,24 @@ impl GameLogic {
             return false;
         }
 
+        if require_power_ready {
+            if let Some(owner_id) = self.player_owner_for_host_object(source) {
+                if self
+                    .players
+                    .get(&owner_id)
+                    .is_some_and(|player| player.is_local)
+                {
+                    let visible = gamelogic::system::shroud_manager::get_shroud_manager()
+                        .lock()
+                        .map(|shroud| shroud.can_see_object(owner_id, target_id.0))
+                        .unwrap_or(false);
+                    if !visible {
+                        return false;
+                    }
+                }
+            }
+        }
+
         // Player ownership is authoritative whenever both objects have it.
         // Map/unowned objects keep the old faction/Neutral fallback rather
         // than being fabricated into a player relation.
