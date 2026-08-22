@@ -30,12 +30,34 @@ impl GameLogic {
                 ),
                 None => return false,
             };
-        if !is_pilot || !self.can_execute_pilot_recrew(infantry_id, vehicle_id) {
+        if is_pilot && self.can_execute_pilot_recrew(infantry_id, vehicle_id) {
+            if let Some(veh) = self.objects.get_mut(&vehicle_id) {
+                let _ = veh.apply_pilot_recrew(inf_team, inf_owner_player_id, inf_level);
+            }
+            let _ = self.transfer_script_object_name(infantry_id, vehicle_id);
+            self.destroy_object(infantry_id);
+            self.process_destroy_list();
+            self.unmanned_reclaims = self.unmanned_reclaims.saturating_add(1);
+            return true;
+        }
+        if !self.can_execute_infantry_unmanned_recrew(infantry_id, vehicle_id) {
             return false;
         }
         if let Some(veh) = self.objects.get_mut(&vehicle_id) {
-            let _ = veh.apply_pilot_recrew(inf_team, inf_owner_player_id, inf_level);
+            if veh.status.disabled_unmanned {
+                veh.set_status_disabled_unmanned(false);
+                veh.status.unmanned_owner_team = None;
+                veh.status.unmanned_owner_player_id = None;
+                veh.set_status_disabled_hacked(false);
+                veh.status.disabled_hacked_until_frame = 0;
+                veh.stop_moving();
+                veh.target = None;
+                veh.set_ai_state(crate::game_logic::AIState::Idle);
+                veh.set_team_and_owner(inf_team, inf_owner_player_id);
+                veh.set_private_captured(true);
+            }
         }
+        let _ = self.transfer_script_object_name(infantry_id, vehicle_id);
         self.destroy_object(infantry_id);
         // C++ destroyObject is immediate for collision reclaim residual path.
         self.process_destroy_list();
