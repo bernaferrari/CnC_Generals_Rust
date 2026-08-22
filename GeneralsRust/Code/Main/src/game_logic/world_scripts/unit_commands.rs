@@ -1690,20 +1690,39 @@ impl GameLogic {
         true
     }
 
-    /// Wave 233: special-power overridable destination residual.
-    /// C++ SpectreGunshipUpdate::setSpecialPowerOverridableDestination.
+    /// C++ `setSpecialPowerOverridableDestination` on PUC / Spectre.
+    /// Stores the dest on the live Object, then drives any matching
+    /// `HostParticleBeamField` / `HostSpectreOrbitField` (and the selected
+    /// gunship's `override_target`) immediately — not leftover-only.
     pub fn unit_command_set_special_power_overridable_destination(
         &mut self,
         id: ObjectId,
         location: glam::Vec3,
     ) -> bool {
-        let Some(unit) = self.objects.get_mut(&id) else {
-            return false;
+        let producer = {
+            let Some(unit) = self.objects.get_mut(&id) else {
+                return false;
+            };
+            if !unit.is_alive() || unit.is_disabled() {
+                return false;
+            }
+            unit.set_special_power_overridable_destination(location, None);
+            if let Some(flight) = unit.spectre_gunship_update.as_mut() {
+                if flight.status.overridable_destination_active() {
+                    flight.override_target = location;
+                }
+            }
+            unit.producer_id
         };
-        if !unit.is_alive() || unit.is_disabled() {
-            return false;
+        let frame = self.frame;
+        self.special_power_strikes
+            .apply_source_override_destination(id, location, frame);
+        if let Some(producer) = producer {
+            if producer != id {
+                self.special_power_strikes
+                    .apply_source_override_destination(producer, location, frame);
+            }
         }
-        unit.set_special_power_overridable_destination(location, None);
         true
     }
 
