@@ -110,6 +110,118 @@ pub(super) fn pick_widened_context_target(
     best.map(|(id, _)| id)
 }
 
+fn pick_widened_context_target_along_ray(
+    frame: &crate::presentation_frame::PresentationFrame,
+    ray_start: glam::Vec3,
+    ray_end: glam::Vec3,
+    player_team: Option<crate::game_logic::Team>,
+    profile: HostContextPickProfile,
+) -> Option<ObjectId> {
+    if !profile.include_mines && !profile.include_shrubbery {
+        return None;
+    }
+    let ray_dir = ray_end - ray_start;
+    let mut best: Option<(ObjectId, f32)> = None;
+    for o in &frame.objects {
+        if o.destroyed {
+            continue;
+        }
+        let is_local = player_team.is_some() && frame.is_owned_by_local(o);
+        if !is_local && o.fow_visibility.visibility_alpha < 0.95 {
+            continue;
+        }
+        let extra = (profile.include_mines && presentation_is_mine_pick(o))
+            || (profile.include_shrubbery && presentation_is_shrubbery_pick(o));
+        if !extra {
+            continue;
+        }
+        let radius = crate::pick_ray::presentation_mesh_pick_radius(
+            o.selection_radius,
+            o.health_box_width,
+        );
+        let Some(t) = crate::pick_ray::ray_sphere_hit_t(ray_start, ray_dir, o.position, radius)
+        else {
+            continue;
+        };
+        if t > 1.0 {
+            continue;
+        }
+        if best.is_none_or(|(_, best_t)| t < best_t) {
+            best = Some((o.id, t));
+        }
+    }
+    best.map(|(id, _)| id)
+}
+
+fn closer_presentation_pick_along_ray(
+    frame: &crate::presentation_frame::PresentationFrame,
+    ray_start: glam::Vec3,
+    ray_end: glam::Vec3,
+    standard: Option<ObjectId>,
+    extra: Option<ObjectId>,
+) -> Option<ObjectId> {
+    let ray_dir = ray_end - ray_start;
+    let hit_t = |id: ObjectId| {
+        frame.objects.iter().find(|o| o.id == id).and_then(|o| {
+            let radius = crate::pick_ray::presentation_mesh_pick_radius(
+                o.selection_radius,
+                o.health_box_width,
+            );
+            crate::pick_ray::ray_sphere_hit_t(ray_start, ray_dir, o.position, radius)
+        })
+    };
+    match (standard, extra) {
+        (Some(s), Some(e)) if s != e => {
+            let st = hit_t(s).unwrap_or(f32::MAX);
+            let et = hit_t(e).unwrap_or(f32::MAX);
+            if et < st {
+                Some(e)
+            } else {
+                Some(s)
+            }
+        }
+        (s, e) => s.or(e),
+    }
+}
+
+fn project_world_to_screen(
+    view_projection: glam::Mat4,
+    position: glam::Vec3,
+    viewport_width: f32,
+    viewport_height: f32,
+) -> Option<glam::Vec2> {
+    let clip = view_projection * position.extend(1.0);
+    if !clip.is_finite() || clip.w <= f32::EPSILON {
+        return None;
+    }
+    let ndc = clip.truncate() / clip.w;
+    if !ndc.is_finite() || !(0.0..=1.0).contains(&ndc.z) {
+        return None;
+    }
+    let screen = glam::Vec2::new(
+        (ndc.x + 1.0) * 0.5 * viewport_width,
+        (1.0 - ndc.y) * 0.5 * viewport_height,
+    );
+    screen.is_finite().then_some(screen)
+}
+
+#[cfg(feature = "game_client")]
+fn opaque_see_thru_chain(
+    mut window: Option<std::rc::Rc<std::cell::RefCell<game_client::gui::GameWindow>>>,
+) -> Vec<bool> {
+    let mut chain = Vec::new();
+    while let Some(current) = window {
+        let guard = current.borrow();
+        chain.push(
+            guard
+                .get_status()
+                .contains(game_client::gui::WindowStatus::SEE_THRU),
+        );
+        window = guard.get_parent();
+    }
+    chain
+}
+
 pub(super) fn closer_presentation_pick(
     frame: &crate::presentation_frame::PresentationFrame,
     position: glam::Vec3,
@@ -271,23 +383,124 @@ impl CnCGameEngine {
             profile,
         );
         closer_presentation_pick(frame, position, standard, extra).map(|id| {
-            // C++ InGameUI.cpp:2265-2278 — IGNORED_IN_GUI remaps to slaver/nexus.
-            frame
-                .objects
-                .iter()
-                .find(|o| o.id == id)
-                .and_then(|o| {
-                    if crate::presentation_frame::PresentationFrame::object_has_kind(
-                        o,
-                        crate::game_logic::KindOf::IgnoredInGui,
-                    ) {
-                        o.producer_id
-                    } else {
-                        None
-                    }
-                })
-                .unwrap_or(id)
+            self.remap_ignored_in_gui_pick(frame, id)
         })
+    }
+
+    /// C++ `W3DView::pickDrawable` + point `iterateDrawablesInRegion`.
+    pub(super) fn host_pick_object_at_cursor(&self, command_context: bool) -> Option<ObjectId> {
+        if self.host_cursor_blocked_by_opaque_window() {
+            return None;
+        }
+        let frame = self.last_presentation_frame.as_ref()?;
+        let (view_w, view_h) = self.tactical_viewport_size();
+        let (ray_start, ray_end) = super::mouse::unproject_mouse_ray(
+            self.view_matrix,
+            self.projection_matrix,
+            self.mouse_position,
+            view_w,
+            view_h,
+        )?;
+        let player_team = Some(frame.local_team());
+        let has_selected_units = !self.selected_objects.is_empty();
+        let prioritize_enemy_targets = command_context && has_selected_units;
+        let force_attack_mode = self.keys_pressed.contains(&winit::keyboard::Key::Named(
+            winit::keyboard::NamedKey::Control,
+        ));
+        let profile = host_context_pick_profile(
+            force_attack_mode,
+            self.host_armed_gui_command_options(),
+            self.host_selection_has_flame_weapon(),
+        );
+        let standard = crate::pick_ray::pick_object_id_along_camera_ray(
+            frame,
+            ray_start,
+            ray_end,
+            player_team,
+            prioritize_enemy_targets,
+        );
+        let extra = pick_widened_context_target_along_ray(
+            frame,
+            ray_start,
+            ray_end,
+            player_team,
+            profile,
+        );
+        closer_presentation_pick_along_ray(frame, ray_start, ray_end, standard, extra)
+            .filter(|&id| !self.host_object_id_blocked_by_opaque_hud(id))
+            .map(|id| self.remap_ignored_in_gui_pick(frame, id))
+    }
+
+    fn remap_ignored_in_gui_pick(
+        &self,
+        frame: &crate::presentation_frame::PresentationFrame,
+        id: ObjectId,
+    ) -> ObjectId {
+        // C++ InGameUI.cpp:2265-2278 — IGNORED_IN_GUI remaps to slaver/nexus.
+        frame
+            .objects
+            .iter()
+            .find(|o| o.id == id)
+            .and_then(|o| {
+                if crate::presentation_frame::PresentationFrame::object_has_kind(
+                    o,
+                    crate::game_logic::KindOf::IgnoredInGui,
+                ) {
+                    o.producer_id
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(id)
+    }
+
+    fn host_cursor_blocked_by_opaque_window(&self) -> bool {
+        #[cfg(feature = "game_client")]
+        {
+            let x = self.mouse_position.0 as i32;
+            let y = self.mouse_position.1 as i32;
+            game_client::gui::with_window_manager_ref(|manager| {
+                crate::pick_ray::opaque_window_chain_blocks_pick(&opaque_see_thru_chain(
+                    manager.get_window_under_cursor(x, y, false),
+                ))
+            })
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            false
+        }
+    }
+
+    pub(super) fn host_object_id_blocked_by_opaque_hud(&self, id: ObjectId) -> bool {
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return false;
+        };
+        let Some(object) = frame.objects.iter().find(|o| o.id == id) else {
+            return false;
+        };
+        let (view_w, view_h) = self.tactical_viewport_size();
+        let view_projection = self.projection_matrix * self.view_matrix;
+        let Some(screen) = project_world_to_screen(
+            view_projection,
+            object.position,
+            view_w,
+            view_h,
+        ) else {
+            return false;
+        };
+        #[cfg(feature = "game_client")]
+        {
+            game_client::gui::with_window_manager_ref(|manager| {
+                crate::pick_ray::opaque_window_chain_blocks_pick(&opaque_see_thru_chain(
+                    manager.get_window_under_cursor(screen.x as i32, screen.y as i32, false),
+                ))
+            })
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            let _ = screen;
+            false
+        }
     }
 
 
