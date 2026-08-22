@@ -1422,11 +1422,7 @@ impl GameLogic {
                     .with_priority(140),
             );
         }
-        if local {
-            let msg =
-                localization::localize("GUI:UnitReady", &format!("Unit ready: {template_name}"));
-            self.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Generic);
-        }
+        let _ = local;
         // C++ ProductionUpdate.cpp:819-825 create onBuildComplete after spawn,
         // including SpecialPowerCreate::startPowerRecharge.
         self.apply_create_modules_on_build_complete(unit_id);
