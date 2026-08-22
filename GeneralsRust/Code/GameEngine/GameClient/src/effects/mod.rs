@@ -45,6 +45,7 @@
 pub mod debug_draw;
 pub mod decals;
 pub mod fxlist_integration;
+pub mod heat_haze;
 pub mod manager;
 pub mod particle_ini_loader;
 pub mod particle_manager;
@@ -94,6 +95,9 @@ pub use particle_manager::{
 pub use particle_ini_loader::ParticleSystemINIParser;
 
 pub use particle_presets::{destruction, environment, explosions, get_preset_by_name, weapons};
+pub use heat_haze::{
+    build_heat_haze_quad, heat_haze_triangle_indices, HeatHazeSmudge, HeatHazeVertex,
+};
 pub use particle_renderer::{
     bake_particle_gpu_vertex, bake_particle_system_gpu_mesh, begin_particle_heat_smudge_frame,
     feed_system_heat_smudges, particle_type_name_is_smud, system_is_heat_smudge, ParticleBatch,
