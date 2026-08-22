@@ -414,6 +414,22 @@ impl Object {
             self.special_power_cooldowns.remove(power);
         }
         self.refresh_special_power_aggregate_cooldown();
+        if crate::game_logic::host_missile_launcher_building_update::missile_launcher_special_power(
+            &self.template_name,
+        )
+        .as_ref()
+        == Some(power)
+        {
+            if let Some(data) = self.missile_launcher_building.as_mut() {
+                data.pending_initiate = true;
+            } else if let Some(ini) = crate::game_logic::host_missile_launcher_building_update::missile_launcher_ini_for_template(
+                &self.template_name,
+            ) {
+                let mut data = crate::game_logic::host_missile_launcher_building_update::HostMissileLauncherBuildingUpdateData::from_ini(ini);
+                data.pending_initiate = true;
+                self.missile_launcher_building = Some(data);
+            }
+        }
         self.set_ai_state(AIState::Idle);
     }
 

@@ -261,6 +261,8 @@ pub struct HostLocomotorBinding {
     pub preferred_height: f32,
     pub preferred_height_damping: f32,
     pub circling_radius: f32,
+    /// C++ LocomotorTemplate::m_maxThrustAngle (radians).
+    pub max_thrust_angle: f32,
     pub turn_pivot_offset: f32,
     /// C++ LocomotorTemplate::m_wanderWidthFactor (0 = weave off).
     pub wander_width_factor: f32,
@@ -896,6 +898,8 @@ fn host_locomotor_binding_from_template(t: &LocomotorTemplate) -> Option<HostLoc
         preferred_height: t.preferred_height,
         preferred_height_damping: t.preferred_height_damping,
         circling_radius: t.circling_radius,
+        // Common INI store keeps authored degrees; C++ parseAngleReal → radians.
+        max_thrust_angle: t.max_thrust_angle * std::f32::consts::PI / 180.0,
         turn_pivot_offset: t.turn_pivot_offset,
         wander_width_factor: t.wander_width_factor,
         wander_length_factor: if t.wander_length_factor.abs() < 1.0e-6 {
@@ -937,6 +941,7 @@ pub fn apply_host_locomotor_binding(
     object.loco_preferred_height = binding.preferred_height;
     object.loco_preferred_height_damping = binding.preferred_height_damping;
     object.circling_radius = binding.circling_radius;
+    object.max_thrust_angle = binding.max_thrust_angle;
     object.turn_pivot_offset = binding.turn_pivot_offset;
     object.stick_to_ground = binding.stick_to_ground;
     object.locomotor_surfaces = binding.locomotor_surfaces;
@@ -986,6 +991,7 @@ fn same_host_locomotor_behavior(left: &HostLocomotorBinding, right: &HostLocomot
         && left.preferred_height == right.preferred_height
         && left.preferred_height_damping == right.preferred_height_damping
         && left.circling_radius == right.circling_radius
+        && left.max_thrust_angle == right.max_thrust_angle
         && left.turn_pivot_offset == right.turn_pivot_offset
         && left.wander_width_factor == right.wander_width_factor
         && left.wander_length_factor == right.wander_length_factor

@@ -979,6 +979,17 @@ impl GameLogic {
             o.radar_van_ping_expires_frame =
                 Some(self.frame.saturating_add(RADAR_SCAN_DURATION_FRAMES));
         }
+        let (extra_required, extra_forbidden) = self
+            .objects
+            .get(&pid)
+            .map(|o| {
+                crate::game_logic::host_radar_stealth_vision_residual::extra_detect_kindof_for_detector(
+                    &o.template_name,
+                    o.extra_detect_kindof,
+                    o.extra_detect_kindof_not,
+                )
+            })
+            .unwrap_or((0, 0));
         // First DetectionRate scan is immediate (C++ UPDATE_SLEEP_NONE).
         let hold = stealth_detector_hold_frames(RADAR_SCAN_STEALTH_DETECTION_RATE_FRAMES);
         let expires = self.frame.saturating_add(hold);
@@ -991,6 +1002,11 @@ impl GameLogic {
                     && o.is_alive()
                     && o.team != team
                     && (o.status.stealthed || o.status.disguised)
+                    && crate::game_logic::host_radar_stealth_vision_residual::detector_accepts_kindof_residual(
+                        o.kind_of_cpp_mask(),
+                        extra_required,
+                        extra_forbidden,
+                    )
             })
             .filter(|(_, o)| {
                 let p = o.get_position();
@@ -1109,6 +1125,17 @@ impl GameLogic {
             o.spy_satellite_ping_expires_frame =
                 Some(self.frame.saturating_add(SPY_SATELLITE_DURATION_FRAMES));
         }
+        let (extra_required, extra_forbidden) = self
+            .objects
+            .get(&pid)
+            .map(|o| {
+                crate::game_logic::host_radar_stealth_vision_residual::extra_detect_kindof_for_detector(
+                    &o.template_name,
+                    o.extra_detect_kindof,
+                    o.extra_detect_kindof_not,
+                )
+            })
+            .unwrap_or((0, 0));
         // First DetectionRate scan is immediate (C++ UPDATE_SLEEP_NONE).
         let hold = stealth_detector_hold_frames(SPY_SATELLITE_STEALTH_DETECTION_RATE_FRAMES);
         let expires = self.frame.saturating_add(hold);
@@ -1121,6 +1148,11 @@ impl GameLogic {
                     && o.is_alive()
                     && o.team != team
                     && (o.status.stealthed || o.status.disguised)
+                    && crate::game_logic::host_radar_stealth_vision_residual::detector_accepts_kindof_residual(
+                        o.kind_of_cpp_mask(),
+                        extra_required,
+                        extra_forbidden,
+                    )
             })
             .filter(|(_, o)| {
                 let p = o.get_position();

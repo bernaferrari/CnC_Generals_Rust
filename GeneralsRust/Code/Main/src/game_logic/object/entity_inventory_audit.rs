@@ -34,6 +34,7 @@ const INVENTORIED_IN_WINDOW: &[&str] = &[
     "height_die",
     "fuel_air_gas_slow_death",
     "neutron_missile_update",
+    "missile_launcher_building",
     "scud_storm_missile_flight",
     "carpet_bomb_payload",
     "carpet_bomb_transport",
@@ -84,7 +85,7 @@ const INVENTORIED_IN_WINDOW: &[&str] = &[
 
 fn present_groups(object: &Object) -> Vec<&'static str> {
     let mut out = Vec::new();
-    let pairs: [(&'static str, bool); 55] = [
+    let pairs: [(&'static str, bool); 56] = [
         (TAG_UPGRADE_DIE, object.upgrade_die.is_some()),
         (
             TAG_SPECIAL_POWER_COMPLETION,
@@ -127,6 +128,10 @@ fn present_groups(object: &Object) -> Vec<&'static str> {
             object.fuel_air_gas_slow_death.is_some(),
         ),
         (TAG_NEUTRON_MISSILE, object.neutron_missile_update.is_some()),
+        (
+            TAG_MISSILE_LAUNCHER_BUILDING,
+            object.missile_launcher_building.is_some(),
+        ),
         (
             TAG_SCUD_STORM_FLIGHT,
             object.scud_storm_missile_flight.is_some(),

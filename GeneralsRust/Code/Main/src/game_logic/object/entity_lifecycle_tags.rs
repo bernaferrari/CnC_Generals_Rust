@@ -49,6 +49,8 @@ pub const TAG_HEIGHT_DIE: &str = "HeightDieUpdate";
 pub const TAG_FUEL_AIR_GAS_SLOW_DEATH: &str = "FuelAirGasSlowDeath";
 /// C++ NeutronMissileUpdate residual.
 pub const TAG_NEUTRON_MISSILE: &str = "NeutronMissileUpdate";
+/// C++ MissileLauncherBuildingUpdate residual.
+pub const TAG_MISSILE_LAUNCHER_BUILDING: &str = "MissileLauncherBuildingUpdate";
 /// C++ ScudStormMissile flight residual.
 pub const TAG_SCUD_STORM_FLIGHT: &str = "ScudStormMissileFlight";
 /// C++ CarpetBomb transport residual.
@@ -144,6 +146,7 @@ pub const INVENTORY_TAGS: &[&str] = &[
     TAG_HEIGHT_DIE,
     TAG_FUEL_AIR_GAS_SLOW_DEATH,
     TAG_NEUTRON_MISSILE,
+    TAG_MISSILE_LAUNCHER_BUILDING,
     TAG_SCUD_STORM_FLIGHT,
     TAG_CARPET_BOMB_TRANSPORT,
     TAG_ARTILLERY_BARRAGE_TRANSPORT,

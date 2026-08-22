@@ -223,10 +223,14 @@ impl ScriptAction for SetVariableAction {
     }
 }
 
-/// Wait action
+/// Invented leftover wait. C++ has no generic `wait` ScriptAction.
+/// Sequential waits live in `scripting/executor` (`TEAM_WAIT_*`,
+/// `SKIRMISH_WAIT_*`, `TEAM_SPIN_FOR_FRAMECOUNT`, `frames_to_wait`).
+/// Leftover-only: not registered on ActionRegistry (hq-8ta4n).
+#[allow(dead_code)]
 pub(super) struct WaitAction;
-
 #[async_trait]
+#[allow(dead_code)]
 impl ScriptAction for WaitAction {
     async fn execute(
         &self,
@@ -234,12 +238,10 @@ impl ScriptAction for WaitAction {
         _context: &ScriptContext,
     ) -> GameLogicResult<ScriptResult> {
         let duration = get_float_param(parameters, "duration")?;
-
-        log::info!("Waiting for {} seconds", duration);
-
-        // In a real implementation, this would pause script execution
-
-        Ok(ScriptResult::Success(None))
+        log::debug!(
+            "Leftover wait ({duration}s) skipped; C++ sequential waits are executor-only"
+        );
+        Ok(ScriptResult::Skipped)
     }
 
     fn name(&self) -> &str {

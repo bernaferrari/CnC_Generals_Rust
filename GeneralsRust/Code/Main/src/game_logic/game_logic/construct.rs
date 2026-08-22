@@ -9,10 +9,12 @@ use super::player::*;
 use super::script_camera::*;
 
 impl GameLogic {
+    /// Leftover ScriptingEngine handle. Always None on the live host (hq-8ta4n).
     pub(super) fn script_engine_handle(&self) -> Option<Arc<ScriptingEngine>> {
         self.script_engine.as_ref().map(Arc::clone)
     }
 
+    /// Leftover ScriptingEngine event ingest. No-op on live host (hq-8ta4n).
     pub(super) fn forward_event_to_scripts(&self, event: &ScriptEvent) {
         let engine = match self.script_engine_handle() {
             Some(engine) => engine,

@@ -414,6 +414,22 @@ impl Object {
             self.detection_rate_frames = detection_rate_frames;
             self.record_host_detector();
         }
+        if self.is_detector {
+            self.apply_leftover_extra_detect_kindof();
+        }
+    }
+
+    /// C++ `StealthDetectorUpdateModuleData` ExtraRequired/ForbiddenKindOf
+    /// from leftover ThingFactory (StealthDetectorUpdate.cpp:53-54, :168).
+    pub fn apply_leftover_extra_detect_kindof(&mut self) {
+        let (required, forbidden) =
+            crate::game_logic::host_radar_stealth_vision_residual::extra_detect_kindof_for_detector(
+                &self.template_name,
+                self.extra_detect_kindof,
+                self.extra_detect_kindof_not,
+            );
+        self.extra_detect_kindof = required;
+        self.extra_detect_kindof_not = forbidden;
     }
 
     /// C++ `StealthDetectorUpdate` ctor: random first wake so detectors do not
@@ -431,6 +447,7 @@ impl Object {
                 );
             self.record_host_detector();
         }
+        self.apply_leftover_extra_detect_kindof();
         self.next_detection_scan_frame =
             crate::game_logic::host_strategy_center::stealth_detector_ctor_next_scan_frame(
                 self.detection_rate_frames,

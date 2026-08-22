@@ -1250,6 +1250,7 @@ pub struct GameLogic {
     pub(super) host_beacons: Vec<Vec3>,
     /// Beacon locations created this frame for HUD highlighting/bloom.
     pub(super) recent_beacons: Vec<Vec3>,
+    /// Leftover ScriptingEngine second brain (hq-8ta4n). Always None on live host.
     pub(super) script_engine: Option<Arc<ScriptingEngine>>,
     pub(super) script_event_pump_in_flight: Arc<AtomicBool>,
     pub(super) script_event_pump_busy_frames: u32,

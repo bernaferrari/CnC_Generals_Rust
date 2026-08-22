@@ -54,6 +54,9 @@ pub mod host_ocl_special_power;
 #[path = "host_scud_storm_missile_flight.rs"]
 pub mod host_scud_storm_missile_flight;
 
+#[path = "host_missile_launcher_building_update.rs"]
+pub mod host_missile_launcher_building_update;
+
 #[path = "host_special_power_update_module.rs"]
 pub mod host_special_power_update_module;
 

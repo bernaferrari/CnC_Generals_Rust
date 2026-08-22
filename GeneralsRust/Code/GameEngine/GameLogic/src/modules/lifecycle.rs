@@ -256,6 +256,15 @@ pub trait ProductionUpdateInterface: Send + Sync {
         false
     }
 
+    /// C++ `ProductionUpdateInterface::isUpgradeInQueue`.
+    fn is_upgrade_in_queue(&self, upgrade_name: &str) -> bool {
+        self.get_queue_entries().iter().any(|entry| {
+            entry.production_type
+                == crate::object::production::queue::ProductionType::Upgrade
+                && entry.template_name.eq_ignore_ascii_case(upgrade_name)
+        })
+    }
+
     /// Get production progress (0.0 to 1.0)
     fn get_production_progress(&self) -> f32;
 

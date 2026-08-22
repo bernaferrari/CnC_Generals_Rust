@@ -1,10 +1,9 @@
-//! Script Trigger System
+//! Invented leftover TriggerSystem (hq-8ta4n).
 //!
-//! This module provides the trigger system for map scripting and campaigns.
-//! Triggers combine conditions with actions and support one-shot vs repeating,
-//! AND/OR logic, sequential script execution, and map editor integration.
-//!
-//! Matches C++ ScriptEngine trigger evaluation from ScriptEngine.cpp
+//! C++ has no TriggerSystem type. ScriptEngine::update walks Script/ScriptGroup
+//! lists and ScriptEvaluator/ScriptActions execute them. This module is
+//! leftover-only and must not run as a second evaluator on the live host.
+
 
 use super::core::*;
 use super::engine::ScriptEngine;

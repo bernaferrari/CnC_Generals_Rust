@@ -1,10 +1,8 @@
-//! Action registry for built-in script actions.
+//! Leftover Rhai/name ActionRegistry (hq-8ta4n).
 //!
-//! C++ cousin: ScriptActions.cpp `executeAction` switch L6382 (name HashMap
-//! here; the faithful match is `scripting/executor/dispatch.rs`).
-//!
-//! Split from `scripting/actions.rs` for module-size parity.
-//! Observable script behavior is unchanged.
+//! C++ `executeAction` is `scripting/executor/dispatch.rs`. This HashMap
+//! registry is leftover-only and must not run as a second action brain.
+
 
 use super::building::*;
 use super::camera_ui::*;
@@ -143,12 +141,13 @@ impl ActionRegistry {
         self.register_action(Box::new(EnableScienceAction));
         self.register_action(Box::new(DisableScienceAction));
 
-        // Scripting control actions
+        // Scripting control actions (C++ ScriptEngine enable/disable/execute).
+        // Invented leftover WaitAction is leftover-only — C++ sequential waits
+        // live in scripting/executor (hq-8ta4n).
         self.register_action(Box::new(EnableScriptAction));
         self.register_action(Box::new(DisableScriptAction));
         self.register_action(Box::new(ExecuteScriptAction));
         self.register_action(Box::new(SetVariableAction));
-        self.register_action(Box::new(WaitAction));
 
         // 20 Core Actions - Priority 1 Implementation
         self.register_action(Box::new(VictoryAction));

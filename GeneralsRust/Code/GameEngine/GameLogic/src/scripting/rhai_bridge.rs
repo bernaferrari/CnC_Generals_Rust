@@ -1,9 +1,9 @@
-//! Rhai Scripting Language Integration
+//! Leftover Rhai second brain (hq-8ta4n).
 //!
-//! This module provides integration with the Rhai scripting language, allowing map
-//! authors and modders to write custom scripts in Rhai syntax that integrate with
-//! the C++ script engine behavior.
-//!
+//! C++ map scripts are Script/ScriptAction/ScriptCondition (SCB), not Rhai.
+//! Live execution is `scripting/engine::ScriptEngine` + `scripting/executor`.
+//! This module stays leftover-only and must not run on the live host.
+
 //! Rhai is a lightweight embedded scripting language for Rust that provides:
 //! - Familiar JavaScript-like syntax
 //! - Type safety at runtime

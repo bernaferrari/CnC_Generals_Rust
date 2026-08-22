@@ -169,6 +169,8 @@ impl GameLogic {
                         }
                     }
                 }
+                // C++ MissileLauncherBuildingUpdate::update (ready-frame door SM).
+                obj.tick_missile_launcher_building(self.frame);
                 // Wave 761: continuous-fire coast + repulsor expire peel under coupled.
                 // Wave 761: CF coast + repulsor peel under coupled.
                 // Wave 765: subdual heal owned by GW when coupled.

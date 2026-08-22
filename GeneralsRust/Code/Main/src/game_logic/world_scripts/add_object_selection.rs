@@ -1308,35 +1308,19 @@ impl GameLogic {
             return; // Already initialized
         }
 
-        if self.script_engine.is_none() {
-            log::debug!("Initializing script system");
-            match ScriptingEngine::new() {
-                Ok(mut engine) => {
-                    let handler: Arc<dyn ScriptActionHandler> = Arc::new(
-                        MissionScriptActionHandler::new(self.mission_scripts.clone()),
-                    );
-
-                    engine.set_action_handler(Some(Arc::clone(&handler)));
-                    let _ = engine.set_game_state_context(self.build_script_game_state_context());
-                    self.script_engine = Some(Arc::new(engine));
-
-                    // The legacy ScriptEngine owns immediate subroutine dispatch; install the
-                    // host handler there so CALL_SUBROUTINE actions deliver presentation/gameplay
-                    // effects to this world without a second frame evaluator.
-                    let _ = gamelogic::scripting::engine::initialize_script_engine();
-                    if let Ok(mut legacy_guard) =
-                        gamelogic::scripting::engine::get_script_engine().write()
-                    {
-                        if let Some(legacy) = legacy_guard.as_mut() {
-                            legacy.set_action_handler(Some(handler));
-                        }
-                    }
-
-                    log::info!("Scripting engine initialized");
-                }
-                Err(err) => {
-                    log::error!("Failed to initialize scripting engine: {}", err);
-                    return;
+        // Live C++ path is ScriptEngine + executor (GameLogic.cpp:3600).
+        // Leftover ScriptingEngine / ActionRegistry / Rhai / TriggerSystem is
+        // leftover-only (hq-8ta4n): do not construct a second script brain.
+        {
+            let handler: Arc<dyn ScriptActionHandler> = Arc::new(
+                MissionScriptActionHandler::new(self.mission_scripts.clone()),
+            );
+            let _ = gamelogic::scripting::engine::initialize_script_engine();
+            if let Ok(mut live_guard) =
+                gamelogic::scripting::engine::get_script_engine().write()
+            {
+                if let Some(live) = live_guard.as_mut() {
+                    live.set_action_handler(Some(handler));
                 }
             }
         }

@@ -345,6 +345,16 @@ impl ProductionUpdateInterface for ProductionUpdate {
         entries
     }
 
+    fn is_upgrade_in_queue(&self, upgrade_name: &str) -> bool {
+        self.current_entry
+            .as_ref()
+            .is_some_and(|entry| entry.template_name.eq_ignore_ascii_case(upgrade_name))
+            || self
+                .production_queue
+                .iter()
+                .any(|entry| entry.template_name.eq_ignore_ascii_case(upgrade_name))
+    }
+
     fn get_production_progress(&self) -> f32 {
         if !self.is_producing {
             return 0.0;

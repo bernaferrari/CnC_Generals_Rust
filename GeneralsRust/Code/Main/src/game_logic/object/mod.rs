@@ -765,6 +765,9 @@ pub struct Object {
     /// C++ PRECISE_Z_POS flag residual.
     #[serde(default)]
     pub precise_z_pos: bool,
+    /// C++ LocomotorTemplate::m_maxThrustAngle residual (radians, parseAngleReal).
+    #[serde(default)]
+    pub max_thrust_angle: f32,
     /// C++ KINDOF_DOZER residual (skip fixInvalidPosition).
     #[serde(default)]
     pub is_dozer: bool,
@@ -1474,6 +1477,11 @@ pub struct Object {
     #[serde(default)]
     pub neutron_missile_update:
         Option<crate::game_logic::host_neutron_missile_update::HostNeutronMissileUpdateData>,
+    /// C++ MissileLauncherBuildingUpdate door state (Scud Storm / Nuke silo).
+    #[serde(default)]
+    pub missile_launcher_building: Option<
+        crate::game_logic::host_missile_launcher_building_update::HostMissileLauncherBuildingUpdateData,
+    >,
     /// C++ ScudStormMissile MissileAIUpdate ballistic residual.
     #[serde(default)]
     pub scud_storm_missile_flight:

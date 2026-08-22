@@ -1946,35 +1946,10 @@ impl GameLogic {
                     );
                 }
             }
-
-            self.forward_event_to_scripts(&event);
         }
 
-        if let Some(engine) = self.script_engine_handle() {
-            if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                let in_flight = Arc::clone(&self.script_event_pump_in_flight);
-                if !in_flight.swap(true, Ordering::AcqRel) {
-                    self.script_event_pump_busy_frames = 0;
-                    handle.spawn(async move {
-                        if let Err(err) = engine.process_events().await {
-                            log::error!("Scripting engine event processing failed: {}", err);
-                        }
-                        in_flight.store(false, Ordering::Release);
-                    });
-                } else {
-                    self.script_event_pump_busy_frames =
-                        self.script_event_pump_busy_frames.saturating_add(1);
-                    if self.script_event_pump_busy_frames.is_multiple_of(90) {
-                        let pending_events = engine.pending_event_count();
-                        log::warn!(
-                            "Script event pump busy for {} frames (pending_events={})",
-                            self.script_event_pump_busy_frames,
-                            pending_events
-                        );
-                    }
-                }
-            }
-        }
+        // Leftover ScriptingEngine event queue / process_events is leftover-only
+        // (hq-8ta4n). Live host conditions/actions walk ScriptEngine::update.
         // C++ GameLogic.cpp:3600 — one TheScriptEngine->UPDATE() per logic frame.
         // Take the engine out of the global RwLock for the duration of update().
         // std::sync::RwLock is not re-entrant: holding write() across update()

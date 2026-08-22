@@ -1300,7 +1300,11 @@ impl Object {
     }
 
 
-    /// C++ moveTowardsPositionThrust residual (simplified 3D force toward goal).
+    /// C++ `Locomotor::moveTowardsPositionThrust` (`Locomotor.cpp:1891-2004`).
+    ///
+    /// Leftover GameLogic `move_towards_position_thrust_physics` already has
+    /// gravity-aware aim, MaxThrustAngle, and surface PreferredHeight; this
+    /// live-host path ports those leftovers onto host Y-up + 3D motive force.
     pub fn move_towards_thrust(
         &mut self,
         goal: glam::Vec3,
@@ -1308,51 +1312,79 @@ impl Object {
         mut desired_speed: f32,
         dt: f32,
     ) {
-        let max_speed = self.effective_max_speed().max(0.01);
-        desired_speed = desired_speed.clamp(self.min_speed, max_speed);
+        let mut max_speed = self.effective_max_speed();
+        desired_speed = desired_speed.clamp(self.min_speed, max_speed.max(self.min_speed));
         let actual = self.movement.velocity.length();
         if self.braking > 0.0 && !self.no_slow_down_as_approaching_dest {
-            let slow = (actual / 1.5) * (actual / self.braking.max(1e-3));
+            let slow = calc_slow_down_dist(actual, self.min_speed, self.braking);
             if on_path_dist < slow {
                 desired_speed = self.min_speed;
             }
         }
+
         let mut local_goal = goal;
         if self.loco_preferred_height != 0.0 && !self.precise_z_pos {
-            // surface relative preferred height residual (ground_y ≈ current if unknown)
-            let surface = self.get_position().y; // fail-closed
+            // C++ getSurfaceHtAtPt: leftover water/ground, not current altitude.
+            let surface = leftover_surface_ht_at_pt(self.get_position(), self.ground_height);
             let preferred = self.loco_preferred_height + surface;
-            let mut delta = preferred - self.get_position().y;
-            delta *= self.loco_preferred_height_damping.clamp(0.0, 1.0);
+            let delta = (preferred - self.get_position().y) * self.loco_preferred_height_damping;
             local_goal.y = self.get_position().y + delta;
         }
+
         let us = self.get_position();
-        let mut dir = local_goal - us;
-        let len = dir.length();
-        if len < 1e-4 {
-            return;
-        }
-        dir /= len;
+        let (fx, fz) = self.unit_direction_xz();
+        let forward = glam::Vec3::new(fx, 0.0, fz);
         let speed_delta = desired_speed - actual;
         let max_accel = if speed_delta > 0.0 || self.braking <= 0.0 {
-            self.movement.acceleration
+            self.effective_acceleration()
         } else {
-            self.braking
+            -self.braking
         };
-        // Damped accel residual: thrustDir*maxAccel - vel*damping
-        let damping = (max_accel / max_speed).clamp(0.0, 1.0);
-        let accel = dir * max_accel - self.movement.velocity * damping;
-        let mass = self.physics_get_mass();
-        self.apply_motive_force(accel * mass);
-        self.integrate_physics_accel();
-        // Orient toward velocity residual.
-        if self.movement.velocity.length_squared() > 1e-4 {
-            let v = self.movement.velocity;
-            let desired_yaw = (-v.z).atan2(v.x);
-            let (_t, _) = self.rotate_towards_position(
-                us + glam::Vec3::new(desired_yaw.cos(), 0.0, -desired_yaw.sin()),
-                dt,
-            );
+        let mut max_turn_rate = self.effective_turn_rate();
+
+        let desired_thrust = leftover_calc_direction_to_apply_thrust(
+            us,
+            self.movement.velocity,
+            local_goal,
+            max_accel,
+            forward,
+        );
+        let max_thrust_angle = if max_turn_rate > 0.0 {
+            self.max_thrust_angle
+        } else {
+            0.0
+        };
+        let (thrust_dir, thrust_angle) =
+            leftover_try_to_rotate_vector3d(max_thrust_angle, forward, desired_thrust);
+
+        // C++ orients to velocity (3× turn while braking, aim at original goal).
+        if !thrust_vel_nearly_zero(self.movement.velocity.length()) {
+            let mut vel = self.movement.velocity;
+            let mut adjust = true;
+            if self.is_braking {
+                vel = goal - us;
+                if thrust_vel_nearly_zero(vel.length()) {
+                    adjust = false;
+                }
+                max_turn_rate *= 3.0;
+            }
+            if adjust {
+                let desired_yaw = (-vel.z).atan2(vel.x);
+                let aim = us
+                    + glam::Vec3::new(desired_yaw.cos(), 0.0, -desired_yaw.sin());
+                let _ = self.rotate_obj_around_loco_pivot(aim, max_turn_rate * dt);
+            }
+        }
+
+        if speed_delta != 0.0 || thrust_angle != 0.0 {
+            if max_speed <= 0.0 {
+                max_speed = 0.01;
+            }
+            let damping = (max_accel / max_speed).clamp(0.0, 1.0);
+            let accel = thrust_dir * max_accel - self.movement.velocity * damping;
+            let mass = self.physics_get_mass();
+            self.apply_motive_force(accel * mass);
+            self.integrate_physics_accel();
         }
         let p = us + self.movement.velocity * dt;
         self.set_position(p);
@@ -1600,6 +1632,134 @@ fn leftover_ground_or_structure_height(pos: glam::Vec3, ground_y: f32) -> f32 {
     match leftover {
         Some(h) if h > ground_y + 1.0e-3 => h,
         _ => ground_y,
+    }
+}
+
+fn thrust_vel_nearly_zero(v: f32) -> bool {
+    v.abs() < 0.001
+}
+
+/// Leftover `loco_gravity` / C++ `TheGlobalData->m_gravity`. Host Y-up == C++ Z.
+fn leftover_loco_gravity() -> f32 {
+    game_engine::common::ini::get_global_data()
+        .map(|data| data.read().gravity)
+        .unwrap_or(Object::SHOCK_GRAVITY)
+}
+
+/// C++ `Locomotor::getSurfaceHtAtPt` via leftover `TheTerrainLogic`.
+/// Host XZ maps to leftover XY. Empty leftover terrain keeps `ground_y`.
+fn leftover_surface_ht_at_pt(pos: glam::Vec3, ground_y: f32) -> f32 {
+    let Some(terrain) = gamelogic::helpers::TheTerrainLogic::get() else {
+        return ground_y;
+    };
+    let mut water_z = 0.0;
+    let mut terrain_z = 0.0;
+    if terrain.is_underwater(pos.x, pos.z, Some(&mut water_z), Some(&mut terrain_z)) {
+        return water_z;
+    }
+    if terrain_z.abs() > 1.0e-3 {
+        terrain_z
+    } else {
+        ground_y
+    }
+}
+
+/// Leftover `calc_direction_to_apply_thrust` / C++ `Locomotor.cpp:175-250`.
+/// Host Y-up: gravity is added to velocity.y (C++ velocity.z).
+fn leftover_calc_direction_to_apply_thrust(
+    obj_pos: glam::Vec3,
+    cur_vel: glam::Vec3,
+    goal_pos: glam::Vec3,
+    max_accel: f32,
+    forward: glam::Vec3,
+) -> glam::Vec3 {
+    let vec_to_goal = goal_pos - obj_pos;
+    if thrust_vel_nearly_zero(vec_to_goal.length_squared()) {
+        let len = forward.length();
+        return if len > 1.0e-8 {
+            forward / len
+        } else {
+            glam::Vec3::X
+        };
+    }
+
+    let mut cur_vel = cur_vel;
+    cur_vel.y += leftover_loco_gravity();
+
+    let dist_to_goal = vec_to_goal.length();
+    let cur_vel_mag_sqr = cur_vel.length_squared();
+    let cur_vel_mag = cur_vel_mag_sqr.sqrt();
+    let max_accel_sqr = max_accel * max_accel;
+    let denom = cur_vel_mag_sqr - max_accel_sqr;
+
+    if !thrust_vel_nearly_zero(denom) {
+        let t = (dist_to_goal * (cur_vel_mag + max_accel)) / denom;
+        let t2 = (dist_to_goal * (cur_vel_mag - max_accel)) / denom;
+        if t >= 0.0 || t2 >= 0.0 {
+            let t = if t < 0.0 || (t2 >= 0.0 && t2 < t) {
+                t2
+            } else {
+                t
+            };
+            if !thrust_vel_nearly_zero(t) {
+                let mut dir = glam::Vec3::new(
+                    vec_to_goal.x / t - cur_vel.x,
+                    vec_to_goal.y / t - cur_vel.y,
+                    vec_to_goal.z / t - cur_vel.z,
+                );
+                let len = dir.length();
+                if len > 1.0e-8 {
+                    dir /= len;
+                    return dir;
+                }
+            }
+        }
+    }
+
+    let len = vec_to_goal.length();
+    if len > 1.0e-8 {
+        vec_to_goal / len
+    } else {
+        glam::Vec3::X
+    }
+}
+
+/// Leftover `try_to_rotate_vector3d` / C++ `tryToRotateVector3D` (`Locomotor.cpp:91-149`).
+fn leftover_try_to_rotate_vector3d(
+    max_angle: f32,
+    start: glam::Vec3,
+    end: glam::Vec3,
+) -> (glam::Vec3, f32) {
+    if thrust_vel_nearly_zero(max_angle) {
+        return (start, 0.0);
+    }
+    let start_len = start.length();
+    let end_len = end.length();
+    if start_len < 1.0e-6 || end_len < 1.0e-6 {
+        return (end, 0.0);
+    }
+    let start_n = start / start_len;
+    let end_n = end / end_len;
+    let cosine = start_n.dot(end_n).clamp(-1.0, 1.0);
+    let angle_between = cosine.acos();
+    if angle_between.abs() <= max_angle {
+        return (end_n, angle_between);
+    }
+    let axis = start_n.cross(end_n);
+    let axis_len = axis.length();
+    if axis_len < 1.0e-6 {
+        return (end_n, angle_between);
+    }
+    let axis_n = axis / axis_len;
+    let (sin_a, cos_a) = max_angle.sin_cos();
+    let rotated = start_n * cos_a
+        + axis_n.cross(start_n) * sin_a
+        + axis_n * axis_n.dot(start_n) * (1.0 - cos_a);
+    let rot_len = rotated.length();
+    if rot_len < 1.0e-6 {
+        (end_n, max_angle)
+    } else {
+        (rotated / rot_len, max_angle)
     }
 }
 

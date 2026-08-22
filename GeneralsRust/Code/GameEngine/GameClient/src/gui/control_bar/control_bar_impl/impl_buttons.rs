@@ -222,6 +222,7 @@ impl ControlBar {
         };
         button.command_name = command_identity.clone();
         button.command_type = map_gui_command_to_command_type(command_operation);
+        button.gui_command = command_operation.to_string();
 
         button.button_image = definition.button_image.clone();
         button.button_border_type = definition.button_border_type.clone();
@@ -260,6 +261,7 @@ impl ControlBar {
         let mut button = CommandButton::default();
         button.command_name = logic_button.get_name().to_string();
         button.command_type = logic_button.get_command_type();
+        button.gui_command = logic_button.get_gui_command().to_string();
         button.text_label = logic_button.get_name().to_string();
         button.descriptive_text = logic_button.tooltip.clone();
         button.options = logic_button.get_options_bits();

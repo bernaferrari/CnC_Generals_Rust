@@ -60,6 +60,9 @@ fn apply_one(
             object.fuel_air_gas_slow_death = Some(decode_payload(payload)?);
         }
         TAG_NEUTRON_MISSILE => object.neutron_missile_update = Some(decode_payload(payload)?),
+        TAG_MISSILE_LAUNCHER_BUILDING => {
+            object.missile_launcher_building = Some(decode_payload(payload)?);
+        }
         TAG_SCUD_STORM_FLIGHT => object.scud_storm_missile_flight = Some(decode_payload(payload)?),
         TAG_CARPET_BOMB_TRANSPORT => object.carpet_bomb_transport = Some(decode_payload(payload)?),
         TAG_ARTILLERY_BARRAGE_TRANSPORT => {
