@@ -3256,6 +3256,86 @@ fn crush_points_use_authored_major_radius() {
         "center is 5wu behind; major/2 window is 4.5wu so no HUGE crush"
     );
 }
+
+#[test]
+fn overlap_crush_aims_with_facing_not_velocity() {
+    // C++ PhysicsUpdate.cpp:1488 uses getUnitDirectionVector2D(), not velocity.
+    // A tank facing +X but sliding backward must still crush along facing.
+    let mut vt = ThingTemplate::new("FacingCrushTank");
+    vt.add_kind_of(KindOf::Vehicle);
+    let mut tank = Object::new(vt, ObjectId(541), Team::USA);
+    tank.crusher_level = 2;
+    tank.set_orientation(0.0);
+    tank.movement.velocity = glam::Vec3::new(-5.0, 0.0, 0.0);
+    tank.set_position(glam::Vec3::new(15.0, 0.0, 0.2));
+
+    let mut ct = ThingTemplate::new("FacingCrushCar");
+    ct.add_kind_of(KindOf::Vehicle);
+    ct.geometry_info = crate::game_logic::HostGeometryInfo {
+        geom_type: crate::game_logic::HostGeometryType::Box,
+        is_small: true,
+        height: 8.0,
+        major_radius: 6.0,
+        minor_radius: 4.0,
+        authored: true,
+    };
+    let mut car = Object::new(ct, ObjectId(542), Team::Neutral);
+    car.crushable_level = 1;
+    car.crusher_level = 0;
+    car.selection_radius = 10.0;
+    car.set_orientation(0.0);
+    car.set_position(glam::Vec3::new(10.0, 0.0, 0.0));
+    car.health.current = 200.0;
+    car.health.maximum = 200.0;
+
+    assert!(tank.can_crush_only(&car, false));
+    assert!(tank.check_for_overlap_collision(&mut car, false));
+    assert!(
+        car.status.destroyed || car.health.current <= 0.0,
+        "facing past-point must crush even when velocity points the other way"
+    );
+}
+
+#[test]
+fn first_crush_of_car_is_not_always_total() {
+    // C++ PhysicsBehavior does not stamp body flags. CrushDie::onDie then
+    // crushLocationCheck against both-false writes FRONT or BACK, not TOTAL.
+    let mut vt = ThingTemplate::new("HalfWreckTank");
+    vt.add_kind_of(KindOf::Vehicle);
+    let mut tank = Object::new(vt, ObjectId(551), Team::USA);
+    tank.crusher_level = 2;
+    tank.set_orientation(0.0);
+    tank.movement.velocity = glam::Vec3::new(5.0, 0.0, 0.0);
+    tank.set_position(glam::Vec3::new(15.0, 0.0, 0.2));
+
+    let mut ct = ThingTemplate::new("HalfWreckCar");
+    ct.add_kind_of(KindOf::Vehicle);
+    ct.geometry_info = crate::game_logic::HostGeometryInfo {
+        geom_type: crate::game_logic::HostGeometryType::Box,
+        is_small: true,
+        height: 8.0,
+        major_radius: 6.0,
+        minor_radius: 4.0,
+        authored: true,
+    };
+    let mut car = Object::new(ct, ObjectId(552), Team::Neutral);
+    car.crushable_level = 1;
+    car.crusher_level = 0;
+    car.selection_radius = 10.0;
+    car.set_orientation(0.0);
+    car.set_position(glam::Vec3::new(10.0, 0.0, 0.0));
+    car.health.current = 200.0;
+    car.health.maximum = 200.0;
+
+    assert!(tank.check_for_overlap_collision(&mut car, false));
+    assert!(car.status.destroyed || car.health.current <= 0.0);
+    assert!(
+        car.front_crushed && !car.back_crushed,
+        "first crush must be FRONT wreck, not TOTAL (front={} back={})",
+        car.front_crushed,
+        car.back_crushed
+    );
+}
 #[test]
 fn scrub_velocity_and_structure_stiffness_bounce() {
     use crate::game_logic::host_partition_collision_physics_residual::{
