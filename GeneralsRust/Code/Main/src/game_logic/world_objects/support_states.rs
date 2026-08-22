@@ -6183,6 +6183,51 @@ impl GameLogic {
                 }
             }
         }
+
+        // C++ GarrisonContain::update → healObjects when HealObjects=Yes.
+        let mut garrison_jobs: Vec<(u32, Vec<ObjectId>)> = Vec::new();
+        for obj in self.objects.values() {
+            if obj.thing.template.contain_module.kind != crate::game_logic::ContainModuleKind::Garrison
+            {
+                continue;
+            }
+            if !obj.thing.template.contain_module.heal_objects {
+                continue;
+            }
+            if !obj.is_alive() || obj.status.under_construction {
+                continue;
+            }
+            let occupants = obj.contained_units();
+            if occupants.is_empty() {
+                continue;
+            }
+            let frames = obj
+                .thing
+                .template
+                .contain_module
+                .frames_for_full_heal
+                .unwrap_or(1);
+            garrison_jobs.push((frames, occupants));
+        }
+        for (frames, occupants) in garrison_jobs {
+            for unit_id in occupants {
+                let enter_frame = self
+                    .tunnel_network
+                    .contained_by_frame(unit_id)
+                    .unwrap_or(self.frame);
+                let contained_frames = self.frame.saturating_sub(enter_frame);
+                if let Some(unit) = self.objects.get_mut(&unit_id) {
+                    let amount = gamelogic::object::contain::garrison_heal_single_amount(
+                        unit.health.maximum,
+                        contained_frames,
+                        frames as f32,
+                    );
+                    if amount > 0.0 {
+                        unit.heal(amount);
+                    }
+                }
+            }
+        }
     }
 
     /// C++ `TunnelTracker::getCurNemesis` object-validity half.
