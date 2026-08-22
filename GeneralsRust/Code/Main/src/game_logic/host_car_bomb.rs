@@ -489,4 +489,12 @@ mod tests {
         assert!(honesty_car_bomb_range_residual_ok());
         assert!(honesty_car_bomb_residual_pack_ok());
     }
+
+    #[test]
+    fn convert_fx_list_is_not_the_audio_event() {
+        assert_eq!(CAR_BOMB_CONVERT_FX_LIST, "FX_MakeCarBombSuccess");
+        assert_eq!(CAR_BOMB_CONVERT_FX_SOUND, "TerroristCarBomb");
+        assert_ne!(CAR_BOMB_CONVERT_AUDIO, CAR_BOMB_CONVERT_FX_SOUND);
+        assert!(!CAR_BOMB_CONVERT_FX_LIST.eq_ignore_ascii_case(CAR_BOMB_CONVERT_FX_SOUND));
+    }
 }

@@ -2995,6 +2995,25 @@ fn carbomb_command_converts_vehicle_after_reach() {
         bomber.status.destroyed,
         "converter infantry is consumed on conversion"
     );
+    assert!(
+        !game_logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == "MakeCarBombSuccess"),
+        "convert must not play the FXList name as audio"
+    );
+    assert!(
+        game_logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == "TerroristCarBomb")
+            || crate::game_logic::dispatch_fx_list_at_object(
+                crate::game_logic::host_car_bomb::CAR_BOMB_CONVERT_FX_LIST,
+                target_id.0,
+                None
+            ),
+        "convert must dispatch FX_MakeCarBombSuccess or its TerroristCarBomb sound"
+    );
 }
 
 /// Residual: ConvertToCarbomb allows neutral civilian vehicles.
