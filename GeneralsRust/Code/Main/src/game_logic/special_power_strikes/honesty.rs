@@ -512,8 +512,7 @@ pub fn honesty_general_special_power_alias_pack_ok() -> bool {
             == Some(HostSuperweaponKind::NuclearMissile)
         && HostSuperweaponKind::from_command_power(&P::NukeChinaCarpetBomb)
             == Some(HostSuperweaponKind::CarpetBomb)
-        && HostSuperweaponKind::from_command_power(&P::BattleshipBombardment)
-            == Some(HostSuperweaponKind::ArtilleryBarrage)
+        && HostSuperweaponKind::from_command_power(&P::BattleshipBombardment).is_none()
 }
 
 pub fn honesty_napalm_strike_residual_pack_ok() -> bool {

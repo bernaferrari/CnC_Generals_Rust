@@ -4,6 +4,33 @@ pub use crate::core::DrawableId;
 
 pub const INVALID_DRAWABLE_ID: DrawableId = DrawableId(0);
 
+/// C++ `Drawable::xfer` visual subset used by the live-host persist tail.
+#[derive(Debug, Clone, Default)]
+pub struct DrawableXferVisualSnapshot {
+    pub explicit_opacity: f32,
+    pub stealth_opacity: f32,
+    pub effective_stealth_opacity: f32,
+    pub instance_scale: f32,
+    pub heat_vision_opacity: f32,
+    pub tint_status: u32,
+    pub prev_tint_status: u32,
+    pub hidden: bool,
+    pub hidden_by_stealth: bool,
+    pub expiration_date: u32,
+    pub has_loco: bool,
+    pub loco_pitch: f32,
+    pub loco_pitch_rate: f32,
+    pub loco_roll: f32,
+    pub loco_roll_rate: f32,
+    pub loco_yaw: f32,
+    pub loco_accel_pitch: f32,
+    pub loco_accel_pitch_rate: f32,
+    pub loco_accel_roll: f32,
+    pub loco_accel_roll_rate: f32,
+    pub overlay_icons: Vec<(String, u32, String, u32)>,
+}
+
+
 /// 3D vector for positions, rotations, and colors
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Vector3 {

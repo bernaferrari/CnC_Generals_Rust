@@ -1414,15 +1414,35 @@ impl GameLogic {
                 }
             }
         }
+        // C++ newTask findGoodBuildOrRepairPosition → ACTION dock (cpp:1973-1991).
+        let action_dock = {
+            let dozer_pos = self.objects.get(&dozer_id).map(|d| d.get_position());
+            let site = self
+                .objects
+                .get(&build_target)
+                .map(|s| (s.get_position(), s.selection_radius));
+            match (dozer_pos, site) {
+                (Some(dozer_pos), Some((site_pos, site_radius))) => Some(
+                    crate::game_logic::host_repair::dozer_repair_approach_position(
+                        dozer_pos,
+                        site_pos,
+                        site_radius,
+                    ),
+                ),
+                _ => None,
+            }
+        };
         if let Some(obj) = self.objects.get_mut(&dozer_id) {
             obj.dozer_task_build_target = Some(build_target);
             obj.dozer_task_build_order_frame = frame;
+            obj.dozer_dock_action = action_dock;
         }
         if let Some(st) = self.objects.get_mut(&build_target) {
             // C++ newTask setBuilder (DozerAIUpdate.cpp:1986).
             st.builder_id = Some(dozer_id);
         }
     }
+
 
     /// C++ `DozerAIUpdate::newTask(DOZER_TASK_REPAIR)` (DozerAIUpdate.cpp:1948-2008).
     /// Parks an in-flight BUILD in its own slot; only the REPAIR slot is replaced.
@@ -1452,7 +1472,9 @@ impl GameLogic {
             } else {
                 obj.dozer_task_build_target = None;
                 obj.dozer_task_build_order_frame = 0;
+                obj.dozer_dock_action = None;
             }
+
         }
     }
 
@@ -1573,7 +1595,15 @@ impl GameLogic {
             dozer.target = Some(tid);
             dozer.set_ai_state(AIState::Constructing);
             dozer.idle_since_frame = 0;
+            if dozer.dozer_dock_action.is_none() {
+                dozer.dozer_dock_action = Some(
+                    crate::game_logic::host_repair::dozer_repair_approach_position(
+                        dozer_pos, st_pos, st_radius,
+                    ),
+                );
+            }
         }
+
         let approach = crate::game_logic::host_repair::dozer_repair_approach_position(
             dozer_pos, st_pos, st_radius,
         );

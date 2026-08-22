@@ -2040,20 +2040,18 @@ impl GameLogic {
     /// command-enum residual table: C++ owns HDB reload/science/shared state
     /// in the loaded SpecialPowerTemplate paired with this object.
     pub fn is_hacker_disable_building_ready(&self, source_id: ObjectId) -> bool {
-        use crate::command_system::SpecialPowerType;
-
         let Some(source) = self.objects.get(&source_id) else {
             return false;
         };
         let Some(metadata) = source.thing.template.hacker_disable_building.as_ref() else {
             return false;
         };
+        let power = metadata.command_power();
         if !metadata.update_module_starts_attack
             || metadata.scripted_special_power_only
             || !source.is_alive()
             || source.is_disabled()
-            || source
-                .is_special_power_countdown_paused(&SpecialPowerType::HackerDisableBuilding)
+            || source.is_special_power_countdown_paused(&power)
         {
             return false;
         }
@@ -2076,17 +2074,15 @@ impl GameLogic {
                 return false;
             };
             return self.players.get(&owner_id).is_some_and(|player| {
-                player.is_shared_special_power_ready(&SpecialPowerType::HackerDisableBuilding)
+                player.is_shared_special_power_ready(&power)
             });
         }
-        source.is_special_power_ready(&SpecialPowerType::HackerDisableBuilding)
+        source.is_special_power_ready(&power)
     }
 
     /// Start the exact parsed HDB reload at C++
     /// `SpecialAbilityUpdate::startPreparation`, not at click time.
     pub fn consume_hacker_disable_building_charge(&mut self, source_id: ObjectId) -> bool {
-        use crate::command_system::SpecialPowerType;
-
         if !self.is_hacker_disable_building_ready(source_id) {
             return false;
         }
@@ -2100,6 +2096,7 @@ impl GameLogic {
         }) else {
             return false;
         };
+        let power = metadata.command_power();
         if metadata.shared_n_sync {
             let Some(owner_id) = owner_id else {
                 return false;
@@ -2108,14 +2105,11 @@ impl GameLogic {
                 return false;
             };
             player.reset_shared_special_power_timer(
-                &SpecialPowerType::HackerDisableBuilding,
+                &power,
                 metadata.reload_time_frames as f32 / 30.0,
             );
         } else if let Some(source) = self.objects.get_mut(&source_id) {
-            source.start_power_recharge_with_frames(
-                &SpecialPowerType::HackerDisableBuilding,
-                metadata.reload_time_frames,
-            );
+            source.start_power_recharge_with_frames(&power, metadata.reload_time_frames);
         } else {
             return false;
         }

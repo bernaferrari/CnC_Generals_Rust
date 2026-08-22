@@ -83,6 +83,9 @@ pub mod host_ranger;
 
 #[path = "host_railroad.rs"]
 pub mod host_railroad;
+#[path = "host_railed_transport.rs"]
+pub mod host_railed_transport;
+
 #[path = "host_raptor.rs"]
 pub mod host_raptor;
 

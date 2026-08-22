@@ -81,13 +81,28 @@ pub struct RadarEventPersist {
     pub sound_played: bool,
 }
 
+fn default_one_f32() -> f32 {
+    1.0
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct DrawableIconPersist {
+    pub name: String,
+    pub keep_till_frame: u32,
+    #[serde(default)]
+    pub template_name: String,
+    #[serde(default)]
+    pub anim_frame: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DrawableXferPersist {
     pub object_id: u32,
     pub selection_flash_remaining: u32,
     pub decal_opacity_fade_target: f32,
     pub decal_opacity_fade_rate: f32,
     pub decal_opacity: f32,
+    #[serde(default = "default_one_f32")]
     pub explicit_opacity: f32,
     pub drawable_status: u32,
     pub tint_status: u32,
@@ -105,6 +120,62 @@ pub struct DrawableXferPersist {
     pub loco_accel_pitch_rate: f32,
     pub loco_accel_roll: f32,
     pub loco_accel_roll_rate: f32,
+    #[serde(default = "default_one_f32")]
+    pub stealth_opacity: f32,
+    #[serde(default = "default_one_f32")]
+    pub effective_stealth_opacity: f32,
+    #[serde(default)]
+    pub heat_vision_opacity: f32,
+    #[serde(default = "default_one_f32")]
+    pub instance_scale: f32,
+    #[serde(default)]
+    pub expiration_date: u32,
+    #[serde(default)]
+    pub hidden: bool,
+    #[serde(default)]
+    pub hidden_by_stealth: bool,
+    #[serde(default)]
+    pub overlay_icons: Vec<DrawableIconPersist>,
+    #[serde(default)]
+    pub tint_envelope: crate::game_logic::DrawableTintEnvelopePersist,
+}
+
+impl Default for DrawableXferPersist {
+    fn default() -> Self {
+        Self {
+            object_id: 0,
+            selection_flash_remaining: 0,
+            decal_opacity_fade_target: 0.0,
+            decal_opacity_fade_rate: 0.0,
+            decal_opacity: 0.0,
+            explicit_opacity: 1.0,
+            drawable_status: 0,
+            tint_status: 0,
+            prev_tint_status: 0,
+            fade_mode: 0,
+            time_elapsed_fade: 0,
+            time_to_fade: 0,
+            has_loco_info: false,
+            loco_pitch: 0.0,
+            loco_pitch_rate: 0.0,
+            loco_roll: 0.0,
+            loco_roll_rate: 0.0,
+            loco_yaw: 0.0,
+            loco_accel_pitch: 0.0,
+            loco_accel_pitch_rate: 0.0,
+            loco_accel_roll: 0.0,
+            loco_accel_roll_rate: 0.0,
+            stealth_opacity: 1.0,
+            effective_stealth_opacity: 1.0,
+            heat_vision_opacity: 0.0,
+            instance_scale: 1.0,
+            expiration_date: 0,
+            hidden: false,
+            hidden_by_stealth: false,
+            overlay_icons: Vec::new(),
+            tint_envelope: crate::game_logic::DrawableTintEnvelopePersist::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -359,20 +430,98 @@ pub fn capture_persist_v18(game_logic: &GameLogic) -> WorldPersistV18 {
         let Some(object) = game_logic.host_object(id) else {
             continue;
         };
-        let has_loco = object.loco_extra_2d_friction != 0.0
-            || object.loco_preferred_height != 0.0
-            || object.drawable_fade_mode != 0
-            || object.selection_flash_remaining != 0
+        let tint_envelope = crate::game_logic::capture_drawable_tint_envelope(id.0)
+            .unwrap_or_default();
+        let mut explicit_opacity = object.drawable_explicit_opacity;
+        let mut stealth_opacity = object.camo_friendly_opacity;
+        let mut effective_stealth_opacity = object.camo_friendly_opacity;
+        let mut instance_scale = object.drawable_instance_scale;
+        let mut heat_vision_opacity = object.camo_heat_vision_opacity;
+        let mut tint_status = object.drawable_tint_status;
+        let mut prev_tint_status = object.drawable_prev_tint_status;
+        let mut hidden = object.drawable_hidden;
+        let mut hidden_by_stealth = object.camo_stealth_look == 5;
+        let mut expiration_date = object.drawable_expiration_date;
+        let mut has_loco_info = object.drawable_loco_pitch != 0.0
+            || object.drawable_loco_roll != 0.0
+            || object.drawable_loco_yaw != 0.0
+            || object.drawable_loco_pitch_rate != 0.0
+            || object.drawable_loco_roll_rate != 0.0;
+        let mut loco_pitch = object.drawable_loco_pitch;
+        let mut loco_pitch_rate = object.drawable_loco_pitch_rate;
+        let mut loco_roll = object.drawable_loco_roll;
+        let mut loco_roll_rate = object.drawable_loco_roll_rate;
+        let mut loco_yaw = object.drawable_loco_yaw;
+        let mut loco_accel_pitch = object.drawable_loco_accel_pitch;
+        let mut loco_accel_pitch_rate = object.drawable_loco_accel_pitch_rate;
+        let mut loco_accel_roll = object.drawable_loco_accel_roll;
+        let mut loco_accel_roll_rate = object.drawable_loco_accel_roll_rate;
+        let mut overlay_icons: Vec<DrawableIconPersist> = object
+            .drawable_overlay_icons
+            .iter()
+            .map(|icon| DrawableIconPersist {
+                name: icon.name.clone(),
+                keep_till_frame: icon.keep_till_frame,
+                template_name: icon.template_name.clone(),
+                anim_frame: icon.anim_frame,
+            })
+            .collect();
+        #[cfg(feature = "game_client")]
+        if let Some(left) = game_client::core::capture_live_drawable_xfer_visuals(id.0) {
+            explicit_opacity = left.explicit_opacity;
+            stealth_opacity = left.stealth_opacity;
+            effective_stealth_opacity = left.effective_stealth_opacity;
+            instance_scale = left.instance_scale;
+            heat_vision_opacity = left.heat_vision_opacity;
+            tint_status = left.tint_status;
+            prev_tint_status = left.prev_tint_status;
+            hidden = left.hidden;
+            hidden_by_stealth = left.hidden_by_stealth;
+            expiration_date = left.expiration_date;
+            has_loco_info = left.has_loco;
+            loco_pitch = left.loco_pitch;
+            loco_pitch_rate = left.loco_pitch_rate;
+            loco_roll = left.loco_roll;
+            loco_roll_rate = left.loco_roll_rate;
+            loco_yaw = left.loco_yaw;
+            loco_accel_pitch = left.loco_accel_pitch;
+            loco_accel_pitch_rate = left.loco_accel_pitch_rate;
+            loco_accel_roll = left.loco_accel_roll;
+            loco_accel_roll_rate = left.loco_accel_roll_rate;
+            if !left.overlay_icons.is_empty() {
+                overlay_icons = left
+                    .overlay_icons
+                    .into_iter()
+                    .map(|(name, keep_till_frame, template_name, anim_frame)| {
+                        DrawableIconPersist {
+                            name,
+                            keep_till_frame,
+                            template_name,
+                            anim_frame,
+                        }
+                    })
+                    .collect();
+            }
+        }
+        let has_visuals = object.selection_flash_remaining != 0
             || object.terrain_decal_fade_rate != 0.0
             || object.terrain_decal_opacity != 0.0
             || object.terrain_decal_fade_target != 0.0
-            || object.drawable_hidden;
-        if !has_loco
-            && object.selection_flash_remaining == 0
-            && object.drawable_fade_mode == 0
-            && object.terrain_decal_fade_rate == 0.0
-            && object.terrain_decal_opacity == 0.0
-        {
+            || hidden
+            || object.drawable_fade_mode != 0
+            || (explicit_opacity - 1.0).abs() > f32::EPSILON
+            || (instance_scale - 1.0).abs() > f32::EPSILON
+            || tint_status != 0
+            || prev_tint_status != 0
+            || expiration_date != 0
+            || heat_vision_opacity > 0.0
+            || (stealth_opacity - 1.0).abs() > f32::EPSILON
+            || loco_pitch != 0.0
+            || loco_roll != 0.0
+            || loco_yaw != 0.0
+            || !overlay_icons.is_empty()
+            || tint_envelope.seen;
+        if !has_visuals {
             continue;
         }
         persist.drawable_xfer.push(DrawableXferPersist {
@@ -381,27 +530,37 @@ pub fn capture_persist_v18(game_logic: &GameLogic) -> WorldPersistV18 {
             decal_opacity_fade_target: object.terrain_decal_fade_target,
             decal_opacity_fade_rate: object.terrain_decal_fade_rate,
             decal_opacity: object.terrain_decal_opacity,
-            explicit_opacity: 1.0,
-            drawable_status: u32::from(object.drawable_hidden),
-            tint_status: 0,
-            prev_tint_status: 0,
+            explicit_opacity,
+            drawable_status: u32::from(hidden),
+            tint_status,
+            prev_tint_status,
             fade_mode: object.drawable_fade_mode,
             time_elapsed_fade: object
                 .drawable_fade_start_frame
                 .min(object.drawable_fade_frames),
             time_to_fade: object.drawable_fade_frames,
-            has_loco_info: true,
-            loco_pitch: 0.0,
-            loco_pitch_rate: 0.0,
-            loco_roll: 0.0,
-            loco_roll_rate: 0.0,
-            loco_yaw: 0.0,
-            loco_accel_pitch: 0.0,
-            loco_accel_pitch_rate: 0.0,
-            loco_accel_roll: 0.0,
-            loco_accel_roll_rate: 0.0,
+            has_loco_info,
+            loco_pitch,
+            loco_pitch_rate,
+            loco_roll,
+            loco_roll_rate,
+            loco_yaw,
+            loco_accel_pitch,
+            loco_accel_pitch_rate,
+            loco_accel_roll,
+            loco_accel_roll_rate,
+            stealth_opacity,
+            effective_stealth_opacity,
+            heat_vision_opacity,
+            instance_scale,
+            expiration_date,
+            hidden,
+            hidden_by_stealth,
+            overlay_icons,
+            tint_envelope,
         });
     }
+
 
     persist
 }
@@ -526,10 +685,84 @@ pub fn restore_persist_v18(persist: &WorldPersistV18, game_logic: &mut GameLogic
         object.terrain_decal_fade_target = entry.decal_opacity_fade_target;
         object.terrain_decal_fade_rate = entry.decal_opacity_fade_rate;
         object.terrain_decal_opacity = entry.decal_opacity;
-        object.drawable_hidden = entry.drawable_status != 0;
+        object.drawable_hidden = entry.hidden || entry.drawable_status != 0;
         object.drawable_fade_mode = entry.fade_mode;
         object.drawable_fade_frames = entry.time_to_fade;
         object.drawable_fade_start_frame = entry.time_elapsed_fade;
+        object.drawable_explicit_opacity = entry.explicit_opacity;
+        object.drawable_instance_scale = entry.instance_scale;
+        object.drawable_tint_status = entry.tint_status;
+        object.drawable_prev_tint_status = entry.prev_tint_status;
+        object.drawable_expiration_date = entry.expiration_date;
+        object.drawable_loco_pitch = entry.loco_pitch;
+        object.drawable_loco_pitch_rate = entry.loco_pitch_rate;
+        object.drawable_loco_roll = entry.loco_roll;
+        object.drawable_loco_roll_rate = entry.loco_roll_rate;
+        object.drawable_loco_yaw = entry.loco_yaw;
+        object.drawable_loco_accel_pitch = entry.loco_accel_pitch;
+        object.drawable_loco_accel_pitch_rate = entry.loco_accel_pitch_rate;
+        object.drawable_loco_accel_roll = entry.loco_accel_roll;
+        object.drawable_loco_accel_roll_rate = entry.loco_accel_roll_rate;
+        object.camo_friendly_opacity = entry.stealth_opacity;
+        object.camo_heat_vision_opacity = entry.heat_vision_opacity;
+        if entry.hidden_by_stealth {
+            object.camo_stealth_look = 5;
+        }
+        object.drawable_overlay_icons = entry
+            .overlay_icons
+            .iter()
+            .map(|icon| crate::game_logic::DrawableOverlayIcon {
+                name: icon.name.clone(),
+                keep_till_frame: icon.keep_till_frame,
+                template_name: icon.template_name.clone(),
+                anim_frame: icon.anim_frame,
+            })
+            .collect();
+        if entry.tint_envelope.seen {
+            crate::game_logic::restore_drawable_tint_envelope(entry.object_id, entry.tint_envelope);
+        }
+        #[cfg(feature = "game_client")]
+        {
+            let visuals = game_client::drawable::DrawableXferVisualSnapshot {
+                explicit_opacity: entry.explicit_opacity,
+                stealth_opacity: entry.stealth_opacity,
+                effective_stealth_opacity: entry.effective_stealth_opacity,
+                instance_scale: entry.instance_scale,
+                heat_vision_opacity: entry.heat_vision_opacity,
+                tint_status: entry.tint_status,
+                prev_tint_status: entry.prev_tint_status,
+                hidden: entry.hidden || entry.drawable_status != 0,
+                hidden_by_stealth: entry.hidden_by_stealth,
+                expiration_date: entry.expiration_date,
+                has_loco: entry.has_loco_info,
+                loco_pitch: entry.loco_pitch,
+                loco_pitch_rate: entry.loco_pitch_rate,
+                loco_roll: entry.loco_roll,
+                loco_roll_rate: entry.loco_roll_rate,
+                loco_yaw: entry.loco_yaw,
+                loco_accel_pitch: entry.loco_accel_pitch,
+                loco_accel_pitch_rate: entry.loco_accel_pitch_rate,
+                loco_accel_roll: entry.loco_accel_roll,
+                loco_accel_roll_rate: entry.loco_accel_roll_rate,
+                overlay_icons: entry
+                    .overlay_icons
+                    .iter()
+                    .map(|icon| {
+                        (
+                            icon.name.clone(),
+                            icon.keep_till_frame,
+                            icon.template_name.clone(),
+                            icon.anim_frame,
+                        )
+                    })
+                    .collect(),
+            };
+            let _ = game_client::core::restore_live_drawable_xfer_visuals(
+                entry.object_id,
+                &visuals,
+            );
+        }
+
     }
 }
 

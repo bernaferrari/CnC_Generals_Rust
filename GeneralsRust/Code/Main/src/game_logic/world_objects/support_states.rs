@@ -3,6 +3,20 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
+/// C++ AIGuardInnerState residual.
+const GUARD_CHASE_PHASE_INNER: u8 = 1;
+/// C++ AIGuardOuterState residual.
+const GUARD_CHASE_PHASE_OUTER: u8 = 2;
+/// C++ AIGuardAttackAggressorState residual.
+const GUARD_CHASE_PHASE_AGGRESSOR: u8 = 3;
+
+fn host_guard_xy_dist_sq(a: glam::Vec3, b: glam::Vec3) -> f32 {
+    let dx = a.x - b.x;
+    let dz = a.z - b.z;
+    dx * dx + dz * dz
+}
+
+
 #[derive(Clone)]
 struct RiderChangeEnterPlan {
     rider: crate::game_logic::RiderChangeRiderMetadata,
@@ -466,6 +480,77 @@ impl GameLogic {
             edge,
             start_range,
         )
+    }
+
+    /// C++ SpecialAbilityUpdate approach → StartAbilityRange 3 → startPreparation
+    /// (`markSpecialPowerTriggered`) → `createSpecialObject` NapalmBomb.
+    fn update_helix_napalm_bomb_channel(
+        &mut self,
+        object_id: ObjectId,
+        ability: crate::game_logic::PendingSpecialAbility,
+    ) {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::host_helix_napalm::helix_napalm_in_start_range;
+
+        let Some(target) = ability.helix_napalm_target() else {
+            self.pending_special_abilities.remove(&object_id);
+            return;
+        };
+        let Some((position, selection_radius, can_move, alive)) =
+            self.objects.get(&object_id).map(|o| {
+                (
+                    o.get_position(),
+                    o.selection_radius,
+                    o.can_move(),
+                    o.is_alive(),
+                )
+            })
+        else {
+            self.pending_special_abilities.remove(&object_id);
+            return;
+        };
+        if !alive {
+            self.pending_special_abilities.remove(&object_id);
+            return;
+        }
+        if !helix_napalm_in_start_range(position, selection_radius, target) {
+            if can_move {
+                self.path_approach_with_state(object_id, target, AIState::SpecialAbility);
+            }
+            return;
+        }
+        let power = self.objects.get(&object_id).and_then(|o| {
+            [
+                SpecialPowerType::HelixNapalmBomb,
+                SpecialPowerType::HelixNukeBomb,
+            ]
+            .into_iter()
+            .find(|p| {
+                o.thing
+                    .template
+                    .special_power_module_for_command(p)
+                    .is_some()
+            })
+        });
+        if let Some(power) = power {
+            if !self.consume_special_power_charge_for(object_id, &power) {
+                // C++ PersistenceRequiresRecharge: freeze until SPM ready.
+                return;
+            }
+        }
+        if let Some(obj) = self.objects.get_mut(&object_id) {
+            obj.set_status_using_ability(true);
+            obj.stop_moving();
+        }
+        let dropped = self.activate_helix_napalm_bomb(object_id, target).is_some();
+        self.pending_special_abilities.remove(&object_id);
+        if let Some(obj) = self.objects.get_mut(&object_id) {
+            obj.set_status_using_ability(false);
+            if dropped {
+                obj.set_ai_state(AIState::Idle);
+            }
+        }
+        let _ = dropped;
     }
 
     /// C++ `PartitionFilterLineOfSight` residual used after the 2D range gate.
@@ -2286,6 +2371,197 @@ impl GameLogic {
         }
     }
 
+
+    /// C++ ExitConditions::shouldExit — XY only (AIGuard.cpp:116-132).
+    fn host_guard_inner_outer_for(&self, object_id: ObjectId, guard_radius: f32) -> (f32, f32) {
+        const GUARD_MIN_RADIUS: f32 = 80.0;
+        let (std_inner, std_outer) = self.host_std_guard_ranges(object_id);
+        let mood = self
+            .objects
+            .get(&object_id)
+            .map(|o| o.ai_attitude)
+            .unwrap_or(0);
+        let inner = if mood <= -2 {
+            0.0
+        } else if std_inner > 0.0 {
+            std_inner
+        } else if guard_radius > 0.0 {
+            guard_radius
+        } else {
+            GUARD_MIN_RADIUS
+        };
+        let outer = if std_outer > 0.0 {
+            std_outer
+        } else {
+            inner * 1.5
+        };
+        (inner, outer)
+    }
+
+    fn begin_guard_chase(&mut self, object_id: ObjectId, phase: u8) {
+        let frames = self.host_guard_chase_unit_frames();
+        let now = self.frame;
+        if let Some(o) = self.objects.get_mut(&object_id) {
+            o.guard_chase_phase = phase;
+            o.guard_chase_give_up_frame = if phase == GUARD_CHASE_PHASE_INNER {
+                0
+            } else {
+                now.saturating_add(frames)
+            };
+        }
+    }
+
+    fn begin_guard_chase_acquired(&mut self, object_id: ObjectId, target_id: ObjectId) {
+        let (anchor, guard_radius) = {
+            let Some(o) = self.objects.get(&object_id) else {
+                return;
+            };
+            let anchor = if let Some(gid) = o.guard_target {
+                self.objects
+                    .get(&gid)
+                    .filter(|g| g.is_alive())
+                    .map(|g| g.get_position())
+                    .or(o.guard_position)
+                    .unwrap_or_else(|| o.get_position())
+            } else {
+                o.guard_position.unwrap_or_else(|| o.get_position())
+            };
+            (anchor, o.guard_radius)
+        };
+        let tgt_pos = self
+            .objects
+            .get(&target_id)
+            .map(|t| t.get_position())
+            .unwrap_or(anchor);
+        let (inner, _) = self.host_guard_inner_outer_for(object_id, guard_radius);
+        let phase = if inner > 0.0 && host_guard_xy_dist_sq(anchor, tgt_pos) > inner * inner {
+            GUARD_CHASE_PHASE_OUTER
+        } else {
+            GUARD_CHASE_PHASE_INNER
+        };
+        self.begin_guard_chase(object_id, phase);
+    }
+
+    fn engage_guard_target(
+        &mut self,
+        object_id: ObjectId,
+        target_id: ObjectId,
+        aggressor: bool,
+    ) -> bool {
+        if aggressor {
+            self.begin_guard_chase(object_id, GUARD_CHASE_PHASE_AGGRESSOR);
+        } else {
+            self.begin_guard_chase_acquired(object_id, target_id);
+        }
+        let ok = self.engage_target_decision_aware(object_id, target_id);
+        if !ok {
+            if let Some(o) = self.objects.get_mut(&object_id) {
+                o.clear_guard_chase();
+            }
+        }
+        ok
+    }
+
+    fn end_guard_chase_attack(&mut self, object_id: ObjectId) {
+        if let Some(o) = self.objects.get_mut(&object_id) {
+            o.clear_guard_chase();
+        }
+        self.stop_attack_decision_aware(object_id);
+    }
+
+    /// C++ AIGuardInner / Outer / AttackAggressor ExitConditions while Attacking.
+    fn tick_guard_chase_exits(&mut self, object_id: ObjectId) -> bool {
+        let snapshot = match self.objects.get(&object_id) {
+            Some(o) if o.guard_chase_phase != 0 => (
+                o.guard_chase_phase,
+                o.guard_chase_give_up_frame,
+                o.target,
+                o.guard_position,
+                o.guard_target,
+                o.guard_radius,
+                o.guard_mode,
+            ),
+            _ => return false,
+        };
+        let (phase, give_up, target_id, guard_pos, guard_tgt, guard_radius, guard_mode) = snapshot;
+        let Some(tid) = target_id else {
+            self.end_guard_chase_attack(object_id);
+            return true;
+        };
+        let Some(tgt) = self.objects.get(&tid) else {
+            self.end_guard_chase_attack(object_id);
+            return true;
+        };
+        if !tgt.is_alive() || tgt.status.destroyed {
+            self.end_guard_chase_attack(object_id);
+            return true;
+        }
+        let tgt_pos = tgt.get_position();
+        let anchor = if let Some(gid) = guard_tgt {
+            self.objects
+                .get(&gid)
+                .filter(|g| g.is_alive())
+                .map(|g| g.get_position())
+                .or(guard_pos)
+                .unwrap_or(tgt_pos)
+        } else {
+            guard_pos.unwrap_or(tgt_pos)
+        };
+        let (inner, outer) = self.host_guard_inner_outer_for(object_id, guard_radius);
+        let dist_sq = host_guard_xy_dist_sq(anchor, tgt_pos);
+        let without_pursuit = matches!(guard_mode, crate::game_logic::GuardMode::WithoutPursuit);
+        let now = self.frame;
+        match phase {
+            GUARD_CHASE_PHASE_INNER => {
+                if inner > 0.0 && dist_sq > inner * inner {
+                    if without_pursuit {
+                        // C++ AIGuardOuterState::onEnter GUARDMODE_GUARD_WITHOUT_PURSUIT → SUCCESS.
+                        self.end_guard_chase_attack(object_id);
+                        return true;
+                    }
+                    self.begin_guard_chase(object_id, GUARD_CHASE_PHASE_OUTER);
+                    if outer > 0.0 && dist_sq > outer * outer {
+                        self.end_guard_chase_attack(object_id);
+                        return true;
+                    }
+                }
+                false
+            }
+            GUARD_CHASE_PHASE_OUTER => {
+                let mut give_up = give_up;
+                if inner > 0.0 && dist_sq <= inner * inner {
+                    let frames = self.host_guard_chase_unit_frames();
+                    give_up = now.saturating_add(frames);
+                    if let Some(o) = self.objects.get_mut(&object_id) {
+                        o.guard_chase_give_up_frame = give_up;
+                    }
+                }
+                if now >= give_up {
+                    self.end_guard_chase_attack(object_id);
+                    return true;
+                }
+
+                if outer > 0.0 && dist_sq > outer * outer {
+                    self.end_guard_chase_attack(object_id);
+                    return true;
+                }
+                false
+            }
+            GUARD_CHASE_PHASE_AGGRESSOR => {
+                if now >= give_up {
+                    self.end_guard_chase_attack(object_id);
+                    return true;
+                }
+                if inner > 0.0 && dist_sq > inner * inner {
+                    self.end_guard_chase_attack(object_id);
+                    return true;
+                }
+                false
+            }
+            _ => false,
+        }
+    }
+
     /// C++ hasAttackedMeAndICanReturnFire — consume last attacker and engage.
     fn try_guard_last_attacker(&mut self, object_id: ObjectId, team: Team) -> bool {
         let last = self
@@ -2315,7 +2591,8 @@ impl GameLogic {
         ) {
             return false;
         }
-        self.engage_target_decision_aware(object_id, aid)
+        self.engage_guard_target(object_id, aid, true)
+
     }
 
     /// C++ EnterGuard / HijackGuard: board instead of shooting.
@@ -2509,7 +2786,8 @@ impl GameLogic {
                     if can_attack {
                         if let Some(team_id) = self.host_team_common_target(object_id) {
                             if !(without_pursuit && position.distance(anchor) > inner)
-                                && self.engage_target_decision_aware(object_id, team_id)
+                                && self.engage_guard_target(object_id, team_id, false)
+
                             {
                                 continue;
                             }
@@ -2581,7 +2859,8 @@ impl GameLogic {
                                 ) {
                                     continue;
                                 }
-                            } else if self.engage_target_decision_aware(object_id, enemy_id) {
+                            } else if self.engage_guard_target(object_id, enemy_id, false) {
+
                                 continue;
                             }
                         }
@@ -2717,7 +2996,8 @@ impl GameLogic {
                             }
                         };
                         if let Some(enemy_id) = tunnel_nemesis {
-                            if self.engage_target_decision_aware(object_id, enemy_id) {
+                            if self.engage_guard_target(object_id, enemy_id, false) {
+
                                 continue;
                             }
                         }
@@ -2730,7 +3010,8 @@ impl GameLogic {
                                 acquire_radius,
                             )
                         {
-                            if self.engage_target_decision_aware(object_id, enemy_id) {
+                            if self.engage_guard_target(object_id, enemy_id, false) {
+
                                 continue;
                             }
                         }
@@ -4193,6 +4474,11 @@ impl GameLogic {
                         }
                         continue;
                     };
+                    if matches!(ability, PendingSpecialAbility::HelixNapalmBomb { .. }) {
+                        self.update_helix_napalm_bomb_channel(object_id, ability);
+                        continue;
+                    }
+
                     let special_target_id = ability.target_id();
 
                     // HDB is an authored, persistent SpecialAbilityUpdate
@@ -5141,6 +5427,11 @@ impl GameLogic {
                         PendingSpecialAbility::HackerDisableBuilding { .. } => {
                             unreachable!("HDB is intercepted by its typed persistent channel")
                         }
+                        PendingSpecialAbility::HelixNapalmBomb { .. } => {
+                            unreachable!(
+                                "Helix NapalmBomb is intercepted by its typed approach channel"
+                            )
+                        }
                         PendingSpecialAbility::DisguiseAsVehicle { .. } => {
                             // C++ StealthUpdate::disguiseAsObject residual:
                             // if target already disguised, copy *its* disguise
@@ -6055,6 +6346,12 @@ impl GameLogic {
                         can_move,
                     );
                 }
+                AIState::Attacking => {
+                    // C++ parent stays AI_GUARD; live peels to Attacking for fire.
+                    // Apply inner radius / outer chase-timer / aggressor exits.
+                    let _ = self.tick_guard_chase_exits(object_id);
+                }
+
                 _ => {}
             }
         }

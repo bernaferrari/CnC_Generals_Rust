@@ -23,6 +23,20 @@ impl ScriptConditionEvaluator {
             player_name
         );
 
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            if let Some(ready) = crate::scripting::host_eval_skirmish_special_power_ready(
+                &player_name,
+                &power_name,
+            ) {
+                return Ok(if ready {
+                    ScriptConditionResult::True
+                } else {
+                    ScriptConditionResult::False
+                });
+            }
+        }
+
+
         let Ok(players) = player_list().read() else {
             return Ok(ScriptConditionResult::False);
         };
@@ -86,6 +100,22 @@ impl ScriptConditionEvaluator {
             comparison,
             compare_value
         );
+
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            if let Some(ok) = crate::scripting::host_eval_skirmish_value_in_area(
+                &player_name,
+                comparison as i32,
+                compare_value,
+                &area_name,
+            ) {
+                return Ok(if ok {
+                    ScriptConditionResult::True
+                } else {
+                    ScriptConditionResult::False
+                });
+            }
+        }
+
 
         let Ok(players) = player_list().read() else {
             return Ok(ScriptConditionResult::False);
@@ -447,6 +477,18 @@ impl ScriptConditionEvaluator {
         let comparison = self.get_condition_comparison_param(condition, 1)?;
         let target_count = self.get_condition_int_param(condition, 2)?;
 
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            if let Some(count) = crate::scripting::host_eval_skirmish_unowned_faction_unit_count() {
+                let result = Self::compare_i32(comparison, count, target_count);
+                return Ok(if result {
+                    ScriptConditionResult::True
+                } else {
+                    ScriptConditionResult::False
+                });
+            }
+        }
+
+
         let neutral_player = player_list()
             .read()
             .ok()
@@ -543,6 +585,20 @@ impl ScriptConditionEvaluator {
         let comparison = self.get_condition_comparison_param(condition, 1)?;
         let target_count = self.get_condition_int_param(condition, 2)?;
 
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            if let Some(count) =
+                crate::scripting::host_eval_skirmish_garrisoned_count(&player_name)
+            {
+                let result = Self::compare_i32(comparison, count, target_count);
+                return Ok(if result {
+                    ScriptConditionResult::True
+                } else {
+                    ScriptConditionResult::False
+                });
+            }
+        }
+
+
         let player_arc = player_list()
             .read()
             .ok()
@@ -605,6 +661,18 @@ impl ScriptConditionEvaluator {
         let player_name = self.get_condition_string_param(condition, 0)?;
         let comparison = self.get_condition_comparison_param(condition, 1)?;
         let target_count = self.get_condition_int_param(condition, 2)?;
+
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            if let Some(count) = crate::scripting::host_eval_skirmish_captured_count(&player_name) {
+                let result = Self::compare_i32(comparison, count, target_count);
+                return Ok(if result {
+                    ScriptConditionResult::True
+                } else {
+                    ScriptConditionResult::False
+                });
+            }
+        }
+
 
         let player_arc = player_list()
             .read()
@@ -686,6 +754,21 @@ impl ScriptConditionEvaluator {
             player_name,
             area_name
         );
+
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            if let Some(ok) = crate::scripting::host_eval_skirmish_player_has_units_in_area(
+                &player_name,
+                &area_name,
+            ) {
+                condition.custom_data = if ok { 1 } else { -1 };
+                return Ok(if ok {
+                    ScriptConditionResult::True
+                } else {
+                    ScriptConditionResult::False
+                });
+            }
+        }
+
 
         let Ok(terrain) = get_terrain_logic().read() else {
             return Ok(ScriptConditionResult::False);

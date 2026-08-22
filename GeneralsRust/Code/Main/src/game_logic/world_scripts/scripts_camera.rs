@@ -367,6 +367,10 @@ impl GameLogic {
                     .map(|module| module.special_power_template.clone())
                     .collect(),
                 locomotor_surfaces: obj.locomotor_surfaces,
+                captured: obj.status.private_captured,
+                unmanned: obj.status.disabled_unmanned,
+                garrisonable: obj.is_garrison_contain(),
+                build_cost: obj.thing.template.build_cost.supplies as i32,
                 ..Default::default()
             });
             if !obj.team_instance_name.is_empty() {

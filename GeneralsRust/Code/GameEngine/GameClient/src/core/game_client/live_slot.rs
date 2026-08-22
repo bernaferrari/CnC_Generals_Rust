@@ -169,6 +169,47 @@ pub fn query_live_current_client_bone_positions(
     .unwrap_or_default()
 }
 
+/// Capture leftover `BasicDrawable::xfer` visuals for one object-bound drawable.
+pub fn capture_live_drawable_xfer_visuals(
+    object_id: ObjectID,
+) -> Option<crate::drawable::DrawableXferVisualSnapshot> {
+    with_live_game_client_mut(|client| {
+        let drawable_id = client.get_drawable_for_object(object_id)?;
+        let drawable = client.find_drawable_by_id(drawable_id)?;
+        drawable
+            .as_any()
+            .downcast_ref::<crate::drawable::BasicDrawable>()
+            .map(|basic| basic.capture_xfer_visuals())
+    })
+    .flatten()
+}
+
+/// Restore leftover `BasicDrawable::xfer` visuals onto the live GameClient.
+pub fn restore_live_drawable_xfer_visuals(
+    object_id: ObjectID,
+    visuals: &crate::drawable::DrawableXferVisualSnapshot,
+) -> bool {
+    with_live_game_client_mut(|client| {
+        let Some(drawable_id) = client.get_drawable_for_object(object_id) else {
+            return false;
+        };
+        let Some(drawable) = client.find_drawable_by_id_mut(drawable_id) else {
+            return false;
+        };
+        if let Some(basic) = drawable
+            .as_any_mut()
+            .downcast_mut::<crate::drawable::BasicDrawable>()
+        {
+            basic.apply_xfer_visuals(visuals);
+            true
+        } else {
+            false
+        }
+    })
+    .unwrap_or(false)
+}
+
+
 /// Apply a texture-reduction target immediately, mirroring C++ `W3DGameClient::adjustLOD`.
 ///
 /// C++ reference:

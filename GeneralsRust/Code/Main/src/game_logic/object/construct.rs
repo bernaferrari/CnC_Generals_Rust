@@ -206,6 +206,8 @@ impl Object {
             dozer_task_build_order_frame: 0,
             dozer_task_repair_target: None,
             dozer_task_repair_order_frame: 0,
+            dozer_dock_action: None,
+
 
 
             preferred_dock_id: None,
@@ -215,6 +217,10 @@ impl Object {
             supply_truck_next_dock_action_frame: 0,
             dock_active_docker: None,
             railed_in_transit: false,
+            railed_waypoint_data_loaded: false,
+            railed_current_path: crate::game_logic::RAILED_INVALID_PATH,
+            railed_paths: Vec::new(),
+
             drawable_supply_boxes: dock_starting_boxes,
             drawable_supply_max_boxes: dock_starting_boxes,
             repair_dock_last_id: None,
@@ -674,6 +680,9 @@ impl Object {
             weapon_crate_upgrade: 0,
             armor_crate_upgrade: 0,
             guard_target: None,
+            guard_chase_phase: 0,
+            guard_chase_give_up_frame: 0,
+
             force_attack: false,
             show_health_bar: true, // Show health bars by default
             selection_radius,
@@ -913,6 +922,21 @@ impl Object {
             drawable_fade_mode: 0,
             drawable_fade_start_frame: 0,
             drawable_fade_frames: 0,
+            drawable_explicit_opacity: 1.0,
+            drawable_instance_scale: 1.0,
+            drawable_tint_status: 0,
+            drawable_prev_tint_status: 0,
+            drawable_expiration_date: 0,
+            drawable_loco_pitch: 0.0,
+            drawable_loco_pitch_rate: 0.0,
+            drawable_loco_roll: 0.0,
+            drawable_loco_roll_rate: 0.0,
+            drawable_loco_yaw: 0.0,
+            drawable_loco_accel_pitch: 0.0,
+            drawable_loco_accel_pitch_rate: 0.0,
+            drawable_loco_accel_roll: 0.0,
+            drawable_loco_accel_roll_rate: 0.0,
+            drawable_overlay_icons: Vec::new(),
         }
     }
 
@@ -1013,6 +1037,8 @@ impl Object {
             dozer_task_build_order_frame: 0,
             dozer_task_repair_target: None,
             dozer_task_repair_order_frame: 0,
+            dozer_dock_action: None,
+
 
 
             preferred_dock_id: None,
@@ -1022,6 +1048,10 @@ impl Object {
             supply_truck_next_dock_action_frame: 0,
             dock_active_docker: None,
             railed_in_transit: false,
+            railed_waypoint_data_loaded: false,
+            railed_current_path: crate::game_logic::RAILED_INVALID_PATH,
+            railed_paths: Vec::new(),
+
             drawable_supply_boxes: dock_starting_boxes,
             drawable_supply_max_boxes: dock_starting_boxes,
             repair_dock_last_id: None,
@@ -1481,6 +1511,9 @@ impl Object {
             weapon_crate_upgrade: 0,
             armor_crate_upgrade: 0,
             guard_target: None,
+            guard_chase_phase: 0,
+            guard_chase_give_up_frame: 0,
+
             force_attack: false,
             show_health_bar: true,
             selection_radius,
@@ -1721,6 +1754,21 @@ impl Object {
             drawable_fade_mode: 0,
             drawable_fade_start_frame: 0,
             drawable_fade_frames: 0,
+            drawable_explicit_opacity: 1.0,
+            drawable_instance_scale: 1.0,
+            drawable_tint_status: 0,
+            drawable_prev_tint_status: 0,
+            drawable_expiration_date: 0,
+            drawable_loco_pitch: 0.0,
+            drawable_loco_pitch_rate: 0.0,
+            drawable_loco_roll: 0.0,
+            drawable_loco_roll_rate: 0.0,
+            drawable_loco_yaw: 0.0,
+            drawable_loco_accel_pitch: 0.0,
+            drawable_loco_accel_pitch_rate: 0.0,
+            drawable_loco_accel_roll: 0.0,
+            drawable_loco_accel_roll_rate: 0.0,
+            drawable_overlay_icons: Vec::new(),
         }
     }
 
@@ -1932,9 +1980,11 @@ impl Object {
             || self.is_kind_of(KindOf::Vehicle)
             || self.is_kind_of(KindOf::Aircraft)
             || self.is_kind_of(KindOf::Worker)
+            || self.is_railed_transport()
         {
             return true;
         }
+
         if !self.is_kind_of(KindOf::Structure) {
             let name = self.template_name.to_ascii_lowercase();
             if name.contains("dozer") || name.contains("worker") || name.contains("construction") {

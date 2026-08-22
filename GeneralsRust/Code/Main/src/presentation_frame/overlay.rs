@@ -1851,6 +1851,8 @@ impl PresentationFrame {
             drawable_fade_start_frame: 0,
             drawable_fade_frames: 0,
             gaining_subdual: ent.disabled_subdued,
+            drawable_explicit_opacity: 1.0,
+            camo_heat_vision_opacity: 0.0,
         }
     }
 

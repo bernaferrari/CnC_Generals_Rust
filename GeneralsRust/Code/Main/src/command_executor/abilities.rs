@@ -871,8 +871,8 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
-    /// China Hacker residual: disable enemy structure (DISABLED_HACKED).
-    /// SpecialAbilityHackerDisableBuilding.
+    /// Disable-building residual (DISABLED_HACKED).
+    /// SpecialAbilityHackerDisableBuilding / SpecialAbilityMicrowaveDisableBuilding.
     pub(super) fn execute_hacker_disable_building(
         &mut self,
         units: &[ObjectId],

@@ -260,7 +260,8 @@ pub fn special_power_ini_template_name(
     match power {
         P::Airstrike => "SuperweaponA10ThunderboltMissileStrike",
         P::AirForceAirstrike => "AirF_SuperweaponA10ThunderboltMissileStrike",
-        P::Artillery | P::BattleshipBombardment => "SuperweaponArtilleryBarrage",
+        P::Artillery => "SuperweaponArtilleryBarrage",
+        P::BattleshipBombardment => "SpecialPowerBattleshipBombardment",
         P::CarpetBomb => "SuperweaponCarpetBomb",
         P::AirForceCarpetBomb => "AirF_SuperweaponCarpetBomb",
         P::EarlyChinaCarpetBomb => "Early_SuperweaponChinaCarpetBomb",
@@ -567,7 +568,6 @@ pub fn special_power_uses_shared_synced_timer(
         | P::NukeChinaCarpetBomb
         | P::AnthraxBomb
         | P::Artillery
-        | P::BattleshipBombardment
         | P::CruiseMissile
         | P::ClusterMines
         | P::NukeDrop
@@ -669,7 +669,7 @@ pub fn special_power_reload_seconds(
         P::SuperweaponParticleCannon => Some(180_000),
         P::ScudStorm => Some(300_000),
         P::AnthraxBomb => Some(360_000),
-        P::Artillery | P::BattleshipBombardment => Some(240_000),
+        P::Artillery => Some(240_000),
         P::CruiseMissile => Some(120_000),
         P::ClusterMines | P::NukeDrop => Some(240_000),
         P::EmpPulse => Some(240_000),

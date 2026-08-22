@@ -62,6 +62,7 @@ pub fn wants_fire_weapon_power(template_name: &str) -> bool {
     n.contains("spectre")
         || n.contains("howitzer")
         || n.contains("fireweaponpower")
+        || n.contains("battleship")
         || n.contains("leaflet")
         || n.contains("emp_pulse")
         || n.contains("emppulse")

@@ -630,6 +630,8 @@ pub struct RenderFrame {
     encoder: wgpu::CommandEncoder,
     color_view: Arc<wgpu::TextureView>,
     depth_view: Option<Arc<wgpu::TextureView>>,
+    color_texture: wgpu::Texture,
+
     surface_texture: Option<wgpu::SurfaceTexture>,
     _start_time: Instant,
     frame_index: u64,
@@ -682,6 +684,12 @@ impl RenderFrame {
     /// Back buffer color format.
     pub fn color_format(&self) -> wgpu::TextureFormat {
         self.color_format
+    }
+
+    /// Color target that can be copied (`COPY_SRC`) for heat-haze / smudge.
+    /// Windowed frames use the swapchain texture; headless uses the offscreen target.
+    pub fn color_texture(&self) -> &wgpu::Texture {
+        &self.color_texture
     }
 }
 
@@ -1017,6 +1025,7 @@ impl Engine {
                     encoder,
                     color_view: view,
                     depth_view,
+                    color_texture: frame.texture.clone(),
                     surface_texture: Some(frame),
                     _start_time: start_time,
                     frame_index: self.frame_index,
@@ -1036,6 +1045,7 @@ impl Engine {
                     encoder,
                     color_view,
                     depth_view,
+                    color_texture: target.color.clone(),
                     surface_texture: None,
                     _start_time: start_time,
                     frame_index: self.frame_index,
@@ -1073,6 +1083,7 @@ impl Engine {
             encoder,
             color_view: _,
             depth_view: _,
+            color_texture: _,
             mut surface_texture,
             _start_time: _,
             frame_index: _,

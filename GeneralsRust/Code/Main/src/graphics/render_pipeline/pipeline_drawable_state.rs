@@ -483,6 +483,24 @@ impl RenderPipeline {
                 snapshot_from_visual_state(object_id, draw_module_index, state)
             })
             .collect::<Vec<_>>();
+        if let Some(client) = gamelogic::helpers::TheGameClient::get() {
+            for (id, state) in client.snapshot_objectless_drawables() {
+                let template = state.template_name.trim();
+                if id == 0 || template.is_empty() {
+                    continue;
+                }
+                drawables.push(ClientDrawableStateSnapshot {
+                    object_id: 0,
+                    draw_module_index: id,
+                    source_template_name: template.to_string(),
+                    model_key: template.to_string(),
+                    selected_condition_state_index: 0,
+                    animation: None,
+                    last_seen_weapon_discharge_sequence: 0,
+                    recoil_slots: std::array::from_fn(|_| Vec::new()),
+                });
+            }
+        }
         drawables.sort_by_key(|state| (state.object_id, state.draw_module_index));
         ClientDrawableWorldSnapshot { drawables }
     }

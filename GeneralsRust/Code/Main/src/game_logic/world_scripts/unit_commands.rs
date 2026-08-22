@@ -241,6 +241,8 @@ impl GameLogic {
             return false;
         };
         unit.mark_jet_command_for_reload_interrupt(false);
+        unit.clear_guard_chase();
+
         unit.set_force_attack(false);
         unit.set_target(Some(target_id));
         crate::game_logic::host_attack_log::record(id, Some(target_id));
@@ -294,6 +296,8 @@ impl GameLogic {
             return false;
         };
         unit.mark_jet_command_for_reload_interrupt(false);
+        unit.clear_guard_chase();
+
         unit.set_target(Some(target_id));
         crate::game_logic::host_attack_log::record(id, Some(target_id));
         unit.set_force_attack(true);
@@ -492,6 +496,7 @@ impl GameLogic {
             if can_attack {
                 unit.is_attack_path = true;
                 unit.auto_acquire_when_idle = true;
+                unit.requested_destination = Some(destination);
                 unit.set_ai_state(AIState::AttackMoving);
             } else {
                 unit.is_attack_path = false;
@@ -517,6 +522,14 @@ impl GameLogic {
                 unit.set_active_weapon_slot(slot);
             }
             unit.is_attack_path = true;
+            if unit.requested_destination.is_none() {
+                unit.requested_destination = unit
+                    .movement
+                    .path
+                    .last()
+                    .copied()
+                    .or(unit.movement.target_position);
+            }
             unit.set_ai_state(AIState::AttackMoving);
             return true;
         }
@@ -774,6 +787,8 @@ impl GameLogic {
             unit.set_guard_mode(mode);
             unit.set_target(None);
             unit.set_force_attack(false);
+            unit.clear_guard_chase();
+
             unit.end_guard_retaliate();
             unit.hunting = false;
             if let Some(tid) = target {

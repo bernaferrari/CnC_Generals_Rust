@@ -336,7 +336,12 @@ impl GameLogic {
                             crate::gameworld_shadow::gameworld_ai_decision_authority_live();
                         let aim_ok = if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                             if !decision_auth {
-                                attacker.set_ai_state(AIState::Attacking);
+                                if !matches!(
+                                    attacker.ai_state,
+                                    AIState::Patrolling | AIState::AttackMoving
+                                ) {
+                                    attacker.set_ai_state(AIState::Attacking);
+                                }
                                 attacker.set_status_attacking(true);
                                 attacker.target = Some(target_id);
                             }

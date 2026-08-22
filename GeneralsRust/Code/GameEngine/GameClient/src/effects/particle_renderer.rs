@@ -479,6 +479,11 @@ pub struct ParticleRenderer {
     /// Default texture for particles without specific texture
     default_texture: wgpu::Texture,
     default_bind_group: wgpu::BindGroup,
+    /// C++ `W3DSmudgeManager::m_backgroundTexture` — COPY_SRC scene snapshot.
+    heat_haze_sampler: wgpu::Sampler,
+    scene_copy: Option<wgpu::Texture>,
+    scene_copy_bind_group: Option<wgpu::BindGroup>,
+
 
     /// Billboard vertices (quad)
     billboard_buffer: wgpu::Buffer,
@@ -1033,6 +1038,17 @@ impl ParticleRenderer {
         let default_texture = Self::create_default_texture(&device, &queue);
         let default_bind_group =
             Self::create_texture_bind_group(&device, &texture_bind_group_layout, &default_texture);
+        let heat_haze_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("Heat Haze Scene Sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+
 
         Ok(Self {
             device,
@@ -1057,6 +1073,10 @@ impl ParticleRenderer {
 
             default_texture,
             default_bind_group,
+            heat_haze_sampler,
+            scene_copy: None,
+            scene_copy_bind_group: None,
+
 
             billboard_buffer,
 
@@ -1388,6 +1408,7 @@ impl ParticleRenderer {
         encoder: &mut wgpu::CommandEncoder,
         view: &wgpu::TextureView,
         depth_view: &wgpu::TextureView,
+        scene_source: Option<&wgpu::Texture>,
         smudges: &[crate::effects::heat_haze::HeatHazeSmudge],
         uniforms: &ParticleUniforms,
     ) {
@@ -1400,6 +1421,12 @@ impl ParticleRenderer {
         );
         if vertices.is_empty() || indices.is_empty() {
             return;
+        }
+        // C++ `W3DSmudgeManager::render` CopyRects of the backbuffer into
+        // `m_backgroundTexture` so the 5-vertex quads can sample the scene
+        // while writing the color target.
+        if let Some(source) = scene_source {
+            self.copy_scene_for_heat_haze(encoder, source);
         }
         self.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[*uniforms]));
@@ -1442,7 +1469,11 @@ impl ParticleRenderer {
             });
             render_pass.set_pipeline(&self.heat_haze_pipeline);
             render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.default_bind_group, &[]);
+            let scene_bind_group = self
+                .scene_copy_bind_group
+                .as_ref()
+                .unwrap_or(&self.default_bind_group);
+            render_pass.set_bind_group(1, scene_bind_group, &[]);
             render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
             render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
             render_pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
@@ -1815,6 +1846,63 @@ impl ParticleRenderer {
                 },
             ],
         })
+    }
+
+    /// C++ `W3DSmudgeManager::render` `background->Copy(..., backBuffer)`.
+    fn copy_scene_for_heat_haze(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        source: &wgpu::Texture,
+    ) {
+        if !source.usage().contains(wgpu::TextureUsages::COPY_SRC) || source.sample_count() != 1 {
+            return;
+        }
+        let size = source.size();
+        let format = source.format();
+        let rebuild = self.scene_copy.as_ref().is_none_or(|tex| {
+            tex.size() != size || tex.format() != format
+        });
+        if rebuild {
+            let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("Heat Haze Scene Copy"),
+                size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Heat Haze Scene Bind Group"),
+                layout: &self.texture_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&self.heat_haze_sampler),
+                    },
+                ],
+            });
+            self.scene_copy = Some(texture);
+            self.scene_copy_bind_group = Some(bind_group);
+        }
+        let Some(dest) = self.scene_copy.as_ref() else {
+            return;
+        };
+        encoder.copy_texture_to_texture(
+            source.as_image_copy(),
+            dest.as_image_copy(),
+            wgpu::Extent3d {
+                width: size.width,
+                height: size.height,
+                depth_or_array_layers: 1,
+            },
+        );
     }
 }
 

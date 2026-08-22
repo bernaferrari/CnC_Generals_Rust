@@ -647,14 +647,23 @@ impl Object {
         self.clear_leech_range_mode_for_all_weapons();
         self.status.attacking = false;
         crate::game_logic::host_attack_log::record(self.id, None);
-        // C++ parity: guard units return to guard; Hunt stays in AI_HUNT.
+        // C++ parity: guard units return to guard; Hunt stays in AI_HUNT;
+        // attack-move keeps AI_ATTACK_MOVE_TO so dest can resume.
         let stay_hunt = matches!(self.ai_state, AIState::Patrolling);
+        let stay_attack_move = matches!(self.ai_state, AIState::AttackMoving);
         if self.guard_target.is_some() {
             self.set_ai_state(AIState::GuardingObject);
         } else if self.guard_position.is_some() {
             self.set_ai_state(AIState::GuardingArea);
         } else if stay_hunt {
             self.set_ai_state(AIState::Patrolling);
+        } else if stay_attack_move {
+            // Parent dest/path stay. Re-point at the original attack-move
+            // goal if a nested chase replaced the live path.
+            if let Some(dest) = self.requested_destination {
+                self.movement.target_position = Some(dest);
+                self.set_status_moving(true);
+            }
         } else {
             self.set_ai_state(AIState::Idle);
         }

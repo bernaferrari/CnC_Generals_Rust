@@ -971,6 +971,9 @@ impl GameLogic {
                 continue;
             }
             self.worker_exit_supply_for_dozer_task(dozer_id);
+            // C++ privateResumeConstruction → newTask BUILD (stores ACTION dock).
+            self.dozer_new_task_build(dozer_id, structure_id);
+
             if let Some(dozer) = self.objects.get_mut(&dozer_id) {
                 dozer.target = Some(structure_id); // non-combat build association stays host
                 dozer.set_ai_state(AIState::Constructing);

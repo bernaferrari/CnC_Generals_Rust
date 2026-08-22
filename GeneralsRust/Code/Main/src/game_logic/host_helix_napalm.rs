@@ -176,6 +176,25 @@ pub fn helix_napalm_unlocked(template_name: &str, has_upgrade: bool) -> bool {
     has_upgrade
 }
 
+/// C++ `isWithinStartAbilityRange` for Helix NapalmBomb (StartAbilityRange 3).
+/// Location target has no object radius; uses leftover bounding-sphere 2D.
+pub fn helix_napalm_in_start_range(
+    helix_pos: Vec3,
+    helix_radius: f32,
+    target_pos: Vec3,
+) -> bool {
+    let edge = crate::game_logic::host_hero_abilities::leftover_bounding_sphere_2d(
+        helix_pos,
+        helix_radius,
+        target_pos,
+        0.0,
+    );
+    crate::game_logic::host_hero_abilities::leftover_within_start_ability_range(
+        edge,
+        HELIX_NAPALM_START_ABILITY_RANGE,
+    )
+}
+
 /// Instant NapalmBombWeapon area damage at distance (max of primary/secondary).
 pub fn helix_napalm_blast_damage_at(distance: f32) -> f32 {
     if distance <= HELIX_NAPALM_PRIMARY_RADIUS {
@@ -560,6 +579,8 @@ pub fn honesty_helix_napalm_ability_residual_ok() -> bool {
         && HELIX_NAPALM_RELOAD_FRAMES == 300
         && (HELIX_NAPALM_RADIUS_CURSOR - 100.0).abs() < 0.01
         && (HELIX_NAPALM_START_ABILITY_RANGE - 3.0).abs() < 0.01
+        && helix_napalm_in_start_range(Vec3::ZERO, 0.0, Vec3::new(3.0, 0.0, 0.0))
+        && !helix_napalm_in_start_range(Vec3::ZERO, 0.0, Vec3::new(3.1, 0.0, 0.0))
         && HELIX_NAPALM_MAX_SPECIAL_OBJECTS == 1
         && UPGRADE_HELIX_NAPALM_BOMB == "Upgrade_HelixNapalmBomb"
         && UPGRADE_CHINA_BLACK_NAPALM == "Upgrade_ChinaBlackNapalm"

@@ -31,15 +31,13 @@ impl PathfindingSystem {
             return PathResult::none();
         }
 
-        // C++: clearPassableFlags; hierarchical probe; if no hPat → setAllPassable.
-        // Probe only — do not call find_hierarchical_path (it builds a full path and
-        // would recurse into find_path). Match C++ zone-level hierarchical connectivity.
-        if let Ok(mut zones) = self.zones.lock() {
-            zones.clear_passable_flags();
-        }
+        // C++: clear_passable_flags; hierarchical probe; if no hPat → set_all_passable.
+        // Probe marks A* zone-block passable (examineCellsCallback :6005).
+        self.clear_zone_passable_flags();
+
         let start = GridCoord::from_world(&request.from);
         let goal = GridCoord::from_world(&request.to);
-        let hier_ok = {
+        let zone_join = {
             let connected = self
                 .zones
                 .lock()
@@ -53,11 +51,42 @@ impl PathfindingSystem {
                     request.is_crusher,
                 )
         };
+        let jumps: Vec<(GridCoord, GridCoord)> = self
+            .bridges
+            .iter()
+            .filter(|b| !b.destroyed)
+            .flat_map(|b| {
+                let mut pairs = vec![(b.start_cell, b.end_cell)];
+                if let (Some(&a), Some(&z)) =
+                    (b.ground_connect_cells.first(), b.ground_connect_cells.last())
+                {
+                    if a != z {
+                        pairs.push((a, z));
+                    }
+                }
+                pairs
+            })
+            .collect();
+        let hier_ok = self
+            .pathfinder
+            .lock()
+            .map(|mut pf| {
+                pf.apply_hierarchical_zone_prune(
+                    start,
+                    goal,
+                    request.surfaces,
+                    request.is_crusher,
+                    &jumps,
+                )
+            })
+            .unwrap_or(false);
         if !hier_ok {
-            if let Ok(mut zones) = self.zones.lock() {
-                zones.set_all_passable();
-            }
+            // C++ setAllPassable / leftover set_all_passable
+            self.set_all_zone_passable();
         }
+
+        let _ = zone_join;
+
 
         let result = self.find_path_internal(request);
 

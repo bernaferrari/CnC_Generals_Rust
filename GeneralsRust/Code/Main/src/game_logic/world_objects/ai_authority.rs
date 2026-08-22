@@ -36,6 +36,11 @@ impl GameLogic {
                     state: AIState::Idle,
                 });
             }
+            // C++ nested AIAttackMoveStateMachine is not idle while a victim
+            // is held: do not getNextMoodTarget or re-issue AttackTarget.
+            if target_id.is_some() {
+                return None;
+            }
             // C++ AIAttackMoveToState uses getNextMoodTarget, not a 200wu nearest scan.
             if can_attack && !ai_auto_engage_paused && should_scan(20) {
                 let is_player = self
@@ -612,16 +617,27 @@ impl GameLogic {
         // can shoot without waiting for shadow writeback.
         if let Some(u) = self.objects.get_mut(&unit_id) {
             u.set_target(Some(target_id));
-            // C++ Hunt stays in AI_HUNT while attacking. Combat already fires
-            // from Patrolling. Do not peel Hunt into Attacking.
-            if !matches!(u.ai_state, AIState::Patrolling) {
+            // C++ Hunt stays in AI_HUNT and Attack-Move stays in
+            // AI_ATTACK_MOVE_TO while the nested attack machine runs.
+            // Combat already fires from both parent states.
+            if !matches!(u.ai_state, AIState::Patrolling | AIState::AttackMoving) {
                 u.set_ai_state(AIState::Attacking);
             }
             u.set_status_attacking(true);
+            if matches!(u.ai_state, AIState::AttackMoving) {
+                // C++ friend_endingMove + setLocomotorGoalNone. Dest/path stay.
+                u.movement.velocity = Vec3::ZERO;
+                u.set_status_moving(false);
+            }
         }
         if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_attack(unit_id, target_id);
-            crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2);
+            if !matches!(
+                self.objects.get(&unit_id).map(|o| o.ai_state.clone()),
+                Some(AIState::Patrolling | AIState::AttackMoving)
+            ) {
+                crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2);
+            }
         }
         true
     }
@@ -882,5 +898,76 @@ mod hq_m6gcj_tests {
         }
         let _ = AbleToAttackType::NewTarget;
         let _ = logic.get_next_mood_target(ObjectId(1), true, true, true);
+    }
+
+    #[test]
+    fn attack_move_with_victim_does_not_rescan() {
+        let mut logic = GameLogic::new();
+        let command = logic.process_ai_behavior(
+            ObjectId(1),
+            AIState::AttackMoving,
+            Some(ObjectId(2)),
+            Vec3::ZERO,
+            Team::USA,
+            true,
+            20,
+            1.0 / 30.0,
+        );
+        assert!(
+            command.is_none(),
+            "nested attack-move must not re-issue AttackTarget; got {command:?}"
+        );
+    }
+
+    #[test]
+    fn attack_move_stop_attack_keeps_parent_and_dest() {
+        let dest = Vec3::new(120.0, 0.0, 80.0);
+        let mut unit = Object::new(ThingTemplate::new("Crusader"), ObjectId(1), Team::USA);
+        unit.set_ai_state(AIState::AttackMoving);
+        unit.is_attack_path = true;
+        unit.requested_destination = Some(dest);
+        unit.movement.target_position = Some(dest);
+        unit.target = Some(ObjectId(2));
+        unit.status.attacking = true;
+        unit.stop_attack();
+        assert_eq!(unit.ai_state, AIState::AttackMoving);
+        assert!(unit.target.is_none());
+        assert_eq!(unit.requested_destination, Some(dest));
+        assert_eq!(unit.movement.target_position, Some(dest));
+        assert!(unit.is_attack_path);
+    }
+
+    #[test]
+    fn attack_move_engagement_does_not_peel_parent() {
+        let dest = Vec3::new(200.0, 0.0, 0.0);
+        let mut logic = GameLogic::new();
+        let mut tank = Object::new(ThingTemplate::new("Crusader"), ObjectId(1), Team::USA);
+        tank.weapon = Some(Weapon {
+            range: 150.0,
+            damage: 10.0,
+            ..Weapon::default()
+        });
+        tank.set_ai_state(AIState::AttackMoving);
+        tank.is_attack_path = true;
+        tank.requested_destination = Some(dest);
+        tank.movement.target_position = Some(dest);
+        tank.movement.velocity = Vec3::new(10.0, 0.0, 0.0);
+        let mut enemy = Object::new(ThingTemplate::new("Enemy"), ObjectId(2), Team::GLA);
+        enemy.set_position(Vec3::new(20.0, 0.0, 0.0));
+        logic.objects.insert(tank.id, tank);
+        logic.objects.insert(enemy.id, enemy);
+        let engaged = logic.apply_engagement_decision_aware(ObjectId(1), ObjectId(2));
+        let tank = logic.objects.get(&ObjectId(1)).expect("tank");
+        if engaged {
+            assert_eq!(tank.ai_state, AIState::AttackMoving);
+            assert_eq!(tank.target, Some(ObjectId(2)));
+            assert_eq!(tank.movement.target_position, Some(dest));
+            assert_eq!(tank.requested_destination, Some(dest));
+            assert_eq!(tank.movement.velocity, Vec3::ZERO);
+            assert!(!tank.status.moving);
+        } else {
+            assert_eq!(tank.ai_state, AIState::AttackMoving);
+            assert_eq!(tank.movement.target_position, Some(dest));
+        }
     }
 }

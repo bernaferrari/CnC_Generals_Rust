@@ -3093,13 +3093,17 @@ End
     let carrier_template =
         GameLogic::build_template_from_object_definition("ArbitraryWaterCarrier", definition, None);
     assert_eq!(carrier_template.dock_kind, DockKind::RailedTransport);
+    assert_eq!(carrier_template.railed_path_prefix_name, "Ferry");
     assert_eq!(
         carrier_template.contain_module.kind,
         ContainModuleKind::RailedTransport
     );
     assert_eq!(carrier_template.contain_module.slots, Some(2));
 
+
+    crate::game_logic::railed_waypoint_overlay_reset();
     let mut logic = GameLogic::new();
+
     logic
         .templates
         .insert(carrier_template.name.clone(), carrier_template);
@@ -3140,9 +3144,9 @@ End
     };
     assert_eq!(result, CommandResult::InvalidCommand);
 
-    // Until Main retains the parsed PathPrefixName, map waypoint pairs, and
-    // transit/dock runtime, ExecuteRailedTransport must not masquerade as
-    // either Evacuate or a generic Move command.
+    // No StartNN/EndNN pairs in leftover terrain or the host overlay:
+    // ExecuteRailedTransport must not masquerade as Evacuate or a generic Move.
+
     let ferry = logic.host_object(carrier).expect("carrier after rejection");
     assert_eq!(ferry.contained_units(), vec![rider]);
     assert_eq!(ferry.movement.path, original_path);

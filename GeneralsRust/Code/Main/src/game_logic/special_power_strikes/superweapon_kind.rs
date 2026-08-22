@@ -56,9 +56,7 @@ impl HostSuperweaponKind {
             | SpecialPowerType::EarlyChinaCarpetBomb
             | SpecialPowerType::AirForceCarpetBomb
             | SpecialPowerType::NukeChinaCarpetBomb => Some(HostSuperweaponKind::CarpetBomb),
-            SpecialPowerType::Artillery | SpecialPowerType::BattleshipBombardment => {
-                Some(HostSuperweaponKind::ArtilleryBarrage)
-            }
+            SpecialPowerType::Artillery => Some(HostSuperweaponKind::ArtilleryBarrage),
             SpecialPowerType::CruiseMissile => Some(HostSuperweaponKind::CruiseMissile),
             _ => None,
         }

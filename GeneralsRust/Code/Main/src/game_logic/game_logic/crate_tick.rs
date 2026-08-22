@@ -119,11 +119,19 @@ pub enum PendingSpecialAbility {
     PlantBoobyTrap {
         target_id: ObjectId,
     },
+    /// China Helix Napalm/Nuke bomb: fly to StartAbilityRange 3, then drop.
+    /// Location target stored as world*1000 so the enum stays `Eq`.
+    HelixNapalmBomb {
+        target_x_milli: i32,
+        target_y_milli: i32,
+        target_z_milli: i32,
+    },
 }
 
 impl PendingSpecialAbility {
-    pub(super) fn target_id(self) -> ObjectId {
+    pub(crate) fn target_id(self) -> ObjectId {
         match self {
+            PendingSpecialAbility::HelixNapalmBomb { .. } => ObjectId(u32::MAX),
             PendingSpecialAbility::Hijack { target_id }
             | PendingSpecialAbility::Sabotage { target_id }
             | PendingSpecialAbility::CarBomb { target_id }
@@ -135,6 +143,29 @@ impl PendingSpecialAbility {
             | PendingSpecialAbility::HackerDisableBuilding { target_id }
             | PendingSpecialAbility::DisguiseAsVehicle { target_id }
             | PendingSpecialAbility::PlantBoobyTrap { target_id } => target_id,
+        }
+    }
+
+    pub(crate) fn helix_napalm_at(pos: Vec3) -> Self {
+        Self::HelixNapalmBomb {
+            target_x_milli: (pos.x * 1000.0).round() as i32,
+            target_y_milli: (pos.y * 1000.0).round() as i32,
+            target_z_milli: (pos.z * 1000.0).round() as i32,
+        }
+    }
+
+    pub(crate) fn helix_napalm_target(self) -> Option<Vec3> {
+        match self {
+            PendingSpecialAbility::HelixNapalmBomb {
+                target_x_milli,
+                target_y_milli,
+                target_z_milli,
+            } => Some(Vec3::new(
+                target_x_milli as f32 / 1000.0,
+                target_y_milli as f32 / 1000.0,
+                target_z_milli as f32 / 1000.0,
+            )),
+            _ => None,
         }
     }
 }

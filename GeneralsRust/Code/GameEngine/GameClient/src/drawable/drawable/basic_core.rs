@@ -862,6 +862,93 @@ impl BasicDrawable {
         (self.explicit_opacity * self.effective_stealth_opacity).clamp(0.0, 1.0)
     }
 
+    /// C++ `Drawable::xfer` visual subset for the live-host persist tail.
+    pub fn capture_xfer_visuals(&self) -> DrawableXferVisualSnapshot {
+        let loco = self.loco_info.as_ref();
+        DrawableXferVisualSnapshot {
+            explicit_opacity: self.explicit_opacity,
+            stealth_opacity: self.stealth_opacity,
+            effective_stealth_opacity: self.effective_stealth_opacity,
+            instance_scale: self.instance_scale,
+            heat_vision_opacity: self.second_material_pass_opacity,
+            tint_status: self.tint_status.bits,
+            prev_tint_status: self.prev_tint_status.bits,
+            hidden: self.hidden,
+            hidden_by_stealth: self.hidden_by_stealth,
+            expiration_date: self.expiration_frame.unwrap_or(0),
+            has_loco: loco.is_some(),
+            loco_pitch: loco.map(|l| l.pitch).unwrap_or(0.0),
+            loco_pitch_rate: loco.map(|l| l.pitch_rate).unwrap_or(0.0),
+            loco_roll: loco.map(|l| l.roll).unwrap_or(0.0),
+            loco_roll_rate: loco.map(|l| l.roll_rate).unwrap_or(0.0),
+            loco_yaw: loco.map(|l| l.yaw).unwrap_or(0.0),
+            loco_accel_pitch: loco.map(|l| l.acceleration_pitch).unwrap_or(0.0),
+            loco_accel_pitch_rate: loco.map(|l| l.acceleration_pitch_rate).unwrap_or(0.0),
+            loco_accel_roll: loco.map(|l| l.acceleration_roll).unwrap_or(0.0),
+            loco_accel_roll_rate: loco.map(|l| l.acceleration_roll_rate).unwrap_or(0.0),
+            overlay_icons: self
+                .icon_info
+                .as_ref()
+                .map(|info| {
+                    info.keep_till_frame
+                        .iter()
+                        .map(|(kind, keep)| {
+                            (
+                                kind.name().to_string(),
+                                *keep,
+                                kind.name().to_string(),
+                                0,
+                            )
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+        }
+    }
+
+    /// Restore C++ `Drawable::xfer` visual subset after live load.
+    pub fn apply_xfer_visuals(&mut self, visuals: &DrawableXferVisualSnapshot) {
+        self.explicit_opacity = visuals.explicit_opacity;
+        self.opacity = visuals.explicit_opacity;
+        self.stealth_opacity = visuals.stealth_opacity;
+        self.effective_stealth_opacity = visuals.effective_stealth_opacity;
+        self.instance_scale = visuals.instance_scale;
+        self.second_material_pass_opacity = visuals.heat_vision_opacity;
+        self.tint_status.bits = visuals.tint_status;
+        self.prev_tint_status.bits = visuals.prev_tint_status;
+        self.hidden = visuals.hidden;
+        self.hidden_by_stealth = visuals.hidden_by_stealth;
+        self.expiration_frame = if visuals.expiration_date > 0 {
+            Some(visuals.expiration_date)
+        } else {
+            None
+        };
+        if visuals.has_loco {
+            let loco = self.loco_info.get_or_insert_with(LocoInfo::default);
+            loco.pitch = visuals.loco_pitch;
+            loco.pitch_rate = visuals.loco_pitch_rate;
+            loco.roll = visuals.loco_roll;
+            loco.roll_rate = visuals.loco_roll_rate;
+            loco.yaw = visuals.loco_yaw;
+            loco.acceleration_pitch = visuals.loco_accel_pitch;
+            loco.acceleration_pitch_rate = visuals.loco_accel_pitch_rate;
+            loco.acceleration_roll = visuals.loco_accel_roll;
+            loco.acceleration_roll_rate = visuals.loco_accel_roll_rate;
+        }
+        if !visuals.overlay_icons.is_empty() {
+            let info = self.icon_info.get_or_insert_with(IconInfo::new);
+            for (name, keep, _, _) in &visuals.overlay_icons {
+                if let Some(kind) = IconType::from_name(name) {
+                    info.keep_till_frame.insert(kind, *keep);
+                }
+            }
+        }
+        if self.hidden || self.hidden_by_stealth {
+            self.update_hidden_status();
+        }
+    }
+
+
     pub fn fading_mode(&self) -> FadingMode {
         self.fade_mode
     }

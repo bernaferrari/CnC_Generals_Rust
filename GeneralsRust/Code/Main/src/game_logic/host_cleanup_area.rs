@@ -1,9 +1,9 @@
 //! Host Cleanup Area residual (Ambulance detox + dozer/minefield clear).
 //!
 //! Residual slice (playability):
-//! - `DoSpecialPower(CleanupArea)` at a world location clears residual hazards
-//!   and mines around the target (retail `CleanupAreaPower` →
-//!   `CleanupHazardUpdate::setCleanupAreaParameters` + HAZARD_CLEANUP weapon path).
+//! - `DoSpecialPower(CleanupArea)` sets CleanupHazardUpdate area parameters and
+//!   drives the ambulance to the click (C++ CleanupAreaPower never recharges).
+//! - After the drive, scan/spray until the ordered area is clean.
 //! - Hazard clear residual: remove host radiation / toxin fields whose epicenters
 //!   fall within cleanup radius of the target (AmbulanceCleanHazardWeapon residual:
 //!   PrimaryDamageRadius 50, ScanRange 100, MaxMoveDistanceFromLocation 300).
@@ -23,7 +23,7 @@
 //! - Not full CleanupHazardUpdate continuous scan/shot/clip idle-patrol matrix
 //! - Not full HazardousMaterialArmor object stack / CLEANUP_HAZARD KindOf matrix
 //! - Not full rubble geometry / pathfind ground-rubble zone clear
-//! - Not full MaxMoveDistance idle-patrol cleanup loop (instant residual clear)
+
 //! - Network CleanupArea replication (network deferred)
 
 use super::ObjectId;
@@ -94,10 +94,12 @@ pub const HOST_CLEANUP_FIRE_FX: &str = "WeaponFX_CleanupFireWeapon";
 /// Retail ProjectileDetonationFX residual.
 pub const HOST_CLEANUP_DETONATION_FX: &str = "WeaponFX_CleanupToxinDetonation";
 
-/// Retail CleanupAreaPower MaxMoveDistanceFromLocation residual (= 300).
-/// Host residual: caster may order clear if within this distance of target
-/// (or target itself is the order point for remote residual).
+/// Retail CleanupAreaPower MaxMoveDistanceFromLocation (= 300).
+/// C++ `m_cleanupMoveRange`: extra scan radius around the click. Not a reject gate.
 pub const HOST_CLEANUP_MAX_MOVE_DISTANCE: f32 = 300.0;
+
+/// C++ CleanupHazardUpdate.cpp:157 — finish once within 25 of the click.
+pub const HOST_CLEANUP_ARRIVE_DISTANCE: f32 = 25.0;
 
 /// Activate audio residual (AmbulanceVoiceDetox / InitiateSound).
 pub const CLEANUP_AREA_ACTIVATE_AUDIO: &str = "AmbulanceVoiceDetox";
@@ -183,6 +185,16 @@ impl HostCleanupArea {
     }
 }
 
+/// C++ CleanupHazardUpdate `m_pos` / `m_moveRange` while an area order is live.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HostCleanupAreaOrder {
+    pub caster_id: ObjectId,
+    pub player_id: u32,
+    pub location: Vec3,
+    pub move_range: f32,
+    pub next_shot_frame: u32,
+}
+
 /// Host residual registry for Cleanup Area special power activations.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostCleanupAreaRegistry {
@@ -197,6 +209,9 @@ pub struct HostCleanupAreaRegistry {
     pub toxin_cleared_total: u32,
     /// Lifetime mines disarmed via CleanupArea residual.
     pub mines_cleared_total: u32,
+    /// Live C++-parity area orders (drive first, then spray until clean).
+    #[serde(default)]
+    orders: Vec<HostCleanupAreaOrder>,
 }
 
 impl HostCleanupAreaRegistry {
@@ -247,6 +262,20 @@ impl HostCleanupAreaRegistry {
             let drain = self.activations.len() - 32;
             self.activations.drain(0..drain);
         }
+    }
+
+    /// C++ CleanupHazardUpdate::setCleanupAreaParameters — replace any prior order.
+    pub fn set_cleanup_area_parameters(&mut self, order: HostCleanupAreaOrder) {
+        self.orders.retain(|o| o.caster_id != order.caster_id);
+        self.orders.push(order);
+    }
+
+    pub fn take_orders(&mut self) -> Vec<HostCleanupAreaOrder> {
+        std::mem::take(&mut self.orders)
+    }
+
+    pub fn restore_orders(&mut self, orders: Vec<HostCleanupAreaOrder>) {
+        self.orders = orders;
     }
 
     /// Residual honesty: at least one CleanupArea activated.

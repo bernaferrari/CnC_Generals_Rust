@@ -381,14 +381,27 @@ impl PresentationFrame {
                         object.drawable_shroud.effectively_dead,
                         hint,
                     );
+                if object.camo_heat_vision_opacity > 0.0 {
+                    input.second_material_pass_opacity = object
+                        .camo_heat_vision_opacity
+                        .max(input.second_material_pass_opacity);
+                }
                 let fade = crate::game_logic::drawable_explicit_fade_opacity(
                     object.drawable_fade_mode,
                     object.drawable_fade_start_frame,
                     object.drawable_fade_frames,
                     self.frame.0,
                 );
-                if fade < 0.999 {
-                    input.presentation_opacity = (input.presentation_opacity * fade).clamp(0.0, 1.0);
+                let explicit = if object.drawable_explicit_opacity.is_finite()
+                    && object.drawable_explicit_opacity >= 0.0
+                {
+                    object.drawable_explicit_opacity.clamp(0.0, 1.0)
+                } else {
+                    1.0
+                };
+                if fade < 0.999 || explicit < 0.999 {
+                    input.presentation_opacity =
+                        (input.presentation_opacity * fade * explicit).clamp(0.0, 1.0);
                 }
                 // Compatibility fallback for a GameWorld-only record with no
                 // resident direct Drawable identity. The normal direct-host

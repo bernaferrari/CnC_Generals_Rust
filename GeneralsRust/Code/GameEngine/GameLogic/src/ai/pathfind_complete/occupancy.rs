@@ -831,6 +831,17 @@ impl PathfindingSystem {
         }
     }
 
+    /// C++ `PathfindZoneManager::setAllPassable` — zone blocks + A* table.
+    pub fn set_all_zone_passable(&self) {
+        if let Ok(mut z) = self.zones.lock() {
+            z.set_all_passable();
+        }
+        if let Ok(mut pf) = self.pathfinder.lock() {
+            pf.clear_zone_passable_flags();
+        }
+    }
+
+
     /// C++ `PathfindZoneManager::markZonesDirty` / force zone rebuild next processQueue.
     pub fn mark_zones_dirty(&self) {
         if let Ok(mut z) = self.zones.lock() {

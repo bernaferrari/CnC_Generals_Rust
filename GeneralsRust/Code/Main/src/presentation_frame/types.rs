@@ -1013,6 +1013,12 @@ pub struct RenderableObject {
     /// C++ TINT_STATUS_GAINING_SUBDUAL_DAMAGE residual (`subdual_damage > 0`).
     #[serde(default)]
     pub gaining_subdual: bool,
+    /// C++ `Drawable::m_explicitOpacity` residual.
+    #[serde(default = "default_one_f32_presentation")]
+    pub drawable_explicit_opacity: f32,
+    /// C++ `Drawable::m_secondMaterialPassOpacity` residual.
+    #[serde(default)]
+    pub camo_heat_vision_opacity: f32,
 }
 
 /// Frozen direct-object visual source retained independently of the primary
@@ -1048,6 +1054,11 @@ pub struct PresentationDirectHostDrawable {
 const fn default_presentation_allow_inside() -> bool {
     true
 }
+
+const fn default_one_f32_presentation() -> f32 {
+    1.0
+}
+
 
 impl RenderableObject {
     /// Frozen capacity for a normal player `MSG_ENTER` order.

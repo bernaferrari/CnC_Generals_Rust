@@ -304,11 +304,14 @@ impl<'a> CommandExecutor<'a> {
             };
         }
 
-        // Hacker Disable Building is a paired, persistent unit
-        // SpecialAbilityUpdate.  Its typed authority and charge timing are
-        // intentionally outside the generic SpecialPower path below: C++
-        // starts reload at preparation, not on this target click.
-        if *power_type == SpecialPowerType::HackerDisableBuilding {
+        // Hacker / Microwave Disable Building share C++ SPECIAL_HACKER_DISABLE_BUILDING.
+        // Both are paired SpecialAbilityUpdate channels (walk/unpack/DISABLED_HACKED).
+        // Charge starts at preparation, not on this target click.
+        if matches!(
+            *power_type,
+            SpecialPowerType::HackerDisableBuilding
+                | SpecialPowerType::MicrowaveDisableBuilding
+        ) {
             let PowerTarget::Object(target_id) = target else {
                 return CommandResult::InvalidTarget;
             };
@@ -324,14 +327,6 @@ impl<'a> CommandExecutor<'a> {
             } else {
                 CommandResult::InvalidCommand
             };
-        }
-
-        // Microwave has distinct C++ module/weapon semantics.  It must never
-        // borrow the Hacker Disable Building parser or persistent channel.
-        // Until its own typed runtime exists, reject it without spending a
-        // generic charge or mutating an unrelated target.
-        if *power_type == SpecialPowerType::MicrowaveDisableBuilding {
-            return CommandResult::InvalidCommand;
         }
 
         let mut any = false;
@@ -354,6 +349,9 @@ impl<'a> CommandExecutor<'a> {
                 *power_type,
                 SpecialPowerType::CashHack | SpecialPowerType::Defector
             );
+            // C++ CleanupAreaPower.cpp:63-81 never calls
+            // SpecialPowerModule::doSpecialPowerAtLocation (no recharge / EVA).
+            let never_consume = matches!(*power_type, SpecialPowerType::CleanupArea);
             let consume_at_prep = matches!(
                 *power_type,
                 SpecialPowerType::BlackLotusStealCash
@@ -366,9 +364,12 @@ impl<'a> CommandExecutor<'a> {
                     | SpecialPowerType::BattleBusDemoTrapRollout
                     | SpecialPowerType::BurtonTimedCharges
                     | SpecialPowerType::BurtonRemoteCharges
+                    | SpecialPowerType::HelixNapalmBomb
+                    | SpecialPowerType::HelixNukeBomb
             );
             if !consume_at_prep
                 && !consume_after_valid_object
+                && !never_consume
                 && !self
                     .game_logic
                     .consume_special_power_charge_for(unit_id, power_type)
@@ -376,9 +377,12 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
             // Wave 233: special-power AI state via GameLogic authority API.
-            let _ = self
-                .game_logic
-                .unit_command_set_ai_state(unit_id, AIState::SpecialAbility);
+            // CleanupArea drives via CleanupHazardUpdate::aiMoveToPosition, not SpecialAbility.
+            if !never_consume {
+                let _ = self
+                    .game_logic
+                    .unit_command_set_ai_state(unit_id, AIState::SpecialAbility);
+            }
 
             // Host residual: queue superweapon strike that will complete with
             // area damage (DaisyCutter / A10 / ScudStorm / ParticleCannon /
@@ -724,11 +728,7 @@ impl<'a> CommandExecutor<'a> {
                 } else if *power_type == SpecialPowerType::HelixNapalmBomb
                     || *power_type == SpecialPowerType::HelixNukeBomb
                 {
-                    if self
-                        .game_logic
-                        .activate_helix_napalm_bomb(unit_id, pos)
-                        .is_none()
-                    {
+                    if !self.queue_helix_napalm_bomb(unit_id, pos) {
                         continue;
                     }
                 } else if *power_type == SpecialPowerType::CrateDrop {
@@ -760,16 +760,23 @@ impl<'a> CommandExecutor<'a> {
                     ) {
                         continue;
                     }
+                } else if *power_type == SpecialPowerType::BattleshipBombardment {
+                    // C++ FireWeaponPower::doSpecialPowerAtLocation — ship's own
+                    // batteries, not China Artillery Barrage scatter.
+                    if !self.game_logic.activate_fire_weapon_power(unit_id, pos) {
+                        continue;
+                    }
                 } else {
                     let _ = self
                         .game_logic
                         .queue_special_power_strike(power_type, unit_id, pos);
                 }
             }
-            if crate::game_logic::special_power_strikes::HostSuperweaponKind::from_command_power(
-                power_type,
-            )
-            .is_none()
+            if *power_type != SpecialPowerType::CleanupArea
+                && crate::game_logic::special_power_strikes::HostSuperweaponKind::from_command_power(
+                    power_type,
+                )
+                .is_none()
             {
                 // C++ aboutToDoSpecialPower + CompletionDie analog for instant powers.
                 self.game_logic.notify_script_engine_special_power_event(
@@ -791,7 +798,10 @@ impl<'a> CommandExecutor<'a> {
         }
         if any {
             // C++ CommandXlat.cpp:637-651 spmInterface->getInitiateSound().
-            self.play_special_power_initiate_sound(&casters, power_type);
+            // CleanupAreaPower does not call the SpecialPowerModule base.
+            if *power_type != SpecialPowerType::CleanupArea {
+                self.play_special_power_initiate_sound(&casters, power_type);
+            }
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
@@ -1031,6 +1041,40 @@ impl<'a> CommandExecutor<'a> {
         let _ = TNT_START_ABILITY_RANGE;
         true
     }
+
+    /// C++ SpecialAbilityUpdate: initiateIntent then approach until
+    /// StartAbilityRange 3; markSpecialPowerTriggered at startPreparation.
+    pub(super) fn queue_helix_napalm_bomb(&mut self, unit_id: ObjectId, pos: Vec3) -> bool {
+        use crate::game_logic::host_helix_napalm::{
+            helix_napalm_unlocked, is_helix_napalm_caster, UPGRADE_HELIX_NAPALM_BOMB,
+            UPGRADE_HELIX_NUKE_BOMB,
+        };
+        use crate::game_logic::{AIState, PendingSpecialAbility};
+
+        let Some(unit) = self.game_logic.host_object(unit_id) else {
+            return false;
+        };
+        if !unit.is_alive() || !is_helix_napalm_caster(&unit.template_name) {
+            return false;
+        }
+        let has_upgrade = unit.has_upgrade_tag(UPGRADE_HELIX_NAPALM_BOMB)
+            || unit.has_upgrade_tag("Upgrade_HelixNapalmBomb")
+            || unit.has_upgrade_tag(UPGRADE_HELIX_NUKE_BOMB)
+            || unit.has_upgrade_tag("Nuke_Upgrade_HelixNukeBomb")
+            || unit.has_upgrade_tag("Upgrade_HelixNukeBomb");
+        if !helix_napalm_unlocked(&unit.template_name, has_upgrade) {
+            return false;
+        }
+        let _ = self
+            .game_logic
+            .unit_command_stop_moving_order_target(unit_id, None);
+        let _ = self.path_to_goal_with_state(unit_id, pos, AIState::SpecialAbility);
+        self.game_logic.queue_pending_special_ability(
+            unit_id,
+            PendingSpecialAbility::helix_napalm_at(pos),
+        );
+        true
+    }
 }
 
 #[cfg(test)]
@@ -1235,6 +1279,97 @@ mod can_use_special_power_caster_filter_tests {
         assert!(
             !logic.is_special_power_ready_for(caster, &SpecialPowerType::CashHack),
             "valid CashHack object fire must consume the charge"
+        );
+    }
+
+    /// C++ SpecialAbilityMicrowaveDisableBuilding is SPECIAL_HACKER_DISABLE_BUILDING.
+    /// The command must start the disable-building channel, not hard-reject.
+    #[test]
+    fn microwave_disable_building_starts_hdb_channel() {
+        use crate::command_system::PowerTarget;
+        use crate::game_logic::{
+            AIState, HackerDisableBuildingMetadata, HackerDisableChannelPhase, KindOf,
+        };
+
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::China, "China", false));
+        logic.add_player(Player::new(1, Team::USA, "USA", false));
+
+        let mut tank = ThingTemplate::new("HqY2oosMicrowaveTank");
+        tank.set_health(400.0);
+        tank.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable);
+        tank.special_power_modules.push(test_module(
+            SpecialPowerType::MicrowaveDisableBuilding,
+            "SpecialAbilityMicrowaveDisableBuilding",
+        ));
+        tank.hacker_disable_building = Some(HackerDisableBuildingMetadata {
+            special_power_template: "SpecialAbilityMicrowaveDisableBuilding".to_string(),
+            update_module_starts_attack: true,
+            starts_paused: false,
+            scripted_special_power_only: false,
+            reload_time_frames: 120,
+            required_science: None,
+            shared_n_sync: false,
+            start_ability_range: 150.0,
+            ability_abort_range: 10_000_000.0,
+            approach_requires_los: true,
+            unpack_time_ms: 1,
+            preparation_time_ms: 1,
+            persistent_prep_time_ms: 1,
+            effect_duration_ms: 1,
+            pack_time_ms: 1,
+            pack_unpack_variation_factor: 0.0,
+            persistence_requires_recharge: false,
+        });
+        logic
+            .templates
+            .insert("HqY2oosMicrowaveTank".into(), tank);
+
+        let mut building = ThingTemplate::new("HqY2oosEnemyBuilding");
+        building.set_health(2000.0);
+        building.add_kind_of(KindOf::Structure);
+        building.capturable = true;
+        logic
+            .templates
+            .insert("HqY2oosEnemyBuilding".into(), building);
+
+        let tank_id = logic
+            .create_object_for_player("HqY2oosMicrowaveTank", 0, Vec3::new(200.0, 0.0, 0.0))
+            .expect("microwave tank");
+        let building_id = logic
+            .create_object_for_player("HqY2oosEnemyBuilding", 1, Vec3::ZERO)
+            .expect("enemy building");
+
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_special_power(
+                    &[tank_id],
+                    &SpecialPowerType::MicrowaveDisableBuilding,
+                    &PowerTarget::Object(building_id),
+                ),
+                CommandResult::Success,
+                "Microwave Disable Building must not be hard-rejected"
+            );
+        }
+        let issued = logic.host_object(tank_id).expect("tank after issue");
+        assert_eq!(issued.ai_state, AIState::SpecialAbility);
+        assert_eq!(issued.target, Some(building_id));
+        assert_eq!(
+            issued
+                .hacker_disable_channel
+                .expect("microwave must start the disable-building channel")
+                .phase,
+            HackerDisableChannelPhase::Approaching
+        );
+        assert!(
+            !logic
+                .host_object(building_id)
+                .expect("building")
+                .is_hacked_disabled(),
+            "click must not apply a remote/instant disable"
         );
     }
 }

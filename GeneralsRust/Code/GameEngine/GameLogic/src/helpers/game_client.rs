@@ -963,6 +963,115 @@ impl TheGameClient {
             .collect()
     }
 
+    /// C++ `GameClient::xfer` objectless drawables (`objectID == INVALID_ID`).
+    /// PUC beams, jet lock-on, Chinook ropes, prison visuals, and FX tracers
+    /// live here rather than on a host Object.
+    pub fn snapshot_objectless_drawables(&self) -> Vec<(u32, DrawableState)> {
+        let Ok(map) = DRAWABLE_STATE.lock() else {
+            return Vec::new();
+        };
+        let mut entries: Vec<(u32, DrawableState)> = map
+            .iter()
+            .filter_map(|(id, state)| {
+                let bound = state
+                    .drawable
+                    .as_ref()
+                    .and_then(|drawable| drawable.read().ok())
+                    .map(|guard| guard.get_object_id())
+                    .unwrap_or(INVALID_ID);
+                if bound != INVALID_ID && bound != 0 {
+                    return None;
+                }
+                Some((*id, state.clone()))
+            })
+            .collect();
+        entries.sort_by_key(|(id, _)| *id);
+        entries
+    }
+
+    /// Drop objectless DRAWABLE_STATE rows so load can replace the C++ list.
+    pub fn clear_objectless_drawables(&self) {
+        let ids: Vec<u32> = self
+            .snapshot_objectless_drawables()
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        for id in ids {
+            self.destroy_drawable(id);
+        }
+    }
+
+    fn rekey_drawable(&self, from: u32, to: u32) {
+        if from == to || to == 0 {
+            return;
+        }
+        let Ok(mut map) = DRAWABLE_STATE.lock() else {
+            return;
+        };
+        let Some(mut state) = map.remove(&from) else {
+            return;
+        };
+        if let Some(drawable) = state.drawable.as_ref() {
+            if let Ok(mut guard) = drawable.write() {
+                guard.set_drawable_id(to);
+            }
+        }
+        map.insert(to, state);
+        let next = Drawable::get_drawable_id_counter();
+        if to >= next {
+            Drawable::set_drawable_id_counter(to.saturating_add(1).max(1));
+        }
+    }
+
+    /// Recreate one objectless drawable at the saved DrawableID so leftover
+    /// PUC / Jet / Chinook / Prison IDs rematch after load.
+    pub fn restore_objectless_drawable(&self, saved_id: u32, state: &DrawableState) {
+        if saved_id == 0 || state.template_name.trim().is_empty() {
+            return;
+        }
+        if self.find_drawable_by_id(saved_id).is_some() {
+            self.set_drawable_position(saved_id, &state.position);
+            self.set_drawable_orientation(saved_id, state.orientation);
+            self.set_drawable_shroud_status_object_id(saved_id, state.shroud_status_object_id);
+            if let (Some(start), Some(end)) = (state.beam_start, state.beam_end) {
+                self.set_drawable_beam(saved_id, &start, &end);
+            }
+            if let Some(frame) = state.expiration_frame {
+                self.set_drawable_expiration_date(saved_id, frame);
+            }
+            return;
+        }
+        let Some(template) = TheThingFactory::find_template(state.template_name.as_str()) else {
+            return;
+        };
+        let created = self.create_drawable(template.as_ref());
+        if created == 0 {
+            return;
+        }
+        if created != saved_id {
+            self.rekey_drawable(created, saved_id);
+        }
+        self.set_drawable_position(saved_id, &state.position);
+        self.set_drawable_orientation(saved_id, state.orientation);
+        self.set_drawable_shroud_status_object_id(saved_id, state.shroud_status_object_id);
+        if let (Some(start), Some(end)) = (state.beam_start, state.beam_end) {
+            self.set_drawable_beam(saved_id, &start, &end);
+        }
+        if let Some(frame) = state.expiration_frame {
+            self.set_drawable_expiration_date(saved_id, frame);
+        }
+    }
+
+    pub fn restore_objectless_drawables(
+        &self,
+        entries: impl IntoIterator<Item = (u32, DrawableState)>,
+    ) {
+        for (id, state) in entries {
+            self.restore_objectless_drawable(id, &state);
+        }
+    }
+
+
     pub fn get_drawable_beam_width(&self, id: u32) -> Option<Real> {
         let map = DRAWABLE_STATE.lock().ok()?;
         map.get(&id).and_then(|state| state.beam_width)

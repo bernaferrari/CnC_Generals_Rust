@@ -1212,13 +1212,8 @@ impl GameLogic {
         self.cleanup_areas.honesty_host_path_ok() || self.cleanup_stream_missiles_spawned > 0
     }
 
-    /// Activate Cleanup Area residual: clear toxin/radiation fields and mines
-    /// at `location` (retail CleanupAreaPower → CleanupHazardUpdate residual).
-    ///
-    /// Fail-closed: not full CleanupStreamProjectile / scan loop / HAZARD_CLEANUP
-    /// damage-to-object matrix / rubble pathfind clear.
-    /// Returns true when the residual activation was recorded (even if 0 clears —
-    /// empty-area order still counts as activate honesty).
+    /// Activate Cleanup Area: C++ CleanupAreaPower → setCleanupAreaParameters.
+    /// Never recharges. Ambulance drives to the click, then sprays until clean.
     pub fn activate_cleanup_area(
         &mut self,
         player_id: u32,
@@ -1226,42 +1221,185 @@ impl GameLogic {
         caster_id: Option<ObjectId>,
     ) -> bool {
         use crate::game_logic::host_cleanup_area::{
-            is_cleanup_area_caster, CLEANUP_AREA_ACTIVATE_AUDIO, HOST_CLEANUP_MAX_MOVE_DISTANCE,
+            is_cleanup_area_caster, HostCleanupArea, HostCleanupAreaOrder,
+            CLEANUP_AREA_ACTIVATE_AUDIO, HOST_CLEANUP_AREA_RADIUS,
+            HOST_CLEANUP_MAX_MOVE_DISTANCE,
         };
 
-        // Fail-closed caster gate: ambulance / dozer / worker residual only.
-        if let Some(cid) = caster_id {
-            let Some(caster) = self.objects.get(&cid) else {
-                return false;
-            };
-            if !caster.is_alive() || !is_cleanup_area_caster(&caster.template_name) {
-                return false;
-            }
-            // Optional range residual: caster must be within MaxMoveDistance of order.
-            let cpos = caster.get_position();
-            let dx = cpos.x - location.x;
-            let dz = cpos.z - location.z;
-            if dx * dx + dz * dz > HOST_CLEANUP_MAX_MOVE_DISTANCE * HOST_CLEANUP_MAX_MOVE_DISTANCE {
-                return false;
-            }
-            // Stream projectile residual: fly CleanupStreamProjectile then clear on impact.
-            let from = cpos;
-            if self
-                .spawn_cleanup_stream_projectile(cid, from, location, player_id)
-                .is_some()
-            {
-                self.queue_audio_event(
-                    AudioEventRequest::new(CLEANUP_AREA_ACTIVATE_AUDIO)
-                        .with_position(from)
-                        .with_priority(170),
-                );
-                return true;
-            }
-            // Fail-closed: instant clear if spawn fails.
+        let Some(cid) = caster_id else {
+            return false;
+        };
+        let Some(caster) = self.objects.get(&cid) else {
+            return false;
+        };
+        if !caster.is_alive() || caster.is_disabled() || !is_cleanup_area_caster(&caster.template_name)
+        {
+            return false;
         }
+        let from = caster.get_position();
 
-        // No caster (or spawn failed): apply clear residual immediately at location.
-        self.apply_cleanup_area_at(player_id, location, caster_id)
+        // C++ CleanupHazardUpdate::setCleanupAreaParameters: store pos/range, aiMoveToPosition.
+        self.cleanup_areas
+            .set_cleanup_area_parameters(HostCleanupAreaOrder {
+                caster_id: cid,
+                player_id,
+                location,
+                move_range: HOST_CLEANUP_MAX_MOVE_DISTANCE,
+                next_shot_frame: self.frame,
+            });
+        let _ = self.unit_command_move_to(cid, location);
+
+        let entry_id = self.cleanup_areas.alloc_id();
+        self.cleanup_areas.record_activation(HostCleanupArea {
+            id: entry_id,
+            player_id,
+            location,
+            radius: HOST_CLEANUP_AREA_RADIUS,
+            activate_frame: self.frame,
+            caster_id: Some(cid),
+            radiation_cleared: 0,
+            toxin_cleared: 0,
+            mines_cleared: 0,
+        });
+        self.queue_audio_event(
+            AudioEventRequest::new(CLEANUP_AREA_ACTIVATE_AUDIO)
+                .with_position(from)
+                .with_priority(170),
+        );
+        true
+    }
+
+    /// C++ CleanupHazardUpdate::update — drive first, then scan/spray until clean.
+    pub fn update_cleanup_area_orders(&mut self) {
+        use crate::game_logic::host_cleanup_area::{
+            HOST_CLEANUP_ARRIVE_DISTANCE, HOST_CLEANUP_SCAN_RANGE,
+            HOST_CLEANUP_WEAPON_ATTACK_RANGE, HOST_CLEANUP_WEAPON_DELAY_FRAMES,
+        };
+
+        let frame = self.frame;
+        let orders = self.cleanup_areas.take_orders();
+        let mut keep = Vec::new();
+        for mut order in orders {
+            let Some(caster) = self.objects.get(&order.caster_id) else {
+                continue;
+            };
+            if !caster.is_alive() {
+                continue;
+            }
+            if caster.is_disabled() {
+                keep.push(order);
+                continue;
+            }
+            let cpos = caster.get_position();
+            let dest = caster.movement.target_position;
+            let ai = caster.ai_state.clone();
+            let caster_team = caster.team;
+
+            // Player cancel residual: a new move far from the click is not AI cleanup.
+            if let Some(d) = dest {
+                let dx = d.x - order.location.x;
+                let dz = d.z - order.location.z;
+                let max = order.move_range + HOST_CLEANUP_SCAN_RANGE;
+                if dx * dx + dz * dz > max * max
+                    && matches!(ai, AIState::Moving | AIState::AttackMoving)
+                {
+                    continue;
+                }
+            }
+
+            let arriving = {
+                let dx = cpos.x - order.location.x;
+                let dz = cpos.z - order.location.z;
+                dx * dx + dz * dz
+                    <= HOST_CLEANUP_ARRIVE_DISTANCE * HOST_CLEANUP_ARRIVE_DISTANCE
+            };
+            // C++ fireWhenReady only attacks when idle/busy. Drive first while Moving.
+            let can_spray = arriving
+                || matches!(ai, AIState::Idle | AIState::SpecialAbility)
+                || dest.is_none();
+            if !can_spray {
+                keep.push(order);
+                continue;
+            }
+
+            let scan_r = HOST_CLEANUP_SCAN_RANGE + order.move_range;
+            let hazard = self.find_cleanup_hazard_near(order.location, scan_r, caster_team);
+            if let Some(hpos) = hazard {
+                let dx = cpos.x - hpos.x;
+                let dz = cpos.z - hpos.z;
+                let attack = HOST_CLEANUP_WEAPON_ATTACK_RANGE;
+                if dx * dx + dz * dz > attack * attack {
+                    let _ = self.unit_command_move_to(order.caster_id, hpos);
+                    keep.push(order);
+                    continue;
+                }
+                if frame >= order.next_shot_frame {
+                    if self
+                        .spawn_cleanup_stream_projectile(
+                            order.caster_id,
+                            cpos,
+                            hpos,
+                            order.player_id,
+                        )
+                        .is_none()
+                    {
+                        let _ = self.apply_cleanup_area_at(
+                            order.player_id,
+                            hpos,
+                            Some(order.caster_id),
+                        );
+                    }
+                    order.next_shot_frame =
+                        frame.saturating_add(HOST_CLEANUP_WEAPON_DELAY_FRAMES);
+                }
+
+                keep.push(order);
+            } else if arriving {
+                // Area is clean and we are at the click — C++ m_moveRange = 0.
+            } else {
+                let _ = self.unit_command_move_to(order.caster_id, order.location);
+                keep.push(order);
+            }
+        }
+        self.cleanup_areas.restore_orders(keep);
+    }
+
+    /// Closest toxin/radiation field or enemy/neutral mine around `center`.
+    fn find_cleanup_hazard_near(
+        &self,
+        center: Vec3,
+        radius: f32,
+        caster_team: Team,
+    ) -> Option<Vec3> {
+        let r2 = radius * radius;
+        let mut best: Option<(f32, Vec3)> = None;
+        let consider = |pos: Vec3, best: &mut Option<(f32, Vec3)>| {
+            let dx = pos.x - center.x;
+            let dz = pos.z - center.z;
+            let d2 = dx * dx + dz * dz;
+            if d2 <= r2 && best.map(|(bd, _)| d2 < bd).unwrap_or(true) {
+                *best = Some((d2, pos));
+            }
+        };
+        for field in self.special_power_strikes.toxin_fields() {
+            consider(field.position, &mut best);
+        }
+        for field in self.special_power_strikes.radiation_fields() {
+            consider(field.position, &mut best);
+        }
+        for obj in self.objects.values() {
+            if !obj.is_alive() {
+                continue;
+            }
+            let Some(mine) = obj.mine_data.as_ref() else {
+                continue;
+            };
+            if mine.detonated || obj.team == caster_team {
+                continue;
+            }
+            consider(obj.get_position(), &mut best);
+        }
+        best.map(|(_, p)| p)
     }
 
     /// Apply CleanupArea hazard/mine clear residual at impact (post-projectile or instant).

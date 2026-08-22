@@ -1434,6 +1434,76 @@ impl GameClient {
     fn set_global_drawable_id_counter(next_drawable_id: u32) {
         GLOBAL_NEXT_DRAWABLE_ID.store(next_drawable_id.max(1), Ordering::Relaxed);
     }
+
+    /// Pull TheGameClient DRAWABLE_STATE objectless rows into this archive so
+    /// leftover `GameClient::xfer` writes them with `objectID == INVALID_ID`.
+    pub fn import_objectless_from_logic_client(&mut self) {
+        let Some(logic_client) = TheGameClient::get() else {
+            return;
+        };
+        for (id, state) in logic_client.snapshot_objectless_drawables() {
+            if id == 0 || state.template_name.trim().is_empty() {
+                continue;
+            }
+            let drawable_id = DrawableId(id);
+            if self.drawable_map.contains_key(&drawable_id) {
+                continue;
+            }
+            let mut drawable = BasicDrawable::new(drawable_id);
+            drawable.set_id(drawable_id);
+            drawable.set_template_name(Some(state.template_name));
+            drawable.set_position(Vector3::new(
+                state.position.x,
+                state.position.y,
+                state.position.z,
+            ));
+            self.drawable_map.insert(drawable_id, Box::new(drawable));
+            if id >= self.next_drawable_id.0 {
+                self.next_drawable_id = DrawableId(id.saturating_add(1).max(1));
+                self.set_drawable_id_counter(self.next_drawable_id.0);
+            }
+        }
+    }
+
+    /// Push leftover objectless drawables back into TheGameClient so PUC /
+    /// lock-on / rope IDs rematch after load.
+    pub fn export_objectless_to_logic_client(&self) {
+        let Some(logic_client) = TheGameClient::get() else {
+            return;
+        };
+        logic_client.clear_objectless_drawables();
+        for (id, drawable) in &self.drawable_map {
+            if drawable.get_object_id().is_some() {
+                continue;
+            }
+            let Some(template_name) = drawable.get_template_name() else {
+                continue;
+            };
+            if template_name.is_empty() {
+                continue;
+            }
+            let position = drawable.get_position();
+            logic_client.restore_objectless_drawable(
+                id.0,
+                &gamelogic::helpers::DrawableState {
+                    template_name: template_name.to_string(),
+                    indicator_color: gamelogic::common::Color::default(),
+                    position: gamelogic::common::Coord3D::new(position.x, position.y, position.z),
+                    orientation: 0.0,
+                    shroud_status_object_id: INVALID_ID,
+                    beam_start: None,
+                    beam_end: None,
+                    beam_width: None,
+                    laser_growth_frames: None,
+                    laser_growth_start_frame: None,
+                    projectile_stream: None,
+                    drawable: None,
+                    expiration_frame: None,
+                },
+            );
+        }
+    }
+
 }
 
 fn log_startup_shell_mapped_images() {
@@ -1773,3 +1843,46 @@ impl Drop for GameClient {
         log::info!("GameClient shutdown complete");
     }
 }
+
+fn write_game_client_xfer_bytes(client: &mut GameClient) -> Result<Vec<u8>, String> {
+    client.import_objectless_from_logic_client();
+    let mut bytes = Vec::new();
+    {
+        let cursor = Cursor::new(&mut bytes);
+        let mut xfer = game_engine::common::system::xfer_save::XferSave::new(cursor, 3);
+        client.xfer(&mut xfer)?;
+    }
+    Ok(bytes)
+}
+
+fn read_game_client_xfer_bytes(client: &mut GameClient, bytes: &[u8]) -> Result<(), String> {
+    let cursor = Cursor::new(bytes.to_vec());
+    let mut xfer = game_engine::common::system::xfer_load::XferLoad::new(cursor, 3);
+    client.xfer(&mut xfer)?;
+    client.export_objectless_to_logic_client();
+    Ok(())
+}
+
+/// C++ `CHUNK_GameClient` payload: leftover `GameClient::xfer` plus objectless
+/// TheGameClient DRAWABLE_STATE rows (PUC beams, lock-on, ropes).
+pub fn capture_live_game_client_xfer_bytes() -> Result<Vec<u8>, String> {
+    if let Some(result) = with_live_game_client_mut(write_game_client_xfer_bytes) {
+        return result;
+    }
+    let mut client = GameClient::new().map_err(|e| e.to_string())?;
+    write_game_client_xfer_bytes(&mut client)
+}
+
+pub fn restore_live_game_client_from_xfer_bytes(bytes: &[u8]) -> Result<(), String> {
+    if bytes.is_empty() {
+        return Ok(());
+    }
+    if let Some(result) =
+        with_live_game_client_mut(|client| read_game_client_xfer_bytes(client, bytes))
+    {
+        return result;
+    }
+    let mut client = GameClient::new().map_err(|e| e.to_string())?;
+    read_game_client_xfer_bytes(&mut client, bytes)
+}
+

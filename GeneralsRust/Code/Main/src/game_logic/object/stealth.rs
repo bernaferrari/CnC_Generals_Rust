@@ -624,6 +624,17 @@ impl Object {
         )
     }
 
+    /// C++ `Drawable::xfer` overlay keepTillFrame still active at `now`.
+    pub fn overlay_icon_active(&self, names: &[&str], now: u32) -> bool {
+        self.drawable_overlay_icons.iter().any(|icon| {
+            icon.keep_till_frame > now
+                && names
+                    .iter()
+                    .any(|name| icon.name.eq_ignore_ascii_case(name))
+        })
+    }
+
+
 }
 
 
@@ -978,6 +989,53 @@ pub fn sample_drawable_status_tint(
         env.current
     })
 }
+
+/// C++ `TintEnvelope` snapshot for live save/load (current ADSR sample).
+#[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+pub struct DrawableTintEnvelopePersist {
+    pub current: [f32; 3],
+    pub peak: [f32; 3],
+    pub attack_rate: [f32; 3],
+    pub decay_rate: [f32; 3],
+    pub state: u8,
+    pub last_kind: u8,
+    pub last_frame: u32,
+    pub seen: bool,
+}
+
+pub fn capture_drawable_tint_envelope(object_id: u32) -> Option<DrawableTintEnvelopePersist> {
+    TINT_ENVELOPES.with(|map| {
+        map.borrow().get(&object_id).map(|env| DrawableTintEnvelopePersist {
+            current: env.current,
+            peak: env.peak,
+            attack_rate: env.attack_rate,
+            decay_rate: env.decay_rate,
+            state: env.state,
+            last_kind: env.last_kind,
+            last_frame: env.last_frame,
+            seen: env.seen,
+        })
+    })
+}
+
+pub fn restore_drawable_tint_envelope(object_id: u32, persist: DrawableTintEnvelopePersist) {
+    TINT_ENVELOPES.with(|map| {
+        map.borrow_mut().insert(
+            object_id,
+            HostTintEnvelope {
+                current: persist.current,
+                peak: persist.peak,
+                attack_rate: persist.attack_rate,
+                decay_rate: persist.decay_rate,
+                state: persist.state,
+                last_kind: persist.last_kind,
+                last_frame: persist.last_frame,
+                seen: persist.seen,
+            },
+        );
+    });
+}
+
 
 #[cfg(test)]
 pub fn reset_drawable_tint_envelopes() {

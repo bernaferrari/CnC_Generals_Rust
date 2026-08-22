@@ -74,6 +74,14 @@ pub struct HostScriptQueryObject {
     pub special_power_templates: Vec<String>,
     /// C++ LocomotorSet::getValidSurfaces; 0 means no AI → GROUND.
     pub locomotor_surfaces: u32,
+    /// C++ Object::isCaptured (private CAPTURED status).
+    pub captured: bool,
+    /// C++ DISABLED_UNMANNED (unowned faction vehicle).
+    pub unmanned: bool,
+    /// C++ ContainModuleInterface::isGarrisonable.
+    pub garrisonable: bool,
+    /// C++ ThingTemplate::friend_getBuildCost.
+    pub build_cost: i32,
 
 
 }
@@ -1126,6 +1134,145 @@ pub fn host_eval_skirmish_command_button_ready(
         }
     }
     Some(all_ready)
+}
+
+fn host_compare_i32(comparison: i32, actual: i32, target: i32) -> bool {
+    match comparison {
+        0 => actual < target,
+        1 => actual <= target,
+        2 => actual == target,
+        3 => actual >= target,
+        4 => actual > target,
+        5 => actual != target,
+        _ => false,
+    }
+}
+
+fn host_object_has_special_power(obj: &HostScriptQueryObject, power_name: &str) -> bool {
+    obj.special_power_templates.iter().any(|owned| {
+        owned.eq_ignore_ascii_case(power_name)
+            || host_special_power_matches_button(owned, power_name)
+    })
+}
+
+/// C++ ScriptConditions::evaluateSkirmishSpecialPowerIsReady over the host snapshot.
+pub fn host_eval_skirmish_special_power_ready(player_name: &str, power_name: &str) -> Option<bool> {
+    if !host_script_query_has_any() {
+        return None;
+    }
+    if power_name.is_empty() {
+        return Some(false);
+    }
+    Some(HOST_SCRIPT_QUERY.with(|slot| {
+        slot.borrow().objects.iter().any(|obj| {
+            host_owner_matches(obj, player_name)
+                && host_object_has_special_power(obj, power_name)
+                && obj.special_power_ready
+        })
+    }))
+}
+
+/// C++ ScriptConditions::evaluateSkirmishValueInArea over the host snapshot.
+pub fn host_eval_skirmish_value_in_area(
+    player_name: &str,
+    comparison: i32,
+    money: i32,
+    area_name: &str,
+) -> Option<bool> {
+    if !host_script_query_has_any() {
+        return None;
+    }
+    if host_script_lookup_polygon_trigger(area_name).is_none()
+        && host_script_area_bounds(area_name).is_none()
+    {
+        return Some(false);
+    }
+    let total_cost = HOST_SCRIPT_QUERY.with(|slot| {
+        slot.borrow()
+            .objects
+            .iter()
+            .filter(|obj| {
+                host_owner_matches(obj, player_name)
+                    && !obj.kind_inert
+                    && obj.alive
+                    && !obj.effectively_dead
+                    && host_object_in_named_area(obj, area_name)
+            })
+            .map(|obj| obj.build_cost)
+            .sum::<i32>()
+    });
+    Some(host_compare_i32(comparison, total_cost, money))
+}
+
+/// C++ evaluateSkirmishUnownedFactionUnitComparison count over host snapshot.
+pub fn host_eval_skirmish_unowned_faction_unit_count() -> Option<i32> {
+    if !host_script_query_has_any() {
+        return None;
+    }
+    Some(HOST_SCRIPT_QUERY.with(|slot| {
+        slot.borrow()
+            .objects
+            .iter()
+            .filter(|obj| obj.unmanned)
+            .count() as i32
+    }))
+}
+
+/// C++ evaluateSkirmishPlayerHasComparisonGarrisoned count over host snapshot.
+pub fn host_eval_skirmish_garrisoned_count(player_name: &str) -> Option<i32> {
+    if !host_script_query_has_any() {
+        return None;
+    }
+    Some(HOST_SCRIPT_QUERY.with(|slot| {
+        slot.borrow()
+            .objects
+            .iter()
+            .filter(|obj| {
+                host_owner_matches(obj, player_name)
+                    && obj.garrisonable
+                    && obj.contain_count > 0
+            })
+            .count() as i32
+    }))
+}
+
+/// C++ evaluateSkirmishPlayerHasComparisonCapturedUnits count over host snapshot.
+pub fn host_eval_skirmish_captured_count(player_name: &str) -> Option<i32> {
+    if !host_script_query_has_any() {
+        return None;
+    }
+    Some(HOST_SCRIPT_QUERY.with(|slot| {
+        slot.borrow()
+            .objects
+            .iter()
+            .filter(|obj| host_owner_matches(obj, player_name) && obj.captured)
+            .count() as i32
+    }))
+}
+
+/// C++ ScriptConditions::evaluateSkirmishPlayerHasUnitsInArea over the host snapshot.
+pub fn host_eval_skirmish_player_has_units_in_area(
+    player_name: &str,
+    area_name: &str,
+) -> Option<bool> {
+    if !host_script_query_has_any() {
+        return None;
+    }
+    if host_script_lookup_polygon_trigger(area_name).is_none()
+        && host_script_area_bounds(area_name).is_none()
+    {
+        return Some(false);
+    }
+    Some(HOST_SCRIPT_QUERY.with(|slot| {
+        slot.borrow().objects.iter().any(|obj| {
+            host_owner_matches(obj, player_name)
+                && host_object_in_named_area(obj, area_name)
+                && obj.alive
+                && !obj.effectively_dead
+                && !obj.kind_inert
+                && !obj.kind_projectile
+        })
+    }))
 }
 
 enum LeftoverCommandButtonKind {

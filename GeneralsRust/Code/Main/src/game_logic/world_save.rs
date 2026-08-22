@@ -1556,7 +1556,12 @@ impl GameLogic {
                     unit.movement.target_position = Some(unit.movement.path[1]);
                     unit.set_status_moving(true);
                     if !decision_auth {
-                        unit.set_ai_state(AIState::Attacking);
+                        if !matches!(
+                            unit.ai_state,
+                            AIState::AttackMoving | AIState::Patrolling
+                        ) {
+                            unit.set_ai_state(AIState::Attacking);
+                        }
                         unit.set_status_attacking(true);
                         if let Some(tid) = target_id {
                             unit.target = Some(tid);
@@ -1585,7 +1590,12 @@ impl GameLogic {
                 }
                 crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2);
             } else if let Some(unit) = self.objects.get_mut(&unit_id) {
-                unit.set_ai_state(AIState::Attacking);
+                if !matches!(
+                    unit.ai_state,
+                    AIState::AttackMoving | AIState::Patrolling
+                ) {
+                    unit.set_ai_state(AIState::Attacking);
+                }
                 unit.set_status_attacking(true);
                 if let Some(tid) = target_id {
                     unit.target = Some(tid);
@@ -1721,11 +1731,12 @@ impl GameLogic {
         let state = self.mood_adjusted_move_state(object_id, state);
         let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
         let ordinal = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&state);
+        let attack_moving = matches!(state, AIState::AttackMoving);
         if self.assign_unit_path_ignoring(object_id, goal, &[], ignore_obstacle) {
             if decision_auth {
                 crate::game_logic::host_ai_decision_log::record_set_state(object_id, ordinal);
             } else if let Some(obj) = self.objects.get_mut(&object_id) {
-                obj.set_ai_state(state);
+                obj.set_ai_state(state.clone());
             }
         } else if decision_auth {
             if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -1735,6 +1746,12 @@ impl GameLogic {
         } else if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.set_destination(goal);
             obj.set_ai_state(state);
+        }
+        if attack_moving {
+            if let Some(obj) = self.objects.get_mut(&object_id) {
+                obj.is_attack_path = true;
+                obj.requested_destination = Some(goal);
+            }
         }
     }
 

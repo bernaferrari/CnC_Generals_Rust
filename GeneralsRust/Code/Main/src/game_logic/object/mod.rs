@@ -123,6 +123,18 @@ fn default_terrain_decal_none() -> u8 {
     8
 }
 
+/// C++ `Drawable::xfer` overlay icon slot (name + keepTillFrame + Anim2D).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct DrawableOverlayIcon {
+    pub name: String,
+    pub keep_till_frame: u32,
+    #[serde(default)]
+    pub template_name: String,
+    #[serde(default)]
+    pub anim_frame: u32,
+}
+
+
 
 fn default_pitch_roll_yaw_factor() -> f32 {
     2.0
@@ -420,6 +432,12 @@ pub struct Object {
     /// C++ `m_task[DOZER_TASK_REPAIR].m_taskOrderFrame`.
     #[serde(default)]
     pub dozer_task_repair_order_frame: u32,
+    /// C++ `m_dockPoint[DOZER_TASK_BUILD][DOZER_DOCK_POINT_ACTION]` (DozerAIUpdate.cpp:1990-1991).
+    /// Seeded by `findGoodBuildOrRepairPosition` (half major radius). Build HP
+    /// starts only when idle at this point, not the structure centre.
+    #[serde(default)]
+    pub dozer_dock_action: Option<Vec3>,
+
 
 
     /// C++ SupplyTruckAIUpdate/WorkerAIUpdate::m_preferredDock.
@@ -452,6 +470,16 @@ pub struct Object {
     /// C++ `RailedTransportAIUpdate::m_inTransit`.
     #[serde(default)]
     pub railed_in_transit: bool,
+    /// C++ `RailedTransportAIUpdate::m_waypointDataLoaded`.
+    #[serde(default)]
+    pub railed_waypoint_data_loaded: bool,
+    /// C++ `RailedTransportAIUpdate::m_currentPath` (`INVALID_PATH` = -1).
+    #[serde(default = "crate::game_logic::default_railed_current_path")]
+    pub railed_current_path: i32,
+    /// C++ `m_path[0..m_numPaths]` Start/End waypoint IDs.
+    #[serde(default)]
+    pub railed_paths: Vec<(u32, u32)>,
+
     /// C++ `Drawable::updateDrawableSupplyStatus` current boxes.
     #[serde(default)]
     pub drawable_supply_boxes: u32,
@@ -961,6 +989,13 @@ pub struct Object {
 
     /// Guard target
     pub guard_target: Option<ObjectId>,
+    /// C++ AIGuardInner / Outer / AttackAggressor residual (0 none, 1 inner, 2 outer, 3 aggressor).
+    #[serde(default)]
+    pub guard_chase_phase: u8,
+    /// C++ ExitConditions::m_attackGiveUpFrame.
+    #[serde(default)]
+    pub guard_chase_give_up_frame: u32,
+
 
     /// Force attack mode
     pub force_attack: bool,
@@ -2547,6 +2582,44 @@ pub struct Object {
     /// C++ `m_timeToFade` residual (logic frames).
     #[serde(default)]
     pub drawable_fade_frames: u32,
+    /// C++ `Drawable::m_explicitOpacity` residual (script/fade channel).
+    #[serde(default = "default_one_f32")]
+    pub drawable_explicit_opacity: f32,
+    /// C++ `Drawable::m_instanceScale` residual (script / EMP pulse scale).
+    #[serde(default = "default_one_f32")]
+    pub drawable_instance_scale: f32,
+    /// C++ `Drawable::m_tintStatus` residual.
+    #[serde(default)]
+    pub drawable_tint_status: u32,
+    /// C++ `Drawable::m_prevTintStatus` residual.
+    #[serde(default)]
+    pub drawable_prev_tint_status: u32,
+    /// C++ `Drawable::m_expirationDate` residual (0 = never).
+    #[serde(default)]
+    pub drawable_expiration_date: u32,
+    /// C++ `DrawableLocoInfo` pitch/roll/yaw residual.
+    #[serde(default)]
+    pub drawable_loco_pitch: f32,
+    #[serde(default)]
+    pub drawable_loco_pitch_rate: f32,
+    #[serde(default)]
+    pub drawable_loco_roll: f32,
+    #[serde(default)]
+    pub drawable_loco_roll_rate: f32,
+    #[serde(default)]
+    pub drawable_loco_yaw: f32,
+    #[serde(default)]
+    pub drawable_loco_accel_pitch: f32,
+    #[serde(default)]
+    pub drawable_loco_accel_pitch_rate: f32,
+    #[serde(default)]
+    pub drawable_loco_accel_roll: f32,
+    #[serde(default)]
+    pub drawable_loco_accel_roll_rate: f32,
+    /// C++ overlay icon keepTillFrame + Anim2D snapshot residual.
+    #[serde(default)]
+    pub drawable_overlay_icons: Vec<DrawableOverlayIcon>,
+
 }
 
 /// C++ `WeaponStatus` (WeaponStatus.h) residual for the active weapon slot.
@@ -2837,9 +2910,10 @@ pub use barrels::WeaponBarrelState;
 pub use damage::{prime_live_damage_context, set_pending_damage_status_type};
 pub use visual::ObjectVisualInfo;
 pub use stealth::{
-    drawable_disabled_dark_tint, drawable_explicit_fade_opacity, drawable_status_tint_rgb,
-    friendly_stealth_pulse_opacity, is_live_stealth_black_market, order_idle_enemies_on_reveal,
-    sample_drawable_status_tint, stealth_second_material_pass_opacity, DRAWABLE_FADE_IN,
+    capture_drawable_tint_envelope, drawable_disabled_dark_tint, drawable_explicit_fade_opacity,
+    drawable_status_tint_rgb, friendly_stealth_pulse_opacity, is_live_stealth_black_market,
+    order_idle_enemies_on_reveal, restore_drawable_tint_envelope, sample_drawable_status_tint,
+    stealth_second_material_pass_opacity, DrawableTintEnvelopePersist, DRAWABLE_FADE_IN,
     DRAWABLE_FADE_NONE, DRAWABLE_FADE_OUT, SOUND_STEALTH_OFF, SOUND_STEALTH_ON,
     TINT_DISABLED_ATTACK_FRAMES, TINT_DISABLED_COLOR, TINT_FRENZY_COLOR, TINT_FRENZY_COLOR_INFANTRY,
     TINT_SUBDUAL_ATTACK_FRAMES, TINT_SUBDUAL_COLOR,
