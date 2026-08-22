@@ -963,6 +963,13 @@ impl ScriptActionDispatcher {
         let unit_name = self.get_string_param(action, 0)?;
 
         log::info!("Named unit '{}' stopping", unit_name);
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_idle(super::HostScriptIdleRequest::NamedStop {
+                unit: unit_name,
+            });
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         // Look up object ID by name
         let tracker = get_named_object_tracker();

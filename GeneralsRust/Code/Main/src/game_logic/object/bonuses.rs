@@ -149,9 +149,24 @@ impl Object {
         self.weapon_bonus_fields().1
     }
 
+    /// C++ OpenContain::isWeaponBonusPassedToPassengers.
+    pub fn passes_weapon_bonus_to_passengers(&self) -> bool {
+        self.thing
+            .template
+            .contain_module
+            .weapon_bonus_passed_to_passengers
+    }
+
     /// C++ WeaponBonus append residual for active condition flags.
     /// Returns (DAMAGE, RANGE, RATE_OF_FIRE, PRE_ATTACK) multipliers (default 1.0).
     pub fn weapon_bonus_fields(&self) -> (f32, f32, f32, f32) {
+        self.weapon_bonus_fields_with(None)
+    }
+
+    /// C++ Weapon::computeBonus (Weapon.cpp:1797-1816): source flags OR
+    /// container `getWeaponBonusPassedToPassengers` when the contain module
+    /// authors `WeaponBonusPassedToPassengers`.
+    pub fn weapon_bonus_fields_with(&self, container: Option<&Object>) -> (f32, f32, f32, f32) {
         use crate::game_logic::host_propaganda::{
             ENTHUSIASTIC_RATE_OF_FIRE_MULT, SUBLIMINAL_RATE_OF_FIRE_MULT,
         };
@@ -168,44 +183,81 @@ impl Object {
         };
         use crate::game_logic::VeterancyLevel;
 
+        let inherit = container.filter(|c| c.passes_weapon_bonus_to_passengers());
+        let flag = |own: bool, get: fn(&Object) -> bool| own || inherit.is_some_and(get);
+
+        let enthusiastic = flag(self.weapon_bonus_enthusiastic, |c| c.weapon_bonus_enthusiastic);
+        let subliminal = flag(self.weapon_bonus_subliminal, |c| c.weapon_bonus_subliminal);
+        let horde = flag(self.weapon_bonus_horde, |c| c.weapon_bonus_horde);
+        let nationalism = flag(self.weapon_bonus_nationalism, |c| c.weapon_bonus_nationalism);
+        let fanaticism = flag(self.weapon_bonus_fanaticism, |c| c.weapon_bonus_fanaticism);
+        let player_upgrade = flag(self.weapon_bonus_player_upgrade, |c| {
+            c.weapon_bonus_player_upgrade
+        });
+        let frenzy = flag(self.weapon_bonus_frenzy, |c| c.weapon_bonus_frenzy);
+        let frenzy_level = self.weapon_bonus_frenzy_level.max(
+            inherit
+                .map(|c| c.weapon_bonus_frenzy_level)
+                .unwrap_or(0),
+        );
+        let bombardment = flag(self.weapon_bonus_battle_plan_bombardment, |c| {
+            c.weapon_bonus_battle_plan_bombardment
+        });
+        let search_and_destroy = flag(self.weapon_bonus_battle_plan_search_and_destroy, |c| {
+            c.weapon_bonus_battle_plan_search_and_destroy
+        });
+        let drone_spotting = flag(self.weapon_bonus_drone_spotting, |c| {
+            c.weapon_bonus_drone_spotting
+        });
+        let hero = flag(self.weapon_bonus_hero, |c| c.weapon_bonus_hero);
+        let elite = flag(self.weapon_bonus_elite, |c| c.weapon_bonus_elite);
+        let veteran = flag(self.weapon_bonus_veteran, |c| c.weapon_bonus_veteran);
+        let continuous_fire_level = self.continuous_fire_level.max(
+            inherit
+                .map(|c| c.continuous_fire_level)
+                .unwrap_or(0),
+        );
 
         let mut damage = 1.0f32;
         let mut range = 1.0f32;
         let mut rof = 1.0f32;
         let pre_attack = 1.0f32;
 
-        if self.weapon_bonus_enthusiastic {
+        if enthusiastic {
             rof *= ENTHUSIASTIC_RATE_OF_FIRE_MULT;
         }
-        if self.weapon_bonus_subliminal {
+        if subliminal {
             rof *= SUBLIMINAL_RATE_OF_FIRE_MULT;
         }
-        if self.weapon_bonus_horde {
+        if horde {
             rof *= INFANTRY_HORDE_ROF_MULT;
         }
-        if self.weapon_bonus_nationalism {
+        if nationalism {
             rof *= INFANTRY_NATIONALISM_ROF_MULT;
         }
         // C++ WEAPONBONUSCONDITION_FANATICISM (GameData RATE_OF_FIRE 125%).
         // evaluateMoraleBonus nests this under NATIONALISM; the stored flag
         // is already gated that way. Stacks extra ROF on Infantry General.
-        if self.weapon_bonus_fanaticism {
+        if fanaticism {
             rof *= INFANTRY_FANATICISM_ROF_MULT;
         }
         // C++ WEAPONBONUSCONDITION_PLAYER_UPGRADE (GameData DAMAGE 125%).
         // Uranium Shells / AP Bullets / Chain Guns / AP Rockets.
-        if self.weapon_bonus_player_upgrade {
+        if player_upgrade {
             damage *= 1.25;
         }
-        damage *= self.frenzy_damage_multiplier();
-        if self.weapon_bonus_battle_plan_bombardment {
+        if frenzy {
+            damage *= crate::game_logic::host_frenzy::HostFrenzyLevel::from_u8(frenzy_level)
+                .damage_multiplier();
+        }
+        if bombardment {
             damage *= BOMBARDMENT_DAMAGE_MULT;
         }
-        if self.weapon_bonus_battle_plan_search_and_destroy {
+        if search_and_destroy {
             range *= SEARCH_AND_DESTROY_RANGE_MULT;
         }
         // C++ WEAPONBONUSCONDITION_DRONE_SPOTTING residual (GameData RANGE 150%).
-        if self.weapon_bonus_drone_spotting {
+        if drone_spotting {
             range *= crate::game_logic::host_slave_drones::DRONE_SPOTTING_RANGE_MULT;
         }
         // C++ WEAPONBONUSCONDITION_GARRISONED (GameData RANGE 133%).
@@ -220,7 +272,7 @@ impl Object {
         // C++ CONTINUOUS_FIRE_MEAN / FAST WeaponBonus ROF residual
         // (GameData defaults MEAN 200%, FAST 300%). Level set by FiringTracker
         // / gattling ramp residuals on Object::continuous_fire_level.
-        match self.continuous_fire_level {
+        match continuous_fire_level {
             1 => rof *= 2.0,
             2 => rof *= 3.0,
             _ => {}
@@ -229,13 +281,13 @@ impl Object {
         // every fire (Weapon.cpp:1797-1816). Flags are exclusive; fall back to
         // experience.level when a test assigns rank without going through
         // apply_veterancy_bonuses.
-        if self.weapon_bonus_hero {
+        if hero {
             damage *= VETERANCY_DAMAGE_BONUS_HEROIC;
             rof *= VETERANCY_ROF_BONUS_HEROIC;
-        } else if self.weapon_bonus_elite {
+        } else if elite {
             damage *= VETERANCY_DAMAGE_BONUS_ELITE;
             rof *= VETERANCY_ROF_BONUS_ELITE;
-        } else if self.weapon_bonus_veteran {
+        } else if veteran {
             damage *= VETERANCY_DAMAGE_BONUS_VETERAN;
             rof *= VETERANCY_ROF_BONUS_VETERAN;
         } else {
@@ -255,7 +307,6 @@ impl Object {
                 VeterancyLevel::Rookie => {}
             }
         }
-
 
         (damage, range, rof.max(0.01), pre_attack.max(0.01))
     }

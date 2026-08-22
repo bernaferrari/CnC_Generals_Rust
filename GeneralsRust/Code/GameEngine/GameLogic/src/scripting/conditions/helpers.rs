@@ -72,6 +72,9 @@ pub struct HostScriptQueryObject {
     pub special_power_ready: bool,
     /// Canonical SpecialPowerTemplate names this object owns.
     pub special_power_templates: Vec<String>,
+    /// C++ LocomotorSet::getValidSurfaces; 0 means no AI → GROUND.
+    pub locomotor_surfaces: u32,
+
 
 }
 
@@ -983,11 +986,60 @@ pub fn host_object_did_exit(
     })
 }
 
-/// C++ Team.cpp `locoSetMatches` for host units (no leftover AI → GROUND).
-pub fn host_script_loco_matches_ground(which_to_consider: u32) -> bool {
+/// C++ Team.cpp:142-145 `locoSetMatches`.
+/// Script bit0 stays GROUND; bit1 remaps to locomotor AIR (`<< 2`).
+pub fn host_script_loco_set_matches(lstm: u32, which_to_consider: u32) -> bool {
     let remapped = (which_to_consider & 0x01) | ((which_to_consider & 0x02) << 2);
-    (remapped & 0x01) != 0
+    (remapped & lstm) != 0
 }
+
+/// C++ no-AI members consider themselves GROUND.
+pub fn host_script_loco_matches_ground(which_to_consider: u32) -> bool {
+    host_script_loco_set_matches(crate::path::SURFACE_GROUND, which_to_consider)
+}
+
+fn leftover_template_is_inert(template_name: &str) -> bool {
+    if template_name.is_empty() {
+        return false;
+    }
+    game_engine::common::thing::thing_factory::try_get_thing_factory()
+        .and_then(|guard| {
+            guard
+                .as_ref()
+                .and_then(|factory| factory.find_template(template_name, false))
+        })
+        .is_some_and(|template| {
+            template.is_kind_of_mask(
+                game_engine::common::system::kind_of::KindOfMask::INERT.bits(),
+            )
+        })
+}
+
+/// C++ Team::didAllEnter member filter: loco surfaces, dead, KINDOF_INERT.
+fn host_object_counts_for_team_area(
+    obj: &HostScriptQueryObject,
+    which_to_consider: u32,
+) -> bool {
+    let surfaces = if obj.locomotor_surfaces != 0 {
+        obj.locomotor_surfaces
+    } else {
+        crate::path::SURFACE_GROUND
+    };
+    if !host_script_loco_set_matches(surfaces, which_to_consider) {
+        return false;
+    }
+    if obj.effectively_dead || !obj.alive {
+        return false;
+    }
+    if obj.kind_inert
+        || host_object_has_kind(obj, crate::common::KindOf::Inert)
+        || leftover_template_is_inert(&obj.template_name)
+    {
+        return false;
+    }
+    true
+}
+
 
 pub fn host_script_team_member_ids(team_name: &str) -> Vec<u32> {
     if team_name.is_empty() {
@@ -1198,27 +1250,27 @@ pub fn host_team_did_enter_or_exit(team_name: &str) -> bool {
             .any(host_object_did_enter_or_exit)
 }
 
-fn host_team_alive_positions(team_name: &str) -> Vec<(u32, f32, f32)> {
+fn host_team_area_members(team_name: &str, which_to_consider: u32) -> Vec<(u32, f32, f32)> {
     let ids: HashSet<u32> = host_script_team_member_ids(team_name).into_iter().collect();
     HOST_SCRIPT_QUERY.with(|slot| {
         slot.borrow()
             .objects
             .iter()
-            .filter(|obj| obj.alive && ids.contains(&obj.id))
+            .filter(|obj| {
+                ids.contains(&obj.id) && host_object_counts_for_team_area(obj, which_to_consider)
+            })
             .map(|obj| (obj.id, obj.x, obj.z))
             .collect()
     })
 }
+
 
 pub fn host_team_all_inside(
     team_name: &str,
     trigger: &crate::polygon_trigger::PolygonTrigger,
     which_to_consider: u32,
 ) -> bool {
-    if !host_script_loco_matches_ground(which_to_consider) {
-        return false;
-    }
-    let members = host_team_alive_positions(team_name);
+    let members = host_team_area_members(team_name, which_to_consider);
     !members.is_empty()
         && members.iter().all(|(_, x, z)| {
             trigger.point_in_trigger_int(&host_xz_to_trigger_point(*x, *z))
@@ -1230,10 +1282,7 @@ pub fn host_team_some_inside_some_outside(
     trigger: &crate::polygon_trigger::PolygonTrigger,
     which_to_consider: u32,
 ) -> bool {
-    if !host_script_loco_matches_ground(which_to_consider) {
-        return false;
-    }
-    let members = host_team_alive_positions(team_name);
+    let members = host_team_area_members(team_name, which_to_consider);
     let mut any_inside = false;
     let mut any_outside = false;
     for (_, x, z) in members {
@@ -1251,11 +1300,10 @@ pub fn host_team_did_all_enter(
     trigger: &crate::polygon_trigger::PolygonTrigger,
     which_to_consider: u32,
 ) -> bool {
-    if !host_script_loco_matches_ground(which_to_consider) || !host_team_did_enter_or_exit(team_name)
-    {
+    if !host_team_did_enter_or_exit(team_name) {
         return false;
     }
-    let members = host_team_alive_positions(team_name);
+    let members = host_team_area_members(team_name, which_to_consider);
     let mut entered = false;
     let mut outside = false;
     for (id, x, z) in members {
@@ -1273,11 +1321,10 @@ pub fn host_team_did_partial_enter(
     trigger: &crate::polygon_trigger::PolygonTrigger,
     which_to_consider: u32,
 ) -> bool {
-    if !host_script_loco_matches_ground(which_to_consider) || !host_team_did_enter_or_exit(team_name)
-    {
+    if !host_team_did_enter_or_exit(team_name) {
         return false;
     }
-    host_team_alive_positions(team_name)
+    host_team_area_members(team_name, which_to_consider)
         .into_iter()
         .any(|(id, _, _)| host_object_did_enter(id, trigger))
 }
@@ -1287,11 +1334,10 @@ pub fn host_team_did_all_exit(
     trigger: &crate::polygon_trigger::PolygonTrigger,
     which_to_consider: u32,
 ) -> bool {
-    if !host_script_loco_matches_ground(which_to_consider) || !host_team_did_enter_or_exit(team_name)
-    {
+    if !host_team_did_enter_or_exit(team_name) {
         return false;
     }
-    let members = host_team_alive_positions(team_name);
+    let members = host_team_area_members(team_name, which_to_consider);
     let mut exited = false;
     let mut inside = false;
     let mut any = false;
@@ -1311,11 +1357,10 @@ pub fn host_team_did_partial_exit(
     trigger: &crate::polygon_trigger::PolygonTrigger,
     which_to_consider: u32,
 ) -> bool {
-    if !host_script_loco_matches_ground(which_to_consider) || !host_team_did_enter_or_exit(team_name)
-    {
+    if !host_team_did_enter_or_exit(team_name) {
         return false;
     }
-    host_team_alive_positions(team_name)
+    host_team_area_members(team_name, which_to_consider)
         .into_iter()
         .any(|(id, _, _)| host_object_did_exit(id, trigger))
 }

@@ -223,12 +223,10 @@ impl Xfer for XferSave {
     }
 
     fn xfer_ascii_string(&mut self, ascii_string_data: &mut String) -> Result<(), XferStatus> {
-        // C++ AsciiString is an 8-bit payload. Emit one byte per codepoint so
-        // locale-encoded names loaded via Latin-1 round-trip.
-        let bytes: Vec<u8> = ascii_string_data
-            .chars()
-            .map(|c| u8::try_from(c as u32).unwrap_or(b'?'))
-            .collect();
+        // C++ XferSave.cpp:268-288 — UnsignedByte length + raw payload bytes.
+        // `AsciiString::getLength()` / `str()` are the 8-bit buffer; Rust String
+        // stores that payload as UTF-8, so write `as_bytes()` (not one mapped char).
+        let bytes = ascii_string_data.as_bytes();
         if bytes.len() > MAX_XFER_STRING_LENGTH {
             eprintln!("XferSave cannot save this ASCII string because it's too long");
             return Err(XferStatus::StringError);

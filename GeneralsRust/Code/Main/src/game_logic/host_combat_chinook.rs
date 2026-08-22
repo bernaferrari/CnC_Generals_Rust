@@ -46,6 +46,9 @@ pub const COMBAT_CHINOOK_TRANSPORT_SLOTS: usize = 8;
 pub const COMBAT_CHINOOK_PASSENGERS_ALLOWED_TO_FIRE: bool = true;
 /// Retail ArmedRidersUpgradeMyWeaponSet residual.
 pub const COMBAT_CHINOOK_ARMED_RIDERS_UPGRADE_WEAPON_SET: bool = true;
+/// Retail WeaponBonusPassedToPassengers residual (Combat Chinook riders inherit
+/// container hero / upgrade / frenzy flags via Weapon::computeBonus).
+pub const COMBAT_CHINOOK_WEAPON_BONUS_PASSED_TO_PASSENGERS: bool = true;
 /// Retail AllowInsideKindOf includes INFANTRY residual.
 pub const COMBAT_CHINOOK_ALLOW_INFANTRY: bool = true;
 /// Retail AllowInsideKindOf includes VEHICLE residual.

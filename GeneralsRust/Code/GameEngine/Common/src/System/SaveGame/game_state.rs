@@ -150,6 +150,40 @@ pub struct SaveDate {
 }
 
 impl SaveDate {
+    /// C++ `GetLocalTime` calendar (`GameState.cpp:1562-1582`).
+    /// `day_of_week` matches `SYSTEMTIME.wDayOfWeek` (Sunday = 0).
+    pub fn from_local_time(time: std::time::SystemTime) -> Self {
+        let local = chrono::DateTime::<Local>::from(time);
+        Self {
+            year: local.year() as u16,
+            month: local.month() as u16,
+            day: local.day() as u16,
+            day_of_week: local.weekday().num_days_from_sunday() as u16,
+            hour: local.hour() as u16,
+            minute: local.minute() as u16,
+            second: local.second() as u16,
+            milliseconds: local.timestamp_subsec_millis() as u16,
+        }
+    }
+
+    pub fn now_local() -> Self {
+        Self::from_local_time(std::time::SystemTime::now())
+    }
+
+    /// `GameState::xfer` order: year, month, day, dayOfWeek, hour, minute, second, milliseconds.
+    pub fn to_xfer_fields(self) -> [u16; 8] {
+        [
+            self.year,
+            self.month,
+            self.day,
+            self.day_of_week,
+            self.hour,
+            self.minute,
+            self.second,
+            self.milliseconds,
+        ]
+    }
+
     /// Check if this date is newer than another
     pub fn is_newer_than(&self, other: &SaveDate) -> bool {
         // Year
@@ -1126,17 +1160,9 @@ impl Snapshot for GameState {
             xfer.xfer_ascii_string(&mut self.game_info.mission_map_name)?;
         }
 
-        // Date and time
+        // Date and time — C++ GameState.cpp:1562-1582 GetLocalTime on save.
         if xfer.get_xfer_mode() == XferMode::Save {
-            let now = Local::now();
-            self.game_info.date.year = now.year() as u16;
-            self.game_info.date.month = now.month() as u16;
-            self.game_info.date.day = now.day() as u16;
-            self.game_info.date.day_of_week = now.weekday().num_days_from_sunday() as u16;
-            self.game_info.date.hour = now.hour() as u16;
-            self.game_info.date.minute = now.minute() as u16;
-            self.game_info.date.second = now.second() as u16;
-            self.game_info.date.milliseconds = (now.timestamp_subsec_millis()) as u16;
+            self.game_info.date = SaveDate::now_local();
         }
         xfer.xfer_unsigned_short(&mut self.game_info.date.year)?;
         xfer.xfer_unsigned_short(&mut self.game_info.date.month)?;

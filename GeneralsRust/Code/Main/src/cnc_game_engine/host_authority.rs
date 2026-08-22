@@ -1180,14 +1180,44 @@ impl CnCGameEngine {
             },
         );
         let client_drawables = self.render_pipeline.capture_client_drawable_snapshot();
-        self.save_file_manager
+        let save_path = self.save_file_manager.get_save_path(slot);
+        let result = self
+            .save_file_manager
             .save_game_with_client_drawable_snapshot(
                 slot,
                 &self.game_logic,
                 client_drawables,
                 save_info,
             )
-            .map_err(|e| format!("{e}"))
+            .map_err(|e| format!("{e}"));
+        // C++ GameState::saveGame (GameState.cpp:547-597): HUD
+        // GUI:GameSaveComplete on success; MessageBoxOk(GUI:Error,
+        // GUI:ErrorSavingGame) after a write failure.
+        Self::surface_save_game_ui_feedback(&save_path, &result);
+        result
+    }
+
+    /// C++ `GameState::saveGame` user feedback (`GameState.cpp:547-597`).
+    fn surface_save_game_ui_feedback(save_path: &std::path::Path, result: &Result<(), String>) {
+        #[cfg(feature = "game_client")]
+        match result {
+            Ok(()) => {
+                game_client::helpers::TheInGameUI::message("GUI:GameSaveComplete");
+            }
+            Err(_) => {
+                let filepath = save_path.display().to_string();
+                let template = game_client::game_text::GameText::fetch("GUI:ErrorSavingGame");
+                let body = if template.contains("%s") {
+                    template.replacen("%s", &filepath, 1)
+                } else {
+                    format!("{template} {filepath}")
+                };
+                let title = game_client::game_text::GameText::fetch("GUI:Error");
+                let _ = game_client::gui::message_box_ok(&title, &body, None);
+            }
+        }
+        #[cfg(not(feature = "game_client"))]
+        let _ = (save_path, result);
     }
 
     /// Select the only offline modes supported by the staged save restore.

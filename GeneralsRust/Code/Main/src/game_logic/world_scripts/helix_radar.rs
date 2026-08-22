@@ -1501,6 +1501,7 @@ impl GameLogic {
             location,
         );
         let spawn_ok = spawned_id.is_some();
+        let frame = self.frame;
         if let Some(id) = spawned_id {
             if let Some(obj) = self.host_object_mut(id) {
                 obj.health.maximum = SPY_DRONE_MAX_HEALTH;
@@ -1513,6 +1514,8 @@ impl GameLogic {
                 obj.record_host_detector();
                 obj.detection_range = SPY_DRONE_VISION_RANGE;
                 obj.record_host_detector();
+                // C++ StealthDetectorUpdate ctor random first wake (not setSDEnabled).
+                obj.apply_stealth_detector_ctor_stagger(frame);
             }
         }
 

@@ -212,6 +212,7 @@ impl AITeamQueue {
 enum OnCreateIntent {
     None,
     Hunt,
+    HuntWithCommandButton,
     Guard,
     AttackMove,
 }
@@ -3108,6 +3109,9 @@ impl AIPlayer {
         }
         match Self::classify_on_create_script(on_create) {
             OnCreateIntent::Hunt => self.hunt_units(game_logic, members),
+            OnCreateIntent::HuntWithCommandButton => {
+                self.hunt_units_with_command_button(game_logic, members, on_create)
+            }
             OnCreateIntent::Guard => self.guard_units(game_logic, members),
             OnCreateIntent::AttackMove => {
                 self.attack_move_units(game_logic, members, current_time)
@@ -3129,9 +3133,13 @@ impl AIPlayer {
                         match a.get_action_type() {
                             ScriptActionType::TeamHunt
                             | ScriptActionType::NamedHunt
-                            | ScriptActionType::PlayerHunt
-                            | ScriptActionType::TeamHuntWithCommandButton => {
+                            | ScriptActionType::PlayerHunt => {
                                 return OnCreateIntent::Hunt;
+                            }
+                            ScriptActionType::TeamHuntWithCommandButton => {
+                                // C++ doTeamHuntWithCommandButton arms
+                                // CommandButtonHuntUpdate, not groupHunt.
+                                return OnCreateIntent::HuntWithCommandButton;
                             }
                             ScriptActionType::TeamGuard | ScriptActionType::NamedGuard => {
                                 return OnCreateIntent::Guard;
@@ -3176,6 +3184,11 @@ impl AIPlayer {
             || n.contains("team_attack")
         {
             OnCreateIntent::AttackMove
+        } else if n.contains("huntwithcommand")
+            || n.contains("hunt_with_command")
+            || (n.contains("hunt") && n.contains("command"))
+        {
+            OnCreateIntent::HuntWithCommandButton
         } else if n.contains("hunt") {
             OnCreateIntent::Hunt
         } else {
@@ -3194,6 +3207,47 @@ impl AIPlayer {
                 let _ = game_logic.unit_command_patrol(unit_id);
             }
         }
+    }
+
+    /// C++ `ScriptActions::doTeamHuntWithCommandButton` — arm CommandButtonHuntUpdate.
+    fn hunt_units_with_command_button(
+        &mut self,
+        game_logic: &mut GameLogic,
+        units: &[ObjectId],
+        on_create: &str,
+    ) {
+        let button = Self::on_create_command_button_name(on_create);
+        for &unit_id in units {
+            let mobile = game_logic
+                .host_object(unit_id)
+                .map(|u| u.is_alive() && u.is_mobile())
+                .unwrap_or(false);
+            if mobile {
+                let _ = game_logic.start_command_button_hunt_named(unit_id, button.as_deref());
+            }
+        }
+    }
+
+    fn on_create_command_button_name(on_create: &str) -> Option<String> {
+        use gamelogic::scripting::core::ScriptActionType;
+        let engine = gamelogic::scripting::engine::get_script_engine();
+        let Ok(eng) = engine.read() else {
+            return None;
+        };
+        let e = eng.as_ref()?;
+        let script = e.find_script_clone_by_name(on_create)?;
+        let mut act = script.get_action();
+        while let Some(a) = act {
+            if a.get_action_type() == ScriptActionType::TeamHuntWithCommandButton {
+                if let Some(name) = a.get_parameter(1).map(|p| p.get_string().to_string()) {
+                    if !name.is_empty() {
+                        return Some(name);
+                    }
+                }
+            }
+            act = a.get_next();
+        }
+        None
     }
 
     /// C++ `ScriptActions::doTeamGuard` — guard at current positions.

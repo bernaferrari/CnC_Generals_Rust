@@ -1407,6 +1407,7 @@ impl GameLogic {
                     heal_objects,
                     initial_roster_template,
                     initial_roster_count,
+                    weapon_bonus_passed_to_passengers: false,
                 };
                 // Retail gives an object one active normal contain interface.
                 // A malformed/custom stack is not safely representable here;
@@ -1912,6 +1913,7 @@ impl GameLogic {
                         None => 0,
                     },
                     use_spawn_rally_point: false,
+                    grant_temporary_stealth_frames: 0,
                 }),
                 ProductionExitStyle::Default => Some(ProductionExitMetadata {
                     style,
@@ -1924,6 +1926,7 @@ impl GameLogic {
                         Some(value) => parse_bool(value)?,
                         None => false,
                     },
+                    grant_temporary_stealth_frames: 0,
                 }),
                 ProductionExitStyle::SupplyCenter => Some(ProductionExitMetadata {
                     style,
@@ -1933,6 +1936,7 @@ impl GameLogic {
                     allow_airborne_creation: false,
                     initial_burst: 0,
                     use_spawn_rally_point: false,
+                    grant_temporary_stealth_frames: 0,
                 }),
             }
         })();

@@ -40,6 +40,7 @@ fn supply_center_one_shot_collector_enters_authored_wanting_route_without_passiv
         allow_airborne_creation: false,
         initial_burst: 0,
         use_spawn_rally_point: false,
+        grant_temporary_stealth_frames: 0,
     });
     logic.templates.insert(center.name.clone(), center);
 

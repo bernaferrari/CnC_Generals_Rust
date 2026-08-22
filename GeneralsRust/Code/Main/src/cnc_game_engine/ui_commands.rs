@@ -861,6 +861,34 @@ impl CnCGameEngine {
         out
     }
 
+    /// C++ `ControlBar::onDrawableSelected` / empty `onDrawableDeselected`:
+    /// `TheInGameUI->setGUICommand(NULL)`. `selectDrawable` only notifies when
+    /// a drawable becomes selected. `setGUICommand` is a playback no-op.
+    fn cancel_armed_gui_command_on_selection_change(
+        &mut self,
+        new_ids: &[crate::game_logic::ObjectId],
+    ) {
+        if crate::command_system::host_recorder_is_playback() {
+            return;
+        }
+        let newly_selected = new_ids
+            .iter()
+            .any(|id| !self.selected_objects.contains(id));
+        let deselected_all = new_ids.is_empty() && !self.selected_objects.is_empty();
+        if !newly_selected && !deselected_all {
+            return;
+        }
+        if self.pending_map_command.take().is_some() {
+            self.clear_radius_cursor_overlays();
+        }
+        #[cfg(feature = "game_client")]
+        {
+            game_client::helpers::TheInGameUI::clear_pending_command();
+            game_client::helpers::TheInGameUI::clear_pending_special_power();
+        }
+    }
+
+
     /// Wave 579: host selection residual — keep GameLogic selection and engine
     /// `selected_objects` in lockstep.
     #[inline]
@@ -871,6 +899,7 @@ impl CnCGameEngine {
     ) {
         let ids = self.remap_angry_mob_selection_ids(ids);
         let ids = self.cap_selection_ids(ids);
+        self.cancel_armed_gui_command_on_selection_change(&ids);
         // Wave 579/866/913/933: selection residual via session-control authority.
         // Skip authority select_objects when residual already matches.
         let already =
@@ -908,6 +937,7 @@ impl CnCGameEngine {
     ) {
         let ids = self.remap_angry_mob_selection_ids(ids);
         let ids = self.cap_selection_ids(ids);
+        self.cancel_armed_gui_command_on_selection_change(&ids);
         let already =
             self.selected_objects == ids && self.host_match_selected_ids.as_ref() == Some(&ids);
         if !already {

@@ -281,6 +281,8 @@ pub struct ControlBar {
     last_displayed_money: i32,
     /// Presentation CanMake residual (template → CANMAKE_* ordinal).
     presentation_can_make: Vec<(String, u32)>,
+    /// Live-host getCommandAvailability residual (OBJECT_REGISTRY empty).
+    presentation_availability: PresentationAvailabilityResidual,
 
     border_colors: CommandBarBorderColors,
 }

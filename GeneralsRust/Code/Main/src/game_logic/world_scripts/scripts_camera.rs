@@ -4,6 +4,24 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
+/// C++ KINDOF_INERT from leftover ThingTemplate when the factory is already loaded.
+/// Never calls TheThingFactory::find_template (that lazy-inits Object INI).
+fn leftover_host_template_is_inert(template_name: &str) -> bool {
+    if template_name.is_empty() {
+        return false;
+    }
+    game_engine::common::thing::thing_factory::try_get_thing_factory()
+        .and_then(|guard| {
+            guard
+                .as_ref()
+                .and_then(|factory| factory.find_template(template_name, false))
+        })
+        .is_some_and(|template| {
+            template.is_kind_of_mask(game_engine::common::system::kind_of::KindOfMask::INERT.bits())
+        })
+}
+
+
 impl GameLogic {
     pub(in super::super) fn build_script_game_state_context(
         &self,
@@ -307,7 +325,7 @@ impl GameLogic {
                     .unwrap_or_default(),
                 kind_structure: obj.is_kind_of(crate::game_logic::KindOf::Structure),
                 kind_projectile: obj.is_kind_of(crate::game_logic::KindOf::Projectile),
-                kind_inert: false,
+                kind_inert: leftover_host_template_is_inert(&obj.template_name),
                 kind_mine: obj.is_kind_of(crate::game_logic::KindOf::Mine),
                 held: obj.status.disabled_held,
                 stealthed_hidden: obj.is_effectively_stealthed(),
@@ -348,6 +366,7 @@ impl GameLogic {
                     .iter()
                     .map(|module| module.special_power_template.clone())
                     .collect(),
+                locomotor_surfaces: obj.locomotor_surfaces,
                 ..Default::default()
             });
             if !obj.team_instance_name.is_empty() {
@@ -803,9 +822,52 @@ impl GameLogic {
                         let _ = self.unit_command_patrol(id);
                     }
                 }
+                HostScriptHuntGuardRequest::TeamHuntWithCommandButton { team, button } => {
+                    self.host_script_team_hunt_with_command_button(&team, &button);
+                }
             }
         }
     }
+
+    /// C++ ScriptActions NAMED_STOP / TEAM_STOP / TEAM_STOP_AND_DISBAND.
+    /// Leftover `OBJECT_REGISTRY` is empty on the host path; leftover actions
+    /// queue [`gamelogic::scripting::HostScriptIdleRequest`] (`aiIdle` / `groupIdle`).
+    fn apply_host_idle_script_requests(&mut self) {
+        use gamelogic::scripting::HostScriptIdleRequest;
+        for req in gamelogic::scripting::take_host_script_idle_requests() {
+            match req {
+                HostScriptIdleRequest::NamedStop { unit } => {
+                    let Some(id) = self.host_object_id_by_script_name(&unit) else {
+                        continue;
+                    };
+                    let _ = self.unit_command_stop(id);
+                }
+                HostScriptIdleRequest::TeamStop { team, disband } => {
+                    let members = self.host_script_team_member_ids(&team);
+                    for id in members {
+                        let _ = self.unit_command_stop(id);
+                    }
+                    if !disband {
+                        continue;
+                    }
+                    let members = self.host_script_team_member_ids(&team);
+                    for id in members {
+                        let Some((owner, faction)) = self
+                            .host_object(id)
+                            .map(|obj| (obj.owner_player_id, obj.team))
+                        else {
+                            continue;
+                        };
+                        let default = self.default_host_team_instance_name(owner, faction);
+                        if let Some(obj) = self.host_object_mut(id) {
+                            obj.team_instance_name = default;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
 
     /// C++ ScriptActions TEAM/NAMED FOLLOW_WAYPOINTS and EXACT.
     /// Leftover `OBJECT_REGISTRY` is empty on the host path; leftover actions
@@ -1342,6 +1404,26 @@ impl GameLogic {
     }
 
 
+    /// C++ `ScriptActions::doTeamHuntWithCommandButton` live drain.
+    fn host_script_team_hunt_with_command_button(&mut self, team: &str, button: &str) {
+        let mut ids = self.host_script_team_member_ids(team);
+        if ids.is_empty() {
+            ids = gamelogic::team::get_team_factory()
+                .lock()
+                .ok()
+                .and_then(|factory| factory.find_team_instances(team).into_iter().next())
+                .and_then(|arc| arc.read().ok().map(|tg| tg.get_members().to_vec()))
+                .unwrap_or_default()
+                .into_iter()
+                .map(|id| ObjectId(id))
+                .collect();
+        }
+        let button = if button.is_empty() { None } else { Some(button) };
+        for id in ids {
+            let _ = self.start_command_button_hunt_named(id, button);
+        }
+    }
+
     fn host_script_team_member_ids(&self, team_name: &str) -> Vec<ObjectId> {
         let needle = team_name.trim();
         if needle.is_empty() {
@@ -1688,6 +1770,8 @@ impl GameLogic {
         self.apply_host_loco_set_script_requests();
         self.apply_host_move_attack_script_requests();
         self.apply_host_hunt_guard_script_requests();
+        self.apply_host_idle_script_requests();
+
         self.apply_host_follow_waypoints_script_requests();
 
         self.apply_host_create_script_requests();

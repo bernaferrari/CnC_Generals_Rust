@@ -416,6 +416,28 @@ impl Object {
         }
     }
 
+    /// C++ `StealthDetectorUpdate` ctor: random first wake so detectors do not
+    /// all scan / IR-ping on the same frame.
+    ///
+    /// `setSDEnabled(true)` stays `next_detection_scan_frame = 0` (immediate).
+    pub fn apply_stealth_detector_ctor_stagger(&mut self, frame: u32) {
+        if !self.is_detector {
+            return;
+        }
+        if self.detection_rate_frames == 0 {
+            self.detection_rate_frames =
+                crate::game_logic::host_strategy_center::stealth_detector_rate_frames_for_template(
+                    &self.template_name,
+                );
+            self.record_host_detector();
+        }
+        self.next_detection_scan_frame =
+            crate::game_logic::host_strategy_center::stealth_detector_ctor_next_scan_frame(
+                self.detection_rate_frames,
+                frame,
+            );
+    }
+
     pub fn record_host_target_location(&self) {
         let loc = self.target_location.map(|p| [p.x, p.y, p.z]);
         crate::game_logic::host_target_location_log::record(self.id, loc);

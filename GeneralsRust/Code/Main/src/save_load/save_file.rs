@@ -56,29 +56,10 @@ const CPP_INVALID_MISSION_NUMBER: i32 = -1;
 
 const SAVELOAD_BLOCK_NAMES: &[&str] = game_engine::System::SaveGame::SAVELOAD_BLOCK_NAMES;
 
-fn utc_date_fields(time: SystemTime) -> [u16; 8] {
-    let dur = time.duration_since(UNIX_EPOCH).unwrap_or_default();
-    let secs = dur.as_secs();
-    let milliseconds = dur.subsec_millis() as u16;
-    let days = secs / 86_400;
-    let tod = secs % 86_400;
-    let hour = (tod / 3_600) as u16;
-    let minute = ((tod % 3_600) / 60) as u16;
-    let second = (tod % 60) as u16;
-    // Howard Hinnant civil-from-days (UTC). C++ uses local SYSTEMTIME;
-    // listing only needs a stable round-trip.
-    let z = days as i64 + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = (z - era * 146_097) as u64;
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-    let year = yoe as i64 + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = (doy - (153 * mp + 2) / 5 + 1) as u16;
-    let month = (if mp < 10 { mp + 3 } else { mp - 9 }) as u16;
-    let year = (if month <= 2 { year + 1 } else { year }) as u16;
-    let day_of_week = ((days + 4) % 7) as u16;
-    [year, month, day, day_of_week, hour, minute, second, milliseconds]
+/// C++ `GameState::xfer` writes `GetLocalTime` fields (`GameState.cpp:1562-1582`).
+/// Leftover `SaveDate::from_local_time` already matches that calendar.
+fn local_date_fields(time: SystemTime) -> [u16; 8] {
+    game_engine::System::SaveDate::from_local_time(time).to_xfer_fields()
 }
 
 fn map_leaf_name(path: &str) -> String {
@@ -131,7 +112,7 @@ fn write_cpp_game_state_header<W: Write + Seek>(
         ""
     };
     write_ascii(xfer, mission_map)?;
-    let mut date = utc_date_fields(save_info.save_date);
+    let mut date = local_date_fields(save_info.save_date);
     for field in &mut date {
         xfer.xfer_unsigned_short(field)
             .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
@@ -394,7 +375,7 @@ fn civil_utc_to_system_time(
     second: u32,
     milliseconds: u32,
 ) -> SystemTime {
-    // Inverse of utc_date_fields (days_from_civil).
+    // Inverse of local civil fields treated as naive civil (C++ stores GetLocalTime).
     let year = if month <= 2 { year - 1 } else { year };
     let era = if year >= 0 { year } else { year - 399 } / 400;
     let yoe = (year - era * 400) as u32;

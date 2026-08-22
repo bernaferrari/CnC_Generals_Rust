@@ -1211,6 +1211,7 @@ fn completed_quantity_batch_emits_every_entity_first_unit_after_open_door() {
         allow_airborne_creation: false,
         initial_burst: 0,
         use_spawn_rally_point: false,
+        grant_temporary_stealth_frames: 0,
     });
     logic
         .templates
@@ -1316,6 +1317,7 @@ fn queue_exit_sole_tick_releases_one_then_waits_exact_nine_frames() {
         allow_airborne_creation: false,
         initial_burst: 0,
         use_spawn_rally_point: false,
+        grant_temporary_stealth_frames: 0,
     });
     logic
         .templates
