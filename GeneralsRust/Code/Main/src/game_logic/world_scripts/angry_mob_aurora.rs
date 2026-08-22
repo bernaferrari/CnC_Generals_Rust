@@ -945,8 +945,8 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_inferno_cannon::{
-            inferno_shell_damage_at, is_inferno_cannon_template, INFERNO_CANNON_SHELL_DAMAGE,
-            INFERNO_CANNON_SHELL_RADIUS,
+            inferno_shell_damage_at, is_inferno_cannon_template, INFERNO_CANNON_DAMAGE_TYPE,
+            INFERNO_CANNON_DEATH_TYPE, INFERNO_CANNON_SHELL_DAMAGE, INFERNO_CANNON_SHELL_RADIUS,
         };
 
         let (source_team, shell_dmg) = {
@@ -1015,7 +1015,12 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from(dmg, source);
+                let destroyed = obj.take_damage_from_immediate_residual(
+                    dmg,
+                    source,
+                    INFERNO_CANNON_DAMAGE_TYPE,
+                    INFERNO_CANNON_DEATH_TYPE,
+                );
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -1703,7 +1708,12 @@ impl GameLogic {
                     if audio_pos.is_none() {
                         audio_pos = Some(target.get_position());
                     }
-                    let killed = target.take_damage_from(hit.damage, Some(plan.mob_id));
+                    let killed = target.take_damage_from_immediate_residual(
+                        hit.damage,
+                        Some(plan.mob_id),
+                        crate::game_logic::host_angry_mob::ANGRY_MOB_PISTOL_DAMAGE_TYPE,
+                        crate::game_logic::host_angry_mob::ANGRY_MOB_PISTOL_DEATH_TYPE,
+                    );
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {

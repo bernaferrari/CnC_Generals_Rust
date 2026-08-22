@@ -1730,6 +1730,9 @@ impl GameLogic {
     }
 
     pub(crate) fn resolve_bridge_span_for_repair(&self, target_id: ObjectId) -> Option<ObjectId> {
+        if let Some(sid) = self.bridge_behavior.span_id_for(target_id) {
+            return Some(sid);
+        }
         if self.bridge_behavior.span(target_id).is_some() {
             return Some(target_id);
         }
@@ -1737,10 +1740,8 @@ impl GameLogic {
         self.objects
             .values()
             .filter(|o| {
-                o.is_alive()
-                    && crate::game_logic::host_bridge_behavior::is_bridge_span_template(
-                        &o.template_name,
-                    )
+                crate::game_logic::host_bridge_behavior::is_bridge_span_template(&o.template_name)
+                    || o.is_kind_of(crate::game_logic::KindOf::Bridge)
             })
             .min_by(|a, b| {
                 a.get_position()
@@ -1755,23 +1756,41 @@ impl GameLogic {
         if !self.bridge_behavior.create_scaffolding(span_id) {
             return;
         }
-        let Some(pos) = self.objects.get(&span_id).map(|o| o.get_position()) else {
-            return;
-        };
         let team = self
             .objects
             .get(&span_id)
             .map(|o| o.team)
             .unwrap_or(Team::Neutral);
-        if let Some(sid) = self.create_object(
-            crate::game_logic::host_bridge_behavior::BRIDGE_SCAFFOLD_TEMPLATE,
-            team,
-            pos,
-        ) {
-            if let Some(span) = self.bridge_behavior.span_mut(span_id) {
-                span.scaffold_ids.push(sid);
+        let center = self
+            .bridge_behavior
+            .span(span_id)
+            .map(|s| (s.from_left + s.from_right + s.to_left + s.to_right) * 0.25)
+            .unwrap_or(glam::Vec3::ZERO);
+        let tiles = self.bridge_behavior.tiled_scaffold_sites(span_id);
+        let mut ids = Vec::new();
+        let mut anims = Vec::new();
+        for tile in tiles {
+            let template = if tile.is_support {
+                crate::game_logic::host_bridge_behavior::BRIDGE_SCAFFOLD_SUPPORT_TEMPLATE
+            } else {
+                crate::game_logic::host_bridge_behavior::BRIDGE_SCAFFOLD_TEMPLATE
+            };
+            if let Some(sid) = self.create_object(template, team, tile.create_pos) {
+                if let Some(obj) = self.objects.get_mut(&sid) {
+                    obj.set_orientation(tile.angle);
+                }
+                ids.push(sid);
+                anims.push(
+                    crate::game_logic::host_bridge_behavior::HostScaffoldAnim::from_tile(
+                        sid, &tile, center,
+                    ),
+                );
             }
         }
+        if let Some(span) = self.bridge_behavior.span_mut(span_id) {
+            span.scaffold_ids.extend(ids);
+        }
+        self.bridge_behavior.bind_scaffold_anims(span_id, anims);
         if let Some(span) = self.bridge_behavior.span(span_id) {
             self.pathfinding_system.grid.stamp_bridge_deck(
                 span.from_left,
@@ -1783,23 +1802,281 @@ impl GameLogic {
         }
     }
 
+
+    /// C++ `WorkerAIUpdate.cpp:830` / `DozerAIUpdate::removeBridgeScaffolding`.
+    pub(crate) fn remove_bridge_scaffolding(&mut self, span_id: ObjectId) {
+        let ids = self.bridge_behavior.remove_scaffolding(span_id);
+        for sid in ids {
+            if let Some(obj) = self.objects.get_mut(&sid) {
+                obj.status.destroyed = true;
+                obj.health.current = 0.0;
+            }
+            self.destroy_object(sid);
+        }
+        let rubble = self.objects.get(&span_id).is_some_and(|o| {
+            o.body_damage_state
+                == crate::game_logic::host_enum_table_residual::HostBodyDamageType::Rubble
+                || o.health.current <= 0.0
+        });
+        if !rubble {
+            if let Some(span) = self.bridge_behavior.span(span_id) {
+                self.pathfinding_system.grid.stamp_bridge_deck(
+                    span.from_left,
+                    span.from_right,
+                    span.to_left,
+                    span.to_right,
+                    false,
+                );
+            }
+        }
+    }
+
+    fn leftover_bridge_body_state(
+        state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
+    ) -> gamelogic::common::BodyDamageType {
+        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+        match state {
+            HostBodyDamageType::Pristine => gamelogic::common::BodyDamageType::Pristine,
+            HostBodyDamageType::Damaged => gamelogic::common::BodyDamageType::Damaged,
+            HostBodyDamageType::ReallyDamaged => gamelogic::common::BodyDamageType::ReallyDamaged,
+            HostBodyDamageType::Rubble => gamelogic::common::BodyDamageType::Rubble,
+        }
+    }
+
+    fn host_object_is_bridge_member(obj: &crate::game_logic::object::Object) -> bool {
+        obj.is_kind_of(crate::game_logic::KindOf::Bridge)
+            || obj.is_kind_of(crate::game_logic::KindOf::BridgeTower)
+            || crate::game_logic::host_bridge_behavior::is_bridge_or_tower_template(
+                &obj.template_name,
+            )
+    }
+
+    fn apply_bridge_rubble_kill(&mut self, id: ObjectId) {
+        if let Some(obj) = self.objects.get_mut(&id) {
+            if obj.status.keep_as_rubble && obj.health.current <= 0.0 {
+                return;
+            }
+            obj.convert_bridge_to_rubble_husk();
+        }
+    }
+
+    fn apply_pending_bridge_mirrors(&mut self) {
+        use crate::game_logic::host_bridge_behavior::HostBridgeMirrorKind;
+        loop {
+            let events = crate::game_logic::host_bridge_behavior::drain_mirrors();
+            if events.is_empty() {
+                break;
+            }
+            for ev in events {
+                let source_is_member = ev.source.is_some_and(|sid| {
+                    self.objects
+                        .get(&sid)
+                        .is_some_and(Self::host_object_is_bridge_member)
+                });
+                if source_is_member {
+                    continue;
+                }
+                let pct = if ev.max_health > 0.0 {
+                    ev.amount / ev.max_health
+                } else {
+                    continue;
+                };
+                if pct <= 0.0 {
+                    continue;
+                }
+                let targets = self.bridge_behavior.mirror_targets(ev.victim);
+                if targets.is_empty() {
+                    continue;
+                }
+                self.bridge_behavior.record_mirror_applied();
+                for tid in targets {
+                    let Some(max) = self
+                        .objects
+                        .get(&tid)
+                        .map(|o| o.health.maximum.max(o.max_health).max(1.0))
+                    else {
+                        continue;
+                    };
+                    let amount = pct * max;
+                    match ev.kind {
+                        HostBridgeMirrorKind::Damage => {
+                            if let Some(obj) = self.objects.get_mut(&tid) {
+                                let dtype = crate::game_logic::combat::DamageType::from_store(
+                                    gamelogic::damage::DamageType::from_u32(ev.damage_type),
+                                );
+                                let death = crate::game_logic::host_usa_pilot::HostDeathType::from_ordinal(
+                                    ev.death_type as u8,
+                                );
+                                let _ = obj.take_damage_from_typed_death(
+                                    amount,
+                                    Some(ev.victim),
+                                    dtype,
+                                    death,
+                                );
+                            }
+                        }
+                        HostBridgeMirrorKind::Heal => {
+                            if let Some(obj) = self.objects.get_mut(&tid) {
+                                obj.revive_from_bridge_rubble();
+                                obj.heal(amount);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn apply_pending_bridge_death_links(&mut self) {
+        let deaths = crate::game_logic::host_bridge_behavior::drain_death_links();
+        for victim in deaths {
+            let Some(span_id) = self.bridge_behavior.span_id_for(victim) else {
+                continue;
+            };
+            let members = self.bridge_behavior.linked_members(victim);
+            self.bridge_behavior.record_death_link_applied();
+            if victim == span_id {
+                for tid in members {
+                    if tid != span_id {
+                        self.apply_bridge_rubble_kill(tid);
+                    }
+                }
+            } else {
+                self.apply_bridge_rubble_kill(span_id);
+                for tid in members {
+                    if tid != victim && tid != span_id {
+                        self.apply_bridge_rubble_kill(tid);
+                    }
+                }
+            }
+        }
+    }
+
+    fn bind_bridge_towers_from_terrain(&mut self) {
+        let mut binds: Vec<(ObjectId, [ObjectId; 4])> = Vec::new();
+        if let Ok(terrain) = gamelogic::terrain::get_terrain_logic().read() {
+            terrain.for_each_bridge(|bridge| {
+                let info = bridge.get_bridge_info();
+                if info.bridge_object_id == 0 {
+                    return;
+                }
+                let span = ObjectId(info.bridge_object_id);
+                let towers = [
+                    ObjectId(info.tower_object_id[0]),
+                    ObjectId(info.tower_object_id[1]),
+                    ObjectId(info.tower_object_id[2]),
+                    ObjectId(info.tower_object_id[3]),
+                ];
+                if towers.iter().any(|t| t.0 != 0) {
+                    binds.push((span, towers));
+                }
+            });
+        }
+        for (span, towers) in binds {
+            if self.bridge_behavior.span(span).is_some() {
+                self.bridge_behavior.bind_towers(span, towers);
+            }
+        }
+    }
+
+    fn play_bridge_die_fx_at(&mut self, span_id: ObjectId) {
+        let pos = self
+            .bridge_behavior
+            .span(span_id)
+            .map(|s| s.random_surface_position(self.frame))
+            .or_else(|| self.objects.get(&span_id).map(|o| o.get_position()))
+            .unwrap_or(glam::Vec3::ZERO);
+        let _ = crate::game_logic::host_fx_list_dispatch::dispatch_fx_list_at_pos(
+            crate::game_logic::host_bridge_behavior::BRIDGE_DIE_FX_NAME,
+            pos,
+        );
+        if let Some(obj) = self.objects.get_mut(&span_id) {
+            if obj.pending_death_fx.is_none() {
+                obj.pending_death_fx = Some(
+                    crate::game_logic::host_bridge_behavior::BRIDGE_DIE_FX_NAME.to_string(),
+                );
+            }
+            obj.fire_fx_list_die();
+        }
+    }
+
+    fn play_bridge_die_ocl_at(&mut self, span_id: ObjectId) {
+        let pos = self
+            .bridge_behavior
+            .span(span_id)
+            .map(|s| s.random_surface_position(self.frame.wrapping_add(31)))
+            .or_else(|| self.objects.get(&span_id).map(|o| o.get_position()))
+            .unwrap_or(glam::Vec3::ZERO);
+        crate::game_logic::host_transition_damage_fx::play_authored_transition_ocl(
+            crate::game_logic::host_bridge_behavior::BRIDGE_DIE_OCL_NAME,
+            span_id.0,
+            pos,
+        );
+    }
+
+    fn play_bridge_body_transition(&mut self, span_id: ObjectId, old_state: u8, new_state: u8) {
+        let cue = self.bridge_behavior.body_transition_cues(old_state, new_state);
+        if let Some(sound) = cue.sound.as_deref() {
+            let pos = self
+                .objects
+                .get(&span_id)
+                .map(|o| o.get_position())
+                .unwrap_or(glam::Vec3::ZERO);
+            self.queue_audio_event(
+                AudioEventRequest::new(sound)
+                    .with_object(span_id)
+                    .with_position(pos)
+                    .with_priority(160),
+            );
+        }
+        for (i, fx) in cue.fx.iter().enumerate() {
+            let pos = self
+                .bridge_behavior
+                .span(span_id)
+                .map(|s| s.random_surface_position(self.frame.wrapping_add(i as u32 * 7 + 1)))
+                .unwrap_or(glam::Vec3::ZERO);
+            let _ = crate::game_logic::host_fx_list_dispatch::dispatch_fx_list_at_pos(fx, pos);
+        }
+        for (i, ocl) in cue.ocl.iter().enumerate() {
+            let pos = self
+                .bridge_behavior
+                .span(span_id)
+                .map(|s| s.random_surface_position(self.frame.wrapping_add(i as u32 * 11 + 3)))
+                .unwrap_or(glam::Vec3::ZERO);
+            crate::game_logic::host_transition_damage_fx::play_authored_transition_ocl(
+                ocl, span_id.0, pos,
+            );
+        }
+    }
+
+
     pub(in super::super) fn sync_host_bridge_rubble_and_scaffolds(&mut self) {
-        self.bridge_behavior.tick_scaffolds();
+        let moved = self.bridge_behavior.tick_scaffolds();
+        for (sid, pos) in moved {
+            if let Some(obj) = self.objects.get_mut(&sid) {
+                obj.set_position(pos);
+            }
+        }
+        self.bind_bridge_towers_from_terrain();
+        self.apply_pending_bridge_mirrors();
+        self.apply_pending_bridge_death_links();
         let span_ids: Vec<ObjectId> = self
             .objects
             .values()
             .filter(|o| {
                 crate::game_logic::host_bridge_behavior::is_bridge_span_template(&o.template_name)
+                    || o.is_kind_of(crate::game_logic::KindOf::Bridge)
             })
             .map(|o| o.id)
             .collect();
         for id in span_ids {
-            let Some((hp, max, pos, radius)) = self.objects.get(&id).map(|o| {
+            let Some((hp, max, pos, radius, body_state)) = self.objects.get(&id).map(|o| {
                 (
                     o.health.current,
                     o.health.maximum,
                     o.get_position(),
                     o.selection_radius.max(20.0),
+                    o.body_damage_state,
                 )
             }) else {
                 continue;
@@ -1813,7 +2090,33 @@ impl GameLogic {
                     glam::Vec3::new(pos.x + radius, 0.0, pos.z + radius),
                 );
             }
-            let rubble = max <= 0.0 || hp <= 0.0;
+            let old_state = self
+                .bridge_behavior
+                .span(id)
+                .map(|s| s.last_body_state)
+                .unwrap_or(0);
+            if self.bridge_behavior.note_body_state(id, body_state.ordinal()) {
+                crate::game_logic::host_bridge_behavior::sync_leftover_bridge_body_state(
+                    id.0,
+                    pos,
+                    Self::leftover_bridge_body_state(body_state),
+                );
+                self.play_bridge_body_transition(id, old_state, body_state.ordinal());
+                if matches!(
+                    body_state,
+                    crate::game_logic::host_enum_table_residual::HostBodyDamageType::Damaged
+                        | crate::game_logic::host_enum_table_residual::HostBodyDamageType::ReallyDamaged
+                        | crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine
+                ) {
+                    crate::game_logic::host_radar::host_radar_queue_terrain_refresh();
+                }
+            }
+            let rubble = max <= 0.0
+                || hp <= 0.0
+                || matches!(
+                    body_state,
+                    crate::game_logic::host_enum_table_residual::HostBodyDamageType::Rubble
+                );
             if rubble {
                 let positions: Vec<(ObjectId, glam::Vec3)> = self
                     .objects
@@ -1828,14 +2131,14 @@ impl GameLogic {
                     .map(|(oid, o)| (*oid, o.get_position()))
                     .collect();
                 let occupants = self.bridge_behavior.occupants_on_deck(id, &positions);
-                    if let Ok(mut tl) = gamelogic::terrain::get_terrain_logic().write() {
-                        tl.set_bridge_damage_state_for_object(
-                            id.0,
-                            gamelogic::common::BodyDamageType::Rubble,
-                        );
-                    }
+                crate::game_logic::host_bridge_behavior::sync_leftover_bridge_body_state(
+                    id.0,
+                    pos,
+                    gamelogic::common::BodyDamageType::Rubble,
+                );
 
                 if self.bridge_behavior.on_enter_rubble(id, &occupants) {
+                    self.bridge_behavior.mark_death(id, self.frame);
                     if let Some(span) = self.bridge_behavior.span(id) {
                         self.pathfinding_system.grid.stamp_bridge_deck(
                             span.from_left,
@@ -1857,6 +2160,14 @@ impl GameLogic {
                     }
                     crate::game_logic::host_radar::host_radar_queue_terrain_refresh();
                 }
+                let due = self.bridge_behavior.take_due_die_fx(id, self.frame);
+                for _ in 0..due {
+                    self.play_bridge_die_fx_at(id);
+                }
+                let due_ocl = self.bridge_behavior.take_due_die_ocl(id, self.frame);
+                for _ in 0..due_ocl {
+                    self.play_bridge_die_ocl_at(id);
+                }
             } else {
                 self.bridge_behavior.on_leave_rubble(id);
                 if !self.bridge_behavior.is_scaffold_present(id) {
@@ -1873,6 +2184,7 @@ impl GameLogic {
             }
         }
     }
+
 
     /// Residual Combat Chinook honesty: successful load count.
     pub fn combat_chinook_residual_loads(&self) -> u32 {

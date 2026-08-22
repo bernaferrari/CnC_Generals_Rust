@@ -102,6 +102,9 @@ impl GameLogic {
                 } else {
                     self.host_money_crates.register_supply_drop_crate(id);
                 }
+                if let Some(name) = self.objects.get(&id).map(|o| o.template_name.clone()) {
+                    self.host_money_crates.apply_crate_collide_gates(id, &name);
+                }
                 self.host_money_crates.arm_default_deletion(
                     id,
                     self.frame,
@@ -201,9 +204,10 @@ impl GameLogic {
     /// crates (tests / future map crates) credit MoneyProvided on proximity.
     ///
     /// Residual gates (C++ CrateCollide::isValidToExecute subset):
-    /// - ForbiddenKindOf PROJECTILE / parachuting pickers rejected
+    /// - RequiredKindOf / ForbiddenKindOf via isKindOfMulti
+    /// - AIUpdateInterface required unless BuildingPickup (mines cannot scoop)
+    /// - KINDOF_PARACHUTE pickers rejected
     /// - Above-terrain crates block unit path (BuildingPickup still allowed)
-    /// - ExecuteAnimation MoneyPickUp residual presentation descriptor on collect
     ///
     /// Fail-closed: not full CollideModule partition pairs / Anim2D GPU / EVA text.
 
@@ -241,6 +245,8 @@ impl GameLogic {
             bool, // residual paid
             bool, // above_terrain
             bool, // is_salvage
+            u128, // required_kind_of
+            u128, // forbidden_kind_of
         )> = Vec::new();
         for id in crate_ids {
             // Forget destroyed crates.
@@ -279,6 +285,8 @@ impl GameLogic {
                 entry.building_pickup_residual_paid,
                 above,
                 entry.is_salvage,
+                entry.required_kind_of,
+                entry.forbidden_kind_of,
             ));
         }
 
@@ -293,6 +301,8 @@ impl GameLogic {
             bool, /*projectile*/
             bool, /*parachute picker*/
             bool, /*salvager*/
+            bool, /*has_ai*/
+            u128, /*kind_mask*/
         )> = self
             .objects
             .iter()
@@ -309,6 +319,16 @@ impl GameLogic {
                 let is_salvager = obj.is_kind_of(KindOf::Salvager)
                     || obj.is_kind_of(KindOf::WeaponSalvager)
                     || obj.is_kind_of(KindOf::ArmorSalvager);
+                let is_mine = obj.is_kind_of(KindOf::Mine)
+                    || obj.is_kind_of(KindOf::DemoTrap)
+                    || obj.mine_data.is_some();
+                let is_crate = obj.is_kind_of(KindOf::Crate);
+                let has_ai = HostMoneyCrateRegistry::picker_has_ai_update(
+                    is_structure,
+                    is_mine,
+                    is_projectile,
+                    is_crate,
+                );
                 Some((
                     *id,
                     obj.team,
@@ -319,6 +339,8 @@ impl GameLogic {
                     is_projectile,
                     is_parachute_picker,
                     is_salvager,
+                    has_ai,
+                    obj.kind_of_cpp_mask(),
                 ))
             })
             .collect();
@@ -326,7 +348,17 @@ impl GameLogic {
         let mut pickups: Vec<(ObjectId, ObjectId, Team, Option<u32>, bool)> = Vec::new();
         let mut above_rejects = 0_u32;
         let mut forbidden_rejects = 0_u32;
-        for (crate_id, crate_pos, building_pickup, _paid, above_terrain, is_salvage) in &crates {
+        for (
+            crate_id,
+            crate_pos,
+            building_pickup,
+            _paid,
+            above_terrain,
+            is_salvage,
+            required_kind_of,
+            forbidden_kind_of,
+        ) in &crates
+        {
             let (crate_owner, crate_human_only, crate_forbid_owner) = {
                 let entry = self.host_money_crates.get(*crate_id);
                 let crate_obj = self.objects.get(crate_id);
@@ -358,6 +390,8 @@ impl GameLogic {
                 is_projectile,
                 is_parachute_picker,
                 is_salvager,
+                has_ai,
+                kind_mask,
             ) in &pickers
             {
                 // C++ SalvageCrateCollide::isValidToExecute — only SALVAGER units.
@@ -409,6 +443,17 @@ impl GameLogic {
                         continue;
                     }
                 }
+                // C++ isKindOfMulti(m_kindof, m_kindofnot) + KINDOF_PARACHUTE veto.
+                if *is_parachute_picker
+                    || !HostMoneyCrateRegistry::picker_matches_kindof(
+                        *kind_mask,
+                        *required_kind_of,
+                        *forbidden_kind_of,
+                    )
+                {
+                    forbidden_rejects = forbidden_rejects.saturating_add(1);
+                    continue;
+                }
                 if *is_structure {
                     if !HostMoneyCrateRegistry::is_legal_building_picker(
                         true,
@@ -423,13 +468,6 @@ impl GameLogic {
                         continue;
                     }
                 } else {
-                    if HostMoneyCrateRegistry::is_forbidden_kindof_picker(
-                        *is_projectile,
-                        *is_parachute_picker,
-                    ) {
-                        forbidden_rejects = forbidden_rejects.saturating_add(1);
-                        continue;
-                    }
                     if *above_terrain {
                         // Unit path blocked while crate airborne residual.
                         above_rejects = above_rejects.saturating_add(1);
@@ -442,6 +480,7 @@ impl GameLogic {
                         *is_projectile,
                         *is_parachute_picker,
                         *above_terrain,
+                        *has_ai,
                     ) {
                         continue;
                     }

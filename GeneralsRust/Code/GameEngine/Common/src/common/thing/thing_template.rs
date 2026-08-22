@@ -2018,6 +2018,16 @@ impl ThingTemplate {
         self.placement_view_angle
     }
 
+    /// C++ ThingTemplate::getFactoryExitWidth().
+    pub fn get_factory_exit_width(&self) -> Real {
+        self.factory_exit_width
+    }
+
+    /// C++ ThingTemplate::getFactoryExtraBibWidth().
+    pub fn get_factory_extra_bib_width(&self) -> Real {
+        self.factory_extra_bib_width
+    }
+
     pub fn get_default_owning_side(&self) -> &AsciiString {
         &self.default_owning_side
     }

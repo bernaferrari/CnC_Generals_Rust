@@ -243,6 +243,10 @@ impl CnCGameEngine {
             return;
         }
         let _ = self.pending_map_command.take();
+        // C++ GUICommandTranslator.cpp:471-473: keep selection for one
+        // alternate-mouse blank LMB after a completed non-context GUI command.
+        self.host_set_prevent_left_click_deselection(true);
+
         self.clear_radius_cursor_overlays();
         let command_type = match kind {
             PendingMapCommand::AttackMove => crate::command_system::CommandType::AttackMoveTo {
@@ -1734,6 +1738,10 @@ impl CnCGameEngine {
         }
 
         self.pending_structure_placement = None;
+        // C++ InGameUI.cpp:2981: leaving place-build with a source dozer
+        // protects the next alternate-mouse blank LMB from deselecting.
+        self.host_set_prevent_left_click_deselection(true);
+
         self.game_hud.construction_panel.clear_structure_placement();
         self.ui_manager
             .game_hud_mut()

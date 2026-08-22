@@ -867,6 +867,7 @@ fn missile_defender_residual_missile_and_laser_guided() {
         game_logic.activate_missile_defender_laser_guided(md_id, far_enemy),
         "laser guided special residual activate"
     );
+    game_logic.update_ai(&[md_id, far_enemy], 1.1);
     assert!(
         game_logic.missile_defender_residual_laser_specials() > 0,
         "laser special honesty counter"

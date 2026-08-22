@@ -257,6 +257,21 @@ pub enum KindOf {
     /// these objects. Gameplay-only: the compact presentation KindOf bank
     /// is full.
     NoCollide,
+    /// C++ `KINDOF_FORCEATTACKABLE` (KindOf.h:63). Always attackable via
+    /// force-attack / hover pick even when not Selectable (civ fences,
+    /// cargo planes). Gameplay-only: the compact presentation KindOf bank
+    /// is full, so pick uses a dedicated presentation boolean.
+    ForceAttackable,
+    /// C++ `KINDOF_SHRUBBERY` (KindOf.h:32). Trees/bushes auto-cleared
+    /// by construction. Gameplay-only: the compact presentation KindOf bank
+    /// is full.
+    Shrubbery,
+    /// C++ `KINDOF_CLEARED_BY_BUILD` (KindOf.h:72). Debris/rubble under a
+    /// footprint. Gameplay-only: the compact presentation KindOf bank is full.
+    ClearedByBuild,
+    /// C++ `KINDOF_INERT` (KindOf.h:110). Never removable for construction.
+    /// Gameplay-only: the compact presentation KindOf bank is full.
+    Inert,
 
 
 }
@@ -286,7 +301,10 @@ impl KindOf {
             "AUTO_RALLYPOINT" | "AUTO_RALLY_POINT" => Some(Self::AutoRallypoint),
             "MOB_NEXUS" | "MOBNEXUS" => Some(Self::MobNexus),
             "NO_COLLIDE" | "NOCOLLIDE" => Some(Self::NoCollide),
-
+            "FORCEATTACKABLE" | "FORCE_ATTACKABLE" => Some(Self::ForceAttackable),
+            "SHRUBBERY" => Some(Self::Shrubbery),
+            "CLEARED_BY_BUILD" | "CLEAREDBYBUILD" => Some(Self::ClearedByBuild),
+            "INERT" => Some(Self::Inert),
 
             "DRONE" => Some(Self::Drone),
             _ => None,
@@ -805,6 +823,19 @@ mod tests {
             KindOf::from_ini_token("NO_COLLIDE"),
             Some(KindOf::NoCollide)
         );
+        assert_eq!(
+            KindOf::from_ini_token("FORCEATTACKABLE"),
+            Some(KindOf::ForceAttackable)
+        );
+        assert_eq!(
+            KindOf::from_ini_token("SHRUBBERY"),
+            Some(KindOf::Shrubbery)
+        );
+        assert_eq!(
+            KindOf::from_ini_token("CLEARED_BY_BUILD"),
+            Some(KindOf::ClearedByBuild)
+        );
+        assert_eq!(KindOf::from_ini_token("INERT"), Some(KindOf::Inert));
 
         assert_eq!(KindOf::from_ini_token("FS_FACTORY"), None);
     }

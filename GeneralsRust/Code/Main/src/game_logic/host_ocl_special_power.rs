@@ -247,6 +247,19 @@ pub fn gla_command_center_ocl_peels() -> Vec<OclSpecialPowerPeel> {
     ]
 }
 
+/// Retail ChinaCommandCenter OCLSpecialPower peels.
+///
+/// C++ `FactionBuilding.ini` SuperweaponNapalmStrike default OCL is
+/// `SUPERWEAPON_NapalmStrike` (CREATE_AT_EDGE_NEAR_SOURCE). Not DaisyCutter FAB.
+pub fn china_command_center_ocl_peels() -> Vec<OclSpecialPowerPeel> {
+    vec![OclSpecialPowerPeel::simple(
+        "SuperweaponNapalmStrike",
+        crate::game_logic::special_power_strikes::NAPALM_STRIKE_OCL,
+        OclCreateLocType::EdgeNearSource,
+    )]
+}
+
+
 /// Resolve OCL name: first owned upgrade science, else default.
 ///
 /// C++ `OCLSpecialPower::findOCL` uses `getControllingPlayer()->hasScience`.
@@ -308,6 +321,7 @@ pub fn peel_for_special_power(power_template: &str) -> Option<&'static OclSpecia
     static PEELS: LazyLock<Vec<OclSpecialPowerPeel>> = LazyLock::new(|| {
         let mut peels = america_command_center_ocl_peels();
         peels.extend(gla_command_center_ocl_peels());
+        peels.extend(china_command_center_ocl_peels());
         peels
     });
     let key = power_template.to_ascii_lowercase();
@@ -655,6 +669,18 @@ pub fn deliver_payload_for_ocl(ocl: &str) -> Option<OclDeliverPayloadPeel> {
             start_at_max_speed: true,
         });
     }
+    if n.contains("napalmstrike") {
+        return Some(OclDeliverPayloadPeel {
+            ocl_name: crate::game_logic::special_power_strikes::NAPALM_STRIKE_OCL.into(),
+            transport: "ChinaJetCargoPlane".into(),
+            payload: "NapalmBomb".into(),
+            delivery_distance: 140.0,
+            drop_offset_y: 0.0,
+            start_at_preferred_height: true,
+            start_at_max_speed: true,
+        });
+    }
+
     None
 }
 
@@ -711,6 +737,7 @@ pub fn special_power_template_for_host_kind(kind_label: &str) -> Option<&'static
         "SpyDrone" => Some("SpecialPowerSpyDrone"),
         "GLARebelAmbush" | "Ambush" => Some("SuperweaponRebelAmbush"),
         "AnthraxBomb" => Some(ANTHRAX_BOMB_SPECIAL_POWER),
+        "NapalmStrike" => Some("SuperweaponNapalmStrike"),
         _ => None,
     }
 }
@@ -853,6 +880,7 @@ pub fn honesty_ocl_special_power_residual_ok() -> bool {
             .unwrap_or(false)
         && special_power_template_for_host_kind("DaisyCutter") == Some("SuperweaponDaisyCutter")
         && special_power_template_for_host_kind("AnthraxBomb") == Some(ANTHRAX_BOMB_SPECIAL_POWER)
+        && special_power_template_for_host_kind("NapalmStrike") == Some("SuperweaponNapalmStrike")
         && ocl_execute_mode_for_template("SuperweaponLeafletDrop") == OclExecuteMode::TransportOnly
         && ocl_execute_mode_for_template("SuperweaponDaisyCutter") == OclExecuteMode::FullDeliver
         && resolve_anthrax_bomb_ocl("GLACommandCenter", [] as [&str; 0]) == ANTHRAX_BOMB_OCL
@@ -865,6 +893,17 @@ pub fn honesty_ocl_special_power_residual_ok() -> bool {
             .is_some_and(|d| d.payload == "AnthraxBombGamma" && d.transport == "GLAJetCargoPlane")
         && deliver_payload_for_ocl(ANTHRAX_BOMB_OCL)
             .is_some_and(|d| d.payload == "AnthraxBomb")
+        && peel_for_special_power("SuperweaponNapalmStrike")
+            .is_some_and(|p| {
+                find_ocl_name(p, |_| false)
+                    == crate::game_logic::special_power_strikes::NAPALM_STRIKE_OCL
+            })
+        && deliver_payload_for_ocl("SUPERWEAPON_NapalmStrike").is_some_and(|d| {
+            d.transport == "ChinaJetCargoPlane"
+                && d.payload == "NapalmBomb"
+                && d.transport != "AmericaJetB52"
+                && d.payload != "DaisyCutterBomb"
+        })
 }
 
 #[cfg(test)]
@@ -886,6 +925,28 @@ mod tests {
         assert_eq!(
             find_ocl_name(a10, |_| false),
             "SUPERWEAPON_A10ThunderboltMissileStrike1"
+        );
+    }
+
+    #[test]
+    fn napalm_strike_find_ocl_own_payload_not_daisy_cutter() {
+        let peels = china_command_center_ocl_peels();
+        let napalm = peels
+            .iter()
+            .find(|p| p.special_power_template.contains("NapalmStrike"))
+            .unwrap();
+        assert_eq!(
+            find_ocl_name(napalm, |_| false),
+            crate::game_logic::special_power_strikes::NAPALM_STRIKE_OCL
+        );
+        assert_ne!(find_ocl_name(napalm, |_| false), "SUPERWEAPON_DaisyCutter");
+        let deliver = deliver_payload_for_ocl("SUPERWEAPON_NapalmStrike").unwrap();
+        assert_eq!(deliver.transport, "ChinaJetCargoPlane");
+        assert_eq!(deliver.payload, "NapalmBomb");
+        assert_ne!(deliver.payload, "DaisyCutterBomb");
+        assert_eq!(
+            special_power_template_for_host_kind("NapalmStrike"),
+            Some("SuperweaponNapalmStrike")
         );
     }
 

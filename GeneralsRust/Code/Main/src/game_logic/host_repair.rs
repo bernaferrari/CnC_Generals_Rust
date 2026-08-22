@@ -93,6 +93,133 @@ pub fn dozer_repair_approach_position(
     target_position + direction * side_offset
 }
 
+/// C++ `FindPositionOptions.maxRadius` for `findGoodBuildOrRepairPosition`.
+pub const DOZER_FIND_POSITION_MAX_RADIUS: f32 = 100.0;
+/// C++ `MAX_Z_DELTA` (DozerAIUpdate.cpp:1879) unless airborne.
+pub const DOZER_FIND_POSITION_MAX_Z_DELTA: f32 = 10.0;
+/// C++ `PartitionManager` ring spacing.
+pub const DOZER_FIND_POSITION_RING_SPACING: f32 = 5.0;
+/// C++ `tryPosition` overlap sphere radius (PartitionManager.cpp:3759).
+pub const DOZER_FIND_POSITION_OVERLAP_SPHERE: f32 = 5.0;
+
+/// World predicates for C++ `PartitionManager::findPositionAround`.
+pub struct DozerFindPositionQuery<'a> {
+    pub airborne: bool,
+    pub source: Vec3,
+    pub height_at: Option<&'a dyn Fn(Vec3) -> Option<f32>>,
+    pub is_cliff: Option<&'a dyn Fn(Vec3) -> bool>,
+    pub is_impassable: Option<&'a dyn Fn(Vec3) -> bool>,
+    pub is_underwater: Option<&'a dyn Fn(Vec3) -> bool>,
+    pub overlaps_object: Option<&'a dyn Fn(Vec3) -> bool>,
+    pub path_exists: Option<&'a dyn Fn(Vec3, Vec3) -> bool>,
+}
+
+impl Default for DozerFindPositionQuery<'_> {
+    fn default() -> Self {
+        Self {
+            airborne: false,
+            source: Vec3::ZERO,
+            height_at: None,
+            is_cliff: None,
+            is_impassable: None,
+            is_underwater: None,
+            overlaps_object: None,
+            path_exists: None,
+        }
+    }
+}
+
+fn try_dozer_find_position(
+    center: Vec3,
+    dist: f32,
+    angle: f32,
+    query: &DozerFindPositionQuery<'_>,
+) -> Option<Vec3> {
+    let mut pos = Vec3::new(
+        center.x + dist * angle.cos(),
+        center.y,
+        center.z + dist * angle.sin(),
+    );
+    if let Some(height_at) = query.height_at {
+        if let Some(h) = height_at(pos) {
+            pos.y = h;
+            if !query.airborne && (pos.y - center.y).abs() > DOZER_FIND_POSITION_MAX_Z_DELTA {
+                return None;
+            }
+        }
+    }
+    if query.is_cliff.is_some_and(|is_cliff| is_cliff(pos)) {
+        return None;
+    }
+    if query
+        .is_impassable
+        .is_some_and(|is_impassable| is_impassable(pos))
+    {
+        return None;
+    }
+    if query
+        .is_underwater
+        .is_some_and(|is_underwater| is_underwater(pos))
+    {
+        return None;
+    }
+    if query
+        .overlaps_object
+        .is_some_and(|overlaps| overlaps(pos))
+    {
+        return None;
+    }
+    if let Some(path_exists) = query.path_exists {
+        if !path_exists(query.source, pos) {
+            return None;
+        }
+    }
+    Some(pos)
+}
+
+/// C++ `PartitionManager::findPositionAround` (min 0, max 100, RING_SPACING 5).
+pub fn find_position_around_dozer(
+    center: Vec3,
+    query: &DozerFindPositionQuery<'_>,
+) -> Option<Vec3> {
+    const TWO_PI: f32 = std::f32::consts::PI * 2.0;
+    let mut dist = 0.0;
+    while dist <= DOZER_FIND_POSITION_MAX_RADIUS + 0.01 {
+        let angle_spacing = if dist <= f32::EPSILON {
+            TWO_PI
+        } else {
+            (DOZER_FIND_POSITION_RING_SPACING / (dist + 1.0)) * (TWO_PI / 6.0)
+        };
+        let samples = ((TWO_PI / angle_spacing) / 2.0).ceil() as i32;
+        for i in 0..samples {
+            let offset = angle_spacing * i as f32;
+            if let Some(pos) = try_dozer_find_position(center, dist, offset, query) {
+                return Some(pos);
+            }
+            if i != 0 {
+                if let Some(pos) = try_dozer_find_position(center, dist, -offset, query) {
+                    return Some(pos);
+                }
+            }
+        }
+        dist += DOZER_FIND_POSITION_RING_SPACING;
+    }
+    None
+}
+
+/// C++ `DozerAIUpdate::findGoodBuildOrRepairPosition` (cpp:1855-1894).
+/// Seed is half major radius toward the dozer; `findPositionAround` then
+/// snaps onto a pathable cell. Failure keeps the seed.
+pub fn find_good_build_or_repair_position(
+    source: Vec3,
+    target: Vec3,
+    target_selection_radius: f32,
+    query: DozerFindPositionQuery<'_>,
+) -> Vec3 {
+    let seed = dozer_repair_approach_position(source, target, target_selection_radius);
+    find_position_around_dozer(seed, &query).unwrap_or(seed)
+}
+
 /// C++ `m_dockPoint[BUILD][ACTION]`, or recompute the half-radius seed.
 #[inline]
 pub fn resolve_dozer_action_dock(
@@ -312,6 +439,87 @@ mod tests {
         assert!((repair_action_range(10.0) - 70.0).abs() < 0.01);
         assert!((dozer_repair_hp_per_sec(200.0) - 4.0).abs() < 0.01);
     }
+
+
+    #[test]
+    fn find_good_keeps_seed_when_search_fails() {
+        // C++ DozerAIUpdate.cpp:1892: failure keeps workingPosition.
+        let target = Vec3::ZERO;
+        let source = Vec3::new(200.0, 0.0, 0.0);
+        let seed = dozer_repair_approach_position(source, target, 80.0);
+        let reject = DozerFindPositionQuery {
+            source,
+            is_cliff: Some(&|_| true),
+            ..DozerFindPositionQuery::default()
+        };
+        assert_eq!(
+            find_good_build_or_repair_position(source, target, 80.0, reject),
+            seed
+        );
+    }
+
+    #[test]
+    fn find_good_snaps_off_cliff_seed_within_100() {
+        // C++ maxZDelta 10 + cliff reject: snap onto a nearby pathable cell.
+        let target = Vec3::ZERO;
+        let source = Vec3::new(200.0, 0.0, 0.0);
+        let seed = dozer_repair_approach_position(source, target, 80.0);
+        let is_cliff = |p: Vec3| (p - seed).length() < 8.0;
+        let query = DozerFindPositionQuery {
+            source,
+            is_cliff: Some(&is_cliff),
+            ..DozerFindPositionQuery::default()
+        };
+        let snapped = find_good_build_or_repair_position(source, target, 80.0, query);
+        assert!(
+            (snapped - seed).length() >= 8.0,
+            "must leave the cliff seed, snapped={snapped:?} seed={seed:?}"
+        );
+        assert!(
+            (snapped - seed).length() <= DOZER_FIND_POSITION_MAX_RADIUS + 0.1,
+            "must stay inside maxRadius 100"
+        );
+    }
+
+    #[test]
+    fn find_good_rejects_far_z_bank_unless_airborne() {
+        let target = Vec3::ZERO;
+        let source = Vec3::new(200.0, 0.0, 0.0);
+        let seed = dozer_repair_approach_position(source, target, 80.0);
+        let height_at = |p: Vec3| {
+            if (p.x - seed.x).abs() < 1.0 && (p.z - seed.z).abs() < 1.0 {
+                Some(seed.y)
+            } else {
+                Some(seed.y + 25.0)
+            }
+        };
+        let ground = DozerFindPositionQuery {
+            source,
+            airborne: false,
+            height_at: Some(&height_at),
+            is_cliff: Some(&|p: Vec3| (p.x - seed.x).abs() < 1.0 && (p.z - seed.z).abs() < 1.0),
+            ..DozerFindPositionQuery::default()
+        };
+        assert_eq!(
+            find_good_build_or_repair_position(source, target, 80.0, ground),
+            seed,
+            "ground dozer must not pick |dz|>10; keep seed"
+        );
+        let air = DozerFindPositionQuery {
+            source,
+            airborne: true,
+            height_at: Some(&height_at),
+            is_cliff: Some(&|p: Vec3| (p.x - seed.x).abs() < 1.0 && (p.z - seed.z).abs() < 1.0),
+            ..DozerFindPositionQuery::default()
+        };
+        let air_pos = find_good_build_or_repair_position(source, target, 80.0, air);
+        assert!(
+            (air_pos - seed).length() >= 1.0,
+            "airborne skips maxZDelta and can leave the cliff seed"
+        );
+    }
+
+
 
     #[test]
     fn dozer_end_dock_is_five_cells_away_from_building() {

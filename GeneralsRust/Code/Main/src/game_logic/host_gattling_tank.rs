@@ -372,6 +372,8 @@ pub const GATTLING_COAST_MS: u32 = 1_000;
 pub const GATTLING_GROUND_DAMAGE_TYPE: &str = "Gattling";
 /// Retail air DamageType residual.
 pub const GATTLING_AIR_DAMAGE_TYPE: &str = "SMALL_ARMS";
+/// Retail DeathType residual (ground and air).
+pub const GATTLING_DEATH_TYPE: &str = "NORMAL";
 /// Retail FireFX residual.
 pub const GATTLING_FIRE_FX: &str = "WeaponFX_GattlingTankMachineGunFire";
 /// Retail ground ClipSize residual (0 = infinite).

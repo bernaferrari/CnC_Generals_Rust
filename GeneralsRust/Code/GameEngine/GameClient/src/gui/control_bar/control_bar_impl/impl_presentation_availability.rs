@@ -33,6 +33,10 @@ pub struct PresentationAvailabilityResidual {
     pub script_unpowered: bool,
     /// C++ DISABLED_UNMANNED — entire command set Hidden.
     pub unmanned: bool,
+    /// C++ OBJECT_STATUS_SCRIPT_UNSELLABLE — hide Sell.
+    pub script_unsellable: bool,
+    /// C++ DISABLED_SUBDUED — restrict Sell / Evacuate / Exit.
+    pub disabled_subdued: bool,
     /// Object-level applied upgrades (OBJECT_UPGRADE hasUpgrade).
     pub object_applied_upgrades: Vec<String>,
     /// Player-level completed upgrades (PLAYER_UPGRADE hasUpgradeComplete).
@@ -140,6 +144,26 @@ fn leftover_presentation_stop_or_rail(
         }
         _ => None,
     }
+}
+
+/// C++ ControlBarCommand.cpp:1184-1196, 1361-1372 — SCRIPT_UNSELLABLE / SUBDUED.
+fn leftover_presentation_sell_or_subdued(
+    bar: &ControlBar,
+    command: &CommandButton,
+) -> Option<CommandAvailability> {
+    let residual = &bar.presentation_availability;
+    if command.command_type == CommandType::Sell && residual.script_unsellable {
+        return Some(CommandAvailability::Hidden);
+    }
+    if residual.disabled_subdued
+        && matches!(
+            command.command_type,
+            CommandType::Sell | CommandType::Evacuate | CommandType::Exit
+        )
+    {
+        return Some(CommandAvailability::Restricted);
+    }
+    None
 }
 
 fn leftover_presentation_fire_weapon(

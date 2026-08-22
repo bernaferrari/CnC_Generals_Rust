@@ -88,6 +88,8 @@ mod weapon_set_persist;
 mod ability_hijack_persist;
 
 mod ai_team_persist;
+mod dock_queue_persist;
+
 mod particle_system_save;
 mod terrain_visual_save;
 mod player_team_persist;
@@ -183,6 +185,8 @@ pub const SNAPSHOT_SRC: &str = concat!(
     include_str!("ability_hijack_persist.rs"),
 
     include_str!("ai_team_persist.rs"),
+    include_str!("dock_queue_persist.rs"),
+
     include_str!("particle_system_save.rs"),
     include_str!("terrain_visual_save.rs"),
     include_str!("player_team_persist.rs"),

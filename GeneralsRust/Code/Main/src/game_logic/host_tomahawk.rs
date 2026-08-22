@@ -73,6 +73,11 @@ pub const TOMAHAWK_RANGE: f32 = 350.0;
 pub const TOMAHAWK_MIN_RANGE: f32 = 100.0;
 /// Retail ScatterRadiusVsInfantry residual.
 pub const TOMAHAWK_SCATTER_VS_INFANTRY: f32 = 20.0;
+/// Retail TomahawkMissileWeapon DamageType residual.
+pub const TOMAHAWK_DAMAGE_TYPE: &str = "EXPLOSION";
+/// Retail TomahawkMissileWeapon DeathType residual.
+pub const TOMAHAWK_DEATH_TYPE: &str = "EXPLODED";
+
 /// Retail DelayBetweenShots residual (msec).
 pub const TOMAHAWK_DELAY_BETWEEN_SHOTS_MS: u32 = 1;
 /// Retail ClipSize residual.

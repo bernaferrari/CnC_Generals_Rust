@@ -358,7 +358,8 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_nuke_cannon::{
             is_legal_nuke_cannon_splash_target, nuke_cannon_primary_damage_at,
-            nuke_cannon_splash_radius, MEDIUM_RADIATION_AUDIO, NUKE_CANNON_FIRE_AUDIO,
+            nuke_cannon_splash_radius, MEDIUM_RADIATION_AUDIO, NUKE_CANNON_DAMAGE_TYPE,
+            NUKE_CANNON_DEATH_TYPE, NUKE_CANNON_FIRE_AUDIO,
         };
 
         let impact_xz = (impact.x, impact.z);
@@ -407,7 +408,12 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from(dmg, source);
+                let destroyed = obj.take_damage_from_immediate_residual(
+                    dmg,
+                    source,
+                    NUKE_CANNON_DAMAGE_TYPE,
+                    NUKE_CANNON_DEATH_TYPE,
+                );
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -471,7 +477,9 @@ impl GameLogic {
         use crate::game_logic::host_gattling_tank::has_chain_guns_upgrade;
         use crate::game_logic::host_overlord_addons::{
             is_legal_overlord_gattling_target, overlord_gattling_ground_damage,
-            OVERLORD_GATTLING_AIR_DAMAGE, OVERLORD_GATTLING_FIRE_AUDIO,
+            OVERLORD_GATTLING_AIR_DAMAGE, OVERLORD_GATTLING_AIR_DAMAGE_TYPE,
+            OVERLORD_GATTLING_DEATH_TYPE, OVERLORD_GATTLING_FIRE_AUDIO,
+            OVERLORD_GATTLING_GROUND_DAMAGE_TYPE,
         };
 
         let chain = source
@@ -560,7 +568,19 @@ impl GameLogic {
                 obj.status.under_construction,
                 combat_kind,
             ) {
-                let destroyed = obj.take_damage_from(dmg, source);
+                let (dt_name, death_name) = if slot == 1 {
+                    (
+                        OVERLORD_GATTLING_AIR_DAMAGE_TYPE,
+                        OVERLORD_GATTLING_DEATH_TYPE,
+                    )
+                } else {
+                    (
+                        OVERLORD_GATTLING_GROUND_DAMAGE_TYPE,
+                        OVERLORD_GATTLING_DEATH_TYPE,
+                    )
+                };
+                let destroyed =
+                    obj.take_damage_from_immediate_residual(dmg, source, dt_name, death_name);
                 hits = 1;
                 if destroyed {
                     any_destroyed = true;
@@ -845,7 +865,9 @@ impl GameLogic {
         use crate::game_logic::host_technical::{
             is_legal_technical_splash_target, is_technical_template, technical_cannon_scatter_aim,
             technical_cannon_scatter_misses_infantry, technical_splash_damage_at,
-            technical_weapon_stats, TechnicalWeaponTier, TECH_FIRE_AUDIO,
+            technical_weapon_stats, TechnicalWeaponTier, TECH_CANNON_DAMAGE_TYPE,
+            TECH_CANNON_DEATH_TYPE, TECH_FIRE_AUDIO, TECH_MG_DAMAGE_TYPE, TECH_MG_DEATH_TYPE,
+            TECH_RPG_DAMAGE_TYPE, TECH_RPG_DEATH_TYPE,
         };
 
         let tier = source
@@ -959,7 +981,13 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from(dmg, source);
+                let (dt_name, death_name) = match tier {
+                    TechnicalWeaponTier::Base => (TECH_MG_DAMAGE_TYPE, TECH_MG_DEATH_TYPE),
+                    TechnicalWeaponTier::One => (TECH_CANNON_DAMAGE_TYPE, TECH_CANNON_DEATH_TYPE),
+                    TechnicalWeaponTier::Two => (TECH_RPG_DAMAGE_TYPE, TECH_RPG_DEATH_TYPE),
+                };
+                let destroyed =
+                    obj.take_damage_from_immediate_residual(dmg, source, dt_name, death_name);
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -1316,7 +1344,7 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_dragon_tank::{
             dragon_flame_damage_at, has_black_napalm_upgrade, is_legal_dragon_flame_target,
-            DRAGON_FIRE_AUDIO, DRAGON_SECONDARY_RADIUS,
+            DRAGON_DAMAGE_TYPE, DRAGON_DEATH_TYPE, DRAGON_FIRE_AUDIO, DRAGON_SECONDARY_RADIUS,
         };
 
         let upgraded = source
@@ -1370,7 +1398,12 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from(dmg, source);
+                let destroyed = obj.take_damage_from_immediate_residual(
+                    dmg,
+                    source,
+                    DRAGON_DAMAGE_TYPE,
+                    DRAGON_DEATH_TYPE,
+                );
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -1421,7 +1454,8 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_gattling_tank::{
             gattling_damage_with_chain_guns, has_chain_guns_upgrade, is_legal_gattling_target,
-            GATTLING_AIR_DAMAGE, GATTLING_FIRE_AUDIO, GATTLING_GROUND_DAMAGE,
+            GATTLING_AIR_DAMAGE, GATTLING_AIR_DAMAGE_TYPE, GATTLING_DEATH_TYPE, GATTLING_FIRE_AUDIO,
+            GATTLING_GROUND_DAMAGE, GATTLING_GROUND_DAMAGE_TYPE,
         };
 
         let (base_dmg, chain) = source
@@ -1500,7 +1534,13 @@ impl GameLogic {
                 obj.status.under_construction,
                 true,
             ) {
-                let destroyed = obj.take_damage_from(dmg, source);
+                let (dt_name, death_name) = if slot == 1 {
+                    (GATTLING_AIR_DAMAGE_TYPE, GATTLING_DEATH_TYPE)
+                } else {
+                    (GATTLING_GROUND_DAMAGE_TYPE, GATTLING_DEATH_TYPE)
+                };
+                let destroyed =
+                    obj.take_damage_from_immediate_residual(dmg, source, dt_name, death_name);
                 hits = 1;
                 if destroyed {
                     any_destroyed = true;
@@ -1766,8 +1806,8 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_marauder::{
             is_legal_marauder_splash_target, is_marauder_template, marauder_scatter_aim,
-            marauder_scatter_misses_infantry, marauder_splash_damage_at, MARAUDER_FIRE_AUDIO,
-            MARAUDER_SPLASH_RADIUS,
+            marauder_scatter_misses_infantry, marauder_splash_damage_at, MARAUDER_DAMAGE_TYPE,
+            MARAUDER_DEATH_TYPE, MARAUDER_FIRE_AUDIO, MARAUDER_SPLASH_RADIUS,
         };
 
         // Fire-rate tier residual is encoded on the weapon; damage is constant across tiers.
@@ -1871,7 +1911,12 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from(dmg, source);
+                let destroyed = obj.take_damage_from_immediate_residual(
+                    dmg,
+                    source,
+                    MARAUDER_DAMAGE_TYPE,
+                    MARAUDER_DEATH_TYPE,
+                );
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;

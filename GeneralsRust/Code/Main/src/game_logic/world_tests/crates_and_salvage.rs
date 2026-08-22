@@ -3065,6 +3065,7 @@ fn try_physics_collide_respects_ignore_and_parachute() {
     ti.add_kind_of(KindOf::Infantry);
     let iid = ObjectId(404);
     let mut inf = Object::new(ti, iid, Team::USA);
+    inf.ignored_obstacle_id = Some(vid);
     logic.objects.insert(iid, inf);
     assert!(logic.try_physics_collide(iid, vid, 5.0));
     // Reclaim residual: process_destroy_list removes the pilot (not merely
@@ -3081,6 +3082,34 @@ fn try_physics_collide_respects_ignore_and_parachute() {
     assert!(!logic.objects.get(&vid).unwrap().status.disabled_unmanned);
     assert_eq!(logic.objects.get(&vid).unwrap().team, Team::USA);
 }
+
+#[test]
+fn try_physics_collide_unmanned_recrew_requires_ignored_obstacle() {
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut tv = ThingTemplate::new("HuskNoIgnore");
+    tv.add_kind_of(KindOf::Vehicle);
+    let vid = ObjectId(413);
+    let mut v = Object::new(tv, vid, Team::Neutral);
+    v.set_status_disabled_unmanned(true);
+    logic.objects.insert(vid, v);
+    let mut ti = ThingTemplate::new("BumpInf");
+    ti.add_kind_of(KindOf::Infantry);
+    let iid = ObjectId(414);
+    let inf = Object::new(ti, iid, Team::USA);
+    logic.objects.insert(iid, inf);
+    assert!(logic.try_physics_collide(iid, vid, 5.0));
+    assert!(
+        logic.objects.get(&iid).is_some_and(|o| o.is_alive()),
+        "accidental bump must not destroy the infantry"
+    );
+    assert!(
+        logic.objects.get(&vid).unwrap().status.disabled_unmanned,
+        "accidental bump must not recrew the husk"
+    );
+    assert_eq!(logic.objects.get(&vid).unwrap().team, Team::Neutral);
+}
+
 
 #[test]
 fn apply_overlap_crush_check_crushes_enemy_infantry() {

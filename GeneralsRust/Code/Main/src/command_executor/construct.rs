@@ -97,10 +97,12 @@ impl<'a> CommandExecutor<'a> {
                 return CommandResult::InvalidCommand;
             };
             // C++ BuildAssistant::moveObjectsForConstruction (BuildAssistant.cpp:642+).
+            let place_r = self
+                .game_logic
+                .structure_place_radius_for_template(template_name);
             self.game_logic.move_objects_for_construction(
                 location,
-                crate::game_logic::host_production_buildable_command_residual::STRUCTURE_PLACE_CLEARANCE_RESIDUAL
-                    * 0.5,
+                place_r,
                 Some(unit_id),
             );
             if orientation.abs() > f32::EPSILON {
@@ -131,23 +133,23 @@ impl<'a> CommandExecutor<'a> {
             self.game_logic.dozer_new_task_build(unit_id, building_id);
             // C++ WorkerAIUpdate::newTask: leave supply-truck mode / drop dock.
             self.game_logic.worker_exit_supply_for_dozer_task(unit_id);
-            // C++ findGoodBuildOrRepairPosition half majorRadius + ignoreObstacle.
-            let (dozer_pos, pad_pos, pad_radius) = {
-                let dpos = self
-                    .game_logic
-                    .host_object(unit_id)
-                    .map(|u| u.get_position())
-                    .unwrap_or(location);
+            // C++ findGoodBuildOrRepairPosition half majorRadius + findPositionAround.
+            let (dozer_pos, pad_pos, pad_radius, stored_dock) = {
+                let d = self.game_logic.host_object(unit_id);
+                let dpos = d.map(|u| u.get_position()).unwrap_or(location);
+                let stored = d.and_then(|u| u.dozer_dock_action);
                 let (ppos, prad) = self
                     .game_logic
                     .host_object(building_id)
                     .map(|b| (b.get_position(), b.selection_radius))
                     .unwrap_or((location, 0.0));
-                (dpos, ppos, prad)
+                (dpos, ppos, prad, stored)
             };
-            let approach = crate::game_logic::host_repair::dozer_repair_approach_position(
-                dozer_pos, pad_pos, pad_radius,
-            );
+            let approach = stored_dock.unwrap_or_else(|| {
+                crate::game_logic::host_repair::dozer_repair_approach_position(
+                    dozer_pos, pad_pos, pad_radius,
+                )
+            });
             let _ = self.path_to_goal_with_state_ignoring(
                 unit_id,
                 approach,
@@ -157,6 +159,10 @@ impl<'a> CommandExecutor<'a> {
             self.game_logic.queue_picked_unit_voice(
                 &[unit_id],
                 crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::BuildResponse,
+            );
+            // C++ GameLogicDispatch.cpp:1400-1403 PlaceBuilding on the constructor.
+            self.game_logic.queue_audio_event(
+                AudioEventRequest::new(translate_audio_event("PlaceBuilding")).with_object(unit_id),
             );
 
             debug!(
@@ -214,6 +220,10 @@ impl<'a> CommandExecutor<'a> {
             self.game_logic.queue_picked_unit_voice(
                 &[builder],
                 crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::BuildResponse,
+            );
+            // C++ GameLogicDispatch.cpp:1400-1403 — one PlaceBuilding after the line.
+            self.game_logic.queue_audio_event(
+                AudioEventRequest::new(translate_audio_event("PlaceBuilding")).with_object(builder),
             );
 
             CommandResult::Success
@@ -345,10 +355,12 @@ impl<'a> CommandExecutor<'a> {
             }
             return CommandResult::InvalidCommand;
         };
+        let place_r = self
+            .game_logic
+            .structure_place_radius_for_template(template_name);
         self.game_logic.move_objects_for_construction(
             location,
-            crate::game_logic::host_production_buildable_command_residual::STRUCTURE_PLACE_CLEARANCE_RESIDUAL
-                * 0.5,
+            place_r,
             Some(builder_id),
         );
         if orientation.abs() > f32::EPSILON {
@@ -444,16 +456,21 @@ impl<'a> CommandExecutor<'a> {
 
     /// C++ BuildAssistant::isRemovableForConstruction (BuildAssistant.cpp:1331-1358).
     fn is_removable_for_construction(obj: &crate::game_logic::Object) -> bool {
-        if obj.status.effectively_dead {
+        use game_engine::common::system::kind_of::KindOfMask;
+        if obj.is_kind_of(KindOf::Inert) {
+            return false;
+        }
+        let leftover = leftover_kindof_bits(&obj.template_name);
+        if leftover & KindOfMask::INERT.bits() != 0 {
+            return false;
+        }
+        if obj.is_kind_of(KindOf::Shrubbery) || obj.is_kind_of(KindOf::ClearedByBuild) {
             return true;
         }
-        let name = obj.template_name.to_ascii_lowercase();
-        name.contains("shrub")
-            || name.contains("tree")
-            || name.contains("bush")
-            || name.contains("debris")
-            || name.contains("rubble")
-            || name.contains("clearedbybuild")
+        if leftover & (KindOfMask::SHRUBBERY.bits() | KindOfMask::CLEARED_BY_BUILD.bits()) != 0 {
+            return true;
+        }
+        obj.status.effectively_dead
     }
 
     /// C++ BuildAssistant::clearRemovableForConstruction +
@@ -462,10 +479,14 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         location: Vec3,
         angle: f32,
-        _template_name: &str,
+        template_name: &str,
     ) {
-        let place_r = crate::game_logic::host_production_buildable_command_residual::STRUCTURE_PLACE_CLEARANCE_RESIDUAL
-            * 0.5;
+        let (major, minor, is_box) = self.game_logic.structure_place_footprint(template_name);
+        let place_r = if is_box {
+            (major * major + minor * minor).sqrt()
+        } else {
+            major
+        };
         let mut to_destroy: Vec<ObjectId> = Vec::new();
         for (&id, obj) in self.game_logic.host_objects() {
             if obj.is_kind_of(KindOf::AlwaysSelectable) {
@@ -491,13 +512,27 @@ impl<'a> CommandExecutor<'a> {
                 if let Some(visual) = guard.as_mut() {
                     visual.remove_trees_and_props_for_construction(
                         [location.x, location.z, location.y],
-                        place_r,
-                        place_r,
-                        true,
+                        major,
+                        minor,
+                        is_box,
                         angle,
                     );
                 }
             }
         }
     }
+
+}
+
+fn leftover_kindof_bits(template_name: &str) -> u128 {
+    let Some(guard) = game_engine::common::thing::thing_factory::try_get_thing_factory() else {
+        return 0;
+    };
+    let Some(factory) = guard.as_ref() else {
+        return 0;
+    };
+    factory
+        .find_template(template_name, false)
+        .map(|tmpl| tmpl.get_kindof_bits())
+        .unwrap_or(0)
 }

@@ -4,6 +4,7 @@
 //! objects. This provides the fundamental containment functionality that is common to
 //! all container modules.
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, RwLock, Weak};
@@ -55,6 +56,154 @@ struct ExitPrep {
 /// Constant for unlimited contain capacity
 pub const CONTAIN_MAX_UNKNOWN: i32 = -1;
 const MAX_FIRE_POINTS: usize = 32;
+
+thread_local! {
+    static LIVE_LAST_LOAD_SOUND_FRAME: RefCell<HashMap<ObjectID, UnsignedInt>> =
+        RefCell::new(HashMap::new());
+    static LIVE_LAST_UNLOAD_SOUND_FRAME: RefCell<HashMap<ObjectID, UnsignedInt>> =
+        RefCell::new(HashMap::new());
+}
+
+const LEFTOVER_CONTAIN_MODULE_NAMES: &[&str] = &[
+    "OpenContain",
+    "TransportContain",
+    "GarrisonContain",
+    "TunnelContain",
+    "OverlordContain",
+    "HelixContain",
+    "RailedTransportContain",
+    "RiderChangeContain",
+    "InternetHackContain",
+    "HealContain",
+    "CaveContain",
+    "ParachuteContain",
+    "MobNexusContain",
+];
+
+fn leftover_contain_sound_name_is_playable(name: &str) -> bool {
+    !name.is_empty() && !name.eq_ignore_ascii_case("NONE")
+}
+
+/// C++ `OpenContain::doLoadSound` / `doUnloadSound` TheAudio add.
+fn leftover_play_contain_module_sound(
+    event_name: Option<&str>,
+    object_id: ObjectID,
+    now: UnsignedInt,
+    last_frame: &mut UnsignedInt,
+) {
+    let Some(name) = event_name.filter(|n| leftover_contain_sound_name_is_playable(n)) else {
+        return;
+    };
+    if now == *last_frame {
+        return;
+    }
+    let mut event = AudioEventRts::new(name);
+    if object_id != 0 {
+        event.set_object_id(object_id);
+    }
+    if let Some(audio) = TheAudio::get() {
+        audio.add_audio_event(&event);
+    }
+    *last_frame = now;
+}
+
+/// C++ `OpenContain::doLoadSound` — module EnterSound once per frame.
+pub fn leftover_do_load_sound(
+    enter_sound: Option<&str>,
+    object_id: ObjectID,
+    load_sounds_enabled: bool,
+    now: UnsignedInt,
+    last_load_sound_frame: &mut UnsignedInt,
+) {
+    if !load_sounds_enabled {
+        return;
+    }
+    leftover_play_contain_module_sound(enter_sound, object_id, now, last_load_sound_frame);
+}
+
+/// C++ `OpenContain::doUnloadSound` — module ExitSound once per frame.
+pub fn leftover_do_unload_sound(
+    exit_sound: Option<&str>,
+    object_id: ObjectID,
+    now: UnsignedInt,
+    last_unload_sound_frame: &mut UnsignedInt,
+) {
+    leftover_play_contain_module_sound(exit_sound, object_id, now, last_unload_sound_frame);
+}
+
+/// Live host: C++ `doLoadSound` via leftover TheAudio, once per frame per container.
+pub fn leftover_play_container_enter_sound(
+    enter_sound: Option<&str>,
+    object_id: ObjectID,
+    now: UnsignedInt,
+) {
+    LIVE_LAST_LOAD_SOUND_FRAME.with(|m| {
+        let mut map = m.borrow_mut();
+        let last = map.entry(object_id).or_insert(0);
+        leftover_do_load_sound(enter_sound, object_id, true, now, last);
+    });
+}
+
+/// Live host: C++ `doUnloadSound` via leftover TheAudio, once per frame per container.
+pub fn leftover_play_container_exit_sound(
+    exit_sound: Option<&str>,
+    object_id: ObjectID,
+    now: UnsignedInt,
+) {
+    LIVE_LAST_UNLOAD_SOUND_FRAME.with(|m| {
+        let mut map = m.borrow_mut();
+        let last = map.entry(object_id).or_insert(0);
+        leftover_do_unload_sound(exit_sound, object_id, now, last);
+    });
+}
+
+fn leftover_contain_module_sound_name(template_name: &str, enter: bool) -> Option<String> {
+    if template_name.is_empty() {
+        return None;
+    }
+    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
+    let factory = guard.as_ref()?;
+    let tmpl = factory.find_template(template_name, false)?;
+    let key = if enter { "EnterSound" } else { "ExitSound" };
+    for entry in tmpl.get_behavior_module_info().iter() {
+        if !LEFTOVER_CONTAIN_MODULE_NAMES
+            .iter()
+            .any(|n| entry.name.as_str().eq_ignore_ascii_case(n))
+        {
+            continue;
+        }
+        if let Some(data) = entry.data.downcast_ref::<OpenContainModuleData>() {
+            let event = if enter {
+                data.enter_sound.as_ref()
+            } else {
+                data.exit_sound.as_ref()
+            };
+            if let Some(name) = event
+                .map(|e| e.get_event_name())
+                .filter(|n| leftover_contain_sound_name_is_playable(n))
+            {
+                return Some(name.to_string());
+            }
+        }
+        if let Some(raw) = entry.data.get_ini_field(key) {
+            let name = raw.trim();
+            if leftover_contain_sound_name_is_playable(name) {
+                return Some(name.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Leftover ThingFactory contain-module EnterSound, if parsed.
+pub fn leftover_contain_module_enter_sound(template_name: &str) -> Option<String> {
+    leftover_contain_module_sound_name(template_name, true)
+}
+
+/// Leftover ThingFactory contain-module ExitSound, if parsed.
+pub fn leftover_contain_module_exit_sound(template_name: &str) -> Option<String> {
+    leftover_contain_module_sound_name(template_name, false)
+}
 
 /// Configuration data for OpenContain module
 #[derive(Debug, Clone)]
@@ -1080,28 +1229,19 @@ impl OpenContain {
 
     /// Play a load sound (once per frame when enabled).
     pub fn do_load_sound(&mut self) {
-        if !self.load_sounds_enabled {
-            return;
-        }
-        let Some(enter_sound) = &self.module_data.enter_sound else {
-            return;
-        };
+        let name = self
+            .module_data
+            .enter_sound
+            .as_ref()
+            .map(|s| s.get_event_name().to_string());
         let now = TheGameLogic::get_frame();
-        if now == self.last_load_sound_frame {
-            return;
-        }
-
-        let object_id = self.get_object_id();
-
-        let mut event = AudioEventRts::new(enter_sound.get_event_name());
-        if object_id != 0 {
-            event.set_object_id(object_id);
-        }
-        if let Some(audio) = TheAudio::get() {
-            audio.add_audio_event(&event);
-        }
-
-        self.last_load_sound_frame = now;
+        leftover_do_load_sound(
+            name.as_deref(),
+            self.get_object_id(),
+            self.load_sounds_enabled,
+            now,
+            &mut self.last_load_sound_frame,
+        );
     }
 
     /// C++ OpenContain::processDamageToContained.
@@ -2026,29 +2166,20 @@ impl OpenContain {
     }
 
     /// Play unload sound.
-    /// Stub implementation - matches C++ OpenContain::doUnloadSound
+    /// Matches C++ OpenContain::doUnloadSound via leftover TheAudio.
     pub fn do_unload_sound(&mut self) {
-        let Some(exit_sound) = &self.module_data.exit_sound else {
-            return;
-        };
-
+        let name = self
+            .module_data
+            .exit_sound
+            .as_ref()
+            .map(|s| s.get_event_name().to_string());
         let now = TheGameLogic::get_frame();
-        if now == self.last_unload_sound_frame {
-            return;
-        }
-
-        let object_id = self.get_object_id();
-
-        let mut event = AudioEventRts::new(exit_sound.get_event_name());
-        if object_id != 0 {
-            event.set_object_id(object_id);
-        }
-
-        if let Some(audio) = TheAudio::get() {
-            audio.add_audio_event(&event);
-        }
-
-        self.last_unload_sound_frame = now;
+        leftover_do_unload_sound(
+            name.as_deref(),
+            self.get_object_id(),
+            now,
+            &mut self.last_unload_sound_frame,
+        );
     }
 
     /// C++ OpenContain::markAllPassengersDetected.

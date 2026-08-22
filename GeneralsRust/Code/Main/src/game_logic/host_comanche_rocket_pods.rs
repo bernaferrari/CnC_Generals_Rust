@@ -54,6 +54,10 @@ pub const COMANCHE_CANNON_RANGE: f32 = 200.0;
 pub const COMANCHE_CANNON_DELAY_FRAMES: u32 = 3;
 /// Residual fire audio.
 pub const COMANCHE_CANNON_FIRE_AUDIO: &str = "Comanche20mmCannonWeapon";
+/// Retail Comanche20mmCannonWeapon DamageType residual.
+pub const COMANCHE_CANNON_DAMAGE_TYPE: &str = "COMANCHE_VULCAN";
+/// Retail Comanche20mmCannonWeapon DeathType residual.
+pub const COMANCHE_CANNON_DEATH_TYPE: &str = "NORMAL";
 
 // --- Anti-tank missile residual ---
 /// Retail ComancheAntiTankMissileWeapon PrimaryDamage.
@@ -78,6 +82,10 @@ pub const COMANCHE_AT_CLIP_RELOAD_FRAMES: u32 = 450;
 pub const COMANCHE_AT_CLIP_RELOAD_SECS: f32 = 15.0;
 /// Residual fire audio.
 pub const COMANCHE_AT_FIRE_AUDIO: &str = "ComancheAntiTankMissileWeapon";
+/// Retail ComancheAntiTankMissileWeapon DamageType residual.
+pub const COMANCHE_AT_DAMAGE_TYPE: &str = "EXPLOSION";
+/// Retail ComancheAntiTankMissileWeapon DeathType residual.
+pub const COMANCHE_AT_DEATH_TYPE: &str = "EXPLODED";
 
 // --- Rocket pod residual ---
 /// Retail ComancheRocketPodWeapon PrimaryDamage.
@@ -108,6 +116,10 @@ pub const ROCKET_POD_SCATTER_TARGET_SCALAR: f32 = 50.0;
 pub const ROCKET_POD_SCATTER_RADIUS: f32 = 0.0;
 /// Residual audio event name.
 pub const ROCKET_POD_AUDIO: &str = "ComancheRocketPodWeaponSound";
+/// Retail ComancheRocketPodWeapon DamageType residual.
+pub const ROCKET_POD_DAMAGE_TYPE: &str = "EXPLOSION";
+/// Retail ComancheRocketPodWeapon DeathType residual.
+pub const ROCKET_POD_DEATH_TYPE: &str = "EXPLODED";
 
 /// Retail ComancheRocketPodWeapon ScatterTarget residual table (ClipSize **20**).
 ///

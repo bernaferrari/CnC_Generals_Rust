@@ -223,6 +223,8 @@ impl GameLogic {
             b_immobile,
             a_infantry,
             b_unmanned,
+            a_ignore_obs,
+            b_ignore_obs,
         ) = {
             let Some(a) = self.objects.get(&a_id) else {
                 return false;
@@ -242,6 +244,8 @@ impl GameLogic {
                     || !b.can_move(),
                 a.is_kind_of(crate::game_logic::KindOf::Infantry),
                 b.status.disabled_unmanned,
+                a.ignored_obstacle_id == Some(b_id),
+                b.ignored_obstacle_id == Some(a_id),
             )
         };
         if a_ignore_b || b_ignore_a {
@@ -254,15 +258,17 @@ impl GameLogic {
         // C++ Object::onCollide walks only this object's collide modules.
         // Reverse side is the pair loop's second try_physics_collide.
         self.dispatch_host_collide_modules(a_id, b_id);
-        // C++ PhysicsUpdate infantry→unmanned vehicle pilot residual.
-        if a_infantry && b_unmanned {
-            if self.try_infantry_unmanned_reclaim(a_id, b_id) {
+        // C++ PhysicsUpdate.cpp:1182-1213: recrew only inside
+        // ai->getIgnoredObstacleID() == other->getID(); else bounce/crush.
+        if a_ignore_obs {
+            if a_infantry && b_unmanned && self.try_infantry_unmanned_reclaim(a_id, b_id) {
                 if let Some(a) = self.objects.get_mut(&a_id) {
                     a.last_collidee = Some(b_id);
                 }
-                return true;
             }
-        } else {
+            return true;
+        }
+        if b_ignore_obs {
             let b_inf = self
                 .objects
                 .get(&b_id)
@@ -273,14 +279,12 @@ impl GameLogic {
                 .get(&a_id)
                 .map(|o| o.status.disabled_unmanned)
                 .unwrap_or(false);
-            if b_inf && a_unm {
-                if self.try_infantry_unmanned_reclaim(b_id, a_id) {
-                    if let Some(a) = self.objects.get_mut(&a_id) {
-                        a.last_collidee = Some(b_id);
-                    }
-                    return true;
+            if b_inf && a_unm && self.try_infantry_unmanned_reclaim(b_id, a_id) {
+                if let Some(a) = self.objects.get_mut(&a_id) {
+                    a.last_collidee = Some(b_id);
                 }
             }
+            return true;
         }
 
         let is_ally = self.crush_relationship_is_allies(a_id, b_id);

@@ -1066,6 +1066,60 @@ fn attack_position_own_location_and_max_shots() {
 }
 
 #[test]
+fn attack_ground_orders_locked_hive_slaves() {
+    // C++ AIGroup::groupAttackPosition: !doSlavesHaveFreedom →
+    // orderSlavesToAttackPosition before aiAttackPosition.
+    use super::CommandExecutor;
+    use crate::command_system::CommandResult;
+    use crate::game_logic::host_base_defense::init_stinger_hive_slave_roster;
+    use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate, Weapon};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut site_t = ThingTemplate::new("HiveSite");
+    site_t.add_kind_of(KindOf::Structure);
+    site_t.add_kind_of(KindOf::Immobile);
+    site_t.add_kind_of(KindOf::Selectable);
+    site_t.add_kind_of(KindOf::Attackable);
+    site_t.set_health(500.0);
+    logic.templates.insert("HiveSite".to_string(), site_t);
+    let site = logic
+        .create_object("HiveSite", Team::GLA, Vec3::ZERO)
+        .unwrap();
+    {
+        let s = logic.host_object_mut(site).unwrap();
+        s.hive_slaves = init_stinger_hive_slave_roster();
+        s.hive_slave_count = 3;
+        s.weapon = Some(Weapon {
+            damage: 20.0,
+            range: 225.0,
+            can_target_ground: true,
+            ..Weapon::default()
+        });
+    }
+    let dest = Vec3::new(40.0, 0.0, 12.0);
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_attack_ground(&[site], Some(dest), -1),
+            CommandResult::Success
+        );
+    }
+    let s = logic.host_object(site).unwrap();
+    assert_eq!(s.ai_state, AIState::AttackingGround);
+    assert!(
+        s.hive_slaves.iter().filter(|sl| sl.alive).all(|sl| {
+            sl.ai_attacking
+                && sl.attack_target_id == 0
+                && sl.attack_ground
+                    .is_some_and(|p| (p[0] - dest.x).abs() < 0.01 && (p[2] - dest.z).abs() < 0.01)
+        }),
+        "locked hive slaves must receive orderSlavesToAttackPosition"
+    );
+}
+
+
+#[test]
 fn exact_waypoint_path_sets_exact_flag_and_path() {
     use super::CommandExecutor;
     use crate::command_system::CommandResult;
@@ -4619,6 +4673,80 @@ fn execute_build_clears_removable_and_map_trees() {
             .iter()
             .all(|tree| tree.tree_type < 0),
         "map tree under footprint must be removed"
+    );
+}
+
+#[test]
+fn execute_build_clears_kindof_not_name_substrings() {
+    use crate::command_system::CommandResult;
+    use crate::game_logic::{KindOf, Object, ObjectId, Player, Team, ThingTemplate};
+
+    let mut logic = GameLogic::new();
+    let mut player = Player::new(0, Team::USA, "USA", true);
+    player.resources.supplies = 100_000;
+    logic.add_player(player);
+
+    let mut barracks = ThingTemplate::new("TestKindOfClearBarracks");
+    barracks
+        .add_kind_of(KindOf::Structure)
+        .set_cost(50, 0)
+        .set_health(1_000.0);
+    logic
+        .templates
+        .insert("TestKindOfClearBarracks".into(), barracks);
+
+    let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
+    dozer_t
+        .add_kind_of(KindOf::Dozer)
+        .add_kind_of(KindOf::Vehicle)
+        .set_health(200.0);
+    logic
+        .templates
+        .insert("AmericaVehicleDozer".into(), dozer_t.clone());
+    let mut dozer = Object::new(dozer_t, ObjectId(9201), Team::USA);
+    dozer.set_position(Vec3::new(40.0, 0.0, 80.0));
+    dozer.owner_player_id = Some(0);
+    logic.objects.insert(ObjectId(9201), dozer);
+
+    let mut cleared_t = ThingTemplate::new("NoTokenProp");
+    cleared_t.add_kind_of(KindOf::ClearedByBuild).set_health(10.0);
+    let mut cleared = Object::new(cleared_t, ObjectId(9202), Team::Neutral);
+    cleared.set_position(Vec3::new(80.0, 0.0, 80.0));
+    logic.objects.insert(ObjectId(9202), cleared);
+
+    let mut named_tree_t = ThingTemplate::new("AmericaTreeDummy");
+    named_tree_t.set_health(10.0);
+    let mut named_tree = Object::new(named_tree_t, ObjectId(9203), Team::Neutral);
+    named_tree.set_position(Vec3::new(82.0, 0.0, 80.0));
+    logic.objects.insert(ObjectId(9203), named_tree);
+
+    let mut inert_t = ThingTemplate::new("TreeDebrisRubble");
+    inert_t.add_kind_of(KindOf::Inert).set_health(10.0);
+    let mut inert = Object::new(inert_t, ObjectId(9204), Team::Neutral);
+    inert.set_position(Vec3::new(78.0, 0.0, 80.0));
+    logic.objects.insert(ObjectId(9204), inert);
+
+    let site = Vec3::new(80.0, 0.0, 80.0);
+    let result = {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        exec.execute_build(&[ObjectId(9201)], "TestKindOfClearBarracks", site, 0.0)
+    };
+    assert_eq!(result, CommandResult::Success);
+
+    let cleared = logic.host_object(ObjectId(9202)).expect("cleared");
+    assert!(
+        cleared.status.destroyed || !cleared.is_alive(),
+        "KINDOF_CLEARED_BY_BUILD must be removed even without a name token"
+    );
+    let named_tree = logic.host_object(ObjectId(9203)).expect("named tree");
+    assert!(
+        named_tree.is_alive() && !named_tree.status.destroyed,
+        "name substring tree must not be removed without KindOf"
+    );
+    let inert = logic.host_object(ObjectId(9204)).expect("inert");
+    assert!(
+        inert.is_alive() && !inert.status.destroyed,
+        "KINDOF_INERT must not be removable for construction"
     );
 }
 

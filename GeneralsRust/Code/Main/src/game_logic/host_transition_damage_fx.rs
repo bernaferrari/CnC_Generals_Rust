@@ -22,16 +22,22 @@ use serde::{Deserialize, Serialize};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 
-/// C++ DAMAGE_MODULE_MAX_FX residual (we store one primary name per state).
+/// C++ BODYDAMAGETYPE_COUNT residual (Pristine/Damaged/ReallyDamaged/Rubble).
 pub const TRANSITION_DAMAGE_FX_SLOTS: usize = 4;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct HostTransitionDamageFxData {
-    /// FX name residual keyed by body state ordinal (0..3).
+    /// First authored FXList residual keyed by body state ordinal (0..3).
     pub fx_for_state: [Option<String>; TRANSITION_DAMAGE_FX_SLOTS],
     /// Audio residual keyed by body state ordinal.
     pub audio_for_state: [Option<String>; TRANSITION_DAMAGE_FX_SLOTS],
     pub enabled: bool,
+    /// C++ `m_fxList[state][0..12]` authored FXList names.
+    #[serde(default)]
+    pub fx_lists_for_state: [Vec<String>; TRANSITION_DAMAGE_FX_SLOTS],
+    /// C++ `m_OCL[state][0..12]` authored OCL names.
+    #[serde(default)]
+    pub ocl_for_state: [Vec<String>; TRANSITION_DAMAGE_FX_SLOTS],
     /// C++ `m_particleSystem[state][slot]` authored PSys names + loc.
     #[serde(default)]
     pub particles_for_state: [Vec<HostTransitionParticle>; TRANSITION_DAMAGE_FX_SLOTS],
@@ -53,12 +59,7 @@ impl HostTransitionDamageFxData {
     pub fn generic_structure_residual() -> Self {
         Self {
             enabled: true,
-            fx_for_state: [
-                None,
-                Some("FX_StructureDamagedTransition".into()),
-                Some("FX_StructureReallyDamagedTransition".into()),
-                Some("FX_StructureRubbleTransition".into()),
-            ],
+            fx_for_state: [None, None, None, None],
             audio_for_state: [None, None, None, None],
             particles_for_state: [
                 Vec::new(),
@@ -77,18 +78,14 @@ impl HostTransitionDamageFxData {
                 Vec::new(),
             ],
             attached_ids: Default::default(),
+            ..Self::default()
         }
     }
 
     pub fn toxic_bunker_residual() -> Self {
         Self {
             enabled: true,
-            fx_for_state: [
-                None,
-                Some("FX_ToxicBunkerDamageTransition".into()),
-                Some("FX_ToxicBunkerDamageTransition".into()),
-                Some("FX_ToxicBunkerRubble".into()),
-            ],
+            fx_for_state: [None, None, None, None],
             audio_for_state: [None, None, None, None],
             ..Self::default()
         }
@@ -97,12 +94,7 @@ impl HostTransitionDamageFxData {
     pub fn vehicle_residual() -> Self {
         Self {
             enabled: true,
-            fx_for_state: [
-                None,
-                Some("FX_VehicleDamagedTransition".into()),
-                Some("FX_VehicleReallyDamagedTransition".into()),
-                Some("FX_VehicleRubbleTransition".into()),
-            ],
+            fx_for_state: [None, None, None, None],
             audio_for_state: [None, None, None, None],
             ..Self::default()
         }
@@ -151,6 +143,10 @@ pub struct HostTransitionDamageFxEvent {
     pub fx_name: Option<String>,
     pub audio_name: Option<String>,
     #[serde(default)]
+    pub extra_fx_names: Vec<String>,
+    #[serde(default)]
+    pub ocl_names: Vec<String>,
+    #[serde(default)]
     pub particles: Vec<HostTransitionParticle>,
     #[serde(default)]
     pub clear_old_state: Option<u8>,
@@ -161,6 +157,16 @@ pub fn is_condition_worse(new_state: HostBodyDamageType, old_state: HostBodyDama
     new_state.ordinal() > old_state.ordinal()
 }
 
+fn authored_fx_lists_for_state(data: &HostTransitionDamageFxData, idx: usize) -> Vec<String> {
+    let mut names = data.fx_lists_for_state[idx].clone();
+    if names.is_empty() {
+        if let Some(fx) = data.fx_for_state[idx].clone() {
+            names.push(fx);
+        }
+    }
+    names
+}
+
 /// Build residual event when state worsens.
 pub fn transition_event(
     data: &HostTransitionDamageFxData,
@@ -168,7 +174,12 @@ pub fn transition_event(
     new_state: HostBodyDamageType,
 ) -> Option<HostTransitionDamageFxEvent> {
     on_body_damage_state_change(data, old_state, new_state).and_then(|ev| {
-        if ev.fx_name.is_none() && ev.audio_name.is_none() && ev.particles.is_empty() {
+        if ev.fx_name.is_none()
+            && ev.audio_name.is_none()
+            && ev.extra_fx_names.is_empty()
+            && ev.ocl_names.is_empty()
+            && ev.particles.is_empty()
+        {
             None
         } else {
             Some(ev)
@@ -188,14 +199,20 @@ pub fn on_body_damage_state_change(
     }
     let worse = is_condition_worse(new_state, old_state);
     let idx = new_state.ordinal() as usize;
-    let (fx, audio, particles) = if worse && idx < TRANSITION_DAMAGE_FX_SLOTS {
+    let (mut fx_lists, audio, ocl_names, particles) = if worse && idx < TRANSITION_DAMAGE_FX_SLOTS {
         (
-            data.fx_for_state[idx].clone(),
+            authored_fx_lists_for_state(data, idx),
             data.audio_for_state[idx].clone(),
+            data.ocl_for_state[idx].clone(),
             data.particles_for_state[idx].clone(),
         )
     } else {
-        (None, None, Vec::new())
+        (Vec::new(), None, Vec::new(), Vec::new())
+    };
+    let fx = if fx_lists.is_empty() {
+        None
+    } else {
+        Some(fx_lists.remove(0))
     };
     if !worse && fx.is_none() && audio.is_none() && particles.is_empty() {
         return Some(HostTransitionDamageFxEvent {
@@ -203,11 +220,19 @@ pub fn on_body_damage_state_change(
             new_state: new_state.ordinal(),
             fx_name: None,
             audio_name: None,
+            extra_fx_names: Vec::new(),
+            ocl_names: Vec::new(),
             particles: Vec::new(),
             clear_old_state: Some(old_state.ordinal()),
         });
     }
-    if fx.is_none() && audio.is_none() && particles.is_empty() && !worse {
+    if fx.is_none()
+        && audio.is_none()
+        && fx_lists.is_empty()
+        && ocl_names.is_empty()
+        && particles.is_empty()
+        && !worse
+    {
         return None;
     }
     Some(HostTransitionDamageFxEvent {
@@ -215,6 +240,8 @@ pub fn on_body_damage_state_change(
         new_state: new_state.ordinal(),
         fx_name: fx,
         audio_name: audio,
+        extra_fx_names: fx_lists,
+        ocl_names,
         particles,
         clear_old_state: Some(old_state.ordinal()),
     })
@@ -242,11 +269,11 @@ pub fn transition_damage_fx_config_for_template(
         HostTransitionDamageFxData::infantry_audio_residual()
     };
     data.overlay_template_audio(name);
-    overlay_authored_transition_particles(&mut data, name);
+    overlay_authored_transition_slots(&mut data, name);
     Some(data)
 }
 
-fn overlay_authored_transition_particles(data: &mut HostTransitionDamageFxData, name: &str) {
+fn overlay_authored_transition_slots(data: &mut HostTransitionDamageFxData, name: &str) {
     let Some(manager) = crate::assets::get_asset_manager() else {
         return;
     };
@@ -285,7 +312,105 @@ fn overlay_authored_transition_particles(data: &mut HostTransitionDamageFxData, 
                 data.particles_for_state[idx] = parsed;
             }
         }
+        for (state, prefix) in [
+            (HostBodyDamageType::Damaged, "DamagedFXList"),
+            (HostBodyDamageType::ReallyDamaged, "ReallyDamagedFXList"),
+            (HostBodyDamageType::Rubble, "RubbleFXList"),
+        ] {
+            let idx = state.ordinal() as usize;
+            let mut parsed = Vec::new();
+            for slot in 1..=12 {
+                let key = format!("{prefix}{slot}");
+                if let Some(raw) = module.attribute(&key) {
+                    if let Some(name) = parse_transition_named_attr(raw, "fxlist") {
+                        parsed.push(name);
+                    }
+                }
+            }
+            if !parsed.is_empty() {
+                data.fx_lists_for_state[idx] = parsed.clone();
+                data.fx_for_state[idx] = parsed.into_iter().next();
+            }
+        }
+        for (state, prefix) in [
+            (HostBodyDamageType::Damaged, "DamagedOCL"),
+            (HostBodyDamageType::ReallyDamaged, "ReallyDamagedOCL"),
+            (HostBodyDamageType::Rubble, "RubbleOCL"),
+        ] {
+            let idx = state.ordinal() as usize;
+            let mut parsed = Vec::new();
+            for slot in 1..=12 {
+                let key = format!("{prefix}{slot}");
+                if let Some(raw) = module.attribute(&key) {
+                    if let Some(name) = parse_transition_named_attr(raw, "ocl") {
+                        parsed.push(name);
+                    }
+                }
+            }
+            if !parsed.is_empty() {
+                data.ocl_for_state[idx] = parsed;
+            }
+        }
     }
+}
+
+/// `Bone:Name RandomBone:No FXList:Name` / `OCL:Name` / bare name.
+pub fn parse_transition_named_attr(raw: &str, tag: &str) -> Option<String> {
+    let tokens: Vec<&str> = raw.split_whitespace().collect();
+    let mut i = 0;
+    while i < tokens.len() {
+        let tok = tokens[i];
+        let (key, val) = match tok.split_once(':') {
+            Some((k, v)) => (k, Some(v)),
+            None => (tok, None),
+        };
+        if key.eq_ignore_ascii_case(tag) {
+            let v = if let Some(v) = val.filter(|s| !s.is_empty()) {
+                v.to_string()
+            } else {
+                i += 1;
+                tokens.get(i)?.to_string()
+            };
+            if !v.eq_ignore_ascii_case("none") {
+                return Some(v);
+            }
+            return None;
+        }
+        i += 1;
+    }
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("none") {
+        None
+    } else if !trimmed.contains(':') {
+        Some(trimmed.to_string())
+    } else {
+        None
+    }
+}
+
+/// Play leftover OCL at a live-host pose (C++ `ObjectCreationList::create`).
+pub fn play_authored_transition_ocl(name: &str, owner: u32, pos: glam::Vec3) {
+    let trimmed = name.trim();
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("none") {
+        return;
+    }
+    let leftover_pos = gamelogic::common::Coord3D::new(pos.x, pos.z, pos.y);
+    let Some(ocl) =
+        gamelogic::helpers::TheObjectCreationListStore::find_object_creation_list(trimmed)
+    else {
+        return;
+    };
+    let ctx = gamelogic::object_creation_list::live_creation_context();
+    let leftover_owner = gamelogic::helpers::TheGameLogic::find_object_by_id(owner);
+    let owner_guard = leftover_owner.as_ref().and_then(|h| h.read().ok());
+    let _ = ocl.create_with_owner_flag(
+        &ctx,
+        owner_guard.as_deref(),
+        &leftover_pos,
+        &leftover_pos,
+        true,
+        0,
+    );
 }
 
 /// `Bone:Name RandomBone:No PSys:Template` or `Loc: X:0 Y:0 Z:0 PSys:Template`.
@@ -723,6 +848,8 @@ pub fn queue_voice_fear_event(
         new_state: new_state.ordinal(),
         fx_name: None,
         audio_name: Some(fear),
+        extra_fx_names: Vec::new(),
+        ocl_names: Vec::new(),
         particles: Vec::new(),
         clear_old_state: None,
     });
@@ -749,7 +876,10 @@ mod tests {
         )
         .expect("worse");
         assert_eq!(e.new_state, 1);
-        assert!(e.fx_name.unwrap().contains("Damaged"));
+        assert!(
+            e.fx_name.is_none(),
+            "must not invent FX_StructureDamagedTransition"
+        );
         assert!(e.audio_name.is_none(), "must not invent BuildingDamaged");
         assert_eq!(e.particles.len(), 1);
         assert_eq!(e.particles[0].name, "BuildingDamageSmoke");
@@ -781,6 +911,67 @@ mod tests {
         assert_eq!(p.name, "BuildingDamageFire");
         assert_eq!(p.bone.as_deref(), Some("Fire01"));
         assert!(!p.random_bone);
+    }
+
+    #[test]
+    fn parse_authored_fxlist_and_ocl_slots() {
+        assert_eq!(
+            parse_transition_named_attr(
+                "Bone:FXBone01 RandomBone:No FXList:FX_AuthoredDamaged",
+                "fxlist"
+            )
+            .as_deref(),
+            Some("FX_AuthoredDamaged")
+        );
+        assert_eq!(
+            parse_transition_named_attr(
+                "Loc: X:0 Y:0 Z:8 OCL:OCL_AuthoredDebris",
+                "ocl"
+            )
+            .as_deref(),
+            Some("OCL_AuthoredDebris")
+        );
+    }
+
+    #[test]
+    fn authored_damaged_fxlist_and_ocl_play_not_invented_names() {
+        let mut d = HostTransitionDamageFxData::vehicle_residual();
+        let damaged = HostBodyDamageType::Damaged.ordinal() as usize;
+        let really = HostBodyDamageType::ReallyDamaged.ordinal() as usize;
+        d.fx_lists_for_state[damaged] = vec!["FX_AuthoredDamaged".into()];
+        d.ocl_for_state[damaged] = vec!["OCL_AuthoredDebris".into()];
+        d.fx_lists_for_state[really] = vec!["FX_AuthoredReallyDamaged".into()];
+        d.ocl_for_state[really] = vec!["OCL_AuthoredReallyDebris".into()];
+        let damaged_ev = transition_event(
+            &d,
+            HostBodyDamageType::Pristine,
+            HostBodyDamageType::Damaged,
+        )
+        .expect("authored damaged");
+        assert_eq!(damaged_ev.fx_name.as_deref(), Some("FX_AuthoredDamaged"));
+        assert_eq!(damaged_ev.ocl_names, vec!["OCL_AuthoredDebris".to_string()]);
+        assert_ne!(
+            damaged_ev.fx_name.as_deref(),
+            Some("FX_VehicleDamagedTransition")
+        );
+        let really_ev = transition_event(
+            &d,
+            HostBodyDamageType::Damaged,
+            HostBodyDamageType::ReallyDamaged,
+        )
+        .expect("authored really damaged");
+        assert_eq!(
+            really_ev.fx_name.as_deref(),
+            Some("FX_AuthoredReallyDamaged")
+        );
+        assert_eq!(
+            really_ev.ocl_names,
+            vec!["OCL_AuthoredReallyDebris".to_string()]
+        );
+        assert_ne!(
+            really_ev.fx_name.as_deref(),
+            Some("FX_VehicleReallyDamagedTransition")
+        );
     }
     #[test]
     fn template_sound_on_damaged_not_invented_names() {

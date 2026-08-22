@@ -123,6 +123,30 @@ impl GameLogic {
 
             AIState::Patrolling => {
                 // C++ AIHuntState::update — map-wide seek-and-destroy.
+                // Leftover hunt.rs:257-259 / C++ AIHuntState::update: empty
+                // clip (Raptor/MiG ReturnToBase) is STATE_FAILURE → RTB.
+                if self.objects.get(&object_id).is_some_and(|o| {
+                    o.is_out_of_ammo() && !o.is_kind_of(crate::game_logic::KindOf::Projectile)
+                }) {
+                    if let Some(o) = self.objects.get_mut(&object_id) {
+                        // C++ JetAIUpdate intercepts hunt STATE_FAILURE.
+                        if o.is_out_of_special_reload_ammo()
+                            || o.is_kind_of(crate::game_logic::KindOf::Aircraft)
+                        {
+                            o.return_to_base_requested = true;
+                            o.is_attack_path = false;
+                        }
+                        o.hunting = false;
+                        o.release_weapon_lock(
+                            crate::game_logic::WeaponLockType::LockedTemporarily,
+                        );
+                    }
+                    return Some(AICommand::SetAIState {
+                        object_id,
+                        state: AIState::Idle,
+                    });
+                }
+
                 if can_attack && !ai_auto_engage_paused && should_scan(30) {
                     let units_should_hunt = self.object_units_should_hunt(object_id);
                     let has_priority = self.attack_priority_info_for(object_id).is_some();
@@ -184,33 +208,14 @@ impl GameLogic {
                             self.set_host_team_common_target(object_id, victim);
                         }
                     }
-                    let evaluate_enemy = |enemy_id: ObjectId, search_radius: f32| -> Option<AICommand> {
-                        use crate::ai_decisions::{AIDecisionSystem, AttackDecision};
-
-                        match AIDecisionSystem::should_attack(self, object_id, enemy_id) {
-                            AttackDecision::Attack | AttackDecision::Retreat => Some(AICommand::AttackTarget {
-                                object_id,
-                                target_id: enemy_id,
-                            }),
-                            AttackDecision::FindNewTarget => AIDecisionSystem::find_best_target(
-                                self,
-                                object_id,
-                                position,
-                                team,
-                                search_radius,
-                                true,
-                                true,
-                                false,
-                            )
-                            .map(|better_target| AICommand::AttackTarget {
-                                object_id,
-                                target_id: better_target,
-                            }),
-                            AttackDecision::Hold => None,
-                        }
-                    };
+                    // C++ AIHuntState::update: setGoalObject + AI_ATTACK_OBJECT.
+                    // No Hold / should_attack wrap (hq-q7xo1). Attack-object paths
+                    // to the map-wide victim the same way attack-move does (hq-6p7c2).
                     if let Some(enemy_id) = victim {
-                        return evaluate_enemy(enemy_id, 9999.9);
+                        return Some(AICommand::AttackTarget {
+                            object_id,
+                            target_id: enemy_id,
+                        });
                     }
                     if !units_should_hunt && target_id.is_none() {
                         if let Some(o) = self.objects.get_mut(&object_id) {
@@ -1379,6 +1384,48 @@ mod hq_m6gcj_tests {
             Some(ObjectId(3))
         );
     }
+
+    /// hq-q7xo1: hunt engages the map-wide victim even when should_attack
+    /// would Hold (distance > weapon.range * 1.5).
+    #[test]
+    fn hunt_map_wide_victim_skips_should_attack_hold() {
+        let mut logic = GameLogic::new();
+        let mut hunter = Object::new(ThingTemplate::new("Hunter"), ObjectId(1), Team::USA);
+        hunter.hunting = true;
+        hunter.set_ai_state(AIState::Patrolling);
+        hunter.set_position(Vec3::ZERO);
+        hunter.weapon = Some(Weapon {
+            range: 50.0,
+            damage: 10.0,
+            can_target_ground: true,
+            ..Weapon::default()
+        });
+        logic.objects.insert(hunter.id, hunter);
+        logic
+            .objects
+            .insert(ObjectId(2), attack_move_enemy(2, Vec3::new(90.0, 0.0, 0.0)));
+        let command = logic.process_ai_behavior(
+            ObjectId(1),
+            AIState::Patrolling,
+            None,
+            Vec3::ZERO,
+            Team::USA,
+            true,
+            30,
+            1.0 / 30.0,
+        );
+        assert!(
+            matches!(
+                command,
+                Some(AICommand::AttackTarget {
+                    object_id: ObjectId(1),
+                    target_id: ObjectId(2),
+                })
+            ),
+            "hunt must chase the map-wide victim without Hold wrap; got {command:?}"
+        );
+    }
+
 
 
 }

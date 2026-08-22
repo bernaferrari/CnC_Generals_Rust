@@ -241,7 +241,8 @@ impl GameLogic {
             is_legal_stealth_fighter_target, is_stealth_fighter_template,
             stealth_fighter_damage_at, stealth_jet_scatter_aim,
             stealth_jet_scatter_misses_infantry, STEALTH_FIGHTER_DAMAGE,
-            STEALTH_FIGHTER_FIRE_AUDIO, STEALTH_FIGHTER_PRIMARY_RADIUS,
+            STEALTH_FIGHTER_DAMAGE_TYPE, STEALTH_FIGHTER_DEATH_TYPE, STEALTH_FIGHTER_FIRE_AUDIO,
+            STEALTH_FIGHTER_PRIMARY_RADIUS,
         };
 
         let (source_team, has_bunker_buster, is_carrier) = {
@@ -380,7 +381,12 @@ impl GameLogic {
                     continue;
                 }
                 if let Some(obj) = self.objects.get_mut(&id) {
-                    let destroyed = obj.take_damage_from(dmg, source);
+                    let destroyed = obj.take_damage_from_immediate_residual(
+                        dmg,
+                        source,
+                        STEALTH_FIGHTER_DAMAGE_TYPE,
+                        STEALTH_FIGHTER_DEATH_TYPE,
+                    );
                     hits = hits.saturating_add(1);
                     if destroyed {
                         any_destroyed = true;
@@ -435,7 +441,7 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_comanche_rocket_pods::{
             is_comanche_template, is_legal_comanche_target, COMANCHE_CANNON_DAMAGE,
-            COMANCHE_CANNON_FIRE_AUDIO,
+            COMANCHE_CANNON_DAMAGE_TYPE, COMANCHE_CANNON_DEATH_TYPE, COMANCHE_CANNON_FIRE_AUDIO,
         };
 
         let source_team = source
@@ -470,7 +476,12 @@ impl GameLogic {
                 .unwrap_or(false);
             if legal {
                 if let Some(obj) = self.objects.get_mut(&tid) {
-                    let destroyed = obj.take_damage_from(dmg, source);
+                    let destroyed = obj.take_damage_from_immediate_residual(
+                        dmg,
+                        source,
+                        COMANCHE_CANNON_DAMAGE_TYPE,
+                        COMANCHE_CANNON_DEATH_TYPE,
+                    );
                     hits = 1;
                     if destroyed {
                         any_destroyed = true;
@@ -524,7 +535,8 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_helix_minigun::{
-            is_legal_helix_minigun_target, HELIX_MINIGUN_DAMAGE, HELIX_MINIGUN_FIRE_AUDIO,
+            is_legal_helix_minigun_target, HELIX_MINIGUN_DAMAGE, HELIX_MINIGUN_DAMAGE_TYPE,
+            HELIX_MINIGUN_DEATH_TYPE, HELIX_MINIGUN_FIRE_AUDIO,
         };
         use crate::game_logic::host_overlord_addons::is_helix_template;
 
@@ -560,7 +572,12 @@ impl GameLogic {
                 .unwrap_or(false);
             if legal {
                 if let Some(obj) = self.objects.get_mut(&tid) {
-                    let destroyed = obj.take_damage_from(dmg, source);
+                    let destroyed = obj.take_damage_from_immediate_residual(
+                        dmg,
+                        source,
+                        HELIX_MINIGUN_DAMAGE_TYPE,
+                        HELIX_MINIGUN_DEATH_TYPE,
+                    );
                     hits = 1;
                     if destroyed {
                         any_destroyed = true;
@@ -616,8 +633,8 @@ impl GameLogic {
         use crate::game_logic::host_comanche_rocket_pods::{
             comanche_antitank_damage_at, comanche_antitank_scatter_aim,
             comanche_antitank_scatter_misses_infantry, is_comanche_template,
-            is_legal_comanche_target, COMANCHE_AT_FIRE_AUDIO, COMANCHE_AT_PRIMARY_RADIUS,
-            COMANCHE_AT_SECONDARY_RADIUS,
+            is_legal_comanche_target, COMANCHE_AT_DAMAGE_TYPE, COMANCHE_AT_DEATH_TYPE,
+            COMANCHE_AT_FIRE_AUDIO, COMANCHE_AT_PRIMARY_RADIUS, COMANCHE_AT_SECONDARY_RADIUS,
         };
 
         let source_team = source
@@ -724,7 +741,12 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from(dmg, source);
+                let destroyed = obj.take_damage_from_immediate_residual(
+                    dmg,
+                    source,
+                    COMANCHE_AT_DAMAGE_TYPE,
+                    COMANCHE_AT_DEATH_TYPE,
+                );
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -780,6 +802,7 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_slave_drones::{
             is_battle_drone_template, BATTLE_DRONE_FIRE_AUDIO, BATTLE_DRONE_GUN_DAMAGE,
+            BATTLE_DRONE_GUN_DAMAGE_TYPE, BATTLE_DRONE_GUN_DEATH_TYPE,
         };
 
         let source_team = source
@@ -793,7 +816,12 @@ impl GameLogic {
         if let Some(tid) = intended_target {
             if let Some(obj) = self.objects.get_mut(&tid) {
                 if obj.is_alive() && !obj.status.under_construction {
-                    let destroyed = obj.take_damage_from(BATTLE_DRONE_GUN_DAMAGE, source);
+                    let destroyed = obj.take_damage_from_immediate_residual(
+                        BATTLE_DRONE_GUN_DAMAGE,
+                        source,
+                        BATTLE_DRONE_GUN_DAMAGE_TYPE,
+                        BATTLE_DRONE_GUN_DEATH_TYPE,
+                    );
                     hits = 1;
                     if destroyed {
                         any_destroyed = true;
@@ -1124,7 +1152,8 @@ impl GameLogic {
         use crate::game_logic::host_overlord_gun::{
             has_uranium_shells_upgrade, is_legal_overlord_gun_splash_target,
             is_overlord_gun_chassis, overlord_damage_at, overlord_scatter_aim,
-            overlord_scatter_misses_infantry, OVERLORD_FIRE_AUDIO, OVERLORD_SECONDARY_RADIUS,
+            overlord_scatter_misses_infantry, OVERLORD_DAMAGE_TYPE, OVERLORD_DEATH_TYPE,
+            OVERLORD_FIRE_AUDIO, OVERLORD_SECONDARY_RADIUS,
         };
 
         let (source_team, has_uranium) = {
@@ -1233,7 +1262,12 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from(dmg, source);
+                let destroyed = obj.take_damage_from_immediate_residual(
+                    dmg,
+                    source,
+                    OVERLORD_DAMAGE_TYPE,
+                    OVERLORD_DEATH_TYPE,
+                );
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -1305,7 +1339,8 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_jarmen_kell::{
             has_ap_bullets_upgrade, is_jarmen_kell_template, is_legal_jarmen_kell_target,
-            jarmen_kell_damage_with_ap, JARMEN_KELL_FIRE_AUDIO,
+            jarmen_kell_damage_with_ap, JARMEN_KELL_DAMAGE_TYPE, JARMEN_KELL_DEATH_TYPE,
+            JARMEN_KELL_FIRE_AUDIO,
         };
 
         let (source_team, damage) = {
@@ -1348,7 +1383,12 @@ impl GameLogic {
                     obj.status.under_construction,
                     combat_kind,
                 ) {
-                    let destroyed = obj.take_damage_from(damage, source);
+                    let destroyed = obj.take_damage_from_immediate_residual(
+                        damage,
+                        source,
+                        JARMEN_KELL_DAMAGE_TYPE,
+                        JARMEN_KELL_DEATH_TYPE,
+                    );
                     hits = 1;
                     if destroyed {
                         any_destroyed = true;
@@ -1766,7 +1806,7 @@ impl GameLogic {
             is_crusader_template, is_legal_usa_tank_splash_target, is_paladin_template,
             usa_tank_gun_splash_damage_at, usa_tank_scatter_aim, usa_tank_scatter_misses_infantry,
             CRUSADER_FIRE_AUDIO, PALADIN_FIRE_AUDIO, USA_TANK_GUN_DAMAGE,
-            USA_TANK_GUN_PRIMARY_RADIUS,
+            USA_TANK_GUN_DAMAGE_TYPE, USA_TANK_GUN_DEATH_TYPE, USA_TANK_GUN_PRIMARY_RADIUS,
         };
 
         let (source_team, damage, is_paladin) = {
@@ -1883,7 +1923,12 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from(dmg, source);
+                let destroyed = obj.take_damage_from_immediate_residual(
+                    dmg,
+                    source,
+                    USA_TANK_GUN_DAMAGE_TYPE,
+                    USA_TANK_GUN_DEATH_TYPE,
+                );
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;

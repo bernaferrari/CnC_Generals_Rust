@@ -63,6 +63,10 @@ pub const USA_TANK_GUN_SCATTER_VS_INFANTRY: f32 = 10.0;
 pub const USA_TANK_GUN_DAMAGE_TYPE: &str = "ARMOR_PIERCING";
 /// Retail DeathType residual.
 pub const USA_TANK_GUN_DEATH_TYPE: &str = "NORMAL";
+/// Retail Paladin Point Defense Laser DamageType residual.
+pub const PALADIN_PDL_DAMAGE_TYPE: &str = "LASER";
+/// Retail Paladin Point Defense Laser DeathType residual.
+pub const PALADIN_PDL_DEATH_TYPE: &str = "LASERED";
 /// Retail ProjectileObject residual.
 pub const USA_TANK_GUN_PROJECTILE: &str = "GenericTankShell";
 /// Retail GenericTankShell MaxHealth residual.

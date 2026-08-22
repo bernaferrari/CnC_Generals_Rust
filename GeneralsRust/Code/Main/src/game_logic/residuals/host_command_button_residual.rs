@@ -151,6 +151,17 @@ impl HostSuperweaponKind {
                 shortcut_command_name: "SupW_Command_CruiseMissileFromShortcut",
                 shortcut_text_label: "CONTROLBAR:ICBMShortcut",
             },
+            HostSuperweaponKind::NapalmStrike => SuperweaponCommandButtonResidual {
+                command_name: "Command_NapalmStrike",
+                special_power_template: "SuperweaponNapalmStrike",
+                text_label: "CONTROLBAR:NapalmStrike",
+                descript_label: "CONTROLBAR:TooltipNapalmStrike",
+                button_image: "SSNapalmStrike",
+                radius_cursor_type: Some("NAPALMSTRIKE"),
+                cursor_name: None,
+                shortcut_command_name: "Command_NapalmStrikeFromShortcut",
+                shortcut_text_label: "CONTROLBAR:NapalmStrikeShortcut",
+            },
         }
     }
 }

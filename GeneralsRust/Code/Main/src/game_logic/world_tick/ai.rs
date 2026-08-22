@@ -396,6 +396,16 @@ impl GameLogic {
                             }
                         }
                     }
+                    for fx in ev.extra_fx_names {
+                        let _ = self.dispatch_fx_list_at_host_object(&fx, object_id, None);
+                    }
+                    for ocl in ev.ocl_names {
+                        crate::game_logic::host_transition_damage_fx::play_authored_transition_ocl(
+                            &ocl,
+                            object_id.0,
+                            pos,
+                        );
+                    }
                     if let Some(old) = ev.clear_old_state {
                         if let Some(cfg) = self
                             .objects

@@ -110,6 +110,70 @@ enum LeftoverSaTick {
 
 
 impl GameLogic {
+    fn contain_module_sound_event_name(container: &Object, enter: bool) -> Option<String> {
+        let leftover = if enter {
+            gamelogic::object::contain::leftover_contain_module_enter_sound(
+                &container.template_name,
+            )
+        } else {
+            gamelogic::object::contain::leftover_contain_module_exit_sound(
+                &container.template_name,
+            )
+        };
+        if leftover
+            .as_deref()
+            .is_some_and(|name| !name.is_empty() && !name.eq_ignore_ascii_case("NONE"))
+        {
+            return leftover;
+        }
+        let authored = if enter {
+            container.thing.template.contain_module.enter_sound.as_str()
+        } else {
+            container.thing.template.contain_module.exit_sound.as_str()
+        };
+        let authored = authored.trim();
+        if !authored.is_empty() && !authored.eq_ignore_ascii_case("NONE") {
+            return Some(authored.to_string());
+        }
+        // Retail garrison residual when leftover/live INI omitted the event.
+        // Transport only plays when INI authored EnterSound/ExitSound
+        // (Humvee comments them out — C++ is silent).
+        container.is_garrison_contain().then(|| {
+            if enter {
+                "GarrisonEnter".to_string()
+            } else {
+                "GarrisonExit".to_string()
+            }
+        })
+    }
+
+    /// C++ `OpenContain::doLoadSound` — leftover TheAudio, once per frame per container.
+    pub(crate) fn play_container_enter_sound(&self, container_id: ObjectId) {
+        let Some(container) = self.objects.get(&container_id) else {
+            return;
+        };
+        let name = Self::contain_module_sound_event_name(container, true);
+        gamelogic::object::contain::leftover_play_container_enter_sound(
+            name.as_deref(),
+            container_id.0,
+            self.frame,
+        );
+    }
+
+    /// C++ `OpenContain::doUnloadSound` — leftover TheAudio, once per frame per container.
+    pub(crate) fn play_container_exit_sound(&self, container_id: ObjectId) {
+        let Some(container) = self.objects.get(&container_id) else {
+            return;
+        };
+        let name = Self::contain_module_sound_event_name(container, false);
+        gamelogic::object::contain::leftover_play_container_exit_sound(
+            name.as_deref(),
+            container_id.0,
+            self.frame,
+        );
+    }
+
+
     /// C++ TerrainLogic::getTriggerAreaByName + PolygonTrigger center/radius.
     pub(crate) fn host_named_guard_area_polygon(
         name: &str,
@@ -642,6 +706,57 @@ impl GameLogic {
         self.consume_special_power_charge_for(object_id, &power)
     }
 
+    /// C++ `SpecialAbilityUpdate::startPreparation` → `markSpecialPowerTriggered(NULL)`
+    /// → `aboutToDoSpecialPower` ScriptEngine TRIGGERED (not COMPLETED).
+    pub(crate) fn leftover_sa_notify_start_preparation(
+        &self,
+        object_id: ObjectId,
+        kind: crate::game_logic::host_hero_abilities::LeftoverSaKind,
+    ) {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::host_hero_abilities::LeftoverSaKind;
+        let candidates: &[SpecialPowerType] = match kind {
+            LeftoverSaKind::StealCash => &[SpecialPowerType::BlackLotusStealCash],
+            LeftoverSaKind::DisableVehicle => &[SpecialPowerType::BlackLotusDisableVehicle],
+            LeftoverSaKind::PlantTimed => &[
+                SpecialPowerType::TankHunterTnt,
+                SpecialPowerType::BurtonTimedCharges,
+                SpecialPowerType::DemoRebelTimedCharges,
+                SpecialPowerType::DemoKellTimedCharges,
+                SpecialPowerType::DemoKellStickyCharges,
+                SpecialPowerType::BattleBusDemoTrapRollout,
+            ],
+            LeftoverSaKind::PlantRemote => &[
+                SpecialPowerType::BurtonRemoteCharges,
+                SpecialPowerType::DemoKellRemoteCharges,
+            ],
+            LeftoverSaKind::LaserGuided => &[
+                SpecialPowerType::MissileDefenderLaserGuided,
+                SpecialPowerType::LaserGuidedHowitzer,
+            ],
+        };
+        let power = self
+            .objects
+            .get(&object_id)
+            .and_then(|object| {
+                candidates
+                    .iter()
+                    .find(|power| {
+                        object
+                            .thing
+                            .template
+                            .special_power_module_for_command(power)
+                            .is_some()
+                            || object.special_power_cooldowns.contains_key(*power)
+                    })
+                    .cloned()
+            })
+            .or_else(|| candidates.first().cloned());
+        if let Some(power) = power {
+            self.notify_script_engine_special_power_event(object_id, &power, true, false);
+        }
+    }
+
     fn leftover_begin_unpacking(
         &mut self,
         object_id: ObjectId,
@@ -761,6 +876,7 @@ impl GameLogic {
                 // C++ PersistenceRequiresRecharge: freeze until SPM ready.
                 return;
             }
+            self.notify_script_engine_special_power_event(object_id, &power, true, false);
         }
         if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.set_status_using_ability(true);
@@ -1178,6 +1294,7 @@ impl GameLogic {
             self.hero_abilities.record_leftover_infiltration();
             self.leftover_sa_set_pack_model(object_id, false, false, true);
         }
+        self.leftover_sa_notify_start_preparation(object_id, kind);
         let mut channel =
             LeftoverSaChannel::new(kind, target_id, LeftoverSaPhase::Preparing, prep_ms);
         channel.special_object_id = special_object_id;
@@ -2081,6 +2198,8 @@ impl GameLogic {
                 crate::game_logic::host_hero_abilities::LOTUS_CAPTURE_SPECIAL_OBJECT,
             );
         }
+        // C++ startPreparation markSpecialPowerTriggered → ScriptEngine TRIGGERED.
+        self.notify_script_engine_special_power_event(object_id, &power_type, true, false);
         true
     }
 
@@ -2295,6 +2414,10 @@ impl GameLogic {
         );
         self.try_infiltration_event(target_id);
         self.hero_abilities.record_leftover_infiltration();
+        // C++ startPreparation: UNPACKING → FIRING_A (hacker typing / microwave).
+        self.leftover_sa_set_pack_model(object_id, false, false, true);
+        let power = metadata.command_power();
+        self.notify_script_engine_special_power_event(object_id, &power, true, false);
         let Some(object) = self.objects.get_mut(&object_id) else {
             return false;
         };
@@ -2956,18 +3079,35 @@ impl GameLogic {
 
 
             if ai_state != AIState::SpecialAbility {
-                self.pending_special_abilities.remove(&object_id);
-                // An explicit replacement order must cancel an in-flight HDB
-                // channel without overwriting that new order's target/state.
-                // The normal packed completion path below remains responsible
-                // for putting a completed channel back to Idle.
-                if let Some(object) = self.objects.get_mut(&object_id) {
-                    if object.hacker_disable_channel.is_some() {
-                        object.hacker_disable_channel = None;
-                        object.set_status_using_ability(false);
+                let leftover_laser_persist = self
+                    .hero_abilities
+                    .leftover_channel(object_id)
+                    .is_some_and(|ch| {
+                        ch.kind
+                            == crate::game_logic::host_hero_abilities::LeftoverSaKind::LaserGuided
+                            && ai_state == AIState::Attacking
+                            && self
+                                .objects
+                                .get(&object_id)
+                                .is_some_and(|o| o.target == Some(ch.target_id))
+                    });
+                if leftover_laser_persist {
+                    // C++ triggerAbilityEffect aiAttackObject(..., CMD_FROM_AI)
+                    // must not onExit the PersistentPrepTime channel.
+                } else {
+                    self.pending_special_abilities.remove(&object_id);
+                    // An explicit replacement order must cancel an in-flight HDB
+                    // channel without overwriting that new order's target/state.
+                    // The normal packed completion path below remains responsible
+                    // for putting a completed channel back to Idle.
+                    if let Some(object) = self.objects.get_mut(&object_id) {
+                        if object.hacker_disable_channel.is_some() {
+                            object.hacker_disable_channel = None;
+                            object.set_status_using_ability(false);
+                        }
                     }
+                    self.abort_leftover_sa_channel_on_new_order(object_id);
                 }
-                self.abort_leftover_sa_channel_on_new_order(object_id);
             }
             // C++ SpecialAbilityUpdate::update: any non-AI command source
             // immediately onExit. Leftover capture must not keep
@@ -3262,13 +3402,29 @@ impl GameLogic {
                         repair_target_alive,
                         repair_target_is_structure,
                         repair_target_under_construction,
+                        repair_target_name,
+                        repair_target_rubble,
                     )) = self.objects.get(&repair_target_id).map(|target| {
+                        let name = target.template_name.clone();
+                        let is_bridge =
+                            crate::game_logic::host_bridge_behavior::is_bridge_or_tower_template(
+                                &name,
+                            ) || target.is_kind_of(KindOf::Bridge)
+                                || target.is_kind_of(KindOf::BridgeTower);
+                        let rubble = is_bridge
+                            && (target.status.keep_as_rubble
+                                || target.status.effectively_dead
+                                || target.body_damage_state
+                                    == crate::game_logic::host_enum_table_residual::HostBodyDamageType::Rubble
+                                || target.health.current <= 0.0);
                         (
                             target.get_position(),
                             target.selection_radius,
                             target.is_alive(),
-                            target.is_kind_of(KindOf::Structure),
+                            target.is_kind_of(KindOf::Structure) || is_bridge,
                             target.status.under_construction,
+                            name,
+                            rubble,
                         )
                     })
                     else {
@@ -3278,7 +3434,7 @@ impl GameLogic {
                         continue;
                     };
 
-                    if !repair_target_alive
+                    if (!repair_target_alive && !repair_target_rubble)
                         || !repair_target_is_structure
                         || repair_target_under_construction
                         || !self.repair_relationship_is_not_enemy(object_id, repair_target_id)
@@ -3307,12 +3463,17 @@ impl GameLogic {
                                     })
                             });
                         if can_move && !has_valid_active_approach_path {
-                            let approach =
-                                crate::game_logic::host_repair::dozer_repair_approach_position(
-                                    position,
-                                    repair_target_pos,
-                                    repair_target_selection_radius,
-                                );
+                            let airborne = self.objects.get(&object_id).is_some_and(|o| {
+                                o.is_kind_of(KindOf::Aircraft) || o.status.airborne_target
+                            });
+                            let approach = self.find_good_build_or_repair_position(
+                                position,
+                                repair_target_pos,
+                                repair_target_selection_radius,
+                                airborne,
+                                airborne.then_some(repair_target_id),
+                                Some(object_id),
+                            );
                             self.path_approach_with_state(object_id, approach, AIState::Repairing);
                         }
                         // Never heal remotely. This also keeps a valid route
@@ -3322,13 +3483,8 @@ impl GameLogic {
                     }
 
                     // C++ DozerAIUpdate.cpp:665-688 createBridgeScaffolding + canHeal.
-                    let repair_name = self
-                        .objects
-                        .get(&repair_target_id)
-                        .map(|t| t.template_name.clone())
-                        .unwrap_or_default();
                     if crate::game_logic::host_bridge_behavior::is_bridge_or_tower_template(
-                        &repair_name,
+                        &repair_target_name,
                     ) {
                         let span_id = self.resolve_bridge_span_for_repair(repair_target_id);
                         if let Some(sid) = span_id {
@@ -3358,12 +3514,27 @@ impl GameLogic {
                     // C++ attemptHealingFromSoleBenefactor(health, dozer, 2) residual.
                     let now = self.frame;
                     let sole = if let Some(target) = self.objects.get_mut(&repair_target_id) {
+                        if repair_target_rubble {
+                            target.revive_from_bridge_rubble();
+                        }
+                        let max_before = target.health.maximum.max(1.0);
                         let healed = target.attempt_healing_from_sole_benefactor(
                             heal_amount,
                             object_id,
                             2,
                             now,
                         );
+                        if healed && heal_amount > 0.0 {
+                            crate::game_logic::host_bridge_behavior::record_mirror(
+                                repair_target_id,
+                                heal_amount,
+                                max_before,
+                                Some(object_id),
+                                crate::game_logic::combat::DamageType::Healing.to_store() as u32,
+                                0,
+                                crate::game_logic::host_bridge_behavior::HostBridgeMirrorKind::Heal,
+                            );
+                        }
                         let full = target.health.current >= target.health.maximum - 0.01;
                         let pos = target.get_position();
                         Some((full, healed, pos))
@@ -3418,6 +3589,15 @@ impl GameLogic {
                         self.record_structure_repair_residual_heal();
                     }
                     if target_full {
+                        // C++ WorkerAIUpdate.cpp:830 removeBridgeScaffolding on repair complete.
+                        if crate::game_logic::host_bridge_behavior::is_bridge_or_tower_template(
+                            &repair_target_name,
+                        ) {
+                            if let Some(sid) = self.resolve_bridge_span_for_repair(repair_target_id)
+                            {
+                                self.remove_bridge_scaffolding(sid);
+                            }
+                        }
                         // C++ DOZER:RepairComplete residual.
                         let msg = localization::localize("DOZER:RepairComplete", "Repair complete");
                         self.queue_radar_message_at(
@@ -4150,6 +4330,9 @@ impl GameLogic {
                         self.apply_cave_capture_event(idx, ev);
                     }
                     self.stamp_player_who_entered(container_id, object_id);
+                    // C++ OpenContain::addToContain doLoadSound — leftover TheAudio.
+                    self.play_container_enter_sound(container_id);
+
 
 
                     let container_is_heal_contain = self.objects.get(&container_id).is_some_and(
@@ -4198,8 +4381,10 @@ impl GameLogic {
                                 obj.record_host_movement();
                             }
                         }
-                        let __ai_st = if container_is_heal_contain {
-                            // C++ HealContain is not garrisonable; Docked avoids garrison fire.
+                        let __ai_st = if container_is_heal_contain || container_is_tunnel_network {
+                            // C++ HealContain / TunnelContain::isGarrisonable is FALSE.
+                            // Tunnel occupants are DISABLED_HELD and never shoot out
+                            // of an entrance (OpenContain PassengersAllowedToFire default).
                             AIState::Docked
                         } else if container_is_structure {
                             AIState::Garrisoned

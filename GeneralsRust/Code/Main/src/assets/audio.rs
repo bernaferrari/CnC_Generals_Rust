@@ -967,56 +967,24 @@ impl AudioManager {
         self.last_update_time = total_time;
     }
 
-    /// Load random C&C music track (matches C++ playRandomCNCMusic)
+    /// Play boot/menu music through TheAudio authored event (C++ Music.ini `Shell`).
+    ///
+    /// C++ has no random 17-track rodio sink. All music is `TheAudio->addAudioEvent`.
+    /// If TheAudio is missing or Music is off (`-nomusic`), stay silent until a
+    /// script queues a track.
     pub async fn play_random_cnc_music(
         &mut self,
-        archive_system: &mut ArchiveFileSystem,
+        _archive_system: &mut ArchiveFileSystem,
     ) -> Result<()> {
-        // Actual C&C music files found in the BIG archives (short filenames as in C++)
-        let music_tracks = vec![
-            // Faction-specific tracks (short filenames that definitely exist)
-            "usa_10.mp3",
-            "usa_11.mp3",
-            "chi_10.mp3",
-            "chi_11.mp3",
-            "gla_10.mp3",
-            "gla_11.mp3",
-            "c_chix01.mp3",
-            // Fallback to older naming convention if available
-            "Music01.mp3",
-            "Music02.mp3",
-            "Music03.mp3",
-            "Music04.mp3",
-            "Music05.mp3",
-            "Music06.mp3",
-            "Music07.mp3",
-            "Music08.mp3",
-            "Music09.mp3",
-            "Music10.mp3",
-        ];
-
-        // Find available tracks in archives
-        let mut available_tracks = Vec::new();
-        for track in &music_tracks {
-            if let Some(resolved) = resolve_archive_audio_path(archive_system, track) {
-                available_tracks.push(resolved);
-            }
+        if let Some(music) = self.background_music.take() {
+            music.stop();
         }
-        available_tracks.sort();
-        available_tracks.dedup();
-
-        if available_tracks.is_empty() {
-            warn!("No C&C music tracks found in archives");
-            return Err(anyhow!("No music tracks available"));
+        if play_sound_through_the_audio("Shell").is_some() {
+            info!("Playing boot/menu music through TheAudio event Shell");
+        } else {
+            info!("Boot/menu music silent until scripted TheAudio event");
         }
-
-        // Select random track using safer random generation
-        let random_index = fastrand::usize(0..available_tracks.len());
-        let selected_track = available_tracks[random_index].clone();
-
-        info!("Selected random C&C music track: {}", selected_track);
-        self.play_background_music(archive_system, &selected_track)
-            .await
+        Ok(())
     }
 
     /// Play specific faction music (matches C++ playFactionMusic)

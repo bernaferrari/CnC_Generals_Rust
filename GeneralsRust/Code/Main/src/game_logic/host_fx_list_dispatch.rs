@@ -125,6 +125,29 @@ pub fn publish_host_fx_object_ex(
     });
 }
 
+/// Keep leftover attached systems following live host IDs.
+///
+/// `ParticleSystem::resolve_attached_parent` cannot see leftover
+/// OBJECT_REGISTRY on the production host path. Upsert current poses
+/// (including dying wrecks still in the frame) and drop IDs that left
+/// so the next leftover tick follows or dies.
+pub fn refresh_host_fx_object_poses_from_presentation(
+    frame: &crate::presentation_frame::PresentationFrame,
+) {
+    let mut seen = std::collections::HashSet::new();
+    for object in &frame.objects {
+        seen.insert(object.id.0);
+        publish_host_fx_object(
+            object.id.0,
+            object.position,
+            object.orientation,
+            object.owner_player_id.map(|player| player as i32).unwrap_or(-1),
+        );
+    }
+    gamelogic::helpers::retain_host_fx_object_poses(|id| seen.contains(&id));
+}
+
+
 fn host_object_fx_radius(obj: &crate::game_logic::Object) -> f32 {
     crate::game_logic::host_supply_gather::host_bounding_circle_radius(
         obj.thing.template.geometry_info.authored,

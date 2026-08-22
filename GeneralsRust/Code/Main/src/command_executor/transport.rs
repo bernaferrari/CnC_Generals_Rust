@@ -166,7 +166,12 @@ impl<'a> CommandExecutor<'a> {
             let _ = self
                 .game_logic
                 .unit_command_stop_moving_order_target(unit_id, Some(target_id));
-            if self.path_to_goal_with_state(unit_id, target_pos, AIState::Entering) {
+            if self.path_to_goal_with_state_ignoring(
+                unit_id,
+                target_pos,
+                AIState::Entering,
+                Some(target_id),
+            ) {
                 issued = true;
             }
         }

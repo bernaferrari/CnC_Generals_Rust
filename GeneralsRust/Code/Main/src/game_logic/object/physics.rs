@@ -1062,7 +1062,7 @@ impl Object {
         ok
     }
 
-    /// C++ requestSafePath residual.
+    /// C++ requestSafePath residual (`AIUpdate.cpp:549-560`).
     pub fn begin_request_safe_path(
         &mut self,
         repulsor: ObjectId,
@@ -1071,10 +1071,15 @@ impl Object {
     ) -> bool {
         let ok = self.begin_request_move_path(flee_pos, current_frame);
         self.is_safe_path = true;
+        if self.requested_victim_id != Some(repulsor) {
+            self.safe_path_repulsor2 = self.requested_victim_id;
+        }
         self.requested_victim_id = Some(repulsor);
         self.record_host_ai_request();
         ok
     }
+
+
 
     /// Tick path queue delay residual.
     pub fn tick_path_queue(&mut self) {

@@ -1760,6 +1760,7 @@ impl GameLogic {
         };
         let mut any = false;
         for &(unit_id, goal) in goals {
+            let goal = self.adjust_group_member_goal(unit_id, goal, destination);
             let Some(unit_start) = self.objects.get(&unit_id).map(|o| o.get_position()) else {
                 continue;
             };
@@ -1769,6 +1770,7 @@ impl GameLogic {
             } else {
                 path.push(goal);
             }
+
             if self.apply_computed_unit_path(unit_id, unit_start, goal, path) {
                 any = true;
             }

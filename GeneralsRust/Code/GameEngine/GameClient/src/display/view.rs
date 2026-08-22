@@ -874,6 +874,17 @@ impl View {
         self.position = *pos;
     }
 
+    /// C++ W3DView.cpp:3097-3212 — scripted pans expand m_cameraConstraint.
+    fn widen_camera_constraint_for_scripted(&mut self, x: f32, y: f32) {
+        if !self.camera_constraint_valid {
+            return;
+        }
+        self.camera_constraint_lo.x = self.camera_constraint_lo.x.min(x);
+        self.camera_constraint_hi.x = self.camera_constraint_hi.x.max(x);
+        self.camera_constraint_lo.y = self.camera_constraint_lo.y.min(y);
+        self.camera_constraint_hi.y = self.camera_constraint_hi.y.max(y);
+    }
+
     /// C++ `m_shakeIntensity` after `W3DView::shake`.
     pub fn camera_shake_intensity(&self) -> f32 {
         self.shake_intensity
@@ -1926,6 +1937,9 @@ impl View {
             let finished = path.update(FRAME_LENGTH_MS as i32);
             let pos = path.get_current_position();
             self.position = Point3::new(pos.x, pos.y, pos.z);
+            // C++ W3DView.cpp:3097-3212 widens m_cameraConstraint so scripted pans
+            // can leave the map ("assuming the scripter knows what he is doing").
+            self.widen_camera_constraint_for_scripted(pos.x, pos.y);
             if path.is_oriented() {
                 self.angle = path.get_current_angle();
             }
@@ -1941,6 +1955,7 @@ impl View {
                 let finished = transition.update();
                 let pos = transition.get_current_position();
                 self.position = Point3::new(pos.x, pos.y, pos.z);
+                self.widen_camera_constraint_for_scripted(pos.x, pos.y);
                 if finished {
                     self.camera_move = None;
                 }

@@ -710,8 +710,9 @@ pub enum AbleToAttackType {
     ContinuedTarget,
     /// ATTACK_CONTINUED_TARGET_FORCED
     ContinuedTargetForced,
+    /// ATTACK_TUNNEL_NETWORK_GUARD — skip immobile/contained out-of-range abort
+    TunnelNetworkGuard,
 }
-
 impl AbleToAttackType {
     pub fn is_forced(self) -> bool {
         matches!(

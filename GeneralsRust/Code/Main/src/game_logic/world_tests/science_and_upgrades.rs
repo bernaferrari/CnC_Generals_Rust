@@ -2662,6 +2662,39 @@ fn player_grant_science_script_honors_is_grantable() {
 }
 
 #[test]
+fn player_grant_science_script_readies_shared_special_power() {
+    // C++ Player::addScience → onSpecialPowerCreation + setReadyFrame(now).
+    use crate::command_system::SpecialPowerType;
+    use crate::game_logic::Team;
+
+    let mut logic = GameLogic::new();
+    logic.scripts_loaded = true;
+    let mut player = crate::game_logic::Player::new(0, Team::USA, "Local", true);
+    player.apply_faction_intrinsic_sciences();
+    player.science_purchase_points = 10;
+    player
+        .shared_special_power_cooldowns
+        .insert(SpecialPowerType::Airstrike, 999.0);
+    logic.players.insert(0, player);
+    let _ = gamelogic::scripting::take_host_science_action_requests();
+    gamelogic::scripting::request_host_science_action(
+        "Local",
+        "SCIENCE_A10ThunderboltMissileStrike1",
+        false,
+    );
+    logic.evaluate_and_execute_scripts(0.0);
+    let p = logic.players.get(&0).expect("p");
+    assert!(
+        p.has_unlocked_science("SCIENCE_A10ThunderboltMissileStrike1"),
+        "PLAYER_PURCHASE_SCIENCE must insert on live host"
+    );
+    assert!(
+        p.is_shared_special_power_ready(&SpecialPowerType::Airstrike),
+        "script purchase must express sharedNSync ready-now"
+    );
+}
+
+#[test]
 fn script_set_rank_level_plays_eva_general_level_up() {
     // C++ Player.cpp:2708-2714 setRankLevel always EVA for local.
     use crate::game_logic::Team;
@@ -4721,6 +4754,7 @@ fn create_crate_die_spawns_salvage_and_notifies_ai() {
     let mut kt = ThingTemplate::new("AiKiller");
     kt.add_kind_of(KindOf::Infantry);
     kt.add_kind_of(KindOf::Salvager);
+    let kid = ObjectId(4701);
 
     logic.objects.insert(kid, {
         let mut o = Object::new(kt, kid, Team::China);
@@ -4760,26 +4794,83 @@ fn create_crate_die_spawns_salvage_and_notifies_ai() {
 }
 
 #[test]
-fn create_crate_die_skips_ally_killer() {
-    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+fn create_crate_die_skips_allied_players_not_same_faction() {
+    // C++ CreateCrateDie.cpp:55-56 killer->getRelationship(me)==ALLIES.
+    // 2v2 USA+China share alliance_team; faction Team equality is not required.
+    use crate::game_logic::{KindOf, Object, ObjectId, Player, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    let mut kt = ThingTemplate::new("AllyK");
+    let mut usa = Player::new(0, Team::USA, "USA", true);
+    let mut china = Player::new(1, Team::China, "China", false);
+    usa.alliance_team = 1;
+    china.alliance_team = 1;
+    logic.add_player(usa);
+    logic.add_player(china);
+
+    let mut kt = ThingTemplate::new("AllyKiller");
     kt.add_kind_of(KindOf::Infantry);
     let kid = ObjectId(4710);
-    logic.objects.insert(kid, Object::new(kt, kid, Team::USA));
+    logic.objects.insert(kid, {
+        let mut o = Object::new(kt, kid, Team::China);
+        o.owner_player_id = Some(1);
+        o
+    });
 
-    let mut vt = ThingTemplate::new("VicAlly");
-    vt.add_create_crate_data("SalvageCrateData");
+    let mut vt = ThingTemplate::new("VicAllyHeal");
+    vt.add_create_crate_data("HealCrateData");
     let vid = ObjectId(4711);
     logic.objects.insert(vid, {
         let mut o = Object::new(vt, vid, Team::USA);
+        o.owner_player_id = Some(0);
+        o.last_damage_source = Some(kid);
+        o.status.destroyed = true;
+        o
+    });
+    logic.mark_object_for_destruction(vid, Some(Team::China));
+    logic.process_destroy_list();
+    assert_eq!(
+        logic.host_money_crates.crate_count(),
+        0,
+        "ALLIES relationship must suppress crate, not Team equality"
+    );
+}
+
+#[test]
+fn create_crate_die_allows_ffa_same_faction_kill() {
+    // Two USA players on different alliance_team are ENEMIES — crate may spawn.
+    use crate::game_logic::{KindOf, Object, ObjectId, Player, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut a = Player::new(0, Team::USA, "USA-A", true);
+    let mut b = Player::new(1, Team::USA, "USA-B", false);
+    a.alliance_team = 1;
+    b.alliance_team = 2;
+    logic.add_player(a);
+    logic.add_player(b);
+
+    let mut kt = ThingTemplate::new("FfaKiller");
+    kt.add_kind_of(KindOf::Infantry);
+    let kid = ObjectId(4728);
+    logic.objects.insert(kid, {
+        let mut o = Object::new(kt, kid, Team::USA);
+        o.owner_player_id = Some(1);
+        o
+    });
+
+    let mut vt = ThingTemplate::new("VicFfaHeal");
+    vt.add_create_crate_data("HealCrateData");
+    let vid = ObjectId(4729);
+    logic.objects.insert(vid, {
+        let mut o = Object::new(vt, vid, Team::USA);
+        o.owner_player_id = Some(0);
         o.last_damage_source = Some(kid);
         o.status.destroyed = true;
         o
     });
     logic.mark_object_for_destruction(vid, Some(Team::USA));
     logic.process_destroy_list();
-    assert_eq!(logic.host_money_crates.crate_count(), 0);
+    assert!(
+        logic.host_money_crates.crate_count() >= 1,
+        "FFA same-faction kill is not ALLIES; crate must spawn"
+    );
 }
 
 #[test]

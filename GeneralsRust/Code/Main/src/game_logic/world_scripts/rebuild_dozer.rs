@@ -5,6 +5,98 @@
 use super::super::*;
 
 impl GameLogic {
+    /// C++ `DozerAIUpdate::findGoodBuildOrRepairPosition` (cpp:1855-1894).
+    /// Half-radius seed, then `findPositionAround` (0–100, maxZDelta 10,
+    /// `sourceToPathToDest`, ignore target when airborne). Failure keeps seed.
+    pub fn find_good_build_or_repair_position(
+        &self,
+        source: Vec3,
+        target: Vec3,
+        target_selection_radius: f32,
+        airborne: bool,
+        ignore_object: Option<ObjectId>,
+        source_id: Option<ObjectId>,
+    ) -> Vec3 {
+        use crate::game_logic::host_repair::{
+            find_good_build_or_repair_position as snap, DozerFindPositionQuery,
+            DOZER_FIND_POSITION_OVERLAP_SPHERE,
+        };
+        use gamelogic::ai::pathfind_astar::PathfindCellType;
+
+        let grid_live = self.pathfinding_system.grid.width() > 0
+            && self.pathfinding_system.grid.height() > 0;
+        let height_at = |p: Vec3| self.terrain_height_at(p);
+        let is_cliff = |p: Vec3| {
+            if let Some(t) = self.terrain.as_ref() {
+                if t.is_cliff_at_world(p) {
+                    return true;
+                }
+            }
+            if let Ok(tl) = gamelogic::terrain::get_terrain_logic().read() {
+                return tl.is_cliff_cell(p.x, p.z);
+            }
+            false
+        };
+        let is_underwater = |p: Vec3| {
+            if let Some(t) = self.terrain.as_ref() {
+                if t.is_underwater_at_world(p) {
+                    return true;
+                }
+            }
+            if let Ok(tl) = gamelogic::terrain::get_terrain_logic().read() {
+                return tl.is_underwater(p.x, p.z, None, None);
+            }
+            false
+        };
+        let is_impassable = |p: Vec3| {
+            if !grid_live {
+                return false;
+            }
+            let cell = self.pathfinding_system.grid.world_to_grid(p);
+            matches!(
+                self.pathfinding_system.grid.cell_type(cell),
+                PathfindCellType::Impassable
+            )
+        };
+        let overlaps_object = |p: Vec3| {
+            self.objects.values().any(|o| {
+                if !o.is_alive() {
+                    return false;
+                }
+                if Some(o.id) == ignore_object || Some(o.id) == source_id {
+                    return false;
+                }
+                let r = o.selection_radius.max(0.0) + DOZER_FIND_POSITION_OVERLAP_SPHERE;
+                let d = o.get_position();
+                let dx = d.x - p.x;
+                let dz = d.z - p.z;
+                dx * dx + dz * dz <= r * r
+            })
+        };
+        let path_exists = |from: Vec3, to: Vec3| {
+            if !grid_live {
+                return true;
+            }
+            self.pathfinding_system
+                .client_safe_quick_does_path_exist(from, to)
+        };
+        snap(
+            source,
+            target,
+            target_selection_radius,
+            DozerFindPositionQuery {
+                airborne,
+                source,
+                height_at: Some(&height_at),
+                is_cliff: Some(&is_cliff),
+                is_impassable: Some(&is_impassable),
+                is_underwater: Some(&is_underwater),
+                overlaps_object: Some(&overlaps_object),
+                path_exists: Some(&path_exists),
+            },
+        )
+    }
+
     /// C++ PhysicsUpdate collision handoff into `VeterancyCrateCollide`
     /// `IsPilot` re-crew.
     ///
@@ -1048,21 +1140,33 @@ impl GameLogic {
                 // C++ sets MODELCONDITION_ACTIVELY_CONSTRUCTING only at the dock
                 // (DozerAIUpdate.cpp:511). Driving there stays un-animated.
             }
-            let approach = {
-                let dozer_pos = self
-                    .objects
-                    .get(&dozer_id)
-                    .map(|d| d.get_position())
-                    .unwrap_or(glam::Vec3::ZERO);
-                let (st_pos, st_radius) = self
-                    .objects
-                    .get(&structure_id)
-                    .map(|s| (s.get_position(), s.selection_radius))
-                    .unwrap_or((glam::Vec3::ZERO, 0.0));
-                crate::game_logic::host_repair::dozer_repair_approach_position(
-                    dozer_pos, st_pos, st_radius,
-                )
-            };
+            let approach = self
+                .objects
+                .get(&dozer_id)
+                .and_then(|d| d.dozer_dock_action)
+                .unwrap_or_else(|| {
+                    let dozer_pos = self
+                        .objects
+                        .get(&dozer_id)
+                        .map(|d| d.get_position())
+                        .unwrap_or(glam::Vec3::ZERO);
+                    let airborne = self.objects.get(&dozer_id).is_some_and(|d| {
+                        d.is_kind_of(KindOf::Aircraft) || d.status.airborne_target
+                    });
+                    let (st_pos, st_radius) = self
+                        .objects
+                        .get(&structure_id)
+                        .map(|s| (s.get_position(), s.selection_radius))
+                        .unwrap_or((glam::Vec3::ZERO, 0.0));
+                    self.find_good_build_or_repair_position(
+                        dozer_pos,
+                        st_pos,
+                        st_radius,
+                        airborne,
+                        airborne.then_some(structure_id),
+                        Some(dozer_id),
+                    )
+                });
             // C++ DozerActionPickActionPosState::update aiMoveToPosition (DozerAIUpdate.cpp:211).
             self.path_approach_with_state(dozer_id, approach, AIState::Constructing);
             // Structure awaiting → actively being constructed residual when dozer assigned.

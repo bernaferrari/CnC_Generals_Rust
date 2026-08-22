@@ -664,8 +664,15 @@ impl PresentationFrame {
             }
             if let PresentationEvent::WeaponFireLoopStopped { unit, sound } = ev {
                 // Wave 528: explicit stop residual (must not re-trigger FireSound play).
-                let _ = sound;
-                let mut req = AudioEventRequest::new("WeaponFireLoopStop").with_object(*unit);
+                // C++ FiringTracker removeAudioEvent uses the FireSound name.
+                let name = if sound.is_empty() {
+                    "WeaponFireLoopStop"
+                } else {
+                    sound.as_str()
+                };
+                let mut req = AudioEventRequest::new(name)
+                    .with_object(*unit)
+                    .stopping();
                 if let Some(pos) = pose_by_id.get(unit) {
                     req = req.with_position(*pos);
                 }

@@ -7,6 +7,42 @@ use super::mouse::{
     SHAKE_AXIS_ROLL, SHAKE_AXIS_YAW, SHAKE_END_OMEGA, SHAKE_MAX_OMEGA, SHAKE_MIN_OMEGA,
 };
 
+/// C++ `W3DView.cpp:3097-3212` — union a scripted look into `m_cameraConstraint`.
+/// Live stores `(lo_x, hi_x, lo_z, hi_z)` in Y-up (C++ Y → live Z).
+fn widen_scripted_camera_constraint(
+    current: Option<(f32, f32, f32, f32)>,
+    look_x: f32,
+    look_z: f32,
+) -> (f32, f32, f32, f32) {
+    match current {
+        Some((lo_x, hi_x, lo_z, hi_z)) => (
+            lo_x.min(look_x),
+            hi_x.max(look_x),
+            lo_z.min(look_z),
+            hi_z.max(look_z),
+        ),
+        None => (look_x, look_x, look_z, look_z),
+    }
+}
+
+fn apply_scripted_camera_constraint_widen(
+    lo_x: f32,
+    hi_x: f32,
+    lo_z: f32,
+    hi_z: f32,
+    widen: Option<(f32, f32, f32, f32)>,
+) -> (f32, f32, f32, f32) {
+    let Some((wlo_x, whi_x, wlo_z, whi_z)) = widen else {
+        return (lo_x, hi_x, lo_z, hi_z);
+    };
+    (
+        lo_x.min(wlo_x),
+        hi_x.max(whi_x),
+        lo_z.min(wlo_z),
+        hi_z.max(whi_z),
+    )
+}
+
 fn shaker_hash_signed(seed: u32, elapsed_bits: u32, axis: u32, pass: u32) -> f32 {
     let mut x = seed
         ^ elapsed_bits.wrapping_mul(0x9E37_79B9)
@@ -1488,15 +1524,17 @@ impl CnCGameEngine {
     }
 
     /// Wave 611: via `host_center_camera_on`.
+    ///
+    /// Scripted pans (C++ `W3DView.cpp:3097-3212`) widen `m_cameraConstraint`
+    /// so a cinematic can leave the map. Player `lookAt` still clamps.
     pub(super) fn center_camera_on(&mut self, world_pos: Vec3) {
-        // Wave 611: thin wrapper — residual via host helper.
-        self.host_center_camera_on(world_pos)
+        self.host_center_camera_on_impl(world_pos, false)
     }
 
     /// C++ player `W3DView::lookAt` — cancel scripted rotate/path then snap.
     pub(super) fn host_player_look_at(&mut self, world_pos: Vec3) {
         self.cancel_scripted_camera_from_player_look_at();
-        self.host_center_camera_on(world_pos);
+        self.host_center_camera_on_impl(world_pos, true);
     }
 
 
@@ -1519,6 +1557,10 @@ impl CnCGameEngine {
     }
 
     pub(super) fn host_center_camera_on(&mut self, world_pos: Vec3) {
+        self.host_center_camera_on_impl(world_pos, true)
+    }
+
+    fn host_center_camera_on_impl(&mut self, world_pos: Vec3, clamp_to_world: bool) {
         let mut look = world_pos;
         let ground_height = self.sample_presentation_height_under(look);
         // C++ W3DView::lookAt: elevated targets ray-cast onto the heightmap.
@@ -1541,11 +1583,21 @@ impl CnCGameEngine {
                 look.z = hit.z;
             }
         }
-        let clamped = self.clamp_to_world_bounds(look);
-        let ground_height = self.sample_presentation_height_under(clamped);
-        self.camera_target.x = clamped.x;
+        // C++ scripted waypoint pans widen m_cameraConstraint (W3DView.cpp:3097-3212)
+        // so the look-at can leave the map. Player lookAt still clamps to the
+        // (possibly widened) constraint.
+        if !clamp_to_world {
+            self.scripted_camera_constraint_widen = Some(widen_scripted_camera_constraint(
+                self.scripted_camera_constraint_widen,
+                look.x,
+                look.z,
+            ));
+        }
+        let look = self.clamp_to_world_bounds(look);
+        let ground_height = self.sample_presentation_height_under(look);
+        self.camera_target.x = look.x;
         self.camera_target.y = ground_height;
-        self.camera_target.z = clamped.z;
+        self.camera_target.z = look.z;
         self.apply_camera_orbit_transform();
     }
 
@@ -1818,6 +1870,9 @@ impl CnCGameEngine {
         let hi_x = world_max.x - inset;
         let lo_z = world_min.z + inset;
         let hi_z = world_max.z - inset;
+        let (lo_x, hi_x, lo_z, hi_z) = apply_scripted_camera_constraint_widen(
+            lo_x, hi_x, lo_z, hi_z, self.scripted_camera_constraint_widen,
+        );
         if lo_x <= hi_x {
             position.x = position.x.clamp(lo_x, hi_x);
         } else {
@@ -1992,6 +2047,7 @@ impl CnCGameEngine {
 
         self.camera_position = Vec3::new(0.0, 200.0, 200.0);
         self.camera_target = Vec3::new(0.0, 0.0, 0.0);
+        self.scripted_camera_constraint_widen = None;
         self.camera_fx_pitch = 1.0;
         self.camera_zoom = 1.0;
         self.camera_zoom_target = None;
@@ -2375,6 +2431,36 @@ End
         assert!(
             src.contains("w3d_camera_constraint_offset"),
             "clamp must use W3DView inset, not raw map extent"
+        );
+    }
+
+    #[test]
+    fn scripted_camera_constraint_widens_like_cpp() {
+        let first = widen_scripted_camera_constraint(None, -50.0, 900.0);
+        assert_eq!(first, (-50.0, -50.0, 900.0, 900.0));
+        let second = widen_scripted_camera_constraint(Some(first), 10.0, -20.0);
+        assert_eq!(second, (-50.0, 10.0, -20.0, 900.0));
+        let (lo_x, hi_x, lo_z, hi_z) =
+            apply_scripted_camera_constraint_widen(0.0, 100.0, 0.0, 100.0, Some(second));
+        assert_eq!((lo_x, hi_x, lo_z, hi_z), (-50.0, 100.0, -20.0, 900.0));
+        assert_eq!((-80.0_f32).clamp(lo_x, hi_x), -50.0);
+        assert_eq!(900.0_f32.clamp(lo_z, hi_z), 900.0);
+    }
+
+    #[test]
+    fn scripted_center_widens_camera_constraint() {
+        let src = include_str!("start_game.rs");
+        let start = src
+            .find("fn host_center_camera_on_impl")
+            .expect("host_center_camera_on_impl");
+        let body = &src[start..start + 1200];
+        assert!(
+            body.contains("widen_scripted_camera_constraint") && body.contains("if !clamp_to_world"),
+            "scripted center must widen m_cameraConstraint"
+        );
+        assert!(
+            src.contains("apply_scripted_camera_constraint_widen"),
+            "player clamp must honor scripted widen"
         );
     }
 

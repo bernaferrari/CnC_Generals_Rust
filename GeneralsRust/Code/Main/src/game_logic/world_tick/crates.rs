@@ -1206,10 +1206,34 @@ impl GameLogic {
         if crate_data.is_empty() {
             return 0;
         }
-        // Ally kill → no crate (C++ Relationship ALLIES).
+        // Ally kill → no crate (C++ CreateCrateDie::onDie getRelationship==ALLIES).
+        // Resolve controlling players (unique-team fallback) — not Team faction equality.
         if let Some(kid) = killer_id {
-            if let Some(k) = self.objects.get(&kid) {
-                if k.team == victim_team {
+            let killer_snap = self.objects.get(&kid).map(|k| {
+                (
+                    k.owner_player_id,
+                    k.team,
+                    k.team_instance_name.clone(),
+                )
+            });
+            let victim_snap = self.objects.get(&victim_id).map(|v| {
+                (v.owner_player_id, v.team_instance_name.clone())
+            });
+            if let (Some((k_own, k_team, k_inst)), Some((v_own, v_inst))) =
+                (killer_snap, victim_snap)
+            {
+                let k_owner = self.player_owner_for_event(k_own, k_team);
+                let v_owner = self.player_owner_for_event(v_own, victim_team);
+                if matches!(
+                    Self::object_relationship_from_owners(
+                        &self.players,
+                        k_owner,
+                        &k_inst,
+                        v_owner,
+                        &v_inst,
+                    ),
+                    gamelogic::common::Relationship::Allies,
+                ) {
                     return 0;
                 }
             }

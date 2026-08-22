@@ -95,6 +95,15 @@ pub const ANGRY_MOB_MOLOTOV_DAMAGE: f32 = 40.0;
 pub const ANGRY_MOB_MOLOTOV_RADIUS: f32 = 11.0;
 /// Molotov WeaponSpeed residual (dist/sec).
 pub const ANGRY_MOB_MOLOTOV_WEAPON_SPEED: f32 = 60.0;
+/// Retail rock DamageType residual.
+pub const ANGRY_MOB_ROCK_DAMAGE_TYPE: &str = "EXPLOSION";
+/// Retail rock DeathType residual.
+pub const ANGRY_MOB_ROCK_DEATH_TYPE: &str = "NORMAL";
+/// Retail molotov DamageType residual.
+pub const ANGRY_MOB_MOLOTOV_DAMAGE_TYPE: &str = "MOLOTOV_COCKTAIL";
+/// Retail molotov DeathType residual.
+pub const ANGRY_MOB_MOLOTOV_DEATH_TYPE: &str = "BURNED";
+
 /// Rock DumbProjectile First/SecondHeight residual.
 pub const ANGRY_MOB_ROCK_FIRST_HEIGHT: f32 = 10.0;
 pub const ANGRY_MOB_ROCK_SECOND_HEIGHT: f32 = 10.0;
@@ -980,6 +989,8 @@ pub const ANGRY_MOB_PISTOL_CLIP: u32 = 8;
 pub const ANGRY_MOB_PISTOL_CLIP_RELOAD_MS: u32 = 3_000;
 /// Retail pistol DamageType residual.
 pub const ANGRY_MOB_PISTOL_DAMAGE_TYPE: &str = "MOLOTOV_COCKTAIL";
+/// Retail pistol DeathType residual.
+pub const ANGRY_MOB_PISTOL_DEATH_TYPE: &str = "NORMAL";
 /// Retail GLAAngryMobPistolWeapon name residual.
 pub const ANGRY_MOB_PISTOL_WEAPON: &str = "GLAAngryMobPistolWeapon";
 /// Retail SpawnReplaceDelay residual (msec).

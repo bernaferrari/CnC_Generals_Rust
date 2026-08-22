@@ -274,11 +274,135 @@ pub enum HostScriptRadarEventRequest {
 /// Live host drain: NAMED/TEAM SET_STEALTH_ENABLED.
 /// C++ `ScriptActions::doNamedEnableStealth` / `doTeamEnableStealth`
 /// (`setScriptStatus(OBJECT_STATUS_SCRIPT_UNSTEALTHED, !enabled)`).
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostScriptStealthEnabledRequest {
     Named { unit: String, enabled: bool },
     Team { team: String, enabled: bool },
 }
+
+/// Live host drain: PLAYER_DISABLE/ENABLE_UNIT_CONSTRUCTION,
+/// PLAYER_DISABLE/ENABLE_BASE_CONSTRUCTION, PLAYER_DISABLE/ENABLE_FACTORIES.
+/// C++ `Player::setCanBuildUnits` / `setCanBuildBase` / `setObjectsEnabled`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostScriptCanBuildRequest {
+    Units { player: String, enable: bool },
+    Base { player: String, enable: bool },
+    Factories {
+        player: String,
+        template: String,
+        enable: bool,
+    },
+}
+
+/// Live host drain: TECHTREE_MODIFY_BUILDABILITY_OBJECT.
+/// C++ `ScriptActions::doModifyBuildableStatus` → `setBuildableStatusOverride`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostScriptBuildableOverrideRequest {
+    pub template: String,
+    pub status: i32,
+}
+
+/// Live host drain: NAMED_RECEIVE_UPGRADE.
+/// C++ `ScriptActions::doUnitReceiveUpgrade` (`giveUpgrade`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostScriptNamedUpgradeRequest {
+    pub unit: String,
+    pub upgrade: String,
+}
+
+/// Live host drain: NAMED/TEAM FLASH / FLASH_WHITE.
+/// C++ `doNamedFlash` / `doTeamFlash` (`setFlashColor` / `setFlashCount`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostScriptFlashRequest {
+    Named {
+        unit: String,
+        seconds: i32,
+        white: bool,
+    },
+    Team {
+        team: String,
+        seconds: i32,
+        white: bool,
+    },
+}
+
+/// Live host drain: NAMED/TEAM SET_EMOTICON.
+/// C++ `doNamedEmoticon` / `doTeamEmoticon` (`Drawable::setEmoticon`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostScriptEmoticonRequest {
+    Named {
+        unit: String,
+        emoticon: String,
+        duration_frames: i32,
+    },
+    Team {
+        team: String,
+        emoticon: String,
+        duration_frames: i32,
+    },
+}
+
+/// Live host drain: NAMED_SET_HELD.
+/// C++ `doNamedSetHeld` (`DISABLED_HELD`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostScriptHeldRequest {
+    pub unit: String,
+    pub held: bool,
+}
+
+/// Live host drain: NAMED_CUSTOM_COLOR.
+/// C++ `doNamedCustomColor` (`setCustomIndicatorColor`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostScriptCustomColorRequest {
+    pub unit: String,
+    pub color_raw: u32,
+}
+
+/// Live host drain: NAMED_SET_ATTITUDE.
+/// C++ `updateNamedSetAttitude` (`ai->setAttitude`). TEAM already has a drain.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostScriptNamedAttitudeRequest {
+    pub unit: String,
+    pub mood: i32,
+}
+
+/// Live host drain: NAMED/TEAM SET_REPULSOR.
+/// C++ `doNamedSetRepulsor` / `doTeamSetRepulsor` (`OBJECT_STATUS_REPULSOR`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostScriptRepulsorRequest {
+    Named { unit: String, enabled: bool },
+    Team { team: String, enabled: bool },
+}
+
+/// Live host drain: NAMED_SET_STOPPING_DISTANCE / SET_STOPPING_DISTANCE.
+/// C++ `setCloseEnoughDist`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum HostScriptStoppingDistanceRequest {
+    Named { unit: String, distance: f32 },
+    Team { team: String, distance: f32 },
+}
+
+/// Live host drain: OBJECT_FORCE_SELECT.
+/// C++ `doForceObjectSelection` (`selectDrawable` + optional `moveCameraTo`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostScriptForceSelectRequest {
+    pub team: String,
+    pub object_type: String,
+    pub center_in_view: bool,
+    pub audio: String,
+}
+
+/// Live host drain: PLAYER_SELL_EVERYTHING / REPAIR_NAMED_STRUCTURE /
+/// EXCLUDE_FROM_SCORE_SCREEN / SELECT_SKILLSET.
+/// C++ `sellEverythingUnderTheSun` / `repairStructure` /
+/// `setListInScoreScreen(false)` / `friend_setSkillset`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostScriptPlayerMiscRequest {
+    SellEverything { player: String },
+    RepairNamed { player: String, structure: String },
+    ExcludeFromScore { player: String },
+    SelectSkillset { player: String, skillset: i32 },
+}
+
 
 
 
@@ -353,6 +477,30 @@ thread_local! {
     static HOST_SCRIPT_RADAR_EVENT_REQUESTS: RefCell<Vec<HostScriptRadarEventRequest>> =
         RefCell::new(Vec::new());
     static HOST_SCRIPT_STEALTH_ENABLED_REQUESTS: RefCell<Vec<HostScriptStealthEnabledRequest>> =
+        RefCell::new(Vec::new());
+    static HOST_SCRIPT_CAN_BUILD_REQUESTS: RefCell<Vec<HostScriptCanBuildRequest>> =
+        RefCell::new(Vec::new());
+    static HOST_SCRIPT_BUILDABLE_OVERRIDE_REQUESTS:
+        RefCell<Vec<HostScriptBuildableOverrideRequest>> = RefCell::new(Vec::new());
+    static HOST_SCRIPT_NAMED_UPGRADE_REQUESTS: RefCell<Vec<HostScriptNamedUpgradeRequest>> =
+        RefCell::new(Vec::new());
+    static HOST_SCRIPT_FLASH_REQUESTS: RefCell<Vec<HostScriptFlashRequest>> =
+        RefCell::new(Vec::new());
+    static HOST_SCRIPT_EMOTICON_REQUESTS: RefCell<Vec<HostScriptEmoticonRequest>> =
+        RefCell::new(Vec::new());
+    static HOST_SCRIPT_HELD_REQUESTS: RefCell<Vec<HostScriptHeldRequest>> =
+        RefCell::new(Vec::new());
+    static HOST_SCRIPT_CUSTOM_COLOR_REQUESTS: RefCell<Vec<HostScriptCustomColorRequest>> =
+        RefCell::new(Vec::new());
+    static HOST_SCRIPT_NAMED_ATTITUDE_REQUESTS: RefCell<Vec<HostScriptNamedAttitudeRequest>> =
+        RefCell::new(Vec::new());
+    static HOST_SCRIPT_REPULSOR_REQUESTS: RefCell<Vec<HostScriptRepulsorRequest>> =
+        RefCell::new(Vec::new());
+    static HOST_SCRIPT_STOPPING_DISTANCE_REQUESTS:
+        RefCell<Vec<HostScriptStoppingDistanceRequest>> = RefCell::new(Vec::new());
+    static HOST_SCRIPT_FORCE_SELECT_REQUESTS: RefCell<Vec<HostScriptForceSelectRequest>> =
+        RefCell::new(Vec::new());
+    static HOST_SCRIPT_PLAYER_MISC_REQUESTS: RefCell<Vec<HostScriptPlayerMiscRequest>> =
         RefCell::new(Vec::new());
 
 
@@ -737,6 +885,120 @@ pub fn request_host_script_stealth_enabled(req: HostScriptStealthEnabledRequest)
 pub fn take_host_script_stealth_enabled_requests() -> Vec<HostScriptStealthEnabledRequest> {
     HOST_SCRIPT_STEALTH_ENABLED_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
+
+/// Live host drain: PLAYER_DISABLE/ENABLE unit/base/factory construction.
+pub fn request_host_can_build(req: HostScriptCanBuildRequest) {
+    HOST_SCRIPT_CAN_BUILD_REQUESTS.with(|q| q.borrow_mut().push(req));
+}
+
+pub fn take_host_can_build_requests() -> Vec<HostScriptCanBuildRequest> {
+    HOST_SCRIPT_CAN_BUILD_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: TECHTREE_MODIFY_BUILDABILITY_OBJECT.
+pub fn request_host_buildable_status_override(template: &str, status: i32) {
+    HOST_SCRIPT_BUILDABLE_OVERRIDE_REQUESTS.with(|q| {
+        q.borrow_mut().push(HostScriptBuildableOverrideRequest {
+            template: template.to_string(),
+            status,
+        });
+    });
+}
+
+pub fn take_host_buildable_status_override_requests() -> Vec<HostScriptBuildableOverrideRequest> {
+    HOST_SCRIPT_BUILDABLE_OVERRIDE_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: NAMED_RECEIVE_UPGRADE.
+pub fn request_host_script_named_upgrade(req: HostScriptNamedUpgradeRequest) {
+    HOST_SCRIPT_NAMED_UPGRADE_REQUESTS.with(|q| q.borrow_mut().push(req));
+}
+
+pub fn take_host_script_named_upgrade_requests() -> Vec<HostScriptNamedUpgradeRequest> {
+    HOST_SCRIPT_NAMED_UPGRADE_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: NAMED/TEAM FLASH / FLASH_WHITE.
+pub fn request_host_script_flash(req: HostScriptFlashRequest) {
+    HOST_SCRIPT_FLASH_REQUESTS.with(|q| q.borrow_mut().push(req));
+}
+
+pub fn take_host_script_flash_requests() -> Vec<HostScriptFlashRequest> {
+    HOST_SCRIPT_FLASH_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: NAMED/TEAM SET_EMOTICON.
+pub fn request_host_script_emoticon(req: HostScriptEmoticonRequest) {
+    HOST_SCRIPT_EMOTICON_REQUESTS.with(|q| q.borrow_mut().push(req));
+}
+
+pub fn take_host_script_emoticon_requests() -> Vec<HostScriptEmoticonRequest> {
+    HOST_SCRIPT_EMOTICON_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: NAMED_SET_HELD.
+pub fn request_host_script_held(req: HostScriptHeldRequest) {
+    HOST_SCRIPT_HELD_REQUESTS.with(|q| q.borrow_mut().push(req));
+}
+
+pub fn take_host_script_held_requests() -> Vec<HostScriptHeldRequest> {
+    HOST_SCRIPT_HELD_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: NAMED_CUSTOM_COLOR.
+pub fn request_host_script_custom_color(req: HostScriptCustomColorRequest) {
+    HOST_SCRIPT_CUSTOM_COLOR_REQUESTS.with(|q| q.borrow_mut().push(req));
+}
+
+pub fn take_host_script_custom_color_requests() -> Vec<HostScriptCustomColorRequest> {
+    HOST_SCRIPT_CUSTOM_COLOR_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: NAMED_SET_ATTITUDE.
+pub fn request_host_script_named_attitude(req: HostScriptNamedAttitudeRequest) {
+    HOST_SCRIPT_NAMED_ATTITUDE_REQUESTS.with(|q| q.borrow_mut().push(req));
+}
+
+pub fn take_host_script_named_attitude_requests() -> Vec<HostScriptNamedAttitudeRequest> {
+    HOST_SCRIPT_NAMED_ATTITUDE_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: NAMED/TEAM SET_REPULSOR.
+pub fn request_host_script_repulsor(req: HostScriptRepulsorRequest) {
+    HOST_SCRIPT_REPULSOR_REQUESTS.with(|q| q.borrow_mut().push(req));
+}
+
+pub fn take_host_script_repulsor_requests() -> Vec<HostScriptRepulsorRequest> {
+    HOST_SCRIPT_REPULSOR_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: NAMED/TEAM SET_STOPPING_DISTANCE.
+pub fn request_host_script_stopping_distance(req: HostScriptStoppingDistanceRequest) {
+    HOST_SCRIPT_STOPPING_DISTANCE_REQUESTS.with(|q| q.borrow_mut().push(req));
+}
+
+pub fn take_host_script_stopping_distance_requests() -> Vec<HostScriptStoppingDistanceRequest> {
+    HOST_SCRIPT_STOPPING_DISTANCE_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: OBJECT_FORCE_SELECT.
+pub fn request_host_script_force_select(req: HostScriptForceSelectRequest) {
+    HOST_SCRIPT_FORCE_SELECT_REQUESTS.with(|q| q.borrow_mut().push(req));
+}
+
+pub fn take_host_script_force_select_requests() -> Vec<HostScriptForceSelectRequest> {
+    HOST_SCRIPT_FORCE_SELECT_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: PLAYER_SELL_EVERYTHING / REPAIR_NAMED / SCORE / SKILLSET.
+pub fn request_host_script_player_misc(req: HostScriptPlayerMiscRequest) {
+    HOST_SCRIPT_PLAYER_MISC_REQUESTS.with(|q| q.borrow_mut().push(req));
+}
+
+pub fn take_host_script_player_misc_requests() -> Vec<HostScriptPlayerMiscRequest> {
+    HOST_SCRIPT_PLAYER_MISC_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
 
 
 

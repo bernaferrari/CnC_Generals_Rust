@@ -491,7 +491,7 @@ pub const NAPALM_STRIKE_SPECIAL_ENUM: &str = "SPECIAL_NAPALM_STRIKE";
 /// Retail SuperweaponNapalmStrike name residual.
 pub const NAPALM_STRIKE_SPECIAL_POWER: &str = "SuperweaponNapalmStrike";
 
-/// Wave residual honesty: NapalmStrike maps onto DaisyCutter host blast residual.
+/// Wave residual honesty: NapalmStrike uses own fire table / OCL, not DaisyCutter FAB.
 /// Wave residual honesty: general special-power aliases map onto host residual kinds.
 pub fn honesty_general_special_power_alias_pack_ok() -> bool {
     use crate::command_system::SpecialPowerType as P;
@@ -517,6 +517,7 @@ pub fn honesty_general_special_power_alias_pack_ok() -> bool {
 }
 
 pub fn honesty_napalm_strike_residual_pack_ok() -> bool {
+    use crate::game_logic::combat::DamageType;
     NAPALM_STRIKE_RELOAD_MS == 600_000
         && NAPALM_STRIKE_RELOAD_FRAMES == 18_000
         && NAPALM_STRIKE_REQUIRED_SCIENCE == "SCIENCE_NapalmStrike"
@@ -524,7 +525,27 @@ pub fn honesty_napalm_strike_residual_pack_ok() -> bool {
         && NAPALM_STRIKE_SPECIAL_POWER == "SuperweaponNapalmStrike"
         && HostSuperweaponKind::from_command_power(
             &crate::command_system::SpecialPowerType::NapalmStrike,
-        ) == Some(HostSuperweaponKind::DaisyCutter)
+        ) == Some(HostSuperweaponKind::NapalmStrike)
+        && HostSuperweaponKind::from_command_power(
+            &crate::command_system::SpecialPowerType::NapalmStrike,
+        ) != Some(HostSuperweaponKind::DaisyCutter)
+        && (HostSuperweaponKind::NapalmStrike.max_damage() - NAPALM_STRIKE_PRIMARY_DAMAGE).abs()
+            < 0.1
+        && (HostSuperweaponKind::NapalmStrike.max_damage() - DAISY_CUTTER_PRIMARY_DAMAGE).abs()
+            > 1.0
+        && (HostSuperweaponKind::NapalmStrike.damage_radius() - NAPALM_STRIKE_OUTER_RADIUS).abs()
+            < 0.1
+        && (HostSuperweaponKind::NapalmStrike.falloff_inner() - NAPALM_STRIKE_PRIMARY_RADIUS)
+            .abs()
+            < 0.1
+        && HostSuperweaponKind::NapalmStrike.authored_damage_type() == DamageType::Fire
+        && crate::game_logic::host_ocl_special_power::special_power_template_for_host_kind(
+            "NapalmStrike",
+        ) == Some("SuperweaponNapalmStrike")
+        && crate::game_logic::host_ocl_special_power::peel_for_special_power(
+            "SuperweaponNapalmStrike",
+        )
+        .is_some_and(|p| p.default_ocl == NAPALM_STRIKE_OCL)
 }
 
 pub fn honesty_black_market_and_dirty_nuke_residual_pack_ok() -> bool {

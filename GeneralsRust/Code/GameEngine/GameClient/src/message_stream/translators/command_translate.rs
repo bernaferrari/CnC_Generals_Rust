@@ -3,6 +3,22 @@ use gamelogic::helpers::TheAudio;
 
 impl GameMessageTranslator for CommandTranslator {
     fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
+        // C++ CommandXlat.cpp:2322-2326 — DISABLE_INPUT destroys every message
+        // except OPTIONS, CLEAR_GAME_DATA, and system ticks/CRC/replay camera.
+        let msg_type = msg.get_type();
+        let input_disabled_passthrough = matches!(
+            msg_type,
+            GameMessageType::MetaOptions
+                | GameMessageType::ClearGameData
+                | GameMessageType::DestroySelectedGroup(_)
+                | GameMessageType::LogicCRC(_)
+                | GameMessageType::SetReplayCamera(..)
+                | GameMessageType::FrameTick(_)
+        );
+        if !TheInGameUI::get_input_enabled() && !input_disabled_passthrough {
+            return GameMessageDisposition::DestroyMessage;
+        }
+
         let (new_messages, disposition) = match msg.get_type() {
             GameMessageType::FrameTick(_) => {
                 // Keep the client-side selection cache in sync with the GameLogic selection manager

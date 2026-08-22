@@ -1874,6 +1874,8 @@ impl CnCGameEngine {
         let Some(pres) = self.last_presentation_frame.as_ref() else {
             return;
         };
+        crate::game_logic::refresh_host_fx_object_poses_from_presentation(pres);
+
         let logic_frame = pres.frame.0;
         let host_epoch = self.host_direct_visual_world_epoch;
         // Materialize every borrowed presentation fact before mutating

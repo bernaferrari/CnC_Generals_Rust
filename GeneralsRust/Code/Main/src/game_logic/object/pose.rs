@@ -234,6 +234,29 @@ impl Object {
         self.record_host_production_door();
     }
 
+    /// C++ ProductionUpdate.cpp:762-776: a completed unit whose reserved door
+    /// is already CLOSING (`m_doorClosedFrame != 0`) pops immediately to
+    /// WAITING_OPEN so spawn proceeds this frame.
+    pub fn pop_closing_production_door_to_waiting_open(&mut self, now: u32) -> bool {
+        use crate::game_logic::host_production_buildable_command_residual::producer_door_phase_duration;
+        let door = (self.production_door_active_index as usize).min(3);
+        let phase = self.production_door_spawn_phase();
+        if phase != 4 && phase != 3 {
+            return false;
+        }
+        self.clear_production_door_bits(door);
+        self.set_production_door_phase_bits(door, 2);
+        self.production_door_phases[door] = 2;
+        self.production_door_phase_end_frames[door] =
+            now.saturating_add(producer_door_phase_duration(&self.template_name, 2));
+        self.sync_primary_production_door();
+        self.refresh_model_condition_bits();
+        self.record_host_model_condition();
+        self.record_host_production_door();
+        true
+    }
+
+
     /// C++ ProductionUpdate::setHoldDoorOpen residual.
     ///
     /// When hold becomes true and every door is idle, starts OPENING residual.

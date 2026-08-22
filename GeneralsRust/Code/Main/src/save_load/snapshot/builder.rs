@@ -86,6 +86,8 @@ impl SnapshotBuilder {
                 super::ability_hijack_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
 
                 super::ai_team_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::dock_queue_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+
 
 
                 bytes
@@ -278,6 +280,11 @@ impl SnapshotBuilder {
             &snapshot.lifecycle_tail,
             game_logic,
         )?;
+        super::dock_queue_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+
 
 
 

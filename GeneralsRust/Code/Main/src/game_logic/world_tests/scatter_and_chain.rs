@@ -2894,6 +2894,43 @@ fn scud_launcher_scatter_misses_infantry_residual() {
 }
 
 #[test]
+fn anthrax_scud_structure_uses_poison_armor() {
+    // C++ ActiveBody::attemptDamage + StructureArmor POISON 1%.
+    // Unresistable would deal 100x (200 HP vs 2 HP).
+    use crate::game_logic::host_scud_launcher::SCUD_TOX_PRIMARY_DAMAGE;
+
+    let mut logic = GameLogic::new();
+    ensure_test_structure_template(&mut logic);
+    let bldg = logic
+        .create_object(
+            "TestBuilding",
+            Team::USA,
+            glam::Vec3::new(40.0, 0.0, 0.0),
+        )
+        .expect("bldg");
+    let hp_before = logic.host_object(bldg).unwrap().health.current;
+    let impact = logic
+        .objects
+        .get(&bldg)
+        .map(|o| o.get_position())
+        .unwrap_or(glam::Vec3::new(40.0, 0.0, 0.0));
+    let (hits, _) = logic.apply_scud_area_at(impact, None, Team::GLA, true);
+    let hp_after = logic
+        .host_object(bldg)
+        .map(|o| o.health.current)
+        .unwrap_or(0.0);
+    let dealt = hp_before - hp_after;
+    assert!(hits > 0, "structure must be in scud toxin blast");
+    assert!(
+        (dealt - SCUD_TOX_PRIMARY_DAMAGE * 0.01).abs() < 0.05,
+        "StructureArmor POISON 1% expected ~{}, got {dealt} (Unresistable would be {})",
+        SCUD_TOX_PRIMARY_DAMAGE * 0.01,
+        SCUD_TOX_PRIMARY_DAMAGE
+    );
+}
+
+
+#[test]
 fn overlord_scatter_misses_infantry_residual() {
     use crate::game_logic::host_overlord_gun::{OVERLORD_SCATTER_VS_INFANTRY, OVERLORD_TANK_GUN};
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;

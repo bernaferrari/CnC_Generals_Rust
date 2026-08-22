@@ -378,6 +378,8 @@ impl<'a> CommandExecutor<'a> {
                     | SpecialPowerType::BurtonRemoteCharges
                     | SpecialPowerType::HelixNapalmBomb
                     | SpecialPowerType::HelixNukeBomb
+                    | SpecialPowerType::MissileDefenderLaserGuided
+                    | SpecialPowerType::LaserGuidedHowitzer
             );
             if !consume_at_prep
                 && !consume_after_valid_object
@@ -789,8 +791,10 @@ impl<'a> CommandExecutor<'a> {
                     power_type,
                 )
                 .is_none()
+                && !consume_at_prep
             {
                 // C++ aboutToDoSpecialPower + CompletionDie analog for instant powers.
+                // UpdateModuleStartsAttack prep powers notify at startPreparation.
                 self.game_logic.notify_script_engine_special_power_event(
                     unit_id,
                     power_type,

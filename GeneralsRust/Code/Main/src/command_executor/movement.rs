@@ -254,9 +254,13 @@ impl<'a> CommandExecutor<'a> {
         let goals = self.group_move_destinations(units, destination);
         let mut moved: Vec<ObjectId> = Vec::new();
         for (unit_id, goal) in goals {
+            let goal = self
+                .game_logic
+                .adjust_group_member_goal(unit_id, goal, destination);
             if !self
                 .game_logic
                 .unit_command_move_to_waypoints(unit_id, goal, waypoints)
+
             {
                 return CommandResult::InvalidCommand;
             }
@@ -1027,6 +1031,9 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             };
             let was_moving = obj.is_effectively_moving();
+            let goal = self
+                .game_logic
+                .adjust_group_member_goal(unit_id, goal, destination);
             let _ = self
                 .game_logic
                 .unit_command_set_formation(unit_id, 0, glam::Vec2::ZERO);

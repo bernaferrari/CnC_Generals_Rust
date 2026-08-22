@@ -62,6 +62,8 @@ fn play_multiplayer_load_screen_music(music_name: &str) {
     #[cfg(not(test))]
     {
         if let Some(audio) = TheAudio::get() {
+            // C++ LoadScreen.cpp:1351 AHSV_StopTheMusicFade first.
+            audio.remove_audio_event(game_engine::common::audio::AHSV_STOP_THE_MUSIC_FADE);
             let mut event = AudioEventRts::new(music_name);
             event.set_should_fade(true);
             let _ = audio.add_audio_event(&event);

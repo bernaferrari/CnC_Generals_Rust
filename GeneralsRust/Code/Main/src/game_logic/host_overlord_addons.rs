@@ -39,6 +39,13 @@ pub const UPGRADE_HELIX_PROPAGANDA: &str = "Upgrade_ChinaHelixPropagandaTower";
 /// Retail Overlord / Helix battle bunker upgrade names (existing bunker residual).
 pub const UPGRADE_OVERLORD_BUNKER: &str = "Upgrade_ChinaOverlordBattleBunker";
 pub const UPGRADE_HELIX_BUNKER: &str = "Upgrade_ChinaHelixBattleBunker";
+/// Retail GattlingBuildingGun DamageType residual.
+pub const OVERLORD_GATTLING_GROUND_DAMAGE_TYPE: &str = "Gattling";
+/// Retail GattlingBuildingGunAir DamageType residual.
+pub const OVERLORD_GATTLING_AIR_DAMAGE_TYPE: &str = "SMALL_ARMS";
+/// Retail GattlingBuildingGun DeathType residual.
+pub const OVERLORD_GATTLING_DEATH_TYPE: &str = "NORMAL";
+
 
 /// Retail portable-structure object / OCL residual names (SpeakerTower = propaganda).
 pub const OCL_OVERLORD_GATTLING: &str = "OCL_OverlordGattlingCannon";

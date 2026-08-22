@@ -1971,4 +1971,128 @@ fn evacuate_disabled_with_zero_occupants() {
     assert!(evac_loaded.enabled, "occupied transport evacuate must be live");
 }
 
+#[test]
+fn command_set_strip_keeps_authored_holes() {
+    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
+    let mut logic = GameLogic::new();
+    let mut t = ThingTemplate::new("AmericaInfantryRanger");
+    t.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    logic.templates.insert("AmericaInfantryRanger".into(), t);
+    let id = logic
+        .create_object("AmericaInfantryRanger", Team::USA, glam::Vec3::ZERO)
+        .expect("ranger");
+    if let Some(o) = logic.host_object_mut(id) {
+        o.selected = true;
+    }
+    if let Some(p) = logic.get_player_mut(0) {
+        p.selected_objects = vec![id];
+    }
+    let cmds = PresentationFrame::build_from_logic(&logic, 0).unit_command_buttons();
+    assert!(
+        cmds.len() >= 14,
+        "CommandSet strip must keep 14 WND slots: {:?}",
+        cmds.iter().map(|c| c.command_name.as_str()).collect::<Vec<_>>()
+    );
+    let stop_idx = cmds.iter().position(|c| {
+        c.command_name.eq_ignore_ascii_case("Command_Stop")
+    });
+    assert_eq!(
+        stop_idx,
+        Some(13),
+        "Stop stays in authored slot 14: {:?}",
+        cmds.iter().map(|c| c.command_name.as_str()).collect::<Vec<_>>()
+    );
+    let src = crate::presentation_frame::PRESENTATION_FRAME_SRC;
+    assert!(
+        src.contains("command_set_slots_from_ini")
+            && src.contains("intersect_command_set_slots")
+            && src.contains("leftover_evaluate_named_command")
+            && !src.contains(".take(14)\n            .flatten()"),
+        "live strip must keep holes, intersect multi-select, and use leftover getCommandAvailability"
+    );
+}
+
+#[test]
+fn multi_select_intersects_ok_for_multi_select_slots() {
+    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
+    let mut logic = GameLogic::new();
+    let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
+    ranger
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    logic.templates.insert("AmericaInfantryRanger".into(), ranger);
+    let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");
+    humvee
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(240.0);
+    logic.templates.insert("AmericaVehicleHumvee".into(), humvee);
+    let rid = logic
+        .create_object("AmericaInfantryRanger", Team::USA, glam::Vec3::ZERO)
+        .expect("ranger");
+    let hid = logic
+        .create_object(
+            "AmericaVehicleHumvee",
+            Team::USA,
+            glam::Vec3::new(20.0, 0.0, 0.0),
+        )
+        .expect("humvee");
+    if let Some(o) = logic.host_object_mut(rid) {
+        o.selected = true;
+        o.set_command_set_override(Some("AmericaInfantryRangerCommandSet".into()));
+    }
+    if let Some(o) = logic.host_object_mut(hid) {
+        o.selected = true;
+        o.set_command_set_override(Some("AmericaVehicleHumveeCommandSet".into()));
+    }
+    if let Some(p) = logic.get_player_mut(0) {
+        p.selected_objects = vec![rid, hid];
+    }
+    let cmds = PresentationFrame::build_from_logic(&logic, 0).unit_command_buttons();
+    let names: Vec<_> = cmds
+        .iter()
+        .map(|c| c.command_name.to_ascii_lowercase())
+        .collect();
+    assert!(
+        !names.iter().any(|n| n.contains("capture") || n.contains("construct")),
+        "multi-select must drop non-OK_FOR_MULTI_SELECT: {:?}",
+        names
+    );
+    assert!(
+        names.iter().any(|n| n.contains("stop") || n.contains("guard") || n.contains("attackmove")),
+        "multi-select must keep common Guard/Stop/AttackMove: {:?}",
+        names
+    );
+}
+
+#[test]
+fn leftover_get_command_availability_hides_script_unsellable() {
+    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
+    let mut logic = GameLogic::new();
+    let mut tb = ThingTemplate::new("AmericaBarracks");
+    tb.set_health(1000.0);
+    tb.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable);
+    logic.templates.insert("AmericaBarracks".into(), tb);
+    let id = logic
+        .create_object("AmericaBarracks", Team::USA, glam::Vec3::ZERO)
+        .expect("b");
+    if let Some(o) = logic.host_object_mut(id) {
+        o.selected = true;
+        o.set_script_unsellable(true);
+    }
+    if let Some(p) = logic.get_player_mut(0) {
+        p.selected_objects = vec![id];
+    }
+    let cmds = PresentationFrame::build_from_logic(&logic, 0).unit_command_buttons();
+    assert!(
+        !cmds.iter().any(|c| c.command_name.eq_ignore_ascii_case("Command_Sell")),
+        "SCRIPT_UNSELLABLE must hide Sell via leftover getCommandAvailability: {:?}",
+        cmds
+    );
+}
+
 

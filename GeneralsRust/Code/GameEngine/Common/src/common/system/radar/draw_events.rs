@@ -30,9 +30,11 @@ impl RadarSystem {
         }
     }
 
-    /// C++ `W3DRadar::drawEvents` bookkeeping used by HUD / W3D adapter.
+    /// C++ `W3DRadar::drawEvents` — chirp only while the radar is on screen.
     pub fn draw_events(&mut self) -> Vec<RadarEvent> {
-        self.play_unplayed_event_sounds();
+        if self.is_radar_shown() {
+            self.play_unplayed_event_sounds();
+        }
         self.drawable_events().into_iter().cloned().collect()
     }
 }

@@ -36,6 +36,7 @@ impl OCLSpecialPowerData {
         let mut base = SpecialPowerModuleData::new(name, SpecialPowerKind::OCL);
         base.flags = SpecialPowerFlags::REQUIRES_TARGETING | SpecialPowerFlags::AFFECTS_ENEMY;
         let name_str = base.name.as_str();
+        let mut ocl_name = ocl_name;
         let mut upgrade_ocl = Vec::new();
         if name_str.eq_ignore_ascii_case("SuperweaponClusterMines")
             || name_str.eq_ignore_ascii_case("Nuke_SuperweaponNukeDrop")
@@ -58,6 +59,10 @@ impl OCLSpecialPowerData {
             base.recharge_time = 600.0; // 600000 ms
             base.radius = 100.0;
             base.flags |= SpecialPowerFlags::SUPERWEAPON;
+            // C++ OCLSpecialPower findOCL own payload (not DaisyCutter FAB).
+            if ocl_name.is_empty() {
+                ocl_name = "SUPERWEAPON_NapalmStrike".into();
+            }
         } else if name_str.eq_ignore_ascii_case("SuperweaponScudStorm") {
             base.recharge_time = 300.0; // 300000 ms
             base.radius = 200.0;
@@ -399,4 +404,14 @@ mod tests {
             assert!((distance - 10.0).abs() < 0.1);
         }
     }
+
+    #[test]
+    fn test_napalm_strike_own_ocl_not_daisy_cutter() {
+        let data = OCLSpecialPowerData::new("SuperweaponNapalmStrike".into(), "".into());
+        assert_eq!(data.ocl_name.as_str(), "SUPERWEAPON_NapalmStrike");
+        assert!((data.base.radius - 100.0).abs() < 0.1);
+        assert!((data.base.recharge_time - 600.0).abs() < 0.1);
+        assert_ne!(data.ocl_name.as_str(), "SUPERWEAPON_DaisyCutter");
+    }
+
 }

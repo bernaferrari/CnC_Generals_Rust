@@ -3056,6 +3056,25 @@ impl GameLogic {
         if let Some(obj) = self.objects.get_mut(&id) {
             obj.unstamp_partition_value_threat();
         }
+        // C++ BridgeTowerBehavior::onDie kills the span; BridgeBehavior::onDie
+        // kills towers. Keep the husk so rubble stays repairable.
+        let is_bridge_member = self.objects.get(&id).is_some_and(|obj| {
+            obj.is_kind_of(KindOf::Bridge)
+                || obj.is_kind_of(KindOf::BridgeTower)
+                || crate::game_logic::host_bridge_behavior::is_bridge_or_tower_template(
+                    &obj.template_name,
+                )
+        });
+        if is_bridge_member {
+            if let Some(obj) = self.objects.get_mut(&id) {
+                if !obj.status.keep_as_rubble {
+                    crate::game_logic::host_bridge_behavior::record_death_link(id);
+                    obj.convert_bridge_to_rubble_husk();
+                }
+            }
+            return;
+        }
+
         // C++ AIDockState::onExit → AIDockMachine::halt → cancelDock on death.
         self.cancel_dock_reservation(id);
 

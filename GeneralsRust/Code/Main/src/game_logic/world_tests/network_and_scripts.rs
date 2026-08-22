@@ -2186,6 +2186,76 @@ fn lotus_capture_prep_stamps_firing_a() {
 }
 
 #[test]
+fn hacker_disable_prep_stamps_firing_a() {
+    use crate::game_logic::host_enum_table_residual::firing_a_model_bit;
+    use crate::game_logic::{HackerDisableBuildingMetadata, HackerDisableChannelPhase, Player};
+    let mut game_logic = GameLogic::new();
+    game_logic.add_player(Player::new(0, Team::USA, "USA", false));
+    game_logic.add_player(Player::new(1, Team::GLA, "GLA", false));
+    ensure_test_structure_template(&mut game_logic);
+    let mut hacker_tpl = ThingTemplate::new("TypedHackerDisableFiringA");
+    hacker_tpl
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    hacker_tpl.hacker_disable_building = Some(HackerDisableBuildingMetadata {
+        special_power_template: "SpecialAbilityHackerDisableBuilding".to_string(),
+        update_module_starts_attack: true,
+        starts_paused: false,
+        scripted_special_power_only: false,
+        reload_time_frames: 0,
+        required_science: None,
+        shared_n_sync: false,
+        start_ability_range: 150.0,
+        ability_abort_range: 10_000_000.0,
+        approach_requires_los: false,
+        unpack_time_ms: 0,
+        preparation_time_ms: 3_000,
+        persistent_prep_time_ms: 333,
+        effect_duration_ms: 2_000,
+        pack_time_ms: 0,
+        pack_unpack_variation_factor: 0.0,
+        persistence_requires_recharge: false,
+    });
+    game_logic
+        .templates
+        .insert("TypedHackerDisableFiringA".into(), hacker_tpl);
+    let hacker_id = game_logic
+        .create_object_for_player("TypedHackerDisableFiringA", 0, Vec3::new(5.0, 0.0, 0.0))
+        .expect("hacker");
+    let building_id = game_logic
+        .create_object_for_player("TestBuilding", 1, Vec3::ZERO)
+        .expect("building");
+    game_logic.queue_command(crate::command_system::GameCommand {
+        command_type: crate::command_system::CommandType::HackerDisableBuilding {
+            target_id: building_id,
+        },
+        player_id: 0,
+        command_id: 1,
+        timestamp: std::time::SystemTime::now(),
+        selected_units: vec![hacker_id],
+        modifier_keys: crate::command_system::ModifierKeys::default(),
+    });
+    game_logic.process_commands();
+    game_logic.update_ai(&[hacker_id, building_id], 1.0 / 30.0);
+    let phase = game_logic
+        .host_object(hacker_id)
+        .and_then(|o| o.hacker_disable_channel)
+        .map(|ch| ch.phase);
+    assert_eq!(phase, Some(HackerDisableChannelPhase::Preparing));
+    let bits = game_logic
+        .host_object(hacker_id)
+        .expect("hacker")
+        .model_condition_bits;
+    assert_ne!(
+        bits & (1u128 << firing_a_model_bit()),
+        0,
+        "Hacker disable prep must stamp FIRING_A"
+    );
+}
+
+
+#[test]
 fn human_capture_rejects_shrouded_target() {
     let mut game_logic = GameLogic::new();
     ensure_test_infantry_template(&mut game_logic);
@@ -5132,3 +5202,246 @@ fn live_host_from_named_and_skirmish_conditions_use_inject() {
     assert_eq!(completed, Some(()));
     assert!(OBJECT_REGISTRY.is_empty());
 }
+
+fn drain_script_act_b_queues() {
+    let _ = gamelogic::scripting::take_host_script_named_attitude_requests();
+    let _ = gamelogic::scripting::take_host_script_stopping_distance_requests();
+    let _ = gamelogic::scripting::take_host_script_force_select_requests();
+    let _ = gamelogic::scripting::take_host_script_player_misc_requests();
+}
+
+#[test]
+fn live_named_set_attitude_drains_to_host_ai() {
+    use crate::game_logic::host_strategy_center::HostAiAttitude;
+    use gamelogic::object::registry::OBJECT_REGISTRY;
+    use gamelogic::scripting::{
+        request_host_script_named_attitude, HostScriptNamedAttitudeRequest,
+    };
+
+    OBJECT_REGISTRY.clear();
+    drain_script_act_b_queues();
+
+    let mut logic = GameLogic::new();
+    let mut t = ThingTemplate::new("Hero");
+    t.set_health(100.0);
+    logic.templates.insert("Hero".into(), t);
+    let id = logic
+        .create_object("Hero", Team::USA, Vec3::new(8.0, 0.0, 4.0))
+        .expect("hero");
+    if let Some(o) = logic.host_object_mut(id) {
+        o.name = "Hero".into();
+        o.set_ai_attitude_i8(0);
+    }
+
+    request_host_script_named_attitude(HostScriptNamedAttitudeRequest {
+        unit: "Hero".into(),
+        mood: 2,
+    });
+    logic.scripts_loaded = true;
+    logic.evaluate_and_execute_scripts(0.0);
+
+    assert_eq!(
+        logic.host_object(id).expect("hero").ai_attitude(),
+        HostAiAttitude::Aggressive,
+        "NAMED_SET_ATTITUDE must call host setAttitude (Aggressive=2)"
+    );
+    assert!(OBJECT_REGISTRY.is_empty());
+}
+
+#[test]
+fn live_set_stopping_distance_drains_and_arrives_at_scripted_band() {
+    use gamelogic::object::registry::OBJECT_REGISTRY;
+    use gamelogic::scripting::{
+        request_host_script_stopping_distance, HostScriptStoppingDistanceRequest,
+    };
+
+    OBJECT_REGISTRY.clear();
+    drain_script_act_b_queues();
+
+    let mut logic = GameLogic::new();
+    let mut t = ThingTemplate::new("Scout");
+    t.set_health(100.0);
+    logic.templates.insert("Scout".into(), t);
+    let id = logic
+        .create_object("Scout", Team::USA, Vec3::ZERO)
+        .expect("scout");
+    if let Some(o) = logic.host_object_mut(id) {
+        o.name = "Scout".into();
+        o.team_instance_name = "TeamA".into();
+        o.request_path(Vec3::new(10.0, 0.0, 0.0), None);
+    }
+
+    request_host_script_stopping_distance(HostScriptStoppingDistanceRequest::Team {
+        team: "TeamA".into(),
+        distance: 25.0,
+    });
+    logic.scripts_loaded = true;
+    logic.evaluate_and_execute_scripts(0.0);
+
+    {
+        let obj = logic.host_object(id).expect("scout");
+        assert_eq!(
+            obj.close_enough_dist,
+            Some(25.0),
+            "SET_STOPPING_DISTANCE must stamp Locomotor::setCloseEnoughDist"
+        );
+    }
+
+    if let Some(o) = logic.host_object_mut(id) {
+        o.update_movement(1.0 / 30.0);
+        assert!(
+            o.movement.target_position.is_none(),
+            "scripted closeEnoughDist 25 must stop a 10wu goal"
+        );
+    }
+
+    request_host_script_stopping_distance(HostScriptStoppingDistanceRequest::Team {
+        team: "TeamA".into(),
+        distance: 0.25,
+    });
+    logic.evaluate_and_execute_scripts(0.0);
+    assert_eq!(
+        logic.host_object(id).expect("scout").close_enough_dist,
+        Some(25.0),
+        "C++ ignores stoppingDistance < 0.5"
+    );
+    assert!(OBJECT_REGISTRY.is_empty());
+}
+
+#[test]
+fn live_object_force_select_selects_lowest_id_and_centers() {
+    use gamelogic::object::registry::OBJECT_REGISTRY;
+    use gamelogic::scripting::{
+        request_host_script_force_select, HostScriptForceSelectRequest,
+    };
+
+    OBJECT_REGISTRY.clear();
+    drain_script_act_b_queues();
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(1, Team::USA, "PlyrAmerica", true));
+    let mut t = ThingTemplate::new("AmericaInfantryRanger");
+    t.set_health(100.0);
+    t.add_kind_of(KindOf::Selectable);
+    logic.templates.insert("AmericaInfantryRanger".into(), t);
+
+    let older = logic
+        .create_object(
+            "AmericaInfantryRanger",
+            Team::USA,
+            Vec3::new(40.0, 0.0, 10.0),
+        )
+        .expect("older");
+    let newer = logic
+        .create_object(
+            "AmericaInfantryRanger",
+            Team::USA,
+            Vec3::new(80.0, 0.0, 10.0),
+        )
+        .expect("newer");
+    assert!(older.0 < newer.0);
+    if let Some(o) = logic.host_object_mut(older) {
+        o.team_instance_name = "teamAmerica".into();
+    }
+    if let Some(o) = logic.host_object_mut(newer) {
+        o.team_instance_name = "teamAmerica".into();
+    }
+
+    request_host_script_force_select(HostScriptForceSelectRequest {
+        team: "teamAmerica".into(),
+        object_type: "AmericaInfantryRanger".into(),
+        center_in_view: true,
+        audio: "SelectRanger".into(),
+    });
+    logic.scripts_loaded = true;
+    logic.evaluate_and_execute_scripts(0.0);
+
+    let player = logic.players.get(&1).expect("local");
+    assert_eq!(
+        player.selected_objects,
+        vec![older],
+        "OBJECT_FORCE_SELECT picks the lowest object ID"
+    );
+    let focus = logic.peek_pending_camera_focus().expect("centerInView");
+    assert!((focus.x - 40.0).abs() < 0.1);
+    assert!((focus.z - 10.0).abs() < 0.1);
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == "SelectRanger"),
+        "C++ AudioEventRTS(audioToPlay)"
+    );
+    assert!(OBJECT_REGISTRY.is_empty());
+}
+
+#[test]
+fn live_player_repair_named_structure_queues_ai_repair() {
+    use crate::command_system::CommandType;
+    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+    use crate::ai::AIDifficulty;
+    use gamelogic::object::registry::OBJECT_REGISTRY;
+    use gamelogic::scripting::{
+        request_host_script_player_misc, HostScriptPlayerMiscRequest,
+    };
+
+    OBJECT_REGISTRY.clear();
+    drain_script_act_b_queues();
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(1, Team::USA, "Player_America", false));
+    logic
+        .ai_manager
+        .add_ai_player(1, Team::USA, AIDifficulty::Medium);
+
+    let mut bunker_t = ThingTemplate::new("AmericaBunker");
+    bunker_t
+        .add_kind_of(KindOf::Structure)
+        .set_health(1000.0);
+    logic.templates.insert("AmericaBunker".into(), bunker_t);
+    let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
+    dozer_t
+        .add_kind_of(KindOf::Dozer)
+        .add_kind_of(KindOf::Vehicle)
+        .set_health(200.0);
+    logic.templates.insert("AmericaVehicleDozer".into(), dozer_t);
+
+    let bunker = logic
+        .create_object("AmericaBunker", Team::USA, Vec3::new(60.0, 0.0, 0.0))
+        .expect("bunker");
+    if let Some(o) = logic.host_object_mut(bunker) {
+        o.name = "Bunker".into();
+        o.health.current = 200.0;
+        o.body_damage_state = HostBodyDamageType::Damaged;
+        o.owner_player_id = Some(1);
+    }
+    let _dozer = logic
+        .create_object("AmericaVehicleDozer", Team::USA, Vec3::ZERO)
+        .expect("dozer");
+    if let Some(o) = logic.host_object_mut(_dozer) {
+        o.owner_player_id = Some(1);
+    }
+
+    request_host_script_player_misc(HostScriptPlayerMiscRequest::RepairNamed {
+        player: "Player_America".into(),
+        structure: "Bunker".into(),
+    });
+    logic.scripts_loaded = true;
+    logic.evaluate_and_execute_scripts(0.0);
+
+    {
+        let mut mgr = std::mem::take(&mut logic.ai_manager);
+        mgr.update(&mut logic, 0.0);
+        logic.ai_manager = mgr;
+    }
+
+    assert!(
+        logic.command_queue.iter().any(|c| matches!(
+            c.command_type,
+            CommandType::Repair { target_id } if target_id == bunker
+        )),
+        "PLAYER_REPAIR_NAMED_STRUCTURE must enqueue AIPlayer::repairStructure"
+    );
+    assert!(OBJECT_REGISTRY.is_empty());
+}
+

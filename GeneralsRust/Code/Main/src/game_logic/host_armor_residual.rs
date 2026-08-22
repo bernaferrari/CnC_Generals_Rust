@@ -1100,6 +1100,33 @@ pub fn map_store_damage_type(
     crate::game_logic::combat::DamageType::from_store(dt)
 }
 
+/// Map leftover Weapon.ini DamageType name (`EXPLOSION`, `POISON`, …) to host combat type.
+/// Unknown names fail closed to C++ ordinal 0 (`DAMAGE_EXPLOSION`), not UNRESISTABLE.
+pub fn host_damage_type_from_residual_name(
+    name: &str,
+) -> crate::game_logic::combat::DamageType {
+    use crate::game_logic::host_enum_table_residual::damage_type_bit_name_index;
+    if let Some(idx) = damage_type_bit_name_index(name) {
+        return crate::game_logic::combat::DamageType::from_store(
+            gamelogic::damage::DamageType::from_u32(idx as u32),
+        );
+    }
+    crate::game_logic::combat::DamageType::Explosive
+}
+
+/// Map leftover Weapon.ini DeathType name (`EXPLODED`, `POISONED`, …) to host death type.
+pub fn host_death_type_from_residual_name(
+    name: &str,
+) -> crate::game_logic::host_usa_pilot::HostDeathType {
+    use crate::game_logic::host_enum_table_residual::death_type_name_index;
+    if let Some(idx) = death_type_name_index(name) {
+        return crate::game_logic::host_usa_pilot::HostDeathType::from_store(
+            gamelogic::damage::DeathType::from_u32(idx as u32),
+        );
+    }
+    crate::game_logic::host_usa_pilot::HostDeathType::Normal
+}
+
 /// Look up Weapon.ini DamageType residual by weapon template name.
 pub fn host_damage_type_for_weapon_name(name: &str) -> crate::game_logic::combat::DamageType {
     use gamelogic::weapon::with_weapon_store;

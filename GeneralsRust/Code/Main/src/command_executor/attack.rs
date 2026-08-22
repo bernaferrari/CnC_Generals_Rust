@@ -343,6 +343,7 @@ impl<'a> CommandExecutor<'a> {
         // Wave 232: attack-ground last-writes via unit_command_attack_ground_ex.
         let mut any = false;
         let mut extra_passengers: Vec<ObjectId> = Vec::new();
+        let mut hive_ids: Vec<ObjectId> = Vec::new();
 
         for &unit_id in units {
             let Some(unit) = self.game_logic.host_object(unit_id) else {
@@ -364,6 +365,11 @@ impl<'a> CommandExecutor<'a> {
                         extra_passengers.push(p);
                     }
                 }
+            }
+            // C++ SpawnBehavior && !doSlavesHaveFreedom(): residual hive
+            // slaves are locked (SlavesHaveFreeWill = No).
+            if unit.hive_slave_count > 0 || unit.hive_slaves.iter().any(|s| s.alive) {
+                hive_ids.push(unit_id);
             }
         }
 
@@ -387,6 +393,20 @@ impl<'a> CommandExecutor<'a> {
                     _ => continue,
                 },
             };
+
+            // C++ AIGroup::groupAttackPosition: orderSlavesToAttackPosition
+            // before aiAttackPosition (hq-ykxeg).
+            if hive_ids.contains(&unit_id) {
+                if let Some(site) = self.game_logic.host_object_mut(unit_id) {
+                    let n = crate::game_logic::host_base_defense::order_hive_slaves_to_attack_position(
+                        &mut site.hive_slaves,
+                        attack_pos,
+                    );
+                    if n > 0 {
+                        any = true;
+                    }
+                }
+            }
 
             if self
                 .game_logic

@@ -96,6 +96,15 @@ pub const SCORPION_MISSILE_RELOAD_FRAMES: u32 = 450;
 pub const SCORPION_MISSILE_PROJECTILE_SPEED: f32 = 600.0;
 /// AP Rockets WeaponBonus DAMAGE 125%.
 pub const SCORPION_AP_DAMAGE_MULT: f32 = 1.25;
+/// Retail ScorpionTankGun DamageType residual.
+pub const SCORPION_GUN_DAMAGE_TYPE: &str = "EXPLOSION";
+/// Retail ScorpionTankGun DeathType residual.
+pub const SCORPION_GUN_DEATH_TYPE: &str = "NORMAL";
+/// Retail ScorpionMissileWeapon DamageType residual.
+pub const SCORPION_MISSILE_DAMAGE_TYPE: &str = "EXPLOSION";
+/// Retail ScorpionMissileWeapon DeathType residual.
+pub const SCORPION_MISSILE_DEATH_TYPE: &str = "EXPLODED";
+
 
 /// Residual fire audio (gun).
 pub const SCORPION_GUN_FIRE_AUDIO: &str = "ScorpionTankWeapon";

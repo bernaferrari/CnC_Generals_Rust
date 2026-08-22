@@ -98,6 +98,26 @@ pub fn tick_live_dock_approach_ex(
         queue.on_enter_reached(docker_id);
         queue.clear_wait_started(docker_id);
         DockApproachTick::ClearToAct
+    } else if let Some(index) = queue.index_of(docker_id) {
+        // C++ AIDockAdvancePositionState: scoot into a freed closer slot.
+        if queue.is_clear_to_advance(docker_id, index) {
+            if let Some(new_index) = queue.advance_approach_position(docker_id, index) {
+                queue.clear_wait_started(docker_id);
+                let goal = queue.approach_world_position(
+                    new_index as usize,
+                    docker_pos,
+                    dock_pos,
+                    dock_major_radius,
+                );
+                return DockApproachTick::PathTo(goal);
+            }
+        }
+        if queue.wait_for_clearance_timed_out(docker_id, current_frame) {
+            queue.cancel_docker(docker_id);
+            DockApproachTick::TimedOut
+        } else {
+            DockApproachTick::Blocked
+        }
     } else if queue.wait_for_clearance_timed_out(docker_id, current_frame) {
         queue.cancel_docker(docker_id);
         DockApproachTick::TimedOut
@@ -127,6 +147,27 @@ pub fn cancel_all_live_dock_reservations_for(docker_id: ObjectId) {
 pub fn reset_live_dock_queues() {
     if let Ok(mut map) = live_dock_queues().lock() {
         map.clear();
+    }
+}
+
+/// C++ `DockUpdate::xfer` approach-slot vectors for snapshot persist.
+pub fn snapshot_live_dock_queues() -> Vec<(ObjectId, HostDockApproachQueue)> {
+    let Ok(map) = live_dock_queues().lock() else {
+        return Vec::new();
+    };
+    let mut entries: Vec<(ObjectId, HostDockApproachQueue)> =
+        map.iter().map(|(id, queue)| (*id, queue.clone())).collect();
+    entries.sort_by_key(|(id, _)| id.0);
+    entries
+}
+
+/// Replace process-global queues so a load cannot leak the previous session.
+pub fn restore_live_dock_queues(entries: Vec<(ObjectId, HostDockApproachQueue)>) {
+    reset_live_dock_queues();
+    if let Ok(mut map) = live_dock_queues().lock() {
+        for (dock_id, queue) in entries {
+            map.insert(dock_id, queue);
+        }
     }
 }
 

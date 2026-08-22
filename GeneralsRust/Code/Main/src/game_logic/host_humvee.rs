@@ -138,6 +138,11 @@ pub const HUMVEE_GROUND_TOW_CLIP_SIZE: u32 = 1;
 pub const HUMVEE_GROUND_TOW_SCATTER_VS_INFANTRY: f32 = 10.0;
 /// Retail ground TOW WeaponSpeed residual.
 pub const HUMVEE_GROUND_TOW_WEAPON_SPEED: f32 = 600.0;
+/// Retail HumveeMissileWeapon DamageType residual.
+pub const HUMVEE_TOW_DAMAGE_TYPE: &str = "EXPLOSION";
+/// Retail HumveeMissileWeapon DeathType residual.
+pub const HUMVEE_TOW_DEATH_TYPE: &str = "EXPLODED";
+
 
 /// Retail HumveeMissileWeaponAir PrimaryDamage residual.
 pub const HUMVEE_AIR_TOW_DAMAGE: f32 = 50.0;

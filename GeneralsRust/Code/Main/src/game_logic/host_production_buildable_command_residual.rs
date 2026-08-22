@@ -828,6 +828,10 @@ pub fn unit_maxed_out_for_player_residual(
 }
 
 /// C++ BuildAssistant::canMakeUnit residual status mapper.
+///
+/// Order matches BuildAssistant.cpp:1286-1320: factory disabled, maxed-out
+/// (before prereq because isPossibleToMakeUnit now also calls
+/// canBuildMoreOfType), then prereq / queue / parking / money.
 pub fn can_make_type_from_checks_residual(
     has_prereq: bool,
     has_money: bool,
@@ -836,20 +840,20 @@ pub fn can_make_type_from_checks_residual(
     parking_full: bool,
     maxed_out: bool,
 ) -> u32 {
-    if !has_prereq {
-        return CANMAKE_NO_PREREQ;
-    }
     if factory_disabled {
         return CANMAKE_FACTORY_IS_DISABLED;
+    }
+    if maxed_out {
+        return CANMAKE_MAXED_OUT_FOR_PLAYER;
+    }
+    if !has_prereq {
+        return CANMAKE_NO_PREREQ;
     }
     if queue_full {
         return CANMAKE_QUEUE_FULL;
     }
     if parking_full {
         return CANMAKE_PARKING_PLACES_FULL;
-    }
-    if maxed_out {
-        return CANMAKE_MAXED_OUT_FOR_PLAYER;
     }
     if !has_money {
         return CANMAKE_NO_MONEY;
@@ -1216,6 +1220,10 @@ pub fn honesty_buildable_residual_pack_wave99() -> bool {
         && !unit_maxed_out_for_player_residual(0, Some(1))
         && !unit_maxed_out_for_player_residual(5, None)
         && can_make_type_from_checks_residual(true, true, false, false, false, true)
+            == CANMAKE_MAXED_OUT_FOR_PLAYER
+        && can_make_type_from_checks_residual(false, true, true, false, false, false)
+            == CANMAKE_FACTORY_IS_DISABLED
+        && can_make_type_from_checks_residual(false, true, false, false, false, true)
             == CANMAKE_MAXED_OUT_FOR_PLAYER
         && residual_name_index(CAN_MAKE_TYPE_NAME_TABLE_RESIDUAL, "CANMAKE_NO_PREREQ") == Some(1)
         && residual_name_index(CAN_MAKE_TYPE_NAME_TABLE_RESIDUAL, "CANMAKE_NO_MONEY") == Some(2)

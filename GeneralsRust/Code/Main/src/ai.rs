@@ -3594,6 +3594,11 @@ impl AIPlayer {
         self.skillset_selector = skillset;
     }
 
+    /// C++ `AIPlayer::m_skillsetSelector` after `selectSkillset`.
+    pub fn selected_skillset(&self) -> i32 {
+        self.skillset_selector
+    }
+
     fn try_purchase_skillset_science(&mut self, game_logic: &mut GameLogic) {
         let points = game_logic
             .get_player(self.player_id)

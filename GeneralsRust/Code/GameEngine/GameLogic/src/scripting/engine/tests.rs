@@ -1182,6 +1182,48 @@ fn breeze_and_track_getters_return_owned_snapshots() {
 }
 
 #[test]
+fn script_engine_xfer_tail_round_trips_freeze_timers_and_named_units() {
+    let _lock = crate::test_sync::lock();
+    get_named_object_tracker().clear().unwrap();
+    let engine = ScriptEngine::new().unwrap();
+    engine.do_freeze_time();
+    engine.start_end_game_timer();
+    engine.set_current_track_name("Combat".into());
+    engine.set_choose_victim_always_uses_normal(true);
+    engine.set_objects_should_receive_difficulty_bonus(false);
+    engine.set_object_attack_priority_set(42, "Heroes");
+    get_named_object_tracker()
+        .register_named_object("NamedHero".to_string(), 42)
+        .unwrap();
+
+    let tail = engine.snapshot_xfer_tail();
+    assert!(tail.freeze_by_script);
+    assert_eq!(tail.end_game_timer, 120);
+    assert_eq!(tail.current_track_name, "Combat");
+    assert!(tail.choose_victim_always_uses_normal);
+    assert!(!tail.objects_should_receive_difficulty_bonus);
+    assert_eq!(tail.object_attack_priority_sets[0], (42, "Heroes".into()));
+    assert!(tail.named_objects.iter().any(|(name, id)| name == "NamedHero" && *id == 42));
+
+    let restored = ScriptEngine::new().unwrap();
+    restored.restore_xfer_tail(&tail);
+    assert!(restored.is_time_frozen_script());
+    assert!(restored.is_game_ending());
+    assert_eq!(restored.get_current_track_name(), "Combat");
+    assert!(restored.get_choose_victim_always_uses_normal());
+    assert!(!restored.get_objects_should_receive_difficulty_bonus());
+    assert_eq!(
+        restored.get_object_attack_priority_set(42).as_deref(),
+        Some("Heroes")
+    );
+    assert_eq!(
+        get_named_object_tracker().get_object_id("NamedHero").unwrap(),
+        Some(42)
+    );
+}
+
+
+#[test]
 fn empty_object_registry_still_runs_true_side_scripts() {
     // C++ ScriptEngine.cpp:5554-5571 walks every side even with an empty
     // object table. TRUE/FLAG scripts must still fire on the live host

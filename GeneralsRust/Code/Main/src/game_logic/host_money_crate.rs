@@ -9,9 +9,10 @@
 //!   credit money and destroy the crate (host API).
 //! - BuildingPickup residual: STRUCTURE colliders may pick up when
 //!   `building_pickup` is set (Supply Drop Zone path).
-//! - ForbiddenKindOf residual: PROJECTILE (and parachuting pickers) rejected.
+//! - RequiredKindOf / ForbiddenKindOf: C++ `isKindOfMulti` (INI masks). Residual
+//!   default ForbiddenKindOf is PROJECTILE when the crate object has no INI field.
+//! - AIUpdateInterface: pickers without AI are rejected unless BuildingPickup.
 //! - Above-terrain residual: unit path blocked while crate is airborne
-//!   (BuildingPickup may still collect — C++ validBuildingAttempt exception).
 //! - ExecuteAnimation residual: `MoneyPickUp` Anim2D presentation descriptor
 //!   (display 4.0s, ZRise 15, fades Yes) — presentation state, not GPU.
 //! - Floating cash text residual: salvage `doMoney` only (player color +10z).
@@ -29,8 +30,7 @@
 //! - ExecuteAnimation MoneyPickUp residual constants (time/ZRise/fades)
 //!
 //! Fail-closed honesty:
-//! - Not full CrateCollide kindof multi / PickupScience matrix
-//! - Not full Anim2DCollection GPU / InGameUI world-anim draw path
+//! - Not full PickupScience / Anim2DCollection GPU / InGameUI world-anim draw path
 //! - Not full Unicode GameText "GUI:AddCash" localization / EVA voice events
 //! - Not network crate replication (network deferred)
 
@@ -198,32 +198,53 @@ pub fn crate_object_forbid_owner(template_name: &str) -> bool {
     crate_collide_module_bool(template_name, "ForbidOwnerPlayer")
 }
 
-fn crate_collide_module_bool(template_name: &str, key: &str) -> bool {
-    let Some(manager) = crate::assets::get_asset_manager() else {
-        return false;
-    };
-    let Ok(guard) = manager.lock() else {
-        return false;
-    };
-    let Some(definition) = guard.get_object_definition(template_name) else {
-        return false;
-    };
-    definition.behavior_modules.iter().any(|module| {
-        module
+/// C++ `RequiredKindOf` mask from the crate object's CrateCollide module.
+pub fn crate_object_required_kindof(template_name: &str) -> Option<u128> {
+    crate_collide_module_kindof(template_name, "RequiredKindOf")
+}
+
+/// C++ `ForbiddenKindOf` mask from the crate object's CrateCollide module.
+pub fn crate_object_forbidden_kindof(template_name: &str) -> Option<u128> {
+    crate_collide_module_kindof(template_name, "ForbiddenKindOf")
+}
+
+fn crate_collide_module_attr(template_name: &str, key: &str) -> Option<String> {
+    let manager = crate::assets::get_asset_manager()?;
+    let guard = manager.lock().ok()?;
+    let definition = guard.get_object_definition(template_name)?;
+    definition.behavior_modules.iter().find_map(|module| {
+        if !module
             .class_name
             .to_ascii_lowercase()
             .contains("cratecollide")
-            && module
-                .attributes
-                .iter()
-                .find(|(attr, _)| attr.eq_ignore_ascii_case(key))
-                .is_some_and(|(_, value)| {
-                    matches!(
-                        value.trim().to_ascii_lowercase().as_str(),
-                        "yes" | "true" | "1" | "on"
-                    )
-                })
+        {
+            return None;
+        }
+        module
+            .attributes
+            .iter()
+            .find(|(attr, _)| attr.eq_ignore_ascii_case(key))
+            .map(|(_, value)| value.clone())
     })
+}
+
+fn crate_collide_module_bool(template_name: &str, key: &str) -> bool {
+    crate_collide_module_attr(template_name, key).is_some_and(|value| {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "yes" | "true" | "1" | "on"
+        )
+    })
+}
+
+fn crate_collide_module_kindof(template_name: &str, key: &str) -> Option<u128> {
+    let raw = crate_collide_module_attr(template_name, key)?;
+    game_engine::common::system::kind_of::KindOfMask::parse_ini(
+        game_engine::common::system::kind_of::KindOfMask::empty(),
+        &raw,
+    )
+    .ok()
+    .map(|mask| mask.bits())
 }
 
 
@@ -275,10 +296,20 @@ pub struct HostMoneyCrateEntry {
     /// C++ CrateCollide `ForbidOwnerPlayer` — dead guy's team cannot scoop.
     #[serde(default)]
     pub forbid_owner_player: bool,
+    /// C++ `m_kindof` — picker must have every bit (empty = any).
+    #[serde(default)]
+    pub required_kind_of: u128,
+    /// C++ `m_kindofnot` — picker must have none of these bits.
+    #[serde(default = "default_forbidden_kind_of")]
+    pub forbidden_kind_of: u128,
 }
 
 fn default_vet_levels() -> u8 {
     1
+}
+
+fn default_forbidden_kind_of() -> u128 {
+    game_engine::common::system::kind_of::KindOfMask::PROJECTILE.bits()
 }
 
 /// Result of a residual crate pickup.
@@ -435,6 +466,8 @@ impl HostMoneyCrateRegistry {
                 is_shroud_crate: true,
                 human_only: false,
                 forbid_owner_player: false,
+                required_kind_of: 0,
+                forbidden_kind_of: default_forbidden_kind_of(),
             },
         );
     }
@@ -460,6 +493,8 @@ impl HostMoneyCrateRegistry {
                 is_shroud_crate: false,
                 human_only: false,
                 forbid_owner_player: false,
+                required_kind_of: 0,
+                forbidden_kind_of: default_forbidden_kind_of(),
             },
         );
     }
@@ -486,6 +521,8 @@ impl HostMoneyCrateRegistry {
                 is_shroud_crate: false,
                 human_only: false,
                 forbid_owner_player: false,
+                required_kind_of: 0,
+                forbidden_kind_of: default_forbidden_kind_of(),
             },
         );
     }
@@ -513,6 +550,8 @@ impl HostMoneyCrateRegistry {
                 is_shroud_crate: false,
                 human_only: false,
                 forbid_owner_player: false,
+                required_kind_of: 0,
+                forbidden_kind_of: default_forbidden_kind_of(),
             },
         );
     }
@@ -539,6 +578,8 @@ impl HostMoneyCrateRegistry {
                 is_shroud_crate: false,
                 human_only: false,
                 forbid_owner_player: false,
+                required_kind_of: 0,
+                forbidden_kind_of: default_forbidden_kind_of(),
             },
         );
     }
@@ -570,15 +611,31 @@ impl HostMoneyCrateRegistry {
                 is_shroud_crate: false,
                 human_only: false,
                 forbid_owner_player: false,
+                required_kind_of: 0,
+                forbidden_kind_of: default_forbidden_kind_of(),
             },
         );
     }
 
-    /// Stamp CrateCollide HumanOnly / ForbidOwnerPlayer from the crate object INI.
+    /// Stamp CrateCollide HumanOnly / ForbidOwnerPlayer / KindOf from INI.
     pub fn apply_crate_collide_gates(&mut self, object_id: ObjectId, template_name: &str) {
         if let Some(entry) = self.crates.get_mut(&object_id) {
             entry.human_only |= crate_object_human_only(template_name);
             entry.forbid_owner_player |= crate_object_forbid_owner(template_name);
+            if let Some(required) = crate_object_required_kindof(template_name) {
+                entry.required_kind_of = required;
+            }
+            if let Some(forbidden) = crate_object_forbidden_kindof(template_name) {
+                entry.forbidden_kind_of = forbidden;
+            }
+        }
+    }
+
+    /// Stamp RequiredKindOf / ForbiddenKindOf on a registered crate (tests + INI override).
+    pub fn set_kindof_gates(&mut self, object_id: ObjectId, required: u128, forbidden: u128) {
+        if let Some(entry) = self.crates.get_mut(&object_id) {
+            entry.required_kind_of = required;
+            entry.forbidden_kind_of = forbidden;
         }
     }
 
@@ -662,8 +719,9 @@ impl HostMoneyCrateRegistry {
 
     /// Whether residual unit collider may pick up (CrateCollide isValidToExecute subset).
     ///
-    /// ForbiddenKindOf residual: PROJECTILE rejected. C++ also rejects KINDOF_PARACHUTE
-    /// pickers (`isKindOf(KINDOF_PARACHUTE)`). Above-terrain crates are not unit-pickable.
+    /// C++ requires `getAIUpdateInterface()` unless BuildingPickup. ForbiddenKindOf
+    /// is applied via [`Self::picker_matches_kindof`]. C++ also rejects
+    /// `isKindOf(KINDOF_PARACHUTE)`. Above-terrain crates are not unit-pickable.
     pub fn is_legal_unit_picker(
         is_alive: bool,
         is_neutral: bool,
@@ -671,13 +729,26 @@ impl HostMoneyCrateRegistry {
         is_projectile: bool,
         is_parachute_picker: bool,
         crate_above_terrain: bool,
+        has_ai: bool,
     ) -> bool {
         is_alive
             && !is_neutral
             && !is_structure
+            && has_ai
             && !is_projectile
             && !is_parachute_picker
             && !crate_above_terrain
+    }
+
+    /// C++ `getAIUpdateInterface() != NULL`. Mines, demo traps, projectiles,
+    /// crates, and structures have no AIUpdate (buildings use BuildingPickup).
+    pub fn picker_has_ai_update(
+        is_structure: bool,
+        is_mine: bool,
+        is_projectile: bool,
+        is_crate: bool,
+    ) -> bool {
+        !is_structure && !is_mine && !is_projectile && !is_crate
     }
 
     /// Whether residual structure collider may pick up (BuildingPickup).
@@ -691,6 +762,15 @@ impl HostMoneyCrateRegistry {
         building_pickup: bool,
     ) -> bool {
         building_pickup && is_alive && !is_neutral && is_structure && is_constructed
+    }
+
+    /// C++ `Object::isKindOfMulti(m_kindof, m_kindofnot)`.
+    pub fn picker_matches_kindof(picker_mask: u128, required: u128, forbidden: u128) -> bool {
+        crate::game_logic::host_radar_stealth_vision_residual::detector_accepts_kindof_residual(
+            picker_mask,
+            required,
+            forbidden,
+        )
     }
 
     /// ForbiddenKindOf residual gate (PROJECTILE / parachute picker).
@@ -1020,28 +1100,45 @@ mod tests {
     fn legal_picker_gates() {
         // Alive non-neutral unit on ground.
         assert!(HostMoneyCrateRegistry::is_legal_unit_picker(
-            true, false, false, false, false, false
+            true, false, false, false, false, false, true
         ));
         // Neutral rejected.
         assert!(!HostMoneyCrateRegistry::is_legal_unit_picker(
-            true, true, false, false, false, false
+            true, true, false, false, false, false, true
         ));
         // Structure is not a unit picker.
         assert!(!HostMoneyCrateRegistry::is_legal_unit_picker(
-            true, false, true, false, false, false
+            true, false, true, false, false, false, true
         ));
         // ForbiddenKindOf PROJECTILE residual.
         assert!(!HostMoneyCrateRegistry::is_legal_unit_picker(
-            true, false, false, true, false, false
+            true, false, false, true, false, false, true
         ));
         // Parachute picker residual.
         assert!(!HostMoneyCrateRegistry::is_legal_unit_picker(
-            true, false, false, false, true, false
+            true, false, false, false, true, false, true
         ));
         // Above-terrain residual blocks unit path.
         assert!(!HostMoneyCrateRegistry::is_legal_unit_picker(
-            true, false, false, false, false, true
+            true, false, false, false, false, true, true
         ));
+        // C++ getAIUpdateInterface()==NULL (mines / no-AI pickers).
+        assert!(!HostMoneyCrateRegistry::is_legal_unit_picker(
+            true, false, false, false, false, false, false
+        ));
+        assert!(!HostMoneyCrateRegistry::picker_has_ai_update(
+            false, true, false, false
+        ));
+        let projectile = default_forbidden_kind_of();
+        assert!(HostMoneyCrateRegistry::picker_matches_kindof(0, 0, projectile));
+        assert!(!HostMoneyCrateRegistry::picker_matches_kindof(
+            projectile, 0, projectile
+        ));
+        let vehicle = game_engine::common::system::kind_of::KindOfMask::VEHICLE.bits();
+        assert!(HostMoneyCrateRegistry::picker_matches_kindof(
+            vehicle, vehicle, 0
+        ));
+        assert!(!HostMoneyCrateRegistry::picker_matches_kindof(0, vehicle, 0));
         assert!(HostMoneyCrateRegistry::is_legal_building_picker(
             true, false, true, true, true
         ));

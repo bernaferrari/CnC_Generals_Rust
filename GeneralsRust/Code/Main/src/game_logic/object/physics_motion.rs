@@ -535,6 +535,22 @@ impl Object {
         self.sync_shock_up_from_transform();
     }
 
+    /// C++ PhysicsBehavior::update CenterOfMassOffset * sin(remainingAngle).
+    fn center_of_mass_pitch_scale(&self) -> f32 {
+        if self.center_of_mass_offset == 0.0 {
+            return 1.0;
+        }
+        let fwd = self.get_transform_matrix().x_axis;
+        let xz = (fwd.x * fwd.x + fwd.z * fwd.z).sqrt();
+        let pitch_angle = fwd.y.atan2(xz);
+        let remaining = if self.center_of_mass_offset > 0.0 {
+            std::f32::consts::FRAC_PI_2 - pitch_angle
+        } else {
+            -std::f32::consts::FRAC_PI_2 + pitch_angle
+        };
+        remaining.sin()
+    }
+
     /// C++ HAS_PITCHROLLYAW incremental Rotate_X/Y/Z remapped to host Y-up.
     /// C++ X=forward, Y=right, Z=up → host X=forward, Z=right, Y=up.
     pub fn apply_physics_ypr(&mut self, yaw_rate: f32, pitch_rate: f32, roll_rate: f32) {
@@ -768,19 +784,8 @@ impl Object {
         if self.shock_stun_frames == 0 {
             let pryf = self.pitch_roll_yaw_factor;
             let yaw_rate = self.shock_yaw_rate * pryf;
-            let mut pitch_rate = self.shock_pitch_rate * pryf;
+            let pitch_rate = self.shock_pitch_rate * pryf * self.center_of_mass_pitch_scale();
             let roll_rate = self.shock_roll_rate * pryf;
-            if self.center_of_mass_offset != 0.0 {
-                let fwd = self.get_transform_matrix().x_axis;
-                let xz = (fwd.x * fwd.x + fwd.z * fwd.z).sqrt();
-                let pitch_angle = fwd.y.atan2(xz);
-                let remaining = if self.center_of_mass_offset > 0.0 {
-                    std::f32::consts::FRAC_PI_2 - pitch_angle
-                } else {
-                    -std::f32::consts::FRAC_PI_2 + pitch_angle
-                };
-                pitch_rate *= remaining.sin();
-            }
             self.apply_physics_ypr(yaw_rate, pitch_rate, roll_rate);
         }
 
@@ -972,16 +977,16 @@ impl Object {
         if self.status.destroyed {
             return false;
         }
-        self.health.current = 0.0;
-        self.status.destroyed = true;
-        self.status.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Normal;
-        crate::game_logic::host_death_type_log::record(self.id, self.status.death_type.ordinal());
-        self.set_ai_state(AIState::Idle);
-        self.target = None;
-        self.shock_stun_frames = 0;
-        self.set_status_disabled_freefall(false);
-        self.refresh_model_condition_bits();
-        true
+        // C++ PhysicsBehavior::testStunnedUnitForDestruction → Object::kill().
+        let killed = self.kill();
+        if killed {
+            self.set_ai_state(AIState::Idle);
+            self.target = None;
+            self.shock_stun_frames = 0;
+            self.set_status_disabled_freefall(false);
+            self.refresh_model_condition_bits();
+        }
+        killed
     }
 
     /// Tick shock stun residual (once per logic frame).
@@ -1024,10 +1029,12 @@ impl Object {
         }
         // Integrate YPR while stunned (tumble settle). Motion step skips YPR
         // when stunned so this is the sole live HAS_PITCHROLLYAW pass.
+        // C++ PhysicsUpdate.cpp:715-727 COM sine applies every YPR frame,
+        // including stunned (shocked units keep pitch/roll rates).
         let pryf = self.pitch_roll_yaw_factor;
         self.apply_physics_ypr(
             self.shock_yaw_rate * pryf,
-            self.shock_pitch_rate * pryf,
+            self.shock_pitch_rate * pryf * self.center_of_mass_pitch_scale(),
             self.shock_roll_rate * pryf,
         );
         self.shock_yaw_rate *= 0.92;

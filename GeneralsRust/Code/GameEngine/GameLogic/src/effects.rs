@@ -172,10 +172,8 @@ impl ObjectCreationList {
         let owner = crate::helpers::TheGameLogic::find_object_by_id(owner_id);
         let owner_guard = owner.as_ref().and_then(|h| h.read().ok());
         let primary_obj = owner_guard.as_deref();
-        if primary_obj.is_none() {
-            return Ok(());
-        }
-
+        // Live host IDs are not leftover-registry objects. C++ still creates
+        // at `position` when the owner pointer is only used for team context.
         let primary = *position;
         let secondary = *position;
         let _ = self.create_with_owner_flag(&ctx, primary_obj, &primary, &secondary, true, 0);
@@ -196,10 +194,6 @@ impl ObjectCreationList {
         let owner = crate::helpers::TheGameLogic::find_object_by_id(owner_id);
         let owner_guard = owner.as_ref().and_then(|h| h.read().ok());
         let primary_obj = owner_guard.as_deref();
-        if primary_obj.is_none() {
-            return Ok(());
-        }
-
         let primary = *position;
         let secondary = *position;
         let _ = self.create_with_angle(&ctx, primary_obj, &primary, &secondary, angle, 0);

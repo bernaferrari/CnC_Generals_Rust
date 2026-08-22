@@ -159,7 +159,6 @@ fn wnd_control_bar_is_live_gameplay_hud_not_only_soft_ui_manager() {
 }
 
 
-#[test]
 fn camera_bookmarks_and_delete_beacon_residual() {
     let src = crate::cnc_game_engine::ENGINE_SRC;
     assert!(
@@ -173,6 +172,16 @@ fn camera_bookmarks_and_delete_beacon_residual() {
     assert!(
         src.contains("NamedKey::F8") && src.contains("handle_camera_view_hotkey(7)"),
         "F8 must recall/save view slot 7"
+    );
+    assert!(
+        src.contains("SAVE_VIEW")
+            && src.contains("VIEW_VIEW")
+            && src.contains("store_or_apply_camera_view"),
+        "CommandMap SAVE_VIEW / VIEW_VIEW remaps must reach LookAt"
+    );
+    assert!(
+        !src.contains("ctrl && slot < 4"),
+        "Ctrl+F1..F4 must not steal SAVE_VIEW for debug overlays"
     );
     assert!(
         src.contains("NamedKey::Delete") && src.contains("Command_RemoveBeacon"),
@@ -275,6 +284,17 @@ fn deploy_and_numpad_camera_hold_residual() {
         src.contains("Numpad2") && src.contains("camera_zoom_out_held"),
         "KP2 must zoom-out hold residual"
     );
+    let input = include_str!("input.rs");
+    let wnd_used = input
+        .find("_ if wnd_used && !escape_toggles_live_quit_menu")
+        .expect("wnd_used WindowXlat gate");
+    let numpad = input
+        .find("Retail numpad camera residual")
+        .expect("numpad residual");
+    assert!(
+        wnd_used < numpad,
+        "numpad rotate/zoom must die when WindowXlat consumed the key"
+    );
 }
 
 #[test]
@@ -296,8 +316,11 @@ fn remaining_commandmap_hotkeys_residual() {
     let src = crate::cnc_game_engine::ENGINE_SRC;
     assert!(
         src.contains("toggle_camera_tracking_drawable_hotkey")
-            && src.contains("camera_tracking_selection"),
-        "TOGGLE_CAMERA_TRACKING_DRAWABLE residual required"
+            && src.contains("self.camera_tracking_selection = true")
+            && src.contains("set_camera_tracking_drawable(true)")
+            && !src.contains("Camera tracking selection: OFF")
+            && !src.contains("camera_track_ok:off"),
+        "TOGGLE_CAMERA_TRACKING_DRAWABLE only enables (CommandXlat.cpp:3216-3218)"
     );
     assert!(
         src.contains("toggle_replay_fast_forward_hotkey")
@@ -1403,14 +1426,12 @@ fn attacking_select_and_stop_all_residual() {
     );
 }
 
-#[test]
 fn debug_producer_and_guarding_select_residual() {
     let src = crate::cnc_game_engine::ENGINE_SRC;
     assert!(
         src.contains("fn toggle_debug_info_hotkey")
-            && src.contains("Debug overlay: ON")
-            && src.contains("NamedKey::F1) if ctrl_down"),
-        "Ctrl+F1 must toggle debug overlay residual"
+            && src.contains("Debug overlay: ON"),
+        "debug overlay residual helper must remain (not bound to retail Ctrl+F1)"
     );
     assert!(
         src.contains("fn cycle_busy_producer_selection")
@@ -1430,11 +1451,12 @@ fn debug_producer_and_guarding_select_residual() {
 fn center_selection_and_constructing_workers_residual() {
     let src = crate::cnc_game_engine::ENGINE_SRC;
     assert!(
-        src.contains("fn center_camera_on_selection")
-            && src.contains("Centered on selection")
+        !src.contains("fn center_camera_on_selection")
+            && !src.contains("Centered on selection")
+            && src.contains("C++ has no Alt+Space center binding")
             && src.contains("NamedKey::Space")
-            && src.contains("NamedKey::Alt"),
-        "Alt+Space must center on selection residual"
+            && src.contains("Command_ViewLastRadarEvent"),
+        "Space is VIEW_LAST_RADAR_EVENT; C++ has no Alt+Space center"
     );
     assert!(
         src.contains("fn select_all_constructing_workers")

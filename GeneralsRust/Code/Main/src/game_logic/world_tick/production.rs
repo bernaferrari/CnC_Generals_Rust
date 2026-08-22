@@ -693,6 +693,7 @@ impl GameLogic {
                 continue;
             }
             let mut start_door_cycle = false;
+            let mut pop_closing_door = false;
             let door_spawn_phase = obj.production_door_spawn_phase();
             let exit_metadata = obj.thing.template.production_exit_metadata;
             let producer_template = obj.template_name.clone();
@@ -809,19 +810,38 @@ impl GameLogic {
                     if head_ready
                         && head_is_unit
                         && head_exit_available
-                        && (airfield_holds_parking && parking_free == 0
-                            || !crate::game_logic::host_production_buildable_command_residual::production_door_allows_spawn(
+                        && airfield_holds_parking
+                        && parking_free == 0
+                    {
+                        None
+                    } else if head_ready
+                        && head_is_unit
+                        && head_exit_available
+                        && !crate::game_logic::host_production_buildable_command_residual::production_door_allows_spawn(
                             doors,
                             door_spawn_phase,
-                        ))
+                        )
                     {
-                        if !(airfield_holds_parking && parking_free == 0) {
+                        if door_spawn_phase == 4 || door_spawn_phase == 3 {
+                            // C++ ProductionUpdate.cpp:762-776: CLOSING pops to
+                            // WAITING_OPEN so the next unit exits this frame.
+                            pop_closing_door = true;
+                            building.try_complete_production_at_power_with_exit_metadata(
+                                pf,
+                                exit_metadata.as_ref(),
+                                if airfield_holds_parking {
+                                    Some(parking_free.min(u32::MAX as usize) as u32)
+                                } else {
+                                    None
+                                },
+                            )
+                        } else {
                             // C++ ProductionUpdate.cpp:746-754: start OPENING only
                             // when the reserved door is fully closed. Already-
                             // OPENING must not rewrite DoorOpeningTime.
                             start_door_cycle = door_spawn_phase == 0;
+                            None
                         }
-                        None
                     } else {
                         building.try_complete_production_at_power_with_exit_metadata(
                             pf,
@@ -965,6 +985,9 @@ impl GameLogic {
                         }
                     }
                 }
+            }
+            if pop_closing_door {
+                obj.pop_closing_production_door_to_waiting_open(self.frame);
             }
             if start_door_cycle {
                 obj.start_production_door_cycle(self.frame);
@@ -1158,6 +1181,10 @@ impl GameLogic {
         owner_player_id: Option<u32>,
         spawn_pos: Vec3,
     ) -> Option<ObjectId> {
+        // C++ ThingFactory::newObject (ThingFactory.cpp:286-292) picks a
+        // BuildVariations chassis before create.
+        let template_owned = resolve_production_build_variation(template);
+        let template = template_owned.as_str();
         // Wave 615: host production spawn residual.
         // Wave 736: under sole-tick, bind host ObjectId to GW pre-spawned entity
         // (entity-first).
@@ -1916,5 +1943,32 @@ impl GameLogic {
                 }
             }
         }
+    }
+}
+
+/// C++ ThingFactory.cpp:286-292 GameLogicRandomValue over BuildVariations.
+fn resolve_production_build_variation(template: &str) -> String {
+    let Some(guard) = game_engine::common::thing::thing_factory::try_get_thing_factory() else {
+        return template.to_string();
+    };
+    let Some(factory) = guard.as_ref() else {
+        return template.to_string();
+    };
+    let Some(tmpl) = factory.find_template(template, false) else {
+        return template.to_string();
+    };
+    let variations = tmpl.get_build_variations();
+    if variations.is_empty() {
+        return template.to_string();
+    }
+    let max = variations.len().saturating_sub(1) as i32;
+    let index = gamelogic::helpers::get_game_logic_random_value(0, max) as usize;
+    let Some(name) = variations.get(index) else {
+        return template.to_string();
+    };
+    if factory.find_template(name.as_str(), false).is_some() {
+        name.as_str().to_string()
+    } else {
+        template.to_string()
     }
 }

@@ -1130,13 +1130,13 @@ impl AssetManager {
         dirs
     }
 
-    /// Start playing random C&C background music
+    /// Start shell/menu music through TheAudio authored event (C++ Music.ini Shell).
     pub async fn start_background_music(&mut self) -> Result<()> {
         if !self.initialized {
             return Err(anyhow!("AssetManager not initialized"));
         }
 
-        info!("Starting C&C background music");
+        info!("Starting C&C background music via TheAudio");
         self.audio_manager
             .play_random_cnc_music(&mut self.archive_system)
             .await

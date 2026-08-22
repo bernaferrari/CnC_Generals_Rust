@@ -77,6 +77,15 @@ impl ScriptActionDispatcher {
             team_name,
             distance
         );
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_stopping_distance(
+                super::HostScriptStoppingDistanceRequest::Team {
+                    team: team_name,
+                    distance,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
 
         if distance < 0.5 {
             return Ok(ScriptActionResult::Success);

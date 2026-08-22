@@ -136,6 +136,25 @@ impl Object {
         )
     }
 
+    /// Residual unit splash: leftover Weapon.ini DamageType/DeathType through Armor.ini.
+    /// C++ ActiveBody::attemptDamage — not DAMAGE_UNRESISTABLE.
+    pub fn take_damage_from_immediate_residual(
+        &mut self,
+        damage: f32,
+        source: Option<ObjectId>,
+        damage_type_name: &str,
+        death_type_name: &str,
+    ) -> bool {
+        let damage_type =
+            crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                damage_type_name,
+            );
+        let death_type = crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+            death_type_name,
+        );
+        self.take_damage_from_immediate_typed_death(damage, source, damage_type, death_type)
+    }
+
     /// Apply damage with host combat DamageType for Armor.ini residual coefficients.
     pub fn take_damage_from_typed(
         &mut self,
@@ -231,8 +250,15 @@ impl Object {
         // (overwrites prior attacker). doDamageFX always runs (848).
         if matches!(damage_type, crate::game_logic::combat::DamageType::Healing) {
             let _ = death_type;
-            if self.status.destroyed || !self.is_alive() {
+            let is_bridge = self.is_host_bridge_member();
+            if self.status.destroyed && !self.status.keep_as_rubble && !is_bridge {
                 return false;
+            }
+            if !self.is_alive() && !is_bridge {
+                return false;
+            }
+            if is_bridge {
+                self.revive_from_bridge_rubble();
             }
             self.clear_poisoned_on_healing();
             let amount = crate::game_logic::host_armor_residual::apply_residual_armor(
@@ -244,6 +270,18 @@ impl Object {
             if amount > 0.0 {
                 let now = crate::game_logic::host_historic_bonus::logic_frame();
                 self.last_healing_timestamp = Some(now);
+                if is_bridge {
+                    let max_health = self.health.maximum.max(self.max_health).max(1.0);
+                    crate::game_logic::host_bridge_behavior::record_mirror(
+                        self.id,
+                        amount.max(0.0),
+                        max_health,
+                        source,
+                        damage_type.to_store() as u32,
+                        death_type.ordinal() as u32,
+                        crate::game_logic::host_bridge_behavior::HostBridgeMirrorKind::Heal,
+                    );
+                }
             }
             let fx_type = fx_override.unwrap_or(damage_type);
             let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
@@ -521,7 +559,7 @@ impl Object {
             .mine_data
             .as_ref()
             .is_some_and(|md| md.defers_lethal_body_destroy());
-        let destroyed = if !self.health.is_alive() && !defer_mine_death {
+        let mut destroyed = if !self.health.is_alive() && !defer_mine_death {
             if !self.status.destroyed {
                 self.status.destroyed = true;
                 self.status.death_type = death_type;
@@ -613,6 +651,22 @@ impl Object {
         }
 
         self.refresh_model_condition_bits();
+        if self.is_host_bridge_member() {
+            crate::game_logic::host_bridge_behavior::record_mirror(
+                self.id,
+                actual_damage,
+                max_health,
+                source,
+                damage_type.to_store() as u32,
+                death_type.ordinal() as u32,
+                crate::game_logic::host_bridge_behavior::HostBridgeMirrorKind::Damage,
+            );
+            if destroyed {
+                self.convert_bridge_to_rubble_husk();
+                crate::game_logic::host_bridge_behavior::record_death_link(self.id);
+                destroyed = false;
+            }
+        }
         let voice_fear_id = self.id;
         let voice_fear_pos = self.get_position();
         let voice_fear_player = self.owner_player_id;
@@ -632,6 +686,32 @@ impl Object {
             false
         } else {
             destroyed
+        }
+    }
+
+    fn is_host_bridge_member(&self) -> bool {
+        self.is_kind_of(KindOf::Bridge)
+            || self.is_kind_of(KindOf::BridgeTower)
+            || crate::game_logic::host_bridge_behavior::is_bridge_or_tower_template(
+                &self.template_name,
+            )
+    }
+
+    /// C++ KeepObjectDie-style husk so rubble spans/towers stay repairable.
+    pub fn convert_bridge_to_rubble_husk(&mut self) {
+        self.status.destroyed = false;
+        self.status.keep_as_rubble = true;
+        self.status.effectively_dead = true;
+        self.health.current = 0.0;
+        self.refresh_model_condition_bits();
+    }
+
+    /// C++ rubble heal: leaving BODY_RUBBLE clears effectively-dead.
+    pub fn revive_from_bridge_rubble(&mut self) {
+        if self.status.keep_as_rubble || self.status.effectively_dead {
+            self.status.keep_as_rubble = false;
+            self.status.effectively_dead = false;
+            self.status.destroyed = false;
         }
     }
 

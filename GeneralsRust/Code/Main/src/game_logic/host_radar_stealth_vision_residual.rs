@@ -781,6 +781,11 @@ pub fn live_kind_of_cpp_mask(kind: crate::game_logic::KindOf) -> u128 {
         KindOf::AutoRallypoint => M::AUTO_RALLYPOINT.bits(),
         KindOf::MobNexus => M::MOB_NEXUS.bits(),
         KindOf::NoCollide => M::NO_COLLIDE.bits(),
+        KindOf::ForceAttackable => M::FORCEATTACKABLE.bits(),
+        KindOf::Shrubbery => M::SHRUBBERY.bits(),
+        KindOf::ClearedByBuild => M::CLEARED_BY_BUILD.bits(),
+        KindOf::Inert => M::INERT.bits(),
+
         KindOf::Resource | KindOf::Worker | KindOf::Harvestable => 0,
 
     }

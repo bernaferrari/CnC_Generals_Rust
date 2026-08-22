@@ -834,4 +834,81 @@ mod tests {
         assert!(gamelogic::helpers::TheVictoryConditions::is_local_allied_victory());
         vc.reset();
     }
+
+
+    fn leftover_named(id: u32) -> std::sync::Arc<std::sync::RwLock<gamelogic::player::Player>> {
+        let mut leftover = gamelogic::player::Player::new(id as gamelogic::player::PlayerIndex);
+        leftover.set_display_name(format!("player{id}"));
+        std::sync::Arc::new(std::sync::RwLock::new(leftover))
+    }
+
+    #[test]
+    fn evaluate_marks_leftover_player_list_defeated() {
+        let _lock = gamelogic::test_sync::lock();
+        {
+            let mut list = gamelogic::player::ThePlayerList()
+                .write()
+                .unwrap_or_else(|e| e.into_inner());
+            list.clear();
+            list.add_player(leftover_named(0));
+            list.add_player(leftover_named(1));
+            list.set_local_player_index(0);
+        }
+
+        let mut vc = VictoryConditions::new();
+        let mut players = HashMap::new();
+        players.insert(0, player(0, Team::USA, 1));
+        players.insert(1, player(1, Team::GLA, 2));
+        let mut objects = HashMap::new();
+        let (a, oa) = obj(1, 0, Team::USA, &[KindOf::Infantry]);
+        objects.insert(a, oa);
+
+        let outcome = vc.evaluate(&players, &objects, 8, GameMode::Skirmish);
+        assert!(
+            matches!(outcome, Some(VictoryCondition::Winner(0))),
+            "local should win when the other army is gone, got {outcome:?}"
+        );
+        let leftover_defeated = leftover_player_arc_for_host(1, "P1", true)
+            .and_then(|arc| arc.read().ok().map(|g| g.is_defeated()))
+            .unwrap_or(false);
+        assert!(
+            leftover_defeated,
+            "C++ VictoryConditions::update writes Player::setDefeated"
+        );
+        assert!(gamelogic::helpers::TheVictoryConditions::is_local_allied_victory());
+        assert!(!gamelogic::helpers::TheVictoryConditions::is_local_allied_defeat());
+
+        vc.reset();
+        if let Ok(mut list) = gamelogic::player::ThePlayerList().write() {
+            list.clear();
+        }
+    }
+
+    #[test]
+    fn allied_defeat_requires_last_alliance_standing() {
+        let mut vc = VictoryConditions::new();
+        let mut players = HashMap::new();
+        players.insert(0, player(0, Team::USA, 1));
+        players.insert(1, player(1, Team::USA, 1));
+        players.insert(2, player(2, Team::China, 2));
+        players.insert(3, player(3, Team::GLA, 3));
+        let mut objects = HashMap::new();
+        let (c, oc) = obj(3, 2, Team::China, &[KindOf::Infantry]);
+        let (d, od) = obj(4, 3, Team::GLA, &[KindOf::Infantry]);
+        objects.insert(c, oc);
+        objects.insert(d, od);
+
+        let outcome = vc.evaluate(&players, &objects, 9, GameMode::Skirmish);
+        assert!(
+            outcome.is_none(),
+            "two enemy alliances still fighting must not end the match, got {outcome:?}"
+        );
+        assert!(
+            !vc.is_local_allied_defeat(&players),
+            "C++ isLocalAlliedDefeat is false while multiple alliances remain"
+        );
+        assert!(!gamelogic::helpers::TheVictoryConditions::is_local_allied_defeat());
+        vc.reset();
+    }
 }
+

@@ -256,6 +256,13 @@ fn write_kind_of_variant(kind_of: KindOf) -> u8 {
         KindOf::MobNexus => 75,
         // Append-only: KINDOF_NO_COLLIDE partition skip.
         KindOf::NoCollide => 76,
+        // Append-only: KINDOF_FORCEATTACKABLE force-attack / hover pick.
+        KindOf::ForceAttackable => 77,
+        // Append-only: construction-clear KindOfs (FixW2314Build).
+        KindOf::Shrubbery => 78,
+        KindOf::ClearedByBuild => 79,
+        KindOf::Inert => 80,
+
 
     }
 }
@@ -338,6 +345,12 @@ fn read_kind_of_variant(variant: u8) -> SaveLoadResult<KindOf> {
         74 => Ok(KindOf::WalkOnTopOfWall),
         75 => Ok(KindOf::MobNexus),
         76 => Ok(KindOf::NoCollide),
+        77 => Ok(KindOf::ForceAttackable),
+        78 => Ok(KindOf::Shrubbery),
+        79 => Ok(KindOf::ClearedByBuild),
+        80 => Ok(KindOf::Inert),
+
+
 
         _ => Err(SaveLoadError::Corrupted(format!(
             "Invalid KindOf variant: {variant}"

@@ -288,7 +288,9 @@ impl PlacementPreview {
         self.display_name = display_name.to_string();
         self.cost = cost;
         self.is_legal = false;
-        self.facing_radians = 0.0;
+        // C++ InGameUI.cpp:3032 placeBuildAvailable uses getPlacementViewAngle().
+        self.facing_radians = leftover_placement_view_angle(template_name);
+        self.footprint_half_extents = leftover_footprint_half_extents(template_name);
     }
 
     pub fn cancel(&mut self) {
@@ -893,6 +895,68 @@ pub fn resolve_command_set_name(
         .or_else(|| find_command_set_for_object(building_name))
 }
 
+/// CommandSet.ini construct/build objects — never invented faction cameos.
+#[derive(Debug, Clone)]
+pub struct CommandSetBuildableCameo {
+    pub template_name: String,
+    pub display_name: String,
+    pub cost: i32,
+    pub hotkey: Option<KeyCode>,
+    pub command: String,
+}
+
+/// Resolve OBJECT_BUILD / UNIT_BUILD / DOZER_CONSTRUCT objects from CommandSet slots.
+pub fn command_set_buildable_cameos(command_set_name: &str) -> Vec<CommandSetBuildableCameo> {
+    use game_engine::common::ini::ini_command_set::{
+        get_command_set_manager, initialize_command_set_manager,
+    };
+
+    if command_set_name.trim().is_empty() {
+        return Vec::new();
+    }
+    initialize_command_set_manager();
+    let Some(csm) = get_command_set_manager() else {
+        return Vec::new();
+    };
+    let Some(cs) = csm.find_command_set_resolved(command_set_name).or_else(|| {
+        csm.iter_resolved_sets()
+            .into_iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case(command_set_name))
+            .map(|(_, set)| set)
+    }) else {
+        return Vec::new();
+    };
+    let Some(cb) = get_control_bar() else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for slot in cs.buttons.iter().take(14) {
+        let Some(btn_name) = slot else {
+            continue;
+        };
+        let Some(btn) = cb.find_command_button_resolved(btn_name) else {
+            continue;
+        };
+        if btn.object.is_empty() {
+            continue;
+        }
+        let cmd = btn.command.to_ascii_uppercase();
+        if !(cmd.contains("BUILD") || cmd.contains("CONSTRUCT") || cmd.contains("UNIT")) {
+            continue;
+        }
+        let (cost, _, display_name) = resolve_build_info(&btn.object, btn.purchase_cost);
+        out.push(CommandSetBuildableCameo {
+            template_name: btn.object.clone(),
+            display_name,
+            cost,
+            hotkey: hotkey_from_text_label(&btn.text_label)
+                .or_else(|| hotkey_for_command_name(btn_name)),
+            command: btn.command.clone(),
+        });
+    }
+    out
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -1217,4 +1281,27 @@ mod tests {
         assert_eq!(ConstructionTab::NavalUnits.label(), "Naval");
         assert_eq!(ConstructionTab::SuperWeapons.label(), "SuperWpn");
     }
+}
+
+fn leftover_thing_template(
+    name: &str,
+) -> Option<std::sync::Arc<game_engine::common::thing::thing_template::ThingTemplate>> {
+    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
+    let factory = guard.as_ref()?;
+    factory.find_template(name, false)
+}
+
+fn leftover_placement_view_angle(template_name: &str) -> f32 {
+    leftover_thing_template(template_name)
+        .map(|tmpl| tmpl.get_placement_view_angle())
+        .unwrap_or(0.0)
+}
+
+fn leftover_footprint_half_extents(template_name: &str) -> (f32, f32) {
+    leftover_thing_template(template_name)
+        .map(|tmpl| {
+            let g = tmpl.get_template_geometry_info();
+            (g.major_radius().max(1.0), g.minor_radius().max(1.0))
+        })
+        .unwrap_or((30.0, 30.0))
 }

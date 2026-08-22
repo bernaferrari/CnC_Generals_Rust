@@ -1,6 +1,17 @@
 //! HostSuperweaponKind mapping, damage/audio tables, and multi-strike planners.
 use super::types::*;
 use super::*;
+/// Leftover `special_power_effects.rs` NapalmStrike fire table (not DaisyCutter 2000 EXPLOSION).
+pub const NAPALM_STRIKE_PRIMARY_DAMAGE: f32 = 150.0;
+/// Leftover NapalmStrike fire PrimaryDamageRadius.
+pub const NAPALM_STRIKE_PRIMARY_RADIUS: f32 = 60.0;
+/// Leftover ocl_power.rs SuperweaponNapalmStrike radius / RadiusCursorRadius.
+pub const NAPALM_STRIKE_OUTER_RADIUS: f32 = 100.0;
+/// C++ OCLSpecialPower findOCL own payload residual.
+pub const NAPALM_STRIKE_OCL: &str = "SUPERWEAPON_NapalmStrike";
+/// OCL cargo-plane approach residual (same family as other edge-spawn OCLs).
+pub const NAPALM_STRIKE_IMPACT_DELAY_FRAMES: u32 = 90;
+
 /// Host-supported superweapon strike kinds for this residual path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum HostSuperweaponKind {
@@ -25,6 +36,8 @@ pub enum HostSuperweaponKind {
     /// USA Superweapon General Cruise Missile residual host path
     /// (delayed loft + MOABDetonationWeapon area damage).
     CruiseMissile,
+    /// China Napalm Strike residual — own OCL / fire table, not DaisyCutter FAB.
+    NapalmStrike,
 }
 
 impl HostSuperweaponKind {
@@ -33,8 +46,8 @@ impl HostSuperweaponKind {
         match power {
             SpecialPowerType::DaisyCutter
             | SpecialPowerType::FuelAirBomb
-            | SpecialPowerType::NapalmStrike
             | SpecialPowerType::AirForceDaisyCutter => Some(HostSuperweaponKind::DaisyCutter),
+            SpecialPowerType::NapalmStrike => Some(HostSuperweaponKind::NapalmStrike),
             SpecialPowerType::Airstrike | SpecialPowerType::AirForceAirstrike => {
                 Some(HostSuperweaponKind::A10Strike)
             }
@@ -75,6 +88,7 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::CarpetBomb => SpecialPowerType::CarpetBomb,
             HostSuperweaponKind::ArtilleryBarrage => SpecialPowerType::Artillery,
             HostSuperweaponKind::CruiseMissile => SpecialPowerType::CruiseMissile,
+            HostSuperweaponKind::NapalmStrike => SpecialPowerType::NapalmStrike,
         })
     }
 
@@ -92,6 +106,7 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::CarpetBomb => "CarpetBomb",
             HostSuperweaponKind::ArtilleryBarrage => "ArtilleryBarrage",
             HostSuperweaponKind::CruiseMissile => "CruiseMissile",
+            HostSuperweaponKind::NapalmStrike => "NapalmStrike",
         }
     }
 
@@ -141,6 +156,8 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::ArtilleryBarrage => ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES,
             // Cruise loft residual (NeutronMissileUpdate family; doors deferred).
             HostSuperweaponKind::CruiseMissile => CRUISE_MISSILE_IMPACT_DELAY_FRAMES,
+            // China NapalmStrike OCL cargo-plane approach residual (own payload).
+            HostSuperweaponKind::NapalmStrike => NAPALM_STRIKE_IMPACT_DELAY_FRAMES,
         }
     }
 
@@ -161,6 +178,7 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::CarpetBomb => CARPET_BOMB_RELOAD_MS,
             HostSuperweaponKind::ArtilleryBarrage => ARTILLERY_BARRAGE_RELOAD_MS,
             HostSuperweaponKind::CruiseMissile => CRUISE_MISSILE_RELOAD_MS,
+            HostSuperweaponKind::NapalmStrike => NAPALM_STRIKE_RELOAD_MS,
         }
     }
 
@@ -191,6 +209,8 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::ArtilleryBarrage => ARTILLERY_BARRAGE_DAMAGE,
             // Retail MOABDetonationWeapon PrimaryDamage (CruiseMissile death weapon).
             HostSuperweaponKind::CruiseMissile => CRUISE_MISSILE_DAMAGE,
+            // Leftover special_power_effects NapalmStrike fire table (not FAB 2000).
+            HostSuperweaponKind::NapalmStrike => NAPALM_STRIKE_PRIMARY_DAMAGE,
         }
     }
 
@@ -215,6 +235,8 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::ArtilleryBarrage => ARTILLERY_BARRAGE_RADIUS,
             // Retail MOABDetonationWeapon PrimaryDamageRadius.
             HostSuperweaponKind::CruiseMissile => CRUISE_MISSILE_RADIUS,
+            // Leftover ocl_power SuperweaponNapalmStrike radius / RadiusCursor.
+            HostSuperweaponKind::NapalmStrike => NAPALM_STRIKE_OUTER_RADIUS,
         }
     }
 
@@ -239,6 +261,8 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::ArtilleryBarrage => ARTILLERY_BARRAGE_RADIUS,
             // Residual two-stage falloff for MOAB primary blast.
             HostSuperweaponKind::CruiseMissile => CRUISE_MISSILE_FALLOFF_INNER,
+            // Leftover NapalmStrike fire PrimaryDamageRadius (flat fire inside).
+            HostSuperweaponKind::NapalmStrike => NAPALM_STRIKE_PRIMARY_RADIUS,
         }
     }
 
@@ -304,7 +328,8 @@ impl HostSuperweaponKind {
                 | HostSuperweaponKind::AnthraxBomb
                 | HostSuperweaponKind::CarpetBomb
                 | HostSuperweaponKind::ArtilleryBarrage
-                | HostSuperweaponKind::CruiseMissile // Continuous Spectre/PUC field paths already have their own team filters.
+                | HostSuperweaponKind::CruiseMissile
+                | HostSuperweaponKind::NapalmStrike
         )
     }
 
@@ -356,6 +381,7 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::CarpetBomb => "SuperweaponCarpetBomb",
             HostSuperweaponKind::ArtilleryBarrage => "SuperweaponArtilleryBarrage",
             HostSuperweaponKind::CruiseMissile => "SuperweaponCruiseMissile",
+            HostSuperweaponKind::NapalmStrike => "SuperweaponNapalmStrike",
         }
     }
 
@@ -375,7 +401,8 @@ impl HostSuperweaponKind {
             | HostSuperweaponKind::ParticleCannon
             | HostSuperweaponKind::AnthraxBomb
             | HostSuperweaponKind::SpectreGunship
-            | HostSuperweaponKind::CarpetBomb => EMPTY_SPECIAL_POWER_INITIATE_SOUND,
+            | HostSuperweaponKind::CarpetBomb
+            | HostSuperweaponKind::NapalmStrike => EMPTY_SPECIAL_POWER_INITIATE_SOUND,
         }
     }
 
@@ -393,7 +420,8 @@ impl HostSuperweaponKind {
             | HostSuperweaponKind::ParticleCannon
             | HostSuperweaponKind::AnthraxBomb
             | HostSuperweaponKind::SpectreGunship
-            | HostSuperweaponKind::CarpetBomb => EMPTY_SPECIAL_POWER_INITIATE_SOUND,
+            | HostSuperweaponKind::CarpetBomb
+            | HostSuperweaponKind::NapalmStrike => EMPTY_SPECIAL_POWER_INITIATE_SOUND,
         }
     }
 
@@ -416,6 +444,7 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::ArtilleryBarrage => "FX_ArtilleryBarrage",
             // Retail WeaponFX_MOAB_Blast residual cue.
             HostSuperweaponKind::CruiseMissile => "CruiseMissileImpact",
+            HostSuperweaponKind::NapalmStrike => "NapalmStrikeImpact",
         }
     }
 
@@ -432,6 +461,7 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::CarpetBomb => Some(CARPET_BOMB_WEAPON_NAME),
             HostSuperweaponKind::ArtilleryBarrage => Some(ARTILLERY_BARRAGE_WEAPON_NAME),
             HostSuperweaponKind::CruiseMissile => Some(CRUISE_MISSILE_DEATH_WEAPON),
+            HostSuperweaponKind::NapalmStrike => None,
         }
     }
 
@@ -449,9 +479,10 @@ impl HostSuperweaponKind {
         }
         match self {
             HostSuperweaponKind::ParticleCannon => DamageType::ParticleBeam,
+            HostSuperweaponKind::NapalmStrike => DamageType::Fire,
             _ => DamageType::Explosive,
         }
-    }
+}
 
     /// C++ DamageInfo.m_deathType for the blast.
     pub fn authored_death_type(self) -> crate::game_logic::host_usa_pilot::HostDeathType {
@@ -467,9 +498,10 @@ impl HostSuperweaponKind {
         }
         match self {
             HostSuperweaponKind::ParticleCannon => HostDeathType::Lasered,
+            HostSuperweaponKind::NapalmStrike => HostDeathType::Burned,
             _ => HostDeathType::Exploded,
         }
-    }
+}
 
 }
 

@@ -100,6 +100,8 @@ pub const FLASHBANG_SHELL_SECOND_PERCENT_INDENT: f32 = 0.70;
 pub const FLASHBANG_SCATTER_RADIUS: f32 = 4.0;
 /// Retail DamageType residual (flashbang).
 pub const FLASHBANG_DAMAGE_TYPE: &str = "SURRENDER";
+/// Retail DeathType residual (flashbang).
+pub const FLASHBANG_DEATH_TYPE: &str = "NORMAL";
 /// Retail AllowAttackGarrisonedBldgs residual.
 pub const FLASHBANG_ALLOW_ATTACK_GARRISONED: bool = true;
 

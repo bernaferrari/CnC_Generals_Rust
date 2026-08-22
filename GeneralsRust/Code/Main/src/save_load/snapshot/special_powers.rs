@@ -189,6 +189,7 @@ impl XferData for HostSuperweaponKind {
             HostSuperweaponKind::CarpetBomb => 7,
             HostSuperweaponKind::ArtilleryBarrage => 8,
             HostSuperweaponKind::CruiseMissile => 9,
+            HostSuperweaponKind::NapalmStrike => 10,
         };
         xfer.xfer_u32(&mut value)?;
         *self = match value {
@@ -202,6 +203,7 @@ impl XferData for HostSuperweaponKind {
             7 => HostSuperweaponKind::CarpetBomb,
             8 => HostSuperweaponKind::ArtilleryBarrage,
             9 => HostSuperweaponKind::CruiseMissile,
+            10 => HostSuperweaponKind::NapalmStrike,
             other => {
                 return Err(SaveLoadError::Corrupted(format!(
                     "Invalid HostSuperweaponKind discriminant: {other}"

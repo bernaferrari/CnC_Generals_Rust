@@ -1042,6 +1042,20 @@ impl GameLogic {
         if has_kind("no_collide") {
             template.add_kind_of(KindOf::NoCollide);
         }
+        // C++ KINDOF_FORCEATTACKABLE — civ fences / cargo planes pickable
+        // via force-attack and hover even when not Selectable.
+        if has_kind("forceattackable") || has_kind("force_attackable") {
+            template.add_kind_of(KindOf::ForceAttackable);
+        }
+        if has_kind("shrubbery") {
+            template.add_kind_of(KindOf::Shrubbery);
+        }
+        if has_kind("cleared_by_build") || has_kind("clearedbybuild") {
+            template.add_kind_of(KindOf::ClearedByBuild);
+        }
+        if has_kind("inert") {
+            template.add_kind_of(KindOf::Inert);
+        }
     }
 
 
@@ -1066,6 +1080,19 @@ impl GameLogic {
                 _ => None,
             }
         }
+
+        fn parse_contain_audio_event(
+            module: &crate::assets::BehaviorModuleDefinition,
+            key: &str,
+        ) -> String {
+            module
+                .attribute(key)
+                .map(str::trim)
+                .filter(|name| !name.is_empty() && !name.eq_ignore_ascii_case("NONE"))
+                .unwrap_or("")
+                .to_string()
+        }
+
 
         /// Decode only the mobile-kind masks represented by the live Rust
         /// object model.  A mask that needs a missing kind is fail-closed;
@@ -1497,6 +1524,8 @@ impl GameLogic {
                     initial_roster_template,
                     initial_roster_count,
                     weapon_bonus_passed_to_passengers: false,
+                    enter_sound: parse_contain_audio_event(module, "EnterSound"),
+                    exit_sound: parse_contain_audio_event(module, "ExitSound"),
                 };
                 // Retail gives an object one active normal contain interface.
                 // A malformed/custom stack is not safely representable here;
@@ -7520,6 +7549,79 @@ End
         );
         assert_eq!(bunker.contain_module.initial_roster_count, 3);
     }
+
+    #[test]
+    fn contain_module_parses_enter_and_exit_sounds() {
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(
+                r#"
+Object ProbeGarrisonEnterSound
+  Type = Structure
+  KindOf = STRUCTURE SELECTABLE
+  Behavior = GarrisonContain ModuleTag_Garrison
+    ContainMax = 5
+    EnterSound = GarrisonEnter
+    ExitSound = GarrisonExit
+  End
+End
+Object ProbeTransportEnterSound
+  Type = Vehicle
+  KindOf = VEHICLE SELECTABLE
+  Behavior = TransportContain ModuleTag_Transport
+    Slots = 5
+    EnterSound = GarrisonEnter
+    ExitSound = GarrisonExit
+  End
+End
+Object ProbeHumveeSilentContain
+  Type = Vehicle
+  KindOf = VEHICLE SELECTABLE
+  Behavior = TransportContain ModuleTag_Transport
+    Slots = 5
+  End
+End
+"#,
+                "contain_enter_exit_sound_probe.ini",
+            )
+            .expect("parse contain sound probe");
+
+        let bunker = GameLogic::build_template_from_object_definition(
+            "ProbeGarrisonEnterSound",
+            parser
+                .get_definition("ProbeGarrisonEnterSound")
+                .expect("garrison sound"),
+            None,
+        );
+        assert_eq!(bunker.contain_module.enter_sound, "GarrisonEnter");
+        assert_eq!(bunker.contain_module.exit_sound, "GarrisonExit");
+
+        let transport = GameLogic::build_template_from_object_definition(
+            "ProbeTransportEnterSound",
+            parser
+                .get_definition("ProbeTransportEnterSound")
+                .expect("transport sound"),
+            None,
+        );
+        assert_eq!(transport.contain_module.kind, ContainModuleKind::Transport);
+        assert_eq!(transport.contain_module.enter_sound, "GarrisonEnter");
+        assert_eq!(transport.contain_module.exit_sound, "GarrisonExit");
+
+        let humvee = GameLogic::build_template_from_object_definition(
+            "ProbeHumveeSilentContain",
+            parser
+                .get_definition("ProbeHumveeSilentContain")
+                .expect("silent transport"),
+            None,
+        );
+        assert_eq!(humvee.contain_module.kind, ContainModuleKind::Transport);
+        assert!(
+            humvee.contain_module.enter_sound.is_empty()
+                && humvee.contain_module.exit_sound.is_empty(),
+            "Humvee comments EnterSound out — C++ stays silent"
+        );
+    }
+
 
     #[test]
     fn garrison_heal_objects_parses_and_heals_occupants() {

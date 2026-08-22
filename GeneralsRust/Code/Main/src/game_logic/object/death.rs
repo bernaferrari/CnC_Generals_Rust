@@ -529,15 +529,24 @@ impl Object {
     pub fn fire_fx_list_die(&mut self) {
         self.ensure_fx_list_die();
         let upgrades: Vec<String> = self.applied_upgrades.iter().cloned().collect();
+        let death_type = self.status.death_type;
         let Some(fx) = self.fx_list_die.as_mut() else {
             return;
         };
-        if let Some((f, a)) = fx.on_die(&upgrades) {
-            if self.pending_death_fx.is_none() {
-                self.pending_death_fx = f;
-            }
-            if self.pending_death_audio.is_none() {
-                self.pending_death_audio = a;
+        let hits = fx.collect_applicable(&upgrades, death_type);
+        for (i, (f, a)) in hits.into_iter().enumerate() {
+            if i == 0 {
+                if self.pending_death_fx.is_none() {
+                    self.pending_death_fx = f;
+                }
+                if self.pending_death_audio.is_none() {
+                    self.pending_death_audio = a;
+                }
+            } else if let Some(name) = f {
+                let _ = crate::game_logic::dispatch_fx_list_at_object(&name, self.id.0, None);
+                if self.pending_death_audio.is_none() {
+                    self.pending_death_audio = a;
+                }
             }
         }
     }

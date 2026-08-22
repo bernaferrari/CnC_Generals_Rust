@@ -312,6 +312,26 @@ impl CnCGameEngine {
             return;
         }
 
+        // C++ CommandXlat.cpp:2322-2326 — DISABLE_INPUT destroys every meta
+        // except OPTIONS / CLEAR_GAME_DATA. Escape still opens QuitMenu.
+        if !self.lookat_input_enabled() {
+            if matches!(key, Key::Named(NamedKey::Escape)) {
+                self.apply_meta_options_interrupt();
+                #[cfg(feature = "game_client")]
+                if self.host_toggle_retail_quit_menu() {
+                    info!("Escape opened/toggled the retail QuitMenu WND");
+                } else if matches!(self.current_state, GameState::InGame) {
+                    info!("Escape QuitMenu WND unavailable - using pause fallback");
+                    self.request_state_change(GameState::Paused);
+                }
+                #[cfg(not(feature = "game_client"))]
+                if matches!(self.current_state, GameState::InGame) {
+                    self.request_state_change(GameState::Paused);
+                }
+            }
+            return;
+        }
+
         // C++ MetaEventTranslator walks TheMetaMap so Keyboard Options remaps
         // apply on the next key. Number-row CREATE/SELECT/ADD/VIEW_TEAM stays
         // with FixSelectSquad.
@@ -320,15 +340,9 @@ impl CnCGameEngine {
         }
 
         match key {
-            Key::Named(NamedKey::Space)
-                if self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
-            {
-                // Center camera on selection residual (Alt+Space).
-                self.center_camera_on_selection();
-            }
             Key::Named(NamedKey::Space) => {
                 // Retail CommandMap VIEW_LAST_RADAR_EVENT KEY_SPACE residual.
-                // Pause remains on P.
+                // Pause remains on P. C++ has no Alt+Space center binding.
                 if !command_map_binds_host("VIEW_LAST_RADAR_EVENT") {
                     self.issue_named_command_from_ui("Command_ViewLastRadarEvent");
                 }
@@ -490,25 +504,9 @@ impl CnCGameEngine {
                     self.toggle_diplomacy_panel_hotkey();
                 }
             }
-            Key::Named(NamedKey::F1) if ctrl_down => {
-                // Debug overlay residual (Ctrl+F1); bare F1 remains camera bookmark.
-                self.toggle_debug_info_hotkey();
-            }
             Key::Named(NamedKey::F1) => self.handle_camera_view_hotkey(0),
-            Key::Named(NamedKey::F2) if ctrl_down => {
-                // FPS counter residual (Ctrl+F2); bare F2 remains camera bookmark.
-                self.toggle_fps_counter_hotkey();
-            }
             Key::Named(NamedKey::F2) => self.handle_camera_view_hotkey(1),
-            Key::Named(NamedKey::F3) if ctrl_down => {
-                // Move path lines residual (Ctrl+F3); bare F3 remains camera bookmark.
-                self.toggle_move_lines_hotkey();
-            }
             Key::Named(NamedKey::F3) => self.handle_camera_view_hotkey(2),
-            Key::Named(NamedKey::F4) if ctrl_down => {
-                // Attack path lines residual (Ctrl+F4); bare F4 remains camera bookmark.
-                self.toggle_attack_lines_hotkey();
-            }
             Key::Named(NamedKey::F4) => self.handle_camera_view_hotkey(3),
             Key::Named(NamedKey::F5) => self.handle_camera_view_hotkey(4),
             Key::Named(NamedKey::F6) => self.handle_camera_view_hotkey(5),
@@ -1298,20 +1296,13 @@ impl CnCGameEngine {
     }
 
     /// Retail TOGGLE_CAMERA_TRACKING_DRAWABLE residual.
+    /// C++ CommandXlat.cpp:3216-3218 only enables; off is auto-clear on empty
+    /// selection (GameClient.cpp:587-597).
     pub(super) fn toggle_camera_tracking_drawable_hotkey(&mut self) {
-        self.camera_tracking_selection = !self.camera_tracking_selection;
+        self.camera_tracking_selection = true;
         #[cfg(feature = "game_client")]
-        game_client::helpers::TheInGameUI::set_camera_tracking_drawable(
-            self.camera_tracking_selection,
-        );
-        let msg = if self.camera_tracking_selection {
-            "Camera tracking selection: ON"
-        } else {
-            "Camera tracking selection: OFF"
-        };
-        self.game_hud.push_info_message(msg);
-        self.ui_manager.game_hud_mut().push_info_message(msg);
-        info!("{msg}");
+        game_client::helpers::TheInGameUI::set_camera_tracking_drawable(true);
+        info!("Camera tracking selection enabled");
     }
 
     /// Retail TOGGLE_FAST_FORWARD_REPLAY (m_TiVOFastMode) residual.
@@ -1400,6 +1391,16 @@ impl CnCGameEngine {
             {
                 return false;
             }
+            // C++ MetaEvent.cpp:56-71 SAVE_VIEW1..8 / VIEW_VIEW1..8.
+            if let Some(slot) = command_map_view_slot("SAVE_VIEW", &upper) {
+                self.store_or_apply_camera_view(slot, true);
+                return true;
+            }
+            if let Some(slot) = command_map_view_slot("VIEW_VIEW", &upper) {
+                self.store_or_apply_camera_view(slot, false);
+                return true;
+            }
+
             match upper.as_str() {
                 "TOGGLE_FAST_FORWARD_REPLAY" => {
                     self.toggle_replay_fast_forward_hotkey();
@@ -1680,6 +1681,14 @@ fn command_map_binds_host(name: &str) -> bool {
     }
 }
 
+/// Retail CommandMap SAVE_VIEW1..8 / VIEW_VIEW1..8 slot (0-based).
+fn command_map_view_slot(prefix: &str, name: &str) -> Option<usize> {
+    let rest = name.strip_prefix(prefix)?;
+    let slot: usize = rest.parse().ok()?;
+    (1..=8).contains(&slot).then_some(slot - 1)
+}
+
+
 fn host_localized_gui_label(key: &str) -> String {
     #[cfg(feature = "game_client")]
     {
@@ -1827,4 +1836,15 @@ mod tests {
         assert!(mouse.contains("self.stop_rmb_lookat_scroll()"));
         assert!(mouse.contains("self.cancel_area_select_from_control_bar()"));
     }
+
+    #[test]
+    fn command_map_view_slot_parses_save_and_view() {
+        assert_eq!(super::command_map_view_slot("SAVE_VIEW", "SAVE_VIEW1"), Some(0));
+        assert_eq!(super::command_map_view_slot("SAVE_VIEW", "SAVE_VIEW8"), Some(7));
+        assert_eq!(super::command_map_view_slot("VIEW_VIEW", "VIEW_VIEW4"), Some(3));
+        assert_eq!(super::command_map_view_slot("VIEW_VIEW", "VIEW_LAST_RADAR_EVENT"), None);
+        assert_eq!(super::command_map_view_slot("SAVE_VIEW", "SAVE_VIEW9"), None);
+        assert_eq!(super::command_map_view_slot("SAVE_VIEW", "SAVE_VIEW"), None);
+    }
+
 }

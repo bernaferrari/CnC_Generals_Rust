@@ -184,7 +184,12 @@ impl<'a> CommandExecutor<'a> {
                         any = true;
                     }
                     if let Some(bpos) = bpos {
-                        let _ = self.path_to_goal_with_state(unit_id, bpos, AIState::Entering);
+                        let _ = self.path_to_goal_with_state_ignoring(
+                            unit_id,
+                            bpos,
+                            AIState::Entering,
+                            Some(building_id),
+                        );
                     }
                 }
             }
@@ -1410,17 +1415,25 @@ impl GameLogic {
         }
         // C++ newTask findGoodBuildOrRepairPosition → ACTION dock (cpp:1973-1991).
         let action_dock = {
-            let dozer_pos = self.objects.get(&dozer_id).map(|d| d.get_position());
+            let dozer_info = self.objects.get(&dozer_id).map(|d| {
+                (
+                    d.get_position(),
+                    d.is_kind_of(KindOf::Aircraft) || d.status.airborne_target,
+                )
+            });
             let site = self
                 .objects
                 .get(&build_target)
                 .map(|s| (s.get_position(), s.selection_radius));
-            match (dozer_pos, site) {
-                (Some(dozer_pos), Some((site_pos, site_radius))) => Some(
-                    crate::game_logic::host_repair::dozer_repair_approach_position(
+            match (dozer_info, site) {
+                (Some((dozer_pos, airborne)), Some((site_pos, site_radius))) => Some(
+                    self.find_good_build_or_repair_position(
                         dozer_pos,
                         site_pos,
                         site_radius,
+                        airborne,
+                        airborne.then_some(build_target),
+                        Some(dozer_id),
                     ),
                 ),
                 _ => None,
@@ -1459,6 +1472,13 @@ impl GameLogic {
 
     /// C++ `DozerAIUpdate::internalTaskComplete` for one task slot.
     pub fn dozer_internal_task_complete(&mut self, dozer_id: ObjectId, repair: bool) {
+        let repair_target = if repair {
+            self.objects.get(&dozer_id).and_then(|obj| {
+                obj.dozer_task_repair_target.or(obj.target)
+            })
+        } else {
+            None
+        };
         if let Some(obj) = self.objects.get_mut(&dozer_id) {
             if repair {
                 obj.dozer_task_repair_target = None;
@@ -1468,7 +1488,21 @@ impl GameLogic {
                 obj.dozer_task_build_order_frame = 0;
                 obj.dozer_dock_action = None;
             }
-
+        }
+        // C++ WorkerAIUpdate.cpp:830 removeBridgeScaffolding on repair complete/cancel.
+        if let Some(tid) = repair_target {
+            let is_bridge = self.objects.get(&tid).is_some_and(|t| {
+                t.is_kind_of(KindOf::Bridge)
+                    || t.is_kind_of(KindOf::BridgeTower)
+                    || crate::game_logic::host_bridge_behavior::is_bridge_or_tower_template(
+                        &t.template_name,
+                    )
+            });
+            if is_bridge {
+                if let Some(sid) = self.resolve_bridge_span_for_repair(tid) {
+                    self.remove_bridge_scaffolding(sid);
+                }
+            }
         }
     }
 
@@ -1572,35 +1606,40 @@ impl GameLogic {
         }
         // C++ idleConditions → DOZER_PRIMARY_BUILD. This is our parked slot,
         // not a player resume (ActionManager::canResumeConstructionOf).
-        let (dozer_pos, st_pos, st_radius) = {
-            let dpos = self
-                .objects
-                .get(&dozer_id)
-                .map(|d| d.get_position())
-                .unwrap_or(glam::Vec3::ZERO);
+        let (dozer_pos, st_pos, st_radius, airborne, stored_dock) = {
+            let d = self.objects.get(&dozer_id);
+            let dpos = d.map(|d| d.get_position()).unwrap_or(glam::Vec3::ZERO);
+            let airborne = d.is_some_and(|d| {
+                d.is_kind_of(KindOf::Aircraft) || d.status.airborne_target
+            });
+            let stored = d.and_then(|d| d.dozer_dock_action);
             let (spos, srad) = self
                 .objects
                 .get(&tid)
                 .map(|s| (s.get_position(), s.selection_radius))
                 .unwrap_or((glam::Vec3::ZERO, 0.0));
-            (dpos, spos, srad)
+            (dpos, spos, srad, airborne, stored)
         };
+        let snapped = stored_dock.unwrap_or_else(|| {
+            self.find_good_build_or_repair_position(
+                dozer_pos,
+                st_pos,
+                st_radius,
+                airborne,
+                airborne.then_some(tid),
+                Some(dozer_id),
+            )
+        });
         if let Some(dozer) = self.objects.get_mut(&dozer_id) {
             dozer.target = Some(tid);
             dozer.set_ai_state(AIState::Constructing);
             dozer.idle_since_frame = 0;
             if dozer.dozer_dock_action.is_none() {
-                dozer.dozer_dock_action = Some(
-                    crate::game_logic::host_repair::dozer_repair_approach_position(
-                        dozer_pos, st_pos, st_radius,
-                    ),
-                );
+                dozer.dozer_dock_action = Some(snapped);
             }
         }
 
-        let approach = crate::game_logic::host_repair::dozer_repair_approach_position(
-            dozer_pos, st_pos, st_radius,
-        );
+        let approach = snapped;
         self.path_approach_with_state_ignoring(
             dozer_id,
             approach,
@@ -2490,6 +2529,73 @@ mod leftover_dispatch_tests {
         assert!(
             !logic.dozer_idle_resume_pending_build(worker),
             "hq-5nio2: AS_SUPPLY_TRUCK must not run idle dozer resume"
+        );
+    }
+
+    #[test]
+    fn new_task_snaps_action_dock_off_pad_via_find_position_around() {
+        // hq-z2plo: C++ findGoodBuildOrRepairPosition runs findPositionAround
+        // so the stored ACTION dock is not the in-pad half-radius seed.
+        use crate::game_logic::ThingTemplate;
+        let mut logic = GameLogic::new();
+        logic.frame = 4;
+        logic
+            .get_players_mut()
+            .insert(0, Player::new(0, Team::USA, "P0", true));
+        let mut dozer_tpl = ThingTemplate::new("AmericaVehicleDozerSnap");
+        dozer_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Dozer)
+            .set_health(250.0);
+        logic
+            .templates
+            .insert("AmericaVehicleDozerSnap".into(), dozer_tpl);
+        let mut pad_tpl = ThingTemplate::new("AmericaWarFactorySnap");
+        pad_tpl
+            .add_kind_of(KindOf::Structure)
+            .set_health(1500.0);
+        logic
+            .templates
+            .insert("AmericaWarFactorySnap".into(), pad_tpl);
+        let dozer = logic
+            .create_object_for_player(
+                "AmericaVehicleDozerSnap",
+                0,
+                glam::Vec3::new(200.0, 0.0, 0.0),
+            )
+            .expect("dozer");
+        let pad = logic
+            .create_object_for_player(
+                "AmericaWarFactorySnap",
+                0,
+                glam::Vec3::ZERO,
+            )
+            .expect("pad");
+        if let Some(p) = logic.host_object_mut(pad) {
+            p.selection_radius = 80.0;
+            p.status.under_construction = true;
+        }
+        if let Some(d) = logic.host_object_mut(dozer) {
+            d.selection_radius = 8.0;
+        }
+        logic.dozer_new_task_build(dozer, pad);
+        let dock = logic
+            .host_object(dozer)
+            .and_then(|d| d.dozer_dock_action)
+            .expect("ACTION dock");
+        let seed = crate::game_logic::host_repair::dozer_repair_approach_position(
+            glam::Vec3::new(200.0, 0.0, 0.0),
+            glam::Vec3::ZERO,
+            80.0,
+        );
+        let dist = (dock.x * dock.x + dock.z * dock.z).sqrt();
+        assert!(
+            dist > 80.0,
+            "findPositionAround must leave the pad, dock={dock:?} seed={seed:?}"
+        );
+        assert!(
+            (dock - seed).length() > 1.0,
+            "stored dock must not stay on the raw half-radius seed"
         );
     }
 
