@@ -2177,6 +2177,68 @@ fn spy_satellite_destalths_units_in_scan() {
 }
 
 #[test]
+fn radar_scan_and_spy_sat_looker_mask_uses_player_relationship() {
+    let mut logic = GameLogic::new();
+    let mut usa_a = Player::new(0, Team::USA, "USA-A", true);
+    usa_a.alliance_team = 1;
+    let mut usa_b = Player::new(1, Team::USA, "USA-B", false);
+    usa_b.alliance_team = 2;
+    let mut china_ally = Player::new(2, Team::China, "China-ally", false);
+    china_ally.alliance_team = 1;
+    logic.add_player(usa_a);
+    logic.add_player(usa_b);
+    logic.add_player(china_ally);
+
+    assert_eq!(
+        logic.player_relationship(0, 1),
+        gamelogic::common::Relationship::Enemies
+    );
+    assert_eq!(
+        logic.player_relationship(0, 2),
+        gamelogic::common::Relationship::Allies
+    );
+
+    assert!(logic.activate_radar_scan(0, Team::USA, Vec3::new(100.0, 0.0, 100.0), None));
+    let radar_mask = logic
+        .radar_scans
+        .active_scans()
+        .last()
+        .expect("radar scan")
+        .player_mask;
+    assert_eq!(
+        radar_mask & (1u32 << 1),
+        0,
+        "FFA same-faction enemy must not share RadarVanScan disk"
+    );
+    assert_ne!(
+        radar_mask & (1u32 << 0),
+        0,
+        "controller must see own RadarVanScan disk"
+    );
+    assert_ne!(
+        radar_mask & (1u32 << 2),
+        0,
+        "cross-faction ally must share RadarVanScan disk"
+    );
+
+    assert!(logic.activate_spy_satellite(0, Team::USA, Vec3::new(200.0, 0.0, 200.0), None));
+    let sat_mask = logic
+        .spy_satellites
+        .active_scans()
+        .last()
+        .expect("spy sat")
+        .player_mask;
+    assert_eq!(
+        sat_mask & (1u32 << 1),
+        0,
+        "FFA same-faction enemy must not share SpySat disk"
+    );
+    assert_ne!(sat_mask & (1u32 << 0), 0);
+    assert_ne!(sat_mask & (1u32 << 2), 0);
+}
+
+
+#[test]
 fn emergency_repair_spawns_invisible_marker() {
     use crate::game_logic::host_emergency_repair::{
         HostEmergencyRepairLevel, EMERGENCY_REPAIR_MARKER_LEVEL1,
@@ -4363,6 +4425,38 @@ fn can_make_unit_residual_gates_prereq_money_queue_disabled() {
         CANMAKE_NO_PREREQ
     );
 }
+
+#[test]
+fn can_make_unit_missing_or_dead_producer_is_no_prereq() {
+    use crate::game_logic::host_production_buildable_command_residual::{
+        CANMAKE_NO_PREREQ, CANMAKE_OK,
+    };
+    use crate::game_logic::{ObjectId, Team};
+
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    ensure_test_barracks_template(&mut logic);
+    ensure_test_infantry_template(&mut logic);
+    if let Some(p) = logic.get_player_mut(0) {
+        p.resources.supplies = 10_000;
+    }
+    let barracks = logic
+        .create_object("TestBarracks", Team::USA, glam::Vec3::ZERO)
+        .expect("barracks");
+    assert_eq!(logic.can_make_unit(barracks, "TestInfantry"), CANMAKE_OK);
+    assert_eq!(
+        logic.can_make_unit(ObjectId(0xDEAD), "TestInfantry"),
+        CANMAKE_NO_PREREQ
+    );
+    if let Some(o) = logic.host_object_mut(barracks) {
+        o.health.current = 0.0;
+    }
+    assert_eq!(
+        logic.can_make_unit(barracks, "TestInfantry"),
+        CANMAKE_NO_PREREQ
+    );
+}
+
 
 #[test]
 fn can_make_unit_reports_disabled_and_maxed_before_prereq() {

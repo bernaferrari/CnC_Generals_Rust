@@ -504,7 +504,7 @@ pub struct GameLogic {
     /// Host America Supply Drop Zone residual cash (OCLUpdate residual).
     /// Fail-closed: not full CreateAtEdge cargo plane / parachute crate fall path
     /// (delayed DeliverPayload spawn residual via host_deliver_payloads).
-    pub(super) supply_drop_zones:
+    pub(crate) supply_drop_zones:
         crate::game_logic::host_supply_drop_zone::HostSupplyDropZoneRegistry,
 
     /// Host DeliverPayload cargo residual (delayed payload spawn at location).

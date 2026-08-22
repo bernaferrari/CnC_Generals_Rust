@@ -33,6 +33,9 @@ pub(super) const SHAKE_END_OMEGA: f32 = std::f32::consts::TAU;
 /// C++ `Mouse.cpp` `m_dragTolerance` default / leftover `selection_xlat.rs` `DRAG_TOLERANCE`.
 const DRAG_TOLERANCE_PX: f32 = 5.0;
 
+/// C++ `PlaceEventTranslator.cpp:307` Euclidean screen px (not 1wu world).
+const PLACEMENT_DRAG_THRESHOLD_DIST: f32 = 5.0;
+
 /// C++ `View.h` `ViewLocation`: pos + angle + pitch + zoom.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct CameraViewLocation {
@@ -145,6 +148,35 @@ pub fn height_after_zoom_steps(
     }
 }
 
+/// C++ `W3DView::setDefaultView`: `m_maxHeightAboveGround = GlobalData.max * scale`,
+/// floored to `m_minHeightAboveGround`. Wheel / settle use that View max.
+pub fn live_view_height_clamp(min_h: f32, max_h: f32, script_max_height_scale: f32) -> (f32, f32) {
+    let scale = if script_max_height_scale.is_finite() {
+        script_max_height_scale.max(0.0)
+    } else {
+        1.0
+    };
+    (min_h, (max_h * scale).max(min_h))
+}
+
+/// C++ `setAngleAndPitchToDefault`: orbit GameData CameraPitch plus extra
+/// `m_defaultPitchAngle`. Live residual `1.0` is the FXPitch-style fail-closed
+/// (not extra View pitch); script `0.0` is the authored default.
+pub fn live_home_pitch_radians(orbit_pitch_degrees: f32, script_default_pitch: f32) -> f32 {
+    let orbit_deg = if orbit_pitch_degrees.abs() < 0.1 {
+        LOOKAT_DEFAULT_PITCH_DEG
+    } else {
+        orbit_pitch_degrees
+    };
+    let extra = if script_default_pitch.is_finite() && (script_default_pitch - 1.0).abs() > 1.0e-4 {
+        script_default_pitch
+    } else {
+        0.0
+    };
+    orbit_deg.to_radians() + extra
+}
+
+
 fn note_scripted_camera_player_cancel(next: ScriptedCameraPlayerCancel) {
     let mut modes = look_at_host_modes();
     modes.scripted_camera_player_cancel = modes.scripted_camera_player_cancel.raise(next);
@@ -179,6 +211,10 @@ fn look_at_host_modes() -> std::sync::MutexGuard<'static, LookAtHostModes> {
 
 pub(crate) fn look_at_host_mouse_locked() -> bool {
     look_at_host_modes().mouse_locked
+}
+
+pub(crate) fn look_at_host_is_scrolling() -> bool {
+    look_at_host_modes().scroll_type.is_scrolling()
 }
 
 fn clamp_w3d_zoom(zoom: f32) -> f32 {
@@ -517,6 +553,27 @@ fn is_point_click_drag(dx: f32, dy: f32) -> bool {
     host_screen_drag_is_click(dx, dy)
 }
 
+fn placement_screen_drag_exceeds_threshold(dx: f32, dy: f32) -> bool {
+    (dx * dx + dy * dy).sqrt() >= PLACEMENT_DRAG_THRESHOLD_DIST
+}
+
+/// C++ `InGameUI::isSelecting()` — set only after box-select exceeds DragTolerance.
+/// LMB-held and placement-rotate are not selecting (`LookAtXlat.cpp:174-175`).
+fn host_is_selecting_now(
+    is_dragging: bool,
+    placement_active: bool,
+    start_screen: Option<(f32, f32)>,
+    mouse: (f32, f32),
+) -> bool {
+    if !is_dragging || placement_active {
+        return false;
+    }
+    let Some(start) = start_screen else {
+        return false;
+    };
+    !is_point_click_drag(mouse.0 - start.0, mouse.1 - start.1)
+}
+
 /// C++ `SelectionXlat.cpp:930-937`: alternate-mouse blank LMB-up deselects.
 /// Classic empty LMB never clears (`SelectionXlat.cpp:575-597` empty region `break`).
 fn alternate_mouse_blank_click_deselects(
@@ -834,6 +891,61 @@ impl CnCGameEngine {
             .map(|down| (self.camera_position - down).length())
             .unwrap_or(f32::MAX);
         host_rmb_release_is_click(dx, dy, elapsed_ms, camera_delta)
+    }
+
+    pub(super) fn host_is_selecting(&self) -> bool {
+        host_is_selecting_now(
+            self.is_dragging,
+            self.pending_structure_placement.is_some(),
+            self.selection_start_screen,
+            self.mouse_position,
+        )
+    }
+
+    pub(super) fn sync_host_selecting_flag(&self) {
+        #[cfg(feature = "game_client")]
+        {
+            game_client::helpers::TheInGameUI::set_selecting(self.host_is_selecting());
+        }
+    }
+
+    fn apply_structure_placement_angle(&mut self, angle: f32) {
+        self.game_hud
+            .construction_panel
+            .rotate_structure_placement(angle);
+        self.ui_manager
+            .game_hud_mut()
+            .construction_panel
+            .rotate_structure_placement(angle);
+        game_client::helpers::TheInGameUI::set_placement_angle(angle);
+    }
+
+    /// C++ PlaceEventTranslator RAW_MOUSE_POSITION: `setPlacementEnd` after 5px.
+    pub(super) fn update_anchored_placement_from_cursor(&mut self) {
+        if self.pending_structure_placement.is_none() || !self.is_dragging {
+            return;
+        }
+        let Some(start) = self.selection_start_screen else {
+            return;
+        };
+        let dx = self.mouse_position.0 - start.0;
+        let dy = self.mouse_position.1 - start.1;
+        if !placement_screen_drag_exceeds_threshold(dx, dy) {
+            return;
+        }
+        let end = game_client::message_stream::game_message::ICoord2D::new(
+            self.mouse_position.0 as i32,
+            self.mouse_position.1 as i32,
+        );
+        game_client::helpers::TheInGameUI::set_placement_end(Some(end));
+        let start_world = self.selection_start.unwrap_or(self.mouse_world_position);
+        let end_world = self.mouse_world_position;
+        let wdx = end_world.x - start_world.x;
+        let wdz = end_world.z - start_world.z;
+        if wdx.abs() <= f32::EPSILON && wdz.abs() <= f32::EPSILON {
+            return;
+        }
+        self.apply_structure_placement_angle(wdz.atan2(wdx));
     }
 
     pub(super) fn handle_left_click(&mut self) {
@@ -1359,9 +1471,11 @@ impl CnCGameEngine {
             self.selection_start = None;
             self.selection_start_screen = None;
             self.left_click_release_behavior = LeftMouseReleaseBehavior::Selection;
+            self.sync_host_selecting_flag();
             return;
         }
         self.is_dragging = false;
+        self.sync_host_selecting_flag();
         let release_behavior = std::mem::replace(
             &mut self.left_click_release_behavior,
             LeftMouseReleaseBehavior::Selection,
@@ -1434,16 +1548,16 @@ impl CnCGameEngine {
             let end_world = end;
             let dx = end_world.x - start_world.x;
             let dz = end_world.z - start_world.z;
-            if dx * dx + dz * dz > 1.0 {
-                let angle = dz.atan2(dx);
-                self.game_hud
-                    .construction_panel
-                    .rotate_structure_placement(angle);
-                self.ui_manager
-                    .game_hud_mut()
-                    .construction_panel
-                    .rotate_structure_placement(angle);
-                game_client::helpers::TheInGameUI::set_placement_angle(angle);
+            // C++ PlaceEventTranslator.cpp:307-323 — 5px Euclidean screen, not 1wu.
+            if placement_screen_drag_exceeds_threshold(drag_dx, drag_dy)
+                && (dx.abs() > f32::EPSILON || dz.abs() > f32::EPSILON)
+            {
+                let end_px = game_client::message_stream::game_message::ICoord2D::new(
+                    self.mouse_position.0 as i32,
+                    self.mouse_position.1 as i32,
+                );
+                game_client::helpers::TheInGameUI::set_placement_end(Some(end_px));
+                self.apply_structure_placement_angle(dz.atan2(dx));
             }
             if Self::is_wall_structure_template(&template)
                 && drag_distance_screen > DRAG_TOLERANCE_PX
@@ -2050,7 +2164,7 @@ impl CnCGameEngine {
         let scroll_type = lookat_resolve_scroll_type(
             prev_scroll,
             input_enabled,
-            self.is_dragging,
+            self.host_is_selecting(),
             self.is_rmb_scrolling,
             key_dirs,
             at_screen_edge,
@@ -2390,14 +2504,17 @@ impl CnCGameEngine {
     }
 
     /// C++ View::zoomIn/Out: change height-above-ground by 10wu per detent
-    /// and clamp to GameData Min/MaxCameraHeight (W3DView::setHeightAboveGround).
+    /// and clamp to View min / script-scaled max (W3DView::setHeightAboveGround).
     fn apply_player_height_zoom_steps(&mut self, steps: f32) {
         if !steps.is_finite() || steps.abs() < 1.0e-4 {
             return;
         }
         let data = game_engine::common::global_data::read();
-        let min_h = data.min_camera_height;
-        let max_h = data.max_camera_height.max(min_h);
+        let (min_h, max_h) = live_view_height_clamp(
+            data.min_camera_height,
+            data.max_camera_height,
+            self.ui_script_default_camera_max_height(),
+        );
         let pitch = self
             .camera_pitch_radians
             .clamp(5.0_f32.to_radians(), 85.0_f32.to_radians());
@@ -2437,10 +2554,15 @@ impl CnCGameEngine {
         let terrain = self.sample_presentation_height_under(self.camera_target);
         let (adjust_speed, min_height, max_height, enforce_max, scroll_cutoff) = {
             let global_data = game_engine::common::global_data::read();
-            (
-                global_data.camera_adjust_speed,
+            let (min_height, max_height) = live_view_height_clamp(
                 global_data.min_camera_height,
                 global_data.max_camera_height,
+                self.ui_script_default_camera_max_height(),
+            );
+            (
+                global_data.camera_adjust_speed,
+                min_height,
+                max_height,
                 global_data.enforce_max_camera_height,
                 global_data.scroll_amount_cutoff,
             )
@@ -3734,7 +3856,7 @@ impl CnCGameEngine {
         lookat_stamp_mouse_activity(self.frame_counter);
         self.rmb_scroll_anchor = Some(self.mouse_position);
         // C++ :204-206: start only when `!isSelecting() && !m_isScrolling`.
-        if self.is_dragging || self.is_rmb_scrolling {
+        if self.host_is_selecting() || self.is_rmb_scrolling {
             return;
         }
         if look_at_host_modes().scroll_type.is_scrolling() {
@@ -3844,13 +3966,12 @@ impl CnCGameEngine {
     /// restore default angle/pitch/zoom. Does not retarget the command center.
     pub(super) fn reset_camera_pose_in_place(&mut self) {
         let defaults = Self::configured_startup_camera_defaults();
-        let pitch_deg = if defaults.pitch_degrees.abs() < 0.1 {
-            LOOKAT_DEFAULT_PITCH_DEG
-        } else {
-            defaults.pitch_degrees
-        };
+        // C++ setAngleAndPitchToDefault: m_pitchAngle = m_defaultPitchAngle.
         self.camera_yaw_radians = defaults.yaw_degrees.to_radians();
-        self.camera_pitch_radians = pitch_deg.to_radians();
+        self.camera_pitch_radians = live_home_pitch_radians(
+            defaults.pitch_degrees,
+            self.ui_script_default_camera_pitch(),
+        );
         self.camera_yaw_target = None;
         self.camera_pitch_target = None;
         self.camera_zoom_target = None;
@@ -4053,6 +4174,48 @@ mod camera_pick_tests {
         assert!(
             body.contains("self.camera_pitch_target = None"),
             "reset must cancel an in-flight CAMERA_PITCH lerp"
+        );
+        assert!(
+            body.contains("live_home_pitch_radians")
+                && body.contains("self.ui_script_default_camera_pitch()"),
+            "CAMERA_RESET/MMB must restore scripted m_defaultPitchAngle"
+        );
+    }
+
+    #[test]
+    fn camera_set_default_scales_wheel_clamp_and_home_pitch() {
+        let (min_h, max_half) = live_view_height_clamp(40.0, 200.0, 0.5);
+        assert!((min_h - 40.0).abs() < f32::EPSILON);
+        assert!((max_half - 100.0).abs() < f32::EPSILON);
+        let (_, max_double) = live_view_height_clamp(40.0, 200.0, 2.0);
+        assert!((max_double - 400.0).abs() < f32::EPSILON);
+        let (_, max_zero) = live_view_height_clamp(40.0, 200.0, 0.0);
+        assert!(
+            (max_zero - 40.0).abs() < f32::EPSILON,
+            "scale 0 floors to min like C++ setDefaultView"
+        );
+
+        let home_default = live_home_pitch_radians(37.5, 1.0);
+        assert!((home_default - 37.5_f32.to_radians()).abs() < 1.0e-5);
+        let home_script_zero = live_home_pitch_radians(37.5, 0.0);
+        assert!((home_script_zero - 37.5_f32.to_radians()).abs() < 1.0e-5);
+        let home_scripted = live_home_pitch_radians(37.5, 0.8);
+        assert!((home_scripted - (37.5_f32.to_radians() + 0.8)).abs() < 1.0e-5);
+
+        let src = include_str!("mouse.rs");
+        let zoom = src
+            .find("fn apply_player_height_zoom_steps")
+            .expect("apply_player_height_zoom_steps");
+        assert!(
+            src[zoom..zoom + 700].contains("live_view_height_clamp"),
+            "wheel clamp must use script-scaled View max"
+        );
+        let settle = src
+            .find("fn ease_camera_height_above_ground")
+            .expect("ease_camera_height_above_ground");
+        assert!(
+            src[settle..settle + 1200].contains("live_view_height_clamp"),
+            "settle clamp must use script-scaled View max"
         );
     }
 
@@ -4331,6 +4494,66 @@ mod camera_pick_tests {
         assert!(!infantry_garrison_context_takes_region(false, true, true, 1));
         assert!(!infantry_garrison_context_takes_region(false, false, true, 0));
 
+    }
+
+    #[test]
+    fn host_is_selecting_requires_drag_tolerance_not_lmb_held() {
+        // C++ SelectionXlat.cpp:399-408 — isSelecting after DragTolerance, not LMB down.
+        assert!(!host_is_selecting_now(
+            false,
+            false,
+            Some((0.0, 0.0)),
+            (3.0, 0.0)
+        ));
+        assert!(!host_is_selecting_now(
+            true,
+            false,
+            Some((0.0, 0.0)),
+            (5.0, 0.0)
+        ));
+        assert!(host_is_selecting_now(
+            true,
+            false,
+            Some((0.0, 0.0)),
+            (5.1, 0.0)
+        ));
+        assert!(
+            !host_is_selecting_now(true, true, Some((0.0, 0.0)), (20.0, 0.0)),
+            "placement rotate must not count as isSelecting"
+        );
+        let src = include_str!("mouse.rs");
+        let cam = src
+            .find("fn update_camera(&mut self, dt: f32)")
+            .expect("update_camera");
+        let cam_body = &src[cam..src.len().min(cam + 2500)];
+        assert!(
+            cam_body.contains("self.host_is_selecting()"),
+            "arrow scroll must use isSelecting, not is_dragging"
+        );
+        let rmb = src
+            .find("fn start_rmb_lookat_scroll")
+            .expect("start_rmb_lookat_scroll");
+        let rmb_body = &src[rmb..src.len().min(rmb + 400)];
+        assert!(
+            rmb_body.contains("self.host_is_selecting()")
+                && !rmb_body.contains("self.is_dragging || self.is_rmb_scrolling"),
+            "RMB scroll must gate on isSelecting, not LMB-held"
+        );
+    }
+
+    #[test]
+    fn placement_rotate_uses_5px_screen_not_1wu() {
+        // C++ PlaceEventTranslator.cpp:307-320 Euclidean 5px, no 1wu world gate.
+        assert!(!placement_screen_drag_exceeds_threshold(3.0, 3.0));
+        assert!(placement_screen_drag_exceeds_threshold(3.0, 4.0));
+        assert!(placement_screen_drag_exceeds_threshold(5.0, 0.0));
+        let src = include_str!("mouse.rs");
+        assert!(
+            src.contains("placement_screen_drag_exceeds_threshold(drag_dx, drag_dy)")
+                && src.contains("fn update_anchored_placement_from_cursor")
+                && !src.contains("dx * dx + dz * dz > 1.0"),
+            "placement rotate must use 5px screen, not 1wu release gate"
+        );
     }
 
     #[test]

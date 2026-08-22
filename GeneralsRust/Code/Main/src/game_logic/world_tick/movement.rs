@@ -62,11 +62,15 @@ impl GameLogic {
             is_aircraft,
             loco,
             is_crusher,
+            Some(object_id),
         );
 
         let mut state_to_apply: Option<AIState> = None;
         let mut nudge_allies: Vec<ObjectId> = Vec::new();
         if let Some(obj) = self.objects.get_mut(&object_id) {
+            // C++ FollowPath onExit clears canPathThroughUnits. A new
+            // computePath replaces the factory-exit tunnel.
+            obj.can_path_through_units = false;
             if let Some(waypoints) = path {
                 if waypoints.len() >= 2 {
                     obj.movement.path = waypoints;
@@ -340,7 +344,9 @@ impl GameLogic {
                 // AllowAirborneMotiveForce. Still apply handleBehaviorZ.
                 {
                     let height_above = obj.get_position().y - ground_y;
-                    if height_above > 9.0 && !obj.allow_motive_force_while_airborne {
+                    if Object::height_treats_as_airborne(height_above)
+                        && !obj.allow_motive_force_while_airborne
+                    {
                         Self::apply_live_handle_behavior_z(obj, surface_y, None);
                         Self::stamp_object_airborne_target(obj, ground_y);
                         break 'unit;
@@ -466,6 +472,7 @@ impl GameLogic {
                                 obj.movement.current_path_index = 0;
                                 obj.movement.target_position = None;
                                 obj.maintain_pos_valid = false;
+                                obj.can_path_through_units = false;
                                 let _ = obj.loco_maintain_current_position(surface_y, dt);
                             } else {
                                 obj.stop_moving();
@@ -555,7 +562,9 @@ impl GameLogic {
                             let air = (obj.locomotor_surfaces
                                 & gamelogic::ai::pathfind_complete::SURFACE_AIR)
                                 != 0;
-                            if air && current_pos.y - ground_y > 9.0 {
+                            if air
+                                && Object::height_treats_as_airborne(current_pos.y - ground_y)
+                            {
                                 loco_blocked = false;
                             }
                         }
@@ -600,6 +609,19 @@ impl GameLogic {
                                 )
                             })
                             .unwrap_or(dist);
+                        // C++ Locomotor.cpp:941-946 — far-from-goal IS_BRAKING
+                        // clear is unconditional (NO_SLOW_DOWN only skips the
+                        // appearance approach-brake, not this un-latch).
+                        let braking = obj.braking;
+                        if braking > 0.0 {
+                            let max_speed = obj.effective_max_speed();
+                            let dist_to_stop = (max_speed / braking) * max_speed / 2.0;
+                            let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
+                            if on_path_dist > cell && on_path_dist > dist_to_stop {
+                                obj.is_braking = false;
+                                obj.braking_factor = 1.0;
+                            }
+                        }
                         const PATHFIND_CLOSE_ENOUGH: f32 = 1.0;
                         if dist > on_path_dist && on_path_dist > PATHFIND_CLOSE_ENOUGH {
                             on_path_dist = dist;
@@ -2409,6 +2431,99 @@ mod tests {
         );
         assert!(obj.status.moving, "must keep marching toward last node");
     }
+
+    /// hq-i9ywj: treatAsAirborne is -(3*3)*gravity (~0.64wu), not 9.0.
+    #[test]
+    fn treat_as_airborne_uses_three_frame_gravity() {
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let mut logic = GameLogic::new();
+        let id = ObjectId(9814);
+        let mut unit = ranger_at(9814, Vec3::new(0.0, 2.0, 0.0));
+        unit.ground_height = 0.0;
+        unit.allow_motive_force_while_airborne = false;
+        unit.movement.max_speed = 40.0;
+        unit.movement.acceleration = 10_000.0;
+        unit.movement.velocity = Vec3::ZERO;
+        unit.movement.target_position = Some(Vec3::new(80.0, 2.0, 0.0));
+        logic.objects.insert(id, unit);
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("unit");
+        assert!(
+            obj.get_position().x.abs() < 0.15,
+            "2wu hop must skip 2D motive (treatAsAirborne -(3*3)*g), pos.x={}",
+            obj.get_position().x
+        );
+    }
+
+    /// hq-7f4ct: NoSlowDown still runs the far-from-goal IS_BRAKING clear.
+    #[test]
+    fn no_slow_down_does_not_latch_is_braking_after_path_raise() {
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let mut logic = GameLogic::new();
+        let id = ObjectId(9815);
+        let mut tmpl = ThingTemplate::new("Aurora");
+        tmpl.add_kind_of(KindOf::Aircraft);
+        let mut jet = Object::new(tmpl, id, Team::USA);
+        jet.set_position(Vec3::ZERO);
+        jet.ground_height = 0.0;
+        jet.allow_motive_force_while_airborne = true;
+        jet.no_slow_down_as_approaching_dest = true;
+        jet.is_braking = true;
+        jet.braking_factor = 5.0;
+        jet.braking = 10.0;
+        jet.movement.max_speed = 30.0;
+        jet.movement.acceleration = 10_000.0;
+        jet.movement.velocity = Vec3::new(30.0, 0.0, 0.0);
+        jet.movement.path = vec![Vec3::ZERO, Vec3::new(200.0, 0.0, 0.0)];
+        jet.movement.current_path_index = 1;
+        jet.movement.target_position = Some(Vec3::new(200.0, 0.0, 0.0));
+        logic.objects.insert(id, jet);
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("jet");
+        assert!(
+            !obj.is_braking,
+            "NoSlowDown must un-latch IS_BRAKING when far from dest (Locomotor.cpp:941-946)"
+        );
+        assert!(
+            (obj.braking_factor - 1.0).abs() < 1e-5,
+            "far-from-goal clear resets braking_factor, got {}",
+            obj.braking_factor
+        );
+    }
+
+    /// hq-ryf26: lift uses goal Y only when PRECISE_Z_POS.
+    #[test]
+    fn lift_ignores_goal_y_without_precise_z_pos() {
+        let mut tmpl = ThingTemplate::new("ComancheHill");
+        tmpl.add_kind_of(KindOf::Aircraft);
+        let mut heli = Object::new(tmpl, ObjectId(9816), Team::USA);
+        heli.set_position(Vec3::new(0.0, 80.0, 0.0));
+        heli.ground_height = 40.0;
+        heli.loco_behavior_z = LocomotorBehaviorZ::SurfaceRelativeHeight;
+        heli.loco_appearance = LocomotorAppearance::Hover;
+        heli.loco_preferred_height = 10.0;
+        heli.loco_preferred_height_damping = 1.0;
+        heli.precise_z_pos = false;
+        heli.max_lift = 0.0;
+        heli.physics_mass = 1.0;
+        heli.physics_accel = Vec3::ZERO;
+        let _ = heli.handle_behavior_z(40.0, Some(80.0));
+        assert!(
+            heli.physics_accel.y < -1.0,
+            "without PRECISE_Z_POS lift must seek preferred+surface (50), not hold 80; accel.y={}",
+            heli.physics_accel.y
+        );
+
+        heli.physics_accel = Vec3::ZERO;
+        heli.precise_z_pos = true;
+        let _ = heli.handle_behavior_z(40.0, Some(80.0));
+        assert!(
+            heli.physics_accel.y.abs() < 1e-3,
+            "PRECISE_Z_POS may hold goal_y=80; accel.y={}",
+            heli.physics_accel.y
+        );
+    }
+
 
     }
 

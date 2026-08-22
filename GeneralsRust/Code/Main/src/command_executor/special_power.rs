@@ -381,7 +381,15 @@ impl<'a> CommandExecutor<'a> {
                     | SpecialPowerType::MissileDefenderLaserGuided
                     | SpecialPowerType::LaserGuidedHowitzer
             );
+            // C++ ActionManager::canDoSpecialPowerAtObject returns false for
+            // SPECIAL_LAUNCH_BAIKONUR_ROCKET — never spend the charge on an object click.
+            if *power_type == SpecialPowerType::BaikonurRocket
+                && matches!(target, PowerTarget::Object(_))
+            {
+                continue;
+            }
             if !consume_at_prep
+
                 && !consume_after_valid_object
                 && !never_consume
                 && !self
@@ -545,7 +553,24 @@ impl<'a> CommandExecutor<'a> {
                 {
                     continue;
                 }
+            } else if *power_type == SpecialPowerType::BaikonurRocket {
+                // C++ BaikonurLaunchPower: no-target/script opens DOOR_1_OPENING;
+                // location only ThingFactory-creates DetonationObject.
+                match target {
+                    PowerTarget::Location(loc) => {
+                        if !self.game_logic.activate_baikonur_detonation(unit_id, *loc) {
+                            continue;
+                        }
+                    }
+                    PowerTarget::None => {
+                        if !self.game_logic.activate_baikonur_launch_door(unit_id) {
+                            continue;
+                        }
+                    }
+                    PowerTarget::Object(_) => continue,
+                }
             } else if let Some(pos) = target_position {
+
 
                 if *power_type == SpecialPowerType::ClusterMines
                     || *power_type == SpecialPowerType::NukeDrop
@@ -751,21 +776,6 @@ impl<'a> CommandExecutor<'a> {
                         pos,
                         Some(unit_id),
                     );
-                } else if *power_type == SpecialPowerType::BaikonurRocket {
-                    // C++ BaikonurLaunchPower: no-loc → door; location → door + detonation.
-                    match target {
-                        PowerTarget::Location(loc) => {
-                            let _ = self.game_logic.activate_baikonur_launch_door(unit_id);
-                            if !self.game_logic.activate_baikonur_detonation(unit_id, *loc) {
-                                continue;
-                            }
-                        }
-                        PowerTarget::None | PowerTarget::Object(_) => {
-                            if !self.game_logic.activate_baikonur_launch_door(unit_id) {
-                                continue;
-                            }
-                        }
-                    }
                 } else if *power_type == SpecialPowerType::CleanupArea {
                     if !self.game_logic.activate_cleanup_area(
                         self.current_player_id,
@@ -775,16 +785,29 @@ impl<'a> CommandExecutor<'a> {
                         continue;
                     }
                 } else if *power_type == SpecialPowerType::BattleshipBombardment {
-                    // C++ FireWeaponPower::doSpecialPowerAtLocation — ship's own
-                    // batteries, not China Artillery Barrage scatter.
-                    if !self.game_logic.activate_fire_weapon_power(unit_id, pos) {
-                        continue;
+                    // C++ FireWeaponPower: object click stays aiAttackObject;
+                    // location click is aiAttackPosition. Not Artillery Barrage.
+                    match target {
+                        PowerTarget::Object(tid) => {
+                            if !self
+                                .game_logic
+                                .activate_fire_weapon_power_at_object(unit_id, *tid)
+                            {
+                                continue;
+                            }
+                        }
+                        _ => {
+                            if !self.game_logic.activate_fire_weapon_power(unit_id, pos) {
+                                continue;
+                            }
+                        }
                     }
                 } else {
                     let _ = self
                         .game_logic
                         .queue_special_power_strike(power_type, unit_id, pos);
                 }
+
             }
             if *power_type != SpecialPowerType::CleanupArea
                 && crate::game_logic::special_power_strikes::HostSuperweaponKind::from_command_power(
@@ -1401,4 +1424,139 @@ mod can_use_special_power_caster_filter_tests {
             "click must not apply a remote/instant disable"
         );
     }
+
+    #[test]
+    fn baikonur_location_does_not_open_door_object_does_not_spend() {
+        use crate::command_system::PowerTarget;
+        use crate::game_logic::KindOf;
+
+
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::GLA, "GLA", true));
+
+        let mut tower_mod = test_module(
+            SpecialPowerType::BaikonurRocket,
+            "SuperweaponLaunchBaikonurRocket",
+        );
+        tower_mod.module_kind = SpecialPowerModuleKind::BaikonurLaunchPower;
+        tower_mod.reload_time_frames = 7_200;
+
+        let mut tower = ThingTemplate::new("HqMsvesBaikonur");
+        tower.set_health(5000.0);
+        tower.add_kind_of(KindOf::Structure);
+        tower.special_power_modules.push(tower_mod);
+        logic.templates.insert("HqMsvesBaikonur".into(), tower);
+
+        let mut dummy = ThingTemplate::new("HqMsvesDummy");
+        dummy.set_health(100.0);
+        dummy.add_kind_of(KindOf::Vehicle);
+        logic.templates.insert("HqMsvesDummy".into(), dummy);
+
+        let tower_id = logic
+            .create_object_for_player("HqMsvesBaikonur", 0, Vec3::ZERO)
+            .expect("tower");
+        let dummy_id = logic
+            .create_object_for_player("HqMsvesDummy", 0, Vec3::new(40.0, 0.0, 0.0))
+            .expect("dummy");
+
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_special_power(
+                    &[tower_id],
+                    &SpecialPowerType::BaikonurRocket,
+                    &PowerTarget::Object(dummy_id),
+                ),
+                CommandResult::InvalidCommand
+            );
+        }
+        assert!(
+            logic.is_special_power_ready_for(tower_id, &SpecialPowerType::BaikonurRocket),
+            "object click must not spend the Baikonur charge"
+        );
+        let bits = logic.host_object(tower_id).unwrap().model_condition_bits;
+        assert_eq!(bits, 0, "object click must not open the door");
+
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_special_power(
+                    &[tower_id],
+                    &SpecialPowerType::BaikonurRocket,
+                    &PowerTarget::Location(Vec3::new(100.0, 0.0, 50.0)),
+                ),
+                CommandResult::Success
+            );
+        }
+        let bits = logic.host_object(tower_id).unwrap().model_condition_bits;
+        assert_eq!(bits, 0, "location fire must not set DOOR_1_OPENING");
+        assert!(logic
+            .host_objects()
+            .values()
+            .any(|o| o.template_name == "BaikonurRocketDetonation"));
+
+        assert!(
+            !logic.is_special_power_ready_for(tower_id, &SpecialPowerType::BaikonurRocket),
+            "location fire consumes the charge"
+        );
+    }
+
+    #[test]
+    fn battleship_object_target_locks_object_not_position() {
+        use crate::command_system::PowerTarget;
+        use crate::game_logic::KindOf;
+
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "USA", true));
+        logic.add_player(Player::new(1, Team::GLA, "GLA", false));
+
+        let mut ship_mod = test_module(
+            SpecialPowerType::BattleshipBombardment,
+            "SpecialPowerBattleshipBombardment",
+        );
+        ship_mod.module_kind = SpecialPowerModuleKind::FireWeaponPower;
+        ship_mod.reload_time_frames = 300;
+
+        let mut ship = ThingTemplate::new("HqFwovsBattleship");
+        ship.set_health(2000.0);
+        ship.add_kind_of(KindOf::Vehicle);
+        ship.special_power_modules.push(ship_mod);
+        logic.templates.insert("HqFwovsBattleship".into(), ship);
+
+        let mut tgt = ThingTemplate::new("HqFwovsTarget");
+        tgt.set_health(400.0);
+        tgt.add_kind_of(KindOf::Vehicle);
+        logic.templates.insert("HqFwovsTarget".into(), tgt);
+
+        let ship_id = logic
+            .create_object_for_player("HqFwovsBattleship", 0, Vec3::ZERO)
+            .expect("ship");
+        let tgt_id = logic
+            .create_object_for_player("HqFwovsTarget", 1, Vec3::new(80.0, 0.0, 0.0))
+            .expect("tgt");
+        if let Some(o) = logic.host_object_mut(ship_id) {
+            o.turret_enabled = true;
+        }
+
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_special_power(
+                    &[ship_id],
+                    &SpecialPowerType::BattleshipBombardment,
+                    &PowerTarget::Object(tgt_id),
+                ),
+                CommandResult::Success
+            );
+        }
+        let ship = logic.host_object(ship_id).expect("ship after fire");
+        assert_eq!(ship.target, Some(tgt_id));
+        assert!(ship.target_location.is_none());
+        assert_eq!(ship.turret_target_id, Some(tgt_id));
+        assert!(ship
+            .fire_weapon_power
+            .as_ref()
+            .is_some_and(|r| r.target_object_id == Some(tgt_id) && !r.has_location));
+    }
 }
+

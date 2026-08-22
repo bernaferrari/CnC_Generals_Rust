@@ -597,14 +597,13 @@ impl CnCGameEngine {
         }
 
         let next = if let Some(current) = self.selected_objects.first().copied() {
-            all.iter()
-                .position(|id| *id == current)
-                .map(|idx| {
-                    let n = all.len() as i32;
-                    let i = (idx as i32 + delta).rem_euclid(n) as usize;
-                    all[i]
-                })
-                .unwrap_or(all[0])
+            // C++ CommandXlat.cpp:2396 — non-local inspect selection is a no-op.
+            let Some(idx) = all.iter().position(|id| *id == current) else {
+                return;
+            };
+            let n = all.len() as i32;
+            let i = (idx as i32 + delta).rem_euclid(n) as usize;
+            all[i]
         } else if delta >= 0 {
             all[0]
         } else {
@@ -650,26 +649,19 @@ impl CnCGameEngine {
             return;
         }
 
-        // C++ NEXT walks the prepended drawable list backwards; PREV walks forward.
+        // Ascending ObjectId = oldest first. C++ NEXT from nothing picks oldest;
+        // NEXT from current walks toward newer (+1).
         let next = if let Some(current) = self.selected_objects.first().copied() {
-            workers
-                .iter()
-                .position(|(id, _)| *id == current)
-                .map(|idx| {
-                    let n = workers.len() as i32;
-                    let step = if delta >= 0 { -1 } else { 1 };
-                    let i = (idx as i32 + step).rem_euclid(n) as usize;
-                    workers[i]
-                })
-                .unwrap_or(if delta >= 0 {
-                    workers[workers.len() - 1]
-                } else {
-                    workers[0]
-                })
+            let Some(idx) = workers.iter().position(|(id, _)| *id == current) else {
+                return;
+            };
+            let n = workers.len() as i32;
+            let i = (idx as i32 + delta).rem_euclid(n) as usize;
+            workers[i]
         } else if delta >= 0 {
-            workers[workers.len() - 1]
-        } else {
             workers[0]
+        } else {
+            workers[workers.len() - 1]
         };
 
         self.host_set_selection(self.current_player_id, vec![next.0]);

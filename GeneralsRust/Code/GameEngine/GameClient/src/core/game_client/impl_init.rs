@@ -36,6 +36,7 @@ impl GameClient {
             next_drawable_id: DrawableId(1),
             local_player_id: 0,
             last_applied_military_caption: None,
+            last_applied_military_caption_remaining_ms: None,
             last_applied_cinematic_text: None,
             last_applied_cinematic_remaining_ms: None,
             cinematic_overlay_font: None,

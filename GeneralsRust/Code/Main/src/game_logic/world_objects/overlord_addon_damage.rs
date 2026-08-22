@@ -173,4 +173,43 @@ impl GameLogic {
             self.mirror_overlord_addon_damage_to_occupant(id);
         }
     }
+
+    /// Live occupant id for the hull portable addon, if any.
+    /// C++ OverlordContain contain-list front / HelixContain `m_portableStructureID`.
+    pub(crate) fn overlord_helix_portable_occupant_id(
+        &self,
+        host_id: ObjectId,
+    ) -> Option<ObjectId> {
+        let host = self.objects.get(&host_id)?;
+        if let Some(id) = host.overlord_portable_occupant {
+            if self.objects.contains_key(&id) {
+                return Some(id);
+            }
+        }
+        host.occupants.iter().copied().find(|&id| {
+            self.objects
+                .get(&id)
+                .is_some_and(|occ| is_portable_structure_template(&occ.template_name))
+        })
+    }
+
+    /// C++ OverlordContain.cpp:227-235 / HelixContain.cpp:217-222 `onCapture`.
+    /// `setTeam` the portable rider to the capturer default team; keep attached.
+    pub(crate) fn on_capture_overlord_helix_portable_addon(
+        &mut self,
+        host_id: ObjectId,
+        new_team: Team,
+    ) -> Option<ObjectId> {
+        let addon_id = self.overlord_helix_portable_occupant_id(host_id)?;
+        let owner = self
+            .objects
+            .get(&host_id)
+            .and_then(|host| host.owner_player_id);
+        if let Some(addon) = self.objects.get_mut(&addon_id) {
+            addon.set_team_and_owner(new_team, owner);
+        }
+        self.attach_overlord_portable_occupant(host_id, addon_id);
+        Some(addon_id)
+    }
+
 }

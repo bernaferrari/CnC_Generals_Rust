@@ -21,6 +21,43 @@ pub const PATH_EXTRA_DISTANCE: f32 = 100.0;
 pub const WAVE_PREFERRED_HEIGHT: f32 = 40.0;
 /// C++ MODELCONDITION_FLOODED residual bit index.
 pub const MC_BIT_FLOODED: u32 = 69;
+/// Residual `WaterVelocity` (INI dist/sec via leftover `parseVelocityReal`).
+pub const WAVE_WATER_VELOCITY: f32 = 2.0 / WAVE_GUIDE_LOGIC_FPS;
+/// Residual `YSize` / `LinearWaveSpacing` for C++ `computeWaveShapePoints`.
+pub const WAVE_Y_SIZE: f32 = 400.0;
+pub const WAVE_LINEAR_SPACING: f32 = 20.0;
+pub const WAVE_BEND_MAGNITUDE: f32 = 0.0;
+const MAX_WAVEGUIDE_SHAPE_POINTS: usize = 64;
+
+/// C++ `computeWaveShapePoints` + object yaw transform; returns C++ world XY.
+pub fn wave_shape_world_points(pos_x: f32, pos_z: f32, facing: f32) -> Vec<(f32, f32)> {
+    let step = WAVE_LINEAR_SPACING as i32;
+    if step == 0 {
+        return vec![(pos_x, pos_z)];
+    }
+    let half_y = (WAVE_Y_SIZE * 0.5) as i32;
+    let cos = facing.cos();
+    let sin = facing.sin();
+    let mut points = Vec::new();
+    let mut y = -half_y;
+    while y < half_y && points.len() < MAX_WAVEGUIDE_SHAPE_POINTS {
+        let y_f = y as f32;
+        let x = if WAVE_BEND_MAGNITUDE != 0.0 {
+            -(y_f * y_f) / WAVE_BEND_MAGNITUDE
+        } else {
+            0.0
+        };
+        let wx = pos_x + x * cos - y_f * sin;
+        let wy = pos_z + x * sin + y_f * cos;
+        points.push((wx, wy));
+        y += step;
+    }
+    if points.is_empty() {
+        points.push((pos_x, pos_z));
+    }
+    points
+}
+
 
 #[inline]
 pub fn ms_to_frames(ms: u32) -> u32 {

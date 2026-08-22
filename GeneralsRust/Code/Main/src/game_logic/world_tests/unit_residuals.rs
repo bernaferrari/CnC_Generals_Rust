@@ -1475,6 +1475,55 @@ fn wave_guide_moves_and_damages_after_dam_die() {
 }
 
 #[test]
+fn wave_guide_pushes_add_water_velocity_onto_grid_queue() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    if let Some(tv) = gamelogic::helpers::TheTerrainVisual::get() {
+        let _ = tv.take_water_velocity_impulses();
+    }
+    let mut logic = GameLogic::new();
+    let mut dam = ThingTemplate::new("Dam");
+    dam.set_health(1000.0);
+    dam.add_kind_of(KindOf::Structure);
+    logic.templates.insert("Dam".into(), dam);
+    let mut wg = ThingTemplate::new("WaveGuide1");
+    wg.set_health(100.0);
+    wg.add_kind_of(KindOf::WaveGuide);
+    logic.templates.insert("WaveGuide1".into(), wg);
+    let dam_id = logic
+        .create_object("Dam", Team::Neutral, glam::Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let wg_id = logic
+        .create_object("WaveGuide1", Team::Neutral, glam::Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    logic.objects.get_mut(&wg_id).unwrap().set_orientation(0.0);
+    logic
+        .objects
+        .get_mut(&wg_id)
+        .unwrap()
+        .status
+        .disabled_default = true;
+    logic.mark_object_for_destruction(dam_id, None);
+    for _ in 0..30 {
+        logic.frame = logic.frame.saturating_add(1);
+        logic.update_wave_guides();
+    }
+    let impulses = gamelogic::helpers::TheTerrainVisual::get()
+        .map(|tv| tv.take_water_velocity_impulses())
+        .unwrap_or_default();
+    assert!(
+        !impulses.is_empty(),
+        "Dam flood WaveGuide must push leftover addWaterVelocity"
+    );
+    assert!(
+        impulses
+            .iter()
+            .any(|(_, _, v, h)| *v > 0.0 && (*h - 40.0).abs() < 0.01),
+        "impulses must carry WaterVelocity + PreferredHeight: {impulses:?}"
+    );
+}
+
+
+#[test]
 fn fire_weapon_when_dead_terrorist_splash() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();

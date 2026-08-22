@@ -84,7 +84,7 @@ impl GameLogic {
             let fp = super::collide_dispatch::host_object_footprint(o);
             self.partition_manager
                 .register_object_geometry(id.0, pos.x, pos.z, fp);
-            let r = o.selection_radius.max(1.0);
+            let r = o.physics_on_collide_radius();
             entry_by_id.insert(id.0, (pos, r));
             // Mobile bodies and physics-active wrecks initiate collide queries.
             // Dead hulks stay registered as obstacles; only moving/falling ones query.
@@ -147,8 +147,8 @@ impl GameLogic {
                     }
                     super::collide_dispatch::dispatch_collide_modules(*a_id, b_id, loc, normal);
 
-                    self.dispatch_host_collide_modules(*a_id, b_id);
                     // Both onCollide (hq-uerpy): higher-id crusher still crushes.
+                    // try_physics_collide dispatches host collide modules once per side.
                     if self.try_physics_collide(*a_id, b_id, a_r) {
                         handled = handled.saturating_add(1);
                     }
@@ -343,6 +343,17 @@ impl GameLogic {
                 )
             })
             .unwrap_or_default();
+        // C++ Weapon.cpp dealDamageInternal iterates partition-world objects
+        // only. Enclosing occupants (tunnel/transport) unRegisterObject on
+        // enter, so splash at an entrance must not hit the shared pool.
+        let enclosing_hidden = enclosing_hidden_rider_ids(&self.objects);
+        let tunnel_held: std::collections::HashSet<u32> = self
+            .tunnel_network
+            .occupant_player_ids()
+            .into_iter()
+            .flat_map(|pid| self.tunnel_network.contained_for_player(pid))
+            .map(|id| id.0)
+            .collect();
         let players = &self.players;
         let candidates: Vec<(ObjectId, f32)> = self
             .objects
@@ -355,6 +366,9 @@ impl GameLogic {
                     return None;
                 }
                 if obj.is_eject_invulnerable() {
+                    return None;
+                }
+                if enclosing_hidden.contains(&id.0) || tunnel_held.contains(&id.0) {
                     return None;
                 }
                 let airborne = obj.is_significantly_above_terrain();

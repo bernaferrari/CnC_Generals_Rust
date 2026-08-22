@@ -811,11 +811,11 @@ impl Object {
         // C++ ActiveBody.cpp:1219 — no damaged-art visuals while building.
         let show_health_visuals = !self.status.under_construction || self.status.destroyed;
         if old_state != state && show_health_visuals {
-            if self.bone_fx_damage.is_none()
-                && crate::game_logic::host_bone_fx_damage::wants_bone_fx(&self.template_name)
-            {
+            if self.bone_fx_damage.is_none() {
                 self.bone_fx_damage =
-                    Some(crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData::default());
+                    crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData::from_template(
+                        &self.template_name,
+                    );
             }
             if let Some(bfx) = self.bone_fx_damage.as_mut() {
                 let _ = bfx.on_body_damage_state_change(&self.template_name, old_state, state);
@@ -901,11 +901,11 @@ impl Object {
         let show_health_visuals = !self.status.under_construction || self.status.destroyed;
         // C++ BoneFXDamage::onBodyDamageStateChange residual.
         if old_state != state && show_health_visuals {
-            if self.bone_fx_damage.is_none()
-                && crate::game_logic::host_bone_fx_damage::wants_bone_fx(&self.template_name)
-            {
+            if self.bone_fx_damage.is_none() {
                 self.bone_fx_damage =
-                    Some(crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData::default());
+                    crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData::from_template(
+                        &self.template_name,
+                    );
             }
             if let Some(bfx) = self.bone_fx_damage.as_mut() {
                 let _ = bfx.on_body_damage_state_change(&self.template_name, old_state, state);

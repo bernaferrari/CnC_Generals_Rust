@@ -1237,10 +1237,23 @@ fn healing_clears_poison() {
 
 #[test]
 fn bone_fx_fires_on_body_damage_worsen() {
+    use crate::game_logic::host_bone_fx_damage::{
+        HostBoneFxAuthored, HostBoneFxDamageData, HostBoneFxSlot,
+    };
+    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
     let mut t = ThingTemplate::new("GLAVehicleScudLauncher");
     t.set_health(1000.0);
     t.add_kind_of(KindOf::Vehicle);
     let mut o = Object::new(t, ObjectId(103), Team::GLA);
+    let mut authored = HostBoneFxAuthored::default();
+    authored.fx[HostBodyDamageType::Damaged.ordinal() as usize][0] = Some(HostBoneFxSlot {
+        bone: "FXBone01".into(),
+        only_once: true,
+        delay_min: 0.0,
+        delay_max: 0.0,
+        name: "FX_ScudLauncherDamageTransition".into(),
+    });
+    o.bone_fx_damage = Some(HostBoneFxDamageData::from_authored(authored));
     o.health.current = 1000.0;
     o.health.maximum = 1000.0;
     o.refresh_model_condition_bits();
@@ -1254,12 +1267,12 @@ fn bone_fx_fires_on_body_damage_worsen() {
             .unwrap_or(false),
         "BoneFX must fire on damage transition"
     );
-    assert!(o
-        .bone_fx_damage
-        .as_ref()
-        .and_then(|b| b.last_fx.as_ref())
-        .map(|s| s.contains("Damaged") || s.contains("BoneFX"))
-        .unwrap_or(false));
+    assert_eq!(
+        o.bone_fx_damage
+            .as_ref()
+            .and_then(|b| b.last_fx.as_deref()),
+        Some("FX_ScudLauncherDamageTransition")
+    );
 }
 
 #[test]
@@ -3471,7 +3484,12 @@ fn scrub_velocity_and_structure_stiffness_bounce() {
         1.0,
     );
     assert!(f.x < 0.0, "push back -X force={f:?}");
-    assert!(o.movement.velocity.x < 0.0);
+    assert!(
+        (o.movement.velocity.x - f.x).abs() < 1e-4,
+        "zero-then-apply vel={:?} force={f:?}",
+        o.movement.velocity
+    );
+    assert!((o.movement.velocity.y - f.y).abs() < 1e-4);
     assert!((clamp_structure_stiffness(0.5) - 0.5).abs() < 1e-6);
 }
 #[test]
@@ -3505,6 +3523,17 @@ fn vehicle_crash_into_structure_residual() {
         v.evaluate_vehicle_crash_into(&s),
         VehicleCrashImmobileOutcome::None
     );
+
+    // Tossed infantry/debris: destroyObject, no crash weapon (hq-w78f4).
+    let mut it = ThingTemplate::new("TossedRanger");
+    it.add_kind_of(KindOf::Infantry);
+    let mut inf = Object::new(it, ObjectId(53), Team::USA);
+    inf.set_position(glam::Vec3::new(0.0, 5.0, 0.0));
+    inf.movement.velocity = glam::Vec3::new(0.0, -3.0, 0.0);
+    let io = inf.evaluate_vehicle_crash_into(&s);
+    assert_eq!(io, VehicleCrashImmobileOutcome::DestroyWithoutWeapon);
+    assert!(vehicle_crash_destroys_vehicle(io));
+    assert!(vehicle_crash_weapon_name(io).is_none());
 }
 #[test]
 fn kill_when_resting_and_bounce_land_residual() {
@@ -3699,6 +3728,27 @@ fn physics_wave10_held_wreck_friction_stun_shock() {
     assert!(land.bounce_land_events > 0);
     assert_eq!(land.bounce_audio_pending, 0);
     assert!(land.pending_ground_collide);
+}
+
+#[test]
+fn tick_physics_motion_step_destroys_nan_position() {
+    use glam::Vec3;
+    let mut tmpl = ThingTemplate::new("NanWreck");
+    tmpl.add_kind_of(KindOf::Vehicle);
+    let mut o = Object::new(tmpl, ObjectId(9201), Team::USA);
+    o.set_position(Vec3::new(3.0, 4.0, 5.0));
+    o.ground_height = 0.0;
+    o.allow_to_fall = true;
+    o.movement.target_position = None;
+    o.movement.path.clear();
+    o.movement.velocity = Vec3::new(f32::NAN, 0.0, 0.0);
+    let _ = o.tick_physics_motion_step(0.0);
+    assert!(o.status.destroyed, "NaN translation must destroyObject");
+    let p = o.get_position();
+    assert!(
+        p.x.is_finite() && p.y.is_finite() && p.z.is_finite(),
+        "must not write NaN pose; pos={p:?}"
+    );
 }
 
 #[test]
@@ -4507,6 +4557,16 @@ fn extra_friction_overlap_force_and_rest_kill() {
     inf.physics_accel = Vec3::ZERO;
     inf.apply_overlap_collide_force(Vec3::new(1.0, 0.0, 0.0), 9.0);
     assert!((inf.physics_accel.x + 5.0).abs() < 1e-4);
+
+    // Airborne: 3D delta includes host Y (hq-xvcet).
+    inf.set_position(Vec3::new(0.0, 10.0, 0.0));
+    inf.ground_height = 0.0;
+    inf.physics_accel = Vec3::ZERO;
+    inf.apply_overlap_collide_force(Vec3::new(0.0, 2.0, 0.0), 4.0);
+    // delta=(0,-8,0), dist=8, force=-4*(0,-8,0)/8 = (0, 2, 0)
+    assert!((inf.physics_accel.y - 2.0).abs() < 1e-4);
+    assert!(inf.physics_accel.x.abs() < 1e-5);
+    assert!(inf.physics_accel.z.abs() < 1e-5);
 
     // KillWhenResting uses Object::kill (UNRESISTABLE), not stun-destroy only.
     let mut tr = ThingTemplate::new("RestProp");

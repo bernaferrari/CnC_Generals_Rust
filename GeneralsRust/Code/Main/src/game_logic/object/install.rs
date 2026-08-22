@@ -621,6 +621,9 @@ impl Object {
                 current_frame,
             ),
         );
+        // C++ setCommandButton → aiIdle(CMD_FROM_AI).
+        self.last_command_source =
+            crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
         self.set_ai_state(AIState::Idle);
         self.target = None;
         self.stop_moving();

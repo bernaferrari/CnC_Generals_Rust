@@ -69,6 +69,7 @@ fn last_replay_filename() -> String {
         .unwrap_or_else(|| "00000000".to_string())
 }
 
+#[allow(dead_code)]
 fn replay_display_name_for_popup(entry: &str, last_replay: &str) -> String {
     if entry.eq_ignore_ascii_case(last_replay) {
         GameText::fetch("GUI:LastReplay")
@@ -85,31 +86,7 @@ fn populate_replay_listbox(state: &mut PopupReplayState) {
     let Some(list_box) = listbox_guard.list_box_mut() else {
         return;
     };
-    list_box.clear();
-
-    let (replay_dir, ext) = replay_dir_and_ext();
-    let mut entries = Vec::new();
-    if let Ok(dir) = fs::read_dir(&replay_dir) {
-        for entry in dir.flatten() {
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-            if let Some(extension) = path.extension().and_then(|ext| ext.to_str()) {
-                if format!(".{}", extension).eq_ignore_ascii_case(&ext) {
-                    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                        entries.push(stem.to_string());
-                    }
-                }
-            }
-        }
-    }
-    entries.sort();
-
-    let last_replay = last_replay_filename();
-    for entry in entries {
-        list_box.add_item(&replay_display_name_for_popup(&entry, &last_replay));
-    }
+    crate::gui::shell::populate_replay_file_listbox(list_box);
 }
 
 fn get_listbox_text_at_row(state: &PopupReplayState, row: usize) -> Option<String> {

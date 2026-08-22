@@ -111,6 +111,20 @@ impl SnapshotBuilder {
         object.thing.geometry.bounds_max = snapshot.geometry.bounds_max;
         object.thing.geometry.radius = snapshot.geometry.radius;
         object.position = snapshot.geometry.position;
+        // C++ Object ctor instantiates ChinookAIUpdate / TransportContain
+        // before those modules xfer. Spawn-only install must run after pose
+        // so default AI original_pos matches the saved hull, and before
+        // weapon restore so Combat Chinook dummy-weapon wipe cannot clobber
+        // the saved WeaponSet. Persist overlay then writes mid-drop state.
+        if crate::game_logic::host_combat_chinook::is_combat_chinook_template(
+            &snapshot.template_name,
+        ) {
+            object.install_combat_chinook_transport();
+        } else if crate::game_logic::host_combat_chinook::is_regular_chinook_template(
+            &snapshot.template_name,
+        ) {
+            object.install_chinook_transport();
+        }
 
         // Core gameplay state
         self.restore_object_status(&snapshot.status, &mut object);

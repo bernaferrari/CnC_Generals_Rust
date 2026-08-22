@@ -14,7 +14,7 @@ use game_engine::map_object::MAP_XY_FACTOR as MAP_XY;
 const NUM_BUMP_FRAMES: i32 = 32;
 const WATER_GRID_GRAVITY: f32 = 0.08;
 const WATER_GRID_DAMP: f32 = 0.93;
-const FEATHER_THICKNESS: f32 = 0.4;
+const FEATHER_THICKNESS: f32 = 4.0;
 
 impl TerrainVisualImpl {
     fn apply_tree_world_bounds(&mut self) {
@@ -217,7 +217,17 @@ impl TerrainVisualImpl {
         }
     }
 
+    fn drain_leftover_water_velocity(&mut self) {
+        let Some(logic) = gamelogic::helpers::TheTerrainVisual::get() else {
+            return;
+        };
+        for (x, y, velocity, preferred) in logic.take_water_velocity_impulses() {
+            self.add_water_velocity(x, y, velocity, preferred);
+        }
+    }
+
     fn simulate_water_grid(&mut self, _dt: f32) {
+        self.drain_leftover_water_velocity();
         if !self.water_grid_enabled {
             return;
         }
@@ -380,30 +390,72 @@ impl TerrainVisualImpl {
         self.overlay.water_grid_dirty = false;
     }
 
+    fn standing_water_diffuse_packed(&self) -> u32 {
+        game_engine::common::ini::ini_water::initialize_water_settings();
+        let standing_color = get_water_transparency()
+            .and_then(|lock| {
+                lock.read().ok().map(|g| {
+                    let s = g.get_final_override();
+                    [
+                        s.standing_water_color.0,
+                        s.standing_water_color.1,
+                        s.standing_water_color.2,
+                    ]
+                })
+            })
+            .unwrap_or([1.0, 1.0, 1.0]);
+        let tod = get_global_data()
+            .map(|g| g.read().time_of_day as usize)
+            .unwrap_or(0);
+        let water_set = game_engine::common::ini::ini_water::get_water_setting(
+            game_engine::common::ini::ini_water::TimeOfDay::from_index(tod),
+        )
+        .and_then(|lock| lock.read().ok().map(|g| g.clone()));
+        let water_diffuse = water_set
+            .as_ref()
+            .map(|s| {
+                let c = s.surface_color;
+                let r = c.0.round().clamp(0.0, 255.0) as u32;
+                let g = c.1.round().clamp(0.0, 255.0) as u32;
+                let b = c.2.round().clamp(0.0, 255.0) as u32;
+                let a = c.3.round().clamp(0.0, 255.0) as u32;
+                (a << 24) | (r << 16) | (g << 8) | b
+            })
+            .unwrap_or(0xffff_ffff);
+        compute_standing_water_diffuse(
+            standing_color,
+            water_diffuse,
+            self.ambient_color,
+            &[WaterTerrainLight {
+                light_pos: [
+                    self.sun_direction.x,
+                    self.sun_direction.z,
+                    self.sun_direction.y,
+                ],
+                diffuse: self.sun_color,
+            }],
+        )
+    }
+
     fn sync_polygon_water_meshes(&mut self, device: &wgpu::Device) -> TerrainResult<()> {
         self.ingest_logic_water_areas();
         self.polygon_water_meshes.clear();
         if self.overlay.water_areas.is_empty() {
             return Ok(());
         }
-        let water_y = get_global_data()
-            .map(|g| g.read().water_position_z)
-            .unwrap_or(0.0);
         let feather = get_global_data()
             .map(|g| g.read().feather_water.max(0))
             .unwrap_or(0);
+        let diffuse = self.standing_water_diffuse_packed();
+        let river_v = self.overlay.river_v_origin;
+        let layers = if feather > 0 { feather.min(5) } else { 1 };
         for area in &self.overlay.water_areas {
             if area.points.len() < 3 {
                 continue;
             }
-            let layers = if feather > 0 { feather.min(5) } else { 1 };
-            for layer in 0..layers {
-                let z_off = layer as f32 * FEATHER_THICKNESS;
-                let (verts, indices) = if area.is_river {
-                    bake_river_strip(&area.points, area.river_start, water_y + z_off, 0.0)
-                } else {
-                    bake_trapezoid_water(&area.points, water_y + z_off)
-                };
+            if area.is_river {
+                let (verts, indices) =
+                    bake_river_strip(&area.points, area.river_start, river_v, diffuse);
                 if verts.is_empty() || indices.is_empty() {
                     continue;
                 }
@@ -414,6 +466,40 @@ impl TerrainVisualImpl {
                     mesh.jba = true;
                     self.polygon_water_meshes.push(mesh);
                 }
+                continue;
+            }
+            let n = area.points.len();
+            let mut k = 1usize;
+            while k + 1 < n {
+                let pt3 = area.points[0];
+                let pt2 = area.points[k];
+                let pt1 = area.points[k + 1];
+                let pt0 = if k + 2 < n {
+                    area.points[k + 2]
+                } else {
+                    area.points[k + 1]
+                };
+                let quad = [pt0, pt1, pt2, pt3];
+                for layer in 0..layers {
+                    let z_off = if feather > 0 {
+                        layer as f32 * (FEATHER_THICKNESS / feather as f32)
+                    } else {
+                        0.0
+                    };
+                    let (verts, indices) =
+                        bake_trapezoid_water(&quad, z_off, river_v, diffuse);
+                    if verts.is_empty() || indices.is_empty() {
+                        continue;
+                    }
+                    let gpu = fill_water_gpu_upload_vertices(&verts);
+                    if let Some(mut mesh) =
+                        Self::upload_water_overlay(device, "Polygon Water", &gpu, &indices)
+                    {
+                        mesh.jba = true;
+                        self.polygon_water_meshes.push(mesh);
+                    }
+                }
+                k += 2;
             }
         }
         Ok(())
@@ -933,123 +1019,234 @@ impl TerrainVisualImpl {
     }
 }
 
-fn bake_trapezoid_water(points: &[[f32; 3]], water_y: f32) -> (Vec<crate::terrain::SeaPatchVertex>, Vec<u32>) {
-    if points.len() < 3 {
-        return (Vec::new(), Vec::new());
+const WATER_UV_FACTOR: f32 = 150.0;
+const HEIGHT_TO_USE: f32 = 0.5;
+
+/// C++ `WaterRenderObjClass::drawTrapezoidWater` — authored Z + world UVs.
+fn bake_trapezoid_water(
+    points: &[[f32; 3]; 4],
+    z_off: f32,
+    v_origin: f32,
+    diffuse: u32,
+) -> (Vec<crate::terrain::SeaPatchVertex>, Vec<u32>) {
+    let origin = Vec3::new(points[0][0], points[0][1] + z_off, points[0][2]);
+    let p1 = Vec3::new(points[1][0], points[1][1], points[1][2]);
+    let p2 = Vec3::new(points[2][0], points[2][1], points[2][2]);
+    let p3 = Vec3::new(points[3][0], points[3][1], points[3][2]);
+    let u_vec1 = p1 - origin;
+    let v_vec1 = p3 - origin;
+    let u_vec2 = p2 - p3;
+    let v_vec2 = p2 - p1;
+    let mut u_count = ((u_vec1.length() + u_vec2.length()) / (8.0 * MAP_XY)).floor() as i32;
+    let mut v_count = ((v_vec1.length() + v_vec2.length()) / (8.0 * MAP_XY)).floor() as i32;
+    if u_count < 1 {
+        u_count = 1;
     }
-    let mut min_x = f32::MAX;
-    let mut max_x = f32::MIN;
-    let mut min_z = f32::MAX;
-    let mut max_z = f32::MIN;
-    for p in points {
-        min_x = min_x.min(p[0]);
-        max_x = max_x.max(p[0]);
-        min_z = min_z.min(p[2]);
-        max_z = max_z.max(p[2]);
+    if v_count < 1 {
+        v_count = 1;
     }
-    let steps = 12usize;
-    let mut verts = Vec::new();
-    let mut indices = Vec::new();
-    for j in 0..=steps {
-        let tz = j as f32 / steps as f32;
-        let z = min_z + (max_z - min_z) * tz;
-        for i in 0..=steps {
-            let tx = i as f32 / steps as f32;
-            let x = min_x + (max_x - min_x) * tx;
-            if !point_in_xz_polygon(x, z, points) && i != 0 && j != 0 && i != steps && j != steps {
-                // still emit so the grid stays regular; alpha 0 outside
-            }
-            let inside = point_in_xz_polygon(x, z, points);
+    u_count = u_count.min(50);
+    v_count = v_count.min(50);
+    u_count += 1;
+    v_count += 1;
+    let const_a = 0.02 * (11.0 * v_origin).cos();
+    let const_b = 0.02 * (5.0 * v_origin).cos();
+    let const_c = 25.0 * v_origin;
+    let const_d = std::f32::consts::PI / (4.0 * MAP_XY);
+    let oo_water = 1.0 / WATER_UV_FACTOR;
+    let du_step = 1.0 / (u_count - 1) as f32;
+    let dv_step = 1.0 / (v_count - 1) as f32;
+    let mut verts = Vec::with_capacity((u_count * v_count) as usize);
+    for j in 0..v_count {
+        let dv = j as f32 * dv_step;
+        for i in 0..u_count {
+            let du = i as f32 * du_step;
+            let vertex = origin + u_vec1 * du + v_vec1 * dv + (v_vec2 - v_vec1) * (dv * du);
+            let tu = vertex.x * oo_water + const_a * (const_c + vertex.x * const_d).sin();
+            let tv = vertex.z * oo_water + const_b * (const_c + vertex.z * const_d).sin();
             verts.push(crate::terrain::SeaPatchVertex {
-                x,
-                y: water_y,
-                z,
-                c: if inside { 0xb0ff_ffff } else { 0x00ff_ffff },
-                tu: tx * 4.0,
-                tv: tz * 4.0,
+                x: vertex.x,
+                y: vertex.y,
+                z: vertex.z,
+                c: diffuse,
+                tu,
+                tv,
             });
         }
     }
-    let stride = steps + 1;
-    for j in 0..steps {
-        for i in 0..steps {
-            let i0 = (j * stride + i) as u32;
-            let i1 = i0 + 1;
-            let i2 = i0 + stride as u32 + 1;
-            let i3 = i0 + stride as u32;
-            indices.extend_from_slice(&[i0, i1, i2, i0, i2, i3]);
+    let mut indices = Vec::new();
+    let stride = u_count as u32;
+    for j in 0..(v_count - 1) as u32 {
+        for i in 0..(u_count - 1) as u32 {
+            let i0 = j * stride + i;
+            let i1 = (j + 1) * stride + i + 1;
+            let i2 = (j + 1) * stride + i;
+            let i3 = j * stride + i + 1;
+            indices.extend_from_slice(&[i0, i1, i2, i0, i3, i1]);
         }
     }
     (verts, indices)
 }
 
+/// C++ `WaterRenderObjClass::drawRiverWater` — bank pairs from `riverStart`.
 fn bake_river_strip(
     points: &[[f32; 3]],
-    _river_start: i32,
-    water_y: f32,
+    river_start: i32,
     v_origin: f32,
+    diffuse: u32,
 ) -> (Vec<crate::terrain::SeaPatchVertex>, Vec<u32>) {
-    if points.len() < 2 {
+    let n = points.len();
+    if n < 4 {
         return (Vec::new(), Vec::new());
     }
-    let half = 12.0;
-    let mut verts = Vec::new();
-    let mut indices = Vec::new();
-    let mut dist = 0.0f32;
-    for i in 0..points.len() {
-        let prev = points[i.saturating_sub(1)];
-        let cur = points[i];
-        let next = points[(i + 1).min(points.len() - 1)];
-        let dir = Vec3::new(next[0] - prev[0], 0.0, next[2] - prev[2]);
-        let tangent = if dir.length_squared() > 1.0e-4 {
-            dir.normalize()
-        } else {
-            Vec3::X
-        };
-        let side = Vec3::new(-tangent.z, 0.0, tangent.x) * half;
-        if i > 0 {
-            dist += Vec2::new(cur[0] - prev[0], cur[2] - prev[2]).length();
+    if river_start < 0 || river_start as usize >= n.saturating_sub(1) {
+        return (Vec::new(), Vec::new());
+    }
+    let pair_count = n / 2;
+    let rectangle_count = pair_count.saturating_sub(1);
+    if rectangle_count == 0 {
+        return (Vec::new(), Vec::new());
+    }
+    let mut total_len = 0.0f32;
+    let mut end_len = 0.0f32;
+    for i in 0..n - 1 {
+        let a = points[i];
+        let b = points[i + 1];
+        let dx = a[0] - b[0];
+        let dz = a[2] - b[2];
+        let cur = (dx * dx + dz * dz).sqrt();
+        total_len += cur;
+        if i == river_start as usize {
+            end_len = cur;
         }
-        let left = [cur[0] + side.x, water_y, cur[2] + side.z];
-        let right = [cur[0] - side.x, water_y, cur[2] - side.z];
-        let v = dist * 0.02 + v_origin;
+    }
+    if end_len <= f32::EPSILON {
+        end_len = 1.0;
+    }
+    let length_of_river = (total_len * 0.5) - end_len;
+    let repeat_count = length_of_river / end_len;
+    let v_scale = repeat_count / rectangle_count as f32;
+    let mut inner = river_start;
+    let mut outer = river_start + 1;
+    let mut verts = Vec::with_capacity(pair_count * 2);
+    let const_a = 3.0 * v_origin;
+    for i in 0..pair_count {
+        let inner_pt = points[outer as usize];
+        let outer_pt = points[inner as usize];
+        outer += 1;
+        inner -= 1;
+        if inner < 0 {
+            inner = (n - 1) as i32;
+        }
+        if outer >= n as i32 {
+            outer = 0;
+        }
+        let wobble = -v_origin
+            + v_scale * i as f32
+            + (2.0 * std::f32::consts::PI * (v_scale * i as f32) - const_a).sin() / 22.0;
         verts.push(crate::terrain::SeaPatchVertex {
-            x: left[0],
-            y: left[1],
-            z: left[2],
-            c: 0xb0ff_ffff,
+            x: inner_pt[0],
+            y: inner_pt[1],
+            z: inner_pt[2],
+            c: diffuse,
+            tu: HEIGHT_TO_USE,
+            tv: wobble,
+        });
+        verts.push(crate::terrain::SeaPatchVertex {
+            x: outer_pt[0],
+            y: outer_pt[1],
+            z: outer_pt[2],
+            c: diffuse,
             tu: 0.0,
-            tv: v,
+            tv: wobble,
         });
-        verts.push(crate::terrain::SeaPatchVertex {
-            x: right[0],
-            y: right[1],
-            z: right[2],
-            c: 0xb0ff_ffff,
-            tu: 1.0,
-            tv: v,
-        });
-        if i > 0 {
-            let b = ((i - 1) * 2) as u32;
-            indices.extend_from_slice(&[b, b + 1, b + 3, b, b + 3, b + 2]);
-        }
+    }
+    let mut indices = Vec::with_capacity(rectangle_count * 6);
+    for i in 0..rectangle_count {
+        let b = (i * 2) as u32;
+        indices.extend_from_slice(&[b, b + 1, b + 3, b, b + 3, b + 2]);
     }
     (verts, indices)
 }
 
-fn point_in_xz_polygon(x: f32, z: f32, points: &[[f32; 3]]) -> bool {
-    let mut inside = false;
-    let n = points.len();
-    let mut j = n - 1;
-    for i in 0..n {
-        let pi = points[i];
-        let pj = points[j];
-        if (pi[2] > z) != (pj[2] > z)
-            && x < (pj[0] - pi[0]) * (z - pi[2]) / (pj[2] - pi[2] + f32::EPSILON) + pi[0]
-        {
-            inside = !inside;
-        }
-        j = i;
+#[cfg(test)]
+mod tests {
+    use super::{
+        bake_river_strip, bake_trapezoid_water, TerrainVisualImpl, WATER_UV_FACTOR,
+    };
+
+
+    #[test]
+    fn trapezoid_bake_uses_authored_z_and_world_uvs() {
+        let points = [
+            [0.0, 10.0, 0.0],
+            [80.0, 12.0, 0.0],
+            [80.0, 14.0, 80.0],
+            [0.0, 16.0, 80.0],
+        ];
+        let (verts, indices) = bake_trapezoid_water(&points, 0.0, 0.0, 0xffff_ffff);
+        assert!(!verts.is_empty());
+        assert!(!indices.is_empty());
+        assert!(
+            (verts[0].y - 10.0).abs() < 1.0e-3,
+            "lake verts must keep authored Z, not flatten to water_position_z; y={}",
+            verts[0].y
+        );
+        assert!(
+            verts[0].tu.abs() < 0.05,
+            "world UV at origin x=0 must be ~0, not grid tx*4; tu={}",
+            verts[0].tu
+        );
+        let last = verts.last().copied().unwrap();
+        assert!(
+            (last.y - 14.0).abs() < 1.0e-2,
+            "far corner interpolates authored Z; y={}",
+            last.y
+        );
+        assert!(
+            (last.tu - 80.0 / WATER_UV_FACTOR).abs() < 0.05,
+            "world UV uses vertex.x/150; tu={}",
+            last.tu
+        );
     }
-    inside
+
+    #[test]
+    fn river_bake_uses_bank_pairs_not_centerline_offset() {
+        let points = [
+            [0.0, 5.0, 0.0],
+            [0.0, 5.0, 20.0],
+            [40.0, 6.0, 20.0],
+            [40.0, 6.0, 0.0],
+        ];
+        let (verts, indices) = bake_river_strip(&points, 0, 0.0, 0xffff_ffff);
+        assert_eq!(verts.len(), 4);
+        assert_eq!(indices.len(), 6);
+        assert!(
+            verts.iter().all(|v| v.x.abs() < 1.0 || (v.x - 40.0).abs() < 1.0),
+            "bank pairs use authored XY, not ±12 centerline zigzag: {:?}",
+            verts.iter().map(|v| v.x).collect::<Vec<_>>()
+        );
+        assert!(verts.iter().any(|v| (v.y - 5.0).abs() < 1.0e-3));
+        assert!(verts.iter().any(|v| (v.y - 6.0).abs() < 1.0e-3));
+    }
+
+    #[test]
+    fn leftover_add_water_velocity_drains_into_live_grid() {
+        let Some(tv) = gamelogic::helpers::TheTerrainVisual::get() else {
+            return;
+        };
+        let _ = tv.take_water_velocity_impulses();
+        tv.add_water_velocity(10.0, 10.0, 1.5, 7.0);
+        let mut visual = TerrainVisualImpl::new();
+        visual.set_water_grid_resolution(4.0, 4.0, 10.0);
+        visual.set_water_transform(0.0, 0.0, 0.0, 5.0);
+        visual.set_water_attenuation_factors(1.0, 0.0, 0.0, 10.0);
+        visual.enable_water_grid(true);
+        visual.drain_leftover_water_velocity();
+        assert!(
+            !visual.water_grid_state().velocity_events.is_empty(),
+            "leftover addWaterVelocity must drain onto the live water grid"
+        );
+    }
 }
+

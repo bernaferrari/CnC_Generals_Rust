@@ -1158,7 +1158,7 @@ fn host_living_mutual_ally(logic: &GameLogic, player_id: u32) -> Option<u32> {
 }
 
 fn host_transfer_assets_from(logic: &mut GameLogic, dest_player: u32, source_player: u32) {
-    // C++ Player::transferAssetsFromThat — skip beacon templates.
+    // C++ Player::transferAssetsFromThat — skip beacon templates, then cash.
     let ids: Vec<ObjectId> = logic
         .host_objects()
         .iter()
@@ -1172,22 +1172,79 @@ fn host_transfer_assets_from(logic: &mut GameLogic, dest_player: u32, source_pla
     for id in ids {
         let _ = logic.transfer_object_to_player(id, dest_player);
     }
+    let amount = logic
+        .get_player(source_player)
+        .map(|p| p.effective_supplies())
+        .unwrap_or(0);
+    if amount > 0 {
+        if let Some(src) = logic.get_player_mut(source_player) {
+            crate::game_logic::host_economy_log::record_money_audio(
+                source_player,
+                crate::game_logic::host_economy_log::HostMoneyAudio::Withdraw,
+            );
+            src.apply_supply_spend_unchecked(amount);
+        }
+        if let Some(dst) = logic.get_player_mut(dest_player) {
+            crate::game_logic::host_economy_log::record_money_audio(
+                dest_player,
+                crate::game_logic::host_economy_log::HostMoneyAudio::Deposit,
+            );
+            dst.apply_supply_gain(amount);
+        }
+    }
 }
 
 fn host_kill_player(logic: &mut GameLogic, player_id: u32) {
-    // C++ Player::killPlayer — destroy remaining owned objects (incl. beacons).
+    // C++ Player::killPlayer — evacuate, Neutral-transfer tech, kill remaining,
+    // wipe cash.
+    let container_ids: Vec<ObjectId> = logic
+        .host_objects()
+        .iter()
+        .filter(|(_, obj)| {
+            obj.owner_player_id == Some(player_id) && !obj.contained_units().is_empty()
+        })
+        .map(|(id, _)| *id)
+        .collect();
+    for container_id in container_ids {
+        let _ = logic.evacuate_container_now(container_id, false);
+    }
+
+    let neutral_owner = logic
+        .get_players()
+        .values()
+        .find(|p| p.team == Team::Neutral && !p.is_observer)
+        .map(|p| p.id);
+
     let ids: Vec<ObjectId> = logic
         .host_objects()
         .iter()
         .filter_map(|(id, obj)| (obj.owner_player_id == Some(player_id)).then_some(*id))
         .collect();
     for id in ids {
+        let is_tech = logic
+            .host_object(id)
+            .is_some_and(|obj| obj.is_kind_of(KindOf::TechBuilding));
+        if is_tech {
+            if let Some(obj) = logic.host_object_mut(id) {
+                obj.set_team_and_owner(Team::Neutral, neutral_owner);
+            }
+            continue;
+        }
         logic.destroy_object(id);
         live_beacon_clear(id);
     }
     if let Some(player) = logic.get_player_mut(player_id) {
         player.is_alive = false;
         player.selected_objects.clear();
+        let cash = player.effective_supplies();
+        if cash > 0 {
+            crate::game_logic::host_economy_log::record_money_audio(
+                player_id,
+                crate::game_logic::host_economy_log::HostMoneyAudio::Withdraw,
+            );
+            player.apply_supply_spend_unchecked(cash);
+        }
+        player.pending_supply_delta = 0;
     }
 }
 
@@ -1856,12 +1913,12 @@ mod leftover_dispatch_tests {
                 damage: 1.0,
                 range: 10.0,
                 ..crate::game_logic::Weapon::default()
-});
+            });
             unit.secondary_weapon = Some(crate::game_logic::Weapon {
                 damage: 5.0,
                 range: 20.0,
                 ..crate::game_logic::Weapon::default()
-});
+            });
             unit.active_weapon_slot = 0;
         }
         let result = CommandExecutor::new(&mut logic, 0)
@@ -1907,6 +1964,7 @@ mod leftover_dispatch_tests {
         logic.process_commands();
         assert!(logic.get_player(0).unwrap().logical_retaliation_mode_enabled);
     }
+
     #[test]
     fn self_destruct_transfers_to_living_ally() {
         let mut logic = GameLogic::new();
@@ -1914,6 +1972,8 @@ mod leftover_dispatch_tests {
         let mut p1 = Player::new(1, Team::USA, "P1", false);
         p0.alliance_team = 1;
         p1.alliance_team = 1;
+        p0.resources.supplies = 4_000;
+        p1.resources.supplies = 1_000;
         logic.get_players_mut().insert(0, p0);
         logic.get_players_mut().insert(1, p1);
         let mut tpl = crate::game_logic::ThingTemplate::new("RangerSD");
@@ -1934,6 +1994,28 @@ mod leftover_dispatch_tests {
         assert_eq!(result, CommandResult::Success);
         assert!(!logic.get_player(0).unwrap().is_alive);
         assert_eq!(logic.host_object(id).unwrap().owner_player_id, Some(1));
+        assert_eq!(logic.get_player(0).unwrap().effective_supplies(), 0);
+        assert_eq!(logic.get_player(1).unwrap().effective_supplies(), 5_000);
+    }
+
+    #[test]
+    fn self_destruct_without_ally_wipes_cash() {
+        let mut logic = GameLogic::new();
+        let mut p0 = Player::new(0, Team::USA, "P0", true);
+        p0.resources.supplies = 2_500;
+        logic.get_players_mut().insert(0, p0);
+        let result = CommandExecutor::new(&mut logic, 0)
+            .execute_command(command(
+                0,
+                CommandType::SelfDestruct {
+                    transfer_to_ally: false,
+                },
+                vec![],
+            ))
+            .expect("exec");
+        assert_eq!(result, CommandResult::Success);
+        assert!(!logic.get_player(0).unwrap().is_alive);
+        assert_eq!(logic.get_player(0).unwrap().effective_supplies(), 0);
     }
 
     #[test]

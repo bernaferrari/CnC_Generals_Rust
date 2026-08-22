@@ -171,6 +171,32 @@ fn clear_raising_flag_model(object: &mut Object) {
     }
 }
 
+/// C++ `getSingleLogicalBonePosition` residual: pristine attach bone, else origin.
+fn special_ability_attach_bone_world(caster: &Object, bone_name: &str) -> glam::Vec3 {
+    let origin = caster.get_position();
+    if bone_name.is_empty() {
+        return origin;
+    }
+    let model = caster.thing.template.get_model_name();
+    if model.is_empty() {
+        return origin;
+    }
+    let scale = caster.thing.template.asset_scale;
+    let yaw = caster.get_orientation();
+    let Some(local) =
+        gamelogic::object::draw::lookup_pristine_bone_translation(model, scale, bone_name)
+    else {
+        return origin;
+    };
+    let (sin, cos) = yaw.sin_cos();
+    let host_local = glam::Vec3::new(local.x, local.z, local.y);
+    glam::Vec3::new(
+        origin.x + host_local.x * cos - host_local.z * sin,
+        origin.y + host_local.y,
+        origin.z + host_local.x * sin + host_local.z * cos,
+    )
+}
+
 enum LeftoverSaTick {
     Waiting,
     Trigger,
@@ -1116,7 +1142,9 @@ impl GameLogic {
             .objects
             .iter()
             .filter_map(|(id, o)| {
-                if o.weapon_laser_beam && o.producer_id == Some(producer_id) {
+                if (o.weapon_laser_beam || o.missile_defender_laser_beam)
+                    && o.producer_id == Some(producer_id)
+                {
                     Some(*id)
                 } else {
                     None
@@ -1128,6 +1156,7 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.weapon_laser_beam = false;
+                o.missile_defender_laser_beam = false;
             }
             self.mark_object_for_destruction(sid, None);
         }
@@ -1150,18 +1179,8 @@ impl GameLogic {
         laser_name: &str,
     ) -> Option<ObjectId> {
         self.leftover_kill_special_objects(from_id);
-        let (from, to) = {
-            let source = self.objects.get(&from_id)?;
-            let target = self.objects.get(&to_id)?;
-            let fp = source.get_position();
-            let tp = target.get_position();
-            let end = glam::Vec3::new(
-                tp.x,
-                tp.y + target.selection_radius.max(5.0) * 0.5,
-                tp.z,
-            );
-            (fp, end)
-        };
+        let (from, to) = self.special_ability_laser_endpoints(from_id, to_id)?;
+
         let bid = self.spawn_weapon_laser_beam_object(laser_name, from_id, Some(to_id), from, to)?;
         let expires = self.frame.saturating_add(lifetime_frames.max(1));
         if let Some(o) = self.objects.get_mut(&bid) {
@@ -1187,6 +1206,124 @@ impl GameLogic {
         self.hero_abilities.record_leftover_binary_stream();
         Some(bid)
     }
+
+    /// C++ `SpecialAbilityUpdate::initLaser` start/end for a live caster/target pair.
+    pub(crate) fn special_ability_laser_endpoints(
+        &self,
+        caster_id: ObjectId,
+        target_id: ObjectId,
+    ) -> Option<(glam::Vec3, glam::Vec3)> {
+        self.special_ability_laser_endpoints_from_bone(caster_id, target_id, "")
+    }
+
+    /// C++ `getSingleLogicalBonePosition` then `getCenterPosition` (origin fallback).
+    pub(crate) fn special_ability_laser_endpoints_from_bone(
+        &self,
+        caster_id: ObjectId,
+        target_id: ObjectId,
+        attach_bone: &str,
+    ) -> Option<(glam::Vec3, glam::Vec3)> {
+        let caster = self.objects.get(&caster_id)?;
+        let target = self.objects.get(&target_id)?;
+        let geom = &target.thing.template.geometry_info;
+        let start = special_ability_attach_bone_world(caster, attach_bone);
+        Some(crate::game_logic::host_weapon_laser::special_ability_laser_endpoints(
+            start,
+            target.get_position(),
+            geom.max_height_above_position(),
+            target.selection_radius,
+            geom.authored,
+        ))
+    }
+
+    /// C++ `continuePreparation` re-initLaser for MD / Lotus disable beams.
+    pub(crate) fn reinit_special_ability_laser(
+        &mut self,
+        caster_id: ObjectId,
+        target_id: ObjectId,
+        special_object_id: Option<ObjectId>,
+    ) -> bool {
+        let md_beam = special_object_id
+            .and_then(|sid| self.objects.get(&sid))
+            .is_some_and(|o| o.missile_defender_laser_beam);
+        let bone_name = self
+            .weapon_lasers
+            .iter()
+            .find(|l| l.from_id == caster_id && l.to_id == Some(target_id))
+            .map(|l| l.laser_bone_name.clone())
+            .unwrap_or_else(|| {
+                if md_beam {
+                    crate::game_logic::host_missile_defender::LASER_GUIDED_ATTACH_BONE.to_string()
+                } else {
+                    String::new()
+                }
+            });
+        let Some((from, to)) =
+            self.special_ability_laser_endpoints_from_bone(caster_id, target_id, &bone_name)
+        else {
+            return false;
+        };
+        let frame = self.frame;
+        let mut found = false;
+        for laser in &mut self.weapon_lasers {
+            if laser.from_id == caster_id && laser.to_id == Some(target_id) {
+                laser.retarget((from.x, from.y, from.z), (to.x, to.y, to.z));
+                laser.keep_alive(
+                    frame,
+                    crate::game_logic::host_weapon_laser::WEAPON_LASER_LIFETIME_FRAMES,
+                );
+                found = true;
+            }
+        }
+        if !found {
+            if special_object_id.is_none() {
+                return false;
+            }
+            let (laser_name, life) = if md_beam {
+                (
+                    crate::game_logic::host_missile_defender::LASER_GUIDED_SPECIAL_OBJECT,
+                    crate::game_logic::host_missile_defender::LASER_GUIDED_BEAM_LIFETIME_FRAMES,
+                )
+            } else {
+                (
+                    crate::game_logic::host_hero_abilities::LOTUS_DISABLE_SPECIAL_OBJECT,
+                    crate::game_logic::host_hero_abilities::LOTUS_DISABLE_PREP_FRAMES,
+                )
+            };
+            self.weapon_lasers.push(
+                crate::game_logic::host_weapon_laser::ResidualWeaponLaser::with_bone_lifetime(
+                    laser_name,
+                    bone_name,
+                    caster_id,
+                    Some(target_id),
+                    (from.x, from.y, from.z),
+                    (to.x, to.y, to.z),
+                    frame,
+                    life,
+                ),
+            );
+            found = true;
+        }
+        if let Some(sid) = special_object_id {
+            if let Some(o) = self.objects.get_mut(&sid) {
+                o.set_position(from);
+                let extra = if o.missile_defender_laser_beam {
+                    crate::game_logic::host_missile_defender::LASER_GUIDED_BEAM_LIFETIME_FRAMES
+                } else {
+                    crate::game_logic::host_hero_abilities::LOTUS_DISABLE_PREP_FRAMES
+                };
+                let until = frame.saturating_add(extra.max(1));
+                if o.missile_defender_laser_beam {
+                    o.missile_defender_laser_beam_expires_frame = Some(until);
+                }
+                if o.weapon_laser_beam {
+                    o.weapon_laser_beam_expires_frame = Some(until);
+                }
+            }
+        }
+        found
+    }
+
 
     fn leftover_spawn_disable_fx(
         &mut self,
@@ -1581,7 +1718,16 @@ impl GameLogic {
                     self.pending_special_abilities.remove(&object_id);
                     return LeftoverSaTick::Finished;
                 }
+                if kind == crate::game_logic::host_hero_abilities::LeftoverSaKind::DisableVehicle {
+                    // C++ continuePreparation re-initLaser each prep frame.
+                    let _ = self.reinit_special_ability_laser(
+                        object_id,
+                        target_id,
+                        channel.special_object_id,
+                    );
+                }
                 let remaining = (channel.remaining_seconds - dt.max(0.0)).max(0.0);
+
                 if remaining > EPS {
                     self.hero_abilities.set_leftover_channel(
                         object_id,

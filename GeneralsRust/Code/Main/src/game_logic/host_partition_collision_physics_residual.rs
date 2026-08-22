@@ -579,11 +579,14 @@ pub enum VehicleCrashImmobileOutcome {
     DestroyWithBuildingWeapon,
     /// Fire VehicleCrashesIntoNonBuildingWeapon; vehicle continues.
     DamageWithNonBuildingWeapon,
+    /// Non-vehicle fall into KINDOF_STRUCTURE: destroyObject, no crash weapon.
+    DestroyWithoutWeapon,
 }
 
 /// C++ PhysicsBehavior onCollide residual when falling into immobile other.
 ///
-/// Requires vehicle, immobile other, downward motion, and height >= rubble height.
+/// Weapon is gated on KINDOF_VEHICLE. Falling into a structure always
+/// `destroyObject`s the mover (infantry, debris, crew, tossed riders).
 pub fn vehicle_crash_into_immobile_outcome(
     is_vehicle: bool,
     other_is_structure: bool,
@@ -592,23 +595,30 @@ pub fn vehicle_crash_into_immobile_outcome(
     vehicle_world_height: f32,
     rubble_height: f32,
 ) -> VehicleCrashImmobileOutcome {
-    if !is_vehicle || !other_is_immobile || !falling_down {
+    if !other_is_immobile || !falling_down {
         return VehicleCrashImmobileOutcome::None;
     }
     if vehicle_world_height < rubble_height {
         return VehicleCrashImmobileOutcome::None;
     }
     if other_is_structure {
-        VehicleCrashImmobileOutcome::DestroyWithBuildingWeapon
-    } else {
+        if is_vehicle {
+            VehicleCrashImmobileOutcome::DestroyWithBuildingWeapon
+        } else {
+            VehicleCrashImmobileOutcome::DestroyWithoutWeapon
+        }
+    } else if is_vehicle {
         VehicleCrashImmobileOutcome::DamageWithNonBuildingWeapon
+    } else {
+        VehicleCrashImmobileOutcome::None
     }
 }
 
 /// Weapon template name for crash outcome residual.
 pub fn vehicle_crash_weapon_name(outcome: VehicleCrashImmobileOutcome) -> Option<&'static str> {
     match outcome {
-        VehicleCrashImmobileOutcome::None => None,
+        VehicleCrashImmobileOutcome::None
+        | VehicleCrashImmobileOutcome::DestroyWithoutWeapon => None,
         VehicleCrashImmobileOutcome::DestroyWithBuildingWeapon => {
             Some(PHYSICS_VEHICLE_CRASHES_INTO_BUILDING_WEAPON)
         }
@@ -618,11 +628,12 @@ pub fn vehicle_crash_weapon_name(outcome: VehicleCrashImmobileOutcome) -> Option
     }
 }
 
-/// Whether crash outcome destroys the vehicle (building path).
+/// Whether crash outcome destroyObject's the mover (building path).
 pub fn vehicle_crash_destroys_vehicle(outcome: VehicleCrashImmobileOutcome) -> bool {
     matches!(
         outcome,
         VehicleCrashImmobileOutcome::DestroyWithBuildingWeapon
+            | VehicleCrashImmobileOutcome::DestroyWithoutWeapon
     )
 }
 
@@ -953,7 +964,25 @@ pub fn honesty_physics_residual_pack_wave96() -> bool {
         && vehicle_crash_weapon_name(VehicleCrashImmobileOutcome::DestroyWithBuildingWeapon)
             == Some(PHYSICS_VEHICLE_CRASHES_INTO_BUILDING_WEAPON)
         && vehicle_crash_destroys_vehicle(VehicleCrashImmobileOutcome::DestroyWithBuildingWeapon)
+        && vehicle_crash_destroys_vehicle(VehicleCrashImmobileOutcome::DestroyWithoutWeapon)
         && !vehicle_crash_destroys_vehicle(VehicleCrashImmobileOutcome::DamageWithNonBuildingWeapon)
+        && vehicle_crash_weapon_name(VehicleCrashImmobileOutcome::DestroyWithoutWeapon).is_none()
+        && vehicle_crash_into_immobile_outcome(
+            false,
+            true,
+            true,
+            true,
+            2.0,
+            PHYSICS_DEFAULT_STRUCTURE_RUBBLE_HEIGHT_RESIDUAL,
+        ) == VehicleCrashImmobileOutcome::DestroyWithoutWeapon
+        && vehicle_crash_into_immobile_outcome(
+            false,
+            false,
+            true,
+            true,
+            2.0,
+            PHYSICS_DEFAULT_STRUCTURE_RUBBLE_HEIGHT_RESIDUAL,
+        ) == VehicleCrashImmobileOutcome::None
         && can_crush_only_residual(1, 0, false, false)
         && !can_crush_only_residual(1, 0, true, false)
         && !can_crush_only_residual(0, 0, false, false)

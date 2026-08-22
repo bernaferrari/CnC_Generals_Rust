@@ -225,6 +225,8 @@ impl GameLogic {
             b_unmanned,
             a_ignore_obs,
             b_ignore_obs,
+            a_contained_by,
+            b_contained_by,
         ) = {
             let Some(a) = self.objects.get(&a_id) else {
                 return false;
@@ -246,6 +248,8 @@ impl GameLogic {
                 b.status.disabled_unmanned,
                 a.ignored_obstacle_id == Some(b_id),
                 b.ignored_obstacle_id == Some(a_id),
+                a.contained_by,
+                b.contained_by,
             )
         };
         if a_ignore_b || b_ignore_a {
@@ -258,6 +262,10 @@ impl GameLogic {
         // C++ Object::onCollide walks only this object's collide modules.
         // Reverse side is the pair loop's second try_physics_collide.
         self.dispatch_host_collide_modules(a_id, b_id);
+        // C++ PhysicsUpdate.cpp:1167-1172 — container/occupant never bounce/crush.
+        if a_contained_by == Some(b_id) || b_contained_by == Some(a_id) {
+            return true;
+        }
         // C++ PhysicsUpdate.cpp:1182-1213: recrew only inside
         // ai->getIgnoredObstacleID() == other->getID(); else bounce/crush.
         if a_ignore_obs {
@@ -428,18 +436,34 @@ impl GameLogic {
         if !allow_force {
             return true; // AI handled / no force
         }
-        // C++ PhysicsUpdate.cpp:1386-1398: overlap capped at 5, force = -overlap * delta/dist.
+        // C++ PhysicsUpdate.cpp:1278-1398: airborne = 3D sphere radii + delta;
+        // ground = 2D circle; early-out if dist exceeds radius sum; overlap cap 5.
         if let Some(a) = self.objects.get_mut(&a_id) {
             if a.allow_collide_force {
                 let us = a.get_position();
                 let them = b_snap.get_position();
-                let dx = us.x - them.x;
-                let dz = us.z - them.z;
-                let dist = (dx * dx + dz * dz).sqrt();
-                let them_r = b_snap.selection_radius.max(1.0);
-                let overlap = (us_radius + them_r) - dist;
-                if overlap > 0.0 {
-                    a.apply_overlap_collide_force(them, overlap);
+                let airborne = a.is_above_terrain();
+                let us_r = if airborne {
+                    a.physics_collide_sphere_radius()
+                } else {
+                    a.physics_collide_circle_radius()
+                };
+                let them_r = if airborne {
+                    b_snap.physics_collide_sphere_radius()
+                } else {
+                    b_snap.physics_collide_circle_radius()
+                };
+                let dx = them.x - us.x;
+                let dy = if airborne { them.y - us.y } else { 0.0 };
+                let dz = them.z - us.z;
+                let dist_sqr = dx * dx + dy * dy + dz * dz;
+                let radius_sum = us_r + them_r;
+                if dist_sqr <= radius_sum * radius_sum {
+                    let dist = dist_sqr.sqrt();
+                    let overlap = radius_sum - dist;
+                    if overlap > 0.0 {
+                        a.apply_overlap_collide_force(them, overlap);
+                    }
                 }
             }
         }
@@ -585,12 +609,24 @@ impl GameLogic {
         if !imm_ok {
             return false;
         }
-        let mut applied = false;
         if let Some(m) = self.objects.get_mut(&mover_id) {
             if mover_para {
                 m.apply_parachute_building_bounce_out(imm_center, us_radius);
                 return true;
             }
+        }
+        // C++ PhysicsUpdate.cpp:1353-1365 — fall-into-structure destroyObject
+        // (weapon only if vehicle) before stiffness bounce.
+        if self.apply_vehicle_crash_into_immobile(mover_id, immobile_id).is_some()
+            && self
+                .objects
+                .get(&mover_id)
+                .map(|o| o.status.destroyed)
+                .unwrap_or(true)
+        {
+            return true;
+        }
+        if let Some(m) = self.objects.get_mut(&mover_id) {
             // Live destroyed ≈ C++ effectivelyDead hulks still in the world;
             // they still stiffness-bounce. C++ isDestroyed() is remove-from-world.
             let _ = m.apply_structure_stiffness_bounce(
@@ -598,13 +634,9 @@ impl GameLogic {
                 PHYSICS_STRUCTURE_STIFFNESS_DEFAULT_RESIDUAL,
                 crate::game_logic::Object::SHOCK_MASS,
             );
-            applied = true;
+            return true;
         }
-        if applied {
-            // After stiffness bounce, try vehicle crash residual if applicable.
-            let _ = self.apply_vehicle_crash_into_immobile(mover_id, immobile_id);
-        }
-        applied
+        false
     }
 
     pub fn apply_vehicle_crash_into_immobile(
@@ -613,7 +645,7 @@ impl GameLogic {
         other_id: ObjectId,
     ) -> Option<&'static str> {
         use crate::game_logic::host_partition_collision_physics_residual::{
-            vehicle_crash_destroys_vehicle, vehicle_crash_weapon_name,
+            vehicle_crash_destroys_vehicle, vehicle_crash_weapon_name, VehicleCrashImmobileOutcome,
         };
         let outcome = {
             let Some(v) = self.objects.get(&vehicle_id) else {
@@ -624,7 +656,10 @@ impl GameLogic {
             };
             v.evaluate_vehicle_crash_into(o)
         };
-        let weapon = vehicle_crash_weapon_name(outcome)?;
+        if matches!(outcome, VehicleCrashImmobileOutcome::None) {
+            return None;
+        }
+        let weapon = vehicle_crash_weapon_name(outcome);
         let pos = self
             .objects
             .get(&vehicle_id)
@@ -632,13 +667,16 @@ impl GameLogic {
             .unwrap_or(glam::Vec3::ZERO);
         // C++ TheWeaponStore->createAndFireTempWeapon(template, obj, pos)
         // then destroyObject for structures (PhysicsUpdate.cpp:1361-1364).
-        let spec = crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadEphemeralWeaponSpec {
-            module_source_index: 0,
-            weapon_template_name: weapon.to_string(),
-            weapon_slot:
-                crate::game_logic::host_temporary_weapon_behavior::TemporaryWeaponSlot::Primary,
-        };
-        let _ = self.create_and_fire_temp_weapon(vehicle_id, &spec);
+        // Non-vehicles skip the weapon but still destroyObject.
+        if let Some(weapon) = weapon {
+            let spec = crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadEphemeralWeaponSpec {
+                module_source_index: 0,
+                weapon_template_name: weapon.to_string(),
+                weapon_slot:
+                    crate::game_logic::host_temporary_weapon_behavior::TemporaryWeaponSlot::Primary,
+            };
+            let _ = self.create_and_fire_temp_weapon(vehicle_id, &spec);
+        }
         if vehicle_crash_destroys_vehicle(outcome) {
             if let Some(v) = self.objects.get_mut(&vehicle_id) {
                 // Damage authority: HP last-writer via damage log; destroy flag stays host.
@@ -656,14 +694,15 @@ impl GameLogic {
                 v.status.destroyed = true;
                 v.status.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Exploded;
             }
-            // Also queue crash audio residual.
-            self.queue_audio_event(
-                AudioEventRequest::new(weapon)
-                    .with_object(vehicle_id)
-                    .with_position(pos)
-                    .with_priority(200),
-            );
-        } else {
+            if let Some(weapon) = weapon {
+                self.queue_audio_event(
+                    AudioEventRequest::new(weapon)
+                        .with_object(vehicle_id)
+                        .with_position(pos)
+                        .with_priority(200),
+                );
+            }
+        } else if let Some(weapon) = weapon {
             self.queue_audio_event(
                 AudioEventRequest::new(weapon)
                     .with_object(vehicle_id)
@@ -671,9 +710,8 @@ impl GameLogic {
                     .with_priority(160),
             );
         }
-        Some(weapon)
+        Some(weapon.unwrap_or(""))
     }
-
     /// C++ `OpenContain::getContainedItemsMass` walk — refresh hull cache so
     /// `Object::physics_get_mass` matches `m_mass + contain->getContainedItemsMass()`.
     pub fn sync_contained_items_mass(&mut self, container_id: ObjectId) {

@@ -981,7 +981,10 @@ impl GameLogic {
         position: Vec3,
     ) -> Option<ObjectId> {
         let owner_player_id = self.unique_player_id_for_team(team);
-        self.create_object_with_owner(template_name, team, owner_player_id, position)
+        let id = self.create_object_with_owner(template_name, team, owner_player_id, position)?;
+        self.apply_cash_bounty_on_object_created(id);
+        Some(id)
+
     }
 
     /// Create an object for a specific controlling player while retaining the
@@ -996,7 +999,11 @@ impl GameLogic {
         if team == Team::Neutral {
             return None;
         }
-        self.create_object_with_owner(template_name, team, Some(owner_player_id), position)
+        let id =
+            self.create_object_with_owner(template_name, team, Some(owner_player_id), position)?;
+        self.apply_cash_bounty_on_object_created(id);
+        Some(id)
+
     }
 
     /// Create through a player-aware path when a caller has exact provenance,
@@ -3404,9 +3411,13 @@ impl GameLogic {
             .unwrap_or_default();
         if !crushing_fx.is_empty() {
             for s in &samples {
+                // C++ StructureToppleUpdate.cpp:407-419 doDamageLine:
+                // target.z = TheTerrainLogic->getGroundHeight(target.x, target.y).
+                let sample_xz = glam::Vec3::new(s.x, 0.0, s.z);
+                let height = self.terrain_height_at(sample_xz).unwrap_or(0.0);
                 let _ = crate::game_logic::dispatch_fx_list_at_pos(
                     &crushing_fx,
-                    glam::Vec3::new(s.x, 0.0, s.z),
+                    glam::Vec3::new(s.x, height, s.z),
                 );
             }
         }

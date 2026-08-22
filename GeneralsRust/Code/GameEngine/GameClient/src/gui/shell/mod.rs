@@ -58,8 +58,8 @@ pub use main_menu::{
 // Re-export replay menu types
 pub use replay_menu::{
     get_unicode_time_buffer, parse_ascii_string_to_game_info as replay_parse_game_info,
-    KeyCode as ReplayKeyCode, KeyState as ReplayKeyState, ReplayGameInfo, ReplayHeader,
-    ReplayListEntry, ReplayMenu, SystemTimeValue,
+    populate_replay_file_listbox, KeyCode as ReplayKeyCode, KeyState as ReplayKeyState,
+    ReplayGameInfo, ReplayHeader, ReplayListEntry, ReplayMenu, SystemTimeValue,
 };
 
 // Re-export replay controls types

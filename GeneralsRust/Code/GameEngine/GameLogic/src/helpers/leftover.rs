@@ -649,6 +649,26 @@ impl TheTerrainVisual {
         );
     }
 
+    /// Drain leftover `addWaterVelocity` impulses into live `TerrainVisualImpl`.
+    pub fn take_water_velocity_impulses(&self) -> Vec<(Real, Real, Real, Real)> {
+        WATER_VELOCITY_IMPULSES
+            .lock()
+            .map(|mut impulses| {
+                impulses
+                    .drain(..)
+                    .map(|impulse| {
+                        (
+                            impulse.x,
+                            impulse.y,
+                            impulse.velocity,
+                            impulse.preferred_height,
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// C++ `TheTerrainVisual->enableWaterGrid`.
     pub fn enable_water_grid(&self, enable: bool) {
         crate::terrain_water::visual_enable_water_grid(enable);

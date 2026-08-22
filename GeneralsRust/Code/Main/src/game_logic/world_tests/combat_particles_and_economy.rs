@@ -3506,6 +3506,7 @@ fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
             Vec3::new(20.0, 0.0, 0.0),
             &game_logic.objects,
             false,
+            Some(collector_id),
         );
         assert!(
             direct_ground_path.is_some(),

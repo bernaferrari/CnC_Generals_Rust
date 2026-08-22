@@ -41,7 +41,9 @@ impl ControlBar {
     }
 
     fn update_star_image(&mut self) {
-        let current_points = logic_player_list()
+        // C++ getStarImage: flash while sciencePurchasePoints > 0.
+        // Leftover PlayerList is empty on the live host — use presentation SPP.
+        let leftover_points = logic_player_list()
             .read()
             .ok()
             .and_then(|list| list.get_local_player().cloned())
@@ -51,11 +53,19 @@ impl ControlBar {
                     .map(|guard| guard.get_science_purchase_points())
             })
             .unwrap_or(0);
+        let current_points = if leftover_points > 0 {
+            leftover_points
+        } else {
+            self.science_state
+                .live_science_purchase_points
+                .unwrap_or(0)
+        };
 
         if self.last_flashed_at_point_value > current_points || current_points <= 0 {
             self.gen_star_flash = false;
         } else {
             self.last_flashed_at_point_value = current_points;
+            self.gen_star_flash = true;
         }
 
         if !self.gen_star_flash {

@@ -601,19 +601,7 @@ impl UnitAIUpdate {
                     let num_killed =
                         kill_enemies_in_container(obj_guard.get_id(), target_id, max_to_kill);
                     if num_killed > 0 {
-                        if let Some(fx) = TheFXListStore::lookup_fx_list("CombatDropKillFX") {
-                            if let Err(err) = fx.do_fx_obj_ids(target_id, None, None) {
-                                log::debug!(
-                                    "Unit::update_rappel_state CombatDropKillFX failed for target {}: {}",
-                                    target_id,
-                                    err
-                                );
-                            }
-                        } else {
-                            log::warn!(
-                                "Unit::update_rappel_state unresolved FXList 'CombatDropKillFX'"
-                            );
-                        }
+                        play_combat_drop_kill_fx(obj_guard.get_template_name(), target_id);
                     }
 
                     if num_killed == max_to_kill {
@@ -721,5 +709,33 @@ impl UnitAIUpdate {
         }
 
         self.rappel_state = Some(current_state);
+    }
+}
+
+/// C++ `obj->getTemplate()->getPerUnitFX("CombatDropKillFX")` then `FXList::doFXObj(fx, bldg, NULL)`.
+fn play_combat_drop_kill_fx(template_name: &str, building_id: ObjectID) {
+    let Some(guard) = game_engine::common::thing::thing_factory::try_get_thing_factory() else {
+        return;
+    };
+    let Some(factory) = guard.as_ref() else {
+        return;
+    };
+    let Some(tmpl) = factory.find_template(template_name, false) else {
+        return;
+    };
+    let key = "CombatDropKillFX".to_string();
+    let Some(fx) = tmpl.get_per_unit_fx(&key) else {
+        return;
+    };
+    if let Some(store_fx) = TheFXListStore::lookup_fx_list(fx.name.as_str()) {
+        if let Err(err) = store_fx.do_fx_obj_ids(building_id, None, None) {
+            log::debug!(
+                "Unit::update_rappel_state CombatDropKillFX failed for target {}: {}",
+                building_id,
+                err
+            );
+        }
+    } else {
+        fx.do_fx_obj(Some(building_id), None);
     }
 }

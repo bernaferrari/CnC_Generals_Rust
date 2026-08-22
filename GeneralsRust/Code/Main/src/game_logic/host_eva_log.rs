@@ -3,7 +3,7 @@
 //! C++ `TheEva->setShouldPlay` edges are recorded here so PresentationFrame can
 //! emit snapshot EVA audio without dual-reading live GameLogic mid-render.
 
-use gamelogic::helpers::EvaEvent;
+use gamelogic::helpers::{EvaEvent, TheEva};
 use std::cell::RefCell;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,7 +83,15 @@ pub fn eva_event_audio_name(event: EvaEvent) -> String {
     format!("EVA_{}", eva_event_table_token(event))
 }
 
+/// C++ `Eva::m_enabled` / leftover `TheEva::is_enabled`.
+pub fn is_enabled() -> bool {
+    TheEva::is_enabled().unwrap_or(true)
+}
+
 pub fn record(name: impl Into<String>) {
+    if !is_enabled() {
+        return;
+    }
     LOG.with(|log| {
         log.borrow_mut().push(HostEvaEvent { name: name.into() });
     });
@@ -102,12 +110,16 @@ pub fn drain() -> Vec<HostEvaEvent> {
     v
 }
 
+/// Consume this tick's EVA pulses once. C++ `Eva::update` (Eva.cpp:264-295)
+/// clears `m_shouldPlay` after the edge; do not replay `LAST_DRAIN` into the
+/// next empty freeze.
 pub fn take_last_drain() -> Vec<HostEvaEvent> {
     let pending = drain();
-    if !pending.is_empty() {
-        return pending;
+    LAST_DRAIN.with(|last| last.borrow_mut().clear());
+    if !is_enabled() {
+        return Vec::new();
     }
-    LAST_DRAIN.with(|last| std::mem::take(&mut *last.borrow_mut()))
+    pending
 }
 
 pub fn clear() {
@@ -117,6 +129,13 @@ pub fn clear() {
 
 #[cfg(test)]
 mod host_eva_drain_tests {
+    use super::*;
+
+    fn restore_eva() {
+        let _ = TheEva::set_enabled(true);
+        clear();
+    }
+
     #[test]
     fn process_eva_events_must_not_steal_the_eva_queue() {
         // C++ Eva::update (Eva.cpp:264-525) is the sole consumer of setShouldPlay.
@@ -134,5 +153,59 @@ mod host_eva_drain_tests {
             !process.contains("dispatch_eva_announcement"),
             "generic EVA_* names must not replace Eva.ini SideSounds"
         );
+    }
+
+    #[test]
+    fn take_last_drain_does_not_replay_into_the_next_freeze() {
+        restore_eva();
+        record("EVA_LOWPOWER");
+        let first = take_last_drain();
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].name, "EVA_LOWPOWER");
+        let second = take_last_drain();
+        assert!(
+            second.is_empty(),
+            "empty tick must not replay LAST_DRAIN: {second:?}"
+        );
+        restore_eva();
+    }
+
+    #[test]
+    fn record_and_take_last_drain_silent_when_eva_disabled() {
+        restore_eva();
+        let _ = TheEva::set_enabled(false);
+        record_event(EvaEvent::LowPower);
+        record("EVA_UNITLOST");
+        assert!(
+            take_last_drain().is_empty(),
+            "disabled EVA must not freeze chat/HUD pulses"
+        );
+        restore_eva();
+    }
+
+    #[test]
+    fn pending_log_dropped_when_eva_disabled_before_drain() {
+        restore_eva();
+        record("EVA_LOWPOWER");
+        let _ = TheEva::set_enabled(false);
+        assert!(
+            take_last_drain().is_empty(),
+            "C++ setEvaEnabled clears waiting messages"
+        );
+        restore_eva();
+    }
+
+    #[test]
+    fn reenable_records_new_edges_only() {
+        restore_eva();
+        record("EVA_LOWPOWER");
+        let _ = TheEva::set_enabled(false);
+        let _ = take_last_drain();
+        let _ = TheEva::set_enabled(true);
+        record("EVA_UNITLOST");
+        let got = take_last_drain();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].name, "EVA_UNITLOST");
+        restore_eva();
     }
 }

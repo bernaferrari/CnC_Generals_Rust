@@ -1086,6 +1086,8 @@ impl Object {
             assault_transport: None,
             deploy_style: None,
             command_button_hunt: None,
+            last_command_source:
+                crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI,
             has_overlord_gattling_addon: false,
             overlord_addon_body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
@@ -1964,6 +1966,8 @@ impl Object {
             assault_transport: None,
             deploy_style: None,
             command_button_hunt: None,
+            last_command_source:
+                crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI,
             overlord_addon_body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             overlord_portable_occupant: None,
@@ -2224,6 +2228,26 @@ impl Object {
         self.reload_all_ammo();
         true
     }
+
+    /// C++ FireWeaponPower::doSpecialPowerAtObject residual.
+    pub fn activate_fire_weapon_power_at_object(
+        &mut self,
+        target_id: crate::game_logic::ObjectId,
+    ) -> bool {
+        if self.is_disabled() {
+            return false;
+        }
+        let shots =
+            crate::game_logic::host_fire_weapon_power::max_shots_for_template(&self.template_name);
+        self.fire_weapon_power = Some(
+            crate::game_logic::host_fire_weapon_power::HostFireWeaponPowerRequest::at_object(
+                shots, target_id,
+            ),
+        );
+        self.reload_all_ammo();
+        true
+    }
+
 
     pub fn is_alive(&self) -> bool {
         if self.status.destroyed || self.status.effectively_dead || self.status.keep_as_rubble {

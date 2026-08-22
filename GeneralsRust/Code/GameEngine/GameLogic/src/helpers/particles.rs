@@ -30,7 +30,7 @@ impl TheFXList {
         manager.do_fx_pos(fx_id, pos, None);
     }
 
-    /// C++ `FXList::doFXPos` with victim/secondary so Tracer/RayEffect nuggets run.
+    /// C++ `FXList::doFXPos` with drawable matrix / victim / radius.
     pub fn do_fx_at_position_ex(
         &self,
         fx_template: &str,
@@ -38,12 +38,13 @@ impl TheFXList {
         secondary: Option<&Coord3D>,
         primary_speed: f32,
         override_radius: f32,
+        matrix: Option<&Matrix3D>,
     ) {
         let Some(manager) = FX_LIST_MANAGER.get() else {
             return;
         };
         let fx_id = NameKeyGenerator::name_to_key(fx_template) as FXListId;
-        manager.do_fx_pos_ex(fx_id, pos, None, primary_speed, secondary, override_radius);
+        manager.do_fx_pos_ex(fx_id, pos, matrix, primary_speed, secondary, override_radius);
     }
 
     /// C++ `FXList::doFXObj` — object form (orient + AttachToObject + FXListAtBonePos).

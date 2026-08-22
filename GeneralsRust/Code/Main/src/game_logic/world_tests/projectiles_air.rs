@@ -1187,6 +1187,114 @@ fn frenzy_residual_buffs_allies_and_boosts_damage() {
     assert!((recovered.frenzy_damage_multiplier() - 1.0).abs() < f32::EPSILON);
 }
 
+/// C++ WeaponBonusUpdate ALLOW_ALLIES — 2v2 China Frenzy buffs allied USA CAN_ATTACK.
+#[test]
+fn frenzy_buffs_allied_faction_units_not_just_same_team() {
+    use crate::game_logic::host_frenzy::HostFrenzyLevel;
+    use crate::game_logic::{Player, Weapon};
+
+    let mut logic = GameLogic::new();
+    ensure_test_tank_template(&mut logic);
+    let mut china = Player::new(1, Team::China, "China", true);
+    let mut usa = Player::new(0, Team::USA, "USA", false);
+    china.alliance_team = 7;
+    usa.alliance_team = 7;
+    china.is_alive = true;
+    usa.is_alive = true;
+    logic.add_player(china);
+    logic.add_player(usa);
+
+    let caster = logic
+        .create_object_for_player("TestTank", 1, Vec3::new(0.0, 0.0, 0.0))
+        .expect("caster");
+    let ally = logic
+        .create_object_for_player("TestTank", 0, Vec3::new(20.0, 0.0, 0.0))
+        .expect("usa ally");
+    {
+        let unit = logic.host_object_mut(ally).expect("ally");
+        unit.weapon = Some(Weapon {
+            damage: 20.0,
+            range: 150.0,
+            reload_time: 0.1,
+            last_fire_time: -10.0,
+            ..Weapon::default()
+        });
+    }
+
+    assert!(logic.activate_frenzy(
+        1,
+        Vec3::new(10.0, 0.0, 0.0),
+        Some(caster),
+        HostFrenzyLevel::One,
+    ));
+    assert!(
+        logic.host_object(ally).unwrap().is_frenzy_buffed(),
+        "2v2 allied USA tank must receive China Frenzy"
+    );
+}
+
+/// C++ iterateContained: passengers of an in-range STRUCTURE get Frenzy even
+/// when their live position is not independently inside BonusRange.
+#[test]
+fn frenzy_walks_garrison_occupants_of_in_range_structure() {
+    use crate::game_logic::host_frenzy::HostFrenzyLevel;
+    use crate::game_logic::Weapon;
+
+    let mut logic = GameLogic::new();
+    ensure_test_tank_template(&mut logic);
+    ensure_test_infantry_template(&mut logic);
+    ensure_test_garrison_template(&mut logic);
+    ensure_test_player_for_team(&mut logic, Team::China);
+
+    let caster = logic
+        .create_object("TestTank", Team::China, Vec3::new(0.0, 0.0, 0.0))
+        .expect("caster");
+    let bunker = logic
+        .create_object("TestBunker", Team::China, Vec3::new(15.0, 0.0, 0.0))
+        .expect("bunker");
+    let rider = logic
+        .create_object("TestInfantry", Team::China, Vec3::new(800.0, 0.0, 0.0))
+        .expect("rider");
+    {
+        let unit = logic.host_object_mut(rider).expect("rider");
+        unit.weapon = Some(Weapon {
+            damage: 10.0,
+            range: 80.0,
+            reload_time: 0.1,
+            last_fire_time: -10.0,
+            ..Weapon::default()
+        });
+    }
+    {
+        let bunker_obj = logic.host_object_mut(bunker).unwrap();
+        if !bunker_obj.add_occupant(rider) {
+            if let Some(bd) = bunker_obj.building_data.as_mut() {
+                bd.max_garrison = bd.max_garrison.max(5);
+                if !bd.garrisoned_units.contains(&rider) {
+                    bd.garrisoned_units.push(rider);
+                }
+            } else if !bunker_obj.occupants.contains(&rider) {
+                bunker_obj.occupants.push(rider);
+            }
+        }
+    }
+
+    assert!(logic.activate_frenzy(
+        1,
+        Vec3::new(10.0, 0.0, 0.0),
+        Some(caster),
+        HostFrenzyLevel::One,
+    ));
+    assert!(
+        !logic.host_object(bunker).unwrap().is_frenzy_buffed(),
+        "STRUCTURE container itself is ForbiddenAffectKindOf"
+    );
+    assert!(
+        logic.host_object(rider).unwrap().is_frenzy_buffed(),
+        "garrison occupant must receive Frenzy via contained walk"
+    );
+}
+
 /// Frenzy is not a superweapon residual strike (separate buff residual path).
 #[test]
 fn frenzy_does_not_queue_superweapon_strike() {

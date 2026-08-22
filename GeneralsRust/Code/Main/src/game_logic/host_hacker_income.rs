@@ -349,6 +349,21 @@ impl HostHackerIncomeRegistry {
         self.pack_phase.get(&hacker_id).copied()
     }
 
+    /// C++ `m_hasPendingCommand` / `m_pendingCommand` peek.
+    pub fn peek_pending_command(&self, hacker_id: ObjectId) -> Option<PendingHackerCommand> {
+        self.pending_command.get(&hacker_id).copied()
+    }
+
+    /// Frame when UNPACKING / PACKING pose completes.
+    pub fn peek_pack_until(&self, hacker_id: ObjectId) -> Option<u32> {
+        self.pack_until_frame.get(&hacker_id).copied()
+    }
+
+    /// Snapshot of currently scheduled hacker deposit ids.
+    pub fn next_deposit_keys(&self) -> Vec<ObjectId> {
+        self.next_deposit_frame.keys().copied().collect()
+    }
+
     pub fn is_packing(&self, hacker_id: ObjectId) -> bool {
         self.pack_phase.get(&hacker_id) == Some(&HackerInternetPhase::Packing)
     }

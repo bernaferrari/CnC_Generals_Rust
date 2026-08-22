@@ -40,13 +40,13 @@ impl PresentationFrame {
         }
 
         if ro.under_construction {
-            let mut cmds = vec![UnitCommandButton {
+            // C++ populateUnderConstruction — Cancel stays; script-disabled
+            // wipe is for CommandSet context only (apply_host_disabled).
+            return vec![UnitCommandButton {
                 command_name: "Command_CancelConstruction".into(),
                 enabled: true,
                 ..Default::default()
             }];
-            self.apply_host_disabled_command_strip(&mut cmds, ro);
-            return cmds;
         }
 
         // C++ ControlBar.cpp:1830-1871 — after UC, OCLUpdate replaces the 14
@@ -143,6 +143,47 @@ impl PresentationFrame {
         let bar = self.leftover_availability_bar(ro, &cs_name);
         for cmd in cmds.iter_mut() {
             if cmd.command_name.is_empty() {
+                continue;
+            }
+            if eval_ids.len() > 1 {
+                // C++ updateContextMultiSelect: any COMMAND_HIDDEN hides;
+                // then enable if any object is AVAILABLE/ACTIVE.
+                let mut hidden = false;
+                let mut can_do = 0u32;
+                let mut last = game_client::gui::control_bar::CommandAvailability::Restricted;
+                for id in eval_ids {
+                    let avail = bar.leftover_evaluate_named_command(
+                        &cmd.command_name,
+                        *id,
+                        self.local_player_id,
+                    );
+                    if matches!(
+                        avail,
+                        game_client::gui::control_bar::CommandAvailability::Hidden
+                    ) {
+                        hidden = true;
+                    }
+                    if matches!(
+                        avail,
+                        game_client::gui::control_bar::CommandAvailability::Available
+                            | game_client::gui::control_bar::CommandAvailability::Active
+                    ) {
+                        can_do += 1;
+                    }
+                    last = avail;
+                }
+                if hidden {
+                    *cmd = UnitCommandButton::default();
+                    continue;
+                }
+                cmd.enabled = can_do > 0;
+                cmd.availability = if can_do > 0 {
+                    leftover_to_unit_availability(
+                        game_client::gui::control_bar::CommandAvailability::Available,
+                    )
+                } else {
+                    leftover_to_unit_availability(last)
+                };
                 continue;
             }
             let mut best = game_client::gui::control_bar::CommandAvailability::Hidden;
@@ -356,11 +397,23 @@ impl PresentationFrame {
         cmds: &mut [UnitCommandButton],
         ro: &RenderableObject,
     ) {
+        // C++ doTransportInventoryUI: empty EXIT_CONTAINER starts disabled;
+        // extraSlotsInUse hides overflow slots; unmanned hides all exits.
+        let extra_slots: usize = ro
+            .garrisoned_units
+            .iter()
+            .filter_map(|id| self.objects.iter().find(|o| o.id == *id && !o.destroyed))
+            .map(|o| o.transport_slot_count.max(1).saturating_sub(1))
+            .sum();
+        let transport_max = if ro.max_garrison > 0 {
+            ro.max_garrison.saturating_sub(extra_slots)
+        } else {
+            usize::MAX
+        };
+        let unmanned = ro.disabled_unmanned;
         let occupants = self.presentation_inventory_occupants(ro);
-        if occupants.is_empty() {
-            return;
-        }
         let mut occ_iter = occupants.into_iter();
+        let mut inventory_command_count = 0usize;
         for cmd in cmds.iter_mut() {
             let n = cmd.command_name.to_ascii_lowercase();
             let is_exit = (n.contains("exit") || n.contains("transport"))
@@ -369,8 +422,16 @@ impl PresentationFrame {
             if !is_exit {
                 continue;
             }
+            inventory_command_count += 1;
+            cmd.enabled = false;
+            cmd.exit_object_id = None;
+            cmd.overlay_image = None;
+            if unmanned || inventory_command_count > transport_max {
+                *cmd = UnitCommandButton::default();
+                continue;
+            }
             let Some(occ) = occ_iter.next() else {
-                break;
+                continue;
             };
             if occ.object_id != 0 {
                 cmd.exit_object_id = Some(occ.object_id);
@@ -439,7 +500,7 @@ impl PresentationFrame {
             }),
             OclTimerButtonKind::Hidden => {}
         }
-        self.apply_host_disabled_command_strip(&mut cmds, ro);
+        // C++ populateOCLTimer does not run getCommandAvailability wipe.
         cmds
     }
 

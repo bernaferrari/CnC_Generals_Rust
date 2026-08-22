@@ -4,8 +4,10 @@
 //! - `DoSpecialPower(Frenzy)` at a world location applies a temporary weapon-bonus
 //!   enrage (retail SuperweaponFrenzy → Frenzy_InvisibleMarker_Level* →
 //!   WeaponBonusUpdate → doTempWeaponBonus(FRENZY_ONE/TWO/THREE)).
-//! - Nearby **same-team non-structure CAN_ATTACK residual** units receive a
-//!   temporary damage multiplier (110% / 120% / 130%) for BonusDuration.
+//! - Nearby **ally** (C++ PartitionFilterRelationship ALLOW_ALLIES) non-structure
+//!   CAN_ATTACK residual units receive a temporary damage multiplier
+//!   (110% / 120% / 130%) for BonusDuration. Occupants of in-range ally
+//!   garrison/transport containers are walked even when the container is STRUCTURE.
 //! - Honesty counters/flags for residual gates and tests.
 //!
 //! Wave 52 residual pack (retail System.ini / GameData.ini / Science.ini):
@@ -21,7 +23,8 @@
 //! Fail-closed honesty:
 //! - Frenzy_InvisibleMarker spawn + DeletionUpdate 1-frame residual closed
 //! - Not full KindOf multi-mask engine beyond residual Required/Forbidden filters
-//! - Not full ally relationship filter (uses same-team residual)
+//! - Ally filter uses player relationship (Allies), not faction Team equality
+//! - Contained recurse on in-range ally containers (garrison/transport)
 //! - Not full player science ownership matrix beyond residual name tier gate
 //! - Not full FrenzyCloud particle / red TINT_STATUS_FRENZY drawable path
 //! - Not network Frenzy replication (network deferred)
@@ -250,18 +253,18 @@ where
 /// Whether residual target can receive Frenzy / Rage attack buff.
 ///
 /// Retail WeaponBonusUpdate filters:
-/// - allies (host residual: same-team)
+/// - allies (C++ PartitionFilterRelationship ALLOW_ALLIES)
 /// - alive
 /// - RequiredAffectKindOf = CAN_ATTACK
 /// - ForbiddenAffectKindOf = STRUCTURE
 pub fn is_legal_frenzy_target(
     is_structure: bool,
     is_alive: bool,
-    same_team: bool,
+    is_ally: bool,
     can_attack: bool,
     under_construction: bool,
 ) -> bool {
-    !is_structure && is_alive && same_team && can_attack && !under_construction
+    !is_structure && is_alive && is_ally && can_attack && !under_construction
 }
 
 /// 2D distance check residual (C++ FROM_CENTER_2D / BonusRange).
@@ -507,7 +510,7 @@ mod tests {
 
     #[test]
     fn legal_frenzy_target_matrix() {
-        // structure, alive, same_team, can_attack, under_construction
+        // structure, alive, is_ally, can_attack, under_construction
         assert!(is_legal_frenzy_target(false, true, true, true, false));
         assert!(!is_legal_frenzy_target(true, true, true, true, false)); // structure
         assert!(!is_legal_frenzy_target(false, false, true, true, false)); // dead

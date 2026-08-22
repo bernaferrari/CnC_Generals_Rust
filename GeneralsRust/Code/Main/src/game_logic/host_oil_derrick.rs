@@ -444,6 +444,11 @@ impl HostOilDerrickRegistry {
         amount
     }
 
+    /// C++ `m_awardInitialCaptureBonus` after first non-neutral gain.
+    pub fn has_capture_bonus_awarded(&self, derrick_id: ObjectId) -> bool {
+        self.capture_bonus_awarded.contains(&derrick_id)
+    }
+
     /// C++ `awardInitialCaptureBonus` is invoked on every non-neutral gain
     /// (`Player::becomingTeamMember(yes)`). Returns true when owner changed
     /// (including first capture and recapture); caller must reset `depositOnFrame`.

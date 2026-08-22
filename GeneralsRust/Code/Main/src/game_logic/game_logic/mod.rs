@@ -102,11 +102,12 @@ impl GameLogic {
         {
             self.update_player_alive_state();
         }
-        let outcome = self.victory_conditions.evaluate(
+        let outcome = self.victory_conditions.evaluate_with_templates(
             &self.players,
             &self.objects,
             self.frame,
             self.game_mode,
+            &self.player_template_bindings,
         );
         // C++ VictoryConditions.cpp:196 p->killPlayer() on first defeat frame.
         let pending = self.victory_conditions.take_pending_kills();

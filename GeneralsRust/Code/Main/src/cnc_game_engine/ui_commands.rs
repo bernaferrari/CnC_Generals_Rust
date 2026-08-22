@@ -1904,7 +1904,8 @@ impl CnCGameEngine {
             queue_index
         };
         let mut any = false;
-        for id in targets {
+        // C++ ControlBarCommandProcessing.cpp:469-479 — one producer, one slot.
+        if let Some(&id) = targets.first() {
             if self.host_cancel_production_at_index(id, cancel_index) {
                 any = true;
             }
@@ -1943,23 +1944,20 @@ impl CnCGameEngine {
         } else {
             producers
         };
-        self.host_queue_and_process_command_silent(crate::command_system::GameCommand {
-            command_type: crate::command_system::CommandType::CancelUpgrade {
-                upgrade_name: upgrade_name.to_string(),
-            },
-            player_id,
-            command_id: 0,
-            timestamp: std::time::SystemTime::now(),
-            selected_units: targets.clone(),
-            modifier_keys: crate::command_system::ModifierKeys::default(),
-        });
-        let cancel_index = if production_id != 0 {
-            production_id as usize
-        } else {
-            queue_index
-        };
-        for id in targets {
-            let _ = self.host_cancel_production_at_index(id, cancel_index);
+        // C++ ControlBarCommandProcessing.cpp:592-601 — MSG_CANCEL_UPGRADE
+        // by name on the single UI producer. Do not also cancel_at_index:
+        // execute_cancel_upgrade already refunds and strips the queue entry.
+        if let Some(&id) = targets.first() {
+            self.host_queue_and_process_command_silent(crate::command_system::GameCommand {
+                command_type: crate::command_system::CommandType::CancelUpgrade {
+                    upgrade_name: upgrade_name.to_string(),
+                },
+                player_id,
+                command_id: 0,
+                timestamp: std::time::SystemTime::now(),
+                selected_units: vec![id],
+                modifier_keys: crate::command_system::ModifierKeys::default(),
+            });
         }
         let panel = &mut self.game_hud.construction_panel;
         if let Some(idx) = panel.building_queue.iter().position(|q| {

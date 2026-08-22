@@ -14,6 +14,9 @@ use crate::gui::window_manager::{with_window_manager, with_window_manager_ref};
 use game_engine::common::ini::ini_game_data::get_global_data;
 use game_engine::common::recorder::{self, ReplayHeader as CommonReplayHeader};
 use game_engine::common::version::get_version;
+use crate::gui::gadgets::{ListBox, ListBoxItemData, KeyModifiers};
+use crate::map_util::get_map_cache_manager;
+
 
 /// Maximum number of player slots in a game
 pub const MAX_SLOTS: usize = 8;
@@ -557,12 +560,33 @@ impl ReplayMenu {
             .unwrap_or(filename)
             .to_string()
     }
+    /// C++ ReplayMenu.cpp:157-165 via MapCache::findMap; lookup matches game_info_window.rs.
+    fn replay_map_display_name(map_name: &str, cache: &crate::map_util::MapCache) -> String {
+        if map_name.is_empty() {
+            return String::new();
+        }
+        let lookup = map_name.to_lowercase();
+        if let Some(meta) = cache.find_map(&lookup) {
+            let display = meta.display_name.as_str().to_string();
+            if !display.is_empty() {
+                return display;
+            }
+        }
+        let leaf = map_name.rsplit(['\\', '/']).next().unwrap_or(map_name);
+        leaf.to_string()
+    }
+
 
     /// Populate the listbox with replay files
     ///
     /// Matches C++ ReplayMenu.cpp:85-242
     pub fn populate_replay_listbox(&mut self) {
         self.replay_list.clear();
+
+        // C++ ReplayMenu.cpp:87-88 / :116 — TheMapCache->updateCache() once before the scan.
+        let cache = get_map_cache_manager();
+        let mut cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+        cache_guard.update_cache();
 
         // Scan replay directory for files
         let search_pattern = format!("*{}", self.replay_extension);
@@ -595,8 +619,8 @@ impl ReplayMenu {
                     // Format date/time
                     let date_str = header.time_val.to_display_string();
 
-                    // Get map display name
-                    let map_str = game_info.get_map().to_string();
+                    // Map column: MapCache display name (C++ ReplayMenu.cpp:157-165)
+                    let map_str = Self::replay_map_display_name(game_info.get_map(), &cache_guard);
 
                     // Determine color based on version compatibility
                     let color = header.get_display_color(
@@ -624,6 +648,41 @@ impl ReplayMenu {
         // Select first entry by default
         if !self.replay_list.is_empty() {
             self.selected_index = 0;
+        }
+    }
+
+    /// Write name/date/version/map columns onto a gadget listbox.
+    ///
+    /// C++ ReplayMenu.cpp:233-236 (no extra/duration column).
+    fn write_entries_to_listbox(&self, list_box: &mut ListBox) {
+        if list_box.columns() < 4 {
+            list_box.set_columns(4);
+        }
+        list_box.clear();
+        for entry in &self.replay_list {
+            let color = super::Color::new(entry.color.r, entry.color.g, entry.color.b, entry.color.a);
+            let row = list_box.add_item_with_data_and_color(0, &entry.name, None, Some(color));
+            let _ = list_box.set_item_column_data(
+                row,
+                1,
+                ListBoxItemData::Text(entry.date.clone()),
+            );
+            let _ = list_box.set_item_column_color(row, 1, Some(color));
+            let _ = list_box.set_item_column_data(
+                row,
+                2,
+                ListBoxItemData::Text(entry.version.clone()),
+            );
+            let _ = list_box.set_item_column_color(row, 2, Some(color));
+            let _ = list_box.set_item_column_data(
+                row,
+                3,
+                ListBoxItemData::Text(entry.map.clone()),
+            );
+            let _ = list_box.set_item_column_color(row, 3, Some(color));
+        }
+        if !self.replay_list.is_empty() {
+            let _ = list_box.select_index(0, KeyModifiers::none());
         }
     }
 
@@ -897,6 +956,19 @@ impl ReplayMenu {
             self.selected_index = index;
         }
     }
+}
+
+/// C++ `PopulateReplayFileListbox` (ReplayMenu.cpp:85-242).
+/// Shared by ReplayMenu and PopupReplay: name/date/version/map, compat grey, skip unparseable.
+pub fn populate_replay_file_listbox(list_box: &mut ListBox) {
+    recorder::init_recorder();
+    let (dir, ext) = recorder::with_recorder(|rec| {
+        (rec.replay_dir(), rec.replay_extension().to_string())
+    })
+    .unwrap_or_else(|| (PathBuf::from("Replays"), ".rep".to_string()));
+    let mut menu = ReplayMenu::new(dir, ext);
+    menu.populate_replay_listbox();
+    menu.write_entries_to_listbox(list_box);
 }
 
 /// Key codes for keyboard input
@@ -1178,4 +1250,19 @@ mod tests {
         assert_eq!(menu.current_version_number, version.get_version_number());
         assert_ne!(menu.current_version_number, 100);
     }
+
+    #[test]
+    fn replay_map_display_name_uses_cache_or_leaf() {
+        let cache = crate::map_util::MapCache::default();
+        assert_eq!(
+            ReplayMenu::replay_map_display_name(r"maps\alpine_war\alpine_war.map", &cache),
+            "alpine_war.map"
+        );
+        assert_eq!(
+            ReplayMenu::replay_map_display_name("Maps/Tournament Desert", &cache),
+            "Tournament Desert"
+        );
+        assert_eq!(ReplayMenu::replay_map_display_name("", &cache), "");
+    }
+
 }

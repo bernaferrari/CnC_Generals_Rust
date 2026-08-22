@@ -2140,6 +2140,84 @@ fn ocl_timer_selection_hides_command_set_strip() {
 }
 
 #[test]
+fn under_construction_keeps_cancel_when_script_disabled() {
+    // C++ populateUnderConstruction is its own context — SCRIPT_DISABLED
+    // must not wipe CancelConstruction the way CommandSet does.
+    use crate::game_logic::{
+        buildings::{BuildingData, BuildingType},
+        KindOf, Team, ThingTemplate,
+    };
+    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
+    let mut logic = crate::game_logic::GameLogic::new();
+    let mut tb = ThingTemplate::new("AmericaBarracks");
+    tb.set_health(1000.0)
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable);
+    logic.templates.insert("AmericaBarracks".into(), tb);
+    let id = logic
+        .create_object("AmericaBarracks", Team::USA, glam::Vec3::ZERO)
+        .expect("b");
+    if let Some(o) = logic.host_object_mut(id) {
+        o.building_data = Some(BuildingData::new(BuildingType::Barracks));
+        o.selected = true;
+        o.status.under_construction = true;
+        o.construction_percent = 0.4;
+        o.set_script_disabled(true);
+    }
+    if let Some(p) = logic.get_player_mut(0) {
+        p.selected_objects = vec![id];
+    }
+    let cmds = PresentationFrame::build_from_logic(&logic, 0).unit_command_buttons();
+    assert!(
+        cmds.iter().any(|c| {
+            c.command_name
+                .eq_ignore_ascii_case("Command_CancelConstruction")
+                && c.enabled
+        }),
+        "UC Cancel must survive SCRIPT_DISABLED: {:?}",
+        cmds
+    );
+}
+
+#[test]
+fn empty_transport_exit_slot_starts_disabled() {
+    // C++ doTransportInventoryUI winEnable(FALSE) until an occupant binds.
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
+    let mut logic = crate::game_logic::GameLogic::new();
+    let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");
+    humvee
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(200.0);
+    logic.templates.insert("AmericaVehicleHumvee".into(), humvee);
+    let hid = logic
+        .create_object("AmericaVehicleHumvee", Team::USA, glam::Vec3::ZERO)
+        .expect("humvee");
+    if let Some(o) = logic.host_object_mut(hid) {
+        o.selected = true;
+    }
+    if let Some(p) = logic.get_player_mut(0) {
+        p.selected_objects = vec![hid];
+    }
+    let cmds = PresentationFrame::build_from_logic(&logic, 0).unit_command_buttons();
+    let exits: Vec<_> = cmds
+        .iter()
+        .filter(|c| {
+            let n = c.command_name.to_ascii_lowercase();
+            (n.contains("exit") || n.contains("transport"))
+                && !n.contains("evacuate")
+                && !n.contains("beacon")
+        })
+        .collect();
+    assert!(
+        !exits.is_empty() && exits.iter().all(|c| !c.enabled && c.exit_object_id.is_none()),
+        "empty EXIT_CONTAINER must stay disabled: {:?}",
+        cmds
+    );
+}
+
+#[test]
 fn empty_command_set_garrison_builds_structure_inventory() {
     crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     use crate::game_logic::{

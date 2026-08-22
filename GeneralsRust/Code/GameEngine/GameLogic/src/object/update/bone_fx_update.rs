@@ -80,11 +80,42 @@ impl Default for BaseBoneListInfo {
     }
 }
 
+impl BaseBoneListInfo {
+    /// C++ `initTimes` next-frame: empty bone → -1, else `now + delay`.
+    pub fn next_frame_from_now(&self, now: i32, client: bool) -> i32 {
+        if self.loc_info.bone_name.is_empty() {
+            return -1;
+        }
+        now + self.delay_frames(client)
+    }
+
+    /// C++ `computeNextLogicFXTime` / `computeNextClientFXTime`.
+    pub fn next_frame_after_fire(&self, now: i32, client: bool) -> i32 {
+        if self.only_once {
+            -1
+        } else {
+            now + self.delay_frames(client)
+        }
+    }
+
+    fn delay_frames(&self, client: bool) -> i32 {
+        let delay = if client {
+            self.game_client_delay.get_value()
+        } else {
+            self.game_logic_delay.get_value()
+        };
+        delay as i32
+    }
+}
+
+
 /// FX list information for a bone.
 #[derive(Debug, Clone)]
 pub struct BoneFXListInfo {
     pub base: BaseBoneListInfo,
     pub fx: Option<FXListId>,
+    /// Authored `FXList:` name even when the leftover store has no entry.
+    pub fx_name: String,
 }
 
 impl Default for BoneFXListInfo {
@@ -92,6 +123,7 @@ impl Default for BoneFXListInfo {
         Self {
             base: BaseBoneListInfo::default(),
             fx: None,
+            fx_name: String::new(),
         }
     }
 }
@@ -101,6 +133,8 @@ impl Default for BoneFXListInfo {
 pub struct BoneOCLInfo {
     pub base: BaseBoneListInfo,
     pub ocl: Option<ObjectCreationListId>,
+    /// Authored `OCL:` name even when the leftover store has no entry.
+    pub ocl_name: String,
 }
 
 impl Default for BoneOCLInfo {
@@ -108,6 +142,7 @@ impl Default for BoneOCLInfo {
         Self {
             base: BaseBoneListInfo::default(),
             ocl: None,
+            ocl_name: String::new(),
         }
     }
 }
@@ -117,6 +152,8 @@ impl Default for BoneOCLInfo {
 pub struct BoneParticleSystemInfo {
     pub base: BaseBoneListInfo,
     pub particle_sys_template: Option<ParticleSystemTemplateId>,
+    /// Authored `PSys:` name.
+    pub particle_name: String,
 }
 
 impl Default for BoneParticleSystemInfo {
@@ -124,6 +161,7 @@ impl Default for BoneParticleSystemInfo {
         Self {
             base: BaseBoneListInfo::default(),
             particle_sys_template: None,
+            particle_name: String::new(),
         }
     }
 }
@@ -257,7 +295,9 @@ fn parse_fx_list_entry(tokens: &[&str], info: &mut BoneFXListInfo) -> Result<(),
     let value = parse_tag_value(token, &mut iter, "fxlist")?;
     if value.eq_ignore_ascii_case("none") {
         info.fx = None;
+        info.fx_name.clear();
     } else {
+        info.fx_name = value.clone();
         if let Some(fx) = crate::helpers::TheFXListStore::lookup_fx_list(&value) {
             info.fx = Some(fx.id());
         } else {
@@ -286,7 +326,9 @@ fn parse_ocl_entry(tokens: &[&str], info: &mut BoneOCLInfo) -> Result<(), INIErr
     let value = parse_tag_value(token, &mut iter, "ocl")?;
     if value.eq_ignore_ascii_case("none") {
         info.ocl = None;
+        info.ocl_name.clear();
     } else {
+        info.ocl_name = value.clone();
         if TheObjectCreationListStore::find_object_creation_list(&value).is_some() {
             info.ocl = Some(name_key_generate(&value) as ObjectCreationListId);
         } else {
@@ -318,10 +360,40 @@ fn parse_particle_entry(
     let value = parse_tag_value(token, &mut iter, "psys")?;
     if value.eq_ignore_ascii_case("none") {
         info.particle_sys_template = None;
+        info.particle_name.clear();
     } else {
+        info.particle_name = value.clone();
         info.particle_sys_template = Some(name_key_generate(&value) as ParticleSystemTemplateId);
     }
     Ok(())
+}
+
+fn tokens_from_attr(raw: &str) -> Vec<&str> {
+    raw.split_whitespace().collect()
+}
+
+/// Parse a C++ `Bone: OnlyOnce: <min> <max> FXList:` attribute.
+pub fn parse_fx_list_attr(raw: &str) -> Result<BoneFXListInfo, INIError> {
+    let tokens = tokens_from_attr(raw);
+    let mut info = BoneFXListInfo::default();
+    parse_fx_list_entry(&tokens, &mut info)?;
+    Ok(info)
+}
+
+/// Parse a C++ `Bone: OnlyOnce: <min> <max> OCL:` attribute.
+pub fn parse_ocl_attr(raw: &str) -> Result<BoneOCLInfo, INIError> {
+    let tokens = tokens_from_attr(raw);
+    let mut info = BoneOCLInfo::default();
+    parse_ocl_entry(&tokens, &mut info)?;
+    Ok(info)
+}
+
+/// Parse a C++ `Bone: OnlyOnce: <min> <max> PSys:` attribute.
+pub fn parse_particle_attr(raw: &str) -> Result<BoneParticleSystemInfo, INIError> {
+    let tokens = tokens_from_attr(raw);
+    let mut info = BoneParticleSystemInfo::default();
+    parse_particle_entry(&tokens, &mut info)?;
+    Ok(info)
 }
 
 fn parse_damage_type_flags(tokens: &[&str]) -> Result<DamageTypeFlags, INIError> {
@@ -1782,6 +1854,7 @@ mod tests {
         )
         .expect("parse should succeed");
         assert!(info.fx.is_none());
+        assert_eq!(info.fx_name, "MissingBoneFx_ParityTest_20260302");
     }
 
     #[test]

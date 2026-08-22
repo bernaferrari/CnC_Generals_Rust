@@ -1140,7 +1140,8 @@ impl PresentationFrame {
     /// Same-template locally-owned mass-selectables (`similarUnitSelection`, InGameUI.cpp:150).
     /// Map-wide: C++ `selectMatchingAcrossRegion(NULL)` / ALT double-click.
     /// Matches `ThingTemplate::isEquivalentTo` plus `OBJECT_STATUS_IS_CARBOMB`,
-    /// and skips contained occupants (`!object->isContained()`).
+    /// skips contained occupants (`!object->isContained()`), and skips
+    /// `Object::isOffMap()` (playable extent via `world_env` bounds).
     pub fn similar_unit_ids(
         &self,
         clicked_id: ObjectId,
@@ -1163,11 +1164,24 @@ impl PresentationFrame {
                 o.contained_by.is_none()
                     && self.similar_unit_is_local(o, player_team)
                     && Self::presentation_is_mass_selectable(o)
+                    && !self.presentation_is_off_map(o)
                     && (Self::templates_equivalent_for_type_select(template, o.template_name.as_str())
                         || (clicked_is_carbomb && o.is_carbomb))
             })
             .map(|o| o.id)
             .collect()
+    }
+
+    /// C++ `Object::isOffMap` — playable extent, not cargo-plane residual 0..500.
+    fn presentation_is_off_map(&self, object: &RenderableObject) -> bool {
+        let (world_min, world_max) = self.world_env.world_bounds_vec3();
+        crate::game_logic::host_deliver_payload::is_off_map_residual(
+            object.position,
+            world_min.x,
+            world_min.z,
+            world_max.x,
+            world_max.z,
+        )
     }
 
     /// C++ `ThingTemplate::isEquivalentTo` residual for presentation type-select.

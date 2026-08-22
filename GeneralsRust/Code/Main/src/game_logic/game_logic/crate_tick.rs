@@ -263,6 +263,10 @@ pub struct PlayerStatistics {
     pub units_lost: u32,
     pub units_built: u32,
     pub structures_destroyed: u32,
+    /// C++ `m_totalUnitsDestroyed[m_myPlayerIdx]` — display includes, score skips.
+    pub units_destroyed_self: u32,
+    /// C++ `m_totalBuildingsDestroyed[m_myPlayerIdx]`.
+    pub structures_destroyed_self: u32,
     pub structures_lost: u32,
     pub structures_built: u32,
     pub resources_collected: u32,

@@ -1553,10 +1553,12 @@ impl GameLogic {
             return crate::game_logic::host_production_buildable_command_residual::CANMAKE_NO_PREREQ;
         };
         let Some(producer) = self.objects.get(&producer_id) else {
-            return crate::game_logic::host_production_buildable_command_residual::CANMAKE_FACTORY_IS_DISABLED;
+            // C++ BuildAssistant::canMakeUnit: NULL builder → CANMAKE_NO_PREREQ.
+            return crate::game_logic::host_production_buildable_command_residual::CANMAKE_NO_PREREQ;
         };
-        if !producer.is_alive() || !producer.is_constructed() {
-            return crate::game_logic::host_production_buildable_command_residual::CANMAKE_FACTORY_IS_DISABLED;
+        if !producer.is_alive() {
+            // Stale/dead producer is the live equivalent of a NULL builder.
+            return crate::game_logic::host_production_buildable_command_residual::CANMAKE_NO_PREREQ;
         }
         let team = producer.team;
         let owner_player_id = producer.owner_player_id;
@@ -1709,10 +1711,10 @@ impl GameLogic {
             return CANMAKE_NO_PREREQ;
         };
         let Some(producer) = self.objects.get(&producer_id) else {
-            return CANMAKE_FACTORY_IS_DISABLED;
+            return CANMAKE_NO_PREREQ;
         };
         if !producer.is_alive() {
-            return CANMAKE_FACTORY_IS_DISABLED;
+            return CANMAKE_NO_PREREQ;
         }
         let command_set_ok =
             !matches!(command_set_allows_unit(&producer.template_name, template_name), Some(false));

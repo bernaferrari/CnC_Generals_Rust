@@ -1631,6 +1631,87 @@ fn capture_kicks_transport_passengers_but_not_tunnel_pool() {
 }
 
 #[test]
+fn capture_team_flips_overlord_helix_portable_addon() {
+    // hq-96958: C++ OverlordContain.cpp:227-235 / HelixContain.cpp:217-222.
+    use crate::game_logic::host_overlord_addons::{
+        UPGRADE_HELIX_GATTLING, UPGRADE_OVERLORD_GATTLING,
+    };
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::China, "China", true));
+    logic
+        .players
+        .insert(1, Player::new(1, Team::USA, "USA", true));
+
+    let mut ov = ThingTemplate::new("ChinaTankOverlord");
+    ov.add_kind_of(KindOf::Vehicle).set_health(1100.0);
+    logic.templates.insert("ChinaTankOverlord".into(), ov);
+    let overlord = logic
+        .create_object(
+            "ChinaTankOverlord",
+            Team::China,
+            glam::Vec3::new(0.0, 0.0, 0.0),
+        )
+        .expect("overlord");
+    logic.apply_upgrade_to_object(overlord, UPGRADE_OVERLORD_GATTLING);
+    let addon = logic
+        .host_object(overlord)
+        .and_then(|o| o.overlord_portable_occupant)
+        .expect("portable spawned");
+    assert_eq!(logic.host_object(addon).unwrap().team, Team::China);
+
+    // Capture already flipped host owner (on_capture_object_residual).
+    if let Some(o) = logic.host_object_mut(overlord) {
+        o.set_team_and_owner(Team::USA, Some(1));
+    }
+    logic.on_capture_kick_passengers(overlord, Team::China, Team::USA);
+    let addon_obj = logic.host_object(addon).expect("addon stays live");
+    assert_eq!(addon_obj.team, Team::USA, "C++ setTeam portable rider");
+    assert_eq!(addon_obj.owner_player_id, Some(1));
+    assert_eq!(addon_obj.contained_by, Some(overlord));
+    assert_eq!(
+        logic
+            .host_object(overlord)
+            .and_then(|o| o.overlord_portable_occupant),
+        Some(addon)
+    );
+    assert!(
+        logic
+            .host_object(overlord)
+            .is_some_and(|o| o.contained_units().contains(&addon)),
+        "portable stays attached"
+    );
+
+    let mut hx = ThingTemplate::new("ChinaHelix");
+    hx.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Aircraft)
+        .set_health(400.0);
+    logic.templates.insert("ChinaHelix".into(), hx);
+    let helix = logic
+        .create_object(
+            "ChinaHelix",
+            Team::China,
+            glam::Vec3::new(40.0, 0.0, 0.0),
+        )
+        .expect("helix");
+    if let Some(o) = logic.host_object_mut(helix) {
+        o.install_helix_transport();
+    }
+    logic.apply_upgrade_to_object(helix, UPGRADE_HELIX_GATTLING);
+    let helix_addon = logic
+        .overlord_helix_portable_occupant_id(helix)
+        .expect("helix portable");
+    if let Some(o) = logic.host_object_mut(helix) {
+        o.set_team_and_owner(Team::USA, Some(1));
+    }
+    logic.on_capture_kick_passengers(helix, Team::China, Team::USA);
+    let ha = logic.host_object(helix_addon).expect("helix addon");
+    assert_eq!(ha.team, Team::USA);
+    assert_eq!(ha.contained_by, Some(helix));
+}
+
+#[test]
 fn sell_last_tunnel_ejects_shared_pool() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
@@ -2769,6 +2850,67 @@ fn add_skill_points_modifier_cap_negative_and_reset_rank() {
     assert_eq!(p.rank_level, 1);
     assert_eq!(p.skill_points, 0);
 }
+
+    #[test]
+    fn rank_down_keeps_player_template_intrinsic_sciences() {
+        use crate::game_logic::{Player, PlayerTemplateIdentity, Team};
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "AirF", true));
+        let identity = PlayerTemplateIdentity::from_exact_name("FactionAmericaAirForceGeneral")
+            .expect("retail Air Force PlayerTemplate");
+        assert!(logic.bind_player_template_identity(0, identity));
+        let template = logic
+            .resolved_player_template(0)
+            .expect("bound Air Force template");
+        let intrinsic: Vec<String> = template.get_intrinsic_sciences().to_vec();
+        let intrinsic_spp = template.get_intrinsic_science_purchase_points();
+        assert!(
+            !intrinsic.is_empty(),
+            "Air Force General must author IntrinsicSciences"
+        );
+        {
+            let p = logic.get_player_mut(0).expect("p");
+            p.unlock_science("SCIENCE_PaladinTank");
+            p.rank_level = 4;
+            p.skill_points = 1_600;
+        }
+        assert!(logic.set_player_rank_level(0, 1));
+        let p = logic.get_player(0).expect("p");
+        assert_eq!(p.rank_level, 1);
+        assert_eq!(p.skill_points, 0);
+        for sci in &intrinsic {
+            assert!(
+                p.unlocked_sciences.contains(sci),
+                "rank-down must keep PlayerTemplate intrinsic {sci}"
+            );
+        }
+        assert!(
+            !p.unlocked_sciences.contains("SCIENCE_PaladinTank"),
+            "purchased sciences are dropped on resetRank"
+        );
+        assert!(p.science_purchase_points >= intrinsic_spp);
+    }
+
+#[test]
+fn calculate_score_skips_self_kills() {
+    use crate::game_logic::{Player, Team};
+    let mut p = Player::new(0, Team::USA, "U", true);
+    p.record_unit_produced();
+    p.record_structure_built();
+    p.add_money_earned(50);
+    p.record_unit_destroyed();
+    p.record_unit_destroyed();
+    p.record_self_unit_destroyed();
+    p.record_structure_destroyed();
+    p.record_self_structure_destroyed();
+    // Display totals still include self-kills.
+    assert_eq!(p.statistics.units_destroyed, 2);
+    assert_eq!(p.statistics.structures_destroyed, 1);
+    // Score: 1 built unit + 50 money + 1 built structure + 1 enemy unit + 0 enemy buildings.
+    assert_eq!(p.calculate_score(), 100 + 50 + 100 + 100);
+}
+
+
 
 
 #[test]

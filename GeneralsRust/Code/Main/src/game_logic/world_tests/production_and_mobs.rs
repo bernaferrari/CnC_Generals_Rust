@@ -2093,6 +2093,289 @@ fn command_button_hunt_named_arms_capture_and_flashbang() {
     );
 }
 
+#[test]
+fn command_button_hunt_quits_after_player_move() {
+    use crate::game_logic::host_command_button_hunt::{
+        HostCommandButtonHuntMode, HUNT_CMD_FROM_PLAYER,
+    };
+    use crate::game_logic::Team;
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    ensure_test_infantry_template(&mut logic);
+    ensure_test_tank_template(&mut logic);
+    let hijacker = logic
+        .create_object("TestInfantry", Team::GLA, Vec3::ZERO)
+        .expect("hijacker");
+    {
+        let h = logic.host_object_mut(hijacker).unwrap();
+        h.template_name = "GLAInfantryHijacker".into();
+        h.set_ai_state(AIState::Idle);
+    }
+    let _tank = logic
+        .create_object("TestTank", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+        .expect("tank");
+    assert!(logic.start_command_button_hunt(hijacker, HostCommandButtonHuntMode::HijackVehicle));
+    assert!(logic.unit_command_move_to(hijacker, Vec3::new(10.0, 0.0, 0.0)));
+    assert_eq!(
+        logic.host_object(hijacker).unwrap().last_command_source,
+        HUNT_CMD_FROM_PLAYER
+    );
+    logic.frame = 0;
+    logic.tick_command_button_hunt_updates();
+    let h = logic.host_object(hijacker).unwrap();
+    assert!(
+        h.command_button_hunt.is_none(),
+        "player move must permanently end CommandButtonHunt"
+    );
+    assert!(logic.pending_special_abilities.get(&hijacker).is_none());
+}
+
+#[test]
+fn command_button_hunt_enter_skips_stealth_ally_and_drone() {
+    use crate::game_logic::host_command_button_hunt::HostCommandButtonHuntMode;
+    use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut usa = Player::new(0, Team::USA, "USA", true);
+    let mut china = Player::new(1, Team::China, "China", false);
+    let mut gla = Player::new(2, Team::GLA, "GLA", false);
+    usa.alliance_team = 7;
+    china.alliance_team = 7;
+    gla.alliance_team = 9;
+    logic.add_player(usa);
+    logic.add_player(china);
+    logic.add_player(gla);
+    ensure_test_infantry_template(&mut logic);
+    ensure_test_tank_template(&mut logic);
+    let mut drone = ThingTemplate::new("TestDrone");
+    drone
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Drone)
+        .set_health(50.0);
+    logic.templates.insert("TestDrone".into(), drone);
+
+    let hijacker = logic
+        .create_object("TestInfantry", Team::GLA, Vec3::ZERO)
+        .expect("hijacker");
+    {
+        let h = logic.host_object_mut(hijacker).unwrap();
+        h.template_name = "GLAInfantryHijacker".into();
+        h.owner_player_id = Some(2);
+        h.set_ai_state(AIState::Idle);
+    }
+    let stealth = logic
+        .create_object("TestTank", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+        .expect("stealth");
+    {
+        let t = logic.host_object_mut(stealth).unwrap();
+        t.owner_player_id = Some(0);
+        t.status.stealthed = true;
+        t.status.detected = false;
+    }
+    let ally = logic
+        .create_object("TestTank", Team::China, Vec3::new(25.0, 0.0, 0.0))
+        .expect("ally");
+    logic.host_object_mut(ally).unwrap().owner_player_id = Some(1);
+    // China is allied with USA, not GLA — this is a GLA hijacker vs China tank
+    // so China is an enemy. Use a same-alliance tank by making the hunter USA.
+    let usa_hunter = logic
+        .create_object("TestInfantry", Team::USA, Vec3::new(5.0, 0.0, 0.0))
+        .expect("usa hunter");
+    {
+        let h = logic.host_object_mut(usa_hunter).unwrap();
+        h.template_name = "GLAInfantryHijacker".into();
+        h.owner_player_id = Some(0);
+        h.set_ai_state(AIState::Idle);
+    }
+    let drone_id = logic
+        .create_object("TestDrone", Team::GLA, Vec3::new(15.0, 0.0, 0.0))
+        .expect("drone");
+    logic.host_object_mut(drone_id).unwrap().owner_player_id = Some(2);
+    let legal = logic
+        .create_object("TestTank", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
+        .expect("legal");
+    logic.host_object_mut(legal).unwrap().owner_player_id = Some(2);
+
+    assert!(logic.start_command_button_hunt(usa_hunter, HostCommandButtonHuntMode::HijackVehicle));
+    logic.frame = 0;
+    logic.tick_command_button_hunt_updates();
+    match logic.pending_special_abilities.get(&usa_hunter) {
+        Some(PendingSpecialAbility::Hijack { target_id }) => {
+            assert_eq!(*target_id, legal, "must skip stealth, 2v2 ally, and drone");
+        }
+        other => panic!("expected Hijack of legal enemy, got {other:?}"),
+    }
+}
+
+#[test]
+fn command_button_hunt_special_skips_ally_mine_and_uses_priority() {
+    use crate::game_logic::host_command_button_hunt::HostCommandButtonHuntMode;
+    use crate::game_logic::{AttackPriorityInfo, KindOf, Player, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut usa = Player::new(0, Team::USA, "USA", true);
+    let mut china = Player::new(1, Team::China, "China", false);
+    let mut gla = Player::new(2, Team::GLA, "GLA", false);
+    usa.alliance_team = 7;
+    china.alliance_team = 7;
+    gla.alliance_team = 9;
+    logic.add_player(usa);
+    logic.add_player(china);
+    logic.add_player(gla);
+    ensure_test_infantry_template(&mut logic);
+    ensure_test_tank_template(&mut logic);
+    let mut bldg = ThingTemplate::new("TestBuilding");
+    bldg.add_kind_of(KindOf::Structure).set_health(500.0);
+    logic.templates.insert("TestBuilding".into(), bldg);
+    let mut mine_t = ThingTemplate::new("TestMine");
+    mine_t.add_kind_of(KindOf::Mine).set_health(10.0);
+    logic.templates.insert("TestMine".into(), mine_t);
+
+    // Capture: ally building closer than enemy — must pick enemy.
+    let lotus = logic
+        .create_object("TestInfantry", Team::USA, Vec3::ZERO)
+        .expect("lotus");
+    {
+        let l = logic.host_object_mut(lotus).unwrap();
+        l.template_name = "AmericaInfantryColonelBurton".into();
+        l.owner_player_id = Some(0);
+        l.set_ai_state(AIState::Idle);
+    }
+    let ally_b = logic
+        .create_object("TestBuilding", Team::China, Vec3::new(30.0, 0.0, 0.0))
+        .expect("ally bldg");
+    logic.host_object_mut(ally_b).unwrap().owner_player_id = Some(1);
+    let enemy_b = logic
+        .create_object("TestBuilding", Team::GLA, Vec3::new(90.0, 0.0, 0.0))
+        .expect("enemy bldg");
+    logic.host_object_mut(enemy_b).unwrap().owner_player_id = Some(2);
+    assert!(logic.start_command_button_hunt_named(lotus, Some("Command_CaptureBuilding")));
+    logic.frame = 0;
+    logic.tick_command_button_hunt_updates();
+    let lotus_obj = logic.host_object(lotus).unwrap();
+    assert_eq!(lotus_obj.target, Some(enemy_b), "capture must skip 2v2 ally");
+
+    // TNT: owned mine next to nearer tank → skip it, pick farther unmined tank.
+    // Stay inside default GameLogic extent (-256..256) so same-map passes.
+    let hunter = logic
+        .create_object("TestInfantry", Team::USA, Vec3::new(-180.0, 0.0, 0.0))
+        .expect("th");
+    {
+        let h = logic.host_object_mut(hunter).unwrap();
+        h.template_name = "ChinaInfantryTankHunter".into();
+        h.owner_player_id = Some(0);
+        h.set_ai_state(AIState::Idle);
+    }
+    let mined = logic
+        .create_object("TestTank", Team::GLA, Vec3::new(-150.0, 0.0, 0.0))
+        .expect("mined");
+    logic.host_object_mut(mined).unwrap().owner_player_id = Some(2);
+    let mine = logic
+        .create_object("TestMine", Team::USA, Vec3::new(-150.0, 0.0, 0.0))
+        .expect("mine");
+    logic.host_object_mut(mine).unwrap().owner_player_id = Some(0);
+    let clean = logic
+        .create_object("TestTank", Team::GLA, Vec3::new(-80.0, 0.0, 0.0))
+        .expect("clean");
+    logic.host_object_mut(clean).unwrap().owner_player_id = Some(2);
+    assert!(logic.start_command_button_hunt_named(hunter, Some("Command_ChinaTankHunterTNT")));
+    logic.frame = 0;
+    logic.tick_command_button_hunt_updates();
+    match logic.pending_special_abilities.get(&hunter) {
+        Some(PendingSpecialAbility::PlantTimedDemoCharge { target_id }) => {
+            assert_eq!(*target_id, clean, "TNT hunt must skip already-mined target");
+        }
+        other => panic!("expected TNT on clean tank, got {other:?}"),
+    }
+
+    // Priority: farther Dozer outranks nearer Tank (on-map).
+    let mut info = AttackPriorityInfo::new("HuntPrio");
+    info.default_priority = 1;
+    info.set_priority_template("TestTank", 5);
+    info.set_priority_template("TestDozer", 80);
+    logic.register_attack_priority_set(info);
+    ensure_test_dozer_template(&mut logic);
+    let prio_hunter = logic
+        .create_object("TestInfantry", Team::USA, Vec3::new(120.0, 0.0, 0.0))
+        .expect("prio");
+    {
+        let h = logic.host_object_mut(prio_hunter).unwrap();
+        h.template_name = "ChinaInfantryTankHunter".into();
+        h.owner_player_id = Some(0);
+        h.attack_priority_set = Some("HuntPrio".into());
+        h.set_ai_state(AIState::Idle);
+    }
+    let near_tank = logic
+        .create_object("TestTank", Team::GLA, Vec3::new(140.0, 0.0, 0.0))
+        .expect("near tank");
+    logic.host_object_mut(near_tank).unwrap().owner_player_id = Some(2);
+    let far_dozer = logic
+        .create_object("TestDozer", Team::GLA, Vec3::new(220.0, 0.0, 0.0))
+        .expect("far dozer");
+    logic.host_object_mut(far_dozer).unwrap().owner_player_id = Some(2);
+    assert!(logic.start_command_button_hunt_named(
+        prio_hunter,
+        Some("Command_ChinaTankHunterTNT")
+    ));
+    logic.frame = 0;
+    logic.tick_command_button_hunt_updates();
+    match logic.pending_special_abilities.get(&prio_hunter) {
+        Some(PendingSpecialAbility::PlantTimedDemoCharge { target_id }) => {
+            assert_eq!(*target_id, far_dozer, "priority must beat raw nearest");
+        }
+        other => panic!("expected TNT on high-priority dozer, got {other:?}"),
+    }
+    let _ = HostCommandButtonHuntMode::SpecialPower;
+
+}
+
+#[test]
+fn group_hunt_includes_immobile_and_disabled_members() {
+    use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    ensure_test_tank_template(&mut logic);
+    let mut tower = ThingTemplate::new("TestTower");
+    tower
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Immobile)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(400.0);
+    logic.templates.insert("TestTower".into(), tower);
+
+    let emp = logic
+        .create_object("TestTank", Team::USA, Vec3::ZERO)
+        .expect("emp");
+    {
+        let u = logic.host_object_mut(emp).unwrap();
+        u.status.disabled_held = true;
+        assert!(!u.can_move());
+    }
+    let base = logic
+        .create_object("TestTower", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+        .expect("tower");
+    assert!(logic.host_object(base).unwrap().is_kind_of(KindOf::Structure));
+
+    assert!(
+        logic.unit_command_patrol(emp),
+        "EMP'd tank with AI must still enter hunt"
+    );
+    assert_eq!(logic.host_object(emp).unwrap().ai_state, AIState::Patrolling);
+    assert!(
+        logic.unit_command_patrol(base),
+        "structure-with-AI must still enter hunt"
+    );
+    assert_eq!(
+        logic.host_object(base).unwrap().ai_state,
+        AIState::Patrolling
+    );
+}
+
+
 
 #[test]
 fn preorder_create_sets_model_bit_on_command_center_complete() {

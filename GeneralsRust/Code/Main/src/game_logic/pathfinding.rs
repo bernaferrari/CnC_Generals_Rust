@@ -180,6 +180,9 @@ struct OccBits {
 const LAYER_WALL_ID: u8 = 15;
 /// C++ `MAX_WALL_PIECES` (AIPathfind.h:181).
 const MAX_WALL_PIECES: usize = 128;
+/// C++ `PATHFIND_CELLS_PER_FRAME` (AIPathfind.cpp:1079).
+const PATHFIND_CELLS_PER_FRAME: i32 = 5000;
+
 
 /// Registered `KINDOF_WALK_ON_TOP_OF_WALL` piece (C++ `m_wallPieces`).
 #[derive(Debug, Clone)]
@@ -4699,6 +4702,11 @@ pub struct PathfindingSystem {
     seeker_is_dozer: bool,
     /// C++ `locomotorSet.isDownhillOnly()`.
     seeker_downhill_only: bool,
+    /// C++ `m_cumulativeCellsAllocated` this processPathfindQueue call.
+    cumulative_cells_allocated: i32,
+    /// C++ `PATHFIND_CELLS_PER_FRAME` (test-overridable).
+    pathfind_cells_per_frame: i32,
+
 
 
 }
@@ -4730,6 +4738,9 @@ impl PathfindingSystem {
             seeker_is_human: false,
             seeker_is_dozer: false,
             seeker_downhill_only: false,
+            cumulative_cells_allocated: 0,
+            pathfind_cells_per_frame: PATHFIND_CELLS_PER_FRAME,
+
 
         }
     }
@@ -4749,6 +4760,40 @@ impl PathfindingSystem {
         };
         self.grid.set_query_is_human(self.seeker_is_human);
     }
+
+    /// C++ `findPath(obj, ...)` — seeker flags come from the mover, not nearest-to-start.
+    fn bind_seeker_from_mover(
+        &mut self,
+        objects: &HashMap<ObjectId, Object>,
+        mover: Option<ObjectId>,
+    ) {
+        if let Some(o) = mover.and_then(|id| objects.get(&id)).filter(|o| o.is_alive()) {
+            self.seeker_player = o.owner_player_id.or(Some(o.team as u32));
+            self.seeker_is_infantry = o.is_kind_of(KindOf::Infantry);
+            self.seeker_wings = matches!(o.loco_appearance, LocomotorAppearance::Wings);
+            self.seeker_id = Some(o.id);
+            self.seeker_team = Some(o.team);
+            self.seeker_crusher_level = o.crusher_level;
+            self.seeker_is_dozer = o.is_kind_of(KindOf::Dozer);
+            self.seeker_downhill_only = o.downhill_only;
+            self.seeker_path_diameter = PathfindingGrid::path_diameter_for_unit(
+                o.selection_radius,
+                self.grid.grid_size(),
+                o.is_kind_of(KindOf::Vehicle),
+            );
+        } else {
+            self.seeker_player = None;
+            self.seeker_is_infantry = false;
+            self.seeker_wings = false;
+            self.seeker_id = None;
+            self.seeker_team = None;
+            self.seeker_crusher_level = 0;
+            self.seeker_path_diameter = 1;
+            self.seeker_is_dozer = false;
+            self.seeker_downhill_only = false;
+        }
+    }
+
 
     /// C++ dozerHack: obstacle exists and relationship != ENEMIES.
     fn dozer_hack_allows(&self, cell: GridCoord) -> bool {
@@ -4879,6 +4924,66 @@ impl PathfindingSystem {
     pub fn ignore_obstacle(&self) -> Option<ObjectId> {
         self.ignore_obstacle_id
     }
+
+    /// Leftover `ignored_obstacle_cells`: footprint cells of `m_ignoreObstacleID`.
+    fn ignored_obstacle_cells(&self) -> Option<HashSet<GridCoord>> {
+        let id = self.ignore_obstacle_id?.0;
+        if id == 0 {
+            return None;
+        }
+        let mut cells = HashSet::new();
+        for y in 0..self.grid.height {
+            for x in 0..self.grid.width {
+                let pos = GridPos::new(x, y);
+                if self.grid.cell_type(pos) != PathfindCellType::Obstacle {
+                    continue;
+                }
+                if self
+                    .grid
+                    .obstacle_owner(pos)
+                    .is_some_and(|(oid, _, _)| oid == id)
+                {
+                    cells.insert(GridCoord::new(x, y));
+                }
+            }
+        }
+        if cells.is_empty() {
+            None
+        } else {
+            Some(cells)
+        }
+    }
+
+    /// C++ `processPathfindQueue` reset of `m_cumulativeCellsAllocated` + extent.
+    pub fn begin_pathfind_queue_frame(&mut self) {
+        self.grid.refresh_logical_extent();
+        self.cumulative_cells_allocated = 0;
+    }
+
+    pub fn pathfind_budget_remaining(&self) -> bool {
+        self.cumulative_cells_allocated < self.pathfind_cells_per_frame
+    }
+
+    pub fn pop_pending_path(&mut self) -> Option<PendingHostPath> {
+        self.pending_paths.pop_front()
+    }
+
+    fn note_cells_allocated(&mut self, n: usize) {
+        self.cumulative_cells_allocated = self
+            .cumulative_cells_allocated
+            .saturating_add(n.min(i32::MAX as usize) as i32);
+    }
+
+    #[cfg(test)]
+    pub fn set_pathfind_cells_per_frame(&mut self, n: i32) {
+        self.pathfind_cells_per_frame = n.max(1);
+    }
+
+    #[cfg(test)]
+    pub fn cumulative_cells_allocated(&self) -> i32 {
+        self.cumulative_cells_allocated
+    }
+
 
     fn sync_crate_astar(&mut self) {
         let w = self.grid.width.max(0) as usize;
@@ -5038,6 +5143,7 @@ impl PathfindingSystem {
         let goal_seed = self.grid.clamp_pos(goal);
         self.grid.query_from = Some(start_seed);
         self.grid.query_orig_dest = Some(start_seed);
+        // C++ adjustDestination: on failure leave dest unchanged (no static-open fallback).
         let start = self
             .grid
             .adjust_destination_on_layer(
@@ -5049,7 +5155,6 @@ impl PathfindingSystem {
                 crusher_level,
                 start_layer,
             )
-            .or_else(|| self.grid.nearest_static_open(start_seed, 16))
             .unwrap_or(start_seed);
         // C++ adjustDestination: snap water/cliff/impassable/occupied clicks
         // on destinationLayer (AIPathfind.cpp:5352-5355).
@@ -5066,15 +5171,24 @@ impl PathfindingSystem {
                 crusher_level,
                 dest_layer,
             )
-            .or_else(|| self.grid.nearest_static_open(goal_seed, 16))
             .unwrap_or(goal_seed);
         self.grid.query_from = None;
         self.grid.query_orig_dest = None;
-        // Disconnected clicks refuse: leftover zone gate + no march into a pocket.
+        let ignore_cells = self.ignored_obstacle_cells();
+        let ignore_covers = |pos: GridPos| {
+            ignore_cells
+                .as_ref()
+                .is_some_and(|s| s.contains(&GridCoord::new(pos.x, pos.y)))
+        };
+        let start_obstacle = self.grid.cell_type(start) == PathfindCellType::Obstacle;
+        // C++ ignoreObstacle / tunneling uses terrain zones (AIPathfind.cpp:6544-6550).
         if (surfaces & SURFACE_AIR) == 0 {
             let from_w = self.grid.grid_to_world(start);
             let to_w = self.grid.grid_to_world(goal);
-            if !self.grid.quick_path_exists_for(from_w, to_w, surfaces) {
+            let ignore_or_tunnel =
+                start_obstacle || ignore_covers(start) || ignore_covers(goal);
+            if !ignore_or_tunnel && !self.grid.quick_path_exists_for(from_w, to_w, surfaces)
+            {
                 return None;
             }
         }
@@ -5102,10 +5216,12 @@ impl PathfindingSystem {
                 .grid
                 .cell_passable_for_layer(goal, dest_layer, surfaces, is_crusher)
         {
-            // Still try — crusher fences / air may pass via crate.
+            // Still try — crusher fences / air / tunneling / ignoreObstacle may pass.
             if start_layer == PathfindLayerEnum::Ground
                 && self.grid.is_static_blocked(start)
                 && !self.grid.is_obstacle_fence(start)
+                && !start_obstacle
+                && !ignore_covers(start)
             {
                 return None;
             }
@@ -5256,7 +5372,11 @@ impl PathfindingSystem {
             extra
         };
         let Some(crate_pf) = self.crate_astar.as_ref() else {
-            return self.grid.find_path(start, goal);
+            let path = self.grid.find_path(start, goal);
+            if path.is_some() {
+                self.note_cells_allocated(1);
+            }
+            return path;
         };
         let start_is_obstacle = crate_pf
             .finder
@@ -5346,7 +5466,7 @@ impl PathfindingSystem {
                 is_crusher,
                 MAX_PATH_ITERATIONS,
                 allow_partial,
-                None,
+                ignore_cells.as_ref(),
                 Some(extra_ref as &dyn Fn(GridCoord) -> u32),
                 downhill_only,
                 Some(&ground_h as &dyn Fn(GridCoord) -> f32),
@@ -5359,17 +5479,9 @@ impl PathfindingSystem {
             )
         };
 
-        let exact = run(false).map(|(path, _)| path);
-        if let Some(cells) = exact {
-            let world = self.crate_path_to_world(&cells);
-            return Some(self.grid.optimize_ground_path_ex(
-                &world,
-                surfaces,
-                is_crusher,
-                self.seeker_player,
-                crusher_level,
-            ));
-        }
+        let exact = run(false);
+        let examined = exact.as_ref().map(|(_, n)| *n).unwrap_or(0);
+        let exact_path = exact.map(|(path, _)| path);
         let from_w = self.grid.grid_to_world(start);
         let to_w = self.grid.grid_to_world(goal);
         let closest_human = is_human;
@@ -5382,6 +5494,17 @@ impl PathfindingSystem {
         drop(extra_ref);
         drop(extra);
         drop(crate_pf);
+        self.note_cells_allocated(examined);
+        if let Some(cells) = exact_path {
+            let world = self.crate_path_to_world(&cells);
+            return Some(self.grid.optimize_ground_path_ex(
+                &world,
+                surfaces,
+                is_crusher,
+                self.seeker_player,
+                crusher_level,
+            ));
+        }
         if !fallback_closest {
             return None;
         }
@@ -5865,6 +5988,7 @@ impl PathfindingSystem {
                             false,
                             surfaces,
                             is_crusher,
+                            attacker_id,
                         );
                         self.grid.set_query_is_human(false);
                         return path;
@@ -6124,7 +6248,15 @@ impl PathfindingSystem {
             }
         }
         let goal = self.grid.grid_to_world(goal_cell);
-        let path = self.find_path_ex_surfaces(from, goal, objects, false, surfaces, is_crusher);
+        let path = self.find_path_ex_surfaces(
+            from,
+            goal,
+            objects,
+            false,
+            surfaces,
+            is_crusher,
+            attacker_id,
+        );
         self.grid.set_query_is_human(false);
         path
     }
@@ -6336,7 +6468,7 @@ impl PathfindingSystem {
         goal: Vec3,
         objects: &HashMap<ObjectId, Object>,
     ) -> Option<Vec<Vec3>> {
-        self.find_path_ex(start, goal, objects, false)
+        self.find_path_ex(start, goal, objects, false, None)
     }
     /// Leftover `circle_clips_tall_building`: AIRCRAFT_PATH_AROUND + normal offset.
     pub fn circle_clips_tall_building(
@@ -6413,6 +6545,7 @@ impl PathfindingSystem {
         goal: Vec3,
         objects: &HashMap<ObjectId, Object>,
         aircraft: bool,
+        mover: Option<ObjectId>,
     ) -> Option<Vec<Vec3>> {
         self.find_path_ex_surfaces(
             start,
@@ -6425,6 +6558,7 @@ impl PathfindingSystem {
                 SURFACE_GROUND
             },
             false,
+            mover,
         )
     }
 
@@ -6437,41 +6571,10 @@ impl PathfindingSystem {
         aircraft: bool,
         surfaces: u32,
         is_crusher: bool,
+        mover: Option<ObjectId>,
     ) -> Option<Vec<Vec3>> {
         self.ensure_dynamic_obstacles(objects);
-        if let Some(o) = objects
-            .values()
-            .filter(|o| o.is_alive())
-            .min_by(|a, b| {
-                let da = a.get_position().distance_squared(start);
-                let db = b.get_position().distance_squared(start);
-                da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
-            })
-        {
-            self.seeker_player = o.owner_player_id.or(Some(o.team as u32));
-            self.seeker_is_infantry = o.is_kind_of(KindOf::Infantry);
-            self.seeker_wings = matches!(o.loco_appearance, LocomotorAppearance::Wings);
-            self.seeker_id = Some(o.id);
-            self.seeker_team = Some(o.team);
-            self.seeker_crusher_level = o.crusher_level;
-            self.seeker_is_dozer = o.is_kind_of(KindOf::Dozer);
-            self.seeker_downhill_only = o.downhill_only;
-            self.seeker_path_diameter = PathfindingGrid::path_diameter_for_unit(
-                o.selection_radius,
-                self.grid.grid_size(),
-                o.is_kind_of(KindOf::Vehicle),
-            );
-        } else {
-            self.seeker_player = None;
-            self.seeker_is_infantry = false;
-            self.seeker_wings = false;
-            self.seeker_id = None;
-            self.seeker_team = None;
-            self.seeker_crusher_level = 0;
-            self.seeker_path_diameter = 1;
-            self.seeker_is_dozer = false;
-            self.seeker_downhill_only = false;
-        }
+        self.bind_seeker_from_mover(objects, mover);
         self.apply_seeker_human_flag();
         // Live seeker CrusherLevel wins so find_path / find_path_ex still crush.
         let is_crusher = is_crusher || self.seeker_crusher_level > 0;
@@ -7661,7 +7764,7 @@ mod tests {
         objects.insert(unit.id, unit);
 
         let path = sys
-            .find_path_ex(start, goal, &objects, false)
+            .find_path_ex(start, goal, &objects, false, Some(ObjectId(1)))
             .expect("open-field path");
         assert!(path.len() >= 2);
         {
@@ -7878,6 +7981,7 @@ mod tests {
                 Vec3::new(80.0, 0.0, 10.0),
                 &objects,
                 false,
+                None,
             )
             .expect("crate A* open-field path");
         assert!(path.len() >= 2);
@@ -7890,6 +7994,7 @@ mod tests {
                 Vec3::new(80.0, 0.0, 10.0),
                 &objects,
                 false,
+                None,
             )
             .expect("water-costed crate path");
         assert!(wet.len() >= 2);
@@ -8484,7 +8589,7 @@ mod tests {
         let start = Vec3::new(10.0, 0.0, 50.0);
         let goal = Vec3::new(150.0, 0.0, 50.0);
         let crushed = sys
-            .find_path_ex_surfaces(start, goal, &objects, false, SURFACE_GROUND, true)
+            .find_path_ex_surfaces(start, goal, &objects, false, SURFACE_GROUND, true, Some(ObjectId(1)))
             .expect("crusher must path through cars");
         assert!(crushed.len() >= 2);
         let through = crushed.windows(2).any(|w| {
@@ -8507,7 +8612,7 @@ mod tests {
         objects.remove(&ObjectId(1));
         sys.note_logic_frame(1);
         let walked = sys
-            .find_path_ex_surfaces(start, goal, &objects, false, SURFACE_GROUND, false)
+            .find_path_ex_surfaces(start, goal, &objects, false, SURFACE_GROUND, false, Some(ObjectId(2)))
             .expect("non-crusher can detour");
         let walk_len: f32 = walked.windows(2).map(|w| (w[0] - w[1]).length()).sum();
         let crush_len: f32 = crushed.windows(2).map(|w| (w[0] - w[1]).length()).sum();
@@ -8551,7 +8656,7 @@ mod tests {
         let start = Vec3::new(10.0, 0.0, 50.0);
         let goal = Vec3::new(150.0, 0.0, 50.0);
         let path = sys
-            .find_path_ex_surfaces(start, goal, &objects, false, SURFACE_GROUND, true)
+            .find_path_ex_surfaces(start, goal, &objects, false, SURFACE_GROUND, true, Some(ObjectId(1)))
             .expect("must detour around allied cars");
         let through = path.windows(2).any(|w| {
             let crosses = (w[0].x - 80.0) * (w[1].x - 80.0) <= 0.0;
@@ -8585,7 +8690,7 @@ mod tests {
                     || sys.grid.cell_type(b) == PathfindCellType::Impassable
             })
         };
-        if let Some(p) = sys.find_path_ex_surfaces(from, to, &objects, false, SURFACE_GROUND, false)
+        if let Some(p) = sys.find_path_ex_surfaces(from, to, &objects, false, SURFACE_GROUND, false, None)
         {
             assert!(
                 !crosses_wall(&p),
@@ -9054,7 +9159,7 @@ mod tests {
         let mut objects = HashMap::new();
         objects.insert(inf.id, inf);
         let infantry_path = sys
-            .find_path_ex_surfaces(start, goal, &objects, false, SURFACE_GROUND, false)
+            .find_path_ex_surfaces(start, goal, &objects, false, SURFACE_GROUND, false, Some(ObjectId(1)))
             .expect("infantry can thread a one-cell corridor");
         assert!(infantry_path.len() >= 2);
 
@@ -9067,7 +9172,7 @@ mod tests {
         objects.insert(tank.id, tank);
         sys.note_logic_frame(1);
         let tank_path =
-            sys.find_path_ex_surfaces(start, goal, &objects, false, SURFACE_GROUND, false);
+            sys.find_path_ex_surfaces(start, goal, &objects, false, SURFACE_GROUND, false, Some(ObjectId(2)));
         let crossed = tank_path.as_ref().is_some_and(|path| {
             path.iter().any(|p| {
                 let c = sys.grid.world_to_grid(*p);
@@ -9698,6 +9803,7 @@ mod tests {
             Vec3::new(180.0, 0.0, 20.0),
             &objects,
             false,
+            Some(ObjectId(1)),
         );
         if let Some(path) = path {
             for p in &path {
@@ -9740,7 +9846,7 @@ mod tests {
         let start = Vec3::new(20.0, 0.0, 35.0);
         let goal = Vec3::new(90.0, 0.0, 35.0);
         let path = sys
-            .find_path_ex(start, goal, &objects, false)
+            .find_path_ex(start, goal, &objects, false, Some(ObjectId(1)))
             .expect("dozer must step through non-enemy CELL_OBSTACLE");
         assert!(path.len() >= 2);
 
@@ -9751,7 +9857,7 @@ mod tests {
         inf.owner_player_id = Some(0);
         let mut inf_objects = HashMap::new();
         inf_objects.insert(inf.id, inf);
-        let blocked = sys.find_path_ex(start, goal, &inf_objects, false);
+        let blocked = sys.find_path_ex(start, goal, &inf_objects, false, Some(ObjectId(2)));
         assert!(
             blocked.is_none(),
             "non-dozer cannot dozerHack a CELL_OBSTACLE gap"
@@ -9765,7 +9871,7 @@ mod tests {
             Some(2),
             Some(Team::GLA),
         );
-        let enemy = sys.find_path_ex(start, goal, &objects, false);
+        let enemy = sys.find_path_ex(start, goal, &objects, false, Some(ObjectId(1)));
         assert!(
             enemy.is_none(),
             "dozer must not dozerHack an ENEMIES obstacle"
@@ -9796,6 +9902,15 @@ mod tests {
             !w.contains("downhill_only: false"),
             "must not hardcode downhill_only: false"
         );
+        assert!(
+            w.contains("ignored_obstacle_cells") || w.contains("let ignore_cells"),
+            "ignoreObstacle footprint must reach crate A* ignore_cells"
+        );
+        assert!(
+            !w.contains("nearest_static_open"),
+            "find_path_via_crate must not fall back to nearest_static_open"
+        );
+
     }
 
 
@@ -10284,6 +10399,184 @@ mod tests {
         let d = (snapped_cell.x - 8).abs() + (snapped_cell.y - 8).abs();
         assert!(d <= 2, "snap should stay in the 3×3, cell={snapped_cell:?}");
     }
+
+    /// hq-hlj28: processPathfindQueue stops at PATHFIND_CELLS_PER_FRAME.
+    #[test]
+    fn process_pathfind_queue_stops_at_cell_budget() {
+        let mut sys = PathfindingSystem::new(200.0, 200.0);
+        sys.set_pathfind_cells_per_frame(1);
+        let mk = |id: u32, z: f32| PendingHostPath {
+            unit_id: ObjectId(id),
+            start: Vec3::new(10.0, 0.0, z),
+            destination: Vec3::new(80.0, 0.0, z),
+            waypoints: Vec::new(),
+            aircraft: false,
+            surfaces: SURFACE_GROUND,
+            is_crusher: false,
+            ignore_obstacle: None,
+        };
+        assert!(sys.queue_path(mk(1, 10.0)));
+        assert!(sys.queue_path(mk(2, 30.0)));
+        assert!(sys.queue_path(mk(3, 50.0)));
+        assert_eq!(sys.pending_path_count(), 3);
+        let objects = HashMap::new();
+        sys.begin_pathfind_queue_frame();
+        let mut processed = 0usize;
+        while sys.pathfind_budget_remaining() {
+            let Some(req) = sys.pop_pending_path() else {
+                break;
+            };
+            let _ = sys.find_path_ex(
+                req.start,
+                req.destination,
+                &objects,
+                false,
+                Some(req.unit_id),
+            );
+            processed += 1;
+            if processed > 8 {
+                break;
+            }
+        }
+        assert_eq!(processed, 1, "budget 1 cell must stop after the first search");
+        assert_eq!(
+            sys.pending_path_count(),
+            2,
+            "later waiters stay queued for a later frame"
+        );
+    }
+
+    /// hq-xa155: ignoreObstacle footprint cells reach crate A*.
+    #[test]
+    fn ignore_obstacle_walks_through_owned_footprint() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut sys = PathfindingSystem::new(120.0, 80.0);
+        for y in 0..8 {
+            sys.grid.set_cell_obstacle_owned(
+                GridPos::new(5, y),
+                false,
+                false,
+                9,
+                Some(0),
+                Some(Team::USA),
+            );
+        }
+        let mut tmpl = ThingTemplate::new("Ranger");
+        tmpl.add_kind_of(KindOf::Infantry);
+        let mut unit = Object::new(tmpl, ObjectId(1), Team::USA);
+        let start = Vec3::new(20.0, 0.0, 35.0);
+        let goal = Vec3::new(90.0, 0.0, 35.0);
+        unit.set_position(start);
+        unit.owner_player_id = Some(0);
+        let mut objects = HashMap::new();
+        objects.insert(unit.id, unit);
+
+        let blocked = sys.find_path_ex_surfaces(
+            start,
+            goal,
+            &objects,
+            false,
+            SURFACE_GROUND,
+            false,
+            Some(ObjectId(1)),
+        );
+        assert!(
+            blocked.is_none()
+                || blocked.as_ref().is_some_and(|p| {
+                    !p.iter().any(|wp| sys.grid.world_to_grid(*wp).x == 5)
+                }),
+            "without ignore, factory footprint stays a wall"
+        );
+
+        sys.set_ignore_obstacle(Some(ObjectId(9)));
+        let through = sys
+            .find_path_ex_surfaces(
+                start,
+                goal,
+                &objects,
+                false,
+                SURFACE_GROUND,
+                false,
+                Some(ObjectId(1)),
+            )
+            .expect("ignoreObstacle must walk the ignored footprint");
+        assert!(
+            through.iter().any(|wp| sys.grid.world_to_grid(*wp).x == 5),
+            "path must step through ignored CELL_OBSTACLE, path={through:?}"
+        );
+        sys.set_ignore_obstacle(None);
+    }
+
+    /// hq-gsdys: seeker flags come from the mover, not nearest living object.
+    #[test]
+    fn find_path_ex_surfaces_uses_mover_not_nearest() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut sys = PathfindingSystem::new(200.0, 200.0);
+        let mut objects = HashMap::new();
+        let mut dozer_t = ThingTemplate::new("AmericaDozer");
+        dozer_t.add_kind_of(KindOf::Dozer);
+        dozer_t.add_kind_of(KindOf::Vehicle);
+        let mut dozer = Object::new(dozer_t, ObjectId(1), Team::USA);
+        dozer.set_position(Vec3::new(20.0, 0.0, 20.0));
+        dozer.owner_player_id = Some(0);
+        objects.insert(dozer.id, dozer);
+        let mut inf_t = ThingTemplate::new("Ranger");
+        inf_t.add_kind_of(KindOf::Infantry);
+        let mut inf = Object::new(inf_t, ObjectId(2), Team::USA);
+        inf.set_position(Vec3::new(80.0, 0.0, 20.0));
+        inf.owner_player_id = Some(0);
+        objects.insert(inf.id, inf);
+
+        let hop = Vec3::new(90.0, 0.0, 20.0);
+        let goal = Vec3::new(150.0, 0.0, 20.0);
+        let _ = sys.find_path_ex_surfaces(
+            hop,
+            goal,
+            &objects,
+            false,
+            SURFACE_GROUND,
+            false,
+            Some(ObjectId(1)),
+        );
+        assert_eq!(sys.seeker_id, Some(ObjectId(1)));
+        assert!(sys.seeker_is_dozer, "mover dozer must keep dozerHack");
+        assert!(
+            !sys.seeker_is_infantry,
+            "nearest infantry must not steal seeker"
+        );
+
+        let _ = sys.find_path_ex_surfaces(
+            hop,
+            goal,
+            &objects,
+            false,
+            SURFACE_GROUND,
+            false,
+            None,
+        );
+        assert_eq!(sys.seeker_id, None, "no mover → no nearest-object steal");
+        assert!(!sys.seeker_is_dozer);
+        assert!(!sys.seeker_is_infantry);
+    }
+
+    /// hq-0h1vk / hq-hlj28: crate search accounts cells for the queue budget.
+    #[test]
+    fn find_path_via_crate_notes_cells_allocated() {
+        let mut sys = PathfindingSystem::new(200.0, 200.0);
+        let objects = HashMap::new();
+        let _ = sys.find_path_ex(
+            Vec3::new(10.0, 0.0, 10.0),
+            Vec3::new(80.0, 0.0, 10.0),
+            &objects,
+            false,
+            None,
+        );
+        assert!(
+            sys.cumulative_cells_allocated() > 0,
+            "crate A* must add m_cumulativeCellsAllocated"
+        );
+    }
+
 
 
 }
