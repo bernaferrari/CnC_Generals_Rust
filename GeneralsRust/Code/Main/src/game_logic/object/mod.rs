@@ -2490,8 +2490,11 @@ pub struct Object {
 
 
     /// C++ AutoAcquireEnemiesWhenIdle residual (AAS_Idle bit).
-    #[serde(default = "default_true_for_auto_acquire")]
+    #[serde(default)]
     pub auto_acquire_when_idle: bool,
+    /// C++ `AIUpdateModuleData::m_autoAcquireEnemiesWhenIdle` bitfield.
+    #[serde(default)]
+    pub auto_acquire_idle_bits: u32,
     /// C++ AIUpdateInterface attack priority set name residual.
     #[serde(default)]
     pub attack_priority_set: Option<String>,

@@ -358,7 +358,7 @@ impl GameLogic {
                 o.status.using_ability,
                 o.status.attacking || o.ai_state == AIState::Attacking,
                 o.status.stealthed && !o.status.detected,
-                o.auto_acquire_when_idle,
+                o.auto_acquire_idle_bits,
                 o.ai_attitude,
                 o.last_damage_source,
                 o.get_position(),
@@ -370,11 +370,17 @@ impl GameLogic {
         if !alive || using_ability {
             return None;
         }
-        if called_during_idle && !auto_idle {
+        use gamelogic::object::update::ai_update_interface::{
+            AUTO_ACQUIRE_IDLE, AUTO_ACQUIRE_IDLE_ATTACK_BUILDINGS, AUTO_ACQUIRE_IDLE_NOT_WHILE_ATTACKING,
+            AUTO_ACQUIRE_IDLE_STEALTHED,
+        };
+        if called_during_idle && (auto_idle & AUTO_ACQUIRE_IDLE) == 0 {
             return None;
         }
-        // Stealthed idle acquire residual: block unless contained-fire (not ported).
-        if called_during_idle && stealthed {
+        if called_during_idle && stealthed && (auto_idle & AUTO_ACQUIRE_IDLE_STEALTHED) == 0 {
+            return None;
+        }
+        if attacking && (auto_idle & AUTO_ACQUIRE_IDLE_NOT_WHILE_ATTACKING) != 0 {
             return None;
         }
         // Sleep mood: no acquire.
@@ -449,6 +455,9 @@ impl GameLogic {
         }
         if called_by_ai && is_player_controlled {
             flags |= WITHIN_ATTACK_RANGE | UNFOGGED;
+        }
+        if (auto_idle & AUTO_ACQUIRE_IDLE_ATTACK_BUILDINGS) != 0 {
+            flags |= ATTACK_BUILDINGS;
         }
         let _ = (pos, team);
         self.find_closest_enemy(unit_id, range, flags)
@@ -761,10 +770,38 @@ impl GameLogic {
             if v.is_effectively_stealthed() && !allied && !source.status.ignoring_stealth {
                 return CanAttackResult::NotPossible;
             }
+            let contain_count = self
+                .objects
+                .values()
+                .filter(|o| o.contained_by == Some(v.id))
+                .count() as u32;
+            let victim_est = crate::game_logic::weapon_bootstrap::HostEstimateVictim {
+                kind_structure: v.is_kind_of(KindOf::Structure),
+                kind_shrubbery: v.template_name.to_ascii_lowercase().contains("shrub"),
+                kind_mine: v.is_kind_of(KindOf::Mine) || v.is_disarmable_mine(),
+                kind_booby_trap: v.is_disarmable_mine(),
+                kind_demo_trap: v.is_kind_of(KindOf::Mine) || v.is_disarmable_mine(),
+                under_construction: v.status.under_construction,
+                contain_count,
+                garrisonable: v.thing.template.contain_module.slots.unwrap_or(0) > 0,
+                immune_to_clear_building: false,
+                airborne_target: v.status.airborne_target,
+            };
             let has_legal_weapon = candidate_slots.iter().copied().any(|slot| {
-                source
-                    .weapon_slot(slot)
-                    .is_some_and(|weapon| kind_ok(slot, weapon))
+                source.weapon_slot(slot).is_some_and(|weapon| {
+                    if !kind_ok(slot, weapon) {
+                        return false;
+                    }
+                    let name = source.weapon_name_for_slot(slot).unwrap_or("");
+                    let est = crate::game_logic::weapon_bootstrap::host_estimate_weapon_from_name(
+                        name,
+                        weapon.damage,
+                    );
+                    crate::game_logic::weapon_bootstrap::estimate_weapon_template_damage(
+                        &est,
+                        Some(&victim_est),
+                    ) > 0.0
+                })
             });
             if !has_legal_weapon {
                 return CanAttackResult::InvalidShot;
