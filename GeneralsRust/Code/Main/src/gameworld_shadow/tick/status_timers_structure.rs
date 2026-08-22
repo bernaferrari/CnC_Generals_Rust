@@ -146,6 +146,7 @@ impl GameWorldShadow {
                     last_crushed_location: e.structure_topple_last_crushed_location,
                     building_height: e.structure_topple_building_height,
                     facing_width: e.structure_topple_facing_width,
+                    ..Default::default()
                 };
                 let samples =
                     st.take_crush_sweep_samples(e.transform.position.x, e.transform.position.z);

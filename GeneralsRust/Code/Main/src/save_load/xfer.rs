@@ -254,6 +254,8 @@ fn write_kind_of_variant(kind_of: KindOf) -> u8 {
         KindOf::WalkOnTopOfWall => 74,
         // Append-only: Angry Mob nexus ImmuneToGPS / UI coordinator.
         KindOf::MobNexus => 75,
+        // Append-only: KINDOF_NO_COLLIDE partition skip.
+        KindOf::NoCollide => 76,
 
     }
 }
@@ -335,6 +337,7 @@ fn read_kind_of_variant(variant: u8) -> SaveLoadResult<KindOf> {
         73 => Ok(KindOf::AutoRallypoint),
         74 => Ok(KindOf::WalkOnTopOfWall),
         75 => Ok(KindOf::MobNexus),
+        76 => Ok(KindOf::NoCollide),
 
         _ => Err(SaveLoadError::Corrupted(format!(
             "Invalid KindOf variant: {variant}"

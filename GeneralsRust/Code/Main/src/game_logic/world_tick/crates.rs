@@ -984,22 +984,14 @@ impl GameLogic {
         true
     }
     pub fn execute_shroud_crate_behavior(&mut self, picker_id: ObjectId) -> bool {
-        let team = match self.objects.get(&picker_id) {
-            Some(p) if p.is_alive() => p.team,
+        // C++ ShroudCrateCollide: other->getControllingPlayer()->getPlayerIndex().
+        let picker_owner = match self.objects.get(&picker_id) {
+            Some(p) if p.is_alive() => p.owner_player_id,
             _ => return false,
         };
-        // Map host team → player id residual.
-        let player_id = self
-            .players
-            .iter()
-            .find(|(_, p)| p.team == team)
-            .map(|(id, _)| *id)
-            .unwrap_or(match team {
-                Team::USA => 0,
-                Team::China => 1,
-                Team::GLA => 2,
-                Team::Neutral => 255,
-            });
+        let Some(player_id) = picker_owner else {
+            return false;
+        };
         self.partition_manager.reveal_map_for_player(player_id);
         true
     }

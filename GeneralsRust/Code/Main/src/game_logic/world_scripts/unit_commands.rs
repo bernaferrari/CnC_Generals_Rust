@@ -4,6 +4,17 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
+/// C++ `UnicodeString::format(TheGameText->fetch("GUI:RallyPointSet"), displayName)`.
+pub(crate) fn format_rally_point_set_message(template: &str, display_name: &str) -> String {
+    if template.contains("%s") {
+        template.replace("%s", display_name)
+    } else if template == "GUI:RallyPointSet" || template.starts_with("MISSING:") {
+        format!("Rally point set for {display_name}")
+    } else {
+        format!("{template} {display_name}")
+    }
+}
+
 impl GameLogic {
     /// Wave 246: world-position object pick without exposing object dual-walk to callers.
     ///
@@ -1192,6 +1203,8 @@ impl GameLogic {
         if obj.building_data.is_none() {
             return false;
         }
+        // C++ GameLogicDispatch.cpp:156-161 format(GUI:RallyPointSet, displayName).
+        let display_name = obj.get_display_name();
         let from = obj.get_position();
         if !self
             .pathfinding_system
@@ -1212,7 +1225,13 @@ impl GameLogic {
         building.rally_point = Some(location);
         crate::game_logic::host_rally_log::record(id, Some([location.x, location.y, location.z]));
         #[cfg(feature = "game_client")]
-        game_client::helpers::TheInGameUI::message("GUI:RallyPointSet");
+        {
+            let formatted = format_rally_point_set_message(
+                &game_client::game_text::GameText::fetch("GUI:RallyPointSet"),
+                &display_name,
+            );
+            game_client::helpers::TheInGameUI::message(&formatted);
+        }
         self.play_ui_sound("RallyPointSet");
         true
     }
@@ -2098,6 +2117,64 @@ mod tests {
             "path fail must not walk a raw dest line; got {:?}",
             unit.movement.target_position
         );
+    }
+
+    #[test]
+    fn rally_point_set_message_substitutes_building_display_name() {
+        assert_eq!(
+            format_rally_point_set_message("Rally point set for %s.", "War Factory"),
+            "Rally point set for War Factory."
+        );
+        assert_eq!(
+            format_rally_point_set_message("GUI:RallyPointSet", "Barracks"),
+            "Rally point set for Barracks"
+        );
+        assert_eq!(
+            format_rally_point_set_message("MISSING: 'GUI:RallyPointSet'", "Command Center"),
+            "Rally point set for Command Center"
+        );
+    }
+
+    fn rally_factory_logic() -> (GameLogic, ObjectId) {
+        let mut logic = GameLogic::new();
+        let mut tmpl = ThingTemplate::new("RallyFactory");
+        tmpl.display_name = "War Factory".to_string();
+        tmpl.add_kind_of(KindOf::AutoRallypoint);
+        logic.templates.insert("RallyFactory".to_string(), tmpl);
+        let id = logic
+            .create_object("RallyFactory", Team::USA, glam::Vec3::ZERO)
+            .expect("rally factory");
+        let obj = logic.host_object_mut(id).expect("factory mut");
+        obj.building_data = Some(BuildingData::new(BuildingType::WarFactory));
+        (logic, id)
+    }
+
+    #[test]
+    fn set_rally_point_stores_location_on_auto_rallypoint_building() {
+        let (mut logic, id) = rally_factory_logic();
+        let dest = glam::Vec3::new(40.0, 0.0, 12.0);
+        assert!(logic.unit_command_set_rally_point(id, dest));
+        let obj = logic.host_object(id).expect("factory");
+        assert_eq!(obj.get_display_name(), "War Factory");
+        assert_eq!(
+            obj.building_data.as_ref().and_then(|b| b.rally_point),
+            Some(dest)
+        );
+    }
+
+    #[test]
+    fn set_rally_point_rejects_non_auto_rallypoint() {
+        let mut logic = GameLogic::new();
+        logic.templates.insert(
+            "PowerPlant".to_string(),
+            ThingTemplate::new("PowerPlant"),
+        );
+        let id = logic
+            .create_object("PowerPlant", Team::USA, glam::Vec3::ZERO)
+            .expect("plant");
+        let obj = logic.host_object_mut(id).expect("plant mut");
+        obj.building_data = Some(BuildingData::new(BuildingType::PowerPlant));
+        assert!(!logic.unit_command_set_rally_point(id, glam::Vec3::new(10.0, 0.0, 10.0)));
     }
 
 }

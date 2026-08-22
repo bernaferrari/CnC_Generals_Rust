@@ -1763,6 +1763,14 @@ mod tests {
             !shader.contains("light_dir = normalize(vec3<f32>(0.3, 0.7, 0.2))"),
             "terrain FS must not fake-N·L after HeightMap bake"
         );
+        assert!(
+            shader.contains("mode & 1") && shader.contains("mode & 2"),
+            "terrain FS must gate cloud/noise on UseCloudMap/UseLightMap flags"
+        );
+        assert!(
+            !shader.contains("final_color.rgb * cloud * noise"),
+            "terrain FS must not multiply cloud+noise unconditionally"
+        );
         clear_scene_dynamic_lights();
     }
 

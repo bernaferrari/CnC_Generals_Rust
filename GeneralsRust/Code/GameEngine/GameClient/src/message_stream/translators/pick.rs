@@ -286,7 +286,8 @@ pub(super) fn selection_can_set_rally_point(selection: &HashSet<ObjectID>) -> bo
         if !guard.is_locally_controlled() || guard.is_effectively_dead() {
             return false;
         }
-        if guard.get_production_update_interface().is_none() {
+        // C++ InGameUI.cpp:4373-4380 ACTIONTYPE_SET_RALLY_POINT: KINDOF_AUTO_RALLYPOINT.
+        if !guard.is_kind_of(KindOf::AutoRallypoint) {
             return false;
         }
     }

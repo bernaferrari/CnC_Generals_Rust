@@ -918,4 +918,142 @@ impl TheVictoryConditions {
     pub fn is_local_allied_victory() -> Bool {
         LOCAL_ALLIED_VICTORY.load(Ordering::Relaxed)
     }
+
+    pub fn set_local_allied_defeat(defeat: Bool) {
+        LOCAL_ALLIED_DEFEAT.store(defeat, Ordering::Relaxed);
+    }
+
+    pub fn set_single_alliance_remaining(remaining: Bool) {
+        SINGLE_ALLIANCE_REMAINING.store(remaining, Ordering::Relaxed);
+    }
+
+    pub fn is_single_alliance_remaining() -> Bool {
+        SINGLE_ALLIANCE_REMAINING.load(Ordering::Relaxed)
+    }
+
+    pub fn set_victory_flags_from_live(from_live: Bool) {
+        VICTORY_FLAGS_FROM_LIVE.store(from_live, Ordering::Relaxed);
+    }
+
+    pub fn set_local_player_defeated(defeated: Bool) {
+        LOCAL_PLAYER_DEFEATED.store(defeated, Ordering::Relaxed);
+    }
+
+
+    /// C++ `VictoryConditions::isLocalAlliedDefeat`: last alliance standing
+    /// (or observer when that latch is set). Not "all my allies are dead".
+    pub fn is_local_allied_defeat() -> Bool {
+        if LOCAL_ALLIED_VICTORY.load(Ordering::Relaxed) {
+            return false;
+        }
+        if VICTORY_FLAGS_FROM_LIVE.load(Ordering::Relaxed) {
+            return LOCAL_ALLIED_DEFEAT.load(Ordering::Relaxed);
+        }
+        leftover_player_list_is_local_allied_defeat()
+    }
+
+    /// C++ `VictoryConditions::isLocalDefeat`: observer never; else latch.
+    pub fn is_local_defeat() -> Bool {
+        if leftover_local_player_is_observer() {
+            return false;
+        }
+        if LOCAL_PLAYER_DEFEATED.load(Ordering::Relaxed) {
+            return true;
+        }
+        leftover_local_player_is_individually_defeated()
+    }
+
 }
+
+
+fn leftover_player_is_playable_living(player: &crate::player::Player) -> bool {
+    !player.is_player_observer()
+        && player.get_player_type() != crate::player::PlayerType::Neutral
+        && !player.is_defeated()
+}
+
+/// C++ `areAllies`: mutual ALLIES and not the same player.
+fn leftover_players_are_allies(
+    a: &crate::player::Player,
+    b: &crate::player::Player,
+) -> bool {
+    if a.get_player_index() == b.get_player_index() {
+        return false;
+    }
+    a.is_allied_with_player(b) && b.is_allied_with_player(a)
+}
+
+/// C++ `isLocalAlliedDefeat` from leftover PlayerList `is_defeated`.
+fn leftover_player_list_is_local_allied_defeat() -> bool {
+    let Ok(list) = crate::player::ThePlayerList().read() else {
+        return false;
+    };
+    let Some(local_arc) = list.get_local_player().cloned() else {
+        return false;
+    };
+    let Ok(local) = local_arc.read() else {
+        return false;
+    };
+
+    let mut first_living: Option<std::sync::Arc<std::sync::RwLock<crate::player::Player>>> = None;
+    let mut multiple_alliances = false;
+    for player_arc in list.iter() {
+        let Ok(player) = player_arc.read() else {
+            continue;
+        };
+        if !leftover_player_is_playable_living(&player) {
+            continue;
+        }
+        if let Some(first_arc) = &first_living {
+
+            let Ok(first) = first_arc.read() else {
+                continue;
+            };
+            if !leftover_players_are_allies(&first, &player) {
+                multiple_alliances = true;
+                break;
+            }
+        } else {
+            first_living = Some(std::sync::Arc::clone(player_arc));
+        }
+    }
+    drop(list);
+
+    if multiple_alliances {
+        return false;
+    }
+    if local.is_player_observer() {
+        return true;
+    }
+    let Some(first_arc) = first_living else {
+        // Everyone playable is dead: C++ m_singleAllianceRemaining + !hasAchievedVictory.
+        return true;
+    };
+    let Ok(alive) = first_arc.read() else {
+        return true;
+    };
+    // Defeat only when the remaining alliance is not the local player's.
+    local.get_player_index() != alive.get_player_index()
+        && !leftover_players_are_allies(&local, &alive)
+}
+
+fn leftover_local_player_is_observer() -> bool {
+    let Ok(list) = crate::player::ThePlayerList().read() else {
+        return false;
+    };
+    list.get_local_player()
+        .and_then(|player| player.read().ok().map(|guard| guard.is_player_observer()))
+        .unwrap_or(false)
+}
+
+fn leftover_local_player_is_individually_defeated() -> bool {
+    let Ok(list) = crate::player::ThePlayerList().read() else {
+        return false;
+    };
+    list.get_local_player()
+        .and_then(|player| {
+            player.read().ok().map(|guard| guard.is_defeated() || guard.is_player_dead())
+        })
+        .unwrap_or(false)
+}
+

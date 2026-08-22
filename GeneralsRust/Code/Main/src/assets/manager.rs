@@ -1320,6 +1320,24 @@ impl AssetManager {
             .select_draw_models_for_object_conditions(object_name, condition_bits)
     }
 
+    /// Apply C++ `findTransitionForSig` playback for one live object.
+    pub fn apply_live_draw_transition_playback(
+        &self,
+        object_id: u32,
+        object_name: &str,
+        dest_models: Vec<AuthoredDrawModel>,
+    ) -> Vec<AuthoredDrawModel> {
+        match self
+            .ww3d_manager
+            .resolve_object_definition(object_name, None)
+        {
+            Some(definition) => {
+                definition.apply_live_draw_transition_playback(object_id, dest_models)
+            }
+            None => dest_models,
+        }
+    }
+
     /// Return cache-only, exact C++ `Drawable::getBarrelCount` candidates for
     /// the currently selected Object INI Draw states.
     ///
@@ -2427,6 +2445,48 @@ pub fn resolve_presentation_draw_models_for_conditions(
     asset_manager
         .select_draw_models_for_object_conditions(object_name, condition_bits)
         .unwrap_or_else(fallback)
+}
+
+/// Apply C++ `setModelState` TransitionState playback to already-selected dest
+/// models for one live object. Missing catalogue identity leaves dest as-is.
+pub fn apply_live_draw_transition_playback_for_object(
+    object_id: u32,
+    object_name: &str,
+    dest_models: Vec<AuthoredDrawModel>,
+) -> Vec<AuthoredDrawModel> {
+    let Some(asset_manager) = get_asset_manager() else {
+        return dest_models;
+    };
+    let Ok(asset_manager) = asset_manager.lock() else {
+        return dest_models;
+    };
+    let Some(definition) = asset_manager.resolve_object_definition(object_name, None) else {
+        return dest_models;
+    };
+    definition.apply_live_draw_transition_playback(object_id, dest_models)
+}
+
+
+/// Resolve Draw models then play any authored `TransitionState` for this live
+/// object (C++ `setModelState` / `findTransitionForSig`).
+pub fn resolve_presentation_draw_models_for_live_object(
+    object_id: u32,
+    object_name: &str,
+    fallback_draw_models: &[AuthoredDrawModel],
+    condition_bits: u128,
+) -> Vec<AuthoredDrawModel> {
+    let dest = resolve_presentation_draw_models_for_conditions(
+        object_name,
+        fallback_draw_models,
+        condition_bits,
+    );
+    let Some(asset_manager) = get_asset_manager() else {
+        return dest;
+    };
+    let Ok(asset_manager) = asset_manager.lock() else {
+        return dest;
+    };
+    asset_manager.apply_live_draw_transition_playback(object_id, object_name, dest)
 }
 
 /// Warm up optional caustic animation textures outside startup critical path.

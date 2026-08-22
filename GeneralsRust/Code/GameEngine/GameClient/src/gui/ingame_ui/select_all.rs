@@ -12,7 +12,7 @@ impl InGameUI {
         let selection_manager = get_selection_manager();
         if let Ok(mut manager) = selection_manager.write() {
             if let Some(selection) = manager.get_player_selection(self.player_id as i32) {
-                selection.select_objects(ids.clone(), SelectionType::Replace);
+                selection.select_objects(ids.clone(), SelectionType::Add);
             }
         }
         self.sync_selection_state();
@@ -29,6 +29,14 @@ fn collect_select_all_unit_ids(aircraft_only: bool) -> Vec<ObjectID> {
             continue;
         };
         if !obj.is_locally_controlled() || obj.is_contained() || obj.is_effectively_dead() {
+            continue;
+        }
+        // C++ kindOfUnitSelection: skip already-selected so SELECT_ALL adds.
+        if obj
+            .get_drawable()
+            .and_then(|draw| draw.read().ok().map(|guard| guard.is_selected()))
+            .unwrap_or(false)
+        {
             continue;
         }
         if !obj.is_mass_selectable() {
@@ -95,10 +103,14 @@ pub fn select_all_units_by_type(
     if local_player >= 0 {
         if let Ok(mut manager) = get_selection_manager().write() {
             if let Some(selection) = manager.get_player_selection(local_player) {
-                selection.clear_selection();
+                let create_new = selection.get_selected_objects().is_empty();
                 if !selected.is_empty() {
-                    selection.select_objects(selected.clone(), SelectionType::Replace);
+                    selection.select_objects(selected.clone(), SelectionType::Add);
                 }
+                if selected.is_empty() {
+                    return Vec::new();
+                }
+                return vec![GameMessageType::CreateSelectedGroup(create_new, selected)];
             }
         }
     }

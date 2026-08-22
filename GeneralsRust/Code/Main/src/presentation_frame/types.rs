@@ -1005,6 +1005,10 @@ pub struct RenderableObject {
     /// C++ getHealthBoxPosition Z lift (maxHeight + 10 + offset [+20 nexus]).
     #[serde(default)]
     pub health_box_z_offset: f32,
+    /// C++ `GeometryInfo::getMaxHeightAbovePosition` for construction z-sink.
+    #[serde(default)]
+    pub max_height_above_position: f32,
+
     /// True when bridged to GameEngine ObjectFactory (retired host dual-id).
     /// Presentation-owned so the unit mesh pass can skip double-draw without
     /// locking live GameLogic for identity.

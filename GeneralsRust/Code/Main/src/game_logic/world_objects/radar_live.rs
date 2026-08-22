@@ -92,6 +92,8 @@ impl RadarObjectProvider for HostRadarObjectProvider {
 fn ensure_radar_hooks_registered() {
     ensure_radar_map_source_registered();
     LazyLock::force(&HOST_RADAR_PROVIDER_REGISTERED);
+    #[cfg(feature = "game_client")]
+    game_client::terrain::ensure_radar_terrain_paint_source_registered();
 }
 
 /// Push leftover ShroudManager cells onto TheRadar for the last local player.
@@ -142,6 +144,8 @@ fn host_to_radar_coord(pos: glam::Vec3) -> Coord3D {
 fn ensure_radar_map_source_registered() {
     LazyLock::force(&HOST_RADAR_MAP_REGISTERED);
     LazyLock::force(&HOST_RADAR_PROVIDER_REGISTERED);
+    #[cfg(feature = "game_client")]
+    game_client::terrain::ensure_radar_terrain_paint_source_registered();
 }
 
 fn store_radar_map_extent(min: glam::Vec3, max: glam::Vec3) -> Option<(Coord3D, Coord3D)> {

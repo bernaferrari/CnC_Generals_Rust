@@ -2165,8 +2165,16 @@ impl CnCGameEngine {
                     }
                     self.queue_unit_production_from_ui(&template_name, qty);
                 }
-                UIEvent::CancelUnitProduction { template_name } => {
-                    self.cancel_unit_production_from_ui(&template_name);
+                UIEvent::CancelUnitProduction {
+                    template_name,
+                    production_id,
+                    queue_index,
+                } => {
+                    self.cancel_unit_production_from_ui(
+                        &template_name,
+                        production_id,
+                        queue_index,
+                    );
                 }
                 UIEvent::IssueCommand { command_name } => {
                     self.issue_named_command_from_ui(&command_name);

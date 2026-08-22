@@ -658,10 +658,13 @@ impl GameLogic {
             let dist = (dx * dx + dz * dz).sqrt();
             let geom = &other.thing.template.geometry_info;
             let radius = if geom.authored {
-                geom.major_radius
+                // C++ FROM_BOUNDINGSPHERE_2D subtracts bounding-circle
+                // (sqrt(major^2+minor^2) for boxes).
+                geom.bounding_circle_radius()
             } else {
                 other.selection_radius
             };
+
             if dist - radius > RANGE {
                 return None;
             }
@@ -963,12 +966,9 @@ impl GameLogic {
         if !obj.is_kind_of(KindOf::Structure) || !obj.is_alive() {
             return;
         }
-        let pos = obj.get_position();
-        let radius = obj.selection_radius;
-        let gs = self.pathfinding_system.grid.grid_size();
-        let r = ((radius / gs.max(1.0)).ceil() as i32).max(1).min(4);
-        self.pathfinding_system.block_structure_at_world(pos, r);
+        self.pathfinding_system.classify_and_pinch_object(obj);
     }
+
 
     pub fn set_pathfinding_static_block(&mut self, x: i32, y: i32, blocked: bool) {
         self.pathfinding_system
@@ -2511,6 +2511,11 @@ impl GameLogic {
         }
         if matches!(mode, GameMode::Replay) {
             self.apply_replay_observer_as_local_player();
+            // C++ GameLogic.cpp:2340-2343 startNewGame replay hint.
+            #[cfg(feature = "game_client")]
+            {
+                game_client::helpers::TheInGameUI::message("GUI:FastForwardInstructions");
+            }
         }
         log::info!("New game started successfully");
         crate::command_system::tap_host_new_game_for_recorder(mode);

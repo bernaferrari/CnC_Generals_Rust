@@ -196,6 +196,17 @@ impl CollisionSystem {
         let Some((pos_b, geom_b, angle_b)) = self.partition_manager.get_object_pose(id_b) else {
             return Ok(false);
         };
+        // C++ PartitionData::collidesWith (PartitionManager.cpp:1932-1933).
+        let kind_no_collide = OBJECT_REGISTRY
+            .with_object(id_a, |obj| obj.is_kind_of(KindOf::NoCollide))
+            .unwrap_or(true)
+            || OBJECT_REGISTRY
+                .with_object(id_b, |obj| obj.is_kind_of(KindOf::NoCollide))
+                .unwrap_or(true);
+        if kind_no_collide {
+            return Ok(false);
+        }
+
 
         let mut cinfo = CollideLocAndNormal::new(Coord3D::zero(), Coord3D::zero());
         let info_a = CollideInfo::new(pos_a, geom_a, angle_a);

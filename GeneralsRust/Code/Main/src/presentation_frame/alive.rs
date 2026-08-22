@@ -479,7 +479,7 @@ impl PresentationFrame {
     /// Generic friendly selectable filter residual from snapshot.
     pub fn alive_selectable_friendly_filtered_ids(
         &self,
-        player_team: crate::game_logic::Team,
+        _player_team: crate::game_logic::Team,
         mut pred: impl FnMut(&RenderableObject) -> bool,
     ) -> Vec<ObjectId> {
         use crate::unit_control::UnitControlSystem;
@@ -487,7 +487,7 @@ impl PresentationFrame {
             .objects
             .iter()
             .filter(|o| {
-                o.team == player_team
+                self.is_owned_by_local(o)
                     && !o.destroyed
                     && UnitControlSystem::presentation_is_selectable(o)
                     && pred(o)
@@ -1145,7 +1145,7 @@ impl PresentationFrame {
     }
 
     /// C++ `addDrawableToList` fog / undetected-stealth peel for neutrals and enemies.
-    fn box_pick_hides_non_local(&self, object: &RenderableObject) -> bool {
+    pub fn box_pick_hides_non_local(&self, object: &RenderableObject) -> bool {
         if self.is_owned_by_local(object) {
             return false;
         }

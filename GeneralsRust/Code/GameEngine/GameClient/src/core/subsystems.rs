@@ -1766,7 +1766,10 @@ impl InGameUISubsystem {
     }
 
     fn message(&mut self, text: &str) {
-        self.push_hud_message(GameText::fetch(text));
+        // C++ InGameUI::message displays the already-formatted UnicodeString.
+        // Fetch labels; pass through formatted HUD text so %s substitution survives.
+        let (fetched, exists) = GameText::fetch_with_exists(text);
+        self.push_hud_message(if exists { fetched } else { text.to_string() });
     }
 
     fn free_message_resources(&mut self) {

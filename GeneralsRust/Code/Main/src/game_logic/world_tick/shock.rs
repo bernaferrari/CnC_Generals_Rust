@@ -125,7 +125,21 @@ impl GameLogic {
                 // First-overlap 0-damage crush bookkeeping must not fire from
                 // a shared partition cell without contact (hq-zsklj).
                 if let Some((loc, normal)) = geom_hit {
+                    // C++ processContactList skips OBJECT_STATUS_NO_COLLISIONS
+                    // (PartitionManager.cpp:2466-2468).
+                    let skip_status = self
+                        .objects
+                        .get(a_id)
+                        .is_some_and(|o| o.status.no_collisions)
+                        || self
+                            .objects
+                            .get(&b_id)
+                            .is_some_and(|o| o.status.no_collisions);
+                    if skip_status {
+                        continue;
+                    }
                     super::collide_dispatch::dispatch_collide_modules(*a_id, b_id, loc, normal);
+
                     self.dispatch_host_collide_modules(*a_id, b_id);
                     // Both onCollide (hq-uerpy): higher-id crusher still crushes.
                     if self.try_physics_collide(*a_id, b_id, a_r) {

@@ -13,6 +13,12 @@ static START_NEW_GAME_REQUESTED: AtomicBool = AtomicBool::new(false);
 static GAME_START_RANK_POINTS: AtomicI32 = AtomicI32::new(0);
 static GLOBAL_DIFFICULTY: AtomicI32 = AtomicI32::new(0);
 static LOCAL_ALLIED_VICTORY: AtomicBool = AtomicBool::new(false);
+static LOCAL_ALLIED_DEFEAT: AtomicBool = AtomicBool::new(false);
+static SINGLE_ALLIANCE_REMAINING: AtomicBool = AtomicBool::new(false);
+static VICTORY_FLAGS_FROM_LIVE: AtomicBool = AtomicBool::new(false);
+static LOCAL_PLAYER_DEFEATED: AtomicBool = AtomicBool::new(false);
+
+
 static HULK_MAX_LIFETIME_OVERRIDE: AtomicI32 = AtomicI32::new(-1);
 static INPUT_ENABLED: AtomicBool = AtomicBool::new(true);
 

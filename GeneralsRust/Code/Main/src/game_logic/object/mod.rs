@@ -184,6 +184,11 @@ fn default_braking() -> f32 {
     99999.0
 }
 
+fn default_airborne_targeting_height() -> i32 {
+    // C++ LocomotorTemplate::m_airborneTargetingHeight = INT_MAX (Locomotor.cpp:314).
+    i32::MAX
+}
+
 pub(crate) fn actual_speed_is_zero(o: &Object) -> bool {
     o.movement.velocity.x.abs() < 1e-4 && o.movement.velocity.z.abs() < 1e-4
 }
@@ -724,6 +729,9 @@ pub struct Object {
     /// C++ LocomotorTemplate::m_allowMotiveForceWhileAirborne residual.
     #[serde(default)]
     pub allow_motive_force_while_airborne: bool,
+    /// C++ LocomotorTemplate::m_airborneTargetingHeight residual (INT_MAX if omitted).
+    #[serde(default = "default_airborne_targeting_height")]
+    pub airborne_targeting_height: i32,
     /// C++ Locomotor extra2DFriction residual (added to physics extra_friction).
     #[serde(default)]
     pub loco_extra_2d_friction: f32,

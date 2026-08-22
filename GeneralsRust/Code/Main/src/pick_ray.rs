@@ -76,8 +76,9 @@ pub fn pick_object_id_along_camera_ray(
             if object.destroyed {
                 return None;
             }
-            let is_local = player_team.is_some() && frame.is_owned_by_local(object);
-            if !is_local && object.fow_visibility.visibility_alpha < 0.95 {
+            // C++ CanSelectDrawable / SelectionInfo: fogged or undetected
+            // stealth neutrals+enemies are not pickable.
+            if frame.box_pick_hides_non_local(object) {
                 return None;
             }
             let t = object_hit_along_ray(object, ray_start, ray_dir)?;

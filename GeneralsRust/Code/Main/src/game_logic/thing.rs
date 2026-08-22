@@ -1875,6 +1875,9 @@ pub struct ThingTemplate {
     /// C++ `ThingTemplate::m_geometryInfo` from Object INI Geometry*.
     #[serde(default)]
     pub geometry_info: HostGeometryInfo,
+    /// C++ `ThingTemplate::m_structureRubbleHeight` (unsigned byte; 0 = GameData default).
+    #[serde(default)]
+    pub structure_rubble_height: u8,
     /// C++ `AIUpdateModuleData::m_autoAcquireEnemiesWhenIdle` from Object INI.
     #[serde(default)]
     pub auto_acquire_enemies_when_idle: u32,
@@ -2026,6 +2029,7 @@ impl ThingTemplate {
 
 
             geometry_info: HostGeometryInfo::default(),
+            structure_rubble_height: 0,
             auto_acquire_enemies_when_idle: 0,
             forbid_player_commands: false,
 

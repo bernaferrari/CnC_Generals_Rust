@@ -4,6 +4,7 @@ use crate::gui::callbacks::get_ingame_ui_system;
 use crate::gui::{GameWindow, WindowMessage, WindowMsgData, WindowMsgHandled};
 use crate::gui::with_window_manager;
 use game_engine::common::name_key_generator::NameKeyGenerator;
+use gamelogic::helpers::TheGameLogic;
 
 const PARENT_REPLAY_CONTROL: &str = "ReplayControl.wnd:ParentReplayControl";
 
@@ -18,8 +19,8 @@ pub fn create_replay_control() -> bool {
     })
 }
 
-/// C++ RecorderClass::initControls / showReplayControls / hideReplayControls.
-/// `hide == true` matches `winHide(getMode() != PLAYBACK)`.
+/// C++ RecorderClass::initControls — `winHide(getMode() != PLAYBACK)`.
+/// Creates ReplayControl.wnd if missing so playback can show the transport.
 pub fn apply_replay_control_visibility(hide: bool) {
     let parent_id = NameKeyGenerator::name_to_key(PARENT_REPLAY_CONTROL) as i32;
     with_window_manager(|manager| {
@@ -32,12 +33,36 @@ pub fn apply_replay_control_visibility(hide: bool) {
     });
 }
 
-pub fn show_replay_controls() {
-    apply_replay_control_visibility(false);
+fn with_replay_window(f: impl FnOnce(&std::rc::Rc<std::cell::RefCell<GameWindow>>)) {
+    let parent_id = NameKeyGenerator::name_to_key(PARENT_REPLAY_CONTROL) as i32;
+    with_window_manager(|manager| {
+        if let Some(win) = manager.get_window_by_id(parent_id) {
+            f(&win);
+        }
+    });
 }
 
+/// C++ InGameUI.cpp:203-210 `showReplayControls` — show only in replay.
+pub fn show_replay_controls() {
+    with_replay_window(|win| {
+        let show = TheGameLogic::is_in_replay_game();
+        let _ = win.borrow_mut().hide(!show);
+    });
+}
+
+/// C++ InGameUI.cpp:214-220 `hideReplayControls`.
 pub fn hide_replay_controls() {
-    apply_replay_control_visibility(true);
+    with_replay_window(|win| {
+        let _ = win.borrow_mut().hide(true);
+    });
+}
+
+/// C++ InGameUI.cpp:224-231 `toggleReplayControls`.
+pub fn toggle_replay_controls() {
+    with_replay_window(|win| {
+        let show = TheGameLogic::is_in_replay_game() && win.borrow().is_hidden();
+        let _ = win.borrow_mut().hide(!show);
+    });
 }
 
 

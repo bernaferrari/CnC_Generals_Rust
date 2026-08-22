@@ -829,6 +829,22 @@ impl RenderPipeline {
                 }
             };
         }
+        match &animation.mode {
+            crate::assets::AuthoredDrawAnimationMode::Once
+                if animation.num_frames > 0
+                    && animation.current_frame + 1e-3
+                        >= (animation.num_frames.saturating_sub(1) as f32) =>
+            {
+                crate::assets::notify_live_draw_animation_complete(object_id.0, draw_module_index);
+            }
+            crate::assets::AuthoredDrawAnimationMode::OnceBackwards
+                if animation.current_frame <= 1e-3 =>
+            {
+                crate::assets::notify_live_draw_animation_complete(object_id.0, draw_module_index);
+            }
+            _ => {}
+        }
+
         let current_frame = animation.current_frame;
         let topology =
             model.weapon_barrel_topology_for_authored_bindings(&draw_model.weapon_bone_bindings);

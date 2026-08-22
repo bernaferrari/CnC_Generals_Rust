@@ -1866,12 +1866,14 @@ impl CnCGameEngine {
         any
     }
 
-    pub(super) fn cancel_unit_production_from_ui(&mut self, template_name: &str) {
-        if template_name.trim().is_empty() {
-            return;
-        }
+    pub(super) fn cancel_unit_production_from_ui(
+        &mut self,
+        template_name: &str,
+        production_id: u32,
+        queue_index: usize,
+    ) {
+        let _ = template_name;
         let player_id = self.current_player_id;
-        // Wave 219: selection via presentation-first ui_selected_ids.
         let selected = self.ui_selected_ids(player_id);
         if selected.is_empty() {
             return;
@@ -1886,23 +1888,26 @@ impl CnCGameEngine {
         } else {
             producers
         };
+        // C++ ControlBarCommandProcessing.cpp:466-479 — cancel the clicked
+        // slot productionID. Host ProductionItem aliases production_id as index.
+        let cancel_index = if production_id != 0 {
+            production_id as usize
+        } else {
+            queue_index
+        };
         let mut any = false;
         for id in targets {
-            if self
-                .game_logic
-                .cancel_production(id, template_name.to_string())
-            {
+            if self.host_cancel_production_at_index(id, cancel_index) {
                 any = true;
             }
         }
         if any {
             self.play_sound_effect(SoundType::Command);
-            // Keep dual HUD presentation queue residual in sync.
             let panel = &mut self.game_hud.construction_panel;
             if let Some(idx) = panel
                 .building_queue
                 .iter()
-                .rposition(|q| q.item_name == template_name)
+                .position(|q| q.production_id == production_id && q.queue_index == queue_index)
             {
                 panel.building_queue.remove(idx);
             }
@@ -2200,8 +2205,8 @@ impl CnCGameEngine {
                 return;
             }
             crate::command_system::CommandType::PurchaseScience { science_name } => {
-                // C++ GameLogicDispatch.cpp:1961 attemptToPurchaseScience(clicked).
-                // Empty name is Alt+G / letter shortcut → first capable residual.
+                // C++ populatePurchaseScience / Alt+G opens the screen only.
+                // Named science is the clicked purchase (GameLogicDispatch.cpp:1961).
                 if science_name.trim().is_empty() {
                     self.try_purchase_next_generals_science();
                 } else {

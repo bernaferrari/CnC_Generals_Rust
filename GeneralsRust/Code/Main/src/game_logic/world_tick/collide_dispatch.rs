@@ -88,6 +88,11 @@ pub fn host_geom_collides(a: &Object, b: &Object) -> Option<(glam::Vec3, glam::V
     use gamelogic::object::collide::{
         collide_test_dispatch, CollideInfo, CollideLocAndNormal, Coord3D,
     };
+    // C++ PartitionData::collidesWith (PartitionManager.cpp:1932-1933).
+    if a.is_kind_of(KindOf::NoCollide) || b.is_kind_of(KindOf::NoCollide) {
+        return None;
+    }
+
     let (geom_a, angle_a) = host_object_collide_geom(a);
     let (geom_b, angle_b) = host_object_collide_geom(b);
     let pa = a.get_position();
@@ -372,5 +377,38 @@ mod tests {
         assert!((fp.minor_radius - 9.0).abs() < 1e-4);
         assert!(fp.is_box);
         assert!(fp.is_small);
+    }
+
+    #[test]
+    fn kindof_no_collide_skips_partition_collides_with() {
+        // C++ PartitionData::collidesWith (PartitionManager.cpp:1932-1933).
+        use crate::game_logic::{
+            HostGeometryInfo, HostGeometryType, KindOf, Object, ObjectId, Team, ThingTemplate,
+        };
+
+        let mut tank = ThingTemplate::new("AmericaTankBattleMaster");
+        tank.add_kind_of(KindOf::Vehicle);
+        tank.geometry_info = HostGeometryInfo {
+            geom_type: HostGeometryType::Box,
+            is_small: true,
+            height: 10.0,
+            major_radius: 13.0,
+            minor_radius: 9.0,
+            authored: true,
+        };
+        let mut remnant = ThingTemplate::new("ParticleUplinkCannonTrailRemnant");
+        remnant.add_kind_of(KindOf::NoCollide);
+        remnant.geometry_info = HostGeometryInfo {
+            geom_type: HostGeometryType::Cylinder,
+            is_small: true,
+            height: 8.0,
+            major_radius: 8.0,
+            minor_radius: 8.0,
+            authored: true,
+        };
+        let a = Object::new(tank, ObjectId(1), Team::USA);
+        let b = Object::new(remnant, ObjectId(2), Team::USA);
+        assert!(host_geom_collides(&a, &b).is_none());
+        assert!(host_geom_collides(&b, &a).is_none());
     }
 }

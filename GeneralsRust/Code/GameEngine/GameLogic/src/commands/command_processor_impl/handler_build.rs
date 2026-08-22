@@ -335,11 +335,11 @@ impl DefaultCommandHandler {
             return CommandExecutionResult::Failed(AsciiString::from("Object lock poisoned"));
         };
         let from = *object_guard.get_position();
-        use crate::modules::AIUpdateInterfaceExt;
-        let loco = object_guard
-            .get_ai_update_interface()
-            .and_then(|ai| ai.get_locomotor_set_clone());
+        let display_name = object_guard.get_template().get_name().as_str().to_string();
         drop(object_guard);
+
+        // C++ doSetRallyPoint: BasicHumanLocomotor, not the building's own loco.
+        let loco = basic_human_rally_locomotor_set();
 
         let path_ok = crate::ai::THE_AI
             .read()
@@ -348,13 +348,7 @@ impl DefaultCommandHandler {
             .map(|pf| {
                 pf.read()
                     .ok()
-                    .map(|pf| {
-                        if let Some(loco) = loco.as_ref() {
-                            pf.client_safe_quick_does_path_exist_for_ui(loco, &from, &destination)
-                        } else {
-                            true
-                        }
-                    })
+                    .map(|pf| pf.client_safe_quick_does_path_exist(&loco, &from, &destination))
                     .unwrap_or(true)
             })
             .unwrap_or(true);
@@ -372,7 +366,11 @@ impl DefaultCommandHandler {
             return CommandExecutionResult::Failed(AsciiString::from("Object lock poisoned"));
         };
         let _ = object_guard.set_rally_point(&destination);
-        crate::helpers::TheInGameUI::display_message("GUI:RallyPointSet");
+        let message = format_rally_point_set_message(
+            &crate::helpers::TheGameText::fetch("GUI:RallyPointSet"),
+            &display_name,
+        );
+        crate::helpers::TheInGameUI::display_message(&message);
         if let Some(audio) = crate::helpers::TheAudio::get() {
             let mut ev = crate::common::audio::AudioEventRts::new("RallyPointSet");
             ev.set_position(&(destination.x, destination.y, destination.z));
@@ -420,4 +418,34 @@ impl DefaultCommandHandler {
         CommandExecutionResult::Success
     }
 
+}
+
+/// C++ doSetRallyPoint: BasicHumanLocomotor set (GameLogicDispatch.cpp:130-132).
+fn basic_human_rally_locomotor_set() -> crate::locomotor::LocomotorSet {
+    let template = crate::locomotor::LOCOMOTOR_STORE
+        .get_template("BasicHumanLocomotor")
+        .unwrap_or_else(|| {
+            std::sync::Arc::new(crate::locomotor::LocomotorTemplate::new_infantry(
+                "BasicHumanLocomotor".to_string(),
+            ))
+        });
+    let mut set = crate::locomotor::LocomotorSet::new();
+    set.add_locomotor(
+        "BasicHumanLocomotor".to_string(),
+        std::sync::Arc::new(std::sync::Mutex::new(crate::locomotor::Locomotor::new(
+            template,
+        ))),
+    );
+    set
+}
+
+/// C++ `UnicodeString::format(TheGameText->fetch("GUI:RallyPointSet"), displayName)`.
+fn format_rally_point_set_message(template: &str, display_name: &str) -> String {
+    if template.contains("%s") {
+        template.replace("%s", display_name)
+    } else if template == "GUI:RallyPointSet" || template.starts_with("MISSING:") {
+        format!("Rally point set for {display_name}")
+    } else {
+        format!("{template} {display_name}")
+    }
 }

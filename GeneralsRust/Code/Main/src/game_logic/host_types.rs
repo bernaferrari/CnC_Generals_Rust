@@ -253,6 +253,11 @@ pub enum KindOf {
     /// default OverrideableByLikeKind StealthUpdate (ThingTemplate.cpp:391).
     /// Gameplay-only: the compact presentation KindOf bank is full.
     MobNexus,
+    /// C++ `KINDOF_NO_COLLIDE` (KindOf.h:56). Partition never collides
+    /// these objects. Gameplay-only: the compact presentation KindOf bank
+    /// is full.
+    NoCollide,
+
 
 }
 
@@ -280,6 +285,8 @@ impl KindOf {
             "TECH_BUILDING" | "TECHBUILDING" => Some(Self::TechBuilding),
             "AUTO_RALLYPOINT" | "AUTO_RALLY_POINT" => Some(Self::AutoRallypoint),
             "MOB_NEXUS" | "MOBNEXUS" => Some(Self::MobNexus),
+            "NO_COLLIDE" | "NOCOLLIDE" => Some(Self::NoCollide),
+
 
             "DRONE" => Some(Self::Drone),
             _ => None,
@@ -794,6 +801,11 @@ mod tests {
             KindOf::from_ini_token("MOB_NEXUS"),
             Some(KindOf::MobNexus)
         );
+        assert_eq!(
+            KindOf::from_ini_token("NO_COLLIDE"),
+            Some(KindOf::NoCollide)
+        );
+
         assert_eq!(KindOf::from_ini_token("FS_FACTORY"), None);
     }
 }

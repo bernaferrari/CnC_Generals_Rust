@@ -375,8 +375,11 @@ impl UnitControlSystem {
                 }
                 // Wave 1094: non-local FOW residual fail-closed (Clear only),
                 // matching dual collect_selectable shroud_status>=2 peel.
-                let is_local = player_team.is_some() && frame.is_owned_by_local(o);
-                if !is_local && o.fow_visibility.visibility_alpha < 0.95 {
+                // C++ CanSelectDrawable / SelectionInfo: also drop undetected
+                // stealth neutrals+enemies. is_local units stay pickable;
+                // visibility_alpha < 0.95 and stealthed-undetected non-local
+                // are both hidden by box_pick_hides_non_local.
+                if frame.box_pick_hides_non_local(o) {
                     return None;
                 }
                 let distance = o.position.distance(position);
@@ -449,7 +452,11 @@ impl UnitControlSystem {
                 continue;
             }
             // Wave 1094: non-local FOW residual fail-closed (Clear only).
-            if !frame.is_owned_by_local(o) && o.fow_visibility.visibility_alpha < 0.95 {
+            // C++ CanSelectDrawable / SelectionInfo: also drop undetected
+            // stealth neutrals+enemies. is_local units stay pickable;
+            // visibility_alpha < 0.95 and stealthed-undetected non-local
+            // are both hidden by box_pick_hides_non_local.
+            if frame.box_pick_hides_non_local(o) {
                 continue;
             }
             let object_position = o.position;
@@ -1593,6 +1600,101 @@ mod tests {
                 20.0,
             ),
             Some(id)
+        );
+    }
+
+    #[test]
+    fn click_pick_skips_undetected_stealthed_enemies() {
+        // C++ SelectionInfo.cpp:352-371 / leftover selection_xlat.rs:426-429.
+        use crate::game_logic::{GameLogic, Player};
+        use crate::pick_ray::pick_object_id_along_camera_ray;
+        let _shroud_test_guard = crate::fow_rendering::shroud_test_isolation_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        {
+            let mut shroud = gamelogic::system::shroud_manager::get_shroud_manager()
+                .lock()
+                .expect("shroud");
+            shroud.clear_all();
+        }
+
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "USA", true));
+        logic.add_player(Player::new(1, Team::GLA, "GLA", false));
+        let mut t = ThingTemplate::new("StealthRebel");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Infantry);
+        t.add_kind_of(KindOf::Selectable);
+        t.add_kind_of(KindOf::Attackable);
+        logic.templates.insert("StealthRebel".into(), t);
+        let mut mine = ThingTemplate::new("LocalRanger");
+        mine.set_health(100.0);
+        mine.add_kind_of(KindOf::Infantry);
+        mine.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("LocalRanger".into(), mine);
+
+        let enemy = logic
+            .create_object_for_player("StealthRebel", 1, glam::Vec3::new(80.0, 0.0, 0.0))
+            .expect("enemy");
+        let local = logic
+            .create_object_for_player("LocalRanger", 0, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("local");
+        if let Some(o) = logic.host_object_mut(enemy) {
+            o.status.stealthed = true;
+            o.status.detected = false;
+        }
+        if let Some(o) = logic.host_object_mut(local) {
+            o.status.stealthed = true;
+            o.status.detected = false;
+        }
+
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let pick = |pos: glam::Vec3| {
+            UnitControlSystem::pick_object_id_at_world_from_presentation(
+                &frame,
+                pos,
+                Some(Team::USA),
+                false,
+                20.0,
+            )
+        };
+        assert_eq!(
+            pick(glam::Vec3::new(80.0, 0.0, 0.0)),
+            None,
+            "undetected stealthed enemy must not be click-picked"
+        );
+        assert_eq!(
+            pick(glam::Vec3::new(0.0, 0.0, 0.0)),
+            Some(local),
+            "own stealthed unit stays pickable"
+        );
+
+        let ray_miss = pick_object_id_along_camera_ray(
+            &frame,
+            glam::Vec3::new(80.0, 40.0, 40.0),
+            glam::Vec3::new(80.0, 0.0, 0.0),
+            Some(Team::USA),
+            false,
+        );
+        assert_eq!(
+            ray_miss, None,
+            "undetected stealthed enemy must not be hover/ray picked"
+        );
+
+        if let Some(o) = logic.host_object_mut(enemy) {
+            o.status.detected = true;
+        }
+        let detected = PresentationFrame::build_from_logic(&logic, 0);
+        assert_eq!(
+            UnitControlSystem::pick_object_id_at_world_from_presentation(
+                &detected,
+                glam::Vec3::new(80.0, 0.0, 0.0),
+                Some(Team::USA),
+                false,
+                20.0,
+            ),
+            Some(enemy),
+            "detected stealthed enemy is pickable"
         );
     }
 

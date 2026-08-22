@@ -3377,8 +3377,21 @@ impl GameLogic {
             return;
         }
         let building_team = self.objects.get(&building_id).map(|o| o.team);
+        let crushing_fx = self
+            .objects
+            .get(&building_id)
+            .and_then(|o| o.structure_topple_data.as_ref())
+            .map(|d| d.crushing_fx.clone())
+            .unwrap_or_default();
+        if !crushing_fx.is_empty() {
+            for s in &samples {
+                let _ = crate::game_logic::dispatch_fx_list_at_pos(
+                    &crushing_fx,
+                    glam::Vec3::new(s.x, 0.0, s.z),
+                );
+            }
+        }
         let mut destroy: Vec<ObjectId> = Vec::new();
-        const SAMPLE_RADIUS: f32 = 18.0;
         let victims: Vec<ObjectId> = self.objects.keys().copied().collect();
         for id in victims {
             if id == building_id {
@@ -3398,7 +3411,8 @@ impl GameLogic {
             for s in &samples {
                 let dx = pos.x - s.x;
                 let dz = pos.z - s.z;
-                if dx * dx + dz * dz <= SAMPLE_RADIUS * SAMPLE_RADIUS {
+                let radius = s.radius.max(1.0);
+                if dx * dx + dz * dz <= radius * radius {
                     best_dmg = best_dmg.max(s.damage);
                 }
             }

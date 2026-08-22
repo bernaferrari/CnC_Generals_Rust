@@ -785,6 +785,13 @@ impl Object {
                 }
             }
         }
+        // C++ ActiveBody::setCorrectDamageState rubble (ActiveBody.cpp:189-208)
+        // is independent of UNDER_CONSTRUCTION visual skip.
+        if matches!(state, HostBodyDamageType::Rubble)
+            && !matches!(old_state, HostBodyDamageType::Rubble)
+        {
+            self.apply_structure_rubble_collision_effects();
+        }
         if show_health_visuals
             && matches!(state, HostBodyDamageType::Rubble)
             && !matches!(old_state, HostBodyDamageType::Rubble)
@@ -825,6 +832,13 @@ impl Object {
         };
         self.body_damage_state = state;
         crate::game_logic::host_body_damage_log::record(self.id, state.ordinal());
+        // C++ ActiveBody::setCorrectDamageState rubble (ActiveBody.cpp:189-208).
+        if matches!(state, HostBodyDamageType::Rubble)
+            && !matches!(old_state, HostBodyDamageType::Rubble)
+        {
+            self.apply_structure_rubble_collision_effects();
+        }
+
         // C++ GarrisonContain::onBodyDamageStateChange (GarrisonContain.cpp:1724-1732).
         if old_state != state
             && matches!(state, HostBodyDamageType::ReallyDamaged)

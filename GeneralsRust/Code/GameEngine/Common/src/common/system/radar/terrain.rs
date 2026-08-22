@@ -91,11 +91,14 @@ impl RadarSystem {
                     for j in (y - 1)..=(y + 1) {
                         for i in (x - 1)..=(x + 1) {
                             if sample_world(self, i, j).is_some() {
+                                // C++ W3DRadar.cpp:1165-1167 call-site:
+                                // interpolateColorForHeight(&color, bridgeHeight,
+                                //     getTerrainAverageZ(), mapExtent.hi.z, mapExtent.lo.z)
                                 neighborhood.push(interpolate_color_for_height(
                                     bridge.color,
                                     bridge.height,
-                                    hi_z,
                                     mid_z,
+                                    hi_z,
                                     lo_z,
                                 ));
                             }
@@ -147,8 +150,11 @@ impl RadarSystem {
                             let base = source
                                 .and_then(|s| s.terrain_color_at(sample.x, sample.y))
                                 .unwrap_or([0.45, 0.42, 0.32]);
+                            // C++ W3DRadar.cpp:1177-1178 call-site:
+                            // interpolateColorForHeight(&color, z, getTerrainAverageZ(),
+                            //     mapExtent.hi.z, mapExtent.lo.z)
                             neighborhood.push(interpolate_color_for_height(
-                                base, sample_h, hi_z, mid_z, lo_z,
+                                base, sample_h, mid_z, hi_z, lo_z,
                             ));
                         }
                     }

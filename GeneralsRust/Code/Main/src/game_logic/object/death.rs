@@ -100,9 +100,33 @@ impl Object {
             None => (1.0, 0.0),
         };
         let mut data = crate::game_logic::host_structure_topple::HostStructureToppleData::default();
-        let radius = self.selection_radius.max(10.0);
-        data.facing_width = radius;
-        data.building_height = (self.health.maximum.max(100.0) * 0.15).clamp(20.0, 80.0);
+        let geom = &self.thing.template.geometry_info;
+        data.bind_geometry(
+            geom.max_height_above_position(),
+            geom.major_radius,
+            geom.minor_radius,
+            self.get_orientation(),
+        );
+        if let Some(peel) =
+            crate::game_logic::host_structure_topple::leftover_structure_topple_module_peel(
+                &self.template_name,
+            )
+        {
+            if !peel.weapon.is_empty() {
+                data.bind_crushing_weapon(&peel.weapon);
+            } else {
+                data.bind_crushing_weapon(
+                    crate::game_logic::host_structure_topple::STRUCTURE_TOPPLE_CRUSHING_WEAPON_NAME,
+                );
+            }
+            if !peel.fx.is_empty() {
+                data.crushing_fx = peel.fx;
+            }
+        } else {
+            data.bind_crushing_weapon(
+                crate::game_logic::host_structure_topple::STRUCTURE_TOPPLE_CRUSHING_WEAPON_NAME,
+            );
+        }
         data.begin(current_frame, dx, dz, 0);
         self.structure_topple_data = Some(data);
         // C++ marks AI dead and deselects while building is still "alive" for fall.
@@ -222,6 +246,9 @@ impl Object {
         self.health.current = 0.0;
         self.status.effectively_dead = true;
         self.status.keep_as_rubble = true;
+        // C++ ActiveBody::setCorrectDamageState rubble: collapse Z +
+        // OBJECT_STATUS_NO_COLLISIONS (ActiveBody.cpp:190-208).
+        self.apply_structure_rubble_collision_effects();
         // Not destroyed: remains in world. Unselectable rubble husk.
         self.status.destroyed = false;
         self.status.selected = false;
@@ -230,6 +257,33 @@ impl Object {
         self.refresh_model_condition_bits();
         true
     }
+
+    /// C++ `ActiveBody::setCorrectDamageState` structure-rubble side effects.
+    pub fn apply_structure_rubble_collision_effects(&mut self) {
+        if !self.is_kind_of(crate::game_logic::KindOf::Structure) {
+            return;
+        }
+        let rubble_h = if self.thing.template.structure_rubble_height > 0 {
+            self.thing.template.structure_rubble_height as f32
+        } else {
+            host_structure_rubble_height(&self.template_name)
+        };
+        if self.thing.template.geometry_info.authored {
+            match self.thing.template.geometry_info.geom_type {
+                crate::game_logic::HostGeometryType::Sphere => {
+                    self.thing.template.geometry_info.major_radius = rubble_h;
+                }
+                crate::game_logic::HostGeometryType::Box
+                | crate::game_logic::HostGeometryType::Cylinder => {
+                    self.thing.template.geometry_info.height = rubble_h;
+                }
+            }
+        }
+        let g = &mut self.thing.geometry;
+        g.bounds_max.y = g.bounds_min.y + rubble_h;
+        self.set_status_no_collisions(true);
+    }
+
 
     /// C++ SlowDeathBehavior::beginSlowDeath residual.
     /// Returns true if slow death started (caller should defer destroy).
@@ -839,3 +893,29 @@ impl Object {
         )
     }
 }
+
+/// C++ `ThingTemplate::getStructureRubbleHeight` then
+/// `TheGlobalData->m_defaultStructureRubbleHeight` (ActiveBody.cpp:191-194).
+fn host_structure_rubble_height(template_name: &str) -> f32 {
+    if let Some(guard) =
+        game_engine::common::thing::thing_factory::try_get_thing_factory()
+    {
+        if let Some(factory) = guard.as_ref() {
+            if let Some(tmpl) = factory.find_template(template_name, false) {
+                if let Some(h) = tmpl.structure_rubble_height() {
+                    if h > 0 {
+                        return h as f32;
+                    }
+                }
+            }
+        }
+    }
+    game_engine::common::global_data::read_safe()
+        .ok()
+        .map(|g| g.default_structure_rubble_height)
+        .filter(|h| *h > 0.0)
+        .unwrap_or(
+            crate::game_logic::host_gamedata_lobby_residual::DEFAULT_STRUCTURE_RUBBLE_HEIGHT_RESIDUAL,
+        )
+}
+

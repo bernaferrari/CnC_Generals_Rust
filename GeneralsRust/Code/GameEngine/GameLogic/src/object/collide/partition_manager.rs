@@ -1613,7 +1613,9 @@ impl PartitionManager {
                         let dx = pobj.position.x - pos.x;
                         let dy = pobj.position.y - pos.y;
                         let dist_2d = (dx * dx + dy * dy).sqrt();
-                        let bounding_r = pobj.geometry.get_major_radius();
+                        // C++ FROM_BOUNDINGSPHERE_2D / BoundaryAndBoundary_2D
+                        // subtracts bounding-circle, not major radius.
+                        let bounding_r = pobj.geometry.get_bounding_circle_radius();
 
                         if dist_2d - bounding_r <= RANGE {
                             let this_height = pobj.geometry.get_max_height_above_position();

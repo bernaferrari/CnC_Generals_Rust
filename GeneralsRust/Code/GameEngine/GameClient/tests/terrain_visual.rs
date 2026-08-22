@@ -114,6 +114,47 @@ fn terrain_color_query_uses_logic_heightmap_source_tile_mip_like_cpp() {
 }
 
 #[test]
+fn leftover_radar_paint_source_samples_terrain_visual_tile_color() {
+    let mut heightmap = HeightMap::new(6, 6, 255.0, 1.0);
+    heightmap.border_size = 1;
+    heightmap.tile_ndxes[(3 * 6 + 2) as usize] = 52;
+
+    let mut visual = TerrainVisualImpl::new();
+    visual
+        .load_heightmap_from_data(heightmap, None, None)
+        .expect("runtime heightmap should load");
+
+    let mut tile = TileData::new();
+    for pixel in tile.data.chunks_exact_mut(4) {
+        pixel[0] = 64;
+        pixel[1] = 128;
+        pixel[2] = 192;
+        pixel[3] = 255;
+    }
+    tile.update_mips();
+    visual.debug_set_source_tile(13, tile);
+
+    {
+        let mut guard = game_client_rust::terrain::terrain_visual::get_terrain_visual()
+            .expect("terrain visual lock");
+        *guard = Some(visual);
+    }
+
+    game_client_rust::terrain::ensure_radar_terrain_paint_source_registered();
+    let color = game_client_rust::terrain::leftover_radar_terrain_color_at(1.25, 2.75)
+        .expect("paint source must sample TheTerrainVisual");
+    assert_eq!(color, [192.0 / 255.0, 128.0 / 255.0, 64.0 / 255.0]);
+
+    let none = game_client_rust::terrain::leftover_radar_bridge_at(
+        &game_engine::common::system::radar::Coord3D::new(1.25, 2.75, 0.0),
+    );
+    assert!(
+        none.is_none(),
+        "no intact leftover bridge object must not paint a span"
+    );
+}
+
+#[test]
 fn tile_blend_alpha_selection_matches_cpp_nonzero_inverted_flag() {
     let mut heightmap = HeightMap::new(1, 1, 255.0, 1.0);
     heightmap.tile_ndxes[0] = 0;

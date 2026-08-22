@@ -2614,6 +2614,83 @@ fn eva_upgrade_complete_and_general_level_up() {
 }
 
 #[test]
+fn grant_science_refuses_non_grantable_and_unknown() {
+    // C++ Player::grantScience refuses when ScienceStore::isScienceGrantable is false.
+    use crate::game_logic::Team;
+    let mut p = crate::game_logic::Player::new(0, Team::USA, "Local", true);
+    assert!(
+        p.grant_science("SCIENCE_PaladinTank"),
+        "grantable residual science must insert"
+    );
+    assert!(p.has_unlocked_science("SCIENCE_PaladinTank"));
+    assert!(
+        !p.grant_science("SCIENCE_NonGrantableTest"),
+        "IsGrantable=No must refuse PLAYER_GRANT_SCIENCE"
+    );
+    assert!(!p.has_unlocked_science("SCIENCE_NonGrantableTest"));
+    assert!(
+        !p.grant_science("SCIENCE_DoesNotExist"),
+        "unknown science is not grantable"
+    );
+    assert!(!p.has_unlocked_science("SCIENCE_DoesNotExist"));
+    // unlock_science is addScience — purchase / test setup, not grantScience.
+    assert!(p.unlock_science("SCIENCE_NonGrantableTest"));
+}
+
+#[test]
+fn player_grant_science_script_honors_is_grantable() {
+    use crate::game_logic::Team;
+    let mut logic = GameLogic::new();
+    logic.scripts_loaded = true;
+    logic.players.insert(
+        0,
+        crate::game_logic::Player::new(0, Team::USA, "Local", true),
+    );
+    let _ = gamelogic::scripting::take_host_science_action_requests();
+    gamelogic::scripting::request_host_science_action("Local", "SCIENCE_PaladinTank", true);
+    gamelogic::scripting::request_host_science_action("Local", "SCIENCE_NonGrantableTest", true);
+    logic.evaluate_and_execute_scripts(0.0);
+    let p = logic.players.get(&0).expect("p");
+    assert!(
+        p.has_unlocked_science("SCIENCE_PaladinTank"),
+        "grantable science must apply on live host"
+    );
+    assert!(
+        !p.has_unlocked_science("SCIENCE_NonGrantableTest"),
+        "PLAYER_GRANT_SCIENCE must honor IsGrantable"
+    );
+}
+
+#[test]
+fn script_set_rank_level_plays_eva_general_level_up() {
+    // C++ Player.cpp:2708-2714 setRankLevel always EVA for local.
+    use crate::game_logic::Team;
+    use gamelogic::helpers::{EvaEvent, TheEva};
+    use gamelogic::scripting::HostScriptRankRequest;
+    let _ = TheEva::drain_events();
+    let _ = gamelogic::scripting::take_host_rank_requests();
+    let mut logic = GameLogic::new();
+    logic.scripts_loaded = true;
+    logic.players.insert(
+        0,
+        crate::game_logic::Player::new(0, Team::USA, "Local", true),
+    );
+    gamelogic::scripting::request_host_rank(HostScriptRankRequest::SetRankLevel {
+        player: "Local".into(),
+        level: 3,
+    });
+    logic.evaluate_and_execute_scripts(0.0);
+    assert_eq!(logic.players.get(&0).expect("p").rank_level, 3);
+    assert!(logic.honesty_eva_general_level_up_ok());
+    let events = TheEva::drain_events().expect("eva");
+    assert!(
+        events.iter().any(|e| *e == EvaEvent::GeneralLevelUp),
+        "script rank-up must play EVA_GeneralLevelUp, got {events:?}"
+    );
+}
+
+
+#[test]
 fn add_skill_points_modifier_cap_negative_and_reset_rank() {
     use crate::game_logic::host_science_rank::{
         RANK2_SKILL_POINTS_NEEDED, RANK3_SKILL_POINTS_NEEDED, RANK5_SKILL_POINTS_NEEDED,

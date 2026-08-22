@@ -125,19 +125,76 @@ fn is_playable_victory_player(player: &Player) -> bool {
     !leftover_player_is_observer(player.id)
 }
 
-fn leftover_player_is_observer(player_id: u32) -> bool {
+fn leftover_player_is_markable(player: &gamelogic::player::Player) -> bool {
+    !player.is_player_observer()
+        && player.get_player_type() != gamelogic::player::PlayerType::Neutral
+}
+
+fn leftover_player_arc_for_host(
+    player_id: u32,
+    host_name: &str,
+    markable_only: bool,
+) -> Option<std::sync::Arc<std::sync::RwLock<gamelogic::player::Player>>> {
     let Ok(list) = gamelogic::player::ThePlayerList().read() else {
-        return false;
+        return None;
     };
     let named = format!("player{player_id}");
-    let player = list
-        .find_player_by_name(&named)
-        .or_else(|| list.get_player(player_id as gamelogic::player::PlayerIndex).cloned());
-    drop(list);
-    player
-        .and_then(|p| p.read().ok().map(|g| g.is_player_observer()))
+    if let Some(player) = list.find_player_by_name(&named) {
+        return Some(player);
+    }
+    if !host_name.is_empty() {
+        if let Some(player) = list.find_player_by_name(host_name) {
+            return Some(player);
+        }
+    }
+    if let Some(player) = list.get_player(player_id as gamelogic::player::PlayerIndex) {
+        if !markable_only
+            || player
+                .read()
+                .ok()
+                .is_some_and(|guard| leftover_player_is_markable(&guard))
+        {
+            return Some(std::sync::Arc::clone(player));
+        }
+    }
+    for arc in list.iter() {
+        if arc.read().ok().is_some_and(|guard| {
+            guard.get_player_index() as u32 == player_id
+                && (!markable_only || leftover_player_is_markable(&guard))
+        }) {
+            return Some(std::sync::Arc::clone(arc));
+        }
+    }
+    None
+}
+
+fn leftover_player_is_observer(player_id: u32) -> bool {
+    leftover_player_arc_for_host(player_id, "", false)
+        .and_then(|player| player.read().ok().map(|guard| guard.is_player_observer()))
         .unwrap_or(false)
 }
+
+fn mark_leftover_player_defeated(player_id: u32, host: &Player) {
+    let Some(arc) = leftover_player_arc_for_host(player_id, &host.name, true) else {
+        return;
+    };
+    if let Ok(mut guard) = arc.write() {
+        guard.set_defeated(true);
+        guard.set_player_dead(true);
+    }
+    if host.is_local {
+        gamelogic::helpers::TheVictoryConditions::set_local_player_defeated(true);
+    }
+}
+
+fn leftover_local_is_observer(players: &HashMap<u32, Player>) -> bool {
+    let Some(local) = players.values().find(|player| player.is_local) else {
+        // C++ cachePlayerPtrs: no local slot → observer.
+        return true;
+    };
+    local.is_observer || leftover_player_is_observer(local.id)
+}
+
 
 /// C++ `Team::hasAnyBuildings(KINDOF_MP_COUNT_FOR_VICTORY)` — STRUCTURE is
 /// forced on the mask; walls without the victory bit do not stall a match.
@@ -245,6 +302,10 @@ impl VictoryConditions {
         self.pending_kills.clear();
         // C++ VictoryConditions::reset clears m_singleAllianceRemaining.
         gamelogic::helpers::TheVictoryConditions::set_local_allied_victory(false);
+        gamelogic::helpers::TheVictoryConditions::set_local_allied_defeat(false);
+        gamelogic::helpers::TheVictoryConditions::set_single_alliance_remaining(false);
+        gamelogic::helpers::TheVictoryConditions::set_victory_flags_from_live(false);
+        gamelogic::helpers::TheVictoryConditions::set_local_player_defeated(false);
     }
 
     pub fn set_victory_conditions(&mut self, config: VictoryType) {
@@ -292,6 +353,7 @@ impl VictoryConditions {
                 if self.defeated_players.insert(player_id) {
                     self.defeat_events.push(player_id);
                     self.pending_kills.push(player_id);
+                    mark_leftover_player_defeated(player_id, player);
                 }
                 continue;
             }
@@ -307,7 +369,8 @@ impl VictoryConditions {
             self.end_frame.get_or_insert(frame);
             self.winning_alliance = None;
             self.refresh_alliance_states(players);
-            self.sync_leftover_local_allied_victory(players);
+            self.sync_leftover_victory_flags(players);
+
             return Some(VictoryCondition::Draw);
         }
 
@@ -320,7 +383,8 @@ impl VictoryConditions {
             self.end_frame.get_or_insert(frame);
             self.winning_alliance = None;
             self.refresh_alliance_states(players);
-            self.sync_leftover_local_allied_victory(players);
+            self.sync_leftover_victory_flags(players);
+
             return Some(VictoryCondition::Draw);
         }
         let winning_entry = if non_neutral_alliances.len() == 1 {
@@ -329,12 +393,15 @@ impl VictoryConditions {
             None
         };
         self.winning_alliance = winning_entry.as_ref().map(|(key, _)| *key);
+        if winning_entry.is_some() {
+            // C++ sets m_endFrame with m_singleAllianceRemaining before scripts read it.
+            self.end_frame.get_or_insert(frame);
+        }
         self.refresh_alliance_states(players);
-        self.sync_leftover_local_allied_victory(players);
+        self.sync_leftover_victory_flags(players);
 
         if let Some((_, members)) = winning_entry {
             if let Some(winner_id) = members.first().copied() {
-                self.end_frame.get_or_insert(frame);
                 return Some(VictoryCondition::Winner(winner_id));
             }
         }
@@ -356,11 +423,41 @@ impl VictoryConditions {
         })
     }
 
-    fn sync_leftover_local_allied_victory(&self, players: &HashMap<u32, Player>) {
+    /// C++ `m_singleAllianceRemaining`: 0 or 1 living alliances.
+    fn is_single_alliance_remaining(&self) -> bool {
+        self.winning_alliance.is_some() || self.end_frame.is_some()
+    }
+
+    /// C++ `VictoryConditions::isLocalAlliedDefeat`.
+    pub fn is_local_allied_defeat(&self, players: &HashMap<u32, Player>) -> bool {
+        if !self.is_single_alliance_remaining() {
+            return false;
+        }
+        if leftover_local_is_observer(players) {
+            return true;
+        }
+        !self.is_local_allied_victory(players)
+    }
+
+    fn sync_leftover_victory_flags(&self, players: &HashMap<u32, Player>) {
         gamelogic::helpers::TheVictoryConditions::set_local_allied_victory(
             self.is_local_allied_victory(players),
         );
+        gamelogic::helpers::TheVictoryConditions::set_local_allied_defeat(
+            self.is_local_allied_defeat(players),
+        );
+        gamelogic::helpers::TheVictoryConditions::set_single_alliance_remaining(
+            self.is_single_alliance_remaining(),
+        );
+        let local_defeated = players
+            .values()
+            .any(|player| player.is_local && self.defeated_players.contains(&player.id));
+        gamelogic::helpers::TheVictoryConditions::set_local_player_defeated(local_defeated);
+        gamelogic::helpers::TheVictoryConditions::set_victory_flags_from_live(true);
+
+
     }
+
 
     fn is_defeated(&self, state: PlayerArmyState) -> bool {
         match (

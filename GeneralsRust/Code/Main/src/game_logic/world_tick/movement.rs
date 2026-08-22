@@ -181,6 +181,8 @@ impl GameLogic {
         if crate::gameworld_shadow::gameworld_movement_authority_live() {
             // Contain exit is not a locomotor integrate — still stream riders.
             self.drain_pending_transport_exits();
+            // C++ doLocomotor still stamps AIRBORNE_TARGET after the frame.
+            self.stamp_airborne_targets_from_locomotor(object_ids);
             return;
         }
 
@@ -304,6 +306,7 @@ impl GameLogic {
                 // C++ Locomotor.cpp:954-958 getIsStunned — no motive walk.
                 // Leave velocity for PhysicsBehavior tumble / shock tick.
                 if obj.is_shock_stunned() {
+                    Self::stamp_object_airborne_target(obj, ground_y);
                     continue;
                 }
                 // C++ Locomotor.cpp:1005-1056 treatAsAirborne unless
@@ -312,11 +315,13 @@ impl GameLogic {
                     let height_above = obj.get_position().y - ground_y;
                     if height_above > 9.0 && !obj.allow_motive_force_while_airborne {
                         Self::apply_live_handle_behavior_z(obj, surface_y, None);
+                        Self::stamp_object_airborne_target(obj, ground_y);
                         continue;
                     }
                 }
                 if obj.is_rappelling() {
                     // C++ AIRappelState owns Z; handleBehaviorZ must not snap to Y=0.
+                    Self::stamp_object_airborne_target(obj, ground_y);
                     continue;
                 }
                 if obj.waiting_for_path {
@@ -324,6 +329,7 @@ impl GameLogic {
                     obj.movement.velocity = Vec3::ZERO;
                     obj.record_host_movement();
                     Self::apply_live_handle_behavior_z(obj, surface_y, None);
+                    Self::stamp_object_airborne_target(obj, ground_y);
                     continue;
                 }
                 if matches!(obj.ai_state, AIState::AttackMoving) && obj.target.is_some() {
@@ -343,6 +349,7 @@ impl GameLogic {
                         obj.movement.velocity = Vec3::ZERO;
                         obj.set_status_moving(false);
                         Self::apply_live_handle_behavior_z(obj, surface_y, None);
+                        Self::stamp_object_airborne_target(obj, ground_y);
                         continue;
                     }
                 }
@@ -401,6 +408,7 @@ impl GameLogic {
                                 obj.pending_exit_after_evacuate = and_exit;
                             }
                             Self::apply_live_handle_behavior_z(obj, surface_y, None);
+                            Self::stamp_object_airborne_target(obj, ground_y);
                             continue;
                         }
                     }
@@ -482,6 +490,7 @@ impl GameLogic {
                             obj.movement.velocity = Vec3::ZERO;
                             obj.record_host_movement();
                             Self::apply_live_handle_behavior_z(obj, surface_y, None);
+                            Self::stamp_object_airborne_target(obj, ground_y);
                             continue;
                         }
                         // C++ moveTowardsPositionTreads/Legs/Climb angleCoeff
@@ -612,6 +621,7 @@ impl GameLogic {
                                 );
                                 obj.record_host_movement();
                                 Self::apply_live_handle_behavior_z(obj, surface_y, None);
+                                Self::stamp_object_airborne_target(obj, ground_y);
                                 continue;
                             }
                         }
@@ -747,10 +757,27 @@ impl GameLogic {
                         let _ = obj.loco_maintain_current_position(surface_y, dt);
                     }
                 }
+                Self::stamp_object_airborne_target(obj, ground_y);
             }
         }
 
         self.drain_pending_transport_exits();
+    }
+
+    /// C++ `AIUpdate.cpp:2276-2279` after movement for the frame.
+    fn stamp_airborne_targets_from_locomotor(&mut self, object_ids: &[ObjectId]) {
+        for &id in object_ids {
+            if let Some(obj) = self.objects.get_mut(&id) {
+                if !obj.is_disabled() {
+                    obj.stamp_airborne_target_from_locomotor();
+                }
+            }
+        }
+    }
+
+    fn stamp_object_airborne_target(obj: &mut Object, ground_y: f32) {
+        obj.ground_height = ground_y;
+        obj.stamp_airborne_target_from_locomotor();
     }
 
     /// C++ AIExitState::update polls isExitBusy / getAiFreeToExit every frame

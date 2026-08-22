@@ -1291,10 +1291,27 @@ impl TheInGameUI {
         let mut guard = in_game_ui_status_state()
             .lock()
             .unwrap_or_else(|e| e.into_inner());
+        let changed = guard.scrolling != scrolling;
         guard.scrolling = scrolling;
         if !scrolling {
             guard.scroll_amount_x = 0.0;
             guard.scroll_amount_y = 0.0;
+        }
+        if changed {
+            // C++ InGameUI.cpp:2797 / 2805 setMouseCursor(SCROLL/ARROW).
+            guard.mouse_cursor = if scrolling {
+                MouseCursor::Scroll
+            } else {
+                MouseCursor::Arrow
+            };
+        }
+        drop(guard);
+        if changed && scrolling {
+            // C++ InGameUI.cpp:2799-2801 break any camera locks.
+            with_tactical_view(|view| {
+                view.set_camera_lock(None);
+                view.set_camera_lock_drawable(None);
+            });
         }
     }
 

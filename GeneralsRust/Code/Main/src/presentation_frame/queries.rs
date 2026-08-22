@@ -425,7 +425,8 @@ impl PresentationFrame {
                                     ..Default::default()
                                 });
                             input.draw_models =
-                                crate::assets::resolve_presentation_draw_models_for_conditions(
+                                crate::assets::resolve_presentation_draw_models_for_live_object(
+                                    input.id.0,
                                     disguise_template,
                                     fallback_draw_models.as_slice(),
                                     input.model_condition_bits_with_combat_flags(),
@@ -457,7 +458,8 @@ impl PresentationFrame {
                     ..Default::default()
                 });
             input.template_name = visual_template_name.to_owned();
-            input.draw_models = crate::assets::resolve_presentation_draw_models_for_conditions(
+            input.draw_models = crate::assets::resolve_presentation_draw_models_for_live_object(
+                input.id.0,
                 visual_template_name,
                 fallback_draw_models.as_slice(),
                 input.model_condition_bits_with_combat_flags(),

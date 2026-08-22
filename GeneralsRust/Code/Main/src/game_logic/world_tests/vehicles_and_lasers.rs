@@ -3747,6 +3747,67 @@ fn attack_chase_drops_when_victim_stops_fleeing() {
 }
 
 #[test]
+fn attack_chase_crush_floors_to_fast_as_possible() {
+    use crate::game_logic::{
+        AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon,
+    };
+    use glam::Vec3;
+    let mut logic = GameLogic::new();
+    let mut at = ThingTemplate::new("CrushTank");
+    at.add_kind_of(KindOf::Vehicle);
+    let aid = ObjectId(1811);
+    logic.objects.insert(aid, {
+        let mut o = Object::new(at, aid, Team::USA);
+        o.set_position(Vec3::ZERO);
+        o.set_orientation(0.0);
+        o.movement.max_speed = 20.0;
+        o.movement.velocity = Vec3::new(18.0, 0.0, 0.0);
+        o.crusher_level = 1;
+        o.group_speed_factor = 0.5;
+        o.weapon = Some(Weapon {
+            damage: 10.0,
+            range: 80.0,
+            reload_time: 1.0,
+            last_fire_time: -10.0,
+            can_target_ground: true,
+            ..Default::default()
+        });
+        o.attack_substate = AttackSubState::ChaseTarget;
+        o
+    });
+    let mut vt = ThingTemplate::new("CrushInf");
+    vt.add_kind_of(KindOf::Infantry);
+    let vid = ObjectId(1812);
+    logic.objects.insert(vid, {
+        let mut o = Object::new(vt, vid, Team::GLA);
+        o.set_position(Vec3::new(20.0, 0.0, 0.0));
+        o.set_orientation(0.0);
+        o.crushable_level = 0;
+        o.has_squish_collide = true;
+        o.movement.velocity = Vec3::new(10.0, 0.0, 0.0);
+        o
+    });
+    assert!(logic.objects[&aid].can_crush_or_squish(&logic.objects[&vid], false));
+    let r = logic.tick_attack_state_machine(aid, vid, 10.0, 1, 1.0);
+    assert_eq!(r, AttackMachineResult::Continue);
+    let tank = &logic.objects[&aid];
+    assert_eq!(tank.attack_substate, AttackSubState::ChaseTarget);
+    assert!(
+        (tank.group_speed_factor - 1.0).abs() < 1e-5,
+        "canCrushOrSquish must floor to FAST_AS_POSSIBLE, factor={}",
+        tank.group_speed_factor
+    );
+    let spd = (tank.movement.velocity.x * tank.movement.velocity.x
+        + tank.movement.velocity.z * tank.movement.velocity.z)
+        .sqrt();
+    assert!(
+        spd > 10.0 * 0.95 + 0.1,
+        "tank must not pace fleeing infantry at victim*0.95, spd={}",
+        spd
+    );
+}
+
+#[test]
 fn choose_best_weapon_prefers_ready_slot() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     let mut logic = GameLogic::new();

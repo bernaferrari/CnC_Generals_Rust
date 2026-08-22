@@ -499,7 +499,8 @@ impl PresentationFrame {
                     model_key: base_model_key.clone(),
                     ..Default::default()
                 });
-            let draw_models = crate::assets::resolve_presentation_draw_models_for_conditions(
+            let draw_models = crate::assets::resolve_presentation_draw_models_for_live_object(
+                obj.id.0,
                 &obj.template_name,
                 fallback_draw_models.as_slice(),
                 model_condition_bits,
@@ -611,6 +612,26 @@ impl PresentationFrame {
                         .unwrap_or(pos);
                     p.y += obj.presentation_collapse_height_offset();
                     p.y += obj.presentation_slow_death_sink_offset();
+                    if crate::assets::authored_draw_adjusts_height_by_construction(&draw_models) {
+                        let geom = &obj.thing.template.geometry_info;
+                        let height = if geom.authored {
+                            geom.max_height_above_position()
+                        } else {
+                            obj.selection_radius.max(1.0)
+                        };
+                        let cpp_percent = if auth_under_construction
+                            || auth_construction_percent + 1e-4 < 1.0
+                        {
+                            auth_construction_percent * 100.0
+                        } else {
+                            -1.0
+                        };
+                        if let Some(dy) =
+                            crate::assets::construction_percent_height_delta(cpp_percent, height)
+                        {
+                            p.y += dy;
+                        }
+                    }
                     let (sx, sz) = obj.presentation_collapse_shudder();
                     p.x += sx;
                     p.z += sz;
@@ -1131,6 +1152,15 @@ impl PresentationFrame {
                 selection_radius: obj.selection_radius.max(5.0),
                 health_box_width: obj.get_health_box_dimensions().1,
                 health_box_z_offset: obj.health_box_world_z_offset(),
+                max_height_above_position: {
+                    let geom = &obj.thing.template.geometry_info;
+                    if geom.authored {
+                        geom.max_height_above_position()
+                    } else {
+                        0.0
+                    }
+                },
+
                 engine_bridged: false,
                 fow_visibility,
                 drawable_shroud,

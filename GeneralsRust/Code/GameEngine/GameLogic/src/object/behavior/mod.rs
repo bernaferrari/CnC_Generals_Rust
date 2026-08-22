@@ -399,7 +399,10 @@ pub use sticky_bomb_update::{
     StickyBombUpdate, StickyBombUpdateFactory, StickyBombUpdateModule, StickyBombUpdateModuleData,
 };
 pub use structure_topple_update::{
-    StructureToppleUpdate, StructureToppleUpdateFactory, StructureToppleUpdateModuleData,
+    leftover_apply_crushing_damage_js, leftover_do_damage_line_offsets,
+    leftover_structure_topple_crush_points, leftover_structure_topple_facing_width,
+    leftover_structure_topple_max_crush_distance, StructureToppleUpdate,
+    StructureToppleUpdateFactory, StructureToppleUpdateModuleData,
 };
 pub use wave_guide_update::{WaveGuideUpdate, WaveGuideUpdateFactory, WaveGuideUpdateModuleData};
 pub use weapon_bonus_update::{

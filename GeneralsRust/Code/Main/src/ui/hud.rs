@@ -372,6 +372,11 @@ pub struct BuildQueueItem {
     pub cost: i32,
     pub build_time: f32,
     pub remaining_time: f32,
+    /// C++ `m_queueData[i].productionID`. Host aliases this as the displayed slot index.
+    pub production_id: u32,
+    pub queue_index: usize,
+    pub position: (i32, i32),
+    pub size: (u32, u32),
 }
 
 #[derive(Debug, Clone)]
@@ -694,6 +699,7 @@ impl ConstructionPanel {
         cost: i32,
         build_time: f32,
     ) {
+        let queue_index = self.building_queue.len();
         self.building_queue.push(BuildQueueItem {
             item_name: item_name.to_string(),
             display_name: display_name.to_string(),
@@ -701,7 +707,12 @@ impl ConstructionPanel {
             cost,
             build_time,
             remaining_time: build_time,
+            production_id: queue_index as u32,
+            queue_index,
+            position: (0, 0),
+            size: (0, 0),
         });
+        self.layout_queue_slots();
     }
 
     pub fn update_queue(&mut self, delta_time: f32) -> Vec<String> {
@@ -714,10 +725,40 @@ impl ConstructionPanel {
             if item.remaining_time <= 0.0 {
                 completed.push(item.display_name.clone());
                 self.building_queue.remove(0);
+                self.layout_queue_slots();
             }
         }
 
         completed
+    }
+
+    /// C++ ControlBar queue icons sit on the same command-button windows.
+    /// Live HUD places filled slots on the construction panel for LMB cancel.
+    fn layout_queue_slots(&mut self) {
+        let button_size = 48u32;
+        let spacing = 4u32;
+        let start_x = self.position.0 + 320;
+        let start_y = self.position.1 + 40;
+        for (i, item) in self.building_queue.iter_mut().enumerate() {
+            item.queue_index = i;
+            item.production_id = i as u32;
+            item.position = (
+                start_x + i as i32 * (button_size + spacing) as i32,
+                start_y,
+            );
+            item.size = (button_size, button_size);
+        }
+    }
+
+    fn clicked_queue_slot(&self, x: i32, y: i32) -> Option<usize> {
+        self.building_queue.iter().position(|item| {
+            item.size.0 > 0
+                && item.size.1 > 0
+                && utils::point_in_rect(
+                    (x, y),
+                    (item.position.0, item.position.1, item.size.0, item.size.1),
+                )
+        })
     }
 }
 
@@ -867,7 +908,7 @@ impl GameHUD {
     pub fn sync_production_queue_from_presentation(&mut self, items: &[(String, f32, i32, f32)]) {
         // items: (template_name, progress 0..1, cost, build_time)
         self.construction_panel.building_queue.clear();
-        for (name, progress, cost, build_time) in items {
+        for (idx, (name, progress, cost, build_time)) in items.iter().enumerate() {
             let progress = progress.clamp(0.0, 1.0);
             let build_time = build_time.max(0.01);
             let remaining = build_time * (1.0 - progress);
@@ -878,8 +919,13 @@ impl GameHUD {
                 cost: *cost,
                 build_time,
                 remaining_time: remaining,
+                production_id: idx as u32,
+                queue_index: idx,
+                position: (0, 0),
+                size: (0, 0),
             });
         }
+        self.construction_panel.layout_queue_slots();
     }
 
     pub fn apply_can_make_cameos(&mut self, cameos: &[(&str, bool, u32, Option<&str>)]) {
@@ -1013,6 +1059,26 @@ impl GameHUD {
 
         // Check construction panel clicks
         if self.construction_panel.visible {
+            // C++ ControlBarCommandProcessing.cpp:443-479 LMB on filled queue slot
+            // cancels `m_queueData[i].productionID`, never last-match-by-template.
+            if button == MouseButton::Left {
+                if let Some(idx) = self.construction_panel.clicked_queue_slot(x, y) {
+                    let item = self.construction_panel.building_queue.remove(idx);
+                    self.construction_panel.layout_queue_slots();
+                    let message = localization::localize_with_args(
+                        "hud.message.build_queue_cancel",
+                        "Cancelled {name}",
+                        &[("name", item.display_name.as_str())],
+                    );
+                    self.add_message(&message, MessageType::Construction);
+                    return Some(crate::ui::UIEvent::CancelUnitProduction {
+                        template_name: item.item_name,
+                        production_id: item.production_id,
+                        queue_index: idx,
+                    });
+                }
+            }
+
             let mut clicked_construction: Option<(String, String, i32, bool)> = None;
             for construction_button in &mut self.construction_panel.construction_buttons {
                 if utils::point_in_rect(
@@ -1031,55 +1097,6 @@ impl GameHUD {
                         construction_button.enabled,
                     ));
                     break;
-                }
-            }
-
-            // C++ RMB on build cameo / queue residual: cancel matching production.
-            if button == MouseButton::Right {
-                if let Some((item_name, display_name, _cost, _enabled)) =
-                    clicked_construction.clone()
-                {
-                    if let Some(idx) = self
-                        .construction_panel
-                        .building_queue
-                        .iter()
-                        .rposition(|q| q.item_name == item_name)
-                    {
-                        self.construction_panel.building_queue.remove(idx);
-                        let message = localization::localize_with_args(
-                            "hud.message.build_queue_cancel",
-                            "Cancelled {name}",
-                            &[("name", display_name.as_str())],
-                        );
-                        self.add_message(&message, MessageType::Construction);
-                        return Some(crate::ui::UIEvent::CancelUnitProduction {
-                            template_name: item_name,
-                        });
-                    }
-                }
-                // RMB on construction panel with a queue: cancel last queued item residual.
-                if !self.construction_panel.building_queue.is_empty()
-                    && utils::point_in_rect(
-                        (x, y),
-                        (
-                            self.construction_panel.position.0,
-                            self.construction_panel.position.1,
-                            self.construction_panel.size.0,
-                            self.construction_panel.size.1,
-                        ),
-                    )
-                {
-                    if let Some(item) = self.construction_panel.building_queue.pop() {
-                        let message = localization::localize_with_args(
-                            "hud.message.build_queue_cancel",
-                            "Cancelled {name}",
-                            &[("name", item.display_name.as_str())],
-                        );
-                        self.add_message(&message, MessageType::Construction);
-                        return Some(crate::ui::UIEvent::CancelUnitProduction {
-                            template_name: item.item_name,
-                        });
-                    }
                 }
             }
 
@@ -2213,4 +2230,42 @@ mod tests {
         assert_eq!(keycode_from_hotkey_char('5'), Some(KeyCode::Key5));
     }
 
+    #[test]
+    fn lmb_queue_slot_cancels_that_production_id_not_template_tail() {
+        // C++ ControlBarCommandProcessing.cpp:448-479 LMB slot productionID.
+        let mut hud = GameHUD::new();
+        hud.initialize().expect("init");
+        hud.construction_panel.visible = true;
+        hud.construction_panel.add_to_queue("Ranger", "Ranger", 225, 5.0);
+        hud.construction_panel.add_to_queue("Ranger", "Ranger", 225, 5.0);
+        hud.construction_panel.add_to_queue("MissileDefender", "Missile Defender", 300, 5.0);
+        assert_eq!(hud.construction_panel.building_queue.len(), 3);
+        assert_eq!(hud.construction_panel.building_queue[1].production_id, 1);
+
+        let slot1 = hud.construction_panel.building_queue[1].position;
+        let ev = hud
+            .handle_mouse_click(slot1.0 + 8, slot1.1 + 8, MouseButton::Left)
+            .expect("queue cancel");
+        match ev {
+            UIEvent::CancelUnitProduction {
+                template_name,
+                production_id,
+                queue_index,
+            } => {
+                assert_eq!(template_name, "Ranger");
+                assert_eq!(production_id, 1);
+                assert_eq!(queue_index, 1);
+            }
+            other => panic!("expected CancelUnitProduction, got {other:?}"),
+        }
+        assert_eq!(hud.construction_panel.building_queue.len(), 2);
+        assert_eq!(
+            hud.construction_panel.building_queue[0].item_name,
+            "Ranger"
+        );
+        assert_eq!(
+            hud.construction_panel.building_queue[1].item_name,
+            "MissileDefender"
+        );
+    }
 }

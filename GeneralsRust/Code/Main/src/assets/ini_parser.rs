@@ -10,6 +10,7 @@
 use anyhow::Result;
 use log::{debug, trace};
 use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
 
 /// C++ `INI::parseAndTranslateLabel` (`TheGameText->fetch`).
 ///
@@ -444,6 +445,12 @@ pub struct DrawConditionStateDefinition {
     pub weapon_bone_bindings: AuthoredDrawWeaponBoneBindings,
     /// C++ `ModelConditionInfo::m_particleSysBones` (bone name + ParticleSystem).
     pub particle_sys_bones: Vec<(String, String)>,
+    /// C++ `ModelConditionInfo::m_transitionKey`. Empty is NAMEKEY_INVALID.
+    pub transition_key: String,
+    /// C++ `ModelConditionInfo::m_allowToFinishKey`. Empty is NAMEKEY_INVALID.
+    pub allow_to_finish_key: String,
+    /// C++ `ModelConditionInfo::m_flags` (`ACBits`).
+    pub flags: u32,
     /// Parser-only counterpart of C++ `ANIMS_COPIED_FROM_DEFAULT_STATE`.
     /// A state starts with Default's animations but its first Animation or
     /// IdleAnimation field replaces that inherited list rather than appending.
@@ -463,6 +470,9 @@ impl DrawConditionStateDefinition {
             primary_turret: AuthoredDrawPrimaryTurret::default(),
             weapon_bone_bindings: AuthoredDrawWeaponBoneBindings::default(),
             particle_sys_bones: Vec::new(),
+            transition_key: String::new(),
+            allow_to_finish_key: String::new(),
+            flags: 0,
             animations_copied_from_default: false,
         }
     }
@@ -479,6 +489,9 @@ impl DrawConditionStateDefinition {
             primary_turret: AuthoredDrawPrimaryTurret::default(),
             weapon_bone_bindings: AuthoredDrawWeaponBoneBindings::default(),
             particle_sys_bones: Vec::new(),
+            transition_key: String::new(),
+            allow_to_finish_key: String::new(),
+            flags: 0,
             animations_copied_from_default: false,
         }
     }
@@ -495,6 +508,9 @@ impl DrawConditionStateDefinition {
             primary_turret: AuthoredDrawPrimaryTurret::default(),
             weapon_bone_bindings: AuthoredDrawWeaponBoneBindings::default(),
             particle_sys_bones: Vec::new(),
+            transition_key: String::new(),
+            allow_to_finish_key: String::new(),
+            flags: 0,
             animations_copied_from_default: false,
         }
     }
@@ -616,6 +632,111 @@ pub struct AuthoredDrawModel {
     /// basename; a later renderer must still validate them before use.
     #[serde(default)]
     pub recoil_kinematics: AuthoredDrawRecoilKinematics,
+    /// C++ `ModelConditionInfo::m_transitionKey` for the selected state.
+    #[serde(default)]
+    pub transition_key: String,
+    /// C++ `ModelConditionInfo::m_allowToFinishKey` for the selected state.
+    #[serde(default)]
+    pub allow_to_finish_key: String,
+    /// C++ `ModelConditionInfo::m_flags` (`ACBits`) for the selected state.
+    #[serde(default)]
+    pub flags: u32,
+    /// True when this record is a source `TransitionState`, not a selectable
+    /// `ConditionState`. Presentation uses this to keep playing the clip
+    /// until `ANIM_MODE_ONCE` finishes.
+    #[serde(default)]
+    pub is_transition: bool,
+}
+
+/// C++ `ACBits::ADJUST_HEIGHT_BY_CONSTRUCTION_PERCENT` bit index.
+pub const ACBIT_ADJUST_HEIGHT_BY_CONSTRUCTION_PERCENT: u32 = 3;
+
+const AC_BITS_NAMES: &[&str] = &[
+    "RANDOMSTART",
+    "START_FRAME_FIRST",
+    "START_FRAME_LAST",
+    "ADJUST_HEIGHT_BY_CONSTRUCTION_PERCENT",
+    "PRISTINE_BONE_POS_IN_FINAL_FRAME",
+    "MAINTAIN_FRAME_ACROSS_STATES",
+    "RESTART_ANIM_WHEN_COMPLETE",
+    "MAINTAIN_FRAME_ACROSS_STATES2",
+    "MAINTAIN_FRAME_ACROSS_STATES3",
+    "MAINTAIN_FRAME_ACROSS_STATES4",
+];
+
+/// C++ `W3DModelDraw.cpp:2005-2009`: `Translate_Z(-height + height * pct / 100)`
+/// when `getConstructionPercent() >= 0`. Complete (`-1`) skips the sink.
+pub fn construction_percent_height_delta(cpp_percent: f32, height: f32) -> Option<f32> {
+    if !cpp_percent.is_finite() || !height.is_finite() || cpp_percent < 0.0 {
+        None
+    } else {
+        Some(-height + height * cpp_percent / 100.0)
+    }
+}
+
+/// True when any selected Draw module authored `ADJUST_HEIGHT_BY_CONSTRUCTION_PERCENT`.
+pub fn authored_draw_adjusts_height_by_construction(models: &[AuthoredDrawModel]) -> bool {
+    let mask = 1u32 << ACBIT_ADJUST_HEIGHT_BY_CONSTRUCTION_PERCENT;
+    models.iter().any(|model| model.flags & mask != 0)
+}
+
+fn parse_ac_bits_flags(value: &str) -> u32 {
+    let mut bits = 0u32;
+    for raw in value.split(|ch: char| ch == ',' || ch == '|' || ch.is_whitespace()) {
+        let part = raw.trim();
+        if part.is_empty() {
+            continue;
+        }
+        let (clear, token) = if let Some(stripped) = part.strip_prefix('-') {
+            (true, stripped)
+        } else if let Some(stripped) = part.strip_prefix('+') {
+            (false, stripped)
+        } else {
+            (false, part)
+        };
+        let Some(index) = AC_BITS_NAMES
+            .iter()
+            .position(|name| name.eq_ignore_ascii_case(token))
+        else {
+            continue;
+        };
+        let mask = 1u32 << index;
+        if clear {
+            bits &= !mask;
+        } else {
+            bits |= mask;
+        }
+    }
+    bits
+}
+
+#[derive(Clone, Copy, Debug)]
+struct LiveDrawPlayback {
+    current_index: u32,
+    next_index: Option<u32>,
+    animation_complete: bool,
+}
+
+static LIVE_DRAW_PLAYBACK: LazyLock<Mutex<HashMap<(u32, u32), LiveDrawPlayback>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// C++ `isAnimationComplete` latch used by `setModelState` wait-to-finish /
+/// transition cutover. The renderer records Once clips that reached the last
+/// frame so the next presentation tick can leave the TransitionState.
+pub fn notify_live_draw_animation_complete(object_id: u32, module_index: u32) {
+    let Ok(mut map) = LIVE_DRAW_PLAYBACK.lock() else {
+        return;
+    };
+    if let Some(playback) = map.get_mut(&(object_id, module_index)) {
+        playback.animation_complete = true;
+    }
+}
+
+/// Drop per-object TransitionState playback when the world resets.
+pub fn clear_live_draw_playback() {
+    if let Ok(mut map) = LIVE_DRAW_PLAYBACK.lock() {
+        map.clear();
+    }
 }
 
 /// One source-authored `Behavior = ...` module, retained with its own block
@@ -1028,24 +1149,91 @@ impl ObjectDefinition {
                 // not wrap a malformed count into a different state.
                 Err(_) => return Some(Vec::new()),
             };
-            let AuthoredConditionModel::Named(model_key) = &state.model else {
+            let AuthoredConditionModel::Named(_) = &state.model else {
                 continue;
             };
-            selected.push(AuthoredDrawModel {
-                module_index,
-                selected_condition_state_index: condition_state_index,
-                model_key: model_key.clone(),
-                animations: state.animations.clone(),
-                animation_mode: state.animation_mode.clone(),
-                subobject_visibility: state.subobject_visibility.clone(),
-                primary_turret: state.primary_turret.clone(),
-                weapon_bone_bindings: state.weapon_bone_bindings.clone(),
-                projectile_bone_feedback: module.projectile_bone_feedback.clone(),
-                recoil_kinematics: module.recoil_kinematics.clone(),
-            });
+            selected.push(module.authored_draw_model(module_index, condition_state_index, state));
         }
 
         found_selectable_module.then_some(selected)
+    }
+
+    /// C++ `setModelState` + `findTransitionForSig`: given each module's
+    /// previous selected index and whether its Once clip finished, play a
+    /// `TransitionState` before the destination `ConditionState`.
+    pub fn select_draw_models_for_conditions_from(
+        &self,
+        condition_bits: u128,
+        prior_by_module: &[(u32, u32, bool)],
+    ) -> Option<Vec<AuthoredDrawModel>> {
+        let dest = self.select_draw_models_for_conditions(condition_bits)?;
+        Some(self.apply_transition_playback(dest, prior_by_module))
+    }
+
+    /// Apply live TransitionState playback using the process-wide Once-complete
+    /// latch so presentation can keep a transition clip until it finishes.
+    pub fn apply_live_draw_transition_playback(
+        &self,
+        object_id: u32,
+        dest_models: Vec<AuthoredDrawModel>,
+    ) -> Vec<AuthoredDrawModel> {
+        let dest_indices: Vec<(u32, u32)> = dest_models
+            .iter()
+            .map(|model| (model.module_index, model.selected_condition_state_index))
+            .collect();
+        let Ok(mut map) = LIVE_DRAW_PLAYBACK.lock() else {
+            return dest_models;
+        };
+        let prior: Vec<(u32, u32, bool)> = dest_models
+            .iter()
+            .filter_map(|model| {
+                map.get(&(object_id, model.module_index))
+                    .map(|playback| {
+                        (
+                            model.module_index,
+                            playback.current_index,
+                            playback.animation_complete,
+                        )
+                    })
+            })
+            .collect();
+        let selected = self.apply_transition_playback(dest_models, &prior);
+        for model in &selected {
+            let dest_index = dest_indices
+                .iter()
+                .find(|(module_index, _)| *module_index == model.module_index)
+                .map(|(_, dest)| *dest);
+            map.insert(
+                (object_id, model.module_index),
+                LiveDrawPlayback {
+                    current_index: model.selected_condition_state_index,
+                    next_index: dest_index
+                        .filter(|&dest| dest != model.selected_condition_state_index),
+                    animation_complete: false,
+                },
+            );
+        }
+        selected
+    }
+
+    fn apply_transition_playback(
+        &self,
+        dest_models: Vec<AuthoredDrawModel>,
+        prior_by_module: &[(u32, u32, bool)],
+    ) -> Vec<AuthoredDrawModel> {
+        dest_models
+            .into_iter()
+            .map(|dest| {
+                let Some(module) = self.draw_modules.get(dest.module_index as usize) else {
+                    return dest;
+                };
+                let prior = prior_by_module
+                    .iter()
+                    .copied()
+                    .find(|(module_index, _, _)| *module_index == dest.module_index);
+                module.authored_state_after_transition(dest, prior)
+            })
+            .collect()
     }
 
     /// C++ current-state `ParticleSysBone` list across Draw modules.
@@ -1321,6 +1509,116 @@ impl DrawModuleDefinition {
         }
 
         Ok(best_state)
+    }
+
+    fn authored_draw_model(
+        &self,
+        module_index: u32,
+        state_index: u32,
+        state: &DrawConditionStateDefinition,
+    ) -> AuthoredDrawModel {
+        AuthoredDrawModel {
+            module_index,
+            selected_condition_state_index: state_index,
+            model_key: match &state.model {
+                AuthoredConditionModel::Named(name) => name.clone(),
+                _ => String::new(),
+            },
+            animations: state.animations.clone(),
+            animation_mode: state.animation_mode.clone(),
+            subobject_visibility: state.subobject_visibility.clone(),
+            primary_turret: state.primary_turret.clone(),
+            weapon_bone_bindings: state.weapon_bone_bindings.clone(),
+            projectile_bone_feedback: self.projectile_bone_feedback.clone(),
+            recoil_kinematics: self.recoil_kinematics.clone(),
+            transition_key: state.transition_key.clone(),
+            allow_to_finish_key: state.allow_to_finish_key.clone(),
+            flags: state.flags,
+            is_transition: state.is_transition,
+        }
+    }
+
+    fn find_transition_for_keys(
+        &self,
+        from_key: &str,
+        to_key: &str,
+    ) -> Option<(usize, &DrawConditionStateDefinition)> {
+        if from_key.is_empty() || to_key.is_empty() {
+            return None;
+        }
+        self.condition_states
+            .iter()
+            .enumerate()
+            .find(|(_, state)| {
+                state.is_transition
+                    && state.condition_sets.first().is_some_and(|tokens| {
+                        tokens.len() >= 2
+                            && tokens[0].eq_ignore_ascii_case(from_key)
+                            && tokens[1].eq_ignore_ascii_case(to_key)
+                    })
+            })
+    }
+
+    fn authored_state_after_transition(
+        &self,
+        dest: AuthoredDrawModel,
+        prior: Option<(u32, u32, bool)>,
+    ) -> AuthoredDrawModel {
+        let Some((_, prior_index, complete)) = prior else {
+            return dest;
+        };
+        if prior_index == dest.selected_condition_state_index {
+            return dest;
+        }
+        let Some(prior_state) = self.condition_states.get(prior_index as usize) else {
+            return dest;
+        };
+        let Some(dest_state) = self
+            .condition_states
+            .get(dest.selected_condition_state_index as usize)
+        else {
+            return dest;
+        };
+
+        // C++ keeps m_curState when it is a still-playing transition toward
+        // the requested dest. A dest change mid-transition calls setModelState
+        // again; a TransitionState has no TransitionKey so it cuts over.
+        if prior_state.is_transition && !complete {
+            let to_key = prior_state
+                .condition_sets
+                .first()
+                .and_then(|tokens| tokens.get(1))
+                .map(String::as_str)
+                .unwrap_or("");
+            if !to_key.is_empty() && dest_state.transition_key.eq_ignore_ascii_case(to_key) {
+                return self.authored_draw_model(dest.module_index, prior_index, prior_state);
+            }
+        }
+
+        // C++ allow-to-finish implicit transition.
+        if !complete
+            && !dest_state.allow_to_finish_key.is_empty()
+            && dest_state
+                .allow_to_finish_key
+                .eq_ignore_ascii_case(&prior_state.transition_key)
+        {
+            return self.authored_draw_model(dest.module_index, prior_index, prior_state);
+        }
+
+        if !prior_state.transition_key.is_empty() && !dest_state.transition_key.is_empty() {
+            if let Some((transition_index, transition)) = self
+                .find_transition_for_keys(&prior_state.transition_key, &dest_state.transition_key)
+            {
+                if let Ok(transition_index) = u32::try_from(transition_index) {
+                    return self.authored_draw_model(
+                        dest.module_index,
+                        transition_index,
+                        transition,
+                    );
+                }
+            }
+        }
+        dest
     }
 }
 
@@ -1674,6 +1972,26 @@ impl IniParser {
                             true,
                         ),
                         "animationmode" => Self::assign_draw_condition_animation_mode(
+                            obj,
+                            active_draw_module,
+                            active_condition_state,
+                            value,
+                        ),
+                        "transitionkey" => Self::assign_draw_condition_transition_key(
+                            obj,
+                            active_draw_module,
+                            active_condition_state,
+                            value,
+                        ),
+                        "waitforstatetofinishifpossible" => {
+                            Self::assign_draw_condition_allow_to_finish_key(
+                                obj,
+                                active_draw_module,
+                                active_condition_state,
+                                value,
+                            )
+                        }
+                        "flags" => Self::assign_draw_condition_flags(
                             obj,
                             active_draw_module,
                             active_condition_state,
@@ -2112,6 +2430,14 @@ impl IniParser {
                 state.primary_turret = default.primary_turret.clone();
                 state.weapon_bone_bindings = default.weapon_bone_bindings.clone();
                 state.particle_sys_bones = default.particle_sys_bones.clone();
+                state.transition_key = default.transition_key.clone();
+                state.allow_to_finish_key = default.allow_to_finish_key.clone();
+                state.flags = default.flags;
+                if state.is_transition {
+                    // C++ PARSE_TRANSITION copies Default then clears keys.
+                    state.transition_key.clear();
+                    state.allow_to_finish_key.clear();
+                }
                 state.animations_copied_from_default = true;
             }
         }
@@ -2244,6 +2570,80 @@ impl IniParser {
             return;
         };
         state.animation_mode = AuthoredDrawAnimationMode::parse(value);
+    }
+
+    fn assign_draw_condition_transition_key(
+        obj: &mut ObjectDefinition,
+        active_draw_module: Option<usize>,
+        active_condition_state: Option<usize>,
+        value: &str,
+    ) {
+        let Some(module) = active_draw_module.and_then(|index| obj.draw_modules.get_mut(index))
+        else {
+            return;
+        };
+        let Some(state) =
+            active_condition_state.and_then(|index| module.condition_states.get_mut(index))
+        else {
+            return;
+        };
+        let key = value
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase();
+        state.transition_key = if key.is_empty() || key == "none" {
+            String::new()
+        } else {
+            key
+        };
+    }
+
+    fn assign_draw_condition_allow_to_finish_key(
+        obj: &mut ObjectDefinition,
+        active_draw_module: Option<usize>,
+        active_condition_state: Option<usize>,
+        value: &str,
+    ) {
+        let Some(module) = active_draw_module.and_then(|index| obj.draw_modules.get_mut(index))
+        else {
+            return;
+        };
+        let Some(state) =
+            active_condition_state.and_then(|index| module.condition_states.get_mut(index))
+        else {
+            return;
+        };
+        let key = value
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase();
+        state.allow_to_finish_key = if key.is_empty() || key == "none" {
+            String::new()
+        } else {
+            key
+        };
+    }
+
+    fn assign_draw_condition_flags(
+        obj: &mut ObjectDefinition,
+        active_draw_module: Option<usize>,
+        active_condition_state: Option<usize>,
+        value: &str,
+    ) {
+        let Some(module) = active_draw_module.and_then(|index| obj.draw_modules.get_mut(index))
+        else {
+            return;
+        };
+        let Some(state) =
+            active_condition_state.and_then(|index| module.condition_states.get_mut(index))
+        else {
+            return;
+        };
+        state.flags = parse_ac_bits_flags(value);
     }
 
     /// Parse one `INI::scanReal`-style numeric token. Module recoil fields
@@ -2968,6 +3368,90 @@ End
             .expect("scaled definition");
         assert!(definition.scale_was_specified);
         assert!((definition.scale - 0.66).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn transition_key_and_acbits_parse_and_play_before_destination() {
+        let ini_content = r#"
+Object TransitionPlayProbe
+  Draw = W3DModelDraw ModuleTag_01
+    DefaultConditionState
+      Model = ProbeIdle
+      TransitionKey = TRANS_Standing
+      Flags = ADJUST_HEIGHT_BY_CONSTRUCTION_PERCENT
+    End
+    ConditionState = MOVING
+      Model = ProbeMove
+      TransitionKey = TRANS_Moving
+    End
+    TransitionState = TRANS_Standing TRANS_Moving
+      Model = ProbeStandToMove
+      Animation = ProbeHier.StandToMove
+      AnimationMode = ONCE
+    End
+  End
+End
+"#;
+        let mut parser = IniParser::new();
+        parser
+            .parse_ini_content(ini_content, "transition_play_probe.ini")
+            .expect("parse TransitionKey/Flags probe");
+        let definition = parser
+            .get_definition("TransitionPlayProbe")
+            .expect("parsed transition probe");
+        let module = &definition.draw_modules[0];
+        assert_eq!(module.condition_states[0].transition_key, "trans_standing");
+        assert_eq!(
+            module.condition_states[0].flags,
+            1u32 << ACBIT_ADJUST_HEIGHT_BY_CONSTRUCTION_PERCENT
+        );
+        assert_eq!(module.condition_states[1].transition_key, "trans_moving");
+        assert_eq!(
+            module.condition_states[1].flags,
+            1u32 << ACBIT_ADJUST_HEIGHT_BY_CONSTRUCTION_PERCENT,
+            "normal states inherit Default Flags like C++"
+        );
+        assert!(module.condition_states[2].is_transition);
+        assert!(module.condition_states[2].transition_key.is_empty());
+
+        let dest = definition
+            .select_draw_models_for_conditions(model_condition_bit("MOVING"))
+            .expect("dest moving state");
+        assert_eq!(dest[0].model_key, "ProbeMove");
+        assert!(!dest[0].is_transition);
+
+        let playing = definition
+            .select_draw_models_for_conditions_from(
+                model_condition_bit("MOVING"),
+                &[(0, 0, false)],
+            )
+            .expect("transition should play");
+        assert_eq!(playing[0].model_key, "ProbeStandToMove");
+        assert!(playing[0].is_transition);
+        assert_eq!(
+            playing[0].animations[0].name,
+            "probehier.standtomove"
+        );
+
+        let finished = definition
+            .select_draw_models_for_conditions_from(
+                model_condition_bit("MOVING"),
+                &[(0, playing[0].selected_condition_state_index, true)],
+            )
+            .expect("completed transition yields dest");
+        assert_eq!(finished[0].model_key, "ProbeMove");
+        assert!(!finished[0].is_transition);
+
+        assert_eq!(
+            construction_percent_height_delta(0.0, 40.0),
+            Some(-40.0)
+        );
+        assert_eq!(
+            construction_percent_height_delta(25.0, 40.0),
+            Some(-30.0)
+        );
+        assert_eq!(construction_percent_height_delta(-1.0, 40.0), None);
+        assert!(authored_draw_adjusts_height_by_construction(&dest));
     }
 
     #[test]

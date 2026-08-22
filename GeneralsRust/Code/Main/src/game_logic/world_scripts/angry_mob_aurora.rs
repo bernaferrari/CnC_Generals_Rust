@@ -49,7 +49,7 @@ impl GameLogic {
     ///
     /// Matches retail SuperweaponCIAIntelligence / SpyVisionSpecialPower BaseDuration
     /// (30000 ms → 900 frames). For each enemy unit: set vision-spied residual,
-    /// temporary FOW reveal at unit position (sight_range residual), and mark
+    /// temporary FOW reveal at unit position (shroud_clearing_range), and mark
     /// stealthed units DETECTED so they become visible/targetable.
     ///
     /// Fail-closed: not SpyVisionUpdate upgrade mux / self-powered / kindof filter /
@@ -99,9 +99,9 @@ impl GameLogic {
                     && caster_id.map(|c| c != obj.id).unwrap_or(true)
             })
             .map(|obj| {
-                let sight = obj.get_template().sight_range;
-                let radius = if sight > 0.0 {
-                    sight
+                let shroud = obj.shroud_clearing_range;
+                let radius = if shroud > 0.0 {
+                    shroud
                 } else {
                     CIA_INTELLIGENCE_DEFAULT_VISION_RADIUS
                 };
@@ -238,9 +238,9 @@ impl GameLogic {
                         continue;
                     }
                     let pos = obj.get_position();
-                    let sight = obj.get_template().sight_range;
-                    let radius = if sight > 0.0 {
-                        sight
+                    let shroud = obj.shroud_clearing_range;
+                    let radius = if shroud > 0.0 {
+                        shroud
                     } else {
                         CIA_INTELLIGENCE_DEFAULT_VISION_RADIUS
                     };
@@ -338,9 +338,9 @@ impl GameLogic {
                     && (!command_centers_only || obj.is_command_center())
             })
             .map(|obj| {
-                let sight = obj.get_template().sight_range;
-                let radius = if sight > 0.0 {
-                    sight
+                let shroud = obj.shroud_clearing_range;
+                let radius = if shroud > 0.0 {
+                    shroud
                 } else {
                     CIA_INTELLIGENCE_DEFAULT_VISION_RADIUS
                 };

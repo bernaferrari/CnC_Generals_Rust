@@ -258,7 +258,16 @@ impl TerrainVisual for TerrainVisualImpl {
                 view_proj: matrix4_to_array(&view_proj),
                 view_matrix: matrix4_to_array(view_matrix),
                 projection_matrix: matrix4_to_array(projection_matrix),
-                camera_position: [camera_position.x, camera_position.y, camera_position.z, 1.0],
+                camera_position: {
+                    let global = game_engine::common::global_data::read();
+                    let do_cloud = global.use_cloud_map
+                        && global.time_of_day
+                            != game_engine::common::global_data::TimeOfDay::Night;
+                    let do_noise = global.use_light_map;
+                    let mode = (if do_cloud { 1.0 } else { 0.0 })
+                        + (if do_noise { 2.0 } else { 0.0 });
+                    [camera_position.x, camera_position.y, camera_position.z, mode]
+                },
                 time: self.time,
                 sun_direction: self.sun_direction.to_array(),
                 sun_color: self.sun_color,
