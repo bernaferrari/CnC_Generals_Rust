@@ -63,6 +63,8 @@ pub use projectile_flight::*;
 pub use projectile_lifecycle::*;
 mod damage_kinds;
 pub use damage_kinds::*;
+mod estimate;
+pub use estimate::*;
 mod unit_map;
 pub use unit_map::*;
 mod store;
@@ -76,6 +78,7 @@ pub const WEAPON_BOOTSTRAP_SRC: &str = concat!(
     include_str!("mod.rs"),
     include_str!("collide.rs"),
     include_str!("damage_kinds.rs"),
+    include_str!("estimate.rs"),
     include_str!("fx.rs"),
     include_str!("historic_speed.rs"),
     include_str!("honesty.rs"),
