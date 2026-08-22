@@ -1718,6 +1718,7 @@ impl GameLogic {
         state: AIState,
         ignore_obstacle: Option<ObjectId>,
     ) {
+        let state = self.mood_adjusted_move_state(object_id, state);
         let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
         let ordinal = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&state);
         if self.assign_unit_path_ignoring(object_id, goal, &[], ignore_obstacle) {
