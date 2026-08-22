@@ -1797,6 +1797,23 @@ fn disarm_keeps_regenerating_china_pad() {
     assert!(mine.mine_data.as_ref().unwrap().regenerates);
 }
 
+#[test]
+fn disarm_damage_defuses_demo_trap_without_hp_splash_path() {
+    use crate::game_logic::combat::DamageType;
+    use crate::game_logic::host_mines::HostMineData;
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut mt = ThingTemplate::new("GLADemoTrap");
+    mt.set_health(100.0);
+    mt.add_kind_of(KindOf::DemoTrap);
+    let mut trap = Object::new(mt, ObjectId(9), Team::GLA);
+    trap.mine_data = Some(HostMineData::demo_trap());
+    trap.health.current = 100.0;
+    assert!(trap.is_disarmable_mine());
+    assert!(trap.take_damage_from_typed(1.0, None, DamageType::Disarm));
+    assert!(trap.status.destroyed);
+    assert!(trap.mine_data.as_ref().unwrap().detonated);
+}
+
 
 #[test]
 fn kill_pilot_damage_unmans_vehicle_without_hp_loss() {
