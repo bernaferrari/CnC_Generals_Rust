@@ -417,8 +417,48 @@ impl Object {
         self.object_upgrades_completed.contains(mask_bits)
     }
 
+    /// C++ `Object::affectedByUpgrade` (`Object.cpp:4444-4469`).
+    /// Combine player|object completed masks with this upgrade, then ask
+    /// each upgrade module `wouldUpgrade` (`can_upgrade`).
     pub fn affected_by_upgrade(&self, upgrade_template: &UpgradeTemplate) -> bool {
-        upgrade_template.affects_existing_objects()
+        let mut mask_to_check = UpgradeMaskType::none();
+        if let Some(player) = self.get_controlling_player() {
+            if let Ok(player) = player.read() {
+                mask_to_check = player.get_completed_upgrade_mask();
+            }
+        }
+        mask_to_check = mask_to_check | self.object_upgrades_completed;
+        let upgrade_bits = UpgradeMaskType::from_bits_retain(upgrade_template.mask().bits());
+        mask_to_check = mask_to_check | upgrade_bits;
+        if mask_to_check.is_empty() {
+            return false;
+        }
+
+        let mut would = false;
+        for entry in &self.upgrade_module_handles {
+            entry.with_module(|module| {
+                if let Some(upgrade) = module_upgrade_kind(module) {
+                    if upgrade.into_interface().can_upgrade(mask_to_check) {
+                        would = true;
+                    }
+                }
+            });
+            if would {
+                return true;
+            }
+        }
+
+        for behavior in &self.behaviors {
+            let Ok(mut guard) = behavior.lock() else {
+                continue;
+            };
+            if let Some(upgrade) = guard.get_upgrade() {
+                if upgrade.can_upgrade(mask_to_check) {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     pub fn completed_upgrades(&self) -> UpgradeMaskType {

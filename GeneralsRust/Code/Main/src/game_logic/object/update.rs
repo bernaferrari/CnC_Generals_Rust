@@ -84,6 +84,85 @@ impl Object {
         became_ready
     }
 
+    /// C++ MissileLauncherBuildingUpdate::update — door bits keyed to ready-frame.
+    pub fn tick_missile_launcher_building(&mut self, now: u32) {
+        if self.status.under_construction {
+            return;
+        }
+        use crate::game_logic::host_missile_launcher_building_update::{
+            missile_launcher_ini_for_template, missile_launcher_special_power,
+            HostMissileLauncherBuildingUpdateData, HostMissileLauncherDoorState,
+        };
+        if self.missile_launcher_building.is_none() {
+            let Some(ini) = missile_launcher_ini_for_template(&self.template_name) else {
+                return;
+            };
+            self.missile_launcher_building =
+                Some(HostMissileLauncherBuildingUpdateData::from_ini(ini));
+        }
+        let power = missile_launcher_special_power(&self.template_name);
+        let (ready_frame, is_ready) = if let Some(power) = power.as_ref() {
+            let rem = self.special_power_countdown_seconds(power);
+            let ready = rem <= 0.0 && self.is_special_power_ready(power);
+            let ready_frame = if ready {
+                now
+            } else {
+                now.saturating_add((rem * 30.0).ceil() as u32)
+            };
+            (ready_frame, ready)
+        } else {
+            (0, false)
+        };
+        let Some(data) = self.missile_launcher_building.as_mut() else {
+            return;
+        };
+        let before = data.door_state;
+        data.update(now, ready_frame, is_ready);
+        if data.door_state != before || data.pending_initiate {
+            // pending_initiate is consumed inside update; bits still need apply.
+        }
+        self.apply_missile_launcher_door_bits();
+    }
+
+    fn apply_missile_launcher_door_bits(&mut self) {
+        use crate::game_logic::host_enum_table_residual::{
+            door_1_closing_model_bit, door_1_opening_model_bit, door_1_waiting_open_model_bit,
+            door_1_waiting_to_close_model_bit,
+        };
+        use crate::game_logic::host_missile_launcher_building_update::HostMissileLauncherDoorState;
+        let Some(state) = self.missile_launcher_building.as_ref().map(|d| d.door_state) else {
+            return;
+        };
+        let open_b = door_1_opening_model_bit();
+        let wait_b = door_1_waiting_open_model_bit();
+        let wait_close_b = door_1_waiting_to_close_model_bit();
+        let close_b = door_1_closing_model_bit();
+        let before = self.model_condition_bits;
+        self.model_condition_bits &= !(1u128 << open_b);
+        self.model_condition_bits &= !(1u128 << wait_b);
+        self.model_condition_bits &= !(1u128 << wait_close_b);
+        self.model_condition_bits &= !(1u128 << close_b);
+        match state {
+            HostMissileLauncherDoorState::Opening => {
+                self.model_condition_bits |= 1u128 << open_b;
+            }
+            HostMissileLauncherDoorState::Open => {
+                self.model_condition_bits |= 1u128 << wait_b;
+            }
+            HostMissileLauncherDoorState::WaitingToClose => {
+                self.model_condition_bits |= 1u128 << wait_close_b;
+            }
+            HostMissileLauncherDoorState::Closing => {
+                self.model_condition_bits |= 1u128 << close_b;
+            }
+            HostMissileLauncherDoorState::Closed => {}
+        }
+        if self.model_condition_bits != before {
+            self.record_host_model_condition();
+        }
+    }
+
+
     pub fn update_construction(&mut self, dt: f32) {
         if self.status.under_construction {
             let build_rate = 1.0 / self.thing.template.build_time;

@@ -1,14 +1,8 @@
-//! Script Actions System
+//! Leftover Rhai/name ActionRegistry (hq-8ta4n).
 //!
-//! This module provides all the action types that scripts can execute,
-//! including unit creation, resource manipulation, UI updates, and game state changes.
-//!
-//! C++: `GeneralsMD/Code/GameEngine/Source/GameLogic/ScriptEngine/ScriptActions.cpp`
-//! (`do*` implementations). The C++-faithful `executeAction` switch lives in
-//! `scripting/executor/dispatch.rs`. This directory is the Rhai/name registry.
-//!
-//! Split from `scripting/actions.rs` for module-size parity.
-//! Observable script behavior is unchanged.
+//! C++ `executeAction` lives in `scripting/executor/dispatch.rs`.
+//! This directory is leftover-only and must not run as a second action brain.
+
 
 mod building;
 mod camera_ui;

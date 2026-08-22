@@ -394,40 +394,7 @@ impl ControlBar {
                 Ok(CommandAvailability::Available)
             }
             CommandType::QueueUpgrade => {
-                if queue_maxed {
-                    return Ok(CommandAvailability::Restricted);
-                }
-                let player_arc = logic_player_list()
-                    .read()
-                    .ok()
-                    .and_then(|list| list.get_player(player_id as PlayerIndex).cloned());
-                if let Some(player_arc) = player_arc {
-                    if let Ok(player) = player_arc.read() {
-                        let upgrade =
-                            with_upgrade_center(|c| c.find_upgrade(command.upgrade.as_str()));
-                        if let Some(template) = upgrade {
-                            if player.has_upgrade_complete(&template)
-                                || player.has_upgrade_in_production(&template)
-                                || obj.has_upgrade(&template)
-                            {
-                                return Ok(CommandAvailability::CantAfford);
-                            }
-                            if !with_upgrade_center(|c| {
-                                c.can_afford_upgrade(&player, &template, false)
-                            }) {
-                                return Ok(CommandAvailability::Restricted);
-                            }
-                            for science in &command.sciences_ids {
-                                if !player.has_science(*science) {
-                                    return Ok(CommandAvailability::Restricted);
-                                }
-                            }
-                        } else {
-                            return Ok(CommandAvailability::Restricted);
-                        }
-                    }
-                }
-                Ok(CommandAvailability::Available)
+                leftover_queue_upgrade_availability(command, &obj, player_id, queue_maxed)
             }
             CommandType::DoStop => Ok(CommandAvailability::Available),
             CommandType::DoGuardPosition | CommandType::DoGuardObject => {
@@ -669,15 +636,17 @@ impl ControlBar {
                 };
             }
         }
-        // Live host: OBJECT_REGISTRY is empty. C++ ControlBarCommand.cpp:1306-1407
-        // GadgetButtonDrawInverseClock uses getPercentReadyToFire.
+        // Live host: OBJECT_REGISTRY is empty. C++ ControlBarCommand.cpp:1404-1407
+        // GadgetButtonDrawInverseClock(applyToWin, getPercentReady()*100, color).
+        // SpecialPowerModule::getPercentReady is 1.0 when ready, 0.5 half charged —
+        // 1.0 - remaining/total, not remaining/total.
         if matches!(command.command_type, CommandType::DoSpecialPower)
             && !self.portrait_state.special_power_ready
         {
             let rem = self.portrait_state.special_power_cooldown_remaining;
             let total = self.portrait_state.special_power_cooldown_total.max(rem);
             if rem > 0.0 && total > 0.0 {
-                return Some(((rem / total) * 100.0).clamp(0.0, 100.0) as u8);
+                return Some(((1.0 - rem / total) * 100.0).clamp(0.0, 100.0) as u8);
             }
         }
         None
@@ -1187,6 +1156,89 @@ fn leftover_production_count(obj: &gamelogic::object::Object) -> Option<usize> {
     Some(pu.get_queue_size())
 }
 
+
+/// C++ `GUI_COMMAND_OBJECT_UPGRADE` vs `PLAYER_UPGRADE`.
+fn leftover_is_object_upgrade_command(command: &CommandButton) -> bool {
+    if command.gui_command.eq_ignore_ascii_case("OBJECT_UPGRADE") {
+        return true;
+    }
+    if command.gui_command.eq_ignore_ascii_case("PLAYER_UPGRADE") {
+        return false;
+    }
+    with_upgrade_center(|c| {
+        c.find_upgrade(command.upgrade.as_str())
+            .is_some_and(|template| {
+                template.get_upgrade_type() == gamelogic::upgrade::UpgradeType::Object
+            })
+    })
+}
+
+fn leftover_production_update_present(obj: &gamelogic::object::Object) -> bool {
+    leftover_production_count(obj).is_some()
+}
+
+fn leftover_upgrade_in_queue(obj: &gamelogic::object::Object, upgrade_name: &str) -> bool {
+    let Some(arc) = obj.get_production_update_interface() else {
+        return false;
+    };
+    let Ok(mut guard) = arc.lock() else {
+        return false;
+    };
+    let Some(pu) = guard.get_production_update_interface() else {
+        return false;
+    };
+    pu.is_upgrade_in_queue(upgrade_name)
+}
+
+/// C++ ControlBarCommand.cpp:1204-1264.
+fn leftover_queue_upgrade_availability(
+    command: &CommandButton,
+    obj: &gamelogic::object::Object,
+    player_id: u32,
+    queue_maxed: bool,
+) -> Result<CommandAvailability, Box<dyn std::error::Error>> {
+    if queue_maxed {
+        return Ok(CommandAvailability::Restricted);
+    }
+    let is_object = leftover_is_object_upgrade_command(command);
+    if is_object && !leftover_production_update_present(obj) {
+        return Ok(CommandAvailability::Restricted);
+    }
+    let player_arc = logic_player_list()
+        .read()
+        .ok()
+        .and_then(|list| list.get_player(player_id as PlayerIndex).cloned());
+    let Some(player_arc) = player_arc else {
+        return Ok(CommandAvailability::Available);
+    };
+    let Ok(player) = player_arc.read() else {
+        return Ok(CommandAvailability::Available);
+    };
+    let Some(template) = with_upgrade_center(|c| c.find_upgrade(command.upgrade.as_str())) else {
+        return Ok(CommandAvailability::Restricted);
+    };
+    if is_object {
+        if obj.has_upgrade(&template)
+            || leftover_upgrade_in_queue(obj, template.get_name().as_str())
+            || !obj.affected_by_upgrade(&template)
+        {
+            return Ok(CommandAvailability::CantAfford);
+        }
+    } else if player.has_upgrade_complete(&template) || player.has_upgrade_in_production(&template)
+    {
+        return Ok(CommandAvailability::CantAfford);
+    }
+    if !with_upgrade_center(|c| c.can_afford_upgrade(&player, &template, false)) {
+        return Ok(CommandAvailability::Restricted);
+    }
+    for science in &command.sciences_ids {
+        if !player.has_science(*science) {
+            return Ok(CommandAvailability::Restricted);
+        }
+    }
+    Ok(CommandAvailability::Available)
+}
+
 fn leftover_queue_slot_image(
     bar: &ControlBar,
     context: &ControlBarContext,
@@ -1519,6 +1571,16 @@ mod command_availability_window_tests {
         assert!(ControlBar::command_uses_ready_clock(&button(CommandType::SwitchWeapons)));
         assert!(!ControlBar::command_uses_ready_clock(&button(CommandType::Sell)));
         assert!(!ControlBar::command_uses_ready_clock(&button(CommandType::DozerConstruct)));
+    }
+
+    #[test]
+    fn queue_upgrade_gui_command_splits_player_and_object() {
+        let mut object = button(CommandType::QueueUpgrade);
+        object.gui_command = "OBJECT_UPGRADE".to_string();
+        assert!(leftover_is_object_upgrade_command(&object));
+        let mut player = button(CommandType::QueueUpgrade);
+        player.gui_command = "PLAYER_UPGRADE".to_string();
+        assert!(!leftover_is_object_upgrade_command(&player));
     }
 
     #[test]

@@ -296,7 +296,9 @@ struct ScriptExecution {
     scope: Scope<'static>,
 }
 
-/// Advanced scripting engine
+/// Leftover Rhai/ActionRegistry second brain (hq-8ta4n).
+/// Live C++ path is `scripting/engine::ScriptEngine` + `scripting/executor`.
+/// Do not construct this on the live host.
 #[allow(dead_code)]
 pub struct ScriptingEngine {
     /// Rhai engine for script execution

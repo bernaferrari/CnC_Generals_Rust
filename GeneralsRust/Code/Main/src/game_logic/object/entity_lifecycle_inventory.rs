@@ -113,6 +113,11 @@ pub(crate) fn collect_module_states(
     )?;
     push_opt(
         &mut out,
+        TAG_MISSILE_LAUNCHER_BUILDING,
+        &object.missile_launcher_building,
+    )?;
+    push_opt(
+        &mut out,
         TAG_SCUD_STORM_FLIGHT,
         &object.scud_storm_missile_flight,
     )?;

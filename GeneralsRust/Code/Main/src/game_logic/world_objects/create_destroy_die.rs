@@ -2047,6 +2047,9 @@ impl GameLogic {
             object.ensure_create_object_die();
             object.ensure_lifetime_update(self.frame);
             object.ensure_height_die(self.frame);
+            if object.is_detector {
+                object.apply_leftover_extra_detect_kindof();
+            }
             self.objects.insert(id, object);
             if !starts_under_construction {
                 if let Some(obj) = self.objects.get_mut(&id) {

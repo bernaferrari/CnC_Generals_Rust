@@ -85,6 +85,9 @@ pub struct CommandButton {
     pub tooltip: String,
     pub cost: Money,
     command_type: crate::commands::command::CommandType,
+    /// C++ `CommandButton::m_command` (`PLAYER_UPGRADE` / `OBJECT_UPGRADE`).
+    /// Mapped `command_type` stays `QueueUpgrade` for MSG_QUEUE_UPGRADE.
+    gui_command: String,
     weapon_slot: crate::weapon::WeaponSlotType,
     max_shots_to_fire: i32,
     special_power_template:
@@ -162,6 +165,7 @@ impl CommandButton {
             tooltip,
             cost,
             command_type: crate::commands::command::CommandType::Invalid,
+            gui_command: String::new(),
             weapon_slot: crate::weapon::WeaponSlotType::Primary,
             max_shots_to_fire: i32::MAX,
             special_power_template: None,
@@ -218,6 +222,7 @@ impl CommandButton {
 
         let mut out = Self::new(id, button.name.clone(), tooltip, button.purchase_cost);
         out.command_type = command_type;
+        out.gui_command = button.command.clone();
         out.weapon_slot = weapon_slot;
         out.max_shots_to_fire = button.max_shots_to_fire;
         out.special_power_template = special_power_template;
@@ -254,6 +259,16 @@ impl CommandButton {
     /// Get the command type.
     pub fn get_command_type(&self) -> crate::commands::command::CommandType {
         self.command_type
+    }
+
+    /// C++ `getCommandType()` GUI token before MSG mapping.
+    pub fn get_gui_command(&self) -> &str {
+        &self.gui_command
+    }
+
+    /// C++ `GUI_COMMAND_OBJECT_UPGRADE`.
+    pub fn is_object_upgrade_command(&self) -> bool {
+        self.gui_command.eq_ignore_ascii_case("OBJECT_UPGRADE")
     }
 
     /// Get the weapon slot.

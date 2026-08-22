@@ -108,35 +108,10 @@ impl ScriptEvaluator {
     /// Evaluate a single condition matching C++ EvaluateCondition
     pub fn evaluate_condition(&self, condition: &mut Condition) -> GameLogicResult<bool> {
         // C++ EvaluateCondition never fail-closes the whole evaluator because
-        // OBJECT_REGISTRY is empty. TRUE / FALSE / Counter / Flag / TimerExpired
-        // are engine-local and must evaluate on the live host.
-        let condition_type = condition.get_condition_type();
-        let object_world = !matches!(
-            condition_type,
-            ConditionType::ConditionFalse
-                | ConditionType::ConditionTrue
-                | ConditionType::Counter
-                | ConditionType::Flag
-                | ConditionType::TimerExpired
-                | ConditionType::NamedDestroyed
-                | ConditionType::NamedNotDestroyed
-                | ConditionType::NamedCreated
-                | ConditionType::NamedTotallyDead
-                | ConditionType::NamedInsideArea
-                | ConditionType::NamedOutsideArea
-                | ConditionType::NamedEnteredArea
-                | ConditionType::NamedExitedArea
-                | ConditionType::TeamInsideAreaPartially
-                | ConditionType::TeamInsideAreaEntirely
-                | ConditionType::TeamOutsideAreaEntirely
-                | ConditionType::TeamEnteredAreaEntirely
-                | ConditionType::TeamEnteredAreaPartially
-                | ConditionType::TeamExitedAreaEntirely
-                | ConditionType::TeamExitedAreaPartially
-        );
-        if object_world && dual_world_registry_unavailable() {
-            return Ok(false);
-        }
+        // OBJECT_REGISTRY is empty. Engine-local conditions and host-aware
+        // object-world handlers (ScriptConditionEvaluator / host snapshot)
+        // must run on the live host so MissionScriptRuntime and team production
+        // conditions can evaluate.
 
         const SLOW_SCRIPT_CONDITION_WARN_MS: u64 = 40;
         let condition_type = condition.get_condition_type();

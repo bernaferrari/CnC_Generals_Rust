@@ -194,17 +194,17 @@ mod tests {
 
     #[test]
     fn presentation_special_power_cooldown_feeds_inverse_clock_percent() {
-        // C++ ControlBarCommand.cpp:1306-1407 getPercentReadyToFire.
+        // C++ SpecialPowerModule::getPercentReady = 1.0 - remaining/reloadTime.
+        // ControlBarCommand.cpp:1404-1407 GadgetButtonDrawInverseClock(percentReady*100).
         let mut bar = ControlBar::new();
         bar.sync_upgrades_and_specials_from_presentation(&[], None, false, 45.0, 180.0);
         let portrait = bar.get_portrait_state();
         assert!(!portrait.special_power_ready);
         assert!((portrait.special_power_cooldown_remaining - 45.0).abs() < 0.01);
         assert!((portrait.special_power_cooldown_total - 180.0).abs() < 0.01);
-        let percent =
-            ((portrait.special_power_cooldown_remaining / portrait.special_power_cooldown_total)
-                * 100.0) as u8;
-        assert_eq!(percent, 25);
+        let mut command = CommandButton::default();
+        command.command_type = CommandType::DoSpecialPower;
+        assert_eq!(bar.command_not_ready_clock(&command, 1), Some(75));
     }
 
     #[test]
