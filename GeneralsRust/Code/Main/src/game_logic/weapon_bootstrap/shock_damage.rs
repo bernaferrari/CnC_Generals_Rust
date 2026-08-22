@@ -4,12 +4,17 @@ use super::*;
 ///
 /// Fail-closed: impulse residual on splash victims only — not full PhysicsBehavior
 /// / ground-scrape matrix.
-/// C++ Object::attemptDamage shockwave force residual.
+/// C++ Object::attemptDamage shockwave force residual (Object.cpp:1811-1822).
 ///
-/// `vector` is impact→victim; amount/radius/taper from Weapon.ini.
-/// Returns None when no impulse (amount/radius empty or out of radius).
+/// `source` is the FIRER (`victimPos - sourcePos` in Weapon.cpp:1385-1430),
+/// not the blast epicenter. Distance saturates at `radius` so a Tomahawk
+/// detonating hundreds of units from the launcher still applies
+/// `ShockWaveTaperOff` (retail 0.75) at ground zero.
+///
+/// Returns None only when amount/radius are empty. Damage-ring iteration
+/// (not this helper) decides who is eligible.
 pub fn compute_shock_wave_force(
-    impact: glam::Vec3,
+    source: glam::Vec3,
     victim_pos: glam::Vec3,
     amount: f32,
     radius: f32,
@@ -18,23 +23,19 @@ pub fn compute_shock_wave_force(
     if amount <= 0.0 || radius <= 0.0 {
         return None;
     }
-    let mut v = victim_pos - impact;
-    v.y = 0.0; // ground-plane residual
-    let dist = (v.x * v.x + v.z * v.z).sqrt();
-    if dist > radius + 1e-3 {
-        return None;
-    }
+    let v = victim_pos - source;
+    let dist = v.length();
     if dist < 1e-4 {
-        // On top of epicenter: pure up residual.
+        // C++ zero-vector guard: straight up.
         return Some(glam::Vec3::new(0.0, amount, 0.0));
     }
     let distance_from_center = (dist / radius).min(1.0);
     let taper = taper_off.clamp(0.0, 1.0);
     let distance_taper = distance_from_center * (1.0 - taper);
     let shock_taper_mult = 1.0 - distance_taper;
-    let dir = glam::Vec3::new(v.x / dist, 0.0, v.z / dist);
+    let dir = v / dist;
     let mut force = dir * (amount * shock_taper_mult);
-    // C++: z = length of lateral force for dramatic lift.
+    // C++: z (host Y) = length of the scaled vector for dramatic lift.
     force.y = force.length();
     Some(force)
 }
