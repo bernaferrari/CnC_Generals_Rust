@@ -449,6 +449,9 @@ pub struct Object {
     /// C++ `DockUpdate::m_activeDocker` — only this docker may enter/act.
     #[serde(default)]
     pub dock_active_docker: Option<ObjectId>,
+    /// C++ `RailedTransportAIUpdate::m_inTransit`.
+    #[serde(default)]
+    pub railed_in_transit: bool,
     /// C++ `Drawable::updateDrawableSupplyStatus` current boxes.
     #[serde(default)]
     pub drawable_supply_boxes: u32,

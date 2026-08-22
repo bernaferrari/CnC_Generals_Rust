@@ -567,6 +567,7 @@ impl<'a> CommandExecutor<'a> {
         //  - structures without AI: orderAllPassengersToExit
         //  - other AI containers: aiEvacuate
         let mut ground_containers: Vec<ObjectId> = Vec::new();
+        let mut railed_ferries: Vec<ObjectId> = Vec::new();
         let mut airborne_jobs: Vec<(ObjectId, Vec3)> = Vec::new();
         for &unit_id in units {
             let Some(obj) = self.game_logic.host_object(unit_id) else {
@@ -584,6 +585,10 @@ impl<'a> CommandExecutor<'a> {
             if !is_container {
                 continue;
             }
+            if obj.is_railed_transport() {
+                railed_ferries.push(unit_id);
+                continue;
+            }
             let airborne =
                 obj.is_kind_of(crate::game_logic::KindOf::Aircraft) && obj.status.airborne_target;
             if airborne {
@@ -599,6 +604,11 @@ impl<'a> CommandExecutor<'a> {
         }
 
         let mut any = false;
+        for ferry_id in railed_ferries {
+            if self.game_logic.railed_transport_unload_all(ferry_id) {
+                any = true;
+            }
+        }
         for (unit_id, dest) in airborne_jobs {
             // Path to ground, then unload. Do not execute_exit while airborne.
             if matches!(
@@ -2060,6 +2070,150 @@ mod tests {
         assert!(
             (dest - origin).length() > 8.0,
             "is_garrison_contain must still burst-walk: dest={dest:?}"
+        );
+    }
+
+    #[test]
+    fn open_contain_exit_ignores_collisions_for_one_second() {
+        let mut logic = GameLogic::new();
+        logic.frame = 12;
+        let mut t = ThingTemplate::new("IGN_T");
+        t.add_kind_of(KindOf::Vehicle);
+        t.set_health(200.0);
+        t.contain_module = ContainModuleMetadata {
+            kind: ContainModuleKind::Transport,
+            slots: Some(5),
+            ..Default::default()
+        };
+        logic.templates.insert("IGN_T".to_string(), t);
+        let mut p = ThingTemplate::new("IGN_P");
+        p.add_kind_of(KindOf::Infantry);
+        p.set_health(100.0);
+        logic.templates.insert("IGN_P".to_string(), p);
+        let transport = logic
+            .create_object("IGN_T", Team::USA, Vec3::new(6.0, 0.0, 2.0))
+            .unwrap();
+        let pax = logic
+            .create_object("IGN_P", Team::USA, Vec3::new(7.0, 0.0, 2.0))
+            .unwrap();
+        contain_pair(&mut logic, transport, pax);
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(exec.execute_exit(&[pax]), CommandResult::Success);
+        }
+        let rider = logic.host_object(pax).unwrap();
+        assert_eq!(rider.ignore_collisions_with, None);
+        assert_eq!(rider.ignore_collisions_until_frame, 42);
+    }
+
+    #[test]
+    fn enter_from_container_does_not_yank_occupant() {
+        let mut logic = GameLogic::new();
+        let origin_a = Vec3::new(0.0, 0.0, 0.0);
+        let origin_b = Vec3::new(80.0, 0.0, 0.0);
+        let (bunker_a, ranger) =
+            garrison_bunker(&mut logic, "YANK_A", "YANK_R", origin_a, None);
+        let (bunker_b, _) = garrison_bunker(&mut logic, "YANK_B", "YANK_R2", origin_b, None);
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            let _ = exec.execute_enter(&[ranger], bunker_b);
+        }
+        let rider = logic.host_object(ranger).unwrap();
+        assert_eq!(rider.contained_by, Some(bunker_a));
+        assert!(
+            logic
+                .host_object(bunker_a)
+                .unwrap()
+                .contained_units()
+                .contains(&ranger)
+        );
+        assert!(
+            !logic
+                .host_object(bunker_b)
+                .unwrap()
+                .contained_units()
+                .contains(&ranger)
+        );
+        assert_ne!(rider.ai_state, AIState::Entering);
+    }
+
+    #[test]
+    fn railed_evacuate_uses_dock_unload_not_open_contain_walk() {
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("RAIL_F");
+        t.add_kind_of(KindOf::Vehicle);
+        t.set_health(400.0);
+        t.dock_kind = crate::game_logic::DockKind::RailedTransport;
+        t.railed_transport_slots = Some(10);
+        t.contain_module = ContainModuleMetadata {
+            kind: ContainModuleKind::RailedTransport,
+            slots: Some(10),
+            ..Default::default()
+        };
+        logic.templates.insert("RAIL_F".to_string(), t);
+        let mut p = ThingTemplate::new("RAIL_P");
+        p.add_kind_of(KindOf::Infantry);
+        p.set_health(100.0);
+        logic.templates.insert("RAIL_P".to_string(), p);
+        let ferry = logic
+            .create_object("RAIL_F", Team::USA, Vec3::new(4.0, 0.0, 0.0))
+            .unwrap();
+        let pax = logic
+            .create_object("RAIL_P", Team::USA, Vec3::new(5.0, 0.0, 0.0))
+            .unwrap();
+        contain_pair(&mut logic, ferry, pax);
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(exec.execute_evacuate(&[ferry]), CommandResult::Success);
+        }
+        let rider = logic.host_object(pax).unwrap();
+        let hull = logic.host_object(ferry).unwrap().get_position();
+        assert!(rider.contained_by.is_none());
+        assert!(rider.is_held_disabled());
+        assert!((rider.get_position() - hull).length() < 0.01);
+        assert_eq!(rider.ignore_collisions_until_frame, 0);
+        assert_eq!(
+            logic.host_object(ferry).unwrap().dock_active_docker,
+            Some(pax)
+        );
+    }
+
+    #[test]
+    fn railed_evacuate_refuses_while_in_transit() {
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("RAIL_FT");
+        t.add_kind_of(KindOf::Vehicle);
+        t.set_health(400.0);
+        t.dock_kind = crate::game_logic::DockKind::RailedTransport;
+        t.railed_transport_slots = Some(10);
+        t.contain_module = ContainModuleMetadata {
+            kind: ContainModuleKind::RailedTransport,
+            slots: Some(10),
+            ..Default::default()
+        };
+        logic.templates.insert("RAIL_FT".to_string(), t);
+        let mut p = ThingTemplate::new("RAIL_PT");
+        p.add_kind_of(KindOf::Infantry);
+        p.set_health(100.0);
+        logic.templates.insert("RAIL_PT".to_string(), p);
+        let ferry = logic
+            .create_object("RAIL_FT", Team::USA, Vec3::new(4.0, 0.0, 0.0))
+            .unwrap();
+        let pax = logic
+            .create_object("RAIL_PT", Team::USA, Vec3::new(5.0, 0.0, 0.0))
+            .unwrap();
+        contain_pair(&mut logic, ferry, pax);
+        logic.host_object_mut(ferry).unwrap().railed_in_transit = true;
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_evacuate(&[ferry]),
+                CommandResult::InvalidCommand
+            );
+        }
+        assert_eq!(
+            logic.host_object(pax).unwrap().contained_by,
+            Some(ferry)
         );
     }
 
