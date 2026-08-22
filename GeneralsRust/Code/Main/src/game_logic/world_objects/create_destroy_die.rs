@@ -2098,6 +2098,9 @@ impl GameLogic {
                 self.apply_troop_crawler_initial_payload(id, team, position);
             }
 
+            // C++ GarrisonContain::onObjectCreated InitialRoster spawn.
+            self.apply_garrison_initial_roster(id, team, position);
+
             // C++ VeterancyGainCreate.cpp:63-65 controlling player only, then
             // PlayerTemplate fallback. Ally training science must not veteran
             // another same-team player's units.

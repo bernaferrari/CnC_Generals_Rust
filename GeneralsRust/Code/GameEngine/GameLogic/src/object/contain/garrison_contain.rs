@@ -69,6 +69,46 @@ impl Default for InitialRoster {
     }
 }
 
+impl InitialRoster {
+    /// C++ `GarrisonContainModuleData::parseInitialRoster`:
+    /// `InitialRoster = TemplateName [count]` (count defaults to 1).
+    pub fn parse_from_tokens(tokens: &[&str]) -> Result<Self, INIError> {
+        let name = tokens.first().ok_or(INIError::InvalidData)?;
+        let count = match tokens.get(1) {
+            Some(token) => INI::parse_int(token)?,
+            None => 1,
+        };
+        Ok(Self {
+            template_name: (*name).to_string(),
+            count,
+        })
+    }
+
+    #[inline]
+    pub fn is_populated(&self) -> bool {
+        self.count > 0 && !self.template_name.is_empty()
+    }
+}
+
+/// C++ `GarrisonContain::healSingleObject` amount for one frame.
+///
+/// Snap to max after `TimeForFullHeal` frames inside; otherwise sliver
+/// `maxHealth / framesForFullHeal`. Zero/negative duration heals nothing.
+pub fn garrison_heal_single_amount(
+    max_health: f32,
+    contained_frames: u32,
+    frames_for_full_heal: f32,
+) -> f32 {
+    if max_health <= 0.0 || frames_for_full_heal <= 0.0 {
+        return 0.0;
+    }
+    if (contained_frames as f32) >= frames_for_full_heal {
+        max_health
+    } else {
+        max_health / frames_for_full_heal
+    }
+}
+
 /// Configuration data for GarrisonContain module
 #[derive(Debug, Clone)]
 pub struct GarrisonContainModuleData {
@@ -158,13 +198,7 @@ fn parse_initial_roster(
     data: &mut GarrisonContainModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let name = tokens.first().ok_or(INIError::InvalidData)?;
-    let count = match tokens.get(1) {
-        Some(token) => INI::parse_int(token)?,
-        None => 1,
-    };
-    data.initial_roster.template_name = name.to_string();
-    data.initial_roster.count = count;
+    data.initial_roster = InitialRoster::parse_from_tokens(tokens)?;
     Ok(())
 }
 
@@ -3254,6 +3288,22 @@ mod tests {
         let roster = InitialRoster::default();
         assert_eq!(roster.template_name, "");
         assert_eq!(roster.count, 0);
+        assert!(!roster.is_populated());
+    }
+
+    #[test]
+    fn initial_roster_parse_from_tokens_defaults_count_to_one() {
+        let roster = InitialRoster::parse_from_tokens(&["GLAInfantryRebel"]).expect("roster");
+        assert_eq!(roster.template_name, "GLAInfantryRebel");
+        assert_eq!(roster.count, 1);
+        assert!(roster.is_populated());
+    }
+
+    #[test]
+    fn garrison_heal_single_amount_slivers_then_snaps() {
+        assert!((garrison_heal_single_amount(80.0, 0, 60.0) - (80.0 / 60.0)).abs() < 0.0001);
+        assert!((garrison_heal_single_amount(80.0, 60, 60.0) - 80.0).abs() < 0.0001);
+        assert_eq!(garrison_heal_single_amount(80.0, 0, 0.0), 0.0);
     }
 
     #[test]
