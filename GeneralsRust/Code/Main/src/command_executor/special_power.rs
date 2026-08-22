@@ -113,10 +113,22 @@ impl<'a> CommandExecutor<'a> {
                 .map(|p| p.is_local)
                 .unwrap_or(false);
             if local {
-                self.game_logic.queue_picked_unit_voice(
-                    &voiced,
-                    crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Attack,
-                );
+                let spectre: Vec<ObjectId> = voiced
+                    .into_iter()
+                    .filter(|&id| {
+                        self.game_logic.host_object(id).is_some_and(|o| {
+                            o.spectre_gunship_update
+                                .as_ref()
+                                .is_some_and(|d| d.status.overridable_destination_active())
+                        })
+                    })
+                    .collect();
+                if !spectre.is_empty() {
+                    self.game_logic.queue_picked_unit_voice(
+                        &spectre,
+                        crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Attack,
+                    );
+                }
             }
             CommandResult::Success
         } else {

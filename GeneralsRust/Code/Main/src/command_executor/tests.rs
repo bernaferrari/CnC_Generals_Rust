@@ -703,6 +703,37 @@ fn post_fire_override_steers_live_beam_and_spectre_orbit() {
             CommandResult::Success
         );
     }
+    {
+        let beam = logic
+            .special_power_strikes
+            .beam_fields()
+            .iter()
+            .find(|f| f.source_object == id)
+            .expect("live beam");
+        assert!(
+            beam.manual_target_mode,
+            "override command must arm PUC manual drive immediately"
+        );
+        assert!(
+            (beam.override_destination.x - click.x).abs() < 0.01
+                && (beam.override_destination.z - click.z).abs() < 0.01,
+            "beam override {:?} != click {:?}",
+            beam.override_destination,
+            click
+        );
+        let orbit = logic
+            .special_power_strikes
+            .orbit_fields()
+            .iter()
+            .find(|f| f.source_object == id)
+            .expect("live spectre orbit");
+        assert!(
+            (orbit.position.x - click.x).abs() < 0.01 && (orbit.position.z - click.z).abs() < 0.01,
+            "spectre orbit {:?} != click {:?}",
+            orbit.position,
+            click
+        );
+    }
     logic.update_special_power_strikes();
 
     let beam = logic
@@ -733,6 +764,85 @@ fn post_fire_override_steers_live_beam_and_spectre_orbit() {
         (orbit.position.x - click.x).abs() < 0.01 && (orbit.position.z - click.z).abs() < 0.01,
         "spectre orbit {:?} != click {:?}",
         orbit.position,
+        click
+    );
+}
+
+#[test]
+fn spectre_gunship_click_steers_producer_orbit_and_override_target() {
+    use super::CommandExecutor;
+    use crate::command_system::CommandResult;
+    use crate::game_logic::host_spectre_gunship_update::{
+        HostGunshipStatus, HostSpectreGunshipUpdateData,
+    };
+    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut cc = ThingTemplate::new("AmericaCommandCenter");
+    cc.add_kind_of(KindOf::Structure);
+    cc.add_kind_of(KindOf::Selectable);
+    cc.set_health(1000.0);
+    logic
+        .templates
+        .insert("AmericaCommandCenter".to_string(), cc);
+    let mut ship = ThingTemplate::new("AmericaSpectreGunship");
+    ship.add_kind_of(KindOf::Aircraft);
+    ship.add_kind_of(KindOf::Selectable);
+    ship.set_health(500.0);
+    logic
+        .templates
+        .insert("AmericaSpectreGunship".to_string(), ship);
+
+    let caster = logic
+        .create_object("AmericaCommandCenter", Team::USA, Vec3::ZERO)
+        .unwrap();
+    let gunship = logic
+        .create_object(
+            "AmericaSpectreGunship",
+            Team::USA,
+            Vec3::new(10.0, 80.0, 10.0),
+        )
+        .unwrap();
+    let fire_pos = Vec3::new(80.0, 0.0, 20.0);
+    let click = Vec3::new(300.0, 0.0, 250.0);
+    {
+        let g = logic.host_object_mut(gunship).unwrap();
+        g.producer_id = Some(caster);
+        g.spectre_gunship_update = Some(HostSpectreGunshipUpdateData::initiate_at(fire_pos));
+    }
+    logic
+        .special_power_strikes
+        .spawn_orbit_field(caster, Team::USA, fire_pos, logic.frame, 3);
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_override_special_power_destination(&[gunship], click),
+            CommandResult::Success
+        );
+    }
+    let orbit = logic
+        .special_power_strikes
+        .orbit_fields()
+        .iter()
+        .find(|f| f.source_object == caster)
+        .expect("caster orbit");
+    assert!(
+        (orbit.position.x - click.x).abs() < 0.01 && (orbit.position.z - click.z).abs() < 0.01,
+        "producer orbit {:?} != click {:?}",
+        orbit.position,
+        click
+    );
+    let flight = logic
+        .host_object(gunship)
+        .and_then(|o| o.spectre_gunship_update.clone())
+        .expect("gunship flight");
+    assert_eq!(flight.status, HostGunshipStatus::Inserting);
+    assert!(
+        (flight.override_target.x - click.x).abs() < 0.01
+            && (flight.override_target.z - click.z).abs() < 0.01,
+        "gunship override_target {:?} != click {:?}",
+        flight.override_target,
         click
     );
 }
