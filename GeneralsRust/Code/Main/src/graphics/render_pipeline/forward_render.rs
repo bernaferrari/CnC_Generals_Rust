@@ -342,6 +342,33 @@ impl ForwardPass {
             // Systems are owned and advanced by the GameClient presentation
             // shell. Borrow the real manager only while its live system refs are
             // submitted; no Main GameLogic state is read in this render callback.
+            if let Ok(mut manager_guard) = game_client::effects::get_particle_system_manager_mut() {
+                if let Some(manager) = manager_guard.as_mut() {
+                    game_client::display::view::with_tactical_view_ref(|view| {
+                        let cam = view.get_3d_camera_position();
+                        let target = view.position();
+                        let aspect =
+                            (view.width() as f32 / view.height().max(1) as f32).max(0.01);
+                        let visible = game_client::display::shadow_pass::maximum_visible_box(
+                            [cam.x, cam.y, cam.z],
+                            [target.x, target.y, target.z],
+                            1.0,
+                            20000.0,
+                            game_client::display::view::vertical_fov_from_horizontal(
+                                view.field_of_view(),
+                                aspect,
+                            ),
+                            aspect,
+                            game_client::display::shadow_pass::terrain_min_height(),
+                        );
+                        manager.cull_particles_to_visible_box(
+                            visible.center,
+                            visible.extent,
+                            512,
+                        );
+                    });
+                }
+            }
             if let Ok(manager_guard) = get_particle_system_manager() {
                 if let Some(manager) = manager_guard.as_ref() {
                     let systems = manager.draw_particle_systems();
@@ -422,17 +449,16 @@ impl ForwardPass {
             }
 
             if let Ok(manager) = get_smudge_manager().lock() {
-                let smudges = manager.collect_decal_render_items();
+                let smudges = game_client::effects::heat_haze::collect_heat_haze_smudges(
+                    &manager.collect_used_smudges(),
+                );
                 if !smudges.is_empty() {
-                    let mut smudge_uniforms = uniforms;
-                    smudge_uniforms.particle_count =
-                        smudges.len().min(u32::MAX as usize) as u32;
-                    renderer_guard.render_decals(
+                    renderer_guard.render_heat_haze(
                         encoder,
                         color_view.as_ref(),
                         depth_view.as_ref(),
                         &smudges,
-                        &smudge_uniforms,
+                        &uniforms,
                     );
                 }
             }
