@@ -4579,6 +4579,68 @@ fn context_move_plays_voice_move_not_unit_command() {
 }
 
 #[test]
+fn salvage_click_plays_voice_salvage_not_voice_move() {
+    // C++ CommandXlat.cpp:423-431 — valid VoiceSalvage replaces VoiceMove.
+    use super::CommandExecutor;
+    use crate::command_system::{CommandResult, CommandType};
+    use crate::game_logic::audio_dispatch_impl::{
+        clear_test_template_voices, set_test_template_voice, UnitVoiceSlot,
+    };
+    use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
+    use glam::Vec3;
+
+    clear_test_template_voices();
+    set_test_template_voice("CTX_SAL", UnitVoiceSlot::Move, "TestContextVoiceMove");
+    set_test_template_voice("CTX_SAL", UnitVoiceSlot::Salvage, "TestContextVoiceSalvage");
+    let mut logic = GameLogic::new();
+    logic
+        .get_players_mut()
+        .insert(0, Player::new(0, Team::GLA, "P0", true));
+    let mut tpl = ThingTemplate::new("CTX_SAL");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Salvager)
+        .set_health(100.0);
+    logic.templates.insert("CTX_SAL".into(), tpl);
+    let a = logic
+        .create_object("CTX_SAL", Team::GLA, Vec3::ZERO)
+        .unwrap();
+    if let Some(obj) = logic.host_object_mut(a) {
+        obj.owner_player_id = Some(0);
+    }
+    logic.queued_audio_events.clear();
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        let cmd = dispatch_test_command(
+            CommandType::DoSalvage {
+                destination: Vec3::new(40.0, 0.0, 0.0),
+            },
+            0,
+            vec![a],
+        );
+        assert_eq!(
+            exec.execute_command(cmd).expect("salvage"),
+            CommandResult::Success
+        );
+    }
+    let names: Vec<_> = logic
+        .queued_audio_events
+        .iter()
+        .map(|e| e.event_type.as_str())
+        .collect();
+    assert!(
+        names.contains(&"TestContextVoiceSalvage"),
+        "DoSalvage must play VoiceSalvage: {names:?}"
+    );
+    assert!(
+        !names.contains(&"TestContextVoiceMove"),
+        "DoSalvage must not play VoiceMove when VoiceSalvage is valid: {names:?}"
+    );
+    clear_test_template_voices();
+}
+
+
+#[test]
 fn context_attack_plays_voice_attack_and_air() {
     use super::CommandExecutor;
     use crate::command_system::CommandResult;
@@ -4918,4 +4980,243 @@ fn repair_heal_resume_snipe_and_special_play_authored_voices() {
     );
     clear_test_template_voices();
 }
+
+#[test]
+fn specialty_attack_voices_replace_voice_attack() {
+    use super::CommandExecutor;
+    use crate::command_system::{CommandResult, WeaponSlot, WeaponTarget};
+    use crate::game_logic::audio_dispatch_impl::{
+        clear_test_template_voices, set_test_template_voice, UnitVoiceSlot,
+    };
+    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate, Weapon};
+    use glam::Vec3;
+
+    clear_test_template_voices();
+    set_test_template_voice("SA_RNG", UnitVoiceSlot::Attack, "TestVoiceAttack");
+    set_test_template_voice("SA_RNG", UnitVoiceSlot::ClearBuilding, "TestVoiceClearBuilding");
+    set_test_template_voice("SA_RNG", UnitVoiceSlot::Subdue, "TestVoiceSubdue");
+    set_test_template_voice("SA_COM", UnitVoiceSlot::Attack, "TestComancheAttack");
+    set_test_template_voice(
+        "SA_COM",
+        UnitVoiceSlot::FireRocketPods,
+        "TestVoiceFireRocketPods",
+    );
+    set_test_template_voice("SA_DRG", UnitVoiceSlot::Attack, "TestDragonAttack");
+    set_test_template_voice(
+        "SA_DRG",
+        UnitVoiceSlot::FlameLocation,
+        "TestVoiceFlameLocation",
+    );
+    set_test_template_voice("SA_BUR", UnitVoiceSlot::Attack, "TestBurtonAttack");
+    set_test_template_voice("SA_BUR", UnitVoiceSlot::Melee, "TestVoiceMelee");
+
+    let mut logic = GameLogic::new();
+    let mut ranger = ThingTemplate::new("SA_RNG");
+    ranger
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0)
+        .set_primary_weapon_name("RangerAdvancedCombatRifle")
+        .set_secondary_weapon_name("RangerFlashBangGrenadeWeapon");
+    logic.templates.insert("SA_RNG".into(), ranger);
+    let mut bldg = ThingTemplate::new("SA_BLD");
+    bldg.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(400.0);
+    logic.templates.insert("SA_BLD".into(), bldg);
+    let mut inf = ThingTemplate::new("SA_INF");
+    inf.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(80.0);
+    logic.templates.insert("SA_INF".into(), inf);
+    let mut comanche = ThingTemplate::new("SA_COM");
+    comanche
+        .add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(200.0)
+        .set_tertiary_weapon_name("ComancheRocketPodWeapon");
+    logic.templates.insert("SA_COM".into(), comanche);
+    let mut dragon = ThingTemplate::new("SA_DRG");
+    dragon
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(200.0)
+        .set_secondary_weapon_name("DragonTankFireWallWeapon");
+    logic.templates.insert("SA_DRG".into(), dragon);
+    let mut burton = ThingTemplate::new("SA_BUR");
+    burton
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(200.0)
+        .set_tertiary_weapon_name("BurtonKnifeWeapon");
+    logic.templates.insert("SA_BUR".into(), burton);
+
+    let ranger_id = logic
+        .create_object("SA_RNG", Team::USA, Vec3::ZERO)
+        .unwrap();
+    let bldg_id = logic
+        .create_object("SA_BLD", Team::China, Vec3::new(40.0, 0.0, 0.0))
+        .unwrap();
+    let inf_id = logic
+        .create_object("SA_INF", Team::China, Vec3::new(20.0, 0.0, 0.0))
+        .unwrap();
+    {
+        let u = logic.host_object_mut(ranger_id).unwrap();
+        u.weapon = Some(Weapon {
+            damage: 5.0,
+            range: 150.0,
+            ..Weapon::default()
+        });
+        u.secondary_weapon = Some(Weapon {
+            damage: 35.0,
+            range: 175.0,
+            ..Weapon::default()
+        });
+        u.set_active_weapon_slot(1);
+    }
+
+    logic.queued_audio_events.clear();
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_attack(&[ranger_id], bldg_id),
+            CommandResult::Success
+        );
+    }
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == "TestVoiceClearBuilding"),
+        "flashbang vs structure must play VoiceClearBuilding: {:?}",
+        logic.queued_audio_events
+    );
+    assert!(
+        !logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == "TestVoiceAttack"),
+        "specialty line must replace VoiceAttack: {:?}",
+        logic.queued_audio_events
+    );
+
+    logic.queued_audio_events.clear();
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_attack(&[ranger_id], inf_id),
+            CommandResult::Success
+        );
+    }
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == "TestVoiceSubdue"),
+        "flashbang vs infantry must play VoiceSubdue: {:?}",
+        logic.queued_audio_events
+    );
+
+    let com_id = logic
+        .create_object("SA_COM", Team::USA, Vec3::new(0.0, 20.0, 0.0))
+        .unwrap();
+    {
+        let u = logic.host_object_mut(com_id).unwrap();
+        u.tertiary_weapon = Some(Weapon {
+            damage: 30.0,
+            range: 200.0,
+            ..Weapon::default()
+        });
+    }
+    logic.queued_audio_events.clear();
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_weapon(
+                &[com_id],
+                &WeaponSlot::Tertiary,
+                -1,
+                &WeaponTarget::Location(Vec3::new(80.0, 0.0, 80.0)),
+            ),
+            CommandResult::Success
+        );
+    }
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == "TestVoiceFireRocketPods"),
+        "Comanche rocket pods must play VoiceFireRocketPods: {:?}",
+        logic.queued_audio_events
+    );
+
+    let dragon_id = logic
+        .create_object("SA_DRG", Team::China, Vec3::new(5.0, 0.0, 5.0))
+        .unwrap();
+    {
+        let u = logic.host_object_mut(dragon_id).unwrap();
+        u.secondary_weapon = Some(Weapon {
+            damage: 20.0,
+            range: 80.0,
+            ..Weapon::default()
+        });
+    }
+    logic.queued_audio_events.clear();
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_weapon(
+                &[dragon_id],
+                &WeaponSlot::Secondary,
+                -1,
+                &WeaponTarget::Location(Vec3::new(60.0, 0.0, 60.0)),
+            ),
+            CommandResult::Success
+        );
+    }
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == "TestVoiceFlameLocation"),
+        "non-primary flame ground fire must play VoiceFlameLocation: {:?}",
+        logic.queued_audio_events
+    );
+
+    let burton_id = logic
+        .create_object("SA_BUR", Team::USA, Vec3::new(2.0, 0.0, 2.0))
+        .unwrap();
+    {
+        let u = logic.host_object_mut(burton_id).unwrap();
+        u.tertiary_weapon = Some(Weapon {
+            damage: 40.0,
+            range: 10.0,
+            ..Weapon::default()
+        });
+    }
+    logic.queued_audio_events.clear();
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_weapon(
+                &[burton_id],
+                &WeaponSlot::Tertiary,
+                -1,
+                &WeaponTarget::Object(inf_id),
+            ),
+            CommandResult::Success
+        );
+    }
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == "TestVoiceMelee"),
+        "specialty melee must play VoiceMelee: {:?}",
+        logic.queued_audio_events
+    );
+
+    clear_test_template_voices();
+}
+
 

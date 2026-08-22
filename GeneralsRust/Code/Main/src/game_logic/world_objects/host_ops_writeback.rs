@@ -191,10 +191,7 @@ impl GameLogic {
                 .map(|p| p.is_local)
                 .unwrap_or(false);
             if local {
-                self.queue_picked_unit_voice(
-                    &selected,
-                    crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Move,
-                );
+                self.queue_picked_move_voice(&selected);
             }
             log::trace!(
                 "{} commanded {} units to move to {:?}",
@@ -1838,15 +1835,7 @@ impl GameLogic {
                 .map(|p| p.is_local)
                 .unwrap_or(false);
             if local {
-                let air = self.objects.get(&target_id).is_some_and(|t| {
-                    t.is_kind_of(KindOf::Aircraft) || t.status.airborne_target
-                });
-                let slot = if air {
-                    crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::AttackAir
-                } else {
-                    crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Attack
-                };
-                self.queue_picked_unit_voice(&accepted_attackers, slot);
+                self.queue_attack_voice(&accepted_attackers, Some(target_id), false, false, None);
             }
             log::trace!(
                 "{} commanded {} units to attack object {}",
@@ -1856,6 +1845,120 @@ impl GameLogic {
             );
         }
     }
+
+    /// C++ pickAndPlay attack branch: VoiceAttack/Air, then specialty weapon upgrade.
+    pub fn queue_attack_voice(
+        &mut self,
+        unit_ids: &[ObjectId],
+        target_id: Option<ObjectId>,
+        specialty_weapon: bool,
+        at_location: bool,
+        forced_slot: Option<u8>,
+    ) {
+        use crate::game_logic::audio_dispatch_impl::{
+            pick_specialty_attack_voice, AttackVoiceWeapon, UnitVoiceSlot,
+        };
+        let air = target_id.is_some_and(|tid| {
+            self.objects.get(&tid).is_some_and(|t| {
+                t.is_kind_of(KindOf::Aircraft) || t.status.airborne_target
+            })
+        });
+        let structure = target_id.is_some_and(|tid| {
+            self.objects
+                .get(&tid)
+                .is_some_and(|t| t.is_kind_of(KindOf::Structure))
+        });
+        let default = if air {
+            UnitVoiceSlot::AttackAir
+        } else {
+            UnitVoiceSlot::Attack
+        };
+        let weapons: Vec<AttackVoiceWeapon> = unit_ids
+            .iter()
+            .filter_map(|&id| {
+                let obj = self.objects.get(&id)?;
+                if obj.is_kind_of(KindOf::IgnoredInGui) {
+                    return None;
+                }
+                let slot = forced_slot
+                    .or_else(|| obj.selected_weapon_slot())
+                    .unwrap_or(obj.active_weapon_slot);
+                let name = obj.weapon_name_for_slot(slot)?.to_string();
+                Some(AttackVoiceWeapon { name, slot })
+            })
+            .collect();
+        let slot = pick_specialty_attack_voice(
+            default,
+            weapons,
+            structure,
+            specialty_weapon,
+            at_location,
+        );
+        self.queue_picked_unit_voice(unit_ids, slot);
+    }
+
+    /// C++ MSG_DO_MOVETO / ATTACKMOVETO / GET_REPAIRED / GET_HEALED (`CommandXlat.cpp:384-443`).
+    /// Worker Shoes complete + infantry/dozer/harvester → PerUnitSound VoiceMoveUpgraded (skip).
+    pub fn queue_picked_move_voice(&mut self, unit_ids: &[ObjectId]) {
+        use crate::game_logic::audio_dispatch_impl::{resolve_per_unit_sound, UnitVoiceSlot};
+        use crate::game_logic::host_gla_worker::{
+            is_worker_for_voice_move_upgraded, worker_shoes_voice_upgrade_complete,
+            UPGRADE_GLA_WORKER_SHOES, WORKER_VOICE_MOVE_UPGRADED,
+        };
+        for &id in unit_ids {
+            let Some(obj) = self.objects.get(&id) else {
+                continue;
+            };
+            if obj.is_kind_of(KindOf::IgnoredInGui) {
+                continue;
+            }
+            if !is_worker_for_voice_move_upgraded(
+                obj.is_kind_of(KindOf::Infantry),
+                obj.is_kind_of(KindOf::Dozer),
+                obj.is_kind_of(KindOf::Harvester),
+                &obj.template_name,
+            ) {
+                continue;
+            }
+            let object_has_shoes = obj.has_upgrade_tag(UPGRADE_GLA_WORKER_SHOES);
+            let player_names = |p: &crate::game_logic::Player| {
+                p.has_unlocked_upgrade(UPGRADE_GLA_WORKER_SHOES)
+                    || worker_shoes_voice_upgrade_complete(
+                        false,
+                        p.unlocked_sciences
+                            .iter()
+                            .chain(p.completed_upgrades.iter()),
+                    )
+            };
+            let player_has_shoes = obj
+                .owner_player_id
+                .and_then(|pid| self.players.get(&pid))
+                .map(player_names)
+                .unwrap_or_else(|| {
+                    self.players
+                        .values()
+                        .any(|p| p.team == obj.team && player_names(p))
+                });
+            if !object_has_shoes && !player_has_shoes {
+                continue;
+            }
+            let Some(event) =
+                resolve_per_unit_sound(&obj.template_name, WORKER_VOICE_MOVE_UPGRADED)
+            else {
+                continue;
+            };
+            let pos = obj.get_position();
+            self.queue_audio_event(
+                AudioEventRequest::new(&event)
+                    .with_object(id)
+                    .with_position(pos)
+                    .with_priority(100),
+            );
+            return;
+        }
+        self.queue_picked_unit_voice(unit_ids, UnitVoiceSlot::Move);
+    }
+
 
     /// C++ `pickAndPlayUnitVoiceResponse` — authored Voice.ini plus carbomb extra.
     pub fn queue_picked_unit_voice(

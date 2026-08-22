@@ -112,6 +112,34 @@ pub enum UnitVoiceSlot {
     Created,
     /// Per-unit `VoiceCreate` (first of a production batch).
     Create,
+    /// Per-unit `VoiceCombatDrop` (MSG_COMBATDROP_AT_*).
+    CombatDrop,
+    /// Per-unit `VoiceHackInternet` (MSG_INTERNET_HACK).
+    HackInternet,
+    /// Per-unit `VoiceSalvage` (MSG_DO_SALVAGE when valid).
+    Salvage,
+    /// Per-unit `VoiceClearBuilding` (DAMAGE_SURRENDER vs structure).
+    ClearBuilding,
+    /// Per-unit `VoiceSubdue` (DAMAGE_SURRENDER vs non-structure).
+    Subdue,
+    /// Per-unit `VoiceDisarm` (DAMAGE_DISARM mine clear).
+    Disarm,
+    /// Per-unit `VoiceMelee` (MSG_DO_WEAPON_AT_OBJECT DAMAGE_MELEE).
+    Melee,
+    /// Per-unit `VoiceFlameLocation` (non-primary DAMAGE_FLAME ground fire).
+    FlameLocation,
+    /// Per-unit `VoicePoisonLocation` (non-primary DAMAGE_POISON ground fire).
+    PoisonLocation,
+    /// Per-unit `VoiceFireRocketPods` (ComancheRocketPodWeapon at location).
+    FireRocketPods,
+    /// Per-unit `VoicePrimaryWeaponMode` (MSG_SWITCH_WEAPONS PRIMARY).
+    PrimaryWeaponMode,
+    /// Per-unit `VoiceSecondaryWeaponMode` (MSG_SWITCH_WEAPONS SECONDARY).
+    SecondaryWeaponMode,
+    /// Per-unit `VoiceTertiaryWeaponMode` (MSG_SWITCH_WEAPONS TERTIARY).
+    TertiaryWeaponMode,
+    /// Per-unit `VoiceBombard` (MSG_DO_FORCE_ATTACK_GROUND when valid).
+    Bombard,
 }
 
 impl UnitVoiceSlot {
@@ -135,6 +163,20 @@ impl UnitVoiceSlot {
             Self::SnipePilot => "VoiceSnipePilot",
             Self::Created => "VoiceCreated",
             Self::Create => "VoiceCreate",
+            Self::CombatDrop => "VoiceCombatDrop",
+            Self::HackInternet => "VoiceHackInternet",
+            Self::Salvage => "VoiceSalvage",
+            Self::ClearBuilding => "VoiceClearBuilding",
+            Self::Subdue => "VoiceSubdue",
+            Self::Disarm => "VoiceDisarm",
+            Self::Melee => "VoiceMelee",
+            Self::FlameLocation => "VoiceFlameLocation",
+            Self::PoisonLocation => "VoicePoisonLocation",
+            Self::FireRocketPods => "VoiceFireRocketPods",
+            Self::PrimaryWeaponMode => "VoicePrimaryWeaponMode",
+            Self::SecondaryWeaponMode => "VoiceSecondaryWeaponMode",
+            Self::TertiaryWeaponMode => "VoiceTertiaryWeaponMode",
+            Self::Bombard => "VoiceBombard",
         }
     }
 
@@ -337,6 +379,101 @@ pub fn enter_voice_slot(
     } else {
         UnitVoiceSlot::Enter
     }
+}
+
+/// One selected unit's current / commanded weapon for attack-voice upgrade.
+pub struct AttackVoiceWeapon {
+    pub name: String,
+    pub slot: u8,
+}
+
+/// C++ `CommandXlat.cpp:511-627` — upgrade VoiceAttack / VoiceAttackAir from the weapon.
+///
+/// `skip` is C++ `skip=true` (first specialty wins). Location DISARM / FLAME / POISON
+/// keep scanning.
+pub fn specialty_attack_voice_upgrade(
+    weapon_name: &str,
+    weapon_slot: u8,
+    target_is_structure: bool,
+    specialty_weapon: bool,
+    at_location: bool,
+) -> Option<(UnitVoiceSlot, bool)> {
+    use crate::game_logic::combat::DamageType;
+    use crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name;
+
+    if at_location && weapon_name.eq_ignore_ascii_case("ComancheRocketPodWeapon") {
+        return Some((UnitVoiceSlot::FireRocketPods, true));
+    }
+
+    let mut damage = host_damage_type_for_weapon_name(weapon_name);
+    if matches!(damage, DamageType::Bullet) {
+        let n = weapon_name.to_ascii_lowercase();
+        if n.contains("flashbang") {
+            damage = DamageType::Surrender;
+        } else if n.contains("melee") || n.contains("knife") || n.contains("stab") {
+            damage = DamageType::Melee;
+        } else if n.contains("flame") || n.contains("firewall") || n.contains("firestorm") {
+            damage = DamageType::Flame;
+        } else if n.contains("poison") || n.contains("toxin") {
+            damage = DamageType::Toxin;
+        }
+    }
+
+    if at_location {
+        return match damage {
+            DamageType::Disarm => Some((UnitVoiceSlot::Disarm, false)),
+            DamageType::Flame | DamageType::Fire if weapon_slot != 0 => {
+                Some((UnitVoiceSlot::FlameLocation, false))
+            }
+            DamageType::Toxin | DamageType::Anthrax if weapon_slot != 0 => {
+                Some((UnitVoiceSlot::PoisonLocation, false))
+            }
+            _ => None,
+        };
+    }
+
+    match damage {
+        DamageType::Surrender => {
+            let slot = if target_is_structure {
+                UnitVoiceSlot::ClearBuilding
+            } else {
+                UnitVoiceSlot::Subdue
+            };
+            Some((slot, true))
+        }
+        DamageType::Disarm => Some((UnitVoiceSlot::Disarm, true)),
+        DamageType::KillPilot if specialty_weapon => Some((UnitVoiceSlot::SnipePilot, true)),
+        DamageType::Melee if specialty_weapon => Some((UnitVoiceSlot::Melee, true)),
+        _ => None,
+    }
+}
+
+/// Walk selected weapons like `pickAndPlayUnitVoiceResponse` (`CommandXlat.cpp:294-568`).
+pub fn pick_specialty_attack_voice(
+    default: UnitVoiceSlot,
+    weapons: impl IntoIterator<Item = AttackVoiceWeapon>,
+    target_is_structure: bool,
+    specialty_weapon: bool,
+    at_location: bool,
+) -> UnitVoiceSlot {
+    let mut slot = default;
+    let mut skip = false;
+    for weapon in weapons {
+        if skip {
+            break;
+        }
+        if let Some((upgraded, stop)) = specialty_attack_voice_upgrade(
+            &weapon.name,
+            weapon.slot,
+            target_is_structure,
+            specialty_weapon,
+            at_location,
+        ) {
+            slot = upgraded;
+            skip = stop;
+        }
+    }
+    slot
 }
 
 /// True when the name is an invented host residual, not a Voice.ini event.
@@ -626,6 +763,84 @@ mod tests {
         ));
         clear_test_template_voices();
     }
+
+    #[test]
+    fn specialty_attack_voice_upgrades_from_weapon() {
+        assert_eq!(
+            specialty_attack_voice_upgrade(
+                "RangerFlashBangGrenadeWeapon",
+                1,
+                true,
+                false,
+                false,
+            ),
+            Some((UnitVoiceSlot::ClearBuilding, true))
+        );
+        assert_eq!(
+            specialty_attack_voice_upgrade(
+                "RangerFlashBangGrenadeWeapon",
+                1,
+                false,
+                false,
+                false,
+            ),
+            Some((UnitVoiceSlot::Subdue, true))
+        );
+        assert_eq!(
+            specialty_attack_voice_upgrade("DozerMineDisarmingWeapon", 0, false, false, false),
+            Some((UnitVoiceSlot::Disarm, true))
+        );
+        assert_eq!(
+            specialty_attack_voice_upgrade("DozerMineDisarmingWeapon", 0, false, false, true),
+            Some((UnitVoiceSlot::Disarm, false))
+        );
+        assert_eq!(
+            specialty_attack_voice_upgrade("BurtonKnifeWeapon", 2, false, true, false),
+            Some((UnitVoiceSlot::Melee, true))
+        );
+        assert!(
+            specialty_attack_voice_upgrade("BurtonKnifeWeapon", 2, false, false, false).is_none()
+        );
+        assert_eq!(
+            specialty_attack_voice_upgrade(
+                "GLAJarmenKellVehiclePilotSniperRifle",
+                1,
+                false,
+                true,
+                false,
+            ),
+            Some((UnitVoiceSlot::SnipePilot, true))
+        );
+        assert_eq!(
+            specialty_attack_voice_upgrade("DragonTankFireWallWeapon", 1, false, true, true),
+            Some((UnitVoiceSlot::FlameLocation, false))
+        );
+        assert!(
+            specialty_attack_voice_upgrade("DragonTankFlameWeapon", 0, false, true, true).is_none()
+        );
+        assert_eq!(
+            specialty_attack_voice_upgrade("ToxinTractorSprayWeapon", 1, false, true, true),
+            Some((UnitVoiceSlot::PoisonLocation, false))
+        );
+        assert_eq!(
+            specialty_attack_voice_upgrade("ComancheRocketPodWeapon", 2, false, true, true),
+            Some((UnitVoiceSlot::FireRocketPods, true))
+        );
+        assert_eq!(UnitVoiceSlot::ClearBuilding.ini_key(), "VoiceClearBuilding");
+        assert_eq!(UnitVoiceSlot::Subdue.ini_key(), "VoiceSubdue");
+        assert_eq!(UnitVoiceSlot::Disarm.ini_key(), "VoiceDisarm");
+        assert_eq!(UnitVoiceSlot::Melee.ini_key(), "VoiceMelee");
+        assert_eq!(UnitVoiceSlot::FlameLocation.ini_key(), "VoiceFlameLocation");
+        assert_eq!(
+            UnitVoiceSlot::PoisonLocation.ini_key(),
+            "VoicePoisonLocation"
+        );
+        assert_eq!(
+            UnitVoiceSlot::FireRocketPods.ini_key(),
+            "VoiceFireRocketPods"
+        );
+    }
+
 
     #[test]
     fn per_unit_under_construction_and_initiate_sound_resolve() {

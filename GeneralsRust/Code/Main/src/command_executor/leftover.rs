@@ -708,11 +708,8 @@ impl<'a> CommandExecutor<'a> {
 
         }
         if any {
-            // C++ CommandXlat.cpp:384-412 MSG_GET_REPAIRED shares VoiceMove.
-            self.game_logic.queue_picked_unit_voice(
-                units,
-                crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Move,
-            );
+            // C++ CommandXlat.cpp:384-443 MSG_GET_REPAIRED VoiceMove / VoiceMoveUpgraded.
+            self.play_context_move_voice(units);
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
@@ -777,11 +774,8 @@ impl<'a> CommandExecutor<'a> {
             }
         }
         if any {
-            // C++ CommandXlat.cpp:384-412 MSG_GET_HEALED shares VoiceMove.
-            self.game_logic.queue_picked_unit_voice(
-                units,
-                crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Move,
-            );
+            // C++ CommandXlat.cpp:384-443 MSG_GET_HEALED VoiceMove / VoiceMoveUpgraded.
+            self.play_context_move_voice(units);
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand

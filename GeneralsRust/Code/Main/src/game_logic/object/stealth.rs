@@ -287,6 +287,9 @@ impl Object {
 
     /// C++ StealthUpdate innate mine cloak + `setEffectiveOpacity(0,0)` residual.
     /// Land mines / demo traps / charges start stealthed and stay fully invisible.
+    /// C++ MinefieldBehavior.cpp:105-106 ctor: `OBJECT_STATUS_NO_ATTACK_FROM_AI`
+    /// so mood/auto-acquire will not target mines after a detector reveals them.
+    /// Players can still click-attack (`from_player` skips the mood bit check).
     pub fn apply_mine_innate_stealth(&mut self) {
         use crate::game_logic::host_radar_stealth_vision_residual::MINE_STEALTH_OPACITY_RESIDUAL;
         self.innate_stealth = true;
@@ -297,9 +300,19 @@ impl Object {
         self.stealth_allowed_frame = 0;
         self.stealth_delay_pending = false;
         self.camo_friendly_opacity = MINE_STEALTH_OPACITY_RESIDUAL;
+        // Mines aren't auto-acquirable (MinefieldBehavior ctor).
+        self.apply_mine_no_attack_from_ai();
         self.record_host_stealth_flags();
         self.record_host_stealth_delay();
         self.record_host_vision_camo();
+    }
+
+    /// C++ MinefieldBehavior.cpp:105-106 ctor `OBJECT_STATUS_NO_ATTACK_FROM_AI`.
+    /// Safe on already-stealthed / already-detected mines (does not clear DETECTED).
+    pub fn apply_mine_no_attack_from_ai(&mut self) {
+        if !self.has_object_status_bit("NO_ATTACK_FROM_AI") {
+            let _ = self.apply_status_bits_upgrade_masks(&["NO_ATTACK_FROM_AI"], &[]);
+        }
     }
 
     /// Clear DETECTED status (stealth may remain active).

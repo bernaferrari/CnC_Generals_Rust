@@ -1784,7 +1784,7 @@ impl GameLogic {
     /// Object.cpp:6111-6220 `defect` after those guards.
     pub fn activate_defector(&mut self, caster_id: ObjectId, victim_id: ObjectId) -> bool {
         use crate::game_logic::host_defector_special_power::{
-            DEFECTOR_DETECTION_FRAMES, DEFECTOR_TIMER_TICK_AUDIO, DEFECTOR_VOICE_AUDIO,
+            resolve_voice_defect, DEFECTOR_DETECTION_FRAMES, DEFECTOR_TIMER_TICK_AUDIO,
         };
         if caster_id == victim_id {
             return false;
@@ -1825,6 +1825,7 @@ impl GameLogic {
         let old_team = victim.team;
         let old_owner = self.player_owner_for_host_object(victim);
         let victim_pos = victim.get_position();
+        let victim_template = victim.template_name.clone();
         let frames = DEFECTOR_DETECTION_FRAMES;
         let now = self.frame;
 
@@ -1858,13 +1859,16 @@ impl GameLogic {
         self.stop_attack_decision_aware(victim_id);
         self.clear_target_decision_aware(victim_id);
 
-        // C++ VoiceDefect + defector timer tick.
-        self.queue_audio_event(
-            AudioEventRequest::new(DEFECTOR_VOICE_AUDIO)
-                .with_object(victim_id)
-                .with_position(victim_pos)
-                .with_priority(180),
-        );
+        // C++ `*getTemplate()->getVoiceDefect()` + defector timer tick.
+        // Missing VoiceDefect is an empty AudioEventRTS (silent), never the slot token.
+        if let Some(event) = resolve_voice_defect(&victim_template) {
+            self.queue_audio_event(
+                AudioEventRequest::new(&event)
+                    .with_object(victim_id)
+                    .with_position(victim_pos)
+                    .with_priority(180),
+            );
+        }
         self.queue_audio_event(
             AudioEventRequest::new(DEFECTOR_TIMER_TICK_AUDIO)
                 .with_object(victim_id)

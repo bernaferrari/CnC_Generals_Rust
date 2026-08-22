@@ -161,7 +161,7 @@ pub fn host_weapon_is_hack_damage(name: &str) -> bool {
 /// C++ Weapon.ini DamageType=SURRENDER residual.
 pub fn host_weapon_is_surrender_damage(name: &str) -> bool {
     let n = name.to_ascii_lowercase();
-    n.contains("surrender")
+    n.contains("surrender") || n.contains("flashbang")
 }
 
 /// C++ Weapon.ini DamageType=KILL_GARRISONED residual (building clearers).

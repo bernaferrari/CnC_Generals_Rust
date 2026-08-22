@@ -225,6 +225,20 @@ impl crate::common::ThingTemplate for EngineThingTemplateAdapter {
             .unwrap_or_default()
     }
 
+    fn get_voice_defect(&self) -> crate::common::audio::AudioEventRts {
+        self.inner
+            .get_voice_defect()
+            .map(|sound| {
+                let event_name = if !sound.event_name.is_empty() {
+                    sound.event_name.clone()
+                } else {
+                    sound.filename_to_load.clone()
+                };
+                crate::common::audio::AudioEventRts::new(event_name)
+            })
+            .unwrap_or_default()
+    }
+
     fn is_equivalent_to(&self, other: &dyn crate::common::ThingTemplate) -> bool {
         if self.get_name() == other.get_name() {
             return true;

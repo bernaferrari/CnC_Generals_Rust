@@ -29,6 +29,11 @@ impl<'a> CommandExecutor<'a> {
             }
         }
         if any {
+            // C++ CommandXlat.cpp:654-658 MSG_INTERNET_HACK → PerUnitSound VoiceHackInternet.
+            self.game_logic.queue_picked_unit_voice(
+                units,
+                crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::HackInternet,
+            );
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
@@ -1001,7 +1006,21 @@ impl<'a> CommandExecutor<'a> {
     ) -> CommandResult {
         // C++ GameLogicDispatch.cpp:583-590 MSG_SWITCH_WEAPONS:
         // currentlySelectedGroup->setWeaponLockForGroup(weaponSlot, LOCKED_PERMANENTLY).
-        self.execute_set_weapon_lock(units, slot, 2)
+        let result = self.execute_set_weapon_lock(units, slot, 2);
+        if result == CommandResult::Success {
+            // C++ CommandXlat.cpp:474-493 / ControlBarCommandProcessing.cpp:788-792
+            // pickAndPlay PerUnitSound Voice*WeaponMode for the locked slot (skip=true).
+            let voice = match slot {
+                0 => Some(crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::PrimaryWeaponMode),
+                1 => Some(crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::SecondaryWeaponMode),
+                2 => Some(crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::TertiaryWeaponMode),
+                _ => None,
+            };
+            if let Some(voice) = voice {
+                self.game_logic.queue_picked_unit_voice(units, voice);
+            }
+        }
+        result
     }
 
     pub(super) fn execute_toggle_overcharge(&mut self, units: &[ObjectId]) -> CommandResult {

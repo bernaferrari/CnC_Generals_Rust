@@ -268,16 +268,10 @@ impl<'a> CommandExecutor<'a> {
         }
 
         if any_attacker {
-            // C++ MSG_DO_ATTACK_OBJECT VoiceAttack / VoiceAttackAir (`:496-508`).
-            let air = self.game_logic.host_object(target_id).is_some_and(|t| {
-                t.is_kind_of(KindOf::Aircraft) || t.status.airborne_target
-            });
-            let slot = if air {
-                crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::AttackAir
-            } else {
-                crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Attack
-            };
-            self.game_logic.queue_picked_unit_voice(units, slot);
+            // C++ MSG_DO_ATTACK_OBJECT VoiceAttack / VoiceAttackAir, then specialty
+            // upgrade (`CommandXlat.cpp:496-567`).
+            self.game_logic
+                .queue_attack_voice(units, Some(target_id), false, false, None);
             CommandResult::Success
         } else {
             CommandResult::CannotAttackTarget
@@ -404,6 +398,24 @@ impl<'a> CommandExecutor<'a> {
         }
 
         if any {
+            // C++ CommandXlat.cpp:460-508 MSG_DO_FORCE_ATTACK_GROUND:
+            // PerUnitSound VoiceBombard when valid, else ThingTemplate VoiceAttack.
+            // MSG_DO_WEAPON_AT_LOCATION / AttackPosition also start from VoiceAttack.
+            let bombard = units.iter().any(|&id| {
+                self.game_logic.host_object(id).is_some_and(|o| {
+                    crate::game_logic::audio_dispatch_impl::resolve_unit_voice_event(
+                        &o.template_name,
+                        crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Bombard,
+                    )
+                    .is_some()
+                })
+            });
+            let slot = if bombard {
+                crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Bombard
+            } else {
+                crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Attack
+            };
+            self.game_logic.queue_picked_unit_voice(units, slot);
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand

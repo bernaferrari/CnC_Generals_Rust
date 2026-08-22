@@ -1786,8 +1786,18 @@ fn jet_airfield_rearm_waits_clip_reload_frames() {
 
 #[test]
 fn empty_jet_circles_last_airfield_instead_of_bleeding_in_place() {
+    use crate::game_logic::audio_dispatch_impl::{
+        clear_test_template_voices, set_test_per_unit_sound,
+    };
     use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
     use glam::Vec3;
+
+    clear_test_template_voices();
+    set_test_per_unit_sound(
+        "AmericaJetRaptor",
+        "VoiceLowFuel",
+        "RaptorVoiceLowFuel",
+    );
 
     let mut logic = GameLogic::new();
     let mut af_tmpl = ThingTemplate::new("AmericaAirfield");
@@ -1870,13 +1880,23 @@ fn empty_jet_circles_last_airfield_instead_of_bleeding_in_place() {
             "OutOfAmmoDamage only after circling the wreck"
         );
     }
-    assert!(
-        logic
-            .queued_audio_events
-            .iter()
-            .any(|e| e.event_type.contains("VoiceLowFuel")),
-        "circling enter plays VoiceLowFuel"
+    let events: Vec<&str> = logic
+        .queued_audio_events
+        .iter()
+        .map(|e| e.event_type.as_str())
+        .collect();
+    assert_eq!(
+        events,
+        vec!["RaptorVoiceLowFuel"],
+        "circling enter plays authored PerUnitSound VoiceLowFuel at the jet"
     );
+    assert!(
+        !events
+            .iter()
+            .any(|e| *e == "VoiceLowFuel" || *e == "AmericaJetRaptorVoiceLowFuel"),
+        "must not queue slot token or invented concat"
+    );
+    clear_test_template_voices();
 }
 
 #[test]

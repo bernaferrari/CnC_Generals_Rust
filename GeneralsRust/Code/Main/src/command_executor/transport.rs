@@ -920,6 +920,11 @@ impl<'a> CommandExecutor<'a> {
             }
         }
         if any {
+            // C++ CommandXlat.cpp:348-352 MSG_COMBATDROP_AT_* → PerUnitSound VoiceCombatDrop (skip=true).
+            self.game_logic.queue_picked_unit_voice(
+                units,
+                crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::CombatDrop,
+            );
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
@@ -1055,6 +1060,63 @@ mod tests {
             logic.host_object(pax).unwrap().contained_by.is_some(),
             "passengers stay aboard until hover rappel"
         );
+    }
+
+    #[test]
+    fn execute_combat_drop_plays_voice_combat_drop() {
+        // C++ CommandXlat.cpp:348-352 MSG_COMBATDROP_AT_* → first Chinook VoiceCombatDrop.
+        use crate::game_logic::audio_dispatch_impl::{
+            clear_test_template_voices, set_test_template_voice, UnitVoiceSlot,
+        };
+        clear_test_template_voices();
+        set_test_template_voice("CD_VOICE", UnitVoiceSlot::CombatDrop, "TestVoiceCombatDrop");
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("CD_VOICE");
+        t.add_kind_of(KindOf::Aircraft);
+        t.add_kind_of(KindOf::Selectable);
+        t.set_health(200.0);
+        logic.templates.insert("CD_VOICE".to_string(), t);
+        let mut p = ThingTemplate::new("CD_VOICE_P");
+        p.add_kind_of(KindOf::Infantry);
+        p.add_kind_of(KindOf::Selectable);
+        p.set_health(100.0);
+        logic.templates.insert("CD_VOICE_P".to_string(), p);
+        let transport = logic
+            .create_object("CD_VOICE", Team::USA, Vec3::new(0.0, 100.0, 0.0))
+            .unwrap();
+        let pax = logic
+            .create_object("CD_VOICE_P", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let t = logic.host_object_mut(transport).unwrap();
+            t.install_combat_chinook_transport();
+            let _ = t.add_occupant(pax);
+        }
+        {
+            let p = logic.host_object_mut(pax).unwrap();
+            p.set_contained_by(Some(transport));
+            p.set_ai_state(AIState::Docked);
+        }
+        logic.queued_audio_events.clear();
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_combat_drop(
+                    &[transport],
+                    &DropTarget::Location(Vec3::new(80.0, 0.0, 80.0))
+                ),
+                CommandResult::Success
+            );
+        }
+        assert!(
+            logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == "TestVoiceCombatDrop"),
+            "execute_combat_drop must play VoiceCombatDrop: {:?}",
+            logic.queued_audio_events
+        );
+        clear_test_template_voices();
     }
 
     #[test]

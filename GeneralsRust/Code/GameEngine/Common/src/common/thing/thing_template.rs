@@ -2174,6 +2174,11 @@ impl ThingTemplate {
         self.audioarray.get(ThingTemplateAudioType::VoiceFear)
     }
 
+    /// C++ `ThingTemplate::getVoiceDefect` / `TTAUDIO_voiceDefect`.
+    pub fn get_voice_defect(&self) -> Option<&AudioEventRts> {
+        self.audioarray.get(ThingTemplateAudioType::VoiceDefect)
+    }
+
     /// C++ `ThingTemplate::getSoundOnDamaged` / `TTAUDIO_soundOnDamaged`.
     pub fn get_sound_on_damaged(&self) -> Option<&AudioEventRts> {
         self.audioarray.get(ThingTemplateAudioType::SoundOnDamaged)
