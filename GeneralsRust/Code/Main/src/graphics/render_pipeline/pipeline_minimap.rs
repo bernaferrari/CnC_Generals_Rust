@@ -817,19 +817,8 @@ impl RenderPipeline {
     ///
     /// World position if click was on minimap and area is visible
     pub fn handle_minimap_click(&self, screen_pos: Vec2) -> Option<Vec3> {
-        if let Some(ref minimap_renderer) = self.minimap_renderer {
-            // Convert screen position to world coordinates
-            if let Some(world_pos) = minimap_renderer.screen_to_world(screen_pos) {
-                // Check if area is visible/explored
-                if minimap_renderer
-                    .is_position_visible(world_pos)
-                    .unwrap_or(false)
-                {
-                    return Some(world_pos);
-                }
-            }
-        }
-        None
+        let minimap_renderer = self.minimap_renderer.as_ref()?;
+        minimap_renderer.screen_to_world(screen_pos)
     }
 
     /// Bind minimap texture to the active UI renderer.
