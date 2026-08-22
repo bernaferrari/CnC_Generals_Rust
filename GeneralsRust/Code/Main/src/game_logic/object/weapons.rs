@@ -997,8 +997,12 @@ impl Object {
 
     /// Record a successful discharge for PreAttackType PER_ATTACK bookkeeping.
     pub fn record_shot_at_target(&mut self, target_id: ObjectId) {
-        if self.consecutive_shot_target == Some(target_id) {
+        let now = crate::game_logic::host_historic_bonus::logic_frame();
+        let within_coast = self.continuous_fire_coast_until_frame != 0
+            && now < self.continuous_fire_coast_until_frame;
+        if self.consecutive_shot_target == Some(target_id) || within_coast {
             self.consecutive_shots_at_target = self.consecutive_shots_at_target.saturating_add(1);
+            self.consecutive_shot_target = Some(target_id);
             self.record_host_combat_attack();
         } else {
             self.consecutive_shot_target = Some(target_id);
@@ -1486,5 +1490,23 @@ mod tests {
         assert_eq!(attacker.weapon_lock_slot, 1);
     }
 
+    #[test]
+    fn retarget_inside_continuous_fire_coast_keeps_consecutive_shots() {
+        let mut attacker = Object::new(
+            ThingTemplate::new("ChinaGattlingTank"),
+            ObjectId(1),
+            Team::China,
+        );
+        attacker.consecutive_shot_target = Some(ObjectId(2));
+        attacker.consecutive_shots_at_target = 5;
+        attacker.continuous_fire_coast_until_frame = u32::MAX;
+        attacker.record_shot_at_target(ObjectId(3));
+        assert_eq!(attacker.consecutive_shots_at_target, 6);
+        assert_eq!(attacker.consecutive_shot_target, Some(ObjectId(3)));
 
+        attacker.continuous_fire_coast_until_frame = 0;
+        attacker.record_shot_at_target(ObjectId(4));
+        assert_eq!(attacker.consecutive_shots_at_target, 1);
+        assert_eq!(attacker.consecutive_shot_target, Some(ObjectId(4)));
+    }
 }
