@@ -3286,7 +3286,13 @@ fn shock_wave_impulse_applies_on_splash_impact() {
     if let Some(o) = logic.objects.get_mut(&v2) {
         o.movement.velocity = glam::Vec3::ZERO;
     }
-    let n = logic.apply_shock_wave_at_impact(glam::Vec3::ZERO, Some("MOABDetonationWeapon"), None);
+    let n = logic.apply_shock_wave_at_impact(
+        glam::Vec3::ZERO,
+        glam::Vec3::ZERO,
+        80.0,
+        Some("MOABDetonationWeapon"),
+        None,
+    );
     assert!(n >= 1, "near victim shocked n={n}");
     let s1 = logic
         .objects
@@ -3484,6 +3490,7 @@ fn scatter_miss_splash_honors_radius_damage_affects() {
         gamelogic::common::Relationship::Allies,
         src,
         ally,
+        None,
         false,
         false,
     ));
