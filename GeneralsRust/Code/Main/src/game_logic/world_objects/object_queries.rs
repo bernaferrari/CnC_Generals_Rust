@@ -2370,12 +2370,17 @@ impl GameLogic {
         let mut installed_propaganda = false;
         let mut installed_bunker = false;
         let mut satellite_hack_activate = None;
+        let mut attach_slave_drone = None;
 
         if let Some(obj) = self.objects.get_mut(&object_id) {
             // C++ UpgradeMux::isAlreadyUpgraded — first give only.
-            let first_satellite_hack = !obj.has_upgrade_tag(upgrade);
+            let first_give = !obj.has_upgrade_tag(upgrade);
             obj.apply_upgrade_tag(upgrade);
-            if first_satellite_hack {
+            if first_give {
+                attach_slave_drone =
+                    crate::game_logic::host_slave_drones::SlaveDroneKind::from_upgrade_name(
+                        upgrade,
+                    );
                 if let Some(spec) =
                     crate::game_logic::host_satellite_hack::satellite_hack_spy_spec(upgrade)
                 {
@@ -2522,6 +2527,13 @@ impl GameLogic {
         if let Some(spec) = satellite_hack_activate {
             let _ = self.activate_satellite_hack_spy_vision(object_id, spec);
         }
+        // C++ ObjectCreationUpgrade::upgradeImplementation — OCL on this vehicle
+        // (Battle/Scout/Hellfire). Leftover module already matches C++; host
+        // objects have no leftover modules, so spawn via leftover OCL store
+        // (or residual attach). Object-scoped complete muxes only the producer.
+        if let Some(kind) = attach_slave_drone {
+            self.apply_object_creation_upgrade_ocl(object_id, kind);
+        }
         if installed_gattling {
             self.overlord_addons.record_gattling_install();
         }
@@ -2595,6 +2607,66 @@ impl GameLogic {
                         let _ = new_id;
                     }
                 }
+            }
+        }
+    }
+
+    /// C++ `ObjectCreationUpgrade::upgradeImplementation` on this vehicle.
+    /// Leftover OCL store first; residual attach if the list is not loaded.
+    fn apply_object_creation_upgrade_ocl(
+        &mut self,
+        object_id: ObjectId,
+        kind: crate::game_logic::host_slave_drones::SlaveDroneKind,
+    ) {
+        use crate::game_logic::host_slave_drones::{drone_ocl_name, SlaveDroneKind};
+
+        let ctx = self.objects.get(&object_id).map(|obj| {
+            (
+                obj.team,
+                obj.get_position(),
+                obj.get_orientation(),
+                obj.experience.level,
+                obj.movement.velocity,
+            )
+        });
+        let Some((team, pos, orient, vet, vel)) = ctx else {
+            return;
+        };
+        let spawned = self.execute_parsed_weapon_ocl_at(
+            drone_ocl_name(kind),
+            Some(object_id),
+            team,
+            vet,
+            orient,
+            vel,
+            pos,
+        );
+        if spawned.is_empty() {
+            let _ = self.residual_attach_slave_drone(object_id, kind);
+            return;
+        }
+        // C++ SlavedUpdate startSlavedEffects + UpgradeDie on the OCL spawn.
+        for drone_id in spawned {
+            if let Some(drone) = self.objects.get_mut(&drone_id) {
+                drone.producer_id = Some(object_id);
+                drone.set_status_unselectable(true);
+                if drone.upgrade_die.is_none() {
+                    drone.install_upgrade_die(kind.upgrade_name());
+                }
+            }
+        }
+        match kind {
+            SlaveDroneKind::Scout => {
+                self.scout_drone_residual_attaches =
+                    self.scout_drone_residual_attaches.saturating_add(1);
+            }
+            SlaveDroneKind::Hellfire => {
+                self.hellfire_drone_residual_attaches =
+                    self.hellfire_drone_residual_attaches.saturating_add(1);
+            }
+            SlaveDroneKind::Battle => {
+                self.battle_drone_residual_attaches =
+                    self.battle_drone_residual_attaches.saturating_add(1);
             }
         }
     }

@@ -190,6 +190,12 @@ pub struct HostSpectreOrbitField {
     pub source_object: ObjectId,
     pub source_team: crate::game_logic::Team,
     pub position: Vec3,
+    /// C++ `m_overrideTargetDestination`. Clamped to AttackAreaRadius-Reticle
+    /// from `position` (`m_initialTargetPosition`). Override clicks never
+    /// rewrite `position`.
+    #[serde(default)]
+    pub override_destination: Vec3,
+
     pub spawn_frame: u32,
     pub expires_frame: u32,
     /// Next absolute frame at which howitzer residual ticks apply.
@@ -363,6 +369,28 @@ impl HostSpectreOrbitField {
     pub fn is_due_tick(&self, current_frame: u32) -> bool {
         self.is_due_howitzer(current_frame) || self.is_due_gattling(current_frame)
     }
+
+    /// C++ clamped reticle / howitzer aim (`m_overrideTargetDestination`).
+    /// Falls back to the orbit epicenter when no override has been stored.
+    pub fn override_aim(&self) -> Vec3 {
+        if self.override_destination == Vec3::ZERO && self.position != Vec3::ZERO {
+            self.position
+        } else {
+            self.override_destination
+        }
+    }
+
+    /// C++ `setSpecialPowerOverridableDestination` + update clamp.
+    /// Stores the click on the reticle; never moves `position`.
+    pub fn apply_override_destination(&mut self, destination: Vec3) {
+        self.override_destination = clamp_spectre_override_destination(
+            self.position,
+            destination,
+            SPECTRE_ORBIT_RADIUS,
+            SPECTRE_TARGETING_RETICLE_RADIUS,
+        );
+    }
+
 }
 
 /// Deterministic residual RandomOffsetForHowitzer for howitzer tick index.

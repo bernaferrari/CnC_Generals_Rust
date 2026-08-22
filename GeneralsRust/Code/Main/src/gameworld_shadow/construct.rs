@@ -53,6 +53,10 @@ impl GameWorldShadow {
             production_power_factor_by_host: HashMap::new(),
             construction_rate_by_host: HashMap::new(),
             special_power_frozen_by_host: HashMap::new(),
+            map_min_x: 0.0,
+            map_min_z: 0.0,
+            map_max_x: 0.0,
+            map_max_z: 0.0,
             a10_pending_drops: Vec::new(),
             artillery_pending_drops: Vec::new(),
             carpet_pending_drops: Vec::new(),
@@ -1056,15 +1060,21 @@ impl GameWorldShadow {
                         e.a10_strike_transport_launch_x = d.launch.x;
                         e.a10_strike_transport_launch_y = d.launch.y;
                         e.a10_strike_transport_launch_z = d.launch.z;
+                        e.a10_strike_dive_state = d.dive_state;
+                        e.a10_strike_last_vulcan_frame = d.last_vulcan_frame;
                     } else {
                         e.a10_strike_transport_active = false;
+                        e.a10_strike_dive_state = 0;
+                        e.a10_strike_last_vulcan_frame = 0;
                     }
                     e.a10_strike_missile = obj.a10_strike_missile;
-                    e.a10_strike_missile_vel_y = if obj.a10_strike_missile {
-                        obj.movement.velocity.y
+                    if obj.a10_strike_missile {
+                        e.a10_strike_missile_vel_y = obj.movement.velocity.y;
+                        e.a10_strike_transport_launch_x = obj.movement.velocity.x;
+                        e.a10_strike_transport_launch_z = obj.movement.velocity.z;
                     } else {
-                        0.0
-                    };
+                        e.a10_strike_missile_vel_y = 0.0;
+                    }
                     if let Some(d) = obj.artillery_barrage_transport.as_ref() {
                         e.artillery_barrage_transport_active = true;
                         e.artillery_barrage_transport_tier = match d.tier {
@@ -2378,6 +2388,11 @@ impl GameWorldShadow {
             self.sync_weapon_slots_from_host(eid, obj);
         }
 
+        let (map_min, map_max) = logic.world_bounds();
+        self.map_min_x = map_min.x;
+        self.map_min_z = map_min.z;
+        self.map_max_x = map_max.x;
+        self.map_max_z = map_max.z;
         // Wave 792: mirror A10 pending missile drops for GW sole-tick.
         self.a10_pending_drops = logic.a10_strike_flight_reg.pending_drops.clone();
         self.artillery_pending_drops = logic.artillery_barrage_flight_reg.pending_drops.clone();

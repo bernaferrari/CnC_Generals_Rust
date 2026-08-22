@@ -95,19 +95,60 @@ impl GameWorldShadow {
             }
             self.a10_pending_drops = keep;
             for p in due {
-                let team = if let Some(&eid) = self.host_to_entity.get(&p.source_id) {
+                let mut spawn = None;
+                let mut fire_at = p.target;
+                fire_at.y = 0.0;
+                let mut team = crate::game_logic::Team::Neutral;
+                let mut producer = crate::game_logic::ObjectId(p.source_id);
+                let mut jet_eid = self.host_to_entity.get(&p.source_id).copied().and_then(|eid| {
                     self.world
                         .entity(eid)
-                        .map(|e| Self::entity_team_from_ordinal(e.team_ordinal))
-                        .unwrap_or(crate::game_logic::Team::Neutral)
-                } else {
-                    crate::game_logic::Team::Neutral
-                };
+                        .filter(|e| e.a10_strike_transport_active)
+                        .map(|_| eid)
+                });
+                if jet_eid.is_none() {
+                    jet_eid = self.host_to_entity.values().copied().find(|&eid| {
+                        self.world.entity(eid).is_some_and(|e| {
+                            if !e.a10_strike_transport_active {
+                                return false;
+                            }
+                            let dx = e.transform.position.x - e.a10_strike_transport_target_x;
+                            let dz = e.transform.position.z - e.a10_strike_transport_target_z;
+                            dx * dx + dz * dz <= deliver_sq
+                        })
+                    });
+                }
+                if let Some(eid) = jet_eid {
+                    if let Some(e) = self.world.entity(eid) {
+                        team = Self::entity_team_from_ordinal(e.team_ordinal);
+                        fire_at = glam::Vec3::new(
+                            e.a10_strike_transport_target_x,
+                            0.0,
+                            e.a10_strike_transport_target_z,
+                        );
+                        spawn = Some(
+                            crate::game_logic::host_a10_strike_drop_log::a10_weapon_a_world_pos(
+                                glam::Vec3::new(
+                                    e.transform.position.x,
+                                    e.transform.position.y,
+                                    e.transform.position.z,
+                                ),
+                                e.transform.orientation,
+                                p.missile_index.saturating_add(1),
+                            ),
+                        );
+                        if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                            producer = crate::game_logic::ObjectId(hid);
+                        }
+                    }
+                }
+                let spawn = spawn.unwrap_or(fire_at);
                 crate::game_logic::host_a10_strike_drop_log::record_drop(
                     crate::game_logic::host_a10_strike_drop_log::A10DropEvent {
                         team,
-                        target: p.target,
-                        producer: crate::game_logic::ObjectId(p.source_id),
+                        target: fire_at,
+                        spawn,
+                        producer,
                     },
                 );
                 n = n.saturating_add(1);

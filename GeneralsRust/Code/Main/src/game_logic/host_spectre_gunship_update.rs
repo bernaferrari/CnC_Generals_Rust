@@ -22,9 +22,13 @@ use crate::game_logic::host_spectre_gunship_deployment::{
     default_map_extents, SPECTRE_PREFERRED_ELEVATION,
 };
 use crate::game_logic::special_power_strikes::{
-    SPECTRE_GUNSHIP_ORBIT_RADIUS, SPECTRE_ORBIT_DURATION_FRAMES, SPECTRE_ORBIT_INSERTION_SLOPE,
-    SPECTRE_ORBIT_RADIUS, SPECTRE_TARGETING_RETICLE_RADIUS,
+    clamp_spectre_override_destination, HostSpectreOrbitField, SPECTRE_GUNSHIP_ORBIT_RADIUS,
+    SPECTRE_ORBIT_DURATION_FRAMES, SPECTRE_ORBIT_INSERTION_SLOPE, SPECTRE_ORBIT_RADIUS,
+    SPECTRE_TARGETING_RETICLE_RADIUS,
 };
+use crate::game_logic::ObjectId;
+
+
 
 /// C++ `ORBIT_INSERTION_SLOPE_MAX`.
 pub const ORBIT_INSERTION_SLOPE_MAX: f32 = 0.8;
@@ -192,18 +196,16 @@ impl HostSpectreGunshipUpdateData {
         )
     }
 
-    fn constrain_override(&mut self) {
-        let constraint = (self.attack_area_radius - self.targeting_reticle_radius).max(0.0);
-        let mut dx = self.initial_target.x - self.override_target.x;
-        let mut dz = self.initial_target.z - self.override_target.z;
-        let dist = (dx * dx + dz * dz).sqrt();
-        if dist > constraint && dist > 1.0e-4 {
-            dx /= dist;
-            dz /= dist;
-            self.override_target.x = self.initial_target.x - dx * constraint;
-            self.override_target.z = self.initial_target.z - dz * constraint;
-        }
+    /// C++ update clamp: AttackAreaRadius - TargetingReticleRadius from initial.
+    pub fn constrain_override(&mut self) {
+        self.override_target = clamp_spectre_override_destination(
+            self.initial_target,
+            self.override_target,
+            self.attack_area_radius,
+            self.targeting_reticle_radius,
+        );
     }
+
 
     /// C++ `SpectreGunshipUpdate::update` insertion / orbit / depart slice.
     pub fn tick(&mut self, pos: Vec3, facing: f32, frame: u32) -> SpectreGunshipTick {
@@ -316,4 +318,22 @@ pub fn apply_spectre_door_and_afterburner(
         }
     }
     let _ = obj.enable_jet_afterburners(afterburners);
+}
+
+/// C++ `SpectreGunshipUpdate::update`: `isEffectivelyDead` → `UPDATE_SLEEP_FOREVER`
+/// (cease fire). Missing gunship → `cleanUp` ("OH MY GOODNESS... SHOT DOWN").
+/// Live `HostSpectreOrbitField` is the residual bombardment — expire it now.
+pub fn expire_orbit_fields_on_gunship_dead(
+    fields: &mut [HostSpectreOrbitField],
+    current_frame: u32,
+    gunship_dead_for_source: impl Fn(ObjectId) -> bool,
+) {
+    for field in fields {
+        if field.is_expired(current_frame) {
+            continue;
+        }
+        if gunship_dead_for_source(field.source_object) {
+            field.expires_frame = current_frame;
+        }
+    }
 }

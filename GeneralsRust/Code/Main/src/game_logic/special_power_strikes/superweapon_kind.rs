@@ -400,7 +400,8 @@ impl HostSuperweaponKind {
     pub fn impact_audio(self) -> &'static str {
         match self {
             HostSuperweaponKind::DaisyCutter => "DaisyCutterExplosion",
-            HostSuperweaponKind::A10Strike => "A10StrikeImpact",
+            // C++ no consolidated A10 cursor blast / invented A10StrikeImpact.
+            HostSuperweaponKind::A10Strike => A10_STRIKE_IMPACT_AUDIO,
             HostSuperweaponKind::ScudStorm => "ScudStormImpact",
             // Beam contact residual (continuous pulses follow).
             HostSuperweaponKind::ParticleCannon => "ParticleCannonBeamStart",

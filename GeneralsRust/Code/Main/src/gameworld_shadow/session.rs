@@ -1557,7 +1557,7 @@ pub fn shadow_session_after_host_tick(
                 t.set_health(40.0).add_kind_of(KindOf::Projectile);
                 logic.templates.insert(A10_PAYLOAD_TEMPLATE.to_string(), t);
             }
-            let drop_pos = glam::Vec3::new(ev.target.x, 90.0, ev.target.z);
+            let drop_pos = ev.spawn;
             if let Some(mid) =
                 match logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::Create {
                     template: A10_PAYLOAD_TEMPLATE.to_string(),
@@ -1602,6 +1602,34 @@ pub fn shadow_session_after_host_tick(
                     mark_destroy: true,
                 },
             );
+        }
+        for ev in crate::game_logic::host_a10_strike_drop_log::drain_vulcans() {
+            use crate::game_logic::combat::DamageType;
+            use crate::game_logic::special_power_strikes::{
+                A10_VULCAN_PRIMARY_DAMAGE, A10_VULCAN_PRIMARY_RADIUS,
+            };
+            logic.apply_fuel_air_radius_damage(
+                ev.jet,
+                ev.producer,
+                ev.team,
+                ev.pos,
+                A10_VULCAN_PRIMARY_DAMAGE,
+                A10_VULCAN_PRIMARY_RADIUS,
+                DamageType::Bullet,
+            );
+        }
+        for ev in crate::game_logic::host_a10_strike_drop_log::drain_dive_starts() {
+            use crate::game_logic::audio_dispatch_impl::resolve_per_unit_sound;
+            use crate::game_logic::host_a10_strike_flight::A10_START_DIVE_SOUND;
+            use crate::game_logic::special_power_strikes::A10_TRANSPORT;
+            if let Some(name) = resolve_per_unit_sound(A10_TRANSPORT, A10_START_DIVE_SOUND) {
+                logic.queue_audio_event(
+                    crate::game_logic::AudioEventRequest::new(&name)
+                        .with_object(ev.jet)
+                        .with_position(ev.pos)
+                        .with_priority(160),
+                );
+            }
         }
         // Wave 793: ArtilleryBarrage drop + detonate (no dual flight).
         logic.artillery_barrage_flight_reg.pending_drops = shadow.artillery_pending_drops.clone();

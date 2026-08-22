@@ -478,7 +478,11 @@ impl XferData for crate::game_logic::special_power_strikes::HostSpectreOrbitFiel
         xfer.xfer_u32(&mut self.gattling_rof_mean_applications)?;
         xfer.xfer_marker_label("GattlingRofFastApplications")?;
         xfer.xfer_u32(&mut self.gattling_rof_fast_applications)?;
+        // C++ m_overrideTargetDestination (clamped reticle; epicenter stays).
+        xfer.xfer_marker_label("OverrideDestination")?;
+        self.override_destination.xfer(xfer)?;
         Ok(())
+
     }
 }
 
@@ -945,6 +949,8 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 source_object: ObjectId(0),
                 source_team: Team::Neutral,
                 position: Vec3::ZERO,
+                override_destination: Vec3::ZERO,
+
                 spawn_frame: 0,
                 expires_frame: 0,
                 next_tick_frame: 0,

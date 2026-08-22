@@ -930,6 +930,10 @@ pub struct Entity {
     pub a10_strike_transport_launch_x: f32,
     pub a10_strike_transport_launch_y: f32,
     pub a10_strike_transport_launch_z: f32,
+    /// C++ DeliverPayloadAIUpdate `m_diveState` (0 predive, 1 diving, 2 postdive).
+    pub a10_strike_dive_state: u8,
+    /// Last frame A10ThunderboltVulcan residual fired (DelayBetweenShots 60ms).
+    pub a10_strike_last_vulcan_frame: u32,
     /// Host A10ThunderboltMissile residual.
     pub a10_strike_missile: bool,
     pub a10_strike_missile_vel_y: f32,
@@ -2034,6 +2038,8 @@ impl EntityStore {
             a10_strike_transport_launch_x: 0.0,
             a10_strike_transport_launch_y: 0.0,
             a10_strike_transport_launch_z: 0.0,
+            a10_strike_dive_state: 0,
+            a10_strike_last_vulcan_frame: 0,
             a10_strike_missile: false,
             a10_strike_missile_vel_y: 0.0,
             artillery_barrage_transport_active: false,

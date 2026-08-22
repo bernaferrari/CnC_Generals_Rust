@@ -3476,6 +3476,36 @@ fn sentry_drone_residual_detect_and_auto_fire() {
         );
         let _ = SENTRY_DRONE_GUN_WEAPON;
     }
+    // C++ initObject updateUpgradeModules: drones built after research spawn armed.
+    let late_sentry_id = game_logic
+        .create_object(
+            "AmericaVehicleSentryDrone",
+            Team::USA,
+            Vec3::new(20.0, 0.0, 0.0),
+        )
+        .expect("late sentry");
+    {
+        let s = game_logic.host_object(late_sentry_id).expect("late sentry");
+        assert!(
+            s.has_upgrade_tag(UPGRADE_AMERICA_SENTRY_DRONE_GUN),
+            "late sentry must inherit completed PLAYER_UPGRADE tag"
+        );
+        assert!(
+            s.weapon.is_some(),
+            "sentry built after research must spawn with SentryDroneGun"
+        );
+        let w = s.weapon.as_ref().unwrap();
+        assert!(
+            (w.damage - 8.0).abs() < 0.1,
+            "late SentryDroneGun damage residual 8, got {}",
+            w.damage
+        );
+        assert!(
+            (w.range - 150.0).abs() < 0.1,
+            "late SentryDroneGun range residual 150, got {}",
+            w.range
+        );
+    }
 
     // Detected enemy becomes targetable; place in gun range and idle for auto-fire.
     if game_logic.host_object(stealth_id).is_none() {

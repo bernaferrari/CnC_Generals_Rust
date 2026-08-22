@@ -32,6 +32,10 @@ pub const SPECTRE_HOWITZER_FOLLOW_LAG_FRAMES: u32 = 12;
 pub const SPECTRE_GUNSHIP_ORBIT_RADIUS: f32 = 250.0;
 /// Retail `SpectreGunshipUpdate` TargetingReticleRadius residual.
 pub const SPECTRE_TARGETING_RETICLE_RADIUS: f32 = 25.0;
+/// C++ `AttackAreaRadius - TargetingReticleRadius` override clamp radius.
+pub const SPECTRE_OVERRIDE_CONSTRAINT_RADIUS: f32 =
+    SPECTRE_ORBIT_RADIUS - SPECTRE_TARGETING_RETICLE_RADIUS;
+
 /// Retail `SpectreGunshipUpdate` StrafingIncrement residual (gattling step).
 pub const SPECTRE_STRAFING_INCREMENT: f32 = 20.0;
 /// Retail `SpectreGunshipUpdate` OrbitInsertionSlope residual.
@@ -420,4 +424,51 @@ pub fn howitzer_shell_loft_sample(
         pos.y = 0.0; // residual ground impact
     }
     (pos, moving_down, height_die)
+}
+
+/// C++ `SpectreGunshipUpdate::update` override clamp.
+///
+/// `constraintRadius = AttackAreaRadius - TargetingReticleRadius`.
+/// `overrideTargetDelta = initial - dest`; if length > constraint,
+/// `dest = initial - normalize(delta) * constraint`. Does not move `initial`.
+#[inline]
+pub fn clamp_spectre_override_destination(
+    initial: Vec3,
+    destination: Vec3,
+    attack_area_radius: f32,
+    targeting_reticle_radius: f32,
+) -> Vec3 {
+    let constraint = (attack_area_radius - targeting_reticle_radius).max(0.0);
+    let dx = initial.x - destination.x;
+    let dz = initial.z - destination.z;
+    let dist = (dx * dx + dz * dz).sqrt();
+    if dist > constraint && dist > 1.0e-4 {
+        let scale = constraint / dist;
+        Vec3::new(
+            initial.x - dx * scale,
+            destination.y,
+            initial.z - dz * scale,
+        )
+    } else {
+        destination
+    }
+}
+
+
+/// C++ `SpectreGunshipUpdate.cpp:498-507` acquire filters as a pure residual.
+///
+/// `PartitionFilterLiveMapEnemies` (alive + relationship ENEMIES — not
+/// neutrals/allies) + `PartitionFilterStealthedAndUndetected(false)` +
+/// `PartitionFilterPossibleToAttack` AntiAir=No (`SpectreHowitzerGun` /
+/// `SpectreGattlingGun` AntiAirborne* **No**) + `PartitionFilterFreeOfFog`
+/// (`ObjectShroudStatus::Clear` only).
+#[inline]
+pub fn spectre_orbit_target_passes_partition_filters(
+    alive: bool,
+    relationship_enemies: bool,
+    stealthed_undetected: bool,
+    is_air: bool,
+    fog_clear: bool,
+) -> bool {
+    alive && relationship_enemies && !stealthed_undetected && !is_air && fog_clear
 }

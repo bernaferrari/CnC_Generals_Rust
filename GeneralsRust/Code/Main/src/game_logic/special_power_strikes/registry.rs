@@ -77,10 +77,25 @@ pub struct HostSpecialPowerStrikeRegistry {
     /// C++ `SpecialPowerModule::createViewObject` residual reveals.
     pub(crate) view_objects: Vec<HostViewObjectReveal>,
     pub(crate) view_objects_spawned_total: u32,
+    /// C++ SpectreGunshipUpdate.cpp:532 — wide AttackAreaRadius auto-acquire
+    /// is AI-only (`getPlayerType() != PLAYER_HUMAN`). Host: `!is_local`.
+    pub(crate) spectre_ai_controllers: std::collections::HashSet<ObjectId>,
+
 
 }
 
 impl HostSpecialPowerStrikeRegistry {
+    /// Mark a Spectre source as PLAYER_COMPUTER so gattling may wide-acquire.
+    pub fn note_spectre_ai_controller(&mut self, source_object: ObjectId) {
+        self.spectre_ai_controllers.insert(source_object);
+    }
+
+    /// C++ `getPlayerType() != PLAYER_HUMAN`. Unknown/human → no wide acquire.
+    pub fn spectre_wide_auto_acquire_allowed(&self, source_object: ObjectId) -> bool {
+        self.spectre_ai_controllers.contains(&source_object)
+    }
+
+
     /// SabotageSuperweapon residual: drop pending strike timers for a structure.
     ///
     /// Fail-closed: clears host-queued strikes whose source matches `source_id`.
@@ -140,6 +155,8 @@ impl HostSpecialPowerStrikeRegistry {
             remnant_damage_applications_total: 0,
             view_objects: Vec::new(),
             view_objects_spawned_total: 0,
+            spectre_ai_controllers: std::collections::HashSet::new(),
+
         }
 
     }
@@ -188,6 +205,8 @@ impl HostSpecialPowerStrikeRegistry {
         self.remnant_damage_applications_total = 0;
         self.view_objects.clear();
         self.view_objects_spawned_total = 0;
+        self.spectre_ai_controllers.clear();
+
 
     }
 

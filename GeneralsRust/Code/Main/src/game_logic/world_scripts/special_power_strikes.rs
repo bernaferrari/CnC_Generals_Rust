@@ -88,6 +88,22 @@ impl GameLogic {
             scud_anthrax_tier,
             a10_tier,
         );
+        // C++ SpectreGunshipUpdate.cpp:532 PLAYER_HUMAN disables wide auto-acquire.
+        // Host residual: local player is human; unmapped owner fail-closed (no wide).
+        if kind == HostSuperweaponKind::SpectreGunship {
+            let controller_is_ai = self
+                .objects
+                .get(&source_object)
+                .and_then(|obj| self.player_owner_for_host_object(obj))
+                .and_then(|pid| self.players.get(&pid))
+                .map(|p| !p.is_local)
+                .unwrap_or(false);
+            if controller_is_ai {
+                self.special_power_strikes
+                    .note_spectre_ai_controller(source_object);
+            }
+        }
+
         // C++ OCL DeliveryDecal via RadiusDecalUpdate on SCUD Storm host.
         if kind == HostSuperweaponKind::ScudStorm {
             let _ = self.create_delivery_radius_decal(source_object, target_position);
@@ -403,7 +419,7 @@ impl GameLogic {
     /// CruiseMissile residual applies MOAB area damage after loft delay.
     pub fn update_special_power_strikes(&mut self) {
         use crate::game_logic::special_power_strikes::{
-            ANTHRAX_TOXIN_AUDIO, NUKE_RADIATION_AUDIO, SPECTRE_ORBIT_AUDIO,
+            ANTHRAX_TOXIN_AUDIO, HostSuperweaponKind, NUKE_RADIATION_AUDIO, SPECTRE_ORBIT_AUDIO,
         };
 
         self.special_power_strikes.clear_frame_events();
@@ -452,12 +468,14 @@ impl GameLogic {
             }
 
             // C++ one SlowDeath on the flying missile — no registry instant blast.
+            // C++ A10 is OCL jets + per-missile FX — no DeathExplosion at the click.
             let skip_registry_nuke_blast = plan.kind.spawns_radiation()
                 && self
                     .special_power_strikes
                     .get(plan.strike_id)
                     .is_some_and(|s| s.live_neutron_delivery);
-            if !skip_registry_nuke_blast {
+            let skip_a10_consolidated_blast = plan.kind == HostSuperweaponKind::A10Strike;
+            if !skip_registry_nuke_blast && !skip_a10_consolidated_blast {
                 // Impact feedback residual: explosion particle + audio at epicenter.
                 let _ = self.combat_particles.spawn(
                     CombatParticleKind::DeathExplosion,
@@ -1204,15 +1222,186 @@ impl GameLogic {
         }
     }
 
+    /// C++ `SpectreGunshipUpdate::update` `isEffectivelyDead` / missing-object `cleanUp`.
+    /// Live orbit fields are sourced from the command-center caster; resolve the
+    /// bound / produced gunship and treat missing or `!is_alive` as shot down.
+    fn spectre_orbit_source_gunship_is_dead(&self, source: ObjectId) -> bool {
+        if let Some(obj) = self.objects.get(&source) {
+            if obj.spectre_gunship_update.is_some() {
+                return !obj.is_alive();
+            }
+            if let Some(gid) = obj
+                .spectre_gunship_deployment
+                .as_ref()
+                .and_then(|d| d.gunship_id)
+            {
+                return self.objects.get(&gid).is_none_or(|g| !g.is_alive());
+            }
+        }
+        let mut saw_gunship = false;
+        for obj in self.objects.values() {
+            if obj.producer_id == Some(source) && obj.spectre_gunship_update.is_some() {
+                saw_gunship = true;
+                if obj.is_alive() {
+                    return false;
+                }
+            }
+        }
+        saw_gunship
+    }
+
+    /// C++ `PartitionFilterLiveMapEnemies` relationship: ENEMIES only.
+    /// Missing owner ids fall back to faction residual (other playable team).
+    fn spectre_orbit_relationship_enemies_ids(
+        &self,
+        source_id: ObjectId,
+        source_team: Team,
+        target_id: ObjectId,
+        target_team: Team,
+    ) -> bool {
+        let (src_owner, src_inst) = self
+            .objects
+            .get(&source_id)
+            .map(|o| (o.owner_player_id, o.team_instance_name.clone()))
+            .unwrap_or((None, String::new()));
+        let (tgt_owner, tgt_inst) = self
+            .objects
+            .get(&target_id)
+            .map(|o| (o.owner_player_id, o.team_instance_name.clone()))
+            .unwrap_or((None, String::new()));
+        if src_owner.is_some() && tgt_owner.is_some() {
+            return Self::object_relationship_from_owners(
+                &self.players,
+                src_owner,
+                &src_inst,
+                tgt_owner,
+                &tgt_inst,
+            ) == gamelogic::common::Relationship::Enemies;
+        }
+        target_team != source_team
+            && target_team != Team::Neutral
+            && source_team != Team::Neutral
+    }
+
+    /// C++ `PartitionFilterFreeOfFog`: `getShroudedStatus == OBJECTSHROUD_CLEAR`.
+    /// No FOW / no grid / no PartitionData → CLEAR (Object.cpp:1786-1788).
+    fn spectre_orbit_fog_clear(&self, viewer_player_id: Option<u32>, target_id: ObjectId) -> bool {
+        if !self.skirmish_rules.fog_of_war {
+            return true;
+        }
+        let Some(pid) = viewer_player_id else {
+            return true;
+        };
+        let Ok(mgr) = get_shroud_manager().lock() else {
+            return true;
+        };
+        if !mgr.has_shroud_grid() {
+            return true;
+        }
+        match mgr.get_host_object_shroud_status(pid, target_id.0) {
+            Some(gamelogic::common::types::ObjectShroudStatus::Clear) => true,
+            Some(_) => false,
+            None => true,
+        }
+    }
+
+    /// Live residual of C++ Spectre acquire filters (stealth / fog / neutral / air).
+    fn spectre_orbit_target_allowed_by_id(
+        &self,
+        source_id: ObjectId,
+        source_team: Team,
+        source_player_id: Option<u32>,
+        target_id: ObjectId,
+    ) -> bool {
+        let Some((alive, stealthed, is_air, team)) = self.objects.get(&target_id).map(|t| {
+            (
+                t.is_alive(),
+                t.is_effectively_stealthed(),
+                t.is_kind_of(KindOf::Aircraft) || t.status.airborne_target,
+                t.team,
+            )
+        }) else {
+            return false;
+        };
+        crate::game_logic::special_power_strikes::spectre_orbit_target_passes_partition_filters(
+            alive,
+            self.spectre_orbit_relationship_enemies_ids(
+                source_id,
+                source_team,
+                target_id,
+                team,
+            ),
+            stealthed,
+            is_air,
+            self.spectre_orbit_fog_clear(source_player_id, target_id),
+        )
+    }
+
+    fn spectre_orbit_source_viewer(&self, source_object: ObjectId, source_team: Team) -> Option<u32> {
+        self.objects
+            .get(&source_object)
+            .and_then(|o| o.owner_player_id)
+            .or_else(|| self.player_id_for_team(source_team))
+    }
+
+    /// Snapshot for `plan_due_orbit_ticks`: drop stealth / fog / neutral / air.
+    fn spectre_orbit_filtered_positions(&self) -> Vec<(ObjectId, Vec3, Team, bool)> {
+        let sources: Vec<(ObjectId, Team, Option<u32>)> = self
+            .special_power_strikes
+            .orbit_fields()
+            .iter()
+            .map(|f| {
+                (
+                    f.source_object,
+                    f.source_team,
+                    self.spectre_orbit_source_viewer(f.source_object, f.source_team),
+                )
+            })
+            .collect();
+        let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        ids.into_iter()
+            .filter_map(|id| {
+                let (pos, team, alive) = {
+                    let obj = self.objects.get(&id)?;
+                    (obj.get_position(), obj.team, obj.is_alive())
+                };
+                let allowed = if sources.is_empty() {
+                    alive
+                } else {
+                    sources.iter().any(|(sid, steam, pid)| {
+                        self.spectre_orbit_target_allowed_by_id(*sid, *steam, *pid, id)
+                    })
+                };
+                allowed.then_some((id, pos, team, alive))
+            })
+            .collect()
+    }
+
+
+
     /// Tick residual Spectre orbit fields spawned at orbit insertion.
     /// Fail-closed vs full SpectreGunshipUpdate gattling-strafe / howitzer projectile.
     pub(in super::super) fn update_spectre_orbit_fields(&mut self) {
         self.apply_pending_special_power_overrides();
-        let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
-            .objects
+        // C++ cease fire on isEffectivelyDead / cleanUp when the gunship is gone.
+        // Do this before planning ticks so a dead gunship never lands another volley.
+        let frame = self.frame;
+        let dead_sources: Vec<ObjectId> = self
+            .special_power_strikes
+            .orbit_fields()
             .iter()
-            .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
+            .map(|f| f.source_object)
+            .filter(|&src| self.spectre_orbit_source_gunship_is_dead(src))
             .collect();
+        if !dead_sources.is_empty() {
+            crate::game_logic::host_spectre_gunship_update::expire_orbit_fields_on_gunship_dead(
+                self.special_power_strikes.orbit_fields_mut(),
+                frame,
+                |src| dead_sources.contains(&src),
+            );
+        }
+        let object_positions = self.spectre_orbit_filtered_positions();
+
 
         let plans = self
             .special_power_strikes
@@ -1226,6 +1415,16 @@ impl GameLogic {
             let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
 
             for hit in &plan.hits {
+                let source_player =
+                    self.spectre_orbit_source_viewer(plan.source_object, plan.source_team);
+                if !self.spectre_orbit_target_allowed_by_id(
+                    plan.source_object,
+                    plan.source_team,
+                    source_player,
+                    hit.target_id,
+                ) {
+                    continue;
+                }
                 if let Some(target) = self.objects.get_mut(&hit.target_id) {
                     if !target.is_alive() {
                         continue;

@@ -1591,8 +1591,23 @@ impl GameLogic {
 
                 // Retail WeaponSet Conditions=None has PRIMARY None until PLAYER_UPGRADE.
                 // Strip kind-based Weapon::default fallback from resolve_primary_weapon.
-                // Explicit template primary_weapon(_name) still keeps a bound gun (test/seed).
-                if !sentry_had_explicit_primary {
+                // C++ initObject → updateUpgradeModules applies completed player
+                // WeaponSetUpgrade so later builds spawn with SentryDroneGun.
+                use crate::game_logic::host_sentry_drone::UPGRADE_AMERICA_SENTRY_DRONE_GUN;
+                let has_gun_upgrade = object.has_upgrade_tag(UPGRADE_AMERICA_SENTRY_DRONE_GUN)
+                    || if let Some(player) =
+                        owner_player_id.and_then(|pid| self.players.get(&pid))
+                    {
+                        player.has_unlocked_upgrade(UPGRADE_AMERICA_SENTRY_DRONE_GUN)
+                    } else {
+                        self.players.values().any(|p| {
+                            p.team == team
+                                && p.has_unlocked_upgrade(UPGRADE_AMERICA_SENTRY_DRONE_GUN)
+                        })
+                    };
+                if has_gun_upgrade {
+                    Self::equip_sentry_drone_gun(&mut object);
+                } else if !sentry_had_explicit_primary {
                     object.weapon = None;
                 }
             }
@@ -2016,13 +2031,26 @@ impl GameLogic {
                 }
             }
 
-            // Host residual: GLA Worker base speed / WorkerShoes speed if already unlocked.
-            // Fail-closed: not full WorkerAIUpdate bored auto-task matrix.
+            // C++ Object::initObject → updateUpgradeModules: PLAYER_UPGRADE mask
+            // (Upgrade_GLAWorkerShoes) fires LocomotorSetUpgrade on new workers.
+            // Live research only stamps objects alive at complete; inherit here.
+            // Owner-player only — same-faction leak is not C++ getControllingPlayer.
             if crate::game_logic::host_gla_worker::is_gla_worker_template(template_name) {
                 use crate::game_logic::host_gla_worker::{
                     worker_residual_speed, UPGRADE_GLA_WORKER_SHOES,
                 };
-                let shoes = object.has_upgrade_tag(UPGRADE_GLA_WORKER_SHOES);
+                let player_has_shoes = owner_player_id
+                    .and_then(|pid| self.players.get(&pid))
+                    .is_some_and(|p| p.has_unlocked_upgrade(UPGRADE_GLA_WORKER_SHOES));
+                let shoes =
+                    object.has_upgrade_tag(UPGRADE_GLA_WORKER_SHOES) || player_has_shoes;
+                if shoes && !object.has_upgrade_tag(UPGRADE_GLA_WORKER_SHOES) {
+                    object.apply_upgrade_tag(UPGRADE_GLA_WORKER_SHOES);
+                    let _ = crate::game_logic::host_upgrade_module_residuals::apply_locomotor_set_upgrade(
+                        &mut object,
+                        UPGRADE_GLA_WORKER_SHOES,
+                    );
+                }
                 object.movement.max_speed = worker_residual_speed(shoes);
             }
 

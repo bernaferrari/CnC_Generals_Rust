@@ -354,6 +354,9 @@ impl GameLogic {
         // will not become ready until later.  This keeps player and mood
         // attacks approaching while distant, but starts the authored timer as
         // soon as their selected weapon is actually in range.
+        //
+        // C++ DeployStyleAIUpdate::update: `isInRange || isInGuardIdleState`.
+        // Guard-idle units pre-deploy for fastest response (AIGuardIdleState).
         let in_range_pending_attacks: Vec<ObjectId> = ids
             .iter()
             .copied()
@@ -361,8 +364,20 @@ impl GameLogic {
                 let Some(obj) = self.objects.get(id) else {
                     return false;
                 };
-                if obj.get_template().deploy_style_metadata.is_none()
-                    || !matches!(obj.ai_state, AIState::Attacking | AIState::AttackingGround)
+                if obj.get_template().deploy_style_metadata.is_none() {
+                    return false;
+                }
+                let trying_to_move = obj.waiting_for_path
+                    || !obj.movement.path.is_empty()
+                    || obj.status.moving;
+                let is_in_guard_idle = matches!(
+                    obj.ai_state,
+                    AIState::GuardingArea | AIState::GuardingObject
+                ) && !trying_to_move;
+                if is_in_guard_idle {
+                    return true;
+                }
+                if !matches!(obj.ai_state, AIState::Attacking | AIState::AttackingGround)
                 {
                     return false;
                 }
@@ -403,9 +418,9 @@ impl GameLogic {
     }
 
     /// Ensure a source-authored DeployStyle unit is unpacking/unpacked before
-    /// fire. Callers must establish a live, in-range attack target before
-    /// invoking this; `DeployStyleAIUpdate::update` only enters `DEPLOY` at
-    /// that point, not merely because an attack order exists.
+    /// fire. Callers must establish a live, in-range attack target (or C++
+    /// `isInGuardIdleState`) before invoking this; `DeployStyleAIUpdate::update`
+    /// enters `DEPLOY` on in-range attack or guard idle.
     ///
     /// Returns false while the exact parsed `DeployStyleAIUpdate` module is
     /// packing or unpacking. A metadata/runtime mismatch is fail-closed rather

@@ -1524,6 +1524,22 @@ impl GameLogic {
         affected
     }
 
+    /// C++ `WeaponSetUpgrade` + `updateWeaponSet` for Sentry PLAYER_UPGRADE.
+    /// Bind PRIMARY `SentryDroneGun`, stamp the retail tag, set flag 0.
+    pub(in super::super) fn equip_sentry_drone_gun(obj: &mut Object) {
+        use crate::game_logic::host_sentry_drone::{
+            SENTRY_DRONE_GUN_WEAPON, UPGRADE_AMERICA_SENTRY_DRONE_GUN,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        if let Some(w) = ThingTemplate::weapon_from_store(SENTRY_DRONE_GUN_WEAPON) {
+            let _ = obj.replace_weapon_set_slot(0, Some(w));
+        }
+        obj.apply_upgrade_tag(UPGRADE_AMERICA_SENTRY_DRONE_GUN);
+        let _ = obj.set_weapon_set_flag(0, true);
+    }
+
     /// Equip Sentry Drone Gun primary + apply upgrade tag.
     ///
     /// Retail: WeaponSetUpgrade TriggeredBy = Upgrade_AmericaSentryDroneGun unlocks
@@ -1533,13 +1549,8 @@ impl GameLogic {
         team: Team,
         upgrade_name: &str,
     ) -> u32 {
-        use crate::game_logic::host_sentry_drone::{
-            is_sentry_drone_template, SENTRY_DRONE_GUN_WEAPON, UPGRADE_AMERICA_SENTRY_DRONE_GUN,
-        };
-        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+        use crate::game_logic::host_sentry_drone::is_sentry_drone_template;
 
-        ensure_host_weapon_store();
-        let primary = ThingTemplate::weapon_from_store(SENTRY_DRONE_GUN_WEAPON);
         let mut affected = 0u32;
         for obj in self.objects.values_mut() {
             if !upgrade_targets_object(obj, team) || !obj.is_alive() {
@@ -1548,12 +1559,8 @@ impl GameLogic {
             if !is_sentry_drone_template(&obj.template_name) {
                 continue;
             }
-            if let Some(ref w) = primary {
-                let _ = obj.replace_weapon_set_slot(0, Some(w.clone()));
-            }
+            Self::equip_sentry_drone_gun(obj);
             obj.apply_upgrade_tag(upgrade_name);
-            obj.apply_upgrade_tag(UPGRADE_AMERICA_SENTRY_DRONE_GUN);
-            let _ = obj.set_weapon_set_flag(0, true);
             affected = affected.saturating_add(1);
         }
         affected

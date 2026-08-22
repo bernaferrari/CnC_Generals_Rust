@@ -351,33 +351,122 @@ impl GameWorldShadow {
         }
         // Wave 792: A10 Thunderbolt transport residual.
         if e.a10_strike_transport_active {
-            let dest_x = e.a10_strike_transport_target_x;
-            let dest_z = e.a10_strike_transport_target_z;
+            use crate::game_logic::host_a10_strike_flight::{
+                tick_a10_dive, A10_CRUISE_HEIGHT, A10_VULCAN_DELAY_FRAMES,
+            };
+            let target = glam::Vec3::new(
+                e.a10_strike_transport_target_x,
+                e.a10_strike_transport_target_y,
+                e.a10_strike_transport_target_z,
+            );
             let pos = e.transform.position;
+            let hx = e.a10_strike_transport_target_x - e.a10_strike_transport_launch_x;
+            let hz = e.a10_strike_transport_target_z - e.a10_strike_transport_launch_z;
+            let to_tx = e.a10_strike_transport_target_x - pos.x;
+            let to_tz = e.a10_strike_transport_target_z - pos.z;
+            let past_target = to_tx * to_tx + to_tz * to_tz <= 25.0
+                || (pos.x - e.a10_strike_transport_target_x) * hx
+                    + (pos.z - e.a10_strike_transport_target_z) * hz
+                    > 0.0;
+            let (dest_x, dest_z) = if past_target {
+                let exit = crate::game_logic::host_deliver_payload::head_off_map_exit_point_residual(
+                    glam::Vec3::new(pos.x, pos.y, pos.z),
+                    hx,
+                    hz,
+                    self.map_min_x,
+                    self.map_min_z,
+                    self.map_max_x,
+                    self.map_max_z,
+                );
+                (exit.x, exit.z)
+            } else {
+                (e.a10_strike_transport_target_x, e.a10_strike_transport_target_z)
+            };
             let dx = dest_x - pos.x;
             let dz = dest_z - pos.z;
             let dist = (dx * dx + dz * dz).sqrt();
             let speed = 22.0_f32;
             let mut new_pos = pos;
-            new_pos.y = new_pos.y.max(140.0);
+            new_pos.y = new_pos.y.max(A10_CRUISE_HEIGHT);
             let mut vel = glam::Vec3::ZERO;
-            if dist >= 5.0 {
+            if dist >= 1.0 {
                 let step = speed.min(dist);
                 new_pos.x += dx / dist * step;
                 new_pos.z += dz / dist * step;
                 vel = glam::Vec3::new(new_pos.x - pos.x, new_pos.y - pos.y, new_pos.z - pos.z);
             }
+            let dive = tick_a10_dive(
+                &mut e.a10_strike_dive_state,
+                glam::Vec3::new(new_pos.x, new_pos.y, new_pos.z),
+                target,
+                vel,
+                speed,
+            );
+            new_pos.y = dive.new_y;
+            vel.y = new_pos.y - pos.y;
             e.transform.position = new_pos;
             if vel.length_squared() > 1e-6 {
                 e.transform.orientation = vel.z.atan2(vel.x);
             }
+            if dive.start_dive {
+                if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                    crate::game_logic::host_a10_strike_drop_log::record_dive_start(
+                        crate::game_logic::host_a10_strike_drop_log::A10DiveStartEvent {
+                            jet: crate::game_logic::ObjectId(hid),
+                            pos: glam::Vec3::new(new_pos.x, new_pos.y, new_pos.z),
+                        },
+                    );
+                }
+            }
+            if dive.should_strafe
+                && frame.saturating_sub(e.a10_strike_last_vulcan_frame) >= A10_VULCAN_DELAY_FRAMES
+            {
+                e.a10_strike_last_vulcan_frame = frame;
+                if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                    let team = Self::entity_team_from_ordinal(e.team_ordinal);
+                    let producer = e.producer_id.map(crate::game_logic::ObjectId);
+                    crate::game_logic::host_a10_strike_drop_log::record_vulcan(
+                        crate::game_logic::host_a10_strike_drop_log::A10VulcanEvent {
+                            jet: crate::game_logic::ObjectId(hid),
+                            producer,
+                            team,
+                            pos: dive.strafe_point,
+                        },
+                    );
+                }
+            }
+            if past_target
+                && self.map_max_x > self.map_min_x
+                && self.map_max_z > self.map_min_z
+                && crate::game_logic::host_deliver_payload::is_off_map_residual(
+                    glam::Vec3::new(new_pos.x, new_pos.y, new_pos.z),
+                    self.map_min_x,
+                    self.map_min_z,
+                    self.map_max_x,
+                    self.map_max_z,
+                )
+            {
+                // C++ HeadOffMapState → CleanUpState::destroyObject.
+                e.a10_strike_transport_active = false;
+                e.destroyed = true;
+            }
             changed = true;
         }
         if e.a10_strike_missile {
-            if e.a10_strike_missile_vel_y == 0.0 {
-                e.a10_strike_missile_vel_y = -20.0;
+            let mut vel = glam::Vec3::new(
+                e.a10_strike_transport_launch_x,
+                e.a10_strike_missile_vel_y,
+                e.a10_strike_transport_launch_z,
+            );
+            if vel.length_squared() < 1e-6 {
+                vel = glam::Vec3::new(0.0, -20.0, 0.0);
             }
-            e.transform.position.y += e.a10_strike_missile_vel_y;
+            e.a10_strike_transport_launch_x = vel.x;
+            e.a10_strike_missile_vel_y = vel.y;
+            e.a10_strike_transport_launch_z = vel.z;
+            e.transform.position.x += vel.x;
+            e.transform.position.y += vel.y;
+            e.transform.position.z += vel.z;
             if e.transform.position.y <= 5.0 {
                 e.a10_strike_missile = false;
                 if let Some(&hid) = self.entity_to_host.get(&eid.get()) {

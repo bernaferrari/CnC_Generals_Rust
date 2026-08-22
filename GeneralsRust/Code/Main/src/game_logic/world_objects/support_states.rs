@@ -6051,14 +6051,18 @@ impl GameLogic {
                                     let is_w = crate::game_logic::host_gla_worker::is_gla_worker_template(
                                         &o.template_name,
                                     );
-                                    let shoes = o.has_upgrade_tag(
-                                        crate::game_logic::host_gla_worker::UPGRADE_GLA_WORKER_SHOES,
-                                    ) || self.players.values().any(|p| {
-                                        p.team == team
-                                            && p.has_unlocked_upgrade(
+                                    // C++ WorkerAIUpdate::getUpgradedSupplyBoost
+                                    // (WorkerAIUpdate.cpp:1376-1384): controlling
+                                    // player hasUpgradeComplete only. Object tags
+                                    // and any same Team enum leak 2v2 allies.
+                                    let shoes = self
+                                        .player_owner_for_host_object(o)
+                                        .and_then(|pid| self.players.get(&pid))
+                                        .is_some_and(|p| {
+                                            p.has_unlocked_upgrade(
                                                 crate::game_logic::host_gla_worker::UPGRADE_GLA_WORKER_SHOES,
                                             )
-                                    });
+                                        });
                                     let is_chinook =
                                         crate::game_logic::host_supply_gather::is_chinook_supply_collector(
                                             &o.template_name,

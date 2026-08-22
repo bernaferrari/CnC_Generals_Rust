@@ -544,8 +544,61 @@ impl<'a> CommandExecutor<'a> {
                     .drop_worker_supply_boxes_for_mine_clear(unit_id);
             }
         }
+        // C++ WorkerStateMachine readyToLeave: player move/attack is ST_BUSY
+        // then AS_DOZER. Live Idle must not re-enter Wanting.
+        if Self::player_command_parks_worker_ferry(&command.command_type) {
+            for &unit_id in &command.selected_units {
+                self.game_logic
+                    .worker_exit_supply_for_player_command(unit_id);
+            }
+        }
     }
 
+    /// C++ `ownerNotDockingOrIdle` → ST_BUSY → `supplyTruckSubMachineReadyToLeave`.
+    /// Stop stays Idle (workers omit setForceBusyState). Gather/Dock/Return
+    /// stay AS_SUPPLY_TRUCK. Repair/Resume use `newTask` instead.
+    fn player_command_parks_worker_ferry(command_type: &CommandType) -> bool {
+        matches!(
+            command_type,
+            CommandType::Move { .. }
+                | CommandType::MoveTo { .. }
+                | CommandType::DoSalvage { .. }
+                | CommandType::AttackMoveTo { .. }
+                | CommandType::ForceMoveTo { .. }
+                | CommandType::AddWaypoint { .. }
+                | CommandType::Attack { .. }
+                | CommandType::AttackObject { .. }
+                | CommandType::ForceAttackObject { .. }
+                | CommandType::ForceAttackGround { .. }
+                | CommandType::AttackPosition { .. }
+                | CommandType::Guard { .. }
+                | CommandType::Patrol
+                | CommandType::Scatter
+                | CommandType::TightenToPosition { .. }
+                | CommandType::AttackTeam { .. }
+                | CommandType::FollowWaypointPath { .. }
+                | CommandType::AttackFollowWaypointPath { .. }
+                | CommandType::Enter { .. }
+                | CommandType::Exit
+                | CommandType::Evacuate
+                | CommandType::MoveToAndEvacuate { .. }
+                | CommandType::ClearMines
+                | CommandType::CombatDrop { .. }
+                | CommandType::ReturnToBase
+                | CommandType::HackInternet
+                | CommandType::GetRepaired { .. }
+                | CommandType::GetHealed { .. }
+                | CommandType::Hijack { .. }
+                | CommandType::Sabotage { .. }
+                | CommandType::ConvertToCarbomb { .. }
+                | CommandType::CaptureBuilding { .. }
+                | CommandType::SnipeVehicle { .. }
+                | CommandType::AttackArea { .. }
+                | CommandType::Deploy
+                | CommandType::GoProne
+                | CommandType::Surrender { .. }
+        )
+    }
     /// C++ default arm: every player AI order except Repair / ResumeConstruction.
     fn player_command_cancels_current_dozer_task(command_type: &CommandType) -> bool {
         matches!(
