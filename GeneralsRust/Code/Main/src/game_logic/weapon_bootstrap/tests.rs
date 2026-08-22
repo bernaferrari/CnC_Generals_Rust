@@ -918,6 +918,7 @@ fn radius_damage_affects_for_seeded_weapons_residual() {
         Relationship::Enemies,
         ObjectId(1),
         ObjectId(2),
+        None,
         false,
         false,
     ));
@@ -927,6 +928,7 @@ fn radius_damage_affects_for_seeded_weapons_residual() {
         Relationship::Allies,
         ObjectId(1),
         ObjectId(3),
+        None,
         false,
         false,
     ));
@@ -935,6 +937,7 @@ fn radius_damage_affects_for_seeded_weapons_residual() {
         Relationship::Enemies,
         ObjectId(1),
         ObjectId(4),
+        None,
         true,
         false,
     ));
@@ -1253,18 +1256,144 @@ fn scatter_miss_gate_residual() {
 }
 
 #[test]
-fn shock_wave_force_tapers_with_distance() {
-    let impact = glam::Vec3::ZERO;
+fn shock_wave_force_tapers_from_firer_not_impact() {
+    let firer = glam::Vec3::ZERO;
     let near =
-        compute_shock_wave_force(impact, glam::Vec3::new(10.0, 0.0, 0.0), 100.0, 100.0, 0.75)
+        compute_shock_wave_force(firer, glam::Vec3::new(10.0, 0.0, 0.0), 100.0, 100.0, 0.75)
             .expect("near");
-    let far = compute_shock_wave_force(impact, glam::Vec3::new(90.0, 0.0, 0.0), 100.0, 100.0, 0.75)
+    let far = compute_shock_wave_force(firer, glam::Vec3::new(90.0, 0.0, 0.0), 100.0, 100.0, 0.75)
         .expect("far");
     assert!(near.length() > far.length(), "near {near:?} far {far:?}");
     assert!(near.x > 0.0);
     assert!(near.y > 0.0, "up force");
+    let saturated =
+        compute_shock_wave_force(firer, glam::Vec3::new(200.0, 0.0, 0.0), 100.0, 40.0, 0.75)
+            .expect("saturated");
     assert!(
-        compute_shock_wave_force(impact, glam::Vec3::new(200.0, 0.0, 0.0), 100.0, 100.0, 0.75,)
-            .is_none()
+        (saturated.length() - 75.0 * 2.0_f32.sqrt()).abs() < 1.0
+            || (saturated.length() - 75.0).abs() < 20.0,
+        "ranged blast saturates to taper_off, got {saturated:?}"
     );
+}
+
+#[test]
+fn splash_skips_producer_when_self_unset() {
+    use crate::game_logic::host_ai_path_combat_residual_wave105::{
+        WEAPON_AFFECTS_ALLIES, WEAPON_AFFECTS_ENEMIES, WEAPON_AFFECTS_NEUTRALS, WEAPON_AFFECTS_SELF,
+    };
+    use crate::game_logic::ObjectId;
+    use gamelogic::common::Relationship;
+    let default_mask = WEAPON_AFFECTS_ALLIES | WEAPON_AFFECTS_ENEMIES | WEAPON_AFFECTS_NEUTRALS;
+    let tank = ObjectId(10);
+    let factory = ObjectId(1);
+    assert!(!radius_damage_affects_victim(
+        default_mask,
+        Relationship::Allies,
+        tank,
+        factory,
+        Some(factory),
+        false,
+        false,
+    ));
+    assert!(radius_damage_affects_victim(
+        default_mask | WEAPON_AFFECTS_SELF,
+        Relationship::Allies,
+        tank,
+        factory,
+        Some(factory),
+        false,
+        false,
+    ));
+    assert!(!radius_damage_affects_victim(
+        default_mask,
+        Relationship::Allies,
+        tank,
+        tank,
+        None,
+        false,
+        false,
+    ));
+}
+
+#[test]
+fn estimate_sniper_refuses_empty_and_uc_structures() {
+    let sniper = HostEstimateWeapon {
+        damage_type_sniper: true,
+        damage_type_surrender: false,
+        damage_type_disarm: false,
+        damage_type_deploy: false,
+        damage_type_kill_garrisoned: false,
+        death_type_burned: false,
+        allow_attack_garrisoned_bldgs: false,
+        primary_damage: 100.0,
+    };
+    let empty = HostEstimateVictim {
+        kind_structure: true,
+        kind_shrubbery: false,
+        kind_mine: false,
+        kind_booby_trap: false,
+        kind_demo_trap: false,
+        under_construction: false,
+        contain_count: 0,
+        garrisonable: true,
+        immune_to_clear_building: false,
+        airborne_target: false,
+    };
+    assert_eq!(estimate_weapon_template_damage(&sniper, Some(&empty)), 0.0);
+    let uc = HostEstimateVictim {
+        under_construction: true,
+        contain_count: 2,
+        ..empty
+    };
+    assert_eq!(estimate_weapon_template_damage(&sniper, Some(&uc)), 0.0);
+    let occupied = HostEstimateVictim {
+        contain_count: 2,
+        ..empty
+    };
+    assert!(estimate_weapon_template_damage(&sniper, Some(&occupied)) > 0.0);
+}
+
+#[test]
+fn estimate_disarm_only_vs_mines() {
+    let disarm = HostEstimateWeapon {
+        damage_type_sniper: false,
+        damage_type_surrender: false,
+        damage_type_disarm: true,
+        damage_type_deploy: false,
+        damage_type_kill_garrisoned: false,
+        death_type_burned: false,
+        allow_attack_garrisoned_bldgs: false,
+        primary_damage: 1.0,
+    };
+    let tank = HostEstimateVictim {
+        kind_structure: false,
+        kind_shrubbery: false,
+        kind_mine: false,
+        kind_booby_trap: false,
+        kind_demo_trap: false,
+        under_construction: false,
+        contain_count: 0,
+        garrisonable: false,
+        immune_to_clear_building: false,
+        airborne_target: false,
+    };
+    assert_eq!(estimate_weapon_template_damage(&disarm, Some(&tank)), 0.0);
+    let mine = HostEstimateVictim {
+        kind_mine: true,
+        ..tank
+    };
+    assert_eq!(estimate_weapon_template_damage(&disarm, Some(&mine)), 1.0);
+}
+
+#[test]
+fn nearer_bridge_end_is_not_span_center() {
+    let from = glam::Vec3::new(0.0, 0.0, 0.0);
+    let center = glam::Vec3::new(100.0, 0.0, 0.0);
+    let tmpl = ThingTemplate::new("TestBridge");
+    let mut bridge = crate::game_logic::Object::new(tmpl, crate::game_logic::ObjectId(1), Team::Neutral);
+    bridge.set_position(center);
+    bridge.selection_radius = 40.0;
+    let aim = crate::game_logic::combat::nearer_live_bridge_attack_point(from, &bridge);
+    assert!(aim.x < center.x, "nearer end {aim:?} vs center {center:?}");
+    assert!((aim.x - 60.0).abs() < 1.0);
 }

@@ -503,6 +503,17 @@ impl Object {
         {
             return false;
         }
+        {
+            let wname = slot.and_then(|weapon_slot| self.weapon_name_for_slot(weapon_slot));
+            if let Some(name) = wname {
+                if crate::game_logic::weapon_bootstrap::host_weapon_is_sniper_damage(name)
+                    && target.is_kind_of(KindOf::Structure)
+                    && target.status.under_construction
+                {
+                    return false;
+                }
+            }
+        }
         // C++ WeaponSet: stealthed + undetected cannot be attacked
         // (including force-fire against pure stealth; disguise exception not residual).
         // OBJECT_STATUS_IGNORING_STEALTH residual bypasses this gate.
