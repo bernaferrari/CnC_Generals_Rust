@@ -1338,3 +1338,73 @@ fn leftover_team_sequential_progresses_when_host_members_idle() {
     get_team_factory().lock().unwrap().reset();
     crate::scripting::clear_host_script_query_snapshot();
 }
+
+#[test]
+fn sequential_scripts_snapshot_preserves_count_and_instruction() {
+    let _lock = crate::test_sync::lock();
+    let engine = ScriptEngine::new().unwrap();
+    let mut sequence = SequentialScript::new();
+    sequence.object_id = 0x51_5E_0002;
+    sequence.current_instruction = 4;
+    sequence.times_to_loop = 3;
+    sequence.frames_to_wait = 12;
+    sequence.dont_advance_instruction = true;
+    sequence.script_to_execute_sequentially = Some(Box::new({
+        let mut script = Script::new();
+        script.script_name = "PersistedHunt".to_string();
+        script
+    }));
+    {
+        let mut inner = engine.lock_inner_mut();
+        sequence.runtime_token = ScriptEngine::allocate_sequential_runtime_token(&mut inner);
+        inner.sequential_scripts.push(sequence);
+    }
+
+    let snapshot = engine.snapshot_sequential_scripts();
+    assert_eq!(snapshot.len(), 1, "C++ xfer writes sequential count, not 0");
+    assert_eq!(snapshot[0].object_id, 0x51_5E_0002);
+    assert_eq!(snapshot[0].script_name, "PersistedHunt");
+    assert_eq!(snapshot[0].current_instruction, 4);
+    assert_eq!(snapshot[0].times_to_loop, 3);
+    assert_eq!(snapshot[0].frames_to_wait, 12);
+    assert!(snapshot[0].dont_advance_instruction);
+
+    engine.restore_sequential_scripts(&snapshot);
+    let restored = engine.snapshot_sequential_scripts();
+    assert_eq!(restored, snapshot);
+    assert_eq!(
+        engine.sequential_script_count(),
+        1,
+        "restore must not drop sequential instances"
+    );
+}
+
+#[test]
+fn named_reveals_snapshot_survives_restore_for_undo() {
+    let _lock = crate::test_sync::lock();
+    let engine = ScriptEngine::new().unwrap();
+    engine.create_named_map_reveal("BaseLook", "WP_Base", 250.0, "PlyrAmerica");
+    engine.create_named_map_reveal("HillLook", "WP_Hill", 80.0, "PlyrChina");
+
+    let snapshot = engine.snapshot_named_reveals();
+    assert_eq!(snapshot.len(), 2);
+    assert_eq!(snapshot[0].0, "BaseLook");
+    assert_eq!(snapshot[0].1, "WP_Base");
+    assert!((snapshot[0].2 - 250.0).abs() < f32::EPSILON);
+    assert_eq!(snapshot[0].3, "PlyrAmerica");
+
+    engine.restore_named_reveals(&[]);
+    assert!(engine.snapshot_named_reveals().is_empty());
+
+    engine.restore_named_reveals(&snapshot);
+    assert_eq!(engine.snapshot_named_reveals(), snapshot);
+
+    // C++ undoNamedMapReveal + removeNamedMapReveal after load needs the list.
+    engine.undo_named_map_reveal("BaseLook");
+    engine.remove_named_map_reveal("BaseLook");
+    let remaining = engine.snapshot_named_reveals();
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].0, "HillLook");
+}
+
+

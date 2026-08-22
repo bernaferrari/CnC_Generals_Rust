@@ -1248,6 +1248,48 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
         Ok(())
     }
 
+    fn sound_play_named(&self, sound: &str, unit_name: &str) -> GameLogicResult<()> {
+        let object_id = gamelogic::scripting::host_script_named_unit_id(unit_name).or_else(|| {
+            gamelogic::scripting::engine::get_named_object_tracker()
+                .get_object_id(unit_name)
+                .ok()
+                .flatten()
+        });
+        let Some(object_id) = object_id else {
+            return Ok(());
+        };
+        if let Some(audio) = TheAudio::get() {
+            let mut event = AudioEventRts::new(sound);
+            event.set_object_id(object_id);
+            event.set_is_logical_audio(true);
+            let handle = audio.add_audio_event(&event);
+            track_audio_handle(audio_wait_slot(), sound, handle);
+        }
+        Ok(())
+    }
+
+    fn enable_object_sound(&self, unit_name: &str, enable: bool) -> GameLogicResult<()> {
+        let object_id = gamelogic::scripting::host_script_named_unit_id(unit_name).or_else(|| {
+            gamelogic::scripting::engine::get_named_object_tracker()
+                .get_object_id(unit_name)
+                .ok()
+                .flatten()
+        });
+        let Some(object_id) = object_id else {
+            return Ok(());
+        };
+        if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
+            if let Ok(obj_guard) = obj_arc.read() {
+                if let Some(drawable) = obj_guard.get_drawable() {
+                    if let Ok(mut draw_guard) = drawable.write() {
+                        draw_guard.enable_ambient_sound_from_script(enable);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn music_set_track(&self, track: &str, fade_out: bool, fade_in: bool) -> GameLogicResult<()> {
         if let Some(audio) = TheAudio::get() {
             // C++ ScriptActions::doMusicTrackChange (ScriptActions.cpp:3271-3285)

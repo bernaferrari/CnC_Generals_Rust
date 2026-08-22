@@ -50,6 +50,7 @@ impl PathfindingSystem {
     }
 
     /// C++ `Pathfinder::checkForLanding` (AIPathfind.cpp:5228-5247).
+    /// `unit_id` skips that unit's own goalAircraft reservation.
     pub(crate) fn check_for_landing(
         &self,
         cell_x: i32,
@@ -58,6 +59,7 @@ impl PathfindingSystem {
         radius: i32,
         center_in_cell: bool,
         dest: &mut Coord3D,
+        unit_id: ObjectID,
     ) -> bool {
         let coord = GridCoord::new(cell_x, cell_y);
         if !self.is_valid_coord(coord) {
@@ -69,6 +71,10 @@ impl PathfindingSystem {
             | Some(PathfindCellType::Water)
             | Some(PathfindCellType::Impassable) => return false,
             _ => {}
+        }
+        let goal_ac = self.get_goal_aircraft(coord);
+        if goal_ac != INVALID_ID && (unit_id == INVALID_ID || goal_ac != unit_id) {
+            return false;
         }
         // C++ checkDestination(NULL, ...) — no object occupancy special-case.
         if !self.is_destination_valid(
@@ -117,7 +123,7 @@ impl PathfindingSystem {
         let cell = GridCoord::from_world(&adjust_dest);
         let layer = self.get_layer_for_coord(GridCoord::from_world(dest));
 
-        if self.check_for_landing(cell.x, cell.y, layer, radius, center_in_cell, dest) {
+        if self.check_for_landing(cell.x, cell.y, layer, radius, center_in_cell, dest, INVALID_ID) {
             return true;
         }
 
@@ -130,14 +136,14 @@ impl PathfindingSystem {
             for _ in 0..delta {
                 i += 1;
                 limit -= 1;
-                if self.check_for_landing(i, j, layer, radius, center_in_cell, dest) {
+                if self.check_for_landing(i, j, layer, radius, center_in_cell, dest, INVALID_ID) {
                     return true;
                 }
             }
             for _ in 0..delta {
                 j += 1;
                 limit -= 1;
-                if self.check_for_landing(i, j, layer, radius, center_in_cell, dest) {
+                if self.check_for_landing(i, j, layer, radius, center_in_cell, dest, INVALID_ID) {
                     return true;
                 }
             }
@@ -145,14 +151,78 @@ impl PathfindingSystem {
             for _ in 0..delta {
                 i -= 1;
                 limit -= 1;
-                if self.check_for_landing(i, j, layer, radius, center_in_cell, dest) {
+                if self.check_for_landing(i, j, layer, radius, center_in_cell, dest, INVALID_ID) {
                     return true;
                 }
             }
             for _ in 0..delta {
                 j -= 1;
                 limit -= 1;
-                if self.check_for_landing(i, j, layer, radius, center_in_cell, dest) {
+                if self.check_for_landing(i, j, layer, radius, center_in_cell, dest, INVALID_ID) {
+                    return true;
+                }
+            }
+            delta += 1;
+        }
+        false
+    }
+
+    /// Landing dest for a known aircraft: skip that unit's own goalAircraft.
+    pub fn adjust_to_landing_destination_for(
+        &self,
+        from: &Coord3D,
+        dest: &mut Coord3D,
+        unit_radius: f32,
+        unit_id: ObjectID,
+    ) -> bool {
+        let (radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
+        let dest_in = self.is_valid_coord(GridCoord::from_world(dest));
+        let from_in = self.is_valid_coord(GridCoord::from_world(from));
+        if !dest_in && !from_in {
+            return true;
+        }
+        let mut adjust_dest = *dest;
+        if !center_in_cell {
+            adjust_dest.x += PATHFIND_CELL_SIZE_F * 0.5;
+            adjust_dest.y += PATHFIND_CELL_SIZE_F * 0.5;
+        }
+        let cell = GridCoord::from_world(&adjust_dest);
+        let layer = self.get_layer_for_coord(GridCoord::from_world(dest));
+        if self.check_for_landing(cell.x, cell.y, layer, radius, center_in_cell, dest, unit_id) {
+            return true;
+        }
+        const MAX_CELLS_TO_TRY: i32 = 400;
+        let mut limit = MAX_CELLS_TO_TRY;
+        let mut i = cell.x;
+        let mut j = cell.y;
+        let mut delta = 1;
+        while limit > 0 {
+            for _ in 0..delta {
+                i += 1;
+                limit -= 1;
+                if self.check_for_landing(i, j, layer, radius, center_in_cell, dest, unit_id) {
+                    return true;
+                }
+            }
+            for _ in 0..delta {
+                j += 1;
+                limit -= 1;
+                if self.check_for_landing(i, j, layer, radius, center_in_cell, dest, unit_id) {
+                    return true;
+                }
+            }
+            delta += 1;
+            for _ in 0..delta {
+                i -= 1;
+                limit -= 1;
+                if self.check_for_landing(i, j, layer, radius, center_in_cell, dest, unit_id) {
+                    return true;
+                }
+            }
+            for _ in 0..delta {
+                j -= 1;
+                limit -= 1;
+                if self.check_for_landing(i, j, layer, radius, center_in_cell, dest, unit_id) {
                     return true;
                 }
             }

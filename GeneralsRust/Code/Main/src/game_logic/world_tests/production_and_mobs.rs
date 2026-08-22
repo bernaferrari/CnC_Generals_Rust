@@ -504,6 +504,103 @@ fn overlord_propaganda_addon_residual_heals_allies() {
     );
 }
 
+/// C++ OverlordContain::onBodyDamageStateChange setDamageState on the portable addon.
+#[test]
+fn overlord_portable_addon_mirrors_host_body_damage() {
+    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+    use crate::game_logic::host_overlord_addons::UPGRADE_OVERLORD_GATTLING;
+
+    let mut game_logic = GameLogic::new();
+    let mut overlord_tpl = crate::game_logic::ThingTemplate::new("ChinaTankOverlord");
+    overlord_tpl
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(1100.0);
+    game_logic
+        .templates
+        .insert("ChinaTankOverlord".to_string(), overlord_tpl);
+
+    let overlord_id = game_logic
+        .create_object("ChinaTankOverlord", Team::China, Vec3::new(0.0, 0.0, 0.0))
+        .expect("overlord");
+    game_logic.apply_upgrade_to_object(overlord_id, UPGRADE_OVERLORD_GATTLING);
+
+    let occupant_id = {
+        let o = game_logic.host_object(overlord_id).unwrap();
+        assert!(o.has_overlord_gattling_residual());
+        assert_eq!(o.overlord_addon_body_damage_state, HostBodyDamageType::Pristine);
+        o.overlord_portable_occupant.expect("portable occupant spawned")
+    };
+    {
+        let addon = game_logic.host_object(occupant_id).unwrap();
+        assert!(
+            crate::game_logic::host_battlemaster::is_portable_structure_template(&addon.template_name)
+        );
+        assert_eq!(addon.body_damage_state, HostBodyDamageType::Pristine);
+        assert_eq!(addon.contained_by, Some(overlord_id));
+    }
+
+    {
+        let o = game_logic.host_object_mut(overlord_id).unwrap();
+        o.health.current = o.health.maximum * 0.5;
+        o.refresh_model_condition_bits();
+        assert_eq!(o.body_damage_state, HostBodyDamageType::Damaged);
+        assert_eq!(o.overlord_addon_body_damage_state, HostBodyDamageType::Damaged);
+    }
+    game_logic.mirror_overlord_addon_damage_to_occupant(overlord_id);
+    {
+        let addon = game_logic.host_object(occupant_id).unwrap();
+        assert_eq!(
+            addon.body_damage_state,
+            HostBodyDamageType::Damaged,
+            "gattling addon must go yellow with the hull"
+        );
+    }
+
+    {
+        let o = game_logic.host_object_mut(overlord_id).unwrap();
+        o.health.current = o.health.maximum * 0.2;
+        o.refresh_model_condition_bits();
+        assert_eq!(o.body_damage_state, HostBodyDamageType::ReallyDamaged);
+        assert_eq!(
+            o.overlord_addon_body_damage_state,
+            HostBodyDamageType::ReallyDamaged
+        );
+    }
+    game_logic.mirror_overlord_addon_damage_to_occupant(overlord_id);
+    {
+        let addon = game_logic.host_object(occupant_id).unwrap();
+        assert_eq!(
+            addon.body_damage_state,
+            HostBodyDamageType::ReallyDamaged,
+            "gattling addon must go red with the hull"
+        );
+    }
+
+    {
+        let o = game_logic.host_object_mut(overlord_id).unwrap();
+        o.health.current = 0.0;
+        o.status.destroyed = true;
+        o.refresh_model_condition_bits();
+        assert_eq!(o.body_damage_state, HostBodyDamageType::Rubble);
+        assert_eq!(
+            o.overlord_addon_body_damage_state,
+            HostBodyDamageType::ReallyDamaged,
+            "C++ skips BODY_RUBBLE; death is handled separately"
+        );
+    }
+    game_logic.mirror_overlord_addon_damage_to_occupant(overlord_id);
+    {
+        let addon = game_logic.host_object(occupant_id).unwrap();
+        assert_eq!(
+            addon.body_damage_state,
+            HostBodyDamageType::ReallyDamaged,
+            "portable addon must not be set to rubble by the host state change"
+        );
+    }
+}
+
 /// Residual: Emperor innate propaganda + Helix transport slots.
 #[test]
 fn emperor_innate_propaganda_and_helix_transport_residual() {

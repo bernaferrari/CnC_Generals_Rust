@@ -1017,6 +1017,28 @@ fn update_aircraft_goal_stamps_and_clears() {
 }
 
 #[test]
+fn adjust_to_landing_refuses_other_aircraft_goal() {
+    let mut system = PathfindingSystem::new(16, 16);
+    system.new_map();
+    let reserved = Coord3D::new(55.0, 65.0, 0.0);
+    system.update_aircraft_goal(&reserved, 99, 0, true);
+    let from = Coord3D::new(16.0, 16.0, 0.0);
+    let mut own = reserved;
+    assert!(system.adjust_to_landing_destination_for(&from, &mut own, 0.0, 99));
+    let reserved_cell = PathfindingSystem::cell_for_unit_position(&reserved, true);
+    let own_cell = PathfindingSystem::cell_for_unit_position(&own, true);
+    assert_eq!(own_cell, reserved_cell, "owner may land on own goalAircraft");
+
+    let mut other = reserved;
+    assert!(system.adjust_to_landing_destination_for(&from, &mut other, 0.0, 12));
+    let other_cell = PathfindingSystem::cell_for_unit_position(&other, true);
+    assert_ne!(
+        other_cell, reserved_cell,
+        "second aircraft must leave reserved LZ"
+    );
+}
+
+#[test]
 fn force_map_and_wall_pieces_cpp_surface() {
     let src = PATHFIND_COMPLETE_SRC;
     let prod = src.split("#[cfg(test)]").next().expect("production");

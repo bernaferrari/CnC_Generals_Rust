@@ -59,6 +59,27 @@ pub struct ScriptActivePersist {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct SequentialScriptPersist {
+    pub team_id: u32,
+    pub object_id: u32,
+    pub script_name: String,
+    pub current_instruction: i32,
+    pub times_to_loop: i32,
+    pub frames_to_wait: i32,
+    pub dont_advance_instruction: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct NamedRevealPersist {
+    pub reveal_name: String,
+    pub waypoint_name: String,
+    pub radius_to_reveal: f32,
+    pub player_name: String,
+}
+
+
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct WaterUpdatePersist {
     pub trigger_id: i32,
     pub change_per_frame: f32,
@@ -195,9 +216,15 @@ pub struct WorldPersistV18 {
     pub superweapon_hidden_by_script: bool,
     pub superweapon_entries: Vec<SuperweaponDisplayPersist>,
     pub superweapon_hidden_objects: Vec<u32>,
+    #[serde(default)]
+    pub script_sequential: Vec<SequentialScriptPersist>,
+
     pub script_counters: Vec<ScriptCounterPersist>,
     pub script_flags: Vec<ScriptFlagPersist>,
     pub script_actives: Vec<ScriptActivePersist>,
+    #[serde(default)]
+    pub script_named_reveals: Vec<NamedRevealPersist>,
+
     pub terrain_active_boundary: i32,
     pub water_updates: Vec<WaterUpdatePersist>,
     pub radar_hidden: bool,
@@ -231,9 +258,13 @@ impl Default for WorldPersistV18 {
             superweapon_hidden_by_script: false,
             superweapon_entries: Vec::new(),
             superweapon_hidden_objects: Vec::new(),
+            script_sequential: Vec::new(),
+
             script_counters: Vec::new(),
             script_flags: Vec::new(),
             script_actives: Vec::new(),
+            script_named_reveals: Vec::new(),
+
             terrain_active_boundary: 0,
             water_updates: Vec::new(),
             radar_hidden: false,
@@ -364,8 +395,16 @@ pub fn capture_persist_v18(game_logic: &GameLogic) -> WorldPersistV18 {
         ids
     };
 
-    if let Some((counters, flags)) =
-        gamelogic::scripting::engine::with_script_engine_ref(|engine| engine.snapshot_named_trackers())
+    if let Some((counters, flags, sequential, named_reveals)) =
+        gamelogic::scripting::engine::with_script_engine_ref(|engine| {
+            let (counters, flags) = engine.snapshot_named_trackers();
+            (
+                counters,
+                flags,
+                engine.snapshot_sequential_scripts(),
+                engine.snapshot_named_reveals(),
+            )
+        })
     {
         persist.script_counters = counters
             .into_iter()
@@ -379,7 +418,32 @@ pub fn capture_persist_v18(game_logic: &GameLogic) -> WorldPersistV18 {
             .into_iter()
             .map(|(name, value)| ScriptFlagPersist { name, value })
             .collect();
+        persist.script_sequential = sequential
+            .into_iter()
+            .map(|script| SequentialScriptPersist {
+                team_id: script.team_id,
+                object_id: script.object_id,
+                script_name: script.script_name,
+                current_instruction: script.current_instruction,
+                times_to_loop: script.times_to_loop,
+                frames_to_wait: script.frames_to_wait,
+                dont_advance_instruction: script.dont_advance_instruction,
+            })
+            .collect();
+        persist.script_named_reveals = named_reveals
+            .into_iter()
+            .map(
+                |(reveal_name, waypoint_name, radius_to_reveal, player_name)| NamedRevealPersist {
+                    reveal_name,
+                    waypoint_name,
+                    radius_to_reveal,
+                    player_name,
+                },
+            )
+            .collect();
     }
+
+
     persist.script_actives = game_logic
         .snapshot_script_actives()
         .into_iter()
@@ -621,9 +685,39 @@ pub fn restore_persist_v18(persist: &WorldPersistV18, game_logic: &mut GameLogic
         .iter()
         .map(|f| (f.name.clone(), f.value))
         .collect();
+    let sequential: Vec<gamelogic::scripting::engine::SequentialScriptSnapshot> = persist
+        .script_sequential
+        .iter()
+        .map(|script| gamelogic::scripting::engine::SequentialScriptSnapshot {
+            team_id: script.team_id,
+            object_id: script.object_id,
+            script_name: script.script_name.clone(),
+            current_instruction: script.current_instruction,
+            times_to_loop: script.times_to_loop,
+            frames_to_wait: script.frames_to_wait,
+            dont_advance_instruction: script.dont_advance_instruction,
+        })
+        .collect();
+    let named_reveals: Vec<(String, String, f32, String)> = persist
+        .script_named_reveals
+        .iter()
+        .map(|reveal| {
+            (
+                reveal.reveal_name.clone(),
+                reveal.waypoint_name.clone(),
+                reveal.radius_to_reveal,
+                reveal.player_name.clone(),
+            )
+        })
+        .collect();
     let _ = gamelogic::scripting::engine::with_script_engine_mut(|engine| {
-        engine.restore_named_trackers(&counters, &flags)
+        let _ = engine.restore_named_trackers(&counters, &flags);
+        engine.restore_sequential_scripts(&sequential);
+        engine.restore_named_reveals(&named_reveals);
+        engine.reapply_named_map_reveals();
     });
+
+
     game_logic.restore_script_actives(
         &persist
             .script_actives
@@ -927,10 +1021,30 @@ pub fn write_script_engine_block<W: Write + Seek>(
     xfer: &mut CommonXferSave<W>,
     persist: &WorldPersistV18,
 ) -> SaveLoadResult<()> {
-    let mut version = 6u8;
-    map_xfer(xfer.xfer_version(&mut version, 6))?;
-    let mut sequential = 0u16;
+    let mut version = 7u8;
+    map_xfer(xfer.xfer_version(&mut version, 7))?;
+    let mut sequential = persist.script_sequential.len() as u16;
     map_xfer(xfer.xfer_unsigned_short(&mut sequential))?;
+    for script in &persist.script_sequential {
+        let mut seq_version = 1u8;
+        map_xfer(xfer.xfer_version(&mut seq_version, 1))?;
+        let mut team_id = script.team_id;
+        map_xfer(xfer.xfer_unsigned_int(&mut team_id))?;
+        let mut object_id = script.object_id;
+        map_xfer(xfer.xfer_object_id(&mut object_id))?;
+        let mut script_name = script.script_name.clone();
+        map_xfer(xfer.xfer_ascii_string(&mut script_name))?;
+        let mut current_instruction = script.current_instruction;
+        map_xfer(xfer.xfer_int(&mut current_instruction))?;
+        let mut times_to_loop = script.times_to_loop;
+        map_xfer(xfer.xfer_int(&mut times_to_loop))?;
+        let mut frames_to_wait = script.frames_to_wait;
+        map_xfer(xfer.xfer_int(&mut frames_to_wait))?;
+        let mut dont_advance = script.dont_advance_instruction;
+        map_xfer(xfer.xfer_bool(&mut dont_advance))?;
+    }
+
+
     let mut counters_size = persist.script_counters.len() as u16;
     map_xfer(xfer.xfer_unsigned_short(&mut counters_size))?;
     for counter in &persist.script_counters {
@@ -969,17 +1083,66 @@ pub fn write_script_engine_block<W: Write + Seek>(
         map_xfer(xfer.xfer_bool(&mut is_group))?;
         map_xfer(xfer.xfer_bool(&mut is_active))?;
     }
+    let mut named_reveal_count = persist.script_named_reveals.len() as u16;
+    map_xfer(xfer.xfer_unsigned_short(&mut named_reveal_count))?;
+    for reveal in &persist.script_named_reveals {
+        let mut reveal_name = reveal.reveal_name.clone();
+        let mut waypoint_name = reveal.waypoint_name.clone();
+        let mut radius_to_reveal = reveal.radius_to_reveal;
+        let mut player_name = reveal.player_name.clone();
+        map_xfer(xfer.xfer_ascii_string(&mut reveal_name))?;
+        map_xfer(xfer.xfer_ascii_string(&mut waypoint_name))?;
+        map_xfer(xfer.xfer_real(&mut radius_to_reveal))?;
+        map_xfer(xfer.xfer_ascii_string(&mut player_name))?;
+    }
     Ok(())
 }
 
-pub fn parse_script_engine_block(payload: &[u8]) -> SaveLoadResult<(Vec<ScriptCounterPersist>, Vec<ScriptFlagPersist>, Vec<ScriptActivePersist>)> {
+pub fn parse_script_engine_block(
+    payload: &[u8],
+) -> SaveLoadResult<(
+    Vec<SequentialScriptPersist>,
+    Vec<ScriptCounterPersist>,
+    Vec<ScriptFlagPersist>,
+    Vec<ScriptActivePersist>,
+    Vec<NamedRevealPersist>,
+)> {
     let mut xfer = CommonXferLoad::new(Cursor::new(payload), 1);
     let mut version = 0u8;
-    map_xfer(xfer.xfer_version(&mut version, 6))?;
-    let mut sequential = 0u16;
-    map_xfer(xfer.xfer_unsigned_short(&mut sequential))?;
+    map_xfer(xfer.xfer_version(&mut version, 7))?;
+    let mut sequential_count = 0u16;
+    map_xfer(xfer.xfer_unsigned_short(&mut sequential_count))?;
+    let mut sequential = Vec::new();
+    for _ in 0..sequential_count {
+        let mut seq_version = 0u8;
+        map_xfer(xfer.xfer_version(&mut seq_version, 1))?;
+        let mut team_id = 0u32;
+        map_xfer(xfer.xfer_unsigned_int(&mut team_id))?;
+        let mut object_id = 0u32;
+        map_xfer(xfer.xfer_object_id(&mut object_id))?;
+        let mut script_name = String::new();
+        map_xfer(xfer.xfer_ascii_string(&mut script_name))?;
+        let mut current_instruction = 0i32;
+        map_xfer(xfer.xfer_int(&mut current_instruction))?;
+        let mut times_to_loop = 0i32;
+        map_xfer(xfer.xfer_int(&mut times_to_loop))?;
+        let mut frames_to_wait = 0i32;
+        map_xfer(xfer.xfer_int(&mut frames_to_wait))?;
+        let mut dont_advance = false;
+        map_xfer(xfer.xfer_bool(&mut dont_advance))?;
+        sequential.push(SequentialScriptPersist {
+            team_id,
+            object_id,
+            script_name,
+            current_instruction,
+            times_to_loop,
+            frames_to_wait,
+            dont_advance_instruction: dont_advance,
+        });
+    }
     let mut counters_size = 0u16;
     map_xfer(xfer.xfer_unsigned_short(&mut counters_size))?;
+
     let mut counters = Vec::new();
     for _ in 0..counters_size {
         let mut value = 0i32;
@@ -1037,7 +1200,31 @@ pub fn parse_script_engine_block(payload: &[u8]) -> SaveLoadResult<(Vec<ScriptCo
             });
         }
     }
-    Ok((counters, flags, actives))
+    let mut named_reveals = Vec::new();
+    if version >= 7 {
+        let mut named_reveal_count = 0u16;
+        if map_xfer(xfer.xfer_unsigned_short(&mut named_reveal_count)).is_ok() {
+            for _ in 0..named_reveal_count {
+                let mut reveal_name = String::new();
+                let mut waypoint_name = String::new();
+                let mut radius_to_reveal = 0.0f32;
+                let mut player_name = String::new();
+                map_xfer(xfer.xfer_ascii_string(&mut reveal_name))?;
+                map_xfer(xfer.xfer_ascii_string(&mut waypoint_name))?;
+                map_xfer(xfer.xfer_real(&mut radius_to_reveal))?;
+                map_xfer(xfer.xfer_ascii_string(&mut player_name))?;
+                if !reveal_name.is_empty() {
+                    named_reveals.push(NamedRevealPersist {
+                        reveal_name,
+                        waypoint_name,
+                        radius_to_reveal,
+                        player_name,
+                    });
+                }
+            }
+        }
+    }
+    Ok((sequential, counters, flags, actives, named_reveals))
 }
 
 pub fn write_terrain_logic_block<W: Write + Seek>(
@@ -1314,4 +1501,72 @@ mod tests {
         assert_eq!(next, 1);
         assert_eq!(last, 0);
     }
+
+    #[test]
+    fn script_engine_chunk_round_trips_sequential_instances() {
+        let mut persist = WorldPersistV18::default();
+        persist.script_sequential.push(SequentialScriptPersist {
+            team_id: 0,
+            object_id: 42,
+            script_name: "UnitHuntSeq".into(),
+            current_instruction: 3,
+            times_to_loop: 2,
+            frames_to_wait: 15,
+            dont_advance_instruction: true,
+        });
+        persist.script_counters.push(ScriptCounterPersist {
+            name: "AfterSeq".into(),
+            value: 7,
+            is_countdown_timer: false,
+        });
+        let mut cursor = Cursor::new(Vec::new());
+        {
+            let mut xfer = CommonXferSave::new(&mut cursor, 1);
+            write_script_engine_block(&mut xfer, &persist).expect("write");
+        }
+        let (sequential, counters, _flags, _actives, named_reveals) =
+            parse_script_engine_block(&cursor.into_inner()).expect("parse");
+        assert_eq!(sequential.len(), 1, "sequential count must not be written as 0");
+        assert_eq!(sequential[0].object_id, 42);
+        assert_eq!(sequential[0].script_name, "UnitHuntSeq");
+        assert_eq!(sequential[0].current_instruction, 3);
+        assert_eq!(sequential[0].times_to_loop, 2);
+        assert_eq!(sequential[0].frames_to_wait, 15);
+        assert!(sequential[0].dont_advance_instruction);
+        assert_eq!(counters[0].name, "AfterSeq");
+        assert_eq!(counters[0].value, 7);
+        assert!(named_reveals.is_empty());
+    }
+
+    #[test]
+    fn script_engine_chunk_round_trips_named_reveals() {
+        let mut persist = WorldPersistV18::default();
+        persist.script_named_reveals.push(NamedRevealPersist {
+            reveal_name: "BaseLook".into(),
+            waypoint_name: "WP_Base".into(),
+            radius_to_reveal: 250.0,
+            player_name: "PlyrAmerica".into(),
+        });
+        persist.script_counters.push(ScriptCounterPersist {
+            name: "AfterReveal".into(),
+            value: 4,
+            is_countdown_timer: true,
+        });
+        let mut cursor = Cursor::new(Vec::new());
+        {
+            let mut xfer = CommonXferSave::new(&mut cursor, 1);
+            write_script_engine_block(&mut xfer, &persist).expect("write");
+        }
+        let (_sequential, counters, _flags, _actives, named_reveals) =
+            parse_script_engine_block(&cursor.into_inner()).expect("parse");
+        assert_eq!(named_reveals.len(), 1);
+        assert_eq!(named_reveals[0].reveal_name, "BaseLook");
+        assert_eq!(named_reveals[0].waypoint_name, "WP_Base");
+        assert!((named_reveals[0].radius_to_reveal - 250.0).abs() < f32::EPSILON);
+        assert_eq!(named_reveals[0].player_name, "PlyrAmerica");
+        assert_eq!(counters[0].name, "AfterReveal");
+        assert_eq!(counters[0].value, 4);
+        assert!(counters[0].is_countdown_timer);
+    }
+
 }

@@ -153,6 +153,29 @@ struct HostBridgeLayer {
     cells: HashMap<(i32, i32), (PathfindCellType, u8)>,
 }
 
+/// C++ PathfindLayer pos/goal occupancy (`updatePos` / `updateGoal`).
+#[derive(Debug, Clone, Default)]
+struct LayerOccupancy {
+    occ_fixed_mask: HashMap<(i32, i32), u16>,
+    occ_moving_mask: HashMap<(i32, i32), u16>,
+    occ_goal_mask: HashMap<(i32, i32), u16>,
+    occ_infantry_mask: HashMap<(i32, i32), u16>,
+    occ_fixed_max_crushable: HashMap<(i32, i32), u8>,
+    occ_goal_unit: HashMap<(i32, i32), u32>,
+}
+
+
+#[derive(Clone, Copy, Default)]
+struct OccBits {
+    fixed: u16,
+    moving: u16,
+    goal: u16,
+    infantry: u16,
+    crushable: u8,
+    goal_unit: u32,
+}
+
+
 /// C++ `LAYER_WALL = LAYER_LAST = 15` (GameType.h:167).
 const LAYER_WALL_ID: u8 = 15;
 /// C++ `MAX_WALL_PIECES` (AIPathfind.h:181).
@@ -199,6 +222,8 @@ pub struct PathfindingGrid {
     occ_goal_mask: Vec<u16>,
     /// Last UNIT_GOAL writer (C++ `PathfindCell::getGoalUnit`). 0 = none.
     occ_goal_unit: Vec<u32>,
+    /// C++ `PathfindCell::getGoalAircraft` (LAYER_GROUND). 0 = none.
+    occ_goal_aircraft: Vec<u32>,
     /// Players with infantry occupying this cell.
     occ_infantry_mask: Vec<u16>,
     /// Max CrushableLevel among fixed occupants (canCrushOrSquish).
@@ -216,6 +241,8 @@ pub struct PathfindingGrid {
     ground_connect: Vec<u8>,
     /// C++ `Pathfinder::m_layers[2..=14]`.
     bridge_layers: Vec<HostBridgeLayer>,
+    /// C++ PathfindLayer pos/goal occupancy (updatePos/updateGoal).
+    layer_occ: HashMap<u8, LayerOccupancy>,
     /// C++ `m_wallPieces` geometry for `allocateCellsForWallLayer`.
     wall_pieces: Vec<HostWallPiece>,
     /// C++ `m_layers[LAYER_WALL]` classified non-IMPASSABLE cells.
@@ -233,6 +260,8 @@ pub struct PathfindingGrid {
     query_layer: u8,
     /// Seeker ObjectID for `checkDestination` own-goal skip.
     query_seeker_id: u32,
+    /// C++ `checkDestination` `checkForAircraft` (HOVER/WINGS).
+    query_check_for_aircraft: bool,
 
 }
 
@@ -263,6 +292,7 @@ impl PathfindingGrid {
             terrain_zones: vec![0u16; cells],
             occ_fixed_mask: vec![0u16; cells],
             occ_goal_unit: vec![0u32; cells],
+            occ_goal_aircraft: vec![0u32; cells],
             occ_moving_mask: vec![0u16; cells],
             fence_bits: vec![0u64; words],
             transparent_bits: vec![0u64; words],
@@ -276,7 +306,9 @@ impl PathfindingGrid {
             ground_connect: vec![0u8; cells],
             query_layer: PathfindLayerEnum::Ground as u8,
             query_seeker_id: 0,
+            query_check_for_aircraft: false,
             bridge_layers: Vec::new(),
+            layer_occ: HashMap::new(),
             wall_pieces: Vec::new(),
             wall_cells: HashMap::new(),
             wall_height: 0.0,
@@ -677,8 +709,10 @@ impl PathfindingGrid {
         self.occ_moving_mask.fill(0);
         self.occ_goal_mask.fill(0);
         self.occ_goal_unit.fill(0);
+        self.occ_goal_aircraft.fill(0);
         self.occ_infantry_mask.fill(0);
         self.occ_fixed_max_crushable.fill(0);
+        self.layer_occ.clear();
     }
 
     pub fn is_pinched(&self, pos: GridPos) -> bool {
@@ -1672,6 +1706,41 @@ impl PathfindingGrid {
         }
     }
 
+    fn query_layer_enum(&self) -> PathfindLayerEnum {
+        PathfindLayerEnum::from_u32(self.query_layer as u32)
+    }
+
+    /// C++ `getCell(layer, x, y)` occupancy. Missing layer cells fall back to ground.
+    fn occupancy_bits(&self, pos: GridPos, layer: PathfindLayerEnum) -> OccBits {
+        if (layer as u8) > PathfindLayerEnum::Ground as u8
+            && self.layer_cell_type(layer as u8, pos).is_some()
+        {
+            if let Some(occ) = self.layer_occ.get(&(layer as u8)) {
+                let key = (pos.x, pos.y);
+                return OccBits {
+                    fixed: occ.occ_fixed_mask.get(&key).copied().unwrap_or(0),
+                    moving: occ.occ_moving_mask.get(&key).copied().unwrap_or(0),
+                    goal: occ.occ_goal_mask.get(&key).copied().unwrap_or(0),
+                    infantry: occ.occ_infantry_mask.get(&key).copied().unwrap_or(0),
+                    crushable: occ.occ_fixed_max_crushable.get(&key).copied().unwrap_or(0),
+                    goal_unit: occ.occ_goal_unit.get(&key).copied().unwrap_or(0),
+                };
+            }
+            return OccBits::default();
+        }
+        let Some(idx) = self.bit_index(pos) else {
+            return OccBits::default();
+        };
+        OccBits {
+            fixed: self.occ_fixed_mask.get(idx).copied().unwrap_or(0),
+            moving: self.occ_moving_mask.get(idx).copied().unwrap_or(0),
+            goal: self.occ_goal_mask.get(idx).copied().unwrap_or(0),
+            infantry: self.occ_infantry_mask.get(idx).copied().unwrap_or(0),
+            crushable: self.occ_fixed_max_crushable.get(idx).copied().unwrap_or(0),
+            goal_unit: self.occ_goal_unit.get(idx).copied().unwrap_or(0),
+        }
+    }
+
     fn occupancy_cost(
         &self,
         pos: GridPos,
@@ -1681,19 +1750,13 @@ impl PathfindingGrid {
         ally_mask: u16,
         start: Option<GridPos>,
     ) -> Option<f32> {
-        let Some(idx) = self.bit_index(pos) else {
-            return Some(0.0);
-        };
-        let fixed = self.occ_fixed_mask.get(idx).copied().unwrap_or(0);
-        let moving = self.occ_moving_mask.get(idx).copied().unwrap_or(0);
-        let goal = self.occ_goal_mask.get(idx).copied().unwrap_or(0);
-        let infantry = self.occ_infantry_mask.get(idx).copied().unwrap_or(0);
-        if fixed == 0 && moving == 0 && goal == 0 {
+        let bits = self.occupancy_bits(pos, self.query_layer_enum());
+        if bits.fixed == 0 && bits.moving == 0 && bits.goal == 0 {
             return Some(0.0);
         }
         // C++ INFANTRY_MOVES_THROUGH_INFANTRY continue is unconditional
         // (AIPathfind.cpp:5031-5035) — goals do not block infantry stream-through.
-        if seeker_is_infantry && infantry != 0 && (fixed | moving) == infantry {
+        if seeker_is_infantry && bits.infantry != 0 && (bits.fixed | bits.moving) == bits.infantry {
             return Some(0.0);
         }
         let Some(player) = seeker_player else {
@@ -1703,36 +1766,39 @@ impl PathfindingGrid {
         // C++ checkForMovement: ALLIES increment allyFixedCount, never enemyFixed
         // (AIPathfind.cpp:5037-5066). Only non-allies consult canCrushOrSquish.
         let friend = bit | ally_mask;
-        if seeker_is_infantry && (infantry & !bit) != 0 && (fixed & !bit) == (infantry & !bit) {
-            let leftover_fixed = fixed & !infantry;
-            let leftover_moving = moving & !infantry;
+        if seeker_is_infantry
+            && (bits.infantry & !bit) != 0
+            && (bits.fixed & !bit) == (bits.infantry & !bit)
+        {
+            let leftover_fixed = bits.fixed & !bits.infantry;
+            let leftover_moving = bits.moving & !bits.infantry;
             if leftover_fixed == 0 && leftover_moving == 0 {
                 return Some(0.0);
             }
         }
-        let enemy_fixed = (fixed & !friend) != 0;
-        if enemy_fixed {
-            let max_c = self.occ_fixed_max_crushable.get(idx).copied().unwrap_or(255);
-            if crusher_level == 0 || crusher_level <= max_c {
-                return None;
-            }
+        let enemy_fixed = (bits.fixed & !friend) != 0;
+        if enemy_fixed && (crusher_level == 0 || crusher_level <= bits.crushable) {
+            return None;
         }
         let mut extra = 0.0;
         // C++ allyMoving +3*COST_DIAGONAL only within dx<10 && dy<10 of start
         // (AIPathfind.cpp:6260-6262). Moving enemies add no cost.
-        if (moving & friend) != 0 {
+        if (bits.moving & friend) != 0 {
             if let Some(s) = start {
                 if (pos.x - s.x).abs() < 10 && (pos.y - s.y).abs() < 10 {
                     extra += 3.0 * 1.414_213_5;
                 }
             }
         }
-        if (fixed & friend) != 0 {
+        if (bits.fixed & friend) != 0 {
             extra += 3.0 * 1.414_213_5;
         }
         Some(extra)
     }
 
+    /// C++ `Pathfinder::updatePos` / `updateGoal` cell stamp.
+    /// LAYER cells go on the layer map; `dynamic_bits` is ground-only.
+    /// Missing layer cells fall back to ground (`getCell` residual).
     fn mark_occupancy(
         &mut self,
         pos: GridPos,
@@ -1742,12 +1808,35 @@ impl PathfindingGrid {
         goal: bool,
         crushable_level: u8,
         unit_id: u32,
+        layer: PathfindLayerEnum,
     ) {
+        let bit = 1u16 << player.min(15);
+        if (layer as u8) > PathfindLayerEnum::Ground as u8
+            && self.layer_cell_type(layer as u8, pos).is_some()
+        {
+            let occ = self.layer_occ.entry(layer as u8).or_default();
+            let key = (pos.x, pos.y);
+            if goal {
+                *occ.occ_goal_mask.entry(key).or_insert(0) |= bit;
+                occ.occ_goal_unit.insert(key, unit_id);
+                return;
+            }
+            if infantry {
+                *occ.occ_infantry_mask.entry(key).or_insert(0) |= bit;
+            }
+            if moving {
+                *occ.occ_moving_mask.entry(key).or_insert(0) |= bit;
+            } else {
+                *occ.occ_fixed_mask.entry(key).or_insert(0) |= bit;
+                let crush = occ.occ_fixed_max_crushable.entry(key).or_insert(0);
+                *crush = (*crush).max(crushable_level);
+            }
+            return;
+        }
         let Some(idx) = self.bit_index(pos) else {
             return;
         };
         Self::bit_set(&mut self.dynamic_bits, idx, true);
-        let bit = 1u16 << player.min(15);
         if goal {
             if let Some(slot) = self.occ_goal_mask.get_mut(idx) {
                 *slot |= bit;
@@ -1772,6 +1861,50 @@ impl PathfindingGrid {
                 *crush = (*crush).max(crushable_level);
             }
         }
+    }
+
+    /// C++ `TerrainLogic::objectInteractsWithBridgeEnd` (TerrainLogic.cpp:1799).
+    fn object_interacts_with_bridge_end(
+        &self,
+        pos: Vec3,
+        minor_radius: f32,
+        layer: PathfindLayerEnum,
+    ) -> bool {
+        if layer == PathfindLayerEnum::Ground {
+            return false;
+        }
+        let Some(bridge) = self
+            .bridge_layers
+            .iter()
+            .find(|layer_rec| layer_rec.id == layer as u8)
+        else {
+            return false;
+        };
+        let r = minor_radius + self.grid_size * 0.5;
+        let cell = CellXz {
+            lo_x: pos.x - r,
+            lo_z: pos.z - r,
+            hi_x: pos.x + r,
+            hi_z: pos.z + r,
+        };
+        if !cell_on_bridge_end(
+            &cell,
+            bridge.from_left,
+            bridge.from_right,
+            bridge.to_left,
+            bridge.to_right,
+            self.grid_size,
+        ) {
+            return false;
+        }
+        let corners = [
+            bridge.from_left,
+            bridge.from_right,
+            bridge.to_right,
+            bridge.to_left,
+        ];
+        let deck_h = bridge_deck_height(&corners, pos.x, pos.z);
+        (pos.y - deck_h).abs() <= LAYER_Z_CLOSE_ENOUGH_F
     }
 
 
@@ -1979,13 +2112,24 @@ impl PathfindingGrid {
             if ignore == Some(obj.id) {
                 continue;
             }
-            if obj.is_kind_of(KindOf::Aircraft) {
-                continue;
+            let is_aircraft = obj.is_kind_of(KindOf::Aircraft)
+                || obj.object_type == crate::game_logic::ObjectType::Aircraft
+                || obj.chinook_ai.is_some();
+            if is_aircraft {
+                if Self::is_aircraft_that_adjusts_destination(obj) {
+                    self.stamp_aircraft_goal_from_object(obj);
+                    if obj.status.airborne_target {
+                        continue;
+                    }
+                } else {
+                    continue;
+                }
             }
             // C++ examineNeighboringCells occupancy: infantry + vehicles + structures.
             if !(obj.is_kind_of(KindOf::Vehicle)
                 || obj.is_kind_of(KindOf::Structure)
-                || obj.is_kind_of(KindOf::Infantry))
+                || obj.is_kind_of(KindOf::Infantry)
+                || (is_aircraft && !obj.status.airborne_target))
             {
                 continue;
             }
@@ -2000,7 +2144,13 @@ impl PathfindingGrid {
                 } else {
                     0
                 });
-            let grid_pos = self.world_to_grid(obj.get_position());
+            let pos = obj.get_position();
+            let pos_layer = self.layer_for_destination(pos);
+            let pos_at_end =
+                self.object_interacts_with_bridge_end(pos, obj.selection_radius, pos_layer);
+            let pos_do_layer = pos_layer != PathfindLayerEnum::Ground;
+            let pos_do_ground = !pos_do_layer || pos_at_end;
+            let grid_pos = self.world_to_grid(pos);
             for dy in -radius_cells..=radius_cells {
                 for dx in -radius_cells..=radius_cells {
                     let p = GridPos::new(grid_pos.x + dx, grid_pos.y + dy);
@@ -2012,12 +2162,38 @@ impl PathfindingGrid {
                         } else {
                             obj.crushable_level
                         };
-                        self.mark_occupancy(p, player, moving, infantry, false, crushable, obj.id.0);
+                        if pos_do_ground {
+                            self.mark_occupancy(
+                                p,
+                                player,
+                                moving,
+                                infantry,
+                                false,
+                                crushable,
+                                obj.id.0,
+                                PathfindLayerEnum::Ground,
+                            );
+                        }
+                        if pos_do_layer {
+                            self.mark_occupancy(
+                                p,
+                                player,
+                                moving,
+                                infantry,
+                                false,
+                                crushable,
+                                obj.id.0,
+                                pos_layer,
+                            );
+                        }
                     }
                 }
             }
             // C++ Pathfinder::updateGoal stamps UNIT_GOAL on the destination cell.
-            if !obj.is_kind_of(KindOf::Immobile) && !obj.is_kind_of(KindOf::Structure) {
+            if !is_aircraft
+                && !obj.is_kind_of(KindOf::Immobile)
+                && !obj.is_kind_of(KindOf::Structure)
+            {
                 let dest = obj
                     .movement
                     .path
@@ -2025,12 +2201,43 @@ impl PathfindingGrid {
                     .copied()
                     .or(obj.movement.target_position);
                 if let Some(goal) = dest {
+                    let goal_layer = self.layer_for_destination(goal);
+                    let goal_at_end = self.object_interacts_with_bridge_end(
+                        pos,
+                        obj.selection_radius,
+                        goal_layer,
+                    );
+                    let goal_do_layer = goal_layer != PathfindLayerEnum::Ground;
+                    let goal_do_ground = !goal_do_layer || goal_at_end;
                     let goal_cell = self.world_to_grid(goal);
                     for dy in -radius_cells..=radius_cells {
                         for dx in -radius_cells..=radius_cells {
                             let p = GridPos::new(goal_cell.x + dx, goal_cell.y + dy);
                             if self.is_valid_pos(p) {
-                                self.mark_occupancy(p, player, false, false, true, 255, obj.id.0);
+                                if goal_do_ground {
+                                    self.mark_occupancy(
+                                        p,
+                                        player,
+                                        false,
+                                        false,
+                                        true,
+                                        255,
+                                        obj.id.0,
+                                        PathfindLayerEnum::Ground,
+                                    );
+                                }
+                                if goal_do_layer {
+                                    self.mark_occupancy(
+                                        p,
+                                        player,
+                                        false,
+                                        false,
+                                        true,
+                                        255,
+                                        obj.id.0,
+                                        goal_layer,
+                                    );
+                                }
                             }
                         }
                     }
@@ -2061,26 +2268,31 @@ impl PathfindingGrid {
     }
 
     pub fn has_allied_goal(&self, pos: GridPos, seeker_player: Option<u32>) -> bool {
-        let Some(idx) = self.bit_index(pos) else {
-            return false;
-        };
-        let goal = self.occ_goal_mask.get(idx).copied().unwrap_or(0);
-        if goal == 0 {
+        self.has_allied_goal_on(pos, seeker_player, self.query_layer_enum())
+    }
+
+    pub fn has_allied_goal_on(
+        &self,
+        pos: GridPos,
+        seeker_player: Option<u32>,
+        layer: PathfindLayerEnum,
+    ) -> bool {
+        let bits = self.occupancy_bits(pos, layer);
+        if bits.goal == 0 {
             return false;
         }
         let Some(player) = seeker_player else {
             return true;
         };
         // C++ checkDestination: own UNIT_GOAL is skipped (goalUnitID==objID).
-        let goal_unit = self.occ_goal_unit.get(idx).copied().unwrap_or(0);
-        if self.query_seeker_id != 0 && goal_unit == self.query_seeker_id {
+        if self.query_seeker_id != 0 && bits.goal_unit == self.query_seeker_id {
             return false;
         }
         let bit = 1u16 << player.min(15);
         let ally = self.ally_mask_for(player);
         // Refuse allies (other players + same-player siblings). Own reservation
         // already excluded above.
-        (goal & (ally | bit)) != 0
+        (bits.goal & (ally | bit)) != 0
     }
 
     /// C++ `checkDestination` occupancy (AIPathfind.cpp:4946-4953).
@@ -2089,15 +2301,20 @@ impl PathfindingGrid {
         pos: GridPos,
         crusher_level: u8,
     ) -> bool {
-        let Some(idx) = self.bit_index(pos) else {
-            return false;
-        };
-        let fixed = self.occ_fixed_mask.get(idx).copied().unwrap_or(0);
-        if fixed == 0 {
+        self.has_blocking_fixed_occupant_on(pos, crusher_level, self.query_layer_enum())
+    }
+
+    fn has_blocking_fixed_occupant_on(
+        &self,
+        pos: GridPos,
+        crusher_level: u8,
+        layer: PathfindLayerEnum,
+    ) -> bool {
+        let bits = self.occupancy_bits(pos, layer);
+        if bits.fixed == 0 {
             return false;
         }
-        let max_c = self.occ_fixed_max_crushable.get(idx).copied().unwrap_or(255);
-        crusher_level == 0 || crusher_level <= max_c
+        crusher_level == 0 || crusher_level <= bits.crushable
     }
 
     /// C++ `checkDestination` single-cell residual used by adjustDestination.
@@ -2113,22 +2330,181 @@ impl PathfindingGrid {
         if !self.is_valid_pos(pos) {
             return false;
         }
+        if self.query_check_for_aircraft {
+            return !self.has_other_aircraft_goal(pos);
+        }
         if !self.cell_passable_for_layer(pos, layer, surfaces, is_crusher) {
             return false;
         }
         if self.resolved_cell_type(layer, pos) == PathfindCellType::Cliff {
             return false;
         }
-        if self.has_allied_goal(pos, seeker_player) {
+        if self.has_allied_goal_on(pos, seeker_player, layer) {
             return false;
         }
-        if self.has_blocking_fixed_occupant(pos, crusher_level) {
+        if self.has_blocking_fixed_occupant_on(pos, crusher_level, layer) {
             return false;
         }
         if !self.diameter_allows(is_crusher, pos) {
             return false;
         }
         true
+    }
+
+    /// C++ `AIUpdateInterface::isAircraftThatAdjustsDestination` (HOVER/WINGS).
+    pub fn is_aircraft_that_adjusts_destination(obj: &Object) -> bool {
+        if matches!(obj.loco_appearance, LocomotorAppearance::Thrust) {
+            return false;
+        }
+        matches!(
+            obj.loco_appearance,
+            LocomotorAppearance::Hover | LocomotorAppearance::Wings
+        ) || obj.is_kind_of(KindOf::Aircraft)
+            || obj.object_type == crate::game_logic::ObjectType::Aircraft
+            || obj.chinook_ai.is_some()
+    }
+
+    pub fn goal_aircraft(&self, pos: GridPos) -> u32 {
+        self.bit_index(pos)
+            .and_then(|idx| self.occ_goal_aircraft.get(idx).copied())
+            .unwrap_or(0)
+    }
+
+    pub fn has_other_aircraft_goal(&self, pos: GridPos) -> bool {
+        let id = self.goal_aircraft(pos);
+        id != 0 && (self.query_seeker_id == 0 || id != self.query_seeker_id)
+    }
+
+    fn stamp_aircraft_goal_cell(&mut self, pos: GridPos, unit_id: u32) {
+        let Some(idx) = self.bit_index(pos) else {
+            return;
+        };
+        if let Some(slot) = self.occ_goal_aircraft.get_mut(idx) {
+            if *slot == 0 || *slot == unit_id {
+                *slot = unit_id;
+            }
+        }
+    }
+
+    fn aircraft_goal_dest(obj: &Object) -> Option<Vec3> {
+        if let Some(ai) = obj.chinook_ai.as_ref() {
+            if matches!(
+                ai.flight_status,
+                crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landing
+                    | crate::game_logic::host_combat_chinook::HostChinookFlightStatus::TakingOff
+            ) {
+                return Some(Vec3::new(ai.dest[0], ai.dest[2], ai.dest[1]));
+            }
+        }
+        obj.movement
+            .path
+            .last()
+            .copied()
+            .or(obj.movement.target_position)
+    }
+
+    /// C++ `Pathfinder::updateAircraftGoal`.
+    fn stamp_aircraft_goal_from_object(&mut self, obj: &Object) {
+        let Some(goal) = Self::aircraft_goal_dest(obj) else {
+            return;
+        };
+        let (radius, center_in_cell) = Self::radius_and_center(obj.selection_radius, self.grid_size);
+        let mut num_above = radius;
+        if center_in_cell {
+            num_above += 1;
+        }
+        let cell = self.world_to_grid(goal);
+        for i in (cell.x - radius)..(cell.x + num_above) {
+            for j in (cell.y - radius)..(cell.y + num_above) {
+                self.stamp_aircraft_goal_cell(GridPos::new(i, j), obj.id.0);
+            }
+        }
+        if let Ok(ai) = gamelogic::ai::THE_AI.read() {
+            if let Some(pf) = ai.pathfinder() {
+                if let Ok(pf) = pf.read() {
+                    let dest = gamelogic::common::Coord3D::new(goal.x, goal.z, goal.y);
+                    pf.update_aircraft_goal(&dest, obj.id.0, radius, center_in_cell);
+                }
+            }
+        }
+    }
+
+    fn check_for_landing(&self, cell: GridPos, layer: PathfindLayerEnum) -> bool {
+        if !self.is_valid_pos(cell) {
+            return false;
+        }
+        match self.resolved_cell_type(layer, cell) {
+            PathfindCellType::Cliff | PathfindCellType::Water | PathfindCellType::Impassable => {
+                return false;
+            }
+            _ => {}
+        }
+        if self.has_other_aircraft_goal(cell) {
+            return false;
+        }
+        if self.has_allied_goal_on(cell, None, layer) {
+            return false;
+        }
+        if self.has_blocking_fixed_occupant_on(cell, 0, layer) {
+            return false;
+        }
+        true
+    }
+
+    /// C++ `Pathfinder::adjustToLandingDestination` spiral.
+    pub fn adjust_to_landing_destination(
+        &self,
+        dest: GridPos,
+        max_cells: i32,
+        layer: PathfindLayerEnum,
+    ) -> Option<GridPos> {
+        if !self.is_valid_pos(dest) {
+            return None;
+        }
+        if self.check_for_landing(dest, layer) {
+            return Some(dest);
+        }
+        let mut i = dest.x;
+        let mut j = dest.y;
+        let mut delta = 1;
+        let mut limit = max_cells.max(1);
+        while limit > 0 {
+            for _ in 0..delta {
+                i += 1;
+                limit -= 1;
+                let c = GridPos::new(i, j);
+                if self.check_for_landing(c, layer) {
+                    return Some(c);
+                }
+            }
+            for _ in 0..delta {
+                j += 1;
+                limit -= 1;
+                let c = GridPos::new(i, j);
+                if self.check_for_landing(c, layer) {
+                    return Some(c);
+                }
+            }
+            delta += 1;
+            for _ in 0..delta {
+                i -= 1;
+                limit -= 1;
+                let c = GridPos::new(i, j);
+                if self.check_for_landing(c, layer) {
+                    return Some(c);
+                }
+            }
+            for _ in 0..delta {
+                j -= 1;
+                limit -= 1;
+                let c = GridPos::new(i, j);
+                if self.check_for_landing(c, layer) {
+                    return Some(c);
+                }
+            }
+            delta += 1;
+        }
+        None
     }
 
     /// C++ linePassableCallback occupancy + pinched (AIPathfind.cpp:9553-9591).
@@ -2138,11 +2514,8 @@ impl PathfindingGrid {
         seeker_player: Option<u32>,
         crusher_level: u8,
     ) -> bool {
-        let Some(idx) = self.bit_index(pos) else {
-            return true;
-        };
-        let fixed = self.occ_fixed_mask.get(idx).copied().unwrap_or(0);
-        if fixed == 0 {
+        let bits = self.occupancy_bits(pos, self.query_layer_enum());
+        if bits.fixed == 0 {
             return false;
         }
         let Some(player) = seeker_player else {
@@ -2150,12 +2523,11 @@ impl PathfindingGrid {
         };
         let bit = 1u16 << player.min(15);
         let friend = bit | self.ally_mask_for(player);
-        if (fixed & friend) != 0 {
+        if (bits.fixed & friend) != 0 {
             return true;
         }
-        if (fixed & !friend) != 0 {
-            let max_c = self.occ_fixed_max_crushable.get(idx).copied().unwrap_or(255);
-            return crusher_level == 0 || crusher_level <= max_c;
+        if (bits.fixed & !friend) != 0 {
+            return crusher_level == 0 || crusher_level <= bits.crushable;
         }
         false
     }
@@ -2201,6 +2573,14 @@ impl PathfindingGrid {
     pub fn set_query_footprint(&mut self, path_diameter: i32, is_crusher: bool) {
         self.query_path_diameter = path_diameter.max(1);
         self.query_is_crusher = is_crusher;
+    }
+
+    pub fn query_seeker_id(&self) -> u32 {
+        self.query_seeker_id
+    }
+
+    pub fn set_query_seeker_id(&mut self, id: u32) {
+        self.query_seeker_id = id;
     }
 
     /// C++ `Pathfinder::clearCellForDiameter` (AIPathfind.cpp:6700-6759).
@@ -3047,6 +3427,40 @@ impl PathfindingSystem {
         self.grid.set_player_ally_masks(masks);
     }
 
+    /// C++ `Pathfinder::adjustToLandingDestination`. Off-map unit+dest is scripted OK.
+    pub fn adjust_to_landing_destination(&self, from: Vec3, dest: Vec3) -> Vec3 {
+        let dest_cell = self.grid.world_to_grid(dest);
+        let from_cell = self.grid.world_to_grid(from);
+        if !self.grid.is_valid_pos(dest_cell) && !self.grid.is_valid_pos(from_cell) {
+            return dest;
+        }
+        let layer = self.grid.layer_for_destination(dest);
+        let Some(adj) = self
+            .grid
+            .adjust_to_landing_destination(dest_cell, 400, layer)
+        else {
+            return dest;
+        };
+        let mut world = self.grid.grid_to_world(adj);
+        world.y = dest.y;
+        world
+    }
+
+    /// Stamp occupancy then unstack landing dest for `seeker` (C++ checkDestination objID).
+    pub fn adjust_landing_destination_for(
+        &mut self,
+        seeker: u32,
+        objects: &HashMap<ObjectId, Object>,
+        from: Vec3,
+        dest: Vec3,
+    ) -> Vec3 {
+        self.grid.update_dynamic_obstacles(objects);
+        self.grid.query_seeker_id = seeker;
+        let adj = self.adjust_to_landing_destination(from, dest);
+        self.grid.query_seeker_id = 0;
+        adj
+    }
+
     pub fn clear_static_blocks(&mut self) {
         self.grid.clear_static_blocks();
         self.crate_astar = None;
@@ -3260,7 +3674,7 @@ impl PathfindingSystem {
             })
             .unwrap_or_else(|| self.grid.clamp_pos(goal));
         // C++ checkDestination refuses allied UNIT_GOAL cells.
-        if self.grid.has_allied_goal(goal, self.seeker_player) {
+        if self.grid.has_allied_goal_on(goal, self.seeker_player, dest_layer) {
             if let Some(adj) = self.grid.adjust_destination_on_layer(
                 goal,
                 surfaces,
@@ -3270,7 +3684,7 @@ impl PathfindingSystem {
                 crusher_level,
                 dest_layer,
             ) {
-                if !self.grid.has_allied_goal(adj, self.seeker_player) {
+                if !self.grid.has_allied_goal_on(adj, self.seeker_player, dest_layer) {
                     goal = adj;
                 }
             }
@@ -3314,6 +3728,25 @@ impl PathfindingSystem {
         let occ_goal = self.grid.occ_goal_mask.clone();
         let occ_infantry = self.grid.occ_infantry_mask.clone();
         let occ_crush = self.grid.occ_fixed_max_crushable.clone();
+        let layer_occ = self.grid.layer_occ.clone();
+        let start_layer_id = start_layer as u8;
+        let dest_layer_id = dest_layer as u8;
+        let layer_cells = |id: u8| -> HashSet<(i32, i32)> {
+            if id <= PathfindLayerEnum::Ground as u8 {
+                return HashSet::new();
+            }
+            if id == LAYER_WALL_ID {
+                return self.grid.wall_cells.keys().copied().collect();
+            }
+            self.grid
+                .bridge_layers
+                .iter()
+                .find(|layer| layer.id == id)
+                .map(|layer| layer.cells.keys().copied().collect())
+                .unwrap_or_default()
+        };
+        let start_layer_cells = layer_cells(start_layer_id);
+        let dest_layer_cells = layer_cells(dest_layer_id);
         let seeker = self.seeker_player;
         let seeker_inf = self.seeker_is_infantry;
         let ally_mask = seeker.map(|p| self.grid.ally_mask_for(p)).unwrap_or(0);
@@ -3343,11 +3776,40 @@ impl PathfindingSystem {
                     return u32::MAX / 8;
                 }
             }
+            let key = (c.x, c.y);
+            let layer_id = if start_layer_id > PathfindLayerEnum::Ground as u8
+                && start_layer_cells.contains(&key)
+            {
+                Some(start_layer_id)
+            } else if dest_layer_id > PathfindLayerEnum::Ground as u8
+                && dest_layer_cells.contains(&key)
+            {
+                Some(dest_layer_id)
+            } else {
+                None
+            };
             let idx = c.y as usize * width as usize + c.x as usize;
-            let fixed = occ_fixed.get(idx).copied().unwrap_or(0);
-            let moving = occ_moving.get(idx).copied().unwrap_or(0);
-            let goal_m = occ_goal.get(idx).copied().unwrap_or(0);
-            let infantry = occ_infantry.get(idx).copied().unwrap_or(0);
+            let (fixed, moving, goal_m, infantry, crush) = if let Some(lid) = layer_id {
+                if let Some(occ) = layer_occ.get(&lid) {
+                    (
+                        occ.occ_fixed_mask.get(&key).copied().unwrap_or(0),
+                        occ.occ_moving_mask.get(&key).copied().unwrap_or(0),
+                        occ.occ_goal_mask.get(&key).copied().unwrap_or(0),
+                        occ.occ_infantry_mask.get(&key).copied().unwrap_or(0),
+                        occ.occ_fixed_max_crushable.get(&key).copied().unwrap_or(0),
+                    )
+                } else {
+                    (0, 0, 0, 0, 0)
+                }
+            } else {
+                (
+                    occ_fixed.get(idx).copied().unwrap_or(0),
+                    occ_moving.get(idx).copied().unwrap_or(0),
+                    occ_goal.get(idx).copied().unwrap_or(0),
+                    occ_infantry.get(idx).copied().unwrap_or(0),
+                    occ_crush.get(idx).copied().unwrap_or(0),
+                )
+            };
             // C++ INFANTRY_MOVES_THROUGH_INFANTRY: stream even when a goal is set.
             if seeker_inf && infantry != 0 && (fixed | moving) == infantry {
                 return 0;
@@ -3368,7 +3830,7 @@ impl PathfindingSystem {
                 }
             }
             if (fixed & !friend) != 0 {
-                let max_c = occ_crush.get(idx).copied().unwrap_or(255);
+                let max_c = crush;
                 if crusher_level == 0 || crusher_level <= max_c {
                     return u32::MAX / 8;
                 }
@@ -4057,6 +4519,29 @@ impl PathfindingSystem {
         self.grid
             .set_query_footprint(self.seeker_path_diameter, is_crusher);
 
+        let mut goal = goal;
+        self.grid.query_seeker_id = self.seeker_id.map(|id| id.0).unwrap_or(0);
+        let seeker_adjusts = self.seeker_id.and_then(|id| objects.get(&id)).is_some_and(
+            PathfindingGrid::is_aircraft_that_adjusts_destination,
+        );
+        if aircraft && seeker_adjusts {
+            self.grid.query_check_for_aircraft = true;
+            let dest_layer = self.grid.layer_for_destination(goal);
+            if let Some(adj) = self.grid.adjust_destination_on_layer(
+                self.grid.world_to_grid(goal),
+                surfaces,
+                is_crusher,
+                400,
+                self.seeker_player,
+                0,
+                dest_layer,
+            ) {
+                let mut snapped = self.grid.grid_to_world(adj);
+                snapped.y = goal.y;
+                goal = snapped;
+            }
+            self.grid.query_check_for_aircraft = false;
+        }
         let start_grid = self.grid.world_to_grid(start);
         let goal_grid = self.grid.world_to_grid(goal);
         let start_layer = self
@@ -5161,6 +5646,73 @@ mod tests {
         );
     }
 
+    /// hq-tg3cs: deck traffic must not stamp the roadbed under the span.
+    #[test]
+    fn deck_occupancy_does_not_block_roadbed() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut g = open_grid(12, 12);
+        g.stamp_bridge_deck(
+            Vec3::new(20.0, 20.0, 40.0),
+            Vec3::new(20.0, 20.0, 60.0),
+            Vec3::new(90.0, 20.0, 40.0),
+            Vec3::new(90.0, 20.0, 60.0),
+            false,
+        );
+        let deck = GridPos::new(5, 5);
+        let world = g.grid_to_world(deck);
+        let layer = g.layer_for_destination(Vec3::new(world.x, 20.0, world.z));
+        assert_ne!(layer, PathfindLayerEnum::Ground);
+
+        let mut objects = HashMap::new();
+        let mut deck_t = ThingTemplate::new("Humvee");
+        deck_t.add_kind_of(KindOf::Vehicle);
+        let mut on_deck = Object::new(deck_t, ObjectId(10), Team::USA);
+        on_deck.set_position(Vec3::new(world.x, 20.0, world.z));
+        on_deck.selection_radius = 1.0;
+        on_deck.owner_player_id = Some(1);
+        objects.insert(on_deck.id, on_deck);
+        g.update_dynamic_obstacles(&objects);
+
+        assert!(
+            !g.is_blocked(deck),
+            "mid-span deck unit must not set ground dynamic_bits"
+        );
+        g.query_layer = PathfindLayerEnum::Ground as u8;
+        assert_eq!(
+            g.occupancy_extra_cost(deck, Some(0), false, 0),
+            0,
+            "roadbed under the span must ignore deck occupancy"
+        );
+        g.query_layer = layer as u8;
+        assert_eq!(
+            g.occupancy_extra_cost(deck, Some(0), false, 0),
+            u32::MAX / 8,
+            "same XZ on the deck still occupies the layer"
+        );
+
+        let mut ground_t = ThingTemplate::new("Battlemaster");
+        ground_t.add_kind_of(KindOf::Vehicle);
+        let mut on_ground = Object::new(ground_t, ObjectId(11), Team::China);
+        on_ground.set_position(Vec3::new(world.x, 0.0, world.z));
+        on_ground.selection_radius = 1.0;
+        on_ground.owner_player_id = Some(2);
+        objects.insert(on_ground.id, on_ground);
+        g.update_dynamic_obstacles(&objects);
+
+        g.query_layer = PathfindLayerEnum::Ground as u8;
+        assert_eq!(
+            g.occupancy_extra_cost(deck, Some(0), false, 0),
+            u32::MAX / 8,
+            "ground unit still occupies the roadbed"
+        );
+        g.query_layer = layer as u8;
+        assert_eq!(
+            g.occupancy_extra_cost(deck, Some(0), false, 0),
+            u32::MAX / 8,
+            "deck unit still occupies the layer after ground stamp"
+        );
+    }
+
     /// hq-a79xb: own reservation accepted; allied other player refused; enemy accepted.
     #[test]
     fn has_allied_goal_own_vs_ally_player() {
@@ -5297,6 +5849,67 @@ mod tests {
         assert!(g.is_blocked(center));
         assert!(g.is_blocked(GridPos::new(center.x + 2, center.y)));
     }
+
+    /// hq-0xpfm: C++ setGoalAircraft + adjustToLandingDestination.
+    #[test]
+    fn aircraft_goals_and_landing_dest_unstack() {
+        use crate::game_logic::{KindOf, Object, ObjectId, ObjectType, Team, ThingTemplate};
+        let mut g = open_grid(16, 16);
+        let dest = Vec3::new(85.0, 40.0, 85.0);
+        let dest_cell = g.world_to_grid(dest);
+        let mut objects = HashMap::new();
+        let mut tmpl_a = ThingTemplate::new("AmericaVehicleChinook");
+        tmpl_a.add_kind_of(KindOf::Aircraft);
+        tmpl_a.add_kind_of(KindOf::Vehicle);
+        let mut a = Object::new(tmpl_a, ObjectId(11), Team::USA);
+        a.object_type = ObjectType::Aircraft;
+        a.loco_appearance = LocomotorAppearance::Hover;
+        a.status.airborne_target = true;
+        a.set_position(Vec3::new(20.0, 40.0, 20.0));
+        a.movement.target_position = Some(dest);
+        a.owner_player_id = Some(0);
+        objects.insert(a.id, a);
+        g.update_dynamic_obstacles(&objects);
+        assert_eq!(g.goal_aircraft(dest_cell), 11, "first chinook stamps goalAircraft");
+
+        let mut tmpl_b = ThingTemplate::new("AmericaVehicleChinook");
+        tmpl_b.add_kind_of(KindOf::Aircraft);
+        tmpl_b.add_kind_of(KindOf::Vehicle);
+        let mut b = Object::new(tmpl_b, ObjectId(12), Team::USA);
+        b.object_type = ObjectType::Aircraft;
+        b.loco_appearance = LocomotorAppearance::Hover;
+        b.status.airborne_target = true;
+        b.set_position(Vec3::new(30.0, 40.0, 20.0));
+        b.movement.target_position = Some(dest);
+        b.owner_player_id = Some(0);
+        objects.insert(b.id, b);
+        g.update_dynamic_obstacles(&objects);
+        g.query_seeker_id = 12;
+        g.query_check_for_aircraft = true;
+        let snapped = g
+            .adjust_destination_on_layer(
+                dest_cell,
+                SURFACE_AIR,
+                false,
+                400,
+                Some(0),
+                0,
+                PathfindLayerEnum::Ground,
+            )
+            .expect("second LZ");
+        g.query_check_for_aircraft = false;
+        assert_ne!(snapped, dest_cell, "second aircraft dest must leave first LZ");
+        assert!(!g.has_other_aircraft_goal(snapped));
+
+        let water = GridPos::new(4, 4);
+        g.set_cell_type(water, PathfindCellType::Water);
+        let land = g
+            .adjust_to_landing_destination(water, 400, PathfindLayerEnum::Ground)
+            .expect("landing dest");
+        assert_ne!(g.cell_type(land), PathfindCellType::Water);
+        assert_ne!(land, dest_cell, "landing dest refuses occupied aircraft goal");
+    }
+
 
     /// hq-6p032: crushers plan through idle crushable cars (AIPathfind.cpp:5063).
     #[test]

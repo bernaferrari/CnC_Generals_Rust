@@ -207,21 +207,19 @@ mod tests {
 
     #[test]
     fn xfer_radius_decal_save_writes_no_bytes_like_cpp() {
-        let decal = RadiusDecal {
-            position: Coord3D {
-                x: 1.0,
-                y: 2.0,
-                z: 3.0,
-            },
-            radius: 50.0,
-            opacity: 0.5,
-            color: 0x1122_3344,
-            min_opacity: 0.25,
-            max_opacity: 0.75,
-            opacity_throb_time: 30,
-            template: Some(7),
-            ..Default::default()
+        let mut decal = RadiusDecal::default();
+        decal.position = Coord3D {
+            x: 1.0,
+            y: 2.0,
+            z: 3.0,
         };
+        decal.radius = 50.0;
+        decal.opacity = 0.5;
+        decal.color = 0x1122_3344;
+        decal.min_opacity = 0.25;
+        decal.max_opacity = 0.75;
+        decal.opacity_throb_time = 30;
+        decal.template = Some(7);
         let mut bytes = Vec::new();
         {
             let cursor = Cursor::new(&mut bytes);
@@ -234,21 +232,19 @@ mod tests {
 
     #[test]
     fn xfer_radius_decal_load_clears_without_reading_like_cpp() {
-        let mut decal = RadiusDecal {
-            position: Coord3D {
-                x: 1.0,
-                y: 2.0,
-                z: 3.0,
-            },
-            radius: 50.0,
-            opacity: 0.5,
-            color: 0x1122_3344,
-            min_opacity: 0.25,
-            max_opacity: 0.75,
-            opacity_throb_time: 30,
-            template: Some(7),
-            ..Default::default()
+        let mut decal = RadiusDecal::default();
+        decal.position = Coord3D {
+            x: 1.0,
+            y: 2.0,
+            z: 3.0,
         };
+        decal.radius = 50.0;
+        decal.opacity = 0.5;
+        decal.color = 0x1122_3344;
+        decal.min_opacity = 0.25;
+        decal.max_opacity = 0.75;
+        decal.opacity_throb_time = 30;
+        decal.template = Some(7);
         let cursor = Cursor::new(Vec::<u8>::new());
         let mut xfer = XferLoad::new(cursor, 1);
 

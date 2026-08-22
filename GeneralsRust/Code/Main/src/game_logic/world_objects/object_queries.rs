@@ -2511,7 +2511,9 @@ impl GameLogic {
         if installed_propaganda {
             self.overlord_addons.record_propaganda_install();
         }
-        let _ = installed_bunker;
+        if installed_gattling || installed_propaganda || installed_bunker {
+            self.ensure_overlord_portable_addon_occupant(object_id);
+        }
 
         // C++ CostModifierUpgrade residual — player KindOf production cost change.
         if let Some((kind, percent)) =

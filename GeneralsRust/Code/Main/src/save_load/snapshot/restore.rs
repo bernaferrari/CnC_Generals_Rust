@@ -585,7 +585,14 @@ impl SnapshotBuilder {
 
                 kind_of_production_cost_changes: Vec::new(),
                 shared_special_power_cooldowns: std::collections::HashMap::new(),
-                completed_upgrades: std::collections::HashSet::new(),
+                // C++ Player::xfer m_upgradesCompleted. Stamp writes the name
+                // list onto snap.upgrades; apply also re-adds after host registry.
+                completed_upgrades: snap
+                    .upgrades
+                    .iter()
+                    .filter(|name| !name.trim().is_empty())
+                    .cloned()
+                    .collect(),
                 resource_supply_centers: Vec::new(),
                 resource_supply_warehouses: Vec::new(),
                 map_side: crate::game_logic::PlayerMapSideState::default(),
@@ -915,6 +922,7 @@ impl SnapshotBuilder {
         game_logic
             .host_upgrades_mut()
             .restore_from_snapshot(snapshot.next_id, snapshot.entries.clone());
+        super::player_upgrade_persist::apply_from_live_registry(game_logic);
         Ok(())
     }
 

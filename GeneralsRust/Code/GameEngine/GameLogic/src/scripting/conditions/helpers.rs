@@ -29,6 +29,12 @@ pub struct HostScriptQuerySnapshot {
     pub supply_center_location_safe: HashMap<String, bool>,
     /// Live host Player money/power/object census keyed by lowercase SIDE name.
     pub player_census: HashMap<String, HostScriptPlayerCensus>,
+    /// C++ TerrainLogic::anyBridgesDamageStatesChanged one-frame latch.
+    pub any_bridges_damage_states_changed: bool,
+    /// Named bridge isBridgeBroken keyed by script unit name.
+    pub named_bridge_broken: HashMap<String, bool>,
+    /// Named bridge isBridgeRepaired keyed by script unit name.
+    pub named_bridge_repaired: HashMap<String, bool>,
 
 }
 
@@ -197,6 +203,30 @@ pub fn set_host_script_query_snapshot(snap: HostScriptQuerySnapshot) {
 pub fn clear_host_script_query_snapshot() {
     HOST_SCRIPT_QUERY.with(|slot| *slot.borrow_mut() = HostScriptQuerySnapshot::default());
     clear_host_trigger_flags();
+}
+
+pub fn host_bridge_broken(bridge_name: &str) -> bool {
+    HOST_SCRIPT_QUERY.with(|slot| {
+        let snap = slot.borrow();
+        snap.any_bridges_damage_states_changed
+            && snap
+                .named_bridge_broken
+                .get(bridge_name)
+                .copied()
+                .unwrap_or(false)
+    })
+}
+
+pub fn host_bridge_repaired(bridge_name: &str) -> bool {
+    HOST_SCRIPT_QUERY.with(|slot| {
+        let snap = slot.borrow();
+        snap.any_bridges_damage_states_changed
+            && snap
+                .named_bridge_repaired
+                .get(bridge_name)
+                .copied()
+                .unwrap_or(false)
+    })
 }
 
 pub fn host_script_named_unit_id(name: &str) -> Option<u32> {

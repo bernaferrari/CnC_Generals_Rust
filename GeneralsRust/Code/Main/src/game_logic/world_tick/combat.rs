@@ -2706,12 +2706,11 @@ impl GameLogic {
                                     damage_type,
                                 );
                                 if destroyed {
-                                    let kill_xp = target.kill_experience_value();
                                     self.mark_object_for_destruction(
                                         ground_target_id,
                                         Some(attacker_team),
                                     );
-                                    self.award_experience(attacker_id, kill_xp);
+                                    self.award_score_the_kill_experience(attacker_id, ground_target_id);
                                 }
                             }
                         }

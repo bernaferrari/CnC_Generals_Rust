@@ -5,6 +5,44 @@
 
 use super::*;
 
+fn resolve_script_named_object_id(unit_name: &str) -> Option<u32> {
+    get_named_object_tracker()
+        .get_object_id(unit_name)
+        .ok()
+        .flatten()
+        .or_else(|| crate::scripting::host_script_named_unit_id(unit_name))
+}
+
+/// C++ `ScriptActions::doEnableObjectSound` leftover drawable + live-host queue.
+fn enable_or_disable_object_sound(object_name: &str, enable: bool) {
+    super::request_host_script_object_sound(super::HostScriptObjectSoundRequest::Enable {
+        unit: object_name.to_string(),
+        enable,
+    });
+    if let Some(handler) = current_script_action_handler() {
+        if let Err(err) = handler.enable_object_sound(object_name, enable) {
+            log::warn!(
+                "Script action handler enable_object_sound({}) failed: {}",
+                enable,
+                err
+            );
+        }
+    }
+    let Some(object_id) = resolve_script_named_object_id(object_name) else {
+        return;
+    };
+    if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
+        if let Ok(obj_guard) = obj_arc.read() {
+            if let Some(drawable) = obj_guard.get_drawable() {
+                if let Ok(mut draw_guard) = drawable.write() {
+                    draw_guard.enable_ambient_sound_from_script(enable);
+                }
+            }
+        }
+    }
+}
+
+
 impl ScriptActionDispatcher {
     // ============================================================================
     // ADDITIONAL AUDIO/VIDEO ACTION IMPLEMENTATIONS
@@ -18,13 +56,27 @@ impl ScriptActionDispatcher {
         let unit_name = self.get_string_param(action, 1)?;
         log::debug!("Playing named sound '{}' from '{}'", sound_name, unit_name);
 
-        let tracker = get_named_object_tracker();
-        let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) else {
+        // C++ doSoundPlayFromNamed: getUnitNamed missing → return.
+        super::request_host_script_object_sound(super::HostScriptObjectSoundRequest::PlayNamed {
+            sound: sound_name.clone(),
+            unit: unit_name.clone(),
+        });
+
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.sound_play_named(&sound_name, &unit_name) {
+                log::warn!("Script action handler sound_play_named failed: {}", err);
+            }
+            return Ok(ScriptActionResult::Success);
+        }
+
+        let Some(object_id) = resolve_script_named_object_id(&unit_name) else {
             return Ok(ScriptActionResult::Success);
         };
 
+        // C++ AudioEventRTS(soundName, pUnit->getID()); setIsLogicalAudio(true).
         let mut event = crate::common::audio::AudioEventRts::new(sound_name.as_str());
         event.set_object_id(object_id);
+        event.set_is_logical_audio(true);
         if let Some(audio) = TheAudio::get() {
             let _ = audio.add_audio_event(&event);
         }
@@ -200,20 +252,7 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let object_name = self.get_string_param(action, 0)?;
         log::debug!("Enabling sounds for '{}'", object_name);
-
-        let tracker = get_named_object_tracker();
-        if let Ok(Some(object_id)) = tracker.get_object_id(&object_name) {
-            if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-                if let Ok(obj_guard) = obj_arc.read() {
-                    if let Some(drawable) = obj_guard.get_drawable() {
-                        if let Ok(mut draw_guard) = drawable.write() {
-                            draw_guard.enable_ambient_sound_from_script(true);
-                        }
-                    }
-                }
-            }
-        }
-
+        enable_or_disable_object_sound(&object_name, true);
         Ok(ScriptActionResult::Success)
     }
 
@@ -223,20 +262,7 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let object_name = self.get_string_param(action, 0)?;
         log::debug!("Disabling sounds for '{}'", object_name);
-
-        let tracker = get_named_object_tracker();
-        if let Ok(Some(object_id)) = tracker.get_object_id(&object_name) {
-            if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-                if let Ok(obj_guard) = obj_arc.read() {
-                    if let Some(drawable) = obj_guard.get_drawable() {
-                        if let Ok(mut draw_guard) = drawable.write() {
-                            draw_guard.enable_ambient_sound_from_script(false);
-                        }
-                    }
-                }
-            }
-        }
-
+        enable_or_disable_object_sound(&object_name, false);
         Ok(ScriptActionResult::Success)
     }
 

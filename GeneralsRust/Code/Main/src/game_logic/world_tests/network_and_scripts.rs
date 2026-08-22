@@ -278,6 +278,84 @@ fn create_object_script_request_spawns_named_host_unit() {
     assert!(OBJECT_REGISTRY.is_empty());
 }
 
+#[test]
+fn live_host_team_hooks_add_member_and_notify_death_once() {
+    use gamelogic::common::Dict;
+    use gamelogic::object::registry::OBJECT_REGISTRY;
+    use gamelogic::team::get_team_factory;
+    use game_engine::common::well_known_keys::{
+        key_team_name, key_team_on_create_script, key_team_on_unit_destroyed_script,
+        key_team_owner,
+    };
+
+    OBJECT_REGISTRY.clear();
+    let mut logic = GameLogic::new();
+    let mut t = ThingTemplate::new("HostHookRanger");
+    t.set_health(100.0);
+    logic.templates.insert("HostHookRanger".into(), t);
+    let id = logic
+        .create_object("HostHookRanger", Team::USA, Vec3::new(4.0, 0.0, 4.0))
+        .expect("unit");
+    if let Some(o) = logic.host_object_mut(id) {
+        o.team_instance_name = "HostHookSquad".into();
+    }
+
+    {
+        let Ok(mut factory) = get_team_factory().lock() else {
+            return;
+        };
+        let mut dict = Dict::new();
+        dict.set_ascii_string(key_team_name(), "HostHookSquad");
+        dict.set_ascii_string(key_team_owner(), "PlyrCivilian");
+        dict.set_ascii_string(key_team_on_create_script(), "OnCreateHostHook");
+        dict.set_ascii_string(
+            key_team_on_unit_destroyed_script(),
+            "OnUnitDestroyedHostHook",
+        );
+        let _ = factory.init_team(
+            gamelogic::common::AsciiString::from("HostHookSquad"),
+            gamelogic::common::AsciiString::from("PlyrCivilian"),
+            false,
+            Some(&dict),
+        );
+    }
+
+    logic.activate_leftover_team_for_host_object(id);
+    logic.inject_host_script_query_snapshot();
+    {
+        let Ok(mut factory) = get_team_factory().lock() else {
+            return;
+        };
+        let team = factory.find_team("HostHookSquad").expect("leftover team");
+        {
+            let mut guard = team.write().expect("write");
+            guard.update_state();
+        }
+        let guard = team.read().expect("read");
+        assert!(guard.has_member(id.0), "live host must DLINK the member");
+        assert!(guard.is_active());
+        assert!(
+            !guard.is_created(),
+            "OnCreate must be consumed once from leftover updateState"
+        );
+    }
+
+    logic.notify_leftover_team_of_host_object_death(id);
+    logic.notify_leftover_team_of_host_object_death(id);
+    {
+        let Ok(mut factory) = get_team_factory().lock() else {
+            return;
+        };
+        let team = factory.find_team("HostHookSquad").expect("leftover team");
+        let guard = team.read().expect("read");
+        assert!(
+            !guard.has_member(id.0),
+            "onDie unlinks once; second notify is a no-op"
+        );
+    }
+}
+
+
 
 #[test]
 fn live_host_polygon_inside_and_enter_without_object_registry() {

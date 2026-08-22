@@ -395,10 +395,43 @@ impl Player {
 
     /// C++ `Player::addUpgrade(..., UPGRADE_STATUS_COMPLETE)`.
     pub fn add_completed_upgrade(&mut self, name: &str) {
-        if !name.is_empty() {
-            self.completed_upgrades.insert(name.to_string());
-            self.unlocked_sciences.insert(name.to_string());
+        if name.is_empty() {
+            return;
         }
+        self.completed_upgrades.insert(name.to_string());
+        self.unlocked_sciences.insert(name.to_string());
+        self.sync_leftover_player_upgrade_from_host(name);
+    }
+
+    /// Leftover `Player::addUpgrade` already xfers `m_upgradesCompleted`.
+    fn sync_leftover_player_upgrade_from_host(&self, upgrade_name: &str) {
+        use gamelogic::player::PlayerArcExt;
+
+        let names = [self.name.as_str(), self.map_side.map_player_name.as_str()];
+        let leftover = {
+            let Ok(list) = gamelogic::player::player_list().read() else {
+                return;
+            };
+            names.iter().find_map(|n| {
+                if n.is_empty() {
+                    None
+                } else {
+                    list.find_player_by_name(n)
+                }
+            })
+        };
+        let Some(arc) = leftover else {
+            return;
+        };
+        let Some(template) =
+            gamelogic::upgrade::center::with_upgrade_center(|c| c.find_upgrade(upgrade_name))
+        else {
+            return;
+        };
+        arc.add_upgrade(
+            template.as_ref(),
+            gamelogic::upgrade::UpgradeStatus::Complete,
+        );
     }
 
     /// C++ `ResourceGatheringManager::addSupplyCenter`.
@@ -1045,9 +1078,7 @@ impl Player {
         if crate::game_logic::host_upgrades::is_object_scoped_upgrade(upgrade_name) {
             return;
         }
-        if !self.has_unlocked_upgrade(upgrade_name) {
-            self.unlocked_sciences.insert(upgrade_name.to_string());
-        }
+        self.add_completed_upgrade(upgrade_name);
     }
 
     /// Complete all queued player upgrades into the unlocked upgrade/science set.
@@ -1058,7 +1089,7 @@ impl Player {
             if crate::game_logic::host_upgrades::is_object_scoped_upgrade(upgrade) {
                 continue;
             }
-            self.unlocked_sciences.insert(upgrade.clone());
+            self.add_completed_upgrade(upgrade);
         }
         completed
     }
@@ -1067,6 +1098,7 @@ impl Player {
         let expected = normalize_upgrade_name(upgrade_name);
         self.unlocked_sciences
             .iter()
+            .chain(self.completed_upgrades.iter())
             .any(|unlocked| normalize_upgrade_name(unlocked) == expected)
     }
 

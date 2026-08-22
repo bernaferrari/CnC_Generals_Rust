@@ -54,13 +54,22 @@ struct GameLogicAudioEventOwnerResolver;
 
 impl AudioEventOwnerResolver for GameLogicAudioEventOwnerResolver {
     fn resolve_object_position(&self, object_id: ObjectID) -> Option<EngineCoord3D> {
-        let object = TheGameLogic::find_object_by_id(object_id)?;
-        let guard = object.read().ok()?;
-        let position = *guard.get_position();
-        Some(EngineCoord3D {
-            x: position.x,
-            y: position.y,
-            z: position.z,
+        if let Some(object) = TheGameLogic::find_object_by_id(object_id) {
+            if let Ok(guard) = object.read() {
+                let position = *guard.get_position();
+                return Some(EngineCoord3D {
+                    x: position.x,
+                    y: position.y,
+                    z: position.z,
+                });
+            }
+        }
+        // Live host objects are not in leftover TheGameLogic. Host snapshot is
+        // XZ ground (Y-up); C++ AudioEventRTS is XY ground (Z-up).
+        crate::scripting::host_script_query_object_by_id(object_id).map(|obj| EngineCoord3D {
+            x: obj.x,
+            y: obj.z,
+            z: 0.0,
         })
     }
 

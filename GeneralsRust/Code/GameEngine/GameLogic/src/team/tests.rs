@@ -502,6 +502,192 @@ mod tests {
         );
     }
 
+    fn host_hook_object(
+        id: u32,
+        team: u32,
+        alive: bool,
+        idle: bool,
+        x: f32,
+        z: f32,
+        vision: f32,
+    ) -> crate::scripting::HostScriptQueryObject {
+        crate::scripting::HostScriptQueryObject {
+            id,
+            team,
+            x,
+            z,
+            alive,
+            effectively_dead: !alive,
+            idle,
+            vision_range: vision,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn host_census_update_state_matches_cpp_team_hooks() {
+        let _ = drain_pending_team_script_events();
+        crate::scripting::clear_host_script_query_snapshot();
+        assert!(crate::object::registry::OBJECT_REGISTRY.is_empty());
+
+        let mut factory = TeamFactory::new();
+        let mut dict = Dict::new();
+        dict.set_ascii_string(key_team_name(), "HostCensusTeam");
+        dict.set_ascii_string(key_team_owner(), "PlyrCivilian");
+        dict.set_ascii_string(key_team_on_create_script(), "OnCreateHostCensus");
+        dict.set_ascii_string(key_team_on_destroyed_script(), "OnDestroyedHostCensus");
+        dict.set_real(key_team_destroyed_threshold(), 1.0);
+        dict.set_ascii_string(key_team_on_idle_script(), "OnIdleHostCensus");
+        dict.set_ascii_string(key_team_enemy_sighted_script(), "OnEnemySightedHostCensus");
+
+        let _ = factory
+            .init_team(
+                AsciiString::from("HostCensusTeam"),
+                AsciiString::from("PlyrCivilian"),
+                false,
+                Some(&dict),
+            )
+            .expect("prototype");
+        let team = factory
+            .create_team("HostCensusTeam")
+            .expect("team");
+
+        crate::scripting::set_host_script_query_snapshot(
+            crate::scripting::HostScriptQuerySnapshot {
+                objects: vec![
+                    host_hook_object(11, 1, true, true, 0.0, 0.0, 50.0),
+                    host_hook_object(12, 1, true, true, 1.0, 0.0, 50.0),
+                    host_hook_object(99, 0, true, false, 5.0, 0.0, 50.0),
+                ],
+                team_instance_ids: [("HostCensusTeam".into(), vec![11, 12])]
+                    .into_iter()
+                    .collect(),
+                team_ids: [
+                    (1u32, vec![11, 12]),
+                    (0u32, vec![99]),
+                ]
+                .into_iter()
+                .collect(),
+                ..Default::default()
+            },
+        );
+
+        {
+            let mut guard = team.write().expect("write");
+            guard.update_state();
+        }
+        let first = drain_pending_team_script_events();
+        assert_eq!(
+            first
+                .iter()
+                .filter(|e| e.script_name == "OnCreateHostCensus")
+                .count(),
+            1
+        );
+        assert!(
+            !first
+                .iter()
+                .any(|e| e.script_name == "OnDestroyedHostCensus"),
+            "OnDestroyed must not fire at activation while host members are alive"
+        );
+        assert!(
+            first
+                .iter()
+                .any(|e| e.script_name == "OnEnemySightedHostCensus"),
+            "OnEnemySighted must fire from host snapshot vision"
+        );
+        assert!(
+            !first
+                .iter()
+                .any(|e| e.script_name == "OnIdleHostCensus"),
+            "OnIdle needs two consecutive idle frames"
+        );
+
+        {
+            let mut guard = team.write().expect("write");
+            guard.update_state();
+        }
+        let second = drain_pending_team_script_events();
+        assert!(
+            !second
+                .iter()
+                .any(|e| e.script_name == "OnCreateHostCensus"),
+            "OnCreate must run only once"
+        );
+        assert!(
+            second
+                .iter()
+                .any(|e| e.script_name == "OnIdleHostCensus"),
+            "OnIdle fires on the second consecutive idle frame"
+        );
+
+        crate::scripting::set_host_script_query_snapshot(
+            crate::scripting::HostScriptQuerySnapshot {
+                objects: vec![
+                    host_hook_object(11, 1, false, true, 0.0, 0.0, 50.0),
+                    host_hook_object(12, 1, false, true, 1.0, 0.0, 50.0),
+                    host_hook_object(99, 0, true, false, 5.0, 0.0, 50.0),
+                ],
+                team_instance_ids: [("HostCensusTeam".into(), vec![11, 12])]
+                    .into_iter()
+                    .collect(),
+                ..Default::default()
+            },
+        );
+        {
+            let mut guard = team.write().expect("write");
+            guard.update_state();
+        }
+        let third = drain_pending_team_script_events();
+        assert!(
+            third
+                .iter()
+                .any(|e| e.script_name == "OnDestroyedHostCensus"),
+            "OnDestroyed fires when the last live host member dies"
+        );
+
+        crate::scripting::clear_host_script_query_snapshot();
+    }
+
+    #[test]
+    fn empty_registry_without_host_snapshot_does_not_fire_on_destroyed() {
+        let _ = drain_pending_team_script_events();
+        crate::scripting::clear_host_script_query_snapshot();
+        assert!(crate::object::registry::OBJECT_REGISTRY.is_empty());
+
+        let mut factory = TeamFactory::new();
+        let mut dict = Dict::new();
+        dict.set_ascii_string(key_team_name(), "NoSnapDestroyed");
+        dict.set_ascii_string(key_team_owner(), "PlyrCivilian");
+        dict.set_ascii_string(key_team_on_destroyed_script(), "OnDestroyedNoSnap");
+
+        let _ = factory
+            .init_team(
+                AsciiString::from("NoSnapDestroyed"),
+                AsciiString::from("PlyrCivilian"),
+                false,
+                Some(&dict),
+            )
+            .expect("prototype");
+        let team = factory
+            .create_team("NoSnapDestroyed")
+            .expect("team");
+        {
+            let mut guard = team.write().expect("write");
+            guard.add_member(7);
+            guard.add_member(8);
+            guard.update_state();
+        }
+        let queued = drain_pending_team_script_events();
+        assert!(
+            !queued
+                .iter()
+                .any(|e| e.script_name == "OnDestroyedNoSnap"),
+            "empty registry without host snapshot must not treat members as dead"
+        );
+    }
+
+
     #[test]
     fn update_removes_empty_active_non_singleton_teams() {
         let mut factory = TeamFactory::new();

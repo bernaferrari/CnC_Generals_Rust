@@ -806,6 +806,7 @@ impl Object {
         self.model_condition_bits =
             host_apply_body_damage_model_bits(self.model_condition_bits, visual_state);
         self.record_host_model_condition();
+        self.sync_overlord_addon_body_damage();
     }
 
     pub fn refresh_model_condition_bits(&mut self) {
@@ -1107,6 +1108,7 @@ impl Object {
             self.visual_draw_state_revision = self.visual_draw_state_revision.saturating_add(1).max(1);
         }
         self.model_condition_bits = bits;
+        self.sync_overlord_addon_body_damage();
         self.record_host_model_condition();
     }
 }

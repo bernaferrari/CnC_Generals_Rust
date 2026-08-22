@@ -1862,13 +1862,9 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let hp = obj.health.current;
-                let new_hp = (hp - dmg).max(0.0);
-                Self::write_object_health_authority_aware(obj, new_hp);
+                let destroyed = obj.take_damage_from(dmg, source);
                 hits = hits.saturating_add(1);
-                if new_hp <= 0.0 {
-                    obj.status.destroyed = true;
-                    obj.status.effectively_dead = true;
+                if destroyed {
                     any_destroyed = true;
                     destroy_ids.push((id, Some(source_team)));
                 }

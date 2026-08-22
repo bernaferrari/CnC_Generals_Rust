@@ -629,7 +629,17 @@ impl Object {
         if remove_only {
             pf.remove_pos_cells(self.get_id(), 0, true, astar_layer);
         } else {
-            pf.update_pos_cells(cell, self.get_id(), astar_layer, 0, true, false);
+            let interacts = crate::terrain::get_terrain_logic()
+                .read()
+                .ok()
+                .map(|t| {
+                    t.object_interacts_with_bridge_end(
+                        self,
+                        crate::path::PathfindLayerEnum::from_u32(self.layer as u32),
+                    )
+                })
+                .unwrap_or(false);
+            pf.update_pos_cells(cell, self.get_id(), astar_layer, 0, true, interacts);
         }
     }
 

@@ -1962,36 +1962,36 @@ mod tests {
         let mut pm = PartitionManager::new();
         // world (0,0) → cell (0,0); radius 80 → cellRadius 2, influence 3.
         pm.do_value_affect(0.0, 0.0, 80.0, 0, 100);
-        let cash = |x, y| {
+        let cash_at = |pm: &PartitionManager, x, y| {
             pm.cells
                 .get(&CellCoord { x, y })
                 .map(|c| c.get_cash_value(0))
                 .unwrap_or(0)
         };
-        assert_eq!(cash(0, 0), 100, "center cell-index dist 0 → full value");
-        assert_eq!(cash(1, 0), 66, "axis neighbor 1 - 1/3");
-        assert_eq!(cash(0, 1), 66);
-        assert_eq!(cash(2, 2), 0, "square corner is outside DiscreteCircle r=2");
+        assert_eq!(cash_at(&pm, 0, 0), 100, "center cell-index dist 0 → full value");
+        assert_eq!(cash_at(&pm, 1, 0), 66, "axis neighbor 1 - 1/3");
+        assert_eq!(cash_at(&pm, 0, 1), 66);
+        assert_eq!(cash_at(&pm, 2, 2), 0, "square corner is outside DiscreteCircle r=2");
         pm.remove_value_affect(0.0, 0.0, 80.0, 0, 100);
-        assert_eq!(cash(0, 0), 0);
-        assert_eq!(cash(1, 0), 0);
+        assert_eq!(cash_at(&pm, 0, 0), 0);
+        assert_eq!(cash_at(&pm, 1, 0), 0);
     }
 
     #[test]
     fn threat_affect_undo_matches_add() {
         let mut pm = PartitionManager::new();
         pm.do_threat_affect(0.0, 0.0, 80.0, 1, 90);
-        let threat = |x, y| {
+        let threat_at = |pm: &PartitionManager, x, y| {
             pm.cells
                 .get(&CellCoord { x, y })
                 .map(|c| c.get_threat_value(1))
                 .unwrap_or(0)
         };
-        assert_eq!(threat(0, 0), 90);
-        assert_eq!(threat(1, 0), 60);
+        assert_eq!(threat_at(&pm, 0, 0), 90);
+        assert_eq!(threat_at(&pm, 1, 0), 60);
         pm.remove_threat_affect(0.0, 0.0, 80.0, 1, 90);
-        assert_eq!(threat(0, 0), 0);
-        assert_eq!(threat(1, 0), 0);
+        assert_eq!(threat_at(&pm, 0, 0), 0);
+        assert_eq!(threat_at(&pm, 1, 0), 0);
     }
 
     #[test]

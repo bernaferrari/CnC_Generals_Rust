@@ -448,8 +448,12 @@ fn apply_persist_chunks(
     }
     if let Some(payload) = script_engine {
         if payload.len() > 1 {
-            if let Ok((counters, flags, actives)) = persist_v18::parse_script_engine_block(payload)
+            if let Ok((sequential, counters, flags, actives, named_reveals)) =
+                persist_v18::parse_script_engine_block(payload)
             {
+                if !sequential.is_empty() {
+                    snapshot.persist_v18.script_sequential = sequential;
+                }
                 if !counters.is_empty() {
                     snapshot.persist_v18.script_counters = counters;
                 }
@@ -458,6 +462,9 @@ fn apply_persist_chunks(
                 }
                 if !actives.is_empty() {
                     snapshot.persist_v18.script_actives = actives;
+                }
+                if !named_reveals.is_empty() {
+                    snapshot.persist_v18.script_named_reveals = named_reveals;
                 }
             }
         }

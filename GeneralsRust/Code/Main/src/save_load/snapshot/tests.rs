@@ -4018,7 +4018,13 @@ fn snapshot_round_trips_v18_ui_script_radar_water_drawable() {
         engine.restore_named_trackers(
             &[("MissionClock".into(), 90, true)],
             &[("GateOpen".into(), true)],
-        )
+        );
+        engine.restore_named_reveals(&[(
+            "BaseLook".into(),
+            "WP_Base".into(),
+            250.0,
+            "PlyrAmerica".into(),
+        )]);
     });
     let mut source = GameLogic::new();
     source.upsert_script_named_timer("LaunchClock", "Launch in", true);
@@ -4038,6 +4044,23 @@ fn snapshot_round_trips_v18_ui_script_radar_water_drawable() {
     assert!(snapshot.persist_v18.superweapon_hidden_by_script);
     assert!(snapshot.persist_v18.radar_forced);
     assert!(snapshot.persist_v18.radar_hidden);
+    assert_eq!(snapshot.persist_v18.script_named_reveals.len(), 1);
+    assert_eq!(
+        snapshot.persist_v18.script_named_reveals[0].reveal_name,
+        "BaseLook"
+    );
+    assert_eq!(
+        snapshot.persist_v18.script_named_reveals[0].waypoint_name,
+        "WP_Base"
+    );
+    assert!(
+        (snapshot.persist_v18.script_named_reveals[0].radius_to_reveal - 250.0).abs()
+            < f32::EPSILON
+    );
+    assert_eq!(
+        snapshot.persist_v18.script_named_reveals[0].player_name,
+        "PlyrAmerica"
+    );
 
     gamelogic::helpers::TheGameLogic::set_rank_level_limit(1000);
     gamelogic::helpers::TheGameLogic::set_draw_icon_ui(true);
@@ -4073,6 +4096,12 @@ fn snapshot_round_trips_v18_ui_script_radar_water_drawable() {
         assert_eq!(counter.value, 90);
         assert!(counter.is_countdown_timer);
         assert_eq!(engine.get_flag("GateOpen").map(|f| f.value), Some(true));
+        let reveals = engine.snapshot_named_reveals();
+        assert_eq!(reveals.len(), 1);
+        assert_eq!(reveals[0].0, "BaseLook");
+        assert_eq!(reveals[0].1, "WP_Base");
+        assert!((reveals[0].2 - 250.0).abs() < f32::EPSILON);
+        assert_eq!(reveals[0].3, "PlyrAmerica");
     });
     gamelogic::helpers::TheGameLogic::set_rank_level_limit(1000);
     gamelogic::helpers::TheGameLogic::set_draw_icon_ui(true);

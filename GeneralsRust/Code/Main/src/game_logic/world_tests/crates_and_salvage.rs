@@ -3378,6 +3378,81 @@ fn direct_hit_applies_dual_radius_splash_to_neighbors() {
     );
 }
 
+/// C++ ActiveBody::attemptDamage scoreTheKill on lethal splash (`hq-ng506`).
+#[test]
+fn splash_kill_awards_score_the_kill_experience() {
+    let mut logic = GameLogic::new();
+    {
+        let mut t = ThingTemplate::new("SplashGun");
+        t.primary_weapon_name = Some("AmericaFireBaseHowitzer".into());
+        t.add_kind_of(KindOf::Vehicle);
+        t.add_kind_of(KindOf::Attackable);
+        t.is_trainable = true;
+        t.veterancy_xp_thresholds = [40.0, 150.0, 300.0];
+        logic.templates.insert("SplashGun".into(), t);
+        let mut ti = ThingTemplate::new("SplashIntended");
+        ti.add_kind_of(KindOf::Vehicle);
+        ti.add_kind_of(KindOf::Attackable);
+        logic.templates.insert("SplashIntended".into(), ti);
+        let mut tn = ThingTemplate::new("SplashNear");
+        tn.add_kind_of(KindOf::Vehicle);
+        tn.add_kind_of(KindOf::Attackable);
+        tn.experience_value = 40.0;
+        tn.experience_values = [40.0, 40.0, 80.0, 120.0];
+        logic.templates.insert("SplashNear".into(), tn);
+    }
+    let gun = logic
+        .create_object("SplashGun", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    if let Some(o) = logic.objects.get_mut(&gun) {
+        o.thing.template.is_trainable = true;
+        o.thing.template.veterancy_xp_thresholds = [40.0, 150.0, 300.0];
+    }
+    let tgt = logic
+        .create_object(
+            "SplashIntended",
+            Team::China,
+            glam::Vec3::new(80.0, 0.0, 0.0),
+        )
+        .unwrap();
+    let near = logic
+        .create_object("SplashNear", Team::China, glam::Vec3::new(90.0, 0.0, 0.0))
+        .unwrap();
+    if let Some(o) = logic.objects.get_mut(&near) {
+        o.health.current = 10.0;
+        o.health.maximum = 10.0;
+        o.thing.template.experience_value = 40.0;
+        o.thing.template.experience_values = [40.0, 40.0, 80.0, 120.0];
+    }
+    let hits = logic.apply_instant_hit_splash_at(
+        glam::Vec3::new(80.0, 0.0, 0.0),
+        40.0,
+        20.0,
+        25.0,
+        40.0,
+        gun,
+        Team::USA,
+        tgt,
+        Some("AmericaFireBaseHowitzer"),
+    );
+    assert!(hits >= 1, "neighbor in splash ring must be hit");
+    let near_dead = logic
+        .objects
+        .get(&near)
+        .map(|o| !o.is_alive() || o.health.current <= 0.0 || o.status.destroyed)
+        .unwrap_or(true);
+    assert!(near_dead, "splash must kill the low-HP neighbor");
+    let xp = logic
+        .objects
+        .get(&gun)
+        .map(|o| o.experience.current)
+        .unwrap_or(0.0);
+    assert!(
+        xp + f32::EPSILON >= 40.0,
+        "splash kill must award scoreTheKill XP, got {xp}"
+    );
+}
+
 #[test]
 fn scatter_miss_splash_honors_radius_damage_affects() {
     use crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ALLIES;

@@ -3021,13 +3021,9 @@ impl AIPlayer {
                     .map(|proto| proto.get_script_on_create().to_string())
             })
             .unwrap_or_default();
-        if !on_create.is_empty() {
-            if let Ok(mut eng) = gamelogic::scripting::engine::get_script_engine().write() {
-                if let Some(e) = eng.as_mut() {
-                    e.run_script(&on_create, Some(team.name.as_str()));
-                }
-            }
-        }
+        // C++ AIPlayer.cpp:2788-2792 only Team::setActive. OnCreate runs once
+        // from Team::updateState on the next ScriptEngine tick.
+
 
         if team.reinforcement {
             if let Some(obj_id) = team.reinforcement_id {

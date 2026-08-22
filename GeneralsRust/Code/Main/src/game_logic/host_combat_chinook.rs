@@ -1302,6 +1302,58 @@ mod tests {
         assert_eq!(ai.flight_status, HostChinookFlightStatus::Landing);
         assert_eq!(ai.ai_free_to_exit(false), HostChinookFreeToExit::WaitToExit);
     }
+
+    /// hq-0xpfm: two chinooks landing at the same XY must not share one LZ.
+    #[test]
+    fn live_host_chinooks_unstack_landing_dest() {
+        use crate::game_logic::{GameLogic, KindOf, ObjectType, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("AmericaVehicleChinook");
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Aircraft);
+        tpl.set_health(350.0);
+        logic.templates.insert("AmericaVehicleChinook".into(), tpl);
+        let pos = Vec3::new(0.0, 80.0, 0.0);
+        let a = logic
+            .create_object("AmericaVehicleChinook", Team::USA, pos)
+            .expect("chinook a");
+        let b = logic
+            .create_object("AmericaVehicleChinook", Team::USA, pos)
+            .expect("chinook b");
+        for id in [a, b] {
+            let obj = logic.host_object_mut(id).expect("obj");
+            obj.install_chinook_transport();
+            obj.object_type = ObjectType::Aircraft;
+            obj.loco_appearance = crate::game_logic::LocomotorAppearance::Hover;
+            obj.status.airborne_target = true;
+            obj.pending_evacuate_on_stop = true;
+        }
+        logic.tick_chinook_ai(1.0);
+        let da = logic
+            .host_object(a)
+            .and_then(|o| o.chinook_ai.as_ref())
+            .expect("ai a")
+            .dest;
+        let db = logic
+            .host_object(b)
+            .and_then(|o| o.chinook_ai.as_ref())
+            .expect("ai b")
+            .dest;
+        assert_eq!(
+            logic
+                .host_object(a)
+                .and_then(|o| o.chinook_ai.as_ref())
+                .map(|ai| ai.flight_status),
+            Some(HostChinookFlightStatus::Landing)
+        );
+        let stacked = (da[0] - db[0]).abs() < 1.0 && (da[1] - db[1]).abs() < 1.0;
+        assert!(
+            !stacked,
+            "chinooks must not share one LZ da={da:?} db={db:?}"
+        );
+    }
     #[test]
     fn landed_evac_keeps_dest_across_takeoff() {
 
