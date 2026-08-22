@@ -1275,6 +1275,9 @@ impl PresentationFrame {
                 residual.script_unpowered = ro.disabled_script_underpowered;
                 residual.unmanned = ro.disabled_unmanned;
                 residual.is_dozer_task_pending = ro.is_dozer_task_pending;
+                residual.script_unsellable = ro.script_unsellable;
+                residual.disabled_subdued = ro.disabled_subdued;
+                residual.single_use_used = ro.single_use_command_used;
             }
             self.stamp_host_restrict_a_availability(
                 &mut residual,

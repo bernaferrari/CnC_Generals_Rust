@@ -1439,7 +1439,7 @@ fn emergency_repair_residual_heals_damaged_ally_vehicles() {
         "out-of-radius ally must not receive Emergency Repair residual"
     );
 
-    // Enemy residual: not healed (same-team filter).
+    // Enemy residual: not healed (ALLOW_ALLIES player relationship).
     let enemy_hp_after = game_logic.host_object(enemy_id).unwrap().health.current;
     assert!(
         (enemy_hp_after - enemy_hp_before).abs() < 0.01,
@@ -2278,6 +2278,83 @@ fn emergency_repair_spawns_invisible_marker() {
     assert!(
         logic.templates.contains_key(EMERGENCY_REPAIR_MARKER_LEVEL1)
             || logic.emergency_repairs.markers_spawned >= 1
+    );
+}
+
+#[test]
+fn emergency_repair_heals_allies_not_same_faction() {
+    use crate::game_logic::host_emergency_repair::HostEmergencyRepairLevel;
+    use crate::game_logic::KindOf;
+    use gamelogic::common::Relationship;
+
+    let mut logic = GameLogic::new();
+    let mut usa = Player::new(0, Team::USA, "USA", true);
+    usa.alliance_team = 7;
+    let mut china = Player::new(1, Team::China, "China", false);
+    china.alliance_team = 7;
+    logic.add_player(usa);
+    logic.add_player(china);
+
+    let mut usa_tank_t = crate::game_logic::ThingTemplate::new("AmericaTankCrusader");
+    usa_tank_t.add_kind_of(KindOf::Vehicle).set_health(400.0);
+    logic.templates.insert("AmericaTankCrusader".into(), usa_tank_t);
+    let mut china_tank_t = crate::game_logic::ThingTemplate::new("ChinaTankBattleMaster");
+    china_tank_t.add_kind_of(KindOf::Vehicle).set_health(400.0);
+    logic
+        .templates
+        .insert("ChinaTankBattleMaster".into(), china_tank_t);
+
+    let caster = logic
+        .create_object_for_player("AmericaTankCrusader", 0, Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let ally = logic
+        .create_object_for_player("ChinaTankBattleMaster", 1, Vec3::new(10.0, 0.0, 0.0))
+        .unwrap();
+    if let Some(o) = logic.objects.get_mut(&ally) {
+        o.health.current = 100.0;
+    }
+    assert!(logic.activate_emergency_repair(
+        0,
+        Vec3::new(10.0, 0.0, 0.0),
+        Some(caster),
+        HostEmergencyRepairLevel::One,
+    ));
+    let ally_hp = logic.objects.get(&ally).unwrap().health.current;
+    assert!(
+        ally_hp > 100.5,
+        "2v2 USA+China ALLOW_ALLIES must heal Chinese vehicle, hp={ally_hp}"
+    );
+
+    let mut ffa = GameLogic::new();
+    let mut usa_a = Player::new(0, Team::USA, "USA-A", true);
+    usa_a.alliance_team = 1;
+    let mut usa_b = Player::new(1, Team::USA, "USA-B", false);
+    usa_b.alliance_team = 2;
+    ffa.add_player(usa_a);
+    ffa.add_player(usa_b);
+    let mut tank_t = crate::game_logic::ThingTemplate::new("AmericaTankCrusader");
+    tank_t.add_kind_of(KindOf::Vehicle).set_health(400.0);
+    ffa.templates.insert("AmericaTankCrusader".into(), tank_t);
+    let caster = ffa
+        .create_object_for_player("AmericaTankCrusader", 0, Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let enemy = ffa
+        .create_object_for_player("AmericaTankCrusader", 1, Vec3::new(10.0, 0.0, 0.0))
+        .unwrap();
+    if let Some(o) = ffa.objects.get_mut(&enemy) {
+        o.health.current = 100.0;
+    }
+    assert_eq!(ffa.player_relationship(0, 1), Relationship::Enemies);
+    assert!(ffa.activate_emergency_repair(
+        0,
+        Vec3::new(10.0, 0.0, 0.0),
+        Some(caster),
+        HostEmergencyRepairLevel::One,
+    ));
+    let enemy_hp = ffa.objects.get(&enemy).unwrap().health.current;
+    assert!(
+        (enemy_hp - 100.0).abs() < 0.1,
+        "FFA same-faction must not heal enemy USA vehicle, hp={enemy_hp}"
     );
 }
 

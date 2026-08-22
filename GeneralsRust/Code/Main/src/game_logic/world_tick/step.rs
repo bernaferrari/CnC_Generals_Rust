@@ -866,18 +866,19 @@ impl GameLogic {
         // C++ Weapon.ini ProjectileDetonationFX/OCL residual at real impact
         // (not fire-time), for either host or GameWorld flight ownership.
         self.flush_projectile_impact_fx();
-        // C++ Weapon.ini ProjectileExhaust: one attached system is created at
-        // missile ignition and follows that projectile until it detonates. The
-        // host has no client projectile drawable, so synchronize one named
-        // world-space system per live projectile instead of spawning a new trail
-        // every logic frame.
+        // C++ Weapon.ini ProjectileExhaust: MissileAI attaches at IGNITION
+        // (`createAttachedParticleSystemID`). Publish leftover host poses so
+        // attached systems follow; world-space sync is the fallback when
+        // leftover attach is unavailable.
         {
             let frame = self.frame;
-            let mut exhausts: Vec<_> = self
-                .combat_system
-                .projectiles_snapshot()
+            let snaps = self.combat_system.projectiles_snapshot();
+            for p in &snaps {
+                p.publish_attached_exhaust_pose();
+            }
+            let mut exhausts: Vec<_> = snaps
                 .into_iter()
-                .map(|p| (p.id, p.shooter_id, p.position, p.exhaust_name.clone()))
+                .map(|p| (p.id, p.shooter_id, p.position, p.live_exhaust_name().to_string()))
                 .collect();
             // HashMap-backed projectile storage has no stable iteration order;
             // stable creation order keeps host particle identities deterministic.

@@ -448,4 +448,29 @@ impl Team {
             relations.clear();
         }
     }
+
+    /// Explicit `m_teamRelations` / `m_playerRelations` only (C++ Team.cpp:1449-1471).
+    /// Does not fall back to the controlling player's relationship.
+    pub fn override_relationship_with_team(&self, that_team: &Team) -> Option<Relationship> {
+        if let Some(ref relations) = self.team_relations {
+            if let Some(&relationship) = relations.map.get(&that_team.get_id()) {
+                return Some(relationship);
+            }
+        }
+        if let Some(ref player_relations) = self.player_relations {
+            if let Some(that_player_id) = that_team.get_controlling_player_id() {
+                if let Some(&relationship) = player_relations.get(&(that_player_id as Int)) {
+                    return Some(relationship);
+                }
+            }
+        }
+        None
+    }
+
+    /// Explicit `m_playerRelations` entry only (TEAM_SET_OVERRIDE_RELATION_TO_PLAYER).
+    pub fn override_relationship_with_player(&self, player_index: Int) -> Option<Relationship> {
+        self.player_relations
+            .as_ref()
+            .and_then(|relations| relations.get(&player_index).copied())
+    }
 }

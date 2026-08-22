@@ -2110,6 +2110,142 @@ fn leftover_get_command_availability_hides_script_unsellable() {
 }
 
 #[test]
+fn leftover_wnd_stamps_single_use_subdued_and_unsellable() {
+    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
+    let mut logic = GameLogic::new();
+    let mut tb = ThingTemplate::new("AmericaBarracks");
+    tb.set_health(1000.0);
+    tb.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable);
+    logic.templates.insert("AmericaBarracks".into(), tb);
+    let id = logic
+        .create_object("AmericaBarracks", Team::USA, glam::Vec3::ZERO)
+        .expect("b");
+    if let Some(o) = logic.host_object_mut(id) {
+        o.selected = true;
+        o.mark_single_use_command_used();
+        o.set_disabled_subdued(true);
+        o.set_script_unsellable(true);
+    }
+    if let Some(p) = logic.get_player_mut(0) {
+        p.selected_objects = vec![id];
+    }
+    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
+    assert!(ro.single_use_command_used);
+    assert!(ro.disabled_subdued);
+    assert!(ro.script_unsellable);
+
+    let mut bar = game_client::gui::control_bar::ControlBar::new();
+    frame.apply_to_control_bar(&mut bar);
+    let residual = bar.presentation_availability();
+    assert!(residual.single_use_used, "leftover WND must stamp SINGLE_USE");
+    assert!(residual.disabled_subdued, "leftover WND must stamp SUBDUED");
+    assert!(
+        residual.script_unsellable,
+        "leftover WND must stamp SCRIPT_UNSELLABLE"
+    );
+}
+
+#[test]
+fn leftover_strip_single_use_restricts_whole_strip() {
+    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
+    let mut logic = GameLogic::new();
+    let mut tb = ThingTemplate::new("AmericaBarracks");
+    tb.set_health(1000.0);
+    tb.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable);
+    logic.templates.insert("AmericaBarracks".into(), tb);
+    let id = logic
+        .create_object("AmericaBarracks", Team::USA, glam::Vec3::ZERO)
+        .expect("b");
+    if let Some(o) = logic.host_object_mut(id) {
+        o.selected = true;
+        o.mark_single_use_command_used();
+    }
+    if let Some(p) = logic.get_player_mut(0) {
+        p.selected_objects = vec![id];
+    }
+    let cmds = PresentationFrame::build_from_logic(&logic, 0).unit_command_buttons();
+    let named: Vec<_> = cmds
+        .iter()
+        .filter(|c| !c.command_name.is_empty())
+        .collect();
+    assert!(
+        !named.is_empty(),
+        "single-use barracks must still show named cameos: {:?}",
+        cmds
+    );
+    assert!(
+        named.iter().all(|c| !c.enabled),
+        "nuke-truck SINGLE_USE greys the whole leftover strip: {:?}",
+        named
+    );
+}
+
+#[test]
+fn leftover_strip_subdued_restricts_sell_and_evacuate() {
+    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
+    let mut logic = GameLogic::new();
+    let mut barracks = ThingTemplate::new("AmericaBarracks");
+    barracks
+        .set_health(1000.0)
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable);
+    logic.templates.insert("AmericaBarracks".into(), barracks);
+    let id = logic
+        .create_object("AmericaBarracks", Team::USA, glam::Vec3::ZERO)
+        .expect("b");
+    if let Some(o) = logic.host_object_mut(id) {
+        o.selected = true;
+        o.set_disabled_subdued(true);
+    }
+    if let Some(p) = logic.get_player_mut(0) {
+        p.selected_objects = vec![id];
+    }
+    let cmds = PresentationFrame::build_from_logic(&logic, 0).unit_command_buttons();
+    let sell = cmds
+        .iter()
+        .find(|c| c.command_name.eq_ignore_ascii_case("Command_Sell"));
+    assert!(
+        sell.is_some_and(|c| !c.enabled),
+        "SUBDUED must grey Sell: {:?}",
+        cmds
+    );
+
+    let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");
+    humvee
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Transport)
+        .set_health(200.0);
+    logic.templates.insert("AmericaVehicleHumvee".into(), humvee);
+    let tid = logic
+        .create_object("AmericaVehicleHumvee", Team::USA, glam::Vec3::new(40.0, 0.0, 0.0))
+        .expect("t");
+    if let Some(o) = logic.host_object_mut(id) {
+        o.selected = false;
+    }
+    if let Some(o) = logic.host_object_mut(tid) {
+        o.selected = true;
+        o.set_disabled_subdued(true);
+        o.occupants = vec![ObjectId(9001), ObjectId(9002)];
+    }
+    if let Some(p) = logic.get_player_mut(0) {
+        p.selected_objects = vec![tid];
+    }
+    let evac_cmds = PresentationFrame::build_from_logic(&logic, 0).unit_command_buttons();
+    let evac = evac_cmds.iter().find(|c| {
+        c.command_name.to_ascii_lowercase().contains("evacuate")
+    });
+    assert!(
+        evac.is_some_and(|c| !c.enabled),
+        "SUBDUED must grey Evacuate: {:?}",
+        evac_cmds
+    );
+}
+
+#[test]
 fn ocl_timer_selection_hides_command_set_strip() {
     crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     use crate::game_logic::{KindOf, Team, ThingTemplate};

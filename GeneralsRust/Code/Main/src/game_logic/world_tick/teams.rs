@@ -1128,6 +1128,8 @@ impl GameLogic {
         self.apply_host_team_factory_script_requests();
         self.apply_host_merge_team_script_requests();
         self.apply_host_capture_nearest_unowned_script_requests();
+        self.apply_host_load_transports_script_requests();
+        self.apply_host_named_fire_weapon_path_script_requests();
         for (team_name, set, waypoint) in gamelogic::scripting::take_host_team_loco_set_requests() {
             self.host_script_apply_team_wander_panic(&team_name, &set, waypoint.as_deref());
         }
@@ -1435,6 +1437,155 @@ impl GameLogic {
                 }
             }
         }
+    }
+
+    /// C++ `ScriptActions::doLoadAllTransports` live drain.
+    /// Leftover BinPartitionSolver + `chooseLocomotorSet(NORMAL)` + `aiEnter`.
+    pub fn apply_host_load_transports_script_requests(&mut self) {
+        for req in gamelogic::scripting::take_host_script_load_transports_requests() {
+            self.host_script_team_load_transports(&req.team);
+        }
+    }
+
+    /// C++ team member walk → leftover `PartitionSolver(PREFER_FAST)` → enter.
+    fn host_script_team_load_transports(&mut self, team_name: &str) {
+        use game_engine::common::partition_solver::{
+            BinPartitionSolver, EntriesVec, SolutionType, SpacesVec,
+        };
+
+        let members = self.host_script_team_census_member_ids(team_name);
+        let mut units = EntriesVec::new();
+        let mut transports = SpacesVec::new();
+        for id in members {
+            let Some(obj) = self.host_object(ObjectId(id)) else {
+                continue;
+            };
+            if obj.status.destroyed {
+                continue;
+            }
+            if obj.is_kind_of(KindOf::Transport) {
+                transports.push((id, obj.max_transport as u32));
+            } else {
+                units.push((id, obj.transport_slot_count() as u32));
+            }
+        }
+        let mut solver =
+            BinPartitionSolver::new(units, transports, SolutionType::PreferFastSolution);
+        solver.solve();
+        for (unit_id, transport_id) in solver.get_solution() {
+            let unit = ObjectId(*unit_id);
+            let trans = ObjectId(*transport_id);
+            let Some(pos) = self.host_object(trans).map(|obj| obj.get_position()) else {
+                continue;
+            };
+            let _ = self.apply_unit_locomotor_set(unit, "normal");
+            let _ = self.unit_command_stop_moving_order_target(unit, Some(trans));
+            if !self.unit_command_path_with_state_ignoring(
+                unit,
+                pos,
+                AIState::Entering,
+                Some(trans),
+            ) {
+                if let Some(obj) = self.host_object_mut(unit) {
+                    obj.ignored_obstacle_id = Some(trans);
+                    obj.set_ai_state(AIState::Entering);
+                }
+            }
+        }
+    }
+
+    /// C++ `doNamedFireWeaponFollowingWaypointPath` live drain.
+    /// Leftover forceFire + leftover follow-waypoint-path on the live projectile.
+    pub fn apply_host_named_fire_weapon_path_script_requests(&mut self) {
+        for req in gamelogic::scripting::take_host_script_named_fire_weapon_path_requests() {
+            self.host_script_named_fire_weapon_following_path(&req.unit, &req.waypoint);
+        }
+    }
+
+    /// C++ `findWaypointFollowingCapableWeapon` + `forceFireWeapon` at unit pos,
+    /// then projectile `leaveGroup` + `chooseLocomotorSet(NORMAL)` +
+    /// `aiFollowWaypointPath(..., CMD_FROM_SCRIPT)`.
+    fn host_script_named_fire_weapon_following_path(&mut self, unit: &str, waypoint: &str) {
+        use crate::game_logic::weapon_bootstrap::host_projectile_name_for_weapon_name;
+
+        let Some(id) = self.host_object_id_by_script_name(unit) else {
+            return;
+        };
+        let Some((pos, team, weapon_name)) = self.host_object(id).and_then(|obj| {
+            if !obj.is_alive() || obj.status.destroyed {
+                return None;
+            }
+            let weapon_name = self.host_script_waypoint_following_weapon_name(obj)?;
+            Some((obj.get_position(), obj.team, weapon_name))
+        }) else {
+            return;
+        };
+        let Some(path) = self.host_wander_waypoint_path_from(waypoint, pos) else {
+            return;
+        };
+        let proj_name = host_projectile_name_for_weapon_name(&weapon_name);
+        if proj_name.is_empty() {
+            return;
+        }
+        if !self.templates.contains_key(&proj_name) {
+            let mut tmpl = ThingTemplate::new(&proj_name);
+            tmpl.set_health(100.0)
+                .add_kind_of(KindOf::Projectile)
+                .add_kind_of(KindOf::Aircraft);
+            self.templates.insert(proj_name.clone(), tmpl);
+        }
+        let Some(proj_id) = self.create_object(&proj_name, team, pos) else {
+            return;
+        };
+        if let Some(obj) = self.host_object_mut(proj_id) {
+            obj.note_producer(id);
+            obj.set_formation(0, glam::Vec2::ZERO);
+        }
+        let _ = self.apply_unit_locomotor_set(proj_id, "normal");
+        if path.is_empty() {
+            return;
+        }
+        let goal = *path.last().unwrap();
+        let via = &path[..path.len().saturating_sub(1)];
+        let _ = self.unit_command_waypoint_path_prep(proj_id, false);
+        if self.assign_unit_path(proj_id, goal, via) {
+            if let Some(obj) = self.host_object_mut(proj_id) {
+                obj.stamp_pending_waypoint_labels(std::iter::once(waypoint.to_string()));
+            }
+        }
+    }
+
+    /// Leftover `WeaponSet::findWaypointFollowingCapableWeapon` (TERTIARY..PRIMARY)
+    /// plus leftover store `CapableOfFollowingWaypoints`.
+    fn host_script_waypoint_following_weapon_name(
+        &self,
+        obj: &crate::game_logic::object::Object,
+    ) -> Option<String> {
+        use crate::game_logic::weapon_bootstrap::host_capable_of_following_waypoint_for_weapon_name;
+
+        if let Some(slot) = obj.find_waypoint_following_capable_weapon_slot() {
+            return obj.weapon_name_for_slot(slot).map(str::to_string);
+        }
+        for slot in [2u8, 1u8, 0u8] {
+            if obj.weapon_slot(slot).is_none() {
+                continue;
+            }
+            let Some(name) = obj.weapon_name_for_slot(slot) else {
+                continue;
+            };
+            let leftover = gamelogic::weapon::with_weapon_store(|store| {
+                store
+                    .find_weapon_template(name)
+                    .map(|wt| wt.capable_of_following_waypoint)
+            })
+            .ok()
+            .flatten()
+            .unwrap_or(false);
+            if leftover || host_capable_of_following_waypoint_for_weapon_name(name) {
+                return Some(name.to_string());
+            }
+        }
+        None
     }
 
     /// C++ `PartitionFilterUnmannedObject` + `ALLOW_ENEMIES|ALLOW_NEUTRAL` +
@@ -2117,6 +2268,153 @@ mod tests {
         assert_eq!(infantry.ai_state, AIState::Entering);
         assert_ne!(infantry.target, Some(far));
         assert_ne!(infantry.target, Some(off));
+    }
+
+    #[test]
+    fn team_load_transports_enters_live_transport() {
+        use crate::game_logic::AIState;
+        use gamelogic::object::registry::OBJECT_REGISTRY;
+        use gamelogic::scripting::{
+            request_host_script_load_transports, take_host_script_load_transports_requests,
+        };
+
+        OBJECT_REGISTRY.clear();
+        let _ = take_host_script_load_transports_requests();
+
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "PlyrAmerica", true));
+        let mut ranger = ThingTemplate::new("Scr2LoadRanger");
+        ranger.add_kind_of(KindOf::Infantry);
+        ranger.set_health(100.0);
+        ranger.transport_slot_count = Some(1);
+        logic.templates.insert("Scr2LoadRanger".into(), ranger);
+        let mut humvee = ThingTemplate::new("Scr2LoadHumvee");
+        humvee.add_kind_of(KindOf::Vehicle);
+        humvee.add_kind_of(KindOf::Transport);
+        humvee.set_health(400.0);
+        logic.templates.insert("Scr2LoadHumvee".into(), humvee);
+
+        let infantry = logic
+            .create_object(
+                "Scr2LoadRanger",
+                Team::USA,
+                glam::Vec3::new(50.0, 0.0, 50.0),
+            )
+            .expect("infantry");
+        if let Some(obj) = logic.host_object_mut(infantry) {
+            obj.owner_player_id = Some(1);
+            obj.team_instance_name = "USA_Convoy".into();
+        }
+        let transport = logic
+            .create_object(
+                "Scr2LoadHumvee",
+                Team::USA,
+                glam::Vec3::new(80.0, 0.0, 50.0),
+            )
+            .expect("transport");
+        if let Some(obj) = logic.host_object_mut(transport) {
+            obj.owner_player_id = Some(1);
+            obj.team_instance_name = "USA_Convoy".into();
+            obj.max_transport = 8;
+        }
+
+        request_host_script_load_transports("USA_Convoy");
+        logic.apply_host_load_transports_script_requests();
+
+        let infantry = logic.host_object(infantry).expect("infantry after");
+        assert_eq!(infantry.target, Some(transport), "aiEnter leftover solver pair");
+        assert_eq!(infantry.ai_state, AIState::Entering);
+    }
+
+    #[test]
+    fn named_fire_weapon_follows_live_waypoint_path() {
+        use crate::game_logic::Weapon;
+        use gamelogic::object::registry::OBJECT_REGISTRY;
+        use gamelogic::scripting::{
+            request_host_script_named_fire_weapon_path,
+            take_host_script_named_fire_weapon_path_requests,
+        };
+        use gamelogic::system::map_loader::{Coord3D, MapData, MapWaypoint};
+
+        OBJECT_REGISTRY.clear();
+        let _ = take_host_script_named_fire_weapon_path_requests();
+
+        let mut data = MapData::new();
+        data.width = 16;
+        data.height = 16;
+        data.heightmap = vec![0; 256];
+        data.waypoints.push(MapWaypoint {
+            id: 1,
+            name: "Scr2Path1".into(),
+            location: Coord3D {
+                x: 50.0,
+                y: 50.0,
+                z: 0.0,
+            },
+            path_label1: "Scr2Cruise".into(),
+            path_label2: String::new(),
+            path_label3: String::new(),
+            bi_directional: false,
+        });
+        data.waypoints.push(MapWaypoint {
+            id: 2,
+            name: "Scr2Path2".into(),
+            location: Coord3D {
+                x: 200.0,
+                y: 50.0,
+                z: 0.0,
+            },
+            path_label1: "Scr2Cruise".into(),
+            path_label2: String::new(),
+            path_label3: String::new(),
+            bi_directional: false,
+        });
+        data.waypoint_links.push((1, 2));
+        gamelogic::terrain::get_terrain_logic()
+            .write()
+            .expect("terrain")
+            .load_map_data(data);
+
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "PlyrAmerica", true));
+        let mut launcher = ThingTemplate::new("Scr2ScudLauncher");
+        launcher.add_kind_of(KindOf::Vehicle);
+        launcher.set_health(400.0);
+        launcher.primary_weapon_name = Some("ScudStormWeapon".into());
+        logic.templates.insert("Scr2ScudLauncher".into(), launcher);
+
+        let id = logic
+            .create_object(
+                "Scr2ScudLauncher",
+                Team::USA,
+                glam::Vec3::new(50.0, 0.0, 50.0),
+            )
+            .expect("launcher");
+        if let Some(obj) = logic.host_object_mut(id) {
+            obj.owner_player_id = Some(1);
+            obj.name = "NamedScud".into();
+            if obj.weapon.is_none() {
+                obj.weapon = Some(Weapon::default());
+            }
+        }
+
+        request_host_script_named_fire_weapon_path("NamedScud", "Scr2Cruise");
+        logic.apply_host_named_fire_weapon_path_script_requests();
+
+        let proj = logic
+            .host_objects()
+            .values()
+            .find(|obj| obj.is_kind_of(KindOf::Projectile) && obj.producer_id == Some(id))
+            .expect("leftover forceFire live projectile");
+        assert_eq!(proj.formation_id, 0, "leaveGroup");
+        let dest = proj
+            .requested_destination
+            .or(proj.movement.target_position)
+            .or_else(|| proj.movement.path.last().copied());
+        assert!(
+            dest.is_some_and(|p| (p.x - 200.0).abs() < 1.0 && (p.z - 50.0).abs() < 1.0),
+            "projectile follows leftover waypoint path, dest={dest:?}"
+        );
     }
 
 }

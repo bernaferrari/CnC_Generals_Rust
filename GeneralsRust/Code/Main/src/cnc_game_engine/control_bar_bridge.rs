@@ -430,6 +430,25 @@ impl CnCGameEngine {
             )
     }
 
+    /// C++ ControlBarCommandProcessing.cpp:167-178 — first SINGLE_USE click greys the strip.
+    fn host_mark_single_use_command_if_needed(
+        &mut self,
+        options: u32,
+        selected: impl IntoIterator<Item = crate::game_logic::ObjectId>,
+    ) {
+        if options
+            & crate::game_logic::host_production_buildable_command_residual::COMMAND_OPTION_SINGLE_USE_COMMAND
+            == 0
+        {
+            return;
+        }
+        for id in selected {
+            if let Some(obj) = self.game_logic.host_object_mut(id) {
+                obj.mark_single_use_command_used();
+            }
+        }
+    }
+
     fn host_apply_control_bar_direct(
         &mut self,
         command_name: &str,
@@ -446,6 +465,14 @@ impl CnCGameEngine {
         if !self.host_control_bar_is_local_player(player_id) {
             return;
         }
+
+        self.host_mark_single_use_command_if_needed(
+            options,
+            selected_object_ids
+                .iter()
+                .copied()
+                .map(crate::game_logic::ObjectId),
+        );
 
         if command_type == LegacyCommandType::PurchaseScience {
             let Some(science_name) = science_names.iter().find(|name| {
@@ -709,6 +736,7 @@ impl CnCGameEngine {
             );
             return;
         }
+        self.host_mark_single_use_command_if_needed(options, selected.iter().copied());
         let selected_has_dozer = selected.iter().any(|id| self.ui_object_is_dozer(*id));
         if !selected.is_empty() {
             // The frozen HDB readiness gate below must inspect the exact same

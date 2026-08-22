@@ -294,6 +294,9 @@ pub struct Projectile {
     /// C++ `KINDOF_SMALL_MISSILE` on the projectile object.
     #[serde(default)]
     pub is_small_missile: bool,
+    /// C++ `MissileAIUpdate::m_exhaustID` from `createAttachedParticleSystemID`.
+    #[serde(default)]
+    pub leftover_exhaust_id: u32,
 }
 
 impl Projectile {
@@ -354,6 +357,7 @@ impl Projectile {
             no_damage: false,
             cm_reported: false,
             is_small_missile: false,
+            leftover_exhaust_id: 0,
         }
     }
 
@@ -400,13 +404,12 @@ impl Projectile {
                 self.flight_runtime.missile_phase =
                     crate::game_logic::weapon_bootstrap::HostMissilePhase::Attack;
             }
-            crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(missile) => {
-                self.flight_runtime.missile_armed = missile.ignition_delay_frames == 0;
-                self.flight_runtime.missile_phase = if self.flight_runtime.missile_armed {
-                    crate::game_logic::weapon_bootstrap::HostMissilePhase::Attack
-                } else {
-                    crate::game_logic::weapon_bootstrap::HostMissilePhase::Launch
-                };
+            crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(_) => {
+                // C++ always starts LAUNCH. Delay 0 still visits IGNITION on the
+                // first update so authored IgnitionFX plays (MissileAIUpdate.cpp:675-688).
+                self.flight_runtime.missile_armed = false;
+                self.flight_runtime.missile_phase =
+                    crate::game_logic::weapon_bootstrap::HostMissilePhase::Launch;
             }
         }
     }
@@ -417,6 +420,85 @@ impl Projectile {
                 self.flight_runtime.missile_armed
             }
             _ => true,
+        }
+    }
+
+    /// C++ `MissileAIUpdate::doLaunchState` then fall-through `doIgnitionState`.
+    ///
+    /// Returns `false` while still waiting `IgnitionDelay` (pose-hold, unarmed).
+    /// On the ignition frame: leftover `FXList::doFXObj`, attach exhaust, arm.
+    fn try_enter_missile_ignition(&mut self, frame: u32) -> bool {
+        let Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(missile)) =
+            &self.flight
+        else {
+            return true;
+        };
+        if self.flight_runtime.missile_armed {
+            return true;
+        }
+        if frame < missile.ignition_delay_frames {
+            return false;
+        }
+        let ignition_fx = missile.ignition_fx.clone();
+        self.play_missile_ignition(&ignition_fx);
+        self.flight_runtime.missile_armed = true;
+        self.flight_runtime.missile_phase =
+            crate::game_logic::weapon_bootstrap::HostMissilePhase::Attack;
+        true
+    }
+
+    fn missile_fx_yaw(&self) -> f32 {
+        self.velocity.z.atan2(self.velocity.x)
+    }
+
+    fn publish_missile_fx_pose(&self) {
+        crate::game_logic::publish_host_fx_object(
+            self.id.0,
+            self.position,
+            self.missile_fx_yaw(),
+            self.source_owner_player_id.map(|p| p as i32).unwrap_or(-1),
+        );
+    }
+
+    /// C++ `MissileAIUpdate::doIgnitionState` (MissileAIUpdate.cpp:462-466).
+    fn play_missile_ignition(&mut self, ignition_fx: &str) {
+        self.publish_missile_fx_pose();
+        if !ignition_fx.is_empty() {
+            crate::game_logic::dispatch_fx_list_at_object(ignition_fx, self.id.0, None);
+        }
+        if !self.exhaust_name.is_empty() && self.leftover_exhaust_id == 0 {
+            if let Some(mgr) = gamelogic::helpers::TheParticleSystemManager::get() {
+                if let Some(id) = mgr.create_attached_particle_system_id(
+                    Some(self.exhaust_name.as_str()),
+                    self.id.0,
+                ) {
+                    self.leftover_exhaust_id = id;
+                }
+            }
+        }
+    }
+
+    /// World-space exhaust residual after IGNITION. Leftover attach wins so
+    /// C++ `createAttachedParticleSystemID` is not doubled by host sync.
+    pub fn live_exhaust_name(&self) -> &str {
+        if self.exhaust_name.is_empty() {
+            return "";
+        }
+        match &self.flight {
+            Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(_)) => {
+                if self.flight_runtime.missile_armed && self.leftover_exhaust_id == 0 {
+                    self.exhaust_name.as_str()
+                } else {
+                    ""
+                }
+            }
+            _ => self.exhaust_name.as_str(),
+        }
+    }
+
+    pub fn publish_attached_exhaust_pose(&self) {
+        if self.leftover_exhaust_id != 0 {
+            self.publish_missile_fx_pose();
         }
     }
 
@@ -509,23 +591,15 @@ impl Projectile {
             self.lifetime += dt;
         }
 
+        // C++ runs LAUNCH/IGNITION before airborneTargetGone (doAttackState).
+        let frame = self.elapsed_logic_frames();
+        if !self.try_enter_missile_ignition(frame) {
+            return ProjectileStep::Alive;
+        }
+
         let lifecycle_step = self.lifecycle_step(target_is_live);
         if lifecycle_step != ProjectileStep::Alive {
             return lifecycle_step;
-        }
-
-        let frame = self.elapsed_logic_frames();
-        if let Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(missile)) =
-            &self.flight
-        {
-            if !self.flight_runtime.missile_armed {
-                if frame < missile.ignition_delay_frames {
-                    return ProjectileStep::Alive;
-                }
-                self.flight_runtime.missile_armed = true;
-                self.flight_runtime.missile_phase =
-                    crate::game_logic::weapon_bootstrap::HostMissilePhase::Attack;
-            }
         }
 
         if self.speed <= 0.0 {
@@ -1530,7 +1604,9 @@ impl CombatSystem {
 
                 // Intervening structure residual: ballistic shells impact the first
                 // constructed building whose footprint contains the projectile.
-                // Gated by Weapon.ini ProjectileCollidesWith STRUCTURES|WALLS.
+                // Gated by Weapon.ini ProjectileCollidesWith leftover mask.
+                // C++ Weapon.cpp:716-721 — same-controller structures only if
+                // CONTROLLED_STRUCTURES; STRUCTURES is everyone else.
                 // Skip intended target (handled below) and shooter.
                 let mut hit_structure: Option<ObjectId> = None;
                 let collides_structures =
@@ -1542,9 +1618,15 @@ impl CombatSystem {
                     let intended = projectile.target_id;
                     let pos = projectile.position;
                     let sneak_now = crate::game_logic::host_historic_bonus::logic_frame();
+                    let shooter_obj = objects.get(&shooter);
+                    let proj_owner = shooter_obj
+                        .and_then(|s| s.owner_player_id)
+                        .or(projectile.source_owner_player_id);
+                    let proj_team = shooter_obj
+                        .map(|s| s.team)
+                        .unwrap_or(projectile.source_team);
                     // C++ Weapon.cpp:663-666 — never collide with the launcher's container.
-                    let launcher_contained_by =
-                        objects.get(&shooter).and_then(|s| s.contained_by);
+                    let launcher_contained_by = shooter_obj.and_then(|s| s.contained_by);
                     // C++ Weapon.cpp:670-677 — Flame/ParticleBeam skip already-burned.
                     let skip_burned = matches!(
                         projectile.damage_type,
@@ -1567,6 +1649,18 @@ impl CombatSystem {
                             continue;
                         }
                         if obj.status.under_construction {
+                            continue;
+                        }
+                        let same_controller =
+                            crate::game_logic::weapon_bootstrap::projectile_structure_same_controller(
+                                proj_owner,
+                                obj.owner_player_id,
+                                obj.team == proj_team,
+                            );
+                        if !crate::game_logic::weapon_bootstrap::projectile_collides_with_structure(
+                            projectile.projectile_collides,
+                            same_controller,
+                        ) {
                             continue;
                         }
                         // C++ Weapon.cpp:679-699 — only skip KINDOF_FS_AIRFIELD
@@ -2571,8 +2665,130 @@ mod tests {
     fn projectile_structure_intercept_cpp_surface() {
         let src = include_str!("combat.rs");
         assert!(
-            src.contains("Intervening structure residual") && src.contains("KindOf::Structure"),
-            "update_projectiles must intercept structure footprints"
+            src.contains("Intervening structure residual")
+                && src.contains("KindOf::Structure")
+                && src.contains("CONTROLLED_STRUCTURES"),
+            "update_projectiles must gate own structures on CONTROLLED_STRUCTURES"
+        );
+    }
+
+    #[test]
+    fn projectile_skips_own_structure_unless_controlled_bit() {
+        ensure_unit_test_direct_damage();
+
+        let mut objects = HashMap::new();
+        let atk = ObjectId(91);
+        let factory = ObjectId(92);
+        let tgt = ObjectId(93);
+        objects.insert(
+            atk,
+            make_obj(
+                "OwnAtk",
+                atk,
+                Team::USA,
+                Vec3::new(0.0, 5.0, 0.0),
+                &[KindOf::Infantry, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        objects.insert(
+            factory,
+            make_obj(
+                "OwnFactory",
+                factory,
+                Team::USA,
+                Vec3::new(40.0, 0.0, 0.0),
+                &[KindOf::Structure],
+                20.0,
+            ),
+        );
+        objects.insert(
+            tgt,
+            make_obj(
+                "OwnTgt",
+                tgt,
+                Team::GLA,
+                Vec3::new(80.0, 5.0, 0.0),
+                &[KindOf::Infantry, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        objects.get_mut(&atk).unwrap().owner_player_id = Some(1);
+        objects.get_mut(&factory).unwrap().owner_player_id = Some(1);
+        objects.get_mut(&tgt).unwrap().owner_player_id = Some(2);
+
+        let factory0 = objects.get(&factory).unwrap().health.current;
+        let tgt0 = objects.get(&tgt).unwrap().health.current;
+
+        let mut combat = CombatSystem::new();
+        let w = Weapon {
+            damage: 40.0,
+            range: 200.0,
+            projectile_speed: 40.0,
+            ..Weapon::default()
+        };
+        let pid = combat.fire_projectile(
+            Vec3::new(0.0, 5.0, 0.0),
+            Vec3::new(80.0, 5.0, 0.0),
+            &w,
+            atk,
+            Some(tgt),
+            40.0,
+        );
+        if let Some(p) = combat.projectile_mut(pid) {
+            p.projectile_collides =
+                crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT;
+            p.source_owner_player_id = Some(1);
+            p.source_team = Team::USA;
+        }
+        for _ in 0..120 {
+            let _ = combat.update_projectiles(1.0 / 30.0, &mut objects);
+            if combat.projectile_count() == 0 {
+                break;
+            }
+        }
+        let factory1 = objects.get(&factory).unwrap().health.current;
+        let tgt1 = objects.get(&tgt).unwrap().health.current;
+        assert_eq!(
+            factory1, factory0,
+            "own factory must not intercept without CONTROLLED_STRUCTURES"
+        );
+        assert!(
+            tgt1 < tgt0 - 1.0,
+            "shot must pass through own factory to the target"
+        );
+
+        objects.get_mut(&factory).unwrap().health.current = factory0;
+        objects.get_mut(&tgt).unwrap().health.current = tgt0;
+        let pid = combat.fire_projectile(
+            Vec3::new(0.0, 5.0, 0.0),
+            Vec3::new(80.0, 5.0, 0.0),
+            &w,
+            atk,
+            Some(tgt),
+            40.0,
+        );
+        if let Some(p) = combat.projectile_mut(pid) {
+            p.projectile_collides =
+                crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_CONTROLLED_STRUCTURES;
+            p.source_owner_player_id = Some(1);
+            p.source_team = Team::USA;
+        }
+        for _ in 0..120 {
+            let _ = combat.update_projectiles(1.0 / 30.0, &mut objects);
+            if combat.projectile_count() == 0 {
+                break;
+            }
+        }
+        let factory2 = objects.get(&factory).unwrap().health.current;
+        let tgt2 = objects.get(&tgt).unwrap().health.current;
+        assert!(
+            factory2 < factory0 - 1.0,
+            "CONTROLLED_STRUCTURES must intercept own factory"
+        );
+        assert!(
+            (tgt2 - tgt0).abs() < 0.01,
+            "target behind own factory must not be hit when collide-controlled"
         );
     }
 
@@ -3858,4 +4074,74 @@ mod tests {
             snaps2[0].speed
         );
     }
+
+    #[test]
+    fn missile_ai_ignition_fx_plays_on_delay_zero_and_after_delay() {
+        use crate::game_logic::weapon_bootstrap::{
+            HostMissileFlight, HostMissilePhase, HostProjectileFlight,
+        };
+
+        let mut delay0 = Projectile::new(
+            ObjectId(100_001),
+            Vec3::ZERO,
+            Vec3::new(100.0, 0.0, 0.0),
+            10.0,
+            DamageType::Explosive,
+            ObjectId(1),
+            None,
+        );
+        delay0.speed = 100.0;
+        delay0.flight = Some(HostProjectileFlight::Missile(HostMissileFlight {
+            ignition_delay_frames: 0,
+            ignition_fx: "FX_MissileIgnition".into(),
+            ..HostMissileFlight::default()
+        }));
+        delay0.bind_authored_flight(Vec3::ZERO, Vec3::new(100.0, 0.0, 0.0), 100.0);
+        assert!(
+            !delay0.is_warhead_armed(),
+            "C++ delay 0 still starts LAUNCH so IgnitionFX can play"
+        );
+        assert_eq!(delay0.flight_runtime.missile_phase, HostMissilePhase::Launch);
+        let _ = delay0.update(1.0 / 30.0, true);
+        assert!(delay0.is_warhead_armed());
+        assert_eq!(delay0.flight_runtime.missile_phase, HostMissilePhase::Attack);
+
+        let mut delayed = Projectile::new(
+            ObjectId(100_002),
+            Vec3::ZERO,
+            Vec3::new(100.0, 0.0, 0.0),
+            10.0,
+            DamageType::Explosive,
+            ObjectId(1),
+            None,
+        );
+        delayed.speed = 100.0;
+        delayed.flight = Some(HostProjectileFlight::Missile(HostMissileFlight {
+            ignition_delay_frames: 2,
+            ignition_fx: "FX_MissileIgnition".into(),
+            ..HostMissileFlight::default()
+        }));
+        delayed.bind_authored_flight(Vec3::ZERO, Vec3::new(100.0, 0.0, 0.0), 100.0);
+        assert!(!delayed.is_warhead_armed());
+        let _ = delayed.update(1.0 / 30.0, true);
+        assert!(
+            !delayed.is_warhead_armed(),
+            "frame 1 must stay in LAUNCH when IgnitionDelay is 2"
+        );
+        let _ = delayed.update(1.0 / 30.0, true);
+        assert!(delayed.is_warhead_armed());
+        assert_eq!(delayed.flight_runtime.missile_phase, HostMissilePhase::Attack);
+
+        let src = include_str!("combat.rs");
+        let start = src
+            .find("fn try_enter_missile_ignition")
+            .expect("ignition helper");
+        let body = &src[start..start + 1200];
+        assert!(
+            body.contains("dispatch_fx_list_at_pos(&ignition_fx, self.position)"),
+            "live MissileAI ignition must play authored IgnitionFX"
+        );
+        assert!(body.contains("missile.ignition_fx"));
+    }
+
 }

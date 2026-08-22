@@ -1401,6 +1401,58 @@ impl GameLogic {
         }
     }
 
+    /// C++ TEAM_SET/REMOVE_OVERRIDE_RELATION_* live drain.
+    /// Leftover writes leftover Team maps; live combat reads host Player maps.
+    fn apply_host_team_override_relation_script_requests(&mut self) {
+        use gamelogic::scripting::HostScriptTeamOverrideRelationRequest;
+        for req in gamelogic::scripting::take_host_team_override_relation_requests() {
+            match req {
+                HostScriptTeamOverrideRelationRequest::SetTeam {
+                    source,
+                    dest_team,
+                    relationship,
+                } => {
+                    for player in self.players.values_mut() {
+                        player.set_team_instance_team_override(&source, &dest_team, relationship);
+                    }
+                }
+                HostScriptTeamOverrideRelationRequest::RemoveTeam { source, dest_team } => {
+                    for player in self.players.values_mut() {
+                        let _ = player.remove_team_instance_team_override(&source, &dest_team);
+                    }
+                }
+                HostScriptTeamOverrideRelationRequest::SetPlayer {
+                    source,
+                    dest_player,
+                    relationship,
+                } => {
+                    let Some(pid) = self.host_player_id_for_script_token(&dest_player) else {
+                        continue;
+                    };
+                    for player in self.players.values_mut() {
+                        player.set_team_instance_player_override(&source, pid, relationship);
+                    }
+                }
+                HostScriptTeamOverrideRelationRequest::RemovePlayer {
+                    source,
+                    dest_player,
+                } => {
+                    let Some(pid) = self.host_player_id_for_script_token(&dest_player) else {
+                        continue;
+                    };
+                    for player in self.players.values_mut() {
+                        let _ = player.remove_team_instance_player_override(&source, pid);
+                    }
+                }
+                HostScriptTeamOverrideRelationRequest::RemoveAll { source } => {
+                    for player in self.players.values_mut() {
+                        player.clear_team_instance_overrides(&source);
+                    }
+                }
+            }
+        }
+    }
+
     /// C++ `Player::transferAssetsFromThat` — non-beacon objects onto dest
     /// default team, then withdraw/deposit all cash.
     fn host_script_transfer_assets_from(&mut self, dest_player: u32, source_player: u32) {
@@ -3622,6 +3674,7 @@ impl GameLogic {
         self.apply_host_rank_script_requests();
         self.apply_host_transfer_script_requests();
         self.apply_host_player_relates_script_requests();
+        self.apply_host_team_override_relation_script_requests();
 
         self.apply_host_loco_set_script_requests();
         self.apply_host_face_script_requests();

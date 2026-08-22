@@ -27,10 +27,10 @@ use crate::game_logic::host_radius_decal_update::{
 };
 use crate::game_logic::special_power_strikes::{
     clamp_spectre_override_destination, HostSpectreOrbitField, SPECTRE_ATTACK_AREA_DECAL_TEXTURE,
-    SPECTRE_ATTACK_AREA_DECAL_THROB_MS, SPECTRE_DECAL_COLOR, SPECTRE_GUNSHIP_ORBIT_RADIUS,
-    SPECTRE_ORBIT_DURATION_FRAMES, SPECTRE_ORBIT_INSERTION_SLOPE, SPECTRE_ORBIT_RADIUS,
-    SPECTRE_TARGETING_RETICLE_DECAL_TEXTURE, SPECTRE_TARGETING_RETICLE_DECAL_THROB_MS,
-    SPECTRE_TARGETING_RETICLE_RADIUS,
+    SPECTRE_ATTACK_AREA_DECAL_THROB_MS, SPECTRE_DECAL_COLOR, SPECTRE_GATTLING_STRAFE_FX,
+    SPECTRE_GUNSHIP_ORBIT_RADIUS, SPECTRE_ORBIT_DURATION_FRAMES, SPECTRE_ORBIT_INSERTION_SLOPE,
+    SPECTRE_ORBIT_RADIUS, SPECTRE_TARGETING_RETICLE_DECAL_TEXTURE,
+    SPECTRE_TARGETING_RETICLE_DECAL_THROB_MS, SPECTRE_TARGETING_RETICLE_RADIUS,
 };
 use crate::game_logic::ObjectId;
 
@@ -44,6 +44,9 @@ pub const ORBIT_INSERTION_SLOPE_MIN: f32 = 0.5;
 pub const SPECTRE_INSERTION_SPEED: f32 = 22.0;
 /// C++ `disengageAndDepartAO` facing scale.
 pub const SPECTRE_DEPART_MAP_SIZE: f32 = 99_999.0;
+/// C++ `GameClientRandomValueReal(-5, 5)` jitter on the gattling impact XY.
+pub const SPECTRE_GATTLING_STRAFE_SMOKE_JITTER: f32 = 5.0;
+
 
 /// C++ `GunshipStatus` (Inserting < Orbiting < Departing < Idle).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -368,6 +371,8 @@ pub fn honesty_spectre_gunship_update_residual_ok() -> bool {
         && (SPECTRE_ORBIT_INSERTION_SLOPE - 0.7).abs() < 0.01
         && (SPECTRE_GUNSHIP_ORBIT_RADIUS - 250.0).abs() < 0.01
         && SPECTRE_ORBIT_DURATION_FRAMES == 450
+        && SPECTRE_GATTLING_STRAFE_FX == "SpectreGattlingArmsSmoke"
+        && (SPECTRE_GATTLING_STRAFE_SMOKE_JITTER - 5.0).abs() < 0.01
         && {
             let mut d = HostSpectreGunshipUpdateData::initiate_at(Vec3::new(250.0, 0.0, 250.0));
             let created = !d.attack_area_decal.is_empty()
@@ -441,4 +446,56 @@ pub fn expire_orbit_fields_on_gunship_dead(
             field.expires_frame = current_frame;
         }
     }
+}
+
+/// C++ `getShroudedStatus(local) <= OBJECTSHROUD_PARTIAL_CLEAR`.
+/// No local player / no PartitionData → visible (leftover `unwrap_or(true)`).
+pub fn spectre_gunship_visible_for_strafe_fx(
+    shroud: Option<gamelogic::common::types::ObjectShroudStatus>,
+) -> bool {
+    match shroud {
+        Some(status) => {
+            (status as u8)
+                <= (gamelogic::common::types::ObjectShroudStatus::PartialClear as u8)
+        }
+        None => true,
+    }
+}
+
+/// C++ gattling `OBJECT_STATUS_IS_FIRING_WEAPON` residual on the live orbit field.
+pub fn spectre_orbit_gattling_is_firing(field: &HostSpectreOrbitField) -> bool {
+    field.gattling_consecutive > 0
+}
+
+/// Host Y-up impact of leftover `m_gattlingTargetPosition ± 5` + `getGroundHeight`.
+///
+/// C++ XY is the ground plane; host maps that to XZ and writes terrain height to Y.
+pub fn spectre_gattling_strafe_smoke_impact(gattling_target: Vec3) -> Vec3 {
+    let x = gattling_target.x
+        + gamelogic::helpers::game_client_random_value_real(
+            -SPECTRE_GATTLING_STRAFE_SMOKE_JITTER,
+            SPECTRE_GATTLING_STRAFE_SMOKE_JITTER,
+        );
+    let z = gattling_target.z
+        + gamelogic::helpers::game_client_random_value_real(
+            -SPECTRE_GATTLING_STRAFE_SMOKE_JITTER,
+            SPECTRE_GATTLING_STRAFE_SMOKE_JITTER,
+        );
+    let y = gamelogic::helpers::TheTerrainLogic::get()
+        .map(|terrain| terrain.get_ground_height(x, z, None))
+        .unwrap_or(gattling_target.y);
+    Vec3::new(x, y, z)
+}
+
+/// Leftover `TheParticleSystemManager->createParticleSystem(SpectreGattlingArmsSmoke)`
+/// + `setPosition` at the C++ Z-up impact (host Y-up `(x, height, z)`).
+pub fn spawn_spectre_gattling_strafe_smoke(impact: Vec3) -> Option<u32> {
+    if SPECTRE_GATTLING_STRAFE_FX.is_empty() {
+        return None;
+    }
+    let manager = gamelogic::helpers::TheParticleSystemManager::get()?;
+    let id = manager.create_particle_system(Some(SPECTRE_GATTLING_STRAFE_FX))?;
+    let leftover = gamelogic::common::Coord3D::new(impact.x, impact.z, impact.y);
+    manager.set_particle_system_position(id, &leftover);
+    Some(id)
 }

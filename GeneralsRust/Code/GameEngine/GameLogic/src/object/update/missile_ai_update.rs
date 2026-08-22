@@ -982,14 +982,16 @@ impl MissileAIUpdate {
     fn do_ignition_state(&mut self, current_frame: UnsignedInt) {
         self.set_locomotor_acceleration_and_turn(self.max_accel, 0.0);
 
-        if !dual_world_registry_unavailable() {
-            if let Some(fx) = &self.data.ignition_fx {
-                if let Some(object_arc) = TheGameLogic::find_object_by_id(self.object_id) {
-                    let _ = fx.do_fx_obj(&object_arc, None);
-                }
+        if let Some(fx) = &self.data.ignition_fx {
+            if let Some(object_arc) = TheGameLogic::find_object_by_id(self.object_id) {
+                let _ = fx.do_fx_obj(&object_arc, None);
+            } else {
+                // Live host: leftover OBJECT_REGISTRY is empty. C++ doFXObj
+                // still runs on the missile via leftover manager + host pose.
+                let _ = fx.do_fx_obj_ids(self.object_id, None, None);
             }
-            self.create_exhaust();
         }
+        self.create_exhaust();
 
         // C++ arms the warhead even if FX / exhaust / locomotor walks fail.
         self.is_armed = true;

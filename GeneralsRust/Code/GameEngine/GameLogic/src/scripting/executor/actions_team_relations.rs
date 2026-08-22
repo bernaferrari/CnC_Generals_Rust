@@ -198,6 +198,14 @@ impl ScriptActionDispatcher {
             }
         }
 
+        crate::scripting::request_host_team_override_relation(
+            crate::scripting::HostScriptTeamOverrideRelationRequest::SetTeam {
+                source: team_name,
+                dest_team: target_team,
+                relationship,
+            },
+        );
+
         Ok(ScriptActionResult::Success)
     }
 
@@ -229,6 +237,13 @@ impl ScriptActionDispatcher {
             }
         }
 
+
+        crate::scripting::request_host_team_override_relation(
+            crate::scripting::HostScriptTeamOverrideRelationRequest::RemoveTeam {
+                source: team_name,
+                dest_team: target_team,
+            },
+        );
         Ok(ScriptActionResult::Success)
     }
 
@@ -251,6 +266,10 @@ impl ScriptActionDispatcher {
             }
         }
 
+
+        crate::scripting::request_host_team_override_relation(
+            crate::scripting::HostScriptTeamOverrideRelationRequest::RemoveAll { source: team_name },
+        );
         Ok(ScriptActionResult::Success)
     }
 
@@ -287,6 +306,14 @@ impl ScriptActionDispatcher {
             }
         }
 
+
+        crate::scripting::request_host_team_override_relation(
+            crate::scripting::HostScriptTeamOverrideRelationRequest::SetPlayer {
+                source: team_name,
+                dest_player: player_name,
+                relationship,
+            },
+        );
         Ok(ScriptActionResult::Success)
     }
 
@@ -320,6 +347,13 @@ impl ScriptActionDispatcher {
             }
         }
 
+        crate::scripting::request_host_team_override_relation(
+            crate::scripting::HostScriptTeamOverrideRelationRequest::RemovePlayer {
+                source: team_name,
+                dest_player: player_name,
+            },
+        );
+
         Ok(ScriptActionResult::Success)
     }
 
@@ -328,9 +362,15 @@ impl ScriptActionDispatcher {
         &mut self,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let team_name = self.get_string_param(action, 0)?;
+        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         log::info!("Team '{}' loading transports", team_name);
-
+        // Live leftover Team members are host IDs, but leftover TheGameLogic
+        // lookup is empty on the player path. Queue leftover BinPartitionSolver
+        // + aiEnter for the live host drain.
+        if super::dual_world_registry_unavailable() {
+            crate::scripting::request_host_script_load_transports(&team_name);
+            return Ok(ScriptActionResult::Success);
+        }
         let team_arc = self.get_team_by_name(&team_name)?;
         let members = team_arc
             .read()

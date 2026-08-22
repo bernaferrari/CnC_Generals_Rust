@@ -474,6 +474,28 @@ impl PathfindingGrid {
         Vec3::new(x, self.layer_world_height(pos, layer, x, z), z)
     }
 
+    /// C++ `Pathfinder::adjustCoordToCell` (AIPathfind.cpp:8936-8946).
+    /// Infantry / odd-diameter: cell center (+0.5). Vehicles / even: +0.05 inset.
+    pub fn adjust_coord_to_cell(&self, pos: GridPos, center_in_cell: bool) -> Vec3 {
+        let bias = if center_in_cell { 0.5 } else { 0.05 };
+        let x = self.origin.x + (pos.x as f32 + bias) * self.grid_size;
+        let z = self.origin.z + (pos.y as f32 + bias) * self.grid_size;
+        Vec3::new(x, self.cell_world_height(pos, x, z), z)
+    }
+
+    /// `adjustCoordToCell` on a known pathfind layer.
+    pub fn adjust_coord_to_cell_on_layer(
+        &self,
+        pos: GridPos,
+        center_in_cell: bool,
+        layer: PathfindLayerEnum,
+    ) -> Vec3 {
+        let bias = if center_in_cell { 0.5 } else { 0.05 };
+        let x = self.origin.x + (pos.x as f32 + bias) * self.grid_size;
+        let z = self.origin.z + (pos.y as f32 + bias) * self.grid_size;
+        Vec3::new(x, self.layer_world_height(pos, layer, x, z), z)
+    }
+
     fn cell_world_height(&self, pos: GridPos, x: f32, z: f32) -> f32 {
         if self.wall_cells.contains_key(&(pos.x, pos.y)) && self.wall_height > 0.0 {
             return self.wall_height;
@@ -4887,6 +4909,8 @@ pub struct PathfindingSystem {
     seeker_crusher_level: u8,
     /// C++ `pathDiameter` from getRadiusAndCenter (vehicles, MAX_RADIUS=2).
     seeker_path_diameter: i32,
+    /// C++ `centerInCell` from getRadiusAndCenter (odd-diameter / infantry).
+    seeker_center_in_cell: bool,
     /// C++ `m_ignoreObstacleID` for this path query (DozerAIUpdate.cpp:210).
     ignore_obstacle_id: Option<ObjectId>,
     /// C++ `getPlayerType() == PLAYER_HUMAN` bits (bit i = player i).
@@ -4928,6 +4952,7 @@ impl PathfindingSystem {
             seeker_team: None,
             seeker_crusher_level: 0,
             seeker_path_diameter: 1,
+            seeker_center_in_cell: true,
             ignore_obstacle_id: None,
             human_player_mask: 0,
             seeker_is_human: false,
@@ -4976,6 +5001,11 @@ impl PathfindingSystem {
                 self.grid.grid_size(),
                 o.is_kind_of(KindOf::Vehicle),
             );
+            self.seeker_center_in_cell = PathfindingGrid::radius_and_center(
+                o.selection_radius,
+                self.grid.grid_size(),
+            )
+            .1;
         } else {
             self.seeker_player = None;
             self.seeker_is_infantry = false;
@@ -4984,6 +5014,7 @@ impl PathfindingSystem {
             self.seeker_team = None;
             self.seeker_crusher_level = 0;
             self.seeker_path_diameter = 1;
+            self.seeker_center_in_cell = true;
             self.seeker_is_dozer = false;
             self.seeker_downhill_only = false;
         }
@@ -5332,17 +5363,19 @@ impl PathfindingSystem {
     }
 
     fn crate_path_to_world(&self, cells: &[GridCoord]) -> Vec<Vec3> {
+        let center = self.seeker_center_in_cell;
         cells
             .iter()
             .map(|c| {
                 let pos = GridPos::new(c.x, c.y);
                 if let Some(id) = self.grid.host_deck_layer_at(pos) {
-                    self.grid.grid_to_world_on_layer(
+                    self.grid.adjust_coord_to_cell_on_layer(
                         pos,
+                        center,
                         PathfindLayerEnum::from_u32(id as u32),
                     )
                 } else {
-                    self.grid.grid_to_world(pos)
+                    self.grid.adjust_coord_to_cell(pos, center)
                 }
             })
             .collect()
@@ -5504,7 +5537,7 @@ impl PathfindingSystem {
             }
         }
         if start == goal {
-            return Some(vec![self.grid.grid_to_world(start)]);
+            return Some(vec![self.grid.adjust_coord_to_cell(start, self.seeker_center_in_cell)]);
         }
         let start_c = self.host_to_crate_coord(start);
         let goal_c = self.host_to_crate_coord(goal);
@@ -6896,8 +6929,8 @@ impl PathfindingSystem {
                 .unwrap_or(0.0);
             goal = self.snap_closest_goal_position(goal, surfaces, is_crusher, unit_radius);
         }
-        let start_grid = self.grid.world_to_grid(start);
-        let goal_grid = self.grid.world_to_grid(goal);
+        let start_grid = self.grid.cell_for_unit_position(start, self.seeker_center_in_cell);
+        let goal_grid = self.grid.cell_for_unit_position(goal, self.seeker_center_in_cell);
         let start_layer = self
             .seeker_id
             .and_then(|id| objects.get(&id))
@@ -6974,7 +7007,7 @@ impl PathfindingSystem {
         if original.len() < 2 {
             return None;
         }
-        let start = self.grid.world_to_grid(from);
+        let start = self.grid.cell_for_unit_position(from, self.seeker_center_in_cell);
         let mut splice_from = original.len() - 1;
         for idx in (1..original.len()).rev() {
             let cell = self.grid.world_to_grid(original[idx]);
@@ -7186,7 +7219,7 @@ impl PathfindingSystem {
         is_human: bool,
     ) -> Option<Vec<Vec3>> {
         self.sync_crate_astar();
-        let start = self.grid.world_to_grid(from);
+        let start = self.grid.cell_for_unit_position(from, self.seeker_center_in_cell);
         if !self.grid.is_valid_pos(start) {
             return None;
         }
@@ -7355,8 +7388,8 @@ impl PathfindingSystem {
         const COST_TO_DISTANCE_FACTOR_SQR: f32 = 0.01;
         const MAX_EXPAND: i32 = 4000;
         self.sync_crate_astar();
-        let start = self.grid.world_to_grid(from);
-        let goal_grid = self.grid.world_to_grid(goal);
+        let start = self.grid.cell_for_unit_position(from, self.seeker_center_in_cell);
+        let goal_grid = self.grid.cell_for_unit_position(goal, self.seeker_center_in_cell);
         if !self.grid.is_valid_pos(start) || !self.grid.is_valid_pos(goal_grid) {
             return None;
         }
@@ -7510,7 +7543,7 @@ impl PathfindingSystem {
         } else {
             self.grid.grid_to_world_on_layer(best_cell, best_layer)
         };
-        let to_cell = self.grid.world_to_grid(to_pos);
+        let to_cell = self.grid.cell_for_unit_position(to_pos, self.seeker_center_in_cell);
         // Leftover find_closest_path: buildActualPath via crate A* (layers/occupancy).
         if let Some(path) = self.find_path_via_crate(
             start,
@@ -11014,6 +11047,116 @@ mod tests {
             );
         }
     }
+
+    /// hq-wuufk: C++ adjustCoordToCell — infantry cell center, vehicle +0.05 inset.
+    #[test]
+    fn adjust_coord_to_cell_centers_infantry_insets_vehicles() {
+        let g = open_grid(16, 16);
+        let cell = GridPos::new(3, 4);
+        let origin = g.grid_to_world(cell);
+        let size = g.grid_size();
+        let center = g.adjust_coord_to_cell(cell, true);
+        let inset = g.adjust_coord_to_cell(cell, false);
+        assert!(
+            (center.x - (origin.x + size * 0.5)).abs() < 0.001
+                && (center.z - (origin.z + size * 0.5)).abs() < 0.001,
+            "infantry must plant on cell center, got {center:?} origin={origin:?}"
+        );
+        assert!(
+            (inset.x - (origin.x + size * 0.05)).abs() < 0.001
+                && (inset.z - (origin.z + size * 0.05)).abs() < 0.001,
+            "vehicle must use C++ (cell+0.05)*size, got {inset:?} origin={origin:?}"
+        );
+        assert!(
+            (inset.x - origin.x).abs() > 0.2,
+            "vehicle inset must not be the cell-origin corner"
+        );
+    }
+
+    /// hq-wuufk: even-diameter dest near a cell boundary seeds the next cell.
+    #[test]
+    fn vehicle_adjust_destination_seeds_half_cell() {
+        let g = open_grid(20, 20);
+        let (_, center) = PathfindingGrid::radius_and_center(8.0, 10.0);
+        assert!(!center, "selection_radius 8 must be even-diameter / !center");
+        let dest = Vec3::new(19.9, 0.0, 5.0);
+        assert_eq!(
+            g.world_to_grid(dest),
+            GridPos::new(1, 0),
+            "truncate-toward-zero stays in cell 1"
+        );
+        assert_eq!(
+            g.cell_for_unit_position(dest, false),
+            GridPos::new(2, 0),
+            "C++ half-cell seed must advance a vehicle near the far cell edge"
+        );
+        assert_eq!(
+            g.cell_for_unit_position(dest, true),
+            GridPos::new(1, 0),
+            "infantry / centerInCell still truncates"
+        );
+    }
+
+    /// hq-wuufk: live crate path emits adjustCoordToCell, not cell origins.
+    #[test]
+    fn crate_path_uses_adjust_coord_to_cell_not_corners() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut sys = PathfindingSystem::new(200.0, 200.0);
+        let size = sys.grid.grid_size();
+        let start = Vec3::new(20.0, 0.0, 20.0);
+        let goal = Vec3::new(80.0, 0.0, 20.0);
+
+        let mut inf_objects = HashMap::new();
+        let mut inf_t = ThingTemplate::new("Ranger");
+        inf_t.add_kind_of(KindOf::Infantry);
+        let mut inf = Object::new(inf_t, ObjectId(1), Team::USA);
+        inf.set_position(start);
+        inf.selection_radius = 1.0;
+        inf_objects.insert(inf.id, inf);
+        let inf_path = sys
+            .find_path_ex(start, goal, &inf_objects, false, Some(ObjectId(1)))
+            .expect("infantry path");
+        assert!(inf_path.len() >= 2);
+        assert!(
+            (inf_path[0].x - start.x).abs() < 0.01 && (inf_path[0].z - start.z).abs() < 0.01,
+            "first node stays unit feet"
+        );
+        for p in &inf_path[1..] {
+            let cell = sys.grid.world_to_grid(*p);
+            let origin = sys.grid.grid_to_world(cell);
+            assert!(
+                (p.x - origin.x - size * 0.5).abs() < 0.25
+                    && (p.z - origin.z - size * 0.5).abs() < 0.25,
+                "infantry waypoint {p:?} must be cell center, origin={origin:?}"
+            );
+        }
+
+        let mut veh_objects = HashMap::new();
+        let mut veh_t = ThingTemplate::new("CrusaderTank");
+        veh_t.add_kind_of(KindOf::Vehicle);
+        let mut veh = Object::new(veh_t, ObjectId(2), Team::USA);
+        veh.set_position(start);
+        veh.selection_radius = 8.0;
+        veh_objects.insert(veh.id, veh);
+        let veh_path = sys
+            .find_path_ex(start, goal, &veh_objects, false, Some(ObjectId(2)))
+            .expect("vehicle path");
+        assert!(veh_path.len() >= 2);
+        for p in &veh_path[1..] {
+            let cell = sys.grid.world_to_grid(*p);
+            let origin = sys.grid.grid_to_world(cell);
+            assert!(
+                (p.x - origin.x - size * 0.05).abs() < 0.25
+                    && (p.z - origin.z - size * 0.05).abs() < 0.25,
+                "vehicle waypoint {p:?} must be C++ +0.05 inset, origin={origin:?}"
+            );
+            assert!(
+                (p.x - origin.x).abs() > 0.2 || (p.z - origin.z).abs() > 0.2,
+                "vehicle must not walk the cell-origin corner, p={p:?} origin={origin:?}"
+            );
+        }
+    }
+
 
 
 }

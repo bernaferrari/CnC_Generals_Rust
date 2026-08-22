@@ -255,6 +255,7 @@ impl PresentationFrame {
             player_completed_upgrades: self.local_completed_upgrades.clone(),
             script_unsellable: ro.script_unsellable,
             disabled_subdued: ro.disabled_subdued,
+            single_use_used: ro.single_use_command_used,
             ..Default::default()
         };
         self.stamp_host_restrict_a_availability(&mut residual, Some(ro));

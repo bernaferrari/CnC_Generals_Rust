@@ -2021,7 +2021,10 @@ impl GameLogic {
     /// Matches retail SuperweaponEmergencyRepair → RepairVehiclesInArea_InvisibleMarker:
     /// - Radius residual 100 (RadiusCursorRadius / AutoHealBehavior Radius)
     /// - HealingAmount 100/200/300 by level (Level1/2/3)
-    /// - KindOf VEHICLE, same-team residual, damaged only
+    /// - KindOf VEHICLE, PartitionFilterRelationship ALLOW_ALLIES, damaged only
+    ///
+    /// ALLOW_ALLIES is player relationship (same controller or allied players),
+    /// not faction `Team` identity.
     ///
     /// Fail-closed: not full OCL marker / science upgrade matrix / RepairCloud particles.
     /// Returns true when the residual activation was recorded (even if 0 targets).
@@ -2033,9 +2036,11 @@ impl GameLogic {
         level: crate::game_logic::host_emergency_repair::HostEmergencyRepairLevel,
     ) -> bool {
         use crate::game_logic::host_emergency_repair::{
-            in_emergency_repair_radius_2d, is_legal_emergency_repair_target, HostEmergencyRepair,
+            emergency_repair_is_ally, in_emergency_repair_radius_2d,
+            is_legal_emergency_repair_target, HostEmergencyRepair,
             EMERGENCY_REPAIR_ACTIVATE_AUDIO, HOST_EMERGENCY_REPAIR_RADIUS,
         };
+        use gamelogic::common::Relationship;
 
         let frame = self.frame;
         let heal_amount = level.heal_amount();
@@ -2043,12 +2048,12 @@ impl GameLogic {
 
         let caster_team = caster_id
             .and_then(|cid| self.objects.get(&cid).map(|o| o.team))
-            .unwrap_or_else(|| match player_id {
-                0 => Team::USA,
-                1 => Team::China,
-                2 => Team::GLA,
-                _ => Team::Neutral,
-            });
+            .or_else(|| self.players.get(&player_id).map(|p| p.team))
+            .unwrap_or(Team::Neutral);
+        let caster_owner = caster_id
+            .and_then(|cid| self.objects.get(&cid))
+            .and_then(|c| self.player_owner_for_host_object(c))
+            .or(Some(player_id));
 
         let candidates: Vec<(ObjectId, bool, bool, bool, bool)> = self
             .objects
@@ -2066,21 +2071,30 @@ impl GameLogic {
                     return None;
                 }
                 let is_vehicle = obj.is_kind_of(KindOf::Vehicle);
-                let same_team = obj.team == caster_team;
+                let player_allies = match (caster_owner, self.player_owner_for_host_object(obj)) {
+                    (Some(a), Some(b)) => {
+                        Some(self.player_relationship(a, b) == Relationship::Allies)
+                    }
+                    _ => None,
+                };
+                let is_ally = emergency_repair_is_ally(
+                    obj.team == caster_team && caster_team != Team::Neutral,
+                    player_allies,
+                );
                 let under_construction =
                     obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
                 let is_damaged = obj.health.current + 0.01 < obj.health.maximum;
-                Some((*id, is_vehicle, same_team, under_construction, is_damaged))
+                Some((*id, is_vehicle, is_ally, under_construction, is_damaged))
             })
             .collect();
 
         let mut heals: u32 = 0;
         let mut heal_amount_total: f32 = 0.0;
-        for (id, is_vehicle, same_team, under_construction, is_damaged) in candidates {
+        for (id, is_vehicle, is_ally, under_construction, is_damaged) in candidates {
             if !is_legal_emergency_repair_target(
                 is_vehicle,
                 true,
-                same_team,
+                is_ally,
                 under_construction,
                 is_damaged,
             ) {
@@ -2129,6 +2143,7 @@ impl GameLogic {
         );
 
         // C++ OCL RepairVehiclesInArea_InvisibleMarker + DeletionUpdate 0 residual.
+        // Marker team is visual/faction identity; heal filter used player relationship.
         let _ = self.spawn_emergency_repair_marker(caster_team, location, level);
 
         true

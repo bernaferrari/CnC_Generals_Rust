@@ -43,6 +43,9 @@ pub struct GameLogic {
     pub(super) vision_last_looks: HashMap<ObjectId, (f32, f32, f32, f32, u32)>,
     /// C++ `m_partitionRevealAllLastLook` (ShroudRevealToAllRange).
     pub(super) vision_last_reveal_all: HashMap<ObjectId, (f32, f32, f32, f32, u32)>,
+    /// C++ `m_partitionLastShroud` (Object::shroud / doShroudCover).
+    pub(super) vision_last_shroud: HashMap<ObjectId, (f32, f32, f32, f32, u32)>,
+
 
 
     /// Players in the game. Coupled shadow: supplies/power/sciences last-write
@@ -273,7 +276,7 @@ pub struct GameLogic {
     pub(super) cave_system: crate::game_logic::host_cave_system::HostCaveSystem,
 
     /// C++ BridgeBehavior scaffolding + rubble restamp/splat.
-    pub(super) bridge_behavior: crate::game_logic::host_bridge_behavior::HostBridgeBehaviorRegistry,
+    pub(crate) bridge_behavior: crate::game_logic::host_bridge_behavior::HostBridgeBehaviorRegistry,
 
     /// Host AirF Combat Chinook residual honesty counters
     /// (load / unload / passenger fire / armed-riders weapon-set).

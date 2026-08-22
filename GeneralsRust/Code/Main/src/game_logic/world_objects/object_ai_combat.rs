@@ -420,8 +420,12 @@ impl GameLogic {
         obj.set_shroud_range(new_shroud_range);
         self.active_shroud_upgrade_reg
             .record_apply(obj.shroud_range);
+        // C++ ActiveShroudUpgrade::upgradeImplementation: handlePartitionCellMaintenance
+        // so Object::shroud cover applies without waiting for the next look tick.
+        self.update_main_crate_vision();
         true
     }
+
 
     pub(in super::super) fn apply_active_shroud_upgrade_to_team(
         &mut self,
@@ -457,6 +461,9 @@ impl GameLogic {
                     .record_apply(obj.shroud_range);
                 n = n.saturating_add(1);
             }
+        }
+        if n > 0 {
+            self.update_main_crate_vision();
         }
         n
     }

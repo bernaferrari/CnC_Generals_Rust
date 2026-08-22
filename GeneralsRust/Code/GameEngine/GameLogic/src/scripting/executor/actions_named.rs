@@ -1092,7 +1092,15 @@ impl ScriptActionDispatcher {
             unit_name,
             waypoint_path
         );
-
+        // Leftover crate forceFire cannot spawn a live projectile. Queue leftover
+        // forceFire + follow waypoint path for the live host drain.
+        if super::dual_world_registry_unavailable() {
+            crate::scripting::request_host_script_named_fire_weapon_path(
+                &unit_name,
+                &waypoint_path,
+            );
+            return Ok(ScriptActionResult::Success);
+        }
         let tracker = get_named_object_tracker();
         let Ok(Some(source_id)) = tracker.get_object_id(&unit_name) else {
             return Ok(ScriptActionResult::Success);

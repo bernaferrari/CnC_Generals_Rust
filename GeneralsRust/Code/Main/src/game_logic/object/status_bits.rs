@@ -211,6 +211,16 @@ impl Object {
         self.script_unsellable = v;
     }
 
+    /// C++ `Object::hasSingleUseCommandBeenUsed`.
+    pub fn has_single_use_command_been_used(&self) -> bool {
+        self.single_use_command_used
+    }
+
+    /// C++ `Object::markSingleUseCommandUsed`.
+    pub fn mark_single_use_command_used(&mut self) {
+        self.single_use_command_used = true;
+    }
+
     /// C++ `OBJECT_STATUS_SCRIPT_UNSTEALTHED`.
     pub fn is_script_unstealthed(&self) -> bool {
         self.script_unstealthed

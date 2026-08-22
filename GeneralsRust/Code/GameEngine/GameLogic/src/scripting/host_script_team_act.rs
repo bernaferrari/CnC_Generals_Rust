@@ -23,11 +23,43 @@ pub struct HostScriptCaptureNearestUnownedRequest {
     pub team: String,
 }
 
+/// Live host drain: TEAM_SET/REMOVE_OVERRIDE_RELATION_TO_TEAM/PLAYER
+/// and TEAM_REMOVE_ALL_OVERRIDE_RELATIONS.
+/// C++ `doTeamSetOverrideRelationToTeam` / `ToPlayer` / removers write
+/// `Team::m_teamRelations` / `m_playerRelations`. Leftover Team maps stay
+/// leftover-right; live combat reads host Player team-instance maps.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostScriptTeamOverrideRelationRequest {
+    SetTeam {
+        source: String,
+        dest_team: String,
+        relationship: crate::common::Relationship,
+    },
+    RemoveTeam {
+        source: String,
+        dest_team: String,
+    },
+    SetPlayer {
+        source: String,
+        dest_player: String,
+        relationship: crate::common::Relationship,
+    },
+    RemovePlayer {
+        source: String,
+        dest_player: String,
+    },
+    RemoveAll {
+        source: String,
+    },
+}
+
 thread_local! {
     static HOST_SCRIPT_MERGE_TEAM_REQUESTS: RefCell<Vec<HostScriptMergeTeamRequest>> =
         RefCell::new(Vec::new());
     static HOST_SCRIPT_CAPTURE_NEAREST_UNOWNED_REQUESTS:
         RefCell<Vec<HostScriptCaptureNearestUnownedRequest>> = RefCell::new(Vec::new());
+    static HOST_SCRIPT_TEAM_OVERRIDE_RELATION_REQUESTS:
+        RefCell<Vec<HostScriptTeamOverrideRelationRequest>> = RefCell::new(Vec::new());
 }
 
 /// Live host drain: TEAM_MERGE_INTO_TEAM rewrites live `team_instance_name`.
@@ -58,6 +90,15 @@ pub fn request_host_script_capture_nearest_unowned(team: &str) {
 pub fn take_host_script_capture_nearest_unowned_requests()
 -> Vec<HostScriptCaptureNearestUnownedRequest> {
     HOST_SCRIPT_CAPTURE_NEAREST_UNOWNED_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: TEAM_SET/REMOVE_OVERRIDE_RELATION_* leftover Team maps.
+pub fn request_host_team_override_relation(req: HostScriptTeamOverrideRelationRequest) {
+    HOST_SCRIPT_TEAM_OVERRIDE_RELATION_REQUESTS.with(|q| q.borrow_mut().push(req));
+}
+
+pub fn take_host_team_override_relation_requests() -> Vec<HostScriptTeamOverrideRelationRequest> {
+    HOST_SCRIPT_TEAM_OVERRIDE_RELATION_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
 
 #[cfg(test)]

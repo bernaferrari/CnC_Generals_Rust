@@ -308,6 +308,32 @@ mod presentation_availability_tests {
     }
 
     #[test]
+    fn sell_unsellable_hidden_and_subdued_restricts_sell_evac_exit() {
+        let mut bar = ControlBar::new();
+        bar.presentation_availability.script_unsellable = true;
+        assert_eq!(
+            leftover_presentation_sell_or_subdued(&bar, &button(CommandType::Sell)),
+            Some(CommandAvailability::Hidden)
+        );
+        bar.presentation_availability.script_unsellable = false;
+        bar.presentation_availability.disabled_subdued = true;
+        for command_type in [
+            CommandType::Sell,
+            CommandType::Evacuate,
+            CommandType::Exit,
+        ] {
+            assert_eq!(
+                leftover_presentation_sell_or_subdued(&bar, &button(command_type)),
+                Some(CommandAvailability::Restricted)
+            );
+        }
+        assert_eq!(
+            leftover_presentation_sell_or_subdued(&bar, &button(CommandType::DoSpecialPower)),
+            None
+        );
+    }
+
+    #[test]
     fn strategy_center_stop_option_one_and_railed_transport_restrict() {
         let mut bar = ControlBar::new();
         let mut stop = button(CommandType::DoStop);

@@ -104,6 +104,9 @@ impl SnapshotBuilder {
                 super::power_plant_rods_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
                 super::cleanup_hazard_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
                 super::point_defense_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::projectile_stream_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::transport_exit_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::bridge_behavior_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
 
 
 
@@ -367,6 +370,18 @@ impl SnapshotBuilder {
             game_logic,
         )?;
         super::point_defense_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::projectile_stream_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::transport_exit_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::bridge_behavior_persist::apply_from_lifecycle_tail(
             &snapshot.lifecycle_tail,
             game_logic,
         )?;
