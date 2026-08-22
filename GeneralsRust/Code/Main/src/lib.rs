@@ -126,6 +126,7 @@ pub mod network {
     pub fn clear_active_network_interface() {}
 }
 pub mod save_load;
+pub mod pick_ray;
 pub mod selection_renderer;
 pub mod unit_control;
 pub mod unit_input_handler;
