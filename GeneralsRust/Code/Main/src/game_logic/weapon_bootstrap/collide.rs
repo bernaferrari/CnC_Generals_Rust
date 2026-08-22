@@ -9,8 +9,11 @@ pub const PROJECTILE_COLLIDE_PROJECTILES: u32 = 0x0010;
 pub const PROJECTILE_COLLIDE_WALLS: u32 = 0x0020;
 pub const PROJECTILE_COLLIDE_SMALL_MISSILES: u32 = 0x0040;
 pub const PROJECTILE_COLLIDE_BALLISTIC_MISSILES: u32 = 0x0080;
+pub const PROJECTILE_COLLIDE_CONTROLLED_STRUCTURES: u32 = 0x0100;
 
 /// Default ballistic residual: structures + walls (most tank/missile shells).
+/// C++ Weapon.cpp:273 default is STRUCTURES only — own buildings require
+/// CONTROLLED_STRUCTURES (0x0100), which this default does not set.
 pub const PROJECTILE_COLLIDE_DEFAULT: u32 =
     PROJECTILE_COLLIDE_STRUCTURES | PROJECTILE_COLLIDE_WALLS;
 
@@ -67,9 +70,43 @@ pub(super) fn seed_projectile_collides_for(name: &str) -> u32 {
     PROJECTILE_COLLIDE_DEFAULT
 }
 
-/// Whether intervening structure intercept is enabled for this collide mask.
+/// Whether intervening structure intercept should scan at all.
+///
+/// C++ Weapon.cpp:716-721: STRUCTURES (other controllers), WALLS (fences),
+/// or CONTROLLED_STRUCTURES (same controller) can all require a scan.
 pub fn projectile_collides_structures(mask: u32) -> bool {
-    (mask & (PROJECTILE_COLLIDE_STRUCTURES | PROJECTILE_COLLIDE_WALLS)) != 0
+    (mask
+        & (PROJECTILE_COLLIDE_STRUCTURES
+            | PROJECTILE_COLLIDE_WALLS
+            | PROJECTILE_COLLIDE_CONTROLLED_STRUCTURES))
+        != 0
+}
+
+/// C++ `getControllingPlayer()` equality (`Weapon.cpp:718`).
+///
+/// Live objects may omit `owner_player_id`; fall back to team so Neutral
+/// walls still intercept and same-faction skirmish slots stay distinct
+/// when both player ids are present.
+pub fn projectile_structure_same_controller(
+    projectile_owner: Option<u32>,
+    structure_owner: Option<u32>,
+    same_team: bool,
+) -> bool {
+    match (projectile_owner, structure_owner) {
+        (Some(a), Some(b)) => a == b,
+        _ => same_team,
+    }
+}
+
+/// C++ Weapon.cpp:716-721 leftover `should_projectile_collide_with`.
+/// Same-controller structures collide only with CONTROLLED_STRUCTURES.
+/// Other structures use STRUCTURES (live residual also accepts WALLS).
+pub fn projectile_collides_with_structure(mask: u32, same_controller: bool) -> bool {
+    if same_controller {
+        (mask & PROJECTILE_COLLIDE_CONTROLLED_STRUCTURES) != 0
+    } else {
+        (mask & (PROJECTILE_COLLIDE_STRUCTURES | PROJECTILE_COLLIDE_WALLS)) != 0
+    }
 }
 
 /// C++ Weapon.cpp:271 default `m_affectsMask` when RadiusDamageAffects is omitted.

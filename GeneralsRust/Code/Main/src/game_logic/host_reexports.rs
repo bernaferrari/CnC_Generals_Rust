@@ -171,8 +171,9 @@ pub use super::host_dragon_tank::{
 };
 pub use super::host_ecm_jam::{is_ecm_jammer, is_legal_ecm_jam_target, HOST_ECM_JAM_RADIUS};
 pub use super::host_emergency_repair::{
-    is_legal_emergency_repair_target, HostEmergencyRepair, HostEmergencyRepairLevel,
-    HostEmergencyRepairRegistry, EMERGENCY_REPAIR_ACTIVATE_AUDIO, HOST_EMERGENCY_REPAIR_RADIUS,
+    emergency_repair_is_ally, is_legal_emergency_repair_target, HostEmergencyRepair,
+    HostEmergencyRepairLevel, HostEmergencyRepairRegistry, EMERGENCY_REPAIR_ACTIVATE_AUDIO,
+    HOST_EMERGENCY_REPAIR_RADIUS,
 };
 pub use super::host_emp_pulse::{
     is_legal_emp_disable_target, HostEmpPulse, HostEmpPulseRegistry, EMP_PULSE_ACTIVATE_AUDIO,

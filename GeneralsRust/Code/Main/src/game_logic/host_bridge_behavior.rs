@@ -364,6 +364,16 @@ impl HostBridgeBehaviorRegistry {
         Self::default()
     }
 
+    /// Replace live spans from a save payload. Does not call
+    /// `create_scaffolding` so a load cannot spawn a fresh rise.
+    pub fn restore(&mut self, other: Self) {
+        *self = other;
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.spans.is_empty()
+    }
+
     pub fn span(&self, id: ObjectId) -> Option<&HostBridgeSpan> {
         self.spans.get(&id.0)
     }

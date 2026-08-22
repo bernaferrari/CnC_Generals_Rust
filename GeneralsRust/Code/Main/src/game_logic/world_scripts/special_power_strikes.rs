@@ -1537,10 +1537,63 @@ impl GameLogic {
             );
         }
         self.special_power_strikes.advance_orbit_strafe(frame);
-
+        self.spawn_spectre_gattling_strafe_smoke();
 
         self.special_power_strikes.prune_expired_orbit(frame);
     }
+
+    /// C++ `SpectreGunshipUpdate.cpp:598-643` — leftover `createParticleSystem`
+    /// at gattling target ±5 / ground height while firing and PARTIAL_CLEAR.
+    fn spawn_spectre_gattling_strafe_smoke(&mut self) {
+        use crate::game_logic::combat_particles::CombatParticleKind;
+        use crate::game_logic::host_spectre_gunship_update::{
+            spawn_spectre_gattling_strafe_smoke as spawn_leftover_strafe_smoke,
+            spectre_gattling_strafe_smoke_impact, spectre_gunship_visible_for_strafe_fx,
+            spectre_orbit_gattling_is_firing,
+        };
+        use crate::game_logic::special_power_strikes::SPECTRE_GATTLING_STRAFE_FX;
+        use gamelogic::system::shroud_manager::get_shroud_manager;
+
+        let frame = self.frame;
+        let local = gamelogic::player::player_list()
+            .read()
+            .ok()
+            .map(|list| list.get_local_player_index())
+            .filter(|&idx| idx >= 0)
+            .map(|idx| idx as u32)
+            .or_else(|| self.local_player_id());
+
+        let shots: Vec<(ObjectId, Vec3)> = self
+            .special_power_strikes
+            .orbit_fields()
+            .iter()
+            .filter(|field| !field.is_expired(frame) && spectre_orbit_gattling_is_firing(field))
+            .map(|field| (field.source_object, field.gattling_aim()))
+            .collect();
+
+        for (source, aim) in shots {
+            let shroud = local.and_then(|pid| {
+                get_shroud_manager()
+                    .lock()
+                    .ok()
+                    .and_then(|mgr| mgr.get_host_object_shroud_status(pid, source.0))
+            });
+            if !spectre_gunship_visible_for_strafe_fx(shroud) {
+                continue;
+            }
+            let impact = spectre_gattling_strafe_smoke_impact(aim);
+            let _ = spawn_leftover_strafe_smoke(impact);
+            let _ = self.combat_particles.spawn_named(
+                CombatParticleKind::WeaponImpact,
+                SPECTRE_GATTLING_STRAFE_FX,
+                impact,
+                frame,
+                Some(source),
+                None,
+            );
+        }
+    }
+
 
     /// Tick residual Particle Uplink continuous beam fields after charge residual.
     /// Manual drive + WidthGrow grow/hold/decay + outer-node honesty residual closed.

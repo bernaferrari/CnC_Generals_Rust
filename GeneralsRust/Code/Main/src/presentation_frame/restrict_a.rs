@@ -339,6 +339,16 @@ mod restrict_a_tests {
             "apply_to_control_bar must stamp leftover dock_open"
         );
         assert!(
+            apply.contains("residual.script_unsellable = ro.script_unsellable")
+                && apply.contains("residual.disabled_subdued = ro.disabled_subdued")
+                && apply.contains("residual.single_use_used = ro.single_use_command_used"),
+            "apply_to_control_bar must stamp leftover SINGLE_USE / SUBDUED / SCRIPT_UNSELLABLE"
+        );
+        assert!(
+            strip.contains("single_use_used: ro.single_use_command_used"),
+            "leftover_availability_bar must stamp single_use_used"
+        );
+        assert!(
             apply.contains("let cmds = self.unit_command_buttons()"),
             "apply_to_game_hud must keep full UnitCommandButton"
         );

@@ -374,6 +374,9 @@ pub struct Object {
     /// C++ `OBJECT_STATUS_SCRIPT_UNSELLABLE` / `Object::isScriptUnsellable`.
     #[serde(default)]
     pub script_unsellable: bool,
+    /// C++ `Object::m_singleUseCommandUsed` — whole command strip Restricted.
+    #[serde(default)]
+    pub single_use_command_used: bool,
     /// C++ `OBJECT_STATUS_SCRIPT_UNSTEALTHED` — `NAMED/TEAM_SET_STEALTH_ENABLED`.
     #[serde(default)]
     pub script_unstealthed: bool,

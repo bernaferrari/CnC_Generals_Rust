@@ -603,6 +603,9 @@ pub struct RenderableObject {
     /// C++ OBJECT_STATUS_SCRIPT_UNSELLABLE residual frozen for ControlBar hide.
     #[serde(default)]
     pub script_unsellable: bool,
+    /// C++ `Object::m_singleUseCommandUsed` — leftover strip Restricted after first click.
+    #[serde(default)]
+    pub single_use_command_used: bool,
     /// C++ OBJECT_STATUS_UNSELECTABLE residual frozen for presentation/UI.
     pub unselectable: bool,
     /// C++ RebuildHole residual frozen for presentation/UI.

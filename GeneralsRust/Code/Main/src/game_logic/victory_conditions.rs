@@ -62,15 +62,46 @@ struct PlayerArmyState {
     has_structures: bool,
 }
 
-/// C++ `VictoryConditions::areAllies` / slot team: `Player.alliance_team`,
-/// not faction [`Team`]. Unset (`< 0`) means the player is a lone alliance.
-fn alliance_key(player: &Player) -> i32 {
-    if player.alliance_team >= 0 {
-        player.alliance_team
-    } else {
-        // Unique negative so two USA slots without a team number never merge.
-        -1 - (player.id as i32)
+/// C++ `Player::getRelationship`: explicit map entry, else slot-team default.
+fn live_player_relationship(source: &Player, target: &Player) -> gamelogic::common::Relationship {
+    use gamelogic::common::Relationship;
+    if source.id == target.id {
+        return Relationship::Allies;
     }
+    if let Some(rel) = source.map_relationship(target.id) {
+        return rel;
+    }
+    if source.alliance_team >= 0 && source.alliance_team == target.alliance_team {
+        Relationship::Allies
+    } else if source.alliance_team >= 0 && target.alliance_team >= 0 {
+        Relationship::Enemies
+    } else {
+        Relationship::Neutral
+    }
+}
+
+/// C++ `VictoryConditions::areAllies`.
+/// Mutual `Player::getRelationship` ALLIES and not the same player.
+/// Live host `map_relationship` (PLAYER_RELATES / map playerAllies) wins;
+/// lobby `alliance_team` is the initial slot-team default when neither map is set.
+fn live_players_are_allies(a: &Player, b: &Player) -> bool {
+    use gamelogic::common::Relationship;
+    if a.id == b.id {
+        return false;
+    }
+    live_player_relationship(a, b) == Relationship::Allies
+        && live_player_relationship(b, a) == Relationship::Allies
+}
+
+fn player_shares_winning_alliance(
+    players: &HashMap<u32, Player>,
+    player: &Player,
+    winning_rep: i32,
+) -> bool {
+    let Some(rep) = players.get(&(winning_rep as u32)) else {
+        return false;
+    };
+    player.id == rep.id || live_players_are_allies(player, rep)
 }
 
 /// C++ `TheRecorder->isMultiplayer()`: skirmish / network / replay of those.
@@ -390,7 +421,6 @@ impl VictoryConditions {
         }
 
         let mut living_players = Vec::new();
-        let mut active_alliances: HashMap<i32, Vec<u32>> = HashMap::new();
 
         for (&player_id, player) in players {
             if !is_playable_victory_player(player, &self.player_templates) {
@@ -414,11 +444,9 @@ impl VictoryConditions {
             }
 
             living_players.push(player_id);
-            active_alliances
-                .entry(alliance_key(player))
-                .or_default()
-                .push(player_id);
         }
+
+        living_players.sort_unstable();
 
         if living_players.is_empty() {
             self.end_frame.get_or_insert(frame);
@@ -429,36 +457,29 @@ impl VictoryConditions {
             return Some(VictoryCondition::Draw);
         }
 
-        let mut non_neutral_alliances: Vec<(i32, Vec<u32>)> = active_alliances
-            .into_iter()
-            .filter(|(_, members)| !members.is_empty())
-            .collect();
+        // C++ update: first living player vs every other living player via areAllies.
+        let single_alliance = players.get(&living_players[0]).is_some_and(|first| {
+            living_players[1..].iter().all(|id| {
+                players
+                    .get(id)
+                    .is_some_and(|other| live_players_are_allies(first, other))
+            })
+        });
 
-        if non_neutral_alliances.is_empty() {
-            self.end_frame.get_or_insert(frame);
-            self.winning_alliance = None;
-            self.refresh_alliance_states(players);
-            self.sync_leftover_victory_flags(players);
-
-            return Some(VictoryCondition::Draw);
-        }
-        let winning_entry = if non_neutral_alliances.len() == 1 {
-            Some(non_neutral_alliances.remove(0))
+        self.winning_alliance = if single_alliance {
+            Some(living_players[0] as i32)
         } else {
             None
         };
-        self.winning_alliance = winning_entry.as_ref().map(|(key, _)| *key);
-        if winning_entry.is_some() {
+        if single_alliance {
             // C++ sets m_endFrame with m_singleAllianceRemaining before scripts read it.
             self.end_frame.get_or_insert(frame);
         }
         self.refresh_alliance_states(players);
         self.sync_leftover_victory_flags(players);
 
-        if let Some((_, members)) = winning_entry {
-            if let Some(winner_id) = members.first().copied() {
-                return Some(VictoryCondition::Winner(winner_id));
-            }
+        if single_alliance {
+            return Some(VictoryCondition::Winner(living_players[0]));
         }
 
         None
@@ -474,7 +495,7 @@ impl VictoryConditions {
         players.values().any(|player| {
             player.is_local
                 && is_playable_victory_player(player, &self.player_templates)
-                && alliance_key(player) == key
+                && player_shares_winning_alliance(players, player, key)
         })
     }
 
@@ -555,7 +576,7 @@ impl VictoryConditions {
                 AllianceState::AlliedDefeat
             } else if self
                 .winning_alliance
-                .map(|key| key == alliance_key(player))
+                .map(|key| player_shares_winning_alliance(players, player, key))
                 .unwrap_or(false)
             {
                 AllianceState::AlliedVictory
@@ -842,6 +863,49 @@ mod tests {
             "C++ isLocalAlliedVictory is true for the living local alliance"
         );
         assert!(gamelogic::helpers::TheVictoryConditions::is_local_allied_victory());
+        vc.reset();
+    }
+
+    #[test]
+    fn scripted_get_relationship_overrides_slot_team() {
+        use gamelogic::common::Relationship;
+        let mut vc = VictoryConditions::new();
+        let mut allies = HashMap::new();
+        let mut usa = player(0, Team::USA, 1);
+        let mut gla = player(1, Team::GLA, 2);
+        usa.set_map_relationship(1, Relationship::Allies);
+        gla.set_map_relationship(0, Relationship::Allies);
+        allies.insert(0, usa);
+        allies.insert(1, gla);
+        let mut objects = HashMap::new();
+        let (a, oa) = obj(1, 0, Team::USA, &[KindOf::Infantry]);
+        let (b, ob) = obj(2, 1, Team::GLA, &[KindOf::Infantry]);
+        objects.insert(a, oa);
+        objects.insert(b, ob);
+        let outcome = vc.evaluate(&allies, &objects, 12, GameMode::Skirmish);
+        assert!(
+            matches!(outcome, Some(VictoryCondition::Winner(_))),
+            "mutual PLAYER_RELATES Allies must be one alliance, got {outcome:?}"
+        );
+        assert!(vc.is_local_allied_victory(&allies));
+        vc.reset();
+
+        let mut ffa = HashMap::new();
+        let mut usa = player(0, Team::USA, 7);
+        let mut china = player(1, Team::China, 7);
+        usa.set_map_relationship(1, Relationship::Enemies);
+        china.set_map_relationship(0, Relationship::Enemies);
+        ffa.insert(0, usa);
+        ffa.insert(1, china);
+        let mut objs = HashMap::new();
+        let (c, oc) = obj(3, 0, Team::USA, &[KindOf::Infantry]);
+        let (d, od) = obj(4, 1, Team::China, &[KindOf::Infantry]);
+        objs.insert(c, oc);
+        objs.insert(d, od);
+        assert!(
+            vc.evaluate(&ffa, &objs, 13, GameMode::Skirmish).is_none(),
+            "scripted Enemies on the same slot team must not share victory"
+        );
         vc.reset();
     }
 

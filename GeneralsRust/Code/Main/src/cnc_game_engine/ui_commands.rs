@@ -2479,6 +2479,13 @@ impl CnCGameEngine {
             }
             _ => {}
         }
+        if named_command_is_single_use(command_name) {
+            for id in &selected {
+                if let Some(obj) = self.game_logic.host_object_mut(*id) {
+                    obj.mark_single_use_command_used();
+                }
+            }
+        }
         self.host_queue_and_process_command_silent(crate::command_system::GameCommand {
             command_type,
             player_id,
@@ -2512,6 +2519,20 @@ fn play_named_command_button_unit_specific_sound(command_name: &str, player_id: 
     } else {
         let _ = crate::assets::audio::play_sound_through_the_audio(&event_name);
     }
+}
+
+/// C++ ControlBarCommandProcessing.cpp:167-178.
+fn named_command_is_single_use(command_name: &str) -> bool {
+    let Some(bar) = game_engine::common::ini::ini_command_button::get_control_bar() else {
+        return false;
+    };
+    let Some(button) = bar.find_command_button_resolved(command_name) else {
+        return false;
+    };
+    button.options.one_shot
+        || (button.options_bits
+            & crate::game_logic::host_production_buildable_command_residual::COMMAND_OPTION_SINGLE_USE_COMMAND)
+            != 0
 }
 
 /// C++ CommandXlat.cpp:3473 — `TheAudio->addAudioEvent(&m_allCheerSound)`.

@@ -572,8 +572,21 @@ mod tests {
         match host_projectile_flight_for_object_name("PatriotMissile") {
             Some(HostProjectileFlight::Missile(missile)) => {
                 assert!(missile.lock_distance > 0.0);
+                // Parsed even when empty; NONE is filtered to "".
+                assert!(!missile.ignition_fx.eq_ignore_ascii_case("none"));
             }
             other => panic!("expected Missile flight, got {other:?}"),
         }
+        for name in ["TomahawkMissile", "PatriotMissile", "StingerMissile"] {
+            if let Some(HostProjectileFlight::Missile(missile)) =
+                host_projectile_flight_for_object_name(name)
+            {
+                assert!(
+                    !missile.ignition_fx.eq_ignore_ascii_case("none"),
+                    "{name} IgnitionFX must not stay as NONE"
+                );
+            }
+        }
     }
+
 }

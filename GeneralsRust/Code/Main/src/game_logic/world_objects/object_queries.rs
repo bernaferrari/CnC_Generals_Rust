@@ -67,6 +67,54 @@ fn leftover_team_relationship_override(
     player.override_relationship_for_team(&team_guard)
 }
 
+/// C++ `Team::getRelationship` team/player override maps written by
+/// `TEAM_SET_OVERRIDE_RELATION_TO_TEAM` / `_TO_PLAYER`.
+fn leftover_source_team_override(
+    source_team_name: &str,
+    target_team_name: &str,
+    target_owner: Option<u32>,
+) -> Option<gamelogic::common::Relationship> {
+    if source_team_name.trim().is_empty() {
+        return None;
+    }
+    let source = {
+        let Ok(factory) = gamelogic::team::get_team_factory().lock() else {
+            return None;
+        };
+        factory
+            .find_team_instances(source_team_name)
+            .into_iter()
+            .next()?
+    };
+    let target = if target_team_name.trim().is_empty() {
+        None
+    } else {
+        match gamelogic::team::get_team_factory().lock() {
+            Ok(factory) => factory
+                .find_team_instances(target_team_name)
+                .into_iter()
+                .next(),
+            Err(_) => None,
+        }
+    };
+    let Ok(source_guard) = source.read() else {
+        return None;
+    };
+    if let Some(target_arc) = target {
+        if let Ok(target_guard) = target_arc.read() {
+            if let Some(rel) = source_guard.override_relationship_with_team(&target_guard) {
+                return Some(rel);
+            }
+        }
+    }
+    if let Some(pid) = target_owner {
+        if let Some(rel) = source_guard.override_relationship_with_player(pid as i32) {
+            return Some(rel);
+        }
+    }
+    None
+}
+
 
 impl GameLogic {
     /// Wave 958: legacy alias — prefer [`Self::host_object`].
@@ -423,6 +471,34 @@ impl GameLogic {
         target_owner: Option<u32>,
         target_team_instance: &str,
     ) -> gamelogic::common::Relationship {
+        if !source_team_instance.is_empty() {
+            if let Some(rel) = leftover_source_team_override(
+                source_team_instance,
+                target_team_instance,
+                target_owner,
+            ) {
+                return rel;
+            }
+            if let Some(source_player_id) = source_owner {
+                if let Some(source_player) = players.get(&source_player_id) {
+                    if !target_team_instance.is_empty() {
+                        if let Some(rel) = source_player
+                            .team_instance_team_override(source_team_instance, target_team_instance)
+                        {
+                            return rel;
+                        }
+                    }
+                    if let Some(target_player_id) = target_owner {
+                        if let Some(rel) = source_player
+                            .team_instance_player_override(source_team_instance, target_player_id)
+                        {
+                            return rel;
+                        }
+                    }
+                }
+            }
+        }
+
         use gamelogic::common::Relationship;
 
         if let Some(source_player_id) = source_owner {
@@ -2758,6 +2834,38 @@ mod sides_relationship_tests {
         tmpl.add_kind_of(KindOf::Infantry);
         let mut src = Object::new(tmpl.clone(), ObjectId(1), Team::USA);
         src.owner_player_id = Some(0);
+        let mut convoy = Object::new(tmpl.clone(), ObjectId(2), Team::GLA);
+        convoy.owner_player_id = Some(1);
+        convoy.team_instance_name = "CivilianConvoy".into();
+        let mut other = Object::new(tmpl, ObjectId(3), Team::GLA);
+        other.owner_player_id = Some(1);
+
+        assert_eq!(
+            logic.object_relationship(&src, &convoy),
+            Relationship::Allies
+        );
+        assert_eq!(
+            logic.object_relationship(&src, &other),
+            Relationship::Enemies
+        );
+    }
+
+    #[test]
+    fn team_set_override_relation_to_team_beats_player_map() {
+        // C++ Team::getRelationship team-id override before player relations.
+        let mut logic = GameLogic::new();
+        let mut usa = Player::new(0, Team::USA, "PlyrAmerica", true);
+        let gla = Player::new(1, Team::GLA, "PlyrGLA", false);
+        usa.set_map_relationship(1, Relationship::Enemies);
+        usa.set_team_instance_team_override("RangerTeam", "CivilianConvoy", Relationship::Allies);
+        logic.add_player(usa);
+        logic.add_player(gla);
+
+        let mut tmpl = ThingTemplate::new("Ranger");
+        tmpl.add_kind_of(KindOf::Infantry);
+        let mut src = Object::new(tmpl.clone(), ObjectId(1), Team::USA);
+        src.owner_player_id = Some(0);
+        src.team_instance_name = "RangerTeam".into();
         let mut convoy = Object::new(tmpl.clone(), ObjectId(2), Team::GLA);
         convoy.owner_player_id = Some(1);
         convoy.team_instance_name = "CivilianConvoy".into();

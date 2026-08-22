@@ -106,6 +106,9 @@ mod angry_mob_persist;
 mod power_plant_rods_persist;
 mod cleanup_hazard_persist;
 mod point_defense_persist;
+mod projectile_stream_persist;
+mod transport_exit_persist;
+mod bridge_behavior_persist;
 
 
 mod particle_system_save;
@@ -221,6 +224,9 @@ pub const SNAPSHOT_SRC: &str = concat!(
     include_str!("power_plant_rods_persist.rs"),
     include_str!("cleanup_hazard_persist.rs"),
     include_str!("point_defense_persist.rs"),
+    include_str!("projectile_stream_persist.rs"),
+    include_str!("transport_exit_persist.rs"),
+    include_str!("bridge_behavior_persist.rs"),
 
 
     include_str!("particle_system_save.rs"),

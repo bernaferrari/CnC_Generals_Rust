@@ -961,6 +961,33 @@ fn projectile_collides_for_seeded_weapons_residual() {
     assert_eq!(seed_projectile_collides_for("PaladinPointDefenseLaser"), 0);
     assert!(projectile_collides_structures(PROJECTILE_COLLIDE_DEFAULT));
     assert!(!projectile_collides_structures(0));
+    assert!(projectile_collides_structures(
+        PROJECTILE_COLLIDE_CONTROLLED_STRUCTURES
+    ));
+    assert!(!projectile_collides_with_structure(
+        PROJECTILE_COLLIDE_DEFAULT,
+        true
+    ));
+    assert!(projectile_collides_with_structure(
+        PROJECTILE_COLLIDE_DEFAULT,
+        false
+    ));
+    assert!(projectile_collides_with_structure(
+        PROJECTILE_COLLIDE_CONTROLLED_STRUCTURES,
+        true
+    ));
+    assert!(!projectile_collides_with_structure(
+        PROJECTILE_COLLIDE_CONTROLLED_STRUCTURES,
+        false
+    ));
+    assert!(projectile_structure_same_controller(Some(1), Some(1), false));
+    assert!(!projectile_structure_same_controller(
+        Some(1),
+        Some(2),
+        true
+    ));
+    assert!(projectile_structure_same_controller(None, None, true));
+    assert!(!projectile_structure_same_controller(None, Some(1), false));
     assert_eq!(
         seed_projectile_collides_for("ScudStormDamageWeapon"),
         PROJECTILE_COLLIDE_STRUCTURES

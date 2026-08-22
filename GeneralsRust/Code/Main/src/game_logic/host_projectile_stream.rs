@@ -5,6 +5,7 @@
 
 use super::ObjectId;
 use glam::Vec3;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// C++ MAX_PROJECTILE_STREAM residual (ProjectileStreamUpdate.h).
@@ -13,7 +14,7 @@ pub const MAX_PROJECTILE_STREAM: usize = 20;
 /// C++ `INVALID_ID` hole written by `getAllPoints` as (0,0,0).
 pub const STREAM_HOLE: Vec3 = Vec3::ZERO;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectileStreamState {
     pub stream_name: String,
     pub points: Vec<Vec3>,
@@ -116,7 +117,7 @@ pub fn skim_stream_points_for_vehicle(
         .collect()
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ProjectileStreamRegistry {
     /// Keyed by shooter ObjectId (one active stream per shooter residual).
     streams: HashMap<ObjectId, ProjectileStreamState>,
@@ -183,6 +184,17 @@ impl ProjectileStreamRegistry {
     pub fn clear(&mut self) {
         self.streams.clear();
     }
+
+    /// Replace live streams from a save payload. Does not call `add_projectile`
+    /// so a load cannot insert a retarget hole or re-create the trail.
+    pub fn restore(&mut self, streams: HashMap<ObjectId, ProjectileStreamState>) {
+        self.streams = streams;
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.streams.is_empty()
+    }
+
 }
 
 #[cfg(test)]

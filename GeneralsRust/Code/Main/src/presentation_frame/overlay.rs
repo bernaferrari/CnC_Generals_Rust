@@ -1574,6 +1574,7 @@ impl PresentationFrame {
             ocl_timer_seconds: 0,
             sold: ent.sold,
             script_unsellable: false,
+            single_use_command_used: false,
             unselectable: ent.unselectable,
             is_rebuild_hole: ent.is_rebuild_hole,
             rebuild_template_name: ent.rebuild_template_name.clone(),

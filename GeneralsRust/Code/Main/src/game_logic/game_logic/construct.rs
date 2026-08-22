@@ -53,6 +53,8 @@ impl GameLogic {
             host_view_dirty: HashSet::new(),
             vision_last_looks: HashMap::new(),
             vision_last_reveal_all: HashMap::new(),
+            vision_last_shroud: HashMap::new(),
+
             players: HashMap::new(),
             player_template_bindings: HashMap::new(),
             next_object_id: ObjectId(1), // Start at 1, 0 is invalid
@@ -693,6 +695,10 @@ impl GameLogic {
 
         self.objects.clear();
         self.host_view_dirty.clear();
+        self.vision_last_looks.clear();
+        self.vision_last_reveal_all.clear();
+        self.vision_last_shroud.clear();
+
         self.players.clear();
         self.player_template_bindings.clear();
         self.next_object_id = ObjectId(1);

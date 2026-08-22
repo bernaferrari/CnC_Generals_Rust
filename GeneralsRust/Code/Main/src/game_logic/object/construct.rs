@@ -378,6 +378,7 @@ impl Object {
             status: ObjectStatus::default(),
             object_status_bits: 0,
             script_unsellable: false,
+            single_use_command_used: false,
             script_unstealthed: false,
             indestructible: false,
 
@@ -1258,6 +1259,7 @@ impl Object {
             status: ObjectStatus::default(),
             object_status_bits: 0,
             script_unsellable: false,
+            single_use_command_used: false,
             script_unstealthed: false,
             indestructible: false,
 

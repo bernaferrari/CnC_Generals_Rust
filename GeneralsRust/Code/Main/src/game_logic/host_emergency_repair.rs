@@ -1,7 +1,7 @@
 //! Host Emergency Repair special-power residual — single-burst ally vehicle heal.
 //!
 //! Residual slice (playability):
-//! - `DoSpecialPower(EmergencyRepair)` at a world location heals damaged same-team
+//! - `DoSpecialPower(EmergencyRepair)` at a world location heals damaged allied
 //!   **VEHICLE** units in radius (retail SuperweaponEmergencyRepair →
 //!   SUPERWEAPON_RepairVehicles* → RepairVehiclesInArea_InvisibleMarker_Level*
 //!   AutoHealBehavior SingleBurst).
@@ -19,7 +19,7 @@
 //!
 //! Fail-closed honesty:
 //! - RepairVehiclesInArea_InvisibleMarker spawn residual closed (RepairCloud GPU fail-closed)
-//! - Not full ally relationship filter (uses same-team residual)
+//! - Ally filter is C++ PartitionFilterRelationship ALLOW_ALLIES (player relationship)
 //! - Not full player science ownership matrix beyond residual name tier gate
 //! - Not KindOf aircraft-as-vehicle edge cases beyond residual Vehicle KindOf
 //! - Not network EmergencyRepair replication (network deferred)
@@ -182,7 +182,7 @@ where
 /// Whether residual target can receive Emergency Repair heal burst.
 ///
 /// Retail AutoHealBehavior KindOf = VEHICLE, SingleBurst, StartsActive:
-/// - same-team residual (allies)
+/// - ALLOW_ALLIES player relationship (same controller or allied players)
 /// - alive
 /// - VEHICLE KindOf
 /// - not under construction residual
@@ -190,11 +190,20 @@ where
 pub fn is_legal_emergency_repair_target(
     is_vehicle: bool,
     is_alive: bool,
-    same_team: bool,
+    is_ally: bool,
     under_construction: bool,
     is_damaged: bool,
 ) -> bool {
-    is_vehicle && is_alive && same_team && !under_construction && is_damaged
+    is_vehicle && is_alive && is_ally && !under_construction && is_damaged
+}
+
+/// C++ PartitionFilterRelationship ALLOW_ALLIES: same player or allied player.
+/// Leftover fallback: same non-neutral team when player ids are missing.
+pub fn emergency_repair_is_ally(same_non_neutral_team: bool, player_allies: Option<bool>) -> bool {
+    match player_allies {
+        Some(allies) => allies,
+        None => same_non_neutral_team,
+    }
 }
 
 /// 2D distance check residual (C++ FROM_CENTER_2D / AutoHeal Radius).
@@ -398,7 +407,7 @@ mod tests {
 
     #[test]
     fn legal_emergency_repair_target_matrix() {
-        // is_vehicle, alive, same_team, under_construction, is_damaged
+        // is_vehicle, alive, is_ally (ALLOW_ALLIES), under_construction, is_damaged
         assert!(is_legal_emergency_repair_target(
             true, true, true, false, true
         ));
@@ -417,6 +426,16 @@ mod tests {
         assert!(!is_legal_emergency_repair_target(
             true, true, true, false, false
         )); // full HP
+    }
+
+    #[test]
+    fn emergency_repair_is_ally_uses_player_relationship_not_faction() {
+        // Player relationship wins over faction Team identity.
+        assert!(emergency_repair_is_ally(false, Some(true))); // 2v2 USA+China
+        assert!(!emergency_repair_is_ally(true, Some(false))); // FFA USA-vs-USA
+        // Leftover fallback when player ids are missing.
+        assert!(emergency_repair_is_ally(true, None));
+        assert!(!emergency_repair_is_ally(false, None));
     }
 
     #[test]

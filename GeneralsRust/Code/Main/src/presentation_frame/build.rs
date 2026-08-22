@@ -829,6 +829,7 @@ impl PresentationFrame {
                     },
                 sold: obj.status.sold,
                 script_unsellable: obj.script_unsellable,
+                single_use_command_used: obj.single_use_command_used,
                 unselectable: obj.status.unselectable,
                 is_rebuild_hole: obj.is_rebuild_hole,
                 rebuild_template_name: obj.rebuild_template_name.clone().unwrap_or_default(),
