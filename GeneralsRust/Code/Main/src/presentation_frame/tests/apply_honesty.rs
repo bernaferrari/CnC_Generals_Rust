@@ -1677,4 +1677,49 @@ fn complete_events_do_not_invent_unit_ready_upgrade_building_sfx() {
     );
 }
 
+#[test]
+fn capture_building_button_uses_ready_and_in_use() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
+    let mut logic = crate::game_logic::GameLogic::new();
+    let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
+    ranger
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    ranger.capture_power = crate::game_logic::CapturePowerKind::Ranger;
+    logic.templates.insert("AmericaInfantryRanger".into(), ranger);
+    let id = logic
+        .create_object("AmericaInfantryRanger", Team::USA, glam::Vec3::ZERO)
+        .expect("ranger");
+    if let Some(o) = logic.host_object_mut(id) {
+        o.selected = true;
+    }
+    if let Some(p) = logic.get_player_mut(0) {
+        p.selected_objects = vec![id];
+    }
+
+    let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0);
+    let cmds = frame.unit_command_buttons();
+    let capture = cmds
+        .iter()
+        .find(|c| c.command_name.eq_ignore_ascii_case("Command_CaptureBuilding"))
+        .expect("capture button");
+    assert_eq!(
+        capture.enabled, frame.objects.iter().find(|o| o.id == id).unwrap().capture_power_ready,
+        "button must follow capture_power_ready"
+    );
+
+    if let Some(o) = logic.host_object_mut(id) {
+        o.set_status_using_ability(true);
+    }
+    let busy = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0);
+    let busy_btn = busy
+        .unit_command_buttons()
+        .into_iter()
+        .find(|c| c.command_name.eq_ignore_ascii_case("Command_CaptureBuilding"))
+        .expect("capture button while using ability");
+    assert!(!busy_btn.enabled, "in-use capture must be gray");
+}
+
 

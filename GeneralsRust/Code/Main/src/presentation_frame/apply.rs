@@ -1494,7 +1494,11 @@ impl PresentationFrame {
                 push(&mut cmds, "Command_DetonateRemoteDemoCharges", has_remote);
             }
             if n.contains("blacklotus") || n.contains("black_lotus") {
-                push(&mut cmds, "Command_CaptureBuilding", true);
+                push(
+                    &mut cmds,
+                    "Command_CaptureBuilding",
+                    ro.capture_power_ready && !ro.using_ability,
+                );
                 push(&mut cmds, "Command_StealCashHack", true);
                 push(&mut cmds, "Command_DisableVehicleHack", true);
             }
@@ -1522,11 +1526,19 @@ impl PresentationFrame {
                 push(&mut cmds, "Command_ConvertToCarbomb", true);
             }
             if n.contains("rebel") && !n.contains("scud") {
-                push(&mut cmds, "Command_CaptureBuilding", true);
+                push(
+                    &mut cmds,
+                    "Command_CaptureBuilding",
+                    ro.capture_power_ready && !ro.using_ability,
+                );
                 push(&mut cmds, "Command_PlantBoobyTrap", true);
             }
             if n.contains("ranger") || n.contains("redguard") {
-                push(&mut cmds, "Command_CaptureBuilding", true);
+                push(
+                    &mut cmds,
+                    "Command_CaptureBuilding",
+                    ro.capture_power_ready && !ro.using_ability,
+                );
             }
             if n.contains("demo")
                 && (n.contains("terrorist") || n.contains("bike") || n.contains("trap"))
