@@ -681,6 +681,17 @@ impl GameLogic {
         }
     }
 
+    /// C++ `Thing::isSignificantlyAboveTerrain`: height-above-terrain, not world Y.
+    /// Host Y is up; sample terrain (XZ ground) and fall back to the object's ground cache.
+    fn vehicle_is_significantly_above_terrain(&self, vehicle: &crate::game_logic::Object) -> bool {
+        let pos = vehicle.get_position();
+        let terrain_y = self
+            .terrain_height_at(pos)
+            .unwrap_or(vehicle.ground_height);
+        let height_above_terrain = pos.y - terrain_y;
+        height_above_terrain > -(3.0 * 3.0) * crate::game_logic::Object::SHOCK_GRAVITY
+    }
+
     /// Tick HijackerUpdate residual for all in-vehicle hijackers.
     pub fn tick_hijacker_updates(&mut self) {
         let riders: Vec<(ObjectId, ObjectId)> = self
@@ -727,7 +738,7 @@ impl GameLogic {
                 let v = self.objects.get(&vehicle_id).unwrap();
                 (
                     v.get_position(),
-                    v.status.airborne_target || v.is_significantly_above_terrain(),
+                    self.vehicle_is_significantly_above_terrain(v),
                     v.experience.level,
                     v.experience.current,
                 )
