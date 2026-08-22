@@ -151,6 +151,9 @@ pub struct Player {
     pub can_build_units: bool,
     /// C++ Player::m_canBuildBase (Player.cpp:2297).
     pub can_build_base: bool,
+    /// C++ Player::m_unitsShouldHunt. PLAYER_HUNT keeps map-wide hunt after clear.
+    pub units_should_hunt: bool,
+
 
 
     /// C++ Player::m_specialPowerReadyTimerList residual (seconds remaining).
@@ -379,6 +382,8 @@ impl Player {
 
             can_build_units: true,
             can_build_base: true,
+            units_should_hunt: false,
+
 
             shared_special_power_cooldowns: HashMap::new(),
             team_relations: HashMap::new(),

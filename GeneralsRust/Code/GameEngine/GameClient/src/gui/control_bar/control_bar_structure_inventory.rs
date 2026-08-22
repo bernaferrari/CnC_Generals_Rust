@@ -61,6 +61,7 @@ pub(super) fn do_transport_inventory_ui(
     context: &mut ControlBarContext,
     presentation_max_garrison: usize,
     presentation_garrisoned_count: usize,
+    presentation_occupants: &[StructureInventoryOccupant],
 ) -> Result<(), Box<dyn std::error::Error>> {
     if context.selected_objects.len() != 1 {
         return Ok(());
@@ -105,9 +106,17 @@ pub(super) fn do_transport_inventory_ui(
             return Ok(());
         }
         max_capacity = presentation_max_garrison;
-        let count = presentation_garrisoned_count.min(max_capacity);
-        for _ in 0..count {
-            occupants.push(StructureInventoryOccupant::default());
+        if !presentation_occupants.is_empty() {
+            occupants = presentation_occupants
+                .iter()
+                .cloned()
+                .take(max_capacity)
+                .collect();
+        } else {
+            let count = presentation_garrisoned_count.min(max_capacity);
+            for _ in 0..count {
+                occupants.push(StructureInventoryOccupant::default());
+            }
         }
     }
 
@@ -188,20 +197,14 @@ pub(super) fn do_transport_inventory_ui(
 /// Append inventory commands for garrison/contain structures.
 ///
 /// C++ `populateStructureInventory` / `populateButtonProc`: one `Command_StructureExit`
-/// slot per contained unit with that unit's `getButtonImage()`, veterancy overlay,
-/// Evacuate/Stop enabled when count > 0.
-pub(super) fn append_structure_inventory_commands(
-    context: &mut ControlBarContext,
-) -> Result<(), Box<dyn std::error::Error>> {
-    append_structure_inventory_commands_with_presentation(context, 0, 0)
-}
-
+/// slot per contained unit with that unit's `getButtonImage()`, veterancy overlay.
 /// Host/presentation residual: when OBJECT_REGISTRY is empty, use frozen
-/// max_garrison / garrisoned_count from PresentationFrame.
+/// max_garrison / garrisoned_count / occupant portraits from PresentationFrame.
 pub(super) fn append_structure_inventory_commands_with_presentation(
     context: &mut ControlBarContext,
     presentation_max_garrison: usize,
     presentation_garrisoned_count: usize,
+    presentation_occupants: &[StructureInventoryOccupant],
 ) -> Result<(), Box<dyn std::error::Error>> {
     if context.selected_objects.len() != 1 {
         return Ok(());
@@ -236,9 +239,17 @@ pub(super) fn append_structure_inventory_commands_with_presentation(
             return Ok(());
         }
         max_capacity = presentation_max_garrison;
-        let count = presentation_garrisoned_count.min(max_capacity);
-        for _ in 0..count {
-            occupants.push(StructureInventoryOccupant::default());
+        if !presentation_occupants.is_empty() {
+            occupants = presentation_occupants
+                .iter()
+                .cloned()
+                .take(max_capacity)
+                .collect();
+        } else {
+            let count = presentation_garrisoned_count.min(max_capacity);
+            for _ in 0..count {
+                occupants.push(StructureInventoryOccupant::default());
+            }
         }
     }
 
@@ -358,6 +369,19 @@ fn occupant_from_registry(occupant_id: impl Into<u32>) -> StructureInventoryOccu
         object_id,
         button_image: button_image_from_template_name(&template_name),
         overlay_image: veterancy_overlay_for_level(object.get_veterancy_level()),
+    }
+}
+
+/// Live-host occupant portrait from PresentationFrame garrisoned unit freeze.
+pub fn occupant_from_presentation(
+    object_id: u32,
+    template_name: &str,
+    overlay_image: Option<String>,
+) -> StructureInventoryOccupant {
+    StructureInventoryOccupant {
+        object_id,
+        button_image: button_image_from_template_name(template_name),
+        overlay_image,
     }
 }
 

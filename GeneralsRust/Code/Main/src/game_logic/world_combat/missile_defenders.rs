@@ -1738,7 +1738,7 @@ impl GameLogic {
             drone_spawn_offset_from_master, is_slave_drone_master_template, SlaveDroneKind,
         };
 
-        let (team, master_pos, master_name) = {
+        let (team, master_pos, owner_player_id) = {
             let master = self.objects.get(&master_id)?;
             if !master.is_alive() || master.status.under_construction {
                 return None;
@@ -1746,13 +1746,8 @@ impl GameLogic {
             if !is_slave_drone_master_template(&master.template_name) {
                 return None;
             }
-            (
-                master.team,
-                master.get_position(),
-                master.template_name.clone(),
-            )
+            (master.team, master.get_position(), master.owner_player_id)
         };
-        let _ = master_name;
 
         // Ensure drone templates exist with residual kinds.
         let drone_tpl_name = kind.template_name();
@@ -1779,7 +1774,8 @@ impl GameLogic {
 
         let (ox, oz) = drone_spawn_offset_from_master(kind);
         let spawn_pos = Vec3::new(master_pos.x + ox, master_pos.y, master_pos.z + oz);
-        let drone_id = self.create_object(drone_tpl_name, team, spawn_pos)?;
+        let drone_id =
+            self.create_object_for_owner_or_team(drone_tpl_name, team, owner_player_id, spawn_pos)?;
 
         // C++ startSlavedEffects (SlavedUpdate.cpp:700-701) OBJECT_STATUS_UNSELECTABLE.
         if let Some(drone) = self.objects.get_mut(&drone_id) {

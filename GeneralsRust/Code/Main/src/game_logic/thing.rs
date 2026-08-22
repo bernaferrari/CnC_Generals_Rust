@@ -1875,6 +1875,13 @@ pub struct ThingTemplate {
     /// C++ `ThingTemplate::m_geometryInfo` from Object INI Geometry*.
     #[serde(default)]
     pub geometry_info: HostGeometryInfo,
+    /// C++ `AIUpdateModuleData::m_autoAcquireEnemiesWhenIdle` from Object INI.
+    #[serde(default)]
+    pub auto_acquire_enemies_when_idle: u32,
+    /// C++ `AIUpdateModuleData::m_forbidPlayerCommands` (Spectre gunship).
+    #[serde(default)]
+    pub forbid_player_commands: bool,
+
 }
 
 impl ThingTemplate {
@@ -2019,6 +2026,9 @@ impl ThingTemplate {
 
 
             geometry_info: HostGeometryInfo::default(),
+            auto_acquire_enemies_when_idle: 0,
+            forbid_player_commands: false,
+
         }
     }
     /// C++ `ThingTemplate::getExperienceValue(level)`. Uses the authored

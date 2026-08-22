@@ -125,7 +125,63 @@ impl GameLogic {
 
 
 
-    /// C++ AIGuardRetaliate lookForInnerTarget — enemies, reject buildings.
+    /// C++ PartitionFilterRejectBuildings — keep non-buildings; computer
+    /// players acquire all enemy structures; humans keep FS_BASE_DEFENSE and
+    /// garrisoned attacking buildings.
+    fn host_reject_buildings_allows(&self, owner_id: ObjectId, cand: &Object) -> bool {
+        if !cand.is_kind_of(KindOf::Structure) {
+            return true;
+        }
+        let owner_is_computer = self
+            .objects
+            .get(&owner_id)
+            .and_then(|me| me.owner_player_id)
+            .and_then(|pid| self.players.get(&pid))
+            .map(|p| !p.is_local)
+            .unwrap_or(true);
+        if owner_is_computer {
+            return true;
+        }
+        if cand.is_kind_of(KindOf::FSBaseDefense) {
+            return true;
+        }
+        cand.can_attack()
+            && (cand.is_garrison_contain() || !cand.contained_units().is_empty())
+    }
+
+    /// C++ GuardRetaliateExitConditions — timer, aggressor radius, owner leash.
+    fn guard_retaliate_chase_should_exit(
+        &self,
+        unit_id: ObjectId,
+        victim_pos: Option<glam::Vec3>,
+    ) -> bool {
+        let Some(me) = self.objects.get(&unit_id) else {
+            return false;
+        };
+        if me.guard_chase_give_up_frame != 0 && self.frame >= me.guard_chase_give_up_frame {
+            return true;
+        }
+        let center = me
+            .guard_retaliate_anchor
+            .or(me.guard_position)
+            .unwrap_or_else(|| me.get_position());
+        let (inner, outer) = self.host_std_guard_ranges(unit_id);
+        let aggressor_r = outer + inner;
+        if let Some(vp) = victim_pos {
+            let dx = vp.x - center.x;
+            let dz = vp.z - center.z;
+            if aggressor_r > 0.0 && dx * dx + dz * dz > aggressor_r * aggressor_r {
+                return true;
+            }
+        }
+        let us = me.get_position();
+        let dx = us.x - center.x;
+        let dz = us.z - center.z;
+        inner > 0.0 && dx * dx + dz * dz > inner * inner
+    }
+
+    /// C++ AIGuardRetaliate lookForInnerTarget — enemies, reject buildings
+    /// except base defenses / garrisoned attackers / computer-owned scans.
     fn scan_guard_retaliate_inner(&self, unit_id: ObjectId) -> Option<ObjectId> {
         let me = self.objects.get(&unit_id)?;
         let team = me.team;
@@ -161,7 +217,7 @@ impl GameLogic {
                     continue;
                 }
             } else {
-                if cand.is_kind_of(KindOf::Structure) {
+                if !self.host_reject_buildings_allows(unit_id, cand) {
                     continue;
                 }
                 if !cand.is_targetable_by_enemy_of(team) {
@@ -683,6 +739,15 @@ impl GameLogic {
             .map(|(id, _)| *id)
             .collect();
         for id in ids {
+            let frames = self.host_guard_chase_unit_frames();
+            let now = self.frame;
+            if let Some(o) = self.objects.get_mut(&id) {
+                if o.guard_chase_phase == GUARD_CHASE_PHASE_RETALIATE
+                    && o.guard_chase_give_up_frame == 0
+                {
+                    o.guard_chase_give_up_frame = now.saturating_add(frames);
+                }
+            }
             let victim_id = self.objects.get(&id).and_then(|o| o.guard_retaliate_victim);
             let (alive, vpos) = match victim_id {
                 Some(vid) => match self.objects.get(&vid) {
@@ -693,6 +758,16 @@ impl GameLogic {
                 },
                 None => (false, None),
             };
+            if alive && self.guard_retaliate_chase_should_exit(id, vpos) {
+                if let Some(o) = self.objects.get_mut(&id) {
+                    o.guard_retaliate_victim = None;
+                    o.target = None;
+                    o.status.attacking = false;
+                    o.clear_guard_chase();
+                    o.tick_guard_retaliate(false, None);
+                }
+                continue;
+            }
             if !alive {
                 if let Some(next) = self.scan_guard_retaliate_inner(id) {
                     if let Some(o) = self.objects.get_mut(&id) {

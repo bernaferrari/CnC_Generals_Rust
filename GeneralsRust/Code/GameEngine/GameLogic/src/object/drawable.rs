@@ -2185,18 +2185,24 @@ impl Drawable {
     /// Set selection state
     /// Flash this drawable as if selected (short-lived visual cue).
     pub fn flash_as_selected(&mut self) {
+        self.flash_as_selected_with_color(Color::new(255, 255, 255, 255));
+    }
+
+    /// C++ `Drawable::flashAsSelected(&color)` — explicit house/script color.
+    pub fn flash_as_selected_with_color(&mut self, color: Color) {
         let effect = VisualEffect {
             effect_type: "SelectionFlash".to_string(),
             bone_attachment: None,
             offset: Coord3D::new(0.0, 0.0, 0.0),
             scale: 1.0,
-            color: Color::new(255, 255, 255, 255),
+            color,
             parameters: HashMap::new(),
         };
 
         // Short flash; rendering layer can interpret this effect as a selection blink.
         self.add_effect(effect, Some(0.25));
     }
+
 
     /// Flash this drawable with a script-defined color for a duration.
     /// C++ parity path: ScriptActions::doNamedFlash/doTeamFlash.
@@ -2814,6 +2820,12 @@ impl Drawable {
             self.drawable_fully_obscured_by_shroud = fully_obscured;
         }
     }
+
+    /// C++ `Drawable::getFullyObscuredByShroud`.
+    pub fn fully_obscured_by_shroud(&self) -> bool {
+        self.drawable_fully_obscured_by_shroud
+    }
+
 
     /// Mirror C++ Drawable::changedTeam.
     pub fn changed_team(&mut self, object: &crate::object::Object) {

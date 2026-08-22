@@ -65,12 +65,13 @@ impl AudioEventOwnerResolver for GameLogicAudioEventOwnerResolver {
             }
         }
         // Live host objects are not in leftover TheGameLogic. Host snapshot is
-        // XZ ground (Y-up); C++ AudioEventRTS is XY ground (Z-up).
+        // Y-up (x, y_height, z_ground); C++ AudioEventRTS is Z-up (x, y_ground, z_height).
         crate::scripting::host_script_query_object_by_id(object_id).map(|obj| EngineCoord3D {
             x: obj.x,
             y: obj.z,
-            z: 0.0,
+            z: obj.y,
         })
+
     }
 
     fn resolve_drawable_position(&self, drawable_id: u32) -> Option<EngineCoord3D> {
@@ -648,6 +649,29 @@ mod leftover_the_audio_tests {
         assert_eq!(engine.get_object_id(), 77);
         assert!(!engine.is_positional());
     }
+
+    #[test]
+    fn host_snapshot_resolver_uses_host_height() {
+        use crate::common::audio::AudioEventOwnerResolver;
+        crate::scripting::clear_host_script_query_snapshot();
+        crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+            objects: vec![crate::scripting::HostScriptQueryObject {
+                id: 77,
+                x: 10.0,
+                y: 42.0,
+                z: 20.0,
+                ..Default::default()
+            }],
+            ..Default::default()
+        });
+        let resolver = super::GameLogicAudioEventOwnerResolver;
+        let pos = resolver.resolve_object_position(77).expect("host object");
+        assert_eq!(pos.x, 10.0);
+        assert_eq!(pos.y, 20.0);
+        assert_eq!(pos.z, 42.0);
+        crate::scripting::clear_host_script_query_snapshot();
+    }
+
 
     #[test]
     fn leftover_the_audio_preserves_caller_volume() {

@@ -154,7 +154,7 @@ impl GameLogic {
         );
     }
 
-    /// C++ `ScriptActions::doSoundPlayFromNamed` on the live host object.
+    /// C++ `ScriptActions::doSoundPlayFromNamed` — one TheAudio add, no second enqueue.
     pub fn play_sound_from_named(&mut self, sound: &str, unit_name: &str) -> bool {
         if sound.is_empty() || unit_name.is_empty() {
             return false;
@@ -166,18 +166,12 @@ impl GameLogic {
         else {
             return false;
         };
-        let pos = self.objects.get(&id).map(|unit| unit.get_position());
         if let Some(audio) = gamelogic::helpers::TheAudio::get() {
             let mut event = gamelogic::common::audio::AudioEventRts::new(sound);
             event.set_object_id(id.0);
             event.set_is_logical_audio(true);
             let _ = audio.add_audio_event(&event);
         }
-        let mut req = AudioEventRequest::new(sound).with_object(id);
-        if let Some(pos) = pos {
-            req = req.with_position(pos);
-        }
-        self.queue_audio_event(req);
         true
     }
 
@@ -209,22 +203,11 @@ impl GameLogic {
         for req in gamelogic::scripting::take_host_script_object_sound_requests() {
             match req {
                 HostScriptObjectSoundRequest::PlayNamed { sound, unit } => {
-                    // Handler / leftover already hit TheAudio (C++ addAudioEvent).
-                    // Queue presentation so live process_audio_events hears it.
-                    let Some(id) = self
-                        .host_object_id_by_script_name(&unit)
-                        .or_else(|| self.host_named_unit_id(&unit))
-                        .or_else(|| self.find_object_id_by_name(&unit))
-                    else {
-                        continue;
-                    };
-                    let pos = self.objects.get(&id).map(|o| o.get_position());
-                    let mut req = AudioEventRequest::new(&sound).with_object(id);
-                    if let Some(pos) = pos {
-                        req = req.with_position(pos);
-                    }
-                    self.queue_audio_event(req);
+                    // Leftover / handler already hit TheAudio (C++ addAudioEvent).
+                    // Do not queue a second presentation copy.
+                    let _ = (sound, unit);
                 }
+
                 HostScriptObjectSoundRequest::Enable { unit, enable } => {
                     let _ = self.enable_object_sound_from_script(&unit, enable);
                 }
@@ -374,7 +357,7 @@ mod tests {
     }
 
     #[test]
-    fn sound_play_named_queues_from_live_object() {
+    fn sound_play_named_hits_the_audio_once() {
         let mut logic = GameLogic::new();
         let mut tmpl = ThingTemplate::new("AmericaInfantryRanger");
         tmpl.add_kind_of(KindOf::Infantry);
@@ -394,14 +377,13 @@ mod tests {
         logic.queued_audio_events.clear();
         assert!(logic.play_sound_from_named("UnitCheer", "NamedScout"));
         assert!(
-            logic.queued_audio_events.iter().any(|e| {
-                e.event_type == "UnitCheer" && e.object_id == Some(id) && !e.stop
-            }),
-            "SOUND_PLAY_NAMED must queue from the live named unit: {:?}",
+            logic.queued_audio_events.is_empty(),
+            "C++ doSoundPlayFromNamed is one TheAudio add, no presentation queue: {:?}",
             logic.queued_audio_events
         );
         assert!(!logic.play_sound_from_named("UnitCheer", "MissingUnit"));
     }
+
 
     #[test]
     fn enable_disable_object_sound_from_script() {
@@ -481,7 +463,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_host_object_sound_requests_reaches_live_objects() {
+    fn apply_host_play_named_does_not_queue_second_copy() {
         let _ = gamelogic::scripting::take_host_script_object_sound_requests();
         let mut logic = GameLogic::new();
         let mut tmpl = ThingTemplate::new("AmericaInfantryRanger");
@@ -504,13 +486,11 @@ mod tests {
         );
         logic.apply_host_object_sound_script_requests();
         assert!(
-            logic
-                .queued_audio_events
-                .iter()
-                .any(|e| e.event_type == "UnitCheer" && e.object_id == Some(id)),
-            "leftover SOUND_PLAY_NAMED queue must reach live host: {:?}",
+            logic.queued_audio_events.is_empty(),
+            "leftover SOUND_PLAY_NAMED must not enqueue a second live copy: {:?}",
             logic.queued_audio_events
         );
     }
+
 
 }

@@ -9,6 +9,10 @@ const MAX_GARRISON_FIRE_POINTS: usize = 40;
 /// C++ GameData `WeaponBonus = GARRISONED RANGE 133%`.
 /// GarrisonContain / HelixContain `onContaining` set `WEAPONBONUSCONDITION_GARRISONED`.
 const GARRISONED_WEAPON_RANGE_MULT: f32 = 1.33;
+/// C++ `HelixContain::redeployOccupants` (`HelixContain.cpp:115`) `firePos.z += 8`.
+/// Leftover `helix_contain.rs` already matches. Host Y-up maps C++ Z → Y.
+const HELIX_OCCUPANT_FIRE_HEIGHT: f32 = 8.0;
+
 
 
 fn cpp_bone_to_host_local(bone: gamelogic::common::Coord3D) -> glam::Vec3 {
@@ -110,6 +114,14 @@ fn load_garrison_condition_bone_sets(
 }
 
 fn transport_passenger_fire_origin(container: &Object, passenger_index: usize) -> glam::Vec3 {
+    // C++ HelixContain::redeployOccupants (HelixContain.cpp:112-123): every rider
+    // setPosition at Helix origin z += 8, not sequential FIREPOINT bones.
+    // Humvee/Chinook/Bus keep OpenContain FIREPOINT (hq-ncs1d).
+    if container.is_helix_transport {
+        let mut fire_pos = container.get_position();
+        fire_pos.y += HELIX_OCCUPANT_FIRE_HEIGHT;
+        return fire_pos;
+    }
     let bones = load_prefix_bones_world(container, "FIREPOINT", MAX_GARRISON_FIRE_POINTS);
     if bones.is_empty() {
         container.get_position()
@@ -627,8 +639,9 @@ impl GameLogic {
     }
 
     /// Residual fire-from-transport: docked passengers auto-engage nearest
-    /// enemy in weapon range from sequential `FIREPOINT` bones
-    /// (`OpenContain::putObjAtNextFirePoint`). Hull center only if no bones.
+    /// enemy in weapon range. HelixContain riders fire from hull origin +8 Y
+    /// (`HelixContain::redeployOccupants`). Other transports use sequential
+    /// `FIREPOINT` bones (`OpenContain::putObjAtNextFirePoint`); hull if none.
     pub(in super::super) fn try_transport_passenger_residual_fire(
         &mut self,
         passenger_id: ObjectId,
@@ -1479,6 +1492,9 @@ impl GameLogic {
             unit.set_destination(dest);
             unit.set_ai_state(AIState::Moving);
             unit.status.moving = true;
+            if is_garrison {
+                unit.stamp_safe_occlusion_frame(self.frame);
+            }
             // C++ OpenContain::exitObjectViaDoor: ignoreObstacle(NULL) +
             // setIgnoreCollisionTime(LOGICFRAMES_PER_SECOND).
             unit.ignore_collisions_with = None;
@@ -2492,6 +2508,8 @@ impl GameLogic {
     }
 
     /// C++ EMPUpdate::doDisableAttack residual (FROM_BOUNDINGSPHERE_3D).
+    /// `curVictim != object` skips the EMPPulseEffectSpheroid, not the caster.
+    /// Pulse spheroid DoesNotAffectMyOwnBuildings=No — own buildings disable.
     pub fn apply_emp_pulse_disable_field_at(
         &mut self,
         player_id: u32,
@@ -2524,7 +2542,8 @@ impl GameLogic {
                 if !obj.is_alive() {
                     return None;
                 }
-                if caster_id == Some(*id) {
+                // C++ EMPUpdate.cpp:192 — skip the spheroid (`object`), not caster_id.
+                if obj.emp_pulse_spheroid {
                     return None;
                 }
                 let pos = obj.get_position();
@@ -3859,6 +3878,27 @@ mod tests {
             "no FIREPOINT bones → hull center (C++ m_noFirePointsInArt)"
         );
     }
+
+    #[test]
+    fn helix_fire_origin_is_hull_plus_eight_not_firepoint() {
+        let mut helix = ThingTemplate::new("ChinaVehicleHelix");
+        helix
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Aircraft)
+            .set_health(600.0);
+        helix.model_name = Some("nosuchmodel".into());
+        let mut obj =
+            crate::game_logic::Object::new(helix, crate::game_logic::ObjectId(8), Team::China);
+        obj.install_helix_transport();
+        obj.set_position(Vec3::new(7.0, 10.0, 3.0));
+        let origin = transport_passenger_fire_origin(&obj, 0);
+        let expected = obj.get_position() + Vec3::new(0.0, HELIX_OCCUPANT_FIRE_HEIGHT, 0.0);
+        assert!(
+            (origin - expected).length() < 0.01,
+            "HelixContain::redeployOccupants is hull+8 (host Y), not FIREPOINT: {origin:?}"
+        );
+    }
+
 
     #[test]
     fn heal_contain_auto_exit_walks_exit_path() {

@@ -6,13 +6,10 @@
 //!
 //! Retail defaults: ScanRate **1s → 30f**, ScanRange **9999**.
 //!
-//! Residual playability slice (enter modes used by GLA scripts / AI):
-//! - Hijack vehicle (enemies, vehicles, not already hijacked)
-//! - Convert to car bomb (neutrals, vehicles)
-//! - Sabotage building (enemies, structures)
-//!
-//! Fail-closed: not full special-power template matrix / capture-building /
-//! place-explosive priority / weapon-lock hunt / AttackPriorityInfo.
+//! Live host arms all three C++ hunt families:
+//! - Special power (capture / Lotus hack / snipe / TNT / flashbang-adjacent)
+//! - Fire/switch weapon (lock slot + `aiHunt`)
+//! - Enter modes (hijack / car-bomb / sabotage)
 
 use serde::{Deserialize, Serialize};
 
@@ -28,6 +25,10 @@ pub enum HostCommandButtonHuntMode {
     HijackVehicle,
     ConvertToCarBomb,
     SabotageBuilding,
+    /// GUI_COMMAND_SPECIAL_POWER — capture / Lotus / snipe / TNT / hack.
+    SpecialPower,
+    /// GUI_COMMAND_FIRE_WEAPON / SWITCH_WEAPON — lock slot then hunt.
+    FireWeapon,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,6 +36,12 @@ pub struct HostCommandButtonHuntData {
     pub mode: HostCommandButtonHuntMode,
     pub next_scan_frame: u32,
     pub active: bool,
+    /// Scripted button name (Command_CaptureBuilding, flashbang, …).
+    #[serde(default)]
+    pub button_name: String,
+    /// Weapon slot for FireWeapon (PRIMARY=0, SECONDARY=1, TERTIARY=2).
+    #[serde(default)]
+    pub weapon_slot: u8,
 }
 
 impl HostCommandButtonHuntData {
@@ -43,8 +50,17 @@ impl HostCommandButtonHuntData {
             mode,
             next_scan_frame: current_frame,
             active: true,
+            button_name: String::new(),
+            weapon_slot: 0,
         }
     }
+
+    pub fn with_button(mut self, button: &str) -> Self {
+        self.button_name = button.to_string();
+        self.weapon_slot = weapon_slot_from_button_name(button);
+        self
+    }
+
 
     pub fn clear(&mut self) {
         self.active = false;
@@ -121,12 +137,39 @@ pub fn hunt_mode_from_button_name(name: &str) -> Option<HostCommandButtonHuntMod
         Some(HostCommandButtonHuntMode::HijackVehicle)
     } else if n.contains("sabotage") {
         Some(HostCommandButtonHuntMode::SabotageBuilding)
+    } else if n.contains("flashbang")
+        || n.contains("flashbanggrenade")
+        || n.contains("switchweapon")
+        || n.contains("fireweapon")
+        || n.contains("pathfinder")
+    {
+        Some(HostCommandButtonHuntMode::FireWeapon)
+    } else if n.contains("capture")
+        || n.contains("blacklotus")
+        || n.contains("snipe")
+        || n.contains("jarmenkell")
+        || n.contains("tnt")
+        || n.contains("tankhunter")
+        || n.contains("stealcash")
+        || n.contains("disablevehicle")
+        || n.contains("hackbuilding")
+        || n.contains("disablebuilding")
+        || n.contains("booby")
+        || n.contains("timeddemo")
+        || n.contains("remotedemo")
+        || n.contains("timedcharge")
+        || n.contains("remotecharge")
+        || n.contains("colonelburton")
+        || n.contains("specialpower")
+        || n.contains("specialability")
+    {
+        Some(HostCommandButtonHuntMode::SpecialPower)
     } else {
         None
     }
 }
 
-/// Fallback when the button name is missing: terrorist/hijacker/saboteur templates.
+/// Fallback when the button name is missing: terrorist/hijacker/saboteur/heroes.
 pub fn hunt_mode_from_template(name: &str) -> Option<HostCommandButtonHuntMode> {
     let n = name.to_ascii_lowercase();
     if n.contains("terrorist") {
@@ -135,10 +178,39 @@ pub fn hunt_mode_from_template(name: &str) -> Option<HostCommandButtonHuntMode> 
         Some(HostCommandButtonHuntMode::HijackVehicle)
     } else if n.contains("saboteur") {
         Some(HostCommandButtonHuntMode::SabotageBuilding)
+    } else if n.contains("pathfinder") {
+        Some(HostCommandButtonHuntMode::FireWeapon)
+    } else if n.contains("blacklotus")
+        || n.contains("jarmenkell")
+        || n.contains("tankhunter")
+        || n.contains("ranger")
+        || n.contains("redguard")
+        || n.contains("minigunner")
+        || n.contains("colonelburton")
+        || n.contains("hacker")
+        || n.contains("rebel")
+    {
+        Some(HostCommandButtonHuntMode::SpecialPower)
     } else {
         None
     }
 }
+
+pub fn weapon_slot_from_button_name(name: &str) -> u8 {
+    let n: String = name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .flat_map(|c| c.to_lowercase())
+        .collect();
+    if n.contains("tertiary") {
+        2
+    } else if n.contains("flashbang") || n.contains("secondary") || n.contains("grenade") {
+        1
+    } else {
+        0
+    }
+}
+
 
 /// C++ relationship filter residual for enter hunt modes.
 ///
@@ -154,7 +226,11 @@ pub fn hunt_allows_team(
         HostCommandButtonHuntMode::HijackVehicle | HostCommandButtonHuntMode::SabotageBuilding => {
             !same_team && !target_neutral
         }
+        HostCommandButtonHuntMode::SpecialPower | HostCommandButtonHuntMode::FireWeapon => {
+            !same_team
+        }
     }
+
 }
 
 /// Kind residual: vehicle for hijack/car-bomb, structure for sabotage.
@@ -169,7 +245,9 @@ pub fn hunt_allows_kind(
             is_vehicle && !is_aircraft
         }
         HostCommandButtonHuntMode::SabotageBuilding => is_structure,
+        HostCommandButtonHuntMode::SpecialPower | HostCommandButtonHuntMode::FireWeapon => true,
     }
+
 }
 
 pub fn honesty_command_button_hunt_residual_ok() -> bool {
@@ -215,6 +293,39 @@ mod tests {
             false
         ));
     }
+
+    #[test]
+    fn hunt_mode_arms_special_power_and_weapon_buttons() {
+        assert_eq!(
+            hunt_mode_from_button_name("Command_CaptureBuilding"),
+            Some(HostCommandButtonHuntMode::SpecialPower)
+        );
+        assert_eq!(
+            hunt_mode_from_button_name("Command_BlackLotusCaptureBuilding"),
+            Some(HostCommandButtonHuntMode::SpecialPower)
+        );
+        assert_eq!(
+            hunt_mode_from_button_name("Command_JarmenKellSnipeVehicle"),
+            Some(HostCommandButtonHuntMode::SpecialPower)
+        );
+        assert_eq!(
+            hunt_mode_from_button_name("Command_ChinaTankHunterTNT"),
+            Some(HostCommandButtonHuntMode::SpecialPower)
+        );
+        assert_eq!(
+            hunt_mode_from_button_name("Command_AmericaRangerFlashBangGrenade"),
+            Some(HostCommandButtonHuntMode::FireWeapon)
+        );
+        assert_eq!(
+            weapon_slot_from_button_name("Command_AmericaRangerFlashBangGrenade"),
+            1
+        );
+        assert_eq!(
+            hunt_mode_from_template("AmericaInfantryRanger"),
+            Some(HostCommandButtonHuntMode::SpecialPower)
+        );
+    }
+
 
     #[test]
     fn schedule_scan_interval() {

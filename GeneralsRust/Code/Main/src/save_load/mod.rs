@@ -111,6 +111,133 @@ pub enum SaveLoadLayoutType {
     SaveOnly,
 }
 
+/// C++ `UnicodeString::format(TheGameText->fetch("GUI:MissionSave"), label, n)`.
+pub fn format_mission_save_description(
+    format: &str,
+    campaign_label: &str,
+    mission_number: i32,
+) -> String {
+    game_engine::System::SaveGame::format_mission_save_description(
+        format,
+        campaign_label,
+        mission_number,
+    )
+}
+
+/// C++ `PopupSaveLoad::setEditDescription` map-leaf strip (`PopupSaveLoad.cpp:438-452`).
+pub fn normalize_default_save_description_from_map_name(mut default_desc: String) -> String {
+    if let Some(pos) = default_desc.rfind('\\') {
+        default_desc = default_desc[pos + 1..].to_string();
+    }
+    let char_len = default_desc.chars().count();
+    if char_len >= 4 && default_desc.chars().nth(char_len - 4) == Some('.') {
+        for _ in 0..4 {
+            let _ = default_desc.pop();
+        }
+    }
+    default_desc
+}
+
+/// Localized between-mission save description (`GameState.cpp:616-618`).
+pub fn current_mission_save_description() -> String {
+    #[cfg(feature = "game_client")]
+    {
+        let manager = game_client::gui::campaign_manager::get_campaign_manager();
+        let Some(campaign) = manager.get_current_campaign() else {
+            return String::new();
+        };
+        let mission_number = manager.get_current_mission_number().unwrap_or(0) + 1;
+        let (text, exists) =
+            game_client::game_text::GameText::fetch_with_exists(&campaign.campaign_name_label);
+        let campaign_label = if exists && !text.is_empty() {
+            text
+        } else if !campaign.campaign_name_label.is_empty() {
+            campaign.campaign_name_label.clone()
+        } else {
+            campaign.name.clone()
+        };
+        let (format, exists) = game_client::game_text::GameText::fetch_with_exists("GUI:MissionSave");
+        // Retail English token when the CSF label is missing.
+        let format = if exists && format.contains('%') {
+            format
+        } else {
+            "%s Mission %d".to_string()
+        };
+        return format_mission_save_description(&format, &campaign_label, mission_number);
+    }
+    #[cfg(not(feature = "game_client"))]
+    String::new()
+}
+
+/// C++ `setEditDescription` (`PopupSaveLoad.cpp:422-457`): campaign +
+/// `missionNumber+1`, else the map leaf without a four-char extension.
+pub fn default_save_edit_description(map_name: &str) -> String {
+    #[cfg(feature = "game_client")]
+    {
+        let manager = game_client::gui::campaign_manager::get_campaign_manager();
+        if let (Some(campaign), Some(mission_number)) = (
+            manager.get_current_campaign(),
+            manager.get_current_mission_number(),
+        ) {
+            let campaign_label =
+                game_client::game_text::GameText::fetch(&campaign.campaign_name_label);
+            let label = if campaign_label.is_empty() {
+                if !campaign.campaign_name_label.is_empty() {
+                    campaign.campaign_name_label.clone()
+                } else {
+                    campaign.name.clone()
+                }
+            } else {
+                campaign_label
+            };
+            return format!("{} {}", label, mission_number + 1);
+        }
+    }
+    let map = map_name.trim();
+    if map.is_empty() {
+        #[cfg(feature = "game_client")]
+        {
+            if let Some(data) = game_engine::common::ini::ini_game_data::get_global_data() {
+                let name = data.read().map_name.clone();
+                if !name.trim().is_empty() {
+                    return normalize_default_save_description_from_map_name(name);
+                }
+            }
+        }
+        return String::new();
+    }
+    normalize_default_save_description_from_map_name(map.to_string())
+}
+
+/// C++ listbox columns 1/2 (`GameState.cpp:1176-1206`) from local save date.
+pub fn format_save_list_date_time(time: SystemTime) -> (String, String) {
+    let date = game_engine::System::SaveDate::from_local_time(time);
+    (
+        format!("{:02}:{:02}", date.hour, date.minute),
+        format!("{:04}-{:02}-{:02}", date.year, date.month, date.day),
+    )
+}
+
+/// C++ `MessageBoxOk(GUI:Error, format(GUI:ErrorLoadingGame, filepath))`.
+pub fn format_error_loading_game(filepath: &str) -> (String, String) {
+    #[cfg(feature = "game_client")]
+    {
+        let template = game_client::game_text::GameText::fetch("GUI:ErrorLoadingGame");
+        let body = if template.contains("%s") {
+            template.replacen("%s", filepath, 1)
+        } else if template.is_empty() {
+            filepath.to_string()
+        } else {
+            format!("{template} {filepath}")
+        };
+        let title = game_client::game_text::GameText::fetch("GUI:Error");
+        return (title, body);
+    }
+    #[cfg(not(feature = "game_client"))]
+    ("GUI:Error".to_string(), format!("GUI:ErrorLoadingGame {filepath}"))
+}
+
+
 /// Available save game information
 #[derive(Debug, Clone)]
 pub struct AvailableGameInfo {
@@ -428,4 +555,28 @@ mod tests {
         assert_eq!(bytes, vec![1u8], "placeholder snapshot must write version 1");
         let _ = std::fs::remove_dir_all(dir);
     }
+
+    #[test]
+    fn mission_save_description_formats_gui_mission_save_like_cpp() {
+        assert_eq!(
+            format_mission_save_description("%s Mission %d", "USA Campaign", 2),
+            "USA Campaign Mission 2"
+        );
+        assert_eq!(
+            normalize_default_save_description_from_map_name(
+                "Maps\\USA\\Mission01.map".to_string()
+            ),
+            "Mission01"
+        );
+        let (time, date) = format_save_list_date_time(UNIX_EPOCH);
+        assert!(time.contains(':'), "list time column: {time}");
+        assert!(date.contains('-'), "list date column: {date}");
+        let (title, body) = format_error_loading_game("Save\\00000001.sav");
+        assert!(title.contains("Error") || title == "GUI:Error", "{title}");
+        assert!(
+            body.contains("00000001.sav") || body.contains("ErrorLoadingGame"),
+            "{body}"
+        );
+    }
+
 }

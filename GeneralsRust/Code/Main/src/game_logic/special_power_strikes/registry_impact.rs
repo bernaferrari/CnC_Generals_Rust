@@ -597,7 +597,7 @@ impl HostSpecialPowerStrikeRegistry {
             );
         }
         if let Some((source, team, pos, impact_frame, manual_hold)) = spawn_beam {
-            self.spawn_beam_field_with_manual(
+            let beam_id = self.spawn_beam_field_with_manual(
                 source,
                 team,
                 pos,
@@ -605,6 +605,16 @@ impl HostSpecialPowerStrikeRegistry {
                 strike_id,
                 manual_hold,
             );
+            if let Some(strike) = self.strikes.get(&strike_id) {
+                if strike.scripted_waypoint_mode {
+                    if let Some(field) = self.beam_fields.iter_mut().find(|f| f.id == beam_id) {
+                        field.scripted_waypoint_mode = true;
+                        field.next_dest_waypoint_id = strike.next_dest_waypoint_id;
+                        field.override_destination = strike.waypoint_override;
+                        field.current_target_position = pos;
+                    }
+                }
+            }
         }
     }
 }

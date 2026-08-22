@@ -364,31 +364,34 @@ impl GameLogic {
 
     pub fn try_eva_on_local_object_death(
         &mut self,
-        _victim_id: ObjectId,
-        victim_team: crate::game_logic::Team,
+        victim_id: ObjectId,
+        _victim_team: crate::game_logic::Team,
         is_structure: bool,
         is_infantry: bool,
         is_vehicle: bool,
         is_mp_count_for_victory: bool,
         death_pos: glam::Vec3,
-        killer: Option<crate::game_logic::Team>,
+        _killer: Option<crate::game_logic::Team>,
     ) {
-        // Local victim residual.
-        let local = self
-            .players
-            .values()
-            .any(|p| p.is_local && p.is_alive && p.team == victim_team);
-        if !local {
+        // C++ Object::isLocallyControlled — controlling player == local, not faction Team.
+        if !self.is_object_locally_controlled(victim_id) {
             return;
         }
-        // C++ !selfInflicted residual.
-        if killer == Some(victim_team) {
+        // C++ selfInflicted = (damageInfo->in.m_sourceID == getID()).
+        let self_inflicted = self
+            .objects
+            .get(&victim_id)
+            .and_then(|o| o.last_damage_source)
+            == Some(victim_id);
+        if self_inflicted {
             return;
         }
+
         // C++ Object.cpp:4597 — STRUCTURE + KINDOF_MP_COUNT_FOR_VICTORY.
         let is_mp_count_for_victory = self
             .objects
-            .get(&_victim_id)
+            .get(&victim_id)
+
             .map(|o| o.is_kind_of(KindOf::MpCountForVictory))
             .unwrap_or(is_mp_count_for_victory);
         if is_structure && is_mp_count_for_victory {
@@ -1460,6 +1463,85 @@ mod tests {
             "{events:?}"
         );
     }
+
+    #[test]
+    fn same_faction_ally_death_does_not_fire_unit_lost() {
+        // C++ isLocallyControlled, not faction Team. USA 2v2 ally deaths stay silent.
+        let _ = TheEva::drain_events();
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "Local", true));
+        logic
+            .players
+            .insert(1, Player::new(1, Team::USA, "Ally", false));
+        let mut t = ThingTemplate::new("AmericaInfantryRanger");
+        t.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("AmericaInfantryRanger".into(), t);
+        let ally_id = logic
+            .create_object_for_player("AmericaInfantryRanger", 1, glam::Vec3::ZERO)
+            .expect("ally ranger");
+        assert!(!logic.is_object_locally_controlled(ally_id));
+        logic.try_eva_on_local_object_death(
+            ally_id,
+            Team::USA,
+            false,
+            true,
+            false,
+            false,
+            glam::Vec3::ZERO,
+            Some(Team::GLA),
+        );
+        assert_eq!(logic.saboteur.eva_unit_lost, 0);
+        let events = TheEva::drain_events().unwrap_or_default();
+        assert!(
+            !events.iter().any(|e| *e == EvaEvent::UnitLost),
+            "{events:?}"
+        );
+    }
+
+    #[test]
+    fn same_faction_teamkill_of_local_unit_fires_unit_lost() {
+        // C++ selfInflicted is sourceID == victim ID, not same-faction killer Team.
+        let _ = TheEva::drain_events();
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "Local", true));
+        logic
+            .players
+            .insert(1, Player::new(1, Team::USA, "Ally", false));
+        let mut t = ThingTemplate::new("AmericaInfantryRanger");
+        t.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("AmericaInfantryRanger".into(), t);
+        let mine = logic
+            .create_object_for_player("AmericaInfantryRanger", 0, glam::Vec3::ZERO)
+            .expect("local ranger");
+        let ally = logic
+            .create_object_for_player(
+                "AmericaInfantryRanger",
+                1,
+                glam::Vec3::new(10.0, 0.0, 0.0),
+            )
+            .expect("ally ranger");
+
+        if let Some(obj) = logic.objects.get_mut(&mine) {
+            obj.last_damage_source = Some(ally);
+        }
+        assert!(logic.is_object_locally_controlled(mine));
+        logic.try_eva_on_local_object_death(
+            mine,
+            Team::USA,
+            false,
+            true,
+            false,
+            false,
+            glam::Vec3::ZERO,
+            Some(Team::USA),
+        );
+        assert!(logic.saboteur.honesty_eva_unit_lost_ok());
+    }
+
 
 }
 

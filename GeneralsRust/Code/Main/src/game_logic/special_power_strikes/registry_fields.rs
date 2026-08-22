@@ -404,6 +404,10 @@ impl HostSpecialPowerStrikeRegistry {
             source_team,
             position,
             override_destination: position,
+            gattling_target_position: position,
+            position_to_shoot_at: position,
+            ok_to_fire_howitzer_counter: 0,
+
 
             spawn_frame,
             expires_frame: spawn_frame.saturating_add(duration),
@@ -496,9 +500,9 @@ impl HostSpecialPowerStrikeRegistry {
             let mut dmg_map: std::collections::BTreeMap<ObjectId, f32> =
                 std::collections::BTreeMap::new();
 
-            if howitzer_due {
+            if howitzer_due && field.howitzer_follow_ready() {
                 let off = spectre_howitzer_offset(field.howitzer_ticks);
-                let aim = field.override_aim();
+                let aim = field.gattling_aim();
                 let epicenter = Vec3::new(aim.x + off.x, aim.y, aim.z + off.z);
 
                 for &(id, pos, team, alive) in object_positions {
@@ -607,137 +611,144 @@ impl HostSpecialPowerStrikeRegistry {
             // (gattling 200%/300%, howitzer 150%/200%) after ContinuousFireOne/Two.
             // ContinuousFireCoast residual arms spin-down deadline after each shot.
             if current_frame >= field.next_tick_frame {
-                field.howitzer_consecutive = field.howitzer_consecutive.saturating_add(1);
-                let interval = spectre_howitzer_interval_frames(field.howitzer_consecutive);
+                let ready = field.howitzer_follow_ready();
+                if ready {
+                    field.howitzer_consecutive = field.howitzer_consecutive.saturating_add(1);
+                }
+                let interval =
+                    spectre_howitzer_interval_frames(field.howitzer_consecutive).max(1);
                 field.next_tick_frame = current_frame.saturating_add(interval);
-                field.howitzer_ticks = field.howitzer_ticks.saturating_add(1);
-                // SpectreHowitzerShell projectile residual + Object spawn request.
-                // Retail: ProjectileObject=SpectreHowitzerShell, FireFX, detonation
-                // FX, FireSound, HeightDie InitialDelay pad-safe loft residual.
-                field.howitzer_shells_spawned = field.howitzer_shells_spawned.saturating_add(1);
-                let off = spectre_howitzer_offset(field.howitzer_ticks.saturating_sub(1));
-                shell_spawn_evt = Some((
-                    field.source_object,
-                    field.source_team,
-                    Vec3::new(
-                        field.position.x + off.x,
-                        field.position.y + 80.0,
-                        field.position.z + off.z,
-                    ),
-                ));
-                field.howitzer_shell_fire_fx = field.howitzer_shell_fire_fx.saturating_add(1);
-                field.howitzer_shell_detonation_fx =
-                    field.howitzer_shell_detonation_fx.saturating_add(1);
-                field.howitzer_shell_height_die_delays =
-                    field.howitzer_shell_height_die_delays.saturating_add(1);
-                field.howitzer_shell_fire_sounds =
-                    field.howitzer_shell_fire_sounds.saturating_add(1);
-                // DumbProjectileBehavior + Physics mass + InstantDeath + HeightDie
-                // OnlyWhenMovingDown residual honesty (not full W3D shell Object).
-                field.howitzer_shell_dumb_projectile_applications = field
-                    .howitzer_shell_dumb_projectile_applications
-                    .saturating_add(1);
-                field.howitzer_shell_physics_mass_applications = field
-                    .howitzer_shell_physics_mass_applications
-                    .saturating_add(1);
-                field.howitzer_shell_death_detonated_applications = field
-                    .howitzer_shell_death_detonated_applications
-                    .saturating_add(1);
-                field.howitzer_shell_death_lasered_applications = field
-                    .howitzer_shell_death_lasered_applications
-                    .saturating_add(1);
-                field.howitzer_shell_death_lasered_ocl_applications = field
-                    .howitzer_shell_death_lasered_ocl_applications
-                    .saturating_add(1);
-                field.howitzer_shell_death_generic_applications = field
-                    .howitzer_shell_death_generic_applications
-                    .saturating_add(1);
-                field.howitzer_shell_design_params_applications = field
-                    .howitzer_shell_design_params_applications
-                    .saturating_add(1);
-                field.howitzer_shell_object_params_applications = field
-                    .howitzer_shell_object_params_applications
-                    .saturating_add(1);
-                // SpectreHowitzerShellLocomotor template + Armor DamageFX residual.
-                field.howitzer_shell_locomotor_template_applications = field
-                    .howitzer_shell_locomotor_template_applications
-                    .saturating_add(1);
-                field.howitzer_shell_damage_fx_applications = field
-                    .howitzer_shell_damage_fx_applications
-                    .saturating_add(1);
-                // Wave 74: SpectreHowitzerShell ThingFactory residual spawn
-                // bookkeeping (object pack ledger; not full shell Object).
-                let _shell_spawn = spectre_howitzer_shell_spawn_residual(
-                    current_frame,
-                    field.position + Vec3::new(0.0, 80.0, 0.0),
-                );
-                debug_assert!(honesty_thing_factory_spawn_residual(&_shell_spawn));
-                field.howitzer_shell_thing_factory_spawn_applications = field
-                    .howitzer_shell_thing_factory_spawn_applications
-                    .saturating_add(1);
-                // SpectreHowitzerGun AcceptableAimDelta / AttackRange residual.
-                field.howitzer_gun_aim_params_applications =
-                    field.howitzer_gun_aim_params_applications.saturating_add(1);
-                // SpectreHowitzerGun fire residual (Delay/DamageType/FireFX/Clip).
-                field.howitzer_gun_fire_params_applications = field
-                    .howitzer_gun_fire_params_applications
-                    .saturating_add(1);
-                // SpectreHowitzerGun anti residual (AntiAir*/ProjectileObject/Coast).
-                field.howitzer_gun_anti_params_applications = field
-                    .howitzer_gun_anti_params_applications
-                    .saturating_add(1);
-                field.howitzer_shell_only_moving_down_applications = field
-                    .howitzer_shell_only_moving_down_applications
-                    .saturating_add(1);
-                // W3D ModelDraw / Scale / Shadow / Geometry / MaxHealth residual
-                // (fail-closed vs full ThingFactory Object / live Physics flight).
-                field.howitzer_shell_model_draw_applications = field
-                    .howitzer_shell_model_draw_applications
-                    .saturating_add(1);
-                field.howitzer_shell_scale_applications =
-                    field.howitzer_shell_scale_applications.saturating_add(1);
-                field.howitzer_shell_shadow_applications =
-                    field.howitzer_shell_shadow_applications.saturating_add(1);
-                field.howitzer_shell_geometry_applications =
-                    field.howitzer_shell_geometry_applications.saturating_add(1);
-                field.howitzer_shell_max_health_applications = field
-                    .howitzer_shell_max_health_applications
-                    .saturating_add(1);
-                // Shell loft flight residual (pad-safe HeightDie InitialDelay path).
-                let spawn = field.position + Vec3::new(0.0, 80.0, 0.0);
-                let target = field.position;
-                let loft_frames = SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES + 15;
-                let (loft_pos, _moving_down, height_die) =
-                    howitzer_shell_loft_sample(spawn, target, loft_frames);
-                field.howitzer_shell_loft_flight_applications = field
-                    .howitzer_shell_loft_flight_applications
-                    .saturating_add(1);
-                field.howitzer_shell_last_loft_height = loft_pos.y;
-                if height_die {
-                    field.howitzer_shell_loft_height_die_applications = field
-                        .howitzer_shell_loft_height_die_applications
+                if ready {
+                    field.howitzer_ticks = field.howitzer_ticks.saturating_add(1);
+                    // SpectreHowitzerShell projectile residual + Object spawn request.
+                    // Retail: ProjectileObject=SpectreHowitzerShell, FireFX, detonation
+                    // FX, FireSound, HeightDie InitialDelay pad-safe loft residual.
+                    field.howitzer_shells_spawned =
+                        field.howitzer_shells_spawned.saturating_add(1);
+                    let off = spectre_howitzer_offset(field.howitzer_ticks.saturating_sub(1));
+                    let aim = field.gattling_aim();
+                    shell_spawn_evt = Some((
+                        field.source_object,
+                        field.source_team,
+                        Vec3::new(aim.x + off.x, aim.y + 80.0, aim.z + off.z),
+                    ));
+                    field.howitzer_shell_fire_fx =
+                        field.howitzer_shell_fire_fx.saturating_add(1);
+                    field.howitzer_shell_detonation_fx =
+                        field.howitzer_shell_detonation_fx.saturating_add(1);
+                    field.howitzer_shell_height_die_delays =
+                        field.howitzer_shell_height_die_delays.saturating_add(1);
+                    field.howitzer_shell_fire_sounds =
+                        field.howitzer_shell_fire_sounds.saturating_add(1);
+                    // DumbProjectileBehavior + Physics mass + InstantDeath + HeightDie
+                    // OnlyWhenMovingDown residual honesty (not full W3D shell Object).
+                    field.howitzer_shell_dumb_projectile_applications = field
+                        .howitzer_shell_dumb_projectile_applications
                         .saturating_add(1);
-                }
-                field.howitzer_coast_until_frame =
-                    spectre_coast_until_after_shot(current_frame, interval);
-                let prev_level = field.howitzer_fire_level;
-                if field.howitzer_consecutive > SPECTRE_HOWITZER_CONTINUOUS_FIRE_TWO {
-                    field.howitzer_fire_level = 2;
-                } else if field.howitzer_consecutive > SPECTRE_HOWITZER_CONTINUOUS_FIRE_ONE {
-                    field.howitzer_fire_level = field.howitzer_fire_level.max(1);
-                }
-                // VoiceRapidFire residual when entering FAST (FiringTracker::speedUp).
-                if prev_level < 2 && field.howitzer_fire_level == 2 {
-                    field.rapid_fire_voice_cues = field.rapid_fire_voice_cues.saturating_add(1);
-                }
-                // MODELCONDITION_CONTINUOUS_FIRE_* residual (FiringTracker::speedUp).
-                if prev_level < 1 && field.howitzer_fire_level >= 1 {
-                    field.model_condition_mean_sets =
-                        field.model_condition_mean_sets.saturating_add(1);
-                }
-                if prev_level < 2 && field.howitzer_fire_level == 2 {
-                    field.model_condition_fast_sets =
-                        field.model_condition_fast_sets.saturating_add(1);
+                    field.howitzer_shell_physics_mass_applications = field
+                        .howitzer_shell_physics_mass_applications
+                        .saturating_add(1);
+                    field.howitzer_shell_death_detonated_applications = field
+                        .howitzer_shell_death_detonated_applications
+                        .saturating_add(1);
+                    field.howitzer_shell_death_lasered_applications = field
+                        .howitzer_shell_death_lasered_applications
+                        .saturating_add(1);
+                    field.howitzer_shell_death_lasered_ocl_applications = field
+                        .howitzer_shell_death_lasered_ocl_applications
+                        .saturating_add(1);
+                    field.howitzer_shell_death_generic_applications = field
+                        .howitzer_shell_death_generic_applications
+                        .saturating_add(1);
+                    field.howitzer_shell_design_params_applications = field
+                        .howitzer_shell_design_params_applications
+                        .saturating_add(1);
+                    field.howitzer_shell_object_params_applications = field
+                        .howitzer_shell_object_params_applications
+                        .saturating_add(1);
+                    // SpectreHowitzerShellLocomotor template + Armor DamageFX residual.
+                    field.howitzer_shell_locomotor_template_applications = field
+                        .howitzer_shell_locomotor_template_applications
+                        .saturating_add(1);
+                    field.howitzer_shell_damage_fx_applications = field
+                        .howitzer_shell_damage_fx_applications
+                        .saturating_add(1);
+                    // Wave 74: SpectreHowitzerShell ThingFactory residual spawn
+                    // bookkeeping (object pack ledger; not full shell Object).
+                    let _shell_spawn = spectre_howitzer_shell_spawn_residual(
+                        current_frame,
+                        aim + Vec3::new(0.0, 80.0, 0.0),
+                    );
+                    debug_assert!(honesty_thing_factory_spawn_residual(&_shell_spawn));
+                    field.howitzer_shell_thing_factory_spawn_applications = field
+                        .howitzer_shell_thing_factory_spawn_applications
+                        .saturating_add(1);
+                    // SpectreHowitzerGun AcceptableAimDelta / AttackRange residual.
+                    field.howitzer_gun_aim_params_applications = field
+                        .howitzer_gun_aim_params_applications
+                        .saturating_add(1);
+                    // SpectreHowitzerGun fire residual (Delay/DamageType/FireFX/Clip).
+                    field.howitzer_gun_fire_params_applications = field
+                        .howitzer_gun_fire_params_applications
+                        .saturating_add(1);
+                    // SpectreHowitzerGun anti residual (AntiAir*/ProjectileObject/Coast).
+                    field.howitzer_gun_anti_params_applications = field
+                        .howitzer_gun_anti_params_applications
+                        .saturating_add(1);
+                    field.howitzer_shell_only_moving_down_applications = field
+                        .howitzer_shell_only_moving_down_applications
+                        .saturating_add(1);
+                    // W3D ModelDraw / Scale / Shadow / Geometry / MaxHealth residual
+                    // (fail-closed vs full ThingFactory Object / live Physics flight).
+                    field.howitzer_shell_model_draw_applications = field
+                        .howitzer_shell_model_draw_applications
+                        .saturating_add(1);
+                    field.howitzer_shell_scale_applications =
+                        field.howitzer_shell_scale_applications.saturating_add(1);
+                    field.howitzer_shell_shadow_applications =
+                        field.howitzer_shell_shadow_applications.saturating_add(1);
+                    field.howitzer_shell_geometry_applications =
+                        field.howitzer_shell_geometry_applications.saturating_add(1);
+                    field.howitzer_shell_max_health_applications = field
+                        .howitzer_shell_max_health_applications
+                        .saturating_add(1);
+                    // Shell loft flight residual (pad-safe HeightDie InitialDelay path).
+                    let spawn = aim + Vec3::new(0.0, 80.0, 0.0);
+                    let target = aim;
+                    let loft_frames = SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES + 15;
+                    let (loft_pos, _moving_down, height_die) =
+                        howitzer_shell_loft_sample(spawn, target, loft_frames);
+                    field.howitzer_shell_loft_flight_applications = field
+                        .howitzer_shell_loft_flight_applications
+                        .saturating_add(1);
+                    field.howitzer_shell_last_loft_height = loft_pos.y;
+                    if height_die {
+                        field.howitzer_shell_loft_height_die_applications = field
+                            .howitzer_shell_loft_height_die_applications
+                            .saturating_add(1);
+                    }
+                    field.howitzer_coast_until_frame =
+                        spectre_coast_until_after_shot(current_frame, interval);
+                    let prev_level = field.howitzer_fire_level;
+                    if field.howitzer_consecutive > SPECTRE_HOWITZER_CONTINUOUS_FIRE_TWO {
+                        field.howitzer_fire_level = 2;
+                    } else if field.howitzer_consecutive > SPECTRE_HOWITZER_CONTINUOUS_FIRE_ONE {
+                        field.howitzer_fire_level = field.howitzer_fire_level.max(1);
+                    }
+                    // VoiceRapidFire residual when entering FAST (FiringTracker::speedUp).
+                    if prev_level < 2 && field.howitzer_fire_level == 2 {
+                        field.rapid_fire_voice_cues =
+                            field.rapid_fire_voice_cues.saturating_add(1);
+                    }
+                    // MODELCONDITION_CONTINUOUS_FIRE_* residual (FiringTracker::speedUp).
+                    if prev_level < 1 && field.howitzer_fire_level >= 1 {
+                        field.model_condition_mean_sets =
+                            field.model_condition_mean_sets.saturating_add(1);
+                    }
+                    if prev_level < 2 && field.howitzer_fire_level == 2 {
+                        field.model_condition_fast_sets =
+                            field.model_condition_fast_sets.saturating_add(1);
+                    }
                 }
             }
             if current_frame >= field.next_gattling_tick_frame {
@@ -878,6 +889,8 @@ impl HostSpecialPowerStrikeRegistry {
             object_id: None,
             connector_object_ids: Vec::new(),
             position,
+            source_position: Vec3::ZERO,
+            source_axis_set: false,
             spawn_frame,
             // Orbital death after TotalFiringTime + WidthGrow decay tail
             // (retail orbitalDeathFrame = orbitalDecayStart + widthGrowFrames).
@@ -915,6 +928,8 @@ impl HostSpecialPowerStrikeRegistry {
             manual_drive_distance_total: 0.0,
             manual_drive_applications: 0,
             fast_drive_applications: 0,
+            scripted_waypoint_mode: false,
+            next_dest_waypoint_id: 0,
             // STATUS_FIRING client residual: Intense outer nodes + connector
             // lasers + laser-base flare + ground-to-orbit orbital laser.
             // Fail-closed: not full bone extract / drawable ThingFactory lasers.
@@ -1090,6 +1105,31 @@ impl HostSpecialPowerStrikeRegistry {
         }
     }
 
+    /// C++ howitzer-rate re-eval: `m_positionToShootAt = m_overrideTargetDestination`.
+    /// Call once per logic frame before orbit damage planning.
+    pub fn advance_orbit_shoot_at(&mut self, current_frame: u32) {
+        for field in &mut self.orbit_fields {
+            if field.is_expired(current_frame) {
+                continue;
+            }
+            if field.is_due_howitzer(current_frame) {
+                field.refresh_position_to_shoot_at();
+            }
+        }
+    }
+
+    /// C++ gattling wind (every orbiting frame while the residual stream is live).
+    /// StrafingIncrement toward shoot-at; FollowLag counter resets while steering.
+    pub fn advance_orbit_strafe(&mut self, current_frame: u32) {
+        for field in &mut self.orbit_fields {
+            if field.is_expired(current_frame) {
+                continue;
+            }
+            field.wind_gattling_aim();
+        }
+    }
+
+
 
     /// Apply a live Object override click to matching PUC beam / Spectre orbit.
     pub fn apply_source_override_destination(
@@ -1142,7 +1182,9 @@ impl HostSpecialPowerStrikeRegistry {
     /// step never overshoots. Call once per logic frame before damage planning.
     pub fn advance_manual_beam_drive(&mut self, current_frame: u32) {
         for field in &mut self.beam_fields {
-            if !field.manual_target_mode || field.is_expired(current_frame) {
+            if !(field.manual_target_mode || field.scripted_waypoint_mode)
+                || field.is_expired(current_frame)
+            {
                 continue;
             }
             let last = field.last_drive_update_frame;
@@ -1150,20 +1192,34 @@ impl HostSpecialPowerStrikeRegistry {
                 continue;
             }
             let frames = current_frame - last;
-            let fast = particle_is_fast_drive(
-                field.last_driving_click_frame,
-                field.second_last_driving_click_frame,
-            );
+            // C++ scriptedWaypointMode always uses ManualFastDrivingSpeed.
+            let fast = field.scripted_waypoint_mode
+                || particle_is_fast_drive(
+                    field.last_driving_click_frame,
+                    field.second_last_driving_click_frame,
+                );
             let max_step = particle_manual_speed_per_frame(fast) * frames as f32;
             let dx = field.override_destination.x - field.current_target_position.x;
             let dz = field.override_destination.z - field.current_target_position.z;
             let dist = (dx * dx + dz * dz).sqrt();
+            // C++: when dist < speed, clamp then pick leftover next link.
+            // Movement this frame still uses the old dest vector.
+            if field.scripted_waypoint_mode && dist < max_step {
+                if let Some(terrain) = gamelogic::helpers::TheTerrainLogic::get() {
+                    if let Some((next_id, next_pos)) =
+                        terrain.random_outgoing_waypoint_link(field.next_dest_waypoint_id)
+                    {
+                        field.next_dest_waypoint_id = next_id;
+                        field.override_destination =
+                            glam::Vec3::new(next_pos.x, next_pos.z, next_pos.y);
+                    }
+                }
+            }
             if dist > 1e-4 {
                 let step = max_step.min(dist);
                 let scale = step / dist;
                 field.current_target_position.x += dx * scale;
                 field.current_target_position.z += dz * scale;
-                // Host residual keeps Y at click height (terrain Z fail-closed).
                 field.manual_drive_distance_total += step;
                 field.manual_drive_applications = field.manual_drive_applications.saturating_add(1);
                 if fast {
@@ -1171,6 +1227,22 @@ impl HostSpecialPowerStrikeRegistry {
                 }
             }
             field.last_drive_update_frame = current_frame;
+        }
+    }
+
+    /// Stamp each beam's cannon world position so SwathOfDeath rotates onto
+    /// building→target (C++ `me->getPosition()` / leftover).
+    pub fn bind_beam_source_axes(
+        &mut self,
+        object_positions: &[(ObjectId, Vec3, crate::game_logic::Team, bool)],
+    ) {
+        for field in &mut self.beam_fields {
+            if let Some((_, pos, _, _)) = object_positions
+                .iter()
+                .find(|(id, _, _, _)| *id == field.source_object)
+            {
+                field.bind_source_axis(*pos);
+            }
         }
     }
 
@@ -1183,8 +1255,9 @@ impl HostSpecialPowerStrikeRegistry {
     /// only — no team filter. Allies, neutrals, and the owner's units take
     /// `damagePerPulse` (35). Host residual damages living objects in
     /// WidthGrow-scaled [`PARTICLE_BEAM_RADIUS`] (**44.2**) around the residual
-    /// epicenter, excluding only the source launcher. Fail-closed vs full
-    /// building→target rotation matrix / full GPU laser width matrix. WidthGrow
+    /// epicenter, excluding only the source launcher. SwathOfDeath rotates onto
+    /// cannon→click when [`bind_beam_source_axes`] has stamped the building.
+    /// Fail-closed vs full GPU laser width matrix. WidthGrow
     /// damage-radius residual scales radius 0→full over grow, holds full through
     /// TotalFiringTime, then shrinks full→0 over decay ([`PARTICLE_WIDTH_GROW_FRAMES`]).
     /// Manual driving residual uses override destination when armed.
@@ -1249,7 +1322,7 @@ impl HostSpecialPowerStrikeRegistry {
         if let Some(field) = self.beam_fields.iter_mut().find(|f| f.id == field_id) {
             // Epicenter residual honesty for the pulse that just applied.
             let epicenter = field.residual_epicenter(field.pulses_made);
-            if field.manual_target_mode {
+            if field.manual_target_mode || field.scripted_waypoint_mode {
                 // Manual mode: still record last epicenter; swath offset honesty
                 // remains 0 (no S-curve while player is driving).
                 field.last_swath_position = epicenter;

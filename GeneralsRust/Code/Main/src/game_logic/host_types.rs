@@ -249,6 +249,10 @@ pub enum KindOf {
     /// ACTIONTYPE_SET_RALLY_POINT. Gameplay-only: the compact presentation
     /// KindOf bank is full.
     AutoRallypoint,
+    /// C++ `KINDOF_MOB_NEXUS`. Angry Mob coordinator. ImmuneToGPS strips the
+    /// default OverrideableByLikeKind StealthUpdate (ThingTemplate.cpp:391).
+    /// Gameplay-only: the compact presentation KindOf bank is full.
+    MobNexus,
 
 }
 
@@ -275,6 +279,7 @@ impl KindOf {
             "STEALTH_GARRISON" | "STEALTHGARRISON" => Some(Self::StealthGarrison),
             "TECH_BUILDING" | "TECHBUILDING" => Some(Self::TechBuilding),
             "AUTO_RALLYPOINT" | "AUTO_RALLY_POINT" => Some(Self::AutoRallypoint),
+            "MOB_NEXUS" | "MOBNEXUS" => Some(Self::MobNexus),
 
             "DRONE" => Some(Self::Drone),
             _ => None,
@@ -784,6 +789,10 @@ mod tests {
         assert_eq!(
             KindOf::from_ini_token("AUTO_RALLYPOINT"),
             Some(KindOf::AutoRallypoint)
+        );
+        assert_eq!(
+            KindOf::from_ini_token("MOB_NEXUS"),
+            Some(KindOf::MobNexus)
         );
         assert_eq!(KindOf::from_ini_token("FS_FACTORY"), None);
     }

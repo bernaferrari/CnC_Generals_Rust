@@ -1393,7 +1393,8 @@ pub fn shadow_session_after_host_tick(
         // Wave 789: AnthraxBomb drop + detonate (no dual flight).
         for ev in crate::game_logic::host_anthrax_bomb_drop_log::drain_drops() {
             let bomb = ev.tier.bomb();
-            let drop_pos = glam::Vec3::new(ev.target.x, 90.0, ev.target.z);
+            let drop_pos =
+                crate::game_logic::host_anthrax_bomb_flight::anthrax_payload_drop_pos(ev.plane_pos);
             if let Some(bid) =
                 match logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::Create {
                     template: bomb.to_string(),
@@ -1431,10 +1432,30 @@ pub fn shadow_session_after_host_tick(
                 DamageType::Explosive,
             );
             let src = ev.producer.unwrap_or(ev.bomb);
-            let _ =
-                logic
-                    .special_power_strikes
-                    .spawn_toxin_field(src, ev.team, ev.pos, logic.frame, 0);
+            let toxin_object = logic
+                .objects
+                .get(&ev.bomb)
+                .map(|o| {
+                    crate::game_logic::host_anthrax_bomb_flight::AnthraxBombPayloadTier::from_ocl(
+                        &o.template_name,
+                    )
+                    .toxin_object()
+                })
+                .unwrap_or(
+                    crate::game_logic::special_power_strikes::ANTHRAX_TOXIN_OBJECT_NAME,
+                );
+            let _ = logic.special_power_strikes.spawn_toxin_field_with_params(
+                src,
+                ev.team,
+                ev.pos,
+                logic.frame,
+                0,
+                crate::game_logic::special_power_strikes::ANTHRAX_TOXIN_DAMAGE_PER_TICK,
+                crate::game_logic::special_power_strikes::ANTHRAX_TOXIN_RADIUS,
+                crate::game_logic::special_power_strikes::ANTHRAX_TOXIN_TICK_INTERVAL_FRAMES,
+                crate::game_logic::special_power_strikes::ANTHRAX_TOXIN_DURATION_FRAMES,
+                toxin_object,
+            );
             logic.anthrax_bomb_flight_reg.record_toxin_field();
             // Wave 942: bomb destroy via mutation authority.
             logic.apply_host_residual_mutation_op(

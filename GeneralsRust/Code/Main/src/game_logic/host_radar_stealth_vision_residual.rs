@@ -779,6 +779,7 @@ pub fn live_kind_of_cpp_mask(kind: crate::game_logic::KindOf) -> u128 {
         KindOf::TechBuilding => M::TECH_BUILDING.bits(),
         KindOf::LandmarkBridge => M::LANDMARK_BRIDGE.bits(),
         KindOf::AutoRallypoint => M::AUTO_RALLYPOINT.bits(),
+        KindOf::MobNexus => M::MOB_NEXUS.bits(),
         KindOf::Resource | KindOf::Worker | KindOf::Harvestable => 0,
     }
 }

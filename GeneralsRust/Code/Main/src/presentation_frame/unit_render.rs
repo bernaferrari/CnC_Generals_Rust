@@ -149,6 +149,9 @@ pub struct UnitRenderInput {
     pub selection_radius: f32,
     /// C++ Drawable selection flash envelope residual frames remaining.
     pub selection_flash_remaining: u32,
+    /// C++ `flashAsSelected(&color)` envelope RGB. `None` is white default.
+    pub selection_flash_color: Option<[f32; 3]>,
+
     /// Frozen ModelConditionFlags residual for mesh subobject selection.
     pub model_condition_bits: u128,
     /// Production door residual phase.
@@ -356,6 +359,8 @@ impl UnitRenderInput {
             terrain_decal_opacity: ro.terrain_decal_opacity,
             turret_angle_deg: ro.turret_angle_deg,
             turret_pitch_deg: ro.turret_pitch_deg,
+            selection_flash_color: ro.selection_flash_color,
+
             selected: ro.selected,
             selection_radius: ro.selection_radius.max(5.0),
             selection_flash_remaining: ro.selection_flash_remaining,
@@ -1424,6 +1429,16 @@ impl UnitRenderInput {
             base
         }
     }
+
+    /// C++ `flashAsSelected(&color)` RGB, or white when unspecified.
+    #[inline]
+    pub fn selection_flash_color_rgba(&self) -> [f32; 4] {
+        match self.selection_flash_color {
+            Some(c) => [c[0], c[1], c[2], 1.0],
+            None => [1.0, 1.0, 1.0, 1.0],
+        }
+    }
+
 }
 
 #[cfg(test)]

@@ -56,6 +56,7 @@ pub mod terrain_background;
 pub mod terrain_roads;
 pub mod terrain_tracks;
 pub mod terrain_visual;
+pub mod terrain_visual_xfer;
 pub mod textures;
 pub mod tree_buffer;
 pub mod vertex;
@@ -90,6 +91,9 @@ pub use scorch_mesh::{
     ScorchHeightSource, ScorchMark, ScorchVertex, TerrainScorchBuffer, MAX_SCORCH_INDEX,
     MAX_SCORCH_MARKS, MAX_SCORCH_VERTEX, SCORCH_FLOAT_AMOUNT, SCORCH_MARKS_IN_TEXTURE,
     SCORCH_PER_ROW,
+};
+pub use terrain_visual_xfer::{
+    capture_live_terrain_visual_xfer_bytes, restore_live_terrain_visual_from_xfer_bytes,
 };
 pub use terrain_background::{
     IRegion2D, TerrainBackgroundCullStatus, TerrainBackgroundHeightMap, W3DTerrainBackground,

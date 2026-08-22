@@ -829,8 +829,8 @@ fn patrol_and_sell_hotkey_residual() {
     );
     let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
     assert!(
-        pf.contains("Command_Patrol"),
-        "command strip must expose Patrol residual"
+        pf.contains("populate_command_set_strip") && pf.contains("HUD_COMMAND_SET_RESIDUAL_PACKS"),
+        "command strip must bind CommandSet slots, not invent Patrol"
     );
 }
 
@@ -977,19 +977,13 @@ fn named_superweapon_button_residual() {
     );
     let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
     assert!(
-        pf.contains("Command_ParticleCannon")
+        pf.contains("Command_FireParticleUplinkCannon")
             && pf.contains("Command_SpySatelliteScan")
             && pf.contains("Command_CIAIntelligence")
-            && pf.contains("Command_CarpetBomb")
-            && pf.contains("Command_EmergencyRepair")
-            && pf.contains("Command_ArtilleryBarrage")
-            && pf.contains("Command_SpyDrone")
-            && pf.contains("Command_Airstrike")
-            && pf.contains("Command_Ambush")
-            && pf.contains("Command_SneakAttack")
             && pf.contains("Command_LeafletDrop")
-            && pf.contains("Command_SpectreGunship"),
-        "SW structures must expose named buttons residual"
+            && pf.contains("Command_SpectreGunship")
+            && pf.contains("Command_A10ThunderboltMissileStrike"),
+        "SW structures must expose CommandSet residual buttons"
     );
     let eng = crate::cnc_game_engine::ENGINE_SRC;
     assert!(

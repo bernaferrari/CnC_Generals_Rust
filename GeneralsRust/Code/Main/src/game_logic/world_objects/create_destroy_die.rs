@@ -223,7 +223,7 @@ impl GameLogic {
         &mut self,
         center_id: ObjectId,
     ) -> Option<ObjectId> {
-        let (team, owner_player_id, position, orientation) = {
+        let (team, owner_player_id, mut spawn_pos, orientation, custom_rally) = {
             let center = self.host_object(center_id)?;
             if !center.is_alive()
                 || !center.is_constructed()
@@ -237,13 +237,39 @@ impl GameLogic {
             {
                 return None;
             }
+            // C++ SupplyCenterProductionExitUpdate::exitObjectViaDoor places
+            // at the transformed INI UnitCreatePoint, not the building origin.
+            let forward = center.thing.get_direction_vector();
+            let metadata = center.thing.template.production_exit_metadata;
+            let spawn = metadata
+                .map(|exit| {
+                    crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
+                        center.get_position(),
+                        forward,
+                        (
+                            exit.unit_create_point[0],
+                            exit.unit_create_point[1],
+                            exit.unit_create_point[2],
+                        ),
+                    )
+                })
+                .unwrap_or(center.get_position());
+            let rally = center
+                .building_data
+                .as_ref()
+                .and_then(|building| building.rally_point);
             (
                 center.team,
                 center.owner_player_id,
-                center.get_position(),
+                spawn,
                 center.get_orientation(),
+                rally,
             )
         };
+        // C++ snaps create-point Z to terrain after the model transform.
+        if let Some(height) = self.terrain_height_at(spawn_pos) {
+            spawn_pos.y = height;
+        }
 
         let spawn_template = self.supply_center_one_shot_collector_template(center_id)?;
 
@@ -282,39 +308,31 @@ impl GameLogic {
             return None;
         }
 
-        // The real module's UnitCreatePoint is parsed below when the object
-        // catalog is available.  Preserve producer identity here; the common
-        // exit handoff applies its authored route immediately after creation.
+        // The real module's UnitCreatePoint is parsed above.  Preserve
+        // producer identity here; the common exit handoff applies its
+        // authored route (raw natural rally, no 2-cell offset, custom rally,
+        // forceWanting, GrantTemporaryStealth) immediately after creation.
         let spawned_id = match owner_player_id {
-            Some(player_id) => self.create_object_for_player(&spawn_template, player_id, position),
-            None => self.create_object(&spawn_template, team, position),
+            Some(player_id) => {
+                self.create_object_for_player(&spawn_template, player_id, spawn_pos)
+            }
+            None => self.create_object(&spawn_template, team, spawn_pos),
         }?;
         if let Some(spawned) = self.host_object_mut(spawned_id) {
             spawned.producer_id = Some(center_id);
             spawned.set_orientation(orientation);
         }
-        let (natural, has_supply_exit) = self
-            .host_object(center_id)
-            .map(|center| {
-                let forward = center.thing.get_direction_vector();
-                let metadata = center.thing.template.production_exit_metadata;
-                let natural = metadata
-                    .map(|exit| {
-                        let point = exit.natural_rally_point_with_path_offset(
-                            crate::game_logic::host_ai_path_combat_residual_wave105::PATHFIND_CELL_SIZE_F,
-                        );
-                        crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
-                            center.get_position(), forward, (point[0], point[1], point[2]),
-                        )
-                    })
-                    .unwrap_or(center.get_position());
-                (natural, metadata.is_some_and(|exit| exit.is_supply_center()))
-            })
-            .unwrap_or((position, false));
-        self.path_approach_with_state(spawned_id, natural, AIState::Moving);
-        if has_supply_exit {
-            let _ = self.force_supply_center_collector_wanting(spawned_id, center_id);
-        }
+        crate::game_logic::host_production_spawn_ready_log::record(
+            spawned_id,
+            center_id,
+            spawn_template,
+            [spawn_pos.x, spawn_pos.y, spawn_pos.z],
+            custom_rally.map(|rally| [rally.x, rally.y, rally.z]),
+        );
+        let _ = self.apply_production_authority_op(
+            ProductionAuthorityOp::ApplySpawnReadyCompletions,
+        );
+        self.grant_supply_center_exit_temporary_stealth(center_id, spawned_id);
         if let Some(center) = self.host_object_mut(center_id) {
             center.supply_center_spawn_behavior_fired = true;
         }
@@ -1300,6 +1318,7 @@ impl GameLogic {
                 object.thing.template.add_kind_of(KindOf::Selectable);
                 object.thing.template.add_kind_of(KindOf::Infantry);
                 object.thing.template.add_kind_of(KindOf::Attackable);
+                object.thing.template.add_kind_of(KindOf::MobNexus);
                 let need_loco = object.movement.max_speed
                     < crate::game_logic::host_angry_mob::ANGRY_MOB_LOCOMOTOR_SPEED - 0.01;
                 if need_loco {
@@ -1322,9 +1341,30 @@ impl GameLogic {
             }
 
             // Host residual: bind mine/demo-trap data for recognized templates.
-            if let Some(mine_data) =
-                crate::game_logic::host_mines::residual_data_for_template(template_name, self.frame)
-            {
+            // C++ Chem_DemoTrapDetonationWeaponGamma after Chem_Upgrade_GLAAnthraxGamma.
+            let has_anthrax_gamma = {
+                use crate::game_logic::host_toxin_tractor::is_anthrax_gamma_upgrade_name;
+                let player_has_gamma = |player: &Player| {
+                    player
+                        .unlocked_sciences
+                        .iter()
+                        .chain(player.completed_upgrades.iter())
+                        .any(|name| is_anthrax_gamma_upgrade_name(name))
+                };
+                if let Some(player) = owner_player_id.and_then(|pid| self.players.get(&pid)) {
+                    player_has_gamma(player)
+                } else {
+                    self.players
+                        .values()
+                        .filter(|p| p.team == team)
+                        .any(player_has_gamma)
+                }
+            };
+            if let Some(mine_data) = crate::game_logic::host_mines::residual_data_for_template(
+                template_name,
+                self.frame,
+                has_anthrax_gamma,
+            ) {
                 object.mine_data = Some(mine_data);
                 object.record_host_demo_mine_cheer();
             }
@@ -2114,6 +2154,32 @@ impl GameLogic {
             // Host residual: America Hellfire Drone AutoAcquire + HellfireMissileWeapon.
             // Weapon bound via weapon_bootstrap primary; no extra strip.
             // Auto-fire residual runs from update_combat when idle.
+
+            // C++ Object::initObject → updateUpgradeModules: PLAYER_UPGRADE
+            // Upgrade_AmericaDroneArmor fires MaxHealthUpgrade on new drones.
+            // Live research only stamps drones alive at complete; inherit here.
+            // Owner-player only — same-faction leak is not C++ getControllingPlayer.
+            if let Some(kind) =
+                crate::game_logic::host_slave_drones::slave_drone_kind_from_template(template_name)
+            {
+                use crate::game_logic::host_slave_drones::{
+                    apply_drone_armor_health, UPGRADE_AMERICA_DRONE_ARMOR,
+                };
+                let player_has_armor = owner_player_id
+                    .and_then(|pid| self.players.get(&pid))
+                    .is_some_and(|p| p.has_unlocked_upgrade(UPGRADE_AMERICA_DRONE_ARMOR));
+                if player_has_armor && !object.has_upgrade_tag(UPGRADE_AMERICA_DRONE_ARMOR) {
+                    object.apply_upgrade_tag(UPGRADE_AMERICA_DRONE_ARMOR);
+                    let mut max_h = object.max_health;
+                    let mut cur = object.health.current;
+                    let mut maximum = object.health.maximum;
+                    apply_drone_armor_health(kind, &mut max_h, &mut cur, &mut maximum);
+                    object.max_health = max_h;
+                    object.record_host_max_health();
+                    object.health.maximum = maximum;
+                    object.health.current = cur;
+                }
+            }
 
             if let Some(level) = player_template_veterancy {
                 let _ = object.set_min_veterancy_level(level);

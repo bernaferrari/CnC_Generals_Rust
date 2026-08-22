@@ -2441,6 +2441,9 @@ impl CnCGameEngine {
             // C++ ScriptActions::doLetterBoxMode HideControlBar(TRUE)/ShowControlBar(FALSE).
             if pres.cinematic_letterbox {
                 let _ = game_client::gui::callbacks::control_bar_callbacks::hide_control_bar(true);
+                // hide_control_bar no-ops when already hidden; still lift the
+                // live 80% tactical frac so letterbox 3D fills the display.
+                game_client::display::view::set_tactical_view_height_frac(1.0);
             } else if was_letterbox {
                 let _ = game_client::gui::callbacks::control_bar_callbacks::show_control_bar(false);
             }

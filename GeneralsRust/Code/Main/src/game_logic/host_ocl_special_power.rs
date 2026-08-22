@@ -203,26 +203,48 @@ fn ambush_upgrade(science: &str, ocl: &str) -> OclScienceUpgrade {
 /// (Ambush3 before Ambush2; Chem/Demo/Slth Ambush1 listed so they do not fall
 /// through to `GLAInfantryRebel`).
 pub fn gla_command_center_ocl_peels() -> Vec<OclSpecialPowerPeel> {
-    vec![OclSpecialPowerPeel {
-        special_power_template: "SuperweaponRebelAmbush".into(),
-        default_ocl: "SUPERWEAPON_RebelAmbush1".into(),
-        create_loc: OclCreateLocType::AtLocation,
-        upgrade_ocl: vec![
-            ambush_upgrade("SCIENCE_RebelAmbush3", "SUPERWEAPON_RebelAmbush3"),
-            ambush_upgrade("SCIENCE_RebelAmbush2", "SUPERWEAPON_RebelAmbush2"),
-            ambush_upgrade("Chem_SCIENCE_RebelAmbush3", "Chem_SUPERWEAPON_RebelAmbush3"),
-            ambush_upgrade("Chem_SCIENCE_RebelAmbush2", "Chem_SUPERWEAPON_RebelAmbush2"),
-            ambush_upgrade("Chem_SCIENCE_RebelAmbush1", "Chem_SUPERWEAPON_RebelAmbush1"),
-            ambush_upgrade("Demo_SCIENCE_RebelAmbush3", "Demo_SUPERWEAPON_RebelAmbush3"),
-            ambush_upgrade("Demo_SCIENCE_RebelAmbush2", "Demo_SUPERWEAPON_RebelAmbush2"),
-            ambush_upgrade("Demo_SCIENCE_RebelAmbush1", "Demo_SUPERWEAPON_RebelAmbush1"),
-            ambush_upgrade("Slth_SCIENCE_RebelAmbush3", "Slth_SUPERWEAPON_RebelAmbush3"),
-            ambush_upgrade("Slth_SCIENCE_RebelAmbush2", "Slth_SUPERWEAPON_RebelAmbush2"),
-            ambush_upgrade("Slth_SCIENCE_RebelAmbush1", "Slth_SUPERWEAPON_RebelAmbush1"),
-        ],
-        adjust_position_to_passable: true,
-        reference_object: None,
-    }]
+    vec![
+        OclSpecialPowerPeel {
+            special_power_template: "SuperweaponRebelAmbush".into(),
+            default_ocl: "SUPERWEAPON_RebelAmbush1".into(),
+            create_loc: OclCreateLocType::AtLocation,
+            upgrade_ocl: vec![
+                ambush_upgrade("SCIENCE_RebelAmbush3", "SUPERWEAPON_RebelAmbush3"),
+                ambush_upgrade("SCIENCE_RebelAmbush2", "SUPERWEAPON_RebelAmbush2"),
+                ambush_upgrade("Chem_SCIENCE_RebelAmbush3", "Chem_SUPERWEAPON_RebelAmbush3"),
+                ambush_upgrade("Chem_SCIENCE_RebelAmbush2", "Chem_SUPERWEAPON_RebelAmbush2"),
+                ambush_upgrade("Chem_SCIENCE_RebelAmbush1", "Chem_SUPERWEAPON_RebelAmbush1"),
+                ambush_upgrade("Demo_SCIENCE_RebelAmbush3", "Demo_SUPERWEAPON_RebelAmbush3"),
+                ambush_upgrade("Demo_SCIENCE_RebelAmbush2", "Demo_SUPERWEAPON_RebelAmbush2"),
+                ambush_upgrade("Demo_SCIENCE_RebelAmbush1", "Demo_SUPERWEAPON_RebelAmbush1"),
+                ambush_upgrade("Slth_SCIENCE_RebelAmbush3", "Slth_SUPERWEAPON_RebelAmbush3"),
+                ambush_upgrade("Slth_SCIENCE_RebelAmbush2", "Slth_SUPERWEAPON_RebelAmbush2"),
+                ambush_upgrade("Slth_SCIENCE_RebelAmbush1", "Slth_SUPERWEAPON_RebelAmbush1"),
+            ],
+            adjust_position_to_passable: true,
+            reference_object: None,
+        },
+        // C++ FactionBuilding.ini GLACommandCenter default OCL=SUPERWEAPON_AnthraxBomb.
+        // Chem_GLACommandCenter default OCL=SUPERWEAPON_AnthraxBombGamma (no UpgradeOCL).
+        // Palace Chem_Upgrade_GLAAnthraxGamma is listed so leftover findOCL can swap.
+        OclSpecialPowerPeel {
+            special_power_template: "SuperweaponAnthraxBomb".into(),
+            default_ocl: "SUPERWEAPON_AnthraxBomb".into(),
+            create_loc: OclCreateLocType::EdgeNearSource,
+            upgrade_ocl: vec![
+                OclScienceUpgrade {
+                    science: "Chem_Upgrade_GLAAnthraxGamma".into(),
+                    ocl: "SUPERWEAPON_AnthraxBombGamma".into(),
+                },
+                OclScienceUpgrade {
+                    science: "Upgrade_GLAAnthraxGamma".into(),
+                    ocl: "SUPERWEAPON_AnthraxBombGamma".into(),
+                },
+            ],
+            adjust_position_to_passable: false,
+            reference_object: None,
+        },
+    ]
 }
 
 /// Resolve OCL name: first owned upgrade science, else default.
@@ -239,6 +261,46 @@ pub fn find_ocl_name(
         }
     }
     peel.default_ocl.as_str()
+}
+
+/// Retail SuperweaponAnthraxBomb SpecialPowerTemplate.
+pub const ANTHRAX_BOMB_SPECIAL_POWER: &str = "SuperweaponAnthraxBomb";
+/// C++ GLACommandCenter OCLSpecialPower default OCL.
+pub const ANTHRAX_BOMB_OCL: &str = "SUPERWEAPON_AnthraxBomb";
+/// C++ Chem_GLACommandCenter OCLSpecialPower default OCL.
+pub const ANTHRAX_BOMB_GAMMA_OCL: &str = "SUPERWEAPON_AnthraxBombGamma";
+
+/// Chem command-center / toxin-general identity for leftover Anthrax OCL.
+///
+/// C++ Chem_GLACommandCenter default OCL is SUPERWEAPON_AnthraxBombGamma.
+/// Player template is FactionGLAToxinGeneral (not "chemgeneral").
+pub fn is_chem_anthrax_bomb_ocl_source(name: &str) -> bool {
+    use crate::game_logic::host_toxin_tractor::is_chem_general_template;
+    if is_chem_general_template(name) {
+        return true;
+    }
+    let n = name.to_ascii_lowercase();
+    n.contains("toxingeneral")
+        || n.contains("factionglatoxin")
+        || n.contains("chemicalgeneral")
+        || n.contains("factionchem")
+}
+
+/// Leftover findOCL + Chem_GLACommandCenter default OCL.
+pub fn resolve_anthrax_bomb_ocl<'a, I>(source_template: &str, names: I) -> &'static str
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    let owned: Vec<&'a str> = names.into_iter().collect();
+    if is_chem_anthrax_bomb_ocl_source(source_template)
+        || owned.iter().copied().any(is_chem_anthrax_bomb_ocl_source)
+    {
+        return ANTHRAX_BOMB_GAMMA_OCL;
+    }
+    if let Some(peel) = peel_for_special_power(ANTHRAX_BOMB_SPECIAL_POWER) {
+        return find_ocl_name(peel, |s| owned.iter().any(|n| n.eq_ignore_ascii_case(s)));
+    }
+    ANTHRAX_BOMB_OCL
 }
 
 pub fn peel_for_special_power(power_template: &str) -> Option<&'static OclSpecialPowerPeel> {
@@ -571,6 +633,28 @@ pub fn deliver_payload_for_ocl(ocl: &str) -> Option<OclDeliverPayloadPeel> {
             start_at_max_speed: true,
         });
     }
+    if n.contains("anthraxbombgamma") {
+        return Some(OclDeliverPayloadPeel {
+            ocl_name: ANTHRAX_BOMB_GAMMA_OCL.into(),
+            transport: "GLAJetCargoPlane".into(),
+            payload: "AnthraxBombGamma".into(),
+            delivery_distance: 140.0,
+            drop_offset_y: 0.0,
+            start_at_preferred_height: true,
+            start_at_max_speed: true,
+        });
+    }
+    if n.contains("anthraxbomb") {
+        return Some(OclDeliverPayloadPeel {
+            ocl_name: ANTHRAX_BOMB_OCL.into(),
+            transport: "GLAJetCargoPlane".into(),
+            payload: "AnthraxBomb".into(),
+            delivery_distance: 140.0,
+            drop_offset_y: 0.0,
+            start_at_preferred_height: true,
+            start_at_max_speed: true,
+        });
+    }
     None
 }
 
@@ -626,6 +710,7 @@ pub fn special_power_template_for_host_kind(kind_label: &str) -> Option<&'static
         "CrateDrop" => Some("SuperweaponCrateDrop"),
         "SpyDrone" => Some("SpecialPowerSpyDrone"),
         "GLARebelAmbush" | "Ambush" => Some("SuperweaponRebelAmbush"),
+        "AnthraxBomb" => Some(ANTHRAX_BOMB_SPECIAL_POWER),
         _ => None,
     }
 }
@@ -767,8 +852,19 @@ pub fn honesty_ocl_special_power_residual_ok() -> bool {
             .map(|c| c.object_names[0] == "AmericaVehicleSpyDrone")
             .unwrap_or(false)
         && special_power_template_for_host_kind("DaisyCutter") == Some("SuperweaponDaisyCutter")
+        && special_power_template_for_host_kind("AnthraxBomb") == Some(ANTHRAX_BOMB_SPECIAL_POWER)
         && ocl_execute_mode_for_template("SuperweaponLeafletDrop") == OclExecuteMode::TransportOnly
         && ocl_execute_mode_for_template("SuperweaponDaisyCutter") == OclExecuteMode::FullDeliver
+        && resolve_anthrax_bomb_ocl("GLACommandCenter", [] as [&str; 0]) == ANTHRAX_BOMB_OCL
+        && resolve_anthrax_bomb_ocl("Chem_GLACommandCenter", [] as [&str; 0]) == ANTHRAX_BOMB_GAMMA_OCL
+        && resolve_anthrax_bomb_ocl("GLACommandCenter", ["FactionGLAToxinGeneral"])
+            == ANTHRAX_BOMB_GAMMA_OCL
+        && resolve_anthrax_bomb_ocl("GLACommandCenter", ["Chem_Upgrade_GLAAnthraxGamma"])
+            == ANTHRAX_BOMB_GAMMA_OCL
+        && deliver_payload_for_ocl(ANTHRAX_BOMB_GAMMA_OCL)
+            .is_some_and(|d| d.payload == "AnthraxBombGamma" && d.transport == "GLAJetCargoPlane")
+        && deliver_payload_for_ocl(ANTHRAX_BOMB_OCL)
+            .is_some_and(|d| d.payload == "AnthraxBomb")
 }
 
 #[cfg(test)]
@@ -790,6 +886,36 @@ mod tests {
         assert_eq!(
             find_ocl_name(a10, |_| false),
             "SUPERWEAPON_A10ThunderboltMissileStrike1"
+        );
+    }
+
+    #[test]
+    fn anthrax_gamma_ocl_from_chem_source_and_palace_upgrade() {
+        let peels = gla_command_center_ocl_peels();
+        let anthrax = peels
+            .iter()
+            .find(|p| p.special_power_template.contains("AnthraxBomb"))
+            .unwrap();
+        assert_eq!(
+            find_ocl_name(anthrax, |_| false),
+            ANTHRAX_BOMB_OCL
+        );
+        assert_eq!(
+            find_ocl_name(anthrax, |s| s == "Chem_Upgrade_GLAAnthraxGamma"),
+            ANTHRAX_BOMB_GAMMA_OCL
+        );
+        assert_eq!(
+            resolve_anthrax_bomb_ocl("Chem_GLACommandCenter", [] as [&str; 0]),
+            ANTHRAX_BOMB_GAMMA_OCL
+        );
+        assert_eq!(
+            resolve_anthrax_bomb_ocl("GLACommandCenter", ["FactionGLAToxinGeneral"]),
+            ANTHRAX_BOMB_GAMMA_OCL
+        );
+        assert_eq!(
+            deliver_payload_for_ocl(ANTHRAX_BOMB_GAMMA_OCL)
+                .map(|d| d.payload),
+            Some("AnthraxBombGamma".into())
         );
     }
 

@@ -54,6 +54,59 @@ fn leftover_host_template_is_inert(template_name: &str) -> bool {
         })
 }
 
+/// C++ Object::getShroudedStatus CLEAR|PARTIAL_CLEAR per player (no stealth filter).
+fn host_discovered_by_player_names(
+    logic: &crate::game_logic::GameLogic,
+    object_id: u32,
+    obj: &crate::game_logic::object::Object,
+) -> Vec<String> {
+    use gamelogic::common::ObjectShroudStatus;
+    if obj.status.disabled_held {
+        return Vec::new();
+    }
+    let mut names = Vec::new();
+    let shroud = gamelogic::system::shroud_manager::get_shroud_manager()
+        .lock()
+        .ok();
+    for player in logic.players.values() {
+        let status = shroud
+            .as_ref()
+            .and_then(|mgr| mgr.get_host_object_shroud_status(player.id, object_id));
+        let visible = match status {
+            Some(ObjectShroudStatus::Clear | ObjectShroudStatus::PartialClear) => true,
+            Some(_) => false,
+            None => obj.owner_player_id == Some(player.id),
+        };
+        if visible && !player.name.is_empty() {
+            names.push(player.name.clone());
+        }
+    }
+    names
+}
+
+fn leftover_waypoint_path_labels(path_label: &str, last: glam::Vec3) -> Vec<String> {
+    let mut labels = Vec::new();
+    if !path_label.is_empty() {
+        labels.push(path_label.to_string());
+    }
+    let Ok(terrain) = gamelogic::terrain::get_terrain_logic().read() else {
+        return labels;
+    };
+    let pos = gamelogic::common::Coord3D::new(last.x, last.z, last.y);
+    if let Some(wp) = terrain.get_closest_waypoint_on_path(&pos, path_label) {
+        for label in [
+            wp.get_path_label1().as_str(),
+            wp.get_path_label2().as_str(),
+            wp.get_path_label3().as_str(),
+        ] {
+            if !label.is_empty() && !labels.iter().any(|existing| existing == label) {
+                labels.push(label.to_string());
+            }
+        }
+    }
+    labels
+}
+
 /// C++ Object::getStatusBits: packed OBJECT_STATUS_* from live host flags.
 fn host_query_object_status_bits(obj: &crate::game_logic::object::Object) -> u64 {
     use crate::game_logic::host_status_bits_upgrade::object_status_mask_from_names;
@@ -431,7 +484,9 @@ impl GameLogic {
                 name: obj.name.clone(),
                 team: obj.team as u32,
                 x: obj.position.x,
+                y: obj.position.y,
                 z: obj.position.z,
+
                 alive: obj.is_alive() && !obj.status.destroyed,
                 effectively_dead: obj.status.effectively_dead || obj.status.destroyed,
                 health: obj.health.current,
@@ -474,20 +529,8 @@ impl GameLogic {
                 kind_mine: obj.is_kind_of(crate::game_logic::KindOf::Mine),
                 held: obj.status.disabled_held,
                 stealthed_hidden: obj.is_effectively_stealthed(),
-                discovered_by: {
-                    let mut names = Vec::new();
-                    if !obj.status.disabled_held && !obj.is_effectively_stealthed() {
-                        names.extend(self.players.values().map(|p| p.name.clone()));
-                    } else if !obj.status.disabled_held {
-                        if let Some(pid) = obj.owner_player_id {
-                            if let Some(name) = self.player_name(pid) {
-                                names.push(name);
-                            }
-                        }
-                    }
-                    names
-                },
-                waypoint_labels: Vec::new(),
+                discovered_by: host_discovered_by_player_names(self, id.0, obj),
+                waypoint_labels: obj.completed_waypoint_labels.clone(),
                 selected: obj.selected,
                 idle: matches!(obj.ai_state, crate::game_logic::AIState::Idle)
                     && !obj.status.moving
@@ -1233,6 +1276,10 @@ impl GameLogic {
                     let Some(pid) = self.host_player_id_for_script_token(&player) else {
                         continue;
                     };
+                    if let Some(player) = self.players.get_mut(&pid) {
+                        player.units_should_hunt = true;
+                    }
+
                     let team = self.players.get(&pid).map(|p| p.team);
                     let ids: Vec<ObjectId> = self
                         .objects
@@ -1430,7 +1477,13 @@ impl GameLogic {
                         continue;
                     };
                     let _ = self.apply_unit_locomotor_set(id, "normal");
-                    self.host_script_issue_follow_waypoint_path(&[id], &path, exact, false);
+                    self.host_script_issue_follow_waypoint_path(
+                        &[id],
+                        &path,
+                        exact,
+                        false,
+                        &waypoint,
+                    );
                 }
                 HostScriptFollowWaypointsRequest::TeamFollow {
                     team,
@@ -1466,7 +1519,13 @@ impl GameLogic {
                     let Some(path) = self.host_script_waypoint_path_from(&waypoint, center) else {
                         continue;
                     };
-                    self.host_script_issue_follow_waypoint_path(&members, &path, exact, as_team);
+                    self.host_script_issue_follow_waypoint_path(
+                        &members,
+                        &path,
+                        exact,
+                        as_team,
+                        &waypoint,
+                    );
                 }
             }
         }
@@ -1569,9 +1628,19 @@ impl GameLogic {
                     let Some(dest) = self.host_script_area_center(&area) else {
                         continue;
                     };
+                    let poly_radius = crate::game_logic::GameLogic::host_named_guard_area_polygon(&area)
+                        .map(|(_, r, _)| r);
                     for id in self.host_script_team_member_ids(&team) {
                         if self.host_script_unit_can_guard(id) {
                             let _ = self.unit_command_guard_position(id, dest);
+                            if let Some(u) = self.objects.get_mut(&id) {
+                                u.guard_area_trigger = Some(area.clone());
+                                if let Some(r) = poly_radius {
+                                    if r > 0.0 {
+                                        u.guard_radius = r;
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -1601,13 +1670,14 @@ impl GameLogic {
                     power,
                     waypoint,
                 } => {
-                    let Some(dest) = self.host_script_waypoint_position(&waypoint) else {
+                    let Some((wid, dest)) = self.host_script_leftover_waypoint(&waypoint) else {
                         continue;
                     };
                     self.host_script_fire_named_special_power(
                         &unit,
                         &power,
                         PowerTarget::Location(dest),
+                        Some(wid),
                     );
                 }
                 HostScriptNamedFireSpecialPowerRequest::AtNamed {
@@ -1622,6 +1692,7 @@ impl GameLogic {
                         &unit,
                         &power,
                         PowerTarget::Object(tid),
+                        None,
                     );
                 }
             }
@@ -1661,11 +1732,14 @@ impl GameLogic {
     }
 
     /// C++ `mod->doSpecialPowerAtLocation/Object(..., COMMAND_FIRED_BY_SCRIPT)`.
+    /// When `waypoint_id` is set, PUC leftover `scriptedWaypointMode` drives
+    /// the outgoing chain instead of SwathOfDeath on a static point.
     fn host_script_fire_named_special_power(
         &mut self,
         unit: &str,
         power_name: &str,
         target: crate::command_system::PowerTarget,
+        waypoint_id: Option<u32>,
     ) {
         let Some(id) = self.host_object_id_by_script_name(unit) else {
             return;
@@ -1696,9 +1770,19 @@ impl GameLogic {
                 }
             }
         }
-        // C++ doSpecialPower* COMMAND_FIRED_BY_SCRIPT — PUC keeps SwathOfDeath.
+        // C++ doSpecialPower* COMMAND_FIRED_BY_SCRIPT — location-only stays swath.
         self.special_power_strikes
             .note_script_fired_special_power(id);
+        if let Some(wid) = waypoint_id {
+            if crate::game_logic::special_power_strikes::HostSuperweaponKind::from_command_power(
+                &power,
+            ) == Some(
+                crate::game_logic::special_power_strikes::HostSuperweaponKind::ParticleCannon,
+            ) {
+                self.special_power_strikes
+                    .note_scripted_waypoint_special_power(id, wid);
+            }
+        }
         self.queue_command(crate::command_system::GameCommand {
             command_type: crate::command_system::CommandType::DoSpecialPower {
                 power_type: power,
@@ -1789,6 +1873,154 @@ impl GameLogic {
             }
         }
     }
+
+    /// C++ `ScriptActions::doNamedSetUnmanned` / `doTeamSetUnmanned` /
+    /// `deleteAllUnmanned`. Leftover queues [`gamelogic::scripting::HostScriptUnmannedRequest`].
+    pub(in super::super) fn apply_host_unmanned_script_requests(&mut self) {
+        use gamelogic::scripting::HostScriptUnmannedRequest;
+        for req in gamelogic::scripting::take_host_script_unmanned_requests() {
+            match req {
+                HostScriptUnmannedRequest::Named { unit } => {
+                    if let Some(id) = self.host_object_id_by_script_name(&unit) {
+                        self.host_script_set_unmanned(id);
+                    }
+                }
+                HostScriptUnmannedRequest::Team { team } => {
+                    for id in self.host_script_team_member_ids(&team) {
+                        self.host_script_set_unmanned(id);
+                    }
+                }
+                HostScriptUnmannedRequest::DeleteAll => {
+                    let ids: Vec<ObjectId> = self
+                        .objects
+                        .values()
+                        .filter(|obj| obj.status.disabled_unmanned && !obj.status.destroyed)
+                        .map(|obj| obj.id)
+                        .collect();
+                    for id in ids {
+                        self.destroy_object(id);
+                    }
+                }
+            }
+        }
+    }
+
+    /// C++ `setDisabled(DISABLED_UNMANNED)` + `deselectObject(PLAYERMASK_ALL)` +
+    /// `setTeam(Neutral default team)`.
+    fn host_script_set_unmanned(&mut self, id: ObjectId) {
+        {
+            let Some(obj) = self.objects.get_mut(&id) else {
+                return;
+            };
+            if !obj.is_alive() || obj.status.destroyed {
+                return;
+            }
+            obj.apply_kill_pilot_unmanned();
+            obj.deselect();
+            obj.set_team(Team::Neutral);
+        }
+        self.selected_objects.retain(|sid| *sid != id);
+        for player in self.players.values_mut() {
+            player.selected_objects.retain(|sid| *sid != id);
+        }
+    }
+
+    /// C++ `doObjectRadarCreateEvent` / `doTeamRadarCreateEvent`.
+    pub(in super::super) fn apply_host_radar_event_script_requests(&mut self) {
+        use crate::game_logic::host_radar::host_create_radar_event;
+        use gamelogic::scripting::HostScriptRadarEventRequest;
+        for req in gamelogic::scripting::take_host_script_radar_event_requests() {
+            let (pos, event_type) = match req {
+                HostScriptRadarEventRequest::Object { unit, event_type } => {
+                    let Some(id) = self.host_object_id_by_script_name(&unit) else {
+                        continue;
+                    };
+                    let Some(obj) = self.objects.get(&id) else {
+                        continue;
+                    };
+                    (obj.get_position(), event_type)
+                }
+                HostScriptRadarEventRequest::Team { team, event_type } => {
+                    let Some(pos) = self.host_script_estimate_team_position(&team) else {
+                        continue;
+                    };
+                    (pos, event_type)
+                }
+            };
+            host_create_radar_event(pos, Self::host_script_radar_event_type(event_type));
+        }
+    }
+
+    fn host_script_radar_event_type(event_type: i32) -> game_engine::common::system::radar::RadarEventType {
+        use game_engine::common::system::radar::RadarEventType;
+        match event_type {
+            1 => RadarEventType::Construction,
+            2 => RadarEventType::Upgrade,
+            3 => RadarEventType::UnderAttack,
+            4 => RadarEventType::Information,
+            5 => RadarEventType::BeaconPulse,
+            6 => RadarEventType::Infiltration,
+            7 => RadarEventType::BattlePlan,
+            8 => RadarEventType::StealthDiscovered,
+            9 => RadarEventType::StealthNeutralized,
+            10 => RadarEventType::Fake,
+            _ => RadarEventType::Invalid,
+        }
+    }
+
+    /// C++ `Team::getEstimateTeamPosition` — average of live members.
+    fn host_script_estimate_team_position(&self, team_name: &str) -> Option<glam::Vec3> {
+        let ids = self.host_script_team_member_ids(team_name);
+        let mut sum = glam::Vec3::ZERO;
+        let mut n = 0u32;
+        for id in ids {
+            let Some(obj) = self.objects.get(&id) else {
+                continue;
+            };
+            if !obj.is_alive() || obj.status.destroyed {
+                continue;
+            }
+            sum += obj.get_position();
+            n = n.saturating_add(1);
+        }
+        if n == 0 {
+            None
+        } else {
+            Some(sum / n as f32)
+        }
+    }
+
+    /// C++ `doNamedEnableStealth` / `doTeamEnableStealth`.
+    pub(in super::super) fn apply_host_stealth_enabled_script_requests(&mut self) {
+        use gamelogic::scripting::HostScriptStealthEnabledRequest;
+        for req in gamelogic::scripting::take_host_script_stealth_enabled_requests() {
+            match req {
+                HostScriptStealthEnabledRequest::Named { unit, enabled } => {
+                    if let Some(id) = self.host_object_id_by_script_name(&unit) {
+                        self.host_script_set_stealth_enabled(id, enabled);
+                    }
+                }
+                HostScriptStealthEnabledRequest::Team { team, enabled } => {
+                    for id in self.host_script_team_member_ids(&team) {
+                        self.host_script_set_stealth_enabled(id, enabled);
+                    }
+                }
+            }
+        }
+    }
+
+    /// C++ `setScriptStatus(OBJECT_STATUS_SCRIPT_UNSTEALTHED, !enabled)`.
+    fn host_script_set_stealth_enabled(&mut self, id: ObjectId, enabled: bool) {
+        let frame = self.frame;
+        let Some(obj) = self.objects.get_mut(&id) else {
+            return;
+        };
+        obj.set_script_unstealthed(!enabled);
+        if !enabled {
+            obj.apply_stealth_allowed_update(frame, false);
+        }
+    }
+
 
     /// C++ `TheThingFactory->newObject(thing, obj->getTeam())` then
     /// `StickyBombUpdate::initStickyBomb(obj, NULL, &perimeterPos)`.
@@ -2132,21 +2364,26 @@ impl GameLogic {
             .collect()
     }
 
-    fn host_script_waypoint_position(&self, waypoint_name: &str) -> Option<glam::Vec3> {
+    fn host_script_leftover_waypoint(&self, waypoint_name: &str) -> Option<(u32, glam::Vec3)> {
         let name = gamelogic::common::AsciiString::from(waypoint_name);
-        let loc = gamelogic::terrain::get_terrain_logic()
+        let (wid, loc) = gamelogic::terrain::get_terrain_logic()
             .read()
             .ok()
             .and_then(|terrain| {
                 terrain
                     .get_waypoint_by_name(&name)
-                    .map(|wp| *wp.get_location())
+                    .map(|wp| (wp.get_id(), *wp.get_location()))
             })?;
         let mut pos = glam::Vec3::new(loc.x, loc.z, loc.y);
         if let Some(h) = self.terrain_height_at(glam::Vec3::new(pos.x, 0.0, pos.z)) {
             pos.y = h;
         }
-        Some(pos)
+        Some((wid, pos))
+    }
+
+    fn host_script_waypoint_position(&self, waypoint_name: &str) -> Option<glam::Vec3> {
+        self.host_script_leftover_waypoint(waypoint_name)
+            .map(|(_, pos)| pos)
     }
 
     /// C++ `TheTerrainLogic->getClosestWaypointOnPath` then `link[0]` chain.
@@ -2184,6 +2421,7 @@ impl GameLogic {
         waypoints: &[glam::Vec3],
         exact: bool,
         as_team: bool,
+        path_label: &str,
     ) {
         if waypoints.is_empty() {
             return;
@@ -2225,6 +2463,8 @@ impl GameLogic {
                     .map(|o| o.formation_id == fid0)
                     .unwrap_or(false)
             });
+        let last = *waypoints.last().unwrap();
+        let labels = leftover_waypoint_path_labels(path_label, last);
         for (unit_id, pos, form_off) in movers {
             let offset = if as_team {
                 if use_formation {
@@ -2242,10 +2482,15 @@ impl GameLogic {
             let goal = *unit_wps.last().unwrap();
             let via = &unit_wps[..unit_wps.len().saturating_sub(1)];
             let _ = self.unit_command_waypoint_path_prep(unit_id, as_team);
-            if exact {
-                let _ = self.assign_unit_path_exact(unit_id, goal, via);
+            let assigned = if exact {
+                self.assign_unit_path_exact(unit_id, goal, via)
             } else {
-                let _ = self.assign_unit_path(unit_id, goal, via);
+                self.assign_unit_path(unit_id, goal, via)
+            };
+            if assigned {
+                if let Some(unit) = self.host_object_mut(unit_id) {
+                    unit.stamp_pending_waypoint_labels(labels.iter().cloned());
+                }
             }
         }
     }
@@ -2448,6 +2693,9 @@ impl GameLogic {
 
         self.apply_host_create_script_requests();
         self.apply_host_boobytrap_script_requests();
+        self.apply_host_unmanned_script_requests();
+        self.apply_host_radar_event_script_requests();
+        self.apply_host_stealth_enabled_script_requests();
         self.apply_host_team_attitude_script_requests();
         self.apply_host_guard_supply_center_script_requests();
         self.apply_host_guard_variant_script_requests();

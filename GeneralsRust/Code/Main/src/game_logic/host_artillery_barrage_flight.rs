@@ -5,7 +5,9 @@
 //! FormationSize 12/24/36, DelayDelivery 0–3000ms, WeaponErrorRadius 100.
 //!
 //! Residual playability slice:
-//! - Spawn transport residual near target approach
+//! - Spawn FormationSize 12/24/36 ChinaArtilleryCannon at CREATE_AT_EDGE_FARTHEST_FROM_TARGET
+//!   (z += 300) with C++ CW/CCW FormationSpacing offsets, DelayDeliveryMax stagger,
+//!   and WeaponErrorRadius on non-lead targets. Each transport HeadOffMaps after firing.
 //! - Schedule shell drops via `artillery_barrage_points` + DelayDelivery stagger
 //! - Spawn shell objects that fall and detonate
 //! - Impact damage residual (`ArtilleryBarrageDamageWeapon` 105/r50)
@@ -17,8 +19,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::game_logic::special_power_strikes::{
     artillery_barrage_points_for_tier, artillery_shell_impact_frame, ArtilleryBarrageScienceTier,
-    ARTILLERY_BARRAGE_DAMAGE, ARTILLERY_BARRAGE_PREFERRED_HEIGHT, ARTILLERY_BARRAGE_RADIUS,
-    ARTILLERY_BARRAGE_SHELL_OBJECT, ARTILLERY_BARRAGE_TRANSPORT,
+    ARTILLERY_BARRAGE_DAMAGE, ARTILLERY_BARRAGE_DELIVERY_DISTANCE,
+    ARTILLERY_BARRAGE_FORMATION_SPACING, ARTILLERY_BARRAGE_PREFERRED_HEIGHT,
+    ARTILLERY_BARRAGE_RADIUS, ARTILLERY_BARRAGE_SHELL_OBJECT, ARTILLERY_BARRAGE_TRANSPORT,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,12 +32,127 @@ pub struct PendingArtilleryShellDrop {
     pub shell_index: u32,
 }
 
+/// C++ DeliverPayloadNugget formation pose (host Y-up: C++ Y → Z).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ArtilleryFormationPose {
+    pub start: Vec3,
+    pub move_to: Vec3,
+    pub target: Vec3,
+    pub orient: f32,
+}
+
+/// C++ ObjectCreationList.cpp:271-298 formation CW/CCW vectors (XZ).
+pub fn artillery_formation_vectors(primary: Vec3, secondary: Vec3) -> (f32, f32, f32, f32) {
+    let dx = primary.x - secondary.x;
+    let dz = primary.z - secondary.z;
+    let length = (dx * dx + dz * dz).sqrt();
+    if length < 0.001 {
+        return (0.0, 0.0, 0.0, 0.0);
+    }
+    let dx = dx / length;
+    let dz = dz / length;
+    let radians = std::f32::consts::FRAC_PI_2;
+    let (s, c) = (radians.sin(), radians.cos());
+    let ccw_x = dx * c + dz * -s + dx;
+    let ccw_z = dx * s + dz * c + dz;
+    let (s, c) = ((-radians).sin(), (-radians).cos());
+    let cw_x = dx * c + dz * -s + dx;
+    let cw_z = dx * s + dz * c + dz;
+    (ccw_x, ccw_z, cw_x, cw_z)
+}
+
+/// C++ ObjectCreationList.cpp:303-319 formation member offset.
+pub fn artillery_formation_offset(
+    formation_index: u32,
+    formation_size: u32,
+    formation_spacing: f32,
+    ccw_x: f32,
+    ccw_z: f32,
+    cw_x: f32,
+    cw_z: f32,
+) -> Vec3 {
+    if formation_size <= 1 {
+        return Vec3::ZERO;
+    }
+    let offset_multiplier = ((formation_index + 1) / 2) as f32 * formation_spacing;
+    if formation_index % 2 == 1 {
+        Vec3::new(ccw_x * offset_multiplier, 0.0, ccw_z * offset_multiplier)
+    } else {
+        Vec3::new(cw_x * offset_multiplier, 0.0, cw_z * offset_multiplier)
+    }
+}
+
+/// C++ DeliverPayloadNugget::create formation start / moveTo / target + DeliveryDistance slop.
+pub fn artillery_formation_pose(
+    primary: Vec3,
+    secondary: Vec3,
+    formation_index: u32,
+    formation_size: u32,
+    formation_spacing: f32,
+    convergence_factor: f32,
+    dist_to_target: f32,
+    error_sample: Option<(f32, f32)>,
+) -> ArtilleryFormationPose {
+    let (ccw_x, ccw_z, cw_x, cw_z) = if formation_size > 1 {
+        artillery_formation_vectors(primary, secondary)
+    } else {
+        (0.0, 0.0, 0.0, 0.0)
+    };
+    let offset = artillery_formation_offset(
+        formation_index,
+        formation_size,
+        formation_spacing,
+        ccw_x,
+        ccw_z,
+        cw_x,
+        cw_z,
+    );
+    let mut start = primary + offset;
+    let mut move_to = secondary + offset;
+    let mut target = secondary;
+    target.x += offset.x * (1.0 - convergence_factor);
+    target.z += offset.z * (1.0 - convergence_factor);
+    if formation_index > 0 {
+        if let Some((random_radius, random_angle)) = error_sample {
+            target.x += random_radius * random_angle.cos();
+            target.z += random_radius * random_angle.sin();
+        }
+    }
+    let orient = (move_to.z - start.z).atan2(move_to.x - start.x);
+    if dist_to_target > 0.0 {
+        const SLOP: f32 = 1.5;
+        start.x -= orient.cos() * dist_to_target * SLOP;
+        start.z -= orient.sin() * dist_to_target * SLOP;
+    }
+    ArtilleryFormationPose {
+        start,
+        move_to,
+        target,
+        orient,
+    }
+}
+
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostArtilleryBarrageFlightData {
     pub target: Vec3,
     pub launch: Vec3,
     pub tier: ArtilleryBarrageScienceTier,
     pub transport_alive: bool,
+    /// C++ DeliveringState finished → HeadOffMapState.
+    #[serde(default)]
+    pub delivery_complete: bool,
+    /// C++ HeadOffMapState: dest is HUGE_DIST after delivery.
+    #[serde(default)]
+    pub passed_target: bool,
+    /// Map extent for C++ `isOffMap` / HeadOffMap HUGE_DIST (world_min/max).
+    #[serde(default)]
+    pub map_min: Vec3,
+    #[serde(default)]
+    pub map_max: Vec3,
+    /// C++ setDisabledUntil(DISABLED_DEFAULT, now + GameLogicRandomValue(0, DelayDeliveryMax)).
+    #[serde(default)]
+    pub delay_until_frame: u32,
 }
 
 impl HostArtilleryBarrageFlightData {
@@ -44,27 +162,75 @@ impl HostArtilleryBarrageFlightData {
             launch,
             tier,
             transport_alive: true,
+            delivery_complete: false,
+            passed_target: false,
+            map_min: Vec3::ZERO,
+            map_max: Vec3::ZERO,
+            delay_until_frame: 0,
         }
     }
 
-    /// Advance cannon transport toward target residual.
+    /// C++ DISABLED_DEFAULT hold until DelayDeliveryMax elapses.
+    pub fn is_hold_for_delay(&self, frame: u32) -> bool {
+        self.delay_until_frame > frame
+    }
+
+    pub fn map_extent_ok(&self) -> bool {
+        self.map_max.x > self.map_min.x && self.map_max.z > self.map_min.z
+    }
+
+    /// C++ DeliveringState `isCloseEnoughToTarget` residual (live band).
+    pub fn in_delivery_band(&self, pos: Vec3) -> bool {
+        let dx = self.target.x - pos.x;
+        let dz = self.target.z - pos.z;
+        let dist = (dx * dx + dz * dz).sqrt();
+        dist < 5.0 || dist <= 80.0
+    }
+
+    /// C++ Approach/Delivering toward moveToPos, then HeadOffMap HUGE_DIST.
+    /// Returns (new_pos, vel, off_map / CLEAN_UP).
     pub fn tick_transport(&mut self, pos: Vec3) -> (Vec3, Vec3, bool) {
-        let dest = self.target;
+        use crate::game_logic::host_deliver_payload::{
+            head_off_map_exit_point_residual, is_off_map_residual, RESIDUAL_MAP_EXTENT_MAX_X,
+            RESIDUAL_MAP_EXTENT_MAX_Z, RESIDUAL_MAP_EXTENT_MIN_X, RESIDUAL_MAP_EXTENT_MIN_Z,
+        };
+        let hx = self.target.x - self.launch.x;
+        let hz = self.target.z - self.launch.z;
+        if self.delivery_complete && !self.passed_target {
+            self.passed_target = true;
+        }
+        let (min_x, min_z, max_x, max_z) = if self.map_extent_ok() {
+            (self.map_min.x, self.map_min.z, self.map_max.x, self.map_max.z)
+        } else {
+            (
+                RESIDUAL_MAP_EXTENT_MIN_X,
+                RESIDUAL_MAP_EXTENT_MIN_Z,
+                RESIDUAL_MAP_EXTENT_MAX_X,
+                RESIDUAL_MAP_EXTENT_MAX_Z,
+            )
+        };
+        let dest = if self.delivery_complete {
+            head_off_map_exit_point_residual(pos, hx, hz, min_x, min_z, max_x, max_z)
+        } else {
+            self.target
+        };
         let dx = dest.x - pos.x;
         let dz = dest.z - pos.z;
         let dist = (dx * dx + dz * dz).sqrt();
         let speed = 14.0_f32;
         let mut new_pos = pos;
         new_pos.y = ARTILLERY_BARRAGE_PREFERRED_HEIGHT.max(120.0);
-        if dist < 5.0 {
-            return (new_pos, Vec3::ZERO, true);
-        }
-        let step = speed.min(dist);
-        new_pos.x += dx / dist * step;
-        new_pos.z += dz / dist * step;
-        let vel = new_pos - pos;
-        let over = dist <= 80.0;
-        (new_pos, vel, over)
+        let vel = if dist >= 1.0 {
+            let step = speed.min(dist);
+            new_pos.x += dx / dist * step;
+            new_pos.z += dz / dist * step;
+            new_pos - pos
+        } else {
+            Vec3::ZERO
+        };
+        let at_exit = self.delivery_complete
+            && is_off_map_residual(new_pos, min_x, min_z, max_x, max_z);
+        (new_pos, vel, at_exit)
     }
 }
 
@@ -167,5 +333,53 @@ mod tests {
     #[test]
     fn schedules_staggered_l1_formation() {
         assert!(honesty_artillery_barrage_flight_residual_ok());
+    }
+
+    #[test]
+    fn formation_lead_is_unoffset_wings_use_cw_ccw() {
+        let edge = Vec3::new(-256.0, 300.0, 0.0);
+        let target = Vec3::new(200.0, 0.0, 0.0);
+        let lead = artillery_formation_pose(
+            edge,
+            target,
+            0,
+            12,
+            ARTILLERY_BARRAGE_FORMATION_SPACING,
+            0.0,
+            ARTILLERY_BARRAGE_DELIVERY_DISTANCE,
+            None,
+        );
+        let wing = artillery_formation_pose(
+            edge,
+            target,
+            1,
+            12,
+            ARTILLERY_BARRAGE_FORMATION_SPACING,
+            0.0,
+            0.0,
+            None,
+        );
+        // DeliveryDistance * 1.5 slop pushes the lead further off the far rim.
+        assert!(
+            lead.start.x < edge.x - 300.0,
+            "lead must spawn behind farthest edge, start={:?}",
+            lead.start
+        );
+        assert!(
+            (wing.start.z - edge.z).abs() > 0.0 || (wing.start.x - edge.x).abs() > 0.0,
+            "wing must take CW/CCW FormationSpacing offset"
+        );
+        assert_eq!(
+            ArtilleryBarrageScienceTier::Level1.formation_size(),
+            12
+        );
+        assert_eq!(
+            ArtilleryBarrageScienceTier::Level2.formation_size(),
+            24
+        );
+        assert_eq!(
+            ArtilleryBarrageScienceTier::Level3.formation_size(),
+            36
+        );
     }
 }

@@ -99,6 +99,17 @@ pub fn dispatch_fx_list_at_object(
 /// `doFXObj` reads this table (then the live drawable) so death/transition
 /// FX still get `OrientToObject` / `AttachToObject` / `FXListAtBonePos`.
 pub fn publish_host_fx_object(id: u32, pos: Vec3, orientation: f32, player_index: i32) {
+    publish_host_fx_object_ex(id, pos, orientation, player_index, 0.0);
+}
+
+/// Same as [`publish_host_fx_object`] with C++ bounding-circle radius.
+pub fn publish_host_fx_object_ex(
+    id: u32,
+    pos: Vec3,
+    orientation: f32,
+    player_index: i32,
+    bounding_circle_radius: f32,
+) {
     let leftover_pos = host_to_leftover_coord(pos);
     let transform = glam::Mat4::from_translation(glam::Vec3::new(
         leftover_pos.x,
@@ -110,7 +121,16 @@ pub fn publish_host_fx_object(id: u32, pos: Vec3, orientation: f32, player_index
         position: leftover_pos,
         transform,
         player_index,
+        bounding_circle_radius,
     });
+}
+
+fn host_object_fx_radius(obj: &crate::game_logic::Object) -> f32 {
+    crate::game_logic::host_supply_gather::host_bounding_circle_radius(
+        obj.thing.template.geometry_info.authored,
+        obj.thing.template.geometry_info.bounding_circle_radius(),
+        obj.thing.geometry.radius.max(obj.selection_radius),
+    )
 }
 
 impl crate::game_logic::GameLogic {
@@ -122,20 +142,22 @@ impl crate::game_logic::GameLogic {
         secondary_id: Option<crate::game_logic::ObjectId>,
     ) -> bool {
         if let Some(obj) = self.host_object(primary_id) {
-            publish_host_fx_object(
+            publish_host_fx_object_ex(
                 obj.id.0,
                 obj.get_position(),
                 obj.get_orientation(),
                 obj.owner_player_id.map(|p| p as i32).unwrap_or(-1),
+                host_object_fx_radius(obj),
             );
         }
         if let Some(sid) = secondary_id {
             if let Some(obj) = self.host_object(sid) {
-                publish_host_fx_object(
+                publish_host_fx_object_ex(
                     obj.id.0,
                     obj.get_position(),
                     obj.get_orientation(),
                     obj.owner_player_id.map(|p| p as i32).unwrap_or(-1),
+                    host_object_fx_radius(obj),
                 );
             }
         }

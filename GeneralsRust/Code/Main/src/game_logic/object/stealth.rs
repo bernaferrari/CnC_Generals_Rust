@@ -11,7 +11,7 @@ impl Object {
     /// C++ `Object::getStealth() != NULL` analog for GPS GrantStealth.
     ///
     /// DefaultThingTemplate OverrideableByLikeKind StealthUpdate is kept for
-    /// VEHICLE|INFANTRY unless ImmuneToGPS (AIRCRAFT/BOAT/STRUCTURE/...).
+    /// VEHICLE|INFANTRY unless ImmuneToGPS (AIRCRAFT/BOAT/STRUCTURE/MOB_NEXUS/...).
     /// Authored InnateStealth units (heroes, sentry, pathfinder) still qualify.
     pub fn has_gps_stealth_module(&self) -> bool {
         use crate::game_logic::host_gps_scrambler::{
@@ -32,6 +32,7 @@ impl Object {
                 self.is_kind_of(KindOf::Bridge),
                 self.is_kind_of(KindOf::LandmarkBridge),
                 self.is_kind_of(KindOf::BridgeTower),
+                self.is_kind_of(KindOf::MobNexus),
             ),
         )
     }
@@ -444,6 +445,9 @@ impl Object {
         requires_black_market: bool,
         has_live_black_market: bool,
     ) -> bool {
+        if self.script_unstealthed {
+            return true;
+        }
         if self.stealth_is_firing_weapon()
             || self.status.using_ability
             || matches!(self.ai_state, AIState::SpecialAbility)
@@ -512,6 +516,7 @@ impl Object {
     /// C++ StealthUpdate.cpp:717-752 cloak / destalth + rolling StealthDelay.
     /// `allowed` is `allowedToStealth` (delay is applied here, not in `allowed`).
     pub fn apply_stealth_allowed_update(&mut self, now: u32, allowed: bool) {
+        let allowed = allowed && !self.script_unstealthed;
         if allowed {
             if self.stealth_delay_pending {
                 self.rearm_stealth_delay(now);
@@ -1320,6 +1325,26 @@ mod stealth_grant_tests {
         assert!(lo.stealth_level_forbids_cloak(1, false, true, false, true));
         assert!(!lo.try_recloak_after_stealth_delay(1, true));
     }
+
+    #[test]
+    fn script_unstealthed_forbids_cloak_and_destalths() {
+        let mut hero = Object::new(
+            ThingTemplate::new("AmericaInfantryColonelBurton"),
+            super::ObjectId(11),
+            super::Team::USA,
+        );
+        hero.innate_stealth = true;
+        hero.stealth_delay_frames = 0;
+        hero.set_status_stealthed(true);
+        hero.set_script_unstealthed(true);
+        assert!(hero.stealth_level_forbids_cloak(1, false, false, false, true));
+        hero.apply_stealth_allowed_update(1, true);
+        assert!(!hero.status.stealthed, "SCRIPT_UNSTEALTHED destalths even if otherwise allowed");
+        hero.set_script_unstealthed(false);
+        assert!(hero.try_recloak_after_stealth_delay(hero.stealth_allowed_frame, false));
+        assert!(hero.status.stealthed);
+    }
+
 
     #[test]
     fn heat_vision_second_pass_skips_mines_and_hints_owner_fire() {

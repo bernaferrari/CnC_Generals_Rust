@@ -197,7 +197,9 @@ pub fn host_command_power_cpp_enum_name(
             Some("SUPW_SPECIAL_NEUTRON_MISSILE")
         }
         HostCommandSpecialPowerType::NukeChinaCarpetBomb => Some("EARLY_SPECIAL_CHINA_CARPET_BOMB"),
-        HostCommandSpecialPowerType::StealthGpsScrambler => Some("SPECIAL_GPS_SCRAMBLER"),
+        HostCommandSpecialPowerType::StealthGpsScrambler => {
+            Some(crate::game_logic::host_gps_scrambler::GPS_SCRAMBLER_SLTH_ENUM)
+        }
         HostCommandSpecialPowerType::BaikonurRocket => Some("SPECIAL_LAUNCH_BAIKONUR_ROCKET"),
         HostCommandSpecialPowerType::Defector => Some("SPECIAL_DEFECTOR"),
         HostCommandSpecialPowerType::NukeDrop => Some("NUKE_SPECIAL_CLUSTER_MINES"),
@@ -289,7 +291,10 @@ pub fn special_power_ini_template_name(
         P::EmpPulse => "SuperweaponEMPPulse",
         P::Frenzy => "SuperweaponFrenzy",
         P::EmergencyRepair => "SuperweaponEmergencyRepair",
-        P::GpsScrambler => "SuperweaponGPSScrambler",
+        P::GpsScrambler => crate::game_logic::host_gps_scrambler::SUPERWEAPON_GPS_SCRAMBLER,
+        P::StealthGpsScrambler => {
+            crate::game_logic::host_gps_scrambler::SLTH_SUPERWEAPON_GPS_SCRAMBLER
+        }
         P::LeafletDrop => "SuperweaponLeafletDrop",
         P::SneakAttack => "SuperweaponSneakAttack",
         P::CashHack => "SuperweaponCashHack",
@@ -772,6 +777,13 @@ pub fn honesty_special_power_enum_residual_pack_wave80() -> bool {
         && host_command_power_cpp_enum_name(&HostCommandSpecialPowerType::Invalid)
             == Some("SPECIAL_INVALID")
         && host_command_power_cpp_enum_name(&HostCommandSpecialPowerType::IonCannon).is_none()
+        && host_command_power_cpp_enum_name(
+            &HostCommandSpecialPowerType::StealthGpsScrambler,
+        ) == Some(crate::game_logic::host_gps_scrambler::GPS_SCRAMBLER_SLTH_ENUM)
+        && special_power_ini_template_name(&HostCommandSpecialPowerType::StealthGpsScrambler)
+            == crate::game_logic::host_gps_scrambler::SLTH_SUPERWEAPON_GPS_SCRAMBLER
+        && special_power_ini_template_name(&HostCommandSpecialPowerType::GpsScrambler)
+            == crate::game_logic::host_gps_scrambler::SUPERWEAPON_GPS_SCRAMBLER
         // Unique names in table.
         && {
             let mut names: Vec<&str> = SPECIAL_POWER_BIT_NAME_LIST.to_vec();

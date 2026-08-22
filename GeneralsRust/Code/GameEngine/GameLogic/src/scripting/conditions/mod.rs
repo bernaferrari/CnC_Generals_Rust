@@ -25,6 +25,8 @@ pub use helpers::{
     host_eval_team_has_object_status, host_eval_unit_has_object_status,
 
     host_eval_skirmish_captured_count, host_eval_skirmish_garrisoned_count,
+    host_eval_skirmish_player_has_discovered_player,
+    host_eval_skirmish_player_has_prerequisite_to_build,
     host_eval_skirmish_player_has_units_in_area, host_eval_skirmish_special_power_ready,
     host_eval_skirmish_unowned_faction_unit_count, host_eval_skirmish_value_in_area,
     host_eval_skirmish_supplies_value_within_distance,

@@ -170,15 +170,21 @@ impl ProjectedShadowManager {
             if opacity <= 0.0 {
                 continue;
             }
-            let size = decal.info.size_x.max(decal.info.size_y);
+            let size_x = decal.info.size_x.max(0.0);
+            let size_y = decal.info.size_y.max(0.0);
+            let size = size_x.max(size_y);
             if size <= 0.0 {
                 continue;
             }
             items.push(DecalRenderItem {
                 position: Point3::new(decal.position.x, decal.position.y, decal.position.z),
                 size,
+                size_x,
+                size_y,
                 rotation: decal.angle,
                 color: argb_u32_to_rgba(decal.color, opacity),
+                texture_name: decal.info.shadow_name.as_str().to_string(),
+                shadow_type: decal.info.shadow_type,
             });
         }
         items
@@ -804,6 +810,10 @@ mod tests {
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].position, Point3::new(10.0, 20.0, 3.0));
         assert_eq!(items[0].size, 80.0);
+        assert_eq!(items[0].size_x, 80.0);
+        assert_eq!(items[0].size_y, 80.0);
+        assert_eq!(items[0].texture_name, "EXScudStorm");
+        assert_eq!(items[0].shadow_type, SHADOW_ALPHA_DECAL);
         assert!((items[0].rotation - 0.5).abs() < f32::EPSILON);
         assert!((items[0].color[0] - 1.0).abs() < 0.01);
         assert!((items[0].color[1] - 0.2).abs() < 0.01);

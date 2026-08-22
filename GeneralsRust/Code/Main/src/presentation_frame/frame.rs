@@ -113,6 +113,8 @@ pub struct PresentationFrame {
 
     /// Queued upgrade template names residual (capped).
     pub local_queued_upgrades: Vec<String>,
+    /// Live player completed upgrade names residual (capped).
+    pub local_completed_upgrades: Vec<String>,
     pub selected: Vec<ObjectId>,
     pub events: Vec<PresentationEvent>,
     pub match_over: bool,

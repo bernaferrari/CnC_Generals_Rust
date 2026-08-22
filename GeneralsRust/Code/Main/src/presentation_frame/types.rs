@@ -555,6 +555,10 @@ pub struct RenderableObject {
     pub is_deployed: bool,
     /// C++ Drawable selection flash envelope residual frames.
     pub selection_flash_remaining: u32,
+    /// C++ `flashAsSelected(&myHouseColor)` envelope RGB. `None` is white default.
+    #[serde(default)]
+    pub selection_flash_color: Option<[f32; 3]>,
+
     pub destroyed: bool,
     /// C++ ModelConditionFlags residual (ALLOW_SURRENDER-off bit layout, low 128).
     pub model_condition_bits: u128,
@@ -649,6 +653,9 @@ pub struct RenderableObject {
     /// C++ DISABLED_SCRIPT_UNDERPOWERED residual for Drawable TINT_STATUS_DISABLED.
     #[serde(default)]
     pub disabled_script_underpowered: bool,
+    /// C++ OBJECT_STATUS_SCRIPT_DISABLED residual for ControlBar hide.
+    #[serde(default)]
+    pub disabled_script_disabled: bool,
     /// C++ HackInternetAIInterface::isHackingPackingOrUnpacking residual.
     #[serde(default)]
     pub hacking_packing_or_unpacking: bool,
@@ -969,6 +976,10 @@ pub struct RenderableObject {
     pub is_unit: bool,
     /// Mobile residual (infantry/vehicle/aircraft) for runtime-host select.
     pub is_mobile: bool,
+    /// C++ `Object::m_safeOcclusionFrame`. Behind-building silhouettes wait.
+    #[serde(default)]
+    pub safe_occlusion_frame: u32,
+
     /// Structure can enqueue production (host building_data present + constructed).
     pub can_produce: bool,
     /// Host BuildingType residual when structure has building_data.

@@ -6,6 +6,8 @@ static PRESENTATION_POWER_CONSUMED: std::sync::atomic::AtomicI32 =
     std::sync::atomic::AtomicI32::new(0);
 static PRESENTATION_CAN_MAKE: std::sync::Mutex<Vec<(String, u32)>> =
     std::sync::Mutex::new(Vec::new());
+static PRESENTATION_UNLOCKED_SCIENCES: std::sync::Mutex<Vec<String>> =
+    std::sync::Mutex::new(Vec::new());
 
 
 
@@ -51,6 +53,7 @@ impl ControlBar {
             presentation_command_set_names: Vec::new(),
             presentation_max_garrison: 0,
             presentation_garrisoned_count: 0,
+            presentation_occupants: Vec::new(),
             presentation_under_construction: false,
             presentation_sold: false,
             presentation_selection_controllable: true,
@@ -366,6 +369,22 @@ impl ControlBar {
         if let Ok(mut guard) = PRESENTATION_CAN_MAKE.lock() {
             *guard = cameos.to_vec();
         }
+    }
+
+    /// Stamp live-player unlocked science names for NEED_SPECIAL_POWER_SCIENCE hide.
+    /// Leftover ThePlayerList is empty on the live host; populateCommand consults this.
+    pub fn apply_presentation_science_hide_names(&mut self, names: &[String]) {
+        if let Ok(mut guard) = PRESENTATION_UNLOCKED_SCIENCES.lock() {
+            *guard = names.to_vec();
+        }
+    }
+
+    fn presentation_unlocked_sciences() -> Vec<String> {
+        PRESENTATION_UNLOCKED_SCIENCES
+            .lock()
+            .ok()
+            .map(|g| g.clone())
+            .unwrap_or_default()
     }
 
     pub fn presentation_can_make(&self) -> &[(String, u32)] {

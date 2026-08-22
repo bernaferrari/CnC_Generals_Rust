@@ -343,6 +343,62 @@ fn formation_move_uses_stamped_offsets() {
 }
 
 #[test]
+fn formation_move_stamps_group_get_speed_factor() {
+    use super::CommandExecutor;
+    use crate::command_system::CommandResult;
+    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    for name in ["FM_FAST", "FM_SLOW"] {
+        let mut tpl = ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(100.0);
+        logic.templates.insert(name.to_string(), tpl);
+    }
+    let fast = logic
+        .create_object("FM_FAST", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let slow = logic
+        .create_object("FM_SLOW", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+        .unwrap();
+    {
+        let f = logic.host_object_mut(fast).unwrap();
+        f.movement.max_speed = 40.0;
+        f.health.current = 100.0;
+        f.health.maximum = 100.0;
+        f.refresh_model_condition_bits();
+    }
+    {
+        let s = logic.host_object_mut(slow).unwrap();
+        s.movement.max_speed = 20.0;
+        s.health.current = 100.0;
+        s.health.maximum = 100.0;
+        s.refresh_model_condition_bits();
+    }
+    let mut exec = CommandExecutor::new(&mut logic, 0);
+    assert_eq!(
+        exec.execute_create_formation(&[fast, slow]),
+        CommandResult::Success
+    );
+    assert_eq!(
+        exec.execute_move_formation_to_position(&[fast, slow], Vec3::new(200.0, 0.0, 0.0)),
+        CommandResult::Success
+    );
+    let ff = logic.host_object(fast).unwrap().group_speed_factor;
+    let sf = logic.host_object(slow).unwrap().group_speed_factor;
+    assert!(
+        (ff - 0.5).abs() < 0.02,
+        "fast unit must cap to group getSpeed, factor={ff}"
+    );
+    assert!(
+        (sf - 1.0).abs() < 0.02,
+        "slow unit stays at its max, factor={sf}"
+    );
+}
+
+#[test]
 fn infantry_group_move_uses_column_pack() {
     use super::CommandExecutor;
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
@@ -559,6 +615,67 @@ fn patrol_enables_auto_acquire_hunt_residual() {
     assert_eq!(u.ai_state, AIState::Patrolling);
     assert!(u.auto_acquire_when_idle);
 }
+
+#[test]
+fn sleep_mood_ai_rejects_hunt_guard_attack_move() {
+    use super::CommandExecutor;
+    use crate::command_system::CommandResult;
+    use crate::game_logic::host_strategy_center::HostAiAttitude;
+    use crate::game_logic::{AIState, GameLogic, KindOf, Player, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(1, Team::USA, "USA AI", false));
+    let mut tpl = ThingTemplate::new("SleepScout");
+    tpl.add_kind_of(KindOf::Vehicle);
+    tpl.add_kind_of(KindOf::Selectable);
+    tpl.set_health(100.0);
+    logic.templates.insert("SleepScout".into(), tpl);
+    let id = logic
+        .create_object("SleepScout", Team::USA, Vec3::ZERO)
+        .unwrap();
+    {
+        let u = logic.host_object_mut(id).unwrap();
+        u.owner_player_id = Some(1);
+        u.set_ai_attitude(HostAiAttitude::Sleep);
+    }
+    assert!(!logic.unit_command_patrol(id));
+    assert!(!logic.unit_command_attack_move_to(id, Vec3::new(10.0, 0.0, 0.0)));
+    assert!(!logic.unit_command_guard_full(
+        id,
+        Some(Vec3::ZERO),
+        None,
+        80.0,
+        crate::game_logic::GuardMode::Normal
+    ));
+    let mut exec = CommandExecutor::new(&mut logic, 1);
+    assert_eq!(exec.execute_patrol(&[id]), CommandResult::InvalidCommand);
+    let u = logic.host_object(id).unwrap();
+    assert_eq!(u.ai_state, AIState::Idle);
+}
+
+#[test]
+fn forbid_player_commands_blocks_player_hunt_click() {
+    use super::CommandExecutor;
+    use crate::command_system::CommandResult;
+    use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut tpl = ThingTemplate::new("SpectreLike");
+    tpl.add_kind_of(KindOf::Aircraft);
+    tpl.add_kind_of(KindOf::Selectable);
+    tpl.set_health(100.0);
+    logic.templates.insert("SpectreLike".into(), tpl);
+    let id = logic
+        .create_object("SpectreLike", Team::USA, Vec3::ZERO)
+        .unwrap();
+    logic.host_object_mut(id).unwrap().forbid_player_commands = true;
+    let mut exec = CommandExecutor::new(&mut logic, 0);
+    assert_eq!(exec.execute_patrol(&[id]), CommandResult::InvalidCommand);
+    assert_eq!(logic.host_object(id).unwrap().ai_state, AIState::Idle);
+}
+
 
 #[test]
 fn sell_selected_sells_friendly_structures_only() {
@@ -1427,7 +1544,7 @@ fn guard_area_stamps_radius() {
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
-            exec.execute_guard_area(&[id], Vec3::new(30.0, 0.0, 0.0), 150.0, GuardMode::Normal),
+            exec.execute_guard_area(&[id], Vec3::new(30.0, 0.0, 0.0), 150.0, GuardMode::Normal, None),
             CommandResult::Success
         );
     }

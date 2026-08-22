@@ -3,6 +3,7 @@
 use super::super::*;
 impl GameLogic {
     pub(crate) fn tick_physics_collisions_all(&mut self) -> u32 {
+        self.sync_all_contained_items_mass();
         // Per-frame blocked bookkeeping residual (before new collide pairs).
         // Snapshot ground heights before mut pass (terrain borrow).
         // Only mobile / physics-active bodies need terrain samples + motion step —

@@ -766,6 +766,8 @@ impl PresentationFrame {
                 selected: obj.selected || obj.status.selected,
                 is_deployed: obj.status.deployed,
                 selection_flash_remaining: obj.selection_flash_remaining,
+                selection_flash_color: obj.selection_flash_color,
+
                 destroyed: obj.status.destroyed || auth_health <= 0.01,
                 model_condition_bits,
                 radar_active: obj.radar_active,
@@ -827,6 +829,7 @@ impl PresentationFrame {
                 disabled_freefall: obj.status.disabled_freefall,
                 disabled_default: obj.status.disabled_default,
                 disabled_script_underpowered: obj.status.disabled_script_underpowered,
+                disabled_script_disabled: obj.status.disabled_script_disabled,
                 hacking_packing_or_unpacking: logic.hacker_income.is_hacking(obj.id),
                 weapons_jammed: obj.status.weapons_jammed,
                 masked: obj.status.masked,
@@ -1111,6 +1114,8 @@ impl PresentationFrame {
                 // Prefer host Object::is_mobile so dozers/workers without an explicit
                 // Vehicle KindOf still count as local_mobile_units / selectables.
                 is_mobile: obj.is_mobile(),
+                safe_occlusion_frame: obj.safe_occlusion_frame,
+
                 can_produce: obj.building_data.is_some()
                     && !auth_under_construction
                     && auth_construction_percent >= 1.0
@@ -1257,7 +1262,19 @@ impl PresentationFrame {
                 v
             })
             .unwrap_or_default();
-        let _ = (&mut local_unlocked_sciences, &mut local_queued_upgrades);
+        let mut local_completed_upgrades: Vec<String> = local
+            .map(|p| {
+                let mut v: Vec<String> = p.completed_upgrades.iter().cloned().collect();
+                v.sort();
+                v.truncate(MAX_UPGRADE_NAMES);
+                v
+            })
+            .unwrap_or_default();
+        let _ = (
+            &mut local_unlocked_sciences,
+            &mut local_queued_upgrades,
+            &mut local_completed_upgrades,
+        );
 
         // PublicTimer superweapon residual.
         // C++ InGameUI.cpp:3503 iterates SuperweaponInfo per object; skip UC;
@@ -1877,6 +1894,7 @@ impl PresentationFrame {
             local_power_produced,
             local_power_consumed,
             local_color_rgb,
+            local_completed_upgrades,
             local_is_alive,
             local_radar_count,
             local_radar_disabled,

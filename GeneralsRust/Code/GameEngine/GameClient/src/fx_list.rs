@@ -173,6 +173,9 @@ fn leftover_object_fx_pose(object: &Object) -> gamelogic::helpers::HostFxObjectP
         position: *object.get_position(),
         transform: object.get_transform_matrix(),
         player_index: controlling_player_index(object),
+        bounding_circle_radius: object
+            .get_geometry_info()
+            .get_bounding_circle_radius(),
     }
 }
 
@@ -1402,6 +1405,18 @@ impl FXNugget for LightPulseFXNugget {
         }
         self.emit_pulse(primary.get_position(), radius);
     }
+
+    fn do_fx_obj_host(
+        &self,
+        primary: &gamelogic::helpers::HostFxObjectPose,
+        _secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
+    ) {
+        let mut radius = self.radius;
+        if self.bounding_circle_pct > 0.0 {
+            radius = primary.bounding_circle_radius * self.bounding_circle_pct;
+        }
+        self.emit_pulse(&primary.position, radius);
+    }
 }
 
 /// Camera shake types matching C++ View::CameraShakeType (View.h)
@@ -1584,20 +1599,26 @@ impl FXNugget for ParticleSystemWrapper {
         let position = primary.get_position();
         let primary_point = nalgebra::Point3::new(position.x, position.y, position.z);
 
-        // C++ FXList.cpp:519-529 — Z-rotation from attacker→victim so sparks
-        // continue in the incoming shot direction.
+        // C++ FXList.cpp:519-529 — ricochet uses attacker→victim only when
+        // secondary is present; otherwise keep the primary object transform.
         let mtx = if self.nugget.ricochet {
-            secondary.map(|secondary| {
+            if let Some(secondary) = secondary {
                 let secondary_pos = secondary.get_position();
                 let aiming_angle =
                     (position.y - secondary_pos.y).atan2(position.x - secondary_pos.x);
                 let (s, c) = aiming_angle.sin_cos();
-                nalgebra::Matrix3::from_columns(&[
+                Some(nalgebra::Matrix3::from_columns(&[
                     nalgebra::Vector3::new(c, s, 0.0),
                     nalgebra::Vector3::new(-s, c, 0.0),
                     nalgebra::Vector3::new(0.0, 0.0, 1.0),
-                ])
-            })
+                ]))
+            } else {
+                let cols = primary.get_transform_matrix().to_cols_array_2d();
+                Some(nalgebra::Matrix3::new(
+                    cols[0][0], cols[0][1], cols[0][2], cols[1][0], cols[1][1], cols[1][2],
+                    cols[2][0], cols[2][1], cols[2][2],
+                ))
+            }
         } else {
             let cols = primary.get_transform_matrix().to_cols_array_2d();
             Some(nalgebra::Matrix3::new(
@@ -1627,17 +1648,23 @@ impl FXNugget for ParticleSystemWrapper {
         let position = primary.position;
         let primary_point = nalgebra::Point3::new(position.x, position.y, position.z);
         let mtx = if self.nugget.ricochet {
-            secondary.map(|secondary| {
+            if let Some(secondary) = secondary {
                 let secondary_pos = secondary.position;
                 let aiming_angle =
                     (position.y - secondary_pos.y).atan2(position.x - secondary_pos.x);
                 let (s, c) = aiming_angle.sin_cos();
-                nalgebra::Matrix3::from_columns(&[
+                Some(nalgebra::Matrix3::from_columns(&[
                     nalgebra::Vector3::new(c, s, 0.0),
                     nalgebra::Vector3::new(-s, c, 0.0),
                     nalgebra::Vector3::new(0.0, 0.0, 1.0),
-                ])
-            })
+                ]))
+            } else {
+                let cols = primary.transform.to_cols_array_2d();
+                Some(nalgebra::Matrix3::new(
+                    cols[0][0], cols[0][1], cols[0][2], cols[1][0], cols[1][1], cols[1][2],
+                    cols[2][0], cols[2][1], cols[2][2],
+                ))
+            }
         } else {
             let cols = primary.transform.to_cols_array_2d();
             Some(nalgebra::Matrix3::new(
@@ -2280,4 +2307,29 @@ mod tests {
         };
         empty.do_fx_pos(Some(&pos), None, 0.0, None, 0.0);
     }
+
+    #[test]
+    fn light_pulse_host_radius_as_percent_uses_geometry() {
+        let _ = drain_display_light_pulses();
+        let nugget = LightPulseFXNugget {
+            color: Vec3::ONE,
+            radius: 10.0,
+            bounding_circle_pct: 2.0,
+            increase_frames: 1,
+            decrease_frames: 1,
+        };
+        let pose = gamelogic::helpers::HostFxObjectPose {
+            id: 7,
+            position: Coord3D::new(1.0, 2.0, 3.0),
+            transform: Default::default(),
+            player_index: 0,
+            bounding_circle_radius: 25.0,
+        };
+        nugget.do_fx_obj_host(&pose, None);
+        let pulses = drain_display_light_pulses();
+        assert_eq!(pulses.len(), 1);
+        assert!((pulses[0].outer_radius - 50.0).abs() < 0.01);
+        assert_eq!(pulses[0].pos, [1.0, 2.0, 3.0]);
+    }
+
 }

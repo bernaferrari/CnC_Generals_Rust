@@ -142,6 +142,7 @@ impl CnCGameEngine {
                 match state {
                     ElementState::Pressed => {
                         self.keys_pressed.insert(key.clone());
+                        super::mouse::lookat_note_raw_key_activity();
                         let mut construction_consumed = false;
                         if route_keyboard_to_legacy_ui {
                             if let Some(ui_key) = Self::to_ui_key_code(key) {
@@ -1685,6 +1686,11 @@ impl CnCGameEngine {
                 self.show_move_lines,
                 self.show_attack_lines,
             );
+            #[cfg(feature = "game_client")]
+            {
+                let _ = game_client::display::shadow_pass::present_occluded_player_color_silhouette();
+            }
+
             crate::graphics::occlusion_bridge::enqueue_occluded_player_color_pass(
                 &mut self.render_pipeline,
                 &self.view_matrix,

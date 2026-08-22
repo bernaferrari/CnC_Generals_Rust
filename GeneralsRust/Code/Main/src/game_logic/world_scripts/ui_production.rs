@@ -1681,8 +1681,8 @@ impl GameLogic {
         )
     }
 
-    /// C++ ProductionUpdate::queueUpgrade OBJECT gate: already-completed
-    /// add-on on this producer cannot be re-queued.
+    /// C++ ProductionUpdate::queueUpgrade OBJECT gate: hasUpgrade or
+    /// !affectedByUpgrade (drone ConflictsWith mux) cannot be queued.
     pub fn producer_refuses_completed_object_upgrade(
         &self,
         producer_id: ObjectId,
@@ -1692,7 +1692,7 @@ impl GameLogic {
             && self
                 .objects
                 .get(&producer_id)
-                .is_some_and(|obj| obj.has_object_upgrade_complete(upgrade_name))
+                .is_some_and(|obj| obj.refuses_object_upgrade(upgrade_name))
     }
 
     pub fn enqueue_production(&mut self, producer_id: ObjectId, template_name: String) -> bool {

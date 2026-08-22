@@ -96,6 +96,44 @@ impl Player {
         }
     }
 
+    pub fn sciences_disabled_types(&self) -> &[ScienceType] {
+        &self.sciences_disabled
+    }
+
+    pub fn sciences_hidden_types(&self) -> &[ScienceType] {
+        &self.sciences_hidden
+    }
+
+    pub fn team_relation_pairs(&self) -> Vec<(TeamID, i32)> {
+        self.team_relations
+            .as_ref()
+            .map(|rels| {
+                rels.map
+                    .iter()
+                    .map(|(&id, &rel)| (id, rel as i32))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn player_relation_pairs(&self) -> Vec<(PlayerIndex, i32)> {
+        self.player_relations
+            .map
+            .iter()
+            .map(|(&idx, &rel)| (idx, rel as i32))
+            .collect()
+    }
+
+    pub fn set_team_relationship_by_id(&mut self, team_id: TeamID, relationship: Relationship) {
+        if self.team_relations.is_none() {
+            self.team_relations = Some(TeamRelationMap::new());
+        }
+        if let Some(ref mut team_relations) = self.team_relations {
+            team_relations.map.insert(team_id, relationship);
+        }
+    }
+
+
     /// Check if this player is allied with another player
     pub fn is_allied_with_player(&self, that_player: &Player) -> Bool {
         matches!(self.get_relationship(that_player), Relationship::Allies)

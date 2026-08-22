@@ -1173,7 +1173,10 @@ impl BuildingBehavior {
     /// C++ `GarrisonContain::update` effectively-dead sweep: `removeFromContain`
     /// → `onRemoving` → free FIREPOINT/STATION. Missing occupants (already
     /// destroyed) also drop their slot.
-    pub fn sweep_dead_garrison_occupants(objects: &mut HashMap<ObjectId, Object>) {
+    pub fn sweep_dead_garrison_occupants(
+        objects: &mut HashMap<ObjectId, Object>,
+        current_frame: u32,
+    ) {
         let mut dead: Vec<(ObjectId, ObjectId)> = Vec::new();
         for (&cid, container) in objects.iter() {
             if !container.is_garrison_contain() {
@@ -1193,6 +1196,11 @@ impl BuildingBehavior {
             if let Some(container) = objects.get_mut(&cid) {
                 let _ = container.remove_occupant(occ);
             }
+            if let Some(occ_obj) = objects.get_mut(&occ) {
+                // C++ GarrisonContain.cpp:912-913 HUGE_FRAME_IN_FUTURE.
+                occ_obj.stamp_safe_occlusion_frame_huge(current_frame);
+            }
+
         }
     }
 
@@ -1452,7 +1460,7 @@ mod tests {
         objects.insert(bunker.id, bunker);
         objects.insert(dead.id, dead);
         objects.insert(live.id, live);
-        BuildingBehavior::sweep_dead_garrison_occupants(&mut objects);
+        BuildingBehavior::sweep_dead_garrison_occupants(&mut objects, 0);
         let bd = objects
             .get(&ObjectId(1))
             .unwrap()
@@ -1464,5 +1472,11 @@ mod tests {
             bd.garrison_point_occupant,
             vec![None, Some(ObjectId(11)), None]
         );
+        assert_eq!(
+            objects.get(&ObjectId(10)).unwrap().safe_occlusion_frame,
+            30_000,
+            "dead garrison occupant must stamp HUGE_FRAME_IN_FUTURE"
+        );
+
     }
 }

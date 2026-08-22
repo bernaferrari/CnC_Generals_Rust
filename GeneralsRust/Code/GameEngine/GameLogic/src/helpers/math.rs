@@ -302,4 +302,17 @@ impl TheTerrainLogic {
         let next = guard.get_waypoint_by_id(next_id)?;
         Some((next.get_id(), *next.get_location()))
     }
+
+    /// C++ `initiateIntentToDoSpecialPower` waypoint first dest:
+    /// random outgoing link, else stay on `id`.
+    pub fn scripted_waypoint_initial_override(
+        &self,
+        id: UnsignedInt,
+    ) -> Option<(UnsignedInt, Coord3D)> {
+        if let Some(next) = self.random_outgoing_waypoint_link(id) {
+            Some(next)
+        } else {
+            self.get_waypoint_location(id).map(|pos| (id, pos))
+        }
+    }
 }

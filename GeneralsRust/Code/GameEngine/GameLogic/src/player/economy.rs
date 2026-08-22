@@ -616,6 +616,45 @@ impl Player {
         self.can_build_base = can_build;
     }
 
+    pub fn get_radar_count(&self) -> Int {
+        self.radar_count
+    }
+
+    pub fn get_disable_proof_radar_count(&self) -> Int {
+        self.disable_proof_radar_count
+    }
+
+    pub fn is_radar_disabled(&self) -> Bool {
+        self.radar_disabled
+    }
+    pub fn restore_radar_state(&mut self, radar: Int, proof: Int, disabled: Bool) {
+        self.radar_count = radar;
+        self.disable_proof_radar_count = proof;
+        self.radar_disabled = disabled;
+    }
+
+    pub fn kind_of_production_change_entries(&self) -> Vec<(KindOfMaskType, Real, u32)> {
+        self.kind_of_percent_production_change_list
+            .iter()
+            .map(|entry| (entry.kind_of, entry.percent, entry.refs))
+            .collect()
+    }
+
+    pub fn replace_kind_of_production_changes(
+        &mut self,
+        entries: &[(KindOfMaskType, Real, u32)],
+    ) {
+        self.kind_of_percent_production_change_list = entries
+            .iter()
+            .map(|&(kind_of, percent, refs)| KindOfPercentProductionChange {
+                kind_of,
+                percent,
+                refs,
+            })
+            .collect();
+    }
+
+
     /// Enable/disable all owned objects of a specific template type.
     /// Matches C++ Player::setObjectsEnabled.
     pub fn set_objects_enabled(&mut self, template_type_to_affect: &str, enable: Bool) {

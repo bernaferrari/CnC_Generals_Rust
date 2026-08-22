@@ -387,6 +387,11 @@ impl GameMessageTranslator for LookAtTranslator {
                         with_tactical_view(|view| view.zoom_out());
                     }
                 }
+                // C++ LookAtXlat.cpp:333-358 falls through into MSG_META_OPTIONS.
+                self.stop_scrolling();
+            }
+            GameMessageType::MetaOptions => {
+                self.stop_scrolling();
             }
             GameMessageType::FrameTick(..) => {
                 self.handle_frame_tick();
@@ -545,6 +550,19 @@ mod tests {
         assert_eq!(MMB_CLICK_DURATION_FRAMES, 5);
         assert_eq!(MMB_CLICK_PIXEL_OFFSET, 5);
     }
+
+    #[test]
+    fn wheel_falls_through_to_stop_scrolling() {
+        TheInGameUI::set_mouse_cursor(MouseCursor::Select);
+        let mut translator = LookAtTranslator::new();
+        translator.set_scrolling(ScrollType::Rmb);
+        let _ = translator.translate_game_message(&GameMessage::new(
+            GameMessageType::RawMouseWheel(1),
+        ));
+        assert!(!translator.is_scrolling);
+        assert_eq!(translator.scroll_type, ScrollType::None);
+    }
+
 
     #[test]
     fn frame_tick_emits_set_replay_camera_for_skirmish_when_save_flag() {

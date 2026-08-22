@@ -306,6 +306,42 @@ impl RenderPipeline {
             self.cached_lighting.as_ref(),
             projected_shroud,
         )?;
+        #[cfg(feature = "game_client")]
+        {
+            // C++ DoShadows(true) after opaque flush.
+            let depth_format = graphics_system
+                .depth_format()
+                .unwrap_or(wgpu::TextureFormat::Depth32Float);
+            let color_format = graphics_system.color_format();
+            let _ = game_client::display::shadow_pass::present_volumetric_shadows(depth_format);
+            let view_proj = *projection_matrix * *view_matrix;
+            let camera = [camera_position.x, camera_position.y, camera_position.z];
+            let light_pos = self
+                .cached_lighting
+                .as_ref()
+                .and_then(|lighting| lighting.sun_direction)
+                .unwrap_or([0.0, 0.0, -1.0]);
+            let device = graphics_system.device_arc();
+            self.enqueue_post_frame_callback(move |gpu_frame| {
+                let Some(depth_view) = gpu_frame.depth_view_arc() else {
+                    return Ok(());
+                };
+                let color_view = gpu_frame.color_view_arc();
+                game_client::display::shadow_pass::record_shadow_and_occlusion_passes(
+                    device.as_ref(),
+                    gpu_frame.encoder(),
+                    color_view.as_ref(),
+                    depth_view.as_ref(),
+                    view_proj,
+                    camera,
+                    light_pos,
+                    color_format,
+                    depth_format,
+                );
+                Ok(())
+            });
+        }
+
         let forward_elapsed = forward_started.elapsed();
         if self.frame_number <= 5 {
             info!(

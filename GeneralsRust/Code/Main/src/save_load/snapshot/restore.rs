@@ -36,6 +36,19 @@ impl SnapshotBuilder {
             self.restore_object_references(snapshot, game_logic)?;
         }
 
+        // Occupants exist now. Re-apply ArmedRidersUpgradeMyWeaponSet so the
+        // Listening Outpost dummy primary + PLAYER_UPGRADE survive load
+        // (C++ TransportContain keeps that flag from the live rider list).
+        let outpost_ids: Vec<ObjectId> = game_logic
+            .host_objects()
+            .iter()
+            .filter(|(_, object)| object.is_listening_outpost_style_container())
+            .map(|(id, _)| *id)
+            .collect();
+        for id in outpost_ids {
+            game_logic.refresh_battle_bus_armed_riders_weapon_set(id);
+        }
+
         game_logic.set_next_object_id_for_restore(ObjectId(max_id.saturating_add(1)));
         // Loaded objects live in the host HashMap `host_authoritative_*` reads
         // when GameWorld is not coupled.
@@ -78,6 +91,18 @@ impl SnapshotBuilder {
         // of the template. Constructor leaves it empty; the v11 world tail
         // writes the instance name after every object exists.
         object.name.clear();
+
+        // C++ Object ctor instantiates template modules (TransportContain,
+        // StealthUpdate, StealthDetectorUpdate) before those modules xfer
+        // runtime (`Object.cpp` behaviors + `StealthDetectorUpdate.cpp:64-72`).
+        // Live host identity is spawn-only `install_listening_outpost_transport`;
+        // restore must reinstall before overlaying saved status/weapons so
+        // stealth delay, dummy weapon, and occupants survive.
+        if crate::game_logic::host_listening_outpost::is_listening_outpost_template(
+            &snapshot.template_name,
+        ) {
+            object.install_listening_outpost_transport();
+        }
 
         // Geometry / transform
         object.set_position(snapshot.geometry.position);
@@ -389,6 +414,35 @@ impl SnapshotBuilder {
                         .cloned()
                         .collect();
                 }
+                ModuleSnapshot::Contain(snapshot) => {
+                    // Leftover TransportContain xfer already matches C++
+                    // (`OpenContain.cpp:1574+`). Live host restore rebuilds a
+                    // bare Object; reinstall identity without wiping restored
+                    // weapons / stealth delay (those overlay in restore_object).
+                    if snapshot.contain_type == "ListeningOutpost"
+                        && !object.is_listening_outpost_style_container()
+                    {
+                        object.is_listening_outpost_transport = true;
+                        object.passengers_allowed_to_fire = true;
+                        object.armed_riders_upgrade_weapon_set = true;
+                        object.is_detector = true;
+                        object.detection_range = crate::game_logic::host_listening_outpost::LISTENING_OUTPOST_DETECTION_RANGE;
+                        object.innate_stealth = true;
+                        object.stealth_breaks_on_move = true;
+                        object.stealth_breaks_on_attack = false;
+                        if object.stealth_delay_frames == 0 {
+                            object.stealth_delay_frames = crate::game_logic::host_listening_outpost::LISTENING_OUTPOST_STEALTH_DELAY_FRAMES;
+                        }
+                        object.thing.template.add_kind_of(KindOf::Attackable);
+                        object.record_host_detector();
+                        object.record_host_contain_capacity();
+                        object.record_host_stealth_flags();
+                    }
+                    if snapshot.max_capacity > 0 {
+                        object.max_transport = snapshot.max_capacity;
+                        object.record_host_contain_capacity();
+                    }
+                }
                 _ => {}
             }
         }
@@ -416,6 +470,14 @@ impl SnapshotBuilder {
                     .map(|pos| glam::Vec2::new(pos.x, pos.y))
                     .unwrap_or(glam::Vec2::ZERO);
                 object.set_formation(formation_id, offset);
+                if object.movement.path.is_empty() && !unit_snapshot.waypoints.is_empty() {
+                    object.movement.path = unit_snapshot.waypoints.clone();
+                    object.movement.current_path_index = 0;
+                    if object.movement.target_position.is_none() {
+                        object.movement.target_position = unit_snapshot.waypoints.first().copied();
+                    }
+                }
+
             }
             ObjectTypeSnapshot::Building(building_snapshot) => {
                 object.object_type = ObjectType::Building;
@@ -590,6 +652,8 @@ impl SnapshotBuilder {
                 skill_points_modifier: 1.0,
                 can_build_units: true,
                 can_build_base: true,
+                units_should_hunt: false,
+
 
                 kind_of_production_cost_changes: Vec::new(),
                 shared_special_power_cooldowns: std::collections::HashMap::new(),
@@ -611,8 +675,9 @@ impl SnapshotBuilder {
                 attacked_frame: 0,
             });
         }
-
+        crate::save_load::apply_pending_player_team_chunks(game_logic);
         Ok(())
+
     }
 
     pub(super) fn restore_all_teams(
@@ -620,10 +685,10 @@ impl SnapshotBuilder {
         teams: &[TeamSnapshot],
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
-        // Teams are derived from players/objects in `Code/Main`; no separate state to restore yet.
+        // Leftover Team::xfer latches (created/active/see_enemy/destroy_threshold
+        // / generic-script flags). Must not call set_active(created=true).
         let _ = teams;
-        let _ = game_logic;
-
+        crate::save_load::apply_pending_player_team_chunks(game_logic);
         Ok(())
     }
 

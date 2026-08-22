@@ -814,7 +814,7 @@ pub struct GameLogic {
     pub(super) inferno_black_napalm_residual_zones: u32,
 
     /// Host residual: USA Battle Drone attach / gun / repair honesty.
-    /// Fail-closed: not full SlavedUpdate arm weld FX / ConflictsWith matrix.
+    /// ConflictsWith mux is live on queue/giveUpgrade (one drone per vehicle).
     pub(super) battle_drone_residual_attaches: u32,
     pub(super) battle_drone_residual_fires: u32,
     pub(super) battle_drone_residual_units_hit: u32,

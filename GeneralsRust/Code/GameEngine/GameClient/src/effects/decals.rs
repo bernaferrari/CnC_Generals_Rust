@@ -134,12 +134,16 @@ impl Decal {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct DecalRenderItem {
     pub position: Point3<f32>,
     pub size: f32,
+    pub size_x: f32,
+    pub size_y: f32,
     pub rotation: f32,
     pub color: [f32; 4],
+    pub texture_name: String,
+    pub shadow_type: u32,
 }
 
 /// Special radius-based decals
@@ -300,8 +304,12 @@ impl DecalManager {
             items.push(DecalRenderItem {
                 position: decal.settings.position,
                 size: decal.settings.size,
+                size_x: decal.settings.size,
+                size_y: decal.settings.size,
                 rotation: decal.settings.rotation,
                 color,
+                texture_name: String::new(),
+                shadow_type: 0,
             });
         }
 
@@ -318,8 +326,12 @@ impl DecalManager {
             items.push(DecalRenderItem {
                 position: radius.center,
                 size: radius.radius * 2.0,
+                size_x: radius.radius * 2.0,
+                size_y: radius.radius * 2.0,
                 rotation: 0.0,
                 color,
+                texture_name: String::new(),
+                shadow_type: 0,
             });
         }
 

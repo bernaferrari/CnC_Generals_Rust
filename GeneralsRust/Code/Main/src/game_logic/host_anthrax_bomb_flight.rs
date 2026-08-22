@@ -27,6 +27,11 @@ pub const ANTHRAX_BOMB_OBJECT: &str = "AnthraxBomb";
 pub const ANTHRAX_BOMB_GAMMA_OBJECT: &str = "AnthraxBombGamma";
 /// Retail DeliveryDistance residual.
 pub const ANTHRAX_DELIVERY_DISTANCE: f32 = 140.0;
+/// Retail SUPERWEAPON_AnthraxBomb DeliveryDecalRadius residual.
+pub const ANTHRAX_DELIVERY_DECAL_RADIUS: f32 = 200.0;
+/// Retail DeliverPayload DropOffset residual (C++ X/Y/Z, Z-up).
+pub const ANTHRAX_DROP_OFFSET: (f32, f32, f32) = (0.0, 0.0, 0.0);
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum AnthraxBombPayloadTier {
@@ -42,6 +47,64 @@ impl AnthraxBombPayloadTier {
             AnthraxBombPayloadTier::Gamma => ANTHRAX_BOMB_GAMMA_OBJECT,
         }
     }
+
+    /// Leftover SUPERWEAPON_AnthraxBomb / AnthraxBombGamma payload.
+    pub fn from_ocl(ocl: &str) -> Self {
+        let n = ocl.to_ascii_lowercase();
+        if n.contains("anthraxbombgamma") {
+            AnthraxBombPayloadTier::Gamma
+        } else {
+            AnthraxBombPayloadTier::Base
+        }
+    }
+
+    pub fn ocl(self) -> &'static str {
+        use crate::game_logic::host_ocl_special_power::{
+            ANTHRAX_BOMB_GAMMA_OCL, ANTHRAX_BOMB_OCL,
+        };
+        match self {
+            AnthraxBombPayloadTier::Base => ANTHRAX_BOMB_OCL,
+            AnthraxBombPayloadTier::Gamma => ANTHRAX_BOMB_GAMMA_OCL,
+        }
+    }
+
+    /// C++ FireOCL CreateObject for the impact puddle.
+    pub fn toxin_object(self) -> &'static str {
+        use crate::game_logic::special_power_strikes::{
+            ANTHRAX_TOXIN_OBJECT_NAME, ANTHRAX_TOXIN_OBJECT_NAME_GAMMA,
+        };
+        match self {
+            AnthraxBombPayloadTier::Base => ANTHRAX_TOXIN_OBJECT_NAME,
+            AnthraxBombPayloadTier::Gamma => ANTHRAX_TOXIN_OBJECT_NAME_GAMMA,
+        }
+    }
+
+    /// Palace `Chem_Upgrade_GLAAnthraxGamma` / `SUPERWEAPON_AnthraxBombGamma`.
+    pub fn from_player_upgrade_names<'a, I>(names: I) -> Self
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        use crate::game_logic::host_toxin_tractor::is_anthrax_gamma_upgrade_name;
+        for name in names {
+            if is_anthrax_gamma_upgrade_name(name) {
+                return AnthraxBombPayloadTier::Gamma;
+            }
+            let n = name.to_ascii_lowercase();
+            if n.contains("anthraxbombgamma") {
+                return AnthraxBombPayloadTier::Gamma;
+            }
+        }
+        AnthraxBombPayloadTier::Base
+    }
+}
+
+/// C++ contained payload exits at the transport pose + DropOffset (host Y-up).
+pub fn anthrax_payload_drop_pos(plane_pos: Vec3) -> Vec3 {
+    Vec3::new(
+        plane_pos.x + ANTHRAX_DROP_OFFSET.0,
+        plane_pos.y + ANTHRAX_DROP_OFFSET.2,
+        plane_pos.z + ANTHRAX_DROP_OFFSET.1,
+    )
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -79,12 +142,12 @@ impl HostAnthraxBombFlightData {
         self.map_max.x > self.map_min.x && self.map_max.z > self.map_min.z
     }
 
-    /// C++ DeliveringState `isCloseEnoughToTarget` residual (live band).
+    /// C++ DeliverPayloadAIUpdate::isCloseEnoughToTarget (DeliveryDistance 140).
     pub fn in_delivery_band(&self, pos: Vec3) -> bool {
         let dx = self.target.x - pos.x;
         let dz = self.target.z - pos.z;
         let dist = (dx * dx + dz * dz).sqrt();
-        dist < 5.0 || dist <= ANTHRAX_DELIVERY_DISTANCE * 0.5
+        dist <= ANTHRAX_DELIVERY_DISTANCE
     }
 
     /// C++ Approach/Delivering toward moveToPos, then HeadOffMap HUGE_DIST.
@@ -173,12 +236,21 @@ impl HostAnthraxBombFlightRegistry {
 }
 
 pub fn honesty_anthrax_bomb_flight_residual_ok() -> bool {
+    use crate::game_logic::host_ocl_special_power::{
+        resolve_anthrax_bomb_ocl, ANTHRAX_BOMB_GAMMA_OCL, ANTHRAX_BOMB_OCL,
+    };
     ANTHRAX_TRANSPORT == "GLAJetCargoPlane"
         && ANTHRAX_BOMB_OBJECT == "AnthraxBomb"
         && ANTHRAX_BOMB_GAMMA_OBJECT == "AnthraxBombGamma"
         && (ANTHRAX_DELIVERY_DISTANCE - 140.0).abs() < 0.1
+        && (ANTHRAX_DELIVERY_DECAL_RADIUS - 200.0).abs() < 0.1
         && (ANTHRAX_BOMB_IMPACT_DAMAGE - 200.0).abs() < 0.1
         && (ANTHRAX_BOMB_IMPACT_RADIUS - 100.0).abs() < 0.1
+        && AnthraxBombPayloadTier::from_ocl(ANTHRAX_BOMB_GAMMA_OCL)
+            == AnthraxBombPayloadTier::Gamma
+        && AnthraxBombPayloadTier::from_ocl(ANTHRAX_BOMB_OCL) == AnthraxBombPayloadTier::Base
+        && resolve_anthrax_bomb_ocl("Chem_GLACommandCenter", [] as [&str; 0])
+            == ANTHRAX_BOMB_GAMMA_OCL
 }
 
 #[cfg(test)]
@@ -260,6 +332,54 @@ mod tests {
         assert!(
             left && destroyed,
             "C++ HeadOffMap+CleanUp after delivery, pos={pos:?}"
+        );
+    }
+
+    #[test]
+    fn delivery_band_is_full_140_not_half() {
+        let data = HostAnthraxBombFlightData::start(
+            Vec3::new(0.0, 150.0, 0.0),
+            Vec3::new(200.0, 0.0, 0.0),
+            AnthraxBombPayloadTier::Base,
+        );
+        assert!(data.in_delivery_band(Vec3::new(60.0, 150.0, 0.0)));
+        assert!(data.in_delivery_band(Vec3::new(70.0, 150.0, 0.0)));
+        assert!(data.in_delivery_band(Vec3::new(200.0 - 140.0, 150.0, 0.0)));
+        assert!(!data.in_delivery_band(Vec3::new(200.0 - 141.0, 150.0, 0.0)));
+        let plane = Vec3::new(60.0, 150.0, 0.0);
+        let drop = anthrax_payload_drop_pos(plane);
+        assert!((drop - plane).length() < 0.01);
+        assert_ne!(drop.x, data.target.x);
+    }
+
+    #[test]
+    fn gamma_tier_from_palace_upgrade_names() {
+        assert_eq!(
+            AnthraxBombPayloadTier::from_player_upgrade_names(["Upgrade_GLAAnthraxBeta"]),
+            AnthraxBombPayloadTier::Base
+        );
+        assert_eq!(
+            AnthraxBombPayloadTier::from_player_upgrade_names([
+                "Upgrade_GLAAnthraxBeta",
+                "Chem_Upgrade_GLAAnthraxGamma",
+            ]),
+            AnthraxBombPayloadTier::Gamma
+        );
+        assert_eq!(
+            AnthraxBombPayloadTier::Gamma.toxin_object(),
+            "PoisonFieldAnthraxGammaBomb"
+        );
+        assert_eq!(
+            AnthraxBombPayloadTier::Base.toxin_object(),
+            "PoisonFieldAnthraxBomb"
+        );
+        assert_eq!(
+            AnthraxBombPayloadTier::from_ocl("SUPERWEAPON_AnthraxBombGamma"),
+            AnthraxBombPayloadTier::Gamma
+        );
+        assert_eq!(
+            AnthraxBombPayloadTier::Gamma.ocl(),
+            "SUPERWEAPON_AnthraxBombGamma"
         );
     }
 }

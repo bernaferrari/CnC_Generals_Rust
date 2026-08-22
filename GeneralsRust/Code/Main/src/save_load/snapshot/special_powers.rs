@@ -267,6 +267,12 @@ impl XferData for HostSpecialPowerStrike {
         // Appended: skip registry 200/100 + toxin when leftover flight owns FireWeaponWhenDead.
         xfer.xfer_marker_label("LiveAnthraxDelivery")?;
         xfer.xfer_bool(&mut self.live_anthrax_delivery)?;
+        xfer.xfer_marker_label("ScriptedWaypointMode")?;
+        xfer.xfer_bool(&mut self.scripted_waypoint_mode)?;
+        xfer.xfer_marker_label("NextDestWaypointId")?;
+        xfer.xfer_u32(&mut self.next_dest_waypoint_id)?;
+        xfer.xfer_marker_label("WaypointOverride")?;
+        self.waypoint_override.xfer(xfer)?;
         Ok(())
     }
 }
@@ -489,6 +495,14 @@ impl XferData for crate::game_logic::special_power_strikes::HostSpectreOrbitFiel
         // C++ m_overrideTargetDestination (clamped reticle; epicenter stays).
         xfer.xfer_marker_label("OverrideDestination")?;
         self.override_destination.xfer(xfer)?;
+        // C++ m_gattlingTargetPosition / m_positionToShootAt / FollowLag counter.
+        xfer.xfer_marker_label("GattlingTargetPosition")?;
+        self.gattling_target_position.xfer(xfer)?;
+        xfer.xfer_marker_label("PositionToShootAt")?;
+        self.position_to_shoot_at.xfer(xfer)?;
+        xfer.xfer_marker_label("OkToFireHowitzerCounter")?;
+        xfer.xfer_u32(&mut self.ok_to_fire_howitzer_counter)?;
+
         Ok(())
 
     }
@@ -575,6 +589,10 @@ impl XferData for crate::game_logic::special_power_strikes::HostParticleBeamFiel
         xfer.xfer_u32(&mut self.manual_drive_applications)?;
         xfer.xfer_marker_label("FastDriveApplications")?;
         xfer.xfer_u32(&mut self.fast_drive_applications)?;
+        xfer.xfer_marker_label("ScriptedWaypointMode")?;
+        xfer.xfer_bool(&mut self.scripted_waypoint_mode)?;
+        xfer.xfer_marker_label("NextDestWaypointId")?;
+        xfer.xfer_u32(&mut self.next_dest_waypoint_id)?;
         xfer.xfer_marker_label("OuterNodeSystemsCreated")?;
         xfer.xfer_u32(&mut self.outer_node_systems_created)?;
         xfer.xfer_marker_label("ConnectorLasersCreated")?;
@@ -755,6 +773,11 @@ impl XferData for crate::game_logic::special_power_strikes::HostParticleBeamFiel
         xfer.xfer_u32(&mut self.death_pack_armed)?;
         xfer.xfer_marker_label("StartDecayFrame")?;
         xfer.xfer_u32(&mut self.start_decay_frame)?;
+        // SwathOfDeath building→target axis (appended).
+        xfer.xfer_marker_label("SourcePosition")?;
+        self.source_position.xfer(xfer)?;
+        xfer.xfer_marker_label("SourceAxisSet")?;
+        xfer.xfer_bool(&mut self.source_axis_set)?;
         Ok(())
     }
 }
@@ -877,6 +900,9 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 live_carpet_delivery: false,
                 live_anthrax_delivery: false,
                 manual_beam_hold: false,
+                scripted_waypoint_mode: false,
+                next_dest_waypoint_id: 0,
+                waypoint_override: Vec3::ZERO,
             },
         )?;
         // NuclearMissile residual radiation fields (appended; older binary
@@ -961,6 +987,10 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 source_team: Team::Neutral,
                 position: Vec3::ZERO,
                 override_destination: Vec3::ZERO,
+                gattling_target_position: Vec3::ZERO,
+                position_to_shoot_at: Vec3::ZERO,
+                ok_to_fire_howitzer_counter: 0,
+
 
                 spawn_frame: 0,
                 expires_frame: 0,
@@ -1035,6 +1065,8 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 object_id: None,
                 connector_object_ids: Vec::new(),
                 position: Vec3::ZERO,
+                source_position: Vec3::ZERO,
+                source_axis_set: false,
                 spawn_frame: 0,
                 expires_frame: 0,
                 next_tick_frame: 0,
@@ -1066,6 +1098,8 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 manual_drive_distance_total: 0.0,
                 manual_drive_applications: 0,
                 fast_drive_applications: 0,
+                scripted_waypoint_mode: false,
+                next_dest_waypoint_id: 0,
                 outer_node_systems_created: 0,
                 connector_lasers_created: 0,
                 laser_base_flare_created: 0,

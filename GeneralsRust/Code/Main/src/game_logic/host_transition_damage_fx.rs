@@ -609,11 +609,16 @@ pub fn dispatch_armor_damage_fx(
         return None;
     }
     game_engine::common::ini::ini_damage_fx::init_global_damage_fx_store();
-    crate::game_logic::publish_host_fx_object(
+    crate::game_logic::publish_host_fx_object_ex(
         obj.id.0,
         obj.get_position(),
         obj.get_orientation(),
         obj.owner_player_id.map(|p| p as i32).unwrap_or(-1),
+        crate::game_logic::host_supply_gather::host_bounding_circle_radius(
+            obj.thing.template.geometry_info.authored,
+            obj.thing.template.geometry_info.bounding_circle_radius(),
+            obj.thing.geometry.radius.max(obj.selection_radius),
+        ),
     );
 
     let ini_dt = host_to_ini_damage_type(damage_type);

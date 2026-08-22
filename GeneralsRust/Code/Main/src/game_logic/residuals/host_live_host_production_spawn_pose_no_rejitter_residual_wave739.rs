@@ -1,7 +1,7 @@
 //! Wave 739: under production sole-tick, host production-spawn-ready apply does
 //! not re-jitter or reposition units — GameWorld ready-log / create_object exit
-//! pose stays authoritative. Non-sole path keeps host stacking jitter.
-//! `playable_claim` stays false.
+//! pose stays authoritative. Non-sole path keeps UnitCreatePoint + Z-snap
+//! (no selection-radius spawn jitter). `playable_claim` stays false.
 
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 static RESIDUAL_OK: AtomicBool = AtomicBool::new(false);
@@ -11,7 +11,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 }
 pub const LIVE_HOST_PRODUCTION_SPAWN_POSE_NO_REJITTER_METHOD_NAMES_WAVE739: &[&str] = &[
     "let sole = ",
-    "jitter_dir",
+    "no spawn jitter",
     "if !sole",
     "host_apply_production_spawn_ready_completions",
     "Wave 739",
@@ -20,7 +20,7 @@ pub const LIVE_HOST_PRODUCTION_SPAWN_POSE_NO_REJITTER_METHOD_NAMES_WAVE739: &[&s
 pub const LIVE_HOST_PRODUCTION_SPAWN_POSE_NO_REJITTER_NAV_STEPS_WAVE739: &[&str] = &[
     "REQUIRE_SOLE_SKIP_JITTER",
     "REQUIRE_SOLE_SKIP_REPOSITION",
-    "REQUIRE_NON_SOLE_KEEPS_JITTER",
+    "REQUIRE_NON_SOLE_NO_SELECTION_RADIUS_JITTER",
     "LIVE_HOST_PRODUCTION_SPAWN_POSE_NO_REJITTER",
     "LIVE_PLAYABLE_CLAIM_FALSE",
 ];
@@ -28,7 +28,7 @@ pub const RUNTIME_HOST_LIVE_HOST_PRODUCTION_SPAWN_POSE_NO_REJITTER_CMD_NAMES_WAV
     "host_production_spawn_pose_no_rejitter",
     "sole_skip_jitter",
     "sole_skip_reposition",
-    "non_sole_keeps_jitter",
+    "non_sole_no_selection_radius_jitter",
 ];
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,7 +71,7 @@ fn gl_source() -> &'static str {
 pub fn honesty_host_production_spawn_pose_no_rejitter_method_names_residual_wave739() -> bool {
     let names = LIVE_HOST_PRODUCTION_SPAWN_POSE_NO_REJITTER_METHOD_NAMES_WAVE739;
     let ok = residual_name_index(names, "let sole = ").is_some()
-        && residual_name_index(names, "jitter_dir").is_some()
+        && residual_name_index(names, "no spawn jitter").is_some()
         && residual_name_index(names, "if !sole").is_some()
         && residual_name_index(names, "host_apply_production_spawn_ready_completions").is_some()
         && residual_name_index(names, "Wave 739").is_some()
@@ -84,16 +84,15 @@ pub fn honesty_host_production_spawn_pose_no_rejitter_source_markers_residual_wa
     let j = gl
         .find("fn host_apply_production_spawn_ready_completions")
         .unwrap_or(0);
-    // 2026-08-15: jitter/reposition block sits ~80 lines into the helper.
     let body = &gl[j..j + 8000.min(gl.len().saturating_sub(j))];
     let ok = body.contains("Wave 739")
         && body.contains(
             "let sole = crate::gameworld_shadow::gameworld_production_sole_tick_enabled()",
         )
-        && body.contains("if sole {")
-        && body.contains("Vec3::ZERO")
-        && body.contains("if !sole {")
-        && body.contains("selection_radius")
+        && body.contains("if !sole && !parked_jet")
+        && body.contains("no spawn jitter")
+        && !body.contains("jitter_dir")
+        && !body.contains("spawn_pos += ")
         && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostProductionSpawnPoseNoRejitterAction::SourceMarkers);
     ok
@@ -103,13 +102,13 @@ pub fn honesty_host_production_spawn_pose_no_rejitter_nav_commands_residual_wave
     let cmds = RUNTIME_HOST_LIVE_HOST_PRODUCTION_SPAWN_POSE_NO_REJITTER_CMD_NAMES_WAVE739;
     let ok = residual_name_index(steps, "REQUIRE_SOLE_SKIP_JITTER").is_some()
         && residual_name_index(steps, "REQUIRE_SOLE_SKIP_REPOSITION").is_some()
-        && residual_name_index(steps, "REQUIRE_NON_SOLE_KEEPS_JITTER").is_some()
+        && residual_name_index(steps, "REQUIRE_NON_SOLE_NO_SELECTION_RADIUS_JITTER").is_some()
         && residual_name_index(steps, "LIVE_HOST_PRODUCTION_SPAWN_POSE_NO_REJITTER").is_some()
         && residual_name_index(steps, "LIVE_PLAYABLE_CLAIM_FALSE").is_some()
         && residual_name_index(cmds, "host_production_spawn_pose_no_rejitter").is_some()
         && residual_name_index(cmds, "sole_skip_jitter").is_some()
         && residual_name_index(cmds, "sole_skip_reposition").is_some()
-        && residual_name_index(cmds, "non_sole_keeps_jitter").is_some();
+        && residual_name_index(cmds, "non_sole_no_selection_radius_jitter").is_some();
     residual_action_store(ResidualHostProductionSpawnPoseNoRejitterAction::NavCommands);
     ok
 }
@@ -122,7 +121,7 @@ pub fn simulate_host_production_spawn_pose_no_rejitter_collect_source() -> bool 
 }
 pub fn simulate_host_production_spawn_pose_no_rejitter_dispatch_source() -> bool {
     let gl = gl_source();
-    let ok = gl.contains("Wave 739") && gl.contains("if !sole {");
+    let ok = gl.contains("Wave 739") && gl.contains("if !sole && !parked_jet");
     residual_action_store(ResidualHostProductionSpawnPoseNoRejitterAction::DispatchSource);
     ok
 }

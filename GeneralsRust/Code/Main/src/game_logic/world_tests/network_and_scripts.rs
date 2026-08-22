@@ -33,12 +33,20 @@ fn host_named_unit_found_with_empty_object_registry() {
         .host_area_unit_ids(Vec3::new(0.0, 0.0, 0.0), Vec3::new(15.0, 0.0, 25.0))
         .is_empty());
 
+    if let Some(o) = logic.host_object_mut(id) {
+        o.set_position(Vec3::new(10.0, 42.0, 20.0));
+    }
     logic.inject_host_script_query_snapshot();
     assert_eq!(host_script_named_unit_id("MapNamedScout"), Some(id.0));
+    let host = gamelogic::scripting::host_script_query_object_by_id(id.0).expect("injected");
+    assert_eq!(host.x, 10.0);
+    assert_eq!(host.y, 42.0);
+    assert_eq!(host.z, 20.0);
     assert_eq!(
         gamelogic::scripting::host_script_named_unit_alive("MapNamedScout"),
         Some(true)
     );
+
     assert!(gamelogic::scripting::host_script_query_has_any());
     assert!(!host_script_team_unit_ids(Team::USA as u32).is_empty());
     assert!(OBJECT_REGISTRY.is_empty());
@@ -277,6 +285,118 @@ fn create_object_script_request_spawns_named_host_unit() {
     assert!((obj.get_orientation() - 1.25).abs() < 0.001);
     assert!(OBJECT_REGISTRY.is_empty());
 }
+
+#[test]
+fn live_host_script_unmanned_radar_stealth_apply() {
+    use crate::game_logic::host_radar::last_the_radar_event_host_position;
+    use gamelogic::object::registry::OBJECT_REGISTRY;
+    use gamelogic::scripting::{
+        request_host_script_radar_event, request_host_script_stealth_enabled,
+        request_host_script_unmanned, HostScriptRadarEventRequest, HostScriptStealthEnabledRequest,
+        HostScriptUnmannedRequest,
+    };
+
+    OBJECT_REGISTRY.clear();
+    let _ = gamelogic::scripting::take_host_script_unmanned_requests();
+    let _ = gamelogic::scripting::take_host_script_radar_event_requests();
+    let _ = gamelogic::scripting::take_host_script_stealth_enabled_requests();
+
+    let mut logic = GameLogic::new();
+    let mut tank = ThingTemplate::new("AmericaTankCrusader");
+    tank.set_health(400.0);
+    logic.templates.insert("AmericaTankCrusader".into(), tank);
+    let mut burton = ThingTemplate::new("AmericaInfantryColonelBurton");
+    burton.set_health(200.0);
+    logic.templates.insert("AmericaInfantryColonelBurton".into(), burton);
+
+    let tank_id = logic
+        .create_object("AmericaTankCrusader", Team::USA, Vec3::new(30.0, 0.0, 40.0))
+        .expect("tank");
+    if let Some(o) = logic.host_object_mut(tank_id) {
+        o.name = "SnipedHumvee".into();
+        o.team_instance_name = "teamAmerica".into();
+        o.select();
+    }
+    logic.selected_objects.push(tank_id);
+
+    let hero_id = logic
+        .create_object(
+            "AmericaInfantryColonelBurton",
+            Team::USA,
+            Vec3::new(90.0, 0.0, 120.0),
+        )
+        .expect("burton");
+    if let Some(o) = logic.host_object_mut(hero_id) {
+        o.name = "ColonelBurton".into();
+        o.team_instance_name = "teamAmerica".into();
+        o.innate_stealth = true;
+        o.stealth_delay_frames = 0;
+        o.set_status_stealthed(true);
+    }
+
+    request_host_script_unmanned(HostScriptUnmannedRequest::Named {
+        unit: "SnipedHumvee".into(),
+    });
+    logic.apply_host_unmanned_script_requests();
+    {
+        let tank = logic.host_object(tank_id).expect("unmanned tank");
+        assert!(tank.status.disabled_unmanned, "SET_UNMANNED must stamp DISABLED_UNMANNED");
+        assert_eq!(tank.team, Team::Neutral, "unmanned husk moves to Neutral");
+        assert!(!tank.selected, "deselectObject PLAYERMASK_ALL");
+    }
+    assert!(!logic.selected_objects.contains(&tank_id));
+
+    request_host_script_radar_event(HostScriptRadarEventRequest::Object {
+        unit: "ColonelBurton".into(),
+        event_type: 4,
+    });
+    logic.apply_host_radar_event_script_requests();
+    let last = last_the_radar_event_host_position().expect("radar ping");
+    assert!((last.x - 90.0).abs() < 0.1);
+    assert!((last.z - 120.0).abs() < 0.1);
+
+    request_host_script_stealth_enabled(HostScriptStealthEnabledRequest::Named {
+        unit: "ColonelBurton".into(),
+        enabled: false,
+    });
+    logic.apply_host_stealth_enabled_script_requests();
+    {
+        let hero = logic.host_object(hero_id).expect("hero");
+        assert!(hero.script_unstealthed, "SET_STEALTH false stamps SCRIPT_UNSTEALTHED");
+        assert!(!hero.status.stealthed, "script destalths immediately");
+        assert!(hero.stealth_level_forbids_cloak(1, false, false, false, true));
+    }
+    logic.update_stealth_and_detection();
+    {
+        let hero = logic.host_object(hero_id).expect("hero after tick");
+        assert!(
+            !hero.status.stealthed,
+            "script-unstealthed hero must stay destalthed"
+        );
+    }
+
+    request_host_script_stealth_enabled(HostScriptStealthEnabledRequest::Named {
+        unit: "ColonelBurton".into(),
+        enabled: true,
+    });
+    logic.apply_host_stealth_enabled_script_requests();
+    assert!(
+        !logic
+            .host_object(hero_id)
+            .expect("hero re-enable")
+            .script_unstealthed
+    );
+
+    request_host_script_unmanned(HostScriptUnmannedRequest::DeleteAll);
+    logic.apply_host_unmanned_script_requests();
+    let tank_gone = logic
+        .host_object(tank_id)
+        .map(|o| o.status.destroyed || !o.is_alive())
+        .unwrap_or(true);
+    assert!(tank_gone, "DELETE_ALL_UNMANNED must destroy husks");
+    assert!(OBJECT_REGISTRY.is_empty());
+}
+
 
 #[test]
 fn live_host_team_hooks_add_member_and_notify_death_once() {
@@ -4852,4 +4972,163 @@ fn retail_pilot_metadata_drives_starting_veteran_and_same_owner_recrew() {
         !pilot.is_alive(),
         "pilot infantry must be consumed even when its authored SlowDeath defers removal"
     );
+}
+
+#[test]
+fn live_host_injects_completed_waypoint_labels_and_shroud_discovered_by() {
+    use gamelogic::common::ObjectShroudStatus;
+    use gamelogic::object::registry::OBJECT_REGISTRY;
+    use gamelogic::scripting::{
+        clear_host_script_query_snapshot, host_script_query_object, host_script_query_object_by_id,
+    };
+    use gamelogic::system::shroud_manager::get_shroud_manager;
+
+    OBJECT_REGISTRY.clear();
+    clear_host_script_query_snapshot();
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(1, Team::USA, "PlyrAmerica", true));
+    logic.add_player(Player::new(2, Team::China, "PlyrChina", false));
+    let mut t = ThingTemplate::new("NamedScout");
+    t.set_health(100.0);
+    logic.templates.insert("NamedScout".into(), t);
+    let id = logic
+        .create_object_for_player("NamedScout", 2, Vec3::new(10.0, 0.0, 20.0))
+        .expect("unit");
+    if let Some(o) = logic.host_object_mut(id) {
+        o.name = "MapNamedScout".into();
+        o.completed_waypoint_labels = vec!["HeroPath".into()];
+    }
+    {
+        let mut shroud = get_shroud_manager().lock().expect("shroud");
+        shroud.set_host_object_shroud_status(1, id.0, ObjectShroudStatus::Shrouded);
+        shroud.set_host_object_shroud_status(2, id.0, ObjectShroudStatus::Clear);
+    }
+    logic.inject_host_script_query_snapshot();
+    let obj = host_script_query_object("MapNamedScout").expect("snapshot");
+    assert_eq!(obj.waypoint_labels, vec!["HeroPath".to_string()]);
+    assert!(
+        obj.discovered_by.iter().any(|n| n.eq_ignore_ascii_case("PlyrChina")),
+        "owner is CLEAR"
+    );
+    assert!(
+        !obj.discovered_by
+            .iter()
+            .any(|n| n.eq_ignore_ascii_case("PlyrAmerica")),
+        "shrouded player must not discover"
+    );
+    assert_eq!(host_script_query_object_by_id(id.0).map(|o| o.id), Some(id.0));
+    assert!(OBJECT_REGISTRY.is_empty());
+    clear_host_script_query_snapshot();
+}
+
+#[test]
+fn live_host_from_named_and_skirmish_conditions_use_inject() {
+    use gamelogic::object::registry::OBJECT_REGISTRY;
+    use gamelogic::player::player_list;
+    use gamelogic::scripting::core::{Condition, ConditionType, Parameter, ParameterType};
+    use gamelogic::scripting::engine::{
+        get_named_object_tracker, initialize_script_engine, with_script_engine_mut,
+    };
+    use gamelogic::scripting::executor::{ScriptConditionEvaluator, ScriptConditionResult};
+    use gamelogic::scripting::{clear_host_script_query_snapshot, ScriptContext};
+    use std::sync::{Arc, RwLock};
+
+    OBJECT_REGISTRY.clear();
+    clear_host_script_query_snapshot();
+    initialize_script_engine().expect("script engine");
+    player_list().write().unwrap().clear();
+    let leftover = Arc::new(RwLock::new(gamelogic::player::Player::new(1)));
+    leftover
+        .write()
+        .unwrap()
+        .set_display_name("PlyrAmerica");
+    player_list().write().unwrap().add_player(leftover);
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(1, Team::USA, "PlyrAmerica", true));
+    logic.add_player(Player::new(2, Team::China, "PlyrChina", false));
+    let mut t = ThingTemplate::new("NamedCannon");
+    t.set_health(1000.0);
+    logic.templates.insert("NamedCannon".into(), t);
+    let id = logic
+        .create_object_for_player("NamedCannon", 1, Vec3::new(5.0, 0.0, 5.0))
+        .expect("cannon");
+    if let Some(o) = logic.host_object_mut(id) {
+        o.name = "ParticleCannon".into();
+        o.team_instance_name = "USA_Superweapons".into();
+        o.completed_waypoint_labels = vec!["HeroPath".into()];
+    }
+    logic.inject_host_named_unit_map_into_crate_tracker();
+
+    let completed = with_script_engine_mut(|engine| {
+        engine.notify_of_triggered_special_power(1, "SuperweaponParticleUplinkCannon", id.0);
+        let mut from_named = Condition::new(ConditionType::PlayerTriggeredSpecialPowerFromNamed);
+        from_named
+            .add_parameter(Parameter::with_string(
+                ParameterType::Side,
+                "PlyrAmerica".into(),
+            ))
+            .unwrap();
+        from_named
+            .add_parameter(Parameter::with_string(
+                ParameterType::SpecialPower,
+                "SuperweaponParticleUplinkCannon".into(),
+            ))
+            .unwrap();
+        from_named
+            .add_parameter(Parameter::with_string(
+                ParameterType::Unit,
+                "ParticleCannon".into(),
+            ))
+            .unwrap();
+        let mut evaluator =
+            ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+        assert_eq!(
+            evaluator.evaluate_condition(&mut from_named).unwrap(),
+            ScriptConditionResult::True
+        );
+
+        let mut reached = Condition::new(ConditionType::NamedReachedWaypointsEnd);
+        reached
+            .add_parameter(Parameter::with_string(
+                ParameterType::Unit,
+                "ParticleCannon".into(),
+            ))
+            .unwrap();
+        reached
+            .add_parameter(Parameter::with_string(
+                ParameterType::WaypointPath,
+                "HeroPath".into(),
+            ))
+            .unwrap();
+        assert_eq!(
+            evaluator.evaluate_condition(&mut reached).unwrap(),
+            ScriptConditionResult::True
+        );
+
+        let mut team_reached = Condition::new(ConditionType::TeamReachedWaypointsEnd);
+        team_reached
+            .add_parameter(Parameter::with_string(
+                ParameterType::Team,
+                "USA_Superweapons".into(),
+            ))
+            .unwrap();
+        team_reached
+            .add_parameter(Parameter::with_string(
+                ParameterType::WaypointPath,
+                "HeroPath".into(),
+            ))
+            .unwrap();
+        assert_eq!(
+            evaluator.evaluate_condition(&mut team_reached).unwrap(),
+            ScriptConditionResult::True
+        );
+    });
+
+    player_list().write().unwrap().clear();
+    clear_host_script_query_snapshot();
+    get_named_object_tracker().clear().ok();
+    assert_eq!(completed, Some(()));
+    assert!(OBJECT_REGISTRY.is_empty());
 }

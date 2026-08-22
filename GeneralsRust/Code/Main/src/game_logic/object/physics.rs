@@ -351,9 +351,9 @@ impl Object {
         }
     }
 
-    /// C++ PhysicsBehavior::getMass residual.
+    /// C++ PhysicsBehavior::getMass residual: hull + contained riders.
     pub fn physics_get_mass(&self) -> f32 {
-        self.physics_mass.max(1.0e-4)
+        (self.physics_mass + self.contained_items_mass).max(1.0e-4)
     }
 
     /// C++ PhysicsBehavior::isMotive residual.
@@ -586,31 +586,12 @@ impl Object {
                 self.set_position(p);
                 true
             }
-            LocomotorBehaviorZ::SurfaceRelativeHeight
-            | LocomotorBehaviorZ::SmoothRelativeToHighestLayer => {
-                if self.loco_preferred_height == 0.0 && goal_y.is_none() {
-                    return true;
-                }
-                let p = self.get_position();
-                let preferred_raw = if let Some(gy) = goal_y {
-                    gy
-                } else {
-                    self.loco_preferred_height + ground_y
-                };
-                let mut delta = preferred_raw - p.y;
-                delta *= self.loco_preferred_height_damping.clamp(0.0, 1.0);
-                let preferred = p.y + delta;
-                let lift = if self.effective_max_lift() > 0.0 {
-                    self.calc_lift_to_use_at_pt(p.y, preferred)
-                } else {
-                    // Fail-closed: no lift template — proportional residual.
-                    preferred - p.y
-                };
-                if lift.abs() > 1.0e-4 {
-                    let force_y = lift * self.physics_get_mass();
-                    self.apply_motive_force(glam::Vec3::new(0.0, force_y, 0.0));
-                }
-                true
+            LocomotorBehaviorZ::SurfaceRelativeHeight => {
+                self.apply_surface_relative_lift(ground_y, goal_y)
+            }
+            LocomotorBehaviorZ::SmoothRelativeToHighestLayer => {
+                let surface = leftover_highest_layer_height(self.get_position(), ground_y);
+                self.apply_surface_relative_lift(surface, goal_y)
             }
             LocomotorBehaviorZ::AbsoluteHeight => {
                 if self.loco_preferred_height == 0.0 && goal_y.is_none() {
@@ -625,6 +606,39 @@ impl Object {
                 true
             }
         }
+    }
+
+    /// C++ `Z_SURFACE_RELATIVE_HEIGHT` / `Z_SMOOTH_RELATIVE_TO_HIGHEST_LAYER`
+    /// lift residual (`Locomotor.cpp:2288-2317` / `:2248-2285`).
+    fn apply_surface_relative_lift(&mut self, surface_y: f32, goal_y: Option<f32>) -> bool {
+        if self.loco_preferred_height == 0.0 && goal_y.is_none() {
+            return true;
+        }
+        let p = self.get_position();
+        let preferred_raw = if let Some(gy) = goal_y {
+            gy
+        } else {
+            self.loco_preferred_height + surface_y
+        };
+        let mut delta = preferred_raw - p.y;
+        delta *= self.loco_preferred_height_damping.clamp(0.0, 1.0);
+        let preferred = p.y + delta;
+        let lift = if self.effective_max_lift() > 0.0 {
+            self.calc_lift_to_use_at_pt(p.y, preferred)
+        } else {
+            preferred - p.y
+        };
+        if lift.abs() > 1.0e-4 {
+            let force_y = lift * self.physics_get_mass();
+            self.apply_motive_force(glam::Vec3::new(0.0, force_y, 0.0));
+        }
+        true
+    }
+
+    /// C++ `TheTerrainLogic->getHighestLayerForDestination` + `getLayerHeight`
+    /// (`clip=false`) so flyers ride bridge decks.
+    pub fn highest_layer_surface_ht(&self, ground_y: f32) -> f32 {
+        leftover_highest_layer_height(self.get_position(), ground_y)
     }
 
     /// C++ Locomotor::locoUpdate_maintainCurrentPosition residual.
@@ -803,8 +817,11 @@ impl Object {
         self.is_blocked = false;
     }
 
-    /// C++ doLocomotor bumpSpeedLimit cap before moveTowardsPosition (AIUpdate.cpp:2197-2217).
+    /// C++ doLocomotor desiredSpeed then bumpSpeedLimit cap
+    /// (`AIUpdate.cpp:2144-2217`). Formation/team/column stamp
+    /// `group_speed_factor` from AIGroup::getSpeed / FAST_AS_POSSIBLE.
     pub fn apply_do_locomotor_blocked_speed(&mut self, mut speed: f32) -> f32 {
+        speed *= self.group_speed_factor.clamp(0.0, 1.0);
         let blocked = self.num_frames_blocked > 0;
         if blocked && speed > self.cur_max_blocked_speed {
             speed = self.cur_max_blocked_speed;
@@ -1662,6 +1679,41 @@ fn leftover_surface_ht_at_pt(pos: glam::Vec3, ground_y: f32) -> f32 {
     } else {
         ground_y
     }
+}
+
+/// C++ `handleBehaviorZ` `Z_SMOOTH_RELATIVE_TO_HIGHEST_LAYER`
+/// (`Locomotor.cpp:2248-2285`): if leftover terrain has a bridge/wall
+/// above ground, lift off that layer (clip=false). Empty leftover keeps
+/// `ground_y` (same fail-closed as `leftover_surface_ht_at_pt`).
+fn leftover_highest_layer_height(pos: glam::Vec3, ground_y: f32) -> f32 {
+    let Some(terrain) = gamelogic::helpers::TheTerrainLogic::get() else {
+        return ground_y;
+    };
+    let cpp = gamelogic::common::Coord3D::new(pos.x, pos.z, pos.y);
+    let layer = terrain.get_highest_layer_for_destination(&cpp);
+    let h = leftover_layer_height_unclipped(pos, layer)
+        .unwrap_or_else(|| terrain.get_layer_height(pos.x, pos.z, layer));
+    if h > ground_y + 1.0e-3 {
+        h
+    } else {
+        leftover_surface_ht_at_pt(pos, ground_y)
+    }
+}
+
+fn leftover_layer_height_unclipped(
+    pos: glam::Vec3,
+    layer: gamelogic::common::PathfindLayerEnum,
+) -> Option<f32> {
+    let terrain = gamelogic::terrain::get_terrain_logic();
+    let guard = terrain.try_read().ok()?;
+    let path_layer = match layer {
+        gamelogic::common::PathfindLayerEnum::Air => gamelogic::path::PathfindLayerEnum::Top,
+        gamelogic::common::PathfindLayerEnum::Tunnel
+        | gamelogic::common::PathfindLayerEnum::Water
+        | gamelogic::common::PathfindLayerEnum::Last => gamelogic::path::PathfindLayerEnum::Ground,
+        other => gamelogic::path::PathfindLayerEnum::from_u32(other as u32),
+    };
+    Some(guard.get_layer_height(pos.x, pos.z, path_layer, None, false))
 }
 
 /// Leftover `calc_direction_to_apply_thrust` / C++ `Locomotor.cpp:175-250`.

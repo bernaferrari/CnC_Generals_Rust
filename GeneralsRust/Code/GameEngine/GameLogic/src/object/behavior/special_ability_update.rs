@@ -1096,13 +1096,49 @@ impl SpecialAbilityUpdate {
                             self.capture_flash_phase += increment / 3.0;
                             let this_phase = (self.capture_flash_phase as i32) & 1;
                             if last_phase == 1 && this_phase == 0 {
+                                let house = self
+                                    .with_object(|o| o.get_indicator_color())
+                                    .unwrap_or(Color::white());
+                                let saturation = game_engine::common::ini::get_global_data()
+                                    .map(|data| data.read().selection_flash_saturation_factor)
+                                    .unwrap_or(0.5);
+
+                                let half = saturation * 0.5;
+
+
+                                let flash = Color::new(
+                                    ((house.r as Real / 255.0 * saturation - half) * 255.0)
+                                        .clamp(0.0, 255.0) as u8,
+                                    ((house.g as Real / 255.0 * saturation - half) * 255.0)
+                                        .clamp(0.0, 255.0) as u8,
+                                    ((house.b as Real / 255.0 * saturation - half) * 255.0)
+                                        .clamp(0.0, 255.0) as u8,
+                                    255,
+                                );
                                 if let Ok(mut draw_guard) = drawable.write() {
-                                    draw_guard.flash_as_selected();
+                                    draw_guard.flash_as_selected_with_color(flash);
+                                }
+                                if let Some(audio) = TheAudio::get() {
+                                    if let Some(misc_audio) =
+                                        game_engine::common::ini::ini_misc_audio::get_misc_audio()
+                                    {
+                                        let misc_audio = misc_audio.read();
+                                        let sound_name = misc_audio
+                                            .defector_timer_tick_sound
+                                            .playable_event_name()
+                                            .to_string();
+                                        if !sound_name.is_empty() {
+                                            let mut event = AudioEventRts::new(sound_name);
+                                            event.set_object_id(self.target_id);
+                                            audio.add_audio_event(&event);
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
                 }
+
 
                 let _ = self.with_spm(|spm| {
                     if template.get_special_power_type()

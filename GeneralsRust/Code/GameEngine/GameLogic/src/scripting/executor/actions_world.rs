@@ -56,11 +56,10 @@ impl ScriptActionDispatcher {
         let unit_name = self.get_string_param(action, 1)?;
         log::debug!("Playing named sound '{}' from '{}'", sound_name, unit_name);
 
-        // C++ doSoundPlayFromNamed: getUnitNamed missing → return.
-        super::request_host_script_object_sound(super::HostScriptObjectSoundRequest::PlayNamed {
-            sound: sound_name.clone(),
-            unit: unit_name.clone(),
-        });
+        // C++ doSoundPlayFromNamed: one TheAudio->addAudioEvent. Do not also
+        // enqueue HostScriptObjectSoundRequest::PlayNamed — live drain would
+        // play the same name a second time through TheAudio.
+
 
         if let Some(handler) = current_script_action_handler() {
             if let Err(err) = handler.sound_play_named(&sound_name, &unit_name) {
@@ -593,11 +592,6 @@ impl ScriptActionDispatcher {
         &mut self,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
-        // Wave 284: empty dual-world → no-op success.
-        if dual_world_registry_unavailable() {
-            return Ok(ScriptActionResult::Success);
-        }
-
         let object_name = self.get_string_param(action, 0)?;
         let event_type = self.get_int_param(action, 1)?;
         log::debug!(
@@ -605,6 +599,14 @@ impl ScriptActionDispatcher {
             object_name,
             event_type
         );
+        // Wave 284: empty dual-world → live host drain.
+        if dual_world_registry_unavailable() {
+            super::request_host_script_radar_event(super::HostScriptRadarEventRequest::Object {
+                unit: object_name,
+                event_type,
+            });
+            return Ok(ScriptActionResult::Success);
+        }
 
         let tracker = get_named_object_tracker();
         let object_id_opt = tracker.get_object_id(&object_name).ok().flatten();

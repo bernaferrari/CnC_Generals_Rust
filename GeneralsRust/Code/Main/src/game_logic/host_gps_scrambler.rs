@@ -154,7 +154,7 @@ pub fn is_legal_gps_scrambler_target(
 }
 
 /// C++ ThingTemplate.cpp:384-409 ImmuneToGPSScramblerMask (host KindOf subset).
-/// Aircraft/boats/structures never inherit the default StealthUpdate.
+/// Aircraft/boats/structures/MOB_NEXUS never inherit the default StealthUpdate.
 pub fn is_immune_to_default_gps_stealth(
     is_aircraft: bool,
     is_structure: bool,
@@ -166,6 +166,7 @@ pub fn is_immune_to_default_gps_stealth(
     is_bridge: bool,
     is_landmark_bridge: bool,
     is_bridge_tower: bool,
+    is_mob_nexus: bool,
 ) -> bool {
     is_aircraft
         || is_structure
@@ -177,6 +178,7 @@ pub fn is_immune_to_default_gps_stealth(
         || is_bridge
         || is_landmark_bridge
         || is_bridge_tower
+        || is_mob_nexus
 }
 
 /// Host analog of `obj->getStealth() != NULL` for GPS receiveGrant.
@@ -202,9 +204,11 @@ pub fn host_has_gps_stealth_module(
 }
 
 /// Name residual for bomb-truck / disguise units that C++ receiveGrant skips.
+/// C++ StealthUpdate.cpp:184-185 `canDisguise()` is DisguisesAsTeam (Bomb Truck).
+/// Hijacker has InnateStealth, not DisguisesAsTeam — GPS must recloak him.
 pub fn is_gps_scrambler_disguise_name(template_name: &str) -> bool {
     let n = template_name.to_ascii_lowercase();
-    n.contains("bombtruck") || n.contains("disguise") || n.contains("hijacker")
+    n.contains("bombtruck") || n.contains("disguise")
 }
 
 /// 2D distance check residual (C++ FROM_CENTER_2D / FinalRadius).
@@ -432,14 +436,19 @@ mod tests {
         assert!(!host_has_gps_stealth_module(false, true, false, true));
         assert!(host_has_gps_stealth_module(true, true, false, true));
         assert!(!is_immune_to_default_gps_stealth(
-            false, false, false, false, false, false, false, false, false, false
+            false, false, false, false, false, false, false, false, false, false, false
         ));
         assert!(is_immune_to_default_gps_stealth(
-            true, false, false, false, false, false, false, false, false, false
+            true, false, false, false, false, false, false, false, false, false, false
         ));
         assert!(is_immune_to_default_gps_stealth(
-            false, false, true, false, false, false, false, false, false, false
+            false, false, true, false, false, false, false, false, false, false, false
         ));
+        // C++ KINDOF_MOB_NEXUS is ImmuneToGPS even when also INFANTRY.
+        assert!(is_immune_to_default_gps_stealth(
+            false, false, false, false, false, false, false, false, false, false, true
+        ));
+        assert!(!host_has_gps_stealth_module(false, false, true, true));
     }
 
     #[test]
@@ -448,6 +457,9 @@ mod tests {
         assert!(is_gps_scrambler_disguise_name("Demo_GLAVehicleBombTruck"));
         assert!(!is_gps_scrambler_disguise_name("GLAVehicleQuadCannon"));
         assert!(!is_gps_scrambler_disguise_name("USA_Ranger"));
+        // C++ canDisguise is Bomb Truck only; Hijacker must receive GPS grant.
+        assert!(!is_gps_scrambler_disguise_name("GLAInfantryHijacker"));
+        assert!(!is_gps_scrambler_disguise_name("Slth_GLAInfantryHijacker"));
     }
 
     #[test]

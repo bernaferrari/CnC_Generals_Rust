@@ -592,6 +592,19 @@ impl ScriptConditionEvaluator {
             .get_parameter(1)
             .ok_or_else(|| ScriptError::ParameterNotFound("Parameter 1 not found".to_string()))?;
 
+
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            if let Some(ok) = crate::scripting::host_eval_skirmish_player_has_prerequisite_to_build(
+                &player_name,
+                object_type.get_string(),
+            ) {
+                return Ok(if ok {
+                    ScriptConditionResult::True
+                } else {
+                    ScriptConditionResult::False
+                });
+            }
+        }
         let player_arc = player_list()
             .read()
             .ok()
@@ -992,6 +1005,19 @@ impl ScriptConditionEvaluator {
             player_name,
             discovered_by_name
         );
+
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            if let Some(ok) = crate::scripting::host_eval_skirmish_player_has_discovered_player(
+                &player_name,
+                &discovered_by_name,
+            ) {
+                return Ok(if ok {
+                    ScriptConditionResult::True
+                } else {
+                    ScriptConditionResult::False
+                });
+            }
+        }
 
         let Ok(players) = player_list().read() else {
             return Ok(ScriptConditionResult::False);

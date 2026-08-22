@@ -72,16 +72,17 @@ pub use control_bar_resizer::{
 pub mod control_bar_scheme;
 pub mod control_bar_structure_inventory;
 pub use control_bar_structure_inventory::{
-    residual_structure_inventory_evacuate_visible, residual_structure_inventory_exit_visible,
-    residual_structure_inventory_garrisoned_count, residual_structure_inventory_last_action,
-    residual_structure_inventory_max_garrison, residual_structure_inventory_stop_visible,
-    simulate_structure_inventory_clear, simulate_structure_inventory_evacuate_command_name,
+    occupant_from_presentation, residual_structure_inventory_evacuate_visible,
+    residual_structure_inventory_exit_visible, residual_structure_inventory_garrisoned_count,
+    residual_structure_inventory_last_action, residual_structure_inventory_max_garrison,
+    residual_structure_inventory_stop_visible, simulate_structure_inventory_clear,
+    simulate_structure_inventory_evacuate_command_name,
     simulate_structure_inventory_exit_command_name, simulate_structure_inventory_populate,
     simulate_structure_inventory_prepare_occupied, simulate_structure_inventory_stop_command_name,
-    ResidualStructureInventoryAction, StructureInventoryOccupant,
-    MAX_STRUCTURE_INVENTORY_BUTTONS, STRUCTURE_INVENTORY_EVACUATE_COMMAND_NAME,
-    STRUCTURE_INVENTORY_EVACUATE_ID, STRUCTURE_INVENTORY_EXIT_COMMAND_NAME,
-    STRUCTURE_INVENTORY_STOP_COMMAND_NAME, STRUCTURE_INVENTORY_STOP_ID,
+    ResidualStructureInventoryAction, StructureInventoryOccupant, MAX_STRUCTURE_INVENTORY_BUTTONS,
+    STRUCTURE_INVENTORY_EVACUATE_COMMAND_NAME, STRUCTURE_INVENTORY_EVACUATE_ID,
+    STRUCTURE_INVENTORY_EXIT_COMMAND_NAME, STRUCTURE_INVENTORY_STOP_COMMAND_NAME,
+    STRUCTURE_INVENTORY_STOP_ID,
 };
 pub mod control_bar_under_construction;
 pub use control_bar_under_construction::{

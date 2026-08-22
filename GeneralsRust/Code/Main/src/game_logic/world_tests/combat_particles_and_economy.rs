@@ -70,6 +70,161 @@ fn supply_center_one_shot_collector_enters_authored_wanting_route_without_passiv
     assert!(logic.take_supply_dropoff_events().is_empty());
 }
 
+#[test]
+fn supply_center_one_shot_collector_uses_exit_interface() {
+    use crate::game_logic::{DockKind, ProductionExitMetadata, ProductionExitStyle};
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::GLA, "GLA", true));
+
+    let mut worker = ThingTemplate::new("GLAInfantryWorker");
+    worker.add_kind_of(KindOf::Harvester).set_health(100.0);
+    logic.templates.insert(worker.name.clone(), worker);
+
+    let mut warehouse = ThingTemplate::new("FiniteWarehouse");
+    warehouse
+        .add_kind_of(KindOf::SupplySource)
+        .set_health(100.0);
+    warehouse.dock_kind = DockKind::SupplyWarehouse;
+    warehouse.dock_starting_boxes = Some(100);
+    logic.templates.insert(warehouse.name.clone(), warehouse);
+    let _source = logic
+        .create_object("FiniteWarehouse", Team::Neutral, Vec3::new(80.0, 0.0, 0.0))
+        .expect("finite supply source");
+
+    let unit_create = [12.0, -8.0, 0.0];
+    let natural = [24.0, 0.0, 0.0];
+    let mut stash = ThingTemplate::new("GLASupplyStash");
+    stash
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::SupplyCenter)
+        .set_health(100.0);
+    stash.production_exit_metadata = Some(ProductionExitMetadata {
+        style: ProductionExitStyle::SupplyCenter,
+        unit_create_point: unit_create,
+        natural_rally_point: natural,
+        exit_delay_frames: 0,
+        allow_airborne_creation: false,
+        initial_burst: 0,
+        use_spawn_rally_point: false,
+        grant_temporary_stealth_frames: 600,
+    });
+    logic.templates.insert(stash.name.clone(), stash);
+
+    let center_pos = Vec3::new(50.0, 0.0, 50.0);
+    let center_id = logic
+        .create_object_for_player("GLASupplyStash", 0, center_pos)
+        .expect("stash");
+    let first_id = logic
+        .host_objects()
+        .values()
+        .find(|object| object.producer_id == Some(center_id))
+        .map(|object| object.id)
+        .expect("one-shot collector");
+
+    let (producer_pos, forward) = {
+        let center = logic.host_object(center_id).expect("center");
+        (center.get_position(), center.thing.get_direction_vector())
+    };
+    let expected_door =
+        crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
+            producer_pos,
+            forward,
+            (unit_create[0], unit_create[1], unit_create[2]),
+        );
+    let expected_natural =
+        crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
+            producer_pos,
+            forward,
+            (natural[0], natural[1], natural[2]),
+        );
+    let exit = logic
+        .host_object(center_id)
+        .expect("center meta")
+        .thing
+        .template
+        .production_exit_metadata
+        .expect("supply exit");
+    let offset_point = exit.natural_rally_point_with_path_offset(
+        crate::game_logic::host_ai_path_combat_residual_wave105::PATHFIND_CELL_SIZE_F,
+    );
+    let offset_natural =
+        crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
+            producer_pos,
+            forward,
+            (offset_point[0], offset_point[1], offset_point[2]),
+        );
+
+    let first = logic.host_object(first_id).expect("first collector");
+    let first_pos = first.get_position();
+    assert!(
+        ((first_pos.x - expected_door.x).powi(2) + (first_pos.z - expected_door.z).powi(2)).sqrt()
+            < 0.5,
+        "one-shot must exit at UnitCreatePoint, pos={first_pos:?} door={expected_door:?} origin={center_pos:?}"
+    );
+    assert!(
+        ((first_pos.x - center_pos.x).powi(2) + (first_pos.z - center_pos.z).powi(2)).sqrt() > 4.0,
+        "one-shot must not spawn at building origin"
+    );
+    let path = first.movement.path.clone();
+    assert!(
+        path.iter()
+            .any(|wp| wp.distance(expected_natural) < 1.0)
+            || first
+                .movement
+                .target_position
+                .is_some_and(|dest| dest.distance(expected_natural) < 1.0),
+        "supply ExitInterface walks raw natural rally, path={path:?} natural={expected_natural:?}"
+    );
+    assert!(
+        path.iter()
+            .all(|wp| wp.distance(offset_natural) > 5.0)
+            && first
+                .movement
+                .target_position
+                .is_none_or(|dest| dest.distance(offset_natural) > 5.0),
+        "C++ supply exit does not add the 2-cell path offset, path={path:?} offset={offset_natural:?}"
+    );
+
+    if let Some(first) = logic.host_object_mut(first_id) {
+        first.producer_id = None;
+    }
+    let custom_rally = Vec3::new(200.0, 0.0, 80.0);
+    if let Some(center) = logic.host_object_mut(center_id) {
+        center.supply_center_spawn_behavior_fired = false;
+        center.status.stealthed = true;
+        if let Some(building) = center.building_data.as_mut() {
+            building.rally_point = Some(custom_rally);
+        }
+    }
+    let second_id = logic
+        .spawn_supply_center_one_shot_collector(center_id)
+        .expect("stealthed one-shot");
+    let second = logic.host_object(second_id).expect("second collector");
+    assert!(
+        second.status.stealthed,
+        "stealthed GLA stash must GrantTemporaryStealth on the starter worker"
+    );
+    assert!(
+        second.temporary_stealth_expires_frame >= 600,
+        "retail GrantTemporaryStealth 20000ms is 600 frames, got {}",
+        second.temporary_stealth_expires_frame
+    );
+    assert!(
+        second
+            .movement
+            .path
+            .iter()
+            .any(|wp| wp.distance(custom_rally) < 1.0)
+            || second
+                .movement
+                .target_position
+                .is_some_and(|dest| dest.distance(custom_rally) < 1.0),
+        "supply ExitInterface walks custom rally after natural, path={:?}",
+        second.movement.path
+    );
+}
+
 /// C++ Player::getSupplyBoxValue (Player.cpp:1928-1930) reads retail
 /// GameData.ini `ValuePerSupplyBox = 75`. Host Gathering must credit 75, not 100 (hq-h1f4).
 #[test]

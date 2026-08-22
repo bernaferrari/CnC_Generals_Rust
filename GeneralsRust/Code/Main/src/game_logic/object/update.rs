@@ -250,6 +250,7 @@ impl Object {
                 if let Some(waypoint) = next_waypoint {
                     self.movement.target_position = Some(waypoint);
                 } else {
+                    self.commit_completed_waypoint_labels();
                     self.stop_moving();
                 }
                 return;
@@ -411,6 +412,7 @@ impl Object {
                     self.movement.target_position = Some(waypoint);
                     self.is_braking = false;
                 } else {
+                    self.commit_completed_waypoint_labels();
                     self.stop_moving();
                     self.is_braking = false;
                 }

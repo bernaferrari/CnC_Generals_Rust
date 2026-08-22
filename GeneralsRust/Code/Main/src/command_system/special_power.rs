@@ -76,7 +76,7 @@ pub enum SpecialPowerType {
     FireWall,
     /// GLA Anthrax Bomb residual (SPECIAL_ANTHRAX_BOMB / SuperweaponAnthraxBomb).
     /// Delayed plane-drop blast + residual toxin field ticks.
-    /// Fail-closed: not full OCL jet cargo / PoisonField object / gamma upgrade.
+    /// Leftover findOCL: Chem_GLACommandCenter / Gamma upgrade → SUPERWEAPON_AnthraxBombGamma.
     AnthraxBomb,
     /// USA Spectre Gunship residual (SPECIAL_SPECTRE_GUNSHIP / SuperweaponSpectreGunship).
     /// Delayed orbit insertion at target + periodic howitzer residual damage ticks

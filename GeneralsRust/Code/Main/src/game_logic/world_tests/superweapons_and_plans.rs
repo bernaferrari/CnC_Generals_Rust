@@ -2532,6 +2532,22 @@ fn cluster_mines_flight_places_field() {
         .unwrap()
         .cluster_mines_transport
         .is_some());
+    {
+        let o = logic.host_object(jet).unwrap();
+        let p = o.get_position();
+        let (min, max) = logic.world_bounds();
+        let on_edge = (p.x - min.x).abs() < 1.0
+            || (p.x - max.x).abs() < 1.0
+            || (p.z - min.z).abs() < 1.0
+            || (p.z - max.z).abs() < 1.0;
+        assert!(on_edge, "cluster cargo must spawn at map edge, pos={p:?}");
+        assert!(
+            o.radius_decal_update
+                .as_ref()
+                .is_some_and(|rd| !rd.delivery_decal.is_empty()),
+            "inbound cluster DeliveryDecal ring missing"
+        );
+    }
     assert!(logic.cluster_mines_flight_reg.transports_spawned >= 1);
     assert!(
         logic.special_power_strikes().view_object_count() >= 1,
@@ -2590,6 +2606,22 @@ fn anthrax_bomb_flight_drops_payload() {
     let jet = logic
         .spawn_anthrax_bomb_flight(cc_id, Vec3::new(150.0, 0.0, 0.0))
         .expect("cargo");
+    {
+        let o = logic.host_object(jet).unwrap();
+        let p = o.get_position();
+        let (min, max) = logic.world_bounds();
+        let on_edge = (p.x - min.x).abs() < 1.0
+            || (p.x - max.x).abs() < 1.0
+            || (p.z - min.z).abs() < 1.0
+            || (p.z - max.z).abs() < 1.0;
+        assert!(on_edge, "anthrax cargo must spawn at map edge, pos={p:?}");
+        assert!(
+            o.radius_decal_update
+                .as_ref()
+                .is_some_and(|rd| !rd.delivery_decal.is_empty()),
+            "inbound anthrax DeliveryDecal ring missing"
+        );
+    }
     assert!(logic
         .host_object(jet)
         .unwrap()
@@ -2620,6 +2652,174 @@ fn anthrax_bomb_flight_drops_payload() {
     );
     assert!(logic.honesty_anthrax_bomb_flight_ok());
 }
+
+#[test]
+fn anthrax_bomb_exits_plane_at_delivery_distance_not_over_click() {
+    use crate::game_logic::host_anthrax_bomb_flight::ANTHRAX_DELIVERY_DISTANCE;
+    use crate::game_logic::KindOf;
+    let mut logic = GameLogic::new();
+    logic.override_world_size(2000.0, 2000.0);
+    ensure_test_player_for_team(&mut logic, Team::GLA);
+    let mut cc = crate::game_logic::ThingTemplate::new("GLACommandCenter");
+    cc.add_kind_of(KindOf::Structure).set_health(5000.0);
+    logic.templates.insert("GLACommandCenter".into(), cc);
+    let cc_id = logic
+        .create_object("GLACommandCenter", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let target = Vec3::new(400.0, 0.0, 0.0);
+    let jet = logic
+        .spawn_anthrax_bomb_flight(cc_id, target)
+        .expect("cargo");
+    let mut bomb_pos = None;
+    let mut plane_at_drop = None;
+    for f in 0..400 {
+        logic.frame = f;
+        let plane_before = logic.host_object(jet).map(|o| o.get_position());
+        logic.update_anthrax_bomb_flights();
+        if logic.anthrax_bomb_flight_reg.bombs_dropped >= 1 {
+            plane_at_drop = plane_before;
+            bomb_pos = logic
+                .host_objects()
+                .values()
+                .find(|o| o.anthrax_bomb_payload)
+                .map(|o| o.get_position());
+            break;
+        }
+    }
+    let bomb = bomb_pos.expect("bomb must leave the plane");
+    let plane = plane_at_drop.expect("plane pose at drop");
+    let dx_click = bomb.x - target.x;
+    let dz_click = bomb.z - target.z;
+    let dist_click = (dx_click * dx_click + dz_click * dz_click).sqrt();
+    assert!(
+        dist_click > 50.0,
+        "bomb must not teleport over the click, dist={dist_click} bomb={bomb:?}"
+    );
+    let dx_plane = bomb.x - plane.x;
+    let dz_plane = bomb.z - plane.z;
+    let dist_plane = (dx_plane * dx_plane + dz_plane * dz_plane).sqrt();
+    assert!(
+        dist_plane < 25.0,
+        "bomb must exit at the plane pose, dist={dist_plane} bomb={bomb:?} plane={plane:?}"
+    );
+    let dx_tgt = plane.x - target.x;
+    let dz_tgt = plane.z - target.z;
+    let plane_to_tgt = (dx_tgt * dx_tgt + dz_tgt * dz_tgt).sqrt();
+    assert!(
+        plane_to_tgt <= ANTHRAX_DELIVERY_DISTANCE + 20.0,
+        "plane must drop at DeliveryDistance 140, not 70, dist={plane_to_tgt}"
+    );
+    assert!(
+        plane_to_tgt > 70.0,
+        "must not wait until the old 70wu half-band, dist={plane_to_tgt}"
+    );
+}
+
+#[test]
+fn anthrax_gamma_science_drops_gamma_bomb_and_field() {
+    use crate::game_logic::host_anthrax_bomb_flight::AnthraxBombPayloadTier;
+    use crate::game_logic::host_upgrades::UPGRADE_CHEM_ANTHRAX_GAMMA;
+    use crate::game_logic::special_power_strikes::ANTHRAX_TOXIN_OBJECT_NAME_GAMMA;
+    use crate::game_logic::KindOf;
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::GLA);
+    if let Some(p) = logic.get_player_mut(2) {
+        p.add_completed_upgrade(UPGRADE_CHEM_ANTHRAX_GAMMA);
+    }
+    let mut cc = crate::game_logic::ThingTemplate::new("GLACommandCenter");
+    cc.add_kind_of(KindOf::Structure).set_health(5000.0);
+    logic.templates.insert("GLACommandCenter".into(), cc);
+    let cc_id = logic
+        .create_object("GLACommandCenter", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let jet = logic
+        .spawn_anthrax_bomb_flight(cc_id, Vec3::new(150.0, 0.0, 0.0))
+        .expect("cargo");
+    let tier = logic
+        .host_object(jet)
+        .and_then(|o| o.anthrax_bomb_transport.as_ref())
+        .map(|d| d.tier)
+        .expect("tier");
+    assert_eq!(tier, AnthraxBombPayloadTier::Gamma);
+    for f in 0..400 {
+        logic.frame = f;
+        logic.update_anthrax_bomb_flights();
+        if logic.anthrax_bomb_flight_reg.toxin_fields_spawned >= 1 {
+            break;
+        }
+    }
+    assert!(logic.anthrax_bomb_flight_reg.bombs_dropped >= 1);
+    assert!(logic.anthrax_bomb_flight_reg.toxin_fields_spawned >= 1);
+    let field = logic
+        .special_power_strikes
+        .toxin_fields()
+        .iter()
+        .find(|f| f.object_template == ANTHRAX_TOXIN_OBJECT_NAME_GAMMA);
+    assert!(
+        field.is_some(),
+        "gamma science must spawn PoisonFieldAnthraxGammaBomb / POISONED_GAMMA"
+    );
+}
+
+#[test]
+fn cluster_mines_bomb_exits_plane_not_over_click() {
+    use crate::game_logic::host_mines::CLUSTER_MINES_DELIVERY_DISTANCE;
+    use crate::game_logic::KindOf;
+    let mut logic = GameLogic::new();
+    logic.override_world_size(2000.0, 2000.0);
+    ensure_test_player_for_team(&mut logic, Team::China);
+    let mut cc = crate::game_logic::ThingTemplate::new("ChinaCommandCenter");
+    cc.add_kind_of(KindOf::Structure).set_health(5000.0);
+    logic.templates.insert("ChinaCommandCenter".into(), cc);
+    let cc_id = logic
+        .create_object("ChinaCommandCenter", Team::China, Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let target = Vec3::new(400.0, 0.0, 0.0);
+    let jet = logic
+        .spawn_cluster_mines_flight(cc_id, target)
+        .expect("cargo");
+    let mut bomb_pos = None;
+    let mut plane_at_drop = None;
+    for f in 0..400 {
+        logic.frame = f;
+        let plane_before = logic.host_object(jet).map(|o| o.get_position());
+        logic.update_cluster_mines_flights();
+        if logic.cluster_mines_flight_reg.bombs_dropped >= 1 {
+            plane_at_drop = plane_before;
+            bomb_pos = logic
+                .host_objects()
+                .values()
+                .find(|o| o.cluster_mines_bomb)
+                .map(|o| o.get_position());
+            break;
+        }
+    }
+    let bomb = bomb_pos.expect("cluster bomb must leave the plane");
+    let plane = plane_at_drop.expect("plane pose at drop");
+    let dx_click = bomb.x - target.x;
+    let dz_click = bomb.z - target.z;
+    let dist_click = (dx_click * dx_click + dz_click * dz_click).sqrt();
+    assert!(
+        dist_click > 50.0,
+        "cluster bomb must not teleport over the click, dist={dist_click}"
+    );
+    let dx_plane = bomb.x - plane.x;
+    let dz_plane = bomb.z - plane.z;
+    let dist_plane = (dx_plane * dx_plane + dz_plane * dz_plane).sqrt();
+    assert!(
+        dist_plane < 25.0,
+        "cluster bomb must exit at the plane, dist={dist_plane}"
+    );
+    let dx_tgt = plane.x - target.x;
+    let dz_tgt = plane.z - target.z;
+    let plane_to_tgt = (dx_tgt * dx_tgt + dz_tgt * dz_tgt).sqrt();
+    assert!(plane_to_tgt <= CLUSTER_MINES_DELIVERY_DISTANCE + 20.0);
+    assert!(
+        plane_to_tgt > 70.0,
+        "must drop at 140 not 70, dist={plane_to_tgt}"
+    );
+}
+
 
 #[test]
 fn sneak_attack_spawns_tunnel_start() {
@@ -3625,6 +3825,71 @@ fn queue_factory_exit_follows_snapped_production_path() {
     assert!(
         last.distance(prev) < 1.0,
         "doubled Queue natural must repeat the snapped point, prev={prev:?} last={last:?}"
+    );
+}
+
+#[test]
+fn factory_spawn_keeps_unit_create_point_without_selection_radius_jitter() {
+    use crate::game_logic::buildings::BuildingType;
+    use crate::game_logic::{
+        KindOf, ProductionExitMetadata, ProductionExitStyle, Team, ThingTemplate,
+    };
+
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::China);
+    let mut bar = ThingTemplate::new("ChinaBarracks");
+    bar.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSBarracks)
+        .set_health(1000.0);
+    bar.production_exit_metadata = Some(ProductionExitMetadata {
+        style: ProductionExitStyle::Queue,
+        unit_create_point: [0.0, -25.0, 0.0],
+        natural_rally_point: [36.0, -25.0, 0.0],
+        exit_delay_frames: 9,
+        allow_airborne_creation: false,
+        initial_burst: 0,
+        use_spawn_rally_point: false,
+        grant_temporary_stealth_frames: 0,
+    });
+    logic.templates.insert("ChinaBarracks".into(), bar);
+    let mut rg = ThingTemplate::new("ChinaInfantryRedguard");
+    rg.add_kind_of(KindOf::Infantry).set_health(100.0);
+    logic.templates.insert("ChinaInfantryRedguard".into(), rg);
+
+    let bid = logic
+        .create_object(
+            "ChinaBarracks",
+            Team::China,
+            glam::Vec3::new(100.0, 15.0, 100.0),
+        )
+        .expect("barracks");
+    if let Some(o) = logic.host_object_mut(bid) {
+        o.building_data = Some(crate::game_logic::BuildingData::new(BuildingType::Barracks));
+        o.thing.set_orientation(0.0);
+    }
+    let create_pos = glam::Vec3::new(100.0, 15.0, 75.0);
+    let uid = logic
+        .create_object("ChinaInfantryRedguard", Team::China, create_pos)
+        .expect("redguard");
+    if let Some(unit) = logic.host_object_mut(uid) {
+        unit.selection_radius = 12.0;
+    }
+
+    crate::game_logic::host_production_spawn_ready_log::clear();
+    crate::game_logic::host_production_spawn_ready_log::record(
+        uid,
+        bid,
+        "ChinaInfantryRedguard".into(),
+        [create_pos.x, create_pos.y, create_pos.z],
+        None,
+    );
+    assert_eq!(logic.host_apply_production_spawn_ready_completions(), 1);
+
+    let pos = logic.host_object(uid).expect("unit after exit").get_position();
+    let dxz = ((pos.x - create_pos.x).powi(2) + (pos.z - create_pos.z).powi(2)).sqrt();
+    assert!(
+        dxz < 0.05,
+        "C++ exitObjectViaDoor keeps UnitCreatePoint; selection-radius jitter is gone, pos={pos:?} create={create_pos:?}"
     );
 }
 

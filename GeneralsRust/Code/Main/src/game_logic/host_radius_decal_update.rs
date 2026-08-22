@@ -73,6 +73,11 @@ pub const DELIVERY_DECAL_OPACITY_MAX: f32 = 0.50;
 pub const SCUD_STORM_DECAL_TEXTURE: &str = "SCCScudStorm_GLA";
 /// Retail nuke texture peel.
 pub const NUCLEAR_MISSILE_DECAL_TEXTURE: &str = "SCCNuclearMissile_China";
+/// Retail SUPERWEAPON_AnthraxBomb DeliveryDecal Texture residual.
+pub const ANTHRAX_BOMB_DECAL_TEXTURE: &str = "SCCAnthraxBomb_GLA";
+/// Retail SUPERWEAPON_AnthraxBomb DeliveryDecal Color R:33 G:255 B:67 A:255 (ARGB).
+pub const ANTHRAX_BOMB_DECAL_COLOR: u32 = 0xFF21_FF43;
+
 
 pub fn radius_decal_ms_to_frames(ms: u32) -> u32 {
     ((ms as f32) * RADIUS_DECAL_LOGIC_FPS / 1000.0).round() as u32
@@ -113,6 +118,18 @@ impl HostRadiusDecalTemplate {
             throb_frames: DELIVERY_DECAL_THROB_FRAMES,
             only_visible_to_owner: true,
             color: 0,
+        }
+    }
+
+    pub fn anthrax_bomb() -> Self {
+        Self {
+            name: "SUPERWEAPON_AnthraxBomb".into(),
+            texture: ANTHRAX_BOMB_DECAL_TEXTURE.into(),
+            opacity_min: DELIVERY_DECAL_OPACITY_MIN,
+            opacity_max: DELIVERY_DECAL_OPACITY_MAX,
+            throb_frames: DELIVERY_DECAL_THROB_FRAMES,
+            only_visible_to_owner: true,
+            color: ANTHRAX_BOMB_DECAL_COLOR,
         }
     }
 
@@ -265,6 +282,15 @@ impl HostRadiusDecal {
             handle.set_opacity((self.opacity.clamp(0.0, 1.0) * 255.0).trunc() as i32);
         }
     }
+
+    /// C++ `RadiusDecal::setPosition` — move stored pose and the live projected shadow.
+    pub fn set_position(&mut self, pos: Vec3) {
+        self.position = pos;
+        #[cfg(feature = "game_client")]
+        if let Some(handle) = &self.projected {
+            handle.set_position(pos.x, pos.y, pos.z);
+        }
+    }
 }
 
 impl Drop for HostRadiusDecal {
@@ -363,7 +389,9 @@ pub fn is_radius_decal_update_template(name: &str) -> bool {
 /// Default OCL peel radius for a host template.
 pub fn default_delivery_decal_radius_for_template(name: &str) -> f32 {
     let n = name.to_ascii_lowercase();
-    if n.contains("scudstorm") {
+    if n.contains("anthrax") || n.contains("glajetcargoplane") {
+        crate::game_logic::host_anthrax_bomb_flight::ANTHRAX_DELIVERY_DECAL_RADIUS
+    } else if n.contains("scudstorm") {
         SCUD_STORM_DELIVERY_DECAL_RADIUS
     } else if n.contains("nuclear")
         || n.contains("nuke")
@@ -378,7 +406,9 @@ pub fn default_delivery_decal_radius_for_template(name: &str) -> f32 {
 
 pub fn default_delivery_decal_template_for_host(name: &str) -> HostRadiusDecalTemplate {
     let n = name.to_ascii_lowercase();
-    if n.contains("nuclear")
+    if n.contains("anthrax") || n.contains("glajetcargoplane") {
+        HostRadiusDecalTemplate::anthrax_bomb()
+    } else if n.contains("nuclear")
         || n.contains("nuke")
         || n.contains("neutron")
         || n.contains("cruisemissile")
@@ -437,6 +467,10 @@ pub fn honesty_radius_decal_update_residual_ok() -> bool {
         && HostRadiusDecalTemplate::scud_storm().texture == SCUD_STORM_DECAL_TEXTURE
         && HostRadiusDecalTemplate::scud_storm().color == 0
         && HostRadiusDecalTemplate::nuclear_missile().color == 0
+        && HostRadiusDecalTemplate::anthrax_bomb().valid()
+        && HostRadiusDecalTemplate::anthrax_bomb().texture == ANTHRAX_BOMB_DECAL_TEXTURE
+        && HostRadiusDecalTemplate::anthrax_bomb().color == ANTHRAX_BOMB_DECAL_COLOR
+        && (default_delivery_decal_radius_for_template("GLAJetCargoPlane") - 200.0).abs() < 0.1
 }
 
 #[cfg(test)]

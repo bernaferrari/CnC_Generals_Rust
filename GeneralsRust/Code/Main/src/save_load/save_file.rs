@@ -39,6 +39,11 @@ const SAVE_HEADER_SIZE: usize = std::mem::size_of::<SaveFileHeader>();
 /// `CHUNK_Radar` write live persist_v18 state in C++ xfer layout.
 /// `CHUNK_GameClient` writes leftover `GameClient::xfer` so objectless
 /// PUC / lock-on / rope drawables survive save/load.
+/// `CHUNK_ParticleSystem` writes leftover `ParticleSystemManager::xfer` so
+/// mid-flight explosions continue after load. `CHUNK_TerrainVisual` writes
+/// C++ `W3DTerrainVisual::xfer` v3 plus the live scorch overlay.
+/// `CHUNK_Players` / `CHUNK_TeamFactory` write leftover Player::xfer /
+/// Team::xfer latches so science hide/disable and OnCreate do not reset.
 /// Remaining registered blocks are NullSnapshot version-1 placeholders.
 /// `CHUNK_GameStateMap` embeds the `.map` when the file is on disk
 /// (`GameStateMap.cpp:55-156`).
@@ -770,6 +775,8 @@ impl SaveFileManager {
         let snapshot_builder = SnapshotBuilder::new();
         let mut world_snapshot = snapshot_builder.create_world_snapshot(game_logic)?;
         world_snapshot.client_drawables = client_drawables;
+        crate::save_load::stamp_player_team_chunks(game_logic);
+
 
         // Save to temporary file first
         self.save_to_file(&temp_path, &world_snapshot, save_info)?;
@@ -1110,6 +1117,8 @@ impl SaveFileManager {
     ) -> SaveLoadResult<Vec<u8>> {
         let ghost_bytes = capture_w3d_ghost_xfer_bytes().unwrap_or_default();
         let game_client_bytes = capture_game_client_xfer_bytes().unwrap_or_default();
+        let particle_system_bytes = capture_particle_system_xfer_bytes().unwrap_or_default();
+        let terrain_visual_bytes = capture_terrain_visual_xfer_bytes().unwrap_or_default();
         let block_names: &[&str] = if save_info.save_type == SaveFileType::Mission {
             // C++ `xferSaveData` (`GameState.cpp:1339-1346`) writes only
             // CHUNK_GameState + CHUNK_Campaign for SAVE_FILE_TYPE_MISSION.
@@ -1157,6 +1166,28 @@ impl SaveFileManager {
                             }
                         }
                     }
+                    CHUNK_PARTICLE_SYSTEM => {
+                        if particle_system_bytes.is_empty() {
+                            write_null_snapshot_version(xfer)
+                        } else {
+                            let mut bytes = particle_system_bytes.clone();
+                            unsafe {
+                                xfer.xfer_user(bytes.as_mut_ptr(), bytes.len())
+                                    .map_err(|e| SaveLoadError::Serialization(e.to_string()))
+                            }
+                        }
+                    }
+                    CHUNK_TERRAIN_VISUAL => {
+                        if terrain_visual_bytes.is_empty() {
+                            write_null_snapshot_version(xfer)
+                        } else {
+                            let mut bytes = terrain_visual_bytes.clone();
+                            unsafe {
+                                xfer.xfer_user(bytes.as_mut_ptr(), bytes.len())
+                                    .map_err(|e| SaveLoadError::Serialization(e.to_string()))
+                            }
+                        }
+                    }
                     CHUNK_CAMPAIGN => write_campaign_block(xfer),
                     CHUNK_INGAME_UI => {
                         crate::save_load::snapshot::persist_v18::write_ingame_ui_block(
@@ -1186,6 +1217,9 @@ impl SaveFileManager {
                         xfer,
                         &world_snapshot.persist_v18,
                     ),
+                    CHUNK_PLAYERS => write_players_block(xfer),
+                    CHUNK_TEAM_FACTORY => write_team_factory_block(xfer),
+
                     _ => write_null_snapshot_version(xfer),
                 })?;
             }
@@ -1265,6 +1299,9 @@ impl SaveFileManager {
         let mut script_engine_payload: Option<Vec<u8>> = None;
         let mut terrain_logic_payload: Option<Vec<u8>> = None;
         let mut radar_payload: Option<Vec<u8>> = None;
+        let mut players_payload: Option<Vec<u8>> = None;
+        let mut team_factory_payload: Option<Vec<u8>> = None;
+
         for (token, payload) in blocks {
             if token.eq_ignore_ascii_case(CHUNK_GAME_STATE) {
                 save_info = parse_chunk_game_state(&payload)?;
@@ -1292,6 +1329,19 @@ impl SaveFileManager {
                 if payload.first().copied() != Some(1) || payload.len() > 1 {
                     stash_loaded_game_client_xfer(payload);
                 }
+            } else if token.eq_ignore_ascii_case(CHUNK_PARTICLE_SYSTEM) {
+                // NullSnapshot is a lone version-1 byte. Manager xfer is
+                // version 1 plus uniqueSystemID / systemCount / systems.
+                if payload.len() > 1 {
+                    stash_loaded_particle_system_xfer(payload);
+                }
+            } else if token.eq_ignore_ascii_case(CHUNK_TERRAIN_VISUAL) {
+                // NullSnapshot is a lone version-1 byte. W3DTerrainVisual::xfer
+                // starts at version 3 and carries scorches after the tree/prop
+                // snapshot.
+                if payload.first().copied() != Some(1) || payload.len() > 1 {
+                    stash_loaded_terrain_visual_xfer(payload);
+                }
             } else if token.eq_ignore_ascii_case(CHUNK_GAME_STATE_MAP) {
                 // C++ extractAndSaveMap (GameStateMap.cpp:308-368) parks the
                 // embedded .map in the Save directory so custom maps travel
@@ -1314,8 +1364,20 @@ impl SaveFileManager {
                 terrain_logic_payload = Some(payload);
             } else if token.eq_ignore_ascii_case(CHUNK_RADAR) {
                 radar_payload = Some(payload);
+            } else if token.eq_ignore_ascii_case(CHUNK_PLAYERS) {
+                if payload.len() > 1 {
+                    players_payload = Some(payload);
+                }
+            } else if token.eq_ignore_ascii_case(CHUNK_TEAM_FACTORY) {
+                if payload.len() > 1 {
+                    team_factory_payload = Some(payload);
+                }
             }
         }
+        stash_loaded_player_team_chunks(
+            players_payload.as_deref(),
+            team_factory_payload.as_deref(),
+        );
         if !saw_game_state {
             return Err(SaveLoadError::Corrupted(
                 "CHUNK_GameState missing from named-chunk save".to_string(),
@@ -2260,6 +2322,51 @@ mod tests {
         let listed = SaveFileManager::read_named_chunk_save_info(&bytes).expect("list");
         assert_eq!(listed.description, save_info.description);
         assert_eq!(listed.map_name, "LegacyMap");
+    }
+
+    #[test]
+    fn host_pause_save_persists_terrain_scorches_and_particle_systems() {
+        game_client::terrain::clear_terrain_scorches();
+        assert!(game_client::terrain::add_terrain_scorch(
+            [88.0, 16.0, 4.0],
+            22.0,
+            1
+        ));
+
+        let snapshot = WorldSnapshot::default();
+        let save_info = fixture_save_info();
+        let bytes = SaveFileManager::write_common_sav_chunks(&snapshot, &save_info)
+            .expect("write sav with FX chunks");
+        let blocks = walk_named_chunks(&bytes).expect("walk host chunks");
+
+        let terrain = blocks
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case(CHUNK_TERRAIN_VISUAL))
+            .expect("CHUNK_TerrainVisual");
+        assert_eq!(terrain.1.first().copied(), Some(3));
+        assert!(
+            terrain.1.len() > 1,
+            "CHUNK_TerrainVisual must not be NullSnapshot v1"
+        );
+
+        let particles = blocks
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case(CHUNK_PARTICLE_SYSTEM))
+            .expect("CHUNK_ParticleSystem");
+        assert!(
+            !particles.1.is_empty(),
+            "CHUNK_ParticleSystem must write manager xfer"
+        );
+
+        game_client::terrain::clear_terrain_scorches();
+        assert!(game_client::terrain::terrain_scorch_marks().is_empty());
+        restore_terrain_visual_from_xfer_bytes(&terrain.1).expect("restore scorches from chunk");
+        let marks = game_client::terrain::terrain_scorch_marks();
+        assert_eq!(marks.len(), 1);
+        assert_eq!(marks[0].location, [88.0, 16.0, 4.0]);
+        assert_eq!(marks[0].radius, 22.0);
+        assert_eq!(marks[0].scorch_type, 1);
+        game_client::terrain::clear_terrain_scorches();
     }
 
     #[test]

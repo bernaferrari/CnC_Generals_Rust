@@ -65,6 +65,35 @@ impl Object {
         crate::game_logic::host_status_log::record_moving(self.id, moving);
     }
 
+    /// C++ setCompletedWaypoint path labels while following a script/player path.
+    pub fn stamp_pending_waypoint_labels(
+        &mut self,
+        labels: impl IntoIterator<Item = impl Into<String>>,
+    ) {
+        let mut out = Vec::new();
+        for label in labels {
+            let s = label.into();
+            if s.is_empty() {
+                continue;
+            }
+            if !out.iter().any(|existing: &String| existing == &s) {
+                out.push(s);
+            }
+        }
+        self.pending_waypoint_labels = out;
+    }
+
+    /// C++ FollowWaypointPath success: keep the completed waypoint's labels.
+    pub fn commit_completed_waypoint_labels(&mut self) {
+        if !self.pending_waypoint_labels.is_empty() {
+            self.completed_waypoint_labels = std::mem::take(&mut self.pending_waypoint_labels);
+        }
+    }
+
+    pub fn clear_pending_waypoint_labels(&mut self) {
+        self.pending_waypoint_labels.clear();
+    }
+
     pub fn set_status_disabled_hacked(&mut self, v: bool) {
         self.status.disabled_hacked = v;
         crate::game_logic::host_status_log::record_disabled_hacked(self.id, v);
@@ -181,6 +210,17 @@ impl Object {
     pub fn set_script_unsellable(&mut self, v: bool) {
         self.script_unsellable = v;
     }
+
+    /// C++ `OBJECT_STATUS_SCRIPT_UNSTEALTHED`.
+    pub fn is_script_unstealthed(&self) -> bool {
+        self.script_unstealthed
+    }
+
+    /// C++ `setScriptStatus(OBJECT_STATUS_SCRIPT_UNSTEALTHED, !enabled)`.
+    pub fn set_script_unstealthed(&mut self, v: bool) {
+        self.script_unstealthed = v;
+    }
+
 
     /// C++ `ActiveBody::isIndestructible`.
     pub fn is_indestructible(&self) -> bool {

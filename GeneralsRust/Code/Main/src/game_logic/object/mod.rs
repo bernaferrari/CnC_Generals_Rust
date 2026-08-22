@@ -364,6 +364,10 @@ pub struct Object {
     /// C++ `OBJECT_STATUS_SCRIPT_UNSELLABLE` / `Object::isScriptUnsellable`.
     #[serde(default)]
     pub script_unsellable: bool,
+    /// C++ `OBJECT_STATUS_SCRIPT_UNSTEALTHED` — `NAMED/TEAM_SET_STEALTH_ENABLED`.
+    #[serde(default)]
+    pub script_unstealthed: bool,
+
     /// C++ ActiveBody::m_indestructible (map objectIndestructible / UNIT INDESTRUCTIBLE).
     #[serde(default)]
     pub indestructible: bool,
@@ -378,6 +382,11 @@ pub struct Object {
     /// 1 force clear `MODELCONDITION_SNOW`, 2 force set.
     #[serde(default)]
     pub object_weather: i32,
+    /// C++ `Object::m_safeOcclusionFrame`. RTS3DScene only adds a score-unit
+    /// to potential occludees when this frame is in the past (`W3DScene.cpp:474`).
+    #[serde(default)]
+    pub safe_occlusion_frame: u32,
+
 
     /// C++ RadarUpdate m_extendDoneFrame residual (0 = inactive).
     pub radar_extend_done_frame: u32,
@@ -634,6 +643,9 @@ pub struct Object {
     /// C++ PhysicsBehavior m_mass residual.
     #[serde(default = "default_physics_mass")]
     pub physics_mass: f32,
+    /// C++ OpenContain::getContainedItemsMass cache (sum of rider getMass).
+    #[serde(default)]
+    pub contained_items_mass: f32,
     /// C++ PhysicsBehaviorModuleData::m_shockResistance residual.
     #[serde(default)]
     pub shock_resistance: f32,
@@ -826,6 +838,18 @@ pub struct Object {
     /// C++ m_requestedDestination residual.
     #[serde(default)]
     pub requested_destination: Option<glam::Vec3>,
+    /// C++ `AIAttackMoveToState::m_retryCount` (ATTACK_RETRY_COUNT=5).
+    #[serde(default)]
+    pub attack_move_retry_count: i32,
+    /// C++ `AIAttackMoveToState::m_frameToSleepUntil`.
+    #[serde(default)]
+    pub attack_move_sleep_until: u32,
+    /// C++ AIUpdateInterface::m_completedWaypoint pathLabel1/2/3.
+    #[serde(default)]
+    pub completed_waypoint_labels: Vec<String>,
+    /// Labels of the waypoint path currently being followed; committed on last hop.
+    #[serde(default)]
+    pub pending_waypoint_labels: Vec<String>,
     /// C++ m_pathTimestamp residual (frame of last path request).
     #[serde(default)]
     pub path_timestamp: u32,
@@ -933,6 +957,10 @@ pub struct Object {
     pub selected: bool,
     /// C++ Drawable selection flash envelope residual (frames remaining).
     pub selection_flash_remaining: u32,
+    /// C++ `flashAsSelected(&myHouseColor)` envelope RGB. `None` is white default.
+    #[serde(default)]
+    pub selection_flash_color: Option<[f32; 3]>,
+
 
     /// AI state for autonomous behavior
     pub ai_state: AIState,
@@ -955,6 +983,9 @@ pub struct Object {
 
     /// Guard position
     pub guard_position: Option<Vec3>,
+    /// C++ AIGuardMachine::m_areaToGuard trigger name residual.
+    #[serde(default)]
+    pub guard_area_trigger: Option<String>,
     /// C++ AIGuardRetaliateMachine goal victim residual.
     #[serde(default)]
     pub guard_retaliate_victim: Option<ObjectId>,
@@ -1215,6 +1246,10 @@ pub struct Object {
     /// C++ parity (Object::m_containedBy): when this unit is inside a
     /// transport/garrison, stores the container's ID.  None when free.
     pub contained_by: Option<ObjectId>,
+    /// C++ `AIUpdateInterface::m_isRecruitable` (default true).
+    #[serde(default = "default_true")]
+    pub is_recruitable: bool,
+
 
     /// Optional short-lived cheer/animation timer
     pub cheer_timer: f32,
@@ -2580,6 +2615,10 @@ pub struct Object {
     /// C++ `AIUpdateModuleData::m_autoAcquireEnemiesWhenIdle` bitfield.
     #[serde(default)]
     pub auto_acquire_idle_bits: u32,
+    /// C++ `AIUpdateModuleData::m_forbidPlayerCommands` residual.
+    #[serde(default)]
+    pub forbid_player_commands: bool,
+
     /// C++ AIUpdateInterface attack priority set name residual.
     #[serde(default)]
     pub attack_priority_set: Option<String>,
@@ -2713,6 +2752,9 @@ pub enum GuardMode {
     /// GUARDMODE_GUARD_FLYING_UNITS_ONLY — ignore non-flyers.
     FlyingUnitsOnly = 2,
 }
+
+/// C++ AIGuardRetaliate AttackAggressor residual (`guard_chase_phase`).
+pub const GUARD_CHASE_PHASE_RETALIATE: u8 = 4;
 
 /// AI behavior states
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

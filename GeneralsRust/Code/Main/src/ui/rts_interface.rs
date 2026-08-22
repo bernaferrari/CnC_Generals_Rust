@@ -117,10 +117,13 @@ impl Renderable for RTSInterface {
 /// Snapshot-owned command button residual for the unit command panel.
 ///
 /// Fail-closed: not full CommandSet INI / WND button art parity.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct UnitCommandButton {
     pub command_name: String,
     pub enabled: bool,
+    pub exit_object_id: Option<u32>,
+    pub button_image: String,
+    pub overlay_image: Option<String>,
 }
 
 pub struct UnitCommandPanel {
@@ -265,10 +268,12 @@ mod tests {
             UnitCommandButton {
                 command_name: "Command_UpgradeAmericaSupplyLines".into(),
                 enabled: true,
+                ..Default::default()
             },
             UnitCommandButton {
                 command_name: "Command_UpgradeAmericaRangerFlashBangGrenade".into(),
                 enabled: false,
+                ..Default::default()
             },
         ]);
         match panel
@@ -300,6 +305,7 @@ mod tests {
         panel.apply_commands(vec![UnitCommandButton {
             command_name: "Command_CancelUpgrade".into(),
             enabled: true,
+            ..Default::default()
         }]);
         assert!(matches!(
             panel.activate_command("Command_CancelUpgrade"),

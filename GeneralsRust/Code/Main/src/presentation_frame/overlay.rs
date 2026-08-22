@@ -332,6 +332,10 @@ impl PresentationFrame {
                 obj.disabled_unmanned = ent.disabled_unmanned;
                 dirty = true;
             }
+            if obj.disabled_script_disabled != ent.disabled_script_disabled {
+                obj.disabled_script_disabled = ent.disabled_script_disabled;
+                dirty = true;
+            }
             if obj.weapons_jammed != ent.weapons_jammed {
                 obj.weapons_jammed = ent.weapons_jammed;
                 dirty = true;
@@ -1518,6 +1522,8 @@ impl PresentationFrame {
                 .then_some(ent.special_power_ready_template_id),
             special_power_override_destination: None,
             health_current: ent.health.max(0.0),
+            selection_flash_color: None,
+
             health_max,
             selected: ent.selected,
             is_deployed: ent.deployed,
@@ -1573,6 +1579,7 @@ impl PresentationFrame {
             disabled_freefall: false,
             disabled_default: false,
             disabled_script_underpowered: false,
+            disabled_script_disabled: ent.disabled_script_disabled,
             hacking_packing_or_unpacking: false,
             weapons_jammed: ent.weapons_jammed,
             masked: ent.masked,
@@ -1596,7 +1603,8 @@ impl PresentationFrame {
                 || ent.disabled_hacked
                 || ent.disabled_underpowered
                 || ent.disabled_unmanned
-                || ent.disabled_subdued,
+                || ent.disabled_subdued
+                || ent.disabled_script_disabled,
             contained_by: if ent.contained_by_host != 0 {
                 Some(crate::game_logic::ObjectId(ent.contained_by_host))
             } else {
@@ -1803,6 +1811,8 @@ impl PresentationFrame {
             is_structure: matches!(ent.object_type_ordinal, 3) || ent.is_building,
             is_unit: matches!(ent.object_type_ordinal, 0 | 1 | 2),
             is_mobile: matches!(ent.object_type_ordinal, 0 | 1 | 2),
+            safe_occlusion_frame: 0,
+
             can_produce: ent.is_building && !ent.under_construction,
             // Wave 490: building type from GW entity ordinal.
             building_type: PresentationBuildingType::from_ordinal(ent.building_type_ordinal),
@@ -2050,6 +2060,10 @@ impl PresentationFrame {
                 ro.disabled_script_underpowered = obj.status.disabled_script_underpowered;
                 dirty = true;
             }
+            if ro.disabled_script_disabled != obj.status.disabled_script_disabled {
+                ro.disabled_script_disabled = obj.status.disabled_script_disabled;
+                dirty = true;
+            }
             if ro.weapon_set_carbomb != obj.weapon_set_carbomb {
                 ro.weapon_set_carbomb = obj.weapon_set_carbomb;
                 dirty = true;
@@ -2260,6 +2274,15 @@ impl PresentationFrame {
                 ro.sub_object_visibility = obj.sub_object_visibility.clone();
                 dirty = true;
             }
+            if ro.selection_flash_color != obj.selection_flash_color {
+                ro.selection_flash_color = obj.selection_flash_color;
+                dirty = true;
+            }
+            if ro.selection_flash_remaining != obj.selection_flash_remaining {
+                ro.selection_flash_remaining = obj.selection_flash_remaining;
+                dirty = true;
+            }
+
 
             if dirty {
                 stamped += 1;

@@ -1417,13 +1417,18 @@ pub fn should_detonate_when_killed(
 }
 
 /// Build residual mine data for a newly created host object (if template matches).
-pub fn residual_data_for_template(template_name: &str, current_frame: u32) -> Option<HostMineData> {
+///
+/// `has_gamma` applies Chem Anthrax Gamma puddle (`OCL_PoisonFieldGammaMedium`)
+/// when the controlling player has researched the Palace upgrade.
+pub fn residual_data_for_template(
+    template_name: &str,
+    current_frame: u32,
+    has_gamma: bool,
+) -> Option<HostMineData> {
     match infer_mine_kind(template_name)? {
         HostMineKind::LandMine => Some(HostMineData::land_mine_for_template(template_name)),
         HostMineKind::DemoTrap => {
-            // Fail-closed: no live anthrax flags at template residual bind;
-            // Chem_/Demo_ prefixes select profile; gamma applied later if tags present.
-            let profile = demo_trap_profile(template_name, false, false);
+            let profile = demo_trap_profile(template_name, has_gamma, false);
             Some(HostMineData::demo_trap_with_profile(profile))
         }
         HostMineKind::TimedDemoCharge => Some(HostMineData::timed_demo_charge(current_frame)),
@@ -1986,6 +1991,19 @@ mod tests {
         assert!((demo.detonation_damage - 700.0).abs() < 0.01);
         assert!((demo_trap_damage_at(DemoTrapProfile::Demo, 0.0) - 700.0).abs() < 0.01);
         assert!((demo_trap_damage_at(DemoTrapProfile::Demo, 30.0) - 500.0).abs() < 0.01);
+        assert_eq!(
+            residual_data_for_template("Chem_GLADemoTrap", 0, false)
+                .unwrap()
+                .demo_trap_profile,
+            DemoTrapProfile::ChemBeta
+        );
+        assert_eq!(
+            residual_data_for_template("Chem_GLADemoTrap", 0, true)
+                .unwrap()
+                .demo_trap_profile,
+            DemoTrapProfile::ChemGamma
+        );
+
     }
 
     #[test]

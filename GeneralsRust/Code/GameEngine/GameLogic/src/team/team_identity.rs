@@ -234,6 +234,58 @@ impl Team {
         self.active
     }
 
+    pub fn get_see_enemy(&self) -> Bool {
+        self.see_enemy
+    }
+
+    pub fn get_prev_see_enemy(&self) -> Bool {
+        self.prev_see_enemy
+    }
+
+    pub fn get_was_idle(&self) -> Bool {
+        self.was_idle
+    }
+
+    pub fn get_destroy_threshold(&self) -> Int {
+        self.destroy_threshold
+    }
+
+    pub fn get_cur_units_count(&self) -> Int {
+        self.cur_units
+    }
+
+    /// C++ `Team::xfer` script latches. Must not go through `set_active`
+    /// (that forces `created=true` and re-fires OnCreate after load).
+    pub fn restore_save_script_state(
+        &mut self,
+        created: Bool,
+        active: Bool,
+        see_enemy: Bool,
+        prev_see_enemy: Bool,
+        was_idle: Bool,
+        destroy_threshold: Int,
+        cur_units: Int,
+        waypoint_id: Option<WaypointId>,
+        generic_attempts: &[Bool],
+        recruitability_set: Bool,
+        recruitable: Bool,
+    ) {
+        self.created = created;
+        self.active = active;
+        self.see_enemy = see_enemy;
+        self.prev_see_enemy = prev_see_enemy;
+        self.was_idle = was_idle;
+        self.destroy_threshold = destroy_threshold;
+        self.cur_units = cur_units;
+        self.current_waypoint_id = waypoint_id;
+        for (i, &flag) in generic_attempts.iter().enumerate().take(MAX_GENERIC_SCRIPTS) {
+            self.should_attempt_generic_script[i] = flag;
+        }
+        self.recruitability_set = recruitability_set;
+        self.recruitable = recruitable;
+    }
+
+
     /// Check if this team can be recruited by AI/team-building logic.
     pub fn is_recruitable(&self) -> Bool {
         self.recruitable

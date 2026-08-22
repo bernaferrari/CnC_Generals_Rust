@@ -252,6 +252,8 @@ fn write_kind_of_variant(kind_of: KindOf) -> u8 {
         KindOf::LandmarkBridge => 72,
         KindOf::AutoRallypoint => 73,
         KindOf::WalkOnTopOfWall => 74,
+        // Append-only: Angry Mob nexus ImmuneToGPS / UI coordinator.
+        KindOf::MobNexus => 75,
 
     }
 }
@@ -332,6 +334,7 @@ fn read_kind_of_variant(variant: u8) -> SaveLoadResult<KindOf> {
         72 => Ok(KindOf::LandmarkBridge),
         73 => Ok(KindOf::AutoRallypoint),
         74 => Ok(KindOf::WalkOnTopOfWall),
+        75 => Ok(KindOf::MobNexus),
 
         _ => Err(SaveLoadError::Corrupted(format!(
             "Invalid KindOf variant: {variant}"

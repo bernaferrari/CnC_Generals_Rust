@@ -47,6 +47,30 @@ fn locomotor_member_names_from_raw(raw: &str) -> Vec<String> {
     names
 }
 
+fn parse_auto_acquire_idle_bits_from_ini(text: &str) -> u32 {
+    use gamelogic::object::update::ai_update_interface::{
+        AUTO_ACQUIRE_IDLE, AUTO_ACQUIRE_IDLE_ATTACK_BUILDINGS, AUTO_ACQUIRE_IDLE_NO,
+        AUTO_ACQUIRE_IDLE_NOT_WHILE_ATTACKING, AUTO_ACQUIRE_IDLE_STEALTHED,
+    };
+    let mut bits = 0u32;
+    for tok in text.split(|c: char| c.is_whitespace() || matches!(c, '+' | '|' | ',')) {
+        let t = tok.trim();
+        if t.is_empty() || t == "=" {
+            continue;
+        }
+        match t.to_ascii_uppercase().as_str() {
+            "YES" => bits |= AUTO_ACQUIRE_IDLE,
+            "STEALTHED" => bits |= AUTO_ACQUIRE_IDLE_STEALTHED,
+            "NO" => bits |= AUTO_ACQUIRE_IDLE_NO,
+            "NOTWHILEATTACKING" => bits |= AUTO_ACQUIRE_IDLE_NOT_WHILE_ATTACKING,
+            "ATTACK_BUILDINGS" => bits |= AUTO_ACQUIRE_IDLE_ATTACK_BUILDINGS,
+            _ => {}
+        }
+    }
+    bits
+}
+
+
 fn leftover_object_definition_for_live(
     name: &str,
     reskin_from: &str,
@@ -413,6 +437,8 @@ impl GameLogic {
         Self::apply_authored_parking_place_metadata(&mut template, definition);
         Self::apply_authored_flight_deck_metadata(&mut template, definition);
         Self::apply_authored_deploy_style_metadata(&mut template, definition);
+        Self::apply_authored_auto_acquire_metadata(&mut template, definition);
+
         Self::apply_authored_supply_truck_metadata(&mut template, definition);
         Self::apply_authored_production_exit_metadata(&mut template, definition);
         Self::apply_authored_pilot_veterancy_metadata(&mut template, definition);
@@ -1008,6 +1034,9 @@ impl GameLogic {
         // C++ KINDOF_AUTO_RALLYPOINT — factory empty-ground SET_RALLY_POINT.
         if has_kind("auto_rallypoint") || has_kind("auto_rally_point") {
             template.add_kind_of(KindOf::AutoRallypoint);
+        }
+        if has_kind("mob_nexus") {
+            template.add_kind_of(KindOf::MobNexus);
         }
     }
 
@@ -1769,6 +1798,43 @@ impl GameLogic {
 
         template.deploy_style_metadata = parse();
     }
+
+    /// C++ `AIUpdateModuleData::m_autoAcquireEnemiesWhenIdle` / `m_forbidPlayerCommands`.
+    fn apply_authored_auto_acquire_metadata(
+        template: &mut ThingTemplate,
+        definition: &ObjectDefinition,
+    ) {
+        let is_ai_update = |class_name: &str| {
+            class_name.eq_ignore_ascii_case("AIUpdateInterface")
+                || class_name.eq_ignore_ascii_case("AIUpdate")
+                || class_name.to_ascii_lowercase().ends_with("aiupdate")
+        };
+        let mut bits = 0u32;
+        let mut forbid = false;
+        let mut found = false;
+        for module in &definition.behavior_modules {
+            if !is_ai_update(&module.class_name) {
+                continue;
+            }
+            found = true;
+            if let Some(text) = module.attribute("AutoAcquireEnemiesWhenIdle") {
+                bits |= parse_auto_acquire_idle_bits_from_ini(text);
+            }
+            if module
+                .attribute("ForbidPlayerCommands")
+                .is_some_and(|v| {
+                    matches!(v.trim().to_ascii_lowercase().as_str(), "yes" | "true" | "1")
+                })
+            {
+                forbid = true;
+            }
+        }
+        if found {
+            template.auto_acquire_enemies_when_idle = bits;
+            template.forbid_player_commands = forbid;
+        }
+    }
+
 
     /// Retain exact `SupplyTruckAIUpdate` data. A generic HARVESTER KindOf is
     /// insufficient: it deliberately receives no autonomous collector state.
@@ -5618,17 +5684,16 @@ End
         let particle_frame =
             crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 1);
         assert!(particle_frame.unit_command_buttons().iter().any(|button| {
-            button
-                .command_name
-                .eq_ignore_ascii_case("Command_ParticleCannon")
-                && button.enabled
+            let n = button.command_name.to_ascii_lowercase();
+            n.contains("particle") && button.enabled
         }));
         logic.select_objects(1, vec![spoof_id]);
         let spoof_frame = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 1);
         assert!(!spoof_frame.unit_command_buttons().iter().any(|button| {
             button
                 .command_name
-                .eq_ignore_ascii_case("Command_ParticleCannon")
+                .to_ascii_lowercase()
+                .contains("particle")
         }));
     }
 

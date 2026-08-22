@@ -15,6 +15,9 @@ pub struct HostEstimateVictim {
     pub garrisonable: bool,
     pub immune_to_clear_building: bool,
     pub airborne_target: bool,
+    /// C++ `ArmorTemplate::adjustDamage` coefficient for this weapon type.
+    /// 1.0 = no mitigation (specials-only tests). Tank/Structure SNIPER = 0.
+    pub armor_coeff: f32,
 }
 
 /// Weapon snapshot for the C++ estimate gate.
@@ -78,7 +81,8 @@ pub fn estimate_weapon_template_damage(
         return 0.0;
     }
 
-    weapon.primary_damage.max(0.0)
+    // C++ `ActiveBody::estimateDamage` ends with `m_curArmor.adjustDamage`.
+    (weapon.primary_damage.max(0.0) * victim.armor_coeff.max(0.0)).max(0.0)
 }
 
 /// C++ Weapon.ini DamageType=SNIPER residual (Pathfinder / Jarmen primary).
@@ -123,4 +127,36 @@ pub fn host_estimate_weapon_from_name(name: &str, primary_damage: f32) -> HostEs
         allow_attack_garrisoned_bldgs: host_weapon_allows_attack_garrisoned_bldgs(name),
         primary_damage,
     }
+}
+
+/// Build a live victim snapshot, including residual armor coefficient.
+pub fn host_estimate_victim_from_object(
+    v: &crate::game_logic::Object,
+    contain_count: u32,
+    armor_coeff: f32,
+) -> HostEstimateVictim {
+    use crate::game_logic::KindOf;
+    HostEstimateVictim {
+        kind_structure: v.is_kind_of(KindOf::Structure),
+        kind_shrubbery: v.template_name.to_ascii_lowercase().contains("shrub"),
+        kind_mine: v.is_kind_of(KindOf::Mine) || v.is_disarmable_mine(),
+        kind_booby_trap: v.is_disarmable_mine(),
+        kind_demo_trap: v.is_kind_of(KindOf::Mine) || v.is_disarmable_mine(),
+        under_construction: v.status.under_construction,
+        contain_count,
+        garrisonable: v.thing.template.contain_module.slots.unwrap_or(0) > 0,
+        immune_to_clear_building: false,
+        airborne_target: v.status.airborne_target,
+        armor_coeff,
+    }
+}
+
+/// C++ `DAMAGE_KILLPILOT` slot used by the Jarmen cursor skip.
+/// Primary `GLAJarmenKellRifle` is SNIPER and must not match.
+pub fn host_weapon_is_kill_pilot_cursor_slot(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    n.contains("vehiclepilot")
+        || n.contains("pilotsniper")
+        || n.contains("killpilot")
+        || n.contains("kill_pilot")
 }

@@ -472,7 +472,27 @@ impl Object {
     }
 
     pub fn create_delivery_radius_decal(&mut self, pos: glam::Vec3, frame: u32) -> bool {
+        let radius =
+            crate::game_logic::host_radius_decal_update::default_delivery_decal_radius_for_template(
+                &self.template_name,
+            );
+        self.create_delivery_radius_decal_with_radius(pos, frame, radius)
+    }
+
+    /// C++ DeliverPayloadAIUpdate::deliverPayload createRadiusDecal on the transport.
+    /// Cargo-plane templates have no RadiusDecalUpdate module — force-install so the ring exists.
+    pub fn create_delivery_radius_decal_with_radius(
+        &mut self,
+        pos: glam::Vec3,
+        frame: u32,
+        radius: f32,
+    ) -> bool {
         self.install_radius_decal_update_if_needed();
+        if self.radius_decal_update.is_none() {
+            self.radius_decal_update = Some(
+                crate::game_logic::host_radius_decal_update::HostRadiusDecalUpdateData::default(),
+            );
+        }
         let Some(rd) = self.radius_decal_update.as_mut() else {
             return false;
         };
@@ -480,13 +500,19 @@ impl Object {
             crate::game_logic::host_radius_decal_update::default_delivery_decal_template_for_host(
                 &self.template_name,
             );
-        let radius =
-            crate::game_logic::host_radius_decal_update::default_delivery_decal_radius_for_template(
-                &self.template_name,
-            );
-        rd.create_radius_decal(tmpl, radius, pos, frame);
-        rd.set_kill_when_no_longer_attacking(true);
+        rd.create_radius_decal(tmpl, radius.max(1.0), pos, frame);
+        // C++ DeliverPayloadAIUpdate keeps the ring until HeadOffMapState::onEnter.
+        // killWhenNoLongerAttacking is the Scud AttackNugget / RadiusDecalUpdate path.
+        rd.set_kill_when_no_longer_attacking(self.anthrax_bomb_transport.is_none());
         !rd.delivery_decal.is_empty()
+    }
+
+    /// C++ HeadOffMapState::onEnter killDeliveryDecal.
+    pub fn kill_delivery_radius_decal(&mut self) {
+        if let Some(rd) = self.radius_decal_update.as_mut() {
+            rd.kill_radius_decal();
+        }
+        self.status.attacking = false;
     }
 
     pub fn install_enemy_near_if_needed(&mut self) {
@@ -610,6 +636,15 @@ impl Object {
     pub fn flash_as_selected(&mut self) {
         self.selection_flash_remaining =
             crate::game_logic::host_saboteur::SABOTEUR_FLASH_DECAY_FRAMES;
+        self.selection_flash_color = None;
+        self.record_host_ai_request();
+    }
+
+    /// C++ `Drawable::flashAsSelected(&color)` — explicit envelope RGB (already saturated).
+    pub fn flash_as_selected_with_color(&mut self, color: [f32; 3]) {
+        self.selection_flash_remaining =
+            crate::game_logic::host_saboteur::SABOTEUR_FLASH_DECAY_FRAMES;
+        self.selection_flash_color = Some(color);
         self.record_host_ai_request();
     }
 
@@ -621,8 +656,12 @@ impl Object {
     /// Tick selection flash residual once per logic frame.
     pub fn tick_selection_flash(&mut self) {
         self.selection_flash_remaining = self.selection_flash_remaining.saturating_sub(1);
+        if self.selection_flash_remaining == 0 {
+            self.selection_flash_color = None;
+        }
         self.record_host_ai_request();
     }
+
 
     pub fn apply_disabled_hacked(&mut self, until_frame: u32) {
         let becoming = !self.is_disabled();

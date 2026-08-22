@@ -168,6 +168,11 @@ impl GameWorldShadow {
             }
             if over && !e.anthrax_delivery_complete {
                 e.anthrax_delivery_complete = true;
+                // C++ HeadOffMapState::onEnter killDeliveryDecal.
+                e.radius_decal_empty = true;
+                e.radius_decal_awake = false;
+                e.radius_decal_kill_when_idle = false;
+                e.radius_decal_opacity = 0.0;
                 if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
                     let team = Self::entity_team_from_ordinal(e.team_ordinal);
                     let producer = e
@@ -182,6 +187,7 @@ impl GameWorldShadow {
                                 e.anthrax_transport_target_y,
                                 e.anthrax_transport_target_z,
                             ),
+                            plane_pos: glam::Vec3::new(new_pos.x, new_pos.y, new_pos.z),
                             producer,
                             tier,
                         },

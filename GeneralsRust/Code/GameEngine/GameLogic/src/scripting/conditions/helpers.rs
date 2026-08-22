@@ -58,7 +58,10 @@ pub struct HostScriptQueryObject {
     pub name: String,
     pub team: u32,
     pub x: f32,
+    /// Host Y-up height. C++ AudioEventRTS Z-up uses this as `z`.
+    pub y: f32,
     pub z: f32,
+
     pub alive: bool,
     /// C++ Object::isEffectivelyDead while the pointer still exists.
     pub effectively_dead: bool,
@@ -1335,6 +1338,122 @@ pub fn host_eval_skirmish_unowned_faction_unit_count() -> Option<i32> {
     }))
 }
 
+/// C++ evaluateSkirmishPlayerHasDiscoveredPlayer over host discovered_by (shroud CLEAR|PARTIAL_CLEAR).
+pub fn host_eval_skirmish_player_has_discovered_player(
+    player_name: &str,
+    discovered_by_name: &str,
+) -> Option<bool> {
+    if !host_script_query_has_any() {
+        return None;
+    }
+    Some(HOST_SCRIPT_QUERY.with(|slot| {
+        slot.borrow().objects.iter().any(|obj| {
+            host_owner_matches(obj, player_name)
+                && obj
+                    .discovered_by
+                    .iter()
+                    .any(|name| name.eq_ignore_ascii_case(discovered_by_name))
+        })
+    }))
+}
+
+/// C++ evaluateSkirmishPlayerHasPrereqsToBuild / ObjectTypes::canBuildAny using host census.
+pub fn host_eval_skirmish_player_has_prerequisite_to_build(
+    player_name: &str,
+    type_name: &str,
+) -> Option<bool> {
+    let census = host_query_player_census(player_name)?;
+    let type_name = type_name.trim();
+    if type_name.is_empty() {
+        return Some(false);
+    }
+    let mut names = Vec::new();
+    if let Some(found) =
+        crate::scripting::engine::with_script_engine_ref(|engine| engine.get_object_types(type_name))
+            .flatten()
+    {
+        names.extend(found.iter().map(|s| s.as_str().to_string()));
+    }
+    if names.is_empty() {
+        names.push(type_name.to_string());
+    }
+    Some(
+        names
+            .iter()
+            .any(|name| host_census_can_build_type(player_name, &census, name)),
+    )
+}
+
+fn host_census_can_build_type(
+    player_name: &str,
+    census: &HostScriptPlayerCensus,
+    type_name: &str,
+) -> bool {
+    let Some(template) = crate::helpers::TheThingFactory::find_template(type_name) else {
+        return false;
+    };
+    if let Some(status) = template.get_buildable_status() {
+        use game_engine::common::thing::BuildableStatus;
+        match status {
+            BuildableStatus::No => return false,
+            BuildableStatus::IgnorePrerequisites => return true,
+            BuildableStatus::OnlyByAi | BuildableStatus::Yes => {}
+        }
+    }
+    for prereq in template.get_production_prerequisites() {
+        if !prereq.is_satisfied_with_counter(
+            |science| leftover_census_or_player_has_science(player_name, census, science),
+            |handles, ignore_dead, counts| {
+                for (i, handle) in handles.iter().enumerate() {
+                    if i >= counts.len() {
+                        break;
+                    }
+                    counts[i] = crate::helpers::TheThingFactory::find_template_by_id(handle.value())
+                        .map(|tpl| census.count_templates([tpl.get_name().as_str()], ignore_dead))
+                        .unwrap_or(0);
+                }
+            },
+        ) {
+            return false;
+        }
+    }
+    true
+}
+
+fn leftover_census_or_player_has_science(
+    player_name: &str,
+    census: &HostScriptPlayerCensus,
+    science: game_engine::common::rts::ScienceType,
+) -> bool {
+    if science == game_engine::common::rts::SCIENCE_INVALID {
+        return true;
+    }
+    if let Ok(list) = player_list().read() {
+        if let Some(arc) = list.find_player_by_name(player_name) {
+            if let Ok(player) = arc.read() {
+                return player.has_science(science);
+            }
+        }
+    }
+    if let Some(store) = game_engine::common::rts::science::get_science_store() {
+        for (stored, info) in store.iter() {
+            if *stored == science {
+                let display = info.name.to_string();
+                if census.unlocked_sciences.iter().any(|owned| {
+                    owned.eq_ignore_ascii_case(&display)
+                        || owned.eq_ignore_ascii_case(&format!("SCIENCE_{display}"))
+                }) {
+                    return true;
+                }
+            }
+        }
+        if store.is_empty() {
+            return true;
+        }
+    }
+    !census.unlocked_sciences.is_empty()
+}
+
 /// C++ evaluateSkirmishPlayerHasComparisonGarrisoned count over host snapshot.
 pub fn host_eval_skirmish_garrisoned_count(player_name: &str) -> Option<i32> {
     if !host_script_query_has_any() {
@@ -2206,6 +2325,74 @@ mod tech_building_census_tests {
         assert_eq!(
             host_eval_skirmish_tech_building_within_distance("PlyrAmerica", 100.0, "MissingPad"),
             None
+        );
+        clear_host_script_query_snapshot();
+    }
+}
+
+#[cfg(test)]
+mod host_skirmish_discovered_prereq_tests {
+    use super::*;
+
+    #[test]
+    fn host_skirmish_discovered_none_without_snapshot() {
+        clear_host_script_query_snapshot();
+        assert_eq!(
+            host_eval_skirmish_player_has_discovered_player("PlyrChina", "PlyrAmerica"),
+            None
+        );
+    }
+
+    #[test]
+    fn host_skirmish_discovered_uses_discovered_by() {
+        clear_host_script_query_snapshot();
+        let mut snap = HostScriptQuerySnapshot::default();
+        snap.objects.push(HostScriptQueryObject {
+            id: 7,
+            owner_player: "PlyrChina".into(),
+            discovered_by: vec!["PlyrAmerica".into()],
+            ..Default::default()
+        });
+        set_host_script_query_snapshot(snap);
+        assert_eq!(
+            host_eval_skirmish_player_has_discovered_player("PlyrChina", "PlyrAmerica"),
+            Some(true)
+        );
+        assert_eq!(
+            host_eval_skirmish_player_has_discovered_player("PlyrChina", "PlyrGLA"),
+            Some(false)
+        );
+        clear_host_script_query_snapshot();
+    }
+
+    #[test]
+    fn host_skirmish_prereq_none_without_census() {
+        clear_host_script_query_snapshot();
+        assert_eq!(
+            host_eval_skirmish_player_has_prerequisite_to_build(
+                "PlyrAmerica",
+                "AmericaWarFactory"
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn host_skirmish_prereq_false_without_leftover_template() {
+        clear_host_script_query_snapshot();
+        let mut snap = HostScriptQuerySnapshot::default();
+        let mut census = HostScriptPlayerCensus::default();
+        census
+            .template_counts
+            .insert("americacommandcenter".into(), 1);
+        snap.player_census.insert("plyramerica".into(), census);
+        set_host_script_query_snapshot(snap);
+        assert_eq!(
+            host_eval_skirmish_player_has_prerequisite_to_build(
+                "PlyrAmerica",
+                "AmericaWarFactory"
+            ),
+            Some(false)
         );
         clear_host_script_query_snapshot();
     }

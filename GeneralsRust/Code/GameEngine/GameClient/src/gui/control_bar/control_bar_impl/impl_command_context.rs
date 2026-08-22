@@ -217,6 +217,9 @@ impl ControlBar {
                 if entry.destroyed || entry.sold || entry.unselectable {
                     return Ok(CommandAvailability::Hidden);
                 }
+                if leftover_presentation_command_set_hidden(self) {
+                    return Ok(CommandAvailability::Hidden);
+                }
                 if command.command_type == CommandType::Sell && entry.script_unsellable {
                     return Ok(CommandAvailability::Hidden);
                 }
@@ -233,6 +236,10 @@ impl ControlBar {
                 }
                 if leftover_presentation_queue_or_drop_restricted(self, command, Some(&entry)) {
                     return Ok(CommandAvailability::Restricted);
+                }
+                if let Some(avail) = leftover_presentation_queue_upgrade_availability(self, command)
+                {
+                    return Ok(avail);
                 }
                 if leftover_presentation_can_make_restricted(self, command) {
                     return Ok(CommandAvailability::Restricted);
@@ -251,6 +258,9 @@ impl ControlBar {
                 || !self.presentation_primary_command_set.is_empty()
                 || !self.presentation_command_set_names.is_empty()
             {
+                if leftover_presentation_command_set_hidden(self) {
+                    return Ok(CommandAvailability::Hidden);
+                }
                 if let Some(hidden) = leftover_buildable_hidden(command, player_id) {
                     return Ok(hidden);
                 }
@@ -259,6 +269,10 @@ impl ControlBar {
                 }
                 if leftover_presentation_queue_or_drop_restricted(self, command, None) {
                     return Ok(CommandAvailability::Restricted);
+                }
+                if let Some(avail) = leftover_presentation_queue_upgrade_availability(self, command)
+                {
+                    return Ok(avail);
                 }
                 if leftover_presentation_can_make_restricted(self, command) {
                     return Ok(CommandAvailability::Restricted);
@@ -1452,6 +1466,84 @@ fn leftover_player_is_computer(player_id: u32) -> bool {
     player.get_player_type() == gamelogic::player::PlayerType::Computer
 }
 
+fn leftover_presentation_command_set_hidden(bar: &ControlBar) -> bool {
+    let residual = &bar.presentation_availability;
+    residual.script_disabled || residual.script_unpowered || residual.unmanned
+}
+
+fn leftover_presentation_upgrade_matches(list: &[String], upgrade: &str) -> bool {
+    if upgrade.is_empty() {
+        return false;
+    }
+    let norm = |s: &str| {
+        s.chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .flat_map(|c| c.to_lowercase())
+            .collect::<String>()
+    };
+    let u = norm(upgrade);
+    list.iter().any(|owned| {
+        let n = norm(owned);
+        n == u || n.contains(&u) || u.contains(&n)
+    })
+}
+
+fn leftover_presentation_upgrade_key(command: &CommandButton) -> String {
+    if !command.upgrade.is_empty() {
+        return command.upgrade.clone();
+    }
+    command
+        .command_name
+        .trim_start_matches("Command_")
+        .trim_start_matches("command_")
+        .to_string()
+}
+
+/// C++ ControlBarCommand.cpp:1204-1264 on the live-host presentation path.
+fn leftover_presentation_queue_upgrade_availability(
+    bar: &ControlBar,
+    command: &CommandButton,
+) -> Option<CommandAvailability> {
+    if command.command_type != CommandType::QueueUpgrade {
+        return None;
+    }
+    if bar.build_queue_data.len() == MAX_BUILD_QUEUE_BUTTONS {
+        return Some(CommandAvailability::Restricted);
+    }
+    let key = leftover_presentation_upgrade_key(command);
+    let residual = &bar.presentation_availability;
+    let queued = leftover_presentation_upgrade_matches(&bar.presentation_queued_upgrades, &key);
+    if leftover_is_object_upgrade_command(command) {
+        let has = leftover_presentation_upgrade_matches(&residual.object_applied_upgrades, &key);
+        let unaffected =
+            leftover_presentation_upgrade_matches(&residual.object_unaffected_upgrades, &key);
+        if has || queued || unaffected {
+            return Some(CommandAvailability::CantAfford);
+        }
+    } else if leftover_presentation_upgrade_matches(&residual.player_completed_upgrades, &key)
+        || queued
+    {
+        return Some(CommandAvailability::CantAfford);
+    }
+    for science in &command.sciences_ids {
+        if *science == SCIENCE_INVALID {
+            continue;
+        }
+        let leftover_has = logic_player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_local_player().cloned())
+            .and_then(|arc| arc.read().ok().map(|player| player.has_science(*science)));
+        let has = leftover_has.unwrap_or_else(|| {
+            ControlBar::presentation_player_has_required_science(*science)
+        });
+        if !has {
+            return Some(CommandAvailability::Restricted);
+        }
+    }
+    None
+}
+
 fn leftover_presentation_queue_or_drop_restricted(
     bar: &ControlBar,
     command: &CommandButton,
@@ -1646,6 +1738,69 @@ mod command_availability_window_tests {
         assert!(leftover_presentation_can_make_restricted(&bar, &btn));
         bar.apply_presentation_money(1000);
         assert!(!leftover_presentation_can_make_restricted(&bar, &btn));
+    }
+
+    #[test]
+    fn presentation_object_upgrade_owned_or_unaffected_is_cant_afford() {
+        let mut bar = ControlBar::new();
+        bar.apply_presentation_availability(PresentationAvailabilityResidual {
+            object_applied_upgrades: vec!["Upgrade_AmericaRangerFlashBangGrenade".into()],
+            object_unaffected_upgrades: vec!["Upgrade_AmericaRangerCaptureBuilding".into()],
+            ..Default::default()
+        });
+        let mut owned = button(CommandType::QueueUpgrade);
+        owned.gui_command = "OBJECT_UPGRADE".to_string();
+        owned.upgrade = "Upgrade_AmericaRangerFlashBangGrenade".to_string();
+        assert_eq!(
+            leftover_presentation_queue_upgrade_availability(&bar, &owned),
+            Some(CommandAvailability::CantAfford)
+        );
+        let mut unaff = button(CommandType::QueueUpgrade);
+        unaff.gui_command = "OBJECT_UPGRADE".to_string();
+        unaff.upgrade = "Upgrade_AmericaRangerCaptureBuilding".to_string();
+        assert_eq!(
+            leftover_presentation_queue_upgrade_availability(&bar, &unaff),
+            Some(CommandAvailability::CantAfford)
+        );
+        let mut fresh = button(CommandType::QueueUpgrade);
+        fresh.gui_command = "OBJECT_UPGRADE".to_string();
+        fresh.upgrade = "Upgrade_AmericaTOWMissile".to_string();
+        assert_eq!(
+            leftover_presentation_queue_upgrade_availability(&bar, &fresh),
+            None
+        );
+    }
+
+    #[test]
+    fn presentation_player_upgrade_complete_is_cant_afford() {
+        let mut bar = ControlBar::new();
+        bar.apply_presentation_availability(PresentationAvailabilityResidual {
+            player_completed_upgrades: vec!["Upgrade_AmericaSupplyLines".into()],
+            ..Default::default()
+        });
+        let mut btn = button(CommandType::QueueUpgrade);
+        btn.gui_command = "PLAYER_UPGRADE".to_string();
+        btn.upgrade = "Upgrade_AmericaSupplyLines".to_string();
+        assert_eq!(
+            leftover_presentation_queue_upgrade_availability(&bar, &btn),
+            Some(CommandAvailability::CantAfford)
+        );
+    }
+
+    #[test]
+    fn presentation_script_disabled_and_unmanned_hide_command_set() {
+        let mut bar = ControlBar::new();
+        assert!(!leftover_presentation_command_set_hidden(&bar));
+        bar.apply_presentation_availability(PresentationAvailabilityResidual {
+            script_disabled: true,
+            ..Default::default()
+        });
+        assert!(leftover_presentation_command_set_hidden(&bar));
+        bar.apply_presentation_availability(PresentationAvailabilityResidual {
+            unmanned: true,
+            ..Default::default()
+        });
+        assert!(leftover_presentation_command_set_hidden(&bar));
     }
 }
 

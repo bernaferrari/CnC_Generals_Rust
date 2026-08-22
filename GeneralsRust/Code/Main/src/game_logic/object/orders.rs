@@ -480,6 +480,21 @@ impl Object {
             .any(|name| name.eq_ignore_ascii_case(upgrade))
     }
 
+    /// C++ Object::affectedByUpgrade residual for host objects (no leftover modules).
+    /// Leftover UpgradeMux::wouldUpgrade already matches; drone ObjectCreationUpgrade
+    /// ConflictsWith is the live name residual (one Scout/Battle/Hellfire per vehicle).
+    pub fn affected_by_object_upgrade(&self, upgrade: &str) -> bool {
+        crate::game_logic::host_slave_drones::slave_drone_affected_by_upgrade(
+            upgrade,
+            self.applied_upgrades.iter().map(String::as_str),
+        )
+    }
+
+    /// C++ ProductionUpdate::queueUpgrade OBJECT: hasUpgrade || !affectedByUpgrade.
+    pub fn refuses_object_upgrade(&self, upgrade: &str) -> bool {
+        self.has_object_upgrade_complete(upgrade) || !self.affected_by_object_upgrade(upgrade)
+    }
+
     /// Install C++ HighlanderBody residual.
     pub fn install_highlander_body(&mut self) {
         self.highlander_body = true;
@@ -515,6 +530,9 @@ impl Object {
 
     pub fn set_guard_position(&mut self, position: Option<Vec3>) {
         self.guard_position = position;
+        // A fresh position guard is not a polygon area unless a caller stamps
+        // `guard_area_trigger` after this (TEAM_GUARD_AREA / execute_guard_area).
+        self.guard_area_trigger = None;
         if position.is_some() {
             self.set_ai_state(AIState::GuardingArea);
         }
@@ -528,6 +546,7 @@ impl Object {
 
     pub fn set_guard_target(&mut self, target: Option<ObjectId>) {
         self.guard_target = target;
+        self.guard_area_trigger = None;
         if target.is_some() {
             self.set_ai_state(AIState::GuardingObject);
         }
@@ -584,6 +603,10 @@ impl Object {
         self.target = Some(victim);
         self.target_location = None;
         self.set_ai_state(AIState::GuardRetaliating);
+        // C++ AttackAggressor onEnter: chase timer + radius/owner leash.
+        // Give-up frame is stamped on the first GuardRetaliate tick (needs GameLogic.frame).
+        self.guard_chase_phase = crate::game_logic::GUARD_CHASE_PHASE_RETALIATE;
+        self.guard_chase_give_up_frame = 0;
         // C++ JetAIUpdate::aiDoCommand GUARD_RETALIATE sets
         // ALLOW_INTERRUPT_AND_RESUME_OF_CUR_STATE_FOR_RELOAD.
         self.mark_jet_command_for_reload_interrupt(true);

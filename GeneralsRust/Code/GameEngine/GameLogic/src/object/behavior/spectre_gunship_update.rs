@@ -772,7 +772,7 @@ impl SpectreGunshipUpdate {
 
     fn update_decal_position(decal: &mut Option<RadiusDecal>, position: Coord3D) {
         if let Some(decal) = decal.as_mut() {
-            decal.position = position;
+            decal.set_position(position);
         }
     }
 

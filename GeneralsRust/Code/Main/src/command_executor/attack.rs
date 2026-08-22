@@ -292,14 +292,25 @@ impl<'a> CommandExecutor<'a> {
         )
     }
 
-    /// C++ AIGroup::groupGuardArea residual — area approximated as position + radius guard.
+    /// C++ AIGroup::groupGuardArea residual — polygon trigger when named, else circle.
     pub(crate) fn execute_guard_area(
         &mut self,
         units: &[ObjectId],
         center: Vec3,
         radius: f32,
         mode: crate::game_logic::GuardMode,
+        polygon_name: Option<&str>,
     ) -> CommandResult {
+        let (center, radius) = if let Some(name) = polygon_name.filter(|n| !n.is_empty()) {
+            if let Some((c, r, _)) = crate::game_logic::GameLogic::host_named_guard_area_polygon(name)
+            {
+                (c, if r > 0.0 { r } else { radius })
+            } else {
+                (center, radius)
+            }
+        } else {
+            (center, radius)
+        };
         // Wave 232: guard area radius last-write via unit_command_set_guard_radius.
         let res = self.execute_guard(
             units,
@@ -310,6 +321,11 @@ impl<'a> CommandExecutor<'a> {
             let r = radius.max(80.0);
             for &id in units {
                 let _ = self.game_logic.unit_command_set_guard_radius(id, r);
+                if let Some(name) = polygon_name.filter(|n| !n.is_empty()) {
+                    if let Some(u) = self.game_logic.host_object_mut(id) {
+                        u.guard_area_trigger = Some(name.to_string());
+                    }
+                }
             }
         }
         res
@@ -495,6 +511,14 @@ impl<'a> CommandExecutor<'a> {
             if !can {
                 continue;
             }
+            if self
+                .game_logic
+                .host_object(unit_id)
+                .is_some_and(|u| u.forbid_player_commands)
+            {
+                continue;
+            }
+
 
             let target_pos = match target {
                 GuardTarget::Position(pos) => Some(*pos),

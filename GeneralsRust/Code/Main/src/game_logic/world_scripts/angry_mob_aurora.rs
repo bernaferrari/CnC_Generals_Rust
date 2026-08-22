@@ -1433,6 +1433,38 @@ impl GameLogic {
         self.angry_mobs.honesty_member_spawn_ok()
     }
 
+    /// C++ `PartitionFilterLiveMapEnemies` / `findClosestEnemy`: ENEMIES only
+    /// (`Object::getRelationship`). Missing owners fall back to leftover
+    /// `is_angry_mob_hostile_team` (faction residual).
+    fn angry_mob_relationship_enemies_from_maps(
+        players: &std::collections::HashMap<u32, crate::game_logic::Player>,
+        objects: &std::collections::HashMap<ObjectId, Object>,
+        source_id: ObjectId,
+        source_team: Team,
+        target_id: ObjectId,
+        target_team: Team,
+    ) -> bool {
+        use crate::game_logic::host_angry_mob::is_angry_mob_hostile_team;
+        match (objects.get(&source_id), objects.get(&target_id)) {
+            (Some(src), Some(tgt))
+                if src.owner_player_id.is_some() && tgt.owner_player_id.is_some() =>
+            {
+                Self::object_relationship_from_owners(
+                    players,
+                    src.owner_player_id,
+                    &src.team_instance_name,
+                    tgt.owner_player_id,
+                    &tgt.team_instance_name,
+                ) == gamelogic::common::Relationship::Enemies
+            }
+            _ => is_angry_mob_hostile_team(
+                source_team == Team::Neutral,
+                target_team == source_team,
+                target_team == Team::Neutral,
+            ),
+        }
+    }
+
     pub fn update_angry_mobs(&mut self) {
         use crate::game_logic::host_angry_mob::{
             is_angry_mob_nexus_template, ANGRY_MOB_FIRE_AUDIO, UPGRADE_GLA_ARM_THE_MOB,
@@ -1607,9 +1639,25 @@ impl GameLogic {
             .map(|p| p.team)
             .collect();
 
-        let plans = self
-            .angry_mobs
-            .plan_due_ticks(frame, &candidates, |team| armed_teams.contains(&team));
+        // C++ getNextMoodTarget → findClosestEnemy: player ENEMIES, not
+        // faction Team. 2v2 GLA+China Allies skipped; FFA same-faction hits.
+        let objects = self.objects.map();
+        let players = &self.players;
+        let plans = self.angry_mobs.plan_due_ticks_with_enemies(
+            frame,
+            &candidates,
+            |team| armed_teams.contains(&team),
+            |mob_id, mob_team, tgt_id, tgt_team| {
+                Self::angry_mob_relationship_enemies_from_maps(
+                    players,
+                    objects,
+                    mob_id,
+                    mob_team,
+                    tgt_id,
+                    tgt_team,
+                )
+            },
+        );
 
         for mut plan in plans {
             plan.hits.retain(|hit| {

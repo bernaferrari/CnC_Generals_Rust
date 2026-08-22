@@ -583,6 +583,11 @@ impl GameLogic {
             p.set_ai_state(AIState::Moving);
             p.status.moving = true;
         }
+        // C++ GarrisonContain::onRemoving setSafeOcclusionFrame(frame + OcclusionDelay).
+        if let Some(p) = self.objects.get_mut(&unit_id) {
+            p.stamp_safe_occlusion_frame(self.frame);
+        }
+
         if crate::gameworld_shadow::gameworld_movement_authority_live() {
             if let Some(p) = self.objects.get(&unit_id) {
                 let pos = p.get_position();
@@ -691,6 +696,7 @@ impl GameLogic {
             return false;
         };
         let is_garrison = container.is_garrison_contain();
+        let is_tunnel = container.is_tunnel_network_style_container();
         let container_name = container.name.clone();
         if is_garrison {
             if let Some(disp) = gamelogic::object::contain::named_evac_disposition(&container_name)
@@ -827,6 +833,10 @@ impl GameLogic {
                     // C++ OpenContain::exitObjectViaDoor — walk ExitStart/End.
                     // Do not teleport to an Idle 8-unit ring.
                     walked_transport = true;
+                }
+                if is_garrison || is_tunnel {
+                    // C++ GarrisonContain/TunnelContain::onRemoving.
+                    p.stamp_safe_occlusion_frame(self.frame);
                 }
 
                 // C++ HackInternetAIUpdate::aiDoCommand (HackInternetAIUpdate.cpp:105)
@@ -1748,6 +1758,12 @@ impl GameLogic {
         self.carpet_bomb_flight_reg.record_transport();
         self.carpet_bomb_flight_reg
             .schedule_drops(self.frame, source_id.0, target, edge, tier, tid.0);
+        // C++ DeliverPayloadAIUpdate::deliverPayload createRadiusDecal (formation 0).
+        let _ = self.create_delivery_radius_decal_with_radius(
+            tid,
+            target,
+            tier.delivery_decal_radius(),
+        );
         Some(tid)
     }
 
@@ -1908,6 +1924,7 @@ impl GameLogic {
     }
 
     /// C++ SUPERWEAPON_ArtilleryBarrage DeliverPayload residual.
+    /// CREATE_AT_EDGE_FARTHEST_FROM_TARGET (z += 300) + FormationSize 12/24/36.
     pub fn spawn_artillery_barrage_flight(
         &mut self,
         source_id: ObjectId,
@@ -1915,46 +1932,97 @@ impl GameLogic {
         tier: crate::game_logic::special_power_strikes::ArtilleryBarrageScienceTier,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_artillery_barrage_flight::HostArtilleryBarrageFlightData;
-        use crate::game_logic::special_power_strikes::ARTILLERY_BARRAGE_TRANSPORT;
+        use crate::game_logic::host_ocl_special_power::OCL_CREATE_ABOVE_LOCATION_HEIGHT;
+        use crate::game_logic::host_spectre_gunship_deployment::find_farthest_edge_point_residual;
+        use crate::game_logic::special_power_strikes::{
+            ARTILLERY_BARRAGE_CANNON_MAX_HEALTH, ARTILLERY_BARRAGE_DECAL_RADIUS,
+            ARTILLERY_BARRAGE_DELIVERY_DISTANCE, ARTILLERY_BARRAGE_FORMATION_SPACING,
+            ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES, ARTILLERY_BARRAGE_PREFERRED_HEIGHT,
+            ARTILLERY_BARRAGE_TRANSPORT,
+        };
         use crate::game_logic::{KindOf, ThingTemplate};
+        use gamelogic::object_creation_list::DeliverPayloadNugget;
 
         let team = self
             .objects
             .get(&source_id)
             .map(|o| o.team)
             .unwrap_or(Team::Neutral);
-        let source_pos = self
-            .objects
-            .get(&source_id)
-            .map(|o| o.get_position())
-            .unwrap_or(target);
-        let dx = target.x - source_pos.x;
-        let dz = target.z - source_pos.z;
-        let dist = (dx * dx + dz * dz).sqrt().max(1.0);
-        let edge = Vec3::new(
-            source_pos.x - dx / dist * 280.0,
-            200.0,
-            source_pos.z - dz / dist * 280.0,
+        // C++ CREATE_AT_EDGE_FARTHEST_FROM_TARGET + CREATE_ABOVE_LOCATION_HEIGHT.
+        let mut edge = find_farthest_edge_point_residual(
+            target,
+            self.world_min.x,
+            self.world_min.z,
+            self.world_max.x,
+            self.world_max.z,
+            0.0,
         );
+        edge.y += OCL_CREATE_ABOVE_LOCATION_HEIGHT;
+        // C++ StartAtPreferredHeight overwrites z after deliverPayload.
+        let spawn_height = ARTILLERY_BARRAGE_PREFERRED_HEIGHT.max(edge.y);
+        // Leftover Coord3D is C++ x/y ground, z height. Host is x/z ground, y height.
+        let primary = Vec3::new(edge.x, edge.z, edge.y);
+        let secondary = Vec3::new(target.x, target.z, target.y);
         if !self.templates.contains_key(ARTILLERY_BARRAGE_TRANSPORT) {
             let mut t = ThingTemplate::new(ARTILLERY_BARRAGE_TRANSPORT);
-            t.set_health(800.0)
+            t.set_health(ARTILLERY_BARRAGE_CANNON_MAX_HEALTH)
                 .add_kind_of(KindOf::Aircraft)
                 .add_kind_of(KindOf::Vehicle);
             self.templates
                 .insert(ARTILLERY_BARRAGE_TRANSPORT.to_string(), t);
         }
-        let tid = self.create_object(ARTILLERY_BARRAGE_TRANSPORT, team, edge)?;
-        if let Some(o) = self.objects.get_mut(&tid) {
-            o.note_producer(source_id);
-            o.artillery_barrage_transport =
-                Some(HostArtilleryBarrageFlightData::start(edge, target, tier));
-            o.set_orientation(dz.atan2(dx));
+        let formation_size = tier.formation_size().max(1);
+        let mut first = None;
+        for i in 0..formation_size {
+            // Leftover DeliverPayloadNugget::formation_flight_pose matches C++.
+            // WeaponErrorRadius is applied by schedule_drops, not spawn offsets.
+            let pose = DeliverPayloadNugget::formation_flight_pose(
+                &primary,
+                &secondary,
+                i as i32,
+                formation_size as i32,
+                ARTILLERY_BARRAGE_FORMATION_SPACING,
+                0.0,
+                ARTILLERY_BARRAGE_DELIVERY_DISTANCE,
+                None,
+            );
+            let mut launch = Vec3::new(pose.start_pos.x, pose.start_pos.z, pose.start_pos.y);
+            launch.y = spawn_height;
+            let mut move_to = Vec3::new(pose.move_to_pos.x, pose.move_to_pos.z, pose.move_to_pos.y);
+            move_to.y = spawn_height;
+            let delay = if ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES > 0 {
+                gamelogic::helpers::get_game_logic_random_value(
+                    0,
+                    ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES as i32,
+                )
+                .max(0) as u32
+            } else {
+                0
+            };
+            let tid = self.create_object(ARTILLERY_BARRAGE_TRANSPORT, team, launch)?;
+            if let Some(o) = self.objects.get_mut(&tid) {
+                o.note_producer(source_id);
+                let mut data = HostArtilleryBarrageFlightData::start(launch, move_to, tier);
+                data.map_min = self.world_min;
+                data.map_max = self.world_max;
+                data.delay_until_frame = self.frame.saturating_add(delay);
+                o.artillery_barrage_transport = Some(data);
+                o.set_orientation(pose.orient);
+            }
+            self.artillery_barrage_flight_reg.record_transport();
+            if first.is_none() {
+                first = Some(tid);
+                // C++ only formation index 0 gets a DeliveryDecal ring.
+                let _ = self.create_delivery_radius_decal_with_radius(
+                    tid,
+                    target,
+                    ARTILLERY_BARRAGE_DECAL_RADIUS,
+                );
+            }
         }
-        self.artillery_barrage_flight_reg.record_transport();
         self.artillery_barrage_flight_reg
             .schedule_drops(self.frame, source_id.0, target, tier);
-        Some(tid)
+        first
     }
 
     pub fn update_artillery_barrage_flights(&mut self) {
@@ -1970,6 +2038,9 @@ impl GameLogic {
             .filter(|(_, o)| o.artillery_barrage_transport.is_some() && o.is_alive())
             .map(|(id, _)| *id)
             .collect();
+        let mut leave = Vec::new();
+        let world_min = self.world_min;
+        let world_max = self.world_max;
         for id in tids {
             let Some(o) = self.objects.get_mut(&id) else {
                 continue;
@@ -1978,13 +2049,34 @@ impl GameLogic {
             let Some(data) = o.artillery_barrage_transport.as_mut() else {
                 continue;
             };
-            let (new_pos, vel, _over) = data.tick_transport(pos);
+            if !data.map_extent_ok() {
+                data.map_min = world_min;
+                data.map_max = world_max;
+            }
+            // C++ setDisabledUntil(DISABLED_DEFAULT, DelayDeliveryMax) — hold until ready.
+            if data.is_hold_for_delay(self.frame) {
+                continue;
+            }
+            let should_drop = !data.delivery_complete && data.in_delivery_band(pos);
+            if should_drop {
+                data.delivery_complete = true;
+            }
+            let (new_pos, vel, at_exit) = data.tick_transport(pos);
             let _ = data;
+            if should_drop {
+                o.kill_delivery_radius_decal();
+            }
             o.set_position(new_pos);
             o.movement.velocity = vel;
             if vel.length_squared() > 1e-6 {
                 o.set_orientation(vel.z.atan2(vel.x));
             }
+            if at_exit {
+                leave.push(id);
+            }
+        }
+        for id in leave {
+            self.mark_object_for_destruction(id, None);
         }
 
         let due = self.artillery_barrage_flight_reg.take_due_drops(self.frame);
@@ -2122,6 +2214,12 @@ impl GameLogic {
             self.a10_strike_flight_reg.record_transport();
             if first.is_none() {
                 first = Some(tid);
+                // C++ only formation index 0 gets a DeliveryDecal ring.
+                let _ = self.create_delivery_radius_decal_with_radius(
+                    tid,
+                    target,
+                    crate::game_logic::special_power_strikes::A10_DELIVERY_DECAL_RADIUS,
+                );
             }
             for i in 0..crate::game_logic::host_a10_strike_flight::A10_NUM_BONES {
                 let pair = i / crate::game_logic::host_a10_strike_flight::A10_ITEMS_PER_DROP;
@@ -2341,7 +2439,9 @@ impl GameLogic {
         source_id: ObjectId,
         target: Vec3,
     ) -> Option<ObjectId> {
-        use crate::game_logic::host_leaflet_drop::{LEAFLET_CONTAINER_OBJECT, LEAFLET_TRANSPORT};
+        use crate::game_logic::host_leaflet_drop::{
+            LEAFLET_CONTAINER_OBJECT, LEAFLET_DECAL_RADIUS, LEAFLET_TRANSPORT,
+        };
         use crate::game_logic::{KindOf, ThingTemplate};
 
         let team = self
@@ -2354,14 +2454,11 @@ impl GameLogic {
             .get(&source_id)
             .map(|o| o.get_position())
             .unwrap_or(target);
-        let dx = target.x - source_pos.x;
-        let dz = target.z - source_pos.z;
-        let dist = (dx * dx + dz * dz).sqrt().max(1.0);
-        let edge = Vec3::new(
-            source_pos.x - dx / dist * 320.0,
-            150.0,
-            source_pos.z - dz / dist * 320.0,
-        );
+        // C++ CREATE_AT_EDGE_NEAR_SOURCE: TerrainLogic::findClosestEdgePoint(owner).
+        let mut edge = self.closest_map_edge_point(source_pos);
+        edge.y = 150.0;
+        let dx = target.x - edge.x;
+        let dz = target.z - edge.z;
         if !self.templates.contains_key(LEAFLET_TRANSPORT) {
             let mut t = ThingTemplate::new(LEAFLET_TRANSPORT);
             t.set_health(500.0)
@@ -2384,10 +2481,14 @@ impl GameLogic {
         }
         self.host_leaflet_drops.transports_spawned =
             self.host_leaflet_drops.transports_spawned.saturating_add(1);
+        let _ = self.create_delivery_radius_decal_with_radius(tid, target, LEAFLET_DECAL_RADIUS);
         Some(tid)
     }
 
     pub fn update_leaflet_b52_flights(&mut self) {
+        use crate::game_logic::host_deliver_payload::{
+            head_off_map_exit_point_residual, is_off_map_residual,
+        };
         use crate::game_logic::host_leaflet_drop::{
             LEAFLET_CONTAINER_OBJECT, LEAFLET_DELIVERY_DISTANCE,
         };
@@ -2399,6 +2500,7 @@ impl GameLogic {
             .map(|(id, _)| *id)
             .collect();
         let mut drops: Vec<(ObjectId, Team, Vec3, ObjectId)> = Vec::new();
+        let mut leave = Vec::new();
         for id in tids {
             let Some(o) = self.objects.get_mut(&id) else {
                 continue;
@@ -2407,6 +2509,13 @@ impl GameLogic {
                 continue;
             };
             let pos = o.get_position();
+            let dest_off_map = is_off_map_residual(
+                target,
+                self.world_min.x,
+                self.world_min.z,
+                self.world_max.x,
+                self.world_max.z,
+            );
             let dx = target.x - pos.x;
             let dz = target.z - pos.z;
             let dist = (dx * dx + dz * dz).sqrt();
@@ -2421,12 +2530,36 @@ impl GameLogic {
                 o.movement.velocity = new_pos - pos;
                 o.set_orientation(dz.atan2(dx));
             }
-            if dist <= LEAFLET_DELIVERY_DISTANCE * 0.5 {
+            if !dest_off_map && dist <= LEAFLET_DELIVERY_DISTANCE * 0.5 {
                 let team = o.team;
                 let producer = o.producer_id.unwrap_or(id);
-                o.leaflet_transport_target = None; // drop once
+                let exit = head_off_map_exit_point_residual(
+                    new_pos,
+                    dx,
+                    dz,
+                    self.world_min.x,
+                    self.world_min.z,
+                    self.world_max.x,
+                    self.world_max.z,
+                );
+                o.leaflet_transport_target = Some(exit);
+                o.kill_delivery_radius_decal();
                 drops.push((id, team, target, producer));
             }
+            if dest_off_map
+                && is_off_map_residual(
+                    new_pos,
+                    self.world_min.x,
+                    self.world_min.z,
+                    self.world_max.x,
+                    self.world_max.z,
+                )
+            {
+                leave.push(id);
+            }
+        }
+        for id in leave {
+            self.mark_object_for_destruction(id, None);
         }
         for (_tid, team, target, producer) in drops {
             let drop_pos = Vec3::new(target.x, 80.0, target.z);
@@ -2480,7 +2613,9 @@ impl GameLogic {
         source_id: ObjectId,
         target: Vec3,
     ) -> Option<ObjectId> {
-        use crate::game_logic::host_paradrop::{PARADROP_PARACHUTE_CONTAINER, PARADROP_TRANSPORT};
+        use crate::game_logic::host_paradrop::{
+            PARADROP_DECAL_RADIUS, PARADROP_PARACHUTE_CONTAINER, PARADROP_TRANSPORT,
+        };
         use crate::game_logic::{KindOf, ThingTemplate};
 
         let (team, source_owner_player_id) = {
@@ -2497,14 +2632,11 @@ impl GameLogic {
             .get(&source_id)
             .map(|o| o.get_position())
             .unwrap_or(target);
-        let dx = target.x - source_pos.x;
-        let dz = target.z - source_pos.z;
-        let dist = (dx * dx + dz * dz).sqrt().max(1.0);
-        let edge = Vec3::new(
-            source_pos.x - dx / dist * 380.0,
-            160.0,
-            source_pos.z - dz / dist * 380.0,
-        );
+        // C++ CREATE_AT_EDGE_NEAR_SOURCE: TerrainLogic::findClosestEdgePoint(owner).
+        let mut edge = self.closest_map_edge_point(source_pos);
+        edge.y = 160.0;
+        let dx = target.x - edge.x;
+        let dz = target.z - edge.z;
         if !self.templates.contains_key(PARADROP_TRANSPORT) {
             let mut t = ThingTemplate::new(PARADROP_TRANSPORT);
             t.set_health(800.0)
@@ -2531,10 +2663,14 @@ impl GameLogic {
         }
         self.host_paradrops.transports_spawned =
             self.host_paradrops.transports_spawned.saturating_add(1);
+        let _ = self.create_delivery_radius_decal_with_radius(tid, target, PARADROP_DECAL_RADIUS);
         Some(tid)
     }
 
     pub fn update_paradrop_cargo_planes(&mut self) {
+        use crate::game_logic::host_deliver_payload::{
+            head_off_map_exit_point_residual, is_off_map_residual,
+        };
         use crate::game_logic::host_paradrop::{
             PARADROP_DELIVERY_DISTANCE, PARADROP_PARACHUTE_CONTAINER,
         };
@@ -2546,6 +2682,7 @@ impl GameLogic {
             .map(|(id, _)| *id)
             .collect();
         let mut drops: Vec<(Team, Option<u32>, Vec3, ObjectId)> = Vec::new();
+        let mut leave = Vec::new();
         for id in tids {
             let Some(o) = self.objects.get_mut(&id) else {
                 continue;
@@ -2554,6 +2691,13 @@ impl GameLogic {
                 continue;
             };
             let pos = o.get_position();
+            let dest_off_map = is_off_map_residual(
+                target,
+                self.world_min.x,
+                self.world_min.z,
+                self.world_max.x,
+                self.world_max.z,
+            );
             let dx = target.x - pos.x;
             let dz = target.z - pos.z;
             let dist = (dx * dx + dz * dz).sqrt();
@@ -2568,13 +2712,37 @@ impl GameLogic {
                 o.movement.velocity = new_pos - pos;
                 o.set_orientation(dz.atan2(dx));
             }
-            if dist <= PARADROP_DELIVERY_DISTANCE {
+            if !dest_off_map && dist <= PARADROP_DELIVERY_DISTANCE {
                 let team = o.team;
                 let owner_player_id = o.owner_player_id;
                 let producer = o.producer_id.unwrap_or(id);
-                o.paradrop_transport_target = None;
+                let exit = head_off_map_exit_point_residual(
+                    new_pos,
+                    dx,
+                    dz,
+                    self.world_min.x,
+                    self.world_min.z,
+                    self.world_max.x,
+                    self.world_max.z,
+                );
+                o.paradrop_transport_target = Some(exit);
+                o.kill_delivery_radius_decal();
                 drops.push((team, owner_player_id, target, producer));
             }
+            if dest_off_map
+                && is_off_map_residual(
+                    new_pos,
+                    self.world_min.x,
+                    self.world_min.z,
+                    self.world_max.x,
+                    self.world_max.z,
+                )
+            {
+                leave.push(id);
+            }
+        }
+        for id in leave {
+            self.mark_object_for_destruction(id, None);
         }
         for (team, owner_player_id, target, producer) in drops {
             // Drop a residual parachute marker over the LZ (infantry still from host_paradrops).
@@ -2625,13 +2793,19 @@ impl GameLogic {
     }
 
     /// C++ SUPERWEAPON_DaisyCutter / SUPERWEAPON_MOAB jet + bomb residual.
+    /// `findOCL` UpgradeOCL SCIENCE_MOAB upgrades a Daisy call to B3 + MOAB
+    /// (DeliveryDistance / PreOpenDistance 160). Explicit Moab tier is kept.
     pub fn spawn_daisy_cutter_flight(
         &mut self,
         source_id: ObjectId,
         target: Vec3,
         tier: crate::game_logic::host_daisy_cutter_flight::DaisyFlightPayloadTier,
     ) -> Option<ObjectId> {
-        use crate::game_logic::host_daisy_cutter_flight::HostDaisyCutterFlightData;
+        use crate::game_logic::host_daisy_cutter_flight::{
+            DaisyFlightPayloadTier, HostDaisyCutterFlightData,
+        };
+        use crate::game_logic::host_ocl_special_power::{find_ocl_name, peel_for_special_power};
+        use crate::game_logic::host_replace_object_upgrade::grant_science_for_upgrade;
         use crate::game_logic::{KindOf, ThingTemplate};
 
         let team = self
@@ -2644,14 +2818,45 @@ impl GameLogic {
             .get(&source_id)
             .map(|o| o.get_position())
             .unwrap_or(target);
-        let dx = target.x - source_pos.x;
-        let dz = target.z - source_pos.z;
-        let dist = (dx * dx + dz * dz).sqrt().max(1.0);
-        let edge = Vec3::new(
-            source_pos.x - dx / dist * 360.0,
-            160.0,
-            source_pos.z - dz / dist * 360.0,
-        );
+        // C++ CREATE_AT_EDGE_NEAR_SOURCE: TerrainLogic::findClosestEdgePoint(owner).
+        let mut edge = self.closest_map_edge_point(source_pos);
+        edge.y = 160.0;
+        let dx = target.x - edge.x;
+        let dz = target.z - edge.z;
+        // C++ findOCL: first owned UpgradeOCL science wins. SCIENCE_MOAB is
+        // granted by Upgrade_AmericaMOAB (same SPECIAL_DAISY_CUTTER click).
+        let tier = {
+            let unlocked: Vec<String> = self
+                .objects
+                .get(&source_id)
+                .and_then(|obj| self.player_owner_for_host_object(obj))
+                .and_then(|pid| self.get_player(pid))
+                .map(|p| {
+                    let mut names: Vec<String> = p.unlocked_sciences.iter().cloned().collect();
+                    names.extend(p.completed_upgrades.iter().cloned());
+                    for u in &p.completed_upgrades {
+                        if let Some(sci) = grant_science_for_upgrade(u) {
+                            names.push(sci.to_string());
+                        }
+                    }
+                    names
+                })
+                .unwrap_or_default();
+            let from_ocl = peel_for_special_power("SuperweaponDaisyCutter")
+                .map(|peel| {
+                    let ocl = find_ocl_name(peel, |s| {
+                        unlocked.iter().any(|u| u.eq_ignore_ascii_case(s))
+                    });
+                    DaisyFlightPayloadTier::from_ocl_name(ocl)
+                })
+                .unwrap_or(tier);
+            // findOCL SCIENCE_MOAB upgrades Daisy; explicit Moab tier is kept.
+            if from_ocl == DaisyFlightPayloadTier::Moab {
+                from_ocl
+            } else {
+                tier
+            }
+        };
         let transport = tier.transport();
         let bomb = tier.bomb();
         if !self.templates.contains_key(transport) {
@@ -2669,10 +2874,18 @@ impl GameLogic {
         let tid = self.create_object(transport, team, edge)?;
         if let Some(o) = self.objects.get_mut(&tid) {
             o.note_producer(source_id);
-            o.daisy_cutter_transport = Some(HostDaisyCutterFlightData::start(edge, target, tier));
+            let mut data = HostDaisyCutterFlightData::start(edge, target, tier);
+            data.map_min = self.world_min;
+            data.map_max = self.world_max;
+            o.daisy_cutter_transport = Some(data);
             o.set_orientation(dz.atan2(dx));
         }
         self.daisy_cutter_flight_reg.record_transport(tier);
+        let _ = self.create_delivery_radius_decal_with_radius(
+            tid,
+            target,
+            crate::game_logic::special_power_strikes::DAISY_CUTTER_RADIUS_CURSOR,
+        );
         Some(tid)
     }
 
@@ -2687,6 +2900,9 @@ impl GameLogic {
             .map(|(id, _)| *id)
             .collect();
         let mut drops: Vec<(Team, Vec3, ObjectId, DaisyFlightPayloadTier)> = Vec::new();
+        let mut leave = Vec::new();
+        let world_min = self.world_min;
+        let world_max = self.world_max;
         for id in tids {
             let Some(o) = self.objects.get_mut(&id) else {
                 continue;
@@ -2695,21 +2911,37 @@ impl GameLogic {
             let Some(data) = o.daisy_cutter_transport.as_mut() else {
                 continue;
             };
-            let (new_pos, vel, over) = data.tick_transport(pos);
+            if !data.map_extent_ok() {
+                data.map_min = world_min;
+                data.map_max = world_max;
+            }
+            let should_drop = !data.delivery_complete && data.in_delivery_band(pos);
+            if should_drop {
+                data.delivery_complete = true;
+            }
+            let (new_pos, vel, at_exit) = data.tick_transport(pos);
             let target = data.target;
             let tier = data.tier;
             let _ = data;
+            if should_drop {
+                o.kill_delivery_radius_decal();
+            }
             o.set_position(new_pos);
             o.movement.velocity = vel;
             if vel.length_squared() > 1e-6 {
                 o.set_orientation(vel.z.atan2(vel.x));
             }
-            if over {
+            if should_drop {
                 let team = o.team;
                 let producer = o.producer_id.unwrap_or(id);
-                o.daisy_cutter_transport = None;
                 drops.push((team, target, producer, tier));
             }
+            if at_exit {
+                leave.push(id);
+            }
+        }
+        for id in leave {
+            self.mark_object_for_destruction(id, None);
         }
         for (team, target, producer, tier) in drops {
             let bomb = tier.bomb();
@@ -2784,35 +3016,61 @@ impl GameLogic {
         }
     }
 
-    /// C++ SUPERWEAPON_AnthraxBomb GLAJetCargoPlane + AnthraxBomb residual.
+    /// C++ SUPERWEAPON_AnthraxBomb / AnthraxBombGamma GLAJetCargoPlane residual.
     pub fn spawn_anthrax_bomb_flight(
         &mut self,
         source_id: ObjectId,
         target: Vec3,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_anthrax_bomb_flight::{
-            AnthraxBombPayloadTier, HostAnthraxBombFlightData, ANTHRAX_TRANSPORT,
+            AnthraxBombPayloadTier, HostAnthraxBombFlightData, ANTHRAX_BOMB_GAMMA_OBJECT,
+            ANTHRAX_TRANSPORT,
+        };
+        use crate::game_logic::host_ocl_special_power::{
+            deliver_payload_for_ocl, resolve_anthrax_bomb_ocl,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
-        let team = self
-            .objects
-            .get(&source_id)
-            .map(|o| o.team)
-            .unwrap_or(Team::Neutral);
-        let source_pos = self
-            .objects
-            .get(&source_id)
-            .map(|o| o.get_position())
-            .unwrap_or(target);
-        let dx = target.x - source_pos.x;
-        let dz = target.z - source_pos.z;
-        let dist = (dx * dx + dz * dz).sqrt().max(1.0);
-        let edge = Vec3::new(
-            source_pos.x - dx / dist * 340.0,
-            150.0,
-            source_pos.z - dz / dist * 340.0,
+        let (team, source_pos, owner_pid, source_template) =
+            if let Some(o) = self.objects.get(&source_id) {
+                (
+                    o.team,
+                    o.get_position(),
+                    o.owner_player_id,
+                    o.template_name.clone(),
+                )
+            } else {
+                (Team::Neutral, target, None, String::new())
+            };
+        let mut names: Vec<String> = Vec::new();
+        if let Some(pid) = owner_pid {
+            if let Some(p) = self.players.get(&pid) {
+                names.extend(p.unlocked_sciences.iter().cloned());
+                names.extend(p.completed_upgrades.iter().cloned());
+            }
+            if let Some(ident) = self.player_template_identity(pid) {
+                names.push(ident.template_name.clone());
+            }
+        }
+        names.push(source_template.clone());
+        // C++ Chem_GLACommandCenter default OCL=SUPERWEAPON_AnthraxBombGamma.
+        // Leftover findOCL + Chem identity; never hardcode Base.
+        let ocl = resolve_anthrax_bomb_ocl(
+            &source_template,
+            names.iter().map(|s| s.as_str()),
         );
+        let mut tier = AnthraxBombPayloadTier::from_ocl(ocl);
+        if let Some(deliver) = deliver_payload_for_ocl(ocl) {
+            tier = AnthraxBombPayloadTier::from_ocl(&deliver.ocl_name);
+            if deliver.payload.eq_ignore_ascii_case(ANTHRAX_BOMB_GAMMA_OBJECT) {
+                tier = AnthraxBombPayloadTier::Gamma;
+            }
+        }
+        // C++ CREATE_AT_EDGE_NEAR_SOURCE: TerrainLogic::findClosestEdgePoint(owner).
+        let mut edge = self.closest_map_edge_point(source_pos);
+        edge.y = 150.0;
+        let dx = target.x - edge.x;
+        let dz = target.z - edge.z;
         if !self.templates.contains_key(ANTHRAX_TRANSPORT) {
             let mut t = ThingTemplate::new(ANTHRAX_TRANSPORT);
             t.set_health(600.0)
@@ -2820,12 +3078,19 @@ impl GameLogic {
                 .add_kind_of(KindOf::Vehicle);
             self.templates.insert(ANTHRAX_TRANSPORT.to_string(), t);
         }
-        let tier = AnthraxBombPayloadTier::Base;
         let bomb = tier.bomb();
         if !self.templates.contains_key(bomb) {
             let mut t = ThingTemplate::new(bomb);
             t.set_health(80.0).add_kind_of(KindOf::Projectile);
             self.templates.insert(bomb.to_string(), t);
+        }
+        if matches!(tier, AnthraxBombPayloadTier::Gamma)
+            && !self.templates.contains_key(ANTHRAX_BOMB_GAMMA_OBJECT)
+        {
+            let mut t = ThingTemplate::new(ANTHRAX_BOMB_GAMMA_OBJECT);
+            t.set_health(80.0).add_kind_of(KindOf::Projectile);
+            self.templates
+                .insert(ANTHRAX_BOMB_GAMMA_OBJECT.to_string(), t);
         }
         let tid = self.create_object(ANTHRAX_TRANSPORT, team, edge)?;
         if let Some(o) = self.objects.get_mut(&tid) {
@@ -2838,6 +3103,11 @@ impl GameLogic {
             o.set_orientation(dz.atan2(dx));
         }
         self.anthrax_bomb_flight_reg.record_transport();
+        let _ = self.create_delivery_radius_decal_with_radius(
+            tid,
+            target,
+            crate::game_logic::host_anthrax_bomb_flight::ANTHRAX_DELIVERY_DECAL_RADIUS,
+        );
         Some(tid)
     }
 }
@@ -2886,5 +3156,13 @@ mod garrison_evac_door_tests {
             "burst dest must leave origin, not a 6-unit ring: dest={dest:?}"
         );
         assert!((p.get_position() - origin).length() < 2.0);
+        assert_eq!(
+            p.safe_occlusion_frame,
+            logic.frame
+                + crate::game_logic::host_gamedata_lobby_residual::DEFAULT_OCCLUSION_DELAY_FRAMES_RESIDUAL
+                    as u32,
+            "GarrisonContain::onRemoving must stamp OcclusionDelay"
+        );
+
     }
 }

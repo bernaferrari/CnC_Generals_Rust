@@ -126,6 +126,12 @@ impl GameLogic {
                 let Some(obj) = self.objects.get_mut(&pid) else {
                     continue;
                 };
+                if obj.script_unstealthed {
+                    if obj.status.stealthed {
+                        obj.break_stealth();
+                    }
+                    continue;
+                }
                 let moving = matches!(obj.ai_state, AIState::Moving | AIState::AttackMoving)
                     || obj.status.moving;
                 if let Some(desired) = pathfinder_stealth_desired(

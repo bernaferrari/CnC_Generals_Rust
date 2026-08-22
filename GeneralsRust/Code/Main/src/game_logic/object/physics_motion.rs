@@ -9,11 +9,11 @@ impl Object {
         self.physics_accel.y += Self::SHOCK_GRAVITY;
     }
 
-    /// C++ AIUpdateInterface::privateMoveAwayFromUnit residual (fail-closed).
+    /// C++ AIUpdateInterface::privateMoveAwayFromUnit residual.
     ///
-    /// No full pathfinder: push destination opposite the threat along XZ and
-    /// enter move-out-of-way window. Re-request while already yielding + blocked
-    /// grants ignore-collisions for 2 seconds (C++ cheat).
+    /// Yield callers install a getMoveAwayFromPath result via
+    /// `apply_move_away_path`. This setter keeps the 10s window for
+    /// repulsor/findSafePath (crates.rs) and the already-yielding cheat.
     pub fn ai_move_away_from_unit(&mut self, threat_id: ObjectId, threat_pos: glam::Vec3) {
         if self.status.destroyed || !self.is_alive() || !self.can_move() {
             return;
@@ -23,12 +23,9 @@ impl Object {
         {
             return;
         }
-        // Already yielding for this threat.
         if self.move_away_from == Some(threat_id) && self.move_away_frames > 0 {
             if self.is_blocked {
-                // C++ setIgnoreCollisionTime(2 sec)
-                self.ignore_collisions_until_frame = self.ignore_collisions_until_frame.max(60); // caller should OR with current frame externally
-                                                                                                 // Store relative: use flag via ignore_collisions_with as well.
+                self.ignore_collisions_until_frame = self.ignore_collisions_until_frame.max(60);
                 self.ignore_collisions_with = Some(threat_id);
             }
             return;
@@ -38,7 +35,6 @@ impl Object {
         let mut dz = us.z - threat_pos.z;
         let len = (dx * dx + dz * dz).sqrt();
         if len < 1.0e-3 {
-            // Coincident: push along our facing.
             let d = self.unit_direction_vector_2d();
             dx = d.x;
             dz = d.y;
@@ -46,15 +42,41 @@ impl Object {
             dx /= len;
             dz /= len;
         }
-        // PATHFIND_CELL_SIZE * ~2 step away residual.
         let step = PATHFIND_CELL_SIZE_F_RESIDUAL * 2.0;
         let dest = glam::Vec3::new(us.x + dx * step, us.y, us.z + dz * step);
         self.move_away_from = Some(threat_id);
         self.move_away_destination = Some(dest);
-        self.move_away_frames = 10 * 30; // 10 seconds temporary state residual
-                                         // Nudge velocity toward dest residual (fail-closed vs full path).
-        self.movement.velocity.x += dx * 0.5;
-        self.movement.velocity.z += dz * 0.5;
+        self.move_away_frames = 10 * 30;
+    }
+
+    /// C++ privateMoveAwayFromUnit after getMoveAwayFromPath succeeds.
+    pub fn apply_move_away_path(&mut self, threat_id: ObjectId, path: &[glam::Vec3]) {
+        if self.status.destroyed || !self.is_alive() || !self.can_move() {
+            return;
+        }
+        if self.is_kind_of(crate::game_logic::KindOf::Immobile)
+            || self.is_kind_of(crate::game_logic::KindOf::Structure)
+        {
+            return;
+        }
+        if self.move_away_from == Some(threat_id) && self.move_away_frames > 0 {
+            if self.is_blocked {
+                self.ignore_collisions_until_frame = self.ignore_collisions_until_frame.max(60);
+                self.ignore_collisions_with = Some(threat_id);
+            }
+            return;
+        }
+        if path.len() < 2 {
+            return;
+        }
+        self.movement.path = path.to_vec();
+        self.movement.current_path_index = 1;
+        self.movement.target_position = path.last().copied();
+        self.set_status_moving(true);
+        self.move_away_from = Some(threat_id);
+        self.move_away_destination = path.last().copied();
+        self.move_away_frames = 10 * 30;
+        self.record_host_movement();
     }
 
     /// Tick move-away temporary state residual.

@@ -65,6 +65,8 @@ pub struct HostFxObjectPose {
     pub position: Coord3D,
     pub transform: Matrix3D,
     pub player_index: i32,
+    /// C++ `Object::getGeometryInfo().getBoundingCircleRadius()` for LightPulse.
+    pub bounding_circle_radius: f32,
 }
 
 

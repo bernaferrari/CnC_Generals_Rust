@@ -52,7 +52,7 @@ pub struct OcclusionCandidate {
 }
 
 impl OcclusionCandidate {
-    pub fn from_renderable(object: &RenderableObject) -> Self {
+    pub fn from_renderable(object: &RenderableObject, current_frame: u32) -> Self {
         let is_structure = object.is_structure;
         Self {
             id: object.id,
@@ -64,7 +64,10 @@ impl OcclusionCandidate {
             // C++ requires `getObject()` plus SCORE / SCORE_CREATE /
             // SCORE_DESTROY / MP_COUNT_FOR_VICTORY. Live host KindOf has no
             // Score bit; combat units are the score-kind roster.
-            is_occludee: !is_structure && (object.is_unit || object.is_mobile),
+            // C++ W3DScene.cpp:474-475: getSafeOcclusionFrame() <= currentFrame.
+            is_occludee: !is_structure
+                && (object.is_unit || object.is_mobile)
+                && object.safe_occlusion_frame <= current_frame,
             destroyed: object.destroyed,
             player_index: object.owner_player_id.map(|id| id as usize).unwrap_or_else(|| {
                 match object.team {
@@ -193,10 +196,11 @@ pub fn classify_from_presentation(
     camera_position: Vec3,
     frame: &PresentationFrame,
 ) -> Vec<OccludedPlayerOverlay> {
+    let current_frame = frame.frame.0;
     let candidates: Vec<OcclusionCandidate> = frame
         .objects
         .iter()
-        .map(OcclusionCandidate::from_renderable)
+        .map(|object| OcclusionCandidate::from_renderable(object, current_frame))
         .collect();
     classify_occluded_player_overlays(camera_position, &candidates)
 }
@@ -594,5 +598,53 @@ mod tests {
         let overlays = classify_occluded_player_overlays(camera, &candidates);
         assert_eq!(overlays.len(), MAX_VISIBLE_OCCLUDED_PLAYER_OBJECTS);
     }
+
+    #[test]
+    fn safe_occlusion_frame_skips_walk_out_unit() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut bunker_t = crate::game_logic::ThingTemplate::new("OccBunker");
+        bunker_t
+            .add_kind_of(crate::game_logic::KindOf::Structure)
+            .set_health(1000.0);
+        logic.templates.insert("OccBunker".into(), bunker_t);
+        let mut pax_t = crate::game_logic::ThingTemplate::new("OccRanger");
+        pax_t
+            .add_kind_of(crate::game_logic::KindOf::Infantry)
+            .add_kind_of(crate::game_logic::KindOf::Selectable)
+            .set_health(100.0);
+        logic.templates.insert("OccRanger".into(), pax_t);
+        let _bunker = logic
+            .create_object(
+                "OccBunker",
+                crate::game_logic::Team::USA,
+                Vec3::new(0.0, 0.0, 50.0),
+            )
+            .unwrap();
+        let pax = logic
+            .create_object(
+                "OccRanger",
+                crate::game_logic::Team::USA,
+                Vec3::ZERO,
+            )
+            .unwrap();
+        if let Some(p) = logic.host_object_mut(pax) {
+            p.stamp_safe_occlusion_frame(logic.frame);
+        }
+        let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0);
+        let camera = Vec3::new(0.0, 0.0, 100.0);
+        let during = classify_from_presentation(camera, &frame);
+        assert!(
+            during.iter().all(|o| o.object_id != pax),
+            "walk-out unit must not silhouette until OcclusionDelay"
+        );
+        let mut later = frame.clone();
+        later.frame = crate::presentation_frame::LogicFrame(logic.frame + 90);
+        let after = classify_from_presentation(camera, &later);
+        assert!(
+            after.iter().any(|o| o.object_id == pax),
+            "after OcclusionDelay the unit is a potential occludee"
+        );
+    }
+
 
 }

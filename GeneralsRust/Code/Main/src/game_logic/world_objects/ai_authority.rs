@@ -52,62 +52,22 @@ impl GameLogic {
                 if let Some(enemy_id) =
                     self.get_next_mood_target(object_id, true, false, is_player)
                 {
-                    use crate::ai_decisions::{AIDecisionSystem, AttackDecision};
-                    return match AIDecisionSystem::should_attack(self, object_id, enemy_id) {
-                        AttackDecision::Attack | AttackDecision::Retreat => {
-                            Some(AICommand::AttackTarget {
-                                object_id,
-                                target_id: enemy_id,
-                            })
-                        }
-                        AttackDecision::FindNewTarget => AIDecisionSystem::find_best_target(
-                            self,
-                            object_id,
-                            position,
-                            team,
-                            9999.9,
-                            true,
-                            true,
-                            false,
-                        )
-                        .map(|better_target| AICommand::AttackTarget {
-                            object_id,
-                            target_id: better_target,
-                        }),
-                        AttackDecision::Hold => None,
-                    };
+                    // C++ AIAttackMoveToState::update: friend_endingMove +
+                    // setGoalObject + AI_ATTACK_OBJECT. No Hold / FindNewTarget
+                    // second opinion (hq-6p7c2).
+                    return Some(AICommand::AttackTarget {
+                        object_id,
+                        target_id: enemy_id,
+                    });
                 }
             }
-            return None;
+            return self.tick_attack_move_blocked_progress(object_id, frame);
         }
 
         // C++ AIAttackState / AIIdleState never auto-retreat on low HP.
         // Mood targeting (getNextMoodTarget) only issues aiAttackObject.
-        let evaluate_enemy = |enemy_id: ObjectId, search_radius: f32| -> Option<AICommand> {
-            use crate::ai_decisions::{AIDecisionSystem, AttackDecision};
 
-            match AIDecisionSystem::should_attack(self, object_id, enemy_id) {
-                AttackDecision::Attack | AttackDecision::Retreat => Some(AICommand::AttackTarget {
-                    object_id,
-                    target_id: enemy_id,
-                }),
-                AttackDecision::FindNewTarget => AIDecisionSystem::find_best_target(
-                    self,
-                    object_id,
-                    position,
-                    team,
-                    search_radius,
-                    true,
-                    true,
-                    false,
-                )
-                .map(|better_target| AICommand::AttackTarget {
-                    object_id,
-                    target_id: better_target,
-                }),
-                AttackDecision::Hold => None,
-            }
-        };
+
 
 
         match ai_state {
@@ -162,25 +122,112 @@ impl GameLogic {
             }
 
             AIState::Patrolling => {
-                // C++ AIHuntState::update — stay in Hunt and rescan map-wide.
-                // Leave Hunt only when neither player Hunt nor unitsShouldHunt.
+                // C++ AIHuntState::update — map-wide seek-and-destroy.
                 if can_attack && !ai_auto_engage_paused && should_scan(30) {
+                    let units_should_hunt = self.object_units_should_hunt(object_id);
+                    let has_priority = self.attack_priority_info_for(object_id).is_some();
                     let team_victim = self.host_team_common_target(object_id);
-                    let enemy_id = if let Some(tid) = team_victim {
-                        Some(tid)
+                    let victim = if team_victim.is_some() && !has_priority {
+
+                        team_victim
                     } else {
-                        self.find_closest_enemy(
+                        let mut scanned = self.find_closest_enemy(
                             object_id,
                             9999.9,
                             crate::game_logic::find_enemy_flags::CAN_ATTACK,
-                        )
+                        );
+                        if scanned.is_none() && units_should_hunt {
+                            scanned = self.find_closest_enemy_ignoring_priority(
+                                object_id,
+                                9999.9,
+                                crate::game_logic::find_enemy_flags::CAN_ATTACK,
+                            );
+                        }
+                        if let (Some(team_id), Some(scanned_id)) = (team_victim, scanned) {
+                            if has_priority {
+                                let team_pri = self
+                                    .objects
+                                    .get(&team_id)
+                                    .and_then(|t| {
+                                        self.attack_priority_info_for(object_id).map(|info| {
+                                            self.attack_priority_for_target(info, t)
+                                        })
+                                    })
+                                    .unwrap_or(0);
+                                let scan_pri = self
+                                    .objects
+                                    .get(&scanned_id)
+                                    .and_then(|t| {
+                                        self.attack_priority_info_for(object_id).map(|info| {
+                                            self.attack_priority_for_target(info, t)
+                                        })
+                                    })
+                                    .unwrap_or(0);
+                                if team_pri >= scan_pri {
+                                    Some(team_id)
+                                } else {
+                                    Some(scanned_id)
+                                }
+                            } else {
+                                scanned
+                            }
+                        } else if scanned.is_none() {
+                            team_victim
+                        } else {
+                            scanned
+                        }
                     };
-                    if let Some(enemy_id) = enemy_id {
+                    if team_victim.is_none() || has_priority {
+                        // C++ writes setTeamTargetObject every hunt scan when
+                        // attackCommonTarget (refresh or clear).
+                        if self.team_wants_common_attack(object_id) {
+                            self.set_host_team_common_target(object_id, victim);
+                        }
+                    }
+                    let evaluate_enemy = |enemy_id: ObjectId, search_radius: f32| -> Option<AICommand> {
+                        use crate::ai_decisions::{AIDecisionSystem, AttackDecision};
+
+                        match AIDecisionSystem::should_attack(self, object_id, enemy_id) {
+                            AttackDecision::Attack | AttackDecision::Retreat => Some(AICommand::AttackTarget {
+                                object_id,
+                                target_id: enemy_id,
+                            }),
+                            AttackDecision::FindNewTarget => AIDecisionSystem::find_best_target(
+                                self,
+                                object_id,
+                                position,
+                                team,
+                                search_radius,
+                                true,
+                                true,
+                                false,
+                            )
+                            .map(|better_target| AICommand::AttackTarget {
+                                object_id,
+                                target_id: better_target,
+                            }),
+                            AttackDecision::Hold => None,
+                        }
+                    };
+                    if let Some(enemy_id) = victim {
                         return evaluate_enemy(enemy_id, 9999.9);
+                    }
+                    if !units_should_hunt && target_id.is_none() {
+                        if let Some(o) = self.objects.get_mut(&object_id) {
+                            o.hunting = false;
+                            o.release_weapon_lock(
+                                crate::game_logic::WeaponLockType::LockedTemporarily,
+                            );
+                        }
+                        return Some(AICommand::SetAIState {
+                            object_id,
+                            state: AIState::Idle,
+                        });
                     }
                 }
                 None
             }
+
 
             AIState::GuardingArea | AIState::GuardingObject => {
                 // Guarding states are resolved in update_support_states() where guard anchors/radii
@@ -309,6 +356,33 @@ impl GameLogic {
     /// Clear engagement, honoring AI decision authority (log-only when GameWorld applies).
     ///
     /// Player `command_stop` should call [`Object::stop_attack`] directly for same-frame UX.
+    fn object_units_should_hunt(&self, object_id: ObjectId) -> bool {
+        let Some(obj) = self.objects.get(&object_id) else {
+            return false;
+        };
+        obj.owner_player_id
+            .and_then(|pid| self.players.get(&pid))
+            .map(|p| p.units_should_hunt)
+            .unwrap_or(false)
+    }
+
+    fn find_closest_enemy_ignoring_priority(
+        &mut self,
+        unit_id: ObjectId,
+        range: f32,
+        qualifiers: u32,
+    ) -> Option<ObjectId> {
+        let saved = self
+            .objects
+            .get_mut(&unit_id)
+            .and_then(|o| o.attack_priority_set.take());
+        let found = self.find_closest_enemy(unit_id, range, qualifiers);
+        if let Some(o) = self.objects.get_mut(&unit_id) {
+            o.attack_priority_set = saved;
+        }
+        found
+    }
+
     pub(in super::super) fn stop_attack_decision_aware(&mut self, unit_id: ObjectId) {
         // Always clear host combat engagement immediately so mid-frame fire stops.
         // Log under decision authority for GameWorld last-write parity.
@@ -593,6 +667,73 @@ impl GameLogic {
         self.set_ai_state_decision_aware(unit_id, state);
     }
 
+    /// C++ `AIAttackMoveToState::update` retry / 3s-sleep / close-enough
+    /// (AIStates.cpp:3631-3656). Mood engage already ran this frame.
+    fn tick_attack_move_blocked_progress(
+        &mut self,
+        object_id: ObjectId,
+        frame: u32,
+    ) -> Option<AICommand> {
+        // C++ ATTACK_RETRY_COUNT=5, ATTACK_CLOSE_ENOUGH_CELLS=8,
+        // PATHFIND_CELL_SIZE_F=10, 3*LOGICFRAMES_PER_SECOND=90.
+        const CLOSE_ENOUGH: f32 = 8.0 * 10.0;
+        const SLEEP_FRAMES: u32 = 90;
+
+        let Some(obj) = self.objects.get(&object_id) else {
+            return None;
+        };
+        let sleep_until = obj.attack_move_sleep_until;
+        let dest = obj.requested_destination;
+        let pos = obj.get_position();
+        let retry = obj.attack_move_retry_count;
+        let waiting = obj.waiting_for_path;
+        let has_move_goal = obj.movement.target_position.is_some();
+
+        if sleep_until > frame {
+            if let Some(o) = self.objects.get_mut(&object_id) {
+                o.movement.velocity = Vec3::ZERO;
+                o.set_status_moving(false);
+            }
+            return None;
+        }
+
+        let mut moving = waiting || has_move_goal;
+        if sleep_until == frame {
+            if let Some(goal) = dest {
+                moving = self.assign_unit_path(object_id, goal, &[]);
+                if let Some(o) = self.objects.get_mut(&object_id) {
+                    if o.is_attack_path {
+                        o.set_ai_state(AIState::AttackMoving);
+                    }
+                }
+            }
+        }
+
+        if moving {
+            return None;
+        }
+        let Some(goal) = dest else {
+            return None;
+        };
+        let dx = pos.x - goal.x;
+        let dz = pos.z - goal.z;
+        let dist_sqr = dx * dx + dz * dz;
+        if dist_sqr < CLOSE_ENOUGH * CLOSE_ENOUGH || retry < 1 {
+            return Some(AICommand::SetAIState {
+                object_id,
+                state: AIState::Idle,
+            });
+        }
+        if let Some(o) = self.objects.get_mut(&object_id) {
+            o.attack_move_retry_count = retry - 1;
+            o.attack_move_sleep_until = frame.saturating_add(SLEEP_FRAMES);
+            o.movement.velocity = Vec3::ZERO;
+            o.movement.target_position = None;
+            o.set_status_moving(false);
+        }
+        None
+    }
+
     pub(in super::super) fn apply_engagement_decision_aware(
         &mut self,
         unit_id: ObjectId,
@@ -803,8 +944,41 @@ mod hq_m6gcj_tests {
     }
 
     #[test]
-    fn hunt_without_victim_stays_in_hunt() {
+    fn hunt_without_victim_exits_when_units_should_hunt_false() {
         let mut logic = GameLogic::new();
+        let command = logic.process_ai_behavior(
+            ObjectId(1),
+            AIState::Patrolling,
+            None,
+            Vec3::ZERO,
+            Team::USA,
+            true,
+            30,
+            1.0 / 30.0,
+        );
+        assert!(
+            matches!(
+                command,
+                Some(AICommand::SetAIState {
+                    state: AIState::Idle,
+                    ..
+                })
+            ),
+            "regular Hunt exits to Idle after map-clear; got {command:?}"
+        );
+    }
+
+    #[test]
+    fn hunt_without_victim_stays_when_units_should_hunt() {
+        let mut logic = GameLogic::new();
+        let mut player = Player::new(1, Team::USA, "USA AI", false);
+        player.units_should_hunt = true;
+        logic.players.insert(1, player);
+        let mut hunter = Object::new(ThingTemplate::new("Hunter"), ObjectId(1), Team::USA);
+        hunter.owner_player_id = Some(1);
+        hunter.hunting = true;
+        hunter.set_ai_state(AIState::Patrolling);
+        logic.objects.insert(hunter.id, hunter);
         let command = logic.process_ai_behavior(
             ObjectId(1),
             AIState::Patrolling,
@@ -823,9 +997,10 @@ mod hq_m6gcj_tests {
                     ..
                 })
             ),
-            "Hunt must not drop to Idle when no victim is visible; got {command:?}"
+            "PLAYER_HUNT stays in hunt with no victims; got {command:?}"
         );
     }
+
 
     #[test]
     fn attack_moving_jet_out_of_special_reload_ammo_returns_to_base() {
@@ -970,4 +1145,240 @@ mod hq_m6gcj_tests {
             assert_eq!(tank.movement.target_position, Some(dest));
         }
     }
+
+    fn attack_move_unit(id: u32, dest: Vec3) -> Object {
+        let mut tmpl = ThingTemplate::new("AtkMv");
+        tmpl.add_kind_of(KindOf::Infantry);
+        tmpl.add_kind_of(KindOf::Attackable);
+        let mut unit = Object::new(tmpl, ObjectId(id), Team::USA);
+        unit.set_position(Vec3::ZERO);
+        unit.set_ai_state(AIState::AttackMoving);
+        unit.is_attack_path = true;
+        unit.requested_destination = Some(dest);
+        unit.attack_move_retry_count = 5;
+        unit.attack_move_sleep_until = 0;
+        unit.ai_attitude = 0;
+        unit.vision_range = 200.0;
+        unit.next_mood_check_time = 0;
+        unit.weapon = Some(Weapon {
+            range: 50.0,
+            damage: 10.0,
+            can_target_ground: true,
+            ..Weapon::default()
+        });
+        unit
+    }
+
+    fn attack_move_enemy(id: u32, pos: Vec3) -> Object {
+        let mut tmpl = ThingTemplate::new("AtkMvEnemy");
+        tmpl.add_kind_of(KindOf::Infantry);
+        tmpl.add_kind_of(KindOf::Attackable);
+        let mut enemy = Object::new(tmpl, ObjectId(id), Team::GLA);
+        enemy.set_position(pos);
+        enemy
+    }
+
+    /// hq-6p7c2: mood victim is engaged even when should_attack would Hold
+    /// (distance > weapon.range * 1.5).
+    #[test]
+    fn attack_move_mood_target_skips_should_attack_hold() {
+        let mut logic = GameLogic::new();
+        logic.objects.insert(ObjectId(1), attack_move_unit(1, Vec3::new(400.0, 0.0, 0.0)));
+        logic.objects.insert(ObjectId(2), attack_move_enemy(2, Vec3::new(90.0, 0.0, 0.0)));
+        let command = logic.process_ai_behavior(
+            ObjectId(1),
+            AIState::AttackMoving,
+            None,
+            Vec3::ZERO,
+            Team::USA,
+            true,
+            20,
+            1.0 / 30.0,
+        );
+        assert!(
+            matches!(
+                command,
+                Some(AICommand::AttackTarget {
+                    object_id: ObjectId(1),
+                    target_id: ObjectId(2),
+                })
+            ),
+            "attack-move must engage the mood victim without Hold wrap; got {command:?}"
+        );
+    }
+
+    /// hq-65aus: blocked / unfinished dest sleeps 3s and decrements retry.
+    #[test]
+    fn attack_move_blocked_path_sleeps_three_seconds() {
+        let dest = Vec3::new(200.0, 0.0, 0.0);
+        let mut logic = GameLogic::new();
+        logic.objects.insert(ObjectId(1), attack_move_unit(1, dest));
+        let command = logic.process_ai_behavior(
+            ObjectId(1),
+            AIState::AttackMoving,
+            None,
+            Vec3::ZERO,
+            Team::USA,
+            true,
+            21,
+            1.0 / 30.0,
+        );
+        assert!(command.is_none(), "sleep start is CONTINUE; got {command:?}");
+        let unit = logic.objects.get(&ObjectId(1)).expect("unit");
+        assert_eq!(unit.attack_move_retry_count, 4);
+        assert_eq!(unit.attack_move_sleep_until, 111);
+        assert_eq!(unit.ai_state, AIState::AttackMoving);
+        assert!(unit.movement.target_position.is_none());
+        assert_eq!(unit.requested_destination, Some(dest));
+    }
+
+    /// hq-65aus: after ATTACK_RETRY_COUNT sleeps, still-far dest gives up.
+    #[test]
+    fn attack_move_blocked_path_gives_up_after_five_retries() {
+        let mut logic = GameLogic::new();
+        let mut unit = attack_move_unit(1, Vec3::new(200.0, 0.0, 0.0));
+        unit.attack_move_retry_count = 0;
+        logic.objects.insert(ObjectId(1), unit);
+        let command = logic.process_ai_behavior(
+            ObjectId(1),
+            AIState::AttackMoving,
+            None,
+            Vec3::ZERO,
+            Team::USA,
+            true,
+            21,
+            1.0 / 30.0,
+        );
+        assert!(
+            matches!(
+                command,
+                Some(AICommand::SetAIState {
+                    state: AIState::Idle,
+                    ..
+                })
+            ),
+            "exhausted retries must leave attack-move; got {command:?}"
+        );
+    }
+
+    /// hq-65aus: within 8 pathfind cells, accept the move result.
+    #[test]
+    fn attack_move_close_enough_does_not_retry() {
+        let mut logic = GameLogic::new();
+        logic
+            .objects
+            .insert(ObjectId(1), attack_move_unit(1, Vec3::new(50.0, 0.0, 0.0)));
+        let command = logic.process_ai_behavior(
+            ObjectId(1),
+            AIState::AttackMoving,
+            None,
+            Vec3::ZERO,
+            Team::USA,
+            true,
+            21,
+            1.0 / 30.0,
+        );
+        assert!(
+            matches!(
+                command,
+                Some(AICommand::SetAIState {
+                    state: AIState::Idle,
+                    ..
+                })
+            ),
+            "close-enough dest must not sleep/retry; got {command:?}"
+        );
+    }
+
+    /// hq-65aus: during the 3s sleep the unit can still mood-attack.
+    #[test]
+    fn attack_move_sleep_still_mood_attacks() {
+        let mut logic = GameLogic::new();
+        let mut unit = attack_move_unit(1, Vec3::new(400.0, 0.0, 0.0));
+        unit.attack_move_sleep_until = 200;
+        unit.attack_move_retry_count = 3;
+        logic.objects.insert(ObjectId(1), unit);
+        logic.objects.insert(ObjectId(2), attack_move_enemy(2, Vec3::new(40.0, 0.0, 0.0)));
+        let command = logic.process_ai_behavior(
+            ObjectId(1),
+            AIState::AttackMoving,
+            None,
+            Vec3::ZERO,
+            Team::USA,
+            true,
+            20,
+            1.0 / 30.0,
+        );
+        assert!(
+            matches!(
+                command,
+                Some(AICommand::AttackTarget {
+                    object_id: ObjectId(1),
+                    target_id: ObjectId(2),
+                })
+            ),
+            "sleep must not block mood engage; got {command:?}"
+        );
+        let unit = logic.objects.get(&ObjectId(1)).expect("unit");
+        assert_eq!(unit.attack_move_retry_count, 3);
+        assert_eq!(unit.attack_move_sleep_until, 200);
+    }
+
+    #[test]
+    fn hunt_scan_prefers_higher_priority_over_team_victim() {
+        let mut logic = GameLogic::new();
+        let mut info = AttackPriorityInfo::new("HuntPrio");
+        info.default_priority = 1;
+        info.set_priority_template("Dozer", 5);
+        info.set_priority_template("Tank", 80);
+        logic.register_attack_priority_set(info);
+
+        let mut hunter = Object::new(ThingTemplate::new("Hunter"), ObjectId(1), Team::USA);
+        hunter.team_instance_name = "teamUSA".into();
+        hunter.attack_priority_set = Some("HuntPrio".into());
+        hunter.weapon = Some(Weapon {
+            range: 150.0,
+            damage: 10.0,
+            ..Weapon::default()
+        });
+        hunter.hunting = true;
+        hunter.set_ai_state(AIState::Patrolling);
+        hunter.set_position(Vec3::ZERO);
+
+        let mut dozer = Object::new(ThingTemplate::new("Dozer"), ObjectId(2), Team::GLA);
+        dozer.set_position(Vec3::new(10.0, 0.0, 0.0));
+        let mut tank = Object::new(ThingTemplate::new("Tank"), ObjectId(3), Team::GLA);
+        tank.set_position(Vec3::new(40.0, 0.0, 0.0));
+        logic.objects.insert(hunter.id, hunter);
+        logic.objects.insert(dozer.id, dozer);
+        logic.objects.insert(tank.id, tank);
+        logic.set_host_team_common_target(ObjectId(1), Some(ObjectId(2)));
+
+        let command = logic.process_ai_behavior(
+            ObjectId(1),
+            AIState::Patrolling,
+            None,
+            Vec3::ZERO,
+            Team::USA,
+            true,
+            30,
+            1.0 / 30.0,
+        );
+        assert!(
+            matches!(
+                command,
+                Some(AICommand::AttackTarget {
+                    target_id: ObjectId(3),
+                    ..
+                })
+            ),
+            "hunt must retarget higher-priority tank; got {command:?}"
+        );
+        assert_eq!(
+            logic.host_team_common_target(ObjectId(1)),
+            Some(ObjectId(3))
+        );
+    }
+
+
 }

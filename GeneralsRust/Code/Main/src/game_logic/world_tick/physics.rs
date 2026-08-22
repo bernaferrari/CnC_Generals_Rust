@@ -348,7 +348,7 @@ impl GameLogic {
             Some(a) => a.ai_process_collision(&b_snap, frame, is_ally),
             None => return false,
         };
-        let (req_away, a_pos) = {
+        let req_away = {
             let Some(a) = self.objects.get_mut(&a_id) else {
                 return false;
             };
@@ -356,18 +356,68 @@ impl GameLogic {
             if a.is_blocked {
                 a.apply_blocked_speed_cap();
             }
-            let req = a.request_other_move_away.take();
-            (req, a.get_position())
+            a.request_other_move_away.take()
         };
         if let Some(other_id) = req_away {
-            if let Some(other) = self.objects.get_mut(&other_id) {
-                other.ai_move_away_from_unit(a_id, a_pos);
-                // Absolute ignore-until frame (2 sec residual if already yielding later).
-                if other.ignore_collisions_until_frame > 0
-                    && other.ignore_collisions_until_frame < 100_000
-                {
-                    // relative sentinel → absolute
-                    other.ignore_collisions_until_frame = frame.saturating_add(60);
+            let a_path = self
+                .objects
+                .get(&a_id)
+                .map(|a| a.movement.path.clone())
+                .unwrap_or_default();
+            let a_radius = self
+                .objects
+                .get(&a_id)
+                .map(|a| a.selection_radius)
+                .unwrap_or(0.0);
+            if a_path.len() >= 2 {
+                if let Some(other) = self.objects.get(&other_id) {
+                    let from = other.get_position();
+                    let surfaces = if other.locomotor_surfaces != 0 {
+                        other.locomotor_surfaces
+                    } else {
+                        gamelogic::ai::pathfind_complete::SURFACE_GROUND
+                    };
+                    let is_crusher = other.crusher_level > 0;
+                    let unit_radius = other.selection_radius;
+                    let seeker_player = other.owner_player_id.or(Some(other.team as u32));
+                    let crusher_level = other.crusher_level;
+                    let can_tunnel = other.can_path_through_units;
+                    let mut yield_path = self.pathfinding_system.get_move_away_from_path(
+                        from,
+                        &a_path,
+                        None,
+                        surfaces,
+                        is_crusher,
+                        unit_radius,
+                        a_radius,
+                        seeker_player,
+                        crusher_level,
+                        false,
+                    );
+                    if yield_path.is_none() && !can_tunnel {
+                        yield_path = self.pathfinding_system.get_move_away_from_path(
+                            from,
+                            &a_path,
+                            None,
+                            surfaces,
+                            is_crusher,
+                            unit_radius,
+                            a_radius,
+                            seeker_player,
+                            crusher_level,
+                            true,
+                        );
+                    }
+                    if let Some(path) = yield_path {
+                        if let Some(other) = self.objects.get_mut(&other_id) {
+                            other.apply_move_away_path(a_id, &path);
+                            if other.ignore_collisions_until_frame > 0
+                                && other.ignore_collisions_until_frame < 100_000
+                            {
+                                other.ignore_collisions_until_frame = frame.saturating_add(60);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -576,16 +626,15 @@ impl GameLogic {
             .get(&vehicle_id)
             .map(|o| o.get_position())
             .unwrap_or(glam::Vec3::ZERO);
-        // Residual temp weapon: deal explosion damage to vehicle (and mark crash).
-        // Fail-closed vs full WeaponStore::createAndFireTempWeapon OCL/FX matrix.
-        const CRASH_DAMAGE: f32 = 100.0;
-        if let Some(v) = self.objects.get_mut(&vehicle_id) {
-            let _ = v.take_damage_from_typed(
-                CRASH_DAMAGE,
-                Some(vehicle_id),
-                crate::game_logic::combat::DamageType::Explosive,
-            );
-        }
+        // C++ TheWeaponStore->createAndFireTempWeapon(template, obj, pos)
+        // then destroyObject for structures (PhysicsUpdate.cpp:1361-1364).
+        let spec = crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadEphemeralWeaponSpec {
+            module_source_index: 0,
+            weapon_template_name: weapon.to_string(),
+            weapon_slot:
+                crate::game_logic::host_temporary_weapon_behavior::TemporaryWeaponSlot::Primary,
+        };
+        let _ = self.create_and_fire_temp_weapon(vehicle_id, &spec);
         if vehicle_crash_destroys_vehicle(outcome) {
             if let Some(v) = self.objects.get_mut(&vehicle_id) {
                 // Damage authority: HP last-writer via damage log; destroy flag stays host.
@@ -619,6 +668,42 @@ impl GameLogic {
             );
         }
         Some(weapon)
+    }
+
+    /// C++ `OpenContain::getContainedItemsMass` walk — refresh hull cache so
+    /// `Object::physics_get_mass` matches `m_mass + contain->getContainedItemsMass()`.
+    pub fn sync_contained_items_mass(&mut self, container_id: ObjectId) {
+        let occ = self
+            .objects
+            .get(&container_id)
+            .map(|o| o.contained_units())
+            .unwrap_or_default();
+        let mut mass = 0.0;
+        for oid in occ {
+            if oid == container_id {
+                continue;
+            }
+            self.sync_contained_items_mass(oid);
+            if let Some(o) = self.objects.get(&oid) {
+                mass += o.physics_get_mass();
+            }
+        }
+        if let Some(c) = self.objects.get_mut(&container_id) {
+            c.contained_items_mass = mass;
+        }
+    }
+
+    /// Refresh cargo mass on every container before physics forces.
+    pub fn sync_all_contained_items_mass(&mut self) {
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| !o.contained_units().is_empty())
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            self.sync_contained_items_mass(id);
+        }
     }
 
     /// C++ partition collide residual: pairwise near-object physics collide.
@@ -865,13 +950,24 @@ impl GameLogic {
         }
         let _ = obj.handle_behavior_z(ground_y, goal_y);
         match obj.loco_behavior_z {
-            LocomotorBehaviorZ::SurfaceRelativeHeight
-            | LocomotorBehaviorZ::SmoothRelativeToHighestLayer => {
+            LocomotorBehaviorZ::SurfaceRelativeHeight => {
                 if obj.loco_preferred_height == 0.0 && goal_y.is_none() {
                     return;
                 }
                 let mut p = obj.get_position();
                 let preferred_raw = goal_y.unwrap_or(obj.loco_preferred_height + ground_y);
+                let mut delta = preferred_raw - p.y;
+                delta *= obj.loco_preferred_height_damping.clamp(0.0, 1.0);
+                p.y += delta;
+                obj.set_position(p);
+            }
+            LocomotorBehaviorZ::SmoothRelativeToHighestLayer => {
+                if obj.loco_preferred_height == 0.0 && goal_y.is_none() {
+                    return;
+                }
+                let surface = obj.highest_layer_surface_ht(ground_y);
+                let mut p = obj.get_position();
+                let preferred_raw = goal_y.unwrap_or(obj.loco_preferred_height + surface);
                 let mut delta = preferred_raw - p.y;
                 delta *= obj.loco_preferred_height_damping.clamp(0.0, 1.0);
                 p.y += delta;

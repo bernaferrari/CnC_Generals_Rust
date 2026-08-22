@@ -52,7 +52,6 @@
 //!
 //! Still residual (fail-closed, not claimed):
 //! - Full retail OCL / aircraft / beam / multiplayer superweapon Xfer tables
-//! - Client `ParticleSystemManager` GPU rebind after load (host registry only)
 //! - Full retail Upgrade.ini BuildTime / ProductionUpdate research timers
 //! - Full C++ per-module WeaponSet / SpecialPowerModule / Upgrade Xfer tables
 
@@ -82,6 +81,16 @@ mod subdual_persist;
 mod hotkey_squad_persist;
 mod booby_trap_persist;
 mod carpet_bomb_persist;
+mod production_door_persist;
+mod dozer_repair_persist;
+mod rebuild_hole_persist;
+mod weapon_set_persist;
+mod ability_hijack_persist;
+
+mod ai_team_persist;
+mod particle_system_save;
+mod terrain_visual_save;
+mod player_team_persist;
 
 
 
@@ -128,6 +137,20 @@ pub use game_client_save::{
     restore_objectless_from_client_drawables, stash_loaded_game_client_xfer,
     take_loaded_game_client_xfer, CHUNK_GAME_CLIENT,
 };
+pub use particle_system_save::{
+    capture_particle_system_xfer_bytes, restore_particle_system_from_xfer_bytes,
+    stash_loaded_particle_system_xfer, take_loaded_particle_system_xfer, CHUNK_PARTICLE_SYSTEM,
+};
+pub use terrain_visual_save::{
+    capture_terrain_visual_xfer_bytes, restore_terrain_visual_from_xfer_bytes,
+    stash_loaded_terrain_visual_xfer, take_loaded_terrain_visual_xfer, CHUNK_TERRAIN_VISUAL,
+};
+pub use player_team_persist::{
+    apply_pending as apply_pending_player_team_chunks, stamp_from_live as stamp_player_team_chunks,
+    stash_loaded_chunks as stash_loaded_player_team_chunks, write_players_block,
+    write_team_factory_block, CHUNK_PLAYERS, CHUNK_TEAM_FACTORY,
+};
+
 
 /// Concatenated live snapshot sources for residual `include_str` scans.
 pub const SNAPSHOT_SRC: &str = concat!(
@@ -153,6 +176,16 @@ pub const SNAPSHOT_SRC: &str = concat!(
     include_str!("hotkey_squad_persist.rs"),
     include_str!("booby_trap_persist.rs"),
     include_str!("carpet_bomb_persist.rs"),
+    include_str!("production_door_persist.rs"),
+    include_str!("dozer_repair_persist.rs"),
+    include_str!("rebuild_hole_persist.rs"),
+    include_str!("weapon_set_persist.rs"),
+    include_str!("ability_hijack_persist.rs"),
+
+    include_str!("ai_team_persist.rs"),
+    include_str!("particle_system_save.rs"),
+    include_str!("terrain_visual_save.rs"),
+    include_str!("player_team_persist.rs"),
 
 
 

@@ -94,7 +94,29 @@ impl GameLogic {
             let fired_by_script = self
                 .special_power_strikes
                 .take_script_fired_special_power(source_object);
-            if !fired_by_script {
+            let waypoint_id = self
+                .special_power_strikes
+                .take_scripted_waypoint_special_power(source_object);
+            if let Some(wid) = waypoint_id {
+                if let Some(strike) = self.special_power_strikes.get_mut(id) {
+                    strike.scripted_waypoint_mode = true;
+                    if let Some(terrain) = gamelogic::helpers::TheTerrainLogic::get() {
+                        if let Some((next_id, next_pos)) =
+                            terrain.scripted_waypoint_initial_override(wid)
+                        {
+                            strike.next_dest_waypoint_id = next_id;
+                            strike.waypoint_override =
+                                glam::Vec3::new(next_pos.x, next_pos.z, next_pos.y);
+                        } else {
+                            strike.next_dest_waypoint_id = wid;
+                            strike.waypoint_override = target_position;
+                        }
+                    } else {
+                        strike.next_dest_waypoint_id = wid;
+                        strike.waypoint_override = target_position;
+                    }
+                }
+            } else if !fired_by_script {
                 if let Some(strike) = self.special_power_strikes.get_mut(id) {
                     strike.manual_beam_hold = true;
                 }
@@ -182,13 +204,21 @@ impl GameLogic {
             let _ = self.spawn_a10_strike_flight(source_object, target_position, a10_tier);
         }
         // C++ DaisyCutter / MOAB DeliverPayload residual (B52 or JetB3 + bomb).
+        // C++ OCLSpecialPower::findOCL: first owned UpgradeOCL science wins.
+        // SCIENCE_MOAB (Upgrade_AmericaMOAB) → SUPERWEAPON_MOAB on the same
+        // SPECIAL_DAISY_CUTTER button. FuelAirBomb is that same template, not a
+        // separate MOAB command.
         if kind == HostSuperweaponKind::DaisyCutter {
-            use crate::command_system::SpecialPowerType;
             use crate::game_logic::host_daisy_cutter_flight::DaisyFlightPayloadTier;
-            let tier = match power {
-                SpecialPowerType::FuelAirBomb => DaisyFlightPayloadTier::Moab,
-                _ => DaisyFlightPayloadTier::DaisyCutter,
-            };
+            let tmpl = crate::game_logic::host_ocl_special_power::special_power_template_for_host_kind(
+                kind.label(),
+            )
+            .unwrap_or("SuperweaponDaisyCutter");
+            let plan = self.plan_ocl_special_power(tmpl, source_object, target_position);
+            let tier = plan
+                .as_ref()
+                .map(|p| DaisyFlightPayloadTier::from_ocl_name(&p.ocl_name))
+                .unwrap_or(DaisyFlightPayloadTier::DaisyCutter);
             let _ = self.spawn_daisy_cutter_flight(source_object, target_position, tier);
         }
         // C++ AnthraxBomb DeliverPayload residual (GLAJetCargoPlane + bomb).
@@ -1434,6 +1464,9 @@ impl GameLogic {
                 |src| dead_sources.contains(&src),
             );
         }
+        self.special_power_strikes
+            .advance_orbit_shoot_at(self.frame);
+
         let object_positions = self.spectre_orbit_filtered_positions();
 
 
@@ -1486,6 +1519,8 @@ impl GameLogic {
                 frame,
             );
         }
+        self.special_power_strikes.advance_orbit_strafe(frame);
+
 
         self.special_power_strikes.prune_expired_orbit(frame);
     }
@@ -1520,6 +1555,9 @@ impl GameLogic {
             .iter()
             .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
             .collect();
+        // C++ SwathOfDeath rotates onto building→target, not world +X.
+        self.special_power_strikes
+            .bind_beam_source_axes(&object_positions);
 
         let plans = self
             .special_power_strikes

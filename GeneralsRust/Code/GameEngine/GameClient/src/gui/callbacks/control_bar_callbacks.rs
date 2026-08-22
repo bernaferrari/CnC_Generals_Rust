@@ -3,7 +3,7 @@
 //! Implements in-game control bar callbacks and radar input handling, matching
 //! the behavior of C++ ControlBarCallback.cpp.
 
-use crate::display::view::{with_tactical_view, Point3};
+use crate::display::view::{set_tactical_view_height_frac, with_tactical_view, Point3};
 use crate::gui::control_bar::{
     host_control_bar_bridge_enabled, publish_host_minimap_interaction,
     publish_host_select_next_idle_worker, ControlBar, ControlBarStage,
@@ -525,6 +525,9 @@ impl ControlBarCallbacks {
         } else {
             screen_h
         };
+        // C++ HideControlBar setHeight(Display) / ShowControlBar 80%. Live 3D
+        // viewport reads tactical_view_height_frac, not only leftover view height.
+        set_tactical_view_height_frac(if show { 0.80 } else { 1.0 });
         with_tactical_view(|view| {
             view.set_height(target_height);
         });
@@ -944,6 +947,19 @@ mod tests {
         assert!(hide_control_bar(true).is_ok());
         assert!(show_control_bar(true).is_ok());
     }
+
+    #[test]
+    fn hide_control_bar_lifts_tactical_view_frac() {
+        use crate::display::view::tactical_view_height_frac;
+        set_tactical_view_height_frac(0.80);
+        let mut callbacks = ControlBarCallbacks::new();
+        callbacks.state.visible = true;
+        assert!(callbacks.hide_control_bar(true).is_ok());
+        assert!((tactical_view_height_frac() - 1.0).abs() < f32::EPSILON);
+        assert!(callbacks.show_control_bar(true).is_ok());
+        assert!((tactical_view_height_frac() - 0.80).abs() < f32::EPSILON);
+    }
+
 
     #[test]
     fn beacon_edit_text_is_language_filtered() {
