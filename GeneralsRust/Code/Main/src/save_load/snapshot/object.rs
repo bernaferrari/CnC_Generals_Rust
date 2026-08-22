@@ -218,6 +218,24 @@ pub struct ObjectStatusSnapshot {
     /// Absolute host logic frame when the unit may re-cloak after a reveal.
     #[serde(default)]
     pub stealth_allowed_frame: u32,
+    /// C++ OBJECT_STATUS_UNSELECTABLE (`Object.cpp` named m_status bits).
+    #[serde(default)]
+    pub unselectable: bool,
+    /// C++ OBJECT_STATUS_DEPLOYED (DeployStyle pack/unpack).
+    #[serde(default)]
+    pub deployed: bool,
+    /// C++ DISABLED_SCRIPT_DISABLED / OBJECT_STATUS_SCRIPT_DISABLED.
+    #[serde(default)]
+    pub disabled_script_disabled: bool,
+    /// C++ DISABLED_SCRIPT_UNDERPOWERED / OBJECT_STATUS_SCRIPT_UNPOWERED.
+    #[serde(default)]
+    pub disabled_script_underpowered: bool,
+    /// C++ OBJECT_STATUS_SCRIPT_UNSELLABLE (`ObjectScriptStatusBits.h`).
+    #[serde(default)]
+    pub script_unsellable: bool,
+    /// C++ OBJECT_STATUS_SCRIPT_UNSTEALTHED (`ObjectScriptStatusBits.h`).
+    #[serde(default)]
+    pub script_unstealthed: bool,
 }
 
 impl Default for ObjectStatusSnapshot {
@@ -256,6 +274,12 @@ impl Default for ObjectStatusSnapshot {
             camo_stealth_look: 0,
             detection_expires_frame: 0,
             stealth_allowed_frame: 0,
+            unselectable: false,
+            deployed: false,
+            disabled_script_disabled: false,
+            disabled_script_underpowered: false,
+            script_unsellable: false,
+            script_unstealthed: false,
         }
     }
 }
@@ -1069,6 +1093,22 @@ impl XferData for ObjectStatusSnapshot {
         xfer.xfer_u32(&mut self.detection_expires_frame)?;
         xfer.xfer_marker_label("StealthAllowedFrame")?;
         xfer.xfer_u32(&mut self.stealth_allowed_frame)?;
+        // Appended residual: C++ Object::xfer named UNSELECTABLE / DEPLOYED
+        // plus m_scriptStatus (ObjectScriptStatusBits.h). Older binary
+        // residual saves without these fields fail-closed on xfer (serde
+        // JSON path uses #[serde(default)]).
+        xfer.xfer_marker_label("Unselectable")?;
+        xfer.xfer_bool(&mut self.unselectable)?;
+        xfer.xfer_marker_label("Deployed")?;
+        xfer.xfer_bool(&mut self.deployed)?;
+        xfer.xfer_marker_label("DisabledScriptDisabled")?;
+        xfer.xfer_bool(&mut self.disabled_script_disabled)?;
+        xfer.xfer_marker_label("DisabledScriptUnderpowered")?;
+        xfer.xfer_bool(&mut self.disabled_script_underpowered)?;
+        xfer.xfer_marker_label("ScriptUnsellable")?;
+        xfer.xfer_bool(&mut self.script_unsellable)?;
+        xfer.xfer_marker_label("ScriptUnstealthed")?;
+        xfer.xfer_bool(&mut self.script_unstealthed)?;
         Ok(())
     }
 }

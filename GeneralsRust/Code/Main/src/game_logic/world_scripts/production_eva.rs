@@ -516,83 +516,13 @@ impl GameLogic {
     }
 
     pub(in super::super) fn queue_script_radar_event(&mut self, event: RadarScriptEventRequest) {
-        let position = event.position;
-        match event.event_type {
-            1 => {
-                self.queue_radar_message_at(
-                    "Construction event",
-                    position,
-                    radar_notifications::RadarKind::Generic,
-                );
-                crate::game_logic::host_radar::host_create_radar_event(
-                    position,
-                    game_engine::common::system::radar::RadarEventType::Construction,
-                );
-            }
-            2 => {
-                self.queue_radar_message_at(
-                    "Upgrade event",
-                    position,
-                    radar_notifications::RadarKind::Generic,
-                );
-                crate::game_logic::host_radar::host_create_radar_event(
-                    position,
-                    game_engine::common::system::radar::RadarEventType::Upgrade,
-                );
-            }
-            3 => self.queue_radar_attack_at("Under attack", position),
-            4 => {
-                self.queue_radar_message_at(
-                    "Radar event",
-                    position,
-                    radar_notifications::RadarKind::Generic,
-                );
-                crate::game_logic::host_radar::host_create_radar_event(
-                    position,
-                    game_engine::common::system::radar::RadarEventType::Information,
-                );
-            }
-            5 => self.queue_radar_message_at(
-                "Beacon pulse",
-                position,
-                radar_notifications::RadarKind::Generic,
-            ),
-            6 => self.queue_radar_message_at(
-                "Infiltration event",
-                position,
-                radar_notifications::RadarKind::Attack,
-            ),
-            7 => {
-                self.queue_radar_message_at(
-                    "Battle plan event",
-                    position,
-                    radar_notifications::RadarKind::Ally,
-                );
-                crate::game_logic::host_radar::host_create_radar_event(
-                    position,
-                    game_engine::common::system::radar::RadarEventType::BattlePlan,
-                );
-            }
-            8 => self.queue_radar_message_at(
-                "Stealth discovered",
-                position,
-                radar_notifications::RadarKind::Generic,
-            ),
-            9 => self.queue_radar_message_at(
-                "Stealth neutralized",
-                position,
-                radar_notifications::RadarKind::Attack,
-            ),
-            10 => {
-                self.last_radar_event = Some(RadarEntry {
-                    text: "Radar event".to_string(),
-                    position,
-                    timestamp: self.sim_time_seconds,
-                    kind: radar_notifications::RadarKind::Generic,
-                });
-            }
-            _ => {}
-        }
+        // C++ ScriptActions::doRadarCreateEvent — TheRadar->createEvent only.
+        // No InGameUI message, no audio. Leftover already matches; this drain
+        // is the live handler leftover calls after create_event.
+        crate::game_logic::host_radar::host_create_radar_event(
+            event.position,
+            Self::host_script_radar_event_type(event.event_type),
+        );
     }
 
     pub fn queue_radar_message_at<S: Into<String>>(
@@ -1134,6 +1064,108 @@ impl GameLogic {
         self.eva_superweapon_detected > 0
     }
 
+    /// C++ InGameUI.cpp:3513 `!info->m_hiddenByScript && !info->m_hiddenByScience`.
+    /// Global `m_superweaponHiddenByScript` is draw-only — do not consult
+    /// `script_superweapon_display_enabled` here.
+    fn eva_superweapon_ready_timer_hidden(&mut self, source_id: ObjectId) -> bool {
+        if self.script_superweapon_hidden_objects.contains(&source_id) {
+            return true;
+        }
+        self.latch_eva_superweapon_science_hidden(source_id)
+    }
+
+    /// C++ SuperweaponInfo::m_hiddenByScience is captured at addSuperweapon
+    /// (InGameUI.cpp:559) and never cleared (srj :568-570).
+    fn latch_eva_superweapon_science_hidden(&mut self, source_id: ObjectId) -> bool {
+        if let Some(&hidden) = self.eva_superweapon_science_hidden.get(&source_id) {
+            return hidden;
+        }
+        if !self.objects.contains_key(&source_id) {
+            return false;
+        }
+        let hidden = self.compute_eva_hidden_by_science_now(source_id);
+        self.eva_superweapon_science_hidden.insert(source_id, hidden);
+        hidden
+    }
+
+    #[cfg(test)]
+    fn eva_science_hidden_latched(&self, source_id: ObjectId) -> bool {
+        self.eva_superweapon_science_hidden
+            .get(&source_id)
+            .copied()
+            .unwrap_or(false)
+    }
+
+    #[cfg(test)]
+    fn clear_eva_science_hidden_latch(&mut self, source_id: ObjectId) {
+        self.eva_superweapon_science_hidden.remove(&source_id);
+    }
+
+    fn compute_eva_hidden_by_science_now(&self, source_id: ObjectId) -> bool {
+        let Some(obj) = self.objects.get(&source_id) else {
+            return false;
+        };
+        let required = obj
+            .thing
+            .template
+            .special_power_modules
+            .iter()
+            .filter(|module| module.public_timer)
+            .filter(|module| {
+                module
+                    .command_power
+                    .as_ref()
+                    .and_then(Self::classify_superweapon_eva_power)
+                    .is_some()
+            })
+            .find_map(|module| {
+                module
+                    .required_science
+                    .as_deref()
+                    .filter(|science| !science.is_empty())
+                    .or_else(|| {
+                        module.command_power.as_ref().and_then(
+                            crate::game_logic::host_special_power_enum_residual::special_power_required_science,
+                        )
+                    })
+            });
+        let Some(req) = required else {
+            return false;
+        };
+        match obj.owner_player_id.and_then(|id| self.players.get(&id)) {
+            Some(player) => !player.has_unlocked_science(req),
+            None => true,
+        }
+    }
+
+    fn eva_player_superweapon_ready_hidden(&mut self, owner_player_id: u32, kind: &str) -> bool {
+        let matching: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if obj.owner_player_id != Some(owner_player_id) {
+                    return None;
+                }
+                let obj_kind = obj
+                    .thing
+                    .template
+                    .special_power_modules
+                    .iter()
+                    .filter(|module| module.public_timer)
+                    .filter_map(|module| module.command_power.as_ref())
+                    .find_map(Self::classify_superweapon_eva_power);
+                (obj_kind == Some(kind)).then_some(*id)
+            })
+            .collect();
+        if matching.is_empty() {
+            return false;
+        }
+        matching
+            .into_iter()
+            .all(|id| self.eva_superweapon_ready_timer_hidden(id))
+    }
+
+
     pub fn try_eva_superweapon_ready(
         &mut self,
         source_id: ObjectId,
@@ -1143,6 +1175,9 @@ impl GameLogic {
         let Some(kind) = Self::classify_superweapon_eva_kind(template_name) else {
             return;
         };
+        if self.eva_superweapon_ready_timer_hidden(source_id) {
+            return;
+        }
         let owner_player_id = self.objects.get(&source_id).and_then(|obj| obj.owner_player_id);
         self.try_eva_superweapon_ready_kind(owner_player_id, owner_team, kind);
     }
@@ -1160,6 +1195,9 @@ impl GameLogic {
             .get(&owner_player_id)
             .map(|player| player.team)
             .unwrap_or(Team::Neutral);
+        if self.eva_player_superweapon_ready_hidden(owner_player_id, kind) {
+            return;
+        }
         self.try_eva_superweapon_ready_kind(Some(owner_player_id), owner_team, kind);
     }
 
@@ -1170,6 +1208,9 @@ impl GameLogic {
         else {
             return;
         };
+        if self.eva_superweapon_ready_timer_hidden(source_id) {
+            return;
+        }
         self.try_eva_superweapon_ready_kind(owner_player_id, owner_team, kind);
     }
 
@@ -1215,7 +1256,7 @@ impl GameLogic {
     /// C++ structure construction-complete residual feedback for local owner:
     /// radar message + authored dozer getVoiceTaskComplete + model condition bit.
 
-    /// Start radar dish extend residual on a newly completed radar provider.
+    /// C++ `RadarUpgrade::upgradeImplementation` → `RadarUpdate::extendRadar`.
     pub fn maybe_start_radar_extend(&mut self, structure_id: ObjectId) {
         use crate::game_logic::host_radar::is_legal_radar_provider;
         use crate::game_logic::host_radar_stealth_vision_residual::RADAR_EXTEND_TIME_FRAMES_RESIDUAL;
@@ -1286,6 +1327,7 @@ impl GameLogic {
         let _ = self
             .special_power_strikes
             .reset_timers_for_source_object(structure_id);
+        let _ = self.latch_eva_superweapon_science_hidden(structure_id);
     }
 
     /// C++ Object::updateUpgradeModules — walk the player's completed PLAYER
@@ -1747,7 +1789,10 @@ impl GameLogic {
 mod tests {
     use super::*;
     use crate::game_logic::special_power_strikes::HostSuperweaponKind;
-    use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
+    use crate::game_logic::{
+        GameLogic, KindOf, ObjectId, Player, SpecialPowerModuleKind, SpecialPowerModuleMetadata,
+        Team, ThingTemplate,
+    };
     use gamelogic::helpers::{EvaEvent, TheEva};
 
     #[test]
@@ -1953,6 +1998,193 @@ mod tests {
         assert_eq!(
             logic.eva_hero_detected, before,
             "second hero in one scan must be throttled by Radar tryEvent"
+        );
+    }
+
+    fn particle_cannon_module(required_science: Option<&str>) -> SpecialPowerModuleMetadata {
+        SpecialPowerModuleMetadata {
+            source_index: 0,
+            module_tag: Some("ModuleTag_ParticleCannon".into()),
+            module_kind: SpecialPowerModuleKind::OclSpecialPower,
+            special_power_template: "SuperweaponParticleCannon".into(),
+            special_power_template_id: 1,
+            command_power: Some(crate::command_system::SpecialPowerType::ParticleCannon),
+            reload_time_frames: 300,
+            required_science: required_science.map(str::to_string),
+            public_timer: true,
+            shared_n_sync: false,
+            shortcut_power: false,
+            update_module_starts_attack: false,
+            starts_paused: false,
+            scripted_special_power_only: false,
+        }
+    }
+
+    fn spawn_local_particle_cannon(
+        logic: &mut GameLogic,
+        required_science: Option<&str>,
+    ) -> ObjectId {
+        if !logic.players.contains_key(&0) {
+            logic
+                .players
+                .insert(0, Player::new(0, Team::USA, "Local", true));
+        }
+        let mut template = ThingTemplate::new("AmericaParticleUplinkCannon");
+        template
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSSuperweapon)
+            .set_health(4000.0);
+        template
+            .special_power_modules
+            .push(particle_cannon_module(required_science));
+        logic
+            .templates
+            .insert("AmericaParticleUplinkCannon".into(), template);
+        let id = logic
+            .create_object_for_player(
+                "AmericaParticleUplinkCannon",
+                0,
+                glam::Vec3::ZERO,
+            )
+            .expect("puc");
+        if let Some(obj) = logic.host_object_mut(id) {
+            obj.thing.template.special_power_modules.clear();
+            obj.thing
+                .template
+                .special_power_modules
+                .push(particle_cannon_module(required_science));
+        }
+        logic.clear_eva_science_hidden_latch(id);
+        id
+    }
+
+    #[test]
+    fn superweapon_ready_skips_hidden_by_script_timer() {
+        let _ = TheEva::drain_events();
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "Local", true));
+        logic.hide_script_superweapon_object_for_test(ObjectId(1));
+        logic.try_eva_superweapon_ready(
+            ObjectId(1),
+            Team::USA,
+            "AmericaParticleUplinkCannon",
+        );
+        assert!(
+            !logic.honesty_eva_superweapon_ready_ok(),
+            "hideObjectSuperweaponDisplayByScript must skip SuperweaponReady EVA"
+        );
+    }
+
+    #[test]
+    fn superweapon_ready_ignores_global_display_hide() {
+        let _ = TheEva::drain_events();
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "Local", true));
+        logic.set_script_superweapon_display_enabled_for_test(false);
+        logic.try_eva_superweapon_ready(
+            ObjectId(1),
+            Team::USA,
+            "AmericaParticleUplinkCannon",
+        );
+        assert!(
+            logic.honesty_eva_superweapon_ready_ok(),
+            "global m_superweaponHiddenByScript is draw-only"
+        );
+        let events = TheEva::drain_events().expect("eva");
+        assert!(
+            events
+                .iter()
+                .any(|e| *e == EvaEvent::SuperweaponReadyOwnParticleCannon),
+            "{events:?}"
+        );
+    }
+
+    #[test]
+    fn superweapon_ready_skips_hidden_by_science_and_never_clears() {
+        let _ = TheEva::drain_events();
+        let mut logic = GameLogic::new();
+        let id = spawn_local_particle_cannon(&mut logic, Some("SCIENCE_ParticleCannonTest"));
+        logic.on_structure_superweapon_creation(id);
+        assert!(
+            logic.eva_science_hidden_latched(id),
+            "creation without RequiredScience must latch hiddenByScience"
+        );
+        assert!(logic
+            .players
+            .get_mut(&0)
+            .unwrap()
+            .unlock_science("SCIENCE_ParticleCannonTest"));
+        let _ = TheEva::drain_events();
+        logic.try_eva_superweapon_ready_for_source(id);
+        assert!(
+            !logic.honesty_eva_superweapon_ready_ok(),
+            "m_hiddenByScience never clears after later science grant"
+        );
+    }
+
+    #[test]
+    fn superweapon_ready_announces_when_science_owned_at_creation() {
+        let _ = TheEva::drain_events();
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "Local", true));
+        assert!(logic
+            .players
+            .get_mut(&0)
+            .unwrap()
+            .unlock_science("SCIENCE_ParticleCannonTest"));
+        let id = spawn_local_particle_cannon(&mut logic, Some("SCIENCE_ParticleCannonTest"));
+        logic.on_structure_superweapon_creation(id);
+        let _ = TheEva::drain_events();
+        logic.try_eva_superweapon_ready_for_source(id);
+        assert!(logic.honesty_eva_superweapon_ready_ok());
+        let events = TheEva::drain_events().expect("eva");
+        assert!(
+            events
+                .iter()
+                .any(|e| *e == EvaEvent::SuperweaponReadyOwnParticleCannon),
+            "{events:?}"
+        );
+    }
+
+    #[test]
+    fn superweapon_ready_resumes_after_script_show() {
+        let _ = TheEva::drain_events();
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "Local", true));
+        logic.hide_script_superweapon_object_for_test(ObjectId(1));
+        logic.try_eva_superweapon_ready(
+            ObjectId(1),
+            Team::USA,
+            "AmericaParticleUplinkCannon",
+        );
+        assert!(!logic.honesty_eva_superweapon_ready_ok());
+        logic.restore_script_superweapon_hidden_objects([]);
+        logic.try_eva_superweapon_ready(
+            ObjectId(1),
+            Team::USA,
+            "AmericaParticleUplinkCannon",
+        );
+        assert!(logic.honesty_eva_superweapon_ready_ok());
+    }
+
+    #[test]
+    fn superweapon_ready_for_player_skips_when_all_sources_hidden() {
+        let _ = TheEva::drain_events();
+        let mut logic = GameLogic::new();
+        let id = spawn_local_particle_cannon(&mut logic, None);
+        logic.hide_script_superweapon_object_for_test(id);
+        logic.try_eva_superweapon_ready_for_player(0, "AmericaParticleUplinkCannon");
+        assert!(
+            !logic.honesty_eva_superweapon_ready_ok(),
+            "shared-timer ready must skip when every matching object is hidden"
         );
     }
 }

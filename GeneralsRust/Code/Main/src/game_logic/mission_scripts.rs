@@ -818,11 +818,9 @@ pub struct MissionScriptHooks {
     border_shroud_levels: Mutex<Vec<u8>>,
     camera_movement_finished: AtomicBool,
     frame_counter: AtomicU64,
-    video_complete_frame: Mutex<HashMap<String, u64>>,
     speech_complete_frame: Mutex<HashMap<String, u64>>,
     speech_handles: Mutex<HashMap<String, Vec<u32>>>,
     audio_complete_frame: Mutex<HashMap<String, u64>>,
-    music_complete_frame: Mutex<HashMap<String, u64>>,
 }
 
 impl MissionScriptHooks {
@@ -896,11 +894,9 @@ impl MissionScriptHooks {
             border_shroud_levels: Mutex::new(Vec::new()),
             camera_movement_finished: AtomicBool::new(true),
             frame_counter: AtomicU64::new(0),
-            video_complete_frame: Mutex::new(HashMap::new()),
             speech_complete_frame: Mutex::new(HashMap::new()),
             speech_handles: Mutex::new(HashMap::new()),
             audio_complete_frame: Mutex::new(HashMap::new()),
-            music_complete_frame: Mutex::new(HashMap::new()),
         }))
     }
 
@@ -1194,20 +1190,12 @@ impl MissionScriptHooks {
     }
 
     pub fn push_movie_request(&self, filename: String) {
-        let now = self.frame_counter.load(Ordering::Relaxed);
-        if let Ok(mut map) = self.video_complete_frame.lock() {
-            map.insert(filename.clone(), now.saturating_add(1));
-        }
         if let Ok(mut queue) = self.movie_requests.lock() {
             queue.push(filename);
         }
     }
 
     pub fn push_radar_movie_request(&self, filename: String) {
-        let now = self.frame_counter.load(Ordering::Relaxed);
-        if let Ok(mut map) = self.video_complete_frame.lock() {
-            map.insert(filename.clone(), now.saturating_add(1));
-        }
         if let Ok(mut queue) = self.radar_movie_requests.lock() {
             queue.push(filename);
         }
@@ -1357,41 +1345,29 @@ impl MissionScriptHooks {
     }
 
     pub fn note_audio_started(&self, name: &str) {
-        let now = self.frame_counter.load(Ordering::Relaxed);
-        if let Ok(mut map) = self.audio_complete_frame.lock() {
-            map.insert(name.to_string(), now.saturating_add(1));
-        }
+        // C++ isAudioComplete starts the TheAudio length timer on first query,
+        // not on play. Do not stamp now+1 (that made HAS_FINISHED_AUDIO true
+        // next frame).
+        let _ = name;
     }
 
     pub fn note_music_started(&self, name: &str) {
-        let now = self.frame_counter.load(Ordering::Relaxed);
-        if let Ok(mut map) = self.music_complete_frame.lock() {
-            map.insert(name.to_string(), now.saturating_add(1));
-        }
+        // C++ MUSIC_TRACK_HAS_COMPLETED is TheAudio loop count, not a frame stamp.
+        let _ = name;
     }
 
     pub fn mark_music_stopped(&self) {
-        let now = self.frame_counter.load(Ordering::Relaxed);
-        if let Ok(mut map) = self.music_complete_frame.lock() {
-            for done_frame in map.values_mut() {
-                *done_frame = now;
-            }
-        }
+        // C++ stop-music does not mark hasMusicTrackCompleted; Miles walks
+        // playing streams only. Stopping a track makes the condition false.
     }
 
     pub fn is_video_complete(&self, name: &str, flush: bool) -> bool {
-        let now = self.frame_counter.load(Ordering::Relaxed);
-        let Ok(mut map) = self.video_complete_frame.lock() else {
-            return true;
-        };
-        let Some(&done_frame) = map.get(name) else {
-            return true;
-        };
-        let done = now >= done_frame;
-        if done && flush {
-            map.remove(name);
-        }
-        done
+        // C++ ScriptEngine::isVideoComplete: true only if name is on
+        // m_completedVideo. Untracked / never-finished names stay false.
+        gamelogic::scripting::engine::with_script_engine_ref(|engine| {
+            engine.is_video_complete(name, flush)
+        })
+        .unwrap_or(false)
     }
 
     pub fn is_speech_complete(&self, name: &str, flush: bool) -> bool {
@@ -1435,12 +1411,23 @@ impl MissionScriptHooks {
     }
 
     pub fn is_audio_complete(&self, name: &str, flush: bool) -> bool {
+        if name.trim().is_empty() {
+            return false;
+        }
+        // C++ ScriptEngine::isAudioComplete: first query starts leftover
+        // TheAudio length timer; true only after that frame. Use the live
+        // frame clock — leftover TheGameLogic::get_frame is not the host.
         let now = self.frame_counter.load(Ordering::Relaxed);
         let Ok(mut map) = self.audio_complete_frame.lock() else {
-            return true;
+            return false;
         };
-        let Some(&done_frame) = map.get(name) else {
-            return true;
+        let done_frame = match map.get(name).copied() {
+            Some(done_frame) => done_frame,
+            None => {
+                let done_frame = speech_completion_frame(now, name);
+                map.insert(name.to_string(), done_frame);
+                done_frame
+            }
         };
         let done = now >= done_frame;
         if done && flush {
@@ -1449,19 +1436,15 @@ impl MissionScriptHooks {
         done
     }
 
-    pub fn has_music_track_completed(&self, track: &str, flush: bool) -> bool {
-        let now = self.frame_counter.load(Ordering::Relaxed);
-        let Ok(mut map) = self.music_complete_frame.lock() else {
-            return true;
-        };
-        let Some(&done_frame) = map.get(track) else {
-            return true;
-        };
-        let done = now >= done_frame;
-        if done && flush {
-            map.remove(track);
+    pub fn has_music_track_completed(&self, track: &str, times: i32) -> bool {
+        let key = track.trim();
+        if key.is_empty() {
+            return false;
         }
-        done
+        // C++ TheAudio->hasMusicTrackCompleted(track, N). Unplayed / missing = false.
+        gamelogic::helpers::TheAudio::get()
+            .map(|audio| audio.has_music_track_completed(key, times))
+            .unwrap_or(false)
     }
 
     pub fn drain_messages(&self) -> Vec<String> {
@@ -1998,18 +1981,21 @@ impl ScriptActionHandler for MissionScriptActionHandler {
     }
 
     fn play_sound_effect(&self, sound: &str) -> GameLogicResult<()> {
+        // Live GAME_SHELL installs this handler (initialize_scripts), not
+        // GameClientScriptActionHandler. C++ PLAY_SOUND_EFFECT always reaches
+        // TheAudio via doPlaySoundEffect (setIsLogicalAudio + local player).
+        // Do not drain a second unlocal leftover_world_sfx_event / rodio play.
+        let result = game_client::core::script_action_handler::GameClientScriptActionHandler::new()
+            .play_sound_effect(sound);
         self.hooks.note_audio_started(sound);
-        self.hooks.push_sound(sound.to_string());
-        Ok(())
+        result
     }
 
     fn play_sound_effect_at(&self, sound: &str, x: f32, y: f32, z: f32) -> GameLogicResult<()> {
+        let result = game_client::core::script_action_handler::GameClientScriptActionHandler::new()
+            .play_sound_effect_at(sound, x, y, z);
         self.hooks.note_audio_started(sound);
-        self.hooks.push_sound_event(ScriptSoundEvent {
-            sound_name: sound.to_string(),
-            position: Some(camera_coord3d_to_world(x, y, z)),
-        });
-        Ok(())
+        result
     }
 
     fn move_camera(&self, x: f32, y: f32, z: f32) -> GameLogicResult<()> {
@@ -2660,7 +2646,7 @@ impl ScriptActionHandler for MissionScriptActionHandler {
     }
 
     fn has_music_track_completed(&self, track: &str, param: i32) -> bool {
-        self.hooks.has_music_track_completed(track, param != 0)
+        self.hooks.has_music_track_completed(track, param)
     }
 
     fn stop_music(&self) -> GameLogicResult<()> {
@@ -3364,6 +3350,75 @@ mod tests {
     }
 
     #[test]
+    fn has_finished_audio_uses_the_audio_length_not_one_frame() {
+        let hooks = MissionScriptHooks::new().expect("hooks");
+        hooks.note_logic_frame(10);
+        assert!(
+            !hooks.is_audio_complete("", false),
+            "empty audio name is not complete"
+        );
+
+        // Seed a 5s SFX completion (150 frames) as leftover TheAudio would.
+        {
+            let mut map = hooks.audio_complete_frame.lock().expect("map");
+            map.insert("Boom".to_string(), 10 + speech_frames_from_length_ms(5_000.0));
+        }
+        assert!(
+            !hooks.is_audio_complete("Boom", false),
+            "HAS_FINISHED_AUDIO must stay false one frame after a 5s SFX"
+        );
+        hooks.note_logic_frame(11);
+        assert!(
+            !hooks.is_audio_complete("Boom", false),
+            "HAS_FINISHED_AUDIO must stay false until leftover TheAudio length elapses"
+        );
+        hooks.note_logic_frame(159);
+        assert!(!hooks.is_audio_complete("Boom", false));
+        hooks.note_logic_frame(160);
+        assert!(hooks.is_audio_complete("Boom", true));
+        assert!(
+            hooks
+                .audio_complete_frame
+                .lock()
+                .expect("map")
+                .get("Boom")
+                .is_none(),
+            "flush removes the completed audio tracker"
+        );
+    }
+
+    #[test]
+    fn has_finished_video_waits_leftover_list_unknown_names_false() {
+        let hooks = MissionScriptHooks::new().expect("hooks");
+        let handler = MissionScriptActionHandler::new(hooks.clone());
+
+        assert!(
+            !handler.is_video_complete("IntroMovie", false),
+            "unknown / never-finished names stay false"
+        );
+
+        handler
+            .movie_play_fullscreen("IntroMovie")
+            .expect("movie play should queue");
+        hooks.note_logic_frame(1);
+        assert!(
+            !handler.is_video_complete("IntroMovie", false),
+            "HAS_FINISHED_VIDEO must not complete one frame after play"
+        );
+
+        gamelogic::helpers::TheScriptEngine::notify_of_completed_video("IntroMovie");
+        assert!(
+            handler.is_video_complete("IntroMovie", true),
+            "leftover m_completedVideo membership is true"
+        );
+        assert!(
+            !handler.is_video_complete("IntroMovie", false),
+            "flush removes the leftover completed-video entry"
+        );
+    }
+
+
+    #[test]
     fn handler_forwards_radar_force_updates() {
         let hooks = MissionScriptHooks::new().expect("mission script hooks should initialize");
         let handler = MissionScriptActionHandler::new(hooks.clone());
@@ -3544,31 +3599,27 @@ mod tests {
         let handler = MissionScriptActionHandler::new(hooks.clone());
 
         assert!(
-            handler.has_music_track_completed("TrackA", 0),
-            "unknown tracks should be treated as completed"
+            !handler.has_music_track_completed("TrackA", 1),
+            "unknown / unplayed tracks stay false (C++ Miles loop count)"
         );
 
         handler
             .music_set_track("TrackA", false, false)
             .expect("music set track should succeed");
         assert!(
-            !handler.has_music_track_completed("TrackA", 0),
-            "track should not be completed on the same frame it starts"
+            !handler.has_music_track_completed("TrackA", 1),
+            "track should not complete on the next frame without Miles loop count"
         );
 
         hooks.update(1).expect("frame advance should succeed");
         assert!(
-            handler.has_music_track_completed("TrackA", 1),
-            "track should complete after at least one frame"
-        );
-        assert!(
-            handler.has_music_track_completed("TrackA", 0),
-            "flushed completed track should be treated as done"
+            !handler.has_music_track_completed("TrackA", 1),
+            "one logic frame is not a Miles loop completion"
         );
     }
 
     #[test]
-    fn stop_music_marks_tracked_music_as_complete() {
+    fn stop_music_does_not_fail_open_music_complete() {
         let hooks = MissionScriptHooks::new().expect("mission script hooks should initialize");
         let handler = MissionScriptActionHandler::new(hooks.clone());
 
@@ -3576,14 +3627,14 @@ mod tests {
             .music_set_track("TrackB", false, false)
             .expect("music set track should succeed");
         assert!(
-            !handler.has_music_track_completed("TrackB", 0),
+            !handler.has_music_track_completed("TrackB", 1),
             "newly started track should be incomplete before stop"
         );
 
         handler.stop_music().expect("stop music should succeed");
         assert!(
-            handler.has_music_track_completed("TrackB", 0),
-            "stop music should immediately complete tracked music"
+            !handler.has_music_track_completed("TrackB", 1),
+            "stop music does not mark hasMusicTrackCompleted; unplayed stays false"
         );
     }
 

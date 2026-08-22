@@ -229,6 +229,24 @@ impl HostCountermeasuresRegistry {
         self.states.keys().copied().map(ObjectId).collect()
     }
 
+    /// Snapshot remaining same-frame flare spawns (host queues; C++ creates inline).
+    pub fn pending_flare_spawns(&self) -> &[PendingCountermeasureFlareSpawn] {
+        &self.pending_flare_spawns
+    }
+
+    /// Replace the flare registry entry without `ensure()` rebuilding a full load.
+    pub fn restore_state(&mut self, aircraft_id: ObjectId, state: HostCountermeasuresState) {
+        self.states.insert(aircraft_id.0, state);
+    }
+
+    pub fn restore_pending_flare_spawns(
+        &mut self,
+        pending: Vec<PendingCountermeasureFlareSpawn>,
+    ) {
+        self.pending_flare_spawns = pending;
+    }
+
+
     pub fn ensure(&mut self, aircraft_id: ObjectId) -> &mut HostCountermeasuresState {
         self.states
             .entry(aircraft_id.0)

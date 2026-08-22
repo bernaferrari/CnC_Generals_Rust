@@ -900,8 +900,13 @@ impl ClassicState for AIMoveToState {
         let _ = ai_guard.set_path_extra_distance(0.0);
         ai_guard.set_desired_speed(FAST_AS_POSSIBLE);
 
-        // C++ line 1612: Notify AI that movement is starting
+        // C++ AIInternalMoveToState::onEnter (AIStates.cpp:1604-1605): startMove.
         ai_guard.friend_starting_move();
+        if let Some(locomotor) = ai_guard.get_cur_locomotor() {
+            if let Ok(mut loco_guard) = locomotor.lock() {
+                loco_guard.start_move();
+            }
+        }
 
         self.start_move_sound(&owner_guard);
 

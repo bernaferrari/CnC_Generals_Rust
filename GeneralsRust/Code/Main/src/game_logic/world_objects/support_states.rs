@@ -10,11 +10,76 @@ const GUARD_CHASE_PHASE_OUTER: u8 = 2;
 /// C++ AIGuardAttackAggressorState residual.
 const GUARD_CHASE_PHASE_AGGRESSOR: u8 = 3;
 
-fn host_guard_xy_dist_sq(a: glam::Vec3, b: glam::Vec3) -> f32 {
+pub(crate) fn host_guard_xy_dist_sq(a: glam::Vec3, b: glam::Vec3) -> f32 {
     let dx = a.x - b.x;
     let dz = a.z - b.z;
     dx * dx + dz * dz
 }
+
+pub(crate) fn host_same_map_status_off(pos: glam::Vec3, world_min: glam::Vec3, world_max: glam::Vec3) -> bool {
+    // C++ Object::isOffMap — playable extent, not cargo-plane residual 0..500.
+    crate::game_logic::host_deliver_payload::is_off_map_residual(
+        pos,
+        world_min.x,
+        world_min.z,
+        world_max.x,
+        world_max.z,
+    )
+}
+
+fn host_area_occupancy(
+) -> &'static std::sync::Mutex<std::collections::HashMap<String, std::collections::BTreeSet<u32>>>
+{
+    static SESSIONS: std::sync::LazyLock<
+        std::sync::Mutex<std::collections::HashMap<String, std::collections::BTreeSet<u32>>>,
+    > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+    &SESSIONS
+}
+
+static HOST_AREA_STAMP: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+fn note_host_guard_area_occupancy(
+    frame: u32,
+    trigger: &gamelogic::polygon_trigger::PolygonTrigger,
+    occupants: impl Iterator<Item = (ObjectId, glam::Vec3)>,
+) {
+    let name = trigger.get_trigger_name().as_str().to_string();
+    let mut current = std::collections::BTreeSet::new();
+    for (id, pos) in occupants {
+        if GameLogic::host_point_in_guard_area(trigger, pos) {
+            current.insert(id.0);
+        }
+    }
+    let mut sessions = host_area_occupancy()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if sessions.get(&name) != Some(&current) {
+        sessions.insert(name, current);
+        HOST_AREA_STAMP.store(frame, std::sync::atomic::Ordering::Relaxed);
+        gamelogic::ai::set_frame_objects_changed_trigger_areas(frame);
+    }
+}
+
+/// C++ `AIGuardIdleState::update` per-axis 2-cell (`delta*delta > 4*cell^2`).
+pub(crate) fn host_guardee_moved_beyond_return_threshold(prev: glam::Vec3, now: glam::Vec3) -> bool {
+    let cell = crate::game_logic::host_repair::PATHFIND_CELL_SIZE_F;
+    let limit_sqr = 4.0 * cell * cell;
+    let dx = prev.x - now.x;
+    if dx * dx > limit_sqr {
+        return true;
+    }
+    let dz = prev.z - now.z;
+    dz * dz > limit_sqr
+}
+
+fn host_guard_area_stamp_expired(frame: u32, scan_rate: u32) -> bool {
+    let leftover_atomic = gamelogic::ai::get_frame_objects_changed_trigger_areas();
+    let leftover_gl = gamelogic::helpers::TheGameLogic::get_frame_objects_changed_trigger_areas();
+    let host = HOST_AREA_STAMP.load(std::sync::atomic::Ordering::Relaxed);
+    let changed = leftover_atomic.max(leftover_gl).max(host);
+    changed != 0 && frame > changed.saturating_add(scan_rate)
+}
+
 
 
 #[derive(Clone)]
@@ -210,19 +275,39 @@ impl GameLogic {
         if acquire_radius <= 0.0 {
             return None;
         }
+        if let Some(trigger) = polygon {
+            note_host_guard_area_occupancy(
+                self.frame,
+                trigger,
+                self.objects.iter().map(|(id, obj)| (*id, obj.get_position())),
+            );
+            if host_guard_area_stamp_expired(self.frame, self.host_guard_enemy_scan_rate()) {
+                return None;
+            }
+        }
+        let (world_min, world_max) = self.world_bounds();
+        let owner_off = self
+            .objects
+            .get(&object_id)
+            .map(|o| host_same_map_status_off(o.get_position(), world_min, world_max))
+            .unwrap_or(false);
+        let radius_sq = acquire_radius * acquire_radius;
         let mut best: Option<(ObjectId, f32)> = None;
         for (cand_id, cand) in self.objects.iter() {
             if *cand_id == object_id || !cand.is_alive() {
                 continue;
             }
             let cand_pos = cand.get_position();
+            if owner_off != host_same_map_status_off(cand_pos, world_min, world_max) {
+                continue;
+            }
             if let Some(trigger) = polygon {
                 if !Self::host_point_in_guard_area(trigger, cand_pos) {
                     continue;
                 }
             }
-            let d = scan_anchor.distance(cand_pos);
-            if d > acquire_radius {
+            let d_sq = host_guard_xy_dist_sq(scan_anchor, cand_pos);
+            if d_sq > radius_sq {
                 continue;
             }
             if flying_only && !(cand.is_above_terrain() || cand.status.airborne_target) {
@@ -255,11 +340,12 @@ impl GameLogic {
                     continue;
                 }
             }
-            if best.map(|(_, bd)| d < bd).unwrap_or(true) {
-                best = Some((*cand_id, d));
+            if best.map(|(_, bd)| d_sq < bd).unwrap_or(true) {
+                best = Some((*cand_id, d_sq));
             }
         }
         best.map(|(id, _)| id)
+
     }
 
     /// End an interrupted C++ capture SpecialAbilityUpdate.  An order may be
@@ -411,7 +497,7 @@ impl GameLogic {
         )
     }
 
-    fn leftover_sa_target_is_ally(&self, object_id: ObjectId, target_id: ObjectId) -> bool {
+    pub(crate) fn leftover_sa_target_is_ally(&self, object_id: ObjectId, target_id: ObjectId) -> bool {
         use gamelogic::common::Relationship;
         let Some(source) = self.objects.get(&object_id) else {
             return false;
@@ -479,7 +565,10 @@ impl GameLogic {
                 stealthed || self.leftover_sa_target_is_ally(object_id, target_id)
             }
             LeftoverSaKind::PlantTimed | LeftoverSaKind::PlantRemote => stealthed,
-            LeftoverSaKind::LaserGuided => false,
+            LeftoverSaKind::LaserGuided => {
+                // C++ continuePreparation: ALLIES ("captured by a colleague") ends the laser.
+                self.leftover_sa_target_is_ally(object_id, target_id)
+            }
         }
     }
 
@@ -634,6 +723,10 @@ impl GameLogic {
         object_id: ObjectId,
         power: crate::game_logic::CapturePowerKind,
     ) {
+        if let Some(object) = self.objects.get_mut(&object_id) {
+            // C++ startFacing aiIdle before unpack/prep so leftover approach is not "in use + moving".
+            object.stop_moving();
+        }
         self.leftover_sa_set_pack_model(object_id, true, false, false);
         self.queue_capture_pack_unpack_sound(object_id, power, false);
     }
@@ -2164,6 +2257,7 @@ impl GameLogic {
         if !object.is_alive() {
             return false;
         }
+        object.stop_moving();
         object.set_ai_state(AIState::Capturing);
         object.capture_channel = Some(crate::game_logic::CaptureChannelState::new(
             crate::game_logic::CaptureChannelPhase::Preparing,
@@ -2838,6 +2932,8 @@ impl GameLogic {
             o.clear_guard_chase();
         }
         self.stop_attack_decision_aware(object_id);
+        // C++ Return/Idle onEnter re-seeds m_nextEnemyScanTime / m_nextReturnScanTime.
+        self.guard_next_enemy_scan.remove(&object_id);
     }
 
     /// C++ AIGuardInner / Outer / AttackAggressor ExitConditions while Attacking.
@@ -2965,6 +3061,35 @@ impl GameLogic {
         self.engage_guard_target(object_id, aid, true)
 
     }
+
+    /// C++ Idle/Return `m_nextEnemyScanTime`. First visit matches onEnter
+    /// `now + GameLogicRandomValue(0, rate)`; later looks add the AIData rate.
+    pub(crate) fn guard_acquire_scan_due(&mut self, object_id: ObjectId, returning: bool) -> bool {
+        let rate = if returning {
+            self.host_guard_enemy_return_scan_rate()
+        } else {
+            self.host_guard_enemy_scan_rate()
+        }
+        .max(1);
+        let now = self.frame;
+        match self.guard_next_enemy_scan.get(&object_id).copied() {
+            Some(next) if now < next => return false,
+            None => {
+                let offset = gamelogic::helpers::game_logic_random_value(0, rate);
+                let next = now.saturating_add(offset);
+                if now < next {
+                    self.guard_next_enemy_scan.insert(object_id, next);
+                    return false;
+                }
+            }
+            Some(_) => {}
+        }
+        self.guard_next_enemy_scan
+            .insert(object_id, now.saturating_add(rate));
+        true
+    }
+
+
 
     /// C++ EnterGuard / HijackGuard: board instead of shooting.
     fn try_guard_enter_or_hijack(
@@ -3184,17 +3309,16 @@ impl GameLogic {
                         continue;
                     }
 
-                    if can_attack {
+                    let returning =
+                        inner > 0.0 && host_guard_xy_dist_sq(position, anchor) > inner * inner;
+                    if self.guard_acquire_scan_due(object_id, returning) && can_attack {
                         if let Some(team_id) = self.host_team_common_target(object_id) {
                             if !(without_pursuit && position.distance(anchor) > inner)
                                 && self.engage_guard_target(object_id, team_id, false)
-
                             {
                                 continue;
                             }
                         }
-                    }
-                    if can_attack {
                         if let Some(enemy_id) = self.scan_guard_inner_target(
                             object_id,
                             team,
@@ -3224,11 +3348,11 @@ impl GameLogic {
                                     continue;
                                 }
                             } else if self.engage_guard_target(object_id, enemy_id, false) {
-
                                 continue;
                             }
                         }
                     }
+
 
                     if can_move
                         && !picking_crate
@@ -3300,70 +3424,87 @@ impl GameLogic {
                     if can_attack && self.try_guard_last_attacker(object_id, team) {
                         continue;
                     }
-                    if can_attack && enter_guard {
-                        if let Some(enemy_id) = self.scan_guard_inner_target(
-                            object_id,
-                            team,
-                            guard_anchor,
-                            acquire_radius,
-                            flying_only,
-                            true,
-                            hijack_guard,
-                            None,
-                        ) {
-                            if self.try_guard_enter_or_hijack(
+                    let returning = inner > 0.0
+                        && host_guard_xy_dist_sq(position, guard_anchor) > inner * inner;
+                    if self.guard_acquire_scan_due(object_id, returning) && can_attack {
+                        if enter_guard {
+                            if let Some(enemy_id) = self.scan_guard_inner_target(
                                 object_id,
-                                enemy_id,
-                                hijack_guard,
                                 team,
+                                guard_anchor,
+                                acquire_radius,
+                                flying_only,
+                                true,
+                                hijack_guard,
+                                None,
                             ) {
-                                continue;
+                                if self.try_guard_enter_or_hijack(
+                                    object_id,
+                                    enemy_id,
+                                    hijack_guard,
+                                    team,
+                                ) {
+                                    continue;
+                                }
                             }
-                        }
-                    } else if can_attack {
-                        let tunnel_nemesis = {
-                            let guard_is_tunnel = self.objects.get(&guard_target_id).is_some_and(
-                                |g| {
-                                    g.is_tunnel_network_style_container()
-                                        || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
-                                            &g.template_name,
-                                        )
-                                },
-                            );
-                            if guard_is_tunnel {
-                                let key = self
-                                    .objects
-                                    .get(&guard_target_id)
-                                    .map(|g| g.tunnel_system_key());
-                                key.and_then(|k| self.resolved_tunnel_nemesis(k))
-                            } else {
-                                None
+                        } else {
+                            let tunnel_nemesis = {
+                                let guard_is_tunnel = self.objects.get(&guard_target_id).is_some_and(
+                                    |g| {
+                                        g.is_tunnel_network_style_container()
+                                            || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
+                                                &g.template_name,
+                                            )
+                                    },
+                                );
+                                if guard_is_tunnel {
+                                    let key = self
+                                        .objects
+                                        .get(&guard_target_id)
+                                        .map(|g| g.tunnel_system_key());
+                                    key.and_then(|k| self.resolved_tunnel_nemesis(k))
+                                } else {
+                                    None
+                                }
+                            };
+                            if let Some(enemy_id) = tunnel_nemesis {
+                                if self.engage_guard_target(object_id, enemy_id, false) {
+                                    continue;
+                                }
                             }
-                        };
-                        if let Some(enemy_id) = tunnel_nemesis {
-                            if self.engage_guard_target(object_id, enemy_id, false) {
-
-                                continue;
-                            }
-                        }
-                        if let Some(enemy_id) = self.scan_guard_inner_target(
-                            object_id,
-                            team,
-                            guard_anchor,
-                            acquire_radius,
-                            flying_only,
-                            false,
-                            false,
-                            None,
-                        ) {
-                            if self.engage_guard_target(object_id, enemy_id, false) {
-
-                                continue;
+                            if let Some(enemy_id) = self.scan_guard_inner_target(
+                                object_id,
+                                team,
+                                guard_anchor,
+                                acquire_radius,
+                                flying_only,
+                                false,
+                                false,
+                                None,
+                            ) {
+                                if self.engage_guard_target(object_id, enemy_id, false) {
+                                    continue;
+                                }
                             }
                         }
                     }
 
-                    if can_move
+                    if !self.guard_guardee_pos.contains_key(&object_id) {
+                        self.guard_guardee_pos.insert(object_id, guard_anchor);
+                    }
+                    let drifted = self.guard_guardee_pos.get(&object_id).is_some_and(|prev| {
+                        host_guardee_moved_beyond_return_threshold(*prev, guard_anchor)
+                    });
+                    if drifted {
+                        self.guard_guardee_pos.insert(object_id, guard_anchor);
+                        if can_move && !picking_crate {
+                            self.path_approach_with_state(
+                                object_id,
+                                guard_anchor,
+                                AIState::GuardingObject,
+                            );
+                        }
+                    } else if can_move
                         && !picking_crate
                         && inner > 0.0
                         && position.distance(guard_anchor) > inner
@@ -3374,6 +3515,7 @@ impl GameLogic {
                             AIState::GuardingObject,
                         );
                     }
+
                 }
                 AIState::Repairing => {
                     let Some(repair_target_id) = target_id else {
@@ -4356,7 +4498,7 @@ impl GameLogic {
                         obj.target_location = None;
                         obj.set_status_force_attack(false);
                         obj.target = Some(container_id);
-                        obj.set_contained_by(Some(container_id));
+                        obj.set_contained_by_enclosing(Some(container_id), enclosing_garrison);
                         if container_is_overlord_bunker {
                             // C++ OverlordContain::onContaining ExperienceSinkForRider
                             // (`OverlordContain.cpp:354-355`, default TRUE). Live
@@ -4467,6 +4609,7 @@ impl GameLogic {
                         capture_preparation_time_ms,
                         capture_pack_time_ms,
                         capture_channel,
+                        capturer_moving,
                     ) = self
                         .objects
                         .get(&object_id)
@@ -4478,6 +4621,7 @@ impl GameLogic {
                                 obj.thing.template.capture_preparation_time_ms,
                                 obj.thing.template.capture_pack_time_ms,
                                 obj.capture_channel,
+                                obj.host_ai_is_moving(),
                             )
                         })
                         .unwrap_or((
@@ -4487,6 +4631,7 @@ impl GameLogic {
                             None,
                             None,
                             None,
+                            false,
                         ));
                     let Some(power_type) = capture_power.special_power_type() else {
                         self.abort_capture_channel(object_id);
@@ -4513,6 +4658,22 @@ impl GameLogic {
                             }
                             continue;
                         }
+                    }
+                    // C++ SpecialAbilityUpdate.cpp:209-220: isMoving && isPowerCurrentlyInUse
+                    // && !m_facingInitiated → onExit. Live capture has no facing phase, so any
+                    // movement during unpack/prep (flag raise) aborts. Approach (no channel)
+                    // stays legal.
+                    if capturer_moving
+                        && matches!(
+                            capture_channel.map(|c| c.phase),
+                            Some(
+                                crate::game_logic::CaptureChannelPhase::Unpacking
+                                    | crate::game_logic::CaptureChannelPhase::Preparing,
+                            )
+                        )
+                    {
+                        self.abort_capture_channel(object_id);
+                        continue;
                     }
 
                     let Some((target_position, target_radius, target_team)) =
@@ -6686,12 +6847,13 @@ impl GameLogic {
                         continue;
                     };
 
-                    let Some((container_pos, container_alive, container_has_unit, station_pin)) =
+                    let Some((container_pos, container_alive, container_has_unit, station_pin, enclosing)) =
                         self.objects.get(&container_id).map(|container| {
                             // C++ GarrisonContain::positionObjectsAtStationGarrisonPoints:
                             // non-enclosing Fire Base stays on STATION, not building center.
+                            let enclosing = container.is_enclosing_garrison_container();
                             let station_pin = if matches!(ai_state, AIState::Garrisoned)
-                                && !container.is_enclosing_garrison_container()
+                                && !enclosing
                             {
                                 container.building_data.as_ref().and_then(|bd| {
                                     bd.garrison_point_occupant
@@ -6710,6 +6872,7 @@ impl GameLogic {
                                 container.is_alive(),
                                 container.contained_units().contains(&object_id),
                                 station_pin,
+                                enclosing,
                             )
                         })
                     else {
@@ -6730,7 +6893,7 @@ impl GameLogic {
 
                     let pin_pos = station_pin.unwrap_or(container_pos);
                     if let Some(obj) = self.objects.get_mut(&object_id) {
-                        obj.set_contained_by(Some(container_id));
+                        obj.set_contained_by_enclosing(Some(container_id), enclosing);
                         obj.set_position(pin_pos);
                         crate::game_logic::host_ground_height_log::record(
                             obj.id,
@@ -6762,9 +6925,21 @@ impl GameLogic {
                 }
                 AIState::Attacking => {
                     // C++ parent stays AI_GUARD; live peels to Attacking for fire.
-                    // Apply inner radius / outer chase-timer / aggressor exits.
+                    // hasAttackedMeAndICanReturnFire is registered on INNER.
+                    let phase = self
+                        .objects
+                        .get(&object_id)
+                        .map(|o| o.guard_chase_phase)
+                        .unwrap_or(0);
+                    if phase == GUARD_CHASE_PHASE_INNER
+                        && can_attack
+                        && self.try_guard_last_attacker(object_id, team)
+                    {
+                        continue;
+                    }
                     let _ = self.tick_guard_chase_exits(object_id);
                 }
+
 
                 _ => {}
             }
@@ -7675,6 +7850,31 @@ impl GameLogic {
         self.update_support_states(ids, dt);
     }
 
+    #[cfg(test)]
+    pub(crate) fn scan_guard_inner_target_for_test(
+        &self,
+        object_id: ObjectId,
+        team: Team,
+        scan_anchor: glam::Vec3,
+        acquire_radius: f32,
+        flying_only: bool,
+        enter_guard: bool,
+        hijack_guard: bool,
+        polygon: Option<&gamelogic::polygon_trigger::PolygonTrigger>,
+    ) -> Option<ObjectId> {
+        self.scan_guard_inner_target(
+            object_id,
+            team,
+            scan_anchor,
+            acquire_radius,
+            flying_only,
+            enter_guard,
+            hijack_guard,
+            polygon,
+        )
+    }
+
+
     fn release_dock_if_holder(&mut self, dock_id: ObjectId, docker_id: ObjectId) {
         let was_holder = self
             .objects
@@ -8050,4 +8250,34 @@ impl GameLogic {
 
 
 
+}
+
+#[cfg(test)]
+mod guard_follow_threshold_tests {
+    use super::host_guardee_moved_beyond_return_threshold;
+    use crate::game_logic::host_repair::PATHFIND_CELL_SIZE_F;
+
+    #[test]
+    fn idle_follows_guardee_per_axis_two_cells_not_euclidean_four() {
+        let post = glam::Vec3::ZERO;
+        let x_only = glam::Vec3::new(PATHFIND_CELL_SIZE_F * 2.5, 0.0, 0.0);
+        assert!(
+            host_guardee_moved_beyond_return_threshold(post, x_only),
+            "2.5 cells on X alone must return-to-post"
+        );
+        let diagonal_under = glam::Vec3::new(
+            PATHFIND_CELL_SIZE_F * 1.5,
+            0.0,
+            PATHFIND_CELL_SIZE_F * 1.5,
+        );
+        assert!(
+            !host_guardee_moved_beyond_return_threshold(post, diagonal_under),
+            "1.5 cells on both ground axes stays idle"
+        );
+        let exactly_two = glam::Vec3::new(PATHFIND_CELL_SIZE_F * 2.0, 0.0, 0.0);
+        assert!(
+            !host_guardee_moved_beyond_return_threshold(post, exactly_two),
+            "exactly 2 cells is not greater than 4*cell*cell"
+        );
+    }
 }

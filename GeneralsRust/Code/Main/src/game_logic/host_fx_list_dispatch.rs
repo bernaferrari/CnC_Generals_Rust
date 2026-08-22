@@ -110,6 +110,24 @@ pub fn publish_host_fx_object_ex(
     player_index: i32,
     bounding_circle_radius: f32,
 ) {
+    publish_host_fx_object_pose(
+        id,
+        pos,
+        orientation,
+        player_index,
+        bounding_circle_radius,
+        host_object_is_shrouded_for_local(id),
+    );
+}
+
+fn publish_host_fx_object_pose(
+    id: u32,
+    pos: Vec3,
+    orientation: f32,
+    player_index: i32,
+    bounding_circle_radius: f32,
+    is_shrouded: bool,
+) {
     let leftover_pos = host_to_leftover_coord(pos);
     let transform = glam::Mat4::from_translation(glam::Vec3::new(
         leftover_pos.x,
@@ -122,7 +140,27 @@ pub fn publish_host_fx_object_ex(
         transform,
         player_index,
         bounding_circle_radius,
+        is_shrouded,
     });
+}
+
+fn host_object_is_shrouded_for_local(id: u32) -> bool {
+    use gamelogic::common::types::ObjectShroudStatus;
+    let player = gamelogic::player::player_list()
+        .read()
+        .ok()
+        .map(|list| list.get_local_player_index())
+        .unwrap_or(-1);
+    if player < 0 {
+        return false;
+    }
+    let Ok(shroud) = gamelogic::system::shroud_manager::get_shroud_manager().lock() else {
+        return false;
+    };
+    match shroud.get_host_object_shroud_status(player as u32, id) {
+        Some(status) => (status as u8) >= (ObjectShroudStatus::Fogged as u8),
+        None => false,
+    }
 }
 
 /// Keep leftover attached systems following live host IDs.
@@ -137,11 +175,15 @@ pub fn refresh_host_fx_object_poses_from_presentation(
     let mut seen = std::collections::HashSet::new();
     for object in &frame.objects {
         seen.insert(object.id.0);
-        publish_host_fx_object(
+        let is_shrouded = (object.drawable_shroud.raw_status as u8)
+            >= (crate::presentation_frame::PresentationObjectShroudStatus::Fogged as u8);
+        publish_host_fx_object_pose(
             object.id.0,
             object.position,
             object.orientation,
             object.owner_player_id.map(|player| player as i32).unwrap_or(-1),
+            0.0,
+            is_shrouded,
         );
     }
     gamelogic::helpers::retain_host_fx_object_poses(|id| seen.contains(&id));
@@ -300,5 +342,40 @@ mod tests {
         assert!(!dispatch_fx_list_at_object("None", 1, None));
         assert!(particle_template_names_for_fx_list("None").is_empty());
         assert!(particle_template_names_for_fx_list("FX:None").is_empty());
+    }
+
+    #[test]
+    fn death_fx_passes_killer_and_armor_fx_runs_once() {
+        let death = include_str!("object/death.rs");
+        assert!(
+            death.contains("let killer = self.last_damage_source.map(|id| id.0)"),
+            "FXListDie extra modules must pass the killer as doFXObj secondary"
+        );
+        assert!(death.contains("dispatch_fx_list_at_object(&name, self.id.0, killer)"));
+        let tick = include_str!("world_tick/ai.rs");
+        assert!(tick.contains("dispatch_fx_list_at_host_object(&fx, object_id, death_killer)"));
+        let shadow = include_str!("../gameworld_shadow/session.rs");
+        assert!(shadow.contains("dispatch_fx_list_at_host_object(&fx, id, killer)"));
+        let armor = include_str!("host_transition_damage_fx.rs");
+        let start = armor
+            .find("pub fn dispatch_armor_damage_fx")
+            .expect("armor dispatch");
+        let end = armor
+            .find("pub fn take_dispatched_armor_damage_fx")
+            .expect("armor take");
+        let body = &armor[start..end];
+        assert!(body.contains("dfx.do_damage_fx"));
+        assert!(
+            !body.contains("dispatch_fx_list_at_object"),
+            "armor DamageFX must not leftover-doFXObj twice"
+        );
+    }
+
+    #[test]
+    fn leftover_coord_swizzle_is_z_up() {
+        let leftover = host_to_leftover_coord(Vec3::new(10.0, 20.0, 30.0));
+        assert!((leftover.x - 10.0).abs() < f32::EPSILON);
+        assert!((leftover.y - 30.0).abs() < f32::EPSILON);
+        assert!((leftover.z - 20.0).abs() < f32::EPSILON);
     }
 }

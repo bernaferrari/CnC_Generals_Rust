@@ -1924,29 +1924,30 @@ impl GameLogic {
             }
             let vic_pos = victim.get_position();
             let vic_r = victim.thing.template.geometry_info.bounding_circle_radius();
-            let (min_range, max_range, src_r) = self
+            let (min_range, max_range, src_r, is_contact) = self
                 .objects
                 .get(&unit_id)
                 .map(|u| {
-                    let (min_r, max_r) = u
-                        .weapon
-                        .as_ref()
-                        .map(|w| (w.min_range, w.range))
-                        .or_else(|| {
-                            u.secondary_weapon
-                                .as_ref()
-                                .map(|w| (w.min_range, w.range))
-                        })
-                        .unwrap_or((0.0, 0.0));
+                    // C++ computeApproachTarget runs on the firing Weapon after chooseBest.
+                    let slot = u.selected_weapon_slot();
+                    let w = slot.and_then(|s| u.weapon_slot(s));
+                    let (min_r, max_r) = w.map(|w| (w.min_range, w.range)).unwrap_or((0.0, 0.0));
+                    let name = slot.and_then(|s| u.weapon_name_for_slot(s));
+                    let contact = crate::game_logic::weapon_bootstrap::is_contact_weapon_range(max_r)
+                        || name
+                            .map(crate::game_logic::weapon_bootstrap::host_is_contact_weapon_name)
+                            .unwrap_or(false);
                     (
                         min_r,
                         max_r,
                         u.thing.template.geometry_info.bounding_circle_radius(),
+                        contact,
                     )
                 })
-                .unwrap_or((0.0, 0.0, 0.0));
-            // C++ Weapon::computeApproachTarget: back off to (min+max)/2
-            // when inside MinimumAttackRange; otherwise 0.9 * max.
+                .unwrap_or((0.0, 0.0, 0.0, false));
+            // C++ Weapon::computeApproachTarget: contact → target pos;
+            // min-range back-off only when minAttackRange > PATHFIND_CELL_SIZE_F;
+            // otherwise 0.9 * max.
             let dx = from.x - vic_pos.x;
             let dz = from.z - vic_pos.z;
             let dist = (dx * dx + dz * dz).sqrt();
@@ -1955,7 +1956,10 @@ impl GameLogic {
             } else {
                 (1.0, 0.0)
             };
-            let standoff = if min_range > 0.0 && dist < min_range {
+            let cell = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE;
+            let standoff = if is_contact {
+                0.0
+            } else if min_range > cell && dist < min_range {
                 (min_range + max_range) * 0.5 + src_r + vic_r
             } else if max_range > 0.0 {
                 max_range * 0.9 + src_r + vic_r

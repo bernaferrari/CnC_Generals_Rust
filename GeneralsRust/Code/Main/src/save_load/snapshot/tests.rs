@@ -116,6 +116,66 @@ fn omitted_frenzy_tail_defaults_inactive() {
     assert_eq!(snapshot.weapon_bonus_frenzy_until_frame, 0);
 }
 
+/// C++ Object::xfer named UNSELECTABLE / DEPLOYED + m_scriptStatus must
+/// survive live snapshot/restore (sell latch, DeployStyle unpack, WB script).
+#[test]
+fn object_status_bits_survive_snapshot_restore() {
+    let mut source = GameLogic::new();
+    source
+        .templates
+        .insert("Tomahawk".to_string(), ThingTemplate::new("Tomahawk"));
+    source.add_player(Player::new(1, Team::USA, "PlayerOne", true));
+    let object_id = source
+        .create_object("Tomahawk", Team::USA, Vec3::new(5.0, 0.0, 5.0))
+        .expect("create deployed unit");
+    {
+        let object = source.host_object_mut(object_id).expect("created object");
+        object.set_status_unselectable(true);
+        object.set_deployed(true);
+        object.set_script_disabled(true);
+        object.set_script_underpowered(true);
+        object.set_script_unsellable(true);
+        object.set_script_unstealthed(true);
+    }
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder
+        .create_world_snapshot(&source)
+        .expect("snapshot");
+    let captured = snapshot.objects.get(&object_id).expect("object in snapshot");
+    assert!(captured.status.unselectable);
+    assert!(captured.status.deployed);
+    assert!(captured.status.disabled_script_disabled);
+    assert!(captured.status.disabled_script_underpowered);
+    assert!(captured.status.script_unsellable);
+    assert!(captured.status.script_unstealthed);
+
+    let mut restored = GameLogic::new();
+    restored.templates = source.templates.clone();
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .expect("restore");
+    let loaded = restored.host_object(object_id).expect("restored object");
+    assert!(loaded.status.unselectable);
+    assert!(loaded.is_deployed());
+    assert!(loaded.is_script_disabled());
+    assert!(loaded.is_script_underpowered());
+    assert!(loaded.is_script_unsellable());
+    assert!(loaded.is_script_unstealthed());
+}
+
+#[test]
+fn omitted_object_status_bits_default_inactive() {
+    let status = ObjectStatusSnapshot::default();
+    assert!(!status.unselectable);
+    assert!(!status.deployed);
+    assert!(!status.disabled_script_disabled);
+    assert!(!status.disabled_script_underpowered);
+    assert!(!status.script_unsellable);
+    assert!(!status.script_unstealthed);
+}
+
+
 #[test]
 fn snapshot_v5_restores_exact_human_and_ai_skirmish_template_bindings() {
     game_engine::common::ini::ensure_player_templates_loaded();

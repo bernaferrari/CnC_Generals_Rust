@@ -184,6 +184,11 @@ fn default_braking() -> f32 {
     99999.0
 }
 
+fn default_donut_timer() -> u32 {
+    // C++ ctor seeds now+2.5s; MAX means start_move / first wheels apply stamps it.
+    u32::MAX
+}
+
 fn default_airborne_targeting_height() -> i32 {
     // C++ LocomotorTemplate::m_airborneTargetingHeight = INT_MAX (Locomotor.cpp:314).
     i32::MAX
@@ -403,8 +408,11 @@ pub struct Object {
     pub production_door_phase: u8,
     /// Frame when current door residual phase ends.
     pub production_door_phase_end_frame: u32,
-    /// C++ ProductionUpdate DoorInfo::m_holdOpen residual (ParkingPlace).
+    /// C++ ProductionUpdate DoorInfo::m_holdOpen for DOOR_1 (legacy / save alias).
     pub production_door_hold_open: bool,
+    /// C++ DoorInfo m_doors[DOOR_COUNT_MAX].m_holdOpen — one bit per hangar stall.
+    #[serde(default)]
+    pub production_door_hold_opens: [bool; 4],
     /// C++ DoorInfo m_doors[DOOR_COUNT_MAX] phases (0 idle, 1 opening, 2 wait, 4 closing).
     #[serde(default)]
     pub production_door_phases: [u8; 4],
@@ -819,7 +827,7 @@ pub struct Object {
     #[serde(default)]
     pub is_climbing: bool,
     /// C++ Locomotor `m_donutTimer` residual (logic frame).
-    #[serde(default)]
+    #[serde(default = "default_donut_timer")]
     pub donut_timer: u32,
     /// C++ m_lift residual (world-Y up accel capacity).
     #[serde(default)]

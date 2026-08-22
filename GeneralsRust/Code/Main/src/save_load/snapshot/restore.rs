@@ -303,6 +303,12 @@ impl SnapshotBuilder {
         object.status.disabled_subdued = status.disabled_subdued;
         object.status.is_carbomb = status.is_carbomb;
         object.status.hijacked = status.hijacked;
+        object.status.unselectable = status.unselectable;
+        object.status.deployed = status.deployed;
+        object.status.disabled_script_disabled = status.disabled_script_disabled;
+        object.status.disabled_script_underpowered = status.disabled_script_underpowered;
+        object.script_unsellable = status.script_unsellable;
+        object.script_unstealthed = status.script_unstealthed;
         // Wave 79 Drawable residual: restore StealthLook ordinal.
         object.camo_stealth_look = status.camo_stealth_look;
         // C++ StealthUpdate::xfer (`StealthUpdate.cpp:1127-1130`) persists

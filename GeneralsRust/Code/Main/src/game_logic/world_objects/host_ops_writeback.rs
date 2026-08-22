@@ -2190,6 +2190,10 @@ mod select_object_cpp_parity_tests {
         {
             let o = logic.host_object_mut(rider).expect("rider");
             o.set_contained_by(Some(ObjectId(99)));
+            // hq-90dsv: control-group recall is not this bead. Live selectObject
+            // still gates is_selectable; clear UNSELECTABLE so this test stays
+            // the contained/MASKED (no-contained-gate) check.
+            o.set_status_unselectable(false);
             o.set_ai_state(crate::game_logic::AIState::Garrisoned);
             o.status.masked = true;
         }

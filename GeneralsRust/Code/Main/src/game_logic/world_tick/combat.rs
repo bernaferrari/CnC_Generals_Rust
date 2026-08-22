@@ -2284,10 +2284,8 @@ impl GameLogic {
                         .objects
                         .get(&attacker_id)
                         .map(|attacker| {
-                            let w = attacker
-                                .weapon
-                                .as_ref()
-                                .or(attacker.secondary_weapon.as_ref());
+                            let slot = attacker.selected_weapon_slot();
+                            let w = slot.and_then(|s| attacker.weapon_slot(s));
                             let min_r = w.map(|w| w.min_range).unwrap_or(0.0);
                             let max_r = w.map(|w| w.range).unwrap_or(0.0)
                                 * attacker.battle_plan_range_multiplier();
@@ -2348,16 +2346,13 @@ impl GameLogic {
                                 .objects
                                 .get(&attacker_id)
                                 .map(|a| {
-                                    let r = a
-                                        .weapon
-                                        .as_ref()
+                                    let slot = a.selected_weapon_slot();
+                                    let r = slot
+                                        .and_then(|s| a.weapon_slot(s))
                                         .map(|w| w.range)
-                                        .or_else(|| a.secondary_weapon.as_ref().map(|w| w.range))
                                         .unwrap_or(50.0);
-                                    let n =
-                                        a.thing.template.primary_weapon_name.clone().or_else(
-                                            || a.thing.template.secondary_weapon_name.clone(),
-                                        );
+                                    let n = slot
+                                        .and_then(|s| a.weapon_name_for_slot(s).map(str::to_owned));
                                     (r, n)
                                 })
                                 .unwrap_or((50.0, None));

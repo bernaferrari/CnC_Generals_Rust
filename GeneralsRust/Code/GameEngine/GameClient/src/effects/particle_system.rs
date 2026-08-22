@@ -1729,6 +1729,11 @@ impl ParticleSystem {
         self.is_shrouded = shrouded;
     }
 
+    /// C++ `ParticleSystem::m_isShrouded` after object-attach resolve.
+    pub fn is_shrouded(&self) -> bool {
+        self.is_shrouded
+    }
+
     /// Set parent transform matrix. C++ parity: ParticleSys.cpp lines 1863, 1886-1890
     pub fn set_parent_transform(&mut self, transform: Option<Matrix3<f32>>) {
         self.parent_transform = transform;
@@ -1865,6 +1870,8 @@ impl ParticleSystem {
         let (rot, trans) = affine_from_glam_cols(pose.transform.to_cols_array());
         self.parent_transform = Some(rot);
         self.position = Point3::from(trans);
+        // C++ ParticleSys.cpp:1880-1905 object-attach Fogged+ emit gate.
+        self.is_shrouded = pose.is_shrouded;
     }
 
     fn read_particle_scale_from_global_data() -> f32 {
@@ -3010,6 +3017,7 @@ mod tests {
             ]),
             player_index: 0,
             bounding_circle_radius: 0.0,
+            is_shrouded: false,
         });
         system.resolve_attached_parent(0);
         assert!(!system.is_destroyed());
@@ -3018,6 +3026,27 @@ mod tests {
         assert!((system.position().y - 20.0).abs() < 1e-5);
         assert!((system.position().z - 30.0).abs() < 1e-5);
         gamelogic::helpers::remove_host_fx_object_pose(4242);
+    }
+
+    #[test]
+    fn attached_host_object_fogged_sets_shrouded_emit_gate() {
+        let template = Arc::new(ParticleSystemTemplate::new("HostFog".to_string()));
+        let mut system = ParticleSystem::new(template, 1, false);
+        system.attach_to_object(4243);
+        gamelogic::helpers::set_host_fx_object_pose(gamelogic::helpers::HostFxObjectPose {
+            id: 4243,
+            position: gamelogic::common::Coord3D::new(1.0, 2.0, 3.0),
+            transform: gamelogic::common::Matrix3D::from_cols_array(&[
+                1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 2.0, 3.0, 1.0,
+            ]),
+            player_index: 0,
+            bounding_circle_radius: 0.0,
+            is_shrouded: true,
+        });
+        system.resolve_attached_parent(0);
+        assert!(!system.is_destroyed());
+        assert!(system.is_shrouded());
+        gamelogic::helpers::remove_host_fx_object_pose(4243);
     }
 
     #[test]

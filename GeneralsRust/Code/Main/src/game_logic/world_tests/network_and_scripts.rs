@@ -1362,7 +1362,7 @@ fn guard_state_engages_nearby_enemy() {
         guard.guard_position = Some(Vec3::new(0.0, 0.0, 0.0));
         guard.guard_radius = 100.0;
     }
-
+    game_logic.guard_next_enemy_scan.insert(guard_id, game_logic.frame);
     game_logic.update_ai(&[guard_id, enemy_id], 1.0 / 60.0);
 
     let guard = game_logic

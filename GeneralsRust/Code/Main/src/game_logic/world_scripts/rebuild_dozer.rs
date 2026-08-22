@@ -247,12 +247,21 @@ impl GameLogic {
             }
         } else if let Some(valid) = outcome.remapped_to {
             let pool = self.tunnel_network.contained_for_player(old_key);
-            for uid in pool {
+            let remapped: Vec<ObjectId> = pool
+                .into_iter()
+                .filter(|&uid| {
+                    self.objects
+                        .get(&uid)
+                        .is_some_and(|u| u.contained_by == Some(tunnel_id))
+                })
+                .collect();
+            for uid in remapped {
                 if let Some(unit) = self.objects.get_mut(&uid) {
-                    if unit.contained_by == Some(tunnel_id) {
-                        unit.set_contained_by(Some(valid));
-                    }
+                    unit.set_contained_by(Some(valid));
                 }
+                // C++ Object::onContainedBy restamps m_containedByFrame.
+                self.tunnel_network
+                    .stamp_contained_by_frame(uid, self.frame);
             }
         }
 

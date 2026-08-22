@@ -2019,13 +2019,13 @@ impl CnCGameEngine {
         let key_dirs =
             input_enabled && !ui_modal && (key_up || key_down || key_left || key_right);
         let (mut edge_dx, mut edge_dy) = (0.0f32, 0.0f32);
+        // Edge scrolling (C++ LookAt.cpp / LookAtXlat.cpp:267-291):
+        // input enabled, !windowed, 3px TheDisplay band. Shell only skips RAW_KEY.
+        // Chat/diplomacy/GameState never gate SCREENEDGE (score/diplomacy still pan).
         let edge_allowed = input_enabled
             && !self.is_windowed
-            && matches!(self.current_state, GameState::InGame | GameState::Paused)
             && !self.runtime_host_headless
-            && self.mouse_cursor_seen
-            && !self.chat_panel.is_open()
-            && !self.diplomacy_panel.is_active();
+            && self.mouse_cursor_seen;
         if edge_allowed {
             let (mx, my) = self.mouse_position;
             // C++ LookAtXlat.cpp:267-291 / 427-447 uses TheDisplay getWidth/Height,

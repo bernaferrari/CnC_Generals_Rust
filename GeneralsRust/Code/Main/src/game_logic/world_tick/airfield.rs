@@ -1043,17 +1043,25 @@ impl GameLogic {
     }
 
     fn sync_airfield_hangar_doors(&mut self, airfield_id: ObjectId) {
-        let hold = self
-            .airfield_parking_spaces
-            .get(&airfield_id)
-            .is_some_and(|spaces| {
-                spaces
-                    .iter()
-                    .any(|space| space.object_id.is_some() || space.reserved_for_exit)
-            });
+        // C++ reserveSpace/releaseSpace/purgeDead: setHoldDoorOpen(ppi->m_door)
+        // for that stall only. Stall index == ExitDoorType (DOOR_1..4).
+        let holds: [bool; 4] = {
+            let mut holds = [false; 4];
+            if let Some(spaces) = self.airfield_parking_spaces.get(&airfield_id) {
+                for (i, space) in spaces.iter().enumerate().take(4) {
+                    holds[i] = space.object_id.is_some() || space.reserved_for_exit;
+                }
+            }
+            holds
+        };
         let frame = self.frame;
         if let Some(airfield) = self.objects.get_mut(&airfield_id) {
-            airfield.set_production_door_hold_open(hold, frame);
+            let count = airfield.production_door_count();
+            for i in 0..count {
+                if airfield.production_door_is_held(i) != holds[i] {
+                    airfield.set_production_door_hold_open_at(i, holds[i], frame);
+                }
+            }
         }
     }
 
@@ -1272,6 +1280,7 @@ impl GameLogic {
     fn normalize_airfield_parking_spaces(&mut self, airfield_id: ObjectId) -> bool {
         let Some(capacity) = self.airfield_parking_capacity(airfield_id) else {
             self.airfield_parking_spaces.remove(&airfield_id);
+            self.sync_airfield_hangar_doors(airfield_id);
             return false;
         };
 
@@ -1372,6 +1381,7 @@ impl GameLogic {
         }
 
         self.airfield_parking_spaces.insert(airfield_id, spaces);
+        self.sync_airfield_hangar_doors(airfield_id);
         true
     }
 

@@ -37,7 +37,7 @@ use crate::w3d::W3DParticleSystemBridge;
 use game_engine::common::ini::ini_game_data::{
     get_global_data, GlobalData, TimeOfDay, MAX_GLOBAL_LIGHTS, TIME_OF_DAY_COUNT,
 };
-use gamelogic::helpers::TheGameLogic;
+use gamelogic::helpers::{TheGameLogic, TheScriptEngine};
 use log::{error, warn};
 use nalgebra::{Matrix4, Point3, Vector3};
 use std::any::Any;
@@ -546,7 +546,14 @@ impl Display {
     }
 
     pub fn stop_movie(&mut self) {
-        self.currently_playing_movie.clear();
+        // C++ Display::stopMovie intended TheScriptEngine->notifyOfCompletedVideo
+        // before clearing m_currentlyPlayingMovie (commented for MP sync).
+        // Single-player HAS_FINISHED_VIDEO waits leftover m_completedVideo.
+        let completed = if self.currently_playing_movie.is_empty() {
+            None
+        } else {
+            Some(std::mem::take(&mut self.currently_playing_movie))
+        };
         self.video_buffer = None;
         display_fx::clear_movie_frame();
         display_fx::set_copyright_overlay(None);
@@ -566,6 +573,9 @@ impl Display {
         self.copyright_start_time = None;
 
         TheGameLogic::set_intro_movie_playing(false);
+        if let Some(name) = completed {
+            TheScriptEngine::notify_of_completed_video(&name);
+        }
     }
 
     pub fn is_movie_playing(&self) -> bool {

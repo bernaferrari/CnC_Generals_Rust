@@ -1001,9 +1001,26 @@ impl GameLogic {
         }
         if let Some(flight) = self.host_deliver_payloads.cargo_flight_mut(mission_id) {
             flight.transport_template = deliver.transport.clone();
-            // Snap OCL edge-spawn transport onto CreateAtEdge residual.
+            // Seat CreateAtEdge on leftover/live map rim, not residual 0..500.
+            let mut edge = plan.creation_coord;
+            if deliver.start_at_preferred_height {
+                edge.y = edge.y.max(flight.preferred_height);
+            }
+            flight.edge_spawn_pos = edge;
+            flight.current_pos = edge;
+            flight.reapproach_pos = edge;
+            let dx = plan.target_coord.x - edge.x;
+            let dz = plan.target_coord.z - edge.z;
+            let dlen = (dx * dx + dz * dz).sqrt().max(0.001);
+            flight.dir_x = dx / dlen;
+            flight.dir_z = dz / dlen;
+            flight.previous_distance =
+                crate::game_logic::host_deliver_payload::horizontal_distance_xz(
+                    edge,
+                    plan.target_coord,
+                );
             if let Some(t) = self.objects.get_mut(&transport_id) {
-                t.set_position(flight.current_pos);
+                t.set_position(edge);
                 let yaw = flight.dir_z.atan2(flight.dir_x);
                 t.set_orientation(yaw);
             }
@@ -1031,6 +1048,23 @@ impl GameLogic {
     }
 
 
+    /// C++ `TheTerrainLogic->getExtent()` for OCL CreateAtEdge.
+    /// Prefer leftover TerrainLogic active boundary; else live world_min/world_max.
+    fn ocl_map_extents(&self) -> (f32, f32, f32, f32) {
+        if let Ok(terrain) = gamelogic::terrain::get_terrain_logic().try_read() {
+            let ext = terrain.get_extent();
+            if ext.hi.x > ext.lo.x && ext.hi.y > ext.lo.y {
+                return (ext.lo.x, ext.lo.y, ext.hi.x, ext.hi.y);
+            }
+        }
+        (
+            self.world_min.x,
+            self.world_min.z,
+            self.world_max.x,
+            self.world_max.z,
+        )
+    }
+
     pub fn plan_ocl_special_power(
         &mut self,
         power_template: &str,
@@ -1038,8 +1072,7 @@ impl GameLogic {
         target_pos: Vec3,
     ) -> Option<crate::game_logic::host_ocl_special_power::OclSpecialPowerSpawnPlan> {
         use crate::game_logic::host_ocl_special_power::{
-            default_map_extents, find_ocl_name, peel_for_special_power,
-            plan_ocl_special_power_at_location,
+            find_ocl_name, peel_for_special_power, plan_ocl_special_power_at_location,
         };
         let (source_pos, unlocked) = {
             let caster = self.objects.get(&caster_id)?;
@@ -1059,7 +1092,7 @@ impl GameLogic {
                 resolved != p.default_ocl
             })
             .unwrap_or(false);
-        let (minx, minz, maxx, maxz) = default_map_extents();
+        let (minx, minz, maxx, maxz) = self.ocl_map_extents();
         let plan = {
             use gamelogic::ai::pathfind_astar::PathfindCellType;
             let grid = &self.pathfinding_system.grid;

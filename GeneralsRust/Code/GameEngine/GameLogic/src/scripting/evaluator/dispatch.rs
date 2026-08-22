@@ -2126,8 +2126,12 @@ impl ScriptEvaluator {
                 let handler = self
                     .with_evaluation_engine_ref(|engine| engine.action_handler())
                     .flatten();
-                Ok(handler
-                    .map(|h| h.has_music_track_completed(&track_name, param))
+                if let Some(handler) = handler {
+                    return Ok(handler.has_music_track_completed(&track_name, param));
+                }
+                // C++ TheAudio->hasMusicTrackCompleted. Unplayed / missing = false.
+                Ok(crate::helpers::TheAudio::get()
+                    .map(|audio| audio.has_music_track_completed(&track_name, param))
                     .unwrap_or(false))
             }
 

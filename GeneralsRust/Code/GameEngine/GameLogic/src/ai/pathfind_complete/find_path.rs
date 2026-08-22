@@ -239,6 +239,22 @@ impl PathfindingSystem {
             if info.enemy_fixed || info.ally_fixed_count > 0 {
                 return false;
             }
+            // Seed line never walks occupying enemies, crushable included.
+            // check_for_movement only sets enemy_fixed when !can_crush.
+            let pos_u = self.pos_unit_at(cell, PathfindLayerEnum::Ground);
+            if pos_u != INVALID_ID && pos_u != obj_id {
+                let is_enemy = OBJECT_REGISTRY
+                    .with_object(obj_id, |g| {
+                        OBJECT_REGISTRY.with_object(pos_u, |u| {
+                            g.relationship_to(&u) != crate::common::Relationship::Allies
+                        })
+                    })
+                    .flatten()
+                    .unwrap_or(false);
+                if is_enemy {
+                    return false;
+                }
+            }
             true
         };
         // Seed line when not tunneling and not downhill-only (C++ guards).

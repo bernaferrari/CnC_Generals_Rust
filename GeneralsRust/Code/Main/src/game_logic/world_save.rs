@@ -1423,6 +1423,7 @@ impl GameLogic {
             unit.movement.path = full_path;
             unit.movement.target_position = unit.movement.path.first().copied();
             unit.is_exact_path = true;
+            unit.start_move();
             unit.set_ai_state(AIState::Moving);
             true
         } else {
@@ -1537,6 +1538,7 @@ impl GameLogic {
                 // C++ queueForPath: sit still until processPathfindQueue installs Path.
                 unit.movement.target_position = None;
                 unit.movement.velocity = glam::Vec3::ZERO;
+                unit.start_move();
                 unit.set_ai_state(AIState::Moving);
                 unit.set_status_moving(true);
                 unit.record_host_movement();
@@ -1696,6 +1698,7 @@ impl GameLogic {
         unit.movement.current_path_index = 0;
         unit.record_host_movement();
         unit.movement.target_position = Some(destination);
+        unit.start_move();
         crate::game_logic::host_move_log::record(
             unit_id,
             Some([destination.x, destination.y, destination.z]),
@@ -3652,6 +3655,7 @@ impl GameLogic {
         self.script_named_timer_display_shown = true;
         self.script_superweapon_display_enabled = true;
         self.script_superweapon_hidden_objects.clear();
+        self.eva_superweapon_science_hidden.clear();
         self.mission_objectives = self.load_campaign_objectives(map_name);
         self.rebuild_objective_lookup();
 

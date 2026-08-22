@@ -4661,7 +4661,11 @@ fn tunnel_network_residual_cross_exit_enter_a_evacuate_b() {
     game_logic.process_commands();
 
     let infantry = game_logic.host_object(infantry_id).expect("exited");
-    assert_eq!(infantry.ai_state, AIState::Idle);
+    assert_eq!(
+        infantry.ai_state,
+        AIState::Moving,
+        "TunnelContain inherits OpenContain ExitStart/End walk"
+    );
     assert!(infantry.contained_by.is_none());
     assert!(infantry.can_move());
     // Dropped near tunnel B, not tunnel A.

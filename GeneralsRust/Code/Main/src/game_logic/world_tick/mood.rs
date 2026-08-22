@@ -948,28 +948,25 @@ impl GameLogic {
                 .get(&cid)
                 .and_then(|c| Object::enclosing_garrison_fire_goal(c, unit_id, target_pos))
         });
+        // C++ WeaponSet.cpp:621-647 — range is always m_curWeapon, not any slot.
+        let range_slot = source.selected_weapon_slot();
         let within = if let Some(goal) = fire_goal {
             if let Some(vid) = victim_id {
                 let v = self.objects.get(&vid).unwrap();
-                candidate_slots.iter().copied().any(|slot| {
+                range_slot.is_some_and(|slot| {
                     source.is_within_attack_range_for_slot_from_goal(slot, goal, v)
                 })
             } else {
-                candidate_slots.iter().copied().any(|slot| {
+                range_slot.is_some_and(|slot| {
                     source.is_within_attack_range_pos_for_slot_from_goal(slot, goal, target_pos)
                 })
             }
         } else if let Some(vid) = victim_id {
             let v = self.objects.get(&vid).unwrap();
-            candidate_slots
-                .iter()
-                .copied()
-                .any(|slot| source.is_within_attack_range_for_slot(slot, v))
+            range_slot.is_some_and(|slot| source.is_within_attack_range_for_slot(slot, v))
         } else {
-            candidate_slots
-                .iter()
-                .copied()
-                .any(|slot| source.is_within_attack_range_pos_for_slot(slot, target_pos))
+            range_slot
+                .is_some_and(|slot| source.is_within_attack_range_pos_for_slot(slot, target_pos))
         };
 
         // C++ WeaponSet.cpp:656-660 — immobile / spawn-weapons / contained

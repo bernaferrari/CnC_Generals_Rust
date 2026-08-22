@@ -43,6 +43,9 @@ impl GameLogic {
         let mut instance = Self {
             attack_priority_sets: std::collections::HashMap::new(),
             team_common_attack_targets: std::collections::HashMap::new(),
+            guard_next_enemy_scan: HashMap::new(),
+            guard_guardee_pos: HashMap::new(),
+
             enable_repulsors: false,
             retaliate_friends_radius: 120.0,
             max_retaliate_distance: 210.0,
@@ -624,6 +627,7 @@ impl GameLogic {
             script_named_timer_display_shown: true,
             script_superweapon_display_enabled: true,
             script_superweapon_hidden_objects: HashSet::new(),
+            eva_superweapon_science_hidden: HashMap::new(),
             host_beacons: Vec::new(),
             recent_beacons: Vec::new(),
             script_engine: None,
@@ -1207,6 +1211,7 @@ impl GameLogic {
         self.script_named_timer_display_shown = true;
         self.script_superweapon_display_enabled = true;
         self.script_superweapon_hidden_objects.clear();
+        self.eva_superweapon_science_hidden.clear();
         self.host_beacons.clear();
         self.recent_beacons.clear();
         self.terrain = None;

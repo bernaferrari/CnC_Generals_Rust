@@ -366,14 +366,15 @@ impl GameLogic {
                     .get(&object_id)
                     .map(|o| o.get_position())
                     .unwrap_or(glam::Vec3::ZERO);
-                let (transition_evs, death_fx, death_audio, death_audio_stop) =
+                let (transition_evs, death_fx, death_audio, death_audio_stop, death_killer) =
                     if let Some(o) = self.objects.get_mut(&object_id) {
                         let te = o.take_pending_transition_damage_fx();
                         let (df, da) = o.take_pending_death_fx_audio();
                         let stop = o.take_pending_death_audio_stop();
-                        (te, df, da, stop)
+                        let killer = o.last_damage_source;
+                        (te, df, da, stop, killer)
                     } else {
-                        (Vec::new(), None, None, false)
+                        (Vec::new(), None, None, false, None)
                     };
                 for ev in transition_evs {
                     if let Some(a) = ev.audio_name {
@@ -447,7 +448,7 @@ impl GameLogic {
                     self.queue_audio_event(req);
                 }
                 if let Some(fx) = death_fx {
-                    if !self.dispatch_fx_list_at_host_object(&fx, object_id, None) {
+                    if !self.dispatch_fx_list_at_host_object(&fx, object_id, death_killer) {
                         let mut sounds = crate::game_logic::sound_names_for_fx_list(&fx);
                         if sounds.is_empty() {
                             sounds = heli_fx_fallback_sounds(&fx);

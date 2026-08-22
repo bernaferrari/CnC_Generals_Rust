@@ -168,6 +168,10 @@ fn do_named_fx_obj(name: &str, primary_id: Option<u32>, secondary_id: Option<u32
 }
 
 fn leftover_object_fx_pose(object: &Object) -> gamelogic::helpers::HostFxObjectPose {
+    use gamelogic::common::types::ObjectShroudStatus;
+    let player = fx_local_player_index();
+    let is_shrouded = player >= 0
+        && (object.get_shrouded_status(player) as u8) >= (ObjectShroudStatus::Fogged as u8);
     gamelogic::helpers::HostFxObjectPose {
         id: object.get_id(),
         position: *object.get_position(),
@@ -176,6 +180,7 @@ fn leftover_object_fx_pose(object: &Object) -> gamelogic::helpers::HostFxObjectP
         bounding_circle_radius: object
             .get_geometry_info()
             .get_bounding_circle_radius(),
+        is_shrouded,
     }
 }
 
@@ -2324,6 +2329,7 @@ mod tests {
             transform: Default::default(),
             player_index: 0,
             bounding_circle_radius: 25.0,
+            is_shrouded: false,
         };
         nugget.do_fx_obj_host(&pose, None);
         let pulses = drain_display_light_pulses();

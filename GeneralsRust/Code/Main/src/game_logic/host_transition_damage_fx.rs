@@ -769,8 +769,8 @@ pub fn dispatch_armor_damage_fx(
     DISPATCHED_ARMOR_DAMAGE_FX.with(|v| v.borrow_mut().push(dfx_name.clone()));
     if let Some(list) = &list_name {
         DISPATCHED_ARMOR_DAMAGE_FX.with(|v| v.borrow_mut().push(list.clone()));
-        let source_id = source.as_ref().map(|s| s.id);
-        let _ = crate::game_logic::dispatch_fx_list_at_object(list, obj.id.0, source_id);
+        // C++ ActiveBody::doDamageFX → DamageFX::doDamageFX once.
+        // `dfx.do_damage_fx` already runs leftover FXList::doFXObj.
     }
     list_name.or(Some(dfx_name))
 }

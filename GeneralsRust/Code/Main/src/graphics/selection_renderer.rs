@@ -678,18 +678,49 @@ impl SelectionRenderer {
 // Public integration helpers
 // ---------------------------------------------------------------------------
 
-/// Collect selection circles from a `PresentationFrame` snapshot (preferred production path).
+/// C++ `GameClient.cpp:694` `setFullyObscuredByShroud(ss >= OBJECTSHROUD_FOGGED)`
+/// then `W3DModelDraw::setFullyObscuredByShroud` → `enableShadowInvisible`.
+/// Fogged ghosts and black-shrouded units cast no disc.
+fn blob_shadow_visible_through_shroud(
+    u: &crate::presentation_frame::UnitRenderInput,
+) -> bool {
+    use crate::presentation_frame::PresentationObjectShroudStatus;
+    if u.drawable_shroud.lifetime.is_direct_host_object()
+        && (u.drawable_shroud.raw_status as u8)
+            >= (PresentationObjectShroudStatus::Fogged as u8)
+    {
+        return false;
+    }
+    !u.fow_visibility.fully_obscures_drawable()
+}
+
+/// C++ projected/volumetric shadows drape the heightmap at object XY; object Z unused.
+/// Frozen `RenderableObject::ground_height` is the presentation-owned terrain sample.
+fn blob_disc_ground_y(
+    frame: &crate::presentation_frame::PresentationFrame,
+    id: crate::game_logic::ObjectId,
+) -> f32 {
+    frame
+        .objects
+        .iter()
+        .find(|o| o.id == id)
+        .map(|o| o.ground_height)
+        .filter(|h| h.is_finite())
+        .unwrap_or(crate::presentation_frame::PRESENTATION_DEFAULT_GROUND_HEIGHT)
+}
+
+/// Collect blob discs from a `PresentationFrame` snapshot.
 ///
-/// Identity fields (position/team/selected/aliveness) come only from the immutable
-/// snapshot — not a live re-read of `GameLogic` objects.
-/// Dark blob discs under every live `unit_render_inputs` pose.
+/// Identity fields come only from the immutable snapshot — not a live re-read
+/// of `GameLogic` objects. Dark discs drape frozen terrain height under every
+/// live `unit_render_inputs` pose that is not fogged or black-shrouded.
 pub fn collect_blob_shadows_from_presentation(
     frame: &crate::presentation_frame::PresentationFrame,
 ) -> Vec<SelectedUnit> {
     frame
         .unit_render_inputs()
         .iter()
-        .filter(|u| !u.destroyed && u.shadows_enabled)
+        .filter(|u| !u.destroyed && u.shadows_enabled && blob_shadow_visible_through_shroud(u))
         .map(|u| {
             let (sx, sy) = crate::game_logic::host_battlemaster::leftover_template_shadow_size(
                 &u.template_name,
@@ -709,9 +740,13 @@ pub fn collect_blob_shadows_from_presentation(
                     * 0.85
             };
             SelectedUnit {
-                // Plant discs on the unit pose (terrain Y), not y=0 — units must not hover.
                 // C++ ShadowOffsetX/Y are world X/Y; live Y is height so offset Y maps to Z.
-                position: glam::Vec3::new(u.position.x + ox, u.position.y, u.position.z + oy),
+                // Disc Y is frozen terrain height, never unit altitude (jets/Comanches).
+                position: glam::Vec3::new(
+                    u.position.x + ox,
+                    blob_disc_ground_y(frame, u.id),
+                    u.position.z + oy,
+                ),
                 radius,
                 team_color: [0.0, 0.0, 0.0, 0.4],
             }
@@ -999,22 +1034,34 @@ mod presentation_selection_tests {
 
         let blobs = collect_blob_shadows_from_presentation(&snap);
         let inputs = snap.unit_render_inputs();
+        let visible_inputs: Vec<_> = inputs
+            .iter()
+            .filter(|u| !u.destroyed && u.shadows_enabled && blob_shadow_visible_through_shroud(u))
+            .collect();
         assert!(
             !blobs.is_empty(),
             "blob shadows must be drawn under unit_render_inputs poses"
         );
-        assert_eq!(blobs.len(), inputs.len());
+        assert_eq!(blobs.len(), visible_inputs.len());
+        assert!(
+            blobs
+                .iter()
+                .any(|b| (b.position.x - 12.0).abs() < 0.01 && (b.position.z + 7.0).abs() < 0.01),
+            "created unit still casts a blob at snapshot XY"
+        );
         assert!(
             blobs
                 .iter()
                 .all(|b| b.team_color[0] == 0.0 && b.team_color[3] > 0.0),
             "blob shadows are dark discs"
         );
-        for (blob, unit) in blobs.iter().zip(inputs.iter()) {
+        for (blob, unit) in blobs.iter().zip(visible_inputs.iter()) {
+            let ground = blob_disc_ground_y(&snap, unit.id);
             assert!(
-                (blob.position.y - unit.position.y).abs() < 0.01,
-                "blob Y must match unit_render_inputs Y: blob={} unit={}",
+                (blob.position.y - ground).abs() < 0.01,
+                "blob Y must drape frozen ground_height, not unit altitude: blob={} ground={} unit={}",
                 blob.position.y,
+                ground,
                 unit.position.y
             );
         }
@@ -1039,6 +1086,121 @@ mod presentation_selection_tests {
         );
         assert!(opaque.contains("shadow_factor"));
     }
+
+    #[test]
+    fn airborne_blob_discs_project_to_terrain() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("AirBlobMap");
+        apply_skirmish_config(&mut logic, &cfg).expect("config");
+        let mut t = ThingTemplate::new("AirBlobJet");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Aircraft);
+        t.shadow_type = crate::game_logic::host_enum_table_residual::SHADOW_DECAL;
+        logic.templates.insert("AirBlobJet".into(), t);
+
+        let id = logic
+            .create_object("AirBlobJet", Team::USA, Vec3::new(20.0, 80.0, 15.0))
+            .expect("jet");
+        if let Some(o) = logic.host_object_mut(id) {
+            o.status.airborne_target = true;
+        }
+
+        let mut snap = PresentationFrame::build_from_logic(&logic, 0);
+        for o in &mut snap.objects {
+            if o.id == id {
+                o.position.y = 80.0;
+                o.ground_height = 3.5;
+                o.ground_height_from_terrain = true;
+            }
+        }
+        let blobs = collect_blob_shadows_from_presentation(&snap);
+        assert_eq!(blobs.len(), 1, "airborne unit still casts a ground disc");
+        assert!(
+            (blobs[0].position.y - 3.5).abs() < 0.01,
+            "airborne blob must sit on terrain, not flight altitude: {:?}",
+            blobs[0].position
+        );
+        assert!(
+            (blobs[0].position.x - 20.0).abs() < 0.01
+                && (blobs[0].position.z - 15.0).abs() < 0.01,
+            "blob XZ follows unit XY: {:?}",
+            blobs[0].position
+        );
+    }
+
+    #[test]
+    fn blob_discs_hidden_under_fog_and_black_shroud() {
+        use crate::fow_rendering::ObjectVisibility;
+        use crate::presentation_frame::{
+            PresentationDrawableShroudFacts, PresentationObjectShroudStatus,
+        };
+
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("FogBlobMap");
+        apply_skirmish_config(&mut logic, &cfg).expect("config");
+        let mut t = ThingTemplate::new("FogBlobUnit");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Infantry);
+        t.shadow_type = crate::game_logic::host_enum_table_residual::SHADOW_DECAL;
+        logic.templates.insert("FogBlobUnit".into(), t);
+
+        let _id = logic
+            .create_object("FogBlobUnit", Team::USA, Vec3::new(8.0, 0.0, 8.0))
+            .expect("unit");
+
+        let mut snap = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(
+            !collect_blob_shadows_from_presentation(&snap).is_empty(),
+            "clear unit casts a blob"
+        );
+
+        for o in &mut snap.objects {
+            o.fow_visibility = ObjectVisibility::VISIBLE;
+            o.drawable_shroud = PresentationDrawableShroudFacts::direct_host_object(
+                PresentationObjectShroudStatus::PartialClear,
+                false,
+            );
+        }
+        assert!(
+            !collect_blob_shadows_from_presentation(&snap).is_empty(),
+            "partial-clear still casts a blob"
+        );
+
+        for o in &mut snap.objects {
+            o.fow_visibility = ObjectVisibility::FOGGED;
+            o.drawable_shroud = PresentationDrawableShroudFacts::direct_host_object(
+                PresentationObjectShroudStatus::Fogged,
+                false,
+            );
+        }
+        assert!(
+            collect_blob_shadows_from_presentation(&snap).is_empty(),
+            "fogged units must not cast blob discs"
+        );
+
+        for o in &mut snap.objects {
+            o.fow_visibility = ObjectVisibility::HIDDEN;
+            o.drawable_shroud = PresentationDrawableShroudFacts::direct_host_object(
+                PresentationObjectShroudStatus::Shrouded,
+                false,
+            );
+        }
+        assert!(
+            collect_blob_shadows_from_presentation(&snap).is_empty(),
+            "black-shrouded units must not cast blob discs"
+        );
+
+        for o in &mut snap.objects {
+            o.fow_visibility = ObjectVisibility::FOGGED;
+            o.drawable_shroud = PresentationDrawableShroudFacts::default();
+        }
+        assert!(
+            collect_blob_shadows_from_presentation(&snap).is_empty(),
+            "FOW-alpha fog without direct shroud facts must still hide the disc"
+        );
+
+    }
+
 
     #[test]
     fn production_cnc_render_path_enqueues_selection_with_presentation() {

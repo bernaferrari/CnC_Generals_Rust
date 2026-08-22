@@ -317,8 +317,8 @@ impl GameLogic {
             }
             // C++ onStructureConstructionComplete feedback residual.
             self.notify_structure_construction_complete(completed_id);
-            // C++ RadarUpgrade/RadarUpdate extendRadar residual on radar providers.
-            self.maybe_start_radar_extend(completed_id);
+            // C++ RadarUpdate::extendRadar is only called from
+            // RadarUpgrade::upgradeImplementation, not on every CC complete.
             // Constructed footprint is a static path/LOS obstacle.
             self.block_structure_object_path(completed_id);
         }
@@ -481,7 +481,6 @@ impl GameLogic {
                 self.record_structure_completion(completed_id);
             }
             self.notify_structure_construction_complete(completed_id);
-            self.maybe_start_radar_extend(completed_id);
             self.block_structure_object_path(completed_id);
         }
         if !completed_structures.is_empty() {

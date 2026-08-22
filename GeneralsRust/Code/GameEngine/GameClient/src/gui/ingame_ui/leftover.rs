@@ -744,10 +744,13 @@ impl InGameUI {
             stream.close();
         }
         self.video_buffer = None;
-        if self.currently_playing_movie.is_some() {
+        let completed = self.currently_playing_movie.take();
+        if completed.is_some() {
             with_window_video_manager(|manager| manager.stop_all_movies());
         }
-        self.currently_playing_movie = None;
+        if let Some(name) = completed {
+            TheScriptEngine::notify_of_completed_video(&name);
+        }
     }
 
 

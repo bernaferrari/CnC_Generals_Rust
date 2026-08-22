@@ -396,12 +396,26 @@ impl GameLogic {
         // OBJECT_STATUS_DETECTED at insert → not STEALTHLOOK_INVISIBLE.
         radar_obj.stealth_revealed = radar_obj.is_detected || radar_obj.is_disguised;
         radar_obj.drawable_hidden = obj.drawable_hidden || obj.hijacker_in_vehicle;
+        // C++ RadarObject::isTemporarilyHidden uses the *local* drawable
+        // getStealthLook() == STEALTHLOOK_INVISIBLE. Own/ally CamoNetting is
+        // VISIBLE_FRIENDLY and still blips. Do not trust camo_stealth_look
+        // (enemy-observer residual written by the camo tick).
+        let local_look = crate::game_logic::host_upgrades::calc_stealthed_status_for_player(
+            obj.status.stealthed,
+            obj.status.detected,
+            !radar_obj.is_enemy,
+            is_disguiser,
+            disguised,
+        );
         radar_obj.hidden_by_stealth = matches!(
-            crate::game_logic::host_upgrades::HostCamoStealthLook::from_u8(obj.camo_stealth_look),
+            local_look,
             crate::game_logic::host_upgrades::HostCamoStealthLook::Invisible
         );
 
         radar_obj.color = owner_color;
+
+        // C++ Object::getIndicatorColor — custom (NAMED_CUSTOM_COLOR) first.
+        let indicator_color = obj.custom_indicator_color.unwrap_or(owner_color);
 
         RadarObjectInsert {
             object: radar_obj,
@@ -415,7 +429,7 @@ impl GameLogic {
             local_player_active: local_active,
             contain_apparent_player_index,
             contain_apparent_color,
-            indicator_color: owner_color,
+            indicator_color,
             owner_player_color: owner_color,
             disguised_player_color: disguised_color,
         }

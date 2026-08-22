@@ -298,7 +298,13 @@ impl GameLogic {
                 let dz = src_pos.z - tgt_pos.z;
                 (dx * dx + dz * dz).sqrt()
             };
-            if !tgt_alive || is_structure || stealth_hidden {
+            // C++ continuePreparation: dead, structure/stealth (update shouldAbort), or
+            // getRelationship == ALLIES ("captured by a colleague") kills the laser.
+            if !tgt_alive
+                || is_structure
+                || stealth_hidden
+                || self.leftover_sa_target_is_ally(object_id, channel.target_id)
+            {
                 self.leftover_kill_special_objects(object_id);
                 self.hero_abilities.take_leftover_channel(object_id);
                 continue;

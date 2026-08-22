@@ -1812,11 +1812,27 @@ impl Object {
     }
 
     pub fn set_contained_by(&mut self, container: Option<ObjectId>) {
+        // Default enclosing=true matches C++ OpenContain::isEnclosingContainerFor.
+        self.set_contained_by_enclosing(container, true);
+    }
+
+    /// C++ Object::onContainedBy / onRemovedFrom.
+    /// Enter always sets UNSELECTABLE; MASKED only when the container encloses
+    /// the occupant (Fire Base `IsEnclosingContainer=No` stays visible/targetable).
+    /// Exit clears both.
+    pub fn set_contained_by_enclosing(&mut self, container: Option<ObjectId>, enclosing: bool) {
         if container.is_none() && self.experience_sink == self.contained_by {
             // C++ never unsinks the portable structure (it never leaves).
             // Infantry exiting the BattleBunker residual must not keep
             // forwarding later kills to a tank they no longer ride.
             self.set_experience_sink(None);
+        }
+        if container.is_some() {
+            self.set_status_unselectable(true);
+            self.set_status_masked(enclosing);
+        } else {
+            self.set_status_unselectable(false);
+            self.set_status_masked(false);
         }
         self.contained_by = container;
         crate::game_logic::host_contain_log::record_contained_by(self.id, container);

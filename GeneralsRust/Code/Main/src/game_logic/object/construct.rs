@@ -391,6 +391,7 @@ impl Object {
             production_door_phase: 0,
             production_door_phase_end_frame: 0,
             production_door_hold_open: false,
+            production_door_hold_opens: [false; 4],
             production_door_phases: [0; 4],
             production_door_phase_end_frames: [0; 4],
             production_door_active_index: 0,
@@ -823,7 +824,7 @@ impl Object {
             wander_offset_increasing: true,
             downhill_only: false,
             is_climbing: false,
-            donut_timer: 0,
+            donut_timer: u32::MAX,
             max_lift: 0.0,
             max_lift_damaged: 0.0,
             speed_limit_z: 999999.0,
@@ -1268,6 +1269,7 @@ impl Object {
             production_door_phase: 0,
             production_door_phase_end_frame: 0,
             production_door_hold_open: false,
+            production_door_hold_opens: [false; 4],
             production_door_phases: [0; 4],
             production_door_phase_end_frames: [0; 4],
             production_door_active_index: 0,
@@ -1700,7 +1702,7 @@ impl Object {
             wander_offset_increasing: true,
             downhill_only: false,
             is_climbing: false,
-            donut_timer: 0,
+            donut_timer: u32::MAX,
             max_lift: 0.0,
             max_lift_damaged: 0.0,
             speed_limit_z: 999999.0,
@@ -2502,11 +2504,12 @@ mod tests {
     #[test]
     fn is_selectable_keeps_contained_masked_and_hijacker_like_cpp() {
         // C++ Object.cpp:3001-3020 — no contained / MASKED / hijacker gate.
+        // Bypass onContainedBy (set_contained_by) so this only tests is_selectable.
         use crate::game_logic::AIState;
         let mut template = ThingTemplate::new("Ranger");
         template.add_kind_of(KindOf::Selectable);
         let mut obj = Object::new(template, ObjectId(3), Team::USA);
-        obj.set_contained_by(Some(ObjectId(99)));
+        obj.contained_by = Some(ObjectId(99));
         obj.set_ai_state(AIState::Garrisoned);
         obj.status.masked = true;
         obj.hijacker_in_vehicle = true;
@@ -2522,6 +2525,34 @@ mod tests {
         obj.set_ai_state(AIState::Docked);
         obj.status.unselectable = false;
         assert!(obj.is_selectable());
+    }
+
+    #[test]
+    fn set_contained_by_sets_unselectable_and_masked() {
+        // hq-4ai0f: C++ Object::onContainedBy / onRemovedFrom.
+        let mut template = ThingTemplate::new("Ranger");
+        template.add_kind_of(KindOf::Selectable);
+        let mut obj = Object::new(template, ObjectId(4), Team::USA);
+        obj.set_contained_by(Some(ObjectId(99)));
+        assert!(obj.status.unselectable, "enter sets OBJECT_STATUS_UNSELECTABLE");
+        assert!(obj.status.masked, "enclosing enter sets OBJECT_STATUS_MASKED");
+        assert!(!obj.is_selectable(), "UNSELECTABLE drops click-select");
+        obj.set_contained_by(None);
+        assert!(!obj.status.unselectable);
+        assert!(!obj.status.masked);
+        assert!(obj.is_selectable());
+    }
+
+    #[test]
+    fn set_contained_by_non_enclosing_clears_masked() {
+        // C++ onContainedBy: non-enclosing (Fire Base) is UNSELECTABLE but not MASKED.
+        let mut template = ThingTemplate::new("Ranger");
+        template.add_kind_of(KindOf::Selectable);
+        let mut obj = Object::new(template, ObjectId(5), Team::USA);
+        obj.set_contained_by_enclosing(Some(ObjectId(99)), false);
+        assert!(obj.status.unselectable);
+        assert!(!obj.status.masked);
+        assert!(!obj.is_selectable());
     }
 
     #[test]

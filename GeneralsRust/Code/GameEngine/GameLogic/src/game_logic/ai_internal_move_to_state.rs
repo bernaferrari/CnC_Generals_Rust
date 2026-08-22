@@ -105,10 +105,12 @@ impl AIInternalMoveToState {
             .map_err(|_| "AIInternalMoveToState AI lock poisoned".to_string())?;
 
         if let Some(locomotor) = ai_guard.get_cur_locomotor() {
-            if let Ok(loco_guard) = locomotor.lock() {
+            if let Ok(mut loco_guard) = locomotor.lock() {
                 if loco_guard.is_ultra_accurate() {
                     self.set_adjusts_destination(false);
                 }
+                // C++ AIInternalMoveToState::onEnter (AIStates.cpp:1604-1605).
+                loco_guard.start_move();
             }
         }
 

@@ -1444,15 +1444,26 @@ impl CnCGameEngine {
 
         // Keep the current world untouched until the save metadata, exact map,
         // and snapshot all restore successfully in a staging world.
+        // CHUNK_Campaign is stashed during decode; apply only after commit so
+        // a failed load cannot leave half-applied campaign on the live match
+        // (C++ GameState.cpp:695-712 clearGameData).
+        let prior_campaign = crate::save_load::capture_live_campaign_state();
         let active_mode = self.game_logic.game_mode();
         let template_catalog = self.game_logic.templates.clone();
-        let staged = Self::stage_saved_world_for_restore(
+        let staged = match Self::stage_saved_world_for_restore(
             &mut self.save_file_manager,
             slot,
             active_mode,
             &template_catalog,
-        )?;
+        ) {
+            Ok(staged) => staged,
+            Err(err) => {
+                crate::save_load::rollback_campaign_after_failed_load(prior_campaign);
+                return Err(err);
+            }
+        };
 
+        crate::save_load::commit_stashed_campaign_state();
         let save_info = staged.info.clone();
         self.host_replace_staged_restore_world(staged);
         info!(

@@ -1344,6 +1344,7 @@ impl GameLogic {
                 self.script_named_timer_display_shown = true;
                 self.script_superweapon_display_enabled = true;
                 self.script_superweapon_hidden_objects.clear();
+                self.eva_superweapon_science_hidden.clear();
 
                 // Install decoded per-player lists into the crate ScriptEngine.
                 // Live once-per-frame walk is ScriptEngine::update (C++
@@ -1388,6 +1389,7 @@ impl GameLogic {
                 self.script_named_timer_display_shown = true;
                 self.script_superweapon_display_enabled = true;
                 self.script_superweapon_hidden_objects.clear();
+                self.eva_superweapon_science_hidden.clear();
 
                 // Ensure the legacy ScriptEngine doesn't keep running scripts from a previous map.
                 if let Ok(mut engine_guard) =
@@ -1420,6 +1422,7 @@ impl GameLogic {
                 self.script_named_timer_display_shown = true;
                 self.script_superweapon_display_enabled = true;
                 self.script_superweapon_hidden_objects.clear();
+                self.eva_superweapon_science_hidden.clear();
 
                 // On load failures, clear any previously loaded scripts for safety.
                 if let Ok(mut engine_guard) =

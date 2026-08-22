@@ -2538,6 +2538,9 @@ impl AIUpdateInterface {
         self.is_blocked_and_stuck = false;
         self.blocked_frames = 0;
         self.cur_max_blocked_speed = AI_FAST_AS_POSSIBLE;
+        if let Some(loco) = self.cur_locomotor.as_mut() {
+            loco.start_move();
+        }
     }
 
     /// C++ AIUpdateInterface::friend_endingMove

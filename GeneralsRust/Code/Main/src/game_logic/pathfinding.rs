@@ -456,11 +456,54 @@ impl PathfindingGrid {
     }
 
     pub fn grid_to_world(&self, pos: GridPos) -> Vec3 {
-        Vec3::new(
-            self.origin.x + pos.x as f32 * self.grid_size,
-            0.0,
-            self.origin.z + pos.y as f32 * self.grid_size,
-        )
+        let x = self.origin.x + pos.x as f32 * self.grid_size;
+        let z = self.origin.z + pos.y as f32 * self.grid_size;
+        Vec3::new(x, self.cell_world_height(pos, x, z), z)
+    }
+
+    /// C++ `adjustCoordToCell` / `TerrainLogic::getLayerHeight` on a known layer.
+    pub fn grid_to_world_on_layer(&self, pos: GridPos, layer: PathfindLayerEnum) -> Vec3 {
+        let x = self.origin.x + pos.x as f32 * self.grid_size;
+        let z = self.origin.z + pos.y as f32 * self.grid_size;
+        Vec3::new(x, self.layer_world_height(pos, layer, x, z), z)
+    }
+
+    fn cell_world_height(&self, pos: GridPos, x: f32, z: f32) -> f32 {
+        if self.wall_cells.contains_key(&(pos.x, pos.y)) && self.wall_height > 0.0 {
+            return self.wall_height;
+        }
+        if let Some(id) = self.host_deck_layer_at(pos) {
+            return self.layer_world_height(pos, PathfindLayerEnum::from_u32(id as u32), x, z);
+        }
+        sample_host_ground_height(x, z)
+    }
+
+    fn layer_world_height(&self, pos: GridPos, layer: PathfindLayerEnum, x: f32, z: f32) -> f32 {
+        let _ = pos;
+        match layer {
+            PathfindLayerEnum::Wall => {
+                if self.wall_height > 0.0 {
+                    self.wall_height
+                } else {
+                    sample_host_ground_height(x, z)
+                }
+            }
+            PathfindLayerEnum::Ground | PathfindLayerEnum::Invalid => {
+                sample_host_ground_height(x, z)
+            }
+            _ => {
+                if let Some(bridge) = self.bridge_layers.iter().find(|l| l.id == layer as u8) {
+                    let corners = [
+                        bridge.from_left,
+                        bridge.from_right,
+                        bridge.to_right,
+                        bridge.to_left,
+                    ];
+                    return bridge_deck_height(&corners, x, z);
+                }
+                sample_host_ground_height(x, z)
+            }
+        }
     }
 
     pub fn is_blocked(&self, pos: GridPos) -> bool {
@@ -611,6 +654,17 @@ impl PathfindingGrid {
     /// Bresenham walk from `from`→`to`; only CELL_OBSTACLE blocks, after identity
     /// / transparent / victim-cell skips. No Chebyshev-4 blind zone.
     pub fn is_attack_view_blocked_static(&self, from: Vec3, to: Vec3) -> bool {
+        self.is_attack_view_blocked_static_ex(from, to, 0, &[])
+    }
+
+    /// C++ `attackBlockedByObstacleCallback` + leftover skip-3 / identity / victim-cell.
+    fn is_attack_view_blocked_static_ex(
+        &self,
+        from: Vec3,
+        to: Vec3,
+        mut skip_count: i32,
+        skip_ids: &[u32],
+    ) -> bool {
         let start = self.world_to_grid(from);
         let goal = self.world_to_grid(to);
         if start == goal {
@@ -619,6 +673,7 @@ impl PathfindingGrid {
         if start.manhattan_distance(goal) <= 1 {
             return false;
         }
+        let victim_obs = self.obstacle_owner(goal).map(|(id, _, _)| id).unwrap_or(0);
         let mut x0 = start.x;
         let mut y0 = start.y;
         let x1 = goal.x;
@@ -651,12 +706,26 @@ impl PathfindingGrid {
             if !self.is_valid_pos(cell) {
                 continue;
             }
+            // C++ skipCount: first N cells off a bridge/rooftop are see-through.
+            if skip_count > 0 {
+                skip_count -= 1;
+                continue;
+            }
             // C++ attackBlockedByObstacleCallback: only CELL_OBSTACLE.
             if self.cell_type(cell) != PathfindCellType::Obstacle {
                 continue;
             }
             if self.is_obstacle_transparent(cell) {
                 continue;
+            }
+            let obs_id = self.obstacle_owner(cell).map(|(id, _, _)| id).unwrap_or(0);
+            if obs_id != 0 {
+                if skip_ids.contains(&obs_id) {
+                    continue;
+                }
+                if victim_obs != 0 && obs_id == victim_obs {
+                    continue;
+                }
             }
             return true;
         }
@@ -2218,6 +2287,139 @@ impl PathfindingGrid {
         }
         Some(extra)
     }
+
+    /// C++ `examineCellsCallback` seed abort (AIPathfind.cpp:6034-6052).
+    /// Allied-fixed or any enemy-fixed (crushable included) refuses the seed line.
+    fn seed_line_occupancy_ok(
+        &self,
+        pos: GridPos,
+        seeker_player: Option<u32>,
+        ally_mask: u16,
+        seeker_is_infantry: bool,
+        layer: PathfindLayerEnum,
+    ) -> bool {
+        let bits = self.occupancy_bits(pos, layer);
+        if seeker_is_infantry && bits.infantry != 0 && (bits.fixed | bits.moving) == bits.infantry {
+            return true;
+        }
+        let Some(player) = seeker_player else {
+            return bits.fixed == 0;
+        };
+        let bit = 1u16 << player.min(15);
+        let friend = bit | ally_mask;
+        if (bits.fixed & friend) != 0 {
+            return false;
+        }
+        if (bits.fixed & !friend) != 0 {
+            return false;
+        }
+        true
+    }
+
+    /// C++ `PathfindCell::getConnectLayer` hop target (same XY, other layer).
+    fn connect_layer_of(&self, pos: GridPos, current: PathfindLayerEnum) -> Option<PathfindLayerEnum> {
+        if matches!(
+            current,
+            PathfindLayerEnum::Ground | PathfindLayerEnum::Invalid
+        ) {
+            let cl = self.ground_connect_layer(pos);
+            if cl != 0 {
+                return Some(PathfindLayerEnum::from_u32(cl as u32));
+            }
+            return None;
+        }
+        if current as u8 == LAYER_WALL_ID {
+            return Some(PathfindLayerEnum::Ground);
+        }
+        self.bridge_layers
+            .iter()
+            .find(|layer| layer.id == current as u8)
+            .and_then(|layer| layer.cells.get(&(pos.x, pos.y)))
+            .and_then(|(_, connect)| {
+                if *connect != 0 && *connect != current as u8 {
+                    Some(PathfindLayerEnum::from_u32(*connect as u32))
+                } else {
+                    None
+                }
+            })
+    }
+
+    /// C++ `Pathfinder::checkChangeLayers` (AIPathfind.cpp:5942-5981).
+    /// Enqueue the same-XY connect-layer cell at parent cost if not closed.
+    fn enqueue_connect_layer(
+        &self,
+        cell: GridPos,
+        layer: PathfindLayerEnum,
+        g: i32,
+        f: i32,
+        closed: &HashSet<(i32, i32, u8)>,
+        g_score: &mut HashMap<(i32, i32, u8), i32>,
+        open: &mut BinaryHeap<std::cmp::Reverse<(i32, i32, i32, i32, u8)>>,
+    ) -> bool {
+        let Some(cl) = self.connect_layer_of(cell, layer) else {
+            return false;
+        };
+        let lid = cl as u8;
+        let key = (cell.x, cell.y, lid);
+        if closed.contains(&key) {
+            return false;
+        }
+        if g_score.get(&key).is_some_and(|&og| g >= og) {
+            return false;
+        }
+        g_score.insert(key, g);
+        open.push(std::cmp::Reverse((f, g, cell.x, cell.y, lid)));
+        true
+    }
+
+    /// C++ `examineNeighboringCells` attackDistance occupancy (AIPathfind.cpp:6228-6300).
+    /// `None` = enemyFixed skip. Extra is added to the ortho/diag step.
+    fn attack_step_occupancy(
+        &self,
+        pos: GridPos,
+        start: GridPos,
+        seeker_player: Option<u32>,
+        ally_mask: u16,
+        seeker_is_infantry: bool,
+        is_vehicle: bool,
+        crusher_level: u8,
+        layer: PathfindLayerEnum,
+    ) -> Option<i32> {
+        const COST_ORTHO: i32 = 10;
+        const COST_DIAG: i32 = 14;
+        let bits = self.occupancy_bits(pos, layer);
+        if seeker_is_infantry && bits.infantry != 0 && (bits.fixed | bits.moving) == bits.infantry {
+            return Some(0);
+        }
+        let friend = match seeker_player {
+            Some(player) => (1u16 << player.min(15)) | ally_mask,
+            None => 0,
+        };
+        if seeker_player.is_some() && (bits.fixed & !friend) != 0 {
+            if crusher_level == 0 || crusher_level <= bits.crushable {
+                return None;
+            }
+        }
+        let mut extra = 0i32;
+        if (bits.fixed & friend) != 0 {
+            extra += 3 * COST_DIAG;
+        }
+        if (bits.moving & friend) != 0
+            && (pos.x - start.x).abs() < 10
+            && (pos.y - start.y).abs() < 10
+        {
+            extra += 3 * COST_DIAG;
+        }
+        if (bits.goal & friend) != 0 {
+            extra += if is_vehicle {
+                3 * COST_ORTHO
+            } else {
+                COST_ORTHO
+            };
+        }
+        Some(extra)
+    }
+
 
     /// C++ `Pathfinder::updatePos` / `updateGoal` cell stamp.
     /// LAYER cells go on the layer map; `dynamic_bits` is ground-only.
@@ -4598,7 +4800,17 @@ impl PathfindingSystem {
     fn crate_path_to_world(&self, cells: &[GridCoord]) -> Vec<Vec3> {
         cells
             .iter()
-            .map(|c| self.grid.grid_to_world(GridPos::new(c.x, c.y)))
+            .map(|c| {
+                let pos = GridPos::new(c.x, c.y);
+                if let Some(id) = self.grid.host_deck_layer_at(pos) {
+                    self.grid.grid_to_world_on_layer(
+                        pos,
+                        PathfindLayerEnum::from_u32(id as u32),
+                    )
+                } else {
+                    self.grid.grid_to_world(pos)
+                }
+            })
             .collect()
     }
 
@@ -4657,6 +4869,7 @@ impl PathfindingSystem {
         is_crusher: bool,
         start_layer: PathfindLayerEnum,
         dest_layer: PathfindLayerEnum,
+        fallback_closest: bool,
     ) -> Option<Vec<Vec3>> {
         self.sync_crate_astar();
         self.grid.refresh_logical_extent();
@@ -4898,7 +5111,24 @@ impl PathfindingSystem {
             .get_cell_type_on_layer(start_c, start_layer)
             == Some(PathfindCellType::Obstacle);
         let extra_ref = &extra;
-        let line_ok = |c: GridCoord| extra_ref(c) < u32::MAX / 8;
+        let line_ok = |c: GridCoord| {
+            if extra_ref(c) >= u32::MAX / 8 {
+                return false;
+            }
+            // C++ examineCellsCallback: abort on allyFixed / any enemyFixed
+            // (crushable included). extra() only MAX/8s uncrushable enemies.
+            let ally = self
+                .seeker_player
+                .map(|p| self.grid.ally_mask_for(p))
+                .unwrap_or(0);
+            self.grid.seed_line_occupancy_ok(
+                GridPos::new(c.x, c.y),
+                self.seeker_player,
+                ally,
+                self.seeker_is_infantry,
+                start_layer,
+            )
+        };
         let ground_h = |c: GridCoord| {
             let w = self.grid.grid_to_world(GridPos::new(c.x, c.y));
             sample_host_ground_height(w.x, w.z)
@@ -5000,6 +5230,9 @@ impl PathfindingSystem {
         drop(extra_ref);
         drop(extra);
         drop(crate_pf);
+        if !fallback_closest {
+            return None;
+        }
         // C++ findClosestPath on findPath fail (AIUpdate.cpp:1713-1717).
         self.find_closest_path(from_w, to_w, surfaces, is_crusher, closest_human)
 
@@ -5049,7 +5282,184 @@ impl PathfindingSystem {
     }
 
     pub fn is_attack_view_blocked(&self, from: Vec3, to: Vec3) -> bool {
-        self.grid.is_attack_view_blocked_static(from, to)
+        self.is_attack_view_blocked_for(from, to, None, None)
+    }
+
+    /// C++ `TheAI->getAiData()->m_attackUsesLineOfSight` (default true).
+    fn attack_uses_line_of_sight() -> bool {
+        if let Some(data) = game_engine::common::ini::get_ai_data_store().get_active() {
+            return data.attack_uses_line_of_sight;
+        }
+        gamelogic::ai::THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| {
+                ai.get_ai_data()
+                    .read()
+                    .ok()
+                    .map(|d| d.attack_uses_line_of_sight)
+            })
+            .unwrap_or(true)
+    }
+
+    /// C++ `Pathfinder::isAttackViewBlockedByObstacle` leftover gates + static Bresenham.
+    pub fn is_attack_view_blocked_for(
+        &self,
+        from: Vec3,
+        to: Vec3,
+        attacker: Option<&Object>,
+        victim: Option<&Object>,
+    ) -> bool {
+        if !Self::attack_uses_line_of_sight() {
+            return false;
+        }
+        if let Some(atk) = attacker {
+            if !atk.is_kind_of(KindOf::AttackNeedsLineOfSight) {
+                return false;
+            }
+        }
+        if let Some(v) = victim {
+            // C++ isSignificantlyAboveTerrain — do not LOS-check flying victims.
+            if v.is_significantly_above_terrain() {
+                return false;
+            }
+        }
+        let mut skip_ids: Vec<u32> = Vec::new();
+        if let Some(atk) = attacker {
+            skip_ids.push(atk.id.0);
+            if let Some(c) = atk.contained_by {
+                skip_ids.push(c.0);
+            }
+            if let Some(p) = atk.producer_id {
+                skip_ids.push(p.0);
+            }
+        }
+        if let Some(v) = victim {
+            skip_ids.push(v.id.0);
+            if let Some(p) = v.producer_id {
+                skip_ids.push(p.0);
+            }
+        }
+        let skip_count = if attacker.is_some() {
+            let layer = self.grid.layer_for_destination(from);
+            if !matches!(
+                layer,
+                PathfindLayerEnum::Ground | PathfindLayerEnum::Invalid
+            ) {
+                3
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+        self.grid
+            .is_attack_view_blocked_static_ex(from, to, skip_count, &skip_ids)
+    }
+
+    /// C++ `Pathfinder::snapClosestGoalPosition` (AIPathfind.cpp:5101-5156).
+    pub fn snap_closest_goal_position(
+        &self,
+        pos: Vec3,
+        surfaces: u32,
+        is_crusher: bool,
+        unit_radius: f32,
+    ) -> Vec3 {
+        let cell_size = self.grid.grid_size();
+        let (radius, center_in_cell) = PathfindingGrid::radius_and_center(unit_radius, cell_size);
+        let mut adjust = pos;
+        if !center_in_cell {
+            adjust.x += cell_size * 0.5;
+            adjust.z += cell_size * 0.5;
+        }
+        let layer = self.grid.layer_for_destination(pos);
+        let cell = self.grid.world_to_grid(adjust);
+        let crusher_level = if is_crusher {
+            self.seeker_crusher_level.max(1)
+        } else {
+            0
+        };
+        let snap_cell = |c: GridPos| -> Vec3 {
+            let mut w = self.grid.grid_to_world_on_layer(c, layer);
+            if center_in_cell {
+                w.x += cell_size * 0.5;
+                w.z += cell_size * 0.5;
+            }
+            w
+        };
+        let dest_ok = |c: GridPos| {
+            self.grid.destination_cell_ok(
+                c,
+                surfaces,
+                is_crusher,
+                self.seeker_player,
+                crusher_level,
+                layer,
+            )
+        };
+        let mut out = snap_cell(cell);
+        if dest_ok(cell) {
+            return out;
+        }
+        for i in (cell.x - 1)..(cell.x + 2) {
+            for j in (cell.y - 1)..(cell.y + 2) {
+                let c = GridPos::new(i, j);
+                if !self.grid.is_valid_pos(c) {
+                    continue;
+                }
+                if dest_ok(c) {
+                    return snap_cell(c);
+                }
+            }
+        }
+        if radius == 0 {
+            for i in (cell.x - 1)..(cell.x + 2) {
+                for j in (cell.y - 1)..(cell.y + 2) {
+                    let c = GridPos::new(i, j);
+                    if !self.grid.is_valid_pos(c) {
+                        continue;
+                    }
+                    let bits = self.grid.occupancy_bits(c, layer);
+                    let own = self.seeker_id.map(|id| id.0).unwrap_or(0);
+                    if bits.goal_unit == 0 || (own != 0 && bits.goal_unit == own) {
+                        return snap_cell(c);
+                    }
+                }
+            }
+            for i in (cell.x - 1)..(cell.x + 2) {
+                for j in (cell.y - 1)..(cell.y + 2) {
+                    let c = GridPos::new(i, j);
+                    if !self.grid.is_valid_pos(c) {
+                        continue;
+                    }
+                    if self.grid.occupancy_bits(c, layer).fixed == 0 {
+                        return snap_cell(c);
+                    }
+                }
+            }
+        }
+        let _ = out;
+        snap_cell(cell)
+    }
+
+    /// C++ snapClosestGoalPosition at plant (AIStates idle restake / group pad).
+    /// Occupancy ignores `seeker` so the arriver does not block their own cell.
+    pub fn snap_plant_goal(
+        &mut self,
+        pos: Vec3,
+        surfaces: u32,
+        is_crusher: bool,
+        unit_radius: f32,
+        seeker: ObjectId,
+        seeker_player: Option<u32>,
+        objects: &HashMap<ObjectId, Object>,
+    ) -> Vec3 {
+        self.seeker_id = Some(seeker);
+        self.seeker_player = seeker_player;
+        self.grid.query_seeker_id = seeker.0;
+        self.grid
+            .update_dynamic_obstacles_ignoring(objects, Some(seeker));
+        self.snap_closest_goal_position(pos, surfaces, is_crusher, unit_radius)
     }
 
 
@@ -5223,7 +5633,38 @@ impl PathfindingSystem {
         let is_human = true;
         let layer = PathfindLayerEnum::Ground;
         self.grid.set_query_is_human(is_human);
-
+        let attacker_id = self.seeker_id;
+        let victim_id = objects
+            .values()
+            .filter(|o| {
+                let p = o.get_position();
+                let dx = p.x - victim.x;
+                let dz = p.z - victim.z;
+                dx * dx + dz * dz <= (cell_size * 2.0).powi(2)
+            })
+            .min_by(|a, b| {
+                let da = {
+                    let p = a.get_position();
+                    let dx = p.x - victim.x;
+                    let dz = p.z - victim.z;
+                    dx * dx + dz * dz
+                };
+                let db = {
+                    let p = b.get_position();
+                    let dx = p.x - victim.x;
+                    let dz = p.z - victim.z;
+                    dx * dx + dz * dz
+                };
+                da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|o| o.id);
+        let is_vehicle = attacker_id
+            .and_then(|id| objects.get(&id))
+            .is_some_and(|o| o.is_kind_of(KindOf::Vehicle));
+        let ally_mask = seeker_player
+            .map(|p| self.grid.ally_mask_for(p))
+            .unwrap_or(0);
+        let seeker_inf = self.seeker_is_infantry;
 
         // Quick check: step toward victim (C++ i=1..10, delta * i * 0.5 * cell).
         {
@@ -5257,7 +5698,14 @@ impl PathfindingSystem {
                         let dz = test.z - victim.z;
                         (dx * dx + dz * dz).sqrt()
                     };
-                    if dist <= range && !self.grid.is_attack_view_blocked_static(test, victim) {
+                    if dist <= range
+                        && !self.is_attack_view_blocked_for(
+                            test,
+                            victim,
+                            attacker_id.and_then(|id| objects.get(&id)),
+                            victim_id.and_then(|id| objects.get(&id)),
+                        )
+                    {
                         let path = self.find_path_ex_surfaces(
                             from,
                             test,
@@ -5311,6 +5759,7 @@ impl PathfindingSystem {
         ];
         let mut open: BinaryHeap<std::cmp::Reverse<(i32, i32, i32, i32)>> = BinaryHeap::new();
         let mut g_score: HashMap<(i32, i32), i32> = HashMap::new();
+        let mut came_from: HashMap<(i32, i32), (i32, i32)> = HashMap::new();
         let mut closed: HashSet<(i32, i32)> = HashSet::new();
         open.push(std::cmp::Reverse((0, 0, start.x, start.y)));
         g_score.insert((start.x, start.y), 0);
@@ -5350,7 +5799,12 @@ impl PathfindingSystem {
                         }
                     }
                     if !blocked
-                        && self.grid.is_attack_view_blocked_static(world, victim)
+                        && self.is_attack_view_blocked_for(
+                            world,
+                            victim,
+                            attacker_id.and_then(|id| objects.get(&id)),
+                            victim_id.and_then(|id| objects.get(&id)),
+                        )
                     {
                         blocked = true;
                     }
@@ -5374,6 +5828,17 @@ impl PathfindingSystem {
                 continue;
             }
             cell_count += 1;
+            // C++ checkChangeLayers: enqueue connect-layer same-xy at parent cost.
+            if let Some(_link) = self.grid.connect_layer_of(cell, layer) {
+                let key = (cx, cy);
+                if !closed.contains(&key) && !g_score.get(&key).is_some_and(|&og| g >= og) {
+                    g_score.insert(key, g);
+                    if cx != start.x || cy != start.y {
+                        came_from.insert(key, (cx, cy));
+                    }
+                    open.push(std::cmp::Reverse((g, g, cx, cy)));
+                }
+            }
             let mut neighbor_flags = [false; 8];
             for (i, &(dx, dy)) in deltas.iter().enumerate() {
                 let nx = cx + dx;
@@ -5395,8 +5860,26 @@ impl PathfindingSystem {
                 }
                 neighbor_flags[i] = true;
                 let mut step = if i >= 4 { COST_DIAG } else { COST_ORTHO };
+                match self.grid.attack_step_occupancy(
+                    nc,
+                    start,
+                    seeker_player,
+                    ally_mask,
+                    seeker_inf,
+                    is_vehicle,
+                    crusher_level,
+                    layer,
+                ) {
+                    None => continue,
+                    Some(extra) => step += extra,
+                }
                 if self.grid.is_pinched(nc) {
                     step += COST_ORTHO + COST_DIAG;
+                }
+                if let Some(crate_pf) = self.crate_astar.as_ref() {
+                    if !crate_pf.finder.is_zone_passable(GridCoord::new(nx, ny)) {
+                        step += 100 * COST_ORTHO;
+                    }
                 }
                 let ng = g + step;
                 let key = (nx, ny);
@@ -5404,6 +5887,7 @@ impl PathfindingSystem {
                     continue;
                 }
                 g_score.insert(key, ng);
+                came_from.insert(key, (cx, cy));
                 let hdx = (nx - victim_cell.x) as f32;
                 let hdy = (ny - victim_cell.y) as f32;
                 let heu = (COST_ORTHO as f32) * (hdx * hdx + hdy * hdy).sqrt();
@@ -5413,10 +5897,80 @@ impl PathfindingSystem {
             }
         }
 
-        let Some(goal_cell) = found_cell.or(closest_cell) else {
+        let Some(mut goal_cell) = found_cell.or(closest_cell) else {
             self.grid.set_query_is_human(false);
             return None;
         };
+        // C++ vehicle strip-back: walk parent chain ≤12; last blocked → parent.
+        if is_vehicle {
+            let mut chain: Vec<GridPos> = Vec::new();
+            let mut cur = (goal_cell.x, goal_cell.y);
+            chain.push(GridPos::new(cur.0, cur.1));
+            while let Some(&p) = came_from.get(&cur) {
+                chain.push(GridPos::new(p.0, p.1));
+                cur = p;
+                if chain.len() > 64 {
+                    break;
+                }
+            }
+            let mut last_blocked: Option<GridPos> = None;
+            let mut use_large = false;
+            let large_r = (self.seeker_path_diameter.max(1) / 2).max(1);
+            for (idx, c) in chain.iter().enumerate() {
+                if idx >= 12 {
+                    break;
+                }
+                let r = if use_large { large_r } else { 0 };
+                let mut fixed = 0u16;
+                let mut goal_m = 0u16;
+                let mut crush = 0u8;
+                for dx in -r..=r {
+                    for dy in -r..=r {
+                        let n = GridPos::new(c.x + dx, c.y + dy);
+                        if !self.grid.is_valid_pos(n) {
+                            continue;
+                        }
+                        let b = self.grid.occupancy_bits(n, layer);
+                        fixed |= b.fixed;
+                        goal_m |= b.goal;
+                        crush = crush.max(b.crushable);
+                    }
+                }
+                let friend = match seeker_player {
+                    Some(player) => (1u16 << player.min(15)) | ally_mask,
+                    None => 0,
+                };
+                let enemy_fixed = seeker_player.is_some()
+                    && (fixed & !friend) != 0
+                    && (crusher_level == 0 || crusher_level <= crush);
+                let mut blocked_by_allies = (fixed & friend) != 0 || (goal_m & friend) != 0;
+                let occupant = objects.values().find(|o| {
+                    let gp = self.grid.world_to_grid(o.get_position());
+                    (gp.x - c.x).abs() <= r && (gp.y - c.y).abs() <= r
+                });
+                let unit_idle = occupant.is_some_and(|o| {
+                    matches!(o.ai_state, crate::game_logic::AIState::Idle)
+                });
+                if unit_idle {
+                    blocked_by_allies = false;
+                }
+                let move_ok = self.grid.cell_passable_for(*c, surfaces, is_crusher)
+                    || (self.grid.is_obstacle_fence(*c) && is_crusher);
+                if !move_ok || enemy_fixed || blocked_by_allies {
+                    last_blocked = Some(*c);
+                    use_large = true;
+                } else {
+                    use_large = false;
+                }
+            }
+            if let Some(lb) = last_blocked {
+                if let Some(&(px, py)) = came_from.get(&(lb.x, lb.y)) {
+                    goal_cell = GridPos::new(px, py);
+                } else {
+                    goal_cell = lb;
+                }
+            }
+        }
         let goal = self.grid.grid_to_world(goal_cell);
         let path = self.find_path_ex_surfaces(from, goal, objects, false, surfaces, is_crusher);
         self.grid.set_query_is_human(false);
@@ -5797,6 +6351,14 @@ impl PathfindingSystem {
                 goal = snapped;
             }
             self.grid.query_check_for_aircraft = false;
+        } else if !aircraft {
+            // C++ snapClosestGoalPosition when installing the move goal.
+            let unit_radius = self
+                .seeker_id
+                .and_then(|id| objects.get(&id))
+                .map(|o| o.selection_radius)
+                .unwrap_or(0.0);
+            goal = self.snap_closest_goal_position(goal, surfaces, is_crusher, unit_radius);
         }
         let start_grid = self.grid.world_to_grid(start);
         let goal_grid = self.grid.world_to_grid(goal);
@@ -5833,15 +6395,10 @@ impl PathfindingSystem {
                 is_crusher,
                 start_layer,
                 dest_layer,
+                true,
             )?
         };
-        if !aircraft {
-            let n = path.len().max(1) as f32;
-            for (i, p) in path.iter_mut().enumerate() {
-                let t = i as f32 / (n - 1.0).max(1.0);
-                p.y = start.y + (goal.y - start.y) * t;
-            }
-        } else {
+        if aircraft {
             for p in path.iter_mut() {
                 p.y = start.y;
             }
@@ -5849,6 +6406,7 @@ impl PathfindingSystem {
                 last.y = goal.y;
             }
         }
+        // Ground: keep crate/grid terrain-layer Y (hq-gd0jd). Do not lerp start→goal.
         if let Some(first) = path.first_mut() {
             *first = start;
         }
@@ -5908,6 +6466,7 @@ impl PathfindingSystem {
             is_crusher,
             start_layer,
             dest_layer,
+            true,
         )?;
         if let Some(last) = prefix.last_mut() {
             *last = original[splice_from];
@@ -6047,6 +6606,7 @@ impl PathfindingSystem {
             is_crusher,
             layer,
             layer,
+            true,
         ) {
             if path.len() >= 2 {
                 return Some(path);
@@ -6102,7 +6662,8 @@ impl PathfindingSystem {
             0
         };
         let seeker_player = self.seeker_player;
-        let layer = self.grid.layer_for_destination(from);
+        let start_layer = self.grid.layer_for_destination(from);
+        let start_lid = start_layer as u8;
         const MAX_CELLS: i32 = 2000;
         const COST_ORTHO: i32 = 10;
         const COST_DIAG: i32 = 14;
@@ -6116,21 +6677,22 @@ impl PathfindingSystem {
             (-1, -1),
             (1, -1),
         ];
-        let mut open: BinaryHeap<std::cmp::Reverse<(i32, i32, i32, i32)>> = BinaryHeap::new();
-        let mut g_score: HashMap<(i32, i32), i32> = HashMap::new();
-        let mut closed: HashSet<(i32, i32)> = HashSet::new();
-        open.push(std::cmp::Reverse((0, 0, start.x, start.y)));
-        g_score.insert((start.x, start.y), 0);
-        let mut farthest: Option<(GridPos, f32)> = None;
-        let mut found: Option<GridPos> = None;
+        let mut open: BinaryHeap<std::cmp::Reverse<(i32, i32, i32, i32, u8)>> = BinaryHeap::new();
+        let mut g_score: HashMap<(i32, i32, u8), i32> = HashMap::new();
+        let mut closed: HashSet<(i32, i32, u8)> = HashSet::new();
+        open.push(std::cmp::Reverse((0, 0, start.x, start.y, start_lid)));
+        g_score.insert((start.x, start.y, start_lid), 0);
+        let mut farthest: Option<(GridPos, PathfindLayerEnum, f32)> = None;
+        let mut found: Option<(GridPos, PathfindLayerEnum)> = None;
         let mut cell_count = 0i32;
-        while let Some(std::cmp::Reverse((_f, g, cx, cy))) = open.pop() {
-            if closed.contains(&(cx, cy)) {
+        while let Some(std::cmp::Reverse((_f, g, cx, cy, lid))) = open.pop() {
+            let key = (cx, cy, lid);
+            if !closed.insert(key) {
                 continue;
             }
-            closed.insert((cx, cy));
             let cell = GridPos::new(cx, cy);
-            let world = self.grid.grid_to_world(cell);
+            let layer = PathfindLayerEnum::from_u32(lid as u32);
+            let world = self.grid.grid_to_world_on_layer(cell, layer);
             let d1 = {
                 let dx = world.x - repulsor1.x;
                 let dz = world.z - repulsor1.z;
@@ -6146,8 +6708,8 @@ impl PathfindingSystem {
             if open.is_empty() && cell_count > 0 {
                 ok = true;
             }
-            if farthest.map(|(_, d)| nearest > d).unwrap_or(true) {
-                farthest = Some((cell, nearest));
+            if farthest.map(|(_, _, d)| nearest > d).unwrap_or(true) {
+                farthest = Some((cell, layer, nearest));
                 if cell_count > MAX_CELLS {
                     ok = true;
                 }
@@ -6163,15 +6725,21 @@ impl PathfindingSystem {
                 )
                 && self.grid.human_extent_allows(cell, is_human)
             {
-                found = Some(cell);
+                found = Some((cell, layer));
                 break;
+            }
+            if self
+                .grid
+                .enqueue_connect_layer(cell, layer, g, g, &closed, &mut g_score, &mut open)
+            {
+                cell_count += 1;
             }
             let mut neighbor_flags = [false; 8];
             for (i, (dx, dy)) in deltas.iter().enumerate() {
                 let nx = cx + dx;
                 let ny = cy + dy;
                 let nc = GridPos::new(nx, ny);
-                if !self.grid.is_valid_pos(nc) || closed.contains(&(nx, ny)) {
+                if !self.grid.is_valid_pos(nc) || closed.contains(&(nx, ny, lid)) {
                     continue;
                 }
                 if !self.grid.human_extent_allows(nc, is_human) {
@@ -6180,7 +6748,9 @@ impl PathfindingSystem {
                 if PathfindingGrid::skip_diagonal_if_squeezed(i, &neighbor_flags) {
                     continue;
                 }
-                if !self.grid.cell_passable_for(nc, surfaces, is_crusher)
+                if !self
+                    .grid
+                    .cell_passable_for_layer(nc, layer, surfaces, is_crusher)
                     && !(self.grid.is_obstacle_fence(nc) && is_crusher)
                 {
                     continue;
@@ -6188,18 +6758,18 @@ impl PathfindingSystem {
                 neighbor_flags[i] = true;
                 let step = if i >= 4 { COST_DIAG } else { COST_ORTHO };
                 let ng = g + step;
-                let key = (nx, ny);
-                if g_score.get(&key).is_some_and(|&og| ng >= og) {
+                let nkey = (nx, ny, lid);
+                if g_score.get(&nkey).is_some_and(|&og| ng >= og) {
                     continue;
                 }
-                g_score.insert(key, ng);
-                open.push(std::cmp::Reverse((ng, ng, nx, ny)));
+                g_score.insert(nkey, ng);
+                open.push(std::cmp::Reverse((ng, ng, nx, ny, lid)));
                 cell_count += 1;
             }
         }
-        let dest = if let Some(cell) = found {
-            cell
-        } else if let Some((cell, _)) = farthest {
+        let (dest, dest_layer) = if let Some((cell, layer)) = found {
+            (cell, layer)
+        } else if let Some((cell, layer, _)) = farthest {
             if !self.grid.destination_cell_ok(
                 cell,
                 surfaces,
@@ -6210,21 +6780,22 @@ impl PathfindingSystem {
             ) {
                 return None;
             }
-            cell
+            (cell, layer)
         } else {
             return None;
         };
         if dest == start {
             return None;
         }
-        let goal = self.grid.grid_to_world(dest);
+        let goal = self.grid.grid_to_world_on_layer(dest, dest_layer);
         if let Some(path) = self.find_path_via_crate(
             start,
             dest,
             surfaces,
             is_crusher,
-            layer,
-            self.grid.layer_for_destination(goal),
+            start_layer,
+            dest_layer,
+            true,
         ) {
             if path.len() >= 2 {
                 return Some(path);
@@ -6264,7 +6835,7 @@ impl PathfindingSystem {
         };
         let seeker_player = self.seeker_player;
         let start_layer = self.grid.layer_for_destination(from);
-        let dest_layer = self.grid.layer_for_destination(goal);
+        let start_lid = start_layer as u8;
         let closest_jumps = self.hierarchical_bridge_jumps();
         let closest_start = self.host_to_crate_coord(start);
         let closest_goal = self.host_to_crate_coord(goal_grid);
@@ -6294,31 +6865,27 @@ impl PathfindingSystem {
             (-1, -1),
             (1, -1),
         ];
-        let mut open: BinaryHeap<std::cmp::Reverse<(i32, i32, i32, i32)>> = BinaryHeap::new();
-        let mut g_score: HashMap<(i32, i32), i32> = HashMap::new();
-        let mut closed: HashSet<(i32, i32)> = HashSet::new();
+        let mut open: BinaryHeap<std::cmp::Reverse<(i32, i32, i32, i32, u8)>> = BinaryHeap::new();
+        let mut g_score: HashMap<(i32, i32, u8), i32> = HashMap::new();
+        let mut closed: HashSet<(i32, i32, u8)> = HashSet::new();
         let h0 = heuristic(start);
-        open.push(std::cmp::Reverse((h0, 0, start.x, start.y)));
-        g_score.insert((start.x, start.y), 0);
-        let mut closest_cell: Option<(GridPos, f32)> = None;
+        open.push(std::cmp::Reverse((h0, 0, start.x, start.y, start_lid)));
+        g_score.insert((start.x, start.y, start_lid), 0);
+        let mut closest_cell: Option<(GridPos, PathfindLayerEnum, f32)> = None;
         let mut closest_screen_sqr = f32::MAX;
         let mut found_goal_cell = false;
         let mut expanded = 0i32;
-        while let Some(std::cmp::Reverse((_f, g, cx, cy))) = open.pop() {
-            if closed.contains(&(cx, cy)) {
+        while let Some(std::cmp::Reverse((_f, g, cx, cy, lid))) = open.pop() {
+            let key = (cx, cy, lid);
+            if !closed.insert(key) {
                 continue;
             }
-            closed.insert((cx, cy));
             expanded += 1;
             if expanded > MAX_EXPAND {
                 break;
             }
             let cell = GridPos::new(cx, cy);
-            let layer = if cell == goal_grid {
-                dest_layer
-            } else {
-                start_layer
-            };
+            let layer = PathfindLayerEnum::from_u32(lid as u32);
             if cx == goal_grid.x && cy == goal_grid.y {
                 let goal_ok = self.grid.destination_cell_ok(
                     cell,
@@ -6330,7 +6897,7 @@ impl PathfindingSystem {
                 );
                 if goal_ok || closest_cell.is_none() {
                     found_goal_cell = true;
-                    closest_cell = Some((cell, 0.0));
+                    closest_cell = Some((cell, layer, 0.0));
                     break;
                 } else {
                     found_goal_cell = true;
@@ -6353,18 +6920,28 @@ impl PathfindingSystem {
                 let dist_sqr = dist_screen + cost_term;
                 let better = match closest_cell {
                     None => true,
-                    Some((_, best)) => dist_sqr < best,
+                    Some((_, _, best)) => dist_sqr < best,
                 };
                 if better {
-                    closest_cell = Some((cell, dist_sqr));
+                    closest_cell = Some((cell, layer, dist_sqr));
                 }
             }
+            let f_hop = g + heuristic(cell);
+            self.grid.enqueue_connect_layer(
+                cell,
+                layer,
+                g,
+                f_hop,
+                &closed,
+                &mut g_score,
+                &mut open,
+            );
             let mut neighbor_flags = [false; 8];
             for (i, (dx, dy)) in deltas.iter().enumerate() {
                 let nx = cx + dx;
                 let ny = cy + dy;
                 let nc = GridPos::new(nx, ny);
-                if !self.grid.is_valid_pos(nc) || closed.contains(&(nx, ny)) {
+                if !self.grid.is_valid_pos(nc) || closed.contains(&(nx, ny, lid)) {
                     continue;
                 }
                 if !self.grid.human_extent_allows(nc, is_human) {
@@ -6373,7 +6950,9 @@ impl PathfindingSystem {
                 if PathfindingGrid::skip_diagonal_if_squeezed(i, &neighbor_flags) {
                     continue;
                 }
-                if !self.grid.cell_passable_for(nc, surfaces, is_crusher)
+                if !self
+                    .grid
+                    .cell_passable_for_layer(nc, layer, surfaces, is_crusher)
                     && !(self.grid.is_obstacle_fence(nc) && is_crusher)
                 {
                     continue;
@@ -6381,43 +6960,47 @@ impl PathfindingSystem {
                 neighbor_flags[i] = true;
                 let step = if i >= 4 { COST_DIAG } else { COST_ORTHO };
                 let ng = g + step;
-                let key = (nx, ny);
-                if g_score.get(&key).is_some_and(|&og| ng >= og) {
+                let nkey = (nx, ny, lid);
+                if g_score.get(&nkey).is_some_and(|&og| ng >= og) {
                     continue;
                 }
-                g_score.insert(key, ng);
+                g_score.insert(nkey, ng);
                 let f = ng + heuristic(nc);
-                open.push(std::cmp::Reverse((f, ng, nx, ny)));
+                open.push(std::cmp::Reverse((f, ng, nx, ny, lid)));
             }
         }
-        let (best_cell, _) = closest_cell?;
+        let (best_cell, best_layer, _) = closest_cell?;
         let to_pos = if found_goal_cell && best_cell == goal_grid {
             goal
         } else {
-            self.grid.grid_to_world(best_cell)
+            self.grid.grid_to_world_on_layer(best_cell, best_layer)
         };
         let to_cell = self.grid.world_to_grid(to_pos);
-        // Exact path only — do not recurse through find_path_via_crate's
-        // findClosest fallback.
-        self.grid
-            .find_path(start, to_cell)
-            .or_else(|| {
-                if start == to_cell {
-                    Some(vec![from])
-                } else {
-                    Some(vec![from, to_pos])
-                }
-            })
-            .map(|mut world| {
-                if let Some(first) = world.first_mut() {
-                    *first = from;
-                }
-                if let Some(last) = world.last_mut() {
-                    *last = to_pos;
-                }
-                self.grid
-                    .optimize_ground_path(&world, surfaces, is_crusher)
-            })
+        // Leftover find_closest_path: buildActualPath via crate A* (layers/occupancy).
+        if let Some(path) = self.find_path_via_crate(
+            start,
+            to_cell,
+            surfaces,
+            is_crusher,
+            start_layer,
+            best_layer,
+            false,
+        ) {
+            let mut world = path;
+            if let Some(first) = world.first_mut() {
+                *first = from;
+            }
+            if let Some(last) = world.last_mut() {
+                *last = to_pos;
+            }
+            return Some(self.grid.optimize_ground_path(&world, surfaces, is_crusher));
+        }
+        // Leftover returns none when internalFindPath fails — no fail-open line.
+        if start == to_cell {
+            Some(vec![from])
+        } else {
+            None
+        }
     }
 
 
@@ -6589,6 +7172,60 @@ impl PathfindingSystem {
         }
         best
     }
+
+    /// C++ `Path::computePointOnPath` `distAlongPath` (AIPathfind.cpp:997).
+    /// Remaining polyline from the closest point on the path to the end.
+    /// Lead-point raise (`:999-1007`) is applied by the locomotor dispatcher.
+    pub fn dist_along_path(pos: Vec3, waypoints: &[Vec3]) -> f32 {
+        if waypoints.is_empty() {
+            return 0.0;
+        }
+        if waypoints.len() == 1 {
+            let dx = pos.x - waypoints[0].x;
+            let dz = pos.z - waypoints[0].z;
+            return (dx * dx + dz * dz).sqrt();
+        }
+        let mut best_d2 = f32::MAX;
+        let mut best_seg = 0usize;
+        let mut best_t = 0.0f32;
+        for i in 0..waypoints.len() - 1 {
+            let a = waypoints[i];
+            let b = waypoints[i + 1];
+            let sx = b.x - a.x;
+            let sz = b.z - a.z;
+            let len_sqr = sx * sx + sz * sz;
+            let t = if len_sqr <= 1.0e-8 {
+                0.0
+            } else {
+                let tx = pos.x - a.x;
+                let tz = pos.z - a.z;
+                ((tx * sx + tz * sz) / len_sqr).clamp(0.0, 1.0)
+            };
+            let px = a.x + sx * t;
+            let pz = a.z + sz * t;
+            let dx = pos.x - px;
+            let dz = pos.z - pz;
+            let d2 = dx * dx + dz * dz;
+            if d2 < best_d2 {
+                best_d2 = d2;
+                best_seg = i;
+                best_t = t;
+            }
+        }
+        let mut remaining = 0.0f32;
+        for i in best_seg..waypoints.len() - 1 {
+            let a = waypoints[i];
+            let b = waypoints[i + 1];
+            let seg = ((b.x - a.x) * (b.x - a.x) + (b.z - a.z) * (b.z - a.z)).sqrt();
+            if i == best_seg {
+                remaining += (1.0 - best_t) * seg;
+            } else {
+                remaining += seg;
+            }
+        }
+        remaining
+    }
+
 
     fn is_allied_to(&self, mover: &Object, other: &Object) -> bool {
         let mover_p = mover.owner_player_id.unwrap_or(mover.team as u32);
@@ -9105,5 +9742,355 @@ mod tests {
             );
         }
     }
+
+    /// hq-4wg8j: seed line aborts on allied-fixed and crushable enemies.
+    #[test]
+    fn seed_line_aborts_allied_fixed_and_crushable_enemies() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut g = open_grid(24, 24);
+        let mut masks = [0u16; 16];
+        masks[0] = 1u16 << 0 | 1u16 << 1;
+        masks[1] = 1u16 << 0 | 1u16 << 1;
+        g.set_player_ally_masks(masks);
+
+        let mut objects = HashMap::new();
+        let mut ally_t = ThingTemplate::new("AllyTank");
+        ally_t.add_kind_of(KindOf::Vehicle);
+        let mut ally = Object::new(ally_t, ObjectId(2), Team::China);
+        ally.set_position(g.grid_to_world(GridPos::new(8, 8)));
+        ally.owner_player_id = Some(1);
+        ally.crushable_level = 1;
+        objects.insert(ally.id, ally);
+
+        let mut car_t = ThingTemplate::new("CivilianCar");
+        car_t.add_kind_of(KindOf::Vehicle);
+        let mut car = Object::new(car_t, ObjectId(3), Team::GLA);
+        car.set_position(g.grid_to_world(GridPos::new(10, 8)));
+        car.owner_player_id = Some(2);
+        car.crushable_level = 1;
+        objects.insert(car.id, car);
+
+        g.update_dynamic_obstacles(&objects);
+        let layer = PathfindLayerEnum::Ground;
+        assert!(
+            !g.seed_line_occupancy_ok(GridPos::new(8, 8), Some(0), masks[0], false, layer),
+            "allied-fixed must abort the seed line"
+        );
+        assert!(
+            !g.seed_line_occupancy_ok(GridPos::new(10, 8), Some(0), masks[0], false, layer),
+            "crushable enemy-fixed must abort the seed line"
+        );
+        assert!(
+            g.seed_line_occupancy_ok(GridPos::new(4, 4), Some(0), masks[0], false, layer),
+            "empty cell must seed"
+        );
+    }
+
+    /// hq-6a3ks: attack LOS leftover airborne + KINDOF gates.
+    #[test]
+    fn attack_los_airborne_and_kindof_gates() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut sys = PathfindingSystem::new(200.0, 200.0);
+        for y in 0..20 {
+            sys.grid.set_cell_obstacle_owned(
+                GridPos::new(10, y),
+                false,
+                false,
+                99,
+                Some(2),
+                Some(Team::GLA),
+            );
+        }
+        let from = Vec3::new(20.0, 0.0, 50.0);
+        let to = Vec3::new(150.0, 0.0, 50.0);
+
+        let mut atk_t = ThingTemplate::new("Ranger");
+        atk_t.add_kind_of(KindOf::Infantry);
+        let no_los = Object::new(atk_t.clone(), ObjectId(1), Team::USA);
+        assert!(
+            !sys.is_attack_view_blocked_for(from, to, Some(&no_los), None),
+            "units without AttackNeedsLineOfSight must not refuse cells behind a building"
+        );
+
+        atk_t.add_kind_of(KindOf::AttackNeedsLineOfSight);
+        let atk = Object::new(atk_t, ObjectId(1), Team::USA);
+        assert!(
+            sys.is_attack_view_blocked_for(from, to, Some(&atk), None),
+            "LOS kind must still see the opaque wall"
+        );
+
+        let mut air_t = ThingTemplate::new("Raptor");
+        air_t.add_kind_of(KindOf::Aircraft);
+        let mut air = Object::new(air_t, ObjectId(7), Team::GLA);
+        air.set_position(Vec3::new(150.0, 20.0, 50.0));
+        air.ground_height = 0.0;
+        assert!(
+            air.is_significantly_above_terrain(),
+            "control: victim is airborne"
+        );
+        assert!(
+            !sys.is_attack_view_blocked_for(from, to, Some(&atk), Some(&air)),
+            "airborne victim must not count deck/structure cells as blocked LOS"
+        );
+    }
+
+    /// hq-p8eko: findAttackPath A* occupancy costs match leftover.
+    #[test]
+    fn attack_step_occupancy_matches_leftover() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut g = open_grid(24, 24);
+        let mut masks = [0u16; 16];
+        masks[0] = 1u16 << 0 | 1u16 << 1;
+        masks[1] = 1u16 << 0 | 1u16 << 1;
+        g.set_player_ally_masks(masks);
+
+        let mut objects = HashMap::new();
+        let mut enemy_t = ThingTemplate::new("Bunker");
+        enemy_t.add_kind_of(KindOf::Vehicle);
+        let mut enemy = Object::new(enemy_t, ObjectId(1), Team::GLA);
+        enemy.set_position(g.grid_to_world(GridPos::new(5, 5)));
+        enemy.owner_player_id = Some(2);
+        enemy.crushable_level = 0;
+        objects.insert(enemy.id, enemy);
+
+        let mut ally_t = ThingTemplate::new("Humvee");
+        ally_t.add_kind_of(KindOf::Vehicle);
+        let mut ally = Object::new(ally_t, ObjectId(2), Team::China);
+        ally.set_position(g.grid_to_world(GridPos::new(6, 6)));
+        ally.owner_player_id = Some(1);
+        objects.insert(ally.id, ally);
+
+        let mut goal_t = ThingTemplate::new("Ranger");
+        goal_t.add_kind_of(KindOf::Infantry);
+        let mut goaled = Object::new(goal_t, ObjectId(3), Team::USA);
+        goaled.set_position(g.grid_to_world(GridPos::new(1, 1)));
+        goaled.owner_player_id = Some(0);
+        goaled.movement.target_position = Some(g.grid_to_world(GridPos::new(8, 8)));
+        objects.insert(goaled.id, goaled);
+
+        g.update_dynamic_obstacles(&objects);
+        let start = GridPos::new(4, 4);
+        let layer = PathfindLayerEnum::Ground;
+        assert!(
+            g.attack_step_occupancy(GridPos::new(5, 5), start, Some(0), masks[0], false, true, 0, layer)
+                .is_none(),
+            "uncrushable enemy-fixed must skip"
+        );
+        assert_eq!(
+            g.attack_step_occupancy(GridPos::new(6, 6), start, Some(0), masks[0], false, true, 0, layer),
+            Some(3 * 14),
+            "ally-fixed +3*DIAG"
+        );
+        assert_eq!(
+            g.attack_step_occupancy(GridPos::new(8, 8), start, Some(0), masks[0], false, true, 0, layer),
+            Some(3 * 10),
+            "ally-goal vehicle +3*ORTHO"
+        );
+        assert_eq!(
+            g.attack_step_occupancy(GridPos::new(8, 8), start, Some(0), masks[0], false, false, 0, layer),
+            Some(10),
+            "ally-goal infantry +ORTHO"
+        );
+    }
+
+    /// hq-d38ae: vehicle strip-back walks parent chain and retreats off congestion.
+    #[test]
+    fn attack_vehicle_strip_back_retreats_off_busy_ally() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut sys = PathfindingSystem::new(200.0, 200.0);
+        let mut masks = [0u16; 16];
+        masks[0] = 1u16 << 0 | 1u16 << 1;
+        masks[1] = 1u16 << 0 | 1u16 << 1;
+        sys.grid.set_player_ally_masks(masks);
+
+        let mut objects = HashMap::new();
+        let mut tank_t = ThingTemplate::new("Crusader");
+        tank_t.add_kind_of(KindOf::Vehicle);
+        tank_t.add_kind_of(KindOf::AttackNeedsLineOfSight);
+        let mut tank = Object::new(tank_t, ObjectId(1), Team::USA);
+        tank.set_position(Vec3::new(20.0, 0.0, 50.0));
+        tank.owner_player_id = Some(0);
+        objects.insert(tank.id, tank);
+
+        let mut ally_t = ThingTemplate::new("Humvee");
+        ally_t.add_kind_of(KindOf::Vehicle);
+        let mut ally = Object::new(ally_t, ObjectId(2), Team::China);
+        // Parked, not idle: ally-fixed on the approach parent chain.
+        ally.set_position(Vec3::new(70.0, 0.0, 50.0));
+        ally.owner_player_id = Some(1);
+        ally.ai_state = crate::game_logic::AIState::Attacking;
+        objects.insert(ally.id, ally);
+
+        sys.seeker_id = Some(ObjectId(1));
+        sys.seeker_player = Some(0);
+        sys.seeker_path_diameter = 3;
+        let path = sys.find_attack_firing_position(
+            Vec3::new(20.0, 0.0, 50.0),
+            Vec3::new(150.0, 0.0, 50.0),
+            80.0,
+            &objects,
+            false,
+        );
+        if let Some(p) = path {
+            let ally_cell = sys.grid.world_to_grid(Vec3::new(70.0, 0.0, 50.0));
+            let end = sys.grid.world_to_grid(*p.last().unwrap());
+            assert_ne!(
+                end, ally_cell,
+                "vehicle strip-back must not park on the busy ally, path={p:?}"
+            );
+        }
+    }
+
+    /// hq-gd0jd: live grid_to_world samples deck / terrain Y, not 0.
+    #[test]
+    fn grid_to_world_uses_deck_height() {
+        let mut g = open_grid(16, 16);
+        g.stamp_bridge_deck(
+            Vec3::new(20.0, 20.0, 40.0),
+            Vec3::new(20.0, 20.0, 60.0),
+            Vec3::new(90.0, 20.0, 40.0),
+            Vec3::new(90.0, 20.0, 60.0),
+            false,
+        );
+        let deck = GridPos::new(5, 5);
+        let world = g.grid_to_world(deck);
+        assert!(
+            world.y > 10.0,
+            "deck cell must emit layer height, got Y={}",
+            world.y
+        );
+        let layered = g.grid_to_world_on_layer(
+            deck,
+            g.layer_for_destination(Vec3::new(world.x, 20.0, world.z)),
+        );
+        assert!(
+            (layered.y - 20.0).abs() < 2.0 || layered.y > 10.0,
+            "on-layer deck Y should track the span, got {}",
+            layered.y
+        );
+    }
+
+    /// hq-7tj9x: findClosest rebuilds via crate A*, not thin host A* / fail-open line.
+    #[test]
+    fn find_closest_path_rebuilds_via_crate_not_thin_line() {
+        let src = include_str!("pathfinding.rs");
+        let i = src
+            .find("pub fn find_closest_path(")
+            .expect("find_closest_path");
+        let w = &src[i..src.len().min(i + 7000)];
+        assert!(
+            w.contains("find_path_via_crate"),
+            "closest must rebuild with leftover crate A*"
+        );
+        assert!(
+            !w.contains("self.grid.find_path("),
+            "closest must not reconstruct with thin host A*"
+        );
+        assert!(
+            w.contains("no fail-open line"),
+            "closest must not fail-open a straight from→to line"
+        );
+        assert!(
+            w.contains("enqueue_connect_layer"),
+            "closest search must hop checkChangeLayers"
+        );
+    }
+
+    /// hq-7tj9x: closest path around a blocked factory does not walk through it.
+    #[test]
+    fn find_closest_path_does_not_cut_through_building() {
+        let mut sys = PathfindingSystem::new(200.0, 200.0);
+        for y in 0..12 {
+            sys.grid
+                .set_cell_type(GridPos::new(8, y), PathfindCellType::Impassable);
+        }
+        let goal = GridPos::new(12, 5);
+        sys.grid
+            .set_cell_type(goal, PathfindCellType::Impassable);
+        let from = Vec3::new(20.0, 0.0, 50.0);
+        let to = sys.grid.grid_to_world(goal);
+        let path = sys
+            .find_closest_path(from, to, SURFACE_GROUND, false, true)
+            .expect("closest path");
+        let crosses = path.iter().any(|p| {
+            sys.grid.cell_type(sys.grid.world_to_grid(*p)) == PathfindCellType::Impassable
+        });
+        assert!(!crosses, "closest crate rebuild must not stand on Impassable, path={path:?}");
+    }
+
+    /// hq-hy7cu: closest search hops onto a deck cell via checkChangeLayers.
+    #[test]
+    fn find_closest_path_hops_connect_layer_onto_deck() {
+        let mut sys = PathfindingSystem::new(200.0, 200.0);
+        sys.grid.stamp_bridge_deck(
+            Vec3::new(20.0, 20.0, 40.0),
+            Vec3::new(20.0, 20.0, 60.0),
+            Vec3::new(90.0, 20.0, 40.0),
+            Vec3::new(90.0, 20.0, 60.0),
+            false,
+        );
+        let deck = GridPos::new(5, 5);
+        let world = sys.grid.grid_to_world(deck);
+        let on_deck = Vec3::new(world.x, 20.0, world.z);
+        let layer = sys.grid.layer_for_destination(on_deck);
+        assert_ne!(layer, PathfindLayerEnum::Ground, "deck click must pick the span");
+        let from = sys.grid.grid_to_world(GridPos::new(1, 5));
+        let path = sys
+            .find_closest_path(from, on_deck, SURFACE_GROUND, false, true)
+            .expect("closest onto deck");
+        let end = *path.last().expect("end");
+        let end_layer = sys.grid.layer_for_destination(Vec3::new(end.x, end.y.max(20.0), end.z));
+        assert!(
+            end_layer != PathfindLayerEnum::Ground || end.y > 5.0,
+            "closest dest should be the deck cell, end={end:?} layer={end_layer:?}"
+        );
+    }
+
+    /// hq-hy7cu: flee search also hops connect-layer.
+    #[test]
+    fn find_safe_path_enqueues_change_layers() {
+        let src = include_str!("pathfinding.rs");
+        let i = src
+            .find("pub fn find_safe_path_from(")
+            .expect("find_safe_path_from");
+        let w = &src[i..src.len().min(i + 5000)];
+        assert!(
+            w.contains("enqueue_connect_layer"),
+            "safe search must hop checkChangeLayers"
+        );
+        assert!(
+            w.contains("cell_passable_for_layer"),
+            "safe neighbors expand on the current layer"
+        );
+    }
+
+    /// hq-cg5on: snapClosestGoalPosition offsets off an occupied pad cell.
+    #[test]
+    fn snap_closest_goal_avoids_fixed_occupant() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut sys = PathfindingSystem::new(200.0, 200.0);
+        let mut objects = HashMap::new();
+        let mut tmpl = ThingTemplate::new("Ranger");
+        tmpl.add_kind_of(KindOf::Infantry);
+        let mut parked = Object::new(tmpl, ObjectId(7), Team::USA);
+        let pad = sys.grid.grid_to_world(GridPos::new(8, 8));
+        parked.set_position(pad);
+        parked.owner_player_id = Some(0);
+        parked.selection_radius = 1.0;
+        objects.insert(parked.id, parked);
+        sys.grid.update_dynamic_obstacles(&objects);
+        sys.seeker_id = Some(ObjectId(8));
+        sys.seeker_player = Some(0);
+        let snapped = sys.snap_closest_goal_position(pad, SURFACE_GROUND, false, 0.0);
+        let snapped_cell = sys.grid.world_to_grid(snapped);
+        assert_ne!(
+            snapped_cell,
+            GridPos::new(8, 8),
+            "snap must leave the occupied pad, got {snapped:?}"
+        );
+        let d = (snapped_cell.x - 8).abs() + (snapped_cell.y - 8).abs();
+        assert!(d <= 2, "snap should stay in the 3×3, cell={snapped_cell:?}");
+    }
+
 
 }
