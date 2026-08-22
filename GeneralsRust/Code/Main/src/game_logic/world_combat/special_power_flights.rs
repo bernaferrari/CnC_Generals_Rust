@@ -27,6 +27,10 @@ impl GameLogic {
             let Some(data) = o.anthrax_bomb_transport.as_mut() else {
                 continue;
             };
+            if !data.map_extent_ok() {
+                data.map_min = self.world_min;
+                data.map_max = self.world_max;
+            }
             let should_drop = !data.delivery_complete && data.in_delivery_band(pos);
             if should_drop {
                 data.delivery_complete = true;
@@ -37,6 +41,7 @@ impl GameLogic {
             let _ = data;
             o.set_position(new_pos);
             o.movement.velocity = vel;
+            o.movement.target_position = None;
             if vel.length_squared() > 1e-6 {
                 o.set_orientation(vel.z.atan2(vel.x));
             }
@@ -871,6 +876,21 @@ impl GameLogic {
 
         // C++ GrantStealthBehavior.cpp:147-150 destroyObject after the final scan.
         for mid in markers_to_destroy {
+            self.destroy_gps_scrambler_marker(mid);
+        }
+        let owned: std::collections::HashSet<ObjectId> = self
+            .gps_scramblers
+            .growing_missions_mut()
+            .filter_map(|a| a.marker_id)
+            .collect();
+        let orphans: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                (obj.gps_scrambler_marker && obj.is_alive() && !owned.contains(id)).then_some(*id)
+            })
+            .collect();
+        for mid in orphans {
             self.destroy_gps_scrambler_marker(mid);
         }
     }

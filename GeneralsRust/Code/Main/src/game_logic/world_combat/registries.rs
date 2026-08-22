@@ -2830,7 +2830,11 @@ impl GameLogic {
         let tid = self.create_object(ANTHRAX_TRANSPORT, team, edge)?;
         if let Some(o) = self.objects.get_mut(&tid) {
             o.note_producer(source_id);
-            o.anthrax_bomb_transport = Some(HostAnthraxBombFlightData::start(edge, target, tier));
+            let mut data = HostAnthraxBombFlightData::start(edge, target, tier);
+            data.map_min = self.world_min;
+            data.map_max = self.world_max;
+            o.anthrax_bomb_transport = Some(data);
+            o.movement.target_position = None;
             o.set_orientation(dz.atan2(dx));
         }
         self.anthrax_bomb_flight_reg.record_transport();

@@ -75,7 +75,7 @@ impl HostAnthraxBombFlightData {
         }
     }
 
-    fn map_extent_ok(&self) -> bool {
+    pub fn map_extent_ok(&self) -> bool {
         self.map_max.x > self.map_min.x && self.map_max.z > self.map_min.z
     }
 
