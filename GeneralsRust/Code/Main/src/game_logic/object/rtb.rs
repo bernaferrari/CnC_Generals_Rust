@@ -517,3 +517,29 @@ impl Object {
         self.face_position(other.get_position(), dt)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game_logic::weapon_bootstrap::{host_reload_type_for_weapon_name, HostReloadType};
+
+    #[test]
+    fn empty_return_to_base_clip_is_out_of_special_reload_ammo() {
+        let mut jet = Object::new(
+            ThingTemplate::new("AmericaJetRaptor"),
+            ObjectId(1),
+            Team::USA,
+        );
+        jet.weapon = Some(Weapon {
+            ammo: Some(0),
+            clip_size: 4,
+            ..Weapon::default()
+        });
+        jet.thing.template.primary_weapon_name = Some("RaptorMissileWeapon".to_string());
+        assert_eq!(
+            host_reload_type_for_weapon_name("RaptorMissileWeapon"),
+            HostReloadType::ReturnToBase
+        );
+        assert!(jet.is_out_of_special_reload_ammo());
+    }
+}

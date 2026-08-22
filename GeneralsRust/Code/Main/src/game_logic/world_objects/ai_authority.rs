@@ -22,6 +22,20 @@ impl GameLogic {
         let ai_auto_engage_paused = self.skirmish_ai_auto_engage_paused(team);
 
         if matches!(ai_state, AIState::AttackMoving) {
+            if self
+                .objects
+                .get(&object_id)
+                .is_some_and(|o| o.is_out_of_special_reload_ammo())
+            {
+                if let Some(o) = self.objects.get_mut(&object_id) {
+                    o.return_to_base_requested = true;
+                    o.is_attack_path = false;
+                }
+                return Some(AICommand::SetAIState {
+                    object_id,
+                    state: AIState::Idle,
+                });
+            }
             // C++ AIAttackMoveToState uses getNextMoodTarget, not a 200wu nearest scan.
             if can_attack && !ai_auto_engage_paused && should_scan(20) {
                 let is_player = self
@@ -795,5 +809,78 @@ mod hq_m6gcj_tests {
             ),
             "Hunt must not drop to Idle when no victim is visible; got {command:?}"
         );
+    }
+
+    #[test]
+    fn attack_moving_jet_out_of_special_reload_ammo_returns_to_base() {
+        let mut logic = GameLogic::new();
+        let mut jet = Object::new(
+            ThingTemplate::new("AmericaJetRaptor"),
+            ObjectId(7),
+            Team::USA,
+        );
+        jet.weapon = Some(Weapon {
+            ammo: Some(0),
+            clip_size: 4,
+            ..Weapon::default()
+        });
+        jet.thing.template.primary_weapon_name = Some("RaptorMissileWeapon".to_string());
+        jet.set_ai_state(AIState::AttackMoving);
+        jet.is_attack_path = true;
+        logic.objects.insert(jet.id, jet);
+        let command = logic.process_ai_behavior(
+            ObjectId(7),
+            AIState::AttackMoving,
+            None,
+            Vec3::ZERO,
+            Team::USA,
+            true,
+            0,
+            1.0 / 30.0,
+        );
+        assert!(
+            matches!(
+                command,
+                Some(AICommand::SetAIState {
+                    state: AIState::Idle,
+                    ..
+                })
+            ),
+            "empty-clip jet must leave attack-move; got {command:?}"
+        );
+        let jet = logic.objects.get(&ObjectId(7)).expect("jet");
+        assert!(jet.return_to_base_requested);
+        assert!(!jet.is_attack_path);
+    }
+
+    #[test]
+    fn idle_auto_acquire_requires_yes_bit() {
+        use crate::game_logic::AbleToAttackType;
+        let mut logic = GameLogic::new();
+        let mut idle = Object::new(ThingTemplate::new("IdleScout"), ObjectId(1), Team::USA);
+        idle.auto_acquire_idle_bits = 0;
+        idle.auto_acquire_when_idle = false;
+        idle.set_ai_state(AIState::Idle);
+        idle.weapon = Some(Weapon {
+            range: 200.0,
+            damage: 10.0,
+            ..Weapon::default()
+        });
+        let mut enemy = Object::new(ThingTemplate::new("Enemy"), ObjectId(2), Team::GLA);
+        enemy.set_position(Vec3::new(50.0, 0.0, 0.0));
+        logic.objects.insert(idle.id, idle);
+        logic.objects.insert(enemy.id, enemy);
+        assert!(
+            logic
+                .get_next_mood_target(ObjectId(1), true, true, true)
+                .is_none()
+        );
+        if let Some(o) = logic.objects.get_mut(&ObjectId(1)) {
+            o.auto_acquire_idle_bits =
+                gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE;
+            o.auto_acquire_when_idle = true;
+        }
+        let _ = AbleToAttackType::NewTarget;
+        let _ = logic.get_next_mood_target(ObjectId(1), true, true, true);
     }
 }
