@@ -1192,6 +1192,7 @@ impl CnCGameEngine {
                         } else {
                             // Retail CommandMap `OPTIONS` routes Escape to
                             // MSG_META_OPTIONS -> ToggleQuitMenu().
+                            self.apply_meta_options_interrupt();
                             #[cfg(feature = "game_client")]
                             if self.host_toggle_retail_quit_menu() {
                                 info!("Escape opened/toggled the retail QuitMenu WND");
@@ -1207,6 +1208,7 @@ impl CnCGameEngine {
                         }
                     }
                     GameState::Paused => {
+                        self.apply_meta_options_interrupt();
                         info!("Escape pressed in Paused state - resuming");
                         self.request_state_change(GameState::InGame);
                     }
@@ -1814,5 +1816,15 @@ mod tests {
             os_key_to_command_map_vk(&Key::Character("[".into()), None),
             Some(0xDB)
         );
+    }
+
+    #[test]
+    fn escape_options_stops_rmb_scroll_and_cancels_drag() {
+        let src = include_str!("hotkeys.rs");
+        assert!(src.contains("self.apply_meta_options_interrupt()"));
+        let mouse = include_str!("mouse.rs");
+        assert!(mouse.contains("fn apply_meta_options_interrupt"));
+        assert!(mouse.contains("self.stop_rmb_lookat_scroll()"));
+        assert!(mouse.contains("self.cancel_area_select_from_control_bar()"));
     }
 }
