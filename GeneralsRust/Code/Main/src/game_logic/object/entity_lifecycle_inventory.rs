@@ -165,6 +165,11 @@ pub(crate) fn collect_module_states(
     )?;
     push_opt(
         &mut out,
+        TAG_SPECTRE_GUNSHIP_UPDATE,
+        &object.spectre_gunship_update,
+    )?;
+    push_opt(
+        &mut out,
         TAG_SMART_BOMB_HOMING,
         &object.smart_bomb_target_homing,
     )?;

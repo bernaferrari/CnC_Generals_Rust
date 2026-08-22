@@ -2,8 +2,9 @@
 //!
 //! Residual slice (playability):
 //! - `DoSpecialPower(SpyDrone)` at a world location spawns `AmericaVehicleSpyDrone`
-//!   (OCL `SUPERWEAPON_SpyDrone` CreateObject residual).
-//! - Temporary FOW reveal at spawn using VisionRange / RadiusCursorRadius **250**.
+//!   (OCL `SUPERWEAPON_SpyDrone` CreateObject + CREATE_ABOVE_LOCATION).
+//! - Spawn is a selectable stealthed scout (`KindOf::Selectable` + `SpyDroneLocomotor`);
+//!   owner vision / shroud-clearing follows the unit, not a timed spawn ping.
 //! - SharedSyncedTimer + RequiredScience **SCIENCE_SpyDrone** residual (gated
 //!   by `is_special_power_ready_for` / player unlock).
 //! - Activate audio residual `SpyDroneCreate`.
@@ -11,7 +12,7 @@
 //! Fail-closed honesty:
 //! - DynamicShroud grow pulse residual closed (0→250 over GrowTime; grid-decal GPU fail-closed)
 //! - Not full StealthUpdate continuous rescan matrix / IR FX
-//! - Not full SpyDroneLocomotor loft path
+//! - Not full SpyDroneLocomotor loft / preferred-height spring path
 //! - Shell `playable_claim` stays false; network deferred
 
 use super::ObjectId;
@@ -46,6 +47,13 @@ pub const SPY_DRONE_RADIUS: f32 = SPY_DRONE_VISION_RANGE;
 /// Retail AmericaVehicleSpyDrone MaxHealth residual.
 pub const SPY_DRONE_MAX_HEALTH: f32 = 200.0;
 
+/// Retail SET_NORMAL locomotor residual (`AmericaVehicle.ini` LocomotorSet).
+pub const SPY_DRONE_LOCOMOTOR: &str = "SpyDroneLocomotor";
+/// Retail SpyDroneLocomotor PreferredHeight residual (host Y-up).
+pub const SPY_DRONE_PREFERRED_HEIGHT: f32 = 40.0;
+/// Retail SpyDroneLocomotor Speed residual.
+pub const SPY_DRONE_LOCOMOTOR_SPEED: f32 = 75.0;
+
 /// DynamicShroudClearingRangeUpdate FinalVision residual.
 pub const SPY_DRONE_FINAL_VISION: f32 = 250.0;
 /// GrowTime residual msec (instant grow residual).
@@ -55,11 +63,11 @@ pub const SPY_DRONE_SHRINK_DELAY_MS: u32 = 2_000;
 /// ShrinkTime residual msec.
 pub const SPY_DRONE_SHRINK_TIME_MS: u32 = 1_000;
 
-/// Temporary FOW reveal duration residual: grow + hold-ish + shrink window.
-/// Fail-closed: not full dynamic range curve; use grow+shrink window as reveal life.
+/// Historical grow+hold+shrink window residual (msec). Living scout vision
+/// does not expire on this timer — unit look follows the spawned object.
 pub const SPY_DRONE_FOW_DURATION_MS: u32 =
     SPY_DRONE_GROW_TIME_MS + SPY_DRONE_SHRINK_DELAY_MS + SPY_DRONE_SHRINK_TIME_MS;
-/// FOW duration frames residual (4000 ms → 120).
+/// Grow+hold+shrink window frames residual (4000 ms → 120).
 pub const SPY_DRONE_FOW_DURATION_FRAMES: u32 = 120;
 
 /// DynamicShroudClearingRangeUpdate StartRadius residual (ShroudClearingRange = 0).
@@ -94,6 +102,28 @@ pub const SPY_DRONE_ACTIVATE_AUDIO: &str = "SpyDroneCreate";
 
 /// Model residual (W3DModelDraw ConditionState NONE).
 pub const SPY_DRONE_MODEL: &str = "AVSpyDrone";
+
+/// Living AmericaVehicleSpyDrone (not slaved Scout/Sentry/Battle drones).
+pub fn is_spy_drone_template(template_name: &str) -> bool {
+    let n: String = template_name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_lowercase())
+        .collect();
+    if n.is_empty() {
+        return false;
+    }
+    (n.contains("spydrone") || n.contains("americavehiclespydrone"))
+        && !n.contains("scout")
+        && !n.contains("sentry")
+        && !n.contains("battle")
+        && !n.contains("hellfire")
+        && !n.contains("hulk")
+        && !n.contains("weapon")
+        && !n.contains("upgrade")
+        && !n.contains("science")
+        && !n.contains("specialpower")
+}
 
 #[inline]
 pub fn spy_drone_duration_ms_to_frames(msec: u32) -> u32 {
@@ -209,6 +239,9 @@ pub fn honesty_spy_drone_residual_pack_ok() -> bool {
         && SPY_DRONE_SPECIAL_POWER == "SpecialPowerSpyDrone"
         && SPY_DRONE_SPECIAL_ENUM == "SPECIAL_SPY_DRONE"
         && SPY_DRONE_REQUIRED_SCIENCE == "SCIENCE_SpyDrone"
+        && SPY_DRONE_LOCOMOTOR == "SpyDroneLocomotor"
+        && (SPY_DRONE_PREFERRED_HEIGHT - 40.0).abs() < 1e-3
+        && (SPY_DRONE_LOCOMOTOR_SPEED - 75.0).abs() < 1e-3
         && SPY_DRONE_RELOAD_MS == 90_000
         && SPY_DRONE_RELOAD_FRAMES == 2_700
         && (SPY_DRONE_VISION_RANGE - 250.0).abs() < 1e-3
@@ -221,6 +254,10 @@ pub fn honesty_spy_drone_residual_pack_ok() -> bool {
         && SPY_DRONE_GROW_UPDATES_TO_FINAL == 30
         && (SPY_DRONE_RADIUS_GROW_RATE - SPY_DRONE_VISION_RANGE / 30.0).abs() < 0.001
         && spy_drone_grow_is_final(SPY_DRONE_GROW_UPDATES_TO_FINAL - 1)
+        && is_spy_drone_template(SPY_DRONE_TEMPLATE)
+        && is_spy_drone_template("USA_SpyDrone")
+        && !is_spy_drone_template("AmericaVehicleScoutDrone")
+        && !is_spy_drone_template("AmericaVehicleSentryDrone")
 }
 
 #[cfg(test)]

@@ -960,24 +960,9 @@ impl GameLogic {
     /// PARITY_NOTE: GameLogic::loadMapINI(AsciiString mapName) C++ line 2367.
     /// Loads map-specific INI overrides (map.ini, solo.ini, map.str).
     pub fn load_map_ini(&self, map_name: &str) {
-        if map_name.is_empty() || map_name.len() < 4 {
-            return;
-        }
-        let base = &map_name[..map_name.len().saturating_sub(4)];
-        let dir = match base.rfind(['/', '\\']) {
-            Some(idx) => &base[..idx],
-            None => base,
-        };
-        let map_ini = format!("{}/map.ini", dir);
-        let solo_ini = format!("{}/solo.ini", dir);
-        if std::path::Path::new(&map_ini).exists() {
-            info!("map.ini found at {}", map_ini);
-            // INI loading deferred to game_engine common INI subsystem
-        }
-        if std::path::Path::new(&solo_ini).exists() {
-            info!("solo.ini found at {}", solo_ini);
-        }
+        crate::system::game_initialization::GameInitializer::load_map_ini(map_name);
     }
+
 
     // =========================================================================
     // C++ Parity: bindObjectAndDrawable / sendObjectDestroyed

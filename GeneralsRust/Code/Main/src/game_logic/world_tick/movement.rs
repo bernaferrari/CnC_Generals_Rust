@@ -519,6 +519,49 @@ impl GameLogic {
                             if delta.abs() > std::f32::consts::PI / 20.0 && speed > turn_speed {
                                 speed = turn_speed;
                             }
+                            // C++ Locomotor.cpp:1340-1389 — 15° half-second
+                            // validMovementTerrain probe. Rotate-only + zero
+                            // motive when the projected arc is impassable.
+                            let frames =
+                                game_engine::common::game_common::LOGICFRAMES_PER_SECOND as f32;
+                            let mut actual = obj.movement.velocity.length();
+                            if move_backwards {
+                                actual = -actual;
+                            }
+                            let loco_pos = Vec3::new(
+                                current_pos.x,
+                                -current_pos.z,
+                                current_pos.y,
+                            );
+                            let surfaces = if obj.locomotor_surfaces != 0 {
+                                obj.locomotor_surfaces
+                            } else {
+                                gamelogic::ai::pathfind_complete::SURFACE_GROUND
+                            };
+                            let grid = &self.pathfinding_system.grid;
+                            if gamelogic::locomotor::Locomotor::wheels_look_ahead_blocked(
+                                loco_pos,
+                                current_angle,
+                                delta,
+                                speed / frames,
+                                actual / frames,
+                                turn_speed / frames,
+                                obj.effective_turn_rate() / frames,
+                                |pos| {
+                                    let host = Vec3::new(pos.x, pos.z, -pos.y);
+                                    valid_movement_terrain_at(grid, surfaces, host)
+                                },
+                            ) {
+                                // C++ rotateTowardsPosition (full maxTurnRate,
+                                // no wheeled turnFactor) + applyMotiveForce(0).
+                                let _ = obj.rotate_obj_around_loco_pivot(
+                                    flat_target,
+                                    obj.effective_turn_rate() * dt,
+                                );
+                                obj.record_host_movement();
+                                Self::apply_live_handle_behavior_z(obj, surface_y, None);
+                                continue;
+                            }
                         }
                         // C++ Locomotor.cpp:2344-2361 ULTRA_ACCURATE slide-into-place.
                         let slide_thresh = speed * obj.ultra_accurate_slide_factor;
@@ -721,6 +764,31 @@ impl GameLogic {
         hits
     }
 }
+
+/// C++ `Pathfinder::validMovementTerrain` (AIPathfind.cpp:4763-4783).
+/// Obstacle/Impassable are terrain-present (true). Else locomotor surfaces
+/// must intersect the cell's surface mask. Out-of-grid is false (NULL cell).
+fn valid_movement_terrain_at(
+    grid: &crate::game_logic::PathfindingGrid,
+    surfaces: u32,
+    world_pos: Vec3,
+) -> bool {
+    use crate::game_logic::locomotor_bootstrap::valid_locomotor_surfaces_for_cell_type;
+    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    let cell = grid.world_to_grid(world_pos);
+    if !grid.is_valid_pos(cell) {
+        return false;
+    }
+    let ty = grid.cell_type(cell);
+    if matches!(
+        ty,
+        PathfindCellType::Obstacle | PathfindCellType::Impassable
+    ) {
+        return true;
+    }
+    (surfaces & valid_locomotor_surfaces_for_cell_type(ty)) != 0
+}
+
 
 #[cfg(test)]
 mod tests {

@@ -1934,22 +1934,137 @@ fn cinematic_font_size(font: Option<&str>) -> f32 {
     }
 
     pub(super) fn update_minimap_viewport(&self, ui_state: &mut GameUIState) {
-        // Prefer presentation world_env when installed (camera-relative minimap viewport).
+        // Prefer last_presentation_frame.world_bounds_vec3 via presentation_world_bounds.
         // Boot residual without a frame still uses host GameLogic bounds.
         let (world_min, world_max) = self.presentation_world_bounds();
         let world_extent_x = (world_max.x - world_min.x).max(1.0);
         let world_extent_z = (world_max.z - world_min.z).max(1.0);
 
-        let half_width = 200.0 / self.camera_zoom.max(0.01);
-        let half_height = 150.0 / self.camera_zoom.max(0.01);
+        let Some(corners) = self.tactical_view_box_world_corners() else {
+            return;
+        };
 
-        let min_x = ((self.camera_target.x - half_width) - world_min.x) / world_extent_x;
-        let max_x = ((self.camera_target.x + half_width) - world_min.x) / world_extent_x;
-        let min_y = ((self.camera_target.z - half_height) - world_min.z) / world_extent_z;
-        let max_y = ((self.camera_target.z + half_height) - world_min.z) / world_extent_z;
+        let mut norm = [crate::ui::UiPos2::ZERO; 4];
+        let mut min_x = f32::MAX;
+        let mut max_x = f32::MIN;
+        let mut min_y = f32::MAX;
+        let mut max_y = f32::MIN;
+        for (index, world) in corners.iter().enumerate() {
+            let nx = ((world.x - world_min.x) / world_extent_x).clamp(0.0, 1.0);
+            let ny = ((world.z - world_min.z) / world_extent_z).clamp(0.0, 1.0);
+            norm[index] = crate::ui::UiPos2::new(nx, ny);
+            min_x = min_x.min(nx);
+            max_x = max_x.max(nx);
+            min_y = min_y.min(ny);
+            max_y = max_y.max(ny);
+        }
 
+        ui_state.minimap_view_box = norm;
         ui_state.minimap_viewport = crate::ui::normalized_minimap_rect(min_x, min_y, max_x, max_y);
     }
+
+    /// C++ `W3DRadar::reconstructViewBox` / `View::getScreenCornerWorldPointsAtZ`:
+    /// unproject the tactical view's four screen corners onto the terrain plane.
+    /// Order is UL, UR, LR, LL so the radar box rotates with camera yaw.
+    fn tactical_view_box_world_corners(&self) -> Option<[glam::Vec3; 4]> {
+        let live = self.live_unproject_tactical_view_box_world_corners();
+        if live.is_some() {
+            let _ = self.leftover_tactical_view_box_world_corners();
+            return live;
+        }
+        self.leftover_tactical_view_box_world_corners()
+    }
+
+    fn leftover_tactical_view_box_world_corners(&self) -> Option<[glam::Vec3; 4]> {
+        #[cfg(feature = "game_client")]
+        {
+            use game_client::display::view::{with_tactical_view, with_tactical_view_ref};
+
+            // Keep leftover TheTacticalView pose/size in lockstep so leftover
+            // W3DLeftHUDDraw `build_view_box_lines` sees the live camera.
+            self.sync_audio_listener_from_main_camera();
+            let (view_w, view_h) = self.tactical_viewport_size();
+            with_tactical_view(|view| {
+                view.set_width(view_w as i32);
+                view.set_height(view_h as i32);
+            });
+            let terrain_z = game_engine::common::system::radar::get_radar_system()
+                .read()
+                .ok()
+                .map(|radar| radar.terrain_average_z())
+                .filter(|z| z.is_finite())
+                .unwrap_or(self.camera_target.y);
+            let pts = with_tactical_view_ref(|view| {
+                view.get_screen_corner_world_points_at_z(terrain_z).ok()
+            })?;
+            // Leftover View is Z-up (x/y ground). Host is Y-up (x/z ground).
+            // Leftover order is UL, UR, LL, LR; C++ radar walks UL, UR, LR, LL.
+            Some([
+                glam::Vec3::new(pts[0].x, pts[0].z, pts[0].y),
+                glam::Vec3::new(pts[1].x, pts[1].z, pts[1].y),
+                glam::Vec3::new(pts[3].x, pts[3].z, pts[3].y),
+                glam::Vec3::new(pts[2].x, pts[2].z, pts[2].y),
+            ])
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            None
+        }
+    }
+
+    fn live_unproject_tactical_view_box_world_corners(&self) -> Option<[glam::Vec3; 4]> {
+        let (view_w, view_h) = self.tactical_viewport_size();
+        if view_w <= 1.0 || view_h <= 1.0 {
+            return None;
+        }
+        let terrain_y = {
+            #[cfg(feature = "game_client")]
+            {
+                game_engine::common::system::radar::get_radar_system()
+                    .read()
+                    .ok()
+                    .map(|radar| radar.terrain_average_z())
+                    .filter(|z| z.is_finite())
+                    .unwrap_or(self.camera_target.y)
+            }
+            #[cfg(not(feature = "game_client"))]
+            {
+                self.camera_target.y
+            }
+        };
+        // C++ View.cpp:216-223: UL, UR, then "bottomLeft"=LR, "bottomRight"=LL.
+        let screens = [
+            (0.0, 0.0),
+            (view_w, 0.0),
+            (view_w, view_h),
+            (0.0, view_h),
+        ];
+        let mut corners = [glam::Vec3::ZERO; 4];
+        for (index, screen) in screens.iter().copied().enumerate() {
+            let (near, far) = super::mouse::unproject_mouse_ray(
+                self.view_matrix,
+                self.projection_matrix,
+                screen,
+                view_w,
+                view_h,
+            )?;
+            let dir = far - near;
+            if dir.y.abs() <= 1.0e-6 {
+                return None;
+            }
+            let t = (terrain_y - near.y) / dir.y;
+            if !t.is_finite() {
+                return None;
+            }
+            let hit = near + dir * t;
+            if !hit.is_finite() {
+                return None;
+            }
+            corners[index] = glam::Vec3::new(hit.x, terrain_y, hit.z);
+        }
+        Some(corners)
+    }
+
 
     /// Process UI events emitted by UIManager and apply to engine/game state.
     pub(super) fn process_ui_events(&mut self) {

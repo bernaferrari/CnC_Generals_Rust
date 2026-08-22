@@ -1,6 +1,7 @@
 use crate::game_logic::GameLogic;
 use crate::save_load::*;
 use game_engine::common::system::save_game::GameState as CommonGameState;
+use game_engine::common::system::save_game::GameStateMap as CommonGameStateMap;
 use game_engine::common::system::xfer::Xfer as CommonXfer;
 use game_engine::common::system::xfer_load::XferLoad as CommonXferLoad;
 use game_engine::common::system::xfer_save::XferSave as CommonXferSave;
@@ -993,12 +994,23 @@ impl SaveFileManager {
 
     /// Load data from file. Prefers Common `.sav` chunks; falls back to GZHS `.gen`.
     fn load_from_file(&self, path: &Path) -> SaveLoadResult<(WorldSnapshot, SaveGameInfo)> {
+        // C++ GameState::loadGame (GameState.cpp:648) clears scratch-pad maps
+        // before opening the save. Leftover GameStateMap already matches
+        // clearScratchPadMaps (delete every `.map` in the Save directory).
+        // Drop it before extract so leftover Drop cannot delete the new file.
+        {
+            let scratch = CommonGameStateMap::new(self.save_directory.clone());
+            if let Err(err) = scratch.clear_scratch_pad_maps() {
+                log::warn!("Error clearing scratch-pad maps before load: {err}");
+            }
+        }
+
         let mut file = File::open(path)?;
         let mut all = Vec::new();
         file.read_to_end(&mut all)?;
 
         if Self::looks_like_common_sav_chunks(&all) {
-            return Self::read_common_sav_chunks(&all);
+            return Self::read_common_sav_chunks(&all, &self.save_directory);
         }
 
         let mut reader = Cursor::new(all);
@@ -1221,7 +1233,10 @@ impl SaveFileManager {
     }
 
 
-    fn read_common_sav_chunks(data: &[u8]) -> SaveLoadResult<(WorldSnapshot, SaveGameInfo)> {
+    fn read_common_sav_chunks(
+        data: &[u8],
+        save_dir: &Path,
+    ) -> SaveLoadResult<(WorldSnapshot, SaveGameInfo)> {
         let blocks = walk_named_chunks(data)?;
         let mut save_info = SaveGameInfo {
             filename: String::new(),
@@ -1271,11 +1286,11 @@ impl SaveFileManager {
                     stash_loaded_game_client_xfer(payload);
                 }
             } else if token.eq_ignore_ascii_case(CHUNK_GAME_STATE_MAP) {
-                let scratch = std::env::temp_dir().join("generals_scratch_maps");
-                if let Some(extracted) = extract_embedded_map(&payload, &scratch) {
-                    // C++ extractAndSaveMap (GameStateMap.cpp:166-212) parks the
-                    // embedded .map so custom maps travel with the save. Keep
-                    // the listed map label when the retail file is already on disk.
+                // C++ extractAndSaveMap (GameStateMap.cpp:308-368) parks the
+                // embedded .map in the Save directory so custom maps travel
+                // with the save. Keep the listed map label when the retail
+                // file is already on disk.
+                if let Some(extracted) = extract_embedded_map(&payload, save_dir) {
                     if crate::game_logic::script_loader::find_map_file(&save_info.map_name)
                         .is_none()
                     {
@@ -2120,7 +2135,8 @@ mod tests {
             legacy_payload.clone(),
         )
         .expect("encode Common fixture");
-        let (common_snapshot, _) = SaveFileManager::read_common_sav_chunks(&common_chunks)
+        let (common_snapshot, _) =
+            SaveFileManager::read_common_sav_chunks(&common_chunks, Path::new(""))
             .expect("Common fixture should migrate legacy payload");
         assert_legacy_production_migrated(&common_snapshot, barracks_id);
 
@@ -2132,7 +2148,8 @@ mod tests {
             v3_payload.clone(),
         )
         .expect("encode Common v3 fixture");
-        let (v3_common_snapshot, _) = SaveFileManager::read_common_sav_chunks(&v3_common_chunks)
+        let (v3_common_snapshot, _) =
+            SaveFileManager::read_common_sav_chunks(&v3_common_chunks, Path::new(""))
             .expect("Common fixture should migrate v3 payload");
         assert_pre_v4_v3_migrated(&v3_common_snapshot, barracks_id);
 
@@ -2280,7 +2297,7 @@ mod tests {
         assert_eq!(info.map_name, "Maps\\Alpine Assault.map");
         // C++ mission files have no world restore payload. Host lists them
         // and loadGame restarts the mission instead of decoding GameLogic.
-        let (snapshot, listed) = SaveFileManager::read_common_sav_chunks(&bytes)
+        let (snapshot, listed) = SaveFileManager::read_common_sav_chunks(&bytes, Path::new(""))
             .expect("mission header-only is a thin restart file");
         assert_eq!(listed.save_type, SaveFileType::Mission);
         assert!(
@@ -2366,7 +2383,7 @@ mod tests {
             .expect("C++ header must still list");
         assert_eq!(listed.description, "C++ listed");
 
-        let err = SaveFileManager::read_common_sav_chunks(&bytes)
+        let err = SaveFileManager::read_common_sav_chunks(&bytes, Path::new(""))
             .expect_err("C++ GameLogic::xfer must not succeed as an empty host world");
         let err = err.to_string();
         assert!(
@@ -2411,7 +2428,8 @@ mod tests {
         let listed = SaveFileManager::read_named_chunk_save_info(&bytes).expect("list mission");
         assert_eq!(listed.save_type, SaveFileType::Mission);
         assert_eq!(listed.map_name, "Maps\\Alpine Assault.map");
-        let (world, info) = SaveFileManager::read_common_sav_chunks(&bytes).expect("read mission");
+        let (world, info) =
+            SaveFileManager::read_common_sav_chunks(&bytes, Path::new("")).expect("read mission");
         assert_eq!(info.save_type, SaveFileType::Mission);
         assert!(world.objects.is_empty());
     }

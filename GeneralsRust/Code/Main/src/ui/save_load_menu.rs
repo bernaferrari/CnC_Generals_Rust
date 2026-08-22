@@ -19,6 +19,19 @@ pub enum SaveLoadMode {
     Load,
 }
 
+/// C++ `PopupSaveLoad` confirmation parents (`OverwriteConfirmParent`,
+/// `LoadConfirmParent`, `SaveDescParent`, `DeleteConfirmParent`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SaveLoadDialogState {
+    #[default]
+    None,
+    OverwriteConfirm,
+    LoadConfirm,
+    SaveDescription,
+    DeleteConfirm,
+}
+
+
 /// Save game entry
 #[derive(Debug, Clone)]
 pub struct SaveGameEntry {
@@ -49,6 +62,11 @@ pub struct SaveLoadMenu {
     /// UI events queued by this screen.
     pending_events: Vec<UIEvent>,
     confirm_click: ClickSpring,
+    /// C++ confirmation modal currently shown over the list/buttons.
+    dialog_state: SaveLoadDialogState,
+    delete_click: ClickSpring,
+    dialog_confirm_click: ClickSpring,
+    dialog_cancel_click: ClickSpring,
     cancel_click: ClickSpring,
     entry_clicks: Vec<ClickSpring>,
 }
@@ -74,13 +92,18 @@ impl SaveLoadMenu {
             animation_progress: 0.0,
             return_screen: Screen::MainMenu,
             pending_events: Vec::new(),
+            dialog_state: SaveLoadDialogState::None,
             confirm_click: ClickSpring::new(),
             cancel_click: ClickSpring::new(),
+            delete_click: ClickSpring::new(),
+            dialog_confirm_click: ClickSpring::new(),
+            dialog_cancel_click: ClickSpring::new(),
             entry_clicks: Vec::new(),
         }
     }
 
     pub fn initialize(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        self.dialog_state = SaveLoadDialogState::None;
         self.scan_save_files();
         Ok(())
     }
@@ -92,6 +115,9 @@ impl SaveLoadMenu {
         }
         self.confirm_click.update(delta_time);
         self.cancel_click.update(delta_time);
+        self.delete_click.update(delta_time);
+        self.dialog_confirm_click.update(delta_time);
+        self.dialog_cancel_click.update(delta_time);
         for click in &mut self.entry_clicks {
             click.update(delta_time);
         }
@@ -102,6 +128,7 @@ impl SaveLoadMenu {
         self.mode = mode;
         self.selected_entry = None;
         self.save_name_input.clear();
+        self.dialog_state = SaveLoadDialogState::None;
     }
 
     pub fn set_return_screen(&mut self, screen: Screen) {
@@ -112,14 +139,26 @@ impl SaveLoadMenu {
         std::mem::take(&mut self.pending_events)
     }
 
+    pub fn dialog_state(&self) -> SaveLoadDialogState {
+        self.dialog_state
+    }
+
+
     pub fn handle_mouse_move(&mut self, x: i32, y: i32) -> bool {
-        let (confirm_rect, cancel_rect) = self.action_button_rects();
-        let is_over_button =
-            utils::point_in_rect((x, y), confirm_rect) || utils::point_in_rect((x, y), cancel_rect);
-        let is_over_entry = self
-            .entry_at_position(x, y)
-            .map(|index| index < self.save_files.len())
-            .unwrap_or(false);
+        let is_over_button = if self.dialog_state == SaveLoadDialogState::None {
+            let (confirm_rect, delete_rect, cancel_rect) = self.action_button_rects();
+            utils::point_in_rect((x, y), confirm_rect)
+                || utils::point_in_rect((x, y), delete_rect)
+                || utils::point_in_rect((x, y), cancel_rect)
+        } else {
+            let (yes_rect, no_rect) = self.dialog_button_rects();
+            utils::point_in_rect((x, y), yes_rect) || utils::point_in_rect((x, y), no_rect)
+        };
+        let is_over_entry = self.dialog_state == SaveLoadDialogState::None
+            && self
+                .entry_at_position(x, y)
+                .map(|index| index < self.save_files.len())
+                .unwrap_or(false);
 
         if is_over_button || is_over_entry {
             self.pending_events.push(UIEvent::PlaySoundEffectPath(
@@ -136,20 +175,39 @@ impl SaveLoadMenu {
             return None;
         }
 
-        let (confirm_rect, cancel_rect) = self.action_button_rects();
+        if self.dialog_state != SaveLoadDialogState::None {
+            let (yes_rect, no_rect) = self.dialog_button_rects();
+            if utils::point_in_rect((x, y), no_rect) {
+                self.dialog_cancel_click.trigger();
+                self.play_click_sound();
+                self.dismiss_dialog();
+                return None;
+            }
+            if utils::point_in_rect((x, y), yes_rect) {
+                self.dialog_confirm_click.trigger();
+                self.play_click_sound();
+                return self.apply_dialog_confirm();
+            }
+            return None;
+        }
+
+        let (confirm_rect, delete_rect, cancel_rect) = self.action_button_rects();
         if utils::point_in_rect((x, y), cancel_rect) {
             self.cancel_click.trigger();
-            self.pending_events.push(UIEvent::PlaySoundEffectPath(
-                sound_files::BUTTON_CLICK.to_string(),
-            ));
+            self.play_click_sound();
             return Some(UIEvent::ChangeScreen(self.return_screen));
+        }
+
+        if utils::point_in_rect((x, y), delete_rect) {
+            self.delete_click.trigger();
+            self.play_click_sound();
+            self.request_delete();
+            return None;
         }
 
         if utils::point_in_rect((x, y), confirm_rect) {
             self.confirm_click.trigger();
-            self.pending_events.push(UIEvent::PlaySoundEffectPath(
-                sound_files::BUTTON_CLICK.to_string(),
-            ));
+            self.play_click_sound();
             return self.confirm_selection();
         }
 
@@ -162,9 +220,7 @@ impl SaveLoadMenu {
                 if self.mode == SaveLoadMode::Save {
                     self.save_name_input = self.save_files[index].display_name.clone();
                 }
-                self.pending_events.push(UIEvent::PlaySoundEffectPath(
-                    sound_files::BUTTON_CLICK.to_string(),
-                ));
+                self.play_click_sound();
                 return None;
             }
         }
@@ -175,11 +231,13 @@ impl SaveLoadMenu {
     pub fn handle_key_press(&mut self, key: KeyCode) -> bool {
         match key {
             KeyCode::Escape => {
-                self.pending_events.push(UIEvent::PlaySoundEffectPath(
-                    sound_files::BUTTON_CLICK.to_string(),
-                ));
-                self.pending_events
-                    .push(UIEvent::ChangeScreen(self.return_screen));
+                self.play_click_sound();
+                if self.dialog_state != SaveLoadDialogState::None {
+                    self.dismiss_dialog();
+                } else {
+                    self.pending_events
+                        .push(UIEvent::ChangeScreen(self.return_screen));
+                }
                 true
             }
             KeyCode::Enter => {
@@ -191,7 +249,7 @@ impl SaveLoadMenu {
                 self.pending_events.len() != before
             }
             KeyCode::Up => {
-                if self.save_files.is_empty() {
+                if self.dialog_state != SaveLoadDialogState::None || self.save_files.is_empty() {
                     return false;
                 }
                 let current = self.selected_entry.unwrap_or(0);
@@ -206,7 +264,7 @@ impl SaveLoadMenu {
                 true
             }
             KeyCode::Down => {
-                if self.save_files.is_empty() {
+                if self.dialog_state != SaveLoadDialogState::None || self.save_files.is_empty() {
                     return false;
                 }
                 let current = self.selected_entry.unwrap_or(0);
@@ -221,7 +279,7 @@ impl SaveLoadMenu {
                 true
             }
             KeyCode::Backspace => {
-                if self.mode != SaveLoadMode::Save || self.save_name_input.is_empty() {
+                if !self.can_edit_save_name() || self.save_name_input.is_empty() {
                     return false;
                 }
                 self.save_name_input.pop();
@@ -252,7 +310,7 @@ impl SaveLoadMenu {
     }
 
     pub fn handle_text_input(&mut self, text: &str) -> bool {
-        if self.mode == SaveLoadMode::Save {
+        if self.can_edit_save_name() {
             self.save_name_input.push_str(text);
             true
         } else {
@@ -261,39 +319,224 @@ impl SaveLoadMenu {
     }
 
     fn confirm_selection(&mut self) -> Option<UIEvent> {
+        match self.dialog_state {
+            SaveLoadDialogState::None => self.request_primary_action(),
+            _ => self.apply_dialog_confirm(),
+        }
+    }
+
+    fn request_primary_action(&mut self) -> Option<UIEvent> {
         match self.mode {
-            SaveLoadMode::Load => {
-                let index = self.selected_entry?;
-                let entry = self.save_files.get(index)?;
-                Some(UIEvent::LoadGame(entry.filename.clone()))
-            }
+            SaveLoadMode::Load => self.request_load(),
             SaveLoadMode::Save => {
-                let display_name = self.save_name_input.trim();
-                let chosen_name = if !display_name.is_empty() {
-                    display_name.to_string()
-                } else if let Some(index) = self.selected_entry {
-                    self.save_files
-                        .get(index)
-                        .map(|entry| entry.display_name.clone())
-                        .unwrap_or_default()
-                } else {
-                    String::new()
-                };
-
-                if chosen_name.trim().is_empty() {
-                    return None;
-                }
-
-                let slot = Self::sanitize_slot_name(&chosen_name);
-                self.pending_events.push(UIEvent::SaveGame {
-                    slot,
-                    display_name: chosen_name,
-                });
-                self.pending_events
-                    .push(UIEvent::ChangeScreen(self.return_screen));
+                self.request_save();
                 None
             }
         }
+    }
+
+    /// C++ `processLoadButtonPress`: shell loads immediately; in-game shows
+    /// `LoadConfirmParent`.
+    fn request_load(&mut self) -> Option<UIEvent> {
+        let index = self.selected_entry?;
+        let _ = self.save_files.get(index)?;
+        if self.is_shell_active() {
+            return self.emit_load();
+        }
+        self.dialog_state = SaveLoadDialogState::LoadConfirm;
+        None
+    }
+
+    /// C++ Save: selected row → `OverwriteConfirmParent`; new row →
+    /// `SaveDescParent`. Name collisions from `sanitize_slot_name` also
+    /// require overwrite confirmation.
+    fn request_save(&mut self) {
+        if self.selected_entry.and_then(|i| self.save_files.get(i)).is_some() {
+            self.dialog_state = SaveLoadDialogState::OverwriteConfirm;
+            return;
+        }
+        let chosen = self.chosen_save_name();
+        let slot = Self::sanitize_slot_name(&chosen);
+        if self.matching_save_index(&slot).is_some() {
+            self.dialog_state = SaveLoadDialogState::OverwriteConfirm;
+            return;
+        }
+        self.dialog_state = SaveLoadDialogState::SaveDescription;
+    }
+
+    fn request_delete(&mut self) {
+        if self.selected_entry.and_then(|i| self.save_files.get(i)).is_some() {
+            self.dialog_state = SaveLoadDialogState::DeleteConfirm;
+        }
+    }
+
+    fn apply_dialog_confirm(&mut self) -> Option<UIEvent> {
+        match self.dialog_state {
+            SaveLoadDialogState::None => None,
+            SaveLoadDialogState::LoadConfirm => {
+                self.dialog_state = SaveLoadDialogState::None;
+                self.emit_load()
+            }
+            SaveLoadDialogState::OverwriteConfirm => {
+                self.dialog_state = SaveLoadDialogState::None;
+                self.emit_overwrite_save();
+                None
+            }
+            SaveLoadDialogState::SaveDescription => {
+                let before = self.pending_events.len();
+                self.emit_new_save();
+                if self.dialog_state == SaveLoadDialogState::OverwriteConfirm {
+                    None
+                } else if self.pending_events.len() == before {
+                    self.dialog_state = SaveLoadDialogState::SaveDescription;
+                    None
+                } else {
+                    self.dialog_state = SaveLoadDialogState::None;
+                    None
+                }
+            }
+            SaveLoadDialogState::DeleteConfirm => {
+                self.dialog_state = SaveLoadDialogState::None;
+                self.delete_selected_save();
+                None
+            }
+        }
+    }
+
+    fn emit_load(&self) -> Option<UIEvent> {
+        let index = self.selected_entry?;
+        let entry = self.save_files.get(index)?;
+        Some(UIEvent::LoadGame(entry.filename.clone()))
+    }
+
+    fn emit_overwrite_save(&mut self) {
+        let Some(index) = self.overwrite_target_index() else {
+            return;
+        };
+        let Some(entry) = self.save_files.get(index) else {
+            return;
+        };
+        self.pending_events.push(UIEvent::SaveGame {
+            slot: entry.filename.clone(),
+            display_name: entry.display_name.clone(),
+        });
+        self.pending_events
+            .push(UIEvent::ChangeScreen(self.return_screen));
+    }
+
+    fn emit_new_save(&mut self) {
+        let chosen = self.chosen_save_name();
+        if chosen.trim().is_empty() {
+            return;
+        }
+        let slot = Self::sanitize_slot_name(&chosen);
+        if slot.is_empty() {
+            return;
+        }
+        if self.matching_save_index(&slot).is_some() {
+            self.dialog_state = SaveLoadDialogState::OverwriteConfirm;
+            return;
+        }
+        self.pending_events.push(UIEvent::SaveGame {
+            slot,
+            display_name: chosen,
+        });
+        self.pending_events
+            .push(UIEvent::ChangeScreen(self.return_screen));
+    }
+
+    fn delete_selected_save(&mut self) {
+        let Some(index) = self.selected_entry else {
+            return;
+        };
+        let Some(filename) = self.save_files.get(index).map(|entry| entry.filename.clone()) else {
+            return;
+        };
+        self.remove_save_file(&filename);
+        self.scan_save_files();
+        if self.save_files.is_empty() {
+            self.selected_entry = None;
+            self.save_name_input.clear();
+        } else {
+            let next = index.min(self.save_files.len() - 1);
+            self.selected_entry = Some(next);
+            if self.mode == SaveLoadMode::Save {
+                self.save_name_input = self.save_files[next].display_name.clone();
+            }
+        }
+    }
+
+    fn remove_save_file(&self, filename: &str) {
+        let remove = |manager: &SaveLoadManager| {
+            let path = manager.get_save_path(filename);
+            if path.exists() {
+                if let Err(err) = std::fs::remove_file(&path) {
+                    info!("Failed to delete save {}: {err}", path.display());
+                }
+            }
+        };
+        if let Some(manager_arc) = get_save_load_manager() {
+            if let Ok(manager) = manager_arc.lock() {
+                remove(&manager);
+                return;
+            }
+        }
+        remove(&SaveLoadManager::new());
+    }
+
+    fn overwrite_target_index(&self) -> Option<usize> {
+        if let Some(index) = self.selected_entry {
+            if self.save_files.get(index).is_some() {
+                return Some(index);
+            }
+        }
+        let slot = Self::sanitize_slot_name(&self.chosen_save_name());
+        self.matching_save_index(&slot)
+    }
+
+    fn chosen_save_name(&self) -> String {
+        let display_name = self.save_name_input.trim();
+        if !display_name.is_empty() {
+            return display_name.to_string();
+        }
+        self.selected_entry
+            .and_then(|i| self.save_files.get(i))
+            .map(|entry| entry.display_name.clone())
+            .unwrap_or_default()
+    }
+
+    fn matching_save_index(&self, slot: &str) -> Option<usize> {
+        if slot.is_empty() {
+            return None;
+        }
+        self.save_files.iter().position(|entry| {
+            entry.filename.eq_ignore_ascii_case(slot)
+                || Self::sanitize_slot_name(&entry.filename) == slot
+                || Self::sanitize_slot_name(&entry.display_name) == slot
+        })
+    }
+
+    fn is_shell_active(&self) -> bool {
+        self.return_screen.is_shell_owned_pregame()
+            || matches!(self.return_screen, Screen::Title | Screen::MainMenu)
+    }
+
+    fn can_edit_save_name(&self) -> bool {
+        self.mode == SaveLoadMode::Save
+            && matches!(
+                self.dialog_state,
+                SaveLoadDialogState::None | SaveLoadDialogState::SaveDescription
+            )
+    }
+
+    fn dismiss_dialog(&mut self) {
+        self.dialog_state = SaveLoadDialogState::None;
+    }
+
+    fn play_click_sound(&mut self) {
+        self.pending_events.push(UIEvent::PlaySoundEffectPath(
+            sound_files::BUTTON_CLICK.to_string(),
+        ));
     }
 
     fn sanitize_slot_name(name: &str) -> String {
@@ -330,20 +573,39 @@ impl SaveLoadMenu {
         Some((offset / row_height).max(0) as usize)
     }
 
-    fn action_button_rects(&self) -> ((i32, i32, u32, u32), (i32, i32, u32, u32)) {
+    fn action_button_rects(
+        &self,
+    ) -> (
+        (i32, i32, u32, u32),
+        (i32, i32, u32, u32),
+        (i32, i32, u32, u32),
+    ) {
+        let button_w = layout::MENU_BUTTON_WIDTH;
+        let button_h = layout::MENU_BUTTON_HEIGHT;
+        let total_w = button_w as i32 * 3 + layout::MENU_SPACING as i32 * 2;
+        let x0 = (self.screen_size.0 as i32 / 2) - total_w / 2;
+        let y0 = self.screen_size.1 as i32 - button_h as i32 - 40;
+        let step = button_w as i32 + layout::MENU_SPACING as i32;
+        let confirm = (x0, y0, button_w, button_h);
+        let delete = (x0 + step, y0, button_w, button_h);
+        let cancel = (x0 + step * 2, y0, button_w, button_h);
+        (confirm, delete, cancel)
+    }
+
+    fn dialog_button_rects(&self) -> ((i32, i32, u32, u32), (i32, i32, u32, u32)) {
         let button_w = layout::MENU_BUTTON_WIDTH;
         let button_h = layout::MENU_BUTTON_HEIGHT;
         let total_w = button_w as i32 * 2 + layout::MENU_SPACING as i32;
         let x0 = (self.screen_size.0 as i32 / 2) - total_w / 2;
         let y0 = self.screen_size.1 as i32 - button_h as i32 - 40;
-        let confirm = (x0, y0, button_w, button_h);
-        let cancel = (
+        let yes = (x0, y0, button_w, button_h);
+        let no = (
             x0 + button_w as i32 + layout::MENU_SPACING as i32,
             y0,
             button_w,
             button_h,
         );
-        (confirm, cancel)
+        (yes, no)
     }
 
     fn scan_save_files(&mut self) {
@@ -401,6 +663,110 @@ impl SaveLoadMenu {
 
     pub fn resize(&mut self, width: u32, height: u32) {
         self.screen_size = (width, height);
+    }
+
+    fn render_action_buttons(&self) {
+        let (confirm_rect, delete_rect, cancel_rect) = self.action_button_rects();
+        let (confirm_x, confirm_y, _, _) =
+            utils::scale_rect_center(confirm_rect, self.confirm_click.scale());
+        let (delete_x, delete_y, _, _) =
+            utils::scale_rect_center(delete_rect, self.delete_click.scale());
+        let (cancel_x, cancel_y, _, _) =
+            utils::scale_rect_center(cancel_rect, self.cancel_click.scale());
+        let confirm_label = match self.mode {
+            SaveLoadMode::Save => Self::text("save_load.button_save", "Save"),
+            SaveLoadMode::Load => Self::text("save_load.button_load", "Load"),
+        };
+        println!(
+            "\n{} @ ({:.1},{:.1})",
+            localization::localize_with_args(
+                "save_load.button.confirm",
+                "[{label}]",
+                &[("label", confirm_label.as_str())],
+            ),
+            confirm_x,
+            confirm_y
+        );
+        println!(
+            "{} @ ({:.1},{:.1})",
+            Self::text("save_load.button.delete", "[Delete]"),
+            delete_x,
+            delete_y
+        );
+        println!(
+            "{} @ ({:.1},{:.1})",
+            Self::text("save_load.button.cancel", "[Cancel]"),
+            cancel_x,
+            cancel_y
+        );
+    }
+
+    fn render_confirm_dialog(&self) {
+        let (title, prompt, confirm_label) = match self.dialog_state {
+            SaveLoadDialogState::OverwriteConfirm => (
+                Self::text("save_load.overwrite_title", "=== OVERWRITE SAVE ==="),
+                Self::text(
+                    "save_load.overwrite_prompt",
+                    "Overwrite this save game?",
+                ),
+                Self::text("save_load.button_overwrite", "Overwrite"),
+            ),
+            SaveLoadDialogState::LoadConfirm => (
+                Self::text("save_load.load_confirm_title", "=== LOAD GAME ==="),
+                Self::text(
+                    "save_load.load_confirm_prompt",
+                    "Load this save and lose current progress?",
+                ),
+                Self::text("save_load.button_load", "Load"),
+            ),
+            SaveLoadDialogState::SaveDescription => (
+                Self::text("save_load.save_desc_title", "=== SAVE DESCRIPTION ==="),
+                Self::text(
+                    "save_load.save_desc_prompt",
+                    "Enter a description for this save:",
+                ),
+                Self::text("save_load.button_save", "Save"),
+            ),
+            SaveLoadDialogState::DeleteConfirm => (
+                Self::text("save_load.delete_title", "=== DELETE SAVE ==="),
+                Self::text("save_load.delete_prompt", "Delete this save game?"),
+                Self::text("save_load.button.delete", "Delete"),
+            ),
+            SaveLoadDialogState::None => return,
+        };
+
+        println!("\n{}", title);
+        if let Some(entry) = self
+            .overwrite_target_index()
+            .or(self.selected_entry)
+            .and_then(|i| self.save_files.get(i))
+        {
+            println!("  {}", entry.display_name);
+            println!("  {}", entry.map_name);
+        }
+        println!("\n  {}", prompt);
+        if self.dialog_state == SaveLoadDialogState::SaveDescription {
+            println!(
+                "  {}",
+                if self.save_name_input.is_empty() {
+                    "_"
+                } else {
+                    &self.save_name_input
+                }
+            );
+        }
+
+        let (yes_rect, no_rect) = self.dialog_button_rects();
+        let (yes_x, yes_y, _, _) =
+            utils::scale_rect_center(yes_rect, self.dialog_confirm_click.scale());
+        let (no_x, no_y, _, _) = utils::scale_rect_center(no_rect, self.dialog_cancel_click.scale());
+        println!("\n[{}] @ ({:.1},{:.1})", confirm_label, yes_x, yes_y);
+        println!(
+            "{} @ ({:.1},{:.1})",
+            Self::text("save_load.button.cancel", "[Cancel]"),
+            no_x,
+            no_y
+        );
     }
 }
 
@@ -475,35 +841,11 @@ impl Renderable for SaveLoadMenu {
             }
         }
 
-        let (confirm_rect, cancel_rect) = self.action_button_rects();
-        let (confirm_x, confirm_y, _, _) =
-            utils::scale_rect_center(confirm_rect, self.confirm_click.scale());
-        let (cancel_x, cancel_y, _, _) =
-            utils::scale_rect_center(cancel_rect, self.cancel_click.scale());
-        let confirm_x_value = format!("{:.1}", confirm_x);
-        let confirm_y_value = format!("{:.1}", confirm_y);
-        let cancel_x_value = format!("{:.1}", cancel_x);
-        let cancel_y_value = format!("{:.1}", cancel_y);
-        let confirm_label = match self.mode {
-            SaveLoadMode::Save => Self::text("save_load.button_save", "Save"),
-            SaveLoadMode::Load => Self::text("save_load.button_load", "Load"),
-        };
-        println!(
-            "\n{} @ ({},{})",
-            localization::localize_with_args(
-                "save_load.button.confirm",
-                "[{label}]",
-                &[("label", confirm_label.as_str())],
-            ),
-            confirm_x_value,
-            confirm_y_value
-        );
-        println!(
-            "{} @ ({},{})",
-            Self::text("save_load.button.cancel", "[Cancel]"),
-            cancel_x_value,
-            cancel_y_value
-        );
+        if self.dialog_state == SaveLoadDialogState::None {
+            self.render_action_buttons();
+        } else {
+            self.render_confirm_dialog();
+        }
 
         println!("\n{}", Self::text("save_load.controls", "Controls:"));
         if self.mode == SaveLoadMode::Save {
@@ -524,11 +866,133 @@ impl Renderable for SaveLoadMenu {
         println!("  {}", Self::text("save_load.esc_cancel", "ESC - Cancel"));
     }
 
+
     fn get_bounds(&self) -> (i32, i32, u32, u32) {
         (0, 0, self.screen_size.0, self.screen_size.1)
     }
 
     fn is_visible(&self) -> bool {
         true
+    }
+}
+
+#[cfg(test)]
+impl SaveLoadMenu {
+    fn push_entry(&mut self, filename: &str, display_name: &str) {
+        self.save_files.push(SaveGameEntry {
+            filename: filename.to_string(),
+            display_name: display_name.to_string(),
+            timestamp: SystemTime::UNIX_EPOCH,
+            map_name: "Alpine Assault".to_string(),
+            faction: "America".to_string(),
+            mission: None,
+        });
+        self.entry_clicks.push(ClickSpring::new());
+    }
+
+    fn click_rect(rect: (i32, i32, u32, u32)) -> (i32, i32) {
+        (rect.0 + 1, rect.1 + 1)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn save_existing_row_opens_overwrite_confirm() {
+        let mut menu = SaveLoadMenu::new(SaveLoadMode::Save);
+        menu.push_entry("00000001", "Campaign");
+        menu.selected_entry = Some(0);
+        let (confirm, _, _) = menu.action_button_rects();
+        let (x, y) = SaveLoadMenu::click_rect(confirm);
+        assert!(menu.handle_mouse_click(x, y, MouseButton::Left).is_none());
+        assert_eq!(menu.dialog_state(), SaveLoadDialogState::OverwriteConfirm);
+        assert!(menu.drain_pending_events().iter().all(|event| {
+            !matches!(event, UIEvent::SaveGame { .. })
+        }));
+    }
+
+    #[test]
+    fn sanitize_slot_collision_opens_overwrite_confirm() {
+        let mut menu = SaveLoadMenu::new(SaveLoadMode::Save);
+        menu.push_entry("my_save", "My Save");
+        menu.save_name_input = "My Save!".to_string();
+        let (confirm, _, _) = menu.action_button_rects();
+        let (x, y) = SaveLoadMenu::click_rect(confirm);
+        assert!(menu.handle_mouse_click(x, y, MouseButton::Left).is_none());
+        assert_eq!(menu.dialog_state(), SaveLoadDialogState::OverwriteConfirm);
+    }
+
+    #[test]
+    fn new_save_opens_save_description() {
+        let mut menu = SaveLoadMenu::new(SaveLoadMode::Save);
+        menu.save_name_input = "Fresh Slot".to_string();
+        let (confirm, _, _) = menu.action_button_rects();
+        let (x, y) = SaveLoadMenu::click_rect(confirm);
+        assert!(menu.handle_mouse_click(x, y, MouseButton::Left).is_none());
+        assert_eq!(menu.dialog_state(), SaveLoadDialogState::SaveDescription);
+    }
+
+    #[test]
+    fn load_from_pause_opens_load_confirm() {
+        let mut menu = SaveLoadMenu::new(SaveLoadMode::Load);
+        menu.set_return_screen(Screen::PauseMenu);
+        menu.push_entry("00000001", "Campaign");
+        menu.selected_entry = Some(0);
+        let (confirm, _, _) = menu.action_button_rects();
+        let (x, y) = SaveLoadMenu::click_rect(confirm);
+        assert!(menu.handle_mouse_click(x, y, MouseButton::Left).is_none());
+        assert_eq!(menu.dialog_state(), SaveLoadDialogState::LoadConfirm);
+    }
+
+    #[test]
+    fn load_from_shell_emits_immediately() {
+        let mut menu = SaveLoadMenu::new(SaveLoadMode::Load);
+        menu.set_return_screen(Screen::MainMenu);
+        menu.push_entry("00000001", "Campaign");
+        menu.selected_entry = Some(0);
+        let (confirm, _, _) = menu.action_button_rects();
+        let (x, y) = SaveLoadMenu::click_rect(confirm);
+        assert!(matches!(
+            menu.handle_mouse_click(x, y, MouseButton::Left),
+            Some(UIEvent::LoadGame(name)) if name == "00000001"
+        ));
+        assert_eq!(menu.dialog_state(), SaveLoadDialogState::None);
+    }
+
+    #[test]
+    fn delete_opens_delete_confirm_and_cancel_dismisses() {
+        let mut menu = SaveLoadMenu::new(SaveLoadMode::Load);
+        menu.push_entry("00000001", "Campaign");
+        menu.selected_entry = Some(0);
+        let (_, delete, _) = menu.action_button_rects();
+        let (x, y) = SaveLoadMenu::click_rect(delete);
+        assert!(menu.handle_mouse_click(x, y, MouseButton::Left).is_none());
+        assert_eq!(menu.dialog_state(), SaveLoadDialogState::DeleteConfirm);
+        assert!(menu.handle_key_press(KeyCode::Escape));
+        assert_eq!(menu.dialog_state(), SaveLoadDialogState::None);
+    }
+
+    #[test]
+    fn overwrite_confirm_saves_existing_filename() {
+        let mut menu = SaveLoadMenu::new(SaveLoadMode::Save);
+        menu.push_entry("00000001", "Campaign");
+        menu.selected_entry = Some(0);
+        let (confirm, _, _) = menu.action_button_rects();
+        let (x, y) = SaveLoadMenu::click_rect(confirm);
+        menu.handle_mouse_click(x, y, MouseButton::Left);
+        let (yes, _) = menu.dialog_button_rects();
+        let (x, y) = SaveLoadMenu::click_rect(yes);
+        assert!(menu.handle_mouse_click(x, y, MouseButton::Left).is_none());
+        let events = menu.drain_pending_events();
+        assert!(events.iter().any(|event| matches!(
+            event,
+            UIEvent::SaveGame {
+                slot,
+                display_name
+            } if slot == "00000001" && display_name == "Campaign"
+        )));
+        assert_eq!(menu.dialog_state(), SaveLoadDialogState::None);
     }
 }

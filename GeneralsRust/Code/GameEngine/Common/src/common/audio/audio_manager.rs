@@ -1302,6 +1302,11 @@ impl AudioManager {
             return;
         }
 
+        // C++ AudioManager::setAudioEventVolumeOverride (GameAudio.cpp:580-583).
+        if new_volume != -1.0 {
+            self.adjust_volume_of_playing_audio(event_to_affect.clone(), new_volume);
+        }
+
         // Remove adjustment if new_volume is -1.0
         if new_volume == -1.0 {
             self.adjusted_volumes
@@ -1340,11 +1345,16 @@ impl AudioManager {
         self.adjusted_volumes.retain(|(_, volume)| *volume != 0.0);
     }
 
-    pub fn adjust_volume_of_playing_audio(&self, event_name: String, new_volume: Real) {
-        for source in self.playing_sources.values() {
+    pub fn adjust_volume_of_playing_audio(&mut self, event_name: String, new_volume: Real) {
+        for source in self.playing_sources.values_mut() {
             if source.audio_event.get_event_name() == event_name {
-                let sink = source.sink.lock().unwrap();
-                sink.set_volume(new_volume);
+                source.audio_event.set_volume(new_volume);
+                let desired_volume =
+                    source.audio_event.get_volume() * source.audio_event.get_volume_shift();
+                source.volume = desired_volume;
+                if let Ok(sink) = source.sink.lock() {
+                    sink.set_volume(desired_volume);
+                }
             }
         }
     }

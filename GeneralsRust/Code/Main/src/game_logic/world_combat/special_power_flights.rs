@@ -760,15 +760,14 @@ impl GameLogic {
     }
 
     /// C++ AmericaVehicleSpyDrone DynamicShroudClearingRangeUpdate grow residual.
-    /// Expands FOW reveal from StartRadius 0 toward VisionRange 250 over GrowTime.
+    /// Expands the spawned scout's shroud-clearing range 0→250; look follows the unit.
     pub fn update_spy_drone_grow(&mut self) {
         use crate::game_logic::host_spy_drone::{
             spy_drone_grow_is_final, spy_drone_scan_radius_after_updates,
             SPY_DRONE_GROW_UPDATES_TO_FINAL, SPY_DRONE_VISION_RANGE,
         };
-        use gamelogic::common::Coord3D;
 
-        let work: Vec<(usize, Vec3, f32, u32)> = {
+        let work: Vec<(usize, Option<crate::game_logic::ObjectId>, f32)> = {
             let acts = self.spy_drones.activations_mut();
             let mut out = Vec::new();
             for (i, a) in acts.iter_mut().enumerate() {
@@ -787,7 +786,7 @@ impl GameLogic {
                     a.growing = false;
                     a.radius = SPY_DRONE_VISION_RANGE;
                 }
-                out.push((i, a.location, radius, a.player_mask));
+                out.push((i, a.spawned_id, a.radius));
             }
             out
         };
@@ -796,22 +795,22 @@ impl GameLogic {
             return;
         }
 
-        let shroud = get_shroud_manager();
-        let mut shroud_mgr = match shroud.lock() {
-            Ok(mgr) => mgr,
-            Err(_) => return,
-        };
-        let world_w = self.world_width.max(1.0);
-        let world_h = self.world_height.max(1.0);
-        if !shroud_mgr.has_shroud_grid() {
-            shroud_mgr.init_shroud_grid(world_w, world_h);
-        }
-        for (_i, location, radius, player_mask) in work {
-            let center = Coord3D::new(location.x, location.z, location.y);
-            shroud_mgr.do_shroud_reveal(&center, radius, player_mask);
+        for (i, spawned_id, radius) in work {
+            if let Some(id) = spawned_id {
+                if let Some(obj) = self.objects.get_mut(&id) {
+                    if obj.is_alive() {
+                        obj.shroud_clearing_range = radius;
+                        obj.vision_range = SPY_DRONE_VISION_RANGE;
+                        let pos = obj.get_position();
+                        if let Some(act) = self.spy_drones.activations_mut().get_mut(i) {
+                            act.location = pos;
+                            act.radius = radius;
+                        }
+                    }
+                }
+            }
             self.spy_drones.record_grow_pulse();
         }
-        let _ = SPY_DRONE_VISION_RANGE;
     }
 
     /// C++ OCL_FireWallSegment CreateObject FireWallSegment residual.

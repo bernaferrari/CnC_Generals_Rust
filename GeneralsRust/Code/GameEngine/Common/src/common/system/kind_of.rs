@@ -377,6 +377,12 @@ impl KindOfMask {
         Ok(mask)
     }
 
+    /// C++ `TEST_KINDOFMASK_MULTI` (`KindOf.h`). Empty required/clear masks pass.
+    #[inline]
+    pub fn test_multi(self, must_be_set: Self, must_be_clear: Self) -> bool {
+        self.contains(must_be_set) && !self.intersects(must_be_clear)
+    }
+
     /// Check if this mask represents any kind of structure
     pub fn is_structure(&self) -> bool {
         self.contains(KindOfMask::STRUCTURE)

@@ -19,8 +19,9 @@
 //! Implements SpecialPowerUpdateInterface residual (see
 //! `host_special_power_update_module`).
 //!
-//! Fail-closed: not full SpectreGunshipUpdate continuous fire / decal pair /
-//! gattling strafe FX / academy stats.
+//! Live spawn now also latches `HostSpectreGunshipUpdateData` (insertion
+//! flight / doors / afterburner / departure). Gattling/howitzer/decals remain
+//! fail-closed vs full leftover SpectreGunshipUpdate.
 
 use glam::Vec3;
 use serde::{Deserialize, Serialize};

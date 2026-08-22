@@ -170,9 +170,7 @@ fn move_voice_name(
     if TheInGameUI::is_in_waypoint_mode() && guard.is_moving() {
         return None;
     }
-    if matches!(msg, GameMessageType::DoSalvage(_)) {
-        return Some("VoiceSalvage");
-    }
+    let salvage = matches!(msg, GameMessageType::DoSalvage(_));
     if TheInGameUI::is_in_force_move_to_mode() {
         if let Some(target_id) = info.target_id {
             if let Some(target_obj) = OBJECT_REGISTRY.get_object(target_id) {
@@ -191,6 +189,9 @@ fn move_voice_name(
         && leftover_player_has_worker_shoes(guard)
     {
         return Some("VoiceMoveUpgraded");
+    }
+    if salvage {
+        return Some("VoiceSalvage");
     }
     Some("VoiceMove")
 }

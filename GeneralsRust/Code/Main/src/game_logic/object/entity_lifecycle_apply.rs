@@ -86,6 +86,9 @@ fn apply_one(
         TAG_SPECTRE_GUNSHIP_DEPLOYMENT => {
             object.spectre_gunship_deployment = Some(decode_payload(payload)?);
         }
+        TAG_SPECTRE_GUNSHIP_UPDATE => {
+            object.spectre_gunship_update = Some(decode_payload(payload)?);
+        }
         TAG_SMART_BOMB_HOMING => object.smart_bomb_target_homing = Some(decode_payload(payload)?),
         TAG_HELICOPTER_SLOW_DEATH => object.helicopter_slow_death = Some(decode_payload(payload)?),
         TAG_JET_SLOW_DEATH => object.jet_slow_death = Some(decode_payload(payload)?),

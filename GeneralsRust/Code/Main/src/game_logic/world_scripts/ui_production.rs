@@ -181,6 +181,7 @@ impl GameLogic {
             .filter(|p| !crate::command_executor::host_beacon_position_is_hidden(self, *p))
             .collect();
         ui_state.minimap_viewport = crate::ui::default_minimap_viewport();
+        ui_state.minimap_view_box = crate::ui::default_minimap_view_box();
         ui_state.minimap_texture_id = None;
         ui_state.minimap_coordinates = Some(crate::graphics::MinimapCoordinates {
             minimap_width: 1.0,

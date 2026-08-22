@@ -2170,6 +2170,11 @@ pub struct Object {
     pub spectre_gunship_deployment: Option<
         crate::game_logic::host_spectre_gunship_deployment::HostSpectreGunshipDeploymentData,
     >,
+    /// C++ SpectreGunshipUpdate residual (insertion / doors / afterburner / depart).
+    #[serde(default)]
+    pub spectre_gunship_update: Option<
+        crate::game_logic::host_spectre_gunship_update::HostSpectreGunshipUpdateData,
+    >,
     /// C++ SmartBombTargetHomingUpdate residual (MOAB course fudge).
     #[serde(default)]
     pub smart_bomb_target_homing:
@@ -2184,7 +2189,6 @@ pub struct Object {
     pub mine_data: Option<crate::game_logic::host_mines::HostMineData>,
 
     /// Host residual: unit can detect stealthed enemies (C++ StealthDetectorUpdate).
-    /// Fail-closed: not full IR FX / kindof filters / garrisoned-detect rules.
     pub is_detector: bool,
     /// Detection range in world units. `0` => use template `sight_range`
     /// (matches C++ when DetectionRange is unset/0).
@@ -2193,6 +2197,13 @@ pub struct Object {
     /// `0` = continuous every-frame scan (legacy host residual detectors).
     /// Strategy Center S&D residual sets **15** (500ms @ 30 FPS).
     pub detection_rate_frames: u32,
+    /// C++ `StealthDetectorUpdateModuleData::m_extraDetectKindof` (ExtraRequiredKindOf).
+    /// Empty (0) is C++ ctor `KINDOFMASK_NONE` — accept every kind.
+    #[serde(default)]
+    pub extra_detect_kindof: u128,
+    /// C++ `StealthDetectorUpdateModuleData::m_extraDetectKindofNot` (ExtraForbiddenKindOf).
+    #[serde(default)]
+    pub extra_detect_kindof_not: u128,
     /// Absolute frame when the next DetectionRate residual scan may fire.
     /// `0` means scan is due immediately (setSDEnabled → UPDATE_SLEEP_NONE).
     pub next_detection_scan_frame: u32,

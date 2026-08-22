@@ -56,7 +56,7 @@ pub use events::{InputEvent, KeyEvent, MouseEvent, UIEventHandler};
 pub use faction_selection::{Faction, FactionSelectionScreen};
 pub use hud::{ConstructionTab, GameHUD, MiniMap, ResourceDisplay};
 pub use hud_state::{
-    color_for_player, default_minimap_viewport, normalized_minimap_rect, BuildQueueEntry,
+    color_for_player, default_minimap_view_box, default_minimap_viewport, normalized_minimap_rect, BuildQueueEntry,
     CanMakeCameoUi, ControlBarSelectionPanelState, DiagnosticsOverlayStats, GameUIState,
     MinimapActionKind, MinimapDot, MinimapInteraction, RadarMessageEntry, RadarPing, RadarPingKind,
     UiColor, UiPos2, UiRect, UiTextureId, UiVec2, UnitDisplayInfo, VictoryOverlayAction,
@@ -68,7 +68,7 @@ pub use options_menu::{GraphicsQuality, OptionsMenu, OptionsTab, Resolution};
 pub use pause_menu::{PauseMenu, PauseMenuAction};
 pub use quit_dialog::QuitDialog;
 pub use rts_interface::{BuildingInterface, RTSInterface, UnitCommandButton, UnitCommandPanel};
-pub use save_load_menu::{SaveGameEntry, SaveLoadMenu, SaveLoadMode};
+pub use save_load_menu::{SaveGameEntry, SaveLoadDialogState, SaveLoadMenu, SaveLoadMode};
 pub use skirmish_menu::{GameRules, GameSlot, PlayerColor, PlayerType, SkirmishMenu, MAX_SLOTS};
 pub use themes::{Colors, GeneralsTheme, UITheme};
 pub use ui_manager::{UIEvent, UIManager, UIState};

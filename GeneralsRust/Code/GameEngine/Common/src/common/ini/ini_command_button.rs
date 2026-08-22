@@ -342,31 +342,6 @@ impl CommandButton {
         ];
         PARSE_TABLE
     }
-
-    /// Validate the command button configuration
-    pub fn validate(&self) -> INIResult<()> {
-        // Check if button with special power template also has the appropriate option set
-        if self.special_power_template.is_some() && !self.options.need_special_power_science {
-            eprintln!(
-                "CommandButton {} has SpecialPower = {} but the button also requires Options = NEED_SPECIAL_POWER_SCIENCE",
-                self.name,
-                self.special_power_template.as_ref().unwrap()
-            );
-            return Err(INIError::InvalidData);
-        }
-
-        // Check if button has NEED_SPECIAL_POWER_SCIENCE but no special power template
-        if self.options.need_special_power_science && self.special_power_template.is_none() {
-            eprintln!(
-                "CommandButton {} has Options = NEED_SPECIAL_POWER_SCIENCE but doesn't specify a SpecialPower",
-                self.name
-            );
-            return Err(INIError::InvalidData);
-        }
-
-        Ok(())
-    }
-
     /// Check if button requires a specific science
     pub fn requires_science(&self, science: &str) -> bool {
         self.science_required.iter().any(|s| s == science)
@@ -527,10 +502,9 @@ impl ControlBar {
         ini.init_from_ini_with_fields(button, CommandButton::get_field_parse())?;
 
         resolve_sciences(button);
-
-        // Validate the button configuration
-        button.validate()?;
-
+        // C++ INICommandButton.cpp:54-66 is DEBUG_CRASH only. Release keeps
+        // the button and continues the file. Retail SpecialPower buttons
+        // without NEED_SPECIAL_POWER_SCIENCE (and the inverse) are legal.
         Ok(())
     }
 }
@@ -878,29 +852,19 @@ mod tests {
     }
 
     #[test]
-    fn test_command_button_validation_valid() {
-        let button = CommandButton::new("TestButton".to_string());
-        assert!(button.validate().is_ok());
-    }
-
-    #[test]
-    fn test_command_button_validation_special_power_mismatch() {
+    fn special_power_without_need_science_is_legal() {
         let mut button = CommandButton::new("TestButton".to_string());
         button.special_power_template = Some("TestPower".to_string());
-        // Missing need_special_power_science flag
-
-        let result = button.validate();
-        assert!(result.is_err());
+        assert!(button.get_special_power_template().is_some());
+        assert!(!button.options.need_special_power_science);
     }
 
     #[test]
-    fn test_command_button_validation_missing_special_power() {
+    fn need_science_without_special_power_is_legal() {
         let mut button = CommandButton::new("TestButton".to_string());
         button.options.need_special_power_science = true;
-        // Missing special power template
-
-        let result = button.validate();
-        assert!(result.is_err());
+        assert!(button.get_special_power_template().is_none());
+        assert!(button.options.need_special_power_science);
     }
 
     #[test]
@@ -1065,7 +1029,10 @@ mod tests {
             "SpecialPower",
             &["=", "SuperweaponA10ThunderboltMissileStrike"],
         );
-
-        assert!(button.validate().is_ok());
+        assert_eq!(
+            button.get_special_power_template().map(String::as_str),
+            Some("SuperweaponA10ThunderboltMissileStrike")
+        );
+        assert!(button.options.need_special_power_science);
     }
 }

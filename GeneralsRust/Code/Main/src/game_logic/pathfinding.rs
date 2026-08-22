@@ -205,6 +205,10 @@ pub struct PathfindingGrid {
     occ_fixed_max_crushable: Vec<u8>,
     /// Structure-aware zone ids (obstacles split zones). 0 = uninitialized.
     path_zones: Vec<u16>,
+    /// C++ `m_groundWaterZones` — leftover `build_surface_combiners`.
+    ground_water_zones: Vec<u16>,
+    /// C++ `m_groundCliffZones` — leftover `build_surface_combiners`.
+    ground_cliff_zones: Vec<u16>,
     /// Per-player ALLIES occupancy bits (bit j set if player i considers j an ally).
     /// C++ checkForMovement getRelationship == ALLIES (AIPathfind.cpp:5037).
     player_ally_masks: [u16; 16],
@@ -266,6 +270,8 @@ impl PathfindingGrid {
             occ_infantry_mask: vec![0u16; cells],
             occ_fixed_max_crushable: vec![0u8; cells],
             path_zones: vec![0u16; cells],
+            ground_water_zones: Vec::new(),
+            ground_cliff_zones: Vec::new(),
             player_ally_masks: [0u16; 16],
             ground_connect: vec![0u8; cells],
             query_layer: PathfindLayerEnum::Ground as u8,
@@ -602,6 +608,8 @@ impl PathfindingGrid {
         self.pinched_bits.fill(0);
         self.terrain_zones.fill(0);
         self.path_zones.fill(0);
+        self.ground_water_zones.clear();
+        self.ground_cliff_zones.clear();
         self.fence_bits.fill(0);
         self.transparent_bits.fill(0);
         self.ground_connect.fill(0);
@@ -820,15 +828,33 @@ impl PathfindingGrid {
         z1 == z2
     }
 
-    fn path_zone_passable(ty: PathfindCellType) -> bool {
-        // C++ getEffectiveZone for ground locos does not share a zone across CELL_WATER.
-        !matches!(
-            ty,
-            PathfindCellType::Water
-                | PathfindCellType::Impassable
-                | PathfindCellType::Obstacle
-                | PathfindCellType::BridgeImpassable
-                | PathfindCellType::Cliff
+    /// Flood kind for structure-aware zones: same-type connectivity.
+    /// Water and cliff get their own zones so GROUND+WATER / GROUND+CLIFF
+    /// combiners can join them (C++ `calculateZones` + `getEffectiveZone`).
+    fn path_zone_flood_kind(ty: PathfindCellType) -> Option<u8> {
+        match ty {
+            PathfindCellType::Water => Some(1),
+            PathfindCellType::Cliff => Some(2),
+            PathfindCellType::Impassable
+            | PathfindCellType::Obstacle
+            | PathfindCellType::BridgeImpassable => None,
+            _ => Some(0),
+        }
+    }
+
+    fn pair_water_ground(a: PathfindCellType, b: PathfindCellType) -> bool {
+        matches!(
+            (a, b),
+            (PathfindCellType::Clear, PathfindCellType::Water)
+                | (PathfindCellType::Water, PathfindCellType::Clear)
+        )
+    }
+
+    fn pair_ground_cliff(a: PathfindCellType, b: PathfindCellType) -> bool {
+        matches!(
+            (a, b),
+            (PathfindCellType::Clear, PathfindCellType::Cliff)
+                | (PathfindCellType::Cliff, PathfindCellType::Clear)
         )
     }
 
@@ -921,9 +947,9 @@ impl PathfindingGrid {
                 if self.path_zones[sidx] != 0 {
                     continue;
                 }
-                if !Self::path_zone_passable(self.cell_type_at_index(sidx)) {
+                let Some(kind) = Self::path_zone_flood_kind(self.cell_type_at_index(sidx)) else {
                     continue;
-                }
+                };
                 let zone = next_zone;
                 next_zone = next_zone.saturating_add(1);
                 let mut stack = vec![start];
@@ -934,7 +960,7 @@ impl PathfindingGrid {
                     if self.path_zones[idx] != 0 {
                         continue;
                     }
-                    if !Self::path_zone_passable(self.cell_type_at_index(idx)) {
+                    if Self::path_zone_flood_kind(self.cell_type_at_index(idx)) != Some(kind) {
                         continue;
                     }
                     self.path_zones[idx] = zone;
@@ -948,7 +974,109 @@ impl PathfindingGrid {
         let mut zones = std::mem::take(&mut self.path_zones);
         self.merge_zones_via_connect_layer(&mut zones);
         self.path_zones = zones;
+        self.build_surface_combiners();
+    }
 
+    /// Leftover `ZoneManager::build_surface_combiners` (GROUND+WATER / GROUND+CLIFF).
+    fn build_surface_combiners(&mut self) {
+        let mut max_z = 0u16;
+        for &z in &self.path_zones {
+            if z > max_z {
+                max_z = z;
+            }
+        }
+        let n = max_z as usize + 1;
+        let mut water: Vec<u16> = (0..n as u16).collect();
+        let mut cliff: Vec<u16> = (0..n as u16).collect();
+        let resolve = |table: &mut [u16], a: u16, b: u16| {
+            if a == 0 || b == 0 || a == b {
+                return;
+            }
+            let za = table.get(a as usize).copied().unwrap_or(a);
+            let zb = table.get(b as usize).copied().unwrap_or(b);
+            if za == zb {
+                return;
+            }
+            let final_z = za.min(zb);
+            for z in table.iter_mut() {
+                if *z == za || *z == zb {
+                    *z = final_z;
+                }
+            }
+        };
+        let w = self.width;
+        let h = self.height;
+        for y in 0..h {
+            for x in 0..w {
+                let Some(idx) = self.bit_index(GridPos::new(x, y)) else {
+                    continue;
+                };
+                let z1 = self.path_zones[idx];
+                if z1 == 0 {
+                    continue;
+                }
+                let t1 = self.cell_type_at_index(idx);
+                if x > 0 {
+                    if let Some(nidx) = self.bit_index(GridPos::new(x - 1, y)) {
+                        let z0 = self.path_zones[nidx];
+                        let t0 = self.cell_type_at_index(nidx);
+                        if z0 != 0 && z0 != z1 {
+                            if Self::pair_water_ground(t0, t1) {
+                                resolve(&mut water, z0, z1);
+                            } else if Self::pair_ground_cliff(t0, t1) {
+                                resolve(&mut cliff, z0, z1);
+                            }
+                        }
+                    }
+                }
+                if y > 0 {
+                    if let Some(nidx) = self.bit_index(GridPos::new(x, y - 1)) {
+                        let z0 = self.path_zones[nidx];
+                        let t0 = self.cell_type_at_index(nidx);
+                        if z0 != 0 && z0 != z1 {
+                            if Self::pair_water_ground(t0, t1) {
+                                resolve(&mut water, z0, z1);
+                            } else if Self::pair_ground_cliff(t0, t1) {
+                                resolve(&mut cliff, z0, z1);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        self.ground_water_zones = water;
+        self.ground_cliff_zones = cliff;
+    }
+
+    /// C++ `PathfindZoneManager::getEffectiveZone` (AIPathfind.cpp:3118).
+    fn get_effective_zone(&self, surfaces: u32, zone: u16) -> u16 {
+        if zone == 0 {
+            return 0;
+        }
+        if (surfaces & SURFACE_AIR) != 0 {
+            return 1;
+        }
+        if (surfaces & SURFACE_GROUND) != 0
+            && (surfaces & SURFACE_WATER) != 0
+            && (surfaces & SURFACE_CLIFF) != 0
+        {
+            return 1;
+        }
+        if (surfaces & SURFACE_GROUND) != 0 && (surfaces & SURFACE_CLIFF) != 0 {
+            return self
+                .ground_cliff_zones
+                .get(zone as usize)
+                .copied()
+                .unwrap_or(zone);
+        }
+        if (surfaces & SURFACE_GROUND) != 0 && (surfaces & SURFACE_WATER) != 0 {
+            return self
+                .ground_water_zones
+                .get(zone as usize)
+                .copied()
+                .unwrap_or(zone);
+        }
+        zone
     }
 
     pub fn path_zone(&self, pos: GridPos) -> u16 {
@@ -957,15 +1085,22 @@ impl PathfindingGrid {
             .unwrap_or(0)
     }
 
-    /// C++ Pathfinder::clientSafeQuickDoesPathExist (structure-aware).
+    /// C++ Pathfinder::clientSafeQuickDoesPathExist (structure-aware, ground).
     pub fn quick_path_exists(&self, from: Vec3, to: Vec3) -> bool {
+        self.quick_path_exists_for(from, to, SURFACE_GROUND)
+    }
+
+    /// C++ `clientSafeQuickDoesPathExist` with locomotor surfaces.
+    pub fn quick_path_exists_for(&self, from: Vec3, to: Vec3, surfaces: u32) -> bool {
         let start = self.world_to_grid(from);
         let goal = self.world_to_grid(to);
         if self.cell_type(goal) == PathfindCellType::Cliff {
             return false;
         }
-        // C++ validMovementPosition rejects a water dest for a ground locomotor.
-        if self.cell_type(goal) == PathfindCellType::Water {
+        // C++ validMovementPosition: water dest needs WATER or AIR.
+        if self.cell_type(goal) == PathfindCellType::Water
+            && (surfaces & (SURFACE_WATER | SURFACE_AIR)) == 0
+        {
             return false;
         }
         if self.cell_type(goal) == PathfindCellType::Obstacle && !self.is_obstacle_fence(goal) {
@@ -977,7 +1112,7 @@ impl PathfindingGrid {
             // Uninitialized: treat as possible (C++ UNINITIALIZED_ZONE).
             return true;
         }
-        z1 == z2
+        self.get_effective_zone(surfaces, z1) == self.get_effective_zone(surfaces, z2)
     }
 
 
@@ -3981,12 +4116,17 @@ impl PathfindingSystem {
         Some(path)
     }
 
-    /// C++ `Pathfinder::clientSafeQuickDoesPathExist` (structure-aware).
+    /// C++ `Pathfinder::clientSafeQuickDoesPathExist` (structure-aware, ground).
     pub fn client_safe_quick_does_path_exist(&self, from: Vec3, to: Vec3) -> bool {
+        self.client_safe_quick_does_path_exist_for(from, to, SURFACE_GROUND)
+    }
+
+    /// C++ `clientSafeQuickDoesPathExist` with locomotor surfaces.
+    pub fn client_safe_quick_does_path_exist_for(&self, from: Vec3, to: Vec3, surfaces: u32) -> bool {
         if self.grid.path_zones.iter().all(|&z| z == 0) {
             return self.grid.quick_path_exists_for_ui(from, to);
         }
-        self.grid.quick_path_exists(from, to)
+        self.grid.quick_path_exists_for(from, to, surfaces)
     }
 
     /// C++ `Pathfinder::patchPath` (AIPathfind.cpp:10344-10520).
@@ -5764,6 +5904,52 @@ mod tests {
         assert_ne!(
             g.path_zone(GridPos::new(1, 4)),
             g.path_zone(GridPos::new(6, 4))
+        );
+    }
+
+    /// hq-998ki: GROUND+WATER / GROUND+CLIFF combiners join banks; dest gates stay C++.
+    #[test]
+    fn path_zones_surface_combiners_join_water_and_cliff() {
+        let mut g = open_grid(8, 8);
+        for y in 0..8 {
+            g.set_cell_type(GridPos::new(4, y), PathfindCellType::Water);
+        }
+        g.rebuild_path_zones();
+        let from = g.grid_to_world(GridPos::new(1, 4));
+        let to = g.grid_to_world(GridPos::new(6, 4));
+        let wet = g.grid_to_world(GridPos::new(4, 4));
+        assert!(
+            !g.quick_path_exists(from, to),
+            "GROUND-only must not share a zone across CELL_WATER"
+        );
+        assert!(
+            g.quick_path_exists_for(from, to, SURFACE_GROUND | SURFACE_WATER),
+            "GROUND+WATER combiner must join opposite banks"
+        );
+        assert!(
+            g.quick_path_exists_for(from, wet, SURFACE_GROUND | SURFACE_WATER),
+            "amphibious dest on water is validMovementPosition"
+        );
+
+        let mut c = open_grid(8, 8);
+        for y in 0..8 {
+            c.set_cell_type(GridPos::new(4, y), PathfindCellType::Cliff);
+        }
+        c.rebuild_path_zones();
+        let c_from = c.grid_to_world(GridPos::new(1, 4));
+        let c_to = c.grid_to_world(GridPos::new(6, 4));
+        let cliff = c.grid_to_world(GridPos::new(4, 4));
+        assert!(
+            !c.quick_path_exists(c_from, c_to),
+            "GROUND-only must not share a zone across CELL_CLIFF"
+        );
+        assert!(
+            c.quick_path_exists_for(c_from, c_to, SURFACE_GROUND | SURFACE_CLIFF),
+            "GROUND+CLIFF combiner must join opposite banks"
+        );
+        assert!(
+            !c.quick_path_exists_for(c_from, cliff, SURFACE_GROUND | SURFACE_CLIFF),
+            "C++ rejects cliff goals even for cliff locos"
         );
     }
 

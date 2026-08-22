@@ -835,6 +835,8 @@ impl GameLogic {
             is_scout: bool,
             is_listening_outpost: bool,
             is_troop_crawler: bool,
+            extra_required: u128,
+            extra_forbidden: u128,
         }
         let mut detectors: Vec<(ObjectId, Team, Option<u32>, Vec3, f32, DetFlags, u32)> = Vec::new();
         let mut scanned_detector_ids: Vec<ObjectId> = Vec::new();
@@ -884,6 +886,12 @@ impl GameLogic {
                     continue;
                 }
             }
+            let (extra_required, extra_forbidden) =
+                crate::game_logic::host_radar_stealth_vision_residual::extra_detect_kindof_for_detector(
+                    &o.template_name,
+                    o.extra_detect_kindof,
+                    o.extra_detect_kindof_not,
+                );
             let flags = DetFlags {
                 is_sentry: crate::game_logic::host_sentry_drone::is_sentry_drone_template(
                     &o.template_name,
@@ -901,6 +909,8 @@ impl GameLogic {
                 is_troop_crawler: crate::game_logic::host_troop_crawler::is_troop_crawler_template(
                     &o.template_name,
                 ) || o.is_troop_crawler_style_container(),
+                extra_required,
+                extra_forbidden,
             };
             detectors.push((
                 *id,
@@ -945,10 +955,18 @@ impl GameLogic {
             std::collections::HashSet::new();
 
         for sid in stealthed_ids {
-            let Some((s_team, s_owner, s_pos, already_detected)) = self
+            let Some((s_team, s_owner, s_pos, already_detected, s_kind)) = self
                 .objects
                 .get(&sid)
-                .map(|o| (o.team, o.owner_player_id, o.get_position(), o.status.detected))
+                .map(|o| {
+                    (
+                        o.team,
+                        o.owner_player_id,
+                        o.get_position(),
+                        o.status.detected,
+                        o.kind_of_cpp_mask(),
+                    )
+                })
             else {
                 continue;
             };
@@ -976,11 +994,17 @@ impl GameLogic {
                             }
                             _ => *det_team != s_team,
                         };
+                        // C++ PartitionFilterAcceptByKindOf ExtraRequired/ForbiddenKindOf.
+                        let kind_ok = crate::game_logic::host_radar_stealth_vision_residual::detector_accepts_kindof_residual(
+                            s_kind,
+                            flags.extra_required,
+                            flags.extra_forbidden,
+                        );
                         // C++ StealthDetectorUpdate.cpp:179-180 FROM_CENTER_2D
                         // (host Y-up → XZ; altitude must not shrink radius).
                         let in_range = rel_ok
+                            && kind_ok
                             && Object::stealth_detector_distance_2d(*det_pos, s_pos) <= *range;
-
                         if in_range {
                             spotting_detectors.push(*id);
                             let hold = stealth_detector_hold_frames(*rate);
@@ -1073,11 +1097,13 @@ impl GameLogic {
                 .collect();
             let mut touched: Vec<ObjectId> = Vec::new();
             for bid in buildings {
-                let Some((b_pos, occupants)) = self
-                    .objects
-                    .get(&bid)
-                    .map(|b| (b.get_position(), b.contained_units()))
-                else {
+                let Some((b_pos, occupants, b_kind)) = self.objects.get(&bid).map(|b| {
+                    (
+                        b.get_position(),
+                        b.contained_units(),
+                        b.kind_of_cpp_mask(),
+                    )
+                }) else {
                     continue;
                 };
                 let stealth_riders: Vec<ObjectId> = occupants
@@ -1091,8 +1117,16 @@ impl GameLogic {
                 if stealth_riders.is_empty() {
                     continue;
                 }
-                for (_id, det_team, det_owner, det_pos, range, _flags, rate) in &detectors {
+                for (_id, det_team, det_owner, det_pos, range, flags, rate) in &detectors {
                     if Object::stealth_detector_distance_2d(*det_pos, b_pos) > *range {
+                        continue;
+                    }
+                    // C++ applies PartitionFilterAcceptByKindOf to the container `them`.
+                    if !crate::game_logic::host_radar_stealth_vision_residual::detector_accepts_kindof_residual(
+                        b_kind,
+                        flags.extra_required,
+                        flags.extra_forbidden,
+                    ) {
                         continue;
                     }
 

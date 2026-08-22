@@ -1189,20 +1189,23 @@ impl GameLogic {
         self.last_crate_drop_spawned
     }
 
-    /// Activate SuperweaponCrateDrop residual: spawn 200DollarCrate × 10 near target.
+    /// Activate SuperweaponCrateDrop: AmericaJetCargoPlane DeliverPayload.
     ///
-    /// Matches retail SUPERWEAPON_CrateDrop payload residual (MoneyProvided 200 × 10).
-    /// Fail-closed: scatter spawn + MoneyCrateCollide registration —
-    /// not full AmericaJetCargoPlane DeliverPayload flight Object / parachute container.
+    /// C++ `OCLSpecialPower` CREATE_AT_EDGE_NEAR_SOURCE + `SUPERWEAPON_CrateDrop`
+    /// (`200DollarCrate` × 10, DropDelay 300ms). Crates spawn from the inbound
+    /// cargo plane via `update_deliver_payloads`, not instantly in a line.
     pub fn activate_crate_drop(
         &mut self,
         player_id: u32,
         location: Vec3,
         caster_id: Option<ObjectId>,
     ) -> u32 {
+        use crate::game_logic::host_deliver_payload::{
+            create_at_edge_spawn_residual, HostDeliverPayloadKind, CARGO_PLANE_PREFERRED_HEIGHT,
+            SUPPLY_DROP_CARGO_APPROACH_AUDIO, SUPPLY_DROP_CARGO_TRANSPORT,
+        };
         use crate::game_logic::host_money_crate::{
-            SUPERWEAPON_CRATE_DROP_ACTIVATE_AUDIO, SUPERWEAPON_CRATE_DROP_COUNT,
-            SUPERWEAPON_CRATE_DROP_MONEY, SUPERWEAPON_CRATE_DROP_SPACING,
+            SUPERWEAPON_CRATE_DROP_COUNT, SUPERWEAPON_CRATE_DROP_SPECIAL_POWER,
         };
 
         let (team, owner_player_id) = match caster_id.and_then(|caster| self.objects.get(&caster)) {
@@ -1228,7 +1231,7 @@ impl GameLogic {
                 .unwrap_or((Team::Neutral, None)),
         };
 
-        let tpl_name = "200DollarCrate";
+        let tpl_name = HostDeliverPayloadKind::SuperweaponCrateDrop.payload_template();
         if !self.templates.contains_key(tpl_name) {
             let mut t = ThingTemplate::new(tpl_name);
             t.add_kind_of(KindOf::Resource)
@@ -1238,42 +1241,80 @@ impl GameLogic {
             self.templates.insert(tpl_name.to_string(), t);
         }
 
-        let n = SUPERWEAPON_CRATE_DROP_COUNT.max(1) as usize;
-        let mut spawned: u32 = 0;
-        for i in 0..n {
-            let offset = (i as f32 - (n as f32 - 1.0) * 0.5) * SUPERWEAPON_CRATE_DROP_SPACING;
-            let pos = Vec3::new(location.x + offset, location.y + 40.0, location.z);
-            if let Some(id) =
-                self.create_object_for_owner_or_team(tpl_name, team, owner_player_id, pos)
-            {
-                self.host_money_crates
-                    .register(id, SUPERWEAPON_CRATE_DROP_MONEY, false, 0);
-                self.host_money_crates.arm_default_deletion(
-                    id,
-                    self.frame,
-                    id.0.wrapping_add(self.frame),
-                );
-                if let Some(obj) = self.objects.get_mut(&id) {
-                    obj.apply_crate_parachuting();
+        // C++ EDGE_NEAR_SOURCE cargo plane. Prefer the live OCL transport spawn.
+        let transport_id = if let Some(caster) = caster_id.filter(|id| self.objects.contains_key(id))
+        {
+            self.execute_ocl_special_power(SUPERWEAPON_CRATE_DROP_SPECIAL_POWER, caster, location)
+        } else {
+            if !self.templates.contains_key(SUPPLY_DROP_CARGO_TRANSPORT) {
+                let mut t = ThingTemplate::new(SUPPLY_DROP_CARGO_TRANSPORT);
+                t.add_kind_of(KindOf::Aircraft)
+                    .add_kind_of(KindOf::Vehicle)
+                    .set_health(800.0);
+                self.templates
+                    .insert(SUPPLY_DROP_CARGO_TRANSPORT.to_string(), t);
+            }
+            let mut edge = create_at_edge_spawn_residual(location);
+            edge.y = CARGO_PLANE_PREFERRED_HEIGHT;
+            self.create_object_for_owner_or_team(
+                SUPPLY_DROP_CARGO_TRANSPORT,
+                team,
+                owner_player_id,
+                edge,
+            )
+        };
+
+        let source_id = caster_id.unwrap_or(ObjectId(0));
+        let mission_id = self.host_deliver_payloads.queue_for_owner(
+            HostDeliverPayloadKind::SuperweaponCrateDrop,
+            source_id,
+            team,
+            owner_player_id,
+            location,
+            self.frame,
+            tpl_name,
+        );
+
+        if let Some(tid) = transport_id {
+            if let Some(t) = self.objects.get_mut(&tid) {
+                if let Some(caster) = caster_id {
+                    t.producer_id = Some(caster);
+                    t.bind_special_power_completion_creator(caster.0);
                 }
-                spawned = spawned.saturating_add(1);
+            }
+            let plane_pos = self.objects.get(&tid).map(|o| o.get_position());
+            if let Some(m) = self.host_deliver_payloads.get_mut(mission_id) {
+                m.transport_object_id = Some(tid);
+                m.transport_template = SUPPLY_DROP_CARGO_TRANSPORT.to_string();
+            }
+            if let (Some(pos), Some(flight)) = (
+                plane_pos,
+                self.host_deliver_payloads.cargo_flight_mut(mission_id),
+            ) {
+                flight.transport_template = SUPPLY_DROP_CARGO_TRANSPORT.to_string();
+                flight.edge_spawn_pos = pos;
+                flight.current_pos = pos;
+                flight.delivery_distance =
+                    HostDeliverPayloadKind::SuperweaponCrateDrop.delivery_distance();
+                let dx = location.x - pos.x;
+                let dz = location.z - pos.z;
+                let dlen = (dx * dx + dz * dz).sqrt().max(0.001);
+                flight.dir_x = dx / dlen;
+                flight.dir_z = dz / dlen;
+                if let Some(t) = self.objects.get_mut(&tid) {
+                    t.set_orientation(flight.dir_z.atan2(flight.dir_x));
+                }
             }
         }
 
         self.queue_audio_event(
-            AudioEventRequest::new(SUPERWEAPON_CRATE_DROP_ACTIVATE_AUDIO)
+            AudioEventRequest::new(SUPPLY_DROP_CARGO_APPROACH_AUDIO)
                 .with_position(location)
                 .with_priority(160),
         );
-        let _ = self.combat_particles.spawn(
-            CombatParticleKind::DeathExplosion,
-            location,
-            self.frame,
-            caster_id,
-            None,
-        );
-        self.last_crate_drop_spawned = spawned;
-        spawned
+        let planned = SUPERWEAPON_CRATE_DROP_COUNT.max(1);
+        self.last_crate_drop_spawned = planned;
+        planned
     }
 
     pub fn activate_cash_hack(
@@ -1448,8 +1489,9 @@ impl GameLogic {
         self.spy_satellites.activations() > 0
     }
 
-    /// Host SpyDrone residual: spawn AmericaVehicleSpyDrone + temporary FOW reveal.
-    /// Fail-closed: not full DynamicShroud grow/shrink / stealth module matrix.
+    /// Host SpyDrone: spawn a selectable stealthed AmericaVehicleSpyDrone scout.
+    /// C++ OCLSpecialPower CREATE_ABOVE_LOCATION + CreateObject SUPERWEAPON_SpyDrone.
+    /// Vision follows the unit (update_main_crate_vision); not a timed FOW ping.
     pub fn activate_spy_drone(
         &mut self,
         player_id: u32,
@@ -1457,23 +1499,41 @@ impl GameLogic {
         location: Vec3,
         caster_id: Option<ObjectId>,
     ) -> bool {
+        use crate::game_logic::host_ocl_special_power::{
+            compute_creation_coord, default_map_extents, OclCreateLocType,
+            OCL_CREATE_ABOVE_LOCATION_HEIGHT,
+        };
         use crate::game_logic::host_spy_drone::{
-            HostSpyDrone, SPY_DRONE_ACTIVATE_AUDIO, SPY_DRONE_FOW_DURATION_FRAMES,
-            SPY_DRONE_MAX_HEALTH, SPY_DRONE_RADIUS, SPY_DRONE_TEMPLATE, SPY_DRONE_VISION_RANGE,
+            spy_drone_scan_radius_after_updates, HostSpyDrone, SPY_DRONE_ACTIVATE_AUDIO,
+            SPY_DRONE_GROW_TIME_FRAMES, SPY_DRONE_LOCOMOTOR, SPY_DRONE_LOCOMOTOR_SPEED,
+            SPY_DRONE_MAX_HEALTH, SPY_DRONE_MODEL, SPY_DRONE_PREFERRED_HEIGHT,
+            SPY_DRONE_SPECIAL_POWER, SPY_DRONE_TEMPLATE, SPY_DRONE_VISION_RANGE,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
-        use gamelogic::common::Coord3D;
 
-        // Ensure template residual exists for spawn.
-        if !self.templates.contains_key(SPY_DRONE_TEMPLATE) {
-            let mut tpl = ThingTemplate::new(SPY_DRONE_TEMPLATE);
-            tpl.set_health(SPY_DRONE_MAX_HEALTH);
+        crate::game_logic::locomotor_bootstrap::ensure_spy_drone_locomotor();
+
+        {
+            let tpl = self
+                .templates
+                .entry(SPY_DRONE_TEMPLATE.into())
+                .or_insert_with(|| {
+                    let mut t = ThingTemplate::new(SPY_DRONE_TEMPLATE);
+                    t.set_health(SPY_DRONE_MAX_HEALTH);
+                    t.sight_range = SPY_DRONE_VISION_RANGE;
+                    t.shroud_clearing_range = 0.0;
+                    t.model_name = Some(SPY_DRONE_MODEL.to_string());
+                    t
+                });
             tpl.add_kind_of(KindOf::Vehicle);
             tpl.add_kind_of(KindOf::Drone);
-            // Vision residual for FOW / presentation.
-            tpl.sight_range = SPY_DRONE_VISION_RANGE;
-            tpl.model_name = Some(crate::game_logic::host_spy_drone::SPY_DRONE_MODEL.to_string());
-            self.templates.insert(SPY_DRONE_TEMPLATE.into(), tpl);
+            tpl.add_kind_of(KindOf::Selectable);
+            if tpl.sight_range <= 0.0 {
+                tpl.sight_range = SPY_DRONE_VISION_RANGE;
+            }
+            if tpl.locomotor_name.is_none() {
+                tpl.set_locomotor_name(SPY_DRONE_LOCOMOTOR);
+            }
         }
 
         let owner_player_id = match caster_id.and_then(|caster| self.objects.get(&caster)) {
@@ -1494,33 +1554,82 @@ impl GameLogic {
                 .filter(|player| player.is_alive && player.team == team)
                 .map(|player| player.id),
         };
+
+        let source_pos = caster_id
+            .and_then(|id| self.objects.get(&id).map(|o| o.get_position()))
+            .unwrap_or(location);
+        let spawn_pos = if let Some(cid) = caster_id {
+            self.plan_ocl_special_power(SPY_DRONE_SPECIAL_POWER, cid, location)
+                .map(|plan| plan.creation_coord)
+                .unwrap_or_else(|| {
+                    let mut c = location;
+                    c.y += OCL_CREATE_ABOVE_LOCATION_HEIGHT;
+                    c
+                })
+        } else {
+            let (minx, minz, maxx, maxz) = default_map_extents();
+            compute_creation_coord(
+                OclCreateLocType::AboveLocation,
+                source_pos,
+                location,
+                minx,
+                minz,
+                maxx,
+                maxz,
+            )
+        };
+
         let spawned_id = self.create_object_for_owner_or_team(
             SPY_DRONE_TEMPLATE,
             team,
             owner_player_id,
-            location,
+            spawn_pos,
         );
         let spawn_ok = spawned_id.is_some();
         let frame = self.frame;
+        let start_radius = spy_drone_scan_radius_after_updates(0);
         if let Some(id) = spawned_id {
             if let Some(obj) = self.host_object_mut(id) {
                 obj.health.maximum = SPY_DRONE_MAX_HEALTH;
                 Self::write_object_health_authority_aware(obj, SPY_DRONE_MAX_HEALTH);
-                // Innate stealth residual (StealthUpdate InnateStealth=Yes).
+                obj.thing.template.add_kind_of(KindOf::Selectable);
+                obj.thing.template.add_kind_of(KindOf::Vehicle);
+                obj.thing.template.add_kind_of(KindOf::Drone);
+                obj.set_status_unselectable(false);
                 obj.set_status_stealthed(true);
                 obj.innate_stealth = true;
                 obj.record_host_stealth_flags();
                 obj.is_detector = true;
-                obj.record_host_detector();
                 obj.detection_range = SPY_DRONE_VISION_RANGE;
                 obj.record_host_detector();
-                // C++ StealthDetectorUpdate ctor random first wake (not setSDEnabled).
                 obj.apply_stealth_detector_ctor_stagger(frame);
+                obj.vision_range = SPY_DRONE_VISION_RANGE;
+                obj.shroud_clearing_range = start_radius;
+                if obj.movement.max_speed <= 10.01 {
+                    if let Some(binding) =
+                        crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(
+                            SPY_DRONE_LOCOMOTOR,
+                        )
+                    {
+                        crate::game_logic::locomotor_bootstrap::apply_host_locomotor_binding(
+                            obj, &binding,
+                        );
+                    } else {
+                        obj.movement.max_speed = SPY_DRONE_LOCOMOTOR_SPEED;
+                        obj.movement.acceleration = 100.0;
+                        obj.movement.turn_rate = 180.0_f32.to_radians();
+                    }
+                }
+                if obj.loco_preferred_height <= 0.0 {
+                    obj.loco_preferred_height = SPY_DRONE_PREFERRED_HEIGHT;
+                }
+                if let Some(cid) = caster_id {
+                    obj.producer_id = Some(cid);
+                    obj.bind_special_power_completion_creator(cid.0);
+                }
             }
         }
 
-        let world_w = self.world_width.max(1.0);
-        let world_h = self.world_height.max(1.0);
         let mut player_mask = 0u32;
         for (&pid, player) in &self.players {
             if player.team == team {
@@ -1531,92 +1640,32 @@ impl GameLogic {
             player_mask = 1u32 << player_id.min(31);
         }
 
-        let center = Coord3D::new(location.x, location.z, location.y);
-        // DynamicShroud grow residual: start at first pulse radius (not full VisionRange).
-        let radius = crate::game_logic::host_spy_drone::spy_drone_scan_radius_after_updates(0);
-        let duration = SPY_DRONE_FOW_DURATION_FRAMES;
-        let frame = self.frame;
-
-        let fow_reveal_ok = {
-            let shroud = get_shroud_manager();
-            let mut shroud_mgr = match shroud.lock() {
-                Ok(mgr) => mgr,
-                Err(_) => {
-                    // Still record spawn residual even if shroud lock fails.
-                    let act_id = self.spy_drones.alloc_id();
-                    self.spy_drones.record_activation(HostSpyDrone {
-                        id: act_id,
-                        player_id,
-                        player_mask,
-                        location,
-                        radius:
-                            crate::game_logic::host_spy_drone::spy_drone_scan_radius_after_updates(
-                                0,
-                            ),
-                        activate_frame: frame,
-                        expires_frame: frame.saturating_add(duration),
-                        caster_id,
-                        spawned_id,
-                        fow_reveal_ok: false,
-                        spawn_ok,
-                        dynamic_shroud_applied: true,
-                        stealth_detector_applied: true,
-                        grow_index: 0,
-                        growing: true,
-                    });
-                    self.queue_audio_event(
-                        AudioEventRequest::new(SPY_DRONE_ACTIVATE_AUDIO)
-                            .with_position(location)
-                            .with_priority(150),
-                    );
-                    return spawn_ok;
-                }
-            };
-            if !shroud_mgr.has_shroud_grid() {
-                shroud_mgr.init_shroud_grid(world_w, world_h);
-            }
-            shroud_mgr.do_shroud_reveal(&center, radius, player_mask);
-            shroud_mgr.queue_undo_shroud_reveal(&center, radius, player_mask, duration, frame);
-            let mut visible = shroud_mgr.is_position_visible(player_id.min(31), &center);
-            if !visible {
-                for bit in 0..32u32 {
-                    if (player_mask & (1u32 << bit)) != 0
-                        && shroud_mgr.is_position_visible(bit, &center)
-                    {
-                        visible = true;
-                        break;
-                    }
-                }
-            }
-            visible
-        };
-
         let act_id = self.spy_drones.alloc_id();
         self.spy_drones.record_activation(HostSpyDrone {
             id: act_id,
             player_id,
             player_mask,
-            location,
-            radius: crate::game_logic::host_spy_drone::spy_drone_scan_radius_after_updates(0),
+            location: spawn_pos,
+            radius: start_radius,
             activate_frame: frame,
-            expires_frame: frame.saturating_add(duration),
+            expires_frame: frame.saturating_add(SPY_DRONE_GROW_TIME_FRAMES.saturating_add(8)),
             caster_id,
             spawned_id,
-            fow_reveal_ok,
+            fow_reveal_ok: spawn_ok,
             spawn_ok,
             dynamic_shroud_applied: true,
             stealth_detector_applied: true,
-            grow_index: 1, // initial FOW already applied at first grow step radius
+            grow_index: 1,
             growing: true,
         });
 
         self.queue_audio_event(
             AudioEventRequest::new(SPY_DRONE_ACTIVATE_AUDIO)
-                .with_position(location)
+                .with_position(spawn_pos)
                 .with_priority(150),
         );
 
-        spawn_ok || fow_reveal_ok
+        spawn_ok
     }
 
     /// Host SpyDrone residual registry (activate + grow + honesty).
