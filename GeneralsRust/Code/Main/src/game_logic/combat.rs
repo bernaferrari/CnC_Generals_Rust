@@ -683,7 +683,7 @@ pub enum DamageEvent {
         shooter_owner_player_id: Option<u32>,
         /// Shooter team instance frozen at impact (PLAYER_SET_OVERRIDE_RELATION_TO_TEAM).
         shooter_team_instance_name: String,
-        /// Shooter template name residual (NOT_SIMILAR filter).
+        /// Shooter template name residual (NOT_SIMILAR `isEquivalentTo` filter).
         shooter_template: String,
         /// C++ `primaryVictim`: intended target skips RadiusDamageAffects.
         primary_victim: Option<ObjectId>,
@@ -912,6 +912,19 @@ pub fn last_pending_projectile_secondary_damage_for_test() -> Option<f32> {
         .and_then(|q| q.last().map(|p| p.secondary_damage))
 }
 
+/// C++ `TheTerrainLogic->getBridgeAttackPoints` nearer end (Weapon.cpp:819-831).
+pub fn nearer_live_bridge_attack_point(from: glam::Vec3, victim: &Object) -> glam::Vec3 {
+    let pos = victim.get_position();
+    let half = victim.selection_radius.max(20.0);
+    let a = glam::Vec3::new(pos.x - half, pos.y, pos.z);
+    let b = glam::Vec3::new(pos.x + half, pos.y, pos.z);
+    if from.distance_squared(a) <= from.distance_squared(b) {
+        a
+    } else {
+        b
+    }
+}
+
 /// Drain all pending projectiles and spawn them into the combat system.
 /// Resolves target object positions from the objects map.
 pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<ObjectId, Object>) {
@@ -972,11 +985,16 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             });
         }
 
-        let actual_target_pos = p
-            .target_id
-            .and_then(|tid| objects.get(&tid))
-            .map(|obj| obj.get_position())
-            .or(p.target_pos);
+        let now = crate::game_logic::host_historic_bonus::logic_frame();
+        let actual_target_pos = p.target_id.and_then(|tid| objects.get(&tid)).map(|obj| {
+            if let Some(off) = obj.get_sneaky_targeting_offset(now) {
+                obj.get_position() + off
+            } else if obj.template_name.to_ascii_lowercase().contains("bridge") {
+                nearer_live_bridge_attack_point(p.shooter_pos, obj)
+            } else {
+                obj.get_position()
+            }
+        }).or(p.target_pos);
 
         let Some(mut target_pos) = actual_target_pos else {
             continue;
@@ -985,6 +1003,13 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
         // C++ Weapon.ini ScatterRadius residual: offset aim point and clear
         // direct target lock when scatter > 0 (miss / near-miss residual).
         let mut fire_target_id = p.target_id;
+        if let Some(tid) = p.target_id {
+            if let Some(obj) = objects.get(&tid) {
+                if obj.get_sneaky_targeting_offset(now).is_some() {
+                    fire_target_id = None;
+                }
+            }
+        }
         // MissileAIUpdate only retains a goal Object when TryToFollowTarget is
         // authored. A coordinate-flight missile must detonate at its frozen
         // launch point even if the original object disappears later.
@@ -1515,8 +1540,12 @@ impl CombatSystem {
                     let shooter = projectile.shooter_id;
                     let intended = projectile.target_id;
                     let pos = projectile.position;
+                    let sneak_now = crate::game_logic::host_historic_bonus::logic_frame();
                     for (&oid, obj) in objects.iter() {
                         if oid == shooter || Some(oid) == intended {
+                            continue;
+                        }
+                        if obj.get_sneaky_targeting_offset(sneak_now).is_some() {
                             continue;
                         }
                         if !obj.is_alive() || !obj.is_kind_of(KindOf::Structure) {
@@ -1794,11 +1823,8 @@ impl CombatSystem {
                     let shock_r = (*shock_wave_radius).max(0.0);
                     let shock_amt = (*shock_wave_amount).max(0.0);
                     let shock_taper = (*shock_wave_taper_off).clamp(0.0, 1.0);
-                    let push_outer = if shock_amt > 0.0 && shock_r > 0.0 {
-                        outer.max(shock_r)
-                    } else {
-                        outer
-                    };
+                    let shooter_pos = objects.get(shooter_id).map(|s| s.get_position());
+                    let shooter_producer = objects.get(shooter_id).and_then(|s| s.producer_id);
                     for (vid, obj) in objects.iter_mut() {
                         let op = obj.get_position();
                         let dist = splash_from_bounding_sphere_3d(
@@ -1806,7 +1832,7 @@ impl CombatSystem {
                             op,
                             victim_splash_sphere_radius(obj),
                         );
-                        if dist > push_outer {
+                        if dist > outer {
                             continue;
                         }
                         let is_primary = *primary_victim == Some(*vid);
@@ -1816,8 +1842,10 @@ impl CombatSystem {
                             && *vid == *shooter_id;
                         if !is_primary && !kills_self {
                             let airborne = obj.is_significantly_above_terrain();
-                            let same_tmpl = !shooter_template.is_empty()
-                                && obj.template_name == *shooter_template;
+                            let same_tmpl = crate::game_logic::weapon_bootstrap::splash_templates_equivalent(
+                                shooter_template,
+                                &obj.template_name,
+                            );
                             // C++ curVictim->getRelationship(source) (Weapon.cpp:1360).
                             let relationship = match players {
                                 Some(map) => crate::game_logic::GameLogic::object_relationship_from_owners(
@@ -1835,6 +1863,7 @@ impl CombatSystem {
                                     relationship,
                                     *shooter_id,
                                     *vid,
+                                    shooter_producer,
                                     airborne,
                                     same_tmpl,
                                 );
@@ -1871,10 +1900,11 @@ impl CombatSystem {
                         // shock / random rotation / setStunned / STUNNED_FLAILING.
                         // Live projectile splash must use apply_shock_wave_impulse, not a
                         // one-frame XZ position nudge.
-                        if shock_amt > 0.0 && shock_r > 0.0 && dist <= shock_r {
+                        if shock_amt > 0.0 && shock_r > 0.0 {
+                            let origin = shooter_pos.unwrap_or(*position);
                             if let Some(force) =
                                 crate::game_logic::weapon_bootstrap::compute_shock_wave_force(
-                                    *position,
+                                    origin,
                                     op,
                                     shock_amt,
                                     shock_r,
@@ -1913,6 +1943,10 @@ impl CombatSystem {
         // Check target collision
         if let Some(target_id) = projectile.target_id {
             if let Some(target) = objects.get(&target_id) {
+                let now = crate::game_logic::host_historic_bonus::logic_frame();
+                if target.get_sneaky_targeting_offset(now).is_some() {
+                    return None;
+                }
                 let distance = projectile.position.distance(target.get_position());
                 if distance <= 5.0 {
                     return Some(ProjectileHit::Direct {

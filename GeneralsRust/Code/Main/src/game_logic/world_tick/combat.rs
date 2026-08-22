@@ -2138,6 +2138,10 @@ impl GameLogic {
                                         damage_type,
                                     );
                                     if let Some(target) = self.objects.get_mut(&target_id) {
+                                        if target.get_sneaky_targeting_offset(self.frame).is_some() {
+                                            // C++ fireWeaponTemplate clears victimObj; the shot
+                                            // flies at the offset point and does not connect.
+                                        } else {
                                         let destroyed = target.take_damage_from_typed_death(
                                             weapon_damage,
                                             Some(attacker_id),
@@ -2161,6 +2165,7 @@ impl GameLogic {
                                                 fire_wname.as_deref(),
                                                 kill_xp,
                                             );
+                                        }
                                         }
                                     }
                                     // C++ dual-radius splash residual after direct hit.
