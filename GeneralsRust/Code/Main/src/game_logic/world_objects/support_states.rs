@@ -295,7 +295,7 @@ impl GameLogic {
         }
     }
 
-    fn leftover_sa_set_pack_model(
+    pub(crate) fn leftover_sa_set_pack_model(
         &mut self,
         object_id: ObjectId,
         unpacking: bool,
@@ -1720,6 +1720,34 @@ impl GameLogic {
             preparation_time_ms,
         ));
         object.set_status_using_ability(true);
+        let infantry_flag = matches!(
+            power,
+            crate::game_logic::CapturePowerKind::Ranger
+                | crate::game_logic::CapturePowerKind::RedGuard
+                | crate::game_logic::CapturePowerKind::Rebel
+        );
+        let lotus = matches!(power, crate::game_logic::CapturePowerKind::BlackLotus);
+        if infantry_flag {
+            use crate::game_logic::host_enum_table_residual::{
+                raising_flag_model_bit, unpacking_model_bit,
+            };
+            object.model_condition_bits &= !(1u128 << unpacking_model_bit());
+            object.model_condition_bits |= 1u128 << raising_flag_model_bit();
+            object.record_host_model_condition();
+        }
+        drop(object);
+        if lotus {
+            self.leftover_sa_set_pack_model(object_id, false, false, true);
+            let prep_frames =
+                crate::game_logic::host_hero_abilities::hero_ms_to_frames(preparation_time_ms)
+                    .max(1);
+            let _ = self.leftover_spawn_binary_data_stream(
+                object_id,
+                target_id,
+                prep_frames,
+                crate::game_logic::host_hero_abilities::LOTUS_CAPTURE_SPECIAL_OBJECT,
+            );
+        }
         true
     }
 
@@ -3277,8 +3305,10 @@ impl GameLogic {
                                     veh.target = None;
                                     veh.set_ai_state(AIState::Idle);
                                     veh.set_team_and_owner(inf_team, inf_owner);
+                                    veh.set_private_captured(true);
                                 }
                             }
+                            let _ = self.transfer_script_object_name(object_id, container_id);
                             self.unmanned_reclaims =
                                 self.unmanned_reclaims.saturating_add(1);
                             self.mark_destroyed_authority_aware(object_id, None);
@@ -4442,6 +4472,13 @@ impl GameLogic {
 
                     match ability {
                         PendingSpecialAbility::Hijack { .. } => {
+                            let is_hijacker = self.objects.get(&object_id).is_some_and(|unit| {
+                                unit.template_name.to_ascii_lowercase().contains("hijacker")
+                            });
+                            if !is_hijacker {
+                                self.pending_special_abilities.remove(&object_id);
+                                continue;
+                            }
                             // C++ ConvertToHijackedVehicleCrateCollide residual:
                             // walk → transfer team + OBJECT_STATUS_HIJACKED;
                             // ride-hide (drawable + partition unRegister) or consume.
@@ -4945,6 +4982,13 @@ impl GameLogic {
                             }
                         }
                         PendingSpecialAbility::CarBomb { .. } => {
+                            let is_terrorist = self.objects.get(&object_id).is_some_and(|unit| {
+                                crate::game_logic::is_terrorist_template(&unit.template_name)
+                            });
+                            if !is_terrorist {
+                                self.pending_special_abilities.remove(&object_id);
+                                continue;
+                            }
                             // C++ ConvertToCarBombCrateCollide residual:
                             // vehicle defects to converter team, gains IS_CARBOMB +
                             // SuicideCarBomb weapon residual. Converter is consumed.
