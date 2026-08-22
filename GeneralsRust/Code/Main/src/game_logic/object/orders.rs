@@ -638,6 +638,12 @@ impl Object {
         self.can_move() && self.is_kind_of(KindOf::Dozer)
     }
 
+    pub fn is_railed_transport(&self) -> bool {
+        self.thing.template.dock_kind == crate::game_logic::DockKind::RailedTransport
+            || self.thing.template.contain_module.kind
+                == crate::game_logic::ContainModuleKind::RailedTransport
+    }
+
     pub fn can_contain(&self) -> bool {
         if !self.is_alive() {
             return false;
@@ -689,7 +695,7 @@ impl Object {
         // retail (the AutoFerry, for example, is KINDOF_TRANSPORT).  Its
         // explicit Slots field is nevertheless a real containment interface
         // once the separate RailedTransportDockUpdate has accepted a dock.
-        if self.thing.template.dock_kind == crate::game_logic::DockKind::RailedTransport {
+        if self.is_railed_transport() {
             return self.thing.template.railed_transport_slots.is_some();
         }
         // C++ `canEnterObject` asks for a real ContainModuleInterface.  A

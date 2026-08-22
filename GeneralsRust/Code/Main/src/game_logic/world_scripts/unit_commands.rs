@@ -1232,6 +1232,49 @@ impl GameLogic {
         true
     }
 
+    /// C++ `RailedTransportAIUpdate::privateEvacuate` → dock `unloadAll`.
+    /// Refuses in-transit / already loading-or-unloading. Does not walk ExitStart.
+    pub fn railed_transport_unload_all(&mut self, ferry_id: ObjectId) -> bool {
+        let Some(ferry) = self.objects.get(&ferry_id) else {
+            return false;
+        };
+        if !ferry.is_railed_transport() {
+            return false;
+        }
+        if ferry.railed_in_transit {
+            return false;
+        }
+        if ferry.dock_active_docker.is_some() {
+            return false;
+        }
+        let passengers = ferry.contained_units();
+        if passengers.is_empty() {
+            return false;
+        }
+        let hull = ferry.get_position();
+        let yaw = ferry.get_orientation();
+        let (sin, cos) = yaw.sin_cos();
+        let dest = glam::Vec3::new(hull.x + 20.0 * cos, hull.y, hull.z + 20.0 * sin);
+        let first = passengers[0];
+        for pid in passengers {
+            if let Some(c) = self.objects.get_mut(&ferry_id) {
+                let _ = c.remove_occupant(pid);
+            }
+            if let Some(p) = self.objects.get_mut(&pid) {
+                p.set_contained_by(None);
+                p.target = None;
+                p.set_position(hull);
+                p.set_orientation(yaw);
+                p.set_destination(dest);
+                p.set_status_disabled_held(true);
+            }
+        }
+        if let Some(c) = self.objects.get_mut(&ferry_id) {
+            c.dock_active_docker = Some(first);
+        }
+        true
+    }
+
     /// Wave 233: waypoint-path prep — stop attack and clear guard anchors.
     pub fn unit_command_waypoint_path_prep(&mut self, id: ObjectId, as_team: bool) -> bool {
         self.drop_jet_targeters_on_attack_exit(id);
