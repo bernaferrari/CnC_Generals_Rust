@@ -5323,6 +5323,17 @@ fn bridge_broken_reads_host_named_state_only_on_damage_edge() {
     );
 
     crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+        any_bridges_damage_states_changed: false,
+        named_bridge_broken: [("ConvoyBridge".into(), true)].into_iter().collect(),
+        named_bridge_repaired: [("ConvoyBridge".into(), false)].into_iter().collect(),
+        ..Default::default()
+    });
+    assert_eq!(
+        evaluator.evaluate_condition(&mut broken).unwrap(),
+        ScriptConditionResult::False
+    );
+
+    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
         any_bridges_damage_states_changed: true,
         named_bridge_broken: [("ConvoyBridge".into(), false)].into_iter().collect(),
         named_bridge_repaired: [("ConvoyBridge".into(), true)].into_iter().collect(),
