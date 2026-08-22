@@ -691,7 +691,7 @@ impl CnCGameEngine {
                     && self.keys_pressed.contains(&Key::Named(NamedKey::Alt))
                     && !ctrl_down =>
             {
-                // GeneralsExperience purchase next science residual (Alt+G).
+                // C++ CommandMap Alt+G / ButtonGeneral: togglePurchaseScience only.
                 self.try_purchase_next_generals_science();
             }
             Key::Character(c)

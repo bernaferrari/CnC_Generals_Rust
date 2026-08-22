@@ -1273,3 +1273,22 @@ fn command_translate_wires_select_next_prev_worker() {
         "leftover CommandXlat must handle SELECT_NEXT/PREV_WORKER"
     );
 }
+
+#[test]
+fn selection_can_set_rally_point_requires_auto_rallypoint_like_cpp() {
+    let _guard = test_state_lock();
+    let team = setup_local_player_team();
+    let factory = register_test_object(78_200, vec![KindOf::AutoRallypoint], team.clone());
+    assert!(
+        selection_can_set_rally_point(&HashSet::from([78_200])),
+        "KINDOF_AUTO_RALLYPOINT + local must set rally without ProductionUpdate"
+    );
+    OBJECT_REGISTRY.unregister_object(78_200);
+
+    let plant = register_test_object(78_201, vec![KindOf::Structure], team);
+    assert!(
+        !selection_can_set_rally_point(&HashSet::from([78_201])),
+        "structure without AUTO_RALLYPOINT must not set rally"
+    );
+    OBJECT_REGISTRY.unregister_object(78_201);
+}

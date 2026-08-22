@@ -1775,3 +1775,35 @@ fn radar_messages_freeze_into_presentation_events() {
         frame.events
     );
 }
+
+#[test]
+fn select_all_uses_locally_controlled_not_faction_team() {
+    // C++ kindOfUnitSelection requires isLocallyControlled. Same-faction
+    // 2v2 ally units must not enter SELECT_ALL.
+    use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(1, Team::USA, "USA-Ally", false));
+    let mut t = ThingTemplate::new("Ranger");
+    t.set_health(100.0);
+    t.add_kind_of(KindOf::Infantry);
+    t.add_kind_of(KindOf::Selectable);
+    t.add_kind_of(KindOf::Attackable);
+    logic.templates.insert("Ranger".into(), t);
+    let mine = logic
+        .create_object_for_player("Ranger", 0, glam::Vec3::new(0.0, 0.0, 0.0))
+        .expect("mine");
+    let ally = logic
+        .create_object_for_player("Ranger", 1, glam::Vec3::new(10.0, 0.0, 0.0))
+        .expect("ally");
+    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let ids = frame.alive_select_all_unit_ids(Team::USA, false);
+    assert_eq!(ids, vec![mine], "SELECT_ALL must skip same-faction ally {ally:?}");
+    assert!(
+        frame
+            .objects
+            .iter()
+            .any(|o| o.id == ally && o.team == Team::USA && o.owner_player_id == Some(1)),
+        "ally must be same-faction but not locally controlled"
+    );
+}

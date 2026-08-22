@@ -65,6 +65,8 @@ fn unit_render_input_world_matrix_applies_mesh_scale() {
         effectively_stealthed: false,
         under_construction: false,
         construction_percent: 0.0,
+        max_height_above_position: 0.0,
+
         disguised: false,
         disguise_as_template: None,
         occupant_count: 0,
@@ -248,6 +250,8 @@ fn unit_render_input_fixture() -> UnitRenderInput {
         effectively_stealthed: false,
         under_construction: false,
         construction_percent: 0.0,
+        max_height_above_position: 0.0,
+
         disguised: false,
         disguise_as_template: None,
         occupant_count: 0,

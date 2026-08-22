@@ -41,9 +41,91 @@ fn dual_world_registry_unavailable() -> bool {
 const ST_PHASE_COUNT: usize = 3;
 const MAX_IDX: usize = 32;
 const TOPPLE_ACCELERATION_FACTOR: Real = 0.02;
-const THETA_CEILING: Real = std::f32::consts::PI / 6.0;
-const WEAPON_SPACING_PERPENDICULAR: Real = 25.0;
-const WEAPON_SPACING_PARALLEL: Real = 25.0;
+pub const LEFTOVER_STRUCTURE_TOPPLE_THETA_CEILING: Real = std::f32::consts::PI / 6.0;
+pub const LEFTOVER_WEAPON_SPACING_PERPENDICULAR: Real = 25.0;
+pub const LEFTOVER_WEAPON_SPACING_PARALLEL: Real = 25.0;
+const THETA_CEILING: Real = LEFTOVER_STRUCTURE_TOPPLE_THETA_CEILING;
+const WEAPON_SPACING_PERPENDICULAR: Real = LEFTOVER_WEAPON_SPACING_PERPENDICULAR;
+const WEAPON_SPACING_PARALLEL: Real = LEFTOVER_WEAPON_SPACING_PARALLEL;
+
+/// C++ StructureToppleUpdate.cpp:355-364 facingWidth from geometry projection.
+pub fn leftover_structure_topple_facing_width(
+    orientation_angle: Real,
+    topple_angle: Real,
+    major_radius: Real,
+    minor_radius: Real,
+) -> Real {
+    let angle = orientation_angle - topple_angle;
+    let minor_component = minor_radius * angle.cos();
+    let major_component = major_radius * angle.sin();
+    (major_component * major_component + minor_component * minor_component).sqrt() * 0.5
+}
+
+/// C++ StructureToppleUpdate.cpp:373 `maxDistance = height * (1 - sin(theta))`.
+pub fn leftover_structure_topple_max_crush_distance(building_height: Real, theta: Real) -> Real {
+    building_height * (1.0 - theta.sin())
+}
+
+/// C++ applyCrushingDamage j-loop (not including the final maxDistance line).
+/// Returns `(j values to fire, m_lastCrushedLocation after the for-loop)`.
+pub fn leftover_apply_crushing_damage_js(
+    last_crushed: Real,
+    max_distance: Real,
+) -> (Vec<Real>, Real) {
+    let mut js = Vec::new();
+    let mut j = last_crushed;
+    while j < max_distance {
+        js.push(j);
+        j += WEAPON_SPACING_PERPENDICULAR;
+    }
+    (js, j)
+}
+
+/// C++ doDamageLine i-loop + edge offsets (StructureToppleUpdate.cpp:409-427).
+pub fn leftover_do_damage_line_offsets(
+    facing_width: Real,
+    topple_angle: Real,
+) -> Vec<(Real, Real)> {
+    let sin_t = topple_angle.sin();
+    let cos_t = topple_angle.cos();
+    let mut out = Vec::new();
+    let mut i = -facing_width;
+    while i < facing_width {
+        out.push((i * sin_t, i * cos_t));
+        i += WEAPON_SPACING_PARALLEL;
+    }
+    out.push((facing_width * sin_t, facing_width * cos_t));
+    out
+}
+
+/// World-space C++ applyCrushingDamage + doDamageLine fire points (ground x/y).
+pub fn leftover_structure_topple_crush_points(
+    building_x: Real,
+    building_y: Real,
+    last_crushed: Real,
+    max_distance: Real,
+    facing_width: Real,
+    topple_angle: Real,
+) -> (Vec<(Real, Real)>, Real) {
+    let (js, new_last) = leftover_apply_crushing_damage_js(last_crushed, max_distance);
+    let offsets = leftover_do_damage_line_offsets(facing_width, topple_angle);
+    let cos_t = topple_angle.cos();
+    let sin_t = topple_angle.sin();
+    let mut pts = Vec::with_capacity((js.len() + 1) * offsets.len());
+    for j in js {
+        let jcos = j * cos_t;
+        let jsin = j * sin_t;
+        for &(ox, oy) in &offsets {
+            pts.push((building_x + jcos + ox, building_y + jsin + oy));
+        }
+    }
+    let jcos = max_distance * cos_t;
+    let jsin = max_distance * sin_t;
+    for &(ox, oy) in &offsets {
+        pts.push((building_x + jcos + ox, building_y + jsin + oy));
+    }
+    (pts, new_last)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StructureTopplePhaseType {
@@ -888,15 +970,13 @@ impl StructureToppleUpdate {
 
         let orientation_angle = building.get_orientation();
         let topple_angle = self.topple_direction.y.atan2(self.topple_direction.x);
-        let angle = orientation_angle - topple_angle;
-
         let geo = building.get_geometry_info();
-        let major_radius = geo.get_major_radius();
-        let minor_radius = geo.get_minor_radius();
-
-        let minor_component = minor_radius * angle.cos();
-        let major_component = major_radius * angle.sin();
-        let facing_width = (Coord3D::new(major_component, minor_component, 0.0)).length() * 0.5;
+        let facing_width = leftover_structure_topple_facing_width(
+            orientation_angle,
+            topple_angle,
+            geo.get_major_radius(),
+            geo.get_minor_radius(),
+        );
 
         let weapon_template = with_weapon_store(|store| {
             store
@@ -910,20 +990,20 @@ impl StructureToppleUpdate {
             return;
         };
 
-        let max_distance = self.building_height * (1.0 - theta.sin());
-
-        let mut j = self.last_crushed_location;
-        while j < max_distance {
+        let max_distance =
+            leftover_structure_topple_max_crush_distance(self.building_height, theta);
+        let (js, new_last) =
+            leftover_apply_crushing_damage_js(self.last_crushed_location, max_distance);
+        for j in js {
             let jcos = j * topple_angle.cos();
             let jsin = j * topple_angle.sin();
             self.do_damage_line(&building, &wt, jcos, jsin, facing_width, topple_angle);
-            j += WEAPON_SPACING_PERPENDICULAR;
         }
 
         let jcos = max_distance * topple_angle.cos();
         let jsin = max_distance * topple_angle.sin();
         self.do_damage_line(&building, &wt, jcos, jsin, facing_width, topple_angle);
-        self.last_crushed_location = j;
+        self.last_crushed_location = new_last;
     }
 
     fn do_damage_line(
@@ -947,11 +1027,10 @@ impl StructureToppleUpdate {
 
         let source_id = building.get_id();
 
-        let mut i = -facing_width;
-        while i < facing_width {
+        for (ox, oy) in leftover_do_damage_line_offsets(facing_width, topple_angle) {
             let mut target = Coord3D::new(
-                building.get_position().x + jcos + (i * topple_angle.sin()),
-                building.get_position().y + jsin + (i * topple_angle.cos()),
+                building.get_position().x + jcos + ox,
+                building.get_position().y + jsin + oy,
                 0.0,
             );
             target.z = terrain.get_ground_height(target.x, target.y, None);
@@ -964,24 +1043,6 @@ impl StructureToppleUpdate {
                 if let Some(fx) = &self.module_data.crushing_fx_list {
                     let _ = fx.do_fx_at_position(&target);
                 }
-            }
-            i += WEAPON_SPACING_PARALLEL;
-        }
-
-        let mut edge_target = Coord3D::new(
-            building.get_position().x + jcos + (facing_width * topple_angle.sin()),
-            building.get_position().y + jsin + (facing_width * topple_angle.cos()),
-            0.0,
-        );
-        edge_target.z = terrain.get_ground_height(edge_target.x, edge_target.y, None);
-
-        if let Some(store) = TheWeaponStore::get() {
-            let _ = store.create_and_fire_temp_weapon_at_pos(weapon, source_id, &edge_target);
-        }
-
-        if Self::should_play_damage_fx(last_damage_type, self.module_data.damage_fx_types) {
-            if let Some(fx) = &self.module_data.crushing_fx_list {
-                let _ = fx.do_fx_at_position(&edge_target);
             }
         }
 

@@ -2710,6 +2710,41 @@ mod tests {
     }
 
     #[test]
+    fn test_build_terrain_texture_uses_cpp_call_site_height_order() {
+        // C++ W3DRadar.cpp:1177 passes (z, getTerrainAverageZ(), mapHi.z, mapLo.z).
+        // Retail therefore darkens from map-max, not around the average.
+        let mut radar = RadarSystem::new();
+        let samples: Vec<(f32, f32, bool)> = (0..(RADAR_CELL_WIDTH * RADAR_CELL_HEIGHT) as usize)
+            .map(|_| (0.0, 50.0, false))
+            .collect();
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(1024.0, 1024.0, 100.0),
+            &samples,
+        );
+
+        let tan = [0.45, 0.42, 0.32];
+        let retail = interpolate_color_for_height(tan, 50.0, 50.0, 100.0, 0.0);
+        let old_leftover = interpolate_color_for_height(tan, 50.0, 100.0, 50.0, 0.0);
+        let px = &radar.get_terrain_texture()[0..3];
+        let got = [
+            px[0] as f32 / 255.0,
+            px[1] as f32 / 255.0,
+            px[2] as f32 / 255.0,
+        ];
+        assert!(
+            (got[0] - retail[0]).abs() < 0.01
+                && (got[1] - retail[1]).abs() < 0.01
+                && (got[2] - retail[2]).abs() < 0.01,
+            "expected C++ (avg, hi, lo) shade {retail:?}, got {got:?}"
+        );
+        assert!(
+            (got[0] - old_leftover[0]).abs() > 0.02,
+            "must not use leftover (hi, avg, lo) order {old_leftover:?}"
+        );
+    }
+
+    #[test]
     fn test_legal_radar_point_matches_w3d_bounds() {
         assert!(legal_radar_point(0, 0));
         assert!(legal_radar_point(

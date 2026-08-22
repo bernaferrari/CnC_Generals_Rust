@@ -592,6 +592,8 @@ pub struct View {
 
     /// Camera locking for following objects
     camera_lock_id: Option<u32>,
+    /// C++ `View::m_cameraLockDrawable`.
+    camera_lock_drawable_id: Option<u32>,
     camera_lock_type: CameraLockType,
     lock_distance: f32,
     snap_immediate: bool,
@@ -722,6 +724,7 @@ impl View {
             default_pitch_angle: 0.0,
             fov: DEFAULT_FOV_RADIANS,
             camera_lock_id: None,
+            camera_lock_drawable_id: None,
             camera_lock_type: CameraLockType::Follow,
             lock_distance: 0.0,
             snap_immediate: false,
@@ -783,6 +786,7 @@ impl View {
         self.angle = 0.0;
         self.pitch_angle = 0.0;
         self.camera_lock_id = None;
+        self.camera_lock_drawable_id = None;
         self.follow_factor = -1.0;
         self.zoom_limited = true;
 
@@ -1173,6 +1177,15 @@ impl View {
         }
     }
 
+    pub fn camera_lock_drawable_id(&self) -> Option<u32> {
+        self.camera_lock_drawable_id
+    }
+    /// C++ `View::setCameraLockDrawable` — also zeroes `m_lockDist`.
+    pub fn set_camera_lock_drawable(&mut self, id: Option<u32>) {
+        self.camera_lock_drawable_id = id;
+        self.lock_distance = 0.0;
+    }
+
     pub fn snap_to_camera_lock(&mut self) {
         self.snap_immediate = true;
     }
@@ -1191,6 +1204,7 @@ impl View {
         };
         let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
             self.camera_lock_id = None;
+            self.camera_lock_drawable_id = None;
             self.follow_factor = -1.0;
             return;
         };

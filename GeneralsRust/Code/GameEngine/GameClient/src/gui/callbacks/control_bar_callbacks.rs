@@ -14,6 +14,9 @@ use crate::gui::{
     with_window_manager_ref, AnimateWindowManager, AnimationType, GameWindow, WindowMessage,
     WindowMsgData, WindowMsgHandled,
 };
+use crate::gui::callbacks::replay_controls::{
+    hide_replay_controls, show_replay_controls, toggle_replay_controls,
+};
 use crate::helpers::{TheControlBar, TheInGameUI};
 
 use crate::input::{with_mouse, MouseButton};
@@ -439,16 +442,33 @@ impl ControlBarCallbacks {
         &mut self,
         immediate: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        // C++ ToggleControlBar: toggleReplayControls() then flip the bar.
+        toggle_replay_controls();
         if self.state.visible {
-            self.hide_control_bar(immediate)?;
+            self.hide_control_bar_window(immediate)?;
         } else {
-            self.show_control_bar(immediate)?;
+            self.show_control_bar_window(immediate)?;
         }
         Ok(())
     }
 
     /// Hide the control bar
     pub fn hide_control_bar(&mut self, immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
+        // C++ HideControlBar: hideReplayControls() even if already hidden.
+        hide_replay_controls();
+        self.hide_control_bar_window(immediate)
+    }
+
+    pub fn show_control_bar(&mut self, immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
+        // C++ ShowControlBar: showReplayControls() then switch DEFAULT + winHide(FALSE).
+        show_replay_controls();
+        self.show_control_bar_window(immediate)
+    }
+
+    fn hide_control_bar_window(
+        &mut self,
+        immediate: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         if !self.state.visible {
             return Ok(());
         }
@@ -458,7 +478,10 @@ impl ControlBarCallbacks {
         Ok(())
     }
 
-    pub fn show_control_bar(&mut self, immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
+    fn show_control_bar_window(
+        &mut self,
+        immediate: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         // C++ ShowControlBar always switchControlBarStage(DEFAULT) + winHide(FALSE)
         // even when already shown. Do not early-return on state.visible.
         if !self.state.visible {

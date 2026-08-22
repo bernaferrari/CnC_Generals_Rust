@@ -1582,52 +1582,20 @@ impl ScriptConditionEvaluator {
         })
     }
 
-    /// C++ Reference: ScriptConditions::checkMultiplayerAlliedDefeat()
-    /// Checks if all allied players have been defeated
+    /// C++ ScriptConditions::evaluateMultiplayerAlliedDefeat —
+    /// TheVictoryConditions->isLocalAlliedDefeat() (last alliance standing).
     pub(crate) fn eval_multiplayer_allied_defeat(
         &self,
         _condition: &Condition,
     ) -> Result<ScriptConditionResult, ScriptError> {
         log::debug!("Evaluating multiplayer allied defeat");
-        let players = player_list();
-        let Ok(players_lock) = players.read() else {
-            return Ok(ScriptConditionResult::False);
-        };
-
-        let Some(local_player_arc) = players_lock.get_local_player() else {
-            return Ok(ScriptConditionResult::False);
-        };
-        let Ok(local_player) = local_player_arc.read() else {
-            return Ok(ScriptConditionResult::False);
-        };
-
-        let mut allied_count = 0usize;
-        for player_arc in players_lock.iter() {
-            if Arc::ptr_eq(player_arc, &local_player_arc) {
-                allied_count += 1;
-                if !local_player.is_defeated() {
-                    return Ok(ScriptConditionResult::False);
-                }
-                continue;
-            }
-
-            let Ok(player) = player_arc.read() else {
-                continue;
-            };
-            if local_player.is_allied_with_player(&player) {
-                allied_count += 1;
-                if !player.is_defeated() {
-                    return Ok(ScriptConditionResult::False);
-                }
-            }
-        }
-
-        Ok(if allied_count > 0 {
+        Ok(if TheVictoryConditions::is_local_allied_defeat() {
             ScriptConditionResult::True
         } else {
             ScriptConditionResult::False
         })
     }
+
 
     /// C++ ScriptConditions::evaluateMultiplayerPlayerDefeat — no params.
     pub(crate) fn eval_multiplayer_player_defeat(
@@ -1635,23 +1603,9 @@ impl ScriptConditionEvaluator {
         _condition: &Condition,
     ) -> Result<ScriptConditionResult, ScriptError> {
         // isLocalDefeat() && !isLocalAlliedDefeat()
-        let Ok(players) = player_list().read() else {
-            return Ok(ScriptConditionResult::False);
-        };
-        let Some(local_arc) = players.get_local_player().cloned() else {
-            return Ok(ScriptConditionResult::False);
-        };
-        let Ok(local_player) = local_arc.read() else {
-            return Ok(ScriptConditionResult::False);
-        };
-        if local_player.is_player_observer() {
-            return Ok(ScriptConditionResult::False);
-        }
-        let local_defeat = local_player.is_defeated() || local_player.is_player_dead();
-        drop(local_player);
-        let allied_defeat = self.eval_multiplayer_allied_defeat(_condition)?;
         Ok(Self::bool_result(
-            local_defeat && !matches!(allied_defeat, ScriptConditionResult::True),
+            TheVictoryConditions::is_local_defeat()
+                && !TheVictoryConditions::is_local_allied_defeat(),
         ))
     }
 

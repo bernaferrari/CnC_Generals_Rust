@@ -573,6 +573,10 @@ impl GameLogic {
         game_engine::common::recorder::with_recorder_mut(|recorder| {
             recorder.init_controls();
         });
+        // C++ GameLogic.cpp:2340-2343 replay start hint.
+        if crate::helpers::TheGameLogic::is_in_replay_game() {
+            crate::helpers::TheInGameUI::display_message("GUI:FastForwardInstructions");
+        }
         init_result
     }
 

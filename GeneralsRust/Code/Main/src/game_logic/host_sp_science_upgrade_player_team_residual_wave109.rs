@@ -700,6 +700,14 @@ pub const SCIENCE_STORE_TABLE_WAVE109: &[ScienceStoreResidualRowWave109] = &[
         prereq_b: "SCIENCE_Rank3",
         grantable: true,
     },
+    // C++ ScienceInfo::m_grantable = No — PLAYER_GRANT_SCIENCE must refuse.
+    ScienceStoreResidualRowWave109 {
+        name: "SCIENCE_NonGrantableTest",
+        point_cost: 0,
+        prereq_a: "",
+        prereq_b: "",
+        grantable: false,
+    },
 ];
 
 /// C++ residual: cost **0** → cannot be purchased (not free).
@@ -1259,6 +1267,7 @@ pub fn honesty_science_store_residual_deepen_pack_wave109() -> bool {
         && store.get_purchase_cost("SCIENCE_PaladinTank") == Some(1)
         && store.get_purchase_cost("SCIENCE_AMERICA") == Some(0)
         && store.is_grantable("SCIENCE_ClusterMines") == Some(true)
+        && store.is_grantable("SCIENCE_NonGrantableTest") == Some(false)
         && store.find("missing").is_none()
         && store.get_purchase_cost("missing").is_none();
 

@@ -1324,7 +1324,7 @@ fn host_control_bar_key(value: &str) -> String {
 /// Host `ProductionItem` has no stored production ID; GameClient often aliases
 /// `production_id = queue_index`. Prefer a valid production_id slot, else the
 /// displayed queue_index. Fail-closed when neither addresses the queue.
-fn resolve_host_queue_cancel_index(
+pub(crate) fn resolve_host_queue_cancel_index(
     production_id: u32,
     queue_index: usize,
     queue_len: usize,

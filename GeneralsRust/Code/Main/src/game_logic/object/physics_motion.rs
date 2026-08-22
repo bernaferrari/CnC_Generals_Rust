@@ -683,8 +683,33 @@ impl Object {
         }
     }
 
+    /// C++ `AIUpdate.cpp:2276-2279` / leftover `ai_update_interface.rs:1848-1853`.
+    /// `AirborneTargetingHeight` defaults to `INT_MAX`, so tossed ground locos
+    /// stay `ANTI_GROUND`. Authored INI heights still flag when above threshold.
+    pub fn stamp_airborne_target_from_locomotor(&mut self) {
+        let height = self.get_position().y - self.ground_height;
+        self.status.airborne_target = height > self.current_airborne_targeting_height() as f32;
+    }
+
+    fn current_airborne_targeting_height(&self) -> i32 {
+        if self.airborne_targeting_height != 0 && self.airborne_targeting_height != i32::MAX {
+            return self.airborne_targeting_height;
+        }
+        if let Some(name) = self.cur_locomotor_name.as_deref() {
+            if !name.is_empty() {
+                if let Some(tmpl) = gamelogic::locomotor::ini_bridge::convert_named(name) {
+                    return tmpl.airborne_targeting_height;
+                }
+            }
+        }
+        if self.airborne_targeting_height != 0 {
+            self.airborne_targeting_height
+        } else {
+            i32::MAX
+        }
+    }
+
     /// C++ PhysicsBehavior position integrate + ground clamp residual (one frame).
-    ///
     /// `ground_y` is terrain height at object XZ. Returns true if a bounce force was applied.
     pub fn tick_physics_motion_step(&mut self, ground_y: f32) -> bool {
         self.apply_leftover_taxiing_locomotor_set();
@@ -826,7 +851,7 @@ impl Object {
         }
         self.was_airborne_last_frame = airborne_end;
         self.record_host_locomotor();
-        self.status.airborne_target = airborne_end;
+        self.stamp_airborne_target_from_locomotor();
         let _ = airborne_start; // reserved for future free-fall start residual
                                 // C++ killWhenRestingOnGround residual after landing.
         if !airborne_end {
@@ -844,7 +869,7 @@ impl Object {
             let _ = self.apply_shock_fall_damage(impact_vy);
         }
         self.was_airborne_last_frame = airborne_end;
-        self.status.airborne_target = airborne_end;
+        self.stamp_airborne_target_from_locomotor();
         if !airborne_end {
             let _ = self.maybe_kill_when_resting_on_ground();
         }

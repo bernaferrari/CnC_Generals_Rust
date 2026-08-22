@@ -77,6 +77,22 @@ fn retail_selection_and_scatter_hotkeys_residual() {
 }
 
 #[test]
+fn select_all_adds_not_replaces() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    let select_all_at = src
+        .find("fn select_all_units_by_type")
+        .expect("select_all_units_by_type");
+    let select_all_body = &src[select_all_at..src.len().min(select_all_at + 2500)];
+    assert!(
+        select_all_body.contains("kindOfUnitSelection skips already-selected")
+            && select_all_body.contains("if !already.contains(id)")
+            && select_all_body.contains("kept.push(id)")
+            && !select_all_body.contains("host_set_selection(self.current_player_id, on_screen)"),
+        "SELECT_ALL must add to current selection, not replace with the on-screen subset"
+    );
+}
+
+#[test]
 fn escape_in_handle_key_press_opens_quit_menu_residual() {
     let src = crate::cnc_game_engine::ENGINE_SRC;
     let hk = src
@@ -537,8 +553,11 @@ fn cancel_unit_production_rmb_residual() {
     );
     let hud = include_str!("../ui/hud.rs");
     assert!(
-        hud.contains("CancelUnitProduction") && hud.contains("build_queue_cancel"),
-        "HUD RMB must raise CancelUnitProduction"
+        hud.contains("CancelUnitProduction")
+            && hud.contains("build_queue_cancel")
+            && hud.contains("production_id")
+            && hud.contains("clicked_queue_slot"),
+        "HUD LMB queue slot must raise CancelUnitProduction by productionID"
     );
 }
 
@@ -1048,13 +1067,22 @@ fn unit_attitude_hotkey_residual() {
 #[test]
 fn generals_science_purchase_residual() {
     let src = crate::cnc_game_engine::ENGINE_SRC;
+    let fn_idx = src
+        .find("fn try_purchase_next_generals_science")
+        .expect("try_purchase_next_generals_science");
+    let body = &src[fn_idx..src.len().min(fn_idx + 700)];
     assert!(
-        src.contains("fn try_purchase_next_generals_science")
-            && src.contains("PurchaseScience")
+        src.contains("PurchaseScience")
             && src.contains("eq_ignore_ascii_case(\"g\")")
             && src.contains("NamedKey::Alt")
-            && src.contains("No science purchase points"),
-        "Alt+G must purchase next generals science residual"
+            && body.contains("toggle_purchase_science"),
+        "Alt+G / empty-name PurchaseScience must toggle the promotion screen"
+    );
+    assert!(
+        !body.contains("first_capable_purchase_science_residual")
+            && !body.contains("Purchased ")
+            && !src.contains("No science purchase points"),
+        "C++ populatePurchaseScience / togglePurchaseScience never auto-buys"
     );
     let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
     assert!(

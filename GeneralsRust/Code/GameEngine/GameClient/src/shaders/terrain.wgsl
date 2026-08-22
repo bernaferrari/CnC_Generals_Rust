@@ -70,12 +70,19 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                      color_2 * blend.z +
                      color_3 * blend.w;
 
-    // C++ CloudMapTerrainTextureClass + LightMapTerrainTextureClass stages.
-    let cloud_uv = in.world_position.xz * 0.002 + vec2<f32>(camera.time * -0.02, camera.time * -0.03);
-    let cloud = 0.70 + 0.30 * hash2(cloud_uv);
-    let noise_uv = in.world_position.xz * 0.015;
-    let noise = 0.85 + 0.15 * hash2(noise_uv + vec2<f32>(17.0, 9.0));
-    final_color = vec4<f32>(final_color.rgb * cloud * noise, final_color.a);
+    // C++ HeightMap.cpp:1889/1980-2001 — doCloud = UseCloudMap && !NIGHT,
+    // noise/lightmap = UseLightMap. Packed in camera.position.w as bit0/bit1.
+    let mode = i32(camera.position.w + 0.5);
+    if ((mode & 1) != 0) {
+        let cloud_uv = in.world_position.xz * 0.002 + vec2<f32>(camera.time * -0.02, camera.time * -0.03);
+        let cloud = 0.70 + 0.30 * hash2(cloud_uv);
+        final_color = vec4<f32>(final_color.rgb * cloud, final_color.a);
+    }
+    if ((mode & 2) != 0) {
+        let noise_uv = in.world_position.xz * 0.015;
+        let noise = 0.85 + 0.15 * hash2(noise_uv + vec2<f32>(17.0, 9.0));
+        final_color = vec4<f32>(final_color.rgb * noise, final_color.a);
+    }
 
     // Modulate by baked vb.diffuse (doTheDynamicLight). Do not fake-N·L again.
     return vec4<f32>(final_color.rgb * in.color.rgb, final_color.a * in.color.a);

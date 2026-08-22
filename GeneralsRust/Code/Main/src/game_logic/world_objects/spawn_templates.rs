@@ -1038,7 +1038,12 @@ impl GameLogic {
         if has_kind("mob_nexus") {
             template.add_kind_of(KindOf::MobNexus);
         }
+        // C++ KINDOF_NO_COLLIDE — PartitionData::collidesWith is FALSE.
+        if has_kind("no_collide") {
+            template.add_kind_of(KindOf::NoCollide);
+        }
     }
+
 
     /// Preserve the exact DockUpdate and normal-containment slice that the
     /// physical RMB path needs from Object INI Behavior declarations.  C++
@@ -3381,6 +3386,12 @@ impl GameLogic {
             geom.authored = true;
         }
         template.geometry_info = geom;
+        if let Some(v) = Self::object_definition_attr(definition, "structurerubbleheight")
+            .as_deref()
+            .and_then(|raw| raw.trim().parse::<u8>().ok())
+        {
+            template.structure_rubble_height = v;
+        }
         if let Some(v) = Self::object_definition_attr(definition, "fencewidth")
             .as_deref()
             .and_then(parse_real)
@@ -7989,6 +8000,8 @@ End
             .insert("GeometryHeight".to_string(), "10.0".to_string());
         def.attributes
             .insert("GeometryIsSmall".to_string(), "Yes".to_string());
+        def.attributes
+            .insert("StructureRubbleHeight".to_string(), "8".to_string());
 
         let template = GameLogic::build_template_from_object_definition(
             "AmericaTankBattleMaster",
@@ -8004,6 +8017,7 @@ End
         assert!((template.geometry_info.minor_radius - 9.0).abs() < 1e-4);
         assert!((template.geometry_info.height - 10.0).abs() < 1e-4);
         assert!(template.geometry_info.is_small);
+        assert_eq!(template.structure_rubble_height, 8);
 
         let obj = Object::new(template, ObjectId(1), Team::USA);
         let expected_circle = 13.0f32.hypot(9.0);

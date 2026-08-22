@@ -523,8 +523,13 @@ mod tests {
 
     #[test]
     fn set_scrolling_locks_mouse_and_stop_restores_prev_cursor() {
+        TheInGameUI::set_scrolling(false);
         TheInGameUI::set_mouse_cursor(MouseCursor::Waypoint);
-        with_tactical_view(|view| view.set_mouse_lock(false));
+        with_tactical_view(|view| {
+            view.set_mouse_lock(false);
+            view.set_camera_lock(Some(42));
+            view.set_camera_lock_drawable(Some(7));
+        });
 
         let mut translator = LookAtTranslator::new();
         translator.set_scrolling(ScrollType::Rmb);
@@ -534,6 +539,15 @@ mod tests {
         assert!(TheInGameUI::is_scrolling());
         assert!(with_tactical_view_ref(|view| view.is_mouse_locked()));
         assert_eq!(translator.prev_cursor, MouseCursor::Waypoint);
+        // C++ InGameUI::setScrolling(TRUE) clears lock + drawable.
+        assert_eq!(
+            with_tactical_view_ref(|view| view.camera_lock_id()),
+            None
+        );
+        assert_eq!(
+            with_tactical_view_ref(|view| view.camera_lock_drawable_id()),
+            None
+        );
 
         TheInGameUI::set_mouse_cursor(MouseCursor::Scroll);
         translator.stop_scrolling();

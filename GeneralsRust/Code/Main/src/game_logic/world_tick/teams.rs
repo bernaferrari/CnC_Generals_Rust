@@ -1,6 +1,83 @@
 //! Host tick `impl GameLogic` — `teams`.
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
+
+/// C++ `PATHFIND_CELL_SIZE_F`.
+const HOST_WANDER_CELL: f32 = 10.0;
+
+/// C++ `AIWanderInPlaceState` origin + current hop.
+struct HostWanderInPlace {
+    origin: glam::Vec3,
+    hop: glam::Vec3,
+}
+
+fn wander_in_place_sessions() -> &'static std::sync::Mutex<std::collections::HashMap<u32, HostWanderInPlace>> {
+    static SESSIONS: std::sync::LazyLock<
+        std::sync::Mutex<std::collections::HashMap<u32, HostWanderInPlace>>,
+    > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+    &SESSIONS
+}
+
+
+fn wander_in_place_lock(
+) -> std::sync::MutexGuard<'static, std::collections::HashMap<u32, HostWanderInPlace>> {
+    wander_in_place_sessions()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// C++ `AIWanderInPlaceState::chooseNewGoal` delta (cells).
+/// Loco template present: `floor(WanderAboutPointRadius / cell + 0.5)`.
+/// No loco / unknown template: C++ fallback of 3.
+fn host_wander_radius_for_name(name: &str) -> Option<f32> {
+    let store = game_engine::common::ini::ini_locomotor::get_locomotor_store();
+    if let Some(template) = store.find_template(name) {
+        return Some(template.wander_about_point_radius);
+    }
+    gamelogic::locomotor::ini_bridge::convert_named(name).map(|t| t.wander_about_point_radius)
+}
+
+fn host_wander_about_point_delta(obj: &crate::game_logic::object::Object) -> i32 {
+    use crate::game_logic::host_upgrade_module_residuals::{
+        locomotor_name_for_set_kind, HostLocomotorSetKind,
+    };
+    let wander_set = obj
+        .get_cur_locomotor_set_token()
+        .is_some_and(|s| s.eq_ignore_ascii_case("SET_WANDER"));
+    let name = if wander_set {
+        locomotor_name_for_set_kind(&obj.template_name, HostLocomotorSetKind::Wander)
+            .map(str::to_string)
+            .or_else(|| obj.cur_locomotor_name.clone())
+    } else {
+        obj.cur_locomotor_name.clone()
+    };
+    let Some(name) = name else {
+        return 3;
+    };
+    match host_wander_radius_for_name(&name) {
+        Some(radius) => ((radius / HOST_WANDER_CELL) + 0.5).floor() as i32,
+        None => 3,
+    }
+}
+
+fn host_wander_choose_hop(
+    obj: &crate::game_logic::object::Object,
+    origin: glam::Vec3,
+) -> glam::Vec3 {
+    let delta = host_wander_about_point_delta(obj);
+    let ox = game_engine::common::random_value::get_game_logic_random_value(-delta, delta) as f32
+        * HOST_WANDER_CELL;
+    let oz = game_engine::common::random_value::get_game_logic_random_value(-delta, delta) as f32
+        * HOST_WANDER_CELL;
+    glam::Vec3::new(origin.x + ox, origin.y, origin.z + oz)
+}
+
+fn host_wander_horiz_dist_sq(a: glam::Vec3, b: glam::Vec3) -> f32 {
+    let dx = a.x - b.x;
+    let dz = a.z - b.z;
+    dx * dx + dz * dz
+}
+
 impl GameLogic {
     /// Drive mood auto-acquire for idle units (AI + player AutoAcquireEnemiesWhenIdle).
     pub(crate) fn tick_mood_auto_acquire(&mut self, object_ids: &[ObjectId]) {
@@ -925,7 +1002,9 @@ impl GameLogic {
                 let _ = self.apply_unit_locomotor_set(id, &set);
             }
         }
+        self.tick_host_wander_in_place();
     }
+
 
     /// C++ `doTeamWander` / `doTeamPanic` member loop: closest waypoint on path,
     /// then wander/panic locomotor + follow. Missing path returns like C++.
@@ -1010,18 +1089,78 @@ impl GameLogic {
         let _ = self.assign_unit_path(id, goal, via);
     }
 
-    /// C++ `AIWanderInPlaceState::chooseNewGoal` first hop around origin.
+    /// C++ `AIWanderInPlaceState::chooseNewGoal` — loco radius, re-pick each hop.
     fn host_wander_in_place(&mut self, id: ObjectId, origin: glam::Vec3) {
-        const CELL: f32 = 10.0;
-        let seed = id.0 as i32;
-        let mut ox = (seed.rem_euclid(7) - 3) as f32 * CELL;
-        let mut oz = ((seed / 5).rem_euclid(7) - 3) as f32 * CELL;
-        if ox.abs() < 1.0 && oz.abs() < 1.0 {
-            ox = CELL;
+        let dest = match self.host_object(id) {
+            Some(obj) => host_wander_choose_hop(obj, origin),
+            None => origin,
+        };
+        wander_in_place_lock().insert(id.0, HostWanderInPlace { origin, hop: dest });
+        if host_wander_horiz_dist_sq(dest, origin) > 0.25 {
+            let _ = self.unit_command_move_to(id, dest);
         }
-        let dest = glam::Vec3::new(origin.x + ox, origin.y, origin.z + oz);
-        let _ = self.unit_command_move_to(id, dest);
     }
+
+    /// C++ `AIWanderInPlaceState::update`: never leave until told; re-pick when hop ends.
+    fn tick_host_wander_in_place(&mut self) {
+        let sessions: Vec<(u32, glam::Vec3, glam::Vec3)> = wander_in_place_lock()
+            .iter()
+            .map(|(&id, session)| (id, session.origin, session.hop))
+            .collect();
+        if sessions.is_empty() {
+            return;
+        }
+        let mut drop = Vec::new();
+        let mut reissue = Vec::new();
+        for (raw, origin, hop) in sessions {
+            let id = ObjectId(raw);
+            let Some(obj) = self.host_object(id) else {
+                drop.push(raw);
+                continue;
+            };
+            if !obj.is_alive() {
+                drop.push(raw);
+                continue;
+            }
+            if !matches!(obj.ai_state, AIState::Idle | AIState::Moving) {
+                drop.push(raw);
+                continue;
+            }
+            if let Some(dest) = obj.requested_destination.or(obj.movement.target_position) {
+                if host_wander_horiz_dist_sq(dest, hop) > (3.0 * HOST_WANDER_CELL).powi(2) {
+                    drop.push(raw);
+                    continue;
+                }
+            }
+            let pos = obj.get_position();
+            let near = host_wander_horiz_dist_sq(pos, hop) <= HOST_WANDER_CELL * HOST_WANDER_CELL;
+            let stopped = !obj.status.moving && obj.movement.target_position.is_none();
+            if near || (stopped && matches!(obj.ai_state, AIState::Idle)) {
+                reissue.push((raw, origin, host_wander_choose_hop(obj, origin)));
+            }
+        }
+        {
+            let mut map = wander_in_place_lock();
+            for raw in drop {
+                map.remove(&raw);
+            }
+            for (raw, origin, hop) in &reissue {
+                map.insert(
+                    *raw,
+                    HostWanderInPlace {
+                        origin: *origin,
+                        hop: *hop,
+                    },
+                );
+            }
+        }
+        for (raw, origin, hop) in reissue {
+            if host_wander_horiz_dist_sq(hop, origin) > 0.25 {
+                let _ = self.unit_command_move_to(ObjectId(raw), hop);
+            }
+        }
+    }
+
 
 
     /// Drain leftover `TEAM_SET_ATTITUDE` onto live host members.
@@ -1205,3 +1344,98 @@ impl GameLogic {
         true
     }
 }
+
+#[cfg(test)]
+impl GameLogic {
+    pub fn test_host_wander_in_place(&mut self, id: ObjectId, origin: glam::Vec3) {
+        self.host_wander_in_place(id, origin);
+    }
+
+    pub fn test_tick_host_wander_in_place(&mut self) {
+        self.tick_host_wander_in_place();
+    }
+
+    pub fn test_wander_in_place_hop(&self, id: ObjectId) -> Option<glam::Vec3> {
+        wander_in_place_lock().get(&id.0).map(|session| session.hop)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game_logic::{KindOf, ObjectId, Player, Team, ThingTemplate};
+    use game_engine::common::ascii_string::AsciiString;
+    use game_engine::common::ini::ini_locomotor::{
+        get_locomotor_store_mut, LocomotorTemplate,
+    };
+
+    fn register_wander_loco(name: &str, radius: f32) {
+        let mut template = LocomotorTemplate::new(AsciiString::from(name));
+        template.wander_about_point_radius = radius;
+        get_locomotor_store_mut()
+            .add_template(template)
+            .expect("register wander loco");
+    }
+
+    fn spawn_wander_civilian(logic: &mut GameLogic, name: &str) -> ObjectId {
+        let mut tmpl = ThingTemplate::new(name);
+        tmpl.add_kind_of(KindOf::Infantry);
+        tmpl.add_kind_of(KindOf::CanBeRepulsed);
+        logic.templates.insert(name.to_string(), tmpl);
+        let id = logic
+            .create_object(name, Team::USA, glam::Vec3::new(100.0, 0.0, 200.0))
+            .expect("spawn wander civilian");
+        if let Some(obj) = logic.host_object_mut(id) {
+            obj.owner_player_id = Some(1);
+        }
+        id
+    }
+
+    #[test]
+    fn wander_in_place_uses_loco_radius_and_repicks() {
+        register_wander_loco("WanderHumanLocomotor", 50.0);
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "USA", true));
+        let id = spawn_wander_civilian(&mut logic, "CivilianInfantryWanderRadius");
+        assert!(logic.apply_unit_locomotor_set(id, "wander"));
+
+        let origin = logic.host_object(id).unwrap().get_position();
+        logic.test_host_wander_in_place(id, origin);
+        let hop = logic
+            .test_wander_in_place_hop(id)
+            .expect("wander session started");
+        let dist = host_wander_horiz_dist_sq(hop, origin).sqrt();
+        assert!(
+            dist <= 50.0 + 0.01,
+            "hop {hop:?} must stay inside WanderAboutPointRadius 50, dist={dist}"
+        );
+
+        if let Some(obj) = logic.host_object_mut(id) {
+            obj.set_position(hop);
+            obj.movement.target_position = None;
+            obj.requested_destination = None;
+            obj.status.moving = false;
+            obj.set_ai_state(AIState::Idle);
+        }
+        logic.test_tick_host_wander_in_place();
+        let next = logic
+            .test_wander_in_place_hop(id)
+            .expect("C++ never leaves wander-in-place until told");
+        let next_dist = host_wander_horiz_dist_sq(next, origin).sqrt();
+        assert!(
+            next_dist <= 50.0 + 0.01,
+            "re-pick {next:?} must stay inside radius 50, dist={next_dist}"
+        );
+    }
+
+    #[test]
+    fn wander_in_place_delta_falls_back_to_three_cells_without_loco() {
+        let mut tmpl = ThingTemplate::new("NoLocoWanderUnit");
+        tmpl.add_kind_of(KindOf::Infantry);
+        let mut obj = crate::game_logic::object::Object::new(tmpl, ObjectId(42), Team::USA);
+        obj.cur_locomotor_name = None;
+        obj.jet_ai.cur_locomotor_set = None;
+        assert_eq!(host_wander_about_point_delta(&obj), 3);
+    }
+}
+

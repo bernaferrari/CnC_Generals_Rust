@@ -1294,6 +1294,80 @@ fn keep_object_die_leaves_rubble() {
     assert!(o.status.effectively_dead);
     assert!(!o.status.destroyed);
     assert!(!o.is_alive());
+    assert!(
+        o.status.no_collisions,
+        "C++ ActiveBody rubble stamps OBJECT_STATUS_NO_COLLISIONS"
+    );
+}
+
+#[test]
+fn structure_rubble_collapses_geometry_z_and_stamps_no_collisions() {
+    // C++ ActiveBody.cpp:189-208 setGeometryInfoZ + OBJECT_STATUS_NO_COLLISIONS.
+    use crate::game_logic::{
+        HostGeometryInfo, HostGeometryType, KindOf, Team, ThingTemplate,
+    };
+    let mut t = ThingTemplate::new("AmericaCommandCenter");
+    t.set_health(400.0);
+    t.add_kind_of(KindOf::Structure);
+    t.structure_rubble_height = 8;
+    t.geometry_info = HostGeometryInfo {
+        geom_type: HostGeometryType::Box,
+        is_small: false,
+        height: 40.0,
+        major_radius: 30.0,
+        minor_radius: 25.0,
+        authored: true,
+    };
+    let mut o = Object::new(t, ObjectId(11), Team::USA);
+    assert!((o.thing.template.geometry_info.height - 40.0).abs() < 1e-4);
+    assert!(!o.status.no_collisions);
+    o.health.current = 0.0;
+    o.refresh_model_condition_bits();
+    assert_eq!(
+        o.body_damage_state,
+        crate::game_logic::host_enum_table_residual::HostBodyDamageType::Rubble
+    );
+    assert!(o.status.no_collisions);
+    assert!(
+        (o.thing.template.geometry_info.height - 8.0).abs() < 1e-4,
+        "rubble must collapse authored box Z to StructureRubbleHeight"
+    );
+    assert!(
+        (o.thing.geometry.bounds_max.y - o.thing.geometry.bounds_min.y - 8.0).abs() < 1e-4
+    );
+}
+
+#[test]
+fn ground_or_structure_height_uses_bounding_circle_not_major() {
+    // C++ PartitionManager.cpp:4686-4687 FROM_BOUNDINGSPHERE_2D subtracts
+    // bounding-circle (sqrt(major^2+minor^2)), so rooftop corners stay in range.
+    use crate::game_logic::{
+        HostGeometryInfo, HostGeometryType, KindOf, Team, ThingTemplate,
+    };
+    use glam::Vec3;
+    let mut logic = GameLogic::new();
+    let mut tmpl = ThingTemplate::new("TestWideFactory");
+    tmpl.add_kind_of(KindOf::Structure);
+    tmpl.geometry_info = HostGeometryInfo {
+        geom_type: HostGeometryType::Box,
+        is_small: false,
+        height: 25.0,
+        major_radius: 20.0,
+        minor_radius: 10.0,
+        authored: true,
+    };
+    logic.templates.insert("TestWideFactory".into(), tmpl);
+    logic
+        .create_object("TestWideFactory", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("spawn factory");
+    // Corner of the box is ~22.36wu from center. major_radius=20 would miss
+    // RANGE=1; bounding circle includes it.
+    let corner = Vec3::new(20.5, 0.0, 10.5);
+    let h = logic.ground_or_structure_height_at(corner, 0.0);
+    assert!(
+        (h - 25.0).abs() < 0.01,
+        "rooftop corner must ride structure height, got {h}"
+    );
 }
 
 #[test]
@@ -3604,6 +3678,51 @@ fn physics_wave10_held_wreck_friction_stun_shock() {
     assert!(land.bounce_land_events > 0);
     assert_eq!(land.bounce_audio_pending, 0);
     assert!(land.pending_ground_collide);
+}
+
+#[test]
+fn airborne_target_uses_airborne_targeting_height_not_5cm() {
+    let mut tmpl = ThingTemplate::new("TossedTank");
+    tmpl.add_kind_of(KindOf::Vehicle);
+    let mut tank = Object::new(tmpl, ObjectId(9101), Team::USA);
+    tank.set_position(Vec3::new(0.0, 10.0, 0.0));
+    tank.ground_height = 0.0;
+    tank.status.airborne_target = true;
+    tank.loco_appearance = LocomotorAppearance::Hover;
+    tank.stamp_airborne_target_from_locomotor();
+    assert!(
+        !tank.status.airborne_target,
+        "default INT_MAX must not flag tossed tanks as AA victims"
+    );
+
+    tank.set_position(Vec3::new(0.0, 1.0, 0.0));
+    tank.movement.target_position = Some(Vec3::new(10.0, 1.0, 0.0));
+    tank.movement.velocity = Vec3::ZERO;
+    tank.was_airborne_last_frame = false;
+    let _ = tank.tick_physics_motion_step(0.0);
+    assert!(
+        !tank.status.airborne_target,
+        "physics 5cm airborne must not set AIRBORNE_TARGET"
+    );
+    assert!(
+        tank.was_airborne_last_frame,
+        "1m above terrain is still physically airborne"
+    );
+
+    let mut air_t = ThingTemplate::new("AirLocoProbe");
+    air_t.add_kind_of(KindOf::Aircraft);
+    let mut air = Object::new(air_t, ObjectId(9102), Team::USA);
+    air.airborne_targeting_height = 30;
+    air.ground_height = 0.0;
+    air.set_position(Vec3::new(0.0, 30.0, 0.0));
+    air.stamp_airborne_target_from_locomotor();
+    assert!(
+        !air.status.airborne_target,
+        "C++ AIUpdate uses strictly greater than AirborneTargetingHeight"
+    );
+    air.set_position(Vec3::new(0.0, 31.0, 0.0));
+    air.stamp_airborne_target_from_locomotor();
+    assert!(air.status.airborne_target);
 }
 #[test]
 fn stunned_off_map_cliff_water_kills_without_loco() {

@@ -883,8 +883,18 @@ fn register_weapon_template_from_properties(
 ) -> bool {
     use gamelogic::WeaponTemplate;
 
-    let template_name = name.to_string();
-    let mut template = WeaponTemplate::new(template_name);
+    // C++ parseWeaponTemplateDefinition: find existing by NameKey, then
+    // initFromINI listed fields. CREATE_OVERRIDES copies the base first
+    // (newOverride). A fresh WeaponTemplate::new would zero unlisted
+    // PrimaryDamage/range on a partial Map.ini re-declare.
+    let mut template = gamelogic::with_weapon_store(|store| {
+        store
+            .find_weapon_template_ci(name)
+            .map(|existing| (**existing).clone())
+    })
+    .ok()
+    .flatten()
+    .unwrap_or_else(|| WeaponTemplate::new(name.to_string()));
 
     // Map Common INI properties to GameLogic WeaponTemplate fields.
 
@@ -1902,6 +1912,42 @@ End
         })
         .expect("weapon store available");
     }
+
+    #[test]
+    fn redeclared_weapon_ini_merges_instead_of_replacing() {
+        // C++ parseWeaponTemplateDefinition found-or-create then initFromINI.
+        // A later partial block must keep unlisted fields.
+        let _ = gamelogic::initialize_weapon_store();
+        let first = r#"
+Weapon __RustWeaponMergeBase
+  AttackRange = 150.0
+  PrimaryDamage = 100.0
+  SecondaryDamage = 25.0
+  ClipSize = 8
+  ShotsPerBarrel = 2
+End
+"#;
+        let overlay = r#"
+Weapon __RustWeaponMergeBase
+  PrimaryDamage = 40.0
+  ClipSize = 4
+End
+"#;
+        assert_eq!(register_weapons_from_ini_text(first), 1);
+        assert_eq!(register_weapons_from_ini_text(overlay), 1);
+        gamelogic::with_weapon_store(|store| {
+            let weapon = store
+                .find_weapon_template("__RustWeaponMergeBase")
+                .expect("merged weapon still registered");
+            assert_eq!(weapon.primary_damage, 40.0);
+            assert_eq!(weapon.clip_size, 4);
+            assert_eq!(weapon.attack_range, 150.0);
+            assert_eq!(weapon.secondary_damage, 25.0);
+            assert_eq!(weapon.shots_per_barrel, 2);
+        })
+        .expect("weapon store available");
+    }
+
 
     #[test]
     fn weapon_effect_references_preserve_repeated_veterancy_lines_in_order() {

@@ -214,6 +214,9 @@ pub struct UnitRenderInput {
     pub under_construction: bool,
     /// Wave 503: construction progress 0..1 residual.
     pub construction_percent: f32,
+    /// C++ `GeometryInfo::getMaxHeightAbovePosition` frozen for construction sink.
+    pub max_height_above_position: f32,
+
     /// Wave 503: disguised residual (mesh/template swap for non-allied viewers).
     pub disguised: bool,
     /// Wave 503: disguise template name for mesh key swap.
@@ -397,6 +400,8 @@ impl UnitRenderInput {
             effectively_stealthed: ro.effectively_stealthed,
             under_construction: ro.under_construction,
             construction_percent: ro.construction_percent,
+            max_height_above_position: ro.max_height_above_position,
+
             disguised: ro.disguised,
             disguise_as_template: ro.disguise_as_template.clone(),
             occupant_count: ro.occupant_count,
@@ -517,10 +522,15 @@ impl UnitRenderInput {
     /// the renderer.
     pub(crate) fn resolve_draw_models_for_frozen_conditions(&mut self) {
         let fallback_draw_models = self.draw_models.clone();
-        self.draw_models = crate::assets::resolve_presentation_draw_models_for_conditions(
+        let dest = crate::assets::resolve_presentation_draw_models_for_conditions(
             &self.template_name,
             &fallback_draw_models,
             self.model_condition_bits_with_combat_flags(),
+        );
+        self.draw_models = crate::assets::apply_live_draw_transition_playback_for_object(
+            self.id.0,
+            &self.template_name,
+            dest,
         );
         self.model_key = self
             .draw_models
@@ -528,6 +538,7 @@ impl UnitRenderInput {
             .map(|model| model.model_key.clone())
             .unwrap_or_default();
     }
+
 
     /// Resolve C++ W3DModelDraw child visibility for exactly one selected
     /// Draw module.
@@ -622,11 +633,26 @@ impl UnitRenderInput {
         } else {
             glam::Mat4::IDENTITY
         };
-        let base = glam::Mat4::from_translation(self.position)
+        let mut base = glam::Mat4::from_translation(self.position)
             * glam::Mat4::from_rotation_y(self.orientation)
             * sway
             * fall
             * glam::Mat4::from_scale(glam::Vec3::splat(scale));
+        // C++ W3DModelDraw.cpp:2000-2012 Translate_Z after instance scale.
+        // Host Y-up: local Y is object up after heading.
+        if crate::assets::authored_draw_adjusts_height_by_construction(&self.draw_models) {
+            let cpp_percent = if self.under_construction {
+                self.construction_percent.clamp(0.0, 1.0) * 100.0
+            } else {
+                -1.0
+            };
+            if let Some(dz) = crate::assets::construction_percent_height_delta(
+                cpp_percent,
+                self.max_height_above_position,
+            ) {
+                base *= glam::Mat4::from_translation(glam::Vec3::new(0.0, dz, 0.0));
+            }
+        }
         #[cfg(feature = "game_client")]
         {
             physics_visual_host::apply_to_world_matrix(self.id, base)

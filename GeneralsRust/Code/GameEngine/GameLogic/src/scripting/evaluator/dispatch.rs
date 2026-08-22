@@ -390,37 +390,9 @@ impl ScriptEvaluator {
             // Multiplayer: local player's alliance was defeated
             // C++: TheVictoryConditions->isLocalAlliedDefeat()
             ConditionType::MultiplayerAlliedDefeat => {
-                let Ok(list) = player_list().read() else {
-                    return Ok(false);
-                };
-                let Some(local_player_arc) = list.get_local_player() else {
-                    return Ok(false);
-                };
-                let Ok(local_player) = local_player_arc.read() else {
-                    return Ok(false);
-                };
-
-                let mut allied_count = 0usize;
-                for player_arc in list.iter() {
-                    if Arc::ptr_eq(player_arc, &local_player_arc) {
-                        allied_count += 1;
-                        if !local_player.is_defeated() {
-                            return Ok(false);
-                        }
-                        continue;
-                    }
-                    let Ok(player) = player_arc.read() else {
-                        continue;
-                    };
-                    if local_player.is_allied_with_player(&player) {
-                        allied_count += 1;
-                        if !player.is_defeated() {
-                            return Ok(false);
-                        }
-                    }
-                }
-                Ok(allied_count > 0)
+                Ok(crate::helpers::TheVictoryConditions::is_local_allied_defeat())
             }
+
 
             // Multiplayer: local player individually defeated (not whole alliance)
             // C++: TheVictoryConditions->isLocalDefeat() && !TheVictoryConditions->isLocalAlliedDefeat()

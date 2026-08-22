@@ -262,6 +262,11 @@ pub struct PathfindingGrid {
     query_seeker_id: u32,
     /// C++ `checkDestination` `checkForAircraft` (HOVER/WINGS).
     query_check_for_aircraft: bool,
+    /// C++ `checkForAdjust` unit position (leftover `check_for_adjust_ex` from).
+    query_from: Option<GridPos>,
+    /// Original click cell for leftover dest→adjust zone fallback.
+    query_orig_dest: Option<GridPos>,
+
 
 }
 
@@ -307,6 +312,9 @@ impl PathfindingGrid {
             query_layer: PathfindLayerEnum::Ground as u8,
             query_seeker_id: 0,
             query_check_for_aircraft: false,
+            query_from: None,
+            query_orig_dest: None,
+
             bridge_layers: Vec::new(),
             layer_occ: HashMap::new(),
             wall_pieces: Vec::new(),
@@ -602,9 +610,9 @@ impl PathfindingGrid {
         fence_width: f32,
         fence_x_offset: f32,
         is_transparent: bool,
-    ) {
+    ) -> Option<(GridPos, GridPos)> {
         if fence_width <= 0.0 {
-            return;
+            return None;
         }
         let halfsize_x = fence_width * 0.5;
         let halfsize_y = self.grid_size / 10.0;
@@ -618,13 +626,18 @@ impl PathfindingGrid {
         let num_steps_y = ((2.0 * halfsize_y / step).ceil() as i32).max(1);
         let mut tl_x = world.x - fence_x_offset * c - halfsize_y * s;
         let mut tl_z = world.z + halfsize_y * c - fence_x_offset * s;
+        let mut lo = GridPos::new(i32::MAX, i32::MAX);
+        let mut hi = GridPos::new(i32::MIN, i32::MIN);
+        let mut did = false;
         for _iy in 0..num_steps_y {
             let mut x = tl_x;
             let mut z = tl_z;
             for _ix in 0..num_steps_x {
-                let cell = self.world_to_grid(Vec3::new(x, 0.0, z));
+                let cell = self.classify_world_to_cell(x, z);
                 if self.is_valid_pos(cell) {
                     self.set_cell_obstacle(cell, true, is_transparent);
+                    Self::expand_stamp_bounds(&mut lo, &mut hi, cell);
+                    did = true;
                 }
                 x += xdx;
                 z += xdy;
@@ -632,7 +645,267 @@ impl PathfindingGrid {
             tl_x += ydx;
             tl_z += ydy;
         }
+        if did {
+            Some((lo, hi))
+        } else {
+            None
+        }
     }
+
+
+    /// C++ `REAL_TO_INT_FLOOR((x+0.5)/PATHFIND_CELL_SIZE)` used by classify raster.
+    fn classify_world_to_cell(&self, x: f32, z: f32) -> GridPos {
+        GridPos {
+            x: ((x - self.origin.x + 0.5) / self.grid_size).floor() as i32,
+            y: ((z - self.origin.z + 0.5) / self.grid_size).floor() as i32,
+        }
+    }
+
+    fn expand_stamp_bounds(lo: &mut GridPos, hi: &mut GridPos, cell: GridPos) {
+        lo.x = lo.x.min(cell.x);
+        lo.y = lo.y.min(cell.y);
+        hi.x = hi.x.max(cell.x);
+        hi.y = hi.y.max(cell.y);
+    }
+
+    /// Leftover `classify.rs` / C++ `internal_classifyObjectFootprint` (AIPathfind.cpp:4175-4290).
+    /// Oriented GEOMETRY_BOX raster or cylinder/sphere disc. Returns stamped bounds.
+    pub fn classify_object_footprint(
+        &mut self,
+        obj: &Object,
+        as_rubble: bool,
+    ) -> Option<(GridPos, GridPos)> {
+        if obj.is_kind_of(KindOf::Mine)
+            || obj.is_kind_of(KindOf::Projectile)
+            || obj.is_kind_of(KindOf::BridgeTower)
+        {
+            return None;
+        }
+        let fence_width = obj.thing.template.fence_width;
+        if fence_width > 0.0 && !obj.is_kind_of(KindOf::DefensiveWall) {
+            return self.classify_fence_world(
+                obj.get_position(),
+                obj.get_orientation(),
+                fence_width,
+                obj.thing.template.fence_x_offset,
+                obj.is_kind_of(KindOf::CanSeeThrough),
+            );
+        }
+        if !obj.is_kind_of(KindOf::Structure) {
+            return None;
+        }
+        if obj.is_mobile() {
+            return None;
+        }
+        let geom = obj.thing.template.geometry_info;
+        if geom.authored && geom.is_small {
+            return None;
+        }
+        let pos = obj.get_position();
+        let height_above = pos.y - sample_host_ground_height(pos.x, pos.z);
+        if height_above > self.grid_size {
+            return None;
+        }
+        let is_transparent = obj.is_kind_of(KindOf::CanSeeThrough);
+        let mut lo = GridPos::new(i32::MAX, i32::MAX);
+        let mut hi = GridPos::new(i32::MIN, i32::MIN);
+        let mut did = false;
+        let stamp = |grid: &mut Self, cell: GridPos, lo: &mut GridPos, hi: &mut GridPos| {
+            if !grid.is_valid_pos(cell) {
+                return false;
+            }
+            if as_rubble {
+                grid.set_cell_type(cell, PathfindCellType::Rubble);
+            } else {
+                grid.set_cell_obstacle(cell, false, is_transparent);
+            }
+            Self::expand_stamp_bounds(lo, hi, cell);
+            true
+        };
+        let geom_type = if geom.authored {
+            geom.geom_type
+        } else {
+            crate::game_logic::HostGeometryType::Cylinder
+        };
+        let major = if geom.authored && geom.major_radius > 0.0 {
+            geom.major_radius
+        } else {
+            obj.selection_radius.max(self.grid_size * 0.5)
+        };
+        let minor = if geom.authored && geom.minor_radius > 0.0 {
+            geom.minor_radius
+        } else {
+            major
+        };
+        match geom_type {
+            crate::game_logic::HostGeometryType::Box => {
+                let angle = obj.get_orientation();
+                let (s, c) = angle.sin_cos();
+                let step = self.grid_size * 0.5;
+                let ydx = s * step;
+                let ydy = -c * step;
+                let xdx = c * step;
+                let xdy = s * step;
+                let num_steps_x = ((2.0 * major / step).ceil() as i32).max(1);
+                let num_steps_y = ((2.0 * minor / step).ceil() as i32).max(1);
+                let mut tl_x = pos.x - major * c - minor * s;
+                let mut tl_z = pos.z + minor * c - major * s;
+                for _iy in 0..num_steps_y {
+                    let mut x = tl_x;
+                    let mut z = tl_z;
+                    for _ix in 0..num_steps_x {
+                        let cell = self.classify_world_to_cell(x, z);
+                        if stamp(self, cell, &mut lo, &mut hi) {
+                            did = true;
+                        }
+                        x += xdx;
+                        z += xdy;
+                    }
+                    tl_x += ydx;
+                    tl_z += ydy;
+                }
+            }
+            crate::game_logic::HostGeometryType::Sphere
+            | crate::game_logic::HostGeometryType::Cylinder => {
+                // C++ cylinder: cell-center disc, size = radius/cell + 0.4.
+                let size = major / self.grid_size + 0.4;
+                let r2 = size * size;
+                let center_x = (pos.x - self.origin.x) / self.grid_size;
+                let center_y = (pos.z - self.origin.z) / self.grid_size;
+                let top_left_x = ((pos.x - self.origin.x - major) / self.grid_size + 0.5)
+                    .floor() as i32
+                    - 1;
+                let top_left_y = ((pos.z - self.origin.z - major) / self.grid_size + 0.5)
+                    .floor() as i32
+                    - 1;
+                let bottom_right_x = top_left_x + (2.0 * size) as i32 + 2;
+                let bottom_right_y = top_left_y + (2.0 * size) as i32 + 2;
+                for j in top_left_y..bottom_right_y {
+                    for i in top_left_x..bottom_right_x {
+                        let dx = i as f32 + 0.5 - center_x;
+                        let dy = j as f32 + 0.5 - center_y;
+                        if dx * dx + dy * dy > r2 {
+                            continue;
+                        }
+                        if stamp(self, GridPos::new(i, j), &mut lo, &mut hi) {
+                            did = true;
+                        }
+                    }
+                }
+            }
+        }
+        if did {
+            Some((lo, hi))
+        } else {
+            None
+        }
+    }
+
+    /// Leftover `AStarPathfinder::refresh_pinched_cells_in_bounds` (C++ AIPathfind.cpp:4404-4477).
+    pub fn refresh_pinched_cells_in_bounds(&mut self, lo: GridPos, hi: GridPos) {
+        let min_x = lo.x.max(0);
+        let min_y = lo.y.max(0);
+        let max_x = hi.x.min(self.width.saturating_sub(1));
+        let max_y = hi.y.min(self.height.saturating_sub(1));
+        if min_x > max_x || min_y > max_y {
+            return;
+        }
+        for y in min_y..=max_y {
+            for x in min_x..=max_x {
+                let p = GridPos::new(x, y);
+                if self.cell_type(p) == PathfindCellType::Impassable {
+                    self.set_cell_type(p, PathfindCellType::Clear);
+                }
+                self.set_pinched(p, false);
+            }
+        }
+        for y in min_y..=max_y {
+            for x in min_x..=max_x {
+                let p = GridPos::new(x, y);
+                if self.cell_type(p) != PathfindCellType::Clear {
+                    continue;
+                }
+                let mut total_count = 0;
+                let mut orthogonal_count = 0;
+                for dy in -1..=1 {
+                    for dx in -1..=1 {
+                        if dx == 0 && dy == 0 {
+                            continue;
+                        }
+                        let n = GridPos::new(x + dx, y + dy);
+                        if !self.is_valid_pos(n) {
+                            continue;
+                        }
+                        if self.cell_type(n) == PathfindCellType::Clear {
+                            total_count += 1;
+                            if dx == 0 || dy == 0 {
+                                orthogonal_count += 1;
+                            }
+                        }
+                    }
+                }
+                if orthogonal_count < 2 || total_count < 4 {
+                    self.set_pinched(p, true);
+                }
+            }
+        }
+        for y in min_y..=max_y {
+            for x in min_x..=max_x {
+                let p = GridPos::new(x, y);
+                if self.is_pinched(p) && self.cell_type(p) == PathfindCellType::Clear {
+                    self.set_cell_type(p, PathfindCellType::Impassable);
+                    self.set_pinched(p, false);
+                }
+            }
+        }
+        for y in min_y..=max_y {
+            for x in min_x..=max_x {
+                let p = GridPos::new(x, y);
+                if self.cell_type(p) != PathfindCellType::Clear {
+                    continue;
+                }
+                let mut obstacle_adjacent = false;
+                for dy in -1..=1 {
+                    for dx in -1..=1 {
+                        if dx == 0 && dy == 0 {
+                            continue;
+                        }
+                        if dx != 0 && dy != 0 {
+                            continue;
+                        }
+                        let n = GridPos::new(x + dx, y + dy);
+                        if !self.is_valid_pos(n) {
+                            continue;
+                        }
+                        if self.cell_type(n) == PathfindCellType::Obstacle {
+                            obstacle_adjacent = true;
+                            break;
+                        }
+                    }
+                    if obstacle_adjacent {
+                        break;
+                    }
+                }
+                if obstacle_adjacent {
+                    self.set_pinched(p, true);
+                }
+            }
+        }
+    }
+
+    /// Leftover `refresh_pinched_bounds`: expand stamped region by 2 cells then pinch.
+    pub fn refresh_pinched_bounds(&mut self, lo: GridPos, hi: GridPos) {
+        if lo.x == i32::MAX {
+            return;
+        }
+        let lo = GridPos::new((lo.x - 2).max(0), (lo.y - 2).max(0));
+        let hi = GridPos::new(
+            (hi.x + 2).min(self.width.saturating_sub(1)),
+            (hi.y + 2).min(self.height.saturating_sub(1)),
+        );
+        self.refresh_pinched_cells_in_bounds(lo, hi);
+    }
+
 
     pub fn clear_static_blocks(&mut self) {
         self.blocked_bits.fill(0);
@@ -2118,21 +2391,21 @@ impl PathfindingGrid {
             if is_aircraft {
                 if Self::is_aircraft_that_adjusts_destination(obj) {
                     self.stamp_aircraft_goal_from_object(obj);
-                    if obj.status.airborne_target {
-                        continue;
-                    }
-                } else {
+                }
+                // C++ updatePos: !isDoingGroundMovement → removePos and return.
+                // JetAIUpdate never grounds; parked/taxiing jets do not stamp UNIT_PRESENT.
+                if !Self::is_doing_ground_movement(obj) {
                     continue;
                 }
             }
             // C++ examineNeighboringCells occupancy: infantry + vehicles + structures.
             if !(obj.is_kind_of(KindOf::Vehicle)
                 || obj.is_kind_of(KindOf::Structure)
-                || obj.is_kind_of(KindOf::Infantry)
-                || (is_aircraft && !obj.status.airborne_target))
+                || obj.is_kind_of(KindOf::Infantry))
             {
                 continue;
             }
+
             let player = obj.owner_player_id.unwrap_or(obj.team as u32);
             let moving = !obj.is_kind_of(KindOf::Structure)
                 && (!obj.movement.path.is_empty()
@@ -2348,6 +2621,26 @@ impl PathfindingGrid {
         if !self.diameter_allows(is_crusher, pos) {
             return false;
         }
+        // Leftover `check_for_adjust_ex` zone path-exists gate (AIPathfind.cpp:5198-5208).
+        if (surfaces & SURFACE_AIR) == 0 {
+            if let Some(from) = self.query_from {
+                let from_w = self.grid_to_world(from);
+                let dest_w = self.grid_to_world(pos);
+                let orig_w = self
+                    .query_orig_dest
+                    .map(|p| self.grid_to_world(p))
+                    .unwrap_or(dest_w);
+                let path_exists = self.quick_path_exists_for(from_w, orig_w, surfaces);
+                let adjusted_path_exists = self.quick_path_exists_for(from_w, dest_w, surfaces);
+                let mut ok = adjusted_path_exists;
+                if !path_exists && self.quick_path_exists_for(orig_w, dest_w, surfaces) {
+                    ok = true;
+                }
+                if !ok {
+                    return false;
+                }
+            }
+        }
         true
     }
 
@@ -2364,11 +2657,38 @@ impl PathfindingGrid {
             || obj.chinook_ai.is_some()
     }
 
+    /// C++ `AIUpdateInterface::isDoingGroundMovement` (AIUpdate.cpp:2347-2361).
+    /// Air-only / current-AIR locos never stamp UNIT_PRESENT.
+    pub fn is_doing_ground_movement(obj: &Object) -> bool {
+        use crate::game_logic::object::LOCO_SURFACE_AIR;
+        if matches!(
+            obj.loco_appearance,
+            LocomotorAppearance::Wings | LocomotorAppearance::Thrust
+        ) {
+            return false;
+        }
+        if obj.locomotor_surfaces != 0 {
+            if obj.locomotor_surfaces == LOCO_SURFACE_AIR {
+                return false;
+            }
+            if (obj.locomotor_surfaces & LOCO_SURFACE_AIR) != 0 {
+                return false;
+            }
+        }
+        if obj.is_kind_of(KindOf::Aircraft)
+            || obj.object_type == crate::game_logic::ObjectType::Aircraft
+        {
+            return false;
+        }
+        true
+    }
+
     pub fn goal_aircraft(&self, pos: GridPos) -> u32 {
         self.bit_index(pos)
             .and_then(|idx| self.occ_goal_aircraft.get(idx).copied())
             .unwrap_or(0)
     }
+
 
     pub fn has_other_aircraft_goal(&self, pos: GridPos) -> bool {
         let id = self.goal_aircraft(pos);
@@ -3462,12 +3782,6 @@ fn clear_cell_for_diameter_impl(
     )
 }
 
-/// Cell half-extent for structure path/LOS block from selection radius.
-fn structure_block_radius_cells(selection_radius: f32, grid_size: f32) -> i32 {
-    let gs = grid_size.max(1.0);
-    // At least 1 (3×3); grow with large footprints.
-    ((selection_radius / gs).ceil() as i32).max(1).min(4)
-}
 
 /// Main pathfinding system
 #[derive(Debug)]
@@ -3769,10 +4083,14 @@ impl PathfindingSystem {
         } else {
             0
         };
+        let start_seed = self.grid.clamp_pos(start);
+        let goal_seed = self.grid.clamp_pos(goal);
+        self.grid.query_from = Some(start_seed);
+        self.grid.query_orig_dest = Some(start_seed);
         let start = self
             .grid
             .adjust_destination_on_layer(
-                self.grid.clamp_pos(start),
+                start_seed,
                 surfaces,
                 is_crusher,
                 64,
@@ -3780,17 +4098,16 @@ impl PathfindingSystem {
                 crusher_level,
                 start_layer,
             )
-            .or_else(|| {
-                self.grid
-                    .nearest_static_open(self.grid.clamp_pos(start), 16)
-            })
-            .unwrap_or_else(|| self.grid.clamp_pos(start));
+            .or_else(|| self.grid.nearest_static_open(start_seed, 16))
+            .unwrap_or(start_seed);
         // C++ adjustDestination: snap water/cliff/impassable/occupied clicks
         // on destinationLayer (AIPathfind.cpp:5352-5355).
+        self.grid.query_from = Some(start);
+        self.grid.query_orig_dest = Some(goal_seed);
         let mut goal = self
             .grid
             .adjust_destination_on_layer(
-                self.grid.clamp_pos(goal),
+                goal_seed,
                 surfaces,
                 is_crusher,
                 400,
@@ -3798,11 +4115,19 @@ impl PathfindingSystem {
                 crusher_level,
                 dest_layer,
             )
-            .or_else(|| {
-                self.grid
-                    .nearest_static_open(self.grid.clamp_pos(goal), 16)
-            })
-            .unwrap_or_else(|| self.grid.clamp_pos(goal));
+            .or_else(|| self.grid.nearest_static_open(goal_seed, 16))
+            .unwrap_or(goal_seed);
+        self.grid.query_from = None;
+        self.grid.query_orig_dest = None;
+        // Disconnected clicks refuse: leftover zone gate + no march into a pocket.
+        if (surfaces & SURFACE_AIR) == 0 {
+            let from_w = self.grid.grid_to_world(start);
+            let to_w = self.grid.grid_to_world(goal);
+            if !self.grid.quick_path_exists_for(from_w, to_w, surfaces) {
+                return None;
+            }
+        }
+
         // C++ checkDestination refuses allied UNIT_GOAL cells.
         if self.grid.has_allied_goal_on(goal, self.seeker_player, dest_layer) {
             if let Some(adj) = self.grid.adjust_destination_on_layer(
@@ -4081,45 +4406,46 @@ impl PathfindingSystem {
     /// Does not clear terrain slope blocks — only ORs structure footprints.
     /// C++ `addObjectToPathfindMap` includes scaffolds (DozerAIUpdate.cpp:1698-1699).
     pub fn apply_structure_static_blocks(&mut self, objects: &HashMap<ObjectId, Object>) {
+        let mut lo = GridPos::new(i32::MAX, i32::MAX);
+        let mut hi = GridPos::new(i32::MIN, i32::MIN);
+        let mut did = false;
         for obj in objects.values() {
             let rubble = PathfindingGrid::object_is_pathfind_rubble(obj);
             if !obj.is_alive() && !rubble {
                 continue;
             }
-            let is_transparent = obj.is_kind_of(KindOf::CanSeeThrough);
-            let fence_width = obj.thing.template.fence_width;
-            let is_fence = fence_width > 0.0 && !obj.is_kind_of(KindOf::DefensiveWall);
             if rubble && obj.is_kind_of(KindOf::Structure) {
-                let radius =
-                    structure_block_radius_cells(obj.selection_radius, self.grid.grid_size());
-                let cell = self.grid.world_to_grid(obj.get_position());
-                self.grid.stamp_rubble_footprint(cell, radius);
+                if let Some((a, b)) = self.grid.classify_object_footprint(obj, true) {
+                    PathfindingGrid::expand_stamp_bounds(&mut lo, &mut hi, a);
+                    PathfindingGrid::expand_stamp_bounds(&mut lo, &mut hi, b);
+                    did = true;
+                }
                 continue;
             }
             if !obj.is_alive() {
                 continue;
             }
-            if is_fence {
-                self.grid.classify_fence_world(
-                    obj.get_position(),
-                    obj.get_orientation(),
-                    fence_width,
-                    obj.thing.template.fence_x_offset,
-                    is_transparent,
-                );
-                continue;
+            if let Some((a, b)) = self.grid.classify_object_footprint(obj, false) {
+                PathfindingGrid::expand_stamp_bounds(&mut lo, &mut hi, a);
+                PathfindingGrid::expand_stamp_bounds(&mut lo, &mut hi, b);
+                did = true;
             }
-            if !obj.is_kind_of(KindOf::Structure) {
-                continue;
-            }
-            let radius = structure_block_radius_cells(obj.selection_radius, self.grid.grid_size());
-            let cell = self.grid.world_to_grid(obj.get_position());
-            self.grid
-                .block_structure_footprint_ex(cell, radius, false, is_transparent);
+        }
+        if did {
+            self.grid.refresh_pinched_bounds(lo, hi);
         }
         self.grid.rebuild_path_zones();
         self.sync_wall_pieces_from_objects(objects);
     }
+
+    /// Incremental leftover classify + pinch for one live structure (dozer place).
+    pub fn classify_and_pinch_object(&mut self, obj: &Object) {
+        if let Some((lo, hi)) = self.grid.classify_object_footprint(obj, false) {
+            self.grid.refresh_pinched_bounds(lo, hi);
+            self.grid.rebuild_path_zones();
+        }
+    }
+
 
     /// C++ `Pathfinder::addWallPiece` from a live host object.
     pub fn add_wall_piece_from_object(&mut self, obj: &Object) {
@@ -4341,7 +4667,21 @@ impl PathfindingSystem {
         Vec3::new(obj_pos.x + nx * radius, obj_pos.y, obj_pos.z + nz * radius)
     }
 
-    /// Host residual: first tall / AIRCRAFT_PATH_AROUND structure along segment (XZ).
+    /// Leftover `tall_buildings.rs`: bounding circle + 2 pathfind cells.
+    fn aircraft_path_around_radius(obj: &Object) -> Option<f32> {
+        if !obj.is_alive() || !obj.is_kind_of(crate::game_logic::KindOf::AircraftPathAround) {
+            return None;
+        }
+        let geom = obj.thing.template.geometry_info;
+        let r = if geom.authored {
+            geom.bounding_circle_radius()
+        } else {
+            obj.selection_radius.max(0.0)
+        };
+        Some(r + 2.0 * 10.0)
+    }
+
+    /// Leftover `find_tall_building_along_segment`: AIRCRAFT_PATH_AROUND only.
     fn find_tall_building_along_segment(
         from: Vec3,
         to: Vec3,
@@ -4354,25 +4694,16 @@ impl PathfindingSystem {
         if len < 0.01 {
             return None;
         }
-        // Sample along segment like a coarse Bresenham residual.
         let steps = ((len / 5.0).ceil() as i32).clamp(1, 256);
-        let mut best: Option<(ObjectId, Vec3, f32, f32)> = None; // id,pos,r,t
+        let mut best: Option<(ObjectId, Vec3, f32, f32)> = None;
         for obj in objects.values() {
-            if !obj.is_alive() {
-                continue;
-            }
             if ignore == Some(obj.id) {
                 continue;
             }
-            let is_tall = obj.is_kind_of(crate::game_logic::KindOf::AircraftPathAround)
-                || (obj.is_kind_of(crate::game_logic::KindOf::Structure)
-                    && obj.selection_radius >= 20.0);
-            if !is_tall {
+            let Some(radius) = Self::aircraft_path_around_radius(obj) else {
                 continue;
-            }
+            };
             let p = obj.get_position();
-            let radius = obj.selection_radius.max(8.0) + 2.0 * 10.0; // +2 pathfind cells residual
-                                                                     // Closest approach of point-line in XZ.
             let t = (((p.x - from.x) * dx + (p.z - from.z) * dz) / (len * len)).clamp(0.0, 1.0);
             let cx = from.x + dx * t;
             let cz = from.z + dz * t;
@@ -4385,7 +4716,6 @@ impl PathfindingSystem {
                 _ => best = Some((obj.id, p, radius, t)),
             }
         }
-        // Also require some sample near building for honesty with C++ cell walk.
         if let Some((id, p, r, _)) = best {
             for i in 0..=steps {
                 let t = i as f32 / steps as f32;
@@ -4399,6 +4729,7 @@ impl PathfindingSystem {
         }
         None
     }
+
 
     /// C++ `Pathfinder::segmentIntersectsTallBuilding` residual (host XZ).
     /// Returns optional nudged `to` plus three insert waypoints.
@@ -4518,11 +4849,7 @@ impl PathfindingSystem {
     ) -> Option<Vec<Vec3>> {
         self.find_path_ex(start, goal, objects, false)
     }
-
-    /// C++ `Pathfinder::circleClipsTallBuilding` residual (AIPathfind.cpp:9522).
-    ///
-    /// If a tall / AIRCRAFT_PATH_AROUND building is within `circle_radius` of `to`,
-    /// write an adjusted goal on the building's radial offset toward `from`.
+    /// Leftover `circle_clips_tall_building`: AIRCRAFT_PATH_AROUND + normal offset.
     pub fn circle_clips_tall_building(
         from: Vec3,
         to: Vec3,
@@ -4530,22 +4857,15 @@ impl PathfindingSystem {
         objects: &HashMap<ObjectId, Object>,
         ignore: Option<ObjectId>,
     ) -> Option<Vec3> {
-        let mut best: Option<(Vec3, f32, f32)> = None; // bldg_pos, bldg_r, dist
+        let mut best: Option<(ObjectId, Vec3, f32, f32)> = None;
         for obj in objects.values() {
-            if !obj.is_alive() {
-                continue;
-            }
             if ignore == Some(obj.id) {
                 continue;
             }
-            let is_tall = obj.is_kind_of(crate::game_logic::KindOf::AircraftPathAround)
-                || (obj.is_kind_of(crate::game_logic::KindOf::Structure)
-                    && obj.selection_radius >= 20.0);
-            if !is_tall {
+            let Some(bldg_r) = Self::aircraft_path_around_radius(obj) else {
                 continue;
-            }
+            };
             let p = obj.get_position();
-            let bldg_r = obj.selection_radius.max(8.0) + 2.0 * 10.0;
             let dx = p.x - to.x;
             let dz = p.z - to.z;
             let d = (dx * dx + dz * dz).sqrt();
@@ -4553,36 +4873,49 @@ impl PathfindingSystem {
                 continue;
             }
             match best {
-                Some((_, _, bd)) if d >= bd => {}
-                _ => best = Some((p, bldg_r, d)),
+                Some((_, _, _, bd)) if d >= bd => {}
+                _ => best = Some((obj.id, p, bldg_r, d)),
             }
         }
-        let Some((bldg_pos, bldg_r, _)) = best else {
+        let Some((tall_id, bldg_pos, bldg_r, _)) = best else {
             return None;
         };
-
-        // Offset `to` away from building center along from→to residual.
-        let mut delta_x = to.x - bldg_pos.x;
-        let mut delta_z = to.z - bldg_pos.z;
-        let mut len = (delta_x * delta_x + delta_z * delta_z).sqrt();
-        if len < 0.1 {
-            // Degenerate: push away from `from` direction.
-            delta_x = to.x - from.x;
-            delta_z = to.z - from.z;
-            len = (delta_x * delta_x + delta_z * delta_z).sqrt();
-            if len < 0.1 {
-                delta_x = 1.0;
-                delta_z = 0.0;
-                len = 1.0;
+        let mut adjust = Self::compute_normal_radial_offset_xz(
+            from,
+            to,
+            bldg_pos,
+            circle_radius + bldg_r,
+        );
+        adjust.y = to.y;
+        // Leftover second AIRCRAFT_PATH_AROUND near adjust_to.
+        let mut other: Option<(Vec3, f32, f32)> = None;
+        for obj in objects.values() {
+            if ignore == Some(obj.id) || obj.id == tall_id {
+                continue;
+            }
+            let Some(bldg_r) = Self::aircraft_path_around_radius(obj) else {
+                continue;
+            };
+            let p = obj.get_position();
+            let dx = p.x - adjust.x;
+            let dz = p.z - adjust.z;
+            let d = (dx * dx + dz * dz).sqrt();
+            if d > circle_radius {
+                continue;
+            }
+            match other {
+                Some((_, _, bd)) if d >= bd => {}
+                _ => other = Some((p, bldg_r, d)),
             }
         }
-        let scale = (bldg_r + 1.0) / len;
-        Some(Vec3::new(
-            bldg_pos.x + delta_x * scale,
-            to.y,
-            bldg_pos.z + delta_z * scale,
-        ))
+        if let Some((op, or, _)) = other {
+            let tmp = adjust;
+            adjust = Self::compute_normal_radial_offset_xz(from, tmp, op, circle_radius + or);
+            adjust.y = to.y;
+        }
+        Some(adjust)
     }
+
 
     /// `aircraft`: apply C++ tall-building aircraft path-around residual after A*.
     pub fn find_path_ex(
@@ -5580,7 +5913,7 @@ mod tests {
         let adj = PathfindingSystem::circle_clips_tall_building(from, to, 80.0, &objects, None)
             .expect("must clip");
         let d = (adj.x * adj.x + adj.z * adj.z).sqrt();
-        // selection 30 + 20 cell pad = 50; +1 => ~51
+        // leftover/C++: bounding circle + 2 cells, then perpendicular offset
         assert!(
             d >= 45.0,
             "adjusted goal still inside building d={d} adj={adj:?}"
@@ -7221,6 +7554,154 @@ mod tests {
             "unit off the mover footprint must not fidget"
         );
     }
+
+    /// hq-8lb00: oriented box, not a clamped selection-radius square.
+    #[test]
+    fn structure_box_footprint_is_not_clamped_square() {
+        use crate::game_logic::{
+            HostGeometryInfo, HostGeometryType, KindOf, Object, ObjectId, Team, ThingTemplate,
+        };
+        let mut sys = PathfindingSystem::new(200.0, 200.0);
+        let mut objects = HashMap::new();
+        let mut tmpl = ThingTemplate::new("LongThinFactory");
+        tmpl.add_kind_of(KindOf::Structure);
+        tmpl.geometry_info = HostGeometryInfo {
+            geom_type: HostGeometryType::Box,
+            is_small: false,
+            height: 20.0,
+            major_radius: 40.0,
+            minor_radius: 8.0,
+            authored: true,
+        };
+        let mut factory = Object::new(tmpl, ObjectId(1), Team::USA);
+        factory.set_position(Vec3::new(80.0, 0.0, 80.0));
+        factory.set_orientation(0.0);
+        objects.insert(factory.id, factory);
+        sys.apply_structure_static_blocks(&objects);
+        let center = sys.grid.world_to_grid(Vec3::new(80.0, 0.0, 80.0));
+        assert!(
+            sys.grid.is_static_blocked(center),
+            "box center must stamp"
+        );
+        let along_major = sys.grid.world_to_grid(Vec3::new(110.0, 0.0, 80.0));
+        assert!(
+            sys.grid.is_static_blocked(along_major),
+            "long major axis must stamp past a 4-cell clamp"
+        );
+        let off_minor = sys.grid.world_to_grid(Vec3::new(80.0, 0.0, 110.0));
+        assert!(
+            !sys.grid.is_static_blocked(off_minor),
+            "thin minor axis must not become a square"
+        );
+    }
+
+    /// hq-hjx23: C++ pinch pass after structure stamp.
+    #[test]
+    fn structure_placement_runs_pinch_pass() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut sys = PathfindingSystem::new(200.0, 200.0);
+        let mut objects = HashMap::new();
+        let mut tmpl = ThingTemplate::new("AmericaWarFactory");
+        tmpl.add_kind_of(KindOf::Structure);
+        let mut factory = Object::new(tmpl, ObjectId(2), Team::USA);
+        factory.set_position(Vec3::new(80.0, 0.0, 80.0));
+        factory.selection_radius = 15.0;
+        objects.insert(factory.id, factory);
+        sys.apply_structure_static_blocks(&objects);
+        let center = sys.grid.world_to_grid(Vec3::new(80.0, 0.0, 80.0));
+        assert!(sys.grid.is_static_blocked(center));
+        let mut found_pinched = false;
+        for dy in -4..=4 {
+            for dx in -4..=4 {
+                if dx == 0 && dy == 0 {
+                    continue;
+                }
+                let n = GridPos::new(center.x + dx, center.y + dy);
+                if sys.grid.is_valid_pos(n)
+                    && sys.grid.cell_type(n) == PathfindCellType::Clear
+                    && sys.grid.is_pinched(n)
+                {
+                    found_pinched = true;
+                }
+            }
+        }
+        assert!(
+            found_pinched,
+            "C++ MARK_BORDER_PINCHED must mark obstacle-adjacent Clear cells"
+        );
+    }
+
+    /// hq-nkgtf: adjustDestination must not snap into a disconnected pocket.
+    #[test]
+    fn adjust_destination_rejects_disconnected_pocket() {
+        let mut g = open_grid(16, 16);
+        for y in 0..16 {
+            g.set_cell_type(GridPos::new(8, y), PathfindCellType::Water);
+        }
+        g.rebuild_path_zones();
+        let from = GridPos::new(2, 8);
+        let dest = GridPos::new(12, 8);
+        assert_ne!(g.path_zone(from), g.path_zone(dest));
+        g.query_from = Some(from);
+        g.query_orig_dest = Some(from);
+        let snapped = g.adjust_destination_ex(dest, SURFACE_GROUND, false, 64, None, 0);
+        if let Some(cell) = snapped {
+            assert_eq!(
+                g.path_zone(cell),
+                g.path_zone(from),
+                "must not accept the far-bank pocket cell {cell:?}"
+            );
+        }
+        assert_ne!(snapped, Some(dest), "disconnected dest must not be kept");
+    }
+
+    /// hq-zjbin: parked/taxiing aircraft do not stamp UNIT_PRESENT.
+    #[test]
+    fn grounded_aircraft_do_not_stamp_unit_present() {
+        use crate::game_logic::{KindOf, Object, ObjectId, ObjectType, Team, ThingTemplate};
+        let mut g = open_grid(16, 16);
+        let mut objects = HashMap::new();
+        let mut tmpl = ThingTemplate::new("AmericaJetRaptor");
+        tmpl.add_kind_of(KindOf::Aircraft);
+        tmpl.add_kind_of(KindOf::Vehicle);
+        let mut jet = Object::new(tmpl, ObjectId(7), Team::USA);
+        jet.object_type = ObjectType::Aircraft;
+        jet.loco_appearance = LocomotorAppearance::Wings;
+        jet.status.airborne_target = false;
+        jet.set_position(Vec3::new(55.0, 0.0, 55.0));
+        jet.owner_player_id = Some(0);
+        objects.insert(jet.id, jet);
+        g.update_dynamic_obstacles(&objects);
+        let center = g.world_to_grid(Vec3::new(55.0, 0.0, 55.0));
+        assert!(
+            !g.is_blocked(center),
+            "C++ updatePos never stamps air-movement UNIT_PRESENT"
+        );
+    }
+
+    /// hq-2pdvs: invented Structure+radius>=20 set must not detour aircraft.
+    #[test]
+    fn tall_building_detour_requires_aircraft_path_around() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut objects = HashMap::new();
+        let mut tmpl = ThingTemplate::new("WideBarracks");
+        tmpl.add_kind_of(KindOf::Structure);
+        let mut bldg = Object::new(tmpl, ObjectId(3), Team::USA);
+        bldg.set_position(Vec3::new(50.0, 0.0, 0.0));
+        bldg.selection_radius = 30.0;
+        objects.insert(bldg.id, bldg);
+        let from = Vec3::new(0.0, 40.0, 0.0);
+        let to = Vec3::new(100.0, 40.0, 0.0);
+        let path = PathfindingSystem::detour_path_around_tall_buildings(&[from, to], &objects);
+        assert_eq!(
+            path.len(),
+            2,
+            "without AIRCRAFT_PATH_AROUND, no invented tall detour"
+        );
+        let adj = PathfindingSystem::circle_clips_tall_building(from, to, 80.0, &objects, None);
+        assert!(adj.is_none(), "circleClips is AIRCRAFT_PATH_AROUND only");
+    }
+
 
 
 }

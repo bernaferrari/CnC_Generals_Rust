@@ -1260,6 +1260,8 @@ fn structure_topple_crush_sweep_kills_nearby_infantry() {
             st.accumulated_angle = std::f32::consts::FRAC_PI_2 - 0.05;
             st.building_height = 50.0;
             st.facing_width = 20.0;
+            st.major_radius = 0.0;
+            st.minor_radius = 0.0;
             st.last_crushed_location = 0.0;
             st.dir_x = 1.0;
             st.dir_y = 0.0;
@@ -1283,6 +1285,47 @@ fn structure_topple_crush_sweep_kills_nearby_infantry() {
         ranger.status.destroyed,
         ranger.status.effectively_dead
     );
+}
+
+#[test]
+fn structure_topple_height_from_geometry_not_maxhp() {
+    use crate::game_logic::host_structure_topple::{
+        STRUCTURE_TOPPLE_CRUSHING_WEAPON_NAME, TOPPLED_STRUCTURE_WEAPON_PRIMARY_DAMAGE,
+    };
+    use crate::game_logic::{HostGeometryInfo, HostGeometryType, KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut bt = ThingTemplate::new("AmericaWarFactory");
+    bt.set_health(5000.0);
+    bt.add_kind_of(KindOf::Structure);
+    bt.geometry_info = HostGeometryInfo {
+        geom_type: HostGeometryType::Box,
+        is_small: false,
+        height: 33.0,
+        major_radius: 40.0,
+        minor_radius: 25.0,
+        authored: true,
+    };
+    logic.templates.insert("AmericaWarFactory".into(), bt);
+    let bid = logic
+        .create_object(
+            "AmericaWarFactory",
+            Team::USA,
+            glam::Vec3::new(0.0, 0.0, 0.0),
+        )
+        .unwrap();
+    {
+        let b = logic.objects.get_mut(&bid).unwrap();
+        assert!(b.begin_structure_topple(0, Some((-10.0, 0.0))));
+        let st = b.structure_topple_data.as_ref().unwrap();
+        assert!(
+            (st.building_height - 33.0).abs() < 1e-3,
+            "height must come from geometry not maxHP, got {}",
+            st.building_height
+        );
+        assert_eq!(st.crushing_weapon_name, STRUCTURE_TOPPLE_CRUSHING_WEAPON_NAME);
+        assert!((st.crush_damage - TOPPLED_STRUCTURE_WEAPON_PRIMARY_DAMAGE).abs() < 1e-3);
+        assert!(st.crush_damage < 99999.0);
+    }
 }
 
 #[test]

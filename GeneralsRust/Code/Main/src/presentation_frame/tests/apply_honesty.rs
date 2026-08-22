@@ -1858,4 +1858,117 @@ fn transport_exit_slots_bind_occupant_portraits() {
     );
 }
 
+#[test]
+fn special_power_buttons_disabled_on_cooldown_or_in_use() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
+    let mut logic = crate::game_logic::GameLogic::new();
+    let mut puc = ThingTemplate::new("AmericaParticleCannonUplink");
+    puc.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(4000.0);
+    logic
+        .templates
+        .insert("AmericaParticleCannonUplink".into(), puc);
+    let id = logic
+        .create_object(
+            "AmericaParticleCannonUplink",
+            Team::USA,
+            glam::Vec3::ZERO,
+        )
+        .expect("puc");
+    if let Some(o) = logic.host_object_mut(id) {
+        o.status.under_construction = false;
+        o.construction_percent = 1.0;
+        o.selected = true;
+        o.special_power_ready = false;
+        o.special_power_cooldown_remaining = 45.0;
+    }
+    if let Some(p) = logic.get_player_mut(0) {
+        p.selected_objects = vec![id];
+    }
+    let cold = PresentationFrame::build_from_logic(&logic, 0).unit_command_buttons();
+    let fire = cold
+        .iter()
+        .find(|c| c.command_name.to_ascii_lowercase().contains("particleuplink"))
+        .expect("PUC fire button");
+    assert!(!fire.enabled, "cooldown PUC must be gray: {:?}", cold);
+
+    if let Some(o) = logic.host_object_mut(id) {
+        o.special_power_ready = true;
+        o.special_power_cooldown_remaining = 0.0;
+        o.set_status_using_ability(true);
+    }
+    let busy = PresentationFrame::build_from_logic(&logic, 0).unit_command_buttons();
+    let busy_fire = busy
+        .iter()
+        .find(|c| c.command_name.to_ascii_lowercase().contains("particleuplink"))
+        .expect("PUC fire while in use");
+    assert!(!busy_fire.enabled, "in-use PUC must be gray");
+
+    if let Some(o) = logic.host_object_mut(id) {
+        o.set_status_using_ability(false);
+    }
+    let ready = PresentationFrame::build_from_logic(&logic, 0).unit_command_buttons();
+    let ready_fire = ready
+        .iter()
+        .find(|c| c.command_name.to_ascii_lowercase().contains("particleuplink"))
+        .expect("PUC fire when ready");
+    assert!(ready_fire.enabled, "ready PUC must be clickable");
+}
+
+#[test]
+fn evacuate_disabled_with_zero_occupants() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
+    let mut logic = crate::game_logic::GameLogic::new();
+    let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");
+    humvee
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(200.0);
+    logic.templates.insert("AmericaVehicleHumvee".into(), humvee);
+    let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
+    ranger
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    logic.templates.insert("AmericaInfantryRanger".into(), ranger);
+    let hid = logic
+        .create_object("AmericaVehicleHumvee", Team::USA, glam::Vec3::ZERO)
+        .expect("humvee");
+    let rid = logic
+        .create_object(
+            "AmericaInfantryRanger",
+            Team::USA,
+            glam::Vec3::new(1.0, 0.0, 0.0),
+        )
+        .expect("ranger");
+    if let Some(o) = logic.host_object_mut(hid) {
+        o.selected = true;
+    }
+    if let Some(p) = logic.get_player_mut(0) {
+        p.selected_objects = vec![hid];
+    }
+    let empty = PresentationFrame::build_from_logic(&logic, 0).unit_command_buttons();
+    let evac = empty
+        .iter()
+        .find(|c| c.command_name.to_ascii_lowercase().contains("evacuate"))
+        .expect("evacuate");
+    assert!(!evac.enabled, "empty transport evacuate must be gray");
+
+    if let Some(o) = logic.host_object_mut(hid) {
+        o.occupants.push(rid);
+    }
+    if let Some(o) = logic.host_object_mut(rid) {
+        o.set_contained_by(Some(hid));
+    }
+    let loaded = PresentationFrame::build_from_logic(&logic, 0).unit_command_buttons();
+    let evac_loaded = loaded
+        .iter()
+        .find(|c| c.command_name.to_ascii_lowercase().contains("evacuate"))
+        .expect("evacuate loaded");
+    assert!(evac_loaded.enabled, "occupied transport evacuate must be live");
+}
+
 

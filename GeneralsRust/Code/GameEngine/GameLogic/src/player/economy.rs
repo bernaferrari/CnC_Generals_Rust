@@ -404,6 +404,11 @@ impl Player {
         self.is_player_dead = defeated;
     }
 
+    /// C++ Player::setPlayerDead — same latch as setDefeated.
+    pub fn set_player_dead(&mut self, dead: Bool) {
+        self.is_player_dead = dead;
+    }
+
     pub fn is_player_active(&self) -> Bool {
         !self.is_player_dead && !self.is_observer
     }

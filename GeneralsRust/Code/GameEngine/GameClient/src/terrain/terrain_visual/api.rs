@@ -14,6 +14,7 @@ pub fn init_terrain_visual() -> TerrainResult<()> {
     *global_instance = Some(TerrainVisualImpl::new());
     register_logic_height_hooks();
     register_overlay_rebuild_hooks();
+    ensure_radar_terrain_paint_source_registered();
     Ok(())
 }
 
@@ -23,7 +24,8 @@ pub fn init_terrain_visual_hooks() {
     register_logic_height_hooks();
     register_overlay_rebuild_hooks();
     register_unit_moved_hook();
-}
+    ensure_radar_terrain_paint_source_registered();
+ }
 fn register_logic_height_hooks() {
     gamelogic::helpers::register_terrain_visual_raw_height_hook(Some(
         |x, y, height| {
@@ -178,4 +180,73 @@ pub fn get_terrain_visual(
     THE_TERRAIN_VISUAL.lock().map_err(|_| {
         TerrainError::InitializationError("Failed to lock terrain visual mutex".to_string())
     })
+}
+
+/// Bind leftover TheRadar land/bridge paint to GameClient TerrainVisual + leftover TerrainLogic.
+///
+/// C++ `W3DRadar::buildTerrainTexture` (`W3DRadar.cpp:1174`, `:1142-1167`) samples
+/// `TheTerrainVisual->getTerrainColorAt` and intact-bridge `TerrainRoads->findBridge()->getRadarColor`.
+pub fn ensure_radar_terrain_paint_source_registered() {
+    let _ = game_engine::common::system::radar::register_radar_terrain_paint_source(
+        std::sync::Arc::new(ClientRadarTerrainPaintSource),
+    );
+}
+
+struct ClientRadarTerrainPaintSource;
+
+impl game_engine::common::system::radar::RadarTerrainPaintSource for ClientRadarTerrainPaintSource {
+    fn terrain_color_at(&self, world_x: f32, world_y: f32) -> Option<[f32; 3]> {
+        leftover_radar_terrain_color_at(world_x, world_y)
+    }
+
+    fn bridge_at(
+        &self,
+        world: &game_engine::common::system::radar::Coord3D,
+    ) -> Option<game_engine::common::system::radar::RadarBridgeSample> {
+        leftover_radar_bridge_at(world)
+    }
+}
+
+/// `TheTerrainVisual->getTerrainColorAt(world.x, world.y)`.
+pub fn leftover_radar_terrain_color_at(world_x: f32, world_y: f32) -> Option<[f32; 3]> {
+    let guard = get_terrain_visual().ok()?;
+    guard
+        .as_ref()?
+        .get_terrain_color_at(world_x, world_y)
+        .ok()
+}
+
+/// Intact working-bridge radar sample: object body != RUBBLE, Roads.ini color, deck-Z average.
+pub fn leftover_radar_bridge_at(
+    world: &game_engine::common::system::radar::Coord3D,
+) -> Option<game_engine::common::system::radar::RadarBridgeSample> {
+    let terrain = gamelogic::terrain::get_terrain_logic().try_read().ok()?;
+    let loc = gamelogic::common::Coord3D::new(world.x, world.y, world.z);
+    let bridge = terrain.find_bridge_at(&loc)?;
+    let info = bridge.get_bridge_info();
+    if info.bridge_object_id == gamelogic::common::INVALID_ID {
+        return None;
+    }
+    let obj = gamelogic::helpers::TheGameLogic::find_object_by_id(info.bridge_object_id)?;
+    let obj_g = obj.try_read().ok()?;
+    let body = obj_g.get_body_module()?;
+    let body_g = body.try_lock().ok()?;
+    if body_g.get_damage_state() == gamelogic::object::body::BodyDamageType::Rubble {
+        return None;
+    }
+    drop(body_g);
+    drop(obj_g);
+
+    let color = game_engine::common::ini::try_get_terrain_roads()
+        .and_then(|roads| {
+            roads
+                .find_bridge(bridge.get_bridge_template_name().as_str())
+                .map(|tmpl| {
+                    let c = tmpl.radar_color;
+                    [c.r as f32 / 255.0, c.g as f32 / 255.0, c.b as f32 / 255.0]
+                })
+        })
+        .unwrap_or([1.0, 1.0, 1.0]);
+    let height = (info.from_left.z + info.from_right.z + info.to_left.z + info.to_right.z) / 4.0;
+    Some(game_engine::common::system::radar::RadarBridgeSample { color, height })
 }

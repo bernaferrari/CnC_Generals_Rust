@@ -530,7 +530,12 @@ impl InGameUI {
             return;
         }
         if scrolling {
+            // C++ InGameUI.cpp:2796-2801 capture + SCROLL + break camera locks.
             self.set_mouse_cursor(MouseCursor::Scroll);
+            with_tactical_view(|view| {
+                view.set_camera_lock(None);
+                view.set_camera_lock_drawable(None);
+            });
         } else {
             self.set_mouse_cursor(MouseCursor::Arrow);
         }

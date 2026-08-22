@@ -891,7 +891,9 @@ impl GameLogic {
             };
             if grant {
                 if let Some(player) = self.players.get_mut(&pid) {
-                    let _ = player.unlock_science(&science_name);
+                    if !player.grant_science(&science_name) {
+                        continue;
+                    }
                     crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::sync_host_science_to_crate_player(
                         pid,
                         &science_name,
@@ -935,25 +937,33 @@ impl GameLogic {
                     let Some(pid) = self.host_player_id_for_script_token(&player) else {
                         continue;
                     };
-                    if let Some(p) = self.players.get_mut(&pid) {
-                        let _ = p.add_skill_points(delta);
-                    }
+                    let _ = self.add_player_skill_points(pid, delta);
                 }
                 HostScriptRankRequest::AddRankLevel { player, delta } => {
                     let Some(pid) = self.host_player_id_for_script_token(&player) else {
                         continue;
                     };
                     let current = self.players.get(&pid).map(|p| p.rank_level).unwrap_or(1);
-                    if let Some(p) = self.players.get_mut(&pid) {
-                        let _ = p.set_rank_level((current as i32 + delta).max(1) as u32);
+                    let changed = self
+                        .players
+                        .get_mut(&pid)
+                        .map(|p| p.set_rank_level((current as i32 + delta).max(1) as u32))
+                        .unwrap_or(false);
+                    if changed {
+                        self.try_eva_general_level_up(pid);
                     }
                 }
                 HostScriptRankRequest::SetRankLevel { player, level } => {
                     let Some(pid) = self.host_player_id_for_script_token(&player) else {
                         continue;
                     };
-                    if let Some(p) = self.players.get_mut(&pid) {
-                        let _ = p.set_rank_level(level.max(1) as u32);
+                    let changed = self
+                        .players
+                        .get_mut(&pid)
+                        .map(|p| p.set_rank_level(level.max(1) as u32))
+                        .unwrap_or(false);
+                    if changed {
+                        self.try_eva_general_level_up(pid);
                     }
                 }
                 HostScriptRankRequest::SetRankLevelLimit { limit } => {

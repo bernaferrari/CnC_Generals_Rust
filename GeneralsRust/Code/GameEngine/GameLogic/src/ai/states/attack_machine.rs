@@ -1599,6 +1599,12 @@ impl AIAttackPursueTargetState {
                 .and_then(|physics| physics.lock().ok().map(|guard| guard.get_forward_speed_2d()))
                 .unwrap_or(FAST_AS_POSSIBLE);
             desired_speed *= 0.95;
+            // C++ AIStates.cpp:3058-3060 canCrushOrSquish → FAST_AS_POSSIBLE.
+            if owner_guard
+                .can_crush_or_squish(&victim_guard, CrushSquishTestType::TestCrushOrSquish)
+            {
+                desired_speed = FAST_AS_POSSIBLE;
+            }
             ai_guard.set_desired_speed(desired_speed.max(0.0));
         } else {
             ai_guard.set_desired_speed(FAST_AS_POSSIBLE);

@@ -253,6 +253,8 @@ pub struct HostLocomotorBinding {
     pub apply_2d_friction_when_airborne: bool,
     /// C++ LocomotorTemplate::m_allowMotiveForceWhileAirborne.
     pub allow_motive_force_while_airborne: bool,
+    /// C++ LocomotorTemplate::m_airborneTargetingHeight (INT_MAX if omitted).
+    pub airborne_targeting_height: i32,
     pub can_move_backward: bool,
     pub downhill_only: bool,
     pub max_lift: f32,
@@ -886,6 +888,11 @@ fn host_locomotor_binding_from_template(t: &LocomotorTemplate) -> Option<HostLoc
         extra_2d_friction: t.extra_2d_friction,
         apply_2d_friction_when_airborne: t.apply_2d_friction_when_airborne,
         allow_motive_force_while_airborne: t.allow_motive_force_while_airborne,
+        airborne_targeting_height: if t.airborne_targeting_height == 0 {
+            i32::MAX
+        } else {
+            t.airborne_targeting_height
+        },
         can_move_backward: t.can_move_backward,
         downhill_only: t.downhill_only,
         max_lift: t.lift * FPS * FPS,
@@ -933,6 +940,7 @@ pub fn apply_host_locomotor_binding(
     object.loco_extra_2d_friction = binding.extra_2d_friction;
     object.loco_apply_2d_friction_airborne = binding.apply_2d_friction_when_airborne;
     object.allow_motive_force_while_airborne = binding.allow_motive_force_while_airborne;
+    object.airborne_targeting_height = binding.airborne_targeting_height;
     object.can_move_backward = binding.can_move_backward;
     object.downhill_only = binding.downhill_only;
     object.max_lift = binding.max_lift;
@@ -983,6 +991,7 @@ fn same_host_locomotor_behavior(left: &HostLocomotorBinding, right: &HostLocomot
         && left.extra_2d_friction == right.extra_2d_friction
         && left.apply_2d_friction_when_airborne == right.apply_2d_friction_when_airborne
         && left.allow_motive_force_while_airborne == right.allow_motive_force_while_airborne
+        && left.airborne_targeting_height == right.airborne_targeting_height
         && left.can_move_backward == right.can_move_backward
         && left.downhill_only == right.downhill_only
         && left.max_lift == right.max_lift
@@ -1563,6 +1572,25 @@ mod tests {
         let mut changed = binding;
         changed.visual_physics.pitch_damping += 1.0;
         assert!(!same_host_locomotor_behavior(&binding, &changed));
+    }
+
+    #[test]
+    fn omitted_airborne_targeting_height_binds_int_max() {
+        let mut properties = HashMap::new();
+        properties.insert("Speed".to_string(), "20".to_string());
+        properties.insert("Surfaces".to_string(), "GROUND".to_string());
+        let omitted = parse_locomotor_template_definition("GroundNoHeight", &properties)
+            .expect("parse ground locomotor");
+        let omitted_binding =
+            host_locomotor_binding_from_template(&omitted).expect("bind omitted height");
+        assert_eq!(omitted_binding.airborne_targeting_height, i32::MAX);
+
+        properties.insert("AirborneTargetingHeight".to_string(), "30".to_string());
+        let authored = parse_locomotor_template_definition("AirHeightLoco", &properties)
+            .expect("parse authored height");
+        let authored_binding =
+            host_locomotor_binding_from_template(&authored).expect("bind authored height");
+        assert_eq!(authored_binding.airborne_targeting_height, 30);
     }
 
     #[test]

@@ -120,6 +120,15 @@ impl PresentationFrame {
         {
             return false;
         }
+        // C++ ControlBarCommand.cpp:1361-1372 — Evacuate Restricted at containCount<=0.
+        if n.contains("evacuate") {
+            return ro.normal_enter_occupant_count() > 0;
+        }
+        // C++ ControlBarCommand.cpp:1385-1424 — not ready => NOT_READY; in-use => RESTRICTED.
+        // Live strip only had capture; PUC / snipe / leaflet stayed clickable on cooldown.
+        if host_command_uses_special_power_ready(&n) {
+            return ro.special_power_ready && !ro.using_ability;
+        }
         true
     }
 
@@ -297,6 +306,25 @@ fn command_is_script_only(name: &str) -> bool {
     game_engine::common::ini::ini_command_button::get_control_bar()
         .and_then(|bar| bar.find_command_button_resolved(name).cloned())
         .is_some_and(|button| button.options.scripted_only)
+}
+
+/// C++ GUI_COMMAND_SPECIAL_POWER* readiness. Capture/detonate/drop stay on their own gates.
+fn host_command_uses_special_power_ready(n: &str) -> bool {
+    n.contains("particleuplink")
+        || n.contains("particlecannon")
+        || n.contains("leafletdrop")
+        || n.contains("snipe")
+        || n.contains("specialpower")
+        || n.contains("spysatellite")
+        || n.contains("spectregunship")
+        || n.contains("a10thunderbolt")
+        || n.contains("scudstorm")
+        || n.contains("nuclearmissile")
+        || n.contains("neutronmissile")
+        || n.contains("cashhack")
+        || n.contains("sneakattack")
+        || n.contains("ciaintelligence")
+        || n.contains("gpsscrambler")
 }
 
 fn residual_command_set_name_for_template(template_name: &str) -> Option<&'static str> {

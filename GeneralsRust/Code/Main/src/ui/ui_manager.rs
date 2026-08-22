@@ -79,8 +79,12 @@ pub enum UIEvent {
         template_name: String,
         quantity: u32,
     },
-    /// C++ ProductionUpdate cancel residual (RMB on queue/cameo).
-    CancelUnitProduction { template_name: String },
+    /// C++ ControlBar CANCEL_UNIT_BUILD residual (LMB on queue slot productionID).
+    CancelUnitProduction {
+        template_name: String,
+        production_id: u32,
+        queue_index: usize,
+    },
     /// C++ ControlBar named command residual (Upgrade/Cancel/Stop/…).
     IssueCommand { command_name: String },
     /// C++ dozer structure placement mode residual (cameo selected, awaiting map click).
@@ -880,9 +884,16 @@ impl UIManager {
                         quantity,
                     });
                 }
-                UIEvent::CancelUnitProduction { template_name } => {
-                    self.event_queue
-                        .push(UIEvent::CancelUnitProduction { template_name });
+                UIEvent::CancelUnitProduction {
+                    template_name,
+                    production_id,
+                    queue_index,
+                } => {
+                    self.event_queue.push(UIEvent::CancelUnitProduction {
+                        template_name,
+                        production_id,
+                        queue_index,
+                    });
                 }
                 UIEvent::IssueCommand { command_name } => {
                     self.event_queue

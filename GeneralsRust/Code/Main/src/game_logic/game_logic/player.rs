@@ -1127,6 +1127,14 @@ impl Player {
         inserted
     }
 
+    /// C++ `Player::grantScience` — refuse when `ScienceStore::isScienceGrantable` is false.
+    pub fn grant_science(&mut self, science_name: &str) -> bool {
+        if !host_science_is_grantable(science_name) {
+            return false;
+        }
+        self.unlock_science(science_name)
+    }
+
     /// C++ Player::resetSciences / IntrinsicSciences + Rank1 residual at match start.
     ///
     /// Grants faction SCIENCE_AMERICA/CHINA/GLA, SCIENCE_Rank1, and Rank1
@@ -1480,6 +1488,29 @@ impl Player {
     pub fn set_can_build_base(&mut self, can_build: bool) {
         self.can_build_base = can_build;
     }
+}
+
+/// C++ `ScienceStore::isScienceGrantable` — unknown science is not grantable.
+fn host_science_is_grantable(science_name: &str) -> bool {
+    let name = science_name.trim();
+    if name.is_empty() {
+        return false;
+    }
+    if let Some(store) = game_engine::common::rts::get_science_store() {
+        let science = store.get_science_from_internal_name(name);
+        if science != game_engine::common::rts::SCIENCE_INVALID {
+            return store.is_science_grantable(science);
+        }
+    }
+    let leftover = game_engine::common::ini::ini_science::get_science_store();
+    if let Some(st) = leftover.get_science_from_internal_name(name) {
+        return leftover.is_science_grantable(st);
+    }
+    crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::science_store_row_wave109(
+        name,
+    )
+    .map(|row| row.grantable)
+    .unwrap_or(false)
 }
 
 

@@ -89,8 +89,7 @@ pub(super) fn pick_widened_context_target(
         if o.destroyed {
             continue;
         }
-        let is_local = player_team.is_some() && frame.is_owned_by_local(o);
-        if !is_local && o.fow_visibility.visibility_alpha < 0.95 {
+        if frame.box_pick_hides_non_local(o) {
             continue;
         }
         let extra = (profile.include_mines && presentation_is_mine_pick(o))
@@ -126,8 +125,7 @@ fn pick_widened_context_target_along_ray(
         if o.destroyed {
             continue;
         }
-        let is_local = player_team.is_some() && frame.is_owned_by_local(o);
-        if !is_local && o.fow_visibility.visibility_alpha < 0.95 {
+        if frame.box_pick_hides_non_local(o) {
             continue;
         }
         let extra = (profile.include_mines && presentation_is_mine_pick(o))
@@ -874,53 +872,14 @@ impl CnCGameEngine {
 
     /// Select all idle friendly combat units residual (Ctrl+I).
 
-    /// Purchase next available GeneralsExperience science residual (Alt+G).
+    /// C++ `ControlBar::togglePurchaseScience` / leftover `on_generals_button`.
+    /// Alt+G and empty-name PurchaseScience open the promotion screen only;
+    /// purchase is the clicked science (`GameLogicDispatch` attemptToPurchaseScience).
     pub(super) fn try_purchase_next_generals_science(&mut self) {
-        // Wave 234: science points/team prefer presentation freeze for UI gate.
-        let player_id = self.current_player_id;
-        let spp = self.ui_local_science_purchase_points();
-        if spp <= 0 {
-            let msg = "No science purchase points";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
-            return;
-        }
-        // C++ ControlBar.cpp:143-485 populatePurchaseScience — open the purchase
-        // screen. First-capable science comes from Science.ini residual graph,
-        // not a hardcoded 5-name faction array.
         #[cfg(feature = "game_client")]
         {
             game_client::helpers::TheControlBar::toggle_purchase_science();
         }
-        let unlocked_vec: Vec<String> = self.presentation_or_boot_unlocked_sciences(player_id);
-        let unlocked: std::collections::HashSet<String> = unlocked_vec.into_iter().collect();
-        let Some(science_name) =
-            crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::first_capable_purchase_science_residual(
-                &unlocked,
-                spp,
-            )
-        else {
-            let msg = format!("No purchasable science (spp={spp})");
-            self.game_hud.push_info_message(&msg);
-            self.ui_manager.game_hud_mut().push_info_message(&msg);
-            return;
-        };
-
-        // Wave 584: host queue purchase-science residual.
-        self.host_queue_command(crate::command_system::GameCommand {
-            command_type: crate::command_system::CommandType::PurchaseScience {
-                science_name: science_name.clone(),
-            },
-            player_id,
-            command_id: 0,
-            timestamp: std::time::SystemTime::now(),
-            selected_units: Vec::new(),
-            modifier_keys: crate::command_system::ModifierKeys::default(),
-        });
-        let msg = format!("Purchased {science_name}");
-        self.game_hud.push_info_message(&msg);
-        self.ui_manager.game_hud_mut().push_info_message(&msg);
-        self.play_sound_effect(SoundType::Command);
     }
 
 
@@ -1882,11 +1841,10 @@ impl CnCGameEngine {
     }
 
     fn select_all_units_by_type(&mut self, aircraft_only: bool) {
-        let (team, incompatible, candidates, on_screen) = {
+        let (incompatible, current, candidates, on_screen) = {
             let Some(frame) = self.last_presentation_frame.as_ref() else {
                 return;
             };
-            let team = frame.local_team();
             let current = self.ui_selected_ids(self.current_player_id);
             let incompatible = current.iter().any(|id| {
                 frame.objects.iter().any(|o| {
@@ -1900,7 +1858,7 @@ impl CnCGameEngine {
                             )))
                 })
             });
-            let candidates = frame.alive_select_all_unit_ids(team, aircraft_only);
+            let candidates = frame.alive_select_all_unit_ids(frame.local_team(), aircraft_only);
             let (vw, vh) = self.tactical_viewport_size();
             let viewport = glam::Vec2::new(vw, vh);
             let on_screen = frame.filter_ids_on_screen(
@@ -1909,25 +1867,47 @@ impl CnCGameEngine {
                 self.projection_matrix,
                 viewport,
             );
-            (team, incompatible, candidates, on_screen)
+            (incompatible, current, candidates, on_screen)
         };
-        let _ = team;
-        if incompatible {
+        // C++ CommandXlat 1.03: deselect incompatible current, then add.
+        let mut kept = if incompatible {
             self.host_set_selection(self.current_player_id, Vec::new());
-        }
-        let (selection, msg) = if !on_screen.is_empty() {
-            (on_screen, "GUI:SelectedAcrossScreen")
-        } else if !candidates.is_empty() {
-            (candidates, "GUI:SelectedAcrossMap")
+            Vec::new()
         } else {
-            (Vec::new(), "GUI:NothingSelected")
+            current
         };
-        if selection.is_empty() && msg == "GUI:NothingSelected" {
+        // C++ kindOfUnitSelection skips already-selected; AcrossScreen then AcrossMap.
+        let already: std::collections::HashSet<_> = kept.iter().copied().collect();
+        let on_screen_new: Vec<_> = on_screen
+            .into_iter()
+            .filter(|id| !already.contains(id))
+            .collect();
+        let (added, msg) = if !on_screen_new.is_empty() {
+            (on_screen_new, "GUI:SelectedAcrossScreen")
+        } else {
+            let map_new: Vec<_> = candidates
+                .into_iter()
+                .filter(|id| !already.contains(id))
+                .collect();
+            if !map_new.is_empty() {
+                (map_new, "GUI:SelectedAcrossMap")
+            } else if kept.is_empty() {
+                (Vec::new(), "GUI:NothingSelected")
+            } else {
+                (Vec::new(), "GUI:SelectedAcrossMap")
+            }
+        };
+        if added.is_empty() && msg == "GUI:NothingSelected" {
             self.game_hud.push_info_message(msg);
             self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
-        self.host_set_selection(self.current_player_id, selection);
+        for id in added {
+            if !kept.contains(&id) {
+                kept.push(id);
+            }
+        }
+        self.host_set_selection(self.current_player_id, kept);
         if !self.selected_objects.is_empty() {
             self.play_sound_effect(SoundType::Select);
         }

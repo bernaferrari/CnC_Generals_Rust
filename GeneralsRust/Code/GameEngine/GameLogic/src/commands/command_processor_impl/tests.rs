@@ -194,4 +194,39 @@ mod tests {
 
         assert_eq!(override_destination_fallthrough_target_id(&queued), None);
     }
+
+    #[test]
+    fn rally_point_set_message_substitutes_building_display_name() {
+        assert_eq!(
+            format_rally_point_set_message("Rally point set for %s.", "War Factory"),
+            "Rally point set for War Factory."
+        );
+        assert_eq!(
+            format_rally_point_set_message("GUI:RallyPointSet", "Barracks"),
+            "Rally point set for Barracks"
+        );
+    }
+
+    #[test]
+    fn rally_no_path_uses_basic_human_locomotor_not_building_loco() {
+        let set = basic_human_rally_locomotor_set();
+        assert_eq!(
+            set.get_valid_surfaces(),
+            crate::locomotor::SURFACE_GROUND,
+            "C++ doSetRallyPoint checks BasicHumanLocomotor ground surfaces"
+        );
+        assert!(
+            set.find_locomotor(crate::locomotor::SURFACE_GROUND).is_some(),
+            "rally gate must carry a ground unit locomotor"
+        );
+        let src = include_str!("handler_build.rs");
+        assert!(
+            src.contains("BasicHumanLocomotor") && src.contains("basic_human_rally_locomotor_set"),
+            "leftover SetRallyPoint must use BasicHumanLocomotor, not the building AI set"
+        );
+        assert!(
+            !src.contains("get_locomotor_set_clone"),
+            "building locomotor must not gate rally path"
+        );
+    }
 }

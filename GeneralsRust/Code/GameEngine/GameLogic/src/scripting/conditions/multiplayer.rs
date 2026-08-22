@@ -65,44 +65,9 @@ impl ScriptCondition for MultiplayerAlliedDefeatCondition {
         _parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        let Ok(players) = player_list().read() else {
-            return Ok(false);
-        };
-        let Some(local_player_arc) = players.get_local_player().cloned() else {
-            return Ok(false);
-        };
-        let Ok(local_player) = local_player_arc.read() else {
-            return Ok(false);
-        };
-        let local_index = local_player.get_player_index();
-        let mut allied_count = 0usize;
-
-        for player_arc in players.iter() {
-            let Ok(player) = player_arc.read() else {
-                continue;
-            };
-            if player.get_player_type() == PlayerType::Neutral || player.is_player_observer() {
-                continue;
-            }
-
-            if player.get_player_index() == local_index {
-                allied_count += 1;
-                if !player.is_defeated() {
-                    return Ok(false);
-                }
-                continue;
-            }
-
-            if local_player.is_allied_with_player(&player) {
-                allied_count += 1;
-                if !player.is_defeated() {
-                    return Ok(false);
-                }
-            }
-        }
-
-        Ok(allied_count > 0)
+        Ok(TheVictoryConditions::is_local_allied_defeat())
     }
+
 
     fn name(&self) -> &str {
         "multiplayer_allied_defeat"

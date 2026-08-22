@@ -485,7 +485,8 @@ impl GameLogic {
         use crate::game_logic::AttackSubState;
         match sub {
             AttackSubState::AimAtTarget => {
-                if out_of_wr {
+                // C++ AIM conditions: outOfWeaponRangeObject OR wantToSquishTarget → CHASE.
+                if out_of_wr || self.want_to_squish_target(unit_id, victim_id) {
                     let chase = self.should_chase_attack_target(unit_id, victim_id);
                     if let Some(u) = self.objects.get_mut(&unit_id) {
                         u.attack_substate = if chase {
@@ -512,7 +513,8 @@ impl GameLogic {
                 AttackMachineResult::Continue
             }
             AttackSubState::FireWeapon => {
-                if out_of_wr {
+                // C++ FIRE conditions: outOfWeaponRangeObject OR wantToSquishTarget → CHASE.
+                if out_of_wr || self.want_to_squish_target(unit_id, victim_id) {
                     let chase = self.should_chase_attack_target(unit_id, victim_id);
                     if let Some(u) = self.objects.get_mut(&unit_id) {
                         u.attack_substate = if chase {
@@ -579,13 +581,22 @@ impl GameLogic {
                         return AttackMachineResult::Continue;
                     }
                 }
-                if in_range {
+                let (victim_spd, can_crush) = {
+                    use gamelogic::common::Relationship;
+                    let Some(victim) = self.objects.get(&victim_id) else {
+                        return AttackMachineResult::Success;
+                    };
+                    let Some(attacker) = self.objects.get(&unit_id) else {
+                        return AttackMachineResult::Failure;
+                    };
+                    let is_ally = self.object_relationship(attacker, victim) == Relationship::Allies;
+                    (
+                        victim.forward_speed_2d().abs(),
+                        attacker.can_crush_or_squish(victim, is_ally),
+                    )
+                };
+                if in_range && !can_crush {
                     // Match speeds residual while goal still in range (victim * 0.95).
-                    let victim_spd = self
-                        .objects
-                        .get(&victim_id)
-                        .map(|v| v.forward_speed_2d().abs())
-                        .unwrap_or(0.0);
                     if let Some(attacker) = self.objects.get_mut(&unit_id) {
                         let desired = victim_spd * 0.95;
                         let vel = attacker.movement.velocity;
@@ -600,6 +611,14 @@ impl GameLogic {
                     }
                     let _ = self.attack_aim_at_target_enter(unit_id);
                     return AttackMachineResult::Continue;
+                }
+                // C++ AIStates.cpp:3058-3060: canCrushOrSquish → FAST_AS_POSSIBLE
+                // so tanks run over fleeing infantry instead of pacing at victim*0.95.
+                if can_crush {
+                    if let Some(attacker) = self.objects.get_mut(&unit_id) {
+                        attacker.group_speed_factor = 1.0;
+                        attacker.bump_speed_limit = f32::MAX;
+                    }
                 }
                 // canPursue false → drop to Approach (C++ onEnter SUCCESS → approach).
                 if !self.should_chase_attack_target(unit_id, victim_id) {

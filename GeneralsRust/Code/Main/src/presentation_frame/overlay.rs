@@ -222,7 +222,8 @@ impl PresentationFrame {
                     model_key: fallback_model_key.clone(),
                     ..Default::default()
                 });
-            let draw_models = crate::assets::resolve_presentation_draw_models_for_conditions(
+            let draw_models = crate::assets::resolve_presentation_draw_models_for_live_object(
+                obj.id.0,
                 &ent.template.name,
                 fallback_draw_models.as_slice(),
                 ent.model_condition_bits,
@@ -235,6 +236,22 @@ impl PresentationFrame {
             if obj.draw_models != draw_models {
                 obj.draw_models = draw_models;
                 dirty = true;
+            }
+            if crate::assets::authored_draw_adjusts_height_by_construction(&obj.draw_models) {
+                let cpp_percent = if obj.under_construction
+                    || obj.construction_percent + 1e-4 < 1.0
+                {
+                    obj.construction_percent * 100.0
+                } else {
+                    -1.0
+                };
+                if let Some(dy) = crate::assets::construction_percent_height_delta(
+                    cpp_percent,
+                    obj.selection_radius.max(1.0),
+                ) {
+                    obj.position.y += dy;
+                    dirty = true;
+                }
             }
             if ent.mesh_scale.is_finite()
                 && ent.mesh_scale > 0.0
@@ -1405,7 +1422,8 @@ impl PresentationFrame {
                 model_key: fallback_model_key,
                 ..Default::default()
             });
-        let draw_models = crate::assets::resolve_presentation_draw_models_for_conditions(
+        let draw_models = crate::assets::resolve_presentation_draw_models_for_live_object(
+            host_id.0,
             &ent.template.name,
             fallback_draw_models.as_slice(),
             ent.model_condition_bits,
@@ -1851,6 +1869,8 @@ impl PresentationFrame {
                 };
                 r + 10.0
             },
+            max_height_above_position: 0.0,
+
             // Wave 493: engine-bridge + ground height from GW entity residual.
             engine_bridged: ent.engine_bridged,
             fow_visibility: {

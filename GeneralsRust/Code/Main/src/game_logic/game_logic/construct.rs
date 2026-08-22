@@ -685,6 +685,8 @@ impl GameLogic {
     /// Reset method - matching C++ GameLogic interface
     pub fn reset(&mut self) {
         log::debug!("GameLogic::reset() - resetting game state");
+        crate::assets::clear_live_draw_playback();
+
         self.objects.clear();
         self.host_view_dirty.clear();
         self.players.clear();

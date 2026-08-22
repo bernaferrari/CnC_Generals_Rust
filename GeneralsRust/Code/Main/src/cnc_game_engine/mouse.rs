@@ -1034,7 +1034,7 @@ impl CnCGameEngine {
             frame.objects.iter().any(|o| {
                 o.id == object_id
                     && crate::unit_control::UnitControlSystem::presentation_is_selectable(o)
-                    && (frame.is_owned_by_local(o) || o.fow_visibility.visibility_alpha >= 0.95)
+                    && !frame.box_pick_hides_non_local(o)
             })
         })
     }
@@ -3231,7 +3231,7 @@ impl CnCGameEngine {
                 && !x.destroyed
                 && !x.sold
                 && !x.masked
-                && (frame.is_owned_by_local(x) || x.fow_visibility.visibility_alpha >= 0.95)
+                && !frame.box_pick_hides_non_local(x)
         })?;
         let is_neutral = o.team == crate::game_logic::Team::Neutral;
         let is_enemy = frame.is_enemy_of_local(o);
@@ -3554,7 +3554,10 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         {
             game_client::display::view::with_tactical_view(|view| {
+                // C++ InGameUI.cpp:2800-2801 setCameraLock(INVALID) +
+                // setCameraLockDrawable(NULL).
                 view.set_camera_lock(None);
+                view.set_camera_lock_drawable(None);
             });
         }
     }
@@ -3715,19 +3718,24 @@ impl CnCGameEngine {
                 view.set_mouse_lock(true);
             });
         }
+        // C++ InGameUI.cpp:2797 setMouseCursor(SCROLL).
+        self.last_context_cursor = Some("Scroll");
+        self.window.set_cursor(winit::window::CursorIcon::AllScroll);
     }
 
     /// C++ `LookAtXlat.cpp:65-76` `stopScrolling`.
     pub(super) fn stop_rmb_lookat_scroll(&mut self) {
         lookat_stamp_mouse_activity(self.frame_counter);
-        let prev = {
+        {
             let mut modes = look_at_host_modes();
             modes.mouse_locked = false;
             if modes.scroll_type == LookAtScrollType::Rmb {
                 modes.scroll_type = LookAtScrollType::None;
             }
-            modes.prev_cursor.take()
-        };
+            // C++ LookAtXlat.cpp:70 TheMouse->setCursor(prevCursor) — applied
+            // below via force-resync so the SCROLL icon cannot stick.
+            let _prev = modes.prev_cursor.take();
+        }
         self.is_rmb_scrolling = false;
         self.rmb_scroll_anchor = None;
         #[cfg(feature = "game_client")]
@@ -3737,8 +3745,7 @@ impl CnCGameEngine {
                 view.set_mouse_lock(false);
             });
         }
-        // C++ LookAtXlat.cpp:70 TheMouse->setCursor(prevCursor).
-        self.last_context_cursor = prev;
+        self.last_context_cursor = None;
         self.sync_context_mouse_cursor();
     }
 
@@ -4485,6 +4492,30 @@ mod camera_pick_tests {
             "player rotate/zoom/scroll must cancel scripted camera"
         );
     }
+
+    #[test]
+    fn rmb_set_scrolling_breaks_camera_lock() {
+        // C++ InGameUI.cpp:2799-2801 setCameraLock(INVALID) + setCameraLockDrawable(NULL).
+        let src = include_str!("mouse.rs");
+        let start = src
+            .find("fn start_rmb_lookat_scroll")
+            .expect("start_rmb_lookat_scroll");
+        let body = &src[start..src.len().min(start + 900)];
+        assert!(
+            body.contains("break_camera_follow_lock"),
+            "RMB setScrolling must break camera lock"
+        );
+        let brk = src
+            .find("fn break_camera_follow_lock")
+            .expect("break_camera_follow_lock");
+        let brk_body = &src[brk..src.len().min(brk + 500)];
+        assert!(
+            brk_body.contains("set_camera_lock(None)")
+                && brk_body.contains("set_camera_lock_drawable(None)"),
+            "setScrolling clears lock + drawable"
+        );
+    }
+
 
     #[test]
     fn airborne_look_at_ray_hits_ground_plane() {

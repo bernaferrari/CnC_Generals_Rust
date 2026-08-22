@@ -80,8 +80,9 @@ pub use height_map::{
     ShoreLineTile, TCliffInfo,
 };
 pub use terrain_visual::{
-    notify_terrain_unit_moved, rebuild_shoreline, rebuild_tank_tracks, TerrainSmudge,
-    TerrainWaterArea,
+    ensure_radar_terrain_paint_source_registered, leftover_radar_bridge_at,
+    leftover_radar_terrain_color_at, notify_terrain_unit_moved, rebuild_shoreline,
+    rebuild_tank_tracks, TerrainSmudge, TerrainWaterArea,
 };
 pub use manager::TerrainManager;
 pub use roads::{Road, RoadSystem, RoadType};
