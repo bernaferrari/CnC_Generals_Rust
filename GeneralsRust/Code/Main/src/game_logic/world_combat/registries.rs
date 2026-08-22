@@ -1552,6 +1552,15 @@ impl GameLogic {
             .collect();
         let mut destroy = Vec::new();
         for id in ids {
+            let (pos, ground) = {
+                let Some(o) = self.objects.get(&id) else {
+                    continue;
+                };
+                (o.get_position(), o.ground_height)
+            };
+            let terrain_y = self.terrain_height_at(pos).unwrap_or(ground);
+            let surface = self.ground_or_structure_height_at(pos, terrain_y);
+            let structure_h = (surface - terrain_y).max(0.0);
             let (grounded, ignition_fx, target, producer) = {
                 let Some(o) = self.objects.get_mut(&id) else {
                     continue;
@@ -1562,7 +1571,7 @@ impl GameLogic {
                     continue;
                 };
                 let target = data.target;
-                let tick = data.tick(pos, self.frame);
+                let tick = data.tick_at_surface(pos, self.frame, terrain_y, structure_h);
                 let grounded = tick.grounded;
                 let ignition_fx = tick.ignition_fx;
                 let new_pos = tick.pos;

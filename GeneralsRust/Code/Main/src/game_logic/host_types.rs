@@ -421,6 +421,12 @@ pub struct ObjectStatus {
     /// C++ SpyVisionUpdate::setDisabledUntilFrame residual (Internet Center sabotage).
     #[serde(default)]
     pub spy_vision_disabled_until_frame: u32,
+    /// C++ SpyVisionUpdate m_resetTimersNextUpdate (sabotage/EMP edge).
+    #[serde(default)]
+    pub spy_vision_reset_timers: bool,
+    /// C++ SpyVisionUpdate self-powered Hack II next wake (after interval).
+    #[serde(default)]
+    pub spy_vision_hack_two_wake_frame: u32,
     /// C++ OBJECT_STATUS_FAERIE_FIRE residual (AvengerTargetDesignator paint).
     /// Attackers shooting a painted target gain TARGET_FAERIE_FIRE 150% ROF.
     #[serde(default)]

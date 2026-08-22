@@ -62,6 +62,12 @@ pub struct HostJetAi {
     pub lockon_pos: Option<[f32; 3]>,
     pub lockon_hidden: bool,
     pub lockon_tick_pending: bool,
+    /// C++ `JetAIUpdate::m_lockonDrawable` objectless DrawableID.
+    #[serde(default)]
+    pub lockon_drawable_id: Option<u32>,
+    /// C++ `JetTakeoffOrLandingState::m_landingSoundPlayed`.
+    #[serde(default)]
+    pub landing_sound_played: bool,
 }
 
 /// Pending command reconstituted after airfield reload.
@@ -86,13 +92,19 @@ pub const STEALTH_FIGHTER_LOCKON_BLINKY: bool = true;
 /// Retail `TakeoffPause` 500ms → 15 frames for runway jets.
 pub const JET_TAKEOFF_PAUSE_MS: u32 = 500;
 pub const JET_TAKEOFF_PAUSE_FRAMES: u32 = 15;
+/// MiscAudio.ini slot; queue `resolve_misc_audio_event` playable name, not this token.
 pub const JET_LOCKON_TICK_SOUND: &str = "LockonTickSound";
+/// UnitSpecificSounds slot; queue `resolve_per_unit_sound` playable name, not this token.
 pub const JET_AFTERBURNER_SOUND: &str = "Afterburner";
 pub const JET_RTB_PHASE_APPROACH: u8 = 1;
 pub const JET_RTB_PHASE_LANDING: u8 = 2;
 pub const JET_RTB_PHASE_TAXI: u8 = 3;
 /// C++ `TheAudio->removeAudioEvent` counterpart for Afterburner.
 pub const JET_AFTERBURNER_SOUND_STOP: &str = "AfterburnerStop";
+/// MiscAudio.ini slot; queue `resolve_misc_audio_event` playable name, not this token.
+pub const JET_WHEEL_SCREECH_SOUND: &str = "AircraftWheelScreech";
+/// C++ `zSlop = 0.25f` first-contact slop (JetAIUpdate.cpp:822).
+pub const JET_WHEEL_SCREECH_Z_SLOP: f32 = 0.25;
 
 impl Object {
     /// C++ JetSlowDeathBehavior residual begin.

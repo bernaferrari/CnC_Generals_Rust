@@ -78,6 +78,9 @@ pub mod host_cash_bounty;
 #[path = "host_cia_intelligence.rs"]
 pub mod host_cia_intelligence;
 
+#[path = "host_satellite_hack.rs"]
+pub mod host_satellite_hack;
+
 #[path = "host_cleanup_area.rs"]
 pub mod host_cleanup_area;
 

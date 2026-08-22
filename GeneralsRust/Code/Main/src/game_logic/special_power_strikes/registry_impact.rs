@@ -142,51 +142,56 @@ impl HostSpecialPowerStrikeRegistry {
                 (vec![strike.target_position], 1, true)
             };
 
+            // C++ AttackNugget leftover: flying missiles own ScudStormDamageWeapon.
+            // Registry blob is fallback only when leftover did not schedule.
             let mut hits = Vec::new();
-            for &(id, pos, team, alive) in object_positions {
-                if !alive || id == strike.source_object {
-                    continue;
-                }
-                // Retail RadiusDamageAffects ALLIES residual (wave 11).
-                // Kinds without ALLIES still exclude same-team friendlies.
-                if team == strike.source_team && !strike.kind.hits_allies() {
-                    continue;
-                }
-                let dmg = if strike.kind.is_multi_strike() {
-                    // Multi-strike wave: best (nearest) due shell/bomb epicenter.
-                    due_points
-                        .iter()
-                        .map(|epicenter| {
-                            Self::damage_at_distance_with_tiers(
-                                strike.kind,
-                                horizontal_distance(pos, *epicenter),
-                                strike.scud_anthrax_tier,
-                                strike.a10_tier,
-                            )
-                        })
-                        .fold(0.0_f32, f32::max)
-                } else {
-                    let dist = horizontal_distance(pos, strike.target_position);
-                    let primary = Self::damage_at_distance_with_tiers(
-                        strike.kind,
-                        dist,
-                        strike.scud_anthrax_tier,
-                        strike.a10_tier,
-                    );
-                    // MOABFlameWeapon secondary residual (DaisyCutter / CruiseMissile).
-                    // Fail-closed: not full SlowDeath MIDPOINT timing / tree burn state.
-                    let flame = if strike.kind.spawns_moab_flame() && dist <= MOAB_FLAME_RADIUS {
-                        MOAB_FLAME_DAMAGE
+            if !(strike.kind.is_scud_multi_strike() && strike.live_scud_delivery) {
+                for &(id, pos, team, alive) in object_positions {
+                    if !alive || id == strike.source_object {
+                        continue;
+                    }
+                    // Retail RadiusDamageAffects ALLIES residual (wave 11).
+                    // Kinds without ALLIES still exclude same-team friendlies.
+                    if team == strike.source_team && !strike.kind.hits_allies() {
+                        continue;
+                    }
+                    let dmg = if strike.kind.is_multi_strike() {
+                        // Multi-strike wave: best (nearest) due shell/bomb epicenter.
+                        due_points
+                            .iter()
+                            .map(|epicenter| {
+                                Self::damage_at_distance_with_tiers(
+                                    strike.kind,
+                                    horizontal_distance(pos, *epicenter),
+                                    strike.scud_anthrax_tier,
+                                    strike.a10_tier,
+                                )
+                            })
+                            .fold(0.0_f32, f32::max)
                     } else {
-                        0.0
+                        let dist = horizontal_distance(pos, strike.target_position);
+                        let primary = Self::damage_at_distance_with_tiers(
+                            strike.kind,
+                            dist,
+                            strike.scud_anthrax_tier,
+                            strike.a10_tier,
+                        );
+                        // MOABFlameWeapon secondary residual (DaisyCutter / CruiseMissile).
+                        // Fail-closed: not full SlowDeath MIDPOINT timing / tree burn state.
+                        let flame = if strike.kind.spawns_moab_flame() && dist <= MOAB_FLAME_RADIUS
+                        {
+                            MOAB_FLAME_DAMAGE
+                        } else {
+                            0.0
+                        };
+                        primary + flame
                     };
-                    primary + flame
-                };
-                if dmg > 0.0 {
-                    hits.push(HostStrikeDamageHit {
-                        target_id: id,
-                        damage: dmg,
-                    });
+                    if dmg > 0.0 {
+                        hits.push(HostStrikeDamageHit {
+                            target_id: id,
+                            damage: dmg,
+                        });
+                    }
                 }
             }
             // Presentation epicenter: first due point (or strike target).
@@ -477,24 +482,28 @@ impl HostSpecialPowerStrikeRegistry {
                     if phase.as_u8() > strike.scud_loft_phase_peak.as_u8() {
                         strike.scud_loft_phase_peak = phase;
                     }
-                    if epicenters.is_empty() {
-                        spawn_scud_poison.push((
-                            source,
-                            team,
-                            strike.target_position,
-                            frame,
-                            anthrax,
-                        ));
-                    } else {
-                        for p in epicenters {
-                            spawn_scud_poison.push((source, team, *p, frame, anthrax));
+                    // Live AttackNugget missiles spawn FireOCL poison on HeightDie.
+                    if !strike.live_scud_delivery {
+                        if epicenters.is_empty() {
+                            spawn_scud_poison.push((
+                                source,
+                                team,
+                                strike.target_position,
+                                frame,
+                                anthrax,
+                            ));
+                        } else {
+                            for p in epicenters {
+                                spawn_scud_poison.push((source, team, *p, frame, anthrax));
+                            }
                         }
                     }
                 }
                 if is_final_wave {
                     strike.phase = HostStrikePhase::Completed;
                     self.completed_this_frame.push(strike_id);
-                    if strike.kind.spawns_radiation() {
+                    // Live flying NeutronMissile owns the one SlowDeath + midpoint OCL.
+                    if strike.kind.spawns_radiation() && !strike.live_neutron_delivery {
                         spawn_radiation = Some((
                             strike.source_object,
                             strike.source_team,
@@ -551,7 +560,7 @@ impl HostSpecialPowerStrikeRegistry {
         }
         if let Some((source, team, pos, impact_frame)) = spawn_radiation {
             self.spawn_radiation_field(source, team, pos, impact_frame, strike_id);
-            // C++ NeutronMissileSlowDeathBehavior activates with the nuke impact.
+            // Fallback only: live flying missile already owns SlowDeath.
             self.spawn_neutron_slow_death_field(source, team, pos, impact_frame, strike_id);
         }
         if let Some((source, team, pos, impact_frame)) = spawn_toxin {

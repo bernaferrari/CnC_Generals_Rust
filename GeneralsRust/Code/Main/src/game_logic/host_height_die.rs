@@ -123,12 +123,22 @@ pub fn height_die_ini_for_template(name: &str) -> Option<HeightDieIni> {
             includes_structures: false,
         });
     }
+    // Retail ScudStormMissile HeightDieUpdate before generic SCUDMissile peel.
+    // TargetHeight 15, InitialDelay 1000ms, TargetHeightIncludesStructures Yes.
+    if n.contains("scudstorm") {
+        return Some(HeightDieIni {
+            target_height: 15.0,
+            only_when_descending: true,
+            initial_delay_ms: 1000,
+            includes_structures: true,
+        });
+    }
     if n.contains("scud") && n.contains("missile") {
         return Some(HeightDieIni {
             target_height: 10.0,
             only_when_descending: true,
             initial_delay_ms: 0,
-            includes_structures: false,
+            includes_structures: true,
         });
     }
     if n.contains("tomahawk") && n.contains("missile") {

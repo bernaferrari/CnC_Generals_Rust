@@ -51,7 +51,7 @@ pub enum SpecialPowerType {
     /// Host uses Tank_AmericaTankCrusader + SCIENCE_TankParadrop 1/2/3 counts.
     TankParadrop,
     /// GLA Rebel Ambush / SuperweaponRebelAmbush residual (SPECIAL_AMBUSH).
-    /// Spawns infantry near target after fade delay — fail-closed vs full OCL.
+    /// Synchronous leftover OCLSpecialPower UpgradeOCL spawn at the click.
     Ambush,
     /// GLA Terror Cell residual (SPECIAL_TERROR_CELL / SuperweaponTerrorCell).
     /// Host maps to Ambush infantry spawn residual (fail-closed vs full OCL cell).

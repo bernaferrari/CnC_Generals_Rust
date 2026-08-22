@@ -112,8 +112,8 @@ pub struct GameLogic {
     pub(crate) host_paradrops: crate::game_logic::host_paradrop::HostParadropRegistry,
 
     /// Host GLA Rebel Ambush residual.
-    /// Queues on DoSpecialPower and spawns infantry near target after fade delay —
-    /// fail-closed vs full OCL CreateObject / science upgrade tiers.
+    /// C++ OCLSpecialPower::doSpecialPowerAtLocation creates on the fire frame.
+    /// Science UpgradeOCL selects Ambush1/2/3 and Chem/Demo/Slth rebel templates.
     pub(super) host_ambushes: crate::game_logic::host_ambush::HostAmbushRegistry,
     /// Residual: last SuperweaponCashHack requested science-tier amount.
     pub(super) last_cash_hack_request_amount: u32,

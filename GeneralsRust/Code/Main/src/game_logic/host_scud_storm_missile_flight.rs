@@ -49,12 +49,38 @@ impl HostScudStormMissileFlightData {
         }
     }
 
-    /// One frame ballistic residual. Returns (pos, vel, grounded, ignition_fx).
+    /// One frame ballistic residual. Flat-ground wrapper (terrain Y = 0).
     pub fn tick(&mut self, pos: Vec3, frame: u32) -> ScudMissileTick {
+        self.tick_at_surface(pos, frame, 0.0, 0.0)
+    }
+
+    /// C++ HeightDieUpdate.cpp:132-200: die when world Y < terrain + max(TargetHeight, rooftop).
+    pub fn tick_at_surface(
+        &mut self,
+        pos: Vec3,
+        frame: u32,
+        terrain_y: f32,
+        structure_height: f32,
+    ) -> ScudMissileTick {
+        use crate::game_logic::host_height_die::{height_die_target_world_y, HeightDieIni};
+        use crate::game_logic::special_power_strikes::{
+            SCUD_STORM_MISSILE_HEIGHT_DIE_INCLUDES_STRUCTURES,
+            SCUD_STORM_MISSILE_HEIGHT_DIE_ONLY_MOVING_DOWN,
+        };
+        let ini = HeightDieIni {
+            target_height: SCUD_STORM_MISSILE_HEIGHT_DIE_TARGET,
+            only_when_descending: SCUD_STORM_MISSILE_HEIGHT_DIE_ONLY_MOVING_DOWN,
+            initial_delay_ms: 1000,
+            includes_structures: SCUD_STORM_MISSILE_HEIGHT_DIE_INCLUDES_STRUCTURES,
+        };
+        let die_y = height_die_target_world_y(terrain_y, &ini, structure_height);
+        let snap_y = terrain_y.max(self.target.y);
+        let height_for_phase = pos.y - (die_y - SCUD_STORM_MISSILE_HEIGHT_DIE_TARGET);
+
         let step = scud_missile_speed_per_frame();
         let to_target = Vec3::new(self.target.x - pos.x, 0.0, self.target.z - pos.z);
         let dist_h = (to_target.x * to_target.x + to_target.z * to_target.z).sqrt();
-        let phase = scud_missile_loft_phase(self.traveled, dist_h, pos.y);
+        let phase = scud_missile_loft_phase(self.traveled, dist_h, height_for_phase);
         self.phase = phase;
 
         let mut ignition_fx = false;
@@ -64,10 +90,10 @@ impl HostScudStormMissileFlightData {
         }
 
         if phase == ScudMissileLoftPhase::HeightDie
-            || (pos.y <= SCUD_STORM_MISSILE_HEIGHT_DIE_TARGET && self.traveled > 10.0)
+            || (pos.y <= die_y && self.traveled > 10.0)
         {
             return ScudMissileTick {
-                pos: Vec3::new(self.target.x, self.target.y.max(0.0), self.target.z),
+                pos: Vec3::new(self.target.x, snap_y, self.target.z),
                 vel: Vec3::ZERO,
                 grounded: true,
                 phase,
@@ -116,10 +142,10 @@ impl HostScudStormMissileFlightData {
                 new_pos.y -= step * 1.1;
                 vel = new_pos - pos;
                 self.traveled += vel.length();
-                if new_pos.y <= SCUD_STORM_MISSILE_HEIGHT_DIE_TARGET {
+                if new_pos.y <= die_y {
                     self.phase = ScudMissileLoftPhase::HeightDie;
                     return ScudMissileTick {
-                        pos: Vec3::new(self.target.x, self.target.y.max(0.0), self.target.z),
+                        pos: Vec3::new(self.target.x, snap_y, self.target.z),
                         vel: Vec3::ZERO,
                         grounded: true,
                         phase: ScudMissileLoftPhase::HeightDie,
@@ -129,7 +155,7 @@ impl HostScudStormMissileFlightData {
             }
             ScudMissileLoftPhase::HeightDie => {
                 return ScudMissileTick {
-                    pos: Vec3::new(self.target.x, self.target.y.max(0.0), self.target.z),
+                    pos: Vec3::new(self.target.x, snap_y, self.target.z),
                     vel: Vec3::ZERO,
                     grounded: true,
                     phase,
@@ -229,6 +255,13 @@ impl HostScudStormMissileFlightRegistry {
         self.pending = keep;
         due
     }
+    /// C++ WeaponSet.cpp:428-432 / leftover weapon_set_able: dead pad cannot fire.
+    /// Drop remaining ClipSize shots for `source_id`; in-flight missiles keep flying.
+    pub fn cancel_unlaunched_for_source(&mut self, source_id: u32) -> u32 {
+        let before = self.pending.len();
+        self.pending.retain(|p| p.source_id != source_id);
+        (before.saturating_sub(self.pending.len())) as u32
+    }
     pub fn record_ground(&mut self) {
         self.grounded = self.grounded.saturating_add(1);
     }
@@ -258,6 +291,10 @@ pub fn honesty_scud_storm_missile_flight_residual_ok() -> bool {
                 && reg.pending[0].spawn_frame
                     == crate::game_logic::special_power_strikes::SCUD_STORM_PRE_ATTACK_FRAMES
                 && reg.pending[1].spawn_frame > reg.pending[0].spawn_frame
+                && {
+                    let n = reg.cancel_unlaunched_for_source(1);
+                    n == 9 && reg.pending.is_empty()
+                }
         }
         && {
             let mut d = HostScudStormMissileFlightData::start(

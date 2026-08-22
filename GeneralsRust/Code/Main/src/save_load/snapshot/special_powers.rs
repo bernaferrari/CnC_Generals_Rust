@@ -860,6 +860,8 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 cruise_moab_fire_fx_applications: 0,
                 nuke_radiation_residual_pack_applications: 0,
                 anthrax_toxin_residual_pack_applications: 0,
+                live_neutron_delivery: false,
+                live_scud_delivery: false,
             },
         )?;
         // NuclearMissile residual radiation fields (appended; older binary

@@ -66,20 +66,16 @@ pub fn money_audio_token(kind: HostMoneyAudio) -> &'static str {
 }
 
 /// Resolve MiscAudio.ini playable name; fall back to the INI token.
+///
+/// C++ `TheAudio->getMiscAudio()->m_*` then `addAudioEvent` of that event
+/// (`INI::parseAudioEventRTS` stores the value token as the event name).
 pub fn resolve_misc_audio_event(token: &str) -> String {
     let Some(misc) = game_engine::common::ini::ini_misc_audio::get_misc_audio() else {
         return token.to_string();
     };
     let misc = misc.read();
-    let event = match token {
-        "MoneyWithdrawSound" => &misc.money_withdraw_sound,
-        "MoneyDepositSound" => &misc.money_deposit_sound,
-        "BuildingDisabled" => &misc.building_disabled,
-        "BuildingReenabled" => &misc.building_reenabled,
-        "VehicleDisabled" => &misc.vehicle_disabled,
-        "VehicleReenabled" => &misc.vehicle_reenabled,
-        "SplatterVehiclePilotsBrain" => &misc.splatter_vehicle_pilots_brain,
-        _ => return token.to_string(),
+    let Some(event) = misc.get_audio_event(token) else {
+        return token.to_string();
     };
     let name = event.playable_event_name();
     if name.is_empty() {

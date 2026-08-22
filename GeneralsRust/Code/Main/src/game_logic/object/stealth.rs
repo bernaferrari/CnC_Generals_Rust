@@ -8,6 +8,34 @@ impl Object {
         self.status.stealthed && !self.status.detected && !self.status.disguised
     }
 
+    /// C++ `Object::getStealth() != NULL` analog for GPS GrantStealth.
+    ///
+    /// DefaultThingTemplate OverrideableByLikeKind StealthUpdate is kept for
+    /// VEHICLE|INFANTRY unless ImmuneToGPS (AIRCRAFT/BOAT/STRUCTURE/...).
+    /// Authored InnateStealth units (heroes, sentry, pathfinder) still qualify.
+    pub fn has_gps_stealth_module(&self) -> bool {
+        use crate::game_logic::host_gps_scrambler::{
+            host_has_gps_stealth_module, is_immune_to_default_gps_stealth,
+        };
+        host_has_gps_stealth_module(
+            self.innate_stealth,
+            self.is_kind_of(KindOf::Vehicle),
+            self.is_kind_of(KindOf::Infantry),
+            is_immune_to_default_gps_stealth(
+                self.is_kind_of(KindOf::Aircraft),
+                self.is_kind_of(KindOf::Structure),
+                self.is_kind_of(KindOf::Boat),
+                self.is_kind_of(KindOf::IgnoredInGui),
+                self.is_kind_of(KindOf::DefensiveWall),
+                self.is_kind_of(KindOf::BallisticMissile),
+                self.is_kind_of(KindOf::SupplySource),
+                self.is_kind_of(KindOf::Bridge),
+                self.is_kind_of(KindOf::LandmarkBridge),
+                self.is_kind_of(KindOf::BridgeTower),
+            ),
+        )
+    }
+
     /// C++ OBJECT_STATUS_DISGUISED residual.
     pub fn is_disguised(&self) -> bool {
         self.status.disguised

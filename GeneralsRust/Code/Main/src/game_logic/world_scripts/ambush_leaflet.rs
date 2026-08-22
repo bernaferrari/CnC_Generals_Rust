@@ -254,7 +254,7 @@ impl GameLogic {
         source_object: ObjectId,
         target_position: Vec3,
     ) -> Option<u32> {
-        use crate::game_logic::host_ambush::{HostAmbushKind, AMBUSH_RESIDUAL_TEMPLATE};
+        use crate::game_logic::host_ambush::{resolve_ambush_ocl_payload, HostAmbushKind};
         let kind = HostAmbushKind::from_command_power(power)?;
         let (source_team, source_owner_player_id) = {
             let source = self.objects.get(&source_object)?;
@@ -267,31 +267,27 @@ impl GameLogic {
         };
         let frame = self.frame;
 
-        // Prefer retail rebel template when loaded; otherwise residual TestInfantry.
-        let preferred = kind.unit_template();
-        let unit_template = if self.templates.contains_key(preferred) {
-            preferred.to_string()
+        // C++ OCLSpecialPower::findOCL: controlling player's sciences only.
+        let sciences: Vec<&str> = source_owner_player_id
+            .and_then(|player_id| self.players.get(&player_id))
+            .filter(|player| player.team == source_team)
+            .into_iter()
+            .flat_map(|player| {
+                player
+                    .unlocked_sciences
+                    .iter()
+                    .map(|science| science.as_str())
+            })
+            .collect();
+        let payload = resolve_ambush_ocl_payload(sciences);
+        self.ensure_ambush_unit_template(&payload.unit_template);
+        let unit_template = if self.templates.contains_key(&payload.unit_template) {
+            payload.unit_template
         } else {
             self.ensure_residual_ambush_infantry_template();
-            AMBUSH_RESIDUAL_TEMPLATE.to_string()
+            crate::game_logic::host_ambush::AMBUSH_RESIDUAL_TEMPLATE.to_string()
         };
 
-        // C++ SCIENCE_RebelAmbush1/2/3 residual payload size (4/8/16 Rebels).
-        let unit_count = {
-            use crate::game_logic::host_ambush::AmbushScienceTier;
-            let sciences: Vec<&str> = source_owner_player_id
-                .and_then(|player_id| self.players.get(&player_id))
-                .filter(|player| player.team == source_team)
-                .into_iter()
-                .flat_map(|player| {
-                    player
-                        .unlocked_sciences
-                        .iter()
-                        .map(|science| science.as_str())
-                })
-                .collect();
-            AmbushScienceTier::highest_from_sciences(sciences).rebel_count()
-        };
         let id = self.host_ambushes.queue_with_unit_count_for_owner(
             kind,
             source_object,
@@ -300,7 +296,7 @@ impl GameLogic {
             target_position,
             frame,
             unit_template,
-            unit_count,
+            payload.unit_count,
         );
 
         self.queue_audio_event(
@@ -319,23 +315,29 @@ impl GameLogic {
             Some(source_object),
             None,
         );
+        // C++ ObjectCreationList::create is synchronous in doSpecialPowerAtLocation.
+        self.spawn_due_ambushes();
         Some(id)
     }
 
-    /// Ensure residual infantry template used by GLA Ambush spawn path.
-    pub(in super::super) fn ensure_residual_ambush_infantry_template(&mut self) {
-        use crate::game_logic::host_ambush::AMBUSH_RESIDUAL_TEMPLATE;
-        if self.templates.contains_key(AMBUSH_RESIDUAL_TEMPLATE) {
+    /// Ensure the leftover OCL CreateObject template exists (Chem/Demo/Slth/base).
+    pub(in super::super) fn ensure_ambush_unit_template(&mut self, name: &str) {
+        if name.is_empty() || self.templates.contains_key(name) {
             return;
         }
-        let mut t = ThingTemplate::new(AMBUSH_RESIDUAL_TEMPLATE);
+        let mut t = ThingTemplate::new(name);
         t.add_kind_of(KindOf::Infantry)
             .add_kind_of(KindOf::Selectable)
             .add_kind_of(KindOf::Attackable)
             .set_health(100.0)
             .set_cost(100, 0);
-        self.templates
-            .insert(AMBUSH_RESIDUAL_TEMPLATE.to_string(), t);
+        self.templates.insert(name.to_string(), t);
+    }
+
+    /// Ensure residual infantry template used by GLA Ambush spawn path.
+    pub(in super::super) fn ensure_residual_ambush_infantry_template(&mut self) {
+        use crate::game_logic::host_ambush::AMBUSH_RESIDUAL_TEMPLATE;
+        self.ensure_ambush_unit_template(AMBUSH_RESIDUAL_TEMPLATE);
     }
 
     /// Advance pending host ambushes to spawn frame and create infantry near target.
@@ -353,6 +355,10 @@ impl GameLogic {
             }
         }
 
+        self.spawn_due_ambushes();
+    }
+
+    fn spawn_due_ambushes(&mut self) {
         let plans = self.host_ambushes.plan_due_spawns(self.frame);
         for plan in plans {
             if !self.templates.contains_key(&plan.unit_template) {

@@ -9,9 +9,9 @@ impl GameLogic {
     /// Matches retail SuperweaponGPSScrambler → GPSScrambler_InvisibleMarker:
     /// - FinalRadius residual 100 (RadiusCursorRadius / GrantStealth FinalRadius)
     /// - KindOf VEHICLE | INFANTRY, C++ ALLOW_ALLIES (same player or allied players)
-    /// - receiveGrant only when the target already has StealthUpdate
-    ///   (host proxy: `innate_stealth`) then Drawable::flashAsSelected
-    ///   — C++ GrantStealthBehavior.cpp:170-179
+    /// - receiveGrant when the target has StealthUpdate (C++ getStealth()):
+    ///   authored innate_stealth **or** default VEHICLE|INFANTRY module
+    ///   (ThingTemplate.cpp:384-409), then Drawable::flashAsSelected
     /// - Skips bomb-truck disguise residual by name (C++ canDisguise skip)
     /// Returns true when the residual activation was recorded (even if 0 targets).
     pub fn activate_gps_scrambler(
@@ -58,7 +58,7 @@ impl GameLogic {
                 let under_construction =
                     obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
                 let is_disguise = is_gps_scrambler_disguise_name(&obj.template_name);
-                let has_stealth_module = obj.innate_stealth;
+                let has_stealth_module = obj.has_gps_stealth_module();
                 Some((
                     *id,
                     is_vehicle,
@@ -96,7 +96,7 @@ impl GameLogic {
             let Some(target) = self.objects.get_mut(&id) else {
                 continue;
             };
-            if !target.is_alive() || !target.innate_stealth {
+            if !target.is_alive() {
                 continue;
             }
             let was_stealthed = target.is_effectively_stealthed();
@@ -1913,9 +1913,11 @@ mod tests {
         }
     }
 
-    /// C++ GrantStealthBehavior.cpp:170-179 — no StealthUpdate, stay visible.
+    /// C++ ThingTemplate.cpp:384-409 — VEHICLE/INFANTRY inherit default
+    /// StealthUpdate; ImmuneToGPS (AIRCRAFT) does not. GrantStealthBehavior.cpp:170
+    /// receiveGrant() then flashAsSelected.
     #[test]
-    fn gps_does_not_cloak_units_without_stealth_update() {
+    fn gps_grants_default_stealth_to_vehicle_infantry() {
         let mut logic = GameLogic::new();
         logic
             .players
@@ -1934,6 +1936,12 @@ mod tests {
         logic
             .templates
             .insert("AmericaInfantryPathfinder".into(), pathfinder);
+        let mut raptor = ThingTemplate::new("AmericaJetRaptor");
+        raptor
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Vehicle)
+            .set_health(160.0);
+        logic.templates.insert("AmericaJetRaptor".into(), raptor);
 
         let pal = logic
             .create_object("AmericaTankPaladin", Team::GLA, Vec3::new(5.0, 0.0, 0.0))
@@ -1952,22 +1960,42 @@ mod tests {
                 Vec3::new(10.0, 0.0, 0.0),
             )
             .expect("pathfinder");
+        let jet = logic
+            .create_object("AmericaJetRaptor", Team::GLA, Vec3::new(6.0, 0.0, 0.0))
+            .expect("raptor");
         if let Some(o) = logic.host_object_mut(pf) {
             o.innate_stealth = true;
         }
 
-        assert!(logic.activate_gps_scrambler(2, Vec3::ZERO, Some(pal)));
         assert!(
-            !logic.host_object(pal).unwrap().is_effectively_stealthed(),
-            "Paladin has no StealthUpdate"
+            logic.host_object(pal).unwrap().has_gps_stealth_module(),
+            "plain Paladin inherits default StealthUpdate"
         );
         assert!(
-            !logic.host_object(rng).unwrap().is_effectively_stealthed(),
-            "Ranger has no StealthUpdate"
+            !logic.host_object(pal).unwrap().innate_stealth,
+            "default module is not InnateStealth"
+        );
+        assert!(
+            !logic.host_object(jet).unwrap().has_gps_stealth_module(),
+            "AIRCRAFT is ImmuneToGPS even when also VEHICLE"
+        );
+
+        assert!(logic.activate_gps_scrambler(2, Vec3::ZERO, Some(pal)));
+        assert!(
+            logic.host_object(pal).unwrap().is_effectively_stealthed(),
+            "Paladin default StealthUpdate receives receiveGrant"
+        );
+        assert!(
+            logic.host_object(rng).unwrap().is_effectively_stealthed(),
+            "Ranger default StealthUpdate receives receiveGrant"
         );
         assert!(
             logic.host_object(pf).unwrap().is_effectively_stealthed(),
             "Pathfinder innate stealth module receives receiveGrant"
+        );
+        assert!(
+            !logic.host_object(jet).unwrap().is_effectively_stealthed(),
+            "Raptor ImmuneToGPS stays visible"
         );
         assert_eq!(
             logic.host_object(pf).unwrap().selection_flash_remaining,
@@ -1976,11 +2004,19 @@ mod tests {
         );
         assert_eq!(
             logic.host_object(pal).unwrap().selection_flash_remaining,
-            0,
-            "Paladin without StealthUpdate must not flash"
+            crate::game_logic::host_saboteur::SABOTEUR_FLASH_DECAY_FRAMES,
+            "granted Paladin must flashAsSelected"
         );
-        assert!(!logic.host_object(pal).unwrap().innate_stealth);
-        assert!(!logic.host_object(rng).unwrap().innate_stealth);
+        assert_eq!(
+            logic.host_object(jet).unwrap().selection_flash_remaining,
+            0,
+            "ungranted Raptor must not flash"
+        );
+        assert!(
+            logic.host_object(pal).unwrap().innate_stealth,
+            "receiveGrant sets CAN_STEALTH / innate_stealth"
+        );
+        assert!(logic.host_object(rng).unwrap().innate_stealth);
     }
 
     /// C++ GrantStealthBehavior ALLOW_ALLIES — mixed-faction coop teammate.

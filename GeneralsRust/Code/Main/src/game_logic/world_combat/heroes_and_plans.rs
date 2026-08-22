@@ -287,6 +287,8 @@ impl GameLogic {
         for cid in &center_ids {
             if let Some(c) = self.objects.get_mut(cid) {
                 c.apply_spy_vision_disabled_until(until_frame);
+                // C++ SpyVisionUpdate::setDisabledUntilFrame → m_resetTimersNextUpdate.
+                c.status.spy_vision_reset_timers = true;
                 centers = centers.saturating_add(1);
             }
         }

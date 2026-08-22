@@ -1778,11 +1778,18 @@ impl GameLogic {
             })
             .collect();
         for id in height_die_ids {
+            let (sample_pos, name, ground) = {
+                let Some(o) = self.objects.get(&id) else {
+                    continue;
+                };
+                (o.get_position(), o.template_name.clone(), o.ground_height)
+            };
+            let terrain = self.height_die_terrain_at(sample_pos, &name, ground);
             let (toxin, source, team, pos, die) = {
                 let Some(o) = self.objects.get_mut(&id) else {
                     continue;
                 };
-                let die = o.tick_height_die(frame, 0.0);
+                let die = o.tick_height_die(frame, terrain);
                 (
                     o.scud_launcher_missile_toxin,
                     o.producer_id,

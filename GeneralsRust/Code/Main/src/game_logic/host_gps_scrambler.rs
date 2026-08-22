@@ -21,7 +21,8 @@
 //!
 //! - GrantStealthBehavior grow-radius pulse residual closed (Start 20 → Final 100)
 //! - C++ GrantStealthBehavior.cpp:170-179 only receiveGrant() when getStealth()
-//!   exists, then Drawable::flashAsSelected. Host: innate_stealth then
+//!   exists, then Drawable::flashAsSelected. Host: default StealthUpdate on
+//!   VEHICLE|INFANTRY (ThingTemplate.cpp:384-409) or innate_stealth, then
 //!   Object::flash_as_selected (selection_flash_remaining = 4).
 //! - C++ PartitionFilterRelationship ALLOW_ALLIES (same player or allied players)
 //! - Not full radius particle GPU path (GPS_SCRAMBLER_RADIUS_PARTICLE honesty-only)
@@ -131,7 +132,9 @@ pub fn gps_scrambler_grow_is_final(update_index: u32) -> bool {
 /// - KindOf VEHICLE | INFANTRY
 /// - not under construction residual
 /// - not bomb-truck disguise residual (StealthUpdate::canDisguise skip)
-/// - already has a StealthUpdate module (host: innate_stealth / stealth flag)
+/// - already has a StealthUpdate module (C++ `getStealth()`):
+///   authored InnateStealth **or** DefaultThingTemplate OverrideableByLikeKind
+///   StealthUpdate kept for VEHICLE|INFANTRY (not ImmuneToGPS)
 pub fn is_legal_gps_scrambler_target(
     is_vehicle: bool,
     is_infantry: bool,
@@ -145,6 +148,54 @@ pub fn is_legal_gps_scrambler_target(
         return false;
     }
     if !is_ally {
+        return false;
+    }
+    is_vehicle || is_infantry
+}
+
+/// C++ ThingTemplate.cpp:384-409 ImmuneToGPSScramblerMask (host KindOf subset).
+/// Aircraft/boats/structures never inherit the default StealthUpdate.
+pub fn is_immune_to_default_gps_stealth(
+    is_aircraft: bool,
+    is_structure: bool,
+    is_boat: bool,
+    is_ignored_in_gui: bool,
+    is_defensive_wall: bool,
+    is_ballistic_missile: bool,
+    is_supply_source: bool,
+    is_bridge: bool,
+    is_landmark_bridge: bool,
+    is_bridge_tower: bool,
+) -> bool {
+    is_aircraft
+        || is_structure
+        || is_boat
+        || is_ignored_in_gui
+        || is_defensive_wall
+        || is_ballistic_missile
+        || is_supply_source
+        || is_bridge
+        || is_landmark_bridge
+        || is_bridge_tower
+}
+
+/// Host analog of `obj->getStealth() != NULL` for GPS receiveGrant.
+///
+/// C++ DefaultThingTemplate keeps OverrideableByLikeKind StealthUpdate for
+/// CandidateForGPS (VEHICLE|INFANTRY|SCORE|PORTABLE_STRUCTURE) unless immune.
+/// Live GPS KindOf is VEHICLE|INFANTRY; innate_stealth covers authored modules
+/// (heroes, sentry, pathfinder, mines). Plain Scorpions/Rebels have the module
+/// even when `innate_stealth` is false — they must not stay visible.
+pub fn host_has_gps_stealth_module(
+    innate_stealth: bool,
+    is_vehicle: bool,
+    is_infantry: bool,
+    immune_to_default_stealth: bool,
+) -> bool {
+    if innate_stealth {
+        return true;
+    }
+    if immune_to_default_stealth {
         return false;
     }
     is_vehicle || is_infantry
@@ -373,6 +424,21 @@ mod tests {
         // C++ GrantStealthBehavior.cpp:170 — no getStealth() → stay visible.
         assert!(!is_legal_gps_scrambler_target(
             true, false, true, true, false, false, false
+        ));
+        // C++ ThingTemplate.cpp:384-409 — plain VEHICLE/INFANTRY inherit default
+        // StealthUpdate; AIRCRAFT (even if also VEHICLE) is ImmuneToGPS.
+        assert!(host_has_gps_stealth_module(false, true, false, false));
+        assert!(host_has_gps_stealth_module(false, false, true, false));
+        assert!(!host_has_gps_stealth_module(false, true, false, true));
+        assert!(host_has_gps_stealth_module(true, true, false, true));
+        assert!(!is_immune_to_default_gps_stealth(
+            false, false, false, false, false, false, false, false, false, false
+        ));
+        assert!(is_immune_to_default_gps_stealth(
+            true, false, false, false, false, false, false, false, false, false
+        ));
+        assert!(is_immune_to_default_gps_stealth(
+            false, false, true, false, false, false, false, false, false, false
         ));
     }
 

@@ -32,7 +32,8 @@
 //! - Not full GeometryInfo major/minor matrix / GameClientRandomValue stream
 //! - Not full capture flow module wiring beyond residual team-change detect
 //! - Neutral / under-construction residual-skip (C++ isNeutralControlled +
-//!   construction-complete gates)
+//!   construction-complete gates). EMP/subdued freeze AutoDeposit (GameLogic.cpp
+//!   sleepy skip) without dropping the deposit schedule.
 //! - Network deferred
 
 use super::ObjectId;
@@ -168,16 +169,18 @@ pub fn is_oil_derrick_structure(name: &str) -> bool {
     is_oil_derrick_template(name)
 }
 
-/// Whether residual Oil Derrick can award cash this frame.
+/// Whether residual Oil Derrick can award periodic cash this frame.
 ///
-/// Matches C++ AutoDepositUpdate::update gates (subset):
-/// alive, construction complete, not neutral-controlled.
+/// Matches C++ AutoDepositUpdate::update plus GameLogic.cpp:3715-3718:
+/// alive, construction complete, not neutral-controlled, not disabled.
+/// Disabled objects keep their deposit schedule (module not called).
 pub fn is_legal_oil_derrick_income_source(
     is_alive: bool,
     is_constructed: bool,
     is_neutral: bool,
+    is_disabled: bool,
 ) -> bool {
-    is_alive && is_constructed && !is_neutral
+    is_alive && is_constructed && !is_neutral && !is_disabled
 }
 
 /// C++ AutoDepositUpdate::getUpgradedSupplyBoost residual for oil derrick.
@@ -289,8 +292,10 @@ pub struct HostOilDerrickRegistry {
     next_deposit_frame: HashMap<ObjectId, u32>,
     /// Derricks that have already received InitialCaptureBonus this instance life.
     capture_bonus_awarded: HashSet<ObjectId>,
-    /// Last known non-neutral owner team (for re-capture residual; bonus once only).
-    last_owner_was_non_neutral: HashSet<ObjectId>,
+    /// Last non-neutral owner player id. C++ becomingTeamMember / awardInitialCaptureBonus
+    /// always re-arms depositOnFrame on recapture even when the $1000 bonus is spent.
+    #[serde(default)]
+    last_non_neutral_owner: HashMap<ObjectId, u32>,
 }
 
 impl HostOilDerrickRegistry {
@@ -422,27 +427,39 @@ impl HostOilDerrickRegistry {
     /// Returns bonus amount awarded (0 if already awarded / not eligible).
     ///
     /// Residual of Player::gainObject → AutoDepositUpdate::awardInitialCaptureBonus.
-    /// Fail-closed: once per derrick instance life (not every re-capture).
+    /// Cash bonus is once per derrick instance life; the 12s deposit clock is
+    /// re-armed separately via `note_non_neutral_gain` (C++ always resets
+    /// `m_depositOnFrame` before the bonus early-out).
     pub fn try_capture_bonus(&mut self, derrick_id: ObjectId, amount: u32) -> u32 {
         if amount == 0 {
             return 0;
         }
         if self.capture_bonus_awarded.contains(&derrick_id) {
-            // Still mark as non-neutral owned so future neutral→owner edges stay quiet.
-            self.last_owner_was_non_neutral.insert(derrick_id);
             return 0;
         }
         // First time this instance is non-neutral controlled.
         self.capture_bonus_awarded.insert(derrick_id);
-        self.last_owner_was_non_neutral.insert(derrick_id);
         self.capture_bonuses = self.capture_bonuses.saturating_add(1);
         self.capture_bonus_cash_total = self.capture_bonus_cash_total.saturating_add(amount);
-        // C++ awardInitialCaptureBonus also resets deposit timer to now + interval.
-        // Caller should treat this as a schedule reset when amount > 0.
         amount
     }
 
-    /// Reset deposit schedule after capture bonus (C++ awardInitialCaptureBonus).
+    /// C++ `awardInitialCaptureBonus` is invoked on every non-neutral gain
+    /// (`Player::becomingTeamMember(yes)`). Returns true when owner changed
+    /// (including first capture and recapture); caller must reset `depositOnFrame`.
+    pub fn note_non_neutral_gain(&mut self, derrick_id: ObjectId, owner_key: u32) -> bool {
+        match self.last_non_neutral_owner.insert(derrick_id, owner_key) {
+            None => true,
+            Some(prev) => prev != owner_key,
+        }
+    }
+
+    /// Neutral owner: next playable gain is a becomingTeamMember edge.
+    pub fn mark_neutral_owner(&mut self, derrick_id: ObjectId) {
+        self.last_non_neutral_owner.remove(&derrick_id);
+    }
+
+    /// Reset deposit schedule after capture (C++ awardInitialCaptureBonus line 98).
     pub fn reschedule_after_capture(&mut self, derrick_id: ObjectId, current_frame: u32) {
         self.next_deposit_frame.insert(
             derrick_id,
@@ -454,7 +471,7 @@ impl HostOilDerrickRegistry {
     pub fn forget(&mut self, derrick_id: ObjectId) {
         self.next_deposit_frame.remove(&derrick_id);
         self.capture_bonus_awarded.remove(&derrick_id);
-        self.last_owner_was_non_neutral.remove(&derrick_id);
+        self.last_non_neutral_owner.remove(&derrick_id);
     }
 
     /// Snapshot of currently tracked derrick object ids (for stale cleanup).
@@ -586,10 +603,11 @@ mod tests {
 
     #[test]
     fn legal_income_source_matrix() {
-        assert!(is_legal_oil_derrick_income_source(true, true, false));
-        assert!(!is_legal_oil_derrick_income_source(false, true, false));
-        assert!(!is_legal_oil_derrick_income_source(true, false, false));
-        assert!(!is_legal_oil_derrick_income_source(true, true, true));
+        assert!(is_legal_oil_derrick_income_source(true, true, false, false));
+        assert!(!is_legal_oil_derrick_income_source(false, true, false, false));
+        assert!(!is_legal_oil_derrick_income_source(true, false, false, false));
+        assert!(!is_legal_oil_derrick_income_source(true, true, true, false));
+        assert!(!is_legal_oil_derrick_income_source(true, true, false, true));
     }
 
     #[test]

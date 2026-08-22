@@ -541,6 +541,7 @@ impl PresentationFrame {
             inputs.push(input);
         }
         self.append_rally_point_marker_inputs(&mut inputs);
+        self.append_generic_lockon_inputs(&mut inputs);
         inputs
     }
 
@@ -635,6 +636,76 @@ impl PresentationFrame {
                 .map(|model| model.model_key.clone())
                 .unwrap_or_default();
             inputs.push(input);
+        }
+    }
+
+    /// C++ `JetAIUpdate::buildLockonDrawableIfNecessary` — GenericLockon reticle.
+    fn append_generic_lockon_inputs(&self, inputs: &mut Vec<UnitRenderInput>) {
+        #[cfg(feature = "game_client")]
+        {
+            use crate::game_logic::object::STEALTH_FIGHTER_LOCKON_CURSOR;
+            for (draw_id, state) in
+                gamelogic::helpers::TheGameClient.leftover_drawables_named(STEALTH_FIGHTER_LOCKON_CURSOR)
+            {
+                let hidden = state
+                    .drawable
+                    .as_ref()
+                    .and_then(|drawable| drawable.read().ok())
+                    .is_some_and(|guard| guard.is_drawable_effectively_hidden());
+                if hidden {
+                    continue;
+                }
+                let controller_id = state.shroud_status_object_id;
+                let Some(base) = self
+                    .objects
+                    .iter()
+                    .find(|o| controller_id != 0 && o.id.0 == controller_id)
+                    .or_else(|| {
+                        self.objects.iter().find(|o| {
+                            !o.destroyed
+                                && o.template_name
+                                    .to_ascii_lowercase()
+                                    .contains("stealthfighter")
+                        })
+                    })
+                    .or_else(|| self.objects.iter().find(|o| !o.destroyed))
+                else {
+                    continue;
+                };
+                let mut marker = base.clone();
+                marker.id = crate::game_logic::ObjectId(0xC100_0000 | draw_id);
+                marker.template_name = STEALTH_FIGHTER_LOCKON_CURSOR.to_string();
+                marker.position =
+                    glam::Vec3::new(state.position.x, state.position.y, state.position.z);
+                marker.orientation = state.orientation;
+                marker.selected = false;
+                marker.rally_point = None;
+                marker.destroyed = false;
+                marker.contained_by = None;
+                marker.shadows_enabled = false;
+                let mut input = UnitRenderInput::from_renderable_with_environment(
+                    &marker,
+                    self.world_env.is_snow,
+                    self.world_env.is_night,
+                    self.frame.0,
+                );
+                input.draw_models =
+                    crate::assets::resolve_presentation_draw_models_for_conditions(
+                        STEALTH_FIGHTER_LOCKON_CURSOR,
+                        &[],
+                        input.model_condition_bits_with_combat_flags(),
+                    );
+                input.model_key = input
+                    .draw_models
+                    .first()
+                    .map(|model| model.model_key.clone())
+                    .unwrap_or_default();
+                inputs.push(input);
+            }
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            let _ = inputs;
         }
     }
 

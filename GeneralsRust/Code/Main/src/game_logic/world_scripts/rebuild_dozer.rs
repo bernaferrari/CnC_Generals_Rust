@@ -235,6 +235,26 @@ impl GameLogic {
             p.record_object_captured();
         }
 
+        // C++ Player::becomingTeamMember → awardInitialCaptureBonus always
+        // resets depositOnFrame. Recapture must re-arm the 12s clock even
+        // when InitialCaptureBonus was already paid.
+        if crate::game_logic::host_oil_derrick::is_oil_derrick_template(
+            self.objects
+                .get(&object_id)
+                .map(|o| o.template_name.as_str())
+                .unwrap_or(""),
+        ) {
+            if new_team == Team::Neutral {
+                self.oil_derricks.mark_neutral_owner(object_id);
+            } else {
+                let owner_key = captured_owner_player_id.unwrap_or(u32::MAX);
+                if self.oil_derricks.note_non_neutral_gain(object_id, owner_key) {
+                    self.oil_derricks
+                        .reschedule_after_capture(object_id, self.frame);
+                }
+            }
+        }
+
         // C++ TechBuildingBehavior MODELCONDITION_CAPTURED residual:
         // playable side owner → set CAPTURED; neutral → clear.
         let is_tech = self

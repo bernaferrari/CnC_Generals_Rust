@@ -636,7 +636,9 @@ pub fn special_power_reload_seconds(
     use crate::game_logic::host_cia_intelligence::CIA_INTELLIGENCE_RELOAD_MS;
     use crate::game_logic::host_emergency_repair::EMERGENCY_REPAIR_RELOAD_TIME_MS;
     use crate::game_logic::host_frenzy::FRENZY_RELOAD_TIME_MS;
-    use crate::game_logic::host_gps_scrambler::GPS_SCRAMBLER_RELOAD_MS;
+    use crate::game_logic::host_gps_scrambler::{
+        GPS_SCRAMBLER_RELOAD_MS, GPS_SCRAMBLER_SLTH_RELOAD_MS,
+    };
     use crate::game_logic::host_helix_napalm::HELIX_NAPALM_RELOAD_MS;
     use crate::game_logic::host_leaflet_drop::LEAFLET_RELOAD_MS;
     use crate::game_logic::host_missile_defender::LASER_GUIDED_RELOAD_MS;
@@ -678,7 +680,8 @@ pub fn special_power_reload_seconds(
         P::LeafletDrop | P::EarlyLeafletDrop => Some(LEAFLET_RELOAD_MS),
         P::Frenzy | P::EarlyFrenzy => Some(FRENZY_RELOAD_TIME_MS),
         P::EmergencyRepair | P::EarlyEmergencyRepair => Some(EMERGENCY_REPAIR_RELOAD_TIME_MS),
-        P::GpsScrambler | P::StealthGpsScrambler => Some(GPS_SCRAMBLER_RELOAD_MS),
+        P::GpsScrambler => Some(GPS_SCRAMBLER_RELOAD_MS),
+        P::StealthGpsScrambler => Some(GPS_SCRAMBLER_SLTH_RELOAD_MS),
         P::CiaIntelligence => Some(CIA_INTELLIGENCE_RELOAD_MS),
         P::CommunicationsDownload => Some(10_000),
         P::CashHack => Some(240_000),

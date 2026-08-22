@@ -171,11 +171,38 @@ impl GameLogic {
                         .get(&source_object)
                         .map(|o| o.get_position())
                         .unwrap_or(target_position);
-                    let _ =
-                        self.execute_ocl_fire_weapon(ocl, source_object, primary, target_position);
+                    let spawned = self.execute_ocl_fire_weapon(
+                        ocl,
+                        source_object,
+                        primary,
+                        target_position,
+                    );
+                    // C++ one NeutronMissileSlowDeath on the flying missile.
+                    // Registry delayed blast is only a fallback when spawn fails.
+                    if kind == HostSuperweaponKind::NuclearMissile {
+                        if let Some(mid) = spawned {
+                            let live = self
+                                .objects
+                                .get(&mid)
+                                .and_then(|o| o.neutron_missile_update.as_ref())
+                                .is_some_and(|d| !d.is_cruise);
+                            if live {
+                                if let Some(s) = self.special_power_strikes.get_mut(id) {
+                                    s.live_neutron_delivery = true;
+                                }
+                            }
+                        }
+                    }
                 }
                 OclNuggetKind::Attack(ocl) => {
-                    let _ = self.execute_ocl_attack(ocl, source_object, target_position);
+                    // C++ AttackNugget::create — 9 flying missiles own the warhead.
+                    if self.execute_ocl_attack(ocl, source_object, target_position)
+                        && kind == HostSuperweaponKind::ScudStorm
+                    {
+                        if let Some(s) = self.special_power_strikes.get_mut(id) {
+                            s.live_scud_delivery = true;
+                        }
+                    }
                 }
             }
         }
@@ -424,20 +451,28 @@ impl GameLogic {
                 self.mark_object_for_destruction(id, Some(killer_team));
             }
 
-            // Impact feedback residual: explosion particle + audio at epicenter.
-            let _ = self.combat_particles.spawn(
-                CombatParticleKind::DeathExplosion,
-                plan.target_position,
-                self.frame,
-                Some(plan.source_object),
-                None,
-            );
-            self.queue_audio_event(
-                AudioEventRequest::new(plan.kind.impact_audio())
-                    .with_object(plan.source_object)
-                    .with_position(plan.target_position)
-                    .with_priority(200),
-            );
+            // C++ one SlowDeath on the flying missile — no registry instant blast.
+            let skip_registry_nuke_blast = plan.kind.spawns_radiation()
+                && self
+                    .special_power_strikes
+                    .get(plan.strike_id)
+                    .is_some_and(|s| s.live_neutron_delivery);
+            if !skip_registry_nuke_blast {
+                // Impact feedback residual: explosion particle + audio at epicenter.
+                let _ = self.combat_particles.spawn(
+                    CombatParticleKind::DeathExplosion,
+                    plan.target_position,
+                    self.frame,
+                    Some(plan.source_object),
+                    None,
+                );
+                self.queue_audio_event(
+                    AudioEventRequest::new(plan.kind.impact_audio())
+                        .with_object(plan.source_object)
+                        .with_position(plan.target_position)
+                        .with_priority(200),
+                );
+            }
 
             self.special_power_strikes.record_impact_wave(
                 plan.strike_id,

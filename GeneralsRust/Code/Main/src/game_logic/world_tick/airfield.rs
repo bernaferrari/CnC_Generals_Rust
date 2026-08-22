@@ -116,15 +116,16 @@ impl GameLogic {
 
     /// C++ `JetAIUpdate::update` live-host residual.
     pub(crate) fn tick_jet_ai_update_all(&mut self) {
-        use crate::game_logic::object::{JetAiTickAction, JET_LOCKON_TICK_SOUND};
+        use crate::game_logic::object::JetAiTickAction;
 
         let now = self.frame;
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
             .filter(|(_, o)| {
-                o.is_alive()
-                    && (o.is_kind_of(KindOf::Aircraft) || o.object_type == ObjectType::Aircraft)
+                (o.is_alive()
+                    && (o.is_kind_of(KindOf::Aircraft) || o.object_type == ObjectType::Aircraft))
+                    || o.jet_ai.lockon_drawable_id.is_some()
             })
             .map(|(id, _)| *id)
             .collect();
@@ -151,18 +152,25 @@ impl GameLogic {
                 self.begin_pause_after_taxi_to_runway(id);
             }
             self.sync_jet_afterburner_sound(id);
+            self.sync_jet_lockon_drawable(id);
 
             if lockon_tick {
                 let pos = lockon_pos
                     .map(|p| glam::Vec3::new(p[0], p[1], p[2]))
                     .or_else(|| self.objects.get(&id).map(|j| j.get_position()))
                     .unwrap_or(glam::Vec3::ZERO);
+                // C++ `TheAudio->getMiscAudio()->m_lockonTickSound` (JetAIUpdate.cpp:2143-2145).
+                let event = crate::game_logic::host_economy_log::resolve_misc_audio_event(
+                    crate::game_logic::object::JET_LOCKON_TICK_SOUND,
+                );
                 self.queue_audio_event(
-                    crate::game_logic::AudioEventRequest::new(JET_LOCKON_TICK_SOUND)
+                    crate::game_logic::AudioEventRequest::new(&event)
                         .with_object(id)
                         .with_position(pos),
                 );
             }
+            self.maybe_play_jet_wheel_screech(id);
+
 
             match action {
                 JetAiTickAction::ReturnToBase => {
@@ -221,8 +229,7 @@ impl GameLogic {
 
     /// C++ `friend_enableAfterburners` start/stop via TheAudio.
     fn sync_jet_afterburner_sound(&mut self, jet_id: ObjectId) {
-        use crate::game_logic::object::{JET_AFTERBURNER_SOUND, JET_AFTERBURNER_SOUND_STOP};
-        let (on, playing, pos) = {
+        let (on, playing, pos, template_name) = {
             let Some(jet) = self.objects.get(&jet_id) else {
                 return;
             };
@@ -230,6 +237,7 @@ impl GameLogic {
                 jet.jet_ai.afterburners_on,
                 jet.jet_ai.afterburner_sound_playing,
                 jet.get_position(),
+                jet.template_name.clone(),
             )
         };
         if on == playing {
@@ -238,22 +246,161 @@ impl GameLogic {
         if let Some(jet) = self.objects.get_mut(&jet_id) {
             jet.jet_ai.afterburner_sound_playing = on;
         }
+        self.queue_afterburner_per_unit_sound(jet_id, &template_name, pos, on);
+    }
+
+    /// C++ `buildLockonDrawableIfNecessary` + `positionLockon` (JetAIUpdate.cpp:2098-2171).
+    fn sync_jet_lockon_drawable(&mut self, jet_id: ObjectId) {
+        #[cfg(not(feature = "game_client"))]
+        {
+            let _ = jet_id;
+        }
+        #[cfg(feature = "game_client")]
+        {
+            use crate::game_logic::object::STEALTH_FIGHTER_LOCKON_CURSOR;
+            let Some(jet) = self.objects.get(&jet_id) else {
+                return;
+            };
+            let lockon_pos = jet.jet_ai.lockon_pos;
+            let lockon_hidden = jet.jet_ai.lockon_hidden;
+            let existing = jet.jet_ai.lockon_drawable_id.filter(|&id| id != 0);
+            let owner = jet.get_position();
+            let alive = jet.is_alive();
+
+            if !alive || lockon_pos.is_none() {
+                if let Some(draw_id) = existing {
+                    gamelogic::helpers::TheGameClient.destroy_drawable(draw_id);
+                    if let Some(jet) = self.objects.get_mut(&jet_id) {
+                        jet.jet_ai.lockon_drawable_id = None;
+                    }
+                }
+                return;
+            }
+            let pos = lockon_pos.unwrap();
+
+            let draw_id = if let Some(id) = existing {
+                id
+            } else {
+                let Some(template) =
+                    gamelogic::helpers::TheThingFactory::find_template(STEALTH_FIGHTER_LOCKON_CURSOR)
+                else {
+                    return;
+                };
+                let id = gamelogic::helpers::TheGameClient.create_drawable(template.as_ref());
+                if id == 0 {
+                    return;
+                }
+                if let Some(jet) = self.objects.get_mut(&jet_id) {
+                    jet.jet_ai.lockon_drawable_id = Some(id);
+                }
+                id
+            };
+
+            let cpp_pos = gamelogic::common::Coord3D {
+                x: pos[0],
+                y: pos[1],
+                z: pos[2],
+            };
+            gamelogic::helpers::TheGameClient.set_drawable_position(draw_id, &cpp_pos);
+            let dx = owner.x - pos[0];
+            let dz = owner.z - pos[2];
+            if dx != 0.0 || dz != 0.0 {
+                gamelogic::helpers::TheGameClient
+                    .set_drawable_orientation(draw_id, dz.atan2(dx));
+            }
+            gamelogic::helpers::TheGameClient.set_drawable_hidden(draw_id, lockon_hidden);
+            gamelogic::helpers::TheGameClient
+                .set_drawable_shroud_status_object_id(draw_id, jet_id.0);
+        }
+    }
+
+    /// C++ `getPerUnitSound("Afterburner")` then `TheAudio->addAudioEvent` /
+    /// `removeAudioEvent`. Missing UnitSpecificSounds is NoSound — never the
+    /// slot token.
+    pub(crate) fn queue_afterburner_per_unit_sound(
+        &mut self,
+        object_id: ObjectId,
+        template_name: &str,
+        pos: glam::Vec3,
+        on: bool,
+    ) {
         if on {
+            let Some(event) = crate::game_logic::audio_dispatch_impl::resolve_per_unit_sound(
+                template_name,
+                crate::game_logic::object::JET_AFTERBURNER_SOUND,
+            ) else {
+                return;
+            };
             self.queue_audio_event(
-                crate::game_logic::AudioEventRequest::new(JET_AFTERBURNER_SOUND)
-                    .with_object(jet_id)
+                crate::game_logic::AudioEventRequest::new(&event)
+                    .with_object(object_id)
                     .with_position(pos)
                     .looping(),
             );
         } else {
             self.queue_audio_event(
-                crate::game_logic::AudioEventRequest::new(JET_AFTERBURNER_SOUND_STOP)
-                    .with_object(jet_id)
-                    .with_position(pos)
-                    .stopping(),
+                crate::game_logic::AudioEventRequest::new(
+                    crate::game_logic::object::JET_AFTERBURNER_SOUND_STOP,
+                )
+                .with_object(object_id)
+                .with_position(pos)
+                .stopping(),
             );
         }
     }
+
+    /// C++ `JetTakeoffOrLandingState::update` first-contact MiscAudio
+    /// `m_aircraftWheelScreech` (JetAIUpdate.cpp:818-836).
+    fn maybe_play_jet_wheel_screech(&mut self, jet_id: ObjectId) {
+        self.play_jet_wheel_screech(jet_id, false);
+    }
+
+    fn play_jet_wheel_screech(&mut self, jet_id: ObjectId, force_touchdown: bool) {
+        use crate::game_logic::object::{
+            JET_RTB_PHASE_LANDING, JET_WHEEL_SCREECH_SOUND, JET_WHEEL_SCREECH_Z_SLOP,
+        };
+        let pos = {
+            let Some(jet) = self.objects.get(&jet_id) else {
+                return;
+            };
+            if jet.jet_ai.landing_sound_played {
+                return;
+            }
+            if Self::object_is_produced_at_helipad(jet) {
+                return;
+            }
+            if !force_touchdown && jet.jet_ai.rtb_landing_phase != JET_RTB_PHASE_LANDING {
+                return;
+            }
+            let pos = jet.get_position();
+            if !force_touchdown {
+                let mut ground = jet.ground_height;
+                if let Some(pid) = jet.producer_id {
+                    if let Some(af) = self.objects.get(&pid) {
+                        if let Some(pp) = af.thing.template.parking_place.as_ref() {
+                            ground += pp.landing_deck_height_offset;
+                        }
+                    }
+                }
+                // C++ `zPos - zSlop <= groundZ`
+                if pos.y - JET_WHEEL_SCREECH_Z_SLOP > ground {
+                    return;
+                }
+            }
+            pos
+        };
+        if let Some(jet) = self.objects.get_mut(&jet_id) {
+            jet.jet_ai.landing_sound_played = true;
+        }
+        let event =
+            crate::game_logic::host_economy_log::resolve_misc_audio_event(JET_WHEEL_SCREECH_SOUND);
+        self.queue_audio_event(
+            crate::game_logic::AudioEventRequest::new(&event)
+                .with_object(jet_id)
+                .with_position(pos),
+        );
+    }
+
 
     /// C++ PauseBeforeTakeoff after TAXI_TO_TAKEOFF reaches runwayStart.
     fn begin_pause_after_taxi_to_runway(&mut self, jet_id: ObjectId) {
@@ -2420,6 +2567,11 @@ impl GameLogic {
             || (phase >= crate::game_logic::object::JET_RTB_PHASE_LANDING
                 && horiz_dist_sq(jet_position, runway_start) <= WAYPOINT_SQ)
         {
+            if phase < crate::game_logic::object::JET_RTB_PHASE_TAXI {
+                // Live-host wheels-down: taxi start is first ground contact
+                // when the landing path never lowered Y to the deck.
+                self.play_jet_wheel_screech(jet_id, true);
+            }
             if let Some(jet) = self.objects.get_mut(&jet_id) {
                 jet.jet_ai.rtb_landing_phase = crate::game_logic::object::JET_RTB_PHASE_TAXI;
                 jet.jet_ai.landing_in_progress = false;
@@ -2454,13 +2606,19 @@ impl GameLogic {
         }
 
         if let Some(jet) = self.objects.get_mut(&jet_id) {
+            if jet.jet_ai.rtb_landing_phase != crate::game_logic::object::JET_RTB_PHASE_LANDING {
+                // C++ JetTakeoffOrLandingState::onEnter m_landingSoundPlayed = FALSE
+                jet.jet_ai.landing_sound_played = false;
+            }
             jet.jet_ai.rtb_landing_phase = crate::game_logic::object::JET_RTB_PHASE_LANDING;
             jet.jet_ai.landing_in_progress = true;
             jet.apply_airborne_locomotor_set();
             jet.target = None;
             jet.set_status_attacking(false);
         }
-        self.assign_rtb_path(jet_id, &[approach, runway_end, runway_start])
+        let ok = self.assign_rtb_path(jet_id, &[approach, runway_end, runway_start]);
+        self.maybe_play_jet_wheel_screech(jet_id);
+        ok
     }
 
     fn assign_rtb_path(&mut self, jet_id: ObjectId, points: &[glam::Vec3]) -> bool {
