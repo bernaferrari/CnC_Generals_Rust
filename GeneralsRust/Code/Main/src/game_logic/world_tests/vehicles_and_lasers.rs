@@ -3923,6 +3923,52 @@ fn hijacker_hill_tank_is_not_airborne() {
 }
 
 #[test]
+fn hijacker_hill_tank_uses_height_above_terrain_not_world_y() {
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let w = logic.pathfinding_system.grid.width().max(8) as u32;
+    let h = logic.pathfinding_system.grid.height().max(8) as u32;
+    let heights = vec![80.0f32; (w * h) as usize];
+    assert!(
+        logic.restore_terrain_heights_from_grid(w, h, &heights),
+        "hill height cache"
+    );
+
+    let hid = ObjectId(5525);
+    logic.objects.insert(
+        hid,
+        Object::new(ThingTemplate::new("GLAInfantryHijacker"), hid, Team::GLA),
+    );
+    let mut vt = ThingTemplate::new("AmericaTankCrusader");
+    vt.add_kind_of(KindOf::Vehicle);
+    let vid = ObjectId(5526);
+    logic.objects.insert(vid, {
+        let mut o = Object::new(vt, vid, Team::USA);
+        o.set_position(glam::Vec3::new(0.0, 80.0, 0.0));
+        o.ground_height = 0.0;
+        o.status.airborne_target = false;
+        o
+    });
+    logic.objects.get_mut(&vid).unwrap().apply_hijacked();
+    logic.objects.get_mut(&hid).unwrap().begin_hijacker_in_vehicle(vid);
+    logic.tick_hijacker_updates();
+    assert!(
+        !logic.objects[&hid].hijacker_was_airborne,
+        "tank sitting on Y=80 terrain is not airborne"
+    );
+
+    logic.objects.get_mut(&vid).unwrap().status.destroyed = true;
+    logic.tick_hijacker_updates();
+    let rider = &logic.objects[&hid];
+    assert!(!rider.hijacker_in_vehicle);
+    assert!(
+        !rider.status.parachuting,
+        "ground wreck on a hill must walk out, not AmericaParachute"
+    );
+}
+
+#[test]
+#[test]
 fn deliver_payload_parachute_directly_arms_landing_override() {
     use crate::game_logic::host_deliver_payload::{
         HostDeliverPayloadKind, SUPPLY_DROP_PARACHUTE_DIRECTLY,
