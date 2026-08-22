@@ -3217,6 +3217,63 @@ fn toxin_tractor_residual_stream_spray_and_death_field() {
     );
 }
 
+#[test]
+fn stealth_detector_ctor_staggers_scan_phase() {
+    use crate::game_logic::host_sentry_drone::SENTRY_DETECTION_RATE_FRAMES;
+    use crate::game_logic::host_strategy_center::stealth_detector_scan_due;
+
+    let mut game_logic = GameLogic::new();
+    let mut sentry_tpl = crate::game_logic::ThingTemplate::new("AmericaVehicleSentryDrone");
+    sentry_tpl
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(300.0);
+    game_logic
+        .templates
+        .insert("AmericaVehicleSentryDrone".to_string(), sentry_tpl);
+
+    let a = game_logic
+        .create_object(
+            "AmericaVehicleSentryDrone",
+            Team::USA,
+            Vec3::new(0.0, 0.0, 0.0),
+        )
+        .expect("sentry a");
+    let b = game_logic
+        .create_object(
+            "AmericaVehicleSentryDrone",
+            Team::USA,
+            Vec3::new(20.0, 0.0, 0.0),
+        )
+        .expect("sentry b");
+
+    let (na, ra) = {
+        let o = game_logic.host_object(a).expect("a");
+        assert!(o.is_detector);
+        (o.next_detection_scan_frame, o.detection_rate_frames)
+    };
+    let (nb, rb) = {
+        let o = game_logic.host_object(b).expect("b");
+        (o.next_detection_scan_frame, o.detection_rate_frames)
+    };
+    assert_eq!(ra, SENTRY_DETECTION_RATE_FRAMES);
+    assert_eq!(rb, SENTRY_DETECTION_RATE_FRAMES);
+    assert!(
+        (1..=SENTRY_DETECTION_RATE_FRAMES).contains(&na),
+        "sentry A first scan {na} must be GameLogicRandomValue(1, {SENTRY_DETECTION_RATE_FRAMES})"
+    );
+    assert!(
+        (1..=SENTRY_DETECTION_RATE_FRAMES).contains(&nb),
+        "sentry B first scan {nb} must be GameLogicRandomValue(1, {SENTRY_DETECTION_RATE_FRAMES})"
+    );
+    assert!(
+        !stealth_detector_scan_due(ra, na, 0),
+        "ctor must not phase-lock first scan at frame 0"
+    );
+    assert!(!stealth_detector_scan_due(rb, nb, 0));
+}
+
 /// Residual: Sentry Drone spawns as detector + gun upgrade enables auto-fire.
 /// Residual: Sentry Drone spawns as detector + gun upgrade enables auto-fire.
 #[test]
@@ -3328,8 +3385,7 @@ fn sentry_drone_residual_detect_and_auto_fire() {
         e.health.maximum = 10_000.0;
     }
 
-    game_logic.frame = 1;
-    game_logic.update_stealth_and_detection();
+    run_detector_first_scan(&mut game_logic, sentry_id);
     {
         let e = game_logic.host_object(stealth_id).expect("enemy");
         assert!(
@@ -3736,8 +3792,7 @@ fn pathfinder_residual_detect_stealth_and_sniper() {
         e.set_status_stealthed(true);
         e.set_status_detected(false);
     }
-    game_logic.frame = 1;
-    game_logic.update_stealth_and_detection();
+    run_detector_first_scan(&mut game_logic, pf_id);
     {
         let e = game_logic.host_object(stealth_id).expect("enemy");
         assert!(
@@ -3887,8 +3942,7 @@ fn scout_and_hellfire_drone_residual_attach_detect_and_fire() {
         e.set_status_detected(false);
     }
     // Place scout at origin (already); enemy at 30 within 150.
-    game_logic.frame = 2;
-    game_logic.update_stealth_and_detection();
+    run_detector_first_scan(&mut game_logic, scout_id);
     {
         let e = game_logic.host_object(stealth_id).unwrap();
         assert!(

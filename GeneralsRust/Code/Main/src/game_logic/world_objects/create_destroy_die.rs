@@ -2048,7 +2048,9 @@ impl GameLogic {
             object.ensure_lifetime_update(self.frame);
             object.ensure_height_die(self.frame);
             if object.is_detector {
-                object.apply_leftover_extra_detect_kindof();
+                // C++ StealthDetectorUpdate ctor: UPDATE_SLEEP(GameLogicRandomValue(1, rate))
+                // so detectors do not IR-ping / scan in lockstep on the spawn frame.
+                object.apply_stealth_detector_ctor_stagger(self.frame);
             }
             self.objects.insert(id, object);
             if !starts_under_construction {
