@@ -476,7 +476,10 @@ impl GameClient {
             }
             let position = Vector3::new(entry.position[0], entry.position[1], entry.position[2]);
             drawable.set_position(position);
-            drawable.set_instance_transform(Matrix4::rotation_y(entry.orientation));
+            let transform = Matrix4::rotation_y(entry.orientation)
+                .mul(&Matrix4::rotation_z(entry.float_yaw))
+                .mul(&Matrix4::rotation_x(entry.float_pitch));
+            drawable.set_instance_transform(transform);
             updated = updated.saturating_add(1);
         }
         updated
@@ -530,6 +533,8 @@ impl GameClient {
                 template_name: tmpl,
                 position: pos,
                 orientation: ori,
+                float_yaw: 0.0,
+                float_pitch: 0.0,
                 destroyed: false,
                 model_condition_bits: 0,
                 body_damage_state: 0,
@@ -612,7 +617,9 @@ impl GameClient {
                     };
                     let position = Vector3::new(e.position[0], e.position[1], e.position[2]);
                     drawable.set_position(position);
-                    let transform = Matrix4::rotation_y(e.orientation);
+                    let transform = Matrix4::rotation_y(e.orientation)
+                        .mul(&Matrix4::rotation_z(e.float_yaw))
+                        .mul(&Matrix4::rotation_x(e.float_pitch));
                     drawable.set_instance_transform(transform);
                     if let Some(basic) = drawable.downcast_mut::<BasicDrawable>() {
                         if !visual_template_name.is_empty() {
@@ -647,7 +654,9 @@ impl GameClient {
             Self::attach_presentation_specialized_draw_modules(&mut drawable, &e);
             let position = Vector3::new(e.position[0], e.position[1], e.position[2]);
             drawable.set_position(position);
-            let transform = Matrix4::rotation_y(e.orientation);
+            let transform = Matrix4::rotation_y(e.orientation)
+                .mul(&Matrix4::rotation_z(e.float_yaw))
+                .mul(&Matrix4::rotation_x(e.float_pitch));
             drawable.set_instance_transform(transform);
             Self::stamp_presentation_object_residual(&mut drawable, &e);
             let id = self.alloc_drawable_id();

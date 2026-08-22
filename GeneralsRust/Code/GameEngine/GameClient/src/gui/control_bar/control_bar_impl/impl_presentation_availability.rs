@@ -359,6 +359,39 @@ mod presentation_availability_tests {
     }
 
     #[test]
+    fn presentation_typed_availability_uses_leftover_fire_and_switch() {
+        let mut bar = ControlBar::new();
+        bar.apply_presentation_availability(PresentationAvailabilityResidual {
+            weapon_reload_time: 0.0,
+            has_primary_weapon: true,
+            has_secondary_weapon: true,
+            active_weapon_slot: 0,
+            ..PresentationAvailabilityResidual::default()
+        });
+        let fire = button(CommandType::FireWeapon);
+        assert_eq!(
+            bar.presentation_typed_availability(&fire, None),
+            CommandAvailability::Available
+        );
+        let mut switch = button(CommandType::SwitchWeapons);
+        switch.weapon_slot = WeaponSlotType::Secondary;
+        assert_eq!(
+            bar.presentation_typed_availability(&switch, None),
+            CommandAvailability::Available
+        );
+        bar.presentation_availability.active_weapon_slot = 1;
+        assert_eq!(
+            bar.presentation_typed_availability(&switch, None),
+            CommandAvailability::Active
+        );
+        bar.apply_presentation_availability(PresentationAvailabilityResidual::default());
+        assert_eq!(
+            bar.presentation_typed_availability(&switch, None),
+            CommandAvailability::Restricted
+        );
+    }
+
+    #[test]
     fn special_power_in_use_battle_plan_and_overcharge_states() {
         let mut bar = ControlBar::new();
         bar.portrait_state.special_power_ready = true;

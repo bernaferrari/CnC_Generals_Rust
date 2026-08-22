@@ -75,6 +75,10 @@ impl SnapshotBuilder {
                     game_logic,
                 );
                 super::battle_plan_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::subdual_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::hotkey_squad_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+
+
 
                 bytes
             },
@@ -221,12 +225,23 @@ impl SnapshotBuilder {
             &snapshot.lifecycle_tail,
             game_logic,
         )?;
+        super::subdual_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+
+
 
         self.sync_all_garrisoned_units_from_occupants(game_logic);
         self.restore_game_logic_persist_tail(snapshot, game_logic);
         if snapshot.version >= WORLD_SNAPSHOT_DIRECT_XFER_V18_TAIL_VERSION {
             super::persist_v18::restore_persist_v18(&snapshot.persist_v18, game_logic);
         }
+        super::hotkey_squad_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+
 
         log::info!("World restoration complete");
         Ok(())

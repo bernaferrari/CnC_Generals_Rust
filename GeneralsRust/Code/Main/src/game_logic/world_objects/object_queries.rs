@@ -2425,13 +2425,11 @@ impl GameLogic {
                 }
                 self.upgrade_module_residuals.record_armor_set(upgrade);
             }
-            // C++ LocomotorSetUpgrade residual → setLocomotorUpgrade(true)
-            // then chooseLocomotorSet(SET_NORMAL) remaps to SET_NORMAL_UPGRADED
-            // and installs the whole template (AIUpdate.cpp:784-803).
-            if crate::game_logic::host_upgrade_module_residuals::is_locomotor_set_upgrade(upgrade) {
-                crate::game_logic::host_upgrade_module_residuals::apply_locomotor_set_upgrade(
-                    obj, upgrade,
-                );
+            // C++ LocomotorSetUpgrade::upgradeImplementation only — not a
+            // name-sniff of Heroic rank or AutoLoader research.
+            if crate::game_logic::host_upgrade_module_residuals::apply_locomotor_set_upgrade(
+                obj, upgrade,
+            ) {
                 self.upgrade_module_residuals.record_locomotor_set(upgrade);
             }
             // C++ UnpauseSpecialPowerUpgrade residual.  Capture uses its

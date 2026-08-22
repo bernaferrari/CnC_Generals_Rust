@@ -1146,6 +1146,21 @@ impl CnCGameEngine {
                 glam::Mat4::look_at_rh(self.camera_position, self.camera_target, glam::Vec3::Y);
             self.sync_orbit_from_camera_transform();
         }
+        if let Some(groups) = crate::save_load::snapshot::take_pending_control_groups() {
+            self.control_groups = groups
+                .into_iter()
+                .map(|(slot, ids)| {
+                    (
+                        slot,
+                        ids.into_iter()
+                            .map(crate::game_logic::ObjectId)
+                            .collect(),
+                    )
+                })
+                .collect();
+        } else {
+            self.control_groups.clear();
+        }
         if let Some(shadow) = self.gameworld_shadow.as_mut() {
             shadow.reset_for_world_boundary();
             shadow.sync_from_host(&self.game_logic);
@@ -1178,6 +1193,12 @@ impl CnCGameEngine {
                 ],
                 zoom: self.camera_zoom,
             },
+        );
+        crate::save_load::snapshot::set_pending_control_groups(
+            self.control_groups
+                .iter()
+                .map(|(slot, ids)| (*slot, ids.iter().map(|id| id.0).collect()))
+                .collect(),
         );
         let client_drawables = self.render_pipeline.capture_client_drawable_snapshot();
         let save_path = self.save_file_manager.get_save_path(slot);

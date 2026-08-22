@@ -43,6 +43,10 @@ pub struct FrozenDirectPresentationPose {
     pub binding_key: PresentationDirectDrawableBindingKey,
     pub position: [f32; 3],
     pub orientation: f32,
+    /// C++ FloatUpdate yaw residual (host Y-up instance matrix).
+    pub float_yaw: f32,
+    /// C++ FloatUpdate pitch residual (host Y-up instance matrix).
+    pub float_pitch: f32,
 }
 
 /// Private runtime metadata for a presentation-owned direct drawable.
@@ -121,6 +125,10 @@ pub struct PresentationDrawableSync {
     pub template_name: String,
     pub position: [f32; 3],
     pub orientation: f32,
+    /// C++ FloatUpdate yaw residual applied to Drawable instance matrix.
+    pub float_yaw: f32,
+    /// C++ FloatUpdate pitch residual applied to Drawable instance matrix.
+    pub float_pitch: f32,
     pub destroyed: bool,
     pub model_condition_bits: u128,
     pub body_damage_state: u8,

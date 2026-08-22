@@ -10,6 +10,12 @@ pub const PARTICLE_BEAM_TOTAL_PULSES: u32 = 40;
 /// damagePerPulse = (TotalFiringFrames/FPS * DamagePerSecond) / TotalDamagePulses
 ///                 = (105/30 * 400) / 40 = 35.
 pub const PARTICLE_BEAM_DAMAGE_PER_PULSE: f32 = 35.0;
+/// Retail FactionBuilding.ini `ParticleUplinkCannonUpdate` DamageType residual.
+/// C++ ctor defaults to DAMAGE_LASER; authored INI is PARTICLE_BEAM.
+pub const PARTICLE_BEAM_DAMAGE_TYPE: &str = "PARTICLE_BEAM";
+/// Retail `ParticleUplinkCannonUpdate` DeathType residual (DEATH_LASERED).
+pub const PARTICLE_BEAM_DEATH_TYPE: &str = "LASERED";
+
 /// Residual pulse interval floor: TotalFiringTime / TotalDamagePulses → 105/40
 /// ≈ 2.625 frames. Host residual prefers fractional nextFactor scheduling
 /// ([`particle_next_pulse_frame`]); this constant remains the minimum gap honesty.
@@ -1159,4 +1165,109 @@ pub fn particle_remnant_deletion_sleep_frames() -> u32 {
         PARTICLE_REMNANT_DELETION_MAX_FRAMES,
         0,
     )
+}
+
+/// C++ `ParticleUplinkCannonUpdate` pulse DamageInfo types.
+///
+/// Prefer leftover `ParticleUplinkCannonUpdateModuleData` (INI-authored).
+/// Residual fallback is retail PARTICLE_BEAM / LASERED, not UNRESISTABLE.
+pub fn particle_beam_authored_types(
+    source_template: Option<&str>,
+) -> (
+    crate::game_logic::combat::DamageType,
+    crate::game_logic::host_usa_pilot::HostDeathType,
+) {
+    if let Some(name) = source_template {
+        if let Some(pair) = leftover_puc_authored_types(name) {
+            return pair;
+        }
+    }
+    (
+        crate::game_logic::combat::DamageType::ParticleBeam,
+        crate::game_logic::host_usa_pilot::HostDeathType::Lasered,
+    )
+}
+
+/// C++ TrailRemnant FireWeaponUpdate weapon types (PARTICLE_BEAM / BURNED).
+pub fn particle_remnant_authored_types() -> (
+    crate::game_logic::combat::DamageType,
+    crate::game_logic::host_usa_pilot::HostDeathType,
+) {
+    let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+    if crate::game_logic::thing::ThingTemplate::weapon_from_store(PARTICLE_REMNANT_WEAPON_NAME)
+        .is_some()
+    {
+        let damage = crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(
+            PARTICLE_REMNANT_WEAPON_NAME,
+        );
+        let death = crate::game_logic::host_armor_residual::resolve_host_death_type(
+            Some(PARTICLE_REMNANT_WEAPON_NAME),
+            damage,
+        );
+        return (damage, death);
+    }
+    (
+        crate::game_logic::combat::DamageType::ParticleBeam,
+        crate::game_logic::host_usa_pilot::HostDeathType::Burned,
+    )
+}
+
+fn leftover_puc_authored_types(
+    template_name: &str,
+) -> Option<(
+    crate::game_logic::combat::DamageType,
+    crate::game_logic::host_usa_pilot::HostDeathType,
+)> {
+    use std::str::FromStr;
+    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
+    let factory = guard.as_ref()?;
+    let tmpl = factory.find_template(template_name, false)?;
+    for entry in tmpl.get_behavior_module_info().iter() {
+        if !entry
+            .name
+            .as_str()
+            .eq_ignore_ascii_case("ParticleUplinkCannonUpdate")
+        {
+            continue;
+        }
+        let ini_damage = entry
+            .data
+            .get_ini_field("DamageType")
+            .and_then(|raw| gamelogic::damage::DamageType::from_str(raw.trim()).ok())
+            .map(crate::game_logic::combat::DamageType::from_store);
+        let ini_death = entry
+            .data
+            .get_ini_field("DeathType")
+            .map(|raw| parse_puc_death_type(raw.trim()));
+        if let Some(damage) = ini_damage {
+            return Some((
+                damage,
+                ini_death.unwrap_or(crate::game_logic::host_usa_pilot::HostDeathType::Lasered),
+            ));
+        }
+        if let Some(data) = entry
+            .data
+            .downcast_ref::<gamelogic::object::behavior::ParticleUplinkCannonUpdateModuleData>(
+            )
+        {
+            return Some((
+                crate::game_logic::combat::DamageType::from_store(data.damage_type),
+                crate::game_logic::host_usa_pilot::HostDeathType::from_store(data.death_type),
+            ));
+        }
+    }
+    None
+}
+
+fn parse_puc_death_type(token: &str) -> crate::game_logic::host_usa_pilot::HostDeathType {
+    use crate::game_logic::host_usa_pilot::HostDeathType;
+    match token.to_ascii_uppercase().as_str() {
+        "LASERED" => HostDeathType::Lasered,
+        "BURNED" => HostDeathType::Burned,
+        "EXPLODED" => HostDeathType::Exploded,
+        "NORMAL" => HostDeathType::Normal,
+        "NONE" => HostDeathType::None,
+        "DETONATED" => HostDeathType::Detonated,
+        _ => HostDeathType::Lasered,
+    }
 }

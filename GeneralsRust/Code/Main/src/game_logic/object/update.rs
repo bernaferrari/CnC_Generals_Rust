@@ -168,18 +168,18 @@ impl Object {
             let build_rate = 1.0 / self.thing.template.build_time;
             self.construction_percent += build_rate * dt;
 
+            // C++ DozerAIUpdate.cpp:1708+526: start 1 HP, then
+            // +maxHealth / framesToBuild each logic frame — including the
+            // completing frame. Completion (cpp:536-561) does not snap HP.
+            let frames = (self.thing.template.build_time * 30.0).max(1.0);
+            let per_frame = self.health.maximum / frames;
+            let logic_frames = (dt * 30.0).max(0.0);
+            self.health.current = (self.health.current.max(1.0) + per_frame * logic_frames)
+                .min(self.health.maximum);
+
             if self.construction_percent >= 1.0 {
                 self.construction_percent = 1.0;
                 self.set_status_under_construction(false);
-                self.health.current = self.health.maximum;
-            } else {
-                // C++ DozerAIUpdate.cpp:1708+526: start 1 HP, then
-                // +maxHealth / framesToBuild each logic frame.
-                let frames = (self.thing.template.build_time * 30.0).max(1.0);
-                let per_frame = self.health.maximum / frames;
-                let logic_frames = (dt * 30.0).max(0.0);
-                self.health.current = (self.health.current.max(1.0) + per_frame * logic_frames)
-                    .min(self.health.maximum);
             }
         }
     }

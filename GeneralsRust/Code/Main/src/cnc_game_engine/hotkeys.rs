@@ -38,7 +38,7 @@ impl CnCGameEngine {
     }
 
     /// C++ `Player::removeObjectFromHotkeySquad` then `m_squads[n]->addObject`.
-    fn evict_ids_from_other_control_groups(&mut self, ids: &[ObjectId], keep: u8) {
+    pub(crate) fn evict_ids_from_other_control_groups(&mut self, ids: &[ObjectId], keep: u8) {
         for (&group, members) in self.control_groups.iter_mut() {
             if group == keep {
                 continue;
@@ -50,7 +50,7 @@ impl CnCGameEngine {
     }
 
     /// C++ `Player::processCreateTeamGameMessage` leftover `m_squads` / Squad xfer.
-    fn write_leftover_player_create_team(&self, group_num: u8, ids: &[ObjectId]) {
+    pub(crate) fn write_leftover_player_create_team(&self, group_num: u8, ids: &[ObjectId]) {
         crate::command_system::tap_host_team_slot_for_recorder(group_num, 0, ids);
         let object_ids: Vec<u32> = ids.iter().map(|id| id.0).collect();
         let Ok(list) = gamelogic::player::ThePlayerList().read() else {

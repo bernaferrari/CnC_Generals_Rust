@@ -228,11 +228,17 @@ impl ControlBar {
                 if let Some(hidden) = leftover_buildable_hidden(command, player_id) {
                     return Ok(hidden);
                 }
+                if leftover_presentation_common_restricted(self, command, Some(&entry)) {
+                    return Ok(CommandAvailability::Restricted);
+                }
                 if leftover_presentation_queue_or_drop_restricted(self, command, Some(&entry)) {
                     return Ok(CommandAvailability::Restricted);
                 }
                 if leftover_presentation_can_make_restricted(self, command) {
                     return Ok(CommandAvailability::Restricted);
+                }
+                if let Some(avail) = leftover_presentation_stop_or_rail(self, command) {
+                    return Ok(avail);
                 }
                 if Self::command_uses_ready_clock(command) {
                     return Ok(self.presentation_typed_availability(command, Some(&entry)));
@@ -248,11 +254,17 @@ impl ControlBar {
                 if let Some(hidden) = leftover_buildable_hidden(command, player_id) {
                     return Ok(hidden);
                 }
+                if leftover_presentation_common_restricted(self, command, None) {
+                    return Ok(CommandAvailability::Restricted);
+                }
                 if leftover_presentation_queue_or_drop_restricted(self, command, None) {
                     return Ok(CommandAvailability::Restricted);
                 }
                 if leftover_presentation_can_make_restricted(self, command) {
                     return Ok(CommandAvailability::Restricted);
+                }
+                if let Some(avail) = leftover_presentation_stop_or_rail(self, command) {
+                    return Ok(avail);
                 }
                 if Self::command_uses_ready_clock(command) {
                     return Ok(self.presentation_typed_availability(command, None));
@@ -479,27 +491,7 @@ impl ControlBar {
         command: &CommandButton,
         entry: Option<&crate::presentation_translator_residual::TranslatorCatalogEntry>,
     ) -> CommandAvailability {
-        match command.command_type {
-            CommandType::DoSpecialPower => {
-                if command.special_power.is_empty() {
-                    return CommandAvailability::Restricted;
-                }
-                let ready = entry
-                    .map(|e| e.special_power_ready)
-                    .unwrap_or(false)
-                    || self.portrait_state.special_power_ready;
-                if ready {
-                    CommandAvailability::Available
-                } else {
-                    CommandAvailability::NotReady
-                }
-            }
-            CommandType::ToggleOvercharge => CommandAvailability::Available,
-            CommandType::FireWeapon | CommandType::SwitchWeapons => {
-                CommandAvailability::Restricted
-            }
-            _ => CommandAvailability::Restricted,
-        }
+        leftover_presentation_clock_availability(self, command, entry)
     }
 
     fn logic_weapon_slot(slot: WeaponSlotType) -> gamelogic::weapon::WeaponSlotType {

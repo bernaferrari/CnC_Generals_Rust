@@ -609,8 +609,17 @@ impl UnitRenderInput {
         } else {
             glam::Mat4::IDENTITY
         };
+        let (fy, fp) = crate::game_logic::host_float_update::sway_for(self.id.0);
+        // C++ FloatUpdate: Rotate_Z(heading); Rotate_Y(yaw); Rotate_X(pitch).
+        // Host Y-up: heading is already Ry; C++ Ry → host Rz; Rx stays Rx.
+        let sway = if fy.abs() > 1e-8 || fp.abs() > 1e-8 {
+            glam::Mat4::from_rotation_z(fy) * glam::Mat4::from_rotation_x(fp)
+        } else {
+            glam::Mat4::IDENTITY
+        };
         let base = glam::Mat4::from_translation(self.position)
             * glam::Mat4::from_rotation_y(self.orientation)
+            * sway
             * fall
             * glam::Mat4::from_scale(glam::Vec3::splat(scale));
         #[cfg(feature = "game_client")]

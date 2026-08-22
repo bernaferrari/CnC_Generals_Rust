@@ -273,8 +273,8 @@ impl GameWorldShadow {
                     e.heli_slow_death_vertical_velocity = 0.0;
                     dy = -hat;
                 }
-            } else if frame.saturating_sub(e.heli_slow_death_hit_ground_frame)
-                >= HELI_GROUND_SETTLE_FRAMES
+            } else if (frame.saturating_sub(e.heli_slow_death_hit_ground_frame) as f32)
+                > HELI_GROUND_SETTLE_FRAMES as f32
             {
                 e.heli_slow_death_done = true;
                 e.heli_slow_death_active = false;

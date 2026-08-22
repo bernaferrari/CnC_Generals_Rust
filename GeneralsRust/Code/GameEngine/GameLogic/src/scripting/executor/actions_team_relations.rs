@@ -69,6 +69,13 @@ impl ScriptActionDispatcher {
             team_name,
             player_name
         );
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_transfer(super::HostScriptTransferRequest::Team {
+                team: team_name.clone(),
+                player: player_name.clone(),
+            });
+        }
+
 
         let Some(target_player) = player_list()
             .read()

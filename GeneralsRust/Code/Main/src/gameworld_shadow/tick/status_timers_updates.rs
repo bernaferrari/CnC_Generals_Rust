@@ -10,6 +10,7 @@ impl GameWorldShadow {
     /// Enemy-near / checkpoint scan paths may skip the rest of this entity's
     /// timers this frame (parity with the original `continue`).
     pub(super) fn tick_status_updates(&mut self, eid: EntityId, frame: u32) -> EntityTickControl {
+        let hid = self.entity_to_host.get(&eid.get()).copied();
         let Some(e) = self.world.world_mut().entity_mut(eid) else {
             return EntityTickControl::Next { changed: false };
         };
@@ -73,14 +74,22 @@ impl GameWorldShadow {
         // Wave 783: FloatUpdate residual (boat sway / optional water snap).
         if e.float_update_active {
             use crate::game_logic::host_float_update::{
-                FLOAT_PITCH_PHASE, FLOAT_SWAY_AMP, FLOAT_YAW_PHASE,
+                leftover_water_surface_y, publish_sway, FLOAT_PITCH_PHASE, FLOAT_SWAY_AMP,
+                FLOAT_YAW_PHASE,
             };
             let angle = frame as f32;
             e.float_yaw = (angle * FLOAT_YAW_PHASE).sin() * FLOAT_SWAY_AMP;
             e.float_pitch = (angle * FLOAT_PITCH_PHASE).sin() * FLOAT_SWAY_AMP;
-            // Residual water snap: when enabled, stick Y to terrain ground height.
+            // C++ Enabled: snap object Z to isUnderwater waterZ (not lakebed).
             if e.float_update_enabled {
-                e.transform.position.y = e.ground_height;
+                if let Some(wy) =
+                    leftover_water_surface_y(e.transform.position.x, e.transform.position.z)
+                {
+                    e.transform.position.y = wy;
+                }
+            }
+            if let Some(hid) = hid {
+                publish_sway(hid, e.float_yaw, e.float_pitch);
             }
             changed = true;
         }

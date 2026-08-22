@@ -468,6 +468,10 @@ impl Object {
         )
     }
 
+    pub fn take_pending_death_audio_stop(&mut self) -> bool {
+        std::mem::take(&mut self.pending_death_audio_stop)
+    }
+
     pub fn fire_fx_list_die(&mut self) {
         self.ensure_fx_list_die();
         let upgrades: Vec<String> = self.applied_upgrades.iter().cloned().collect();

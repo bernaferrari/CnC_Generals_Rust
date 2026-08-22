@@ -66,16 +66,14 @@ impl Team {
 
     /// Set controlling player
     pub fn set_controlling_player_id(&mut self, player_id: Option<UnsignedInt>) {
-        // Wave 256: empty dual-world → no factory member walks.
-        if dual_world_registry_unavailable() {
+        // Always assign the controller (C++ Team::setControllingPlayer).
+        // Empty leftover registry only skips the dual-world member walk.
+        let changed = self.controlling_player_id != player_id;
+        self.controlling_player_id = player_id;
+        if !changed || dual_world_registry_unavailable() {
             return;
         }
 
-        let changed = self.controlling_player_id != player_id;
-        self.controlling_player_id = player_id;
-        if !changed {
-            return;
-        }
 
         // C++ parity (Team::setControllingPlayer): refresh partition/shroud state of all members
         // when team control changes.

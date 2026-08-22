@@ -322,8 +322,8 @@ pub struct GameLogic {
 
 
     /// Host China ECM Tank / jammer residual honesty counters.
-    /// Fail-closed: not full subdual damage / laser stream / missile scatter matrix.
-    /// jams: weapons_jammed grants applied to enemy/neutral units in radius.
+    /// jams: DISABLED_SUBDUED full halt + fire-only weapons_jammed grants
+    /// applied to enemy/neutral vehicles after isSubdued().
     pub(super) ecm_residual_jams: u32,
 
     /// Host America Microwave Tank residual (DISABLED_SUBDUED on structures).

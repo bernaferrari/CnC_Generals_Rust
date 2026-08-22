@@ -387,6 +387,12 @@ pub struct RenderableObject {
     pub team_color: [f32; 4],
     pub position: Vec3,
     pub orientation: f32,
+    /// C++ FloatUpdate yaw residual (radians).
+    #[serde(default)]
+    pub float_yaw: f32,
+    /// C++ FloatUpdate pitch residual (radians).
+    #[serde(default)]
+    pub float_pitch: f32,
     /// C++ ToppleUpdate lean residual (radians fallen about fall axis).
     #[serde(default)]
     pub topple_lean_radians: f32,

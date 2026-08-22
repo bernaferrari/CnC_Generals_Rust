@@ -930,6 +930,13 @@ impl PresentationFrame {
                 obj.topple_lean_radians = ent.topple_lean_radians;
                 dirty = true;
             }
+            if (obj.float_yaw - ent.float_yaw).abs() > 1e-5
+                || (obj.float_pitch - ent.float_pitch).abs() > 1e-5
+            {
+                obj.float_yaw = ent.float_yaw;
+                obj.float_pitch = ent.float_pitch;
+                dirty = true;
+            }
             let show_healing = ent.sole_healing_benefactor_expiration_frame != 0;
             if obj.show_healing != show_healing {
                 obj.show_healing = show_healing;
@@ -1410,6 +1417,8 @@ impl PresentationFrame {
             team_color: ent.team_color,
             position: pos,
             orientation: ent.transform.orientation,
+            float_yaw: ent.float_yaw,
+            float_pitch: ent.float_pitch,
             // Wave 498: filled by overlay_host_fx_residual when host is available.
             topple_lean_radians: ent.topple_lean_radians,
             topple_dir_x: 1.0,
@@ -2163,6 +2172,16 @@ impl PresentationFrame {
             let topple = obj.presentation_topple_lean_radians();
             if (ro.topple_lean_radians - topple).abs() > 1e-5 {
                 ro.topple_lean_radians = topple;
+                dirty = true;
+            }
+            let (fy, fp) = obj
+                .float_update
+                .as_ref()
+                .map(|f| (f.yaw, f.pitch))
+                .unwrap_or((0.0, 0.0));
+            if (ro.float_yaw - fy).abs() > 1e-5 || (ro.float_pitch - fp).abs() > 1e-5 {
+                ro.float_yaw = fy;
+                ro.float_pitch = fp;
                 dirty = true;
             }
             let (tdx, tdy) = obj.presentation_topple_dir();

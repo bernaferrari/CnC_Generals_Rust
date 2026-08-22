@@ -905,6 +905,8 @@ mod tests {
             template_name: "UnderlyingTemplate".to_string(),
             position,
             orientation,
+            float_yaw: 0.0,
+            float_pitch: 0.0,
             destroyed,
             model_condition_bits: 0,
             body_damage_state: 0,
@@ -1061,6 +1063,8 @@ mod tests {
                 binding_key: initial.binding_key,
                 position: [99.0, 99.0, 99.0],
                 orientation: 1.0,
+                float_yaw: 0.0,
+                float_pitch: 0.0,
             }]),
             0
         );

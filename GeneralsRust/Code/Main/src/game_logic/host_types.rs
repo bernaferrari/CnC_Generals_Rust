@@ -367,14 +367,15 @@ pub struct ObjectStatus {
     /// Absolute host logic frame when DISABLED_PARALYZED expires (0 = inactive).
     #[serde(default)]
     pub disabled_paralyzed_until_frame: u32,
-    /// Host ECM tank / jammer residual: weapons cannot fire while inside jam radius.
-    /// C++ DISABLED_SUBDUED cannot-fire residual (Microwave/ECM vehicle disabler).
-    /// Fail-closed: continuous aura (not full subdual damage accumulate/heal).
+    /// Fire-only residual: weapons cannot fire (`canFireWeapon`).
+    /// C++ MODELCONDITION_JAMMED is missile-jam; vehicle ECM uses DISABLED_SUBDUED.
+    /// Does **not** skip update modules or freeze movement.
     #[serde(default)]
     pub weapons_jammed: bool,
-    /// C++ DISABLED_SUBDUED residual on structures cooked by Microwave Tank
-    /// (MicrowaveTankBuildingDisabler / SUBDUAL_BUILDING). Full disable while cooked
-    /// (production / powered functions stop). Fail-closed continuous while attacking.
+    /// C++ DISABLED_SUBDUED (ActiveBody::onSubdualChange). Full halt:
+    /// GameLogic skips update modules (AIUpdate processes only DISABLED_HELD).
+    /// ECM vehicle disabler + Microwave building disabler both set this
+    /// when `isSubdued()` (`currentSubdual >= maxHealth`).
     #[serde(default)]
     pub disabled_subdued: bool,
     /// C++ DISABLED_FREEFALL residual (PhysicsBehavior IS_IN_FREEFALL while airborne).

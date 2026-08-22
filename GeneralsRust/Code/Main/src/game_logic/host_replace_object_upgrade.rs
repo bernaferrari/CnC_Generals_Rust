@@ -161,11 +161,13 @@ pub fn command_set_override_for_upgrade(
         return Some("ChinaHelixBattleBunkerCommandSet");
     }
 
-    // Internet center satellite hack command set residual.
-    if u.contains("satellitehack") {
-        if t.contains("internet") {
+    // Internet Center two-stage CommandSetUpgrade (C++ CommandSetUpgrade.cpp:43-79).
+    // Hack One → CommandSetOne so the Hack Two button remains. Hack Two → CommandSetTwo.
+    if u.contains("satellitehack") && t.contains("internet") {
+        if u.contains("two") || u.contains("2") {
             return Some("ChinaInternetCenterCommandSetTwo");
         }
+        return Some("ChinaInternetCenterCommandSetOne");
     }
 
     None
@@ -255,6 +257,35 @@ mod tests {
         assert_eq!(
             command_set_override_for_upgrade("Upgrade_ChinaMines", "ChinaWarFactory"),
             Some("ChinaWarFactoryCommandSetUpgrade")
+        );
+    }
+
+    #[test]
+    fn satellite_hack_is_two_stage_command_set() {
+        assert_eq!(
+            command_set_override_for_upgrade(
+                "Upgrade_ChinaSatelliteHackOne",
+                "ChinaInternetCenter"
+            ),
+            Some("ChinaInternetCenterCommandSetOne")
+        );
+        assert_eq!(
+            command_set_override_for_upgrade(
+                "Upgrade_ChinaSatelliteHackTwo",
+                "ChinaInternetCenter"
+            ),
+            Some("ChinaInternetCenterCommandSetTwo")
+        );
+        assert_eq!(
+            command_set_override_for_upgrade(
+                "Upgrade_ChinaSatelliteHackOne",
+                "Tank_ChinaInternetCenter"
+            ),
+            Some("ChinaInternetCenterCommandSetOne")
+        );
+        assert_eq!(
+            command_set_override_for_upgrade("Upgrade_ChinaSatelliteHackOne", "ChinaWarFactory"),
+            None
         );
     }
 

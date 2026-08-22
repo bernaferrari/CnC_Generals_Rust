@@ -5651,24 +5651,14 @@ impl GameLogic {
                         .unwrap_or((false, position, 0, false, false));
 
                     if !source_alive {
-                        // C++ wanting: findBestSupplyWarehouse with scan; fail → Regrouping.
-                        let scan = self.collector_warehouse_scan(object_id, owner_player_id);
-                        if let Some(next) = self.find_nearest_harvestable_supply_within(
-                            team,
-                            position,
-                            scan,
+                        // C++ dock session ends → WANTING. Cargo banks first.
+                        self.route_supply_wanting(
                             object_id,
-                        )
-                        {
-                            if let Some(dest) = self.objects.get(&next).map(|s| s.get_position()) {
-                                if let Some(obj) = self.objects.get_mut(&object_id) {
-                                    obj.set_target(Some(next));
-                                }
-                                self.path_approach_with_state(object_id, dest, AIState::Gathering);
-                                continue;
-                            }
-                        }
-                        self.begin_supply_regroup(object_id, team, owner_player_id, position);
+                            team,
+                            owner_player_id,
+                            position,
+                            can_move,
+                        );
                         continue;
                     }
 
@@ -5894,24 +5884,15 @@ impl GameLogic {
                     }
                     if source_is_warehouse && taken == 0 {
                         self.release_dock_if_holder(source_id, object_id);
-
-                        let scan = self.collector_warehouse_scan(object_id, owner_player_id);
-                        if let Some(next) = self.find_nearest_harvestable_supply_within(
-                            team,
-                            position,
-                            scan,
+                        // C++ action() FALSE → AIDock SUCCESS → WANTING.
+                        // Partial cargo banks; empty seeks another warehouse.
+                        self.route_supply_wanting(
                             object_id,
-                        )
-                        {
-                            if let Some(dest) = self.objects.get(&next).map(|s| s.get_position()) {
-                                if let Some(obj) = self.objects.get_mut(&object_id) {
-                                    obj.set_target(Some(next));
-                                }
-                                self.path_approach_with_state(object_id, dest, AIState::Gathering);
-                                continue;
-                            }
-                        }
-                        self.begin_supply_regroup(object_id, team, owner_player_id, position);
+                            team,
+                            owner_player_id,
+                            position,
+                            can_move,
+                        );
                         continue;
                     }
                     let is_full = current_carry + taken >= max_carry;
@@ -6293,12 +6274,30 @@ impl GameLogic {
                         continue;
                     };
 
-                    let Some((container_pos, container_alive, container_has_unit)) =
+                    let Some((container_pos, container_alive, container_has_unit, station_pin)) =
                         self.objects.get(&container_id).map(|container| {
+                            // C++ GarrisonContain::positionObjectsAtStationGarrisonPoints:
+                            // non-enclosing Fire Base stays on STATION, not building center.
+                            let station_pin = if matches!(ai_state, AIState::Garrisoned)
+                                && !container.is_enclosing_garrison_container()
+                            {
+                                container.building_data.as_ref().and_then(|bd| {
+                                    bd.garrison_point_occupant
+                                        .iter()
+                                        .enumerate()
+                                        .find(|(_, id)| **id == Some(object_id))
+                                        .and_then(|(i, _)| {
+                                            bd.garrison_station_points.get(i).copied()
+                                        })
+                                })
+                            } else {
+                                None
+                            };
                             (
                                 container.get_position(),
                                 container.is_alive(),
                                 container.contained_units().contains(&object_id),
+                                station_pin,
                             )
                         })
                     else {
@@ -6317,18 +6316,19 @@ impl GameLogic {
                         continue;
                     }
 
+                    let pin_pos = station_pin.unwrap_or(container_pos);
                     if let Some(obj) = self.objects.get_mut(&object_id) {
                         obj.set_contained_by(Some(container_id));
-                        obj.set_position(container_pos);
+                        obj.set_position(pin_pos);
                         crate::game_logic::host_ground_height_log::record(
                             obj.id,
-                            container_pos.y,
+                            pin_pos.y,
                             false,
                         );
                         if crate::gameworld_shadow::gameworld_movement_authority_live() {
                             crate::game_logic::host_move_log::record(
                                 obj.id,
-                                Some([container_pos.x, container_pos.y, container_pos.z]),
+                                Some([pin_pos.x, pin_pos.y, pin_pos.z]),
                             );
                             obj.record_host_movement();
                         }
@@ -6401,6 +6401,12 @@ impl GameLogic {
         use crate::game_logic::host_tunnel_network::{
             heal_contain_done, tunnel_tracker_heal_amount, TUNNEL_FULL_HEAL_FRAMES,
         };
+
+        // C++ GarrisonContain::update: drop effectively-dead occupants so
+        // FIREPOINT/STATION slots free before survivors pick a window.
+        crate::game_logic::buildings::BuildingBehavior::sweep_dead_garrison_occupants(
+            &mut self.objects,
+        );
 
         let mut heal_jobs: Vec<(ObjectId, u32, Vec<ObjectId>)> = Vec::new();
         for (&id, obj) in &self.objects {
@@ -6879,6 +6885,79 @@ impl GameLogic {
         obj.set_weapon_set_mine_clearing_detail(true);
     }
 
+    /// C++ / leftover WANTING update: cargo → center; empty → warehouse;
+    /// neither → regroup. Never harvests while carrying.
+    fn route_supply_wanting(
+        &mut self,
+        object_id: ObjectId,
+        team: Team,
+        owner_player_id: Option<u32>,
+        position: Vec3,
+        can_move: bool,
+    ) {
+        use crate::game_logic::host_supply_gather::{
+            wanting_dock_target, WantingDockTarget,
+        };
+        const SUPPLY_BOX_VALUE: u32 =
+            crate::game_logic::host_structure_economy_residual::VALUE_PER_SUPPLY_BOX as u32;
+        let cash = self
+            .objects
+            .get(&object_id)
+            .map(|o| o.stored_resources.supplies)
+            .unwrap_or(0);
+        let number_boxes = (cash / SUPPLY_BOX_VALUE.max(1)) as i32;
+        if let Some(obj) = self.objects.get_mut(&object_id) {
+            obj.supply_truck_state = SupplyTruckState::Wanting;
+        }
+        match wanting_dock_target(number_boxes) {
+            WantingDockTarget::Center => {
+                let dest = self
+                    .preferred_or_allied_supply_center(
+                        object_id,
+                        team,
+                        owner_player_id,
+                        position,
+                    )
+                    .and_then(|rid| self.objects.get(&rid).map(|r| r.get_position()));
+                if let Some(dest) = dest {
+                    if can_move {
+                        self.path_approach_with_state(
+                            object_id,
+                            dest,
+                            AIState::ReturningResources,
+                        );
+                    } else {
+                        self.set_ai_state_decision_aware(
+                            object_id,
+                            AIState::ReturningResources,
+                        );
+                    }
+                } else {
+                    self.begin_supply_regroup(object_id, team, owner_player_id, position);
+                }
+            }
+            WantingDockTarget::Warehouse => {
+                let scan = self.collector_warehouse_scan(object_id, owner_player_id);
+                if let Some(next) = self.find_nearest_harvestable_supply_within(
+                    team,
+                    position,
+                    scan,
+                    object_id,
+                ) {
+                    if let Some(dest) = self.objects.get(&next).map(|s| s.get_position()) {
+                        if let Some(obj) = self.objects.get_mut(&object_id) {
+                            obj.set_target(Some(next));
+                        }
+                        self.path_approach_with_state(object_id, dest, AIState::Gathering);
+                        return;
+                    }
+                }
+                self.begin_supply_regroup(object_id, team, owner_player_id, position);
+            }
+        }
+    }
+
+
     /// C++ Idle `isForcedIntoWantingState` → Wanting, and Regrouping success → Wanting.
     fn tick_supply_force_wanting(
         &mut self,
@@ -6914,51 +6993,13 @@ impl GameLogic {
             }
             return;
         }
-        let boxes = self
-            .objects
-            .get(&object_id)
-            .map(|o| o.stored_resources.supplies)
-            .unwrap_or(0);
         // C++ Wanting onEnter: setForceWantingState(false) — one try.
         if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.supply_truck_force_pending = false;
             obj.supply_truck_state = SupplyTruckState::Wanting;
         }
         self.arm_worker_harvest_mine_clearing(object_id);
-
-        if boxes > 0 {
-            let dest = self
-                .preferred_or_allied_supply_center(object_id, team, owner_player_id, position)
-                .and_then(|rid| self.objects.get(&rid).map(|r| r.get_position()));
-            if let Some(dest) = dest {
-                if can_move {
-                    self.path_approach_with_state(
-                        object_id,
-                        dest,
-                        AIState::ReturningResources,
-                    );
-                } else {
-                    self.set_ai_state_decision_aware(object_id, AIState::ReturningResources);
-                }
-                return;
-            }
-            self.begin_supply_regroup(object_id, team, owner_player_id, position);
-            return;
-        }
-
-        let scan = self.collector_warehouse_scan(object_id, owner_player_id);
-        if let Some(next) =
-            self.find_nearest_harvestable_supply_within(team, position, scan, object_id)
-        {
-            if let Some(dest) = self.objects.get(&next).map(|s| s.get_position()) {
-                if let Some(obj) = self.objects.get_mut(&object_id) {
-                    obj.set_target(Some(next));
-                }
-                self.path_approach_with_state(object_id, dest, AIState::Gathering);
-                return;
-            }
-        }
-        self.begin_supply_regroup(object_id, team, owner_player_id, position);
+        self.route_supply_wanting(object_id, team, owner_player_id, position, can_move);
     }
 
     fn collector_warehouse_scan(&self, object_id: ObjectId, owner_player_id: Option<u32>) -> Option<f32> {

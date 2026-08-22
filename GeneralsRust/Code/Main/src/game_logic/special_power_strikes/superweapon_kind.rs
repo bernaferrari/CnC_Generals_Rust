@@ -416,6 +416,59 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::CruiseMissile => "CruiseMissileImpact",
         }
     }
+
+    /// Authored blast weapon template (Weapon.ini) for this kind's one-shot.
+    pub fn blast_weapon_name(self) -> Option<&'static str> {
+        match self {
+            HostSuperweaponKind::DaisyCutter => Some(DAISY_CUTTER_WEAPON_NAME),
+            HostSuperweaponKind::A10Strike => Some(A10_PAYLOAD_WEAPON),
+            HostSuperweaponKind::ScudStorm => Some(SCUD_STORM_MISSILE_DEATH_WEAPON_BASE),
+            HostSuperweaponKind::ParticleCannon => None,
+            HostSuperweaponKind::NuclearMissile => None,
+            HostSuperweaponKind::AnthraxBomb => Some(ANTHRAX_BOMB_WEAPON_NAME),
+            HostSuperweaponKind::SpectreGunship => None,
+            HostSuperweaponKind::CarpetBomb => Some(CARPET_BOMB_WEAPON_NAME),
+            HostSuperweaponKind::ArtilleryBarrage => Some(ARTILLERY_BARRAGE_WEAPON_NAME),
+            HostSuperweaponKind::CruiseMissile => Some(CRUISE_MISSILE_DEATH_WEAPON),
+        }
+    }
+
+    /// C++ DamageInfo.m_damageType for the blast (Weapon.ini / SlowDeath).
+    /// Live take_damage must use this so Armor.ini applies. Not UNRESISTABLE.
+    pub fn authored_damage_type(self) -> crate::game_logic::combat::DamageType {
+        use crate::game_logic::combat::DamageType;
+        if let Some(name) = self.blast_weapon_name() {
+            let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+            if crate::game_logic::thing::ThingTemplate::weapon_from_store(name).is_some() {
+                return crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(
+                    name,
+                );
+            }
+        }
+        match self {
+            HostSuperweaponKind::ParticleCannon => DamageType::ParticleBeam,
+            _ => DamageType::Explosive,
+        }
+    }
+
+    /// C++ DamageInfo.m_deathType for the blast.
+    pub fn authored_death_type(self) -> crate::game_logic::host_usa_pilot::HostDeathType {
+        use crate::game_logic::host_usa_pilot::HostDeathType;
+        if let Some(name) = self.blast_weapon_name() {
+            let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+            if crate::game_logic::thing::ThingTemplate::weapon_from_store(name).is_some() {
+                return crate::game_logic::host_armor_residual::resolve_host_death_type(
+                    Some(name),
+                    self.authored_damage_type(),
+                );
+            }
+        }
+        match self {
+            HostSuperweaponKind::ParticleCannon => HostDeathType::Lasered,
+            _ => HostDeathType::Exploded,
+        }
+    }
+
 }
 
 /// Residual `WeaponErrorRadius` scatter for artillery formation index.

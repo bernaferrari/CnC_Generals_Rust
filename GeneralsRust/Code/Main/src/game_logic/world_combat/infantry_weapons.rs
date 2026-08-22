@@ -261,14 +261,12 @@ impl GameLogic {
                     continue;
                 };
                 let pos = obj.get_position();
-                self.terrain.as_ref().and_then(|t| {
-                    if t.is_underwater_at_world(pos) {
-                        // Approximate water surface as current terrain height residual.
-                        Some(t.height_at_world(pos))
-                    } else {
-                        None
-                    }
-                })
+                self.terrain
+                    .as_ref()
+                    .and_then(|t| t.water_surface_at_world(pos))
+                    .or_else(|| {
+                        crate::game_logic::host_float_update::leftover_water_surface_y(pos.x, pos.z)
+                    })
             };
             let Some(obj) = self.objects.get_mut(&id) else {
                 continue;
@@ -277,6 +275,7 @@ impl GameLogic {
                 continue;
             };
             fu.tick_sway(frame);
+            crate::game_logic::host_float_update::publish_sway(id.0, fu.yaw, fu.pitch);
             self.float_update_reg.record_sway();
             if let Some(wy) = fu.snap_height_y(water_y) {
                 let mut p = obj.get_position();

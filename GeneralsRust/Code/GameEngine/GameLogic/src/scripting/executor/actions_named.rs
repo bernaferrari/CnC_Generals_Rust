@@ -729,6 +729,14 @@ impl ScriptActionDispatcher {
             unit_name,
             player_name
         );
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_transfer(super::HostScriptTransferRequest::Named {
+                unit: unit_name,
+                player: player_name,
+            });
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let tracker = get_named_object_tracker();
         let Ok(Some(unit_id)) = tracker.get_object_id(&unit_name) else {

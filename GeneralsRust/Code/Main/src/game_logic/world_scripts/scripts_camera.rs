@@ -882,6 +882,114 @@ impl GameLogic {
         }
     }
 
+    /// C++ ScriptActions TEAM/PLAYER/NAMED TRANSFER live drain.
+    /// Leftover mutates empty `OBJECT_REGISTRY`; live objects/money live on host.
+    fn apply_host_transfer_script_requests(&mut self) {
+        use gamelogic::scripting::HostScriptTransferRequest;
+        for req in gamelogic::scripting::take_host_script_transfer_requests() {
+            match req {
+                HostScriptTransferRequest::Player { from, to } => {
+                    let Some(src) = self.host_player_id_for_script_token(&from) else {
+                        continue;
+                    };
+                    let Some(dst) = self.host_player_id_for_script_token(&to) else {
+                        continue;
+                    };
+                    self.host_script_transfer_assets_from(dst, src);
+                }
+                HostScriptTransferRequest::Named { unit, player } => {
+                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
+                        continue;
+                    };
+                    let Some(id) = self.host_object_id_by_script_name(&unit) else {
+                        continue;
+                    };
+                    let _ = self.transfer_object_to_player(id, pid);
+                }
+                HostScriptTransferRequest::Team { team, player } => {
+                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
+                        continue;
+                    };
+                    self.host_script_transfer_team_to_player(&team, pid);
+                }
+            }
+        }
+    }
+
+    /// C++ ScriptActions::updatePlayerRelationTowardPlayer live drain.
+    /// Leftover writes leftover ThePlayerList; live relations live on host Player.
+    fn apply_host_player_relates_script_requests(&mut self) {
+        for req in gamelogic::scripting::take_host_player_relates_requests() {
+            let Some(src) = self.host_player_id_for_script_token(&req.source) else {
+                continue;
+            };
+            let Some(dst) = self.host_player_id_for_script_token(&req.dest) else {
+                continue;
+            };
+            if let Some(player) = self.players.get_mut(&src) {
+                player.set_map_relationship(dst, req.relationship);
+            }
+        }
+    }
+
+    /// C++ `Player::transferAssetsFromThat` — non-beacon objects onto dest
+    /// default team, then withdraw/deposit all cash.
+    fn host_script_transfer_assets_from(&mut self, dest_player: u32, source_player: u32) {
+        let ids: Vec<ObjectId> = self
+            .host_objects()
+            .iter()
+            .filter_map(|(id, obj)| {
+                (obj.owner_player_id == Some(source_player)
+                    && obj.is_alive()
+                    && !obj.template_name.to_ascii_lowercase().contains("beacon"))
+                .then_some(*id)
+            })
+            .collect();
+        for id in ids {
+            let _ = self.transfer_object_to_player(id, dest_player);
+        }
+        let amount = self
+            .players
+            .get(&source_player)
+            .map(|p| p.effective_supplies())
+            .unwrap_or(0);
+        if amount == 0 {
+            return;
+        }
+        if let Some(src) = self.players.get_mut(&source_player) {
+            crate::game_logic::host_economy_log::record_money_audio(
+                source_player,
+                crate::game_logic::host_economy_log::HostMoneyAudio::Withdraw,
+            );
+            src.apply_supply_spend_unchecked(amount);
+        }
+        if let Some(dst) = self.players.get_mut(&dest_player) {
+            crate::game_logic::host_economy_log::record_money_audio(
+                dest_player,
+                crate::game_logic::host_economy_log::HostMoneyAudio::Deposit,
+            );
+            dst.apply_supply_gain(amount);
+        }
+    }
+
+    /// C++ `Team::setControllingPlayer` — members stay on the same team.
+    fn host_script_transfer_team_to_player(&mut self, team_name: &str, dest_player: u32) {
+        let members = self.host_script_team_member_ids(team_name);
+        for id in members {
+            if let Some(obj) = self.host_object_mut(id) {
+                obj.owner_player_id = Some(dest_player);
+            }
+        }
+        if let Ok(mut factory) = gamelogic::team::get_team_factory().lock() {
+            if let Some(team) = factory.find_team(team_name) {
+                if let Ok(mut guard) = team.write() {
+                    guard.set_controlling_player_id(Some(dest_player));
+                }
+            }
+        }
+    }
+
+
     /// C++ Money::withdraw(countMoney()) then Money::deposit(amount).
     fn host_script_set_player_money(&mut self, pid: u32, amount: i32) {
         let Some(player) = self.players.get_mut(&pid) else {
@@ -2191,6 +2299,9 @@ impl GameLogic {
         }
         self.apply_host_skirmish_script_requests();
         self.apply_host_money_script_requests();
+        self.apply_host_transfer_script_requests();
+        self.apply_host_player_relates_script_requests();
+
         self.apply_host_loco_set_script_requests();
         self.apply_host_face_script_requests();
 
