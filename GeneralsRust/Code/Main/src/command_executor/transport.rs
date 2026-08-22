@@ -154,10 +154,9 @@ impl<'a> CommandExecutor<'a> {
             });
             if let Some(previous_container) = previous_container {
                 if previous_container != target_id {
-                    // Wave 233: remove prior occupant via GameLogic authority API.
-                    let _ = self
-                        .game_logic
-                        .unit_command_remove_occupant(previous_container, unit_id);
+                    // C++ OpenContain::addToContain refuses a rider that is
+                    // already contained. Transfer is Exit then a new Enter.
+                    continue;
                 }
             }
 
