@@ -363,6 +363,25 @@ fn demo_trap_residual_proximity_detonates_on_enemy() {
     let health_before = game_logic.host_object(enemy_id).unwrap().health.current;
 
     game_logic.update_mines_and_demo_traps();
+    assert_eq!(game_logic.mine_residual_proximity_detonations(), 0);
+    {
+        let trap = game_logic.host_object(trap_id).unwrap();
+        assert!(
+            trap.mine_data
+                .as_ref()
+                .is_some_and(|d| d.demo_trap_warning_armed()),
+            "proximity must arm the 1s SlowDeath warning"
+        );
+        let enemy = game_logic.host_object(enemy_id).unwrap();
+        assert!(
+            (enemy.health.current - health_before).abs() < 0.01 && !enemy.status.destroyed,
+            "warning fuse must not splash on the arm frame"
+        );
+    }
+    game_logic.frame = game_logic.frame.saturating_add(
+        crate::game_logic::host_mines::DEMO_TRAP_DESTRUCTION_DELAY_FRAMES,
+    );
+    game_logic.update_mines_and_demo_traps();
     assert_eq!(game_logic.mine_residual_proximity_detonations(), 1);
     let enemy = game_logic.host_object(enemy_id).unwrap();
     assert!(
@@ -392,6 +411,17 @@ fn demo_trap_detonate_when_killed_fires() {
         trap.status.effectively_dead = true;
     }
 
+    game_logic.update_mines_and_demo_traps();
+    {
+        let trap = game_logic.host_object(trap_id);
+        let armed = trap
+            .and_then(|t| t.mine_data.as_ref())
+            .is_some_and(|m| m.demo_trap_warning_armed() && !m.detonated);
+        assert!(armed, "DetonateWhenKilled must arm the 1s warning fuse");
+    }
+    game_logic.frame = game_logic.frame.saturating_add(
+        crate::game_logic::host_mines::DEMO_TRAP_DESTRUCTION_DELAY_FRAMES,
+    );
     game_logic.update_mines_and_demo_traps();
     let trap = game_logic.host_object(trap_id);
     let detonated = trap
@@ -608,6 +638,17 @@ fn demo_trap_manual_detonate_residual() {
         }
     }
 
+    assert!(game_logic.manual_detonate_mine(trap_id));
+    assert!(
+        game_logic
+            .host_object(trap_id)
+            .and_then(|t| t.mine_data.as_ref())
+            .is_some_and(|d| d.demo_trap_warning_armed()),
+        "manual detonate must arm the 1s warning"
+    );
+    game_logic.frame = game_logic.frame.saturating_add(
+        crate::game_logic::host_mines::DEMO_TRAP_DESTRUCTION_DELAY_FRAMES,
+    );
     assert!(game_logic.manual_detonate_mine(trap_id));
     assert_eq!(game_logic.mine_residual_manual_detonations(), 1);
     let enemy = game_logic.host_object(enemy_id).unwrap();
@@ -844,7 +885,7 @@ fn dozer_mine_clear_residual_infantry_still_triggers() {
 }
 
 /// C++ MinefieldBehavior::onCollide: vehicle geometry overlapping the mine
-/// disk trips even when the center is outside trigger_range 8.
+/// disk trips even when the center is outside a point-radius guess.
 #[test]
 fn land_mine_trips_on_vehicle_geometry_contact() {
     let mut game_logic = GameLogic::new();
@@ -860,11 +901,11 @@ fn land_mine_trips_on_vehicle_geometry_contact() {
         .as_ref()
         .unwrap()
         .trigger_range;
-    assert!((trigger - 8.0).abs() < 0.01);
+    assert!((trigger - 30.0).abs() < 0.01);
 
-    // Center 12 wu away: old center-distance gate misses; geometry 8+8 overlaps.
+    // Center 20 wu away: retail 30wu pad + victim 8 overlaps.
     let enemy_id = game_logic
-        .create_object("TestInfantry", Team::GLA, Vec3::new(12.0, 0.0, 0.0))
+        .create_object("TestInfantry", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
         .expect("vehicle");
     {
         let e = game_logic.host_object_mut(enemy_id).unwrap();
@@ -893,7 +934,7 @@ fn land_mine_does_not_trip_when_geometry_misses() {
         .place_land_mine(Team::USA, Vec3::new(0.0, 0.0, 0.0), None)
         .expect("mine");
     let enemy_id = game_logic
-        .create_object("TestInfantry", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
+        .create_object("TestInfantry", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
         .expect("vehicle");
     {
         let e = game_logic.host_object_mut(enemy_id).unwrap();
@@ -912,9 +953,9 @@ fn land_mine_does_not_trip_when_geometry_misses() {
     );
 }
 
-/// C++ GLADemoTrap is not KINDOF_MINE: dozer DISARM cannot silent-delete it.
+/// C++ Weapon.cpp DISARM: KINDOF_DEMOTRAP → destroyObject, no explosion.
 #[test]
-fn dozer_mine_clear_does_not_silent_delete_demo_trap() {
+fn dozer_mine_clear_defuses_demo_trap_without_detonation() {
     use crate::game_logic::host_mines::DOZER_MINE_CLEAR_PRE_ATTACK_FRAMES;
 
     let mut game_logic = GameLogic::new();
@@ -932,15 +973,21 @@ fn dozer_mine_clear_does_not_silent_delete_demo_trap() {
     }
 
     assert!(
-        !game_logic.clear_mine_internal(trap_id, dozer_id),
-        "DISARM must refuse demo traps"
-    );
-    assert!(
-        !game_logic
+        game_logic
             .host_object(trap_id)
             .unwrap()
             .is_disarmable_mine(),
-        "demo trap is not a LandMineInterface target"
+        "demo trap is a DISARM target"
+    );
+    assert!(
+        game_logic.clear_mine_internal(trap_id, dozer_id),
+        "DISARM must defuse demo traps"
+    );
+    assert_eq!(game_logic.mine_residual_clears(), 1);
+    assert_eq!(
+        game_logic.mine_residual_proximity_detonations(),
+        0,
+        "defuse must not splash"
     );
 
     game_logic.frame = 1;
@@ -948,17 +995,10 @@ fn dozer_mine_clear_does_not_silent_delete_demo_trap() {
     game_logic.frame = 1 + DOZER_MINE_CLEAR_PRE_ATTACK_FRAMES;
     game_logic.update_mines_and_demo_traps();
 
-    assert_eq!(
-        game_logic.mine_residual_clears(),
-        0,
-        "dozer must not silently clear a demo trap"
-    );
-    let trap = game_logic.host_object(trap_id).expect("trap remains");
-    assert!(trap.is_alive(), "refused clear must leave the trap standing");
-    assert!(
-        trap.mine_data.as_ref().is_some_and(|md| !md.detonated),
-        "out-of-range refused clear must not detonate"
-    );
+    let gone_or_dead = game_logic
+        .host_object(trap_id)
+        .is_none_or(|t| t.status.destroyed || !t.is_alive());
+    assert!(gone_or_dead, "defused demo trap must be destroyed");
 }
 
 #[test]
@@ -1127,6 +1167,81 @@ fn land_mine_trips_neutral_unit() {
         logic.mine_residual_proximity_detonations(),
         1,
         "neutral must trip land mines"
+    );
+}
+
+#[test]
+fn emp_mine_neutron_unmans_vehicle_and_kills_infantry() {
+    use crate::game_logic::host_mines::HostMineData;
+    let mut logic = GameLogic::new();
+    ensure_test_infantry_template(&mut logic);
+    let mine_id = logic
+        .place_land_mine(Team::China, Vec3::new(0.0, 0.0, 0.0), None)
+        .expect("emp pad");
+    if let Some(obj) = logic.host_object_mut(mine_id) {
+        obj.mine_data = Some(HostMineData::land_mine_for_template("ChinaEMPMine"));
+    }
+    let inf = logic
+        .create_object("TestInfantry", Team::USA, Vec3::new(5.0, 0.0, 0.0))
+        .expect("infantry");
+    let tank = logic
+        .create_object("TestInfantry", Team::USA, Vec3::new(8.0, 0.0, 0.0))
+        .expect("tank");
+    {
+        let t = logic.host_object_mut(tank).unwrap();
+        t.thing.template.kind_of.remove(&KindOf::Infantry);
+        t.thing.template.add_kind_of(KindOf::Vehicle);
+        t.health.current = 400.0;
+        t.health.maximum = 400.0;
+    }
+    logic.update_mines_and_demo_traps();
+    let inf_dead = logic
+        .host_object(inf)
+        .is_none_or(|o| o.status.destroyed || !o.is_alive());
+    assert!(inf_dead, "neutron blast must kill infantry");
+    let tank_obj = logic.host_object(tank).expect("tank remains");
+    assert!(tank_obj.is_unmanned(), "neutron blast must unman vehicles");
+    assert_eq!(tank_obj.team, Team::Neutral);
+    assert!(
+        (tank_obj.health.current - 400.0).abs() < 0.01,
+        "EMP pad must not deal 100 HE to vehicles"
+    );
+}
+
+#[test]
+fn demo_trap_proximity_uses_height_not_aircraft_kind() {
+    let mut logic = GameLogic::new();
+    ensure_test_infantry_template(&mut logic);
+    let trap_id = logic
+        .place_demo_trap(Team::GLA, Vec3::new(0.0, 0.0, 0.0), None)
+        .expect("trap");
+    let jumper = logic
+        .create_object("TestInfantry", Team::USA, Vec3::new(10.0, 5.0, 0.0))
+        .expect("jumper");
+    logic.update_mines_and_demo_traps();
+    assert!(
+        logic
+            .host_object(trap_id)
+            .and_then(|t| t.mine_data.as_ref())
+            .is_some_and(|d| !d.demo_trap_warning_armed() && !d.detonated),
+        "paratrooper / jump-jet above terrain must not trip"
+    );
+    let _ = jumper;
+    let chinook = logic
+        .create_object("TestInfantry", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+        .expect("chinook");
+    {
+        let c = logic.host_object_mut(chinook).unwrap();
+        c.thing.template.add_kind_of(KindOf::Aircraft);
+        c.status.airborne_target = false;
+    }
+    logic.update_mines_and_demo_traps();
+    assert!(
+        logic
+            .host_object(trap_id)
+            .and_then(|t| t.mine_data.as_ref())
+            .is_some_and(|d| d.demo_trap_warning_armed()),
+        "landed aircraft must trip demo trap"
     );
 }
 
@@ -2996,6 +3111,8 @@ fn demo_trap_weapon_slot_mode_residual() {
     // ProximityModeWeaponSlot residual: re-enable scan → detonate.
     assert!(game_logic.set_demo_trap_mode(trap_id, DemoTrapMode::Proximity));
     game_logic.frame = 6;
+    game_logic.update_mines_and_demo_traps();
+    game_logic.frame = 6 + crate::game_logic::host_mines::DEMO_TRAP_DESTRUCTION_DELAY_FRAMES;
     game_logic.update_mines_and_demo_traps();
     assert!(
         game_logic.mine_residual_proximity_detonations() > 0
