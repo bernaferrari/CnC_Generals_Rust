@@ -2792,6 +2792,121 @@ fn hacker_move_command_stops_hacking() {
     );
 }
 
+#[test]
+fn hacker_field_unpack_stamps_unpacking_then_firing_a() {
+    use crate::game_logic::host_enum_table_residual::{
+        firing_a_model_bit, unpacking_model_bit,
+    };
+    use crate::game_logic::host_hacker_income::{
+        HackerInternetPhase, HACKER_CASH_INTERVAL_FRAMES, HACKER_CASH_REGULAR,
+        HACKER_UNIT_UNPACK_AUDIO,
+    };
+    use crate::game_logic::{HackInternetAIUpdateMetadata, KindOf, ThingTemplate};
+
+    let mut game_logic = GameLogic::new();
+    ensure_test_player_for_team(&mut game_logic, Team::China);
+    let mut t = ThingTemplate::new("TestHackerUnpackPose");
+    t.add_kind_of(KindOf::Infantry).set_health(100.0);
+    t.hack_internet_ai_update = Some(HackInternetAIUpdateMetadata {
+        unpack_time_frames: 2,
+        pack_time_frames: 2,
+        cash_update_delay_frames: HACKER_CASH_INTERVAL_FRAMES,
+        cash_update_delay_fast_frames: 54,
+        regular_cash_amount: HACKER_CASH_REGULAR,
+        veteran_cash_amount: 6,
+        elite_cash_amount: 8,
+        heroic_cash_amount: 10,
+        xp_per_cash_update: 1.0,
+        pack_unpack_variation_factor: 0.0,
+    });
+    game_logic
+        .templates
+        .insert("TestHackerUnpackPose".to_string(), t);
+    let hacker_id = game_logic
+        .create_object("TestHackerUnpackPose", Team::China, Vec3::ZERO)
+        .expect("hacker");
+    assert!(game_logic.start_hacker_internet_hack(hacker_id));
+    let bits = game_logic.objects[&hacker_id].model_condition_bits;
+    assert_ne!(bits & (1u128 << unpacking_model_bit()), 0);
+    assert!(game_logic
+        .queued_audio_events
+        .iter()
+        .any(|e| e.event_type == HACKER_UNIT_UNPACK_AUDIO));
+    assert_eq!(
+        game_logic.hacker_income().pack_phase(hacker_id),
+        Some(HackerInternetPhase::Unpacking)
+    );
+
+    game_logic.frame = 2;
+    game_logic.update_hacker_income();
+    let bits = game_logic.objects[&hacker_id].model_condition_bits;
+    assert_eq!(bits & (1u128 << unpacking_model_bit()), 0);
+    assert_ne!(bits & (1u128 << firing_a_model_bit()), 0);
+    assert_eq!(
+        game_logic.hacker_income().pack_phase(hacker_id),
+        Some(HackerInternetPhase::Hacking)
+    );
+}
+
+#[test]
+fn hacker_move_while_hacking_packs_before_walking() {
+    use crate::game_logic::host_enum_table_residual::packing_model_bit;
+    use crate::game_logic::host_hacker_income::{
+        HackerInternetPhase, HACKER_CASH_INTERVAL_FRAMES, HACKER_CASH_REGULAR,
+        HACKER_UNIT_PACK_AUDIO,
+    };
+    use crate::game_logic::{HackInternetAIUpdateMetadata, KindOf, ThingTemplate};
+
+    let mut game_logic = GameLogic::new();
+    ensure_test_player_for_team(&mut game_logic, Team::China);
+    let mut t = ThingTemplate::new("TestHackerPackHold");
+    t.add_kind_of(KindOf::Infantry).set_health(100.0);
+    t.hack_internet_ai_update = Some(HackInternetAIUpdateMetadata {
+        unpack_time_frames: 0,
+        pack_time_frames: 3,
+        cash_update_delay_frames: HACKER_CASH_INTERVAL_FRAMES,
+        cash_update_delay_fast_frames: 54,
+        regular_cash_amount: HACKER_CASH_REGULAR,
+        veteran_cash_amount: 6,
+        elite_cash_amount: 8,
+        heroic_cash_amount: 10,
+        xp_per_cash_update: 1.0,
+        pack_unpack_variation_factor: 0.0,
+    });
+    game_logic
+        .templates
+        .insert("TestHackerPackHold".to_string(), t);
+    let hacker_id = game_logic
+        .create_object("TestHackerPackHold", Team::China, Vec3::ZERO)
+        .expect("hacker");
+    assert!(game_logic.start_hacker_internet_hack(hacker_id));
+    game_logic.update_hacker_income();
+    assert_eq!(
+        game_logic.hacker_income().pack_phase(hacker_id),
+        Some(HackerInternetPhase::Hacking)
+    );
+
+    assert!(game_logic.unit_command_move_to(hacker_id, Vec3::new(40.0, 0.0, 0.0)));
+    assert!(!game_logic.hacker_income().is_hacking(hacker_id));
+    assert_eq!(
+        game_logic.hacker_income().pack_phase(hacker_id),
+        Some(HackerInternetPhase::Packing)
+    );
+    assert_ne!(
+        game_logic.objects[&hacker_id].model_condition_bits & (1u128 << packing_model_bit()),
+        0
+    );
+    assert_ne!(game_logic.objects[&hacker_id].ai_state, AIState::Moving);
+    assert!(game_logic
+        .queued_audio_events
+        .iter()
+        .any(|e| e.event_type == HACKER_UNIT_PACK_AUDIO));
+
+    game_logic.frame = 3;
+    game_logic.update_hacker_income();
+    assert_eq!(game_logic.objects[&hacker_id].ai_state, AIState::Moving);
+}
+
 /// Residual: non-hacker template must not start residual internet hack.
 #[test]
 fn hacker_residual_rejects_non_hacker() {

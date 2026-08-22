@@ -91,10 +91,34 @@ impl GameLogic {
         }
     }
 
-    /// C++ `HackInternetAIUpdate::aiDoCommand`: PACKING on any new command.
-    #[inline]
-    fn note_hacker_ai_command(&mut self, id: ObjectId) {
+    /// C++ `HackInternetAIUpdate::aiDoCommand`: PACKING on HACK_INTERNET/PACKING.
+    fn note_hacker_ai_command(
+        &mut self,
+        id: ObjectId,
+        pending: crate::game_logic::host_hacker_income::PendingHackerCommand,
+    ) -> bool {
+        let pack_frames = self
+            .objects
+            .get(&id)
+            .and_then(|obj| obj.thing.template.hack_internet_ai_update)
+            .map(|meta| meta.pack_time_frames)
+            .unwrap_or(0);
+        if self
+            .hacker_income
+            .request_pack(id, self.frame, pack_frames, pending)
+        {
+            self.leftover_sa_set_pack_model(id, false, true, false);
+            self.queue_audio_event(
+                AudioEventRequest::new(
+                    crate::game_logic::host_hacker_income::HACKER_UNIT_PACK_AUDIO,
+                )
+                .with_object(id)
+                .with_priority(150),
+            );
+            return true;
+        }
         self.stop_hacker_internet_hack(id);
+        false
     }
 
     fn stop_attack_clearing_jet_targeter(&mut self, id: ObjectId) {
@@ -111,7 +135,12 @@ impl GameLogic {
         if !self.unit_can_move(id) {
             return false;
         }
-        self.note_hacker_ai_command(id);
+        if self.note_hacker_ai_command(
+            id,
+            crate::game_logic::host_hacker_income::PendingHackerCommand::MoveTo(destination),
+        ) {
+            return true;
+        }
         self.stop_attack_clearing_jet_targeter(id);
         let ok = if self.assign_unit_path(id, destination, &[]) {
             true
@@ -139,7 +168,12 @@ impl GameLogic {
         if self.objects.get(&id).is_none() {
             return false;
         }
-        self.note_hacker_ai_command(id);
+        if self.note_hacker_ai_command(
+            id,
+            crate::game_logic::host_hacker_income::PendingHackerCommand::MoveTo(destination),
+        ) {
+            return true;
+        }
         self.stop_attack_clearing_jet_targeter(id);
         self.assign_unit_path(id, destination, waypoints)
     }
@@ -149,7 +183,12 @@ impl GameLogic {
         if self.objects.get(&id).is_none() {
             return false;
         }
-        self.note_hacker_ai_command(id);
+        if self.note_hacker_ai_command(
+            id,
+            crate::game_logic::host_hacker_income::PendingHackerCommand::MoveTo(destination),
+        ) {
+            return true;
+        }
         self.stop_attack_clearing_jet_targeter(id);
         if !self.assign_unit_path(id, destination, &[]) {
             return false;
@@ -162,7 +201,12 @@ impl GameLogic {
 
     /// Wave 230/232: attack target (records host attack log).
     pub fn unit_command_attack(&mut self, id: ObjectId, target_id: ObjectId) -> bool {
-        self.note_hacker_ai_command(id);
+        if self.note_hacker_ai_command(
+            id,
+            crate::game_logic::host_hacker_income::PendingHackerCommand::Attack(target_id),
+        ) {
+            return true;
+        }
         // This is the authority boundary for a player AttackObject order.
         // Do not merely stamp `target`: C++ WeaponSet validates the concrete
         // target relationship/status and every available Weapon.ini Anti*
@@ -211,7 +255,12 @@ impl GameLogic {
 
     /// Wave 230/232: force-attack target (records host attack log).
     pub fn unit_command_force_attack(&mut self, id: ObjectId, target_id: ObjectId) -> bool {
-        self.note_hacker_ai_command(id);
+        if self.note_hacker_ai_command(
+            id,
+            crate::game_logic::host_hacker_income::PendingHackerCommand::Attack(target_id),
+        ) {
+            return true;
+        }
         // C++ force attack still uses WeaponSet target legality: it changes
         // relationship/force handling, not UNATTACKABLE, MASKED, contained,
         // stealth, or exact Weapon.ini anti-mask rules.
@@ -290,7 +339,12 @@ impl GameLogic {
             return true;
         }
 
-        self.note_hacker_ai_command(id);
+        if self.note_hacker_ai_command(
+            id,
+            crate::game_logic::host_hacker_income::PendingHackerCommand::Stop,
+        ) {
+            return true;
+        }
         let should_land = self.objects.get(&id).is_some_and(|unit| {
             unit.is_alive()
                 && (unit.is_kind_of(KindOf::Aircraft) || unit.object_type == ObjectType::Aircraft)
@@ -348,7 +402,12 @@ impl GameLogic {
             return true;
         }
 
-        self.note_hacker_ai_command(id);
+        if self.note_hacker_ai_command(
+            id,
+            crate::game_logic::host_hacker_income::PendingHackerCommand::Stop,
+        ) {
+            return true;
+        }
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
@@ -361,7 +420,12 @@ impl GameLogic {
     }
 
     pub fn unit_command_guard_object(&mut self, id: ObjectId, target_id: ObjectId) -> bool {
-        self.note_hacker_ai_command(id);
+        if self.note_hacker_ai_command(
+            id,
+            crate::game_logic::host_hacker_income::PendingHackerCommand::Stop,
+        ) {
+            return true;
+        }
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
@@ -385,7 +449,12 @@ impl GameLogic {
         destination: glam::Vec3,
         max_shots: i32,
     ) -> bool {
-        self.note_hacker_ai_command(id);
+        if self.note_hacker_ai_command(
+            id,
+            crate::game_logic::host_hacker_income::PendingHackerCommand::MoveTo(destination),
+        ) {
+            return true;
+        }
         if self.flight_deck_ai_do_command(
             id,
             crate::game_logic::host_flight_deck::HostFlightDeckCommand::AttackMoveToPosition,
@@ -456,7 +525,12 @@ impl GameLogic {
 
     /// Wave 231: force-attack ground location.
     pub fn unit_command_attack_ground(&mut self, id: ObjectId, location: glam::Vec3) -> bool {
-        self.note_hacker_ai_command(id);
+        if self.note_hacker_ai_command(
+            id,
+            crate::game_logic::host_hacker_income::PendingHackerCommand::MoveTo(location),
+        ) {
+            return true;
+        }
         if !matches!(
             self.get_able_to_use_weapon_against_target(
                 id,
@@ -484,7 +558,12 @@ impl GameLogic {
         if !self.unit_can_move(id) {
             return false;
         }
-        self.note_hacker_ai_command(id);
+        if self.note_hacker_ai_command(
+            id,
+            crate::game_logic::host_hacker_income::PendingHackerCommand::MoveTo(destination),
+        ) {
+            return true;
+        }
         let path_ok = self.assign_unit_path(id, destination, &[]);
         if let Some(unit) = self.objects.get_mut(&id) {
             if !path_ok {
@@ -503,7 +582,12 @@ impl GameLogic {
         if self.objects.get(&id).is_none() {
             return false;
         }
-        self.note_hacker_ai_command(id);
+        if self.note_hacker_ai_command(
+            id,
+            crate::game_logic::host_hacker_income::PendingHackerCommand::Stop,
+        ) {
+            return true;
+        }
         let (dock, ignore) = {
             let Some(dozer) = self.objects.get(&id) else {
                 return false;

@@ -582,6 +582,7 @@ impl GameLogic {
 
     pub(in super::super) fn update_hacker_income(&mut self) {
         use crate::game_logic::host_hacker_income::is_legal_hacker_income_source;
+        self.tick_hacker_pack_phases();
 
 
         let frame = self.frame;
@@ -831,12 +832,52 @@ impl GameLogic {
             obj.stop_moving();
             obj.set_ai_state(AIState::Idle);
         }
+        self.leftover_sa_set_pack_model(hacker_id, true, false, false);
+        self.queue_audio_event(
+            AudioEventRequest::new(
+                crate::game_logic::host_hacker_income::HACKER_UNIT_UNPACK_AUDIO,
+            )
+            .with_object(hacker_id)
+            .with_priority(150),
+        );
         true
     }
 
     /// C++ `HackInternetAIUpdate::aiDoCommand`: PACKING on any new command.
     pub fn stop_hacker_internet_hack(&mut self, hacker_id: ObjectId) {
         self.hacker_income.stop_hacking(hacker_id);
+    }
+
+    fn tick_hacker_pack_phases(&mut self) {
+        use crate::game_logic::host_hacker_income::PendingHackerCommand;
+        let frame = self.frame;
+        let ids = self.hacker_income.tracked_pack_ids();
+        let mut replay = Vec::new();
+        for id in ids {
+            if self.hacker_income.finish_unpack_if_due(id, frame) {
+                self.leftover_sa_set_pack_model(id, false, false, true);
+            }
+            if let Some(pending) = self.hacker_income.take_finished_pack(id, frame) {
+                self.leftover_sa_set_pack_model(id, false, false, false);
+                replay.push((id, pending));
+            }
+        }
+        for (id, pending) in replay {
+            match pending {
+                PendingHackerCommand::MoveTo(destination) => {
+                    let _ = self.unit_command_move_to(id, destination);
+                }
+                PendingHackerCommand::Attack(target_id) => {
+                    let _ = self.unit_command_attack(id, target_id);
+                }
+                PendingHackerCommand::Stop => {
+                    if let Some(unit) = self.objects.get_mut(&id) {
+                        unit.stop();
+                        unit.set_ai_state(AIState::Idle);
+                    }
+                }
+            }
+        }
     }
 
     /// America Supply Drop Zone residual: OCL interval queues cargo DeliverPayload.
