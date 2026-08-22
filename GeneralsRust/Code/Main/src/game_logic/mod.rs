@@ -86,6 +86,7 @@ pub use object::{
 pub mod partition_manager;
 pub mod partition_coi;
 pub mod pathfinding;
+pub mod host_radar;
 pub mod radar_notifications;
 pub mod resources;
 pub mod script_events;

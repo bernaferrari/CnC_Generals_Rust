@@ -93,6 +93,21 @@ pub fn host_world_to_radar_coord(pos: glam::Vec3) -> Coord3D {
     Coord3D::new(pos.x, pos.z, pos.y)
 }
 
+/// Leftover radar plane (Z-up XY) → host world (Y-up XZ).
+pub fn radar_coord_to_host_world(loc: Coord3D) -> glam::Vec3 {
+    glam::Vec3::new(loc.x, loc.z, loc.y)
+}
+
+/// C++ `TheRadar->getLastEventLoc` for spacebar / MSG_META_VIEW_LAST_RADAR_EVENT.
+/// Beacon pulses never become the last event.
+pub fn last_the_radar_event_host_position() -> Option<glam::Vec3> {
+    get_radar_system()
+        .read()
+        .ok()
+        .and_then(|radar| radar.get_last_event_loc())
+        .map(radar_coord_to_host_world)
+}
+
 pub fn pack_player_color_argb(rgb: (u8, u8, u8)) -> u32 {
     0xFF00_0000 | ((rgb.0 as u32) << 16) | ((rgb.1 as u32) << 8) | (rgb.2 as u32)
 }
@@ -321,6 +336,37 @@ mod tests {
         assert!((loc.x - 1.0).abs() < f32::EPSILON);
         assert!((loc.y - 3.0).abs() < f32::EPSILON);
         assert!((loc.z - 2.0).abs() < f32::EPSILON);
+        let back = radar_coord_to_host_world(loc);
+        assert!((back.x - 1.0).abs() < f32::EPSILON);
+        assert!((back.y - 2.0).abs() < f32::EPSILON);
+        assert!((back.z - 3.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn spacebar_last_event_uses_the_radar_not_hud_queue() {
+        {
+            let mut radar = get_radar_system().write().expect("radar write");
+            radar.reset();
+            radar.new_map(
+                Coord3D::new(0.0, 0.0, 0.0),
+                Coord3D::new(1024.0, 1024.0, 100.0),
+                &[],
+            );
+            radar.create_event(
+                &host_world_to_radar_coord(glam::Vec3::new(150.0, 4.0, 250.0)),
+                RadarEventType::UnderAttack,
+                4.0,
+            );
+            radar.create_event(
+                &host_world_to_radar_coord(glam::Vec3::new(1.0, 0.0, 1.0)),
+                RadarEventType::BeaconPulse,
+                0.5,
+            );
+        }
+        let pos = last_the_radar_event_host_position().expect("TheRadar last event");
+        assert!((pos.x - 150.0).abs() < f32::EPSILON);
+        assert!((pos.y - 4.0).abs() < f32::EPSILON);
+        assert!((pos.z - 250.0).abs() < f32::EPSILON);
     }
 
     #[test]

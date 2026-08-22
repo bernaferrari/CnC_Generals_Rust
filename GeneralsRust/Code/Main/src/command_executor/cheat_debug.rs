@@ -29,7 +29,7 @@ impl<'a> CommandExecutor<'a> {
 
     /// Mirror CommandSystem routing: request camera snap to last radar event.
     pub(super) fn execute_view_last_radar_event(&mut self) -> CommandResult {
-        if let Some(position) = self.game_logic.last_radar_event_position() {
+        if let Some(position) = crate::game_logic::host_radar::last_the_radar_event_host_position() {
             self.game_logic.request_camera_focus(position);
             CommandResult::Success
         } else {
