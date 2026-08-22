@@ -10,14 +10,7 @@ use crate::radius_decal::get_projected_shadow_manager;
 use crate::terrain::terrain_visual::THE_TERRAIN_VISUAL;
 use crate::terrain::TerrainVisual;
 
-use nalgebra::Point3;
 use std::sync::Mutex;
-
-
-const SHADOW_COLOR: [f32; 4] = [160.0 / 255.0, 160.0 / 255.0, 160.0 / 255.0, 127.0 / 255.0];
-const MAP_XY_FACTOR: f32 = 10.0;
-
-const Z_LIFT: f32 = 0.01 * MAP_XY_FACTOR;
 
 #[derive(Debug, Clone)]
 pub struct UnitShadowCaster {
@@ -60,41 +53,13 @@ pub fn clear_unit_shadows() {
     }
 }
 
-fn sample_height(x: f32, y: f32) -> f32 {
-    if let Ok(guard) = THE_TERRAIN_VISUAL.lock() {
-        if let Some(terrain) = guard.as_ref() {
-            if let Ok(h) = terrain.get_height_at(x, y) {
-                return h.max(h * 0.0 + h);
-            }
-        }
-    }
-    0.0
-}
-
 /// C++ `W3DProjectedShadowManager::flushDecals` / `queueDecal`.
 /// Only allocated projected decals (`addDecal` / `addShadow`). C++ has no
 /// per-drawable fallback blob — inventing one double-draws once real decals land.
 pub fn collect_unit_decal_items() -> Vec<DecalRenderItem> {
-    let mut items = get_projected_shadow_manager()
+    get_projected_shadow_manager()
         .read()
-        .collect_render_items();
-
-    let casters = UNIT_CASTERS.lock().map(|g| g.clone()).unwrap_or_default();
-    for caster in casters {
-        if caster.size_x <= 0.0 && caster.size_y <= 0.0 {
-            continue;
-        }
-        let size = caster.size_x.max(caster.size_y);
-        let z = sample_height(caster.position[0], caster.position[1]) + Z_LIFT;
-        items.push(DecalRenderItem {
-            position: Point3::new(caster.position[0], caster.position[1], z),
-            size,
-            rotation: caster.angle,
-            color: [SHADOW_COLOR[0], SHADOW_COLOR[1], SHADOW_COLOR[2], 0.55],
-        });
-    }
-
-    items
+        .collect_render_items()
 }
 
 
@@ -302,5 +267,27 @@ mod tests {
         let before = shadow_rebuild_serial();
         rebuild_shadows();
         assert!(shadow_rebuild_serial() > before);
+    }
+
+    #[test]
+    fn collect_unit_decal_items_does_not_invent_caster_blobs() {
+        let before = collect_unit_decal_items().len();
+        register_unit_shadow(UnitShadowCaster {
+            position: [10.0, 20.0, 0.0],
+            size_x: 12.0,
+            size_y: 12.0,
+            angle: 0.0,
+            player_color: 0,
+            occluded: false,
+            heat_vision: false,
+            volume: false,
+        });
+        let after = collect_unit_decal_items();
+        clear_unit_shadows();
+        assert_eq!(
+            after.len(),
+            before,
+            "C++ flushDecals draws allocated addDecal/addShadow only"
+        );
     }
 }
