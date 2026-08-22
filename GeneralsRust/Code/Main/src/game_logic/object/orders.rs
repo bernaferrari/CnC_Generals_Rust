@@ -1610,14 +1610,15 @@ impl Object {
         self.is_detector = true;
         self.detection_range =
             crate::game_logic::host_listening_outpost::LISTENING_OUTPOST_DETECTION_RANGE;
-        // Innate stealth residual; uncloaks while MOVING.
-        self.set_status_stealthed(true);
+        // C++ StealthUpdate ctor: InnateStealth sets CAN_STEALTH only, not STEALTHED
+        // (StealthUpdate.cpp:110-137). Spawn arms StealthDelay in create_object.
         self.innate_stealth = true;
         self.stealth_breaks_on_move = true;
         // Fire does not break stealth on the vehicle itself (passengers fire residual).
         self.stealth_breaks_on_attack = false;
         self.stealth_delay_frames =
             crate::game_logic::host_listening_outpost::LISTENING_OUTPOST_STEALTH_DELAY_FRAMES;
+        self.stealth_delay_pending = false;
         self.record_host_stealth_delay();
         // Retail WeaponSet Conditions=None has PRIMARY NONE until PLAYER_UPGRADE.
         self.weapon = None;

@@ -3216,7 +3216,7 @@ fn particle_cannon_host_path_queues_and_completes() {
     use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
     use crate::game_logic::special_power_strikes::{
         HostSuperweaponKind, PARTICLE_BEAM_AUDIO, PARTICLE_BEAM_DAMAGE_PER_PULSE,
-        PARTICLE_BEAM_TICK_INTERVAL_FRAMES,
+        PARTICLE_BEAM_TICK_INTERVAL_FRAMES, PARTICLE_BEAM_TRAVEL_FRAMES,
     };
 
     let mut game_logic = GameLogic::new();
@@ -3275,17 +3275,17 @@ fn particle_cannon_host_path_queues_and_completes() {
     );
 
     let health_before = game_logic.host_object(enemy_id).unwrap().health.current;
-    game_logic.frame = 119;
+    game_logic.frame = PARTICLE_BEAM_TRAVEL_FRAMES.saturating_sub(1);
     game_logic.update_special_power_strikes();
     assert_eq!(
         game_logic.host_object(enemy_id).unwrap().health.current,
         health_before,
-        "no beam damage before charge residual frame 120"
+        "no beam damage before BeamTravelTime (75f)"
     );
 
-    // Beam start: field spawn + first pulse.
+    // Beam start: field spawn + first pulse (C++ orbital birth).
     crate::game_logic::host_damage_log::clear();
-    game_logic.frame = 120;
+    game_logic.frame = PARTICLE_BEAM_TRAVEL_FRAMES;
     game_logic.update_special_power_strikes();
     game_logic.update_special_power_strikes();
     assert!(game_logic
@@ -3324,7 +3324,7 @@ fn particle_cannon_host_path_queues_and_completes() {
 
     // Second pulse after tick interval.
     crate::game_logic::host_damage_log::clear();
-    game_logic.frame = 120 + PARTICLE_BEAM_TICK_INTERVAL_FRAMES;
+    game_logic.frame = PARTICLE_BEAM_TRAVEL_FRAMES + PARTICLE_BEAM_TICK_INTERVAL_FRAMES;
     game_logic.update_special_power_strikes();
     let after_second = game_logic
         .host_object(enemy_id)

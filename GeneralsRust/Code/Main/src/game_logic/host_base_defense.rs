@@ -938,6 +938,9 @@ pub const SUPW_EMP_BLAST_WEAPON: &str = "SupW_EMPBlast";
 pub const SUPW_PATRIOT_EMP_DURATION_FRAMES: u32 = 300;
 /// Residual EMP impact audio honesty.
 pub const SUPW_PATRIOT_EMP_AUDIO: &str = "EMPPulseWhoosh";
+/// Retail ProjectileDetonationOCL CreateObject residual.
+pub const EMP_PATRIOT_EFFECT_SPHEROID: &str = "EMPPatriotEffectSpheroid";
+
 
 /// Retail Stinger soldier primary (structure residual abstraction).
 pub const STINGER_PRIMARY_WEAPON: &str = "StingerMissileWeapon";
@@ -1846,10 +1849,26 @@ pub fn supw_patriot_emp_until_frame(current_frame: u32) -> u32 {
     current_frame.saturating_add(SUPW_PATRIOT_EMP_DURATION_FRAMES)
 }
 
+/// C++ EMPUpdate.cpp:203-209 `DoesNotAffectMyOwnBuildings`:
+/// `curVictim->getControllingPlayer() == object->getControllingPlayer()`.
+/// Firing player only — same-team allied buildings are still disabled.
+pub fn is_emp_own_building(
+    is_structure: bool,
+    source_owner_player_id: Option<u32>,
+    victim_owner_player_id: Option<u32>,
+) -> bool {
+    is_structure
+        && matches!(
+            (source_owner_player_id, victim_owner_player_id),
+            (Some(a), Some(b)) if a == b
+        )
+}
+
 /// Whether residual target is legal for SupW Patriot EMP disable residual.
 ///
 /// Retail EMPPatriotEffectSpheroid EMPUpdate: vehicles / faction structures /
-/// SPAWNS_ARE_THE_WEAPONS; DoesNotAffectMyOwnBuildings residual skips own structures.
+/// SPAWNS_ARE_THE_WEAPONS; DoesNotAffectMyOwnBuildings skips the firing
+/// player's structures (`is_emp_own_building` / controlling player), not team.
 /// C++ does not skip under-construction or ground EMP_HARDENED (hardened only
 /// exempts the airborne kill branch).
 pub fn is_legal_supw_patriot_emp_target(
@@ -1865,6 +1884,7 @@ pub fn is_legal_supw_patriot_emp_target(
         return false;
     }
     // Own buildings not disabled residual (DoesNotAffectMyOwnBuildings = Yes).
+    // Caller must pass firing-player ownership, not team equality.
     if is_own_structure {
         return false;
     }

@@ -1358,6 +1358,12 @@ pub const PREREQ_SAMPLE_TABLE_RESIDUAL: &[PrereqSampleRow] = &[
         prereq_objects: &["GLACommandCenter"],
         or_chain: false,
     },
+    // Retail ChinaVehicle.ini: two Object lines (AND) — WarFactory + Barracks.
+    PrereqSampleRow {
+        unit: "ChinaVehicleListeningOutpost",
+        prereq_objects: &["ChinaWarFactory", "ChinaBarracks"],
+        or_chain: false,
+    },
 ];
 
 /// Residual satisfaction for a simple unit-ownership map residual.
@@ -1411,7 +1417,7 @@ pub fn honesty_prerequisite_residual_pack_wave99() -> bool {
         && PREREQ_INI_FIELD_NAMES.len() == 2
         && residual_name_index(PREREQ_INI_FIELD_NAMES, "Object") == Some(0)
         && residual_name_index(PREREQ_INI_FIELD_NAMES, "Science") == Some(1)
-        && PREREQ_SAMPLE_TABLE_RESIDUAL.len() == 17
+        && PREREQ_SAMPLE_TABLE_RESIDUAL.len() == 18
         && PREREQ_SAMPLE_TABLE_RESIDUAL[0].unit == "AmericaWarFactory"
         && PREREQ_SAMPLE_TABLE_RESIDUAL[0].prereq_objects == &["AmericaSupplyCenter"]
         && !PREREQ_SAMPLE_TABLE_RESIDUAL[0].or_chain
@@ -1474,6 +1480,26 @@ pub fn honesty_prerequisite_residual_pack_wave99() -> bool {
             &["AmericaStrategyCenter"],
             false,
             &["AmericaCommandCenter"],
+            true,
+        )
+        && prereq_objects_for_template_residual("ChinaVehicleListeningOutpost")
+            == Some((&["ChinaWarFactory", "ChinaBarracks"][..], false))
+        && prereq_is_satisfied_residual(
+            &["ChinaWarFactory", "ChinaBarracks"],
+            false,
+            &["ChinaWarFactory", "ChinaBarracks"],
+            true,
+        )
+        && !prereq_is_satisfied_residual(
+            &["ChinaWarFactory", "ChinaBarracks"],
+            false,
+            &["ChinaWarFactory"],
+            true,
+        )
+        && !prereq_is_satisfied_residual(
+            &["ChinaWarFactory", "ChinaBarracks"],
+            false,
+            &["ChinaBarracks"],
             true,
         )
 }

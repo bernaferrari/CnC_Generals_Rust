@@ -155,6 +155,15 @@ pub fn should_emp_kill_airborne(
     is_aircraft && is_airborne && !is_emp_hardened
 }
 
+/// C++ EMPUpdate.cpp Patch 1.01 (`onlyEffectAirborne`): when the producer's
+/// current AI victim is airborne, skip every non-airborne victim.
+pub fn emp_skip_ground_when_airborne_only(
+    intended_victim_is_airborne: bool,
+    victim_is_airborne: bool,
+) -> bool {
+    intended_victim_is_airborne && !victim_is_airborne
+}
+
 /// 2D distance check residual (ground plane x/z; host gameplay convention).
 /// Kept for honesty / older call sites; playable EMP uses the 3D helper.
 pub fn in_emp_pulse_radius_2d(center: (f32, f32), target: (f32, f32), radius: f32) -> bool {
@@ -233,6 +242,48 @@ pub fn leftover_emp_spheroid_tint(now: u32, tint_play_frame: u32) -> (u8, u8, u8
 pub fn leftover_emp_should_disable(now: u32, tint_play_frame: u32, already: bool) -> bool {
     !already && now == tint_play_frame
 }
+
+/// C++ EMPUpdate.cpp default SparksPerCubicFoot.
+pub const EMP_SPARKS_PER_CUBIC_FOOT: f32 = 0.001;
+/// C++ `MAX(15, ceil(sparksPerCubicFoot * volume))`.
+pub const EMP_SPARKS_MIN_EMITTERS: u32 = 15;
+/// C++ `setSystemLifetime(MAX(0, DisabledDuration - 30))`.
+pub const EMP_SPARKS_LIFETIME_SLACK_FRAMES: u32 = 30;
+
+/// C++ EMPUpdate.cpp:280-284 spark emitter count.
+pub fn leftover_emp_spark_emitter_count(footprint_area: f32, height: f32) -> u32 {
+    let volume = footprint_area.max(0.0) * height.max(0.0).min(10.0);
+    let computed = (EMP_SPARKS_PER_CUBIC_FOOT * volume).ceil() as i32;
+    computed.max(EMP_SPARKS_MIN_EMITTERS as i32) as u32
+}
+
+/// C++ `setSystemLifetime(MAX(0, DisabledDuration - 30))`.
+pub fn leftover_emp_spark_lifetime(disabled_duration_frames: u32) -> u32 {
+    disabled_duration_frames.saturating_sub(EMP_SPARKS_LIFETIME_SLACK_FRAMES)
+}
+
+/// C++ `GameLogicRandomValue(3, victimHeight)` (host Y-up height).
+pub fn leftover_emp_spark_z(victim_height: f32) -> f32 {
+    let hi = victim_height.max(3.0) as i32;
+    gamelogic::helpers::get_game_logic_random_value(3, hi).max(3) as f32
+}
+
+/// C++ `GameLogicRandomValue(1, 100)` spark `setInitialDelay`.
+pub fn leftover_emp_spark_initial_delay() -> u32 {
+    gamelogic::helpers::get_game_logic_random_value(1, 100).max(1) as u32
+}
+
+/// C++ EMPUpdate.cpp:297-307 quadrahemicycloid clamp. Host Y-up: y is height.
+pub fn leftover_emp_spark_dome_clamp(offset: glam::Vec3, victim_height: f32) -> glam::Vec3 {
+    let len = offset.length();
+    if len > victim_height && len > 0.0 {
+        let n = offset / len;
+        glam::Vec3::new(offset.x, n.y * victim_height, offset.z)
+    } else {
+        offset
+    }
+}
+
 
 /// Convert msec residual → logic frames @ 30 FPS (round half-up).
 pub fn emp_ms_to_frames(ms: u32) -> u32 {
@@ -566,6 +617,10 @@ mod tests {
     #[test]
     fn airborne_kill_and_radius_filters() {
         assert!(should_emp_kill_airborne(true, true, false));
+        assert!(emp_skip_ground_when_airborne_only(true, false));
+        assert!(!emp_skip_ground_when_airborne_only(true, true));
+        assert!(!emp_skip_ground_when_airborne_only(false, false));
+        assert!(!emp_skip_ground_when_airborne_only(false, true));
         assert!(!should_emp_kill_airborne(true, false, false));
         assert!(!should_emp_kill_airborne(true, true, true));
         assert!(!should_emp_kill_airborne(false, true, false));

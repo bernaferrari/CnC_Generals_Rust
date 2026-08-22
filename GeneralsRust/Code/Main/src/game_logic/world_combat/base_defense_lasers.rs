@@ -973,6 +973,19 @@ impl GameLogic {
         self.supw_patriot_emp_residual_grants
     }
 
+    pub fn supw_patriot_emp_spheroids_spawned(&self) -> u32 {
+        self.supw_patriot_emp_spheroids_spawned
+    }
+
+    pub fn supw_patriot_emp_sparks_spawned(&self) -> u32 {
+        self.supw_patriot_emp_sparks_spawned
+    }
+
+    /// Residual honesty: EMPPatriotEffectSpheroid + EMPSparks spawned.
+    pub fn honesty_supw_patriot_emp_fx_ok(&self) -> bool {
+        self.supw_patriot_emp_spheroids_spawned > 0
+    }
+
     /// Residual honesty: AssistedTargetingUpdate request → accept → assist fire.
     pub fn honesty_patriot_assist_ok(&self) -> bool {
         self.patriot_assist_residual_requests > 0

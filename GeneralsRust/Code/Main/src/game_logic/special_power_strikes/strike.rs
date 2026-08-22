@@ -304,6 +304,15 @@ pub struct HostSpecialPowerStrike {
     /// skip the registry blob warhead + FireOCL poison (one path only).
     #[serde(default)]
     pub live_scud_delivery: bool,
+    /// C++ one CarpetBombWeapon per drop (HeightDie leftover). When flight
+    /// leftover scheduled live bombs, skip registry line-wave 300/50 (one path).
+    #[serde(default)]
+    pub live_carpet_delivery: bool,
+    /// C++ `initiateIntentToDoSpecialPower` `!COMMAND_FIRED_BY_SCRIPT`:
+    /// human fire arms `m_manualTargetMode` so the beam holds the click
+    /// instead of walking SwathOfDeath. Script-without-waypoint stays false.
+    #[serde(default)]
+    pub manual_beam_hold: bool,
 }
 
 /// Damage application plan for a single victim (computed before mutable apply).

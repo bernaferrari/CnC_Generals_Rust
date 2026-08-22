@@ -188,10 +188,15 @@ impl GameWorldShadow {
         }
 
         // Wave 794 pending CarpetBomb drops (registry sole-tick).
+        // C++ payload is contained on the transport — dead bomber cancels remaining.
         {
+            let pending: Vec<_> = self.carpet_pending_drops.drain(..).collect();
             let mut due = Vec::new();
             let mut keep = Vec::new();
-            for p in self.carpet_pending_drops.drain(..) {
+            for p in pending {
+                if !self.carpet_transport_payload_alive(p.transport_id) {
+                    continue;
+                }
                 if p.drop_frame <= frame {
                     due.push(p);
                 } else {
@@ -312,5 +317,22 @@ impl GameWorldShadow {
             }
         }
         n
+    }
+
+    /// C++ DeliverPayload payload lives on the transport contain.
+    fn carpet_transport_payload_alive(&self, transport_id: u32) -> bool {
+        let living = |e: &gamelogic::world::entities::Entity| {
+            e.carpet_bomb_transport_active && e.health > 0.0 && !e.destroyed
+        };
+        if transport_id != 0 {
+            return self
+                .host_to_entity
+                .get(&transport_id)
+                .and_then(|&eid| self.world.entity(eid))
+                .is_some_and(living);
+        }
+        self.host_to_entity.values().any(|&eid| {
+            self.world.entity(eid).is_some_and(living)
+        })
     }
 }

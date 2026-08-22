@@ -22,7 +22,7 @@
 //!   Delay **1000**ms → **30**f
 //!
 //! Fail-closed honesty:
-//! - Not full StealthUpdate delay / FriendlyOpacity / OrderIdleEnemiesToAttackMe
+//! - Not full FriendlyOpacity / OrderIdleEnemiesToAttackMe
 //! - Not full IR detector FX / CanDetectWhileGarrisoned matrix
 //! - Not multi-door ExitStart bone matrix / HealthRegen%PerSec embark heal
 //! - Not network detect / transport replication (network deferred)
@@ -83,6 +83,13 @@ pub const LISTENING_OUTPOST_TRANSPORT_SLOT_COUNT: u32 = 8;
 pub const LISTENING_OUTPOST_STEALTH_DELAY_MS: u32 = 2000;
 /// StealthDelay 2000ms → 60 frames @ 30 FPS.
 pub const LISTENING_OUTPOST_STEALTH_DELAY_FRAMES: u32 = 60;
+
+/// Absolute frame when Listening Outpost residual may cloak after spawn / reveal.
+/// C++ StealthUpdate.cpp:111 `m_stealthAllowedFrame = now + StealthDelay`.
+pub fn listening_outpost_stealth_allowed_frame(current_frame: u32) -> u32 {
+    current_frame.saturating_add(LISTENING_OUTPOST_STEALTH_DELAY_FRAMES)
+}
+
 /// Retail StealthForbiddenConditions residual.
 pub const LISTENING_OUTPOST_STEALTH_FORBIDDEN: &str = "MOVING RIDERS_ATTACKING";
 /// Retail InnateStealth residual.
@@ -393,6 +400,7 @@ pub fn honesty_listening_outpost_stealth_residual_ok() -> bool {
         && (LISTENING_OUTPOST_FRIENDLY_OPACITY_MIN_PERCENT - 50.0).abs() < 0.01
         && (LISTENING_OUTPOST_FRIENDLY_OPACITY_MAX_PERCENT - 100.0).abs() < 0.01
         && LISTENING_OUTPOST_ORDER_IDLE_ENEMIES_ON_REVEAL
+        && listening_outpost_stealth_allowed_frame(10) == 70
 }
 
 /// Wave 68 residual honesty: body / build / locomotor / geometry residual.

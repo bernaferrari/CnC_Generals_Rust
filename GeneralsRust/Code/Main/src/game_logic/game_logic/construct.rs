@@ -469,6 +469,8 @@ impl GameLogic {
             stinger_scatter_applied: 0,
             stinger_scatter_misses: 0,
             supw_patriot_emp_residual_grants: 0,
+            supw_patriot_emp_spheroids_spawned: 0,
+            supw_patriot_emp_sparks_spawned: 0,
             supw_emp_scatter_applied: 0,
             supw_emp_scatter_misses: 0,
             patriot_assist_residual_requests: 0,
@@ -1047,6 +1049,8 @@ impl GameLogic {
         self.stinger_scatter_applied = 0;
         self.stinger_scatter_misses = 0;
         self.supw_patriot_emp_residual_grants = 0;
+        self.supw_patriot_emp_spheroids_spawned = 0;
+        self.supw_patriot_emp_sparks_spawned = 0;
         self.supw_emp_scatter_applied = 0;
         self.supw_emp_scatter_misses = 0;
         self.patriot_assist_residual_requests = 0;

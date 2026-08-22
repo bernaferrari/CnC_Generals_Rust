@@ -209,7 +209,8 @@ pub const PARTICLE_RAISE_ANTENNA_FRAMES: u32 = (4667 * 30) / 1000;
 /// Antenna raised → ready-to-fire (MODELCONDITION_DEPLOYED residual).
 pub const PARTICLE_READY_DELAY_FRAMES: u32 = (2000 * 30) / 1000;
 /// Retail BeamTravelTime = 2500 ms → 75 frames @ 30 FPS.
-/// Dish→ground travel residual (host impact_delay is a charge+travel subset).
+/// C++ first damage at orbital birth (`startAttack + BeamTravelTime`).
+/// Host `impact_delay_frames` is this travel residual (not a charge subset).
 pub const PARTICLE_BEAM_TRAVEL_FRAMES: u32 = (2500 * 30) / 1000;
 /// Retail DelayBetweenLaunchFX = 1000 ms → 30 frames @ 30 FPS.
 pub const PARTICLE_LAUNCH_FX_INTERVAL_FRAMES: u32 = (1000 * 30) / 1000;
@@ -1055,6 +1056,26 @@ pub fn particle_scorch_radius(spawn_frame: u32, current_frame: u32) -> f32 {
         PARTICLE_BEAM_RADIUS
     };
     laser_r * PARTICLE_SCORCH_MARK_SCALAR * particle_width_scalar(spawn_frame, current_frame)
+}
+
+/// C++ `ParticleUplinkCannonUpdate.cpp:603-614`.
+///
+/// Leftover `ParticleUplinkCannonUpdate` already calls
+/// `TheGameClient::add_scorch` + `TheFXListStore` GroundHitFX. Live beams are
+/// residual-only (Wave 299 empty dual-world), so replay those leftover client
+/// calls from each due scorch event.
+///
+/// `GameClientRandomValue(SCORCH_1, SCORCH_4)` — C++ `SCORCH_1=0` .. `SCORCH_4=3`.
+/// Host `position` is Y-up; leftover / `addScorch` is Z-up.
+pub fn apply_particle_beam_scorch_and_ground_hit_fx(position: Vec3, scorch_radius: f32) {
+    const SCORCH_1: i32 = 0;
+    const SCORCH_4: i32 = 3;
+    let leftover = gamelogic::common::Coord3D::new(position.x, position.z, position.y);
+    if let Some(client) = gamelogic::helpers::TheGameClient::get() {
+        let scorch_id = gamelogic::helpers::game_client_random_value(SCORCH_1, SCORCH_4);
+        client.add_scorch(&leftover, scorch_radius, scorch_id);
+    }
+    let _ = crate::game_logic::dispatch_fx_list_at_pos(PARTICLE_GROUND_HIT_FX, position);
 }
 
 /// Next absolute frame for the next scorch mark (fractional residual).

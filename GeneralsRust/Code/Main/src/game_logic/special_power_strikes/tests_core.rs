@@ -117,7 +117,8 @@ fn spectre_gunship_params_match_retail_orbit() {
 #[test]
 fn particle_cannon_params_match_retail_continuous_beam() {
     let kind = HostSuperweaponKind::ParticleCannon;
-    assert_eq!(kind.impact_delay_frames(), 120);
+    assert_eq!(kind.impact_delay_frames(), PARTICLE_BEAM_TRAVEL_FRAMES);
+    assert_eq!(kind.impact_delay_frames(), 75);
     // Continuous beam residual: no one-shot impact blast.
     assert!((kind.max_damage() - 0.0).abs() < 0.1);
     assert!((kind.damage_radius() - PARTICLE_BEAM_RADIUS).abs() < 0.1);
@@ -241,7 +242,7 @@ fn particle_cannon_impact_spawns_beam_and_ticks_damage() {
         0,
     );
     assert!(reg.honesty_queue_ok(HostSuperweaponKind::ParticleCannon));
-    assert_eq!(reg.get(id).unwrap().impact_frame, 120);
+    assert_eq!(reg.get(id).unwrap().impact_frame, PARTICLE_BEAM_TRAVEL_FRAMES);
     assert!(reg.beam_fields().is_empty());
 
     // First pulse swath epicenter = target + (-100, 0, 0) = (0, 0, 0).

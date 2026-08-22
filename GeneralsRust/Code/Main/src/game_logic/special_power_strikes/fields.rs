@@ -533,9 +533,10 @@ pub struct HostParticleBeamField {
     /// Manual beam driving residual (`setSpecialPowerOverridableDestination`).
     ///
     /// When true, epicenter follows [`current_target_position`] toward
-    /// [`override_destination`] instead of SwathOfDeath S-curve (retail human
-    /// players always start in manual mode; host residual defaults swath until
-    /// an override is applied so AI residual tests stay swath-driven).
+    /// [`override_destination`] instead of SwathOfDeath S-curve. Retail human
+    /// fire (`!COMMAND_FIRED_BY_SCRIPT`) starts in this mode so the beam holds
+    /// the click. Script/AI residual and direct `spawn_beam_field` stay swath
+    /// until an override is applied.
     #[serde(default)]
     pub manual_target_mode: bool,
     /// Player-requested beam destination residual.

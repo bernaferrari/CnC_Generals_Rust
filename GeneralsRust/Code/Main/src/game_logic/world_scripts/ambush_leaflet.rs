@@ -466,14 +466,10 @@ impl GameLogic {
             self.host_leaflet_drops
                 .queue(kind, source_object, source_team, target_position, frame);
 
-        // C++ OCLSpecialPower DeliverPayload residual: B52 transport only;
-        // LeafletDropBehavior disable residual remains host-owned.
-        let _ = self.execute_ocl_special_power(
-            "SuperweaponLeafletDrop",
-            source_object,
-            target_position,
-        );
-        // Live AmericaJetB52 + LeafletContainer residual (playability slice).
+        // C++ OCLSpecialPower::doSpecialPowerAtLocation → one DeliverPayload
+        // AmericaJetB52. Dedicated spawn_leaflet_b52_flight owns that transport
+        // (same as A10/Daisy skip execute_ocl). LeafletDropBehavior disable
+        // stays host-owned via host_leaflet_drops.queue.
         let _ = self.spawn_leaflet_b52_flight(source_object, target_position);
 
         self.queue_audio_event(

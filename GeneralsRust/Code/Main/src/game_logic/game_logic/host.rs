@@ -989,6 +989,10 @@ pub struct GameLogic {
     pub(super) stinger_scatter_misses: u32,
     /// Superweapon General EMP Patriot residual: DISABLED_EMP grants applied.
     pub(super) supw_patriot_emp_residual_grants: u32,
+    /// Honesty: EMPPatriotEffectSpheroid objects spawned on Patriot EMP blast.
+    pub(super) supw_patriot_emp_spheroids_spawned: u32,
+    /// Honesty: EMPSparks particle systems spawned on EMP victims.
+    pub(super) supw_patriot_emp_sparks_spawned: u32,
     /// Honesty: SupW EMPBlast ScatterRadiusVsInfantry peels applied.
     pub(super) supw_emp_scatter_applied: u32,
     /// Honesty: SupW EMPBlast scatter residual misses vs infantry.

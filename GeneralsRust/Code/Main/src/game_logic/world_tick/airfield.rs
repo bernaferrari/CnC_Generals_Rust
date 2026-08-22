@@ -1180,9 +1180,9 @@ impl GameLogic {
                 .unwrap_or(true);
             if dead_or_sold {
                 self.kill_all_parked_units(airfield_id);
-            } else {
-                self.defect_all_parked_units(airfield_id);
             }
+            // C++ `ParkingPlaceBehavior::defectAllParkedUnits` runs only from
+            // `Object::defect` (airfield capture), never each tick on team mismatch.
         }
     }
 

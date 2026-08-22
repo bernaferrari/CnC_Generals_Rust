@@ -214,9 +214,12 @@ pub fn propaganda_heal_amount_per_pulse(max_health: f32, upgraded: bool) -> f32 
     propaganda_heal_amount(max_health, upgraded, 2.0)
 }
 
-/// Whether tower/player residual has subliminal upgrade active.
-pub fn is_subliminal_upgrade_active(has_upgrade_tag: bool) -> bool {
-    has_upgrade_tag
+/// C++ `PropagandaTowerBehavior::effectLogic:275`
+/// `getControllingPlayer()->hasUpgradeComplete(m_upgradeRequired)`.
+/// `UpgradeRequired` is `Upgrade_ChinaSubliminalMessaging` — not an
+/// Overlord/Helix propaganda addon install tag.
+pub fn is_subliminal_upgrade_active(player_has_subliminal: bool) -> bool {
+    player_has_subliminal
 }
 
 /// Residual weapon-bonus flag pair from upgrade coverage.

@@ -80,6 +80,8 @@ pub struct HostSpecialPowerStrikeRegistry {
     /// C++ SpectreGunshipUpdate.cpp:532 — wide AttackAreaRadius auto-acquire
     /// is AI-only (`getPlayerType() != PLAYER_HUMAN`). Host: `!is_local`.
     pub(crate) spectre_ai_controllers: std::collections::HashSet<ObjectId>,
+    /// C++ `COMMAND_FIRED_BY_SCRIPT` latch until `queue_special_power_strike`.
+    pub(crate) script_fired_special_power_sources: std::collections::HashSet<ObjectId>,
 
 
 }
@@ -93,6 +95,16 @@ impl HostSpecialPowerStrikeRegistry {
     /// C++ `getPlayerType() != PLAYER_HUMAN`. Unknown/human → no wide acquire.
     pub fn spectre_wide_auto_acquire_allowed(&self, source_object: ObjectId) -> bool {
         self.spectre_ai_controllers.contains(&source_object)
+    }
+
+    /// Mark the next ParticleCannon queue from this source as script-fired (swath).
+    pub fn note_script_fired_special_power(&mut self, source_object: ObjectId) {
+        self.script_fired_special_power_sources.insert(source_object);
+    }
+
+    /// Consume the script-fire latch for `source_object`.
+    pub fn take_script_fired_special_power(&mut self, source_object: ObjectId) -> bool {
+        self.script_fired_special_power_sources.remove(&source_object)
     }
 
 
@@ -156,6 +168,7 @@ impl HostSpecialPowerStrikeRegistry {
             view_objects: Vec::new(),
             view_objects_spawned_total: 0,
             spectre_ai_controllers: std::collections::HashSet::new(),
+            script_fired_special_power_sources: std::collections::HashSet::new(),
 
         }
 
@@ -206,6 +219,7 @@ impl HostSpecialPowerStrikeRegistry {
         self.view_objects.clear();
         self.view_objects_spawned_total = 0;
         self.spectre_ai_controllers.clear();
+        self.script_fired_special_power_sources.clear();
 
 
     }
@@ -906,6 +920,8 @@ impl HostSpecialPowerStrikeRegistry {
             anthrax_toxin_residual_pack_applications: 0,
             live_neutron_delivery: false,
             live_scud_delivery: false,
+            live_carpet_delivery: false,
+            manual_beam_hold: false,
         };
         // Once-at-queue multi-strike OCL residual: store epicenters + shell
         // frames so plan_due reuses the same ADC draws (retail once-at-create).

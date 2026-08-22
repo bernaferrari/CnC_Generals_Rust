@@ -259,6 +259,11 @@ impl XferData for HostSpecialPowerStrike {
         xfer.xfer_u32(&mut self.objects_hit)?;
         xfer.xfer_marker_label("ObjectsDestroyed")?;
         xfer.xfer_u32(&mut self.objects_destroyed)?;
+        // Appended: skip registry 300/50 when leftover flight owns CarpetBombWeapon.
+        xfer.xfer_marker_label("LiveCarpetDelivery")?;
+        xfer.xfer_bool(&mut self.live_carpet_delivery)?;
+        xfer.xfer_marker_label("ManualBeamHold")?;
+        xfer.xfer_bool(&mut self.manual_beam_hold)?;
         Ok(())
     }
 }
@@ -866,6 +871,8 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 anthrax_toxin_residual_pack_applications: 0,
                 live_neutron_delivery: false,
                 live_scud_delivery: false,
+                live_carpet_delivery: false,
+                manual_beam_hold: false,
             },
         )?;
         // NuclearMissile residual radiation fields (appended; older binary

@@ -541,9 +541,57 @@ impl GameWorldShadow {
         }
         // Wave 794: CarpetBomb transport residual.
         if e.carpet_bomb_transport_active {
-            let dest_x = e.carpet_bomb_transport_target_x;
-            let dest_z = e.carpet_bomb_transport_target_z;
             let pos = e.transform.position;
+            let hx = e.carpet_bomb_transport_target_x - e.carpet_bomb_transport_launch_x;
+            let hz = e.carpet_bomb_transport_target_z - e.carpet_bomb_transport_launch_z;
+            let to_tx = e.carpet_bomb_transport_target_x - pos.x;
+            let to_tz = e.carpet_bomb_transport_target_z - pos.z;
+            let dist_to_target = (to_tx * to_tx + to_tz * to_tz).sqrt();
+            let past_target = dist_to_target <= 5.0
+                || (pos.x - e.carpet_bomb_transport_target_x) * hx
+                    + (pos.z - e.carpet_bomb_transport_target_z) * hz
+                    > 0.0;
+            let hid = self.entity_to_host.get(&eid.get()).copied();
+            let still_pending = hid.is_some_and(|h| {
+                self.carpet_pending_drops.iter().any(|p| {
+                    p.transport_id == h || p.transport_id == 0
+                })
+            });
+            // C++ HeadOffMap after DeliveringState. Wait at moveToPos until payload is out.
+            let head_off = past_target && !still_pending;
+            let (min_x, min_z, max_x, max_z) = if self.map_max_x > self.map_min_x
+                && self.map_max_z > self.map_min_z
+            {
+                (self.map_min_x, self.map_min_z, self.map_max_x, self.map_max_z)
+            } else {
+                use crate::game_logic::host_deliver_payload::{
+                    RESIDUAL_MAP_EXTENT_MAX_X, RESIDUAL_MAP_EXTENT_MAX_Z,
+                    RESIDUAL_MAP_EXTENT_MIN_X, RESIDUAL_MAP_EXTENT_MIN_Z,
+                };
+                (
+                    RESIDUAL_MAP_EXTENT_MIN_X,
+                    RESIDUAL_MAP_EXTENT_MIN_Z,
+                    RESIDUAL_MAP_EXTENT_MAX_X,
+                    RESIDUAL_MAP_EXTENT_MAX_Z,
+                )
+            };
+            let (dest_x, dest_z) = if head_off {
+                let exit = crate::game_logic::host_deliver_payload::head_off_map_exit_point_residual(
+                    glam::Vec3::new(pos.x, pos.y, pos.z),
+                    hx,
+                    hz,
+                    min_x,
+                    min_z,
+                    max_x,
+                    max_z,
+                );
+                (exit.x, exit.z)
+            } else {
+                (
+                    e.carpet_bomb_transport_target_x,
+                    e.carpet_bomb_transport_target_z,
+                )
+            };
             let dx = dest_x - pos.x;
             let dz = dest_z - pos.z;
             let dist = (dx * dx + dz * dz).sqrt();
@@ -551,7 +599,7 @@ impl GameWorldShadow {
             let mut new_pos = pos;
             new_pos.y = new_pos.y.max(120.0);
             let mut vel = glam::Vec3::ZERO;
-            if dist >= 5.0 {
+            if dist >= 1.0 {
                 let step = speed.min(dist);
                 new_pos.x += dx / dist * step;
                 new_pos.z += dz / dist * step;
@@ -560,6 +608,19 @@ impl GameWorldShadow {
             e.transform.position = new_pos;
             if vel.length_squared() > 1e-6 {
                 e.transform.orientation = vel.z.atan2(vel.x);
+            }
+            if head_off
+                && crate::game_logic::host_deliver_payload::is_off_map_residual(
+                    glam::Vec3::new(new_pos.x, new_pos.y, new_pos.z),
+                    min_x,
+                    min_z,
+                    max_x,
+                    max_z,
+                )
+            {
+                // C++ HeadOffMapState → CleanUpState::destroyObject.
+                e.carpet_bomb_transport_active = false;
+                e.destroyed = true;
             }
             changed = true;
         }

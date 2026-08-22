@@ -121,10 +121,11 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::A10Strike => A10_STRIKE_IMPACT_DELAY_FRAMES,
             // SCUD PreAttackDelay residual (first missile); multi-missile stagger follows.
             HostSuperweaponKind::ScudStorm => SCUD_STORM_PRE_ATTACK_FRAMES,
-            // Particle Uplink charge + beam-travel residual
-            // (BeginCharge+RaiseAntenna+ReadyDelay+BeamTravel subset; beam dwell
-            // is continuous residual after impact_frame — see HostParticleBeamField).
-            HostSuperweaponKind::ParticleCannon => 120,
+            // C++ orbitalBirthFrame = startAttack + BeamTravelTime (2500ms → 75f).
+            // First pulse is on orbital birth (`m_nextDamagePulseFrame = now`).
+            // Leftover ParticleUplinkCannonUpdate already matches; live residual
+            // spawn/first tick is impact_frame (see HostParticleBeamField).
+            HostSuperweaponKind::ParticleCannon => PARTICLE_BEAM_TRAVEL_FRAMES,
             // NeutronMissile residual flight/approach (fail-closed vs full
             // NeutronMissileUpdate loft + SpecialSpeedTime path).
             HostSuperweaponKind::NuclearMissile => 180,
@@ -597,11 +598,25 @@ pub fn drop_variance_offset(index: u32, var_x: f32, var_y: f32, var_z: f32) -> V
     Vec3::new(fx, fz, fy)
 }
 
+/// Unit XZ approach from `launch` toward the click (C++ DeliverPayload flight).
+/// Degenerate / coincident points fall back to +X.
+pub fn carpet_bomb_approach_dir(launch: Vec3, target: Vec3) -> (f32, f32) {
+    let dx = target.x - launch.x;
+    let dz = target.z - launch.z;
+    let len = (dx * dx + dz * dz).sqrt();
+    if len > 1.0e-4 {
+        (dx / len, dz / len)
+    } else {
+        (1.0, 0.0)
+    }
+}
+
 /// Build residual bomb epicenters along a line centered on `target`.
 ///
-/// Orientation: east-west (+X) through the target (retail flight path /
-/// DeliveryDistance deferred). Line length is
-/// `(CARPET_BOMB_COUNT - 1) * CARPET_BOMB_SPACING` centered on target.
+/// Default orientation is +X when no launch is known. Live flight uses
+/// [`carpet_bomb_points_for_tier_along`] so the line follows the bomber
+/// approach (C++ drops at transport position along the flight path).
+/// Line length is `(count - 1) * CARPET_BOMB_SPACING` centered on target.
 /// Each point applies retail DropVariance residual (X:30 Y:40 Z:0) via
 /// deterministic host scatter (fail-closed vs GameLogicRandomValueReal).
 pub fn carpet_bomb_points(target: Vec3) -> Vec<Vec3> {
@@ -611,10 +626,28 @@ pub fn carpet_bomb_points(target: Vec3) -> Vec<Vec3> {
 /// Build residual carpet bomb epicenters for a faction Payload/DropVariance residual.
 ///
 /// Retail: USA Payload **15** / AirF **12** / China **10**. DropVariance always
-/// X:30 Y:40 Z:0. PreferredHeight / DeliveryDistance honesty on tier, not path.
+/// X:30 Y:40 Z:0. PreferredHeight honesty on tier. Axis is +X unless the
+/// caller supplies launch via [`carpet_bomb_points_for_tier_along`].
 pub fn carpet_bomb_points_for_tier(target: Vec3, tier: CarpetBombFactionTier) -> Vec<Vec3> {
+    carpet_bomb_points_for_tier_along(
+        target,
+        tier,
+        Vec3::new(target.x - 1.0, target.y, target.z),
+    )
+}
+
+/// Bomb epicenters along `launch → target` (C++ DeliverPayload approach).
+///
+/// Index 0 is on the inbound side of the click; last index is past the
+/// target along the same heading. DropVariance stays in world XZ (C++ XY).
+pub fn carpet_bomb_points_for_tier_along(
+    target: Vec3,
+    tier: CarpetBombFactionTier,
+    launch: Vec3,
+) -> Vec<Vec3> {
     let count = tier.bomb_count().max(1);
     let half = (count as f32 - 1.0) * 0.5;
+    let (ux, uz) = carpet_bomb_approach_dir(launch, target);
     let mut points = Vec::with_capacity(count as usize);
     for i in 0..count {
         let offset = (i as f32 - half) * CARPET_BOMB_SPACING;
@@ -625,9 +658,9 @@ pub fn carpet_bomb_points_for_tier(target: Vec3, tier: CarpetBombFactionTier) ->
             CARPET_BOMB_DROP_VARIANCE_Z,
         );
         points.push(Vec3::new(
-            target.x + offset + scatter.x,
+            target.x + ux * offset + scatter.x,
             target.y + scatter.y,
-            target.z + scatter.z,
+            target.z + uz * offset + scatter.z,
         ));
     }
     points

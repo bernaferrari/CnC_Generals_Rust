@@ -196,6 +196,9 @@ impl GameLogic {
             .and_then(|object| self.player_owner_for_host_object(object));
         // Contain kick residual.
         self.on_capture_kick_passengers(object_id, old_team, new_team);
+        // C++ Object::defect → ParkingPlaceBehavior::defectAllParkedUnits
+        // (SpecialAbilityUpdate.cpp:1442). Only on capture, not a per-tick walk.
+        self.defect_all_parked_units(object_id);
 
 
         // Deselect from all players (C++ TheGameLogic->deselectObject residual).

@@ -776,7 +776,7 @@ fn particle_uplink_sound_residual_pack_honesty() {
     // Long impact window can also hit CHARGING → PoweringUpSoundLoop.
     // begin_charge = impact - (ReadyDelay+RaiseAntenna+BeginCharge) =
     // impact - 350; use impact_frame 350 so frame 0 is CHARGING.
-    // Default impact_delay 120 only covers PREPARING at activate.
+    // Default impact_delay (BeamTravelTime 75f) only covers PREPARING at activate.
     if let Some(s) = reg.strikes.get_mut(&id) {
         s.impact_frame = 350;
         s.particle_status = ParticleUplinkStatus::Idle;
