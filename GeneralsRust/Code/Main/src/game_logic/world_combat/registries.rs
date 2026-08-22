@@ -628,6 +628,8 @@ impl GameLogic {
         }
         // C++ OpenContain::removeFromContain doUnloadSound — leftover TheAudio.
         self.play_container_exit_sound(container_id);
+        // C++ GarrisonContain::exitObjectViaDoor ends in recalcApparentControllingPlayer.
+        self.recalc_garrison_apparent_controller(container_id);
         true
     }
 
@@ -895,6 +897,10 @@ impl GameLogic {
                 let _ = self.exit_cave_unit(*pid, container_id);
             }
             self.record_transport_residual_unload();
+        }
+        if is_garrison {
+            // C++ GarrisonContain::removeAllContained → recalcApparentControllingPlayer.
+            self.recalc_garrison_apparent_controller(container_id);
         }
         if any {
             // C++ OpenContain::doUnloadSound once per frame per container.

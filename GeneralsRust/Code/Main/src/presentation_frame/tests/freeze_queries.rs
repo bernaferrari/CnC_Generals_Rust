@@ -492,7 +492,8 @@ fn similar_unit_ids_from_presentation() {
 
 #[test]
 fn similar_unit_ids_use_equivalent_to_and_skip_contained() {
-    // C++ InGameUI.cpp:163-172 — isEquivalentTo + !isContained.
+    // C++ InGameUI.cpp:163-172 — leftover ThingTemplate::isEquivalentTo + !isContained.
+    // Prefix-stem (AirF_) is not enough without ObjectReskin / BuildVariations.
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = crate::game_logic::GameLogic::new();
     let mut stock = ThingTemplate::new("AmericaInfantryRanger");
@@ -502,13 +503,13 @@ fn similar_unit_ids_use_equivalent_to_and_skip_contained() {
     logic
         .templates
         .insert("AmericaInfantryRanger".into(), stock);
-    let mut airf = ThingTemplate::new("AirF_AmericaInfantryRanger");
+    let mut airf = ThingTemplate::new("AirF_HostTypeSelectRanger");
     airf.set_health(100.0);
     airf.add_kind_of(KindOf::Infantry);
     airf.add_kind_of(KindOf::Selectable);
     logic
         .templates
-        .insert("AirF_AmericaInfantryRanger".into(), airf);
+        .insert("AirF_HostTypeSelectRanger".into(), airf);
     let a = logic
         .create_object(
             "AmericaInfantryRanger",
@@ -516,11 +517,18 @@ fn similar_unit_ids_use_equivalent_to_and_skip_contained() {
             glam::Vec3::new(0.0, 0.0, 0.0),
         )
         .unwrap();
-    let b = logic
+    let same = logic
         .create_object(
-            "AirF_AmericaInfantryRanger",
+            "AmericaInfantryRanger",
             Team::USA,
             glam::Vec3::new(10.0, 0.0, 0.0),
+        )
+        .unwrap();
+    let stem_only = logic
+        .create_object(
+            "AirF_HostTypeSelectRanger",
+            Team::USA,
+            glam::Vec3::new(15.0, 0.0, 0.0),
         )
         .unwrap();
     let contained = logic
@@ -536,12 +544,32 @@ fn similar_unit_ids_use_equivalent_to_and_skip_contained() {
     let frame = PresentationFrame::build_from_logic(&logic, 0);
     let mut ids = frame.similar_unit_ids(a, Team::USA);
     ids.sort_by_key(|id| id.0);
-    let mut expect = vec![a, b];
+    let mut expect = vec![a, same];
     expect.sort_by_key(|id| id.0);
     assert_eq!(ids, expect);
+    assert!(
+        !ids.contains(&stem_only),
+        "AirF_ stem without leftover isEquivalentTo must not type-select"
+    );
     assert!(!ids.contains(&contained));
     assert!(frame.similar_unit_ids(contained, Team::USA).is_empty());
 }
+
+#[test]
+fn type_select_uses_leftover_is_equivalent_to_not_stem() {
+    let src = include_str!("../queries.rs");
+    assert!(
+        src.contains("splash_templates_equivalent(left, right)")
+            && src.contains("fn templates_equivalent_for_type_select"),
+        "type-select must use leftover ThingTemplate::isEquivalentTo"
+    );
+    assert!(
+        !src.contains("type_select_template_stem")
+            && !src.contains("TYPE_SELECT_GENERAL_PREFIXES"),
+        "type-select must not use a general-prefix stem compare"
+    );
+}
+
 
 #[test]
 fn similar_unit_ids_skip_off_map() {

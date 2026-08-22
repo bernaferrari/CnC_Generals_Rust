@@ -398,15 +398,17 @@ pub struct HostScriptForceSelectRequest {
 }
 
 /// Live host drain: PLAYER_SELL_EVERYTHING / REPAIR_NAMED_STRUCTURE /
-/// EXCLUDE_FROM_SCORE_SCREEN / SELECT_SKILLSET.
+/// EXCLUDE_FROM_SCORE_SCREEN / SELECT_SKILLSET / PLAYER_KILL.
 /// C++ `sellEverythingUnderTheSun` / `repairStructure` /
-/// `setListInScoreScreen(false)` / `friend_setSkillset`.
+/// `setListInScoreScreen(false)` / `friend_setSkillset` / `doPlayerKill`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostScriptPlayerMiscRequest {
     SellEverything { player: String },
     RepairNamed { player: String, structure: String },
     ExcludeFromScore { player: String },
     SelectSkillset { player: String, skillset: i32 },
+    /// C++ `ScriptActions::doPlayerKill` → `Player::killPlayer`.
+    Kill { player: String },
 }
 
 /// Live host drain: NAMED/TEAM USE_COMMANDBUTTON_ABILITY.
@@ -1064,7 +1066,7 @@ pub fn take_host_script_force_select_requests() -> Vec<HostScriptForceSelectRequ
     HOST_SCRIPT_FORCE_SELECT_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
 
-/// Live host drain: PLAYER_SELL_EVERYTHING / REPAIR_NAMED / SCORE / SKILLSET.
+/// Live host drain: PLAYER_SELL_EVERYTHING / REPAIR_NAMED / SCORE / SKILLSET / KILL.
 pub fn request_host_script_player_misc(req: HostScriptPlayerMiscRequest) {
     HOST_SCRIPT_PLAYER_MISC_REQUESTS.with(|q| q.borrow_mut().push(req));
 }

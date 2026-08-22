@@ -717,6 +717,10 @@ fn blob_disc_ground_y(
 pub fn collect_blob_shadows_from_presentation(
     frame: &crate::presentation_frame::PresentationFrame,
 ) -> Vec<SelectedUnit> {
+    // C++ addShadow NULL + renderShadows skip when !m_useShadowDecals.
+    if !game_engine::common::game_lod::use_shadow_decals() {
+        return Vec::new();
+    }
     frame
         .unit_render_inputs()
         .iter()
@@ -1198,7 +1202,58 @@ mod presentation_selection_tests {
             collect_blob_shadows_from_presentation(&snap).is_empty(),
             "FOW-alpha fog without direct shroud facts must still hide the disc"
         );
+    }
 
+    #[test]
+    fn blob_discs_hidden_when_use_shadow_decals_off() {
+        let src = include_str!("selection_renderer.rs");
+        let start = src
+            .find("pub fn collect_blob_shadows_from_presentation")
+            .expect("blob collect");
+        let body = &src[start..start + 400];
+        assert!(
+            body.contains("game_lod::use_shadow_decals()"),
+            "live blob collect must honor TheGlobalData->m_useShadowDecals"
+        );
+
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("DecalOffBlobMap");
+        apply_skirmish_config(&mut logic, &cfg).expect("config");
+        let mut t = ThingTemplate::new("DecalOffUnit");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Infantry);
+        t.shadow_type = crate::game_logic::host_enum_table_residual::SHADOW_DECAL;
+        logic.templates.insert("DecalOffUnit".into(), t);
+        let _id = logic
+            .create_object("DecalOffUnit", Team::USA, glam::Vec3::new(4.0, 0.0, 4.0))
+            .expect("unit");
+        let snap = PresentationFrame::build_from_logic(&logic, 0);
+
+        let prev = game_engine::common::global_data::read_safe()
+            .map(|g| g.writable.use_shadow_decals)
+            .unwrap_or(true);
+        let restore = || {
+            if let Ok(mut runtime) = game_engine::common::global_data::write_safe() {
+                runtime.writable.use_shadow_decals = prev;
+            }
+        };
+
+        if let Ok(mut runtime) = game_engine::common::global_data::write_safe() {
+            runtime.writable.use_shadow_decals = true;
+        }
+        assert!(
+            !collect_blob_shadows_from_presentation(&snap).is_empty(),
+            "2D Shadows on still casts a blob"
+        );
+
+        if let Ok(mut runtime) = game_engine::common::global_data::write_safe() {
+            runtime.writable.use_shadow_decals = false;
+        }
+        assert!(
+            collect_blob_shadows_from_presentation(&snap).is_empty(),
+            "C++ addShadow/renderShadows skip unit blobs when !UseShadowDecals"
+        );
+        restore();
     }
 
 

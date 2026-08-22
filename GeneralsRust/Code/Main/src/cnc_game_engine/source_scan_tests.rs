@@ -125,8 +125,8 @@ fn beacon_and_control_bar_hotkeys_residual() {
     );
     assert!(
         src.contains("PendingMapCommand::PlaceBeacon")
-            && src.contains("Place beacon: click location"),
-        "PlaceBeacon must arm pending map click"
+            && src.contains("arm_radius_cursor_for_pending(\"RADAR\")"),
+        "PlaceBeacon must arm pending map click",
     );
     assert!(
         src.contains("NamedKey::F9")
@@ -480,6 +480,15 @@ fn pending_map_radius_cursor_residual() {
     assert!(
         src.contains("PARTICLECANNON") || src.contains("OFFENSIVE_SPECIALPOWER"),
         "special power must map to radius cursor type"
+    );
+    assert!(
+        src.contains("leftover_resolve_radius_cursor_radius")
+            && src.contains("PendingMapCommand::Weapon(_) => \"ATTACK_DAMAGE_AREA\""),
+        "attack-ground must use leftover damage radius, not OFFENSIVE_SPECIALPOWER table 0"
+    );
+    assert!(
+        !src.contains("o.weapon_range") && !src.contains("o.vision_range"),
+        "radius cursor must not substitute presentation weapon/vision proxies"
     );
 }
 
@@ -1175,7 +1184,7 @@ fn delete_cancel_production_and_combat_drop_residual() {
     assert!(
         src.contains("PendingMapCommand::CombatDrop")
             && src.contains("Command_CombatDrop")
-            && src.contains("Combat drop: click landing zone"),
+            && src.contains("arm_radius_cursor_for_pending(\"COMBATDROP\")"),
         "Alt+C / CombatDrop must arm map click residual"
     );
 }

@@ -488,6 +488,15 @@ mod tests {
         let regs = include_str!("world_combat/registries.rs");
         assert!(regs.contains("leftover_combat_drop_kill_fx_name"));
         assert!(regs.contains("dispatch_fx_list_at_host_object(&fx, bldg_id, None)"));
+        let gps = include_str!("world_combat/gps_and_fields.rs");
+        let pulse = gps
+            .find("if do_fx {")
+            .expect("propaganda pulse");
+        let pulse_body = &gps[pulse..pulse + 450];
+        assert!(
+            pulse_body.contains("dispatch_fx_list_at_host_object(fx, tower.id, None)"),
+            "Propaganda PulseFX must doFXObj the tower object"
+        );
     }
 
 }

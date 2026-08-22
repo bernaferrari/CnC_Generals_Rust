@@ -210,8 +210,14 @@ impl InGameUI {
         best.map(|(id, _)| id)
     }
 
-    pub fn resolve_radius_cursor_radius(&self, cursor_type: RadiusCursorType, requested: f32) -> f32 {
-        if let Some(obj_id) = self.first_selected_object_for_radius_cursor() {
+    /// C++ `InGameUI::setRadiusCursor` radius (InGameUI.cpp:1210-1258).
+    /// Live host calls this so attack-ground / scatter / guard rings match leftover.
+    pub fn leftover_resolve_radius_cursor_radius(
+        cursor_type: RadiusCursorType,
+        obj_id: Option<u32>,
+        requested: f32,
+    ) -> f32 {
+        if let Some(obj_id) = obj_id {
             if let Some(obj) = OBJECT_REGISTRY.get_object(obj_id) {
                 if let Ok(guard) = obj.read() {
                     let slot = WeaponSlotType::Primary;
@@ -265,6 +271,14 @@ impl InGameUI {
         }
 
         requested
+    }
+
+    pub fn resolve_radius_cursor_radius(&self, cursor_type: RadiusCursorType, requested: f32) -> f32 {
+        Self::leftover_resolve_radius_cursor_radius(
+            cursor_type,
+            self.first_selected_object_for_radius_cursor(),
+            requested,
+        )
     }
 
     fn radius_decal_pos(pos: Coord3D) -> game_engine::common::system::Coord3D {

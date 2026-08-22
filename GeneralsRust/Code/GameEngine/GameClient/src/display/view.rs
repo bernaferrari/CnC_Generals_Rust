@@ -1846,6 +1846,24 @@ impl View {
         self.fade_direction = direction;
     }
 
+    /// Advance BW / motion-blur / crossfade fade frames.
+    ///
+    /// Live `render_pipeline` calls this because leftover `Display::draw` /
+    /// `update_view` is not the present path.
+    pub fn tick_filter_fade(&mut self) {
+        if self.fade_total_frames > 0 {
+            self.fade_progress_frames += 1;
+            if self.fade_progress_frames >= self.fade_total_frames {
+                if self.fade_direction < 0 && self.view_filter_type == FilterType::BlackAndWhite {
+                    self.view_filter_mode = FilterMode::Null;
+                    self.view_filter_type = FilterType::Null;
+                }
+                self.fade_total_frames = 0;
+                self.fade_progress_frames = 0;
+            }
+        }
+    }
+
     /// Mirrors `W3DView::set3DWireFrameMode`.
     pub fn set_3d_wireframe_mode(&mut self, enable: bool) {
         self.wireframe_next_enabled = enable;
@@ -2007,17 +2025,8 @@ impl View {
         // Process camera shake (position offsets)
         self.tick_impulse_shake();
 
-        if self.fade_total_frames > 0 {
-            self.fade_progress_frames += 1;
-            if self.fade_progress_frames >= self.fade_total_frames {
-                if self.fade_direction < 0 && self.view_filter_type == FilterType::BlackAndWhite {
-                    self.view_filter_mode = FilterMode::Null;
-                    self.view_filter_type = FilterType::Null;
-                }
-                self.fade_total_frames = 0;
-                self.fade_progress_frames = 0;
-            }
-        }
+        self.tick_filter_fade();
+
 
         if self.wireframe_pending_frames > 0 {
             self.wireframe_pending_frames -= 1;

@@ -613,9 +613,8 @@ pub struct ProductionExitMetadata {
     /// C++ Queue `m_exitDelayData`, parsed to 30 Hz logic frames.  Default
     /// exit modules have no delay data and retain zero here.
     pub exit_delay_frames: u32,
-    /// C++ Queue `m_allowAirborneCreationData`.  It is retained for snapshot
-    /// parity; the bounded ground producer path does not invent airborne
-    /// velocity/layer physics from this bit.
+    /// C++ Queue `m_allowAirborneCreationData`.  Keeps transformed spawn Y;
+    /// the airborne motive/pitch kick is gated on pre-snap Y != ground, not this bit.
     pub allow_airborne_creation: bool,
     /// C++ Queue `m_initialBurst`.  The runtime counter is initialized once
     /// per producer Object from this template value.

@@ -1056,6 +1056,10 @@ impl GameLogic {
         if has_kind("inert") {
             template.add_kind_of(KindOf::Inert);
         }
+        // C++ KINDOF_BLAST_CRATER — permanent pathfind crater footprints.
+        if has_kind("blast_crater") {
+            template.add_kind_of(KindOf::BlastCrater);
+        }
     }
 
 

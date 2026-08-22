@@ -522,7 +522,7 @@ impl VictoryConditions {
             (true, true) => !state.has_any_objects,
             (true, false) => !state.has_units,
             (false, true) => !state.has_structures,
-            (false, false) => !state.has_any_objects,
+            (false, false) => false,
         }
     }
 
@@ -1029,6 +1029,27 @@ mod tests {
                 "FactionCivilian template identity is excluded, got {outcome:?}"
             );
         }
+        vc.reset();
+    }
+
+    #[test]
+    fn empty_victory_flags_never_auto_defeat() {
+        let mut vc = VictoryConditions::new();
+        vc.set_victory_conditions(VictoryType::empty());
+        let mut players = HashMap::new();
+        players.insert(0, player(0, Team::USA, 1));
+        players.insert(1, player(1, Team::GLA, 2));
+        let mut objects = HashMap::new();
+        let (a, oa) = obj(1, 0, Team::USA, &[KindOf::Infantry]);
+        objects.insert(a, oa);
+        // GLA has no army; empty flags must leave victory to scripts.
+        let outcome = vc.evaluate(&players, &objects, 20, GameMode::Skirmish);
+        assert!(
+            outcome.is_none(),
+            "C++ hasSinglePlayerBeenDefeated is false with no flags, got {outcome:?}"
+        );
+        assert!(vc.peek_defeat_events().is_empty());
+        assert!(vc.take_pending_kills().is_empty());
         vc.reset();
     }
 

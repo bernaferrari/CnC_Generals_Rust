@@ -340,18 +340,12 @@ impl GameLogic {
                 if has_move_goal && !skip_loco_move {
                     obj.apply_motive_force(glam::Vec3::ZERO);
                 }
-                // C++ Locomotor.cpp:1005-1056 treatAsAirborne unless
-                // AllowAirborneMotiveForce. Still apply handleBehaviorZ.
-                {
-                    let height_above = obj.get_position().y - ground_y;
-                    if Object::height_treats_as_airborne(height_above)
-                        && !obj.allow_motive_force_while_airborne
-                    {
-                        Self::apply_live_handle_behavior_z(obj, surface_y, None);
-                        Self::stamp_object_airborne_target(obj, ground_y);
-                        break 'unit;
-                    }
-                }
+                // C++ Locomotor.cpp:1055 — treatAsAirborne skips appearance
+                // 2D motive only. handleBehaviorZ, IS_BRAKING, braking cheat,
+                // path advance, hover OVER_WATER, and arrival still run
+                // (hq-hq4t8).
+                let allow_2d_motive = obj.allow_motive_force_while_airborne
+                    || !Object::height_treats_as_airborne(obj.get_position().y - ground_y);
                 if obj.is_rappelling() {
                     // C++ AIRappelState owns Z; handleBehaviorZ must not snap to Y=0.
                     Self::stamp_object_airborne_target(obj, ground_y);
@@ -768,60 +762,65 @@ impl GameLogic {
                             }
                         }
                         // C++ Locomotor.cpp:2344-2361 ULTRA_ACCURATE slide-into-place.
-                        let slide_thresh = speed * obj.ultra_accurate_slide_factor;
-                        let sliding = obj.ultra_accurate
-                            && obj.ultra_accurate_slide_factor > 0.0
-                            && (flat_target.x - current_pos.x).abs() <= slide_thresh
-                            && (flat_target.z - current_pos.z).abs() <= slide_thresh;
-                        let new_angle = if sliding {
-                            current_angle
-                        } else {
-                            // C++ rotateTowardsPosition always calls
-                            // rotateObjAroundLocoPivot (Locomotor.cpp:901-907,
-                            // 2113-2187). TurnPivotOffset != 0 (combat bikes
-                            // seed -0.60) yaws around the rear axle so the
-                            // hull center translates. Aim at a far point on
-                            // the already-biased desired heading so wander /
-                            // climber reverse / nearby reverse survive.
-                            let rotate_goal = glam::Vec3::new(
-                                current_pos.x + desired_angle.cos() * 1000.0,
-                                current_pos.y,
-                                current_pos.z + (-desired_angle.sin()) * 1000.0,
-                            );
-                            let (_turning, _rel) =
-                                obj.rotate_towards_position(rotate_goal, dt);
-                            obj.get_orientation()
-                        };
-
-                        let heading = if sliding {
-                            glam::Vec3::new(direction.x, 0.0, direction.z)
-                        } else {
-                            glam::Vec3::new(new_angle.cos(), 0.0, -new_angle.sin())
-                        };
-                        let signed_speed = if move_backwards { -speed } else { speed };
-                        let target_velocity = heading * signed_speed;
-                        let velocity_diff = target_velocity - obj.movement.velocity;
-                        let accel = obj.effective_acceleration();
-                        let max_accel = if obj.is_braking {
-                            obj.braking_factor.max(1.0) * obj.braking.max(accel) * dt
-                        } else {
-                            accel * dt
-                        };
-
-                        let new_velocity = if velocity_diff.length() <= max_accel {
-                            target_velocity
-                        } else {
-                            obj.movement.velocity
-                                + velocity_diff.normalize_or_zero() * max_accel
-                        };
-
-                        obj.movement.velocity = new_velocity;
-                        obj.record_host_movement();
-
-                        // Pivot rotate already translated the hull; integrate
-                        // from that pose (C++ setTransformMatrix then physics).
+                        // Appearance 2D (rotate + motive Euler) is skipped when
+                        // treatAsAirborne && !AllowAirborneMotiveForce (hq-hq4t8).
                         let march_from = obj.get_position();
-                        let mut new_position = march_from + new_velocity * dt;
+                        let mut new_position = march_from;
+                        if allow_2d_motive {
+                            let slide_thresh = speed * obj.ultra_accurate_slide_factor;
+                            let sliding = obj.ultra_accurate
+                                && obj.ultra_accurate_slide_factor > 0.0
+                                && (flat_target.x - current_pos.x).abs() <= slide_thresh
+                                && (flat_target.z - current_pos.z).abs() <= slide_thresh;
+                            let new_angle = if sliding {
+                                current_angle
+                            } else {
+                                // C++ rotateTowardsPosition always calls
+                                // rotateObjAroundLocoPivot (Locomotor.cpp:901-907,
+                                // 2113-2187). TurnPivotOffset != 0 (combat bikes
+                                // seed -0.60) yaws around the rear axle so the
+                                // hull center translates. Aim at a far point on
+                                // the already-biased desired heading so wander /
+                                // climber reverse / nearby reverse survive.
+                                let rotate_goal = glam::Vec3::new(
+                                    current_pos.x + desired_angle.cos() * 1000.0,
+                                    current_pos.y,
+                                    current_pos.z + (-desired_angle.sin()) * 1000.0,
+                                );
+                                let (_turning, _rel) =
+                                    obj.rotate_towards_position(rotate_goal, dt);
+                                obj.get_orientation()
+                            };
+
+                            let heading = if sliding {
+                                glam::Vec3::new(direction.x, 0.0, direction.z)
+                            } else {
+                                glam::Vec3::new(new_angle.cos(), 0.0, -new_angle.sin())
+                            };
+                            let signed_speed = if move_backwards { -speed } else { speed };
+                            let target_velocity = heading * signed_speed;
+                            let velocity_diff = target_velocity - obj.movement.velocity;
+                            let accel = obj.effective_acceleration();
+                            let max_accel = if obj.is_braking {
+                                obj.braking_factor.max(1.0) * obj.braking.max(accel) * dt
+                            } else {
+                                accel * dt
+                            };
+
+                            let new_velocity = if velocity_diff.length() <= max_accel {
+                                target_velocity
+                            } else {
+                                obj.movement.velocity
+                                    + velocity_diff.normalize_or_zero() * max_accel
+                            };
+
+                            obj.movement.velocity = new_velocity;
+                            obj.record_host_movement();
+
+                            // Pivot rotate already translated the hull; integrate
+                            // from that pose (C++ setTransformMatrix then physics).
+                            new_position = march_from + new_velocity * dt;
+                        }
                         if obj.is_braking {
                             // C++ OBJECT_STATUS_BRAKING pose cheat (Locomotor.cpp:1092-1138).
                             new_position = obj.braking_cheat_step(march_from, flat_target, dt);
@@ -1553,8 +1552,8 @@ mod tests {
     }
 
     /// C++ `Locomotor::handleBehaviorZ` Z_SURFACE_RELATIVE_HEIGHT
-    /// (Locomotor.cpp:2288-2304): preferredHeight + surfaceHt. Live march
-    /// used to pin Y so helicopters clipped hills.
+    /// (Locomotor.cpp:2288-2316): lift force + Euler, never kinematic snap
+    /// to preferredHeight+surface (hq-ygdfb).
     #[test]
     fn hover_surface_relative_follows_preferred_height() {
         crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
@@ -1569,20 +1568,24 @@ mod tests {
         heli.loco_appearance = LocomotorAppearance::Hover;
         heli.loco_preferred_height = 10.0;
         heli.loco_preferred_height_damping = 1.0;
+        heli.max_lift = 5.0;
+        heli.physics_mass = 1.0;
         heli.movement.max_speed = 30.0;
         heli.movement.acceleration = 10_000.0;
         heli.movement.target_position = Some(Vec3::new(40.0, 0.0, 0.0));
         logic.objects.insert(id, heli);
         logic.update_movement_for_test(&[id], 1.0 / 30.0);
         let obj = logic.objects.get(&id).expect("heli");
+        let y = obj.get_position().y;
         assert!(
-            (obj.get_position().y - 30.0).abs() < 0.05,
-            "hover must sit at preferredHeight+surface (30), got {}",
-            obj.get_position().y
+            y > 0.5 && y < 15.0,
+            "hover must rise by lift (maxLift=5), not snap to 30; y={}",
+            y
         );
     }
 
-    /// Idle hover maintain still holds preferredHeight (Locomotor.cpp:2473).
+    /// Idle hover maintain still applies lift toward preferredHeight
+    /// (Locomotor.cpp:2473 / :2288-2316) — no kinematic snap (hq-ygdfb).
     #[test]
     fn idle_hover_maintain_holds_preferred_height() {
         crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
@@ -1597,13 +1600,16 @@ mod tests {
         heli.loco_appearance = LocomotorAppearance::Hover;
         heli.loco_preferred_height = 12.0;
         heli.loco_preferred_height_damping = 1.0;
+        heli.max_lift = 5.0;
+        heli.physics_mass = 1.0;
         logic.objects.insert(id, heli);
         logic.update_movement_for_test(&[id], 1.0 / 30.0);
         let obj = logic.objects.get(&id).expect("heli");
+        let y = obj.get_position().y;
         assert!(
-            (obj.get_position().y - 20.0).abs() < 0.05,
-            "idle hover maintain preferred+surface=20, got {}",
-            obj.get_position().y
+            y > 4.5 && y < 16.0,
+            "idle hover must rise by lift, not snap to 20; y={}",
+            y
         );
     }
 
@@ -2492,6 +2498,7 @@ mod tests {
     }
 
     /// hq-ryf26: lift uses goal Y only when PRECISE_Z_POS.
+    /// C++ calcLiftToUseAtPt only allows negative lift in ULTRA_ACCURATE.
     #[test]
     fn lift_ignores_goal_y_without_precise_z_pos() {
         let mut tmpl = ThingTemplate::new("ComancheHill");
@@ -2504,7 +2511,8 @@ mod tests {
         heli.loco_preferred_height = 10.0;
         heli.loco_preferred_height_damping = 1.0;
         heli.precise_z_pos = false;
-        heli.max_lift = 0.0;
+        heli.max_lift = 20.0;
+        heli.ultra_accurate = true;
         heli.physics_mass = 1.0;
         heli.physics_accel = Vec3::ZERO;
         let _ = heli.handle_behavior_z(40.0, Some(80.0));
@@ -2518,9 +2526,93 @@ mod tests {
         heli.precise_z_pos = true;
         let _ = heli.handle_behavior_z(40.0, Some(80.0));
         assert!(
-            heli.physics_accel.y.abs() < 1e-3,
+            heli.physics_accel.y > -1.0,
             "PRECISE_Z_POS may hold goal_y=80; accel.y={}",
             heli.physics_accel.y
+        );
+    }
+
+    /// hq-hq4t8: treatAsAirborne must not freeze path advance / arrival plant.
+    #[test]
+    fn treat_as_airborne_still_plants_near_goal() {
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let mut logic = GameLogic::new();
+        let id = ObjectId(9817);
+        let start = Vec3::new(0.0, 2.0, 0.0);
+        let last = Vec3::new(0.2, 2.0, 0.0);
+        let mut unit = ranger_at(9817, start);
+        unit.ground_height = 0.0;
+        unit.allow_motive_force_while_airborne = false;
+        unit.close_enough_dist = Some(1.0);
+        unit.movement.path = vec![start, last];
+        unit.movement.current_path_index = 1;
+        unit.movement.target_position = Some(last);
+        unit.movement.max_speed = 40.0;
+        unit.set_status_moving(true);
+        logic.objects.insert(id, unit);
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("unit");
+        assert!(
+            obj.movement.path.is_empty() || !obj.status.moving,
+            "airborne hop must still plant when inside CloseEnoughDist"
+        );
+        assert!(
+            obj.get_position().x.abs() < 6.0,
+            "plant must not apply 2D walk motive, x={}",
+            obj.get_position().x
+        );
+    }
+
+    /// hq-hq4t8: IS_BRAKING pose cheat still runs when treatAsAirborne.
+    #[test]
+    fn treat_as_airborne_still_applies_braking_cheat() {
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let mut logic = GameLogic::new();
+        let id = ObjectId(9818);
+        let mut unit = ranger_at(9818, Vec3::new(0.0, 2.0, 0.0));
+        unit.ground_height = 0.0;
+        unit.allow_motive_force_while_airborne = false;
+        unit.is_braking = true;
+        unit.braking = 10.0;
+        unit.movement.velocity = Vec3::new(30.0, 0.0, 0.0);
+        unit.movement.max_speed = 30.0;
+        unit.movement.acceleration = 10_000.0;
+        unit.movement.target_position = Some(Vec3::new(20.0, 2.0, 0.0));
+        logic.objects.insert(id, unit);
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("unit");
+        assert!(
+            obj.get_position().x > 0.2,
+            "airborne IS_BRAKING must still cheat toward dest, x={}",
+            obj.get_position().x
+        );
+    }
+
+    /// hq-ygdfb: SurfaceRelative Y is lift+Euler, not preferred+surface snap.
+    #[test]
+    fn surface_relative_is_lift_not_kinematic_snap() {
+        let mut tmpl = ThingTemplate::new("ComancheSnap");
+        tmpl.add_kind_of(KindOf::Aircraft);
+        let mut heli = Object::new(tmpl, ObjectId(9819), Team::USA);
+        heli.set_position(Vec3::new(0.0, 0.0, 0.0));
+        heli.loco_behavior_z = LocomotorBehaviorZ::SurfaceRelativeHeight;
+        heli.loco_appearance = LocomotorAppearance::Hover;
+        heli.loco_preferred_height = 10.0;
+        heli.loco_preferred_height_damping = 1.0;
+        heli.max_lift = 5.0;
+        heli.physics_mass = 1.0;
+        heli.physics_accel = Vec3::ZERO;
+        GameLogic::apply_live_handle_behavior_z_for_test(&mut heli, 20.0, None);
+        let y = heli.get_position().y;
+        assert!(
+            (y - 30.0).abs() > 1.0,
+            "must not teleport to preferred+surface=30; y={}",
+            y
+        );
+        assert!(
+            y > 0.5 && y <= 5.5,
+            "one Euler step is lift-limited (maxLift=5), y={}",
+            y
         );
     }
 

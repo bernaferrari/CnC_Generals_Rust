@@ -1162,10 +1162,8 @@ impl GameLogic {
                 } else {
                     PROPAGANDA_PULSE_FX
                 };
-                let _ = crate::game_logic::dispatch_fx_list_at_pos(
-                    fx,
-                    glam::Vec3::new(tower.x, 0.0, tower.z),
-                );
+                // C++ PropagandaTowerBehavior.cpp:450-456 doFXObj(pulse, us).
+                let _ = self.dispatch_fx_list_at_host_object(fx, tower.id, None);
             }
         }
 
@@ -1884,6 +1882,24 @@ mod tests {
     }
 
 
+
+    /// C++ PropagandaTowerBehavior.cpp:450-456 doFXObj on the tower object.
+    #[test]
+    fn propaganda_pulse_fx_dispatches_at_host_object() {
+        let src = include_str!("gps_and_fields.rs");
+        let start = src
+            .find("if do_fx {")
+            .expect("pulse do_fx");
+        let body = &src[start..start + 450];
+        assert!(
+            body.contains("dispatch_fx_list_at_host_object(fx, tower.id, None)"),
+            "PulseFX must use doFXObj on the tower, not doFXPos at sea level"
+        );
+        assert!(
+            !body.contains("dispatch_fx_list_at_pos"),
+            "PulseFX must not sit at (x, 0, z): {body}"
+        );
+    }
     /// C++ PropagandaTowerBehavior.cpp:275 getControllingPlayer()->hasUpgradeComplete.
     /// Same-faction teammate upgrade must not key SUBLIMINAL for another owner.
     #[test]

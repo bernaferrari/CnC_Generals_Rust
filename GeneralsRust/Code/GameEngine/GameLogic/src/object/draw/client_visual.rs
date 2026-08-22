@@ -23,6 +23,8 @@ pub struct TerrainDecalDesc {
     pub hidden: bool,
     pub shrouded: bool,
     pub shadow_enabled: bool,
+    /// C++ `allocateShadows` / `addShadow` blob, not `setTerrainDecal` addDecal.
+    pub is_unit_blob: bool,
 }
 
 /// GameClient implementation of projected terrain decals.

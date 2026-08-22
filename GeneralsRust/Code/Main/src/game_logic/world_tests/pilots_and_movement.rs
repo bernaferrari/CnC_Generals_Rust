@@ -3693,6 +3693,210 @@ fn leftover_burton_flips_180_after_unpack() {
     );
 }
 
+/// C++ `isWithinStartAbilityRange` + ApproachRequiresLOS for Burton/TNT plant.
+#[test]
+fn plant_start_range_requires_approach_los() {
+    let mut blocked = GameLogic::new();
+    ensure_test_structure_template(&mut blocked);
+    ensure_test_player_for_team(&mut blocked, Team::USA);
+    ensure_test_player_for_team(&mut blocked, Team::GLA);
+    install_test_mid_ridge(&mut blocked);
+    let mut burton = ThingTemplate::new("AmericaInfantryColonelBurton");
+    burton
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    blocked
+        .templates
+        .insert("AmericaInfantryColonelBurton".into(), burton);
+    let burton_id = blocked
+        .create_object(
+            "AmericaInfantryColonelBurton",
+            Team::USA,
+            Vec3::new(-80.0, 0.0, 0.0),
+        )
+        .expect("burton");
+    let target_id = blocked
+        .create_object("TestBuilding", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
+        .expect("bldg");
+    if let Some(unit) = blocked.host_object_mut(burton_id) {
+        unit.set_selection_radius(80.0);
+        unit.target = Some(target_id);
+        unit.set_ai_state(AIState::SpecialAbility);
+    }
+    if let Some(target) = blocked.host_object_mut(target_id) {
+        target.set_selection_radius(80.0);
+    }
+    blocked.queue_pending_special_ability(
+        burton_id,
+        crate::game_logic::PendingSpecialAbility::PlantTimedDemoCharge { target_id },
+    );
+    blocked.update_ai(&[burton_id, target_id], 1.0 / 30.0);
+    assert!(
+        blocked.hero_abilities().leftover_channel(burton_id).is_none(),
+        "blocked terrain LOS must not start Burton plant unpack"
+    );
+
+    let mut clear = GameLogic::new();
+    ensure_test_structure_template(&mut clear);
+    ensure_test_player_for_team(&mut clear, Team::USA);
+    ensure_test_player_for_team(&mut clear, Team::GLA);
+    let mut burton = ThingTemplate::new("AmericaInfantryColonelBurton");
+    burton
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    clear
+        .templates
+        .insert("AmericaInfantryColonelBurton".into(), burton);
+    let burton_id = clear
+        .create_object(
+            "AmericaInfantryColonelBurton",
+            Team::USA,
+            Vec3::new(-80.0, 0.0, 0.0),
+        )
+        .expect("burton");
+    let target_id = clear
+        .create_object("TestBuilding", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
+        .expect("bldg");
+    if let Some(unit) = clear.host_object_mut(burton_id) {
+        unit.set_selection_radius(80.0);
+        unit.target = Some(target_id);
+        unit.set_ai_state(AIState::SpecialAbility);
+    }
+    if let Some(target) = clear.host_object_mut(target_id) {
+        target.set_selection_radius(80.0);
+    }
+    clear.queue_pending_special_ability(
+        burton_id,
+        crate::game_logic::PendingSpecialAbility::PlantTimedDemoCharge { target_id },
+    );
+    clear.update_ai(&[burton_id, target_id], 1.0 / 30.0);
+    assert!(
+        clear.hero_abilities().leftover_channel(burton_id).is_some(),
+        "clear LOS in start range must begin Burton plant leftover channel"
+    );
+}
+
+/// C++ ActionManager charge cases reject KINDOF_BRIDGE / BRIDGE_TOWER.
+#[test]
+fn burton_and_tnt_plant_reject_bridges() {
+    use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+    use crate::game_logic::{SpecialPowerModuleKind, SpecialPowerModuleMetadata};
+
+    let mut game_logic = GameLogic::new();
+    ensure_test_player_for_team(&mut game_logic, Team::USA);
+    ensure_test_player_for_team(&mut game_logic, Team::China);
+    ensure_test_player_for_team(&mut game_logic, Team::GLA);
+    let mut bridge = ThingTemplate::new("TestBridge");
+    bridge
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Bridge)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(2000.0);
+    game_logic.templates.insert("TestBridge".into(), bridge);
+    let mut burton = ThingTemplate::new("AmericaInfantryColonelBurton");
+    burton
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    game_logic
+        .templates
+        .insert("AmericaInfantryColonelBurton".into(), burton);
+    let mut hunter = ThingTemplate::new("ChinaInfantryTankHunter");
+    hunter
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    hunter.special_power_modules.push(SpecialPowerModuleMetadata {
+        source_index: 0,
+        module_tag: None,
+        module_kind: SpecialPowerModuleKind::SpecialAbility,
+        special_power_template: "SpecialAbilityTankHunterTNTAttack".into(),
+        special_power_template_id: 1,
+        command_power: Some(SpecialPowerType::TankHunterTnt),
+        reload_time_frames: 225,
+        required_science: None,
+        public_timer: false,
+        shared_n_sync: false,
+        shortcut_power: false,
+        update_module_starts_attack: true,
+        starts_paused: false,
+        scripted_special_power_only: false,
+    });
+    game_logic
+        .templates
+        .insert("ChinaInfantryTankHunter".into(), hunter);
+
+    let burton_id = game_logic
+        .create_object(
+            "AmericaInfantryColonelBurton",
+            Team::USA,
+            Vec3::new(2.0, 0.0, 0.0),
+        )
+        .expect("burton");
+    let hunter_id = game_logic
+        .create_object(
+            "ChinaInfantryTankHunter",
+            Team::China,
+            Vec3::new(4.0, 0.0, 0.0),
+        )
+        .expect("hunter");
+    let bridge_id = game_logic
+        .create_object("TestBridge", Team::GLA, Vec3::ZERO)
+        .expect("bridge");
+
+    game_logic.queue_command(GameCommand {
+        command_type: CommandType::PlantTimedDemoCharge {
+            target_id: bridge_id,
+        },
+        player_id: 0,
+        command_id: 1,
+        timestamp: std::time::SystemTime::now(),
+        selected_units: vec![burton_id],
+        modifier_keys: crate::command_system::ModifierKeys::default(),
+    });
+    game_logic.process_commands();
+    assert!(
+        game_logic.pending_special_ability(burton_id).is_none(),
+        "Burton command must not queue a plant on a bridge"
+    );
+
+    game_logic.queue_command(GameCommand {
+        command_type: CommandType::DoSpecialPower {
+            power_type: SpecialPowerType::TankHunterTnt,
+            target: PowerTarget::Object(bridge_id),
+        },
+        player_id: 1,
+        command_id: 2,
+        timestamp: std::time::SystemTime::now(),
+        selected_units: vec![hunter_id],
+        modifier_keys: crate::command_system::ModifierKeys::default(),
+    });
+    game_logic.process_commands();
+    assert!(
+        game_logic.pending_special_ability(hunter_id).is_none(),
+        "Tank Hunter TNT must not queue a plant on a bridge"
+    );
+
+    game_logic.queue_pending_special_ability(
+        burton_id,
+        crate::game_logic::PendingSpecialAbility::PlantTimedDemoCharge {
+            target_id: bridge_id,
+        },
+    );
+    if let Some(burton) = game_logic.host_object_mut(burton_id) {
+        burton.set_ai_state(AIState::SpecialAbility);
+        burton.target = Some(bridge_id);
+    }
+    game_logic.update_ai(&[burton_id, bridge_id], 1.0 / 30.0);
+    assert!(
+        game_logic.pending_special_ability(burton_id).is_none(),
+        "plant tick must abort a charge already queued on a bridge"
+    );
+}
+
+
 /// C++ markSpecialPowerTriggered is startPreparation, not click.
 #[test]
 fn tank_hunter_tnt_does_not_consume_cooldown_at_click() {

@@ -985,7 +985,13 @@ impl<'a> CommandExecutor<'a> {
         let Some(target) = self.game_logic.host_object(target_id) else {
             return false;
         };
-        if !target.is_alive() {
+        if !crate::game_logic::host_hero_abilities::leftover_charge_plant_target_ok(
+            target.is_alive(),
+            target.is_kind_of(KindOf::Bridge),
+            target.is_kind_of(KindOf::BridgeTower),
+            target.is_kind_of(KindOf::Structure),
+            target.is_kind_of(KindOf::Vehicle),
+        ) {
             return false;
         }
         let target_team = target.team;
@@ -1025,7 +1031,13 @@ impl<'a> CommandExecutor<'a> {
         let Some(target) = self.game_logic.host_object(target_id) else {
             return false;
         };
-        if !target.is_alive() {
+        if !crate::game_logic::host_hero_abilities::leftover_charge_plant_target_ok(
+            target.is_alive(),
+            target.is_kind_of(KindOf::Bridge),
+            target.is_kind_of(KindOf::BridgeTower),
+            target.is_kind_of(KindOf::Structure),
+            target.is_kind_of(KindOf::Vehicle),
+        ) {
             return false;
         }
         let target_pos = target.get_position();
@@ -1063,7 +1075,15 @@ impl<'a> CommandExecutor<'a> {
         let Some(target) = self.game_logic.host_object(target_id) else {
             return false;
         };
-        if !target.is_alive() {
+        if !crate::game_logic::host_hero_abilities::leftover_charge_plant_target_ok(
+            target.is_alive(),
+            target.is_kind_of(KindOf::Bridge),
+            target.is_kind_of(KindOf::BridgeTower),
+            target.is_kind_of(KindOf::Structure),
+            target.is_kind_of(KindOf::Vehicle),
+        ) || target.is_kind_of(KindOf::Aircraft)
+            || target.status.airborne_target
+        {
             return false;
         }
         let target_pos = target.get_position();

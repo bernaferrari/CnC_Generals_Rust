@@ -95,6 +95,11 @@ impl SnapshotBuilder {
                 super::jet_ai_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
                 super::chinook_ai_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
                 super::hacker_income_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::warehouse_crippling_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::helix_napalm_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::money_crate_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::gps_scrambler_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::dynamic_shroud_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
 
 
 
@@ -322,6 +327,26 @@ impl SnapshotBuilder {
             game_logic,
         )?;
         super::hacker_income_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::warehouse_crippling_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::helix_napalm_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::money_crate_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::gps_scrambler_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::dynamic_shroud_persist::apply_from_lifecycle_tail(
             &snapshot.lifecycle_tail,
             game_logic,
         )?;

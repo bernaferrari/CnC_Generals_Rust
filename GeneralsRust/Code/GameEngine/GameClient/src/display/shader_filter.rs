@@ -497,3 +497,45 @@ pub fn end_render_to_texture() -> Option<wgpu::TextureView> {
         .ok()
         .and_then(|g| g.as_ref().map(|gpu| gpu.scene_view.clone()))
 }
+
+/// Live `render_pipeline` hook: the 3D scene already sits on `dest_texture`.
+/// Copy it into the leftover RTT, then `filterPostRender` onto `dest_view`.
+pub fn composite_live_view_filter(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    encoder: &mut wgpu::CommandEncoder,
+    dest_view: &wgpu::TextureView,
+    dest_texture: &wgpu::Texture,
+    format: wgpu::TextureFormat,
+    width: u32,
+    height: u32,
+    composite: &ViewFilterComposite,
+) {
+    if !needs_rtt(composite) {
+        return;
+    }
+    let _ = start_render_to_texture(device, queue, format, width, height, composite);
+    {
+        let Ok(slot) = FILTER_GPU.lock() else {
+            return;
+        };
+        let Some(gpu) = slot.as_ref() else {
+            return;
+        };
+        let width = width.max(1);
+        let height = height.max(1);
+        if gpu.width != width || gpu.height != height {
+            return;
+        }
+        encoder.copy_texture_to_texture(
+            dest_texture.as_image_copy(),
+            gpu.scene_tex.as_image_copy(),
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+    filter_post_render(device, queue, encoder, dest_view, composite);
+}

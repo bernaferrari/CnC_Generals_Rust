@@ -841,11 +841,41 @@ pub fn reset_live_warehouse_host_state() {
     reset_live_dock_queues();
 }
 
-#[derive(Debug, Clone)]
-struct WarehouseCripplingState {
-    last_health: f32,
-    healing_suppressed_until_frame: u32,
-    next_healing_frame: u32,
+/// Live `WAREHOUSE_CRIPPLING_STATES` entry.
+///
+/// C++ `SupplyWarehouseCripplingBehavior::xfer` writes
+/// `m_healingSupressedUntilFrame` + `m_nextHealingFrame`. `last_health` is the
+/// live `onDamage` stand-in: first observation below max re-arms suppression.
+/// Persist it so a mid-suppression load does not treat remaining damage as a
+/// fresh hit and restart the full SelfHealSupression window.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WarehouseCripplingState {
+    pub last_health: f32,
+    pub healing_suppressed_until_frame: u32,
+    pub next_healing_frame: u32,
+}
+
+/// C++ `SupplyWarehouseCripplingBehavior::xfer` heal clocks for snapshot persist.
+pub fn snapshot_live_warehouse_crippling_states() -> Vec<(ObjectId, WarehouseCripplingState)> {
+    let Ok(map) = WAREHOUSE_CRIPPLING_STATES.lock() else {
+        return Vec::new();
+    };
+    let mut entries: Vec<(ObjectId, WarehouseCripplingState)> =
+        map.iter().map(|(id, state)| (*id, *state)).collect();
+    entries.sort_by_key(|(id, _)| id.0);
+    entries
+}
+
+/// Replace process-global heal clocks so a load cannot leak the previous session.
+pub fn restore_live_warehouse_crippling_states(
+    entries: Vec<(ObjectId, WarehouseCripplingState)>,
+) {
+    if let Ok(mut map) = WAREHOUSE_CRIPPLING_STATES.lock() {
+        map.clear();
+        for (id, state) in entries {
+            map.insert(id, state);
+        }
+    }
 }
 
 /// C++ `SupplyWarehouseCripplingBehavior::update` pulse after suppression.
@@ -1219,6 +1249,57 @@ mod tests {
         assert_eq!(next, 115);
         let full = warehouse_crippling_heal_amount(200, 1000.0, 1000.0, 1000.0, &mut suppressed, &mut next);
         assert_eq!(full, 0.0);
+    }
+
+    #[test]
+    fn warehouse_crippling_snapshot_keeps_mid_suppression_cadence() {
+        reset_live_warehouse_host_state();
+        let id = ObjectId(7);
+        restore_live_warehouse_crippling_states(vec![(
+            id,
+            WarehouseCripplingState {
+                last_health: 200.0,
+                healing_suppressed_until_frame: 100,
+                next_healing_frame: 100,
+            },
+        )]);
+        let snap = snapshot_live_warehouse_crippling_states();
+        restore_live_warehouse_crippling_states(vec![(
+            ObjectId(99),
+            WarehouseCripplingState {
+                last_health: 1.0,
+                healing_suppressed_until_frame: 1,
+                next_healing_frame: 1,
+            },
+        )]);
+        restore_live_warehouse_crippling_states(snap);
+        let states = snapshot_live_warehouse_crippling_states();
+        assert_eq!(states.len(), 1);
+        assert_eq!(states[0].0, id);
+        let mut state = states[0].1;
+        let mid = warehouse_crippling_heal_amount(
+            50,
+            200.0,
+            1000.0,
+            state.last_health,
+            &mut state.healing_suppressed_until_frame,
+            &mut state.next_healing_frame,
+        );
+        assert_eq!(mid, 0.0);
+        assert_eq!(
+            state.healing_suppressed_until_frame, 100,
+            "mid-suppression load must not restart SelfHealSupression"
+        );
+        let heal = warehouse_crippling_heal_amount(
+            100,
+            200.0,
+            1000.0,
+            state.last_health,
+            &mut state.healing_suppressed_until_frame,
+            &mut state.next_healing_frame,
+        );
+        assert!((heal - 5.0).abs() < 0.01);
+        reset_live_warehouse_host_state();
     }
 
     #[test]

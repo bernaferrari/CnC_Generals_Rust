@@ -2139,6 +2139,68 @@ fn infantry_capture_prep_stamps_raising_flag() {
     );
 }
 
+/// C++ `isWithinStartAbilityRange` + ApproachRequiresLOS: infantry capture
+/// must not start unpack when terrain LOS to the building is blocked.
+#[test]
+fn infantry_capture_start_range_requires_approach_los() {
+    use crate::game_logic::CaptureChannelPhase;
+    let mut blocked = GameLogic::new();
+    ensure_test_infantry_template(&mut blocked);
+    ensure_test_structure_template(&mut blocked);
+    install_test_mid_ridge(&mut blocked);
+    let captor_id = blocked
+        .create_object("TestInfantry", Team::USA, Vec3::new(-80.0, 0.0, 0.0))
+        .expect("captor");
+    let building_id = blocked
+        .create_object("TestBuilding", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
+        .expect("building");
+    if let Some(captor) = blocked.host_object_mut(captor_id) {
+        captor.set_selection_radius(80.0);
+        captor.target = Some(building_id);
+        captor.set_ai_state(AIState::Capturing);
+    }
+    if let Some(building) = blocked.host_object_mut(building_id) {
+        building.set_selection_radius(80.0);
+    }
+    blocked.update_ai(&[captor_id, building_id], 1.0 / 30.0);
+    assert_eq!(
+        blocked
+            .host_object(captor_id)
+            .and_then(|o| o.capture_channel)
+            .map(|c| c.phase),
+        None,
+        "blocked terrain LOS must not start infantry capture unpack"
+    );
+
+    let mut clear = GameLogic::new();
+    ensure_test_infantry_template(&mut clear);
+    ensure_test_structure_template(&mut clear);
+    let captor_id = clear
+        .create_object("TestInfantry", Team::USA, Vec3::new(-80.0, 0.0, 0.0))
+        .expect("captor");
+    let building_id = clear
+        .create_object("TestBuilding", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
+        .expect("building");
+    if let Some(captor) = clear.host_object_mut(captor_id) {
+        captor.set_selection_radius(80.0);
+        captor.target = Some(building_id);
+        captor.set_ai_state(AIState::Capturing);
+    }
+    if let Some(building) = clear.host_object_mut(building_id) {
+        building.set_selection_radius(80.0);
+    }
+    clear.update_ai(&[captor_id, building_id], 1.0 / 30.0);
+    assert_eq!(
+        clear
+            .host_object(captor_id)
+            .and_then(|o| o.capture_channel)
+            .map(|c| c.phase),
+        Some(CaptureChannelPhase::Unpacking),
+        "clear LOS in start range must begin infantry capture unpack"
+    );
+}
+
+
 #[test]
 fn lotus_capture_prep_stamps_firing_a() {
     use crate::game_logic::host_enum_table_residual::firing_a_model_bit;

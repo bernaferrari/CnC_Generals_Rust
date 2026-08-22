@@ -887,6 +887,26 @@ impl AudioManager {
         with_sound_playback_hook(|hook| hook.is_playing(audio_event)).unwrap_or(false)
     }
 
+    /// Live Drawable::update ambient restart: is this object-owned event still
+    /// in `active_audio_events`? `processPlayingList` volume-cull removes it.
+    pub fn is_named_event_playing_for_object(&self, object_id: u32, event_name: &str) -> bool {
+        if object_id == 0 || event_name.is_empty() {
+            return false;
+        }
+        self.active_audio_events.values().any(|event| {
+            event.get_event_name() == event_name && event.get_object_id() == object_id
+        })
+    }
+
+    /// Test hook: pretend Miles is still playing this object-owned event.
+    pub fn test_insert_active_named_event(&mut self, object_id: u32, event_name: &str) {
+        let mut event = AudioEventRts::with_event_name(event_name);
+        event.set_object_id(object_id);
+        event.set_playing_handle(1001);
+        self.active_audio_events.insert(1001, event);
+    }
+
+
     pub fn get_audio_length_ms(&self, event: &AudioEventRts) -> Real {
         // C++ parity: clone event, resolve concrete filenames, then sum attack/main/decay lengths.
         let mut tmp_event = event.clone();

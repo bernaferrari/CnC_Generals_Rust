@@ -35,6 +35,28 @@ pub fn register_adjust_client_lod(hook: fn(i32)) {
     let _ = ADJUST_CLIENT_LOD.set(hook);
 }
 
+/// C++ `TheGlobalData->m_useShadowDecals` (Options "2D Shadows").
+///
+/// Options writes `writable.use_shadow_decals`; LOD / GameData.ini write
+/// `GlobalData.use_shadow_decals`. Live addShadow / blob collect read this
+/// helper so both stores stay one C++ field.
+pub fn use_shadow_decals() -> bool {
+    if let Ok(runtime) = crate::common::global_data::read_safe() {
+        return runtime.writable.use_shadow_decals;
+    }
+    get_global_data()
+        .map(|global| global.read().use_shadow_decals)
+        .unwrap_or(true)
+}
+
+fn sync_writable_shadow_decals(use_volumes: bool, use_decals: bool) {
+    if let Ok(mut runtime) = crate::common::global_data::write_safe() {
+        runtime.writable.use_shadow_volumes = use_volumes;
+        runtime.writable.use_shadow_decals = use_decals;
+    }
+}
+
+
 
 const MINIMUM_MEMORY_BYTES: u64 = 256 * 1024 * 1024;
 const PROFILE_ERROR_LIMIT: f32 = 0.94;
@@ -286,6 +308,7 @@ fn apply_static_lod_level(level_name: &str) {
     let prev_shadow_volumes = global.use_shadow_volumes;
     let prev_shadow_decals = global.use_shadow_decals;
     let prev_soft_water = global.show_soft_water_edge;
+
     let prev_texture = global.texture_reduction_factor;
 
     global.max_particle_count = lod_info.max_particle_count;
@@ -308,6 +331,8 @@ fn apply_static_lod_level(level_name: &str) {
         global.shell_map_on = false;
     }
     drop(global);
+    sync_writable_shadow_decals(lod_info.use_shadow_volumes, lod_info.use_shadow_decals);
+
 
     // C++ GameLODManager::applyStaticLODLevel client/terrain side effects.
     if requested_texture_reduction != prev_texture {
@@ -716,6 +741,11 @@ pub fn load_game_lod_ini_presets_and_options() {
                 global.use_tree_sway = !global.use_draw_module_lod;
             }
         }
+        if let Some(global_data) = get_global_data() {
+            let global = global_data.read();
+            sync_writable_shadow_decals(global.use_shadow_volumes, global.use_shadow_decals);
+        }
+
     }
 
     if user_detail.eq_ignore_ascii_case("Unknown") {

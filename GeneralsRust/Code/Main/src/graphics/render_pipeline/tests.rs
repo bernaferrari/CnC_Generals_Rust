@@ -1359,3 +1359,20 @@ fn terrain_pass_clears_black_not_fog_color() {
         "terrain pass must use terrain_clear_color for the first LoadOp::Clear"
     );
 }
+
+#[test]
+fn execute_composites_leftover_view_filters_and_camera_fade() {
+    let src = crate::graphics::render_pipeline::RENDER_PIPELINE_SRC;
+    assert!(
+        src.contains("composite_live_view_filter"),
+        "live execute must composite leftover View filters"
+    );
+    assert!(
+        src.contains("tick_filter_fade"),
+        "live execute must advance leftover View filter fade frames"
+    );
+    assert!(
+        src.contains("record_camera_fade"),
+        "live execute must blit scripted CAMERA_FADE after the 3D scene"
+    );
+}

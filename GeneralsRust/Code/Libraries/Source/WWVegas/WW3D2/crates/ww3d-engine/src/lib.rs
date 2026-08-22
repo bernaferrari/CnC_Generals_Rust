@@ -646,6 +646,11 @@ impl RenderFrame {
         &mut self.encoder
     }
 
+    /// Disjoint borrow of the copy-src color target and the frame encoder.
+    pub fn color_texture_and_encoder(&mut self) -> (&wgpu::Texture, &mut wgpu::CommandEncoder) {
+        (&self.color_texture, &mut self.encoder)
+    }
+
     /// Fetch the render target view for this frame.
     pub fn color_view(&self) -> &wgpu::TextureView {
         self.color_view.as_ref()
@@ -674,6 +679,14 @@ impl RenderFrame {
     /// Provide read-only access to the queue.
     pub fn queue(&self) -> &wgpu::Queue {
         &self.queue
+    }
+
+    pub fn device_arc(&self) -> Arc<wgpu::Device> {
+        Arc::clone(&self.device)
+    }
+
+    pub fn queue_arc(&self) -> Arc<wgpu::Queue> {
+        Arc::clone(&self.queue)
     }
 
     /// Frame sequence number, matching the DX8 stats counter.

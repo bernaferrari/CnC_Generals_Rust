@@ -336,6 +336,10 @@ impl HostHelixNapalmRegistry {
         &self.active
     }
 
+    pub fn active_zones_mut(&mut self) -> &mut [HostHelixFirestormZone] {
+        &mut self.active
+    }
+
     pub fn alloc_id(&mut self) -> u32 {
         let id = self.next_id;
         self.next_id = self.next_id.saturating_add(1);

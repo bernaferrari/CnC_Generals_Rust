@@ -54,6 +54,79 @@ fn damage_percent_to_units_from_ini(obj: &Object) -> f32 {
     0.0
 }
 
+/// C++ TransportContain (and subclasses) override `killRidersWhoAreNotFreeToExit`.
+/// OpenContain / Garrison / Tunnel / Cave do not.
+fn transport_contain_kills_unfree_riders(obj: &Object) -> bool {
+    use crate::game_logic::ContainModuleKind;
+    matches!(
+        obj.thing.template.contain_module.kind,
+        ContainModuleKind::Transport | ContainModuleKind::RailedTransport
+    ) || obj.is_overlord_style_container()
+        || obj.is_helix_transport
+        || obj.is_battle_bus_transport
+        || obj.is_technical_transport
+        || obj.is_humvee_transport
+        || obj.is_troop_crawler_transport
+        || obj.is_combat_chinook_transport
+        || obj.is_listening_outpost_transport
+}
+
+/// C++ `Pathfinder::validMovementTerrain` at the hull (AIPathfind.cpp:4763-4783).
+fn valid_rider_movement_terrain(
+    grid: &crate::game_logic::PathfindingGrid,
+    surfaces: u32,
+    world_pos: glam::Vec3,
+) -> bool {
+    use crate::game_logic::locomotor_bootstrap::valid_locomotor_surfaces_for_cell_type;
+    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    let cell = grid.world_to_grid(world_pos);
+    if !grid.is_valid_pos(cell) {
+        return false;
+    }
+    let ty = grid.cell_type(cell);
+    if matches!(
+        ty,
+        PathfindCellType::Obstacle | PathfindCellType::Impassable
+    ) {
+        return true;
+    }
+    (surfaces & valid_locomotor_surfaces_for_cell_type(ty)) != 0
+}
+
+/// C++ `TransportContain::isSpecificRiderFreeToExit` (TransportContain.cpp:536-567).
+fn is_specific_rider_free_to_exit(
+    container: &Object,
+    rider: &Object,
+    grid: &crate::game_logic::PathfindingGrid,
+) -> bool {
+    if let Some(ai) = container.chinook_ai.as_ref() {
+        let can_rappel = crate::game_logic::host_combat_chinook::HostChinookAI::passenger_kind_can_rappel(
+            rider.is_kind_of(KindOf::Infantry),
+        );
+        if ai.ai_free_to_exit(can_rappel)
+            != crate::game_logic::host_combat_chinook::HostChinookFreeToExit::FreeToExit
+        {
+            return false;
+        }
+    }
+    let airborne = container.is_kind_of(KindOf::Aircraft)
+        || container.status.airborne_target
+        || (container.locomotor_surfaces & crate::game_logic::object::LOCO_SURFACE_AIR) != 0;
+    if airborne {
+        return true;
+    }
+    let surfaces = if rider.locomotor_surfaces != 0 {
+        rider.locomotor_surfaces
+    } else {
+        Object::default_locomotor_surfaces_for_template(&rider.thing.template)
+    };
+    if surfaces == 0 {
+        return false;
+    }
+    valid_rider_movement_terrain(grid, surfaces, container.get_position())
+}
+
+
 impl GameLogic {
     /// Wave 912: true when destroy queue or destroy-ready residual has work.
     #[inline]
@@ -183,8 +256,15 @@ impl GameLogic {
                 // C++ contain onRemoving when the occupant dies: leave the
                 // garrison list and free this unit's FIREPOINT/STATION slot.
                 if let Some(cid) = obj.contained_by {
+                    let is_garrison = self
+                        .objects
+                        .get(&cid)
+                        .is_some_and(|c| c.is_garrison_contain());
                     if let Some(container) = self.objects.get_mut(&cid) {
                         let _ = container.remove_occupant(event.id);
+                    }
+                    if is_garrison {
+                        self.recalc_garrison_apparent_controller(cid);
                     }
                 }
                 // C++ TunnelTracker::removeFromContain on occupant death.
@@ -413,7 +493,18 @@ impl GameLogic {
                         }
                     }
                 } else {
+                    // C++ OpenContain::onDie: processDamageToContained then
+                    // killRidersWhoAreNotFreeToExit then removeAllContained.
+                    let kill_unfree = transport_contain_kills_unfree_riders(&obj);
                     for (i, contained_id) in obj.contained_units().into_iter().enumerate() {
+                        let free_to_exit = !kill_unfree
+                            || self.objects.get(&contained_id).is_some_and(|unit| {
+                                is_specific_rider_free_to_exit(
+                                    &obj,
+                                    unit,
+                                    &self.pathfinding_system.grid,
+                                )
+                            });
                         if let Some(unit) = self.objects.get_mut(&contained_id) {
                             // C++ OpenContain::processDamageToContained:
                             // UNRESISTABLE, BURNED default, source = container,
@@ -450,6 +541,28 @@ impl GameLogic {
                                     self.mark_object_for_destruction(contained_id, event.killer);
                                     continue;
                                 }
+                            }
+
+                            if !free_to_exit {
+                                // C++ TransportContain::killRidersWhoAreNotFreeToExit
+                                // — default DestroyRidersWhoAreNotFreeToExit is false → kill().
+                                let _ = unit.take_damage_from_immediate(
+                                    crate::game_logic::host_partition_collision_physics_residual::PHYSICS_HUGE_DAMAGE_AMOUNT_RESIDUAL,
+                                    Some(event.id),
+                                );
+                                unit.status.destroyed = true;
+                                unit.set_contained_by(None);
+                                if let Some(player_id) =
+                                    self.tunnel_network.player_holding_unit(contained_id)
+                                {
+                                    let _ = self.tunnel_network.record_exit(
+                                        player_id,
+                                        contained_id,
+                                        event.id,
+                                    );
+                                }
+                                self.mark_object_for_destruction(contained_id, event.killer);
+                                continue;
                             }
 
                             let angle = (contained_id.0 as f32 + i as f32 * 1.11).sin().atan2(1.0)
@@ -730,18 +843,20 @@ impl GameLogic {
             let template_name = destroyed_object.template_name.clone();
             if let Some(player_id) = killer_owner_player_id {
                 let mut rank_skill = 0;
+                let self_kill = victim_owner_player_id == Some(player_id);
+                // C++ scoreTheKill: addObjectDestroyed only after ENEMIES and
+                // controller != victimController (Object.cpp:2915-2927).
+                let record_destroyed = !under_construction
+                    && score_counts
+                    && enemy_kill
+                    && !self_kill
+                    && (counts_destroyed_building || counts_destroyed_unit);
                 if let Some(player) = self.players.get_mut(&player_id) {
-                    if !under_construction {
+                    if record_destroyed {
                         if counts_destroyed_building {
                             player.record_structure_destroyed();
-                            if victim_owner_player_id == Some(player_id) {
-                                player.record_self_structure_destroyed();
-                            }
                         } else if counts_destroyed_unit {
                             player.record_unit_destroyed();
-                            if victim_owner_player_id == Some(player_id) {
-                                player.record_self_unit_destroyed();
-                            }
                         }
                     }
 
@@ -765,7 +880,7 @@ impl GameLogic {
                 if rank_skill != 0 {
                     let _ = self.add_player_skill_points(player_id, rank_skill);
                 }
-                if !under_construction && (counts_destroyed_building || counts_destroyed_unit) {
+                if record_destroyed {
                     if let Some(victim_id) = victim_owner_player_id {
                         gamelogic::player::notify_live_object_destroyed(
                             player_id,
@@ -776,42 +891,28 @@ impl GameLogic {
                     }
                 }
             }
-        }
-        if bounty_awarded > 0 {
-            self.cash_bounty.record_bounty_award(bounty_awarded);
-            if used_last_damage_source {
-                self.cash_bounty.record_last_damage_source_kill();
-            }
-            // C++ doBountyForKill floating text: yellow, killer pos + Z10.
-            self.cash_bounty.record_floating_text(
-                crate::game_logic::host_cash_bounty::HostCashBountyFloatingText::new(
-                    bounty_killer_id,
-                    victim_id,
-                    bounty_float_pos,
-                    bounty_awarded,
-                    self.frame,
-                ),
-            );
-        }
 
-        if let Some(player_id) = victim_owner_player_id {
-            if !under_construction {
-                let counts_lost_building =
-                    Self::live_score_counts_as_building_destroy(destroyed_object);
-                let counts_lost_unit = Self::live_score_counts_as_unit_destroy(destroyed_object);
-                if let Some(player) = self.players.get_mut(&player_id) {
-                    if counts_lost_building {
-                        player.record_structure_lost();
-                    } else if counts_lost_unit {
-                        player.record_unit_lost();
+            // C++ addObjectLost only runs inside scoreTheKill (a killer called it)
+            // after playable-side + IGNORED_IN_GUI. Killer-less sell/script destroy
+            // never touches the keeper.
+            if score_counts && !under_construction {
+                if let Some(player_id) = victim_owner_player_id {
+                    let counts_lost_building = counts_destroyed_building;
+                    let counts_lost_unit = counts_destroyed_unit;
+                    if let Some(player) = self.players.get_mut(&player_id) {
+                        if counts_lost_building {
+                            player.record_structure_lost();
+                        } else if counts_lost_unit {
+                            player.record_unit_lost();
+                        }
                     }
-                }
-                if counts_lost_building || counts_lost_unit {
-                    gamelogic::player::notify_live_object_lost(
-                        player_id,
-                        &destroyed_object.template_name,
-                        under_construction,
-                    );
+                    if counts_lost_building || counts_lost_unit {
+                        gamelogic::player::notify_live_object_lost(
+                            player_id,
+                            &destroyed_object.template_name,
+                            under_construction,
+                        );
+                    }
                 }
             }
         }
@@ -1262,6 +1363,155 @@ mod tests {
         assert_eq!(usa.statistics.money_earned, 96);
         assert_eq!(usa.resources.supplies, 1_096);
         assert_eq!(usa.calculate_score() as u32, 96);
+    }
+
+    fn setup_zero_damage_transport(
+        airborne: bool,
+        hull: glam::Vec3,
+    ) -> (GameLogic, ObjectId, ObjectId) {
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("TestAmphibTransport");
+        t.add_kind_of(KindOf::Vehicle).set_health(200.0);
+        t.contain_module = crate::game_logic::ContainModuleMetadata {
+            kind: crate::game_logic::ContainModuleKind::Transport,
+            slots: Some(5),
+            ..Default::default()
+        };
+        logic.templates.insert("TestAmphibTransport".into(), t);
+        let mut p = ThingTemplate::new("TestInfantry");
+        p.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("TestInfantry".into(), p);
+
+        let transport = logic
+            .create_object("TestAmphibTransport", Team::USA, hull)
+            .expect("transport");
+        if let Some(c) = logic.host_object_mut(transport) {
+            c.status.airborne_target = airborne;
+            if airborne {
+                c.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_AIR;
+            }
+        }
+        let rider = logic
+            .create_object("TestInfantry", Team::USA, hull + glam::Vec3::new(1.0, 0.0, 0.0))
+            .expect("rider");
+        if let Some(r) = logic.host_object_mut(rider) {
+            r.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_GROUND;
+            r.set_contained_by(Some(transport));
+        }
+        assert!(logic
+            .host_object_mut(transport)
+            .unwrap()
+            .add_occupant(rider));
+        (logic, transport, rider)
+    }
+
+    #[test]
+    fn transport_death_kills_riders_not_free_to_exit() {
+        // hq-yz6vy: amphibious / out-of-grid hull — infantry cannot stand → kill.
+        let (mut logic, transport, rider) =
+            setup_zero_damage_transport(false, glam::Vec3::new(10_000.0, 0.0, 10_000.0));
+        logic.mark_object_for_destruction(transport, None);
+        logic.process_destroy_list();
+        let r = logic.host_object(rider);
+        let dead = r.is_none()
+            || r.is_some_and(|o| !o.is_alive() || o.status.destroyed);
+        assert!(
+            dead,
+            "invalid-terrain transport death must kill riders, not dump them alive"
+        );
+    }
+
+    #[test]
+    fn airborne_transport_death_ejects_riders_alive() {
+        // C++ isSpecificRiderFreeToExit: airborne hull always returns TRUE.
+        let (mut logic, transport, rider) =
+            setup_zero_damage_transport(true, glam::Vec3::new(10_000.0, 40.0, 10_000.0));
+        logic.mark_object_for_destruction(transport, None);
+        logic.process_destroy_list();
+        let r = logic.host_object(rider).expect("rider stays in world");
+        assert!(r.is_alive(), "airborne hull must eject living riders");
+        assert!(!r.status.destroyed);
+        assert!(r.contained_by.is_none());
+    }
+
+
+    #[test]
+    fn score_the_kill_gates_destroy_and_lost_counters() {
+        // hq-oiyeg: C++ Object::scoreTheKill — lost only with a killer + playable
+        // victim; destroyed only for ENEMIES and not self.
+        let mut logic = GameLogic::new();
+        let mut usa = Player::new(0, Team::USA, "USA", true);
+        usa.alliance_team = 1;
+        logic.add_player(usa);
+        let mut china = Player::new(1, Team::China, "China", false);
+        china.alliance_team = 1;
+        logic.add_player(china);
+        let mut gla = Player::new(2, Team::GLA, "GLA", false);
+        gla.alliance_team = 2;
+        logic.add_player(gla);
+
+        let mut tank = ThingTemplate::new("ScoreTank");
+        tank.add_kind_of(KindOf::Vehicle).set_health(10.0);
+        logic.templates.insert("ScoreTank".into(), tank);
+        let mut decoy = ThingTemplate::new("ScoreDecoy");
+        decoy
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::IgnoredInGui)
+            .set_health(10.0);
+        logic.templates.insert("ScoreDecoy".into(), decoy);
+
+        let killer = logic
+            .create_object("ScoreTank", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("killer");
+        let enemy = logic
+            .create_object("ScoreTank", Team::GLA, glam::Vec3::new(10.0, 0.0, 0.0))
+            .expect("enemy");
+        let ally = logic
+            .create_object("ScoreTank", Team::China, glam::Vec3::new(20.0, 0.0, 0.0))
+            .expect("ally");
+        let sold = logic
+            .create_object("ScoreTank", Team::GLA, glam::Vec3::new(30.0, 0.0, 0.0))
+            .expect("sold");
+        let ignored = logic
+            .create_object("ScoreDecoy", Team::GLA, glam::Vec3::new(40.0, 0.0, 0.0))
+            .expect("ignored");
+
+        if let Some(v) = logic.host_object_mut(enemy) {
+            v.last_damage_source = Some(killer);
+        }
+        logic.mark_object_for_destruction(enemy, Some(Team::USA));
+        logic.process_destroy_list();
+        assert_eq!(logic.get_player(0).unwrap().statistics.units_destroyed, 1);
+        assert_eq!(logic.get_player(2).unwrap().statistics.units_lost, 1);
+
+        if let Some(v) = logic.host_object_mut(ally) {
+            v.last_damage_source = Some(killer);
+        }
+        logic.mark_object_for_destruction(ally, Some(Team::USA));
+        logic.process_destroy_list();
+        assert_eq!(
+            logic.get_player(0).unwrap().statistics.units_destroyed,
+            1,
+            "allied friendly-fire must not add Destroyed"
+        );
+        assert_eq!(logic.get_player(1).unwrap().statistics.units_lost, 1);
+
+        let gla_lost = logic.get_player(2).unwrap().statistics.units_lost;
+        logic.mark_object_for_destruction(sold, None);
+        logic.process_destroy_list();
+        assert_eq!(
+            logic.get_player(2).unwrap().statistics.units_lost,
+            gla_lost,
+            "killer-less sell/script destroy must not add Lost"
+        );
+
+        if let Some(v) = logic.host_object_mut(ignored) {
+            v.last_damage_source = Some(killer);
+        }
+        logic.mark_object_for_destruction(ignored, Some(Team::USA));
+        logic.process_destroy_list();
+        assert_eq!(logic.get_player(0).unwrap().statistics.units_destroyed, 1);
+        assert_eq!(logic.get_player(2).unwrap().statistics.units_lost, gla_lost);
     }
 }
 

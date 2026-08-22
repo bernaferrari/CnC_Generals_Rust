@@ -211,6 +211,15 @@ impl PresentationFrame {
         ui.view_guardband = self.view_guardband;
         ui.camera_focus = self.camera_focus;
         ui.camera_bw_mode = self.camera_bw_mode;
+        ui.camera_fade = if self.camera_fade.fade == 0 {
+            None
+        } else {
+            Some((
+                self.camera_fade.fade,
+                self.camera_fade.intensity,
+                self.camera_fade.diffuse,
+            ))
+        };
         ui.camera_shakers = self.camera_shakers.clone();
         ui.camera_motion_blur_count = self.camera_motion_blur_count;
         ui.camera_zoom = self.camera_zoom;

@@ -89,6 +89,8 @@ pub struct TerrainVisualImpl {
     shroud_gpu: ShroudGpuState,
     water_named_bind_groups: HashMap<String, NamedWaterBind>,
     road_pipeline: Option<wgpu::RenderPipeline>,
+    /// C++ W3DSnow _PresetAlphaShader DEPTH_WRITE_DISABLE.
+    snow_pipeline: Option<wgpu::RenderPipeline>,
     /// Bind group 1: road albedo + repeat sampler (C++ RoadType::applyTexture).
     road_texture_bind_group_layout: Option<Arc<wgpu::BindGroupLayout>>,
     road_texture: Option<Texture>,

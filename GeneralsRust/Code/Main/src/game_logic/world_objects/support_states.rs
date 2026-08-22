@@ -926,24 +926,42 @@ impl GameLogic {
         }
     }
 
+    /// C++ `SpecialAbilityUpdate::isWithinStartAbilityRange`: 2D bounding
+    /// sphere vs full StartAbilityRange, then if `ApproachRequiresLOS`
+    /// (default TRUE) LOS-iterate the undersized envelope.
     fn leftover_sa_within_start_range(
         &self,
-        position: glam::Vec3,
-        selection_radius: f32,
-        target_position: glam::Vec3,
-        target_radius: f32,
+        source_id: ObjectId,
+        target_id: ObjectId,
         start_range: f32,
     ) -> bool {
+        let Some(source) = self.objects.get(&source_id) else {
+            return false;
+        };
+        let Some(target) = self.objects.get(&target_id) else {
+            return false;
+        };
         let edge = crate::game_logic::host_hero_abilities::leftover_bounding_sphere_2d(
-            position,
-            selection_radius,
-            target_position,
-            target_radius,
+            source.get_position(),
+            source.selection_radius,
+            target.get_position(),
+            target.selection_radius,
         );
-        crate::game_logic::host_hero_abilities::leftover_within_start_ability_range(
+        if !crate::game_logic::host_hero_abilities::leftover_within_start_ability_range(
             edge,
             start_range,
-        )
+        ) {
+            return false;
+        }
+        if !crate::game_logic::host_hero_abilities::leftover_sa_approach_requires_los() {
+            return true;
+        }
+        if edge
+            > crate::game_logic::host_hero_abilities::leftover_sa_los_iterate_range(start_range)
+        {
+            return false;
+        }
+        self.leftover_sa_has_los(source_id, target_id)
     }
 
     /// C++ SpecialAbilityUpdate approach → StartAbilityRange 3 → startPreparation
@@ -1041,41 +1059,14 @@ impl GameLogic {
         self.is_clear_line_of_sight_terrain(source_eye, target_eye)
     }
 
-    /// C++ `isWithinStartAbilityRange` for Lotus steal/disable: 2D sphere vs
-    /// full StartAbilityRange, then LOS iterate in the undersized envelope.
+    /// C++ `isWithinStartAbilityRange` for Lotus steal/disable.
     fn leftover_lotus_within_start_range(
         &self,
         source_id: ObjectId,
         target_id: ObjectId,
         start_range: f32,
     ) -> bool {
-        let Some(source) = self.objects.get(&source_id) else {
-            return false;
-        };
-        let Some(target) = self.objects.get(&target_id) else {
-            return false;
-        };
-        let edge = crate::game_logic::host_hero_abilities::leftover_bounding_sphere_2d(
-            source.get_position(),
-            source.selection_radius,
-            target.get_position(),
-            target.selection_radius,
-        );
-        if !crate::game_logic::host_hero_abilities::leftover_within_start_ability_range(
-            edge,
-            start_range,
-        ) {
-            return false;
-        }
-        if !crate::game_logic::host_hero_abilities::leftover_sa_approach_requires_los() {
-            return true;
-        }
-        if edge
-            > crate::game_logic::host_hero_abilities::leftover_sa_los_iterate_range(start_range)
-        {
-            return false;
-        }
-        self.leftover_sa_has_los(source_id, target_id)
+        self.leftover_sa_within_start_range(source_id, target_id, start_range)
     }
 
     fn leftover_sa_unit_can_face(&self, object_id: ObjectId) -> bool {
@@ -3365,11 +3356,14 @@ impl GameLogic {
     pub(in super::super) fn update_support_states(&mut self, object_ids: &[ObjectId], dt: f32) {
         self.update_leftover_laser_guided_channels(dt);
         self.expire_leftover_disable_fx();
+        // C++ OpenContain::update zeros m_playerEnteredMask every logic frame
+        // after scripts have already sampled last frame's enter pulse.
+        self.clear_open_contain_player_who_entered();
+
 
 
         const GUARD_MIN_RADIUS: f32 = 80.0;
         const INTERACT_RANGE: f32 = crate::game_logic::host_repair::HOST_REPAIR_INTERACT_RANGE;
-        const CAPTURE_RANGE_PADDING: f32 = 4.0;
         const SPECIAL_ABILITY_RANGE_PADDING: f32 = 4.0;
         // Authored capture durations are integral milliseconds, but the host
         // channel stores the running remainder as `f32` seconds.  A sequence
@@ -4894,9 +4888,9 @@ impl GameLogic {
                         continue;
                     }
 
-                    let Some((target_position, target_radius, target_team)) =
+                    let Some((target_position, target_team)) =
                         self.objects.get(&capture_target_id).map(|target| {
-                            (target.get_position(), target.selection_radius, target.team)
+                            (target.get_position(), target.team)
                         })
                     else {
                         self.abort_capture_channel(object_id);
@@ -4932,15 +4926,15 @@ impl GameLogic {
                         continue;
                     }
 
-                    // C++ SpecialAbilityUpdate owns `StartAbilityRange`.
-                    // The host's point-position movement retains selection
-                    // radii as the collision approach envelope; a missing
-                    // exact module is fail-closed rather than using a hero or
-                    // infantry template-name fallback.
-                    let capture_range = authored_range + selection_radius + target_radius;
+                    // C++ `isWithinStartAbilityRange`: 2D bounding-sphere vs
+                    // authored StartAbilityRange, then ApproachRequiresLOS.
                     if capture_channel.is_none()
                         && can_move
-                        && position.distance(target_position) > capture_range
+                        && !self.leftover_sa_within_start_range(
+                            object_id,
+                            capture_target_id,
+                            authored_range,
+                        )
                     {
                         if self.assign_unit_path(object_id, target_position, &[]) {
                             if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -5325,10 +5319,8 @@ impl GameLogic {
                     let leftover_busy = self.hero_abilities.leftover_channel(object_id).is_some();
                     let out_of_start_range = if plant_range {
                         !self.leftover_sa_within_start_range(
-                            position,
-                            selection_radius,
-                            target_position,
-                            target_radius,
+                            object_id,
+                            special_target_id,
                             crate::game_logic::host_hero_abilities::PLANT_START_ABILITY_RANGE,
                         )
                     } else if black_lotus_range {
@@ -5454,12 +5446,23 @@ impl GameLogic {
                         continue;
                     }
 
-                    // Burton plant charge (timed or remote): structure or ground vehicle.
+                    // Burton/TNT plant: C++ ActionManager rejects dead / Bridge /
+                    // BridgeTower and requires Structure or ground Vehicle.
                     if matches!(
                         ability,
                         PendingSpecialAbility::PlantTimedDemoCharge { .. }
                             | PendingSpecialAbility::PlantRemoteDemoCharge { .. }
-                    ) && !(target_is_structure || (target_is_vehicle && !target_is_airborne))
+                    ) && !crate::game_logic::host_hero_abilities::leftover_charge_plant_target_ok(
+                        target_alive,
+                        self.objects.get(&special_target_id).is_some_and(|t| {
+                            t.is_kind_of(KindOf::Bridge)
+                        }),
+                        self.objects.get(&special_target_id).is_some_and(|t| {
+                            t.is_kind_of(KindOf::BridgeTower)
+                        }),
+                        target_is_structure,
+                        target_is_vehicle && !target_is_airborne,
+                    )
                     {
                         self.pending_special_abilities.remove(&object_id);
                         if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -6795,17 +6798,17 @@ impl GameLogic {
                             }
                         }
                         // Deposit.
-                        // C++ SupplyCenterDockUpdate::action: base box value +
-                        // supplyTruckAI->getUpgradedSupplyBoost() when player has
-                        // Upgrade_AmericaSupplyLines (Chinook residual).
+                        // C++ SupplyCenterDockUpdate::action always returns FALSE
+                        // (AIDock SUCCESS) even at 0 boxes, then banks
+                        // getUpgradedSupplyBoost (Supply Lines / Worker Shoes).
+                        // Never leave the exclusive dock claimed.
                         let deposit_amount = self
                             .objects
                             .get(&object_id)
                             .map(|o| o.stored_resources.supplies)
                             .unwrap_or(0);
 
-                        if deposit_amount > 0 {
-                            // Snapshot carrier for C++ getUpgradedSupplyBoost identity.
+                        // Snapshot carrier for C++ getUpgradedSupplyBoost identity.
                             let (
                                 carrier_is_gla_worker,
                                 carrier_has_worker_shoes,
@@ -6895,6 +6898,7 @@ impl GameLogic {
                                     .and_then(|center| self.player_owner_for_host_object(center))
                             });
 
+                            if credited > 0 {
                             if let Some(player_id) = credited_player_id {
                                 let credited_player =
                                     if let Some(player) = self.get_player_mut(player_id) {
@@ -6960,8 +6964,11 @@ impl GameLogic {
                                 }
 
                             }
+                            }
                             if let Some(rid) = refinery_id {
-                                self.grant_center_temporary_stealth(rid, object_id);
+                                if credited > 0 {
+                                    self.grant_center_temporary_stealth(rid, object_id);
+                                }
                                 self.release_dock_if_holder(rid, object_id);
                             }
 
@@ -6974,6 +6981,7 @@ impl GameLogic {
                                 self.gla_worker
                                     .record_shoes_drop_off_boost(worker_shoes_boost);
                             }
+                            if deposit_amount > 0 {
                             // Head back to gather more from the original source.
                             let source_dest = target_id.and_then(|sid| {
                                 self.objects
@@ -7013,8 +7021,16 @@ impl GameLogic {
                                     position,
                                 );
                             }
-
-                        }
+                            } else {
+                                // C++ action() FALSE → AIDock SUCCESS → WANTING.
+                                self.route_supply_wanting(
+                                    object_id,
+                                    team,
+                                    owner_player_id,
+                                    position,
+                                    can_move,
+                                );
+                            }
                     } else if can_move {
                         let _ = can_move;
                     }
@@ -7196,10 +7212,14 @@ impl GameLogic {
 
         // C++ GarrisonContain::update: drop effectively-dead occupants so
         // FIREPOINT/STATION slots free before survivors pick a window.
-        crate::game_logic::buildings::BuildingBehavior::sweep_dead_garrison_occupants(
-            &mut self.objects,
-            self.frame,
-        );
+        let dirty_garrisons =
+            crate::game_logic::buildings::BuildingBehavior::sweep_dead_garrison_occupants(
+                &mut self.objects,
+                self.frame,
+            );
+        for cid in dirty_garrisons {
+            self.recalc_garrison_apparent_controller(cid);
+        }
 
         let mut heal_jobs: Vec<(ObjectId, u32, Vec<ObjectId>)> = Vec::new();
         for (&id, obj) in &self.objects {

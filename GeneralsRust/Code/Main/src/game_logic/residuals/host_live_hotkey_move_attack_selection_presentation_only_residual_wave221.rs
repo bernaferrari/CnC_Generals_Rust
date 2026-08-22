@@ -98,7 +98,7 @@ pub fn honesty_hotkey_move_attack_selection_presentation_only_source() -> bool {
             "Wave 221: selection count via presentation-first ui_selected_ids",
         ),
         (
-            "Attack-move: click destination",
+            "MSG_META_TOGGLE_ATTACKMOVE",
             "Wave 221: selection via presentation-first ui_selected_ids",
         ),
         (
@@ -118,10 +118,10 @@ pub fn honesty_hotkey_move_attack_selection_presentation_only_source() -> bool {
         }
     }
     // A-key path must not dual-read get_player selected_objects.
-    let Some(i) = eng.find("Attack-move: click destination") else {
+    let Some(i) = eng.find("MSG_META_TOGGLE_ATTACKMOVE") else {
         return false;
     };
-    let win = &eng[i.saturating_sub(500)..i];
+    let win = &eng[i..i.saturating_add(600).min(eng.len())];
     win.contains("ui_selected_ids") && !win.contains("get_player(self.current_player_id)")
 }
 

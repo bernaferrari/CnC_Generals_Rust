@@ -970,7 +970,9 @@ impl W3DModelDraw {
             hidden: self.hidden,
             shrouded: self.fully_obscured_by_shroud,
             shadow_enabled: self.shadow_enabled,
+            is_unit_blob: decal_type == TerrainDecalType::ShadowTexture,
         });
+
     }
 
     fn sync_terrain_decal_pose(&self) {

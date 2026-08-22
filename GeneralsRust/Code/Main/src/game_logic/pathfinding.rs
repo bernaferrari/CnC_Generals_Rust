@@ -283,7 +283,9 @@ pub struct PathfindingGrid {
     occ_obstacle_owner: Vec<u8>,
     /// Obstacle `Team` discriminant (`0xFF` = unknown).
     occ_obstacle_team: Vec<u8>,
-
+    /// C++ `KINDOF_BLAST_CRATER` cells stay classified after the object dies
+    /// (`classifyObjectFootprint` never-remove, AIPathfind.cpp:4121-4122).
+    permanent_blast_crater_cells: HashSet<(i32, i32)>,
 
 
 }
@@ -347,6 +349,7 @@ impl PathfindingGrid {
             occ_obstacle_id: vec![0u32; cells],
             occ_obstacle_owner: vec![0xFFu8; cells],
             occ_obstacle_team: vec![0xFFu8; cells],
+            permanent_blast_crater_cells: HashSet::new(),
             bridge_layers: Vec::new(),
             layer_occ: HashMap::new(),
             wall_pieces: Vec::new(),
@@ -918,7 +921,9 @@ impl PathfindingGrid {
         }
         let pos = obj.get_position();
         let height_above = pos.y - sample_host_ground_height(pos.x, pos.z);
-        if height_above > self.grid_size {
+        let is_blast_crater = obj.is_kind_of(KindOf::BlastCrater);
+        // C++ skips airborne bounds unless KINDOF_BLAST_CRATER (AIPathfind.cpp:4168-4171).
+        if height_above > self.grid_size && !is_blast_crater {
             return None;
         }
         let is_transparent = obj.is_kind_of(KindOf::CanSeeThrough);
@@ -940,6 +945,9 @@ impl PathfindingGrid {
                     obj.owner_player_id,
                     Some(obj.team),
                 );
+            }
+            if is_blast_crater {
+                grid.permanent_blast_crater_cells.insert((cell.x, cell.y));
             }
             Self::expand_stamp_bounds(lo, hi, cell);
             true
@@ -1022,6 +1030,26 @@ impl PathfindingGrid {
             None
         }
     }
+
+    /// C++ never-remove: re-OR BLAST_CRATER cells after terrain/object rebuild.
+    fn restamp_permanent_blast_craters(
+        &mut self,
+        lo: &mut GridPos,
+        hi: &mut GridPos,
+        did: &mut bool,
+    ) {
+        let cells: Vec<(i32, i32)> = self.permanent_blast_crater_cells.iter().copied().collect();
+        for (x, y) in cells {
+            let cell = GridPos::new(x, y);
+            if !self.is_valid_pos(cell) {
+                continue;
+            }
+            self.set_cell_obstacle(cell, false, false);
+            Self::expand_stamp_bounds(lo, hi, cell);
+            *did = true;
+        }
+    }
+
 
     /// Leftover `AStarPathfinder::refresh_pinched_cells_in_bounds` (C++ AIPathfind.cpp:4404-4477).
     pub fn refresh_pinched_cells_in_bounds(&mut self, lo: GridPos, hi: GridPos) {
@@ -5747,10 +5775,12 @@ impl PathfindingSystem {
         let mut did = false;
         for obj in objects.values() {
             let rubble = PathfindingGrid::object_is_pathfind_rubble(obj);
-            if !obj.is_alive() && !rubble {
+            let blast_crater = obj.is_kind_of(KindOf::BlastCrater);
+            // C++ classifyObjectFootprint(!insert) returns for BLAST_CRATER.
+            if !obj.is_alive() && !rubble && !blast_crater {
                 continue;
             }
-            if rubble && obj.is_kind_of(KindOf::Structure) {
+            if rubble && obj.is_kind_of(KindOf::Structure) && !blast_crater {
                 if let Some((a, b)) = self.grid.classify_object_footprint(obj, true) {
                     PathfindingGrid::expand_stamp_bounds(&mut lo, &mut hi, a);
                     PathfindingGrid::expand_stamp_bounds(&mut lo, &mut hi, b);
@@ -5758,7 +5788,7 @@ impl PathfindingSystem {
                 }
                 continue;
             }
-            if !obj.is_alive() {
+            if !obj.is_alive() && !blast_crater {
                 continue;
             }
             if let Some((a, b)) = self.grid.classify_object_footprint(obj, false) {
@@ -5767,6 +5797,8 @@ impl PathfindingSystem {
                 did = true;
             }
         }
+        self.grid
+            .restamp_permanent_blast_craters(&mut lo, &mut hi, &mut did);
         if did {
             self.grid.refresh_pinched_bounds(lo, hi);
         }
@@ -6632,7 +6664,10 @@ impl PathfindingSystem {
             } else {
                 goal
             };
-            let direct = vec![start, goal_adj];
+            // C++ getAircraftPath: first node is unit XY at dest Z (host Y).
+            let mut start_at_dest = start;
+            start_at_dest.y = goal.y;
+            let direct = vec![start_at_dest, goal_adj];
             let mut detoured = if check_clips {
                 Self::detour_path_around_tall_buildings(&direct, objects)
             } else {
@@ -6653,17 +6688,13 @@ impl PathfindingSystem {
                 true,
             )?
         };
-        if aircraft {
-            for p in path.iter_mut() {
-                p.y = start.y;
-            }
-            if let Some(last) = path.last_mut() {
-                last.y = goal.y;
-            }
-        }
         // Ground: keep crate/grid terrain-layer Y (hq-gd0jd). Do not lerp start→goal.
-        if let Some(first) = path.first_mut() {
-            *first = start;
+        // Aircraft: first/last stay at dest altitude; detours keep radial-offset Y
+        // (hq-zqfpa). Do not flatten every node to start.y then overwrite first.
+        if !aircraft {
+            if let Some(first) = path.first_mut() {
+                *first = start;
+            }
         }
         // C++ checkDestination: snapped dest is the final position. Do not
         // restore the raw click (that walks units into building footprints).
@@ -10577,6 +10608,104 @@ mod tests {
         );
     }
 
+    /// hq-xl5vj: BLAST_CRATER skips the airborne height gate and never unstamps.
+    #[test]
+    fn blast_crater_stamps_above_terrain_and_survives_remove() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut sys = PathfindingSystem::new(200.0, 200.0);
+        let mut objects = HashMap::new();
+        let mut crater_t = ThingTemplate::new("ScriptedBlastCrater");
+        crater_t.add_kind_of(KindOf::Structure);
+        crater_t.add_kind_of(KindOf::BlastCrater);
+        let mut crater = Object::new(crater_t, ObjectId(7), Team::Neutral);
+        crater.set_position(Vec3::new(80.0, 50.0, 80.0));
+        crater.selection_radius = 20.0;
+        objects.insert(crater.id, crater);
+        sys.apply_structure_static_blocks(&objects);
+        let cell = sys.grid.world_to_grid(Vec3::new(80.0, 50.0, 80.0));
+        assert!(
+            sys.grid.is_static_blocked(cell),
+            "C++ height gate excepts KINDOF_BLAST_CRATER"
+        );
+
+        let mut floating_t = ThingTemplate::new("HoverPad");
+        floating_t.add_kind_of(KindOf::Structure);
+        let mut floating = Object::new(floating_t, ObjectId(8), Team::USA);
+        floating.set_position(Vec3::new(40.0, 50.0, 40.0));
+        floating.selection_radius = 20.0;
+        objects.insert(floating.id, floating);
+        sys.apply_structure_static_blocks(&objects);
+        let air_cell = sys.grid.world_to_grid(Vec3::new(40.0, 50.0, 40.0));
+        assert!(
+            !sys.grid.is_static_blocked(air_cell),
+            "non-crater airborne structure still skips classify"
+        );
+
+        objects.clear();
+        sys.grid.clear_static_blocks();
+        sys.apply_structure_static_blocks(&objects);
+        assert!(
+            sys.grid.is_static_blocked(cell),
+            "C++ never removes BLAST_CRATER footprints"
+        );
+    }
+
+    /// hq-zqfpa: getAircraftPath first node is dest altitude; detours keep offset Y.
+    #[test]
+    fn aircraft_path_first_node_uses_dest_altitude() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut sys = PathfindingSystem::new(200.0, 200.0);
+        let objects = HashMap::new();
+        let start = Vec3::new(10.0, 20.0, 10.0);
+        let goal = Vec3::new(80.0, 50.0, 90.0);
+        let path = sys
+            .find_path_ex(start, goal, &objects, true, None)
+            .expect("aircraft two-node path");
+        assert_eq!(path.len(), 2);
+        assert!(
+            (path[0].x - start.x).abs() < 0.01 && (path[0].z - start.z).abs() < 0.01,
+            "first node keeps unit XY"
+        );
+        assert!(
+            (path[0].y - goal.y).abs() < 0.01,
+            "C++ pos.z = to->z: first node is dest altitude, got {}",
+            path[0].y
+        );
+        assert!((path[1].y - goal.y).abs() < 0.01);
+
+        let mut objects = HashMap::new();
+        let mut jet_t = ThingTemplate::new("Raptor");
+        jet_t.add_kind_of(KindOf::Aircraft);
+        let mut jet = Object::new(jet_t, ObjectId(1), Team::USA);
+        jet.set_position(start);
+        jet.loco_appearance = LocomotorAppearance::Wings;
+        objects.insert(jet.id, jet);
+        let mut bldg_t = ThingTemplate::new("CommandCenter");
+        bldg_t.add_kind_of(KindOf::Structure);
+        bldg_t.add_kind_of(KindOf::AircraftPathAround);
+        let mut bldg = Object::new(bldg_t, ObjectId(2), Team::USA);
+        bldg.set_position(Vec3::new(45.0, 0.0, 50.0));
+        bldg.selection_radius = 30.0;
+        objects.insert(bldg.id, bldg);
+        let detoured = sys
+            .find_path_ex(start, goal, &objects, true, Some(ObjectId(1)))
+            .expect("wings path");
+        assert!(
+            (detoured[0].y - goal.y).abs() < 0.01,
+            "first node stays dest altitude after detour, got {}",
+            detoured[0].y
+        );
+        if detoured.len() > 2 {
+            let mid_ys: Vec<f32> = detoured[1..detoured.len() - 1]
+                .iter()
+                .map(|p| p.y)
+                .collect();
+            assert!(
+                mid_ys.iter().any(|y| (*y - start.y).abs() > 0.01),
+                "detour nodes must not be flattened to start Y, mids={mid_ys:?}"
+            );
+        }
+    }
 
 
 }
