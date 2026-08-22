@@ -23,8 +23,34 @@ pub(super) fn nationalism_bonus_from_upgrade(
 /// match C++ module-data default (TRUE).
 pub(super) const HORDE_DEFAULT_ALLOWED_NATIONALISM: bool = true;
 
+/// C++ `AIUpdateInterface::evaluateMoraleBonus` flag write for live host objects.
+pub(crate) fn apply_evaluate_morale_bonus(obj: &mut Object) {
+    use crate::game_logic::host_battlemaster::{
+        has_fanaticism_upgrade, has_nationalism_upgrade, leftover_horde_fanaticism_bonus,
+    };
+    let nationalism_active = nationalism_bonus_from_upgrade(
+        has_nationalism_upgrade(&obj.applied_upgrades),
+        obj.weapon_bonus_horde,
+        HORDE_DEFAULT_ALLOWED_NATIONALISM,
+    );
+    obj.weapon_bonus_nationalism = nationalism_active;
+    obj.weapon_bonus_fanaticism = leftover_horde_fanaticism_bonus(
+        nationalism_active,
+        has_fanaticism_upgrade(&obj.applied_upgrades),
+    );
+    obj.record_host_weapon_bonus();
+}
+
 
 impl GameLogic {
+    /// C++ `evaluateMoraleBonus` on a live host HordeUpdate object.
+    pub(crate) fn evaluate_horde_morale_bonus(&mut self, object_id: ObjectId) {
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return;
+        };
+        apply_evaluate_morale_bonus(obj);
+    }
+
     /// C++ BattleMasterTankShell DumbProjectile residual.
     pub fn spawn_battlemaster_shell_projectile(
         &mut self,
@@ -640,7 +666,7 @@ impl GameLogic {
                 let was = obj.weapon_bonus_horde;
                 let now_horde = scanned;
                 obj.weapon_bonus_horde = now_horde;
-                obj.record_host_weapon_bonus();
+                apply_evaluate_morale_bonus(obj);
                 obj.apply_horde_terrain_decal(was, now_horde, draw_icon);
                 if now_horde && !was {
                     if is_red_guard_template(name) {

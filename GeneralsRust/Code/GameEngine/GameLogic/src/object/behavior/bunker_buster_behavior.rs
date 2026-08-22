@@ -37,6 +37,10 @@ fn dual_world_registry_unavailable() -> bool {
     crate::object::registry::OBJECT_REGISTRY.is_empty()
 }
 
+/// C++ `BunkerBusterBehavior::bustTheBunker` hardcoded `damageInfo.in.m_amount = 100.0f`.
+/// OccupantDamageWeaponTemplate supplies DamageType/DeathType only; PrimaryDamage is unused.
+pub const BUNKER_BUSTER_HARM_AND_FORCE_EXIT_AMOUNT: f32 = 100.0;
+
 /// Module data for bunker buster behavior
 #[derive(Clone, Debug)]
 pub struct BunkerBusterBehaviorModuleData {
@@ -351,7 +355,7 @@ impl BunkerBusterBehavior {
                                     data.occupant_damage_weapon_template.as_ref()
                                 {
                                     let mut damage_info = crate::damage::DamageInfo::with_simple(
-                                        100.0,
+                                        BUNKER_BUSTER_HARM_AND_FORCE_EXIT_AMOUNT,
                                         object_guard.get_id(),
                                         crate::damage::DamageType::from_u32(
                                             weapon_template.damage_type as u32,

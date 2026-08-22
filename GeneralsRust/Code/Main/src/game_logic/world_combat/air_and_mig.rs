@@ -1532,13 +1532,19 @@ impl GameLogic {
                 let now_horde = if due { scanned } else { was };
                 if due {
                     obj.weapon_bonus_horde = now_horde;
-                    obj.record_host_weapon_bonus();
                     if now_horde && !was {
                         grants = grants.saturating_add(1);
                     }
                     if is_battlemaster_template(name) && (now_horde != was || now_horde) {
                         to_refresh.push(*id);
                     }
+                }
+                // C++ HordeUpdate::update calls evaluateMoraleBonus after the
+                // membership scan (when due) and then stamps the decal from
+                // NATIONALISM/FANATICISM. Dragon/Inferno/Gattling/Overlord
+                // share this path — they are not Battlemaster-only.
+                if due {
+                    super::tanks_and_upgrades::apply_evaluate_morale_bonus(obj);
                 }
                 obj.apply_horde_terrain_decal(was, now_horde, draw_icon);
             }

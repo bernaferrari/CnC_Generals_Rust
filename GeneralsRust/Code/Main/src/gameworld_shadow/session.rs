@@ -154,6 +154,8 @@ pub fn shadow_session_after_host_tick(
 ) -> GameWorldShadowProbe {
     // Wave 939: ready-log drains use logic.apply_ready_log_drain_op(ReadyLogDrainOp::*).
     let _couple_guard = ShadowCoupleGuard::enter();
+    shadow.sync_horde_player_rel(logic);
+
     // Wave 761: GW sole-expires status timers under coupled dual-tick; host peels.
     let _status_timer_exp = shadow.tick_status_timer_expirations(logic.get_frame());
     // Wave 684: prefer post-logic damage batch (already applied to GW when present).

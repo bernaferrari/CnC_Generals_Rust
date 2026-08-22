@@ -121,7 +121,11 @@ impl GameWorldShadow {
                     bd.exit_delay_remaining = ent.exit_delay_remaining.max(0.0);
                     dirty = true;
                 }
+                // C++ skips ProductionUpdate while DISABLED_UNDERPOWERED (HELD
+                // is the only process-mask exception). Do not emit ready/spawn.
+                let production_frozen = ent.disabled_underpowered && !ent.disabled_held;
                 let completed = if crate::gameworld_shadow::gameworld_production_sole_tick_enabled()
+                    && !production_frozen
                 {
                     (bd.production_head_complete_at_power(production_power_factor)
                         && bd.production_head_exit_available(exit_metadata.as_ref()))

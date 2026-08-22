@@ -1876,18 +1876,11 @@ impl CnCGameEngine {
     #[cfg(not(feature = "game_client"))]
     fn queue_live_letterbox_and_cinematic_overlays(&mut self, _width: f32, _height: f32) {}
 
-fn cinematic_font_size(font: Option<&str>) -> f32 {
-    // C++ uses the script-selected GameFont. Map common names to a large caption size.
-    match font.map(|f| f.to_ascii_lowercase()).as_deref() {
-        Some(name) if name.contains("12") => 20.0,
-        Some(name) if name.contains("14") => 24.0,
-        Some(name) if name.contains("16") => 28.0,
-        Some(name) if name.contains("18") => 32.0,
-        Some(name) if name.contains("20") => 36.0,
-        Some(name) if name.contains("24") => 42.0,
-        _ => 28.0,
+    #[cfg(feature = "game_client")]
+    fn cinematic_font_size(font: Option<&str>) -> f32 {
+        // C++ doDisplayCinematicText: parse Size:N, then adjustFontSize.
+        game_client::core::GameClient::cinematic_caption_point_size(font) as f32
     }
-}
 
 
 

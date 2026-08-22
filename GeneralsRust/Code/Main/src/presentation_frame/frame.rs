@@ -140,6 +140,9 @@ pub struct PresentationFrame {
     pub cinematic_text: Option<String>,
     /// Remaining lifetime for cinematic text (ms residual).
     pub cinematic_text_remaining_ms: Option<i32>,
+    /// C++ FONT_NAME leftover (`Name - Size:N [Bold]`).
+    #[serde(default)]
+    pub cinematic_font: Option<String>,
     /// Military caption residual.
     pub military_caption: Option<String>,
     /// Remaining lifetime for military caption (ms residual).

@@ -34,7 +34,8 @@ pub enum DamageType {
     Deploy,
     /// C++ DAMAGE_HACK residual (timer-based hack; no HP on fire).
     Hack,
-    /// C++ DAMAGE_SURRENDER residual (infantry surrender instead of death).
+    /// C++ DAMAGE_SURRENDER (Damage.h:42). Retail ALLOW_SURRENDER is off;
+    /// lethal hits deal normal HP (ActiveBody.cpp:517-537 compiled out).
     Surrender,
     /// C++ DAMAGE_PENALTY residual (game-rule HP damage; no radar event).
     Penalty,

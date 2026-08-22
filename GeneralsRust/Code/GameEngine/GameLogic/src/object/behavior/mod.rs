@@ -189,7 +189,7 @@ pub use base_renerate_update::*;
 pub use bone_fx_update::*;
 pub use bunker_buster_behavior::{
     BunkerBusterBehavior, BunkerBusterBehaviorFactory, BunkerBusterBehaviorModule,
-    BunkerBusterBehaviorModuleData,
+    BunkerBusterBehaviorModuleData, BUNKER_BUSTER_HARM_AND_FORCE_EXIT_AMOUNT,
 };
 pub use command_button_hunt_update::*;
 pub use default_production_exit_behavior::{

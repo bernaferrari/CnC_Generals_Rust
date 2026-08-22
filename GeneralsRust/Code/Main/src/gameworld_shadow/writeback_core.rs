@@ -484,7 +484,10 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            if !ent.production_queue_items.is_empty() && !ent.production_paused {
+            // C++ GameLogic.cpp:3677 — ProductionUpdate process mask is HELD;
+            // DISABLED_UNDERPOWERED skips the module (no 50-80% power-factor).
+            let production_frozen = ent.disabled_underpowered && !ent.disabled_held;
+            if !ent.production_queue_items.is_empty() && !ent.production_paused && !production_frozen {
                 let mut items = ent.production_queue_items.clone();
                 if let Some(head) = items.first_mut() {
                     let pf = self

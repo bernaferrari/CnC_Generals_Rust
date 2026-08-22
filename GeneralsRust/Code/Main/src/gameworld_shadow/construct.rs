@@ -5,6 +5,8 @@ use crate::game_logic::{GameLogic, ObjectId, Team};
 use gamelogic::world::entities::{EntityId, EntityProductionItem, TemplateRef, Transform};
 use gamelogic::world::{GameWorld, PlayerId, WorldMutation, WorldSnapshot};
 use std::collections::{HashMap, HashSet};
+use super::types::HordePlayerRel;
+
 
 impl GameWorldShadow {
     fn host_ready_structure_special_power_template(
@@ -46,6 +48,8 @@ impl GameWorldShadow {
             entity_to_host: HashMap::new(),
             max_entities: max_entities.max(1),
             host_player_to_gw: HashMap::new(),
+            horde_player_rel: HashMap::new(),
+
             production_power_factor_by_host: HashMap::new(),
             construction_rate_by_host: HashMap::new(),
             special_power_frozen_by_host: HashMap::new(),
@@ -2706,6 +2710,8 @@ impl GameWorldShadow {
                 }
             }
         }
+        self.sync_horde_player_rel(logic);
+
     }
 
     /// Reverse map GameWorld owner → host Team (for TransferOwner writeback).
@@ -2736,6 +2742,72 @@ impl GameWorldShadow {
                 (gw_player_id == owner).then_some(host_player_id)
             })
     }
+
+    /// Snapshot host `Player::getRelationship` facts used by GW AlliesOnly horde.
+    pub(super) fn sync_horde_player_rel(&mut self, logic: &GameLogic) {
+        self.horde_player_rel.clear();
+        for (&id, p) in logic.get_players() {
+            self.horde_player_rel.insert(
+                id,
+                HordePlayerRel {
+                    alliance_team: p.alliance_team,
+                    is_alive: p.is_alive,
+                    map_relations: p.map_side.relations.clone(),
+                },
+            );
+        }
+    }
+
+    /// C++ `Player::getRelationship` / `GameLogic::player_relationship_from_map`.
+    /// Same controlling player is always ALLIES (even before the roster snapshot).
+    fn horde_player_relationship(
+        &self,
+        source_player_id: u32,
+        target_player_id: u32,
+    ) -> gamelogic::common::Relationship {
+        use gamelogic::common::Relationship;
+        if source_player_id == target_player_id {
+            return Relationship::Allies;
+        }
+        let Some(source) = self.horde_player_rel.get(&source_player_id) else {
+            return Relationship::Neutral;
+        };
+        let Some(target) = self.horde_player_rel.get(&target_player_id) else {
+            return Relationship::Neutral;
+        };
+        if !source.is_alive || !target.is_alive {
+            return Relationship::Neutral;
+        }
+        if let Some(rel) = source.map_relations.get(&target_player_id) {
+            return *rel;
+        }
+        if source.alliance_team >= 0 && source.alliance_team == target.alliance_team {
+            Relationship::Allies
+        } else if source.alliance_team >= 0 && target.alliance_team >= 0 {
+            Relationship::Enemies
+        } else {
+            Relationship::Neutral
+        }
+    }
+
+    /// C++ `PartitionFilterHordeMember::allow` AlliesOnly (`HordeUpdate.cpp:77-79`).
+    pub(super) fn horde_allies_only(
+        &self,
+        a_owner: Option<u32>,
+        a_team: u8,
+        b_owner: Option<u32>,
+        b_team: u8,
+    ) -> bool {
+        use gamelogic::common::Relationship;
+        match (a_owner, b_owner) {
+            (Some(a), Some(b)) => {
+                self.horde_player_relationship(a, b) == Relationship::Allies
+            }
+            (None, None) => a_team == b_team,
+            _ => false,
+        }
+    }
+
 
     /// Resolve a host object through its explicit controlling player. Objects
     /// without a player remain neutral in GameWorld; choosing the first player

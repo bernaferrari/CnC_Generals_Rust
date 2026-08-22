@@ -226,6 +226,22 @@ impl GameLogic {
         &self.booby_trap
     }
 
+    /// C++ StickyBombUpdate::xfer + Object status BOOBY_TRAPPED.
+    /// Live WorldSnapshot has no nested booby field; restore the host registry
+    /// and SpecialObject spawn counter after objects exist.
+    pub fn restore_booby_traps(
+        &mut self,
+        registry: crate::game_logic::host_booby_trap::HostBoobyTrapRegistry,
+        objects_spawned: u32,
+    ) {
+        self.booby_trap = registry;
+        self.booby_trap_objects_spawned = objects_spawned;
+    }
+
+    pub fn booby_trap_objects_spawned(&self) -> u32 {
+        self.booby_trap_objects_spawned
+    }
+
     pub fn honesty_booby_trap_plant_ok(&self) -> bool {
         self.booby_trap.honesty_plant_ok()
     }
@@ -369,7 +385,7 @@ impl GameLogic {
     ) -> u32 {
         use crate::game_logic::host_booby_trap::{
             booby_trap_damage_at, booby_trap_splash_radius, is_legal_booby_victim, is_planter_ally,
-            BOOBY_TRAP_DETONATE_AUDIO,
+            BOOBY_GEOMETRY_DAMAGE_FX,
         };
 
         let Some(plant) = self.booby_trap.take_plant(structure_id) else {
@@ -413,18 +429,15 @@ impl GameLogic {
             let Some(victim) = self.objects.get(&vid) else {
                 continue;
             };
-            let is_self = vid == structure_id;
             let combat_kind = victim.is_kind_of(KindOf::Attackable)
                 || victim.is_kind_of(KindOf::Structure)
                 || victim.is_kind_of(KindOf::Infantry)
                 || victim.is_kind_of(KindOf::Vehicle)
                 || victim.is_kind_of(KindOf::Aircraft);
-            // On death path, structure itself may already be removed — still hit nearby.
-            // Geometry-based residual damages units near structure, not the structure host
-            // when dying (structure already dead). Fail-closed: skip structure self.
+            // C++ StickyBombUpdate::detonate includes the trapped object at
+            // bounding-sphere dist 0 (primary damage). Leftover already matches.
             if !is_legal_booby_victim(
                 victim.is_alive(),
-                is_self,
                 victim.status.under_construction,
                 combat_kind,
             ) {
@@ -453,19 +466,32 @@ impl GameLogic {
 
         self.booby_trap
             .record_detonation(hits, via_capture, via_death);
-        self.queue_audio_event(
-            AudioEventRequest::new(BOOBY_TRAP_DETONATE_AUDIO)
-                .with_object(structure_id)
-                .with_position(structure_pos)
-                .with_priority(180),
-        );
-        let _ = self.combat_particles.spawn(
-            CombatParticleKind::WeaponImpact,
+        // C++ StickyBombUpdate::detonate: FXList::doFXPos(m_geometryBasedDamageFX,
+        // pos, NULL, 0, NULL, secondaryDamageRange). Never queue the FXList name.
+        if !crate::game_logic::dispatch_fx_list_at_pos_ex(
+            BOOBY_GEOMETRY_DAMAGE_FX,
             structure_pos,
-            self.frame,
-            Some(structure_id),
             None,
-        );
+            0.0,
+            max_r,
+        ) {
+            for sound in crate::game_logic::sound_names_for_fx_list(BOOBY_GEOMETRY_DAMAGE_FX) {
+                self.queue_audio_event(
+                    AudioEventRequest::new(&sound)
+                        .with_object(structure_id)
+                        .with_position(structure_pos)
+                        .with_priority(180),
+                );
+            }
+            let _ = self.combat_particles.spawn_named(
+                CombatParticleKind::WeaponImpact,
+                BOOBY_GEOMETRY_DAMAGE_FX,
+                structure_pos,
+                self.frame,
+                Some(structure_id),
+                None,
+            );
+        }
 
         for (vid, killer) in destroy_ids {
             self.mark_object_for_destruction(vid, Some(killer));

@@ -633,6 +633,7 @@ impl GameLogic {
             new_script_messages: Vec::new(),
             cinematic_letterbox: false,
             cinematic_text: None,
+            cinematic_font: None,
             military_caption: None,
             radar_enabled: true,
             radar_forced: false,
@@ -654,6 +655,7 @@ impl GameLogic {
             install_multiplayer_scripts: false,
         };
         instance.rebuild_objective_lookup();
+        GameLogic::register_leftover_object_create_overrides_overlay();
         instance
     }
 
@@ -1072,6 +1074,7 @@ impl GameLogic {
         self.new_script_messages.clear();
         self.cinematic_letterbox = false;
         self.cinematic_text = None;
+        self.cinematic_font = None;
         self.military_caption = None;
         self.radar_enabled = true;
         self.radar_forced = false;

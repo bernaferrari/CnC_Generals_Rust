@@ -1712,16 +1712,16 @@ fn deploy_hack_surrender_kill_garrisoned_damage_residuals() {
     assert!(!tank.take_damage_from_typed(40.0, None, DamageType::Hack));
     assert!((tank.health.current - 100.0).abs() < 1e-3);
 
-    // SURRENDER lethal on infantry: surrendered, not destroyed.
+    // SURRENDER: retail ALLOW_SURRENDER off — lethal hit is normal HP death
+    // (ActiveBody.cpp:517-537 commented + compiled out).
     let mut it = ThingTemplate::new("Ranger");
     it.set_health(50.0);
     it.add_kind_of(KindOf::Infantry);
     let mut ranger = Object::new(it, ObjectId(3), Team::USA);
     ranger.health.current = 50.0;
-    assert!(!ranger.take_damage_from_typed(50.0, None, DamageType::Surrender));
-    assert!(ranger.is_surrendered);
-    assert!(ranger.is_alive());
-    assert!((ranger.health.current - 50.0).abs() < 1e-3);
+    assert!(ranger.take_damage_from_typed(50.0, None, DamageType::Surrender));
+    assert!(!ranger.is_surrendered);
+    assert!(!ranger.is_alive());
 
     // KILL_GARRISONED: structure HP untouched; pending count = floor(amount).
     let mut st = ThingTemplate::new("Bunker");

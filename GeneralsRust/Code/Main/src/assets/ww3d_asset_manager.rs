@@ -545,6 +545,55 @@ impl WW3DAssetManager {
         definitions
     }
 
+    /// Overlay leftover map.ini Object CREATE_OVERRIDES onto the live catalog.
+    pub fn overlay_object_create_overrides(
+        &mut self,
+        name: &str,
+        reskin_from: &str,
+        properties: &HashMap<String, String>,
+    ) {
+        let name = name.trim();
+        if name.is_empty() {
+            return;
+        }
+        let lookup_key = Self::normalize_object_key(name);
+        let canonical = self
+            .normalized_name_lookup
+            .get(&lookup_key)
+            .cloned()
+            .unwrap_or_else(|| name.to_string());
+        let mut definition = if let Some(existing) = self.object_definitions.get(&canonical).cloned()
+        {
+            existing
+        } else if !reskin_from.is_empty() {
+            if let Some(parent) = self.resolve_object_definition(reskin_from, None).cloned() {
+                let mut child = parent;
+                child.name = name.to_string();
+                child.parent_name = Some(reskin_from.to_string());
+                child
+            } else {
+                let mut child = ObjectDefinition::new(name.to_string());
+                child.parent_name = Some(reskin_from.to_string());
+                child
+            }
+        } else {
+            ObjectDefinition::new(name.to_string())
+        };
+        definition.apply_create_override_properties(properties);
+        self.register_definition_indices(&definition.name, &definition);
+        if let Some(model) = definition.model_name.as_deref() {
+            self.model_cache
+                .insert(definition.name.clone(), model.to_string());
+        }
+        if let Some(texture) = definition.get_primary_texture() {
+            self.texture_cache
+                .insert(definition.name.clone(), texture.to_string());
+        }
+        self.object_definitions
+            .insert(definition.name.clone(), definition);
+    }
+
+
     /// Check if an object is defined
     pub fn has_object(&self, object_name: &str) -> bool {
         self.resolve_object_definition(object_name, None).is_some()

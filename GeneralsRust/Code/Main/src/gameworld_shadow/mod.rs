@@ -28,6 +28,8 @@ mod tick;
 mod types;
 pub use tick::*;
 pub use types::*;
+use types::HordePlayerRel;
+
 
 mod apply_host_combat;
 mod apply_host_damage;
@@ -59,6 +61,10 @@ pub struct GameWorldShadow {
     max_entities: usize,
     /// Host player id → dense GameWorld PlayerId
     host_player_to_gw: HashMap<u32, PlayerId>,
+    /// Host player relationship snapshot for HordeUpdate AlliesOnly
+    /// (C++ `PartitionFilterHordeMember` `getRelationship == ALLIES`).
+    horde_player_rel: HashMap<u32, HordePlayerRel>,
+
     /// Last host energy shortfall residual per producer host id (sole-tick).
     production_power_factor_by_host: HashMap<u32, f32>,
     /// Last host construction effective_rate residual per host object id.

@@ -1967,6 +1967,7 @@ impl PresentationFrame {
             cinematic_letterbox: logic.cinematic_letterbox(),
             cinematic_text: logic.cinematic_text().map(|s| s.to_string()),
             cinematic_text_remaining_ms: logic.cinematic_text_remaining_ms(),
+            cinematic_font: logic.cinematic_font().map(|s| s.to_string()),
             military_caption: logic.military_caption_text().map(|s| s.to_string()),
             military_caption_remaining_ms: logic.military_caption_remaining_ms(),
             radar_ui_enabled: {

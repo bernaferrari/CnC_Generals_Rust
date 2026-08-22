@@ -80,6 +80,8 @@ mod special_powers;
 mod special_power_cooldown_persist;
 mod subdual_persist;
 mod hotkey_squad_persist;
+mod booby_trap_persist;
+
 
 
 mod terrain;
@@ -148,6 +150,8 @@ pub const SNAPSHOT_SRC: &str = concat!(
     include_str!("special_power_cooldown_persist.rs"),
     include_str!("subdual_persist.rs"),
     include_str!("hotkey_squad_persist.rs"),
+    include_str!("booby_trap_persist.rs"),
+
 
 
     include_str!("terrain.rs"),

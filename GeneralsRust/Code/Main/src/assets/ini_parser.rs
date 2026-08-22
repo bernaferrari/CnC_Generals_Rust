@@ -1063,6 +1063,196 @@ impl ObjectDefinition {
         }
         bones
     }
+
+    /// Overlay leftover map.ini / solo.ini Object CREATE_OVERRIDES properties.
+    ///
+    /// Leftover `ThingFactory::parseObjectDefinition` already stacked these
+    /// keys. Apply only authored keys so unmentioned retail fields stay.
+    pub fn apply_create_override_properties(&mut self, properties: &HashMap<String, String>) {
+        let mut keys: Vec<&String> = properties.keys().collect();
+        keys.sort();
+        for key in keys {
+            let Some(value) = properties.get(key) else {
+                continue;
+            };
+            self.apply_one_create_override_property(key, value);
+        }
+    }
+
+    fn apply_one_create_override_property(&mut self, key: &str, value: &str) {
+        let trimmed = value.trim();
+        let base = key.split('#').next().unwrap_or(key);
+        if base.ends_with(".__body") || base.ends_with(".<raw>") {
+            return;
+        }
+
+        if let Some((index, field)) = leftover_weapon_set_key(base) {
+            while self.weapon_sets.len() <= index {
+                self.weapon_sets.push(WeaponSetDefinition::default());
+            }
+            let set = &mut self.weapon_sets[index];
+            if field.eq_ignore_ascii_case("Conditions") {
+                set.conditions = IniParser::condition_tokens(trimmed);
+            } else if field.eq_ignore_ascii_case("Weapon") {
+                set.record_weapon(trimmed);
+            } else if field.eq_ignore_ascii_case("PrimaryWeapon") {
+                set.primary_weapon = leftover_optional_name(trimmed);
+            } else if field.eq_ignore_ascii_case("SecondaryWeapon") {
+                set.secondary_weapon = leftover_optional_name(trimmed);
+            } else if field.eq_ignore_ascii_case("TertiaryWeapon") {
+                set.tertiary_weapon = leftover_optional_name(trimmed);
+            } else {
+                set.attributes.insert(field.to_string(), trimmed.to_string());
+            }
+            return;
+        }
+
+        if leftover_field_is(base, "DisplayName") {
+            self.display_name = translate_object_display_name(trimmed);
+            self.attributes
+                .insert("DisplayName".to_string(), trimmed.to_string());
+            return;
+        }
+        if leftover_field_is(base, "Scale") {
+            if let Ok(scale) = trimmed.parse::<f32>() {
+                if scale.is_finite() {
+                    self.scale = scale;
+                    self.scale_was_specified = true;
+                }
+            }
+            self.attributes
+                .insert("Scale".to_string(), trimmed.to_string());
+            return;
+        }
+        if leftover_field_ends_with(base, "MaxHealth") {
+            if let Ok(hit_points) = trimmed.parse::<f32>() {
+                if hit_points.is_finite() {
+                    self.hit_points = Some(hit_points);
+                }
+            }
+            self.attributes
+                .insert("MaxHealth".to_string(), trimmed.to_string());
+            return;
+        }
+        if leftover_field_is(base, "Locomotor") {
+            self.locomotor_sets
+                .push(LocomotorSetDefinition::from_leftover_row(trimmed));
+            self.attributes
+                .insert("Locomotor".to_string(), trimmed.to_string());
+            return;
+        }
+
+        if leftover_is_behavior_header(base) {
+            if let Some(module) = BehaviorModuleDefinition::parse(trimmed) {
+                if leftover_field_starts_with(base, "ReplaceModule") {
+                    if let Some(tag) = module.module_tag.clone() {
+                        self.behavior_modules
+                            .retain(|existing| existing.module_tag.as_deref() != Some(tag.as_str()));
+                    }
+                }
+                self.behavior_modules.push(module);
+            }
+            return;
+        }
+        if leftover_is_behavior_field(base) {
+            if let Some(module) = self.behavior_modules.last_mut() {
+                if let Some(field) = leftover_module_field_name(base) {
+                    module.insert_attribute(field.to_string(), trimmed.to_string());
+                }
+            }
+            if leftover_field_ends_with(base, "MaxHealth") {
+                if let Ok(hit_points) = trimmed.parse::<f32>() {
+                    if hit_points.is_finite() {
+                        self.hit_points = Some(hit_points);
+                    }
+                }
+            }
+            return;
+        }
+        if leftover_field_is(base, "ReplaceModule") || leftover_field_is(base, "RemoveModule") {
+            let tag = trimmed;
+            if !tag.is_empty() {
+                self.behavior_modules
+                    .retain(|existing| existing.module_tag.as_deref() != Some(tag));
+            }
+            return;
+        }
+
+        if leftover_field_is(base, "Model") || leftover_field_ends_with(base, "Model") {
+            if !trimmed.is_empty() && !trimmed.eq_ignore_ascii_case("none") {
+                self.model_name = Some(trimmed.to_string());
+            }
+        }
+
+        self.attributes
+            .insert(leftover_attribute_key(base), trimmed.to_string());
+    }
+}
+
+fn leftover_optional_name(value: &str) -> Option<String> {
+    let name = value.split_whitespace().next().unwrap_or("").trim();
+    (!name.is_empty() && !name.eq_ignore_ascii_case("none")).then(|| name.to_string())
+}
+
+fn leftover_weapon_set_key(key: &str) -> Option<(usize, &str)> {
+    let rest = key.strip_prefix("WeaponSet")?;
+    let (index, field) = rest.split_once('.')?;
+    Some((index.parse().ok()?, field))
+}
+
+fn leftover_field_is(key: &str, name: &str) -> bool {
+    key.eq_ignore_ascii_case(name)
+}
+
+fn leftover_field_starts_with(key: &str, prefix: &str) -> bool {
+    key.len() >= prefix.len() && key[..prefix.len()].eq_ignore_ascii_case(prefix)
+}
+
+fn leftover_field_ends_with(key: &str, suffix: &str) -> bool {
+    let last = key.rsplit(['.', '#']).next().unwrap_or(key);
+    last.eq_ignore_ascii_case(suffix)
+}
+
+fn leftover_is_behavior_header(key: &str) -> bool {
+    let lower = key.to_ascii_lowercase();
+    matches!(
+        lower.as_str(),
+        "behavior" | "body" | "addmodule" | "replacemodule.behavior" | "addmodule.behavior"
+    ) || (leftover_field_ends_with(key, "Behavior")
+        && leftover_field_starts_with(key, "ReplaceModule"))
+        || (leftover_field_ends_with(key, "Behavior") && leftover_field_starts_with(key, "AddModule"))
+        || (leftover_field_ends_with(key, "Body") && leftover_field_starts_with(key, "ReplaceModule"))
+}
+
+fn leftover_is_behavior_field(key: &str) -> bool {
+    key.contains('.')
+        && (leftover_field_starts_with(key, "Behavior")
+            || leftover_field_starts_with(key, "Body")
+            || leftover_field_starts_with(key, "ReplaceModule")
+            || leftover_field_starts_with(key, "AddModule"))
+}
+
+fn leftover_module_field_name(key: &str) -> Option<&str> {
+    key.rsplit(['.', '#']).next()
+}
+
+fn leftover_attribute_key(key: &str) -> String {
+    key.rsplit(['.', '#']).next().unwrap_or(key).to_string()
+}
+
+impl LocomotorSetDefinition {
+    fn from_leftover_row(value: &str) -> Self {
+        let mut tokens = value.split_whitespace();
+        let set_name = tokens.next().unwrap_or("SET_NORMAL").to_string();
+        let locomotor_names = tokens
+            .filter(|token| !token.eq_ignore_ascii_case("none"))
+            .map(str::to_string)
+            .collect();
+        Self {
+            set_name,
+            locomotor_names,
+        }
+    }
 }
 
 impl DrawModuleDefinition {

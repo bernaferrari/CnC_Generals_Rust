@@ -47,6 +47,48 @@ fn locomotor_member_names_from_raw(raw: &str) -> Vec<String> {
     names
 }
 
+fn leftover_object_definition_for_live(
+    name: &str,
+    reskin_from: &str,
+    properties: &std::collections::HashMap<String, String>,
+) -> crate::assets::ObjectDefinition {
+    let mut definition = if let Some(manager_arc) = get_asset_manager() {
+        manager_arc.lock().ok().and_then(|manager| {
+            manager
+                .resolve_object_definition(name, None)
+                .cloned()
+                .or_else(|| {
+                    (!reskin_from.is_empty())
+                        .then(|| manager.resolve_object_definition(reskin_from, None).cloned())
+                        .flatten()
+                        .map(|mut parent| {
+                            parent.name = name.to_string();
+                            parent.parent_name = Some(reskin_from.to_string());
+                            parent
+                        })
+                })
+        })
+    } else {
+        None
+    }
+    .unwrap_or_else(|| crate::assets::ObjectDefinition::new(name.to_string()));
+    definition.apply_create_override_properties(properties);
+    definition
+}
+
+fn overlay_leftover_object_create_overrides_to_live(
+    name: &str,
+    reskin_from: &str,
+    properties: &std::collections::HashMap<String, String>,
+) {
+    if let Some(manager_arc) = get_asset_manager() {
+        if let Ok(mut manager) = manager_arc.try_lock() {
+            manager.overlay_object_create_overrides(name, reskin_from, properties);
+        }
+    }
+}
+
+
 fn apply_locomotor_set_names_from_definition(
     template: &mut crate::game_logic::ThingTemplate,
     unambiguous_normal: Option<&[String]>,
@@ -3623,6 +3665,182 @@ impl GameLogic {
         }
         inserted
     }
+
+    pub(in super::super) fn register_leftover_object_create_overrides_overlay() {
+        game_engine::common::thing::register_object_create_overrides_live_overlay(
+            overlay_leftover_object_create_overrides_to_live,
+        );
+    }
+
+    pub(in super::super) fn apply_all_leftover_object_create_overrides(&mut self) -> usize {
+        Self::register_leftover_object_create_overrides_overlay();
+        let overrides = game_engine::common::thing::leftover_object_create_overrides();
+        for entry in &overrides {
+            self.apply_leftover_object_create_override(
+                &entry.name,
+                &entry.reskin_from,
+                &entry.properties,
+            );
+        }
+        overrides.len()
+    }
+
+    pub(in super::super) fn apply_pending_leftover_object_override(&mut self, template_name: &str) {
+        if let Some(entry) =
+            game_engine::common::thing::leftover_object_create_override(template_name)
+        {
+            self.apply_leftover_object_create_override(
+                &entry.name,
+                &entry.reskin_from,
+                &entry.properties,
+            );
+        }
+    }
+
+    pub(in super::super) fn apply_leftover_object_create_override(
+        &mut self,
+        name: &str,
+        reskin_from: &str,
+        properties: &std::collections::HashMap<String, String>,
+    ) {
+        if let Some(manager_arc) = get_asset_manager() {
+            if let Ok(mut manager) = manager_arc.try_lock() {
+                manager.overlay_object_create_overrides(name, reskin_from, properties);
+            }
+        }
+        let definition = leftover_object_definition_for_live(name, reskin_from, properties);
+        let existing_key = if self.templates.contains_key(name) {
+            Some(name.to_string())
+        } else {
+            self.templates
+                .keys()
+                .find(|existing| existing.eq_ignore_ascii_case(name))
+                .cloned()
+        };
+        let Some(existing_key) = existing_key else {
+            return;
+        };
+        let Some(template) = self.templates.get_mut(&existing_key) else {
+            return;
+        };
+        Self::apply_object_definition_create_overrides(template, &definition);
+    }
+
+    fn apply_object_definition_create_overrides(
+        template: &mut ThingTemplate,
+        definition: &crate::assets::ObjectDefinition,
+    ) {
+        if !definition.display_name.is_empty() {
+            template.display_name = definition.display_name.clone();
+        }
+        if let Some(hit_points) = definition.hit_points {
+            if hit_points.is_finite() {
+                template.set_health(hit_points);
+            }
+        }
+        if definition.scale_was_specified {
+            template.set_asset_scale(definition.scale);
+        }
+        if let Some(model_name) = definition.model_name.as_deref() {
+            let model_name = model_name.trim();
+            if !model_name.is_empty() && !model_name.eq_ignore_ascii_case("none") {
+                template.set_model(model_name);
+            }
+        }
+
+        let kind_of = Self::object_definition_attr(definition, "kindof").unwrap_or_default();
+        if !kind_of.is_empty() {
+            Self::apply_authored_semantic_kind_bits(template, &kind_of);
+            Self::apply_authored_capture_metadata(template, &kind_of, definition);
+            Self::add_faction_structure_kind_bits(template, &kind_of);
+            let lower = kind_of.to_ascii_lowercase();
+            if lower.split_whitespace().any(|token| token == "structure" || token == "immobile")
+            {
+                template
+                    .add_kind_of(KindOf::Structure)
+                    .add_kind_of(KindOf::Attackable);
+            }
+            if lower.contains("selectable") {
+                template.add_kind_of(KindOf::Selectable);
+            }
+        }
+
+        if let Some(sight) = Self::object_definition_attr(definition, "visionrange")
+            .and_then(|s| s.trim().parse::<f32>().ok())
+            .filter(|v| v.is_finite())
+        {
+            template.sight_range = sight;
+        }
+        if let Some(scr) = Self::object_definition_attr(definition, "shroudclearingrange")
+            .and_then(|s| s.trim().parse::<f32>().ok())
+            .filter(|v| v.is_finite())
+        {
+            template.shroud_clearing_range = scr;
+        }
+        if let Some(r) = Self::object_definition_attr(definition, "shroudrevealtoallrange")
+            .and_then(|s| s.trim().parse::<f32>().ok())
+            .filter(|v| v.is_finite())
+        {
+            template.shroud_reveal_to_all_range = r;
+        }
+        if let Some(cost) = Self::object_definition_attr(definition, "buildcost")
+            .and_then(|s| s.trim().parse::<u32>().ok())
+        {
+            template.build_cost.supplies = cost;
+        }
+        if let Some(build_time) = Self::object_definition_attr(definition, "buildtime")
+            .and_then(|s| s.trim().parse::<f32>().ok())
+            .filter(|value| value.is_finite())
+        {
+            template.build_time = build_time;
+        }
+        if let Some(refund_value) = Self::object_definition_attr(definition, "refundvalue") {
+            if let Ok(value) = refund_value.trim().parse::<u16>() {
+                template.refund_value = value;
+            }
+        }
+        if let Some(energy) = Self::object_definition_attr(definition, "energyproduction")
+            .and_then(|value| value.trim().parse::<i32>().ok())
+        {
+            template.energy_production = Some(energy);
+        }
+
+        if let Some(wname) = definition.base_weapon_name(0) {
+            template.set_primary_weapon_name(wname);
+        }
+        if let Some(wname) = definition.base_weapon_name(1) {
+            template.set_secondary_weapon_name(wname);
+        }
+        if let Some(wname) = definition.base_weapon_name(2) {
+            template.set_tertiary_weapon_name(wname);
+        }
+        Self::apply_authored_weapon_set_create_policy(template, definition);
+
+        let rider_change_normal_locomotors =
+            unambiguous_locomotors_for_set(definition, "SET_NORMAL");
+        Self::apply_authored_dock_and_contain_modules(
+            template,
+            definition,
+            rider_change_normal_locomotors.as_deref(),
+        );
+        Self::apply_authored_parking_place_metadata(template, definition);
+        Self::apply_authored_flight_deck_metadata(template, definition);
+        Self::apply_authored_supply_truck_metadata(template, definition);
+        Self::apply_authored_production_exit_metadata(template, definition);
+        Self::apply_authored_eject_pilot_die_metadata(template, definition);
+        Self::apply_authored_rebuild_hole_expose_die_metadata(template, definition);
+        Self::apply_authored_hack_internet_metadata(template, definition);
+        Self::apply_authored_special_power_module_metadata(template, definition);
+        Self::apply_authored_hacker_disable_building_metadata(template, definition);
+        Self::apply_authored_charge_plant_metadata(template, definition);
+        Self::apply_authored_overcharge_metadata(template, definition);
+        Self::apply_authored_power_plant_update_metadata(template, definition);
+        Self::apply_authored_temporary_weapon_behavior_metadata(template, definition);
+        Self::apply_authored_physics_behavior_metadata(template, definition);
+        Self::apply_authored_geometry(template, definition);
+        Self::apply_authored_stealth_update_metadata(template, definition);
+    }
+
 
     pub(in super::super) fn add_faction_structure_kind_bits(
         template: &mut ThingTemplate,

@@ -68,7 +68,10 @@ impl GameLogic {
 
     /// Set the global map/script rank level cap.
     /// C++ reference: GameLogic::setRankLevelLimit()
-    pub fn set_rank_level_limit(&mut self, level: Int) {
+    pub fn set_rank_level_limit(&mut self, mut level: Int) {
+        if level < 1 {
+            level = 1;
+        }
         self.rank_level_limit = level;
     }
 

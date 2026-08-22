@@ -55,25 +55,6 @@ impl Object {
         );
     }
 
-    /// C++ KINDOF_CAN_SURRENDER residual (infantry primarily).
-    pub fn can_surrender_from_damage(&self) -> bool {
-        if self.is_kind_of(crate::game_logic::KindOf::Infantry) {
-            return true;
-        }
-        let n = self.template_name.to_ascii_lowercase();
-        n.contains("infantry")
-            || n.contains("ranger")
-            || n.contains("rebel")
-            || n.contains("redguard")
-            || n.contains("tankhunter")
-            || n.contains("pathfinder")
-            || n.contains("colonel")
-            || n.contains("jarmen")
-            || n.contains("hijacker")
-            || n.contains("worker")
-            || n.contains("pilot")
-    }
-
     /// Consume pending DAMAGE_DEPLOY assault signal (GameLogic combat path).
     pub fn take_pending_deploy_assault(&mut self) -> bool {
         let v = self.status.pending_deploy_assault;

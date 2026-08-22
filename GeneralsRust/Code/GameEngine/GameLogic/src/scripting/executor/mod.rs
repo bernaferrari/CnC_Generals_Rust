@@ -228,6 +228,30 @@ pub struct HostScriptPlayerRelatesRequest {
     pub relationship: Relationship,
 }
 
+/// Live host drain: NAMED_SET_BOOBYTRAPPED / TEAM_SET_BOOBYTRAPPED.
+/// C++ `ScriptActions::doNamedSetBoobytrapped` / `doTeamSetBoobytrapped`
+/// (`TheThingFactory->newObject` + `StickyBombUpdate::initStickyBomb`).
+/// Leftover attaches via empty `OBJECT_REGISTRY`; live units live on host.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostScriptBoobytrapRequest {
+    Named { thing: String, unit: String },
+    Team { thing: String, team: String },
+}
+
+/// Live host drain: PLAYER_ADD_SKILLPOINTS / ADD_RANKLEVEL / SET_RANKLEVEL /
+/// SET_RANKLEVELLIMIT / AFFECT_RECEIVING_EXPERIENCE.
+/// C++ `doPlayerAddSkillPoints` / `doPlayerAddRankLevels` / `doPlayerSetRankLevel` /
+/// `doMapSetRankLevelLimit` / `doAffectSkillPointsModifier`.
+/// Leftover writes leftover player_list / leftover GameLogic; live rank lives on host.
+#[derive(Debug, Clone, PartialEq)]
+pub enum HostScriptRankRequest {
+    AddSkillPoints { player: String, delta: i32 },
+    AddRankLevel { player: String, delta: i32 },
+    SetRankLevel { player: String, level: i32 },
+    SetRankLevelLimit { limit: i32 },
+    AffectReceivingExperience { player: String, modifier: f32 },
+}
+
 
 
 
@@ -290,6 +314,10 @@ thread_local! {
     static HOST_SCRIPT_TRANSFER_REQUESTS: RefCell<Vec<HostScriptTransferRequest>> =
         RefCell::new(Vec::new());
     static HOST_SCRIPT_PLAYER_RELATES_REQUESTS: RefCell<Vec<HostScriptPlayerRelatesRequest>> =
+        RefCell::new(Vec::new());
+    static HOST_SCRIPT_BOOBYTRAP_REQUESTS: RefCell<Vec<HostScriptBoobytrapRequest>> =
+        RefCell::new(Vec::new());
+    static HOST_SCRIPT_RANK_REQUESTS: RefCell<Vec<HostScriptRankRequest>> =
         RefCell::new(Vec::new());
 
 
@@ -626,6 +654,25 @@ pub fn request_host_player_relates(req: HostScriptPlayerRelatesRequest) {
 
 pub fn take_host_player_relates_requests() -> Vec<HostScriptPlayerRelatesRequest> {
     HOST_SCRIPT_PLAYER_RELATES_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: NAMED/TEAM SET_BOOBYTRAPPED (`initStickyBomb`).
+pub fn request_host_script_boobytrap(req: HostScriptBoobytrapRequest) {
+    HOST_SCRIPT_BOOBYTRAP_REQUESTS.with(|q| q.borrow_mut().push(req));
+}
+
+pub fn take_host_script_boobytrap_requests() -> Vec<HostScriptBoobytrapRequest> {
+    HOST_SCRIPT_BOOBYTRAP_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: PLAYER_ADD_SKILLPOINTS / ADD_RANKLEVEL / SET_RANKLEVEL /
+/// SET_RANKLEVELLIMIT / AFFECT_RECEIVING_EXPERIENCE.
+pub fn request_host_rank(req: HostScriptRankRequest) {
+    HOST_SCRIPT_RANK_REQUESTS.with(|q| q.borrow_mut().push(req));
+}
+
+pub fn take_host_rank_requests() -> Vec<HostScriptRankRequest> {
+    HOST_SCRIPT_RANK_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
 
 

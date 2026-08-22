@@ -1,6 +1,17 @@
 //! Host vs GameWorld shadow probe types.
 
 use super::*;
+use std::collections::HashMap;
+
+/// Host player facts for C++ HordeUpdate AlliesOnly (`getRelationship == ALLIES`).
+#[derive(Debug, Clone)]
+pub(super) struct HordePlayerRel {
+    pub alliance_team: i32,
+    pub is_alive: bool,
+    pub map_relations: HashMap<u32, gamelogic::common::Relationship>,
+}
+
+
 
 /// Compact probe comparing host authority vs GameWorld shadow.
 #[derive(Debug, Clone, PartialEq, Eq)]

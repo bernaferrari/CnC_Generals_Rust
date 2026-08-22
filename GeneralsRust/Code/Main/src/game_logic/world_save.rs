@@ -72,6 +72,264 @@ impl GameLogic {
         }
     }
 
+    /// C++ `W3DTerrainVisual::load` (`W3DTerrainVisual.cpp:671-678`): map
+    /// objects whose Dict has `scorchType` are `MO_SCORCH` and stamp
+    /// `TheTerrainRenderObject->addScorch(loc, objectRadius, scorchType)`.
+    /// No logic Object is created.
+    fn apply_map_object_scorch(obj: &super::script_loader::PlacedObject) -> bool {
+        use game_engine::common::dict::DictType;
+        use game_engine::common::name_key_generator::NameKeyGenerator;
+
+        let scorch_key = NameKeyGenerator::name_to_key("scorchType");
+        if obj.properties.get_type(scorch_key).is_none() {
+            return false;
+        }
+        let scorch_type = match obj.properties.get_type(scorch_key) {
+            Some(DictType::Int) => obj.properties.get_int(scorch_key),
+            Some(DictType::Real) => obj.properties.get_real(scorch_key) as i32,
+            _ => 0,
+        };
+        let radius_key = NameKeyGenerator::name_to_key("objectRadius");
+        let radius = match obj.properties.get_type(radius_key) {
+            Some(DictType::Real) => obj.properties.get_real(radius_key),
+            Some(DictType::Int) => obj.properties.get_int(radius_key) as f32,
+            _ => 0.0,
+        };
+        let loc = gamelogic::common::Coord3D::new(obj.position.x, obj.position.y, obj.position.z);
+        if let Some(client) = gamelogic::helpers::TheGameClient::get() {
+            client.add_scorch(&loc, radius, scorch_type);
+        }
+        true
+    }
+
+    /// C++ `Object::updateObjValuesFromMapProperties` at live map spawn.
+    /// Leftover already matches C++; call it when a dual-world object exists,
+    /// then stamp the same Dict onto the live host object.
+    fn apply_update_obj_values_from_map_properties(
+        &mut self,
+        id: ObjectId,
+        properties: &game_engine::common::dict::Dict,
+    ) {
+        use game_engine::common::dict::DictType;
+        use game_engine::common::name_key_generator::NameKeyGenerator;
+        use game_engine::common::well_known_keys;
+
+        if properties.get_pair_count() == 0 {
+            return;
+        }
+
+        let _ = gamelogic::object::registry::OBJECT_REGISTRY.with_object_mut(id.0, |obj| {
+            obj.update_obj_values_from_map_properties(properties);
+        });
+
+        let get_bool = |key| {
+            if properties.get_type(key) == Some(DictType::Bool) {
+                Some(properties.get_bool(key))
+            } else {
+                None
+            }
+        };
+        let get_int = |key| {
+            if properties.get_type(key) == Some(DictType::Int) {
+                Some(properties.get_int(key))
+            } else {
+                None
+            }
+        };
+        let get_ascii = |key| {
+            if properties.get_type(key) == Some(DictType::AsciiString) {
+                Some(properties.get_ascii_string(key))
+            } else {
+                None
+            }
+        };
+
+        if let Some(name) = get_ascii(well_known_keys::key_object_name()) {
+            if !name.is_empty() {
+                if let Some(created) = self.objects.get_mut(&id) {
+                    created.name = name;
+                    created.record_host_identity();
+                }
+            }
+        }
+
+        if let Some(max_hps) = get_int(well_known_keys::key_object_max_hps()) {
+            if max_hps >= 0 {
+                if let Some(created) = self.objects.get_mut(&id) {
+                    let new_max = max_hps as f32;
+                    let old_max = created.health.maximum.max(created.max_health).max(1.0);
+                    let ratio = created.health.current / old_max;
+                    created.health.maximum = new_max;
+                    created.max_health = new_max;
+                    created.health.current = (new_max * ratio).clamp(0.0, new_max);
+                    created.record_host_max_health();
+                }
+            }
+        }
+
+        if let Some(initial_health) = get_int(well_known_keys::key_object_initial_health()) {
+            if let Some(created) = self.objects.get_mut(&id) {
+                let initial = created.health.maximum.max(created.max_health);
+                let new_hp = (initial_health as f32 / 100.0) * initial;
+                created.health.current = new_hp.clamp(0.0, created.health.maximum.max(created.max_health));
+            }
+        }
+
+        if let Some(veterancy) = get_int(well_known_keys::key_object_veterancy()) {
+            if let Some(created) = self.objects.get_mut(&id) {
+                if created.is_trainable() {
+                    let level = match veterancy.clamp(0, 3) {
+                        0 => crate::game_logic::VeterancyLevel::Rookie,
+                        1 => crate::game_logic::VeterancyLevel::Veteran,
+                        2 => crate::game_logic::VeterancyLevel::Elite,
+                        _ => crate::game_logic::VeterancyLevel::Heroic,
+                    };
+                    let _ = created.set_min_veterancy_level(level);
+                }
+            }
+        }
+
+        if let Some(attitude) = get_int(well_known_keys::key_object_aggressiveness()) {
+            if let Some(created) = self.objects.get_mut(&id) {
+                created.set_ai_attitude_i8(attitude as i8);
+            }
+        }
+
+        if let Some(selectable) = get_bool(well_known_keys::key_object_selectable()) {
+            if let Some(created) = self.objects.get_mut(&id) {
+                if selectable != created.is_selectable() {
+                    created.set_status_unselectable(!selectable);
+                }
+            }
+        }
+
+        if let Some(enabled) = get_bool(well_known_keys::key_object_enabled()) {
+            if let Some(created) = self.objects.get_mut(&id) {
+                created.set_script_disabled(!enabled);
+            }
+        }
+
+        if let Some(powered) = get_bool(well_known_keys::key_object_powered()) {
+            if let Some(created) = self.objects.get_mut(&id) {
+                created.set_script_underpowered(!powered);
+            }
+        }
+
+        if let Some(indestructible) = get_bool(well_known_keys::key_object_indestructible()) {
+            self.set_object_indestructible(id, indestructible);
+        }
+
+        if let Some(unsellable) = get_bool(well_known_keys::key_object_unsellable()) {
+            if let Some(created) = self.objects.get_mut(&id) {
+                created.set_script_unsellable(unsellable);
+            }
+        }
+
+        if let Some(visual_range) = get_int(well_known_keys::key_object_visual_range()) {
+            if let Some(created) = self.objects.get_mut(&id) {
+                created.vision_range = (visual_range as f32).max(0.0);
+                created.record_host_crush_vision();
+            }
+        }
+
+        if let Some(shroud_range) = get_int(well_known_keys::key_object_shroud_clearing_distance())
+        {
+            if let Some(created) = self.objects.get_mut(&id) {
+                created.shroud_clearing_range = (shroud_range as f32).max(0.0);
+                created.record_host_crush_vision();
+            }
+        }
+
+        let mut grant_upgrades = Vec::new();
+        for upgrade_num in 0.. {
+            let key = NameKeyGenerator::name_to_key(&format!("objectGrantUpgrade{upgrade_num}"));
+            let Some(upgrade_name) = get_ascii(key) else {
+                break;
+            };
+            if upgrade_name.is_empty() {
+                break;
+            }
+            grant_upgrades.push(upgrade_name);
+        }
+        for upgrade_name in grant_upgrades {
+            self.apply_upgrade_to_object(id, &upgrade_name);
+        }
+
+        if let Some(time_val) = get_int(well_known_keys::key_object_time()) {
+            let night_b = crate::game_logic::host_enum_table_residual::night_model_bit();
+            if let Some(created) = self.objects.get_mut(&id) {
+                match time_val {
+                    1 => created.model_condition_bits &= !(1u128 << night_b),
+                    2 => created.model_condition_bits |= 1u128 << night_b,
+                    _ => {}
+                }
+            }
+        }
+
+        if let Some(weather_val) = get_int(well_known_keys::key_object_weather()) {
+            self.apply_spawned_object_weather(id, weather_val);
+        }
+
+        let mut sound_enabled_exists = false;
+        let mut sound_enabled = false;
+        if let Some(enabled) = get_bool(well_known_keys::key_object_sound_ambient_enabled()) {
+            sound_enabled_exists = true;
+            sound_enabled = enabled;
+        }
+
+        let custom_ambient = get_ascii(well_known_keys::key_object_sound_ambient());
+        if let Some(sound_name) = &custom_ambient {
+            if sound_name.is_empty() {
+                sound_enabled_exists = true;
+                sound_enabled = false;
+            } else if !sound_enabled_exists {
+                // C++ defaults to isPermanentSound(); map-custom names are loops.
+                sound_enabled_exists = true;
+                sound_enabled = true;
+            }
+        }
+
+        if let Some(sound_name) = &custom_ambient {
+            if sound_name.is_empty() {
+                self.stop_ambient_sound(id);
+                if let Some(created) = self.objects.get_mut(&id) {
+                    created.ambient_audio = None;
+                    created.ambient_sound_enabled_from_script = false;
+                }
+            } else if sound_enabled {
+                let pos = self.objects.get(&id).map(|o| o.get_position());
+                if let Some(created) = self.objects.get_mut(&id) {
+                    created.ambient_sound_enabled_from_script = true;
+                    created.ambient_audio = Some(sound_name.clone());
+                }
+                if let Some(pos) = pos {
+                    self.queue_audio_event(
+                        crate::game_logic::AudioEventRequest::new(sound_name)
+                            .with_object(id)
+                            .with_position(pos)
+                            .with_priority(80)
+                            .looping(),
+                    );
+                }
+            } else {
+                self.stop_ambient_sound(id);
+                if let Some(created) = self.objects.get_mut(&id) {
+                    created.ambient_sound_enabled_from_script = false;
+                    created.ambient_audio = Some(sound_name.clone());
+                }
+            }
+        } else if sound_enabled_exists {
+            if let Some(created) = self.objects.get_mut(&id) {
+                created.ambient_sound_enabled_from_script = sound_enabled;
+            }
+            if sound_enabled {
+                self.start_ambient_sound(id);
+            } else {
+                self.stop_ambient_sound(id);
+            }
+        }
+    }
+
 
     pub fn set_weather_visible(&mut self, visible: bool) {
         self.weather_state.visible = visible;
@@ -1973,7 +2231,7 @@ impl GameLogic {
         self.last_map_settings.clone()
     }
 
-    /// Player_N_Start spots already decoded with map settings.
+    /// Player_N_Start / Player_N_Rally spots already decoded with map settings.
     /// Avoids a second RefPack decode of the same `.map` during spawn.
     pub(crate) fn cached_player_start_waypoints(
         &self,
@@ -1983,7 +2241,10 @@ impl GameLogic {
         if meta.start_waypoints.is_empty() {
             return None;
         }
-        let mut starts = Vec::new();
+        let mut starts: std::collections::HashMap<u32, gamelogic::scripting::core::Coord3D> =
+            std::collections::HashMap::new();
+        let mut rallies: std::collections::HashMap<u32, gamelogic::scripting::core::Coord3D> =
+            std::collections::HashMap::new();
         for (name, pos) in &meta.start_waypoints {
             let lower = name.trim().to_ascii_lowercase();
             let Some(rest) = lower.strip_prefix("player_") else {
@@ -1992,20 +2253,68 @@ impl GameLogic {
             let Some((num, kind)) = rest.split_once('_') else {
                 continue;
             };
-            if !kind.starts_with("start") {
+            let Ok(idx1) = num.parse::<u32>() else {
+                continue;
+            };
+            if idx1 < 1 {
                 continue;
             }
-            if let Ok(idx1) = num.parse::<u32>() {
-                if idx1 >= 1 {
-                    starts.push((idx1 - 1, *pos, None));
-                }
+            let idx0 = idx1 - 1;
+            if kind.starts_with("start") {
+                starts.insert(idx0, *pos);
+            } else if kind.starts_with("rally") {
+                rallies.insert(idx0, *pos);
             }
         }
         if starts.is_empty() {
-            None
-        } else {
-            Some(starts)
+            return None;
         }
+        let mut keys: Vec<u32> = starts.keys().copied().collect();
+        keys.sort_unstable();
+        Some(
+            keys.into_iter()
+                .map(|k| (k, starts[&k], rallies.get(&k).copied()))
+                .collect(),
+        )
+    }
+
+    /// C++ `findNamedWaypoint` (`GameLogic.cpp:160`) + `getGroundHeight`.
+    pub(crate) fn leftover_named_waypoint_host_pos(name: &str) -> Option<Vec3> {
+        let wp_name = gamelogic::common::AsciiString::from(name);
+        let loc = gamelogic::terrain::get_terrain_logic()
+            .read()
+            .ok()
+            .and_then(|terrain| {
+                terrain
+                    .get_waypoint_by_name(&wp_name)
+                    .map(|wp| *wp.get_location())
+            })?;
+        let mut pos = Vec3::new(loc.x, loc.z, loc.y);
+        if let Ok(tl) = gamelogic::terrain::get_terrain_logic().read() {
+            pos.y = tl.get_ground_height(pos.x, pos.z, None);
+        }
+        Some(pos)
+    }
+
+    /// C++ `placeNetworkBuildingsForPlayer` `Player_%d_Rally` (1-based start pos).
+    /// Leftover TerrainLogic first; parsed map cache if leftover is empty.
+    pub(crate) fn player_rally_spawn_pos(&self, start_idx0: u32) -> Option<Vec3> {
+        let name = format!("Player_{}_Rally", start_idx0 + 1);
+        if let Some(pos) = Self::leftover_named_waypoint_host_pos(&name) {
+            return Some(pos);
+        }
+        let starts = self.cached_player_start_waypoints().or_else(|| {
+            super::script_loader::parse_player_start_waypoints(&self.map_name).ok()
+        })?;
+        let wp = starts
+            .iter()
+            .find(|(idx, _, _)| *idx == start_idx0)
+            .and_then(|(_, _, rally)| *rally)?;
+        let mut pos = Vec3::new(wp.x, wp.z, wp.y);
+        if let Some(h) = self.terrain_height_at(Vec3::new(pos.x, 0.0, pos.z)) {
+            pos.y = h;
+        }
+        Some(pos)
     }
 
     pub fn is_skybox_enabled(&self) -> bool {
@@ -2128,6 +2437,12 @@ impl GameLogic {
         if asset_template_count > 0 {
             log::info!(
                 "Seeded {asset_template_count} missing templates from resolved retail Object INI data"
+            );
+        }
+        let leftover_object_overrides = self.apply_all_leftover_object_create_overrides();
+        if leftover_object_overrides > 0 {
+            log::info!(
+                "Applied {leftover_object_overrides} leftover map.ini Object CREATE_OVERRIDES to live catalog"
             );
         }
         self.create_default_players();
@@ -3431,6 +3746,10 @@ impl GameLogic {
                                 let t = (index as f32 / total_objects).clamp(0.0, 1.0);
                                 report_progress(0.58 + t * 0.20, "Spawning world objects");
                             }
+                            if Self::apply_map_object_scorch(obj) {
+                                continue;
+                            }
+
                             let team = obj
                                 .team_name
                                 .as_deref()
@@ -3481,6 +3800,10 @@ impl GameLogic {
                                     self.activate_leftover_team_for_host_object(id);
                                 }
                                 spawned_object_ids.push((id, index));
+                                self.apply_update_obj_values_from_map_properties(
+                                    id,
+                                    &obj.properties,
+                                );
                                 if obj.unsellable == Some(true) {
                                     if let Some(created) = self.objects.get_mut(&id) {
                                         created.set_script_unsellable(true);

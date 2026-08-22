@@ -698,7 +698,7 @@ impl Player {
     pub fn add_skill_points(&mut self, points: i32) -> bool {
         self.add_skill_points_limited(
             points,
-            crate::game_logic::host_rank_ui_residual::RANK_LEVEL_LIMIT_DEFAULT_RESIDUAL,
+            gamelogic::helpers::TheGameLogic::get_rank_level_limit(),
         )
     }
 
@@ -767,15 +767,15 @@ impl Player {
     pub fn set_rank_level(&mut self, new_level: u32) -> bool {
         use crate::game_logic::host_rank_ui_residual::{
             set_rank_level_residual, rank_level_down_threshold_residual,
-            rank_level_up_threshold_residual, RANK_LEVEL_LIMIT_DEFAULT_RESIDUAL,
-            RankSkillStateResidual,
+            rank_level_up_threshold_residual, RankSkillStateResidual,
         };
         use crate::game_logic::host_science_rank::{
             retail_rank_for_level, RETAIL_RANK_COUNT,
         };
 
+        let limit = gamelogic::helpers::TheGameLogic::get_rank_level_limit().max(1) as u32;
         let old = self.rank_level.max(1);
-        let target = new_level.max(1).min(RETAIL_RANK_COUNT);
+        let target = new_level.max(1).min(RETAIL_RANK_COUNT).min(limit);
         if target == old {
             return false;
         }
@@ -793,8 +793,7 @@ impl Player {
             level_up: rank_level_up_threshold_residual(climb_from),
             level_down: rank_level_down_threshold_residual(climb_from),
         };
-        let new_state =
-            set_rank_level_residual(state, target, RANK_LEVEL_LIMIT_DEFAULT_RESIDUAL);
+        let new_state = set_rank_level_residual(state, target, limit as i32);
         self.rank_level = new_state.rank_level;
         self.skill_points = new_state.skill_points;
         self.science_purchase_points = new_state.science_purchase_points;

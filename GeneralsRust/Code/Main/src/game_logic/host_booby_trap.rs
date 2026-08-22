@@ -80,11 +80,9 @@ pub const BOOBY_PREPARATION_TIME_MS: u32 = 0;
 
 /// Residual plant audio (StickyBombCreated / InitiateSound residual).
 pub const BOOBY_TRAP_INSTALL_AUDIO: &str = "BoobyTrapInstall";
-/// Residual detonation audio / FX residual cue.
-pub const BOOBY_TRAP_DETONATE_AUDIO: &str = "FX_BoobyTrapExplosion";
 /// Retail GeometryBasedDamageWeapon residual.
 pub const BOOBY_GEOMETRY_DAMAGE_WEAPON: &str = "BoobyTrapDetonationWeapon";
-/// Retail GeometryBasedDamageFX residual.
+/// Retail GeometryBasedDamageFX — C++ `FXList::doFXPos`, never an audio event.
 pub const BOOBY_GEOMETRY_DAMAGE_FX: &str = "FX_BoobyTrapExplosion";
 
 /// Retail Upgrade BuildCost residual.
@@ -356,14 +354,17 @@ pub fn distance_2d(ax: f32, az: f32, bx: f32, bz: f32) -> f32 {
     (dx * dx + dz * dz).sqrt()
 }
 
-/// Legal residual detonation victim (alive combat kind; not structure self when dead-path).
+/// Legal residual detonation victim (alive combat kind).
+///
+/// C++ `StickyBombUpdate::detonate` applies the geometry weapon to every
+/// `FROM_BOUNDINGSPHERE_3D` object, including the trapped structure at dist 0
+/// (primary ring). Leftover `sticky_bomb_update.rs` already matches.
 pub fn is_legal_booby_victim(
     is_alive: bool,
-    is_structure_self: bool,
     under_construction: bool,
     combat_kind: bool,
 ) -> bool {
-    is_alive && !is_structure_self && !under_construction && combat_kind
+    is_alive && !under_construction && combat_kind
 }
 
 /// Whether trigger unit is an ally of planter (should NOT detonate).
@@ -402,7 +403,7 @@ pub fn honesty_booby_trap_weapon_residual_ok() -> bool {
         && BOOBY_DEATH_TYPE == "EXPLODED"
         && BOOBY_GEOMETRY_DAMAGE_WEAPON == "BoobyTrapDetonationWeapon"
         && BOOBY_GEOMETRY_DAMAGE_FX == "FX_BoobyTrapExplosion"
-        && BOOBY_TRAP_DETONATE_AUDIO == "FX_BoobyTrapExplosion"
+        && BOOBY_GEOMETRY_DAMAGE_FX != BOOBY_TRAP_INSTALL_AUDIO
 }
 
 pub fn honesty_booby_trap_ability_residual_ok() -> bool {
