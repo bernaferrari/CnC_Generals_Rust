@@ -248,6 +248,15 @@ impl Object {
         self.status.disabled_held = v;
     }
 
+    /// C++ OBJECT_STATUS_MISSILE_KILLING_SELF residual.
+    pub fn set_status_missile_killing_self(&mut self, v: bool) {
+        self.status.missile_killing_self = v;
+    }
+
+    pub fn is_missile_killing_self(&self) -> bool {
+        self.status.missile_killing_self
+    }
+
     pub fn is_script_disabled(&self) -> bool {
         self.status.disabled_script_disabled
     }

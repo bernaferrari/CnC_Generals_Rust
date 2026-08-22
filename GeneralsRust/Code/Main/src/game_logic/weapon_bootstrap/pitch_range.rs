@@ -196,6 +196,33 @@ pub fn compute_approach_target_pos(
     )
 }
 
+/// C++ `Weapon::isGoalPosWithinAttackRange` (Weapon.cpp:2241-2287).
+/// 2D bounding-sphere distance, −¼ cell on max / +¼ cell on min.
+pub fn is_goal_pos_within_attack_range(
+    goal: glam::Vec3,
+    target: glam::Vec3,
+    attack_range: f32,
+    min_range: f32,
+    source_radius: f32,
+    target_radius: f32,
+) -> bool {
+    let dx = goal.x - target.x;
+    let dz = goal.z - target.z;
+    let center = (dx * dx + dz * dz).sqrt();
+    let dist = (center - source_radius - target_radius).max(0.0);
+    let fudge = PATHFIND_CELL_SIZE * 0.25;
+    let max_r = attack_range - fudge;
+    if max_r <= 0.0 {
+        return false;
+    }
+    let min_r = min_range + fudge;
+    if dist * dist < min_r * min_r {
+        return false;
+    }
+    dist * dist <= max_r * max_r
+}
+
+
 pub fn host_continue_attack_range_for_weapon_name(name: &str) -> f32 {
     use gamelogic::weapon::with_weapon_store;
     let _ = ensure_host_weapon_store();

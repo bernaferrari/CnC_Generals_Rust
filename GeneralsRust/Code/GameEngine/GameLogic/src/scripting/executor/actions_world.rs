@@ -1215,6 +1215,7 @@ impl ScriptActionDispatcher {
             player_name,
             delay_seconds
         );
+        super::request_host_set_base_construction_speed(&player_name, delay_seconds);
 
         if let Ok(list_guard) = player_list().read() {
             if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {

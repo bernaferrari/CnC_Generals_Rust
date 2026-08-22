@@ -498,28 +498,22 @@ impl<'a> CommandExecutor<'a> {
         target: &GuardTarget,
         mode: crate::game_logic::GuardMode,
     ) -> CommandResult {
-        // Wave 232: guard last-writes via GameLogic unit_command_guard_full.
-        // C++ AIGroup::groupGuardPosition/Object — only units with AI/move;
-        // guard radius residual ≈ adjusted vision (getStdGuardRange).
+        // C++ AIGroup::groupGuardPosition/Object — leftover AI interface only.
+        // Structures/turrets/stunned still scan; no canMove/Immobile/Structure gate.
         const GUARD_MIN_RADIUS: f32 = 80.0;
         let mut any = false;
         for &unit_id in units {
-            let (can, vision, weapon_r) = match self.game_logic.host_object(unit_id) {
-                Some(unit)
-                    if unit.is_alive()
-                        && unit.can_move()
-                        && !unit.is_kind_of(crate::game_logic::KindOf::Immobile)
-                        && !unit.is_kind_of(crate::game_logic::KindOf::Structure) =>
-                {
+            let (can, vision, weapon_r, movable) = match self.game_logic.host_object(unit_id) {
+                Some(unit) if self.game_logic.host_unit_can_guard(unit_id) => {
                     let wr = unit
                         .weapon
                         .as_ref()
                         .map(|w| w.range)
                         .or_else(|| unit.secondary_weapon.as_ref().map(|w| w.range))
                         .unwrap_or(0.0);
-                    (true, unit.vision_range, wr)
+                    (true, unit.vision_range, wr, unit.can_move())
                 }
-                _ => (false, 0.0, 0.0),
+                _ => (false, 0.0, 0.0, false),
             };
             if !can {
                 continue;
@@ -557,13 +551,16 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
 
-            match target {
-                GuardTarget::Position(pos) => {
-                    let _ = self.path_to_goal_with_state(unit_id, *pos, AIState::GuardingArea);
-                }
-                GuardTarget::Object(_) => {
-                    if let Some(pos) = target_pos {
-                        let _ = self.path_to_goal_with_state(unit_id, pos, AIState::GuardingObject);
+            if movable {
+                match target {
+                    GuardTarget::Position(pos) => {
+                        let _ = self.path_to_goal_with_state(unit_id, *pos, AIState::GuardingArea);
+                    }
+                    GuardTarget::Object(_) => {
+                        if let Some(pos) = target_pos {
+                            let _ =
+                                self.path_to_goal_with_state(unit_id, pos, AIState::GuardingObject);
+                        }
                     }
                 }
             }

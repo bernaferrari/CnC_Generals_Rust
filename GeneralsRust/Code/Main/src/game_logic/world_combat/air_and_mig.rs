@@ -120,8 +120,12 @@ impl GameLogic {
     }
 
     pub fn update_stealth_jet_missile_projectiles(&mut self) {
+        use crate::game_logic::host_bunker_buster::{
+            should_play_crash_through_fx, BUNKER_BUSTER_CRASH_THROUGH_FX,
+        };
         use crate::game_logic::host_stealth_fighter::{
-            STEALTH_FIGHTER_PROJECTILE_SPEED, STEALTH_MISSILE_INITIAL_VELOCITY,
+            STEALTH_FIGHTER_PROJECTILE_SPEED, STEALTH_JET_MISSILE_KILL_SELF_DELAY_FRAMES,
+            STEALTH_MISSILE_INITIAL_VELOCITY,
         };
         let frame = self.frame;
         let launch = STEALTH_MISSILE_INITIAL_VELOCITY / 30.0;
@@ -139,7 +143,41 @@ impl GameLogic {
             .collect();
         let mut impact: Vec<(ObjectId, Option<ObjectId>, Option<ObjectId>, glam::Vec3)> =
             Vec::new();
+        let mut crash_fx: Vec<ObjectId> = Vec::new();
         for id in flying {
+            // C++ MissileAIUpdate::detonate → KILL_SELF + MISSILE_KILLING_SELF.
+            // BunkerBusterBehavior::update plays CrashThroughBunkerFX on the missile
+            // every CrashThroughBunkerFXFrequency frames; bustTheBunker/DetonationFX
+            // run when DetonateCallsKill kill() fires after KillSelfDelay.
+            if self
+                .objects
+                .get(&id)
+                .map(|o| o.is_missile_killing_self())
+                .unwrap_or(false)
+            {
+                if should_play_crash_through_fx(frame, true) {
+                    crash_fx.push(id);
+                }
+                let (source, intended, pos, done) = {
+                    let Some(o) = self.objects.get(&id) else {
+                        continue;
+                    };
+                    let intended = o.stealth_jet_missile_intended.map(ObjectId);
+                    let pos = o
+                        .stealth_jet_missile_aim
+                        .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
+                        .unwrap_or_else(|| o.get_position());
+                    let done = o
+                        .stealth_jet_missile_expires_frame
+                        .map(|f| f <= frame)
+                        .unwrap_or(true);
+                    (o.producer_id, intended, pos, done)
+                };
+                if done {
+                    impact.push((id, source, intended, pos));
+                }
+                continue;
+            }
             let (source, intended, aim, pos, fuel_done, ignited, kill_self) = {
                 let Some(o) = self.objects.get(&id) else {
                     continue;
@@ -199,8 +237,21 @@ impl GameLogic {
             }
             let near = dist <= speed + 0.001 || (aim - new_pos).length() < 8.0;
             if fuel_done || kill_self || near {
-                impact.push((id, source, intended, aim));
+                if let Some(o) = self.objects.get_mut(&id) {
+                    o.set_status_missile_killing_self(true);
+                    o.set_status_no_collisions(true);
+                    o.stealth_jet_missile_expires_frame =
+                        Some(frame.saturating_add(STEALTH_JET_MISSILE_KILL_SELF_DELAY_FRAMES));
+                    o.set_position(aim);
+                    o.stealth_jet_missile_aim = Some([aim.x, aim.y, aim.z]);
+                }
+                if should_play_crash_through_fx(frame, true) {
+                    crash_fx.push(id);
+                }
             }
+        }
+        for id in crash_fx {
+            let _ = self.dispatch_fx_list_at_host_object(BUNKER_BUSTER_CRASH_THROUGH_FX, id, None);
         }
         for (id, source, intended, pos) in impact {
             let team = self.objects.get(&id).map(|o| o.team);

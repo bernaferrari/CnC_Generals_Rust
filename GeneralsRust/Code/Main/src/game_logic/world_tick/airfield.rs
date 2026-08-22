@@ -411,6 +411,11 @@ impl GameLogic {
 
     /// C++ PauseBeforeTakeoff after TAXI_TO_TAKEOFF reaches runwayStart.
     fn begin_pause_after_taxi_to_runway(&mut self, jet_id: ObjectId) {
+        let producer = self.objects.get(&jet_id).and_then(|j| j.producer_id);
+        let approach_y = producer.and_then(|pid| {
+            self.calc_airfield_pp_info(pid, jet_id)
+                .map(|info| info.runway_approach.y)
+        });
         let (waited, end, dist) = {
             let Some(jet) = self.objects.get_mut(&jet_id) else {
                 return;
@@ -424,10 +429,15 @@ impl GameLogic {
                 .takeoff_runway_end
                 .map(|p| glam::Vec3::new(p[0], p[1], p[2]));
             let dist = jet.jet_ai.takeoff_runway_dist.max(1.0);
-            let Some(end) = end else {
+            let Some(mut end) = end else {
                 jet.jet_ai.taxi_to_takeoff = false;
                 return;
             };
+            // C++ JetTakeoffOrLandingState::onEnter takeoff:
+            // ppinfo.runwayEnd.z = ppinfo.runwayApproach.z (JetAIUpdate.cpp:774).
+            if let Some(y) = approach_y {
+                end.y = y;
+            }
             jet.jet_ai.taxi_to_takeoff = false;
             jet.begin_jet_runway_takeoff(self.frame, end, dist, waited);
             (waited, end, dist)
@@ -639,8 +649,8 @@ impl GameLogic {
         );
         if let Some(jet) = self.objects.get_mut(&jet_id) {
             jet.status.airborne_target = true;
-            // C++ Chinook/Jet takeoff-or-landing ULTRA_ACCURATE.
-            jet.set_ultra_accurate(true);
+            // C++ HeliTakeoffOrLandingState::onEnter (JetAIUpdate.cpp:975-976).
+            jet.set_precise_z_and_ultra_accurate(true);
             jet.set_ai_state(AIState::Moving);
             jet.set_status_moving(true);
             jet.movement.path.clear();
@@ -697,7 +707,7 @@ impl GameLogic {
                     self.finish_helipad_landing(jet_id, next.airfield_id, next.path[1]);
                 } else if let Some(jet) = self.objects.get_mut(&jet_id) {
                     jet.set_ai_state(AIState::Idle);
-                    jet.set_ultra_accurate(false);
+                    jet.set_precise_z_and_ultra_accurate(false);
                     jet.status.airborne_target = true;
                     jet.set_status_moving(false);
                     jet.movement.path.clear();
@@ -740,7 +750,7 @@ impl GameLogic {
             jet.set_contained_by(Some(airfield_id));
             jet.set_ai_state(AIState::Docked);
             jet.set_status_moving(false);
-            jet.set_ultra_accurate(false);
+            jet.set_precise_z_and_ultra_accurate(false);
             jet.status.airborne_target = false;
             jet.target = None;
             jet.movement.path.clear();
@@ -2307,8 +2317,11 @@ impl GameLogic {
         if let Some(jet) = self.objects.get_mut(&jet_id) {
             jet.set_contained_by(None);
             jet.status.airborne_target = false;
-            jet.set_ultra_accurate(true);
+            // C++ JetOrHeliTaxiState::onEnter: chooseLocomotorSet then
+            // setUsePreciseZPos + setUltraAccurate (JetAIUpdate.cpp:615-616).
+            // Bind first — apply_host_locomotor_binding clears both flags.
             jet.apply_taxiing_locomotor_set();
+            jet.set_precise_z_and_ultra_accurate(true);
         }
         if let Some(af_id) = af_hint {
             self.sync_airfield_hangar_doors(af_id);
@@ -2594,6 +2607,8 @@ impl GameLogic {
                 jet.jet_ai.landing_in_progress = false;
                 jet.status.airborne_target = false;
                 jet.apply_taxiing_locomotor_set();
+                // C++ JetOrHeliTaxiState::onEnter (JetAIUpdate.cpp:615-616).
+                jet.set_precise_z_and_ultra_accurate(true);
                 jet.target = None;
                 jet.set_status_attacking(false);
             }
@@ -2630,6 +2645,8 @@ impl GameLogic {
             jet.jet_ai.rtb_landing_phase = crate::game_logic::object::JET_RTB_PHASE_LANDING;
             jet.jet_ai.landing_in_progress = true;
             jet.apply_airborne_locomotor_set();
+            // C++ JetTakeoffOrLandingState::onEnter (JetAIUpdate.cpp:725-726).
+            jet.set_precise_z_and_ultra_accurate(true);
             // C++ JetTakeoffOrLandingState::onEnter landing: setMaxSpeed(getMinSpeed()).
             if jet.min_speed > 0.0 {
                 jet.movement.max_speed = jet.min_speed;
@@ -2684,6 +2701,8 @@ impl GameLogic {
             jet.jet_ai.landing_in_progress = false;
             jet.jet_ai.rtb_landing_phase = 0;
             jet.apply_taxiing_locomotor_set();
+            // C++ JetOrHeliTaxiState / JetTakeoffOrLandingState::onExit.
+            jet.set_precise_z_and_ultra_accurate(false);
             jet.target = None;
             jet.movement.path.clear();
             jet.movement.current_path_index = 0;

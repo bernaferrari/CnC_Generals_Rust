@@ -551,6 +551,9 @@ pub struct ObjectStatus {
     /// C++ DISABLED_HELD (Battle Bus second-life hulk / contain freeze).
     #[serde(default)]
     pub disabled_held: bool,
+    /// C++ OBJECT_STATUS_MISSILE_KILLING_SELF (MissileAIUpdate::detonate → KillSelf).
+    #[serde(default)]
+    pub missile_killing_self: bool,
 
 }
 

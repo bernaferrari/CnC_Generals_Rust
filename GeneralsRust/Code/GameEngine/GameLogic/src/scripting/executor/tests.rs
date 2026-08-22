@@ -5700,6 +5700,149 @@ fn skirmish_approach_and_defense_host_queues_roundtrip() {
     assert!(take_host_skirmish_base_defense_requests().is_empty());
 }
 
+#[test]
+fn set_base_construction_speed_queues_host() {
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    let _ = take_host_set_base_construction_speed_requests();
+    let mut action = ScriptAction::new(ScriptActionType::SetBaseConstructionSpeed);
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Side,
+            "PlyrAmerica".into(),
+        ))
+        .unwrap();
+    action
+        .add_parameter(Parameter::with_int(ParameterType::Int, 3))
+        .unwrap();
+    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    assert_eq!(
+        dispatcher.execute_action(&action).unwrap(),
+        ScriptActionResult::Success
+    );
+    assert_eq!(
+        take_host_set_base_construction_speed_requests(),
+        vec![("PlyrAmerica".to_string(), 3)]
+    );
+}
+
+#[test]
+fn set_train_held_queues_host() {
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    let _ = take_host_set_train_held_requests();
+    let mut action = ScriptAction::new(ScriptActionType::SetTrainHeld);
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Unit,
+            "CivilianTrain".into(),
+        ))
+        .unwrap();
+    action
+        .add_parameter(Parameter::with_int(ParameterType::Int, 1))
+        .unwrap();
+    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    assert_eq!(
+        dispatcher.execute_action(&action).unwrap(),
+        ScriptActionResult::Success
+    );
+    assert_eq!(
+        take_host_set_train_held_requests(),
+        vec![("CivilianTrain".to_string(), true)]
+    );
+}
+
+#[test]
+fn team_nearest_and_partial_command_button_queue_host_when_dual_world_empty() {
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    let _ = take_host_script_use_command_button_requests();
+    let _ = take_host_team_partial_command_button_requests();
+    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+
+    let mut nearest = ScriptAction::new(ScriptActionType::TeamAllUseCommandbuttonOnNearestEnemyUnit);
+    nearest
+        .add_parameter(Parameter::with_string(
+            ParameterType::Team,
+            "teamAmerica".into(),
+        ))
+        .unwrap();
+    nearest
+        .add_parameter(Parameter::with_string(
+            ParameterType::CommandButton,
+            "Command_Stop".into(),
+        ))
+        .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&nearest).unwrap(),
+        ScriptActionResult::Success
+    );
+
+    let mut kindof = ScriptAction::new(ScriptActionType::TeamAllUseCommandbuttonOnNearestKindof);
+    kindof
+        .add_parameter(Parameter::with_string(
+            ParameterType::Team,
+            "teamAmerica".into(),
+        ))
+        .unwrap();
+    kindof
+        .add_parameter(Parameter::with_string(
+            ParameterType::CommandButton,
+            "Command_Hijack".into(),
+        ))
+        .unwrap();
+    kindof
+        .add_parameter(Parameter::with_string(
+            ParameterType::KindOfParam,
+            "VEHICLE".into(),
+        ))
+        .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&kindof).unwrap(),
+        ScriptActionResult::Success
+    );
+
+    let mut partial = ScriptAction::new(ScriptActionType::TeamPartialUseCommandbutton);
+    partial
+        .add_parameter(Parameter::with_real(ParameterType::Real, 50.0))
+        .unwrap();
+    partial
+        .add_parameter(Parameter::with_string(
+            ParameterType::Team,
+            "teamAmerica".into(),
+        ))
+        .unwrap();
+    partial
+        .add_parameter(Parameter::with_string(
+            ParameterType::CommandButton,
+            "Command_Stop".into(),
+        ))
+        .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&partial).unwrap(),
+        ScriptActionResult::Success
+    );
+
+    let queued = take_host_script_use_command_button_requests();
+    assert!(
+        queued.contains(&HostScriptUseCommandButtonRequest::TeamOnNearestEnemy {
+            team: "teamAmerica".into(),
+            button: "Command_Stop".into(),
+        })
+    );
+    assert!(queued.contains(
+        &HostScriptUseCommandButtonRequest::TeamOnNearestKindof {
+            team: "teamAmerica".into(),
+            button: "Command_Hijack".into(),
+            kindof: "VEHICLE".into(),
+        }
+    ));
+    let partials = take_host_team_partial_command_button_requests();
+    assert_eq!(partials.len(), 1);
+    assert_eq!(partials[0].team, "teamAmerica");
+    assert_eq!(partials[0].button, "Command_Stop");
+    assert!((partials[0].percentage - 50.0).abs() < f32::EPSILON);
+}
+
+
+
 
 
 

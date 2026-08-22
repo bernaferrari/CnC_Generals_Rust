@@ -837,6 +837,7 @@ impl GameLogic {
                 _ => team != victim_team && team != Team::Neutral && victim_team != Team::Neutral,
             };
             let score_counts = self.score_the_kill_victim_counts(destroyed_object);
+            let scoring_enabled = gamelogic::helpers::TheGameLogic::is_scoring_enabled();
             let counts_destroyed_building =
                 Self::live_score_counts_as_building_destroy(destroyed_object);
             let counts_destroyed_unit = Self::live_score_counts_as_unit_destroy(destroyed_object);
@@ -852,7 +853,7 @@ impl GameLogic {
                     && !self_kill
                     && (counts_destroyed_building || counts_destroyed_unit);
                 if let Some(player) = self.players.get_mut(&player_id) {
-                    if record_destroyed {
+                    if record_destroyed && scoring_enabled {
                         if counts_destroyed_building {
                             player.record_structure_destroyed();
                         } else if counts_destroyed_unit {
@@ -900,10 +901,12 @@ impl GameLogic {
                     let counts_lost_building = counts_destroyed_building;
                     let counts_lost_unit = counts_destroyed_unit;
                     if let Some(player) = self.players.get_mut(&player_id) {
-                        if counts_lost_building {
-                            player.record_structure_lost();
-                        } else if counts_lost_unit {
-                            player.record_unit_lost();
+                        if scoring_enabled {
+                            if counts_lost_building {
+                                player.record_structure_lost();
+                            } else if counts_lost_unit {
+                                player.record_unit_lost();
+                            }
                         }
                     }
                     if counts_lost_building || counts_lost_unit {
@@ -930,25 +933,28 @@ impl GameLogic {
         victim.team != Team::Neutral
     }
 
-    /// C++ Player::isPlayableSide — America/China/GLA, not Civilian/Observer.
+    /// C++ `Player::isPlayableSide` — `PlayerTemplate::m_playableSide` only.
+    /// Slot display names are never consulted.
     pub(in super::super) fn player_is_playable_side(&self, player_id: u32) -> bool {
         let Some(player) = self.players.get(&player_id) else {
             return false;
         };
-        if player.team == Team::Neutral {
-            return false;
+        if let Some(template) = self.resolved_player_template(player_id) {
+            return template.is_playable_side();
         }
         if let Some(ident) = self.player_template_identity(player_id) {
-            let n = ident.template_name.to_ascii_lowercase();
-            if n.contains("civilian") || n.contains("observer") {
-                return false;
-            }
+            return crate::game_logic::host_faction_skirmish_residual::find_player_template_residual(
+                &ident.template_name,
+            )
+            .map(|residual| residual.playable)
+            .unwrap_or(false);
         }
-        let name = player.name.to_ascii_lowercase();
-        if name.contains("observer") || name.contains("civilian") {
-            return false;
+        // Unbound host slot: C++ `Player::init` always has a template.
+        // FactionAmerica/China/GLA are PlayableSide=Yes; Civilian is No.
+        match player.team {
+            Team::USA | Team::China | Team::GLA => true,
+            Team::Neutral => false,
         }
-        true
     }
 
     /// Set cash bounty percent on a player (residual / tests).
@@ -1451,7 +1457,9 @@ mod tests {
         logic.add_player(gla);
 
         let mut tank = ThingTemplate::new("ScoreTank");
-        tank.add_kind_of(KindOf::Vehicle).set_health(10.0);
+        tank.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Score)
+            .set_health(10.0);
         logic.templates.insert("ScoreTank".into(), tank);
         let mut decoy = ThingTemplate::new("ScoreDecoy");
         decoy
@@ -1512,6 +1520,163 @@ mod tests {
         logic.process_destroy_list();
         assert_eq!(logic.get_player(0).unwrap().statistics.units_destroyed, 1);
         assert_eq!(logic.get_player(2).unwrap().statistics.units_lost, gla_lost);
+    }
+
+    fn bind_score_template_identity(logic: &mut GameLogic, player_id: u32, template_name: &str) {
+        logic.player_template_bindings.insert(
+            player_id,
+            PlayerTemplateIdentity {
+                template_name: template_name.to_string(),
+                template_index: None,
+            },
+        );
+    }
+
+    fn insert_score_unit_template(logic: &mut GameLogic, name: &str, cost: u32, skill: i32) {
+        let mut tank = ThingTemplate::new(name);
+        tank.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Score)
+            .set_health(10.0);
+        tank.build_cost.supplies = cost;
+        tank.experience_value = skill as f32;
+        tank.experience_values = [skill as f32; 4];
+        tank.skill_point_values = [skill; 4];
+        logic.templates.insert(name.into(), tank);
+    }
+
+    #[test]
+    fn score_the_kill_playable_side_uses_player_template_not_name() {
+        // hq-yzafi: C++ Player::isPlayableSide is PlayerTemplate.PlayableSide only.
+        let mut logic = GameLogic::new();
+        let mut usa = Player::new(0, Team::USA, "Civilian", true);
+        usa.alliance_team = 1;
+        usa.cash_bounty_percent = 0.20;
+        logic.add_player(usa);
+        bind_score_template_identity(&mut logic, 0, "FactionAmerica");
+        let mut gla = Player::new(2, Team::GLA, "Bob", false);
+        gla.alliance_team = 2;
+        gla.cash_bounty_percent = 0.20;
+        logic.add_player(gla);
+        bind_score_template_identity(&mut logic, 2, "FactionCivilian");
+
+        assert!(
+            logic.player_is_playable_side(0),
+            "playable FactionAmerica slot named Civilian must still count"
+        );
+        assert!(
+            !logic.player_is_playable_side(2),
+            "FactionCivilian PlayableSide=No must not count even if name is Bob"
+        );
+
+        insert_score_unit_template(&mut logic, "ScoreSideTank", 500, 25);
+        let gla_killer = logic
+            .create_object("ScoreSideTank", Team::GLA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("gla killer");
+        let usa_victim = logic
+            .create_object("ScoreSideTank", Team::USA, glam::Vec3::new(10.0, 0.0, 0.0))
+            .expect("usa victim");
+        let usa_killer = logic
+            .create_object("ScoreSideTank", Team::USA, glam::Vec3::new(20.0, 0.0, 0.0))
+            .expect("usa killer");
+        let gla_victim = logic
+            .create_object("ScoreSideTank", Team::GLA, glam::Vec3::new(30.0, 0.0, 0.0))
+            .expect("gla victim");
+
+        if let Some(v) = logic.host_object_mut(usa_victim) {
+            v.last_damage_source = Some(gla_killer);
+        }
+        logic.mark_object_for_destruction(usa_victim, Some(Team::GLA));
+        logic.process_destroy_list();
+        assert_eq!(logic.get_player(2).unwrap().statistics.units_destroyed, 1);
+        assert_eq!(logic.get_player(0).unwrap().statistics.units_lost, 1);
+        assert!(
+            logic.get_player(2).unwrap().statistics.money_earned > 0,
+            "bounty still awards when the named-Civilian victim is playable"
+        );
+
+        let usa_destroyed = logic.get_player(0).unwrap().statistics.units_destroyed;
+        let gla_lost = logic.get_player(2).unwrap().statistics.units_lost;
+        let usa_money = logic.get_player(0).unwrap().statistics.money_earned;
+        if let Some(v) = logic.host_object_mut(gla_victim) {
+            v.last_damage_source = Some(usa_killer);
+        }
+        logic.mark_object_for_destruction(gla_victim, Some(Team::USA));
+        logic.process_destroy_list();
+        assert_eq!(
+            logic.get_player(0).unwrap().statistics.units_destroyed,
+            usa_destroyed,
+            "non-playable template victim must not increment Destroyed"
+        );
+        assert_eq!(
+            logic.get_player(2).unwrap().statistics.units_lost,
+            gla_lost,
+            "non-playable template victim must not increment Lost"
+        );
+        assert_eq!(
+            logic.get_player(0).unwrap().statistics.money_earned,
+            usa_money,
+            "non-playable template victim must not award bounty"
+        );
+    }
+
+    #[test]
+    fn destroy_lost_counters_honor_scoring_enabled() {
+        // hq-y4ubd: C++ addObjectDestroyed/Lost return when scoring is off;
+        // scoreTheKill still awards bounty and skill points.
+        let previous = gamelogic::helpers::TheGameLogic::is_scoring_enabled();
+        struct RestoreScoring(bool);
+        impl Drop for RestoreScoring {
+            fn drop(&mut self) {
+                gamelogic::helpers::TheGameLogic::set_scoring_enabled(self.0);
+            }
+        }
+        let _restore = RestoreScoring(previous);
+
+        let mut logic = GameLogic::new();
+        let mut usa = Player::new(0, Team::USA, "USA", true);
+        usa.alliance_team = 1;
+        usa.cash_bounty_percent = 0.20;
+        logic.add_player(usa);
+        let mut gla = Player::new(2, Team::GLA, "GLA", false);
+        gla.alliance_team = 2;
+        logic.add_player(gla);
+        insert_score_unit_template(&mut logic, "ScoreFlagTank", 500, 25);
+
+        let killer = logic
+            .create_object("ScoreFlagTank", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("killer");
+        let off_victim = logic
+            .create_object("ScoreFlagTank", Team::GLA, glam::Vec3::new(10.0, 0.0, 0.0))
+            .expect("off victim");
+        let on_victim = logic
+            .create_object("ScoreFlagTank", Team::GLA, glam::Vec3::new(20.0, 0.0, 0.0))
+            .expect("on victim");
+
+        gamelogic::helpers::TheGameLogic::set_scoring_enabled(false);
+        if let Some(v) = logic.host_object_mut(off_victim) {
+            v.last_damage_source = Some(killer);
+        }
+        logic.mark_object_for_destruction(off_victim, Some(Team::USA));
+        logic.process_destroy_list();
+        assert_eq!(logic.get_player(0).unwrap().statistics.units_destroyed, 0);
+        assert_eq!(logic.get_player(2).unwrap().statistics.units_lost, 0);
+        assert!(
+            logic.get_player(0).unwrap().statistics.money_earned > 0,
+            "DISABLE_SCORING must still award bounty"
+        );
+        assert!(
+            logic.get_player(0).unwrap().skill_points > 0,
+            "DISABLE_SCORING must still award skill points"
+        );
+
+        gamelogic::helpers::TheGameLogic::set_scoring_enabled(true);
+        if let Some(v) = logic.host_object_mut(on_victim) {
+            v.last_damage_source = Some(killer);
+        }
+        logic.mark_object_for_destruction(on_victim, Some(Team::USA));
+        logic.process_destroy_list();
+        assert_eq!(logic.get_player(0).unwrap().statistics.units_destroyed, 1);
+        assert_eq!(logic.get_player(2).unwrap().statistics.units_lost, 1);
     }
 }
 

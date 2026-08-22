@@ -100,6 +100,10 @@ pub const TAG_HELICOPTER_SLOW_DEATH: &str = "HelicopterSlowDeath";
 pub const TAG_JET_SLOW_DEATH: &str = "JetSlowDeath";
 /// C++ MinefieldBehavior residual.
 pub const TAG_MINE: &str = "MinefieldBehavior";
+/// C++ SpawnBehavior residual (Stinger hive slave roster).
+pub const TAG_SPAWN_BEHAVIOR: &str = "SpawnBehavior";
+/// C++ FiringTracker residual (consecutive shots / gattling spin).
+pub const TAG_FIRING_TRACKER: &str = "FiringTracker";
 /// C++ FireOCLAfterWeaponCooldownUpdate residual.
 pub const TAG_FIRE_OCL_AFTER_COOLDOWN: &str = "FireOclAfterCooldown";
 /// C++ AssaultTransportAIUpdate residual.
@@ -179,6 +183,8 @@ pub const INVENTORY_TAGS: &[&str] = &[
     TAG_HELICOPTER_SLOW_DEATH,
     TAG_JET_SLOW_DEATH,
     TAG_MINE,
+    TAG_SPAWN_BEHAVIOR,
+    TAG_FIRING_TRACKER,
     TAG_FIRE_OCL_AFTER_COOLDOWN,
     TAG_ASSAULT_TRANSPORT,
     TAG_DEPLOY_STYLE,

@@ -120,7 +120,7 @@ mod presentation_local_team_tests {
         // Selection hotkeys / pick residual prefer presentation local_team when dual-scanning.
         // Right-click context path is command-system residual via current_player_id.
         for needle in [
-            "Retail SELECT_ALL (KEY_Q) / Ctrl+A residual",
+            "Retail SELECT_ALL (KEY_Q) residual",
             "fn select_all_friendly_units",
             "fn find_object_at_position",
         ] {

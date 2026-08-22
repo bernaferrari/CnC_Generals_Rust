@@ -914,6 +914,29 @@ impl GameLogic {
         }
     }
 
+    /// C++ `SET_BASE_CONSTRUCTION_SPEED` → `Player::setTeamDelaySeconds`.
+    fn apply_host_set_base_construction_speed_requests(&mut self) {
+        for (player, delay) in gamelogic::scripting::take_host_set_base_construction_speed_requests()
+        {
+            let Some(pid) = self.host_player_id_for_script_token(&player) else {
+                continue;
+            };
+            if let Some(ai) = self.ai_manager.ai_players.get_mut(&pid) {
+                ai.set_team_delay_seconds(delay);
+            }
+        }
+    }
+
+    /// C++ `SET_TRAIN_HELD` → `RailroadBehavior::setHeld`.
+    fn apply_host_set_train_held_requests(&mut self) {
+        for (unit, held) in gamelogic::scripting::take_host_set_train_held_requests() {
+            if let Some(id) = self.host_object_id_by_script_name(&unit) {
+                self.set_railroad_held(id, held);
+            }
+        }
+    }
+
+
     /// C++ ScriptActions::doSetMoney / doGiveMoney live drain.
     /// Leftover mutates crate player_list; live cash lives on host Player.
     fn apply_host_money_script_requests(&mut self) {
@@ -1603,27 +1626,27 @@ impl GameLogic {
                     let _ = self.unit_command_patrol(id);
                 }
                 HostScriptHuntGuardRequest::TeamGuard { team } => {
+                    // C++ doTeamGuard: every member with AIUpdateInterface.
                     let members = self.host_script_team_member_ids(&team);
                     for id in members {
-                        let Some(pos) = self
-                            .host_object(id)
-                            .filter(|u| u.is_alive())
-                            .map(|u| u.get_position())
-                        else {
+                        if !self.host_script_unit_can_guard(id) {
+                            continue;
+                        }
+                        let Some(pos) = self.host_object(id).map(|u| u.get_position()) else {
                             continue;
                         };
                         let _ = self.unit_command_guard_position(id, pos);
                     }
                 }
                 HostScriptHuntGuardRequest::NamedGuard { unit } => {
+                    // C++ doNamedGuard: AIUpdateInterface only (Stinger/stun still guard).
                     let Some(id) = self.host_object_id_by_script_name(&unit) else {
                         continue;
                     };
-                    let Some(pos) = self
-                        .host_object(id)
-                        .filter(|u| u.is_alive())
-                        .map(|u| u.get_position())
-                    else {
+                    if !self.host_script_unit_can_guard(id) {
+                        continue;
+                    }
+                    let Some(pos) = self.host_object(id).map(|u| u.get_position()) else {
                         continue;
                     };
                     let _ = self.apply_unit_locomotor_set(id, "normal");
@@ -1929,9 +1952,246 @@ impl GameLogic {
                         None,
                     );
                 }
+                HostScriptUseCommandButtonRequest::TeamOnNearestEnemy { team, button } => {
+                    self.host_script_team_use_command_on_nearest(&team, &button, |s, viewer, obj| {
+                        s.host_script_affiliation_allows(viewer, obj, true, false)
+                    });
+                }
+                HostScriptUseCommandButtonRequest::TeamOnNearestGarrisonedBuilding {
+                    team,
+                    button,
+                } => {
+                    self.host_script_team_use_command_on_nearest(&team, &button, |s, viewer, obj| {
+                        s.host_script_affiliation_allows(viewer, obj, true, false)
+                            && obj.is_kind_of(crate::game_logic::KindOf::Structure)
+                            && obj.is_garrison_contain()
+                    });
+                }
+                HostScriptUseCommandButtonRequest::TeamOnNearestKindof {
+                    team,
+                    button,
+                    kindof,
+                } => {
+                    let Some(kind) = Self::host_script_kind_from_token(&kindof) else {
+                        continue;
+                    };
+                    self.host_script_team_use_command_on_nearest(&team, &button, |s, viewer, obj| {
+                        s.host_script_affiliation_allows(viewer, obj, true, false)
+                            && obj.is_kind_of(kind)
+                    });
+                }
+                HostScriptUseCommandButtonRequest::TeamOnNearestEnemyBuilding { team, button } => {
+                    self.host_script_team_use_command_on_nearest(&team, &button, |s, viewer, obj| {
+                        s.host_script_affiliation_allows(viewer, obj, true, false)
+                            && obj.is_kind_of(crate::game_logic::KindOf::Structure)
+                    });
+                }
+                HostScriptUseCommandButtonRequest::TeamOnNearestEnemyBuildingClass {
+                    team,
+                    button,
+                    kindof,
+                } => {
+                    let Some(kind) = Self::host_script_kind_from_token(&kindof) else {
+                        continue;
+                    };
+                    self.host_script_team_use_command_on_nearest(&team, &button, |s, viewer, obj| {
+                        s.host_script_affiliation_allows(viewer, obj, true, false)
+                            && obj.is_kind_of(crate::game_logic::KindOf::Structure)
+                            && obj.is_kind_of(kind)
+                    });
+                }
+                HostScriptUseCommandButtonRequest::TeamOnNearestObjectType {
+                    team,
+                    button,
+                    object_type,
+                } => {
+                    self.host_script_team_use_command_on_nearest(&team, &button, |s, viewer, obj| {
+                        s.host_script_affiliation_allows(viewer, obj, true, true)
+                            && obj.template_name.eq_ignore_ascii_case(&object_type)
+                    });
+                }
+            }
+        }
+        self.apply_host_team_partial_command_button_requests();
+    }
+
+    fn host_script_kind_from_token(token: &str) -> Option<crate::game_logic::KindOf> {
+        use crate::game_logic::KindOf;
+        let t = token.trim();
+        let t = t.strip_prefix("KINDOF_").or_else(|| t.strip_prefix("KINDOF")).unwrap_or(t);
+        let u = t.to_ascii_uppercase();
+        match u.as_str() {
+            "INFANTRY" => Some(KindOf::Infantry),
+            "VEHICLE" => Some(KindOf::Vehicle),
+            "STRUCTURE" | "BUILDING" => Some(KindOf::Structure),
+            "AIRCRAFT" => Some(KindOf::Aircraft),
+            "HERO" => Some(KindOf::Hero),
+            "DOZER" => Some(KindOf::Dozer),
+            "HARVESTER" => Some(KindOf::Harvester),
+            "MINE" => Some(KindOf::Mine),
+            "PROJECTILE" => Some(KindOf::Projectile),
+            "COMMANDCENTER" | "COMMAND_CENTER" => Some(KindOf::CommandCenter),
+            "FSBARRACKS" | "FS_BARRACKS" => Some(KindOf::FSBarracks),
+            "FSWARFACTORY" | "FS_WARFACTORY" => Some(KindOf::FSWarFactory),
+            "FSAIRFIELD" | "FS_AIRFIELD" => Some(KindOf::FSAirfield),
+            "FSBASEDEFENSE" | "FS_BASE_DEFENSE" | "BASEDEFENSE" => Some(KindOf::FSBaseDefense),
+            "TECHBUILDING" | "TECH_BUILDING" => Some(KindOf::TechBuilding),
+            other => KindOf::from_ini_token(other),
+        }
+    }
+
+    fn host_script_affiliation_allows(
+        &self,
+        viewer: u32,
+        candidate: &crate::game_logic::Object,
+        allow_enemies: bool,
+        allow_neutral: bool,
+    ) -> bool {
+        use crate::game_logic::Team;
+        use gamelogic::common::Relationship;
+        let Some(oid) = candidate.owner_player_id else {
+            let vt = self
+                .players
+                .get(&viewer)
+                .map(|p| p.team)
+                .unwrap_or(Team::Neutral);
+            if candidate.team == Team::Neutral || vt == Team::Neutral {
+                return allow_neutral;
+            }
+            if candidate.team == vt {
+                return false;
+            }
+            return allow_enemies;
+        };
+        let rel = self
+            .players
+            .get(&viewer)
+            .and_then(|p| p.map_relationship(oid))
+            .unwrap_or_else(|| {
+                let vt = self
+                    .players
+                    .get(&viewer)
+                    .map(|p| p.team)
+                    .unwrap_or(candidate.team);
+                let ot = self
+                    .players
+                    .get(&oid)
+                    .map(|p| p.team)
+                    .unwrap_or(candidate.team);
+                if vt == ot {
+                    Relationship::Allies
+                } else if vt == Team::Neutral || ot == Team::Neutral {
+                    Relationship::Neutral
+                } else {
+                    Relationship::Enemies
+                }
+            });
+        match rel {
+            Relationship::Enemies => allow_enemies,
+            Relationship::Neutral => allow_neutral,
+            Relationship::Allies => false,
+        }
+    }
+
+    fn host_script_team_center(&self, ids: &[crate::game_logic::ObjectId]) -> Option<glam::Vec3> {
+        let mut acc = glam::Vec3::ZERO;
+        let mut n = 0.0;
+        for id in ids {
+            if let Some(obj) = self.host_object(*id) {
+                acc += obj.get_position();
+                n += 1.0;
+            }
+        }
+        if n <= 0.0 {
+            None
+        } else {
+            Some(acc / n)
+        }
+    }
+
+    fn host_script_team_use_command_on_nearest(
+        &mut self,
+        team: &str,
+        button: &str,
+        pred: impl Fn(&Self, u32, &crate::game_logic::Object) -> bool,
+    ) {
+        use crate::command_executor::CommandExecutor;
+        let ids = self.host_script_team_member_ids(team);
+        if ids.is_empty() {
+            return;
+        }
+        let pid = self
+            .host_object(ids[0])
+            .and_then(|o| o.owner_player_id)
+            .unwrap_or(0);
+        let Some(center) = self.host_script_team_center(&ids) else {
+            return;
+        };
+        let team_set: std::collections::HashSet<_> = ids.iter().copied().collect();
+        let mut best = None;
+        let mut best_d = f32::MAX;
+        for obj in self.objects.values() {
+            if !obj.is_alive() || obj.status.destroyed || obj.status.effectively_dead {
+                continue;
+            }
+            if team_set.contains(&obj.id) {
+                continue;
+            }
+            if !pred(self, pid, obj) {
+                continue;
+            }
+            let p = obj.get_position();
+            let dx = p.x - center.x;
+            let dz = p.z - center.z;
+            let d = dx * dx + dz * dz;
+            if d < best_d {
+                best_d = d;
+                best = Some(obj.id);
+            }
+        }
+        let Some(tid) = best else {
+            return;
+        };
+        let _ = CommandExecutor::new(self, pid).execute_do_command_button(
+            &ids,
+            button,
+            None,
+            Some(tid),
+        );
+    }
+
+    fn apply_host_team_partial_command_button_requests(&mut self) {
+        use crate::command_executor::CommandExecutor;
+        use crate::command_system::command_type_from_button_name;
+        for req in gamelogic::scripting::take_host_team_partial_command_button_requests() {
+            let mut ids = self.host_script_team_member_ids(&req.team);
+            if ids.is_empty() || command_type_from_button_name(&req.button).is_none() {
+                continue;
+            }
+            let mut num_to_use = ((req.percentage / 100.0) * ids.len() as f32) as i32;
+            if num_to_use <= 0 {
+                continue;
+            }
+            if num_to_use > ids.len() as i32 {
+                num_to_use = ids.len() as i32;
+            }
+            ids.truncate(num_to_use as usize);
+            let pid = self
+                .host_object(ids[0])
+                .and_then(|o| o.owner_player_id)
+                .unwrap_or(0);
+            for id in ids {
+                let _ = CommandExecutor::new(self, pid).execute_do_command_button(
+                    &[id],
+                    &req.button,
+                    None,
+                    None,
+                );
             }
         }
     }
+
+
 
 
     /// C++ ScriptActions NAMED/TEAM DELETE / KILL / DAMAGE.
@@ -2476,10 +2736,8 @@ impl GameLogic {
     }
 
     fn host_script_unit_can_guard(&self, id: ObjectId) -> bool {
-        self.objects
-            .get(&id)
-            .map(|u| u.is_alive() && u.is_mobile() && !u.status.destroyed)
-            .unwrap_or(false)
+        // C++ doTeamGuard / leftover group_guard: AIUpdateInterface only.
+        self.host_unit_can_guard(id)
     }
 
     /// C++ AITNGuardMachine nearest entrance for `aiGuardTunnelNetwork`.
@@ -3019,7 +3277,9 @@ impl GameLogic {
         }
         let button = if button.is_empty() { None } else { Some(button) };
         for id in ids {
-            let _ = self.start_command_button_hunt_named(id, button);
+            if self.unit_can_team_hunt_with_command_button(id, button) {
+                let _ = self.start_command_button_hunt_named(id, button);
+            }
         }
     }
 
@@ -3354,6 +3614,8 @@ impl GameLogic {
             }
         }
         self.apply_host_skirmish_script_requests();
+        self.apply_host_set_base_construction_speed_requests();
+        self.apply_host_set_train_held_requests();
         self.apply_host_money_script_requests();
         self.apply_host_can_build_script_requests();
         self.apply_host_buildable_override_script_requests();
@@ -4030,9 +4292,16 @@ impl GameLogic {
                     );
                 }
                 CameraMotionBlurRequest::Jump { position, saturate } => {
-                    game_client::core::script_action_handler::script_camera_motion_blur_jump(
-                        position.x, position.z, position.y, *saturate,
-                    );
+                    // C++ doCameraMotionBlurJump: leftover set filter+pos only.
+                    // lookAt / request_cam only if leftover filter failed.
+                    let passed =
+                        game_client::core::script_action_handler::script_camera_motion_blur_jump(
+                            position.x, position.z, position.y, *saturate,
+                        );
+                    if !passed {
+                        self.camera_follow_target = None;
+                        self.request_camera_focus(*position);
+                    }
                 }
                 CameraMotionBlurRequest::Follow { amount } => {
                     game_client::core::script_action_handler::script_camera_motion_blur_follow(
@@ -4044,7 +4313,7 @@ impl GameLogic {
                     );
                 }
             }
-
+            #[cfg(not(feature = "game_client"))]
             if let CameraMotionBlurRequest::Jump { position, .. } = &request {
                 self.camera_follow_target = None;
                 self.request_camera_focus(*position);

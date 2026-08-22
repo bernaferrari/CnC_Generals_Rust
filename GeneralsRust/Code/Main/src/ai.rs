@@ -327,6 +327,9 @@ pub struct AIPlayer {
     /// new team uses the longer AIData `TeamSeconds` timer below.
     pub next_team_queue_time: f32,
     pub next_team_time: f32,
+    /// C++ `AIPlayer::m_teamSeconds`. Script `SET_BASE_CONSTRUCTION_SPEED`
+    /// writes this via `set_team_delay_seconds`.
+    pub team_seconds: f32,
 
     // Military Management
     pub team_queue: VecDeque<AITeamQueue>,
@@ -426,6 +429,7 @@ impl AIPlayer {
             next_building_time: 0.0,
             next_team_queue_time: 0.0,
             next_team_time: 0.0,
+            team_seconds: Self::TEAM_SECONDS,
             team_queue: VecDeque::new(),
             team_ready_queue: VecDeque::new(),
             attack_in_progress: false,
@@ -473,6 +477,12 @@ impl AIPlayer {
         // C++-aligned: no artificial negative last_attack to force immediate attacks.
         self.last_attack_time = 0.0;
     }
+
+    /// C++ `AIPlayer::setTeamDelaySeconds`.
+    pub fn set_team_delay_seconds(&mut self, delay: i32) {
+        self.team_seconds = delay.max(0) as f32;
+    }
+
 
     /// Relocate base center and re-seed the structure build queue at the new site.
     ///
@@ -1269,7 +1279,7 @@ impl AIPlayer {
         let delay_modifier = self.difficulty.get_build_delay_modifier();
         self.next_building_time =
             self.last_update_time + (Self::STRUCTURE_SECONDS * delay_modifier);
-        self.next_team_time = self.last_update_time + (Self::TEAM_SECONDS * delay_modifier);
+        self.next_team_time = self.last_update_time + (self.team_seconds * delay_modifier);
     }
 
     /// C++ `AISkirmishPlayer::acquireEnemy` (`AISkirmishPlayer.cpp:461-522`).
@@ -1485,7 +1495,7 @@ impl AIPlayer {
                 // a successful selectTeamToBuild, not on the next TeamSeconds.
                 self.process_team_queue(game_logic, current_time);
                 self.next_team_time = current_time
-                    + self.scaled_interval_seconds(game_logic, Self::TEAM_SECONDS, false);
+                    + self.scaled_interval_seconds(game_logic, self.team_seconds, false);
             } else if current_time >= self.next_team_time {
                 // A failed selection leaves m_readyToBuildTeam set.  Retry on
                 // the short m_teamDelay cadence rather than sleeping 10 sec.
@@ -3255,11 +3265,7 @@ impl AIPlayer {
     ) {
         let button = Self::on_create_command_button_name(on_create);
         for &unit_id in units {
-            let mobile = game_logic
-                .host_object(unit_id)
-                .map(|u| u.is_alive() && u.is_mobile())
-                .unwrap_or(false);
-            if mobile {
+            if game_logic.unit_can_team_hunt_with_command_button(unit_id, button.as_deref()) {
                 let _ = game_logic.start_command_button_hunt_named(unit_id, button.as_deref());
             }
         }
@@ -3291,7 +3297,9 @@ impl AIPlayer {
     fn guard_units(&mut self, game_logic: &mut GameLogic, units: &[ObjectId]) {
         for &unit_id in units {
             let pos = game_logic.host_object(unit_id).and_then(|u| {
-                (u.is_alive() && u.is_mobile()).then_some(u.get_position())
+                game_logic
+                    .host_unit_can_guard(unit_id)
+                    .then_some(u.get_position())
             });
             if let Some(pos) = pos {
                 let _ = game_logic.unit_command_guard_position(unit_id, pos);

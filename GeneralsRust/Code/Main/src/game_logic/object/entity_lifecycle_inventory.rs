@@ -49,6 +49,81 @@ fn push_opt<T: Serialize>(
     }
     Ok(())
 }
+/// C++ `SpawnBehavior::xfer` live hive residual (spawn_ids / replacement_times).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct SpawnBehaviorHiveResidual {
+    pub slaves: [crate::game_logic::host_base_defense::ResidualHiveSlave; 3],
+    pub count: u8,
+    pub hp: f32,
+    pub respawn_frame: u32,
+}
+
+impl SpawnBehaviorHiveResidual {
+    pub(crate) fn present(object: &Object) -> bool {
+        object.hive_slave_count > 0
+            || object.hive_slave_respawn_frame != 0
+            || object
+                .hive_slaves
+                .iter()
+                .any(|slave| slave.alive || slave.hp > 0.0)
+    }
+
+    pub(crate) fn from_object(object: &Object) -> Self {
+        Self {
+            slaves: object.hive_slaves,
+            count: object.hive_slave_count,
+            hp: object.hive_slave_hp,
+            respawn_frame: object.hive_slave_respawn_frame,
+        }
+    }
+
+    pub(crate) fn apply(self, object: &mut Object) {
+        object.hive_slaves = self.slaves;
+        object.hive_slave_count = self.count;
+        object.hive_slave_hp = self.hp;
+        object.hive_slave_respawn_frame = self.respawn_frame;
+    }
+}
+
+/// C++ `FiringTracker::xfer` live consecutive-shot / coast residual.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct FiringTrackerResidual {
+    pub consecutive_shots: u32,
+    pub consecutive_target: Option<crate::game_logic::ObjectId>,
+    pub continuous_fire_level: u8,
+    pub coast_until_frame: u32,
+    pub force_reload_frame: u32,
+}
+
+impl FiringTrackerResidual {
+    pub(crate) fn present(object: &Object) -> bool {
+        object.consecutive_shots_at_target > 0
+            || object.consecutive_shot_target.is_some()
+            || object.continuous_fire_level > 0
+            || object.continuous_fire_coast_until_frame != 0
+            || object.frame_to_force_reload != 0
+    }
+
+    pub(crate) fn from_object(object: &Object) -> Self {
+        Self {
+            consecutive_shots: object.consecutive_shots_at_target,
+            consecutive_target: object.consecutive_shot_target,
+            continuous_fire_level: object.continuous_fire_level,
+            coast_until_frame: object.continuous_fire_coast_until_frame,
+            force_reload_frame: object.frame_to_force_reload,
+        }
+    }
+
+    pub(crate) fn apply(self, object: &mut Object) {
+        object.consecutive_shots_at_target = self.consecutive_shots;
+        object.consecutive_shot_target = self.consecutive_target;
+        object.continuous_fire_level = self.continuous_fire_level;
+        object.continuous_fire_coast_until_frame = self.coast_until_frame;
+        object.frame_to_force_reload = self.force_reload_frame;
+    }
+}
+
+
 
 pub(crate) fn collect_module_states(
     object: &Object,
@@ -186,6 +261,18 @@ pub(crate) fn collect_module_states(
     )?;
     push_opt(&mut out, TAG_JET_SLOW_DEATH, &object.jet_slow_death)?;
     push_opt(&mut out, TAG_MINE, &object.mine_data)?;
+    push_present(
+        &mut out,
+        TAG_SPAWN_BEHAVIOR,
+        SpawnBehaviorHiveResidual::present(object),
+        &SpawnBehaviorHiveResidual::from_object(object),
+    )?;
+    push_present(
+        &mut out,
+        TAG_FIRING_TRACKER,
+        FiringTrackerResidual::present(object),
+        &FiringTrackerResidual::from_object(object),
+    )?;
     push_opt(
         &mut out,
         TAG_FIRE_OCL_AFTER_COOLDOWN,

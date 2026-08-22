@@ -414,6 +414,22 @@ impl Object {
         self.record_host_locomotor();
     }
 
+    /// C++ `Locomotor::setUsePreciseZPos` (PRECISE_Z_POS).
+    pub fn set_precise_z_pos(&mut self, precise: bool) {
+        if self.precise_z_pos == precise {
+            return;
+        }
+        self.precise_z_pos = precise;
+        self.record_host_locomotor();
+    }
+
+    /// C++ JetTaxi / JetTakeoffOrLanding / HeliTakeoffOrLanding /
+    /// ChinookTakeoffOrLanding pair: `setUsePreciseZPos` + `setUltraAccurate`.
+    pub fn set_precise_z_and_ultra_accurate(&mut self, enable: bool) {
+        self.set_precise_z_pos(enable);
+        self.set_ultra_accurate(enable);
+    }
+
     /// C++ `moveTowardsPositionWheels` turnFactor = |actualSpeed|/minTurnSpeed.
     pub fn wheeled_turn_factor(&self) -> f32 {
         let mut turn_speed = self.min_turn_speed;

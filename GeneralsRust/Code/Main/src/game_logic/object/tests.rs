@@ -4308,6 +4308,30 @@ fn jet_taxi_to_takeoff_does_not_enable_afterburners() {
 }
 
 #[test]
+fn jet_taxi_takeoff_sets_precise_z_and_ultra_accurate() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use glam::Vec3;
+    let mut t = ThingTemplate::new("AmericaJetRaptor");
+    t.add_kind_of(KindOf::Aircraft);
+    let mut jet = Object::new(t, ObjectId(15), Team::USA);
+    jet.arm_jet_taxi_to_takeoff(
+        Vec3::new(40.0, 0.0, 0.0),
+        Vec3::new(120.0, 0.0, 0.0),
+        80.0,
+        false,
+    );
+    assert!(jet.precise_z_pos, "JetTaxi PRECISE_Z_POS");
+    assert!(jet.ultra_accurate, "JetTaxi ULTRA_ACCURATE");
+    jet.begin_jet_runway_takeoff(10, Vec3::new(120.0, 50.0, 0.0), 80.0, false);
+    assert!(jet.precise_z_pos, "JetTakeoff PRECISE_Z_POS");
+    assert!(jet.ultra_accurate, "JetTakeoff ULTRA_ACCURATE");
+    jet.finish_jet_takeoff();
+    assert!(!jet.precise_z_pos, "takeoff onExit clears PRECISE_Z_POS");
+    assert!(!jet.ultra_accurate, "takeoff onExit clears ULTRA_ACCURATE");
+}
+
+
+#[test]
 fn jet_exhaust_only_in_forward_flight() {
     use crate::game_logic::host_enum_table_residual::jetexhaust_model_bit;
     use crate::game_logic::{KindOf, Team, ThingTemplate};

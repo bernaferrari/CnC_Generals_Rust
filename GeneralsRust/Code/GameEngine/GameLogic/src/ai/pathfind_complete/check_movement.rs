@@ -705,6 +705,20 @@ impl PathfindingSystem {
         ) {
             return false;
         }
+        // C++ checkDestination aircraft branch: refuse another unit's goalAircraft.
+        let mut num_above = radius;
+        if center_in_cell {
+            num_above += 1;
+        }
+        for x in (cell_x - radius)..(cell_x + num_above) {
+            for y in (cell_y - radius)..(cell_y + num_above) {
+                let goal_ac = self.get_goal_aircraft(GridCoord::new(x, y));
+                if goal_ac != INVALID_ID && ignore_obstacle_id != Some(goal_ac) {
+                    return false;
+                }
+            }
+        }
+
         let mut adjust_dest = Coord3D::new(0.0, 0.0, 0.0);
         self.adjust_coord_to_cell(
             cell_x,

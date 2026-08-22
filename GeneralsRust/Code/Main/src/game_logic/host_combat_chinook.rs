@@ -1397,6 +1397,8 @@ mod tests {
         let obj = logic.host_object(id).expect("obj");
         let ai = obj.chinook_ai.as_ref().expect("chinook_ai");
         assert_eq!(ai.flight_status, HostChinookFlightStatus::Landing);
+        assert!(obj.precise_z_pos, "Chinook landing PRECISE_Z_POS");
+        assert!(obj.ultra_accurate, "Chinook landing ULTRA_ACCURATE");
         assert_eq!(ai.ai_free_to_exit(false), HostChinookFreeToExit::WaitToExit);
     }
 

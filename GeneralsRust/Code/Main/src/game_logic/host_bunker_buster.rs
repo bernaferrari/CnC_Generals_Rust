@@ -21,7 +21,7 @@
 //!   BuildCost **1600**, BuildTime **25**s → **750**f, SCIENCE_StealthFighter.
 //!
 //! Fail-closed honesty:
-//! - Not full BunkerBusterBehavior crash-through FX / seismic sim path
+//! - Not full BunkerBusterBehavior seismic sim path
 //! - StealthJetMissile projectile residual closed via host_stealth_fighter spawn path
 //! - Not full MissileAIUpdate seeker / crash-through bone FX matrix
 //! - Not full GarrisonContain isBustable / TunnelContain crash-guard matrix
@@ -114,8 +114,12 @@ pub const STEALTH_FIGHTER_BUILD_TIME_FRAMES: u32 = 750;
 
 /// Activate / impact audio residual.
 pub const BUNKER_BUSTER_AUDIO: &str = "StealthJetMissileWeapon";
-/// Retail DetonationFX residual.
-pub const BUNKER_BUSTER_DETONATION_FX: &str = "FX_BunkerBusterExplosion";
+/// Retail leftover `BunkerBusterBehavior` DetonationFX (doFXObj on the bunker).
+pub const BUNKER_BUSTER_DETONATION_FX: &str =
+    gamelogic::object::behavior::bunker_buster_behavior::BUNKER_BUSTER_DETONATION_FX_NAME;
+/// Retail leftover `CrashThroughBunkerFX` (doFXObj on the missile while killing self).
+pub const BUNKER_BUSTER_CRASH_THROUGH_FX: &str =
+    gamelogic::object::behavior::bunker_buster_behavior::BUNKER_BUSTER_CRASH_THROUGH_FX_NAME;
 
 /// Convert residual milliseconds to logic frames @ 30 FPS (round half-up).
 pub fn bunker_buster_ms_to_frames(ms: u32) -> u32 {
@@ -123,6 +127,17 @@ pub fn bunker_buster_ms_to_frames(ms: u32) -> u32 {
         return 0;
     }
     ((ms as f32) * BUNKER_BUSTER_LOGIC_FPS / 1000.0).round() as u32
+}
+
+/// C++ `parseDurationUnsignedInt(571)` crash-through cadence in logic frames.
+pub fn bunker_buster_crash_fx_frequency_frames() -> u32 {
+    bunker_buster_ms_to_frames(BUNKER_BUSTER_CRASH_FX_FREQUENCY_MS)
+}
+
+/// C++ `BunkerBusterBehavior::update`: frame % frequency == 1 while MISSILE_KILLING_SELF.
+pub fn should_play_crash_through_fx(frame: u32, missile_killing_self: bool) -> bool {
+    let freq = bunker_buster_crash_fx_frequency_frames();
+    missile_killing_self && freq > 0 && frame % freq == 1
 }
 
 /// Whether template is a residual Stealth Fighter / bunker-buster carrier.
@@ -337,6 +352,7 @@ pub fn honesty_bunker_buster_behavior_residual_ok() -> bool {
         && (BUNKER_BUSTER_SEISMIC_MAGNITUDE - 5.0).abs() < 0.01
         && BUNKER_BUSTER_CRASH_FX_FREQUENCY_MS == 571
         && BUNKER_BUSTER_DETONATION_FX == "FX_BunkerBusterExplosion"
+        && BUNKER_BUSTER_CRASH_THROUGH_FX == "WeaponFX_BunkerBusterIntialImpact"
         && {
             let d = bunker_buster_structure_damage(100.0, true, true);
             (d - 160.0).abs() < 0.01
@@ -464,5 +480,15 @@ mod tests {
         assert_eq!(STEALTH_JET_MISSILE_DAMAGE_TYPE, "STEALTHJET_MISSILES");
         assert_eq!(STEALTH_FIGHTER_BUILD_TIME_FRAMES, 750);
         assert_eq!(STEALTH_JET_MISSILE_CLIP_SIZE, 2);
+    }
+
+    #[test]
+    fn crash_through_fx_cadence_matches_cpp_mod() {
+        let freq = bunker_buster_crash_fx_frequency_frames();
+        assert!(freq > 0);
+        assert!(!should_play_crash_through_fx(freq, true));
+        assert!(should_play_crash_through_fx(1, true));
+        assert!(should_play_crash_through_fx(freq + 1, true));
+        assert!(!should_play_crash_through_fx(1, false));
     }
 }

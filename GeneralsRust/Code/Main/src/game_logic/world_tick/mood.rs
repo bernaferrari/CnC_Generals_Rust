@@ -154,6 +154,15 @@ impl GameLogic {
         let need_los = (qualifiers & CAN_SEE) != 0;
         let unfogged = (qualifiers & UNFOGGED) != 0;
         let ignore_insig = (qualifiers & IGNORE_INSIGNIFICANT_BUILDINGS) != 0;
+        // C++ PartitionFilterSameMapStatus / leftover find_closest_enemy:
+        // owner.is_off_map() != target.is_off_map() is illegal.
+        let me_off = crate::game_logic::host_deliver_payload::is_off_map_residual(
+            me_pos,
+            self.world_min.x,
+            self.world_min.z,
+            self.world_max.x,
+            self.world_max.z,
+        );
         // C++ AIAttackSquadState::chooseVictim: script flag forces DIFFICULTY_NORMAL
         // (closest), so Easy/Hard AI pick the same target.
         let force_normal = gamelogic::scripting::engine::get_script_engine()
@@ -184,6 +193,17 @@ impl GameLogic {
                 obj.is_targetable_by_enemy_of(me_team)
             };
             if !is_enemy {
+                continue;
+            }
+            if me_off
+                != crate::game_logic::host_deliver_payload::is_off_map_residual(
+                    obj.get_position(),
+                    self.world_min.x,
+                    self.world_min.z,
+                    self.world_max.x,
+                    self.world_max.z,
+                )
+            {
                 continue;
             }
             let is_bldg = obj.is_kind_of(crate::game_logic::KindOf::Structure)
@@ -1401,6 +1421,45 @@ mod common_target_parity {
             }
         }
     }
+
+    #[test]
+    fn find_closest_enemy_rejects_opposite_off_map() {
+        use crate::game_logic::find_enemy_flags;
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("HuntOnMap");
+        at.add_kind_of(KindOf::Infantry);
+        at.add_kind_of(KindOf::Attackable);
+        let aid = ObjectId(2710);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.set_position(glam::Vec3::ZERO);
+            o.weapon = Some(Weapon {
+                range: 9999.0,
+                can_target_ground: true,
+                damage: 5.0,
+                ..Default::default()
+            });
+            o
+        });
+        let mut et = ThingTemplate::new("HuntOffMapCargo");
+        et.add_kind_of(KindOf::Aircraft);
+        et.add_kind_of(KindOf::Attackable);
+        let eid = ObjectId(2711);
+        let (_, mx) = logic.world_bounds();
+        let off = glam::Vec3::new(mx.x + 200.0, 0.0, mx.z + 200.0);
+        logic.objects.insert(eid, {
+            let mut o = Object::new(et, eid, Team::GLA);
+            o.set_position(off);
+            o
+        });
+        assert!(
+            logic
+                .find_closest_enemy(aid, 9999.9, find_enemy_flags::CAN_ATTACK)
+                .is_none(),
+            "on-map hunt must not acquire off-map cargo/A10"
+        );
+    }
+
 
 }
 

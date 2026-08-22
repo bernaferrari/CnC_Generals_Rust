@@ -32,7 +32,7 @@
 //! - StealthJetMissile MissileAI flight residual closed (seeker + KillSelfDelay 60f)
 //! - ScatterRadiusVsInfantry **10** residual miss cone closed (deterministic aim offset)
 //! - Not full crash-through bone FX matrix
-//! - Not full BunkerBusterBehavior seismic / shockwave matrix (see host_bunker_buster)
+//! - Not full BunkerBusterBehavior seismic sim path (see host_bunker_buster)
 //! - Not network stealth-fighter / science replication (network deferred)
 
 use super::Weapon;
@@ -130,6 +130,9 @@ pub const STEALTH_BUNKER_BUSTER_SEISMIC_MAGNITUDE: f32 = 5.0;
 pub const STEALTH_BUNKER_BUSTER_SHOCKWAVE_WEAPON: &str = "BunkerBusterShockwaveWeaponSmall";
 /// Retail CrashThroughBunkerFXFrequency residual (msec).
 pub const STEALTH_BUNKER_BUSTER_CRASH_FX_FREQ_MS: u32 = 571;
+/// Retail leftover CrashThroughBunkerFX (WeaponObjects.ini authored typo).
+pub const STEALTH_BUNKER_BUSTER_CRASH_THROUGH_FX: &str =
+    crate::game_logic::host_bunker_buster::BUNKER_BUSTER_CRASH_THROUGH_FX;
 
 /// Residual fire audio.
 pub const STEALTH_FIGHTER_FIRE_AUDIO: &str = "StealthJetMissileWeapon";
@@ -333,6 +336,7 @@ pub fn honesty_stealth_bunker_buster_related_residual_ok() -> bool {
         && (STEALTH_BUNKER_BUSTER_SEISMIC_MAGNITUDE - 5.0).abs() < 0.01
         && STEALTH_BUNKER_BUSTER_SHOCKWAVE_WEAPON == "BunkerBusterShockwaveWeaponSmall"
         && STEALTH_BUNKER_BUSTER_CRASH_FX_FREQ_MS == 571
+        && STEALTH_BUNKER_BUSTER_CRASH_THROUGH_FX == "WeaponFX_BunkerBusterIntialImpact"
         && crate::game_logic::host_bunker_buster::UPGRADE_AMERICA_BUNKER_BUSTERS
             == STEALTH_BUNKER_BUSTER_UPGRADE
         && (crate::game_logic::host_bunker_buster::BUNKER_BUSTER_STRUCTURE_DAMAGE_MULT - 1.5).abs()

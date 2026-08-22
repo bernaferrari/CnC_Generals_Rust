@@ -124,10 +124,11 @@ impl Weapon {
                         } else {
                             SURFACE_GROUND
                         };
-                        let _ = pf.adjust_target_destination(
+                        let _ = pf.adjust_target_destination_for(
                             surfaces,
                             source_snap.is_crusher,
                             source_snap.radius,
+                            Some(source),
                             approach_target_pos,
                             |goal| {
                                 self.is_source_object_with_goal_position_within_attack_range(

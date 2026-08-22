@@ -192,6 +192,14 @@ fn present_groups(object: &Object) -> Vec<&'static str> {
         (TAG_JET_SLOW_DEATH, object.jet_slow_death.is_some()),
         (TAG_MINE, object.mine_data.is_some()),
         (
+            TAG_SPAWN_BEHAVIOR,
+            super::entity_lifecycle_inventory::SpawnBehaviorHiveResidual::present(object),
+        ),
+        (
+            TAG_FIRING_TRACKER,
+            super::entity_lifecycle_inventory::FiringTrackerResidual::present(object),
+        ),
+        (
             TAG_FIRE_OCL_AFTER_COOLDOWN,
             object.fire_ocl_after_cooldown.is_some(),
         ),

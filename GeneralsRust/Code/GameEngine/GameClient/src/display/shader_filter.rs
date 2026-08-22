@@ -391,18 +391,6 @@ pub fn filter_post_render(
                     | FilterMode::MBInSaturate
                     | FilterMode::MBOutSaturate
             );
-            if gpu.mb_decrement {
-                gpu.mb_count = (gpu.mb_count - COUNT_STEP).max(1);
-                if gpu.mb_count <= 1 {
-                    gpu.mb_decrement = false;
-                }
-            } else {
-                gpu.mb_count += COUNT_STEP;
-                if gpu.mb_count >= MOTION_BLUR_MAX_COUNT {
-                    gpu.mb_count = MOTION_BLUR_MAX_COUNT;
-                    gpu.mb_decrement = true;
-                }
-            }
             let pan = matches!(
                 composite.mode,
                 FilterMode::MBPanAlpha
@@ -411,6 +399,34 @@ pub fn filter_post_render(
                     | FilterMode::MBPanAlpha3
                     | FilterMode::MBEndPanAlpha
             );
+            // C++ `ScreenMotionBlurFilter::postRender`: pan uses scrollDelta
+            // for m_maxCount; zoom-in/out steps COUNT_STEP and lookAts at peak.
+            if !pan {
+                if gpu.mb_decrement {
+                    gpu.mb_count = (gpu.mb_count - COUNT_STEP).max(1);
+                    if gpu.mb_count <= 1 {
+                        gpu.mb_decrement = false;
+                    }
+                } else {
+                    gpu.mb_count += COUNT_STEP;
+                    if gpu.mb_count >= MOTION_BLUR_MAX_COUNT {
+                        gpu.mb_count = MOTION_BLUR_MAX_COUNT;
+                        gpu.mb_decrement = true;
+                        let do_zoom_to = matches!(
+                            composite.mode,
+                            FilterMode::MBInAndOutAlpha | FilterMode::MBInAndOutSaturate
+                        );
+                        if do_zoom_to {
+                            if let Some(pos) = composite.zoom_to {
+                                crate::display::view::with_tactical_view(|view| {
+                                    view.look_at(&pos);
+                                });
+                                crate::display::view::queue_motion_blur_zoom_look_at(pos);
+                            }
+                        }
+                    }
+                }
+            }
             (1.0f32, if pan { 1.0 } else { 0.0 }, if additive { 1.0 } else { 0.0 })
         }
         FilterType::Crossfade => (2.0f32, 0.0, 0.0),
