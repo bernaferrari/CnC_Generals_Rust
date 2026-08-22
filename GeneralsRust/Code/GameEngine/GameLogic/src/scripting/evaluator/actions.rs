@@ -504,12 +504,17 @@ impl ScriptEvaluator {
 
         log::info!("Set player '{}' money to {}", player_name, amount);
 
-        let Some(player_arc) = self.resolve_player_from_param(player_param) else {
-            return Ok(());
-        };
-        if let Ok(mut player) = player_arc.write() {
-            player.get_money_mut().set_money(amount);
+        if let Some(player_arc) = self.resolve_player_from_param(player_param) {
+            if let Ok(mut player) = player_arc.write() {
+                player.get_money_mut().set_money(amount);
+            }
         }
+        crate::scripting::executor::request_host_money(
+            crate::scripting::executor::HostScriptMoneyRequest::Set {
+                player: player_name.to_string(),
+                amount,
+            },
+        );
 
         Ok(())
     }
@@ -532,18 +537,23 @@ impl ScriptEvaluator {
 
         log::info!("Give player '{}' {} money", player_name, amount);
 
-        let Some(player_arc) = self.resolve_player_from_param(player_param) else {
-            return Ok(());
-        };
-        if let Ok(mut player) = player_arc.write() {
-            let current = player.get_money().get_money();
-            let updated = if amount < 0 {
-                current.saturating_sub(amount.saturating_neg().min(current.max(0)))
-            } else {
-                current.saturating_add(amount)
-            };
-            player.get_money_mut().set_money(updated);
+        if let Some(player_arc) = self.resolve_player_from_param(player_param) {
+            if let Ok(mut player) = player_arc.write() {
+                let current = player.get_money().get_money();
+                let updated = if amount < 0 {
+                    current.saturating_sub(amount.saturating_neg().min(current.max(0)))
+                } else {
+                    current.saturating_add(amount)
+                };
+                player.get_money_mut().set_money(updated);
+            }
         }
+        crate::scripting::executor::request_host_money(
+            crate::scripting::executor::HostScriptMoneyRequest::Give {
+                player: player_name.to_string(),
+                amount,
+            },
+        );
 
         Ok(())
     }

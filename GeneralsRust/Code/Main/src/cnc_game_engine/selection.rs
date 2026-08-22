@@ -572,7 +572,7 @@ impl CnCGameEngine {
             .map(|o| o.position);
         self.host_set_selection(self.current_player_id, vec![next]);
         if let Some(pos) = look {
-            self.host_center_camera_on(pos);
+            self.host_player_look_at(pos);
         }
         self.play_sound_effect(SoundType::Select);
     }
@@ -627,7 +627,7 @@ impl CnCGameEngine {
         };
 
         self.host_set_selection(self.current_player_id, vec![next.0]);
-        self.host_center_camera_on(next.1);
+        self.host_player_look_at(next.1);
         self.play_sound_effect(SoundType::Select);
     }
 
@@ -678,9 +678,7 @@ impl CnCGameEngine {
         self.host_set_selection(self.current_player_id, vec![next]);
         self.play_sound_effect(SoundType::Select);
         if let Some(pos) = cam_pos {
-            let clamped = self.clamp_to_world_bounds(pos);
-            self.camera_target.x = clamped.x;
-            self.camera_target.z = clamped.z;
+            self.host_player_look_at(pos);
         }
     }
     /// Cycle damaged friendly structures residual (for repair response).
@@ -1820,7 +1818,7 @@ impl CnCGameEngine {
         let Some(center) = frame.centroid_of_ids(&selected) else {
             return;
         };
-        self.host_center_camera_on(center);
+        self.host_player_look_at(center);
         let msg = "Centered on selection";
         self.game_hud.push_info_message(msg);
         self.ui_manager.game_hud_mut().push_info_message(msg);

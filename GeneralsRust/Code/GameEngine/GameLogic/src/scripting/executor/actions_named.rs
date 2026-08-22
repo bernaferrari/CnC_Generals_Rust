@@ -1518,6 +1518,14 @@ impl ScriptActionDispatcher {
         let unit_name = self.get_string_param(action, 0)?;
         let target_name = self.get_string_param(action, 1)?;
         log::debug!("Unit '{}' facing '{}'", unit_name, target_name);
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_face(super::HostScriptFaceRequest::NamedFaceNamed {
+                unit: unit_name,
+                target: target_name,
+            });
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let tracker = get_named_object_tracker();
         let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) else {
@@ -1559,6 +1567,14 @@ impl ScriptActionDispatcher {
         let unit_name = self.get_string_param(action, 0)?;
         let waypoint = self.get_string_param(action, 1)?;
         log::debug!("Unit '{}' facing waypoint '{}'", unit_name, waypoint);
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_face(super::HostScriptFaceRequest::NamedFaceWaypoint {
+                unit: unit_name,
+                waypoint,
+            });
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let tracker = get_named_object_tracker();
         let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) else {

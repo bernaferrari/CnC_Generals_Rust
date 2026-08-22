@@ -5347,6 +5347,53 @@ fn bridge_broken_reads_host_named_state_only_on_damage_edge() {
     crate::scripting::clear_host_script_query_snapshot();
 }
 
+#[test]
+fn player_set_give_money_queue_host_drain() {
+    let _test_lock = crate::test_sync::lock();
+    let _ = take_host_money_requests();
+    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+
+    let mut set = ScriptAction::new(ScriptActionType::PlayerSetMoney);
+    set.add_parameter(Parameter::with_string(
+        ParameterType::Side,
+        "PlyrAmerica".into(),
+    ))
+    .unwrap();
+    set.add_parameter(Parameter::with_int(ParameterType::Int, 10_000))
+        .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&set).unwrap(),
+        ScriptActionResult::Success
+    );
+
+    let mut give = ScriptAction::new(ScriptActionType::PlayerGiveMoney);
+    give.add_parameter(Parameter::with_string(
+        ParameterType::Side,
+        "PlyrChina".into(),
+    ))
+    .unwrap();
+    give.add_parameter(Parameter::with_int(ParameterType::Int, -500))
+        .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&give).unwrap(),
+        ScriptActionResult::Success
+    );
+
+    assert_eq!(
+        take_host_money_requests(),
+        vec![
+            HostScriptMoneyRequest::Set {
+                player: "PlyrAmerica".into(),
+                amount: 10_000,
+            },
+            HostScriptMoneyRequest::Give {
+                player: "PlyrChina".into(),
+                amount: -500,
+            },
+        ]
+    );
+}
+
 
 
 

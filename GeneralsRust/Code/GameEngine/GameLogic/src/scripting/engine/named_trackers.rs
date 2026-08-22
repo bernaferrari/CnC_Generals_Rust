@@ -1040,6 +1040,12 @@ impl ScriptEngine {
         log::debug!("UI interaction: {}", hook_name);
     }
 
+    /// C++ `evaluateFlag` walks `m_uiInteractions` after the stored flag miss.
+    /// `signalUIInteract` pulses the hook name true for one `ScriptEngine::update`.
+    pub fn has_ui_interaction(&self, hook_name: &str) -> bool {
+        self.with_inner(|inner| inner.ui_interactions.iter().any(|name| name == hook_name))
+    }
+
     /// Create named map reveal
     pub fn create_named_map_reveal(
         &self,
@@ -1608,7 +1614,9 @@ impl ScriptEngine {
 
         let flag_name = param0.get_string();
         let target_value = param1.get_int() != 0;
-        self.get_flag(flag_name).map(|f| f.value).unwrap_or(false) == target_value
+        let flag_value = self.get_flag(flag_name).map(|f| f.value).unwrap_or(false);
+        // C++ evaluateFlag: UI hook name pulses true for this frame.
+        flag_value == target_value || self.has_ui_interaction(flag_name)
     }
 
     fn evaluate_timer_condition_inline(&self, condition: &Condition) -> bool {

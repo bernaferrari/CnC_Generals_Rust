@@ -32,7 +32,7 @@ impl GameLogic {
             host_secondary_damage_radius_for_weapon_name, scatter_impact_offset,
             scatter_misses_intended_target, scatter_seed_for_shot, DEFAULT_SCATTER_HIT_RADIUS,
         };
-        let (wname, tgt_inf, hit_r, weapon_splash) = {
+        let (wname, tgt_inf, hit_r, weapon_splash, radius_mult) = {
             let attacker = match self.objects.get(&attacker_id) {
                 Some(a) => a,
                 None => return (false, target_pos, 0.0),
@@ -51,7 +51,13 @@ impl GameLogic {
                 .weapon_slot(slot)
                 .map(|w| w.splash_radius.max(0.0))
                 .unwrap_or(0.0);
-            (wname, target.is_kind_of(KindOf::Infantry), hit_r, splash)
+            (
+                wname,
+                target.is_kind_of(KindOf::Infantry),
+                hit_r,
+                splash,
+                attacker.weapon_bonus_radius(),
+            )
         };
         let splash_r = {
             let primary_r = wname
@@ -62,7 +68,7 @@ impl GameLogic {
                 .as_deref()
                 .map(host_secondary_damage_radius_for_weapon_name)
                 .unwrap_or(0.0);
-            weapon_splash.max(primary_r).max(secondary_r)
+            weapon_splash.max(primary_r).max(secondary_r) * radius_mult
         };
         if let Some(offset) = table_offset {
             let mut impact = target_pos;

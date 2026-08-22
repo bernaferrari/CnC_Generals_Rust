@@ -381,7 +381,7 @@ impl TriggerSystem {
     }
 
     /// Evaluate flag condition
-    /// Matches C++ ScriptConditions::EvaluateFlag
+    /// Matches C++ ScriptEngine::evaluateFlag
     fn evaluate_flag_condition(
         engine: &ScriptEngine,
         condition: &Condition,
@@ -396,12 +396,8 @@ impl TriggerSystem {
         let flag_name = flag_param.get_string();
         let expected_value = expected_param.get_int() != 0;
 
-        if let Some(flag) = engine.get_flag(flag_name) {
-            Ok(flag.value == expected_value)
-        } else {
-            // Flag doesn't exist, treat as false
-            Ok(!expected_value)
-        }
+        let flag_value = engine.get_flag(flag_name).map(|flag| flag.value).unwrap_or(false);
+        Ok(flag_value == expected_value || engine.has_ui_interaction(flag_name))
     }
 
     /// Evaluate timer expired condition

@@ -409,17 +409,21 @@ impl ScriptCondition for FlagComparisonCondition {
 
         log::debug!("Checking flag '{}' == {}", flag_name, expected_value);
 
-        let flag_value = get_script_engine()
+        let (flag_value, ui_pulse) = get_script_engine()
             .read()
             .ok()
             .and_then(|engine_guard| {
-                engine_guard
-                    .as_ref()
-                    .and_then(|engine| engine.get_flag(&flag_name).map(|flag| flag.value))
+                engine_guard.as_ref().map(|engine| {
+                    let flag_value = engine
+                        .get_flag(&flag_name)
+                        .map(|flag| flag.value)
+                        .unwrap_or(false);
+                    (flag_value, engine.has_ui_interaction(&flag_name))
+                })
             })
-            .unwrap_or(false);
+            .unwrap_or((false, false));
 
-        Ok(flag_value == expected_value)
+        Ok(flag_value == expected_value || ui_pulse)
     }
 
     fn name(&self) -> &str {

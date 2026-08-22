@@ -50,6 +50,8 @@ pub use conditions::{
     host_eval_skirmish_captured_count, host_eval_skirmish_garrisoned_count,
     host_eval_skirmish_player_has_units_in_area, host_eval_skirmish_special_power_ready,
     host_eval_skirmish_unowned_faction_unit_count, host_eval_skirmish_value_in_area,
+    host_eval_skirmish_supplies_value_within_distance,
+    host_eval_skirmish_tech_building_within_distance,
     host_object_did_enter,
     host_object_did_exit, host_query_player_census, host_query_player_has_science,
     host_query_player_science_purchase_points, host_query_player_template_count,
@@ -66,7 +68,8 @@ pub use conditions::{
     host_team_sequential_status, host_team_was_fielded, merge_host_script_query_snapshot,
     restore_host_object_trigger_persists, sync_host_trigger_flags_from_snapshot,
     update_host_object_trigger_flags, HostObjectTriggerPersist, HostScriptPlayerCensus,
-    HostScriptQueryObject, HostScriptQuerySnapshot, HostTriggerSlotPersist,
+    HostScriptQueryObject, HostScriptQuerySnapshot, HostTechBuildingCensus,
+    HostTriggerSlotPersist,
 };
 pub use core::*;
 pub use engine::*;

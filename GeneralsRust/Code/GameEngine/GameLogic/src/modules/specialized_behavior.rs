@@ -243,6 +243,12 @@ pub trait ExitInterface {
     fn use_spawn_rally_point(&self) -> bool {
         false
     }
+
+    /// C++ `ExitInterface::isExitBusy`. OpenContain / TunnelContain is FALSE.
+    fn is_exit_busy(&self) -> bool {
+        false
+    }
+
 }
 
 /// Exit door type

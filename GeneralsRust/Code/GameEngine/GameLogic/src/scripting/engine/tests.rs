@@ -1,5 +1,8 @@
 use super::*;
-use crate::scripting::executor::{ScriptActionDispatcher, ScriptActionResult, ScriptContext};
+use crate::scripting::executor::{
+    ScriptActionDispatcher, ScriptActionResult, ScriptConditionEvaluator, ScriptConditionResult,
+    ScriptContext,
+};
 
 fn always_true_condition() -> Box<OrCondition> {
     let mut condition = OrCondition::new();
@@ -1406,5 +1409,172 @@ fn named_reveals_snapshot_survives_restore_for_undo() {
     assert_eq!(remaining.len(), 1);
     assert_eq!(remaining[0].0, "HillLook");
 }
+
+#[test]
+fn eval_flag_true_when_ui_interaction_name_matches_like_cxx() {
+    // C++ ScriptEngine::evaluateFlag (ScriptEngine.cpp:6450-6458): stored flag
+    // miss is still true if m_uiInteractions contains the flag name.
+    let _lock = crate::test_sync::lock();
+    initialize_script_engine().unwrap();
+
+    const HOOK: &str = "ShellMainMenuOnlineHighlighted";
+    {
+        let engine = get_script_engine();
+        let mut guard = engine.write().unwrap();
+        let engine = guard.as_mut().unwrap();
+        engine.set_flag(HOOK, false).unwrap();
+        engine.signal_ui_interact(HOOK);
+        assert!(engine.has_ui_interaction(HOOK));
+        assert!(!engine.has_ui_interaction("OtherFlag"));
+    }
+
+    let mut pulse = Condition::new(ConditionType::Flag);
+    pulse
+        .add_parameter(Parameter::with_string(
+            ParameterType::Flag,
+            HOOK.to_string(),
+        ))
+        .unwrap();
+    pulse
+        .add_parameter(Parameter::with_int(ParameterType::Boolean, 1))
+        .unwrap();
+
+    let mut other = Condition::new(ConditionType::Flag);
+    other
+        .add_parameter(Parameter::with_string(
+            ParameterType::Flag,
+            "OtherFlag".to_string(),
+        ))
+        .unwrap();
+    other
+        .add_parameter(Parameter::with_int(ParameterType::Boolean, 1))
+        .unwrap();
+
+    let mut evaluator =
+        ScriptConditionEvaluator::new(std::sync::Arc::new(std::sync::RwLock::new(
+            ScriptContext::new(),
+        )));
+    assert_eq!(
+        evaluator.evaluate_condition(&mut pulse).unwrap(),
+        ScriptConditionResult::True,
+        "C++ evaluateFlag returns true when the UI hook name matches"
+    );
+    assert_eq!(
+        evaluator.evaluate_condition(&mut other).unwrap(),
+        ScriptConditionResult::False,
+        "unrelated flag names stay false without a stored flag or pulse"
+    );
+}
+
+fn flag_equals_true_condition(flag_name: &str) -> Box<OrCondition> {
+    let mut flag = Condition::new(ConditionType::Flag);
+    flag.add_parameter(Parameter::with_string(
+        ParameterType::Flag,
+        flag_name.to_string(),
+    ))
+    .unwrap();
+    flag.add_parameter(Parameter::with_int(ParameterType::Boolean, 1))
+        .unwrap();
+    let mut or_condition = OrCondition::new();
+    or_condition.set_first_and_condition(Some(Box::new(flag)));
+    Box::new(or_condition)
+}
+
+#[test]
+fn live_update_flag_true_when_ui_interaction_pulses_like_cxx() {
+    // Live host (scripts_camera.rs) takes ScriptEngine out of the global
+    // RwLock then calls update(). C++ evaluateFlag is true when
+    // m_uiInteractions contains the hook name; pulses clear after
+    // executeScripts (ScriptEngine.cpp:5577-5578).
+    let _lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+
+    const HOOK: &str = "ShellMainMenuOnlineHighlighted";
+    let mut engine = ScriptEngine::new().unwrap();
+    let mut script = Script::new();
+    script.script_name = "UiPulseFlag".to_string();
+    script.is_active = true;
+    script.is_one_shot = true;
+    script.condition = Some(flag_equals_true_condition(HOOK));
+    script.action = Some(set_flag_action("ui_pulse_fired"));
+
+    let mut list = ScriptList::new();
+    list.append_script(Box::new(script));
+    engine
+        .set_script_list_for_player(0, Some(Box::new(list)))
+        .unwrap();
+
+    engine.set_flag(HOOK, false).unwrap();
+    engine.signal_ui_interact(HOOK);
+    assert!(engine.has_ui_interaction(HOOK));
+
+    engine
+        .update()
+        .expect("live ScriptEngine::update must evaluate FLAG");
+    assert!(
+        engine
+            .get_flag("ui_pulse_fired")
+            .is_some_and(|flag| flag.value),
+        "C++ evaluateFlag must fire the FLAG==TRUE script from a UI pulse"
+    );
+    assert!(
+        !engine.has_ui_interaction(HOOK),
+        "C++ clears m_uiInteractions after executeScripts"
+    );
+}
+
+#[test]
+fn live_host_take_engine_update_flag_ui_pulse_like_cxx() {
+    // scripts_camera.rs: take engine out of the global lock, update(), put back.
+    let _lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    initialize_script_engine().unwrap();
+
+    const HOOK: &str = "ShellMainMenuSkirmishHighlighted";
+    {
+        let handle = get_script_engine();
+        let mut guard = handle.write().unwrap();
+        let engine = guard.as_mut().unwrap();
+        engine.reset();
+        let mut script = Script::new();
+        script.script_name = "HostUiPulseFlag".to_string();
+        script.is_active = true;
+        script.is_one_shot = true;
+        script.condition = Some(flag_equals_true_condition(HOOK));
+        script.action = Some(set_flag_action("host_ui_pulse_fired"));
+        let mut list = ScriptList::new();
+        list.append_script(Box::new(script));
+        engine
+            .set_script_list_for_player(0, Some(Box::new(list)))
+            .unwrap();
+        engine.set_flag(HOOK, false).unwrap();
+        engine.signal_ui_interact(HOOK);
+    }
+
+    crate::helpers::TheScriptEngine::signal_ui_interact(HOOK);
+
+    let taken = match get_script_engine().write() {
+        Ok(mut guard) => guard.take(),
+        Err(_) => panic!("script engine lock poisoned"),
+    };
+    let engine = taken.expect("live host ScriptEngine must exist");
+    engine
+        .update()
+        .expect("taken-out live update must evaluate FLAG");
+    assert!(
+        engine
+            .get_flag("host_ui_pulse_fired")
+            .is_some_and(|flag| flag.value),
+        "live take-out-of-lock update must honor UI pulse like C++ evaluateFlag"
+    );
+    assert!(
+        !engine.has_ui_interaction(HOOK),
+        "taken-out update must clear the one-frame UI pulse"
+    );
+    if let Ok(mut guard) = get_script_engine().write() {
+        *guard = Some(engine);
+    }
+}
+
 
 

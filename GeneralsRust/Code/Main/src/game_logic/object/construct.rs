@@ -841,6 +841,8 @@ impl Object {
             weapon_bonus_battle_plan_hold_the_line: false,
             weapon_bonus_battle_plan_search_and_destroy: false,
             weapon_bonus_drone_spotting: false,
+            weapon_bonus_solo: 0,
+
             battle_plan_sight_scalar_applied: 1.0,
             continuous_fire_consecutive: 0,
             continuous_fire_level: 0,
@@ -1684,6 +1686,8 @@ impl Object {
             weapon_bonus_battle_plan_hold_the_line: false,
             weapon_bonus_battle_plan_search_and_destroy: false,
             weapon_bonus_drone_spotting: false,
+            weapon_bonus_solo: 0,
+
             battle_plan_sight_scalar_applied: 1.0,
             continuous_fire_consecutive: 0,
             continuous_fire_level: 0,

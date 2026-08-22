@@ -56,6 +56,38 @@ impl TheFXList {
     }
 }
 
+/// Live-host object pose for leftover `FXList::doFXObj` when `OBJECT_REGISTRY`
+/// is empty. C++ `doFXObj` uses the live `Object*`; production never fills the
+/// leftover registry, so death/TransitionDamage/DamageFX publish host pose here.
+#[derive(Clone, Copy, Debug)]
+pub struct HostFxObjectPose {
+    pub id: ObjectID,
+    pub position: Coord3D,
+    pub transform: Matrix3D,
+    pub player_index: i32,
+}
+
+
+static HOST_FX_OBJECT_POSES: std::sync::LazyLock<RwLock<HashMap<ObjectID, HostFxObjectPose>>> =
+    std::sync::LazyLock::new(|| RwLock::new(HashMap::new()));
+
+/// Stamp a live host object's leftover-space pose for object-form FX.
+pub fn set_host_fx_object_pose(pose: HostFxObjectPose) {
+    if let Ok(mut map) = HOST_FX_OBJECT_POSES.write() {
+        map.insert(pose.id, pose);
+    }
+}
+
+/// Look up a host object pose published by the live host.
+pub fn host_fx_object_pose(id: ObjectID) -> Option<HostFxObjectPose> {
+    HOST_FX_OBJECT_POSES
+        .read()
+        .ok()
+        .and_then(|map| map.get(&id).copied())
+}
+
+
+
 /// Particle system manager bridge to the client-side implementation.
 pub struct TheParticleSystemManager;
 

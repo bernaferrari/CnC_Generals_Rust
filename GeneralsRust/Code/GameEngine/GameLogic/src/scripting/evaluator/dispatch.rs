@@ -584,36 +584,43 @@ impl ScriptEvaluator {
                         "BridgeRepaired condition missing bridge parameter".to_string(),
                     )
                 })?;
-
                 let bridge_name = bridge_param.get_string();
+                if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+                    return Ok(crate::scripting::host_bridge_repaired(bridge_name));
+                }
                 let tracker = get_named_object_tracker();
                 let Some(object_id) = tracker.get_object_id(bridge_name).ok().flatten() else {
                     return Ok(false);
                 };
-
                 let Ok(terrain) = get_terrain_logic().read() else {
                     return Ok(false);
                 };
+                if !terrain.bridge_damage_states_changed() {
+                    return Ok(false);
+                }
                 Ok(terrain.is_bridge_repaired(object_id))
             }
 
-            // Named bridge has been broken (damage state changed to broken)
             ConditionType::BridgeBroken => {
                 let bridge_param = condition.get_parameter(0).ok_or_else(|| {
                     GameLogicError::Configuration(
                         "BridgeBroken condition missing bridge parameter".to_string(),
                     )
                 })?;
-
                 let bridge_name = bridge_param.get_string();
+                if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+                    return Ok(crate::scripting::host_bridge_broken(bridge_name));
+                }
                 let tracker = get_named_object_tracker();
                 let Some(object_id) = tracker.get_object_id(bridge_name).ok().flatten() else {
                     return Ok(false);
                 };
-
                 let Ok(terrain) = get_terrain_logic().read() else {
                     return Ok(false);
                 };
+                if !terrain.bridge_damage_states_changed() {
+                    return Ok(false);
+                }
                 Ok(terrain.is_bridge_broken(object_id))
             }
 
@@ -1323,6 +1330,25 @@ impl ScriptEvaluator {
                 let area_name = trigger_param.get_string();
                 let threshold = threshold_param.get_real();
 
+                let player_name = self
+                    .resolve_player_from_param(player_param)
+                    .and_then(|p| {
+                        p.read()
+                            .ok()
+                            .and_then(|g| NameKeyGenerator::key_to_name(g.get_player_name_key()))
+                    })
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| player_param.get_string().to_string());
+                if let Some(ok) = crate::scripting::host_eval_skirmish_supplies_value_within_distance(
+                    &player_name,
+                    distance,
+                    area_name,
+                    threshold,
+                ) {
+                    return Ok(ok);
+                }
+
+
                 let Some(player_arc) = self.resolve_player_from_param(player_param) else {
                     return Ok(false);
                 };
@@ -1425,9 +1451,15 @@ impl ScriptEvaluator {
                     )
                 })?;
 
-                let Some(player_arc) = self.resolve_player_from_param(player_param) else {
-                    return Ok(false);
-                };
+                let player_name = self
+                    .resolve_player_from_param(player_param)
+                    .and_then(|p| {
+                        p.read()
+                            .ok()
+                            .and_then(|g| NameKeyGenerator::key_to_name(g.get_player_name_key()))
+                    })
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| player_param.get_string().to_string());
                 if condition.custom_data == 1 {
                     return Ok(true);
                 }
@@ -1435,13 +1467,30 @@ impl ScriptEvaluator {
                     return Ok(false);
                 }
 
+                let distance = distance_param.get_real();
+                let area_name = trigger_param.get_string();
+                if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+                    if let Some(found) =
+                        crate::scripting::host_eval_skirmish_tech_building_within_distance(
+                            &player_name,
+                            distance,
+                            area_name,
+                        )
+                    {
+                        condition.custom_data = if found { 1 } else { -1 };
+                        return Ok(found);
+                    }
+                    return Ok(false);
+                }
+
+                let Some(player_arc) = self.resolve_player_from_param(player_param) else {
+                    return Ok(false);
+                };
                 let Ok(player_guard) = player_arc.read() else {
                     return Ok(false);
                 };
                 let player_index = player_guard.get_player_index();
 
-                let distance = distance_param.get_real();
-                let area_name = trigger_param.get_string();
                 let trigger = match self.get_trigger_area(area_name) {
                     Some(t) => t,
                     None => return Ok(false),
@@ -1480,7 +1529,8 @@ impl ScriptEvaluator {
                         .and_then(|list| list.get_player(owner_id as i32).cloned())
                     {
                         if let Ok(owner_guard) = owner_arc.read() {
-                            if !player_guard.is_allied_with_player(&owner_guard) {
+                            // C++ PartitionFilterPlayerAffiliation(ALLOW_ALLIES, false).
+                            if player_guard.is_allied_with_player(&owner_guard) {
                                 continue;
                             }
                         }

@@ -2652,6 +2652,12 @@ impl GameLogic {
             player.init(Arc::new(template));
             player.init_from_dict_defaults();
             player.apply_handicap_from_dict(dict);
+            // C++ Player.cpp:859 m_mpStartIndex = d->getInt(TheKey_multiplayerStartIndex).
+            // Host leftover PlayerList must carry this so SKIRMISH_TECH_BUILDING
+            // [Skirmish]MyInnerPerimeter qualifies to InnerPerimeter{start+1}.
+            if dict.get_type(key_multiplayer_start_index()).is_some() {
+                player.set_mp_start_index(dict.get_int(key_multiplayer_start_index()));
+            }
             if dict.get_type(key_player_color()).is_some() {
                 let color = (dict.get_int(key_player_color()) as u32) | 0xff00_0000;
                 let night = if dict.get_type(key_player_night_color()).is_some() {
@@ -2823,7 +2829,12 @@ impl GameLogic {
             dict.set_ascii_string(key_player_faction(), faction);
             dict.set_ascii_string(key_player_allies(), String::new());
             dict.set_ascii_string(key_player_enemies(), String::new());
-            dict.set_int(key_multiplayer_start_index(), index as i32);
+            let start_index = if player.start_position >= 0 {
+                player.start_position
+            } else {
+                index as i32
+            };
+            dict.set_int(key_multiplayer_start_index(), start_index);
             if matches!(self.game_mode, GameMode::Skirmish) {
                 dict.set_bool(key_player_is_skirmish(), !player.is_local);
             }

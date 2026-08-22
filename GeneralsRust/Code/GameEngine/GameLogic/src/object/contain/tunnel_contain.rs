@@ -882,6 +882,21 @@ impl ContainModuleInterface for TunnelContain {
         .map_err(|e| e.to_string())
     }
 
+    fn exit_object_in_a_hurry(
+        &mut self,
+        obj_id: ObjectID,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // C++ OpenContain::exitObjectInAHurry (OpenContain.cpp:1036-1123) calls
+        // virtual removeFromContain first. TunnelContain's override (cpp:57-88)
+        // drops the unit from the shared TunnelTracker, then the OpenContain
+        // half places them at *this* tunnel's exit bones. AITNGuardIdle finds
+        // findBestTunnel(nemesis pos) and hurries out of that entrance — not
+        // the original entry.
+        self.remove_from_contain(obj_id, false)?;
+        OpenContain::exit_object_in_a_hurry(&mut self.base, obj_id)
+    }
+
+
     fn get_contained_objects(&self) -> &[ObjectID] {
         // C++ TunnelContain::getContainedItemsList redirects to the player tracker.
         self.contained_object_ids

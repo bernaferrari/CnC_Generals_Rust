@@ -215,6 +215,25 @@ impl ScriptConditionEvaluator {
         let area_name = self.get_condition_string_param(condition, 2)?;
         let compare_value = self.get_condition_real_param(condition, 3)?;
 
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            if let Some(ok) = crate::scripting::host_eval_skirmish_supplies_value_within_distance(
+                &player_name,
+                distance,
+                &area_name,
+                compare_value,
+            ) {
+                return Ok(if ok {
+                    ScriptConditionResult::True
+                } else {
+                    ScriptConditionResult::False
+                });
+            }
+            // Live host: leftover PlayerList/partition are empty. C++
+            // playerFromParam / missing trigger / no warehouses is false.
+            return Ok(ScriptConditionResult::False);
+        }
+
+
         let player_arc = player_list()
             .read()
             .ok()
@@ -303,11 +322,16 @@ impl ScriptConditionEvaluator {
         condition: &mut Condition,
     ) -> Result<ScriptConditionResult, ScriptError> {
         let player_name = self.get_condition_string_param(condition, 0)?;
-        let player_arc = player_list()
+        let leftover_player = player_list()
             .read()
             .ok()
-            .and_then(|list| list.find_player_by_name(&player_name))
-            .ok_or_else(|| ScriptError::PlayerNotFound(player_name.clone()))?;
+            .and_then(|list| list.find_player_by_name(&player_name));
+
+        // C++ playerFromParam: missing player is false without latch.
+        // Live leftover PlayerList may be empty — host census still runs.
+        if leftover_player.is_none() && !crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            return Ok(ScriptConditionResult::False);
+        }
 
         // C++ latches the first evaluation in customData forever, after player exists.
         if condition.custom_data == 1 {
@@ -319,6 +343,26 @@ impl ScriptConditionEvaluator {
 
         let distance = self.get_condition_real_param(condition, 1)?;
         let area_name = self.get_condition_string_param(condition, 2)?;
+
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            if let Some(found) = crate::scripting::host_eval_skirmish_tech_building_within_distance(
+                &player_name,
+                distance,
+                &area_name,
+            ) {
+                condition.custom_data = if found { 1 } else { -1 };
+                return Ok(if found {
+                    ScriptConditionResult::True
+                } else {
+                    ScriptConditionResult::False
+                });
+            }
+            // No host census / missing trigger: C++ false without latch.
+            return Ok(ScriptConditionResult::False);
+        }
+
+        let player_arc = leftover_player
+            .ok_or_else(|| ScriptError::PlayerNotFound(player_name.clone()))?;
         let player_guard = player_arc
             .read()
             .map_err(|_| ScriptError::ExecutionFailed("Failed to read player".to_string()))?;
@@ -1341,4 +1385,78 @@ pub(crate) fn leftover_command_button_ready_for_object(
 
     Some(true)
 }
+
+#[cfg(test)]
+mod tech_building_latch_tests {
+    use super::*;
+    use crate::scripting::{
+        clear_host_script_query_snapshot, set_host_script_query_snapshot, Condition,
+        ConditionType, HostScriptQuerySnapshot, HostTechBuildingCensus, Parameter,
+        ParameterType, ScriptConditionResult,
+    };
+    use std::sync::{Arc, RwLock};
+    fn tech_condition() -> Condition {
+        let mut condition = Condition::new(ConditionType::SkirmishTechBuildingWithinDistance);
+        condition
+            .add_parameter(Parameter::with_string(
+                ParameterType::Side,
+                "PlyrAmerica".into(),
+            ))
+            .unwrap();
+        condition
+            .add_parameter(Parameter::with_real(ParameterType::Real, 200.0))
+            .unwrap();
+        condition
+            .add_parameter(Parameter::with_string(
+                ParameterType::TriggerArea,
+                "HomeBase".into(),
+            ))
+            .unwrap();
+        condition
+    }
+
+    #[test]
+    fn empty_leftover_without_snapshot_does_not_latch() {
+        crate::object::registry::OBJECT_REGISTRY.clear();
+        clear_host_script_query_snapshot();
+        let mut evaluator =
+            ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+        let mut condition = tech_condition();
+        assert_eq!(
+            evaluator.evaluate_condition(&mut condition).unwrap(),
+            ScriptConditionResult::False
+        );
+        assert_eq!(condition.custom_data, 0);
+    }
+
+    #[test]
+    fn empty_leftover_host_census_latches_true() {
+        crate::object::registry::OBJECT_REGISTRY.clear();
+        clear_host_script_query_snapshot();
+        let mut snap = HostScriptQuerySnapshot::default();
+        snap.areas.insert("HomeBase".into(), (0.0, 0.0, 20.0, 20.0));
+        snap.tech_buildings.push(HostTechBuildingCensus {
+            x: 10.0,
+            z: 10.0,
+            owner_player: String::new(),
+            team: 3,
+            off_map: false,
+        });
+        set_host_script_query_snapshot(snap);
+        let mut evaluator =
+            ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+        let mut condition = tech_condition();
+        assert_eq!(
+            evaluator.evaluate_condition(&mut condition).unwrap(),
+            ScriptConditionResult::True
+        );
+        assert_eq!(condition.custom_data, 1);
+        clear_host_script_query_snapshot();
+        assert_eq!(
+            evaluator.evaluate_condition(&mut condition).unwrap(),
+            ScriptConditionResult::True
+        );
+    }
+}
+
 

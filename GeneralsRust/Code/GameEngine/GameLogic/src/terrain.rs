@@ -3601,8 +3601,6 @@ impl TerrainLogic {
             }
             current = bridge.next.as_deref_mut();
         }
-        // Match C++ behavior: always flag an update pass.
-        self.bridge_damage_states_changed = true;
     }
 
     /// Checks if the specified bridge object has just been repaired.

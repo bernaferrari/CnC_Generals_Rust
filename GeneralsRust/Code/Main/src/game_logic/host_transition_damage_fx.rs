@@ -609,6 +609,13 @@ pub fn dispatch_armor_damage_fx(
         return None;
     }
     game_engine::common::ini::ini_damage_fx::init_global_damage_fx_store();
+    crate::game_logic::publish_host_fx_object(
+        obj.id.0,
+        obj.get_position(),
+        obj.get_orientation(),
+        obj.owner_player_id.map(|p| p as i32).unwrap_or(-1),
+    );
+
     let ini_dt = host_to_ini_damage_type(damage_type);
     let victim = HostDamageFxVictim {
         name: obj.template_name.clone(),

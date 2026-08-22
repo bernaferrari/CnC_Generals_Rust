@@ -897,7 +897,7 @@ impl CommandSystem {
         };
 
         if let Some(position) = game_logic.player_command_center_position(player_id) {
-            game_logic.request_camera_focus(position);
+            game_logic.request_player_camera_look_at(position);
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand

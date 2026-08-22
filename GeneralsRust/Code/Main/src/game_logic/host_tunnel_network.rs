@@ -154,6 +154,10 @@ pub struct HostTunnelNetworkRegistry {
     /// Keyed by tunnel ObjectId bits so dying children cannot re-arm OneShot.
     #[serde(default)]
     oneshot_spawn_fired: HashSet<u32>,
+    /// Units that sallied out via AITNGuard idle (C++ return-to-tunnel loop).
+    #[serde(default)]
+    sally_units: HashSet<u32>,
+
 }
 
 /// Shared contain state for one player's tunnel network.
@@ -286,6 +290,30 @@ impl HostTunnelNetworkRegistry {
         ids
     }
 
+    /// C++ `TunnelTracker::getContainerList` residual.
+    pub fn tunnel_ids_for(&self, player_id: u32) -> &[ObjectId] {
+        self.networks
+            .get(&player_id)
+            .map(|n| n.tunnel_ids.as_slice())
+            .unwrap_or(&[])
+    }
+
+    /// C++ AITNGuardIdleState sally set (units that must return when idle).
+    pub fn sally_unit_ids(&self) -> Vec<ObjectId> {
+        let mut ids: Vec<ObjectId> = self.sally_units.iter().copied().map(ObjectId).collect();
+        ids.sort_unstable_by_key(|id| id.0);
+        ids
+    }
+
+    pub fn mark_sally(&mut self, unit_id: ObjectId) {
+        self.sally_units.insert(unit_id.0);
+    }
+
+    pub fn clear_sally(&mut self, unit_id: ObjectId) {
+        self.sally_units.remove(&unit_id.0);
+    }
+
+
     pub fn entry_tunnel_of(&self, unit_id: ObjectId) -> Option<ObjectId> {
         for net in self.networks.values() {
             if let Some(&tid) = net.entry_tunnel.get(&unit_id.0) {
@@ -325,6 +353,8 @@ impl HostTunnelNetworkRegistry {
         net.contained.push(unit_id);
         net.entry_tunnel.insert(unit_id.0, entry_tunnel);
         self.enters = self.enters.saturating_add(1);
+        self.sally_units.remove(&unit_id.0);
+
         true
     }
 
@@ -532,6 +562,26 @@ impl HostTunnelNetworkRegistry {
     }
 }
 
+/// C++ `findBestTunnel` (AITNGuard.cpp:84-105): closest living tunnel to `pos`
+/// in the ground plane (`dx*dx+dy*dy`). Host ground is XZ (y is height).
+pub fn find_best_tunnel_xz(
+    tunnels: impl IntoIterator<Item = (ObjectId, f32, f32)>,
+    pos_x: f32,
+    pos_z: f32,
+) -> Option<ObjectId> {
+    let mut best: Option<(ObjectId, f32)> = None;
+    for (id, x, z) in tunnels {
+        let dx = x - pos_x;
+        let dz = z - pos_z;
+        let dist_sqr = dx * dx + dz * dz;
+        if best.as_ref().map_or(true, |(_, d)| dist_sqr < *d) {
+            best = Some((id, dist_sqr));
+        }
+    }
+    best.map(|(id, _)| id)
+}
+
+
 /// Build residual TunnelNetworkGun weapon.
 pub fn tunnel_network_gun_weapon() -> Weapon {
     Weapon {
@@ -690,6 +740,24 @@ pub fn tunnel_network_has_oneshot_spawn(template_name: &str) -> bool {
         && !template_name.to_ascii_lowercase().contains("sneak")
 }
 
+/// Whether residual spawn should install `StealthDetectorUpdate` fields.
+///
+/// C++ `GLATunnelNetwork` ModuleTag_13: DetectionRange **150**, DetectionRate **500**ms.
+/// Sneak-attack tunnels share TunnelContain but omit the detector module.
+pub fn tunnel_network_spawn_is_detector(template_name: &str) -> bool {
+    is_tunnel_network_template(template_name)
+        && !template_name.to_ascii_lowercase().contains("sneak")
+}
+
+/// Retail StealthDetectorUpdate DetectionRange, or `None` if this template is not a detector.
+pub fn tunnel_network_detection_range(template_name: &str) -> Option<f32> {
+    if tunnel_network_spawn_is_detector(template_name) {
+        Some(TUNNEL_NETWORK_DETECTION_RANGE)
+    } else {
+        None
+    }
+}
+
 /// Prefix a stock spawn template with the building's general prefix.
 pub fn general_prefixed_spawn_template(building: &str, stock: &str) -> String {
     const PREFIXES: &[&str] = &["GC_Slth_", "GC_Chem_", "Demo_", "Chem_", "Slth_"];
@@ -762,6 +830,32 @@ mod tests {
         assert!(!is_tunnel_network_template("GLA_Barracks"));
         assert!(!is_tunnel_network_template("TestBunker"));
     }
+
+    #[test]
+    fn find_best_tunnel_xz_picks_closest_to_nemesis() {
+        // C++ findBestTunnel(nemesis pos): entry far, exit near nemesis.
+        let entry = ObjectId(1);
+        let near = ObjectId(2);
+        let far = ObjectId(3);
+        let best = find_best_tunnel_xz(
+            [(entry, 0.0, 0.0), (near, 100.0, 0.0), (far, 400.0, 0.0)],
+            110.0,
+            0.0,
+        );
+        assert_eq!(best, Some(near));
+    }
+
+    #[test]
+    fn record_enter_clears_sally_mark() {
+        let mut reg = HostTunnelNetworkRegistry::new();
+        let u = ObjectId(9);
+        let t = ObjectId(1);
+        reg.mark_sally(u);
+        assert_eq!(reg.sally_unit_ids(), vec![u]);
+        assert!(reg.record_enter(gla_key(), u, t));
+        assert!(reg.sally_unit_ids().is_empty());
+    }
+
 
     #[test]
     fn oneshot_spawn_excludes_sneak_and_prefixes_generals() {

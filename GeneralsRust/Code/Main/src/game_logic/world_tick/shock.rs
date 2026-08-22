@@ -433,10 +433,15 @@ impl GameLogic {
         // C++ dealDamageInternal: authored primary/secondary radii, no 1.5x ring.
         let (primary_r, secondary_r, primary_dmg, secondary_dmg) = match weapon_name {
             Some(n) => {
-                let pr = host_primary_damage_radius_for_weapon_name(n);
-                let sr = host_secondary_damage_radius_for_weapon_name(n);
+                let radius_mult = self
+                    .objects
+                    .get(&attacker_id)
+                    .map(|a| a.weapon_bonus_radius())
+                    .unwrap_or(1.0);
+                let pr = host_primary_damage_radius_for_weapon_name(n) * radius_mult;
+                let sr = host_secondary_damage_radius_for_weapon_name(n) * radius_mult;
                 let sd = host_secondary_damage_for_weapon_name(n);
-                let primary = if pr > 0.0 { pr } else { splash_radius };
+                let primary = if pr > 0.0 { pr } else { splash_radius * radius_mult };
                 (primary, sr, weapon_damage, sd)
             }
             None => (splash_radius, 0.0, weapon_damage, 0.0),

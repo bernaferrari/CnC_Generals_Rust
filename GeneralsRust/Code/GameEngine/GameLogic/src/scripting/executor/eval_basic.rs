@@ -535,7 +535,7 @@ impl ScriptConditionEvaluator {
         })
     }
 
-    /// C++ Reference: ScriptEngine::evaluateFlag() line 6442-6450
+    /// C++ Reference: ScriptEngine::evaluateFlag() line 6442-6460
     pub(crate) fn eval_flag(
         &self,
         condition: &Condition,
@@ -545,16 +545,18 @@ impl ScriptConditionEvaluator {
         log::debug!("Evaluating flag '{}' == {}", flag_name, expected);
 
         // Re-entrant: nested under CALL_SUBROUTINE may hold the engine write lock.
-        let flag_value = with_script_engine_ref(|engine| {
-            engine
+        // C++: stored flag == expected, else any matching `m_uiInteractions` name
+        // is true for this frame (cleared at the end of ScriptEngine::update).
+        let matched = with_script_engine_ref(|engine| {
+            let flag_value = engine
                 .get_flag(&flag_name)
                 .map(|f| f.value)
-                .unwrap_or(false)
+                .unwrap_or(false);
+            flag_value == expected || engine.has_ui_interaction(&flag_name)
         })
         .unwrap_or(false);
 
-        // Compare flag value with expected (C++ compares boolFlag == value)
-        Ok(if flag_value == expected {
+        Ok(if matched {
             ScriptConditionResult::True
         } else {
             ScriptConditionResult::False

@@ -158,15 +158,16 @@ impl Object {
     }
 
     /// C++ WeaponBonus append residual for active condition flags.
-    /// Returns (DAMAGE, RANGE, RATE_OF_FIRE, PRE_ATTACK) multipliers (default 1.0).
-    pub fn weapon_bonus_fields(&self) -> (f32, f32, f32, f32) {
+    /// Returns (DAMAGE, RANGE, RATE_OF_FIRE, PRE_ATTACK, RADIUS) (default 1.0).
+    pub fn weapon_bonus_fields(&self) -> (f32, f32, f32, f32, f32) {
         self.weapon_bonus_fields_with(None)
     }
+
 
     /// C++ Weapon::computeBonus (Weapon.cpp:1797-1816): source flags OR
     /// container `getWeaponBonusPassedToPassengers` when the contain module
     /// authors `WeaponBonusPassedToPassengers`.
-    pub fn weapon_bonus_fields_with(&self, container: Option<&Object>) -> (f32, f32, f32, f32) {
+    pub fn weapon_bonus_fields_with(&self, container: Option<&Object>) -> (f32, f32, f32, f32, f32) {
         use crate::game_logic::host_propaganda::{
             ENTHUSIASTIC_RATE_OF_FIRE_MULT, SUBLIMINAL_RATE_OF_FIRE_MULT,
         };
@@ -218,47 +219,64 @@ impl Object {
                 .unwrap_or(0),
         );
 
-        let mut damage = 1.0f32;
-        let mut range = 1.0f32;
-        let mut rof = 1.0f32;
-        let pre_attack = 1.0f32;
+        // C++ Weapon::computeBonus + WeaponBonus::appendBonuses (Weapon.cpp:1797-1816,
+        // 3463-3468): start at 1.0 and add (other - 1) per active condition.
+        // Leftover WeaponBonus::append_bonuses already matches; do not multiply.
+        use gamelogic::weapon::WeaponBonusField::{self, Damage, Range, RateOfFire};
+        use gamelogic::WeaponBonus;
+
+        fn append_field(bonus: &mut WeaponBonus, field: WeaponBonusField, value: f32) {
+            let mut other = WeaponBonus::new();
+            other.set_field(field, value);
+            bonus.append_bonuses(&other);
+        }
+
+        let mut bonus = WeaponBonus::new();
 
         if enthusiastic {
-            rof *= ENTHUSIASTIC_RATE_OF_FIRE_MULT;
+            append_field(&mut bonus, RateOfFire, ENTHUSIASTIC_RATE_OF_FIRE_MULT);
         }
         if subliminal {
-            rof *= SUBLIMINAL_RATE_OF_FIRE_MULT;
+            append_field(&mut bonus, RateOfFire, SUBLIMINAL_RATE_OF_FIRE_MULT);
         }
         if horde {
-            rof *= INFANTRY_HORDE_ROF_MULT;
+            append_field(&mut bonus, RateOfFire, INFANTRY_HORDE_ROF_MULT);
         }
         if nationalism {
-            rof *= INFANTRY_NATIONALISM_ROF_MULT;
+            append_field(&mut bonus, RateOfFire, INFANTRY_NATIONALISM_ROF_MULT);
         }
         // C++ WEAPONBONUSCONDITION_FANATICISM (GameData RATE_OF_FIRE 125%).
         // evaluateMoraleBonus nests this under NATIONALISM; the stored flag
         // is already gated that way. Stacks extra ROF on Infantry General.
         if fanaticism {
-            rof *= INFANTRY_FANATICISM_ROF_MULT;
+            append_field(&mut bonus, RateOfFire, INFANTRY_FANATICISM_ROF_MULT);
         }
         // C++ WEAPONBONUSCONDITION_PLAYER_UPGRADE (GameData DAMAGE 125%).
         // Uranium Shells / AP Bullets / Chain Guns / AP Rockets.
         if player_upgrade {
-            damage *= 1.25;
+            append_field(&mut bonus, Damage, 1.25);
         }
         if frenzy {
-            damage *= crate::game_logic::host_frenzy::HostFrenzyLevel::from_u8(frenzy_level)
-                .damage_multiplier();
+            append_field(
+                &mut bonus,
+                Damage,
+                crate::game_logic::host_frenzy::HostFrenzyLevel::from_u8(frenzy_level)
+                    .damage_multiplier(),
+            );
         }
         if bombardment {
-            damage *= BOMBARDMENT_DAMAGE_MULT;
+            append_field(&mut bonus, Damage, BOMBARDMENT_DAMAGE_MULT);
         }
         if search_and_destroy {
-            range *= SEARCH_AND_DESTROY_RANGE_MULT;
+            append_field(&mut bonus, Range, SEARCH_AND_DESTROY_RANGE_MULT);
         }
         // C++ WEAPONBONUSCONDITION_DRONE_SPOTTING residual (GameData RANGE 150%).
         if drone_spotting {
-            range *= crate::game_logic::host_slave_drones::DRONE_SPOTTING_RANGE_MULT;
+            append_field(
+                &mut bonus,
+                Range,
+                crate::game_logic::host_slave_drones::DRONE_SPOTTING_RANGE_MULT,
+            );
         }
         // C++ WEAPONBONUSCONDITION_GARRISONED (GameData RANGE 133%).
         // GarrisonContain / HelixContain onContaining set the flag; OpenContain
@@ -267,48 +285,157 @@ impl Object {
             && self.is_kind_of(KindOf::Infantry)
             && matches!(self.ai_state, AIState::Garrisoned)
         {
-            range *= 1.33;
+            append_field(&mut bonus, Range, 1.33);
         }
         // C++ CONTINUOUS_FIRE_MEAN / FAST WeaponBonus ROF residual
         // (GameData defaults MEAN 200%, FAST 300%). Level set by FiringTracker
         // / gattling ramp residuals on Object::continuous_fire_level.
         match continuous_fire_level {
-            1 => rof *= 2.0,
-            2 => rof *= 3.0,
+            1 => append_field(&mut bonus, RateOfFire, 2.0),
+            2 => append_field(&mut bonus, RateOfFire, 3.0),
             _ => {}
         }
         // C++ Object::setWeaponBonusCondition VETERAN/ELITE/HERO + computeBonus
         // every fire (Weapon.cpp:1797-1816). Flags are exclusive; fall back to
         // experience.level when a test assigns rank without going through
         // apply_veterancy_bonuses.
-        if hero {
-            damage *= VETERANCY_DAMAGE_BONUS_HEROIC;
-            rof *= VETERANCY_ROF_BONUS_HEROIC;
+        let (vet_damage, vet_rof) = if hero {
+            (Some(VETERANCY_DAMAGE_BONUS_HEROIC), Some(VETERANCY_ROF_BONUS_HEROIC))
         } else if elite {
-            damage *= VETERANCY_DAMAGE_BONUS_ELITE;
-            rof *= VETERANCY_ROF_BONUS_ELITE;
+            (Some(VETERANCY_DAMAGE_BONUS_ELITE), Some(VETERANCY_ROF_BONUS_ELITE))
         } else if veteran {
-            damage *= VETERANCY_DAMAGE_BONUS_VETERAN;
-            rof *= VETERANCY_ROF_BONUS_VETERAN;
+            (
+                Some(VETERANCY_DAMAGE_BONUS_VETERAN),
+                Some(VETERANCY_ROF_BONUS_VETERAN),
+            )
         } else {
             match self.experience.level {
-                VeterancyLevel::Veteran => {
-                    damage *= VETERANCY_DAMAGE_BONUS_VETERAN;
-                    rof *= VETERANCY_ROF_BONUS_VETERAN;
+                VeterancyLevel::Veteran => (
+                    Some(VETERANCY_DAMAGE_BONUS_VETERAN),
+                    Some(VETERANCY_ROF_BONUS_VETERAN),
+                ),
+                VeterancyLevel::Elite => (
+                    Some(VETERANCY_DAMAGE_BONUS_ELITE),
+                    Some(VETERANCY_ROF_BONUS_ELITE),
+                ),
+                VeterancyLevel::Heroic => (
+                    Some(VETERANCY_DAMAGE_BONUS_HEROIC),
+                    Some(VETERANCY_ROF_BONUS_HEROIC),
+                ),
+                VeterancyLevel::Rookie => (None, None),
+            }
+        };
+        if let Some(value) = vet_damage {
+            append_field(&mut bonus, Damage, value);
+        }
+        if let Some(value) = vet_rof {
+            append_field(&mut bonus, RateOfFire, value);
+        }
+        // C++ WEAPONBONUSCONDITION_SOLO_HUMAN_*/SOLO_AI_* from
+        // Player::friend_applyDifficultyBonusesForObject. INI WeaponBonusSet
+        // multipliers when authored; otherwise leftover default 1.0.
+        let solo = {
+            let own = self.weapon_bonus_solo;
+            let inherited = inherit.map(|c| c.weapon_bonus_solo).unwrap_or(0);
+            if own != 0 {
+                own
+            } else {
+                inherited
+            }
+        };
+        leftover_append_solo_weapon_bonus(&mut bonus, solo);
+
+        // C++ Weapon::computeBonus (Weapon.cpp:1814-1816): template m_extraBonus.
+        {
+            use gamelogic::weapon::{WeaponBonusConditionFlags, WeaponBonusConditionType};
+            let mut flags = WeaponBonusConditionFlags::new();
+            let set = |flags: &mut WeaponBonusConditionFlags, cond, on: bool| {
+                if on {
+                    flags.set(cond);
                 }
-                VeterancyLevel::Elite => {
-                    damage *= VETERANCY_DAMAGE_BONUS_ELITE;
-                    rof *= VETERANCY_ROF_BONUS_ELITE;
+            };
+            set(&mut flags, WeaponBonusConditionType::Enthusiastic, enthusiastic);
+            set(&mut flags, WeaponBonusConditionType::Subliminal, subliminal);
+            set(&mut flags, WeaponBonusConditionType::Horde, horde);
+            set(&mut flags, WeaponBonusConditionType::Nationalism, nationalism);
+            set(&mut flags, WeaponBonusConditionType::Fanaticism, fanaticism);
+            set(&mut flags, WeaponBonusConditionType::PlayerUpgrade, player_upgrade);
+            set(&mut flags, WeaponBonusConditionType::DroneSpotting, drone_spotting);
+            set(
+                &mut flags,
+                WeaponBonusConditionType::BattleplanBombardment,
+                bombardment,
+            );
+            set(
+                &mut flags,
+                WeaponBonusConditionType::BattleplanSearchAndDestroy,
+                search_and_destroy,
+            );
+            set(
+                &mut flags,
+                WeaponBonusConditionType::BattleplanHoldtheLine,
+                flag(self.weapon_bonus_battle_plan_hold_the_line, |c| {
+                    c.weapon_bonus_battle_plan_hold_the_line
+                }),
+            );
+            if frenzy {
+                match frenzy_level {
+                    2 => flags.set(WeaponBonusConditionType::FrenzyTwo),
+                    3 => flags.set(WeaponBonusConditionType::FrenzyThree),
+                    _ => flags.set(WeaponBonusConditionType::FrenzyOne),
                 }
-                VeterancyLevel::Heroic => {
-                    damage *= VETERANCY_DAMAGE_BONUS_HEROIC;
-                    rof *= VETERANCY_ROF_BONUS_HEROIC;
+            }
+            if self.contained_by.is_some()
+                && self.is_kind_of(KindOf::Infantry)
+                && matches!(self.ai_state, AIState::Garrisoned)
+            {
+                flags.set(WeaponBonusConditionType::Garrisoned);
+            }
+            match continuous_fire_level {
+                1 => flags.set(WeaponBonusConditionType::ContinuousFireMean),
+                2 => flags.set(WeaponBonusConditionType::ContinuousFireFast),
+                _ => {}
+            }
+            if hero {
+                flags.set(WeaponBonusConditionType::Hero);
+            } else if elite {
+                flags.set(WeaponBonusConditionType::Elite);
+            } else if veteran {
+                flags.set(WeaponBonusConditionType::Veteran);
+            } else {
+                match self.experience.level {
+                    VeterancyLevel::Heroic => flags.set(WeaponBonusConditionType::Hero),
+                    VeterancyLevel::Elite => flags.set(WeaponBonusConditionType::Elite),
+                    VeterancyLevel::Veteran => flags.set(WeaponBonusConditionType::Veteran),
+                    VeterancyLevel::Rookie => {}
                 }
-                VeterancyLevel::Rookie => {}
+            }
+            match solo {
+                16 => flags.set(WeaponBonusConditionType::SoloHumanEasy),
+                17 => flags.set(WeaponBonusConditionType::SoloHumanNormal),
+                18 => flags.set(WeaponBonusConditionType::SoloHumanHard),
+                19 => flags.set(WeaponBonusConditionType::SoloAiEasy),
+                20 => flags.set(WeaponBonusConditionType::SoloAiNormal),
+                21 => flags.set(WeaponBonusConditionType::SoloAiHard),
+                _ => {}
+            }
+            if let Some(name) = self
+                .weapon_name_for_slot(self.active_weapon_slot)
+                .or_else(|| self.primary_weapon_name())
+            {
+                crate::game_logic::weapon_bootstrap::append_extra_weapon_bonus(
+                    name, flags, &mut bonus,
+                );
             }
         }
 
-        (damage, range, rof.max(0.01), pre_attack.max(0.01))
+        (
+            bonus.get_field(Damage),
+            bonus.get_field(Range),
+            bonus.get_field(RateOfFire).max(0.01),
+            bonus.get_field(WeaponBonusField::PreAttack).max(0.01),
+            bonus.get_field(WeaponBonusField::Radius).max(0.0),
+        )
     }
 
     /// Effective weapon range with WeaponBonus RANGE field.
@@ -319,6 +446,17 @@ impl Object {
     /// Effective weapon damage with WeaponBonus DAMAGE field.
     pub fn effective_weapon_damage(&self, base_damage: f32) -> f32 {
         base_damage * self.weapon_bonus_fields().0
+    }
+
+
+    /// C++ WeaponBonus::RADIUS (Weapon.cpp:515-527).
+    pub fn weapon_bonus_radius(&self) -> f32 {
+        self.weapon_bonus_fields().4
+    }
+
+    /// Effective splash radius with WeaponBonus RADIUS field.
+    pub fn effective_weapon_radius(&self, base_radius: f32) -> f32 {
+        base_radius * self.weapon_bonus_radius()
     }
 
     /// Effective reload interval (seconds) with RATE_OF_FIRE bonus.
@@ -784,3 +922,62 @@ impl Object {
         self.is_alive() && self.is_kind_of(KindOf::Attackable)
     }
 }
+
+/// C++ `TheGameLogic->getGlobalWeaponBonusSet()->appendBonuses(SOLO_*)`.
+/// Falls back to parsed GameData.ini `WeaponBonus` lines when leftover
+/// GameLogic is not initialized (live host). Missing entries stay 1.0.
+fn leftover_append_solo_weapon_bonus(bonus: &mut gamelogic::WeaponBonus, disc: u8) {
+    use gamelogic::weapon::{WeaponBonusConditionType, WeaponBonusField};
+    if disc == 0 {
+        return;
+    }
+    let cond = match disc {
+        16 => WeaponBonusConditionType::SoloHumanEasy,
+        17 => WeaponBonusConditionType::SoloHumanNormal,
+        18 => WeaponBonusConditionType::SoloHumanHard,
+        19 => WeaponBonusConditionType::SoloAiEasy,
+        20 => WeaponBonusConditionType::SoloAiNormal,
+        21 => WeaponBonusConditionType::SoloAiHard,
+        _ => return,
+    };
+    if let Some(set) = gamelogic::helpers::TheGameLogic::get_global_weapon_bonus_set() {
+        if let Some(other) = set.get_bonus(cond) {
+            bonus.append_bonuses(other);
+            return;
+        }
+    }
+    let name = match cond {
+        WeaponBonusConditionType::SoloHumanEasy => "SOLO_HUMAN_EASY",
+        WeaponBonusConditionType::SoloHumanNormal => "SOLO_HUMAN_NORMAL",
+        WeaponBonusConditionType::SoloHumanHard => "SOLO_HUMAN_HARD",
+        WeaponBonusConditionType::SoloAiEasy => "SOLO_AI_EASY",
+        WeaponBonusConditionType::SoloAiNormal => "SOLO_AI_NORMAL",
+        WeaponBonusConditionType::SoloAiHard => "SOLO_AI_HARD",
+        _ => return,
+    };
+    let Some(data) = game_engine::common::ini::get_global_data() else {
+        return;
+    };
+    let guard = data.read();
+    let mut other = gamelogic::WeaponBonus::new();
+    let mut any = false;
+    for entry in &guard.weapon_bonus_entries {
+        if !entry.condition.eq_ignore_ascii_case(name) {
+            continue;
+        }
+        let field = match entry.field.to_ascii_uppercase().as_str() {
+            "DAMAGE" => WeaponBonusField::Damage,
+            "RADIUS" => WeaponBonusField::Radius,
+            "RANGE" => WeaponBonusField::Range,
+            "RATE_OF_FIRE" => WeaponBonusField::RateOfFire,
+            "PRE_ATTACK" | "PREATTACK" => WeaponBonusField::PreAttack,
+            _ => continue,
+        };
+        other.set_field(field, entry.value);
+        any = true;
+    }
+    if any {
+        bonus.append_bonuses(&other);
+    }
+}
+

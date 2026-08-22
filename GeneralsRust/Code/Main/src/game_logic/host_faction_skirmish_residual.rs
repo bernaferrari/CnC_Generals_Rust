@@ -585,6 +585,26 @@ pub fn human_solo_health_bonus_for_difficulty(diff: AIDifficulty) -> f32 {
     }
 }
 
+/// C++ `wbonus[getPlayerType()][getPlayerDifficulty()]` (Player.cpp:3351-3365).
+/// Discriminants match `WEAPONBONUSCONDITION_SOLO_HUMAN_EASY`..=`SOLO_AI_HARD`.
+pub fn solo_weapon_bonus_condition(is_human: bool, difficulty: AIDifficulty) -> u8 {
+    use crate::game_logic::host_enum_table_residual::{
+        WEAPON_BONUS_SOLO_AI_EASY_ORDINAL, WEAPON_BONUS_SOLO_HUMAN_EASY_ORDINAL,
+    };
+    let diff_idx = match difficulty {
+        AIDifficulty::Easy => 0u8,
+        AIDifficulty::Medium => 1,
+        AIDifficulty::Hard | AIDifficulty::Brutal => 2,
+    };
+    let base = if is_human {
+        WEAPON_BONUS_SOLO_HUMAN_EASY_ORDINAL
+    } else {
+        WEAPON_BONUS_SOLO_AI_EASY_ORDINAL
+    };
+    (base as u8) + diff_idx
+}
+
+
 /// Selected NewGame / `prepareNewGame` difficulty for the live host.
 ///
 /// C++ `GameLogic::prepareNewGame` writes `TheScriptEngine->setGlobalDifficulty`
@@ -644,6 +664,15 @@ pub fn honesty_starting_cash_residual_pack_wave85() -> bool {
         && (human_solo_health_bonus_for_difficulty(AIDifficulty::Brutal) - 0.80).abs() < 0.001
         && HUMAN_SOLO_HEALTH_BONUS_EASY > HUMAN_SOLO_HEALTH_BONUS_NORMAL
         && HUMAN_SOLO_HEALTH_BONUS_NORMAL > HUMAN_SOLO_HEALTH_BONUS_HARD
+        && solo_weapon_bonus_condition(true, AIDifficulty::Easy) == 16
+        && solo_weapon_bonus_condition(true, AIDifficulty::Medium) == 17
+        && solo_weapon_bonus_condition(true, AIDifficulty::Hard) == 18
+        && solo_weapon_bonus_condition(true, AIDifficulty::Brutal) == 18
+        && solo_weapon_bonus_condition(false, AIDifficulty::Easy) == 19
+        && solo_weapon_bonus_condition(false, AIDifficulty::Medium) == 20
+        && solo_weapon_bonus_condition(false, AIDifficulty::Hard) == 21
+        && solo_weapon_bonus_condition(false, AIDifficulty::Brutal) == 21
+
 }
 
 // ---------------------------------------------------------------------------

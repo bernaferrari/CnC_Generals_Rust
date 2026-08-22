@@ -1111,7 +1111,7 @@ impl WgpuUISystem {
                 modifier_keys: crate::command_system::ModifierKeys::default(),
             });
         } else {
-            game_logic.request_camera_focus(world_pos);
+            game_logic.request_player_camera_look_at(world_pos);
         }
     }
 

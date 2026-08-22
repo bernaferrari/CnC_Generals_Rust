@@ -5345,10 +5345,10 @@ impl GameLogic {
                             // C++ FXList::doFXObj(m_fxList, other) → FX_MakeCarBombSuccess
                             // (Sound nugget TerroristCarBomb). Never play the FXList name.
                             let fx = crate::game_logic::host_car_bomb::CAR_BOMB_CONVERT_FX_LIST;
-                            if !crate::game_logic::dispatch_fx_list_at_object(
+                            if !self.dispatch_fx_list_at_host_object(
                                 fx,
-                                special_target_id.0,
-                                Some(object_id.0),
+                                special_target_id,
+                                Some(object_id),
                             ) {
                                 let sounds = crate::game_logic::sound_names_for_fx_list(fx);
                                 if sounds.is_empty() {
@@ -6684,8 +6684,9 @@ impl GameLogic {
                 .update_nemesis(player_id, src, v, s, inf, air, self.frame);
         }
 
-        // AITNGuard::lookForInnerTarget residual: pool units that are
-        // GuardTunnelNetwork / tunnel-defender sally to the tracker nemesis.
+        // C++ AITNGuardIdleState::update (AITNGuard.cpp:682-707):
+        // lookForInnerTarget → findBestTunnel(nemesis) + isExitBusy +
+        // exitObjectInAHurry; else if not contained → Return / enter nearest.
         let players: Vec<u32> = self.tunnel_network.occupant_player_ids();
         for player_id in players {
             let Some(nemesis) = self.resolved_tunnel_nemesis(player_id) else {
@@ -6703,33 +6704,22 @@ impl GameLogic {
                 if !unit.is_alive() || unit.target == Some(nemesis) {
                     continue;
                 }
-                let guard_is_tunnel = unit.guard_target.is_some_and(|gid| {
-                    self.objects.get(&gid).is_some_and(|g| {
-                        g.is_tunnel_network_style_container()
-                            || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
-                                &g.template_name,
-                            )
-                    })
-                });
-                let is_defender = crate::game_logic::host_rpg_trooper::is_rpg_trooper_template(
-                    &unit.template_name,
-                );
-                if !guard_is_tunnel && !is_defender {
+                if !self.is_tunnel_network_guard_unit(uid) {
                     continue;
                 }
-                let exit_tunnel = self
-                    .tunnel_network
-                    .entry_tunnel_of(uid)
-                    .or_else(|| self.first_living_tunnel_for_player(player_id));
-                let Some(exit_tunnel) = exit_tunnel else {
+                // C++ findBestTunnel(ownerPlayer, nemesis->getPosition()).
+                let Some(exit_tunnel) = self.find_best_tunnel(player_id, nemesis_pos) else {
                     continue;
                 };
+                // C++ goalExitInterface->isExitBusy() → STATE_SLEEP(0).
+                if self.tunnel_exit_is_busy(exit_tunnel) {
+                    continue;
+                }
                 sally.push((uid, exit_tunnel));
             }
             for (uid, exit_tunnel) in sally {
-                let _ = self
-                    .tunnel_network
-                    .record_exit(player_id, uid, exit_tunnel);
+                let _ = self.exit_tunnel_network_unit(uid, exit_tunnel);
+                self.tunnel_network.mark_sally(uid);
                 let pos = self
                     .objects
                     .get(&exit_tunnel)
@@ -6749,24 +6739,113 @@ impl GameLogic {
                 let _ = self.engage_target_decision_aware(uid, nemesis);
             }
         }
+
+        // C++ AITNGuardIdleState no-target → AITNGuardReturnState
+        // findBestTunnel(owner pos) + AIEnterState.
+        let returning: Vec<ObjectId> = self.tunnel_network.sally_unit_ids();
+        for uid in returning {
+            let Some((player_id, entering, pos)) = self.objects.get(&uid).and_then(|unit| {
+                if !unit.is_alive() || unit.status.effectively_dead {
+                    return None;
+                }
+                if unit.is_contained() {
+                    return None;
+                }
+                Some((
+                    unit.tunnel_system_key(),
+                    matches!(unit.ai_state, AIState::Entering),
+                    unit.get_position(),
+                ))
+            }) else {
+                self.tunnel_network.clear_sally(uid);
+                continue;
+            };
+            if self.resolved_tunnel_nemesis(player_id).is_some() {
+                // C++ Return::update: tracker nemesis → Inner (keep attacking).
+                continue;
+            }
+            if entering {
+                continue;
+            }
+            // C++ Return::update does not consult the unit's current attack
+            // target — only team victim / tracker nemesis. After chase the
+            // machine always returns to findBestTunnel(owner pos).
+            let Some(best) = self.find_best_tunnel(player_id, pos) else {
+                continue;
+            };
+            if let Some(o) = self.objects.get_mut(&uid) {
+                o.target = Some(best);
+                o.set_order_target(Some(best));
+                o.set_ai_state(AIState::Entering);
+            }
+            if let Some(tpos) = self.objects.get(&best).map(|t| t.get_position()) {
+                self.path_approach_with_state(uid, tpos, AIState::Entering);
+            }
+        }
     }
 
-    fn first_living_tunnel_for_player(&self, player_id: u32) -> Option<ObjectId> {
-        self.objects.iter().find_map(|(id, o)| {
-            if o.tunnel_system_key() == player_id
-                && o.is_alive()
-                && !o.status.sold
-                && (o.is_tunnel_network_style_container()
-                    || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
-                        &o.template_name,
-                    ))
-            {
-                Some(*id)
-            } else {
-                None
+    /// C++ `findBestTunnel` (AITNGuard.cpp:84-105).
+    fn find_best_tunnel(&self, player_id: u32, pos: glam::Vec3) -> Option<ObjectId> {
+        let registered = self.tunnel_network.tunnel_ids_for(player_id);
+        let mut candidates: Vec<(ObjectId, f32, f32)> = Vec::new();
+        if !registered.is_empty() {
+            for &tid in registered {
+                if let Some(t) = self.objects.get(&tid) {
+                    if t.is_alive() && !t.status.sold && self.is_living_tunnel_network(t) {
+                        let p = t.get_position();
+                        candidates.push((tid, p.x, p.z));
+                    }
+                }
             }
-        })
+        } else {
+            for (id, o) in &self.objects {
+                if o.tunnel_system_key() == player_id
+                    && o.is_alive()
+                    && !o.status.sold
+                    && self.is_living_tunnel_network(o)
+                {
+                    let p = o.get_position();
+                    candidates.push((*id, p.x, p.z));
+                }
+            }
+        }
+        crate::game_logic::host_tunnel_network::find_best_tunnel_xz(candidates, pos.x, pos.z)
     }
+
+    /// C++ `OpenContain::isExitBusy` is FALSE for TunnelContain.
+    fn tunnel_exit_is_busy(&self, tunnel_id: ObjectId) -> bool {
+        let Some(t) = self.objects.get(&tunnel_id) else {
+            return true;
+        };
+        if !t.is_alive() || t.status.sold {
+            return true;
+        }
+        if t.uses_transport_contain_exit_busy() {
+            return t.is_transport_exit_busy(self.frame);
+        }
+        false
+    }
+
+    fn is_living_tunnel_network(&self, obj: &crate::game_logic::Object) -> bool {
+        obj.is_tunnel_network_style_container()
+            || crate::game_logic::host_tunnel_network::is_tunnel_network_template(&obj.template_name)
+    }
+
+    fn is_tunnel_network_guard_unit(&self, uid: ObjectId) -> bool {
+        let Some(unit) = self.objects.get(&uid) else {
+            return false;
+        };
+        let guard_is_tunnel = unit.guard_target.is_some_and(|gid| {
+            self.objects
+                .get(&gid)
+                .is_some_and(|g| self.is_living_tunnel_network(g))
+        });
+        let is_defender =
+            crate::game_logic::host_rpg_trooper::is_rpg_trooper_template(&unit.template_name);
+        guard_is_tunnel || is_defender
+    }
+
+
 
     /// C++ `ChinookAIUpdate::isAvailableForSupplying` (ChinookAIUpdate.cpp:982-991).
     fn collector_available_for_supplying(&self, object_id: ObjectId) -> bool {

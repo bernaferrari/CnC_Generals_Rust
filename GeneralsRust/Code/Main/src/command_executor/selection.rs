@@ -91,7 +91,7 @@ impl<'a> CommandExecutor<'a> {
             .game_logic
             .player_command_center_position(self.current_player_id)
         {
-            self.game_logic.request_camera_focus(position);
+            self.game_logic.request_player_camera_look_at(position);
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand

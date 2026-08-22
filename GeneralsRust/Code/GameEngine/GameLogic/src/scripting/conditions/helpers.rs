@@ -29,6 +29,9 @@ pub struct HostScriptQuerySnapshot {
     pub supply_center_location_safe: HashMap<String, bool>,
     /// Live host Player money/power/object census keyed by lowercase SIDE name.
     pub player_census: HashMap<String, HostScriptPlayerCensus>,
+    /// World tech-building census for SKIRMISH_TECH_BUILDING_WITHIN_DISTANCE.
+    pub tech_buildings: Vec<HostTechBuildingCensus>,
+
     /// C++ TerrainLogic::anyBridgesDamageStatesChanged one-frame latch.
     pub any_bridges_damage_states_changed: bool,
     /// Named bridge isBridgeBroken keyed by script unit name.
@@ -37,6 +40,17 @@ pub struct HostScriptQuerySnapshot {
     pub named_bridge_repaired: HashMap<String, bool>,
 
 }
+
+/// C++ KINDOF_TECH_BUILDING row for host leftover eval (pose + owner only).
+#[derive(Debug, Clone, Default)]
+pub struct HostTechBuildingCensus {
+    pub x: f32,
+    pub z: f32,
+    pub owner_player: String,
+    pub team: u32,
+    pub off_map: bool,
+}
+
 
 #[derive(Debug, Clone, Default)]
 pub struct HostScriptQueryObject {
@@ -92,6 +106,13 @@ pub struct HostScriptQueryObject {
     pub status_bits: u64,
     /// C++ OpenContain::getPlayerWhoEntered — last enterer's SIDE name.
     pub player_who_entered: String,
+    /// C++ findUpdateModule("SupplyWarehouseDockUpdate") present.
+    pub is_supply_warehouse: bool,
+    /// C++ SupplyWarehouseDockUpdate::getBoxesStored.
+    pub warehouse_boxes: i32,
+    /// C++ Object::isOffMap — PartitionFilterOnMap reject.
+    pub off_map: bool,
+
 
 
 
@@ -127,6 +148,8 @@ pub struct HostScriptPlayerCensus {
     pub template_counts: HashMap<String, i32>,
     /// C++ countObjectsByThingTemplate(..., ignoreDead=true, ignoreUnderConstruction=true).
     pub template_counts_ignore_dead: HashMap<String, i32>,
+    /// C++ Player::getSupplyBoxValue (GlobalData m_baseValuePerSupplyBox).
+    pub supply_box_value: i32,
 }
 
 impl HostScriptPlayerCensus {
@@ -211,8 +234,9 @@ pub fn host_bridge_broken(bridge_name: &str) -> bool {
         snap.any_bridges_damage_states_changed
             && snap
                 .named_bridge_broken
-                .get(bridge_name)
-                .copied()
+                .iter()
+                .find(|(n, _)| n.eq_ignore_ascii_case(bridge_name))
+                .map(|(_, v)| *v)
                 .unwrap_or(false)
     })
 }
@@ -223,8 +247,9 @@ pub fn host_bridge_repaired(bridge_name: &str) -> bool {
         snap.any_bridges_damage_states_changed
             && snap
                 .named_bridge_repaired
-                .get(bridge_name)
-                .copied()
+                .iter()
+                .find(|(n, _)| n.eq_ignore_ascii_case(bridge_name))
+                .map(|(_, v)| *v)
                 .unwrap_or(false)
     })
 }
@@ -236,11 +261,14 @@ pub fn host_script_named_unit_id(name: &str) -> Option<u32> {
     HOST_SCRIPT_QUERY.with(|slot| slot.borrow().named.get(name).copied())
 }
 
-/// True when a host snapshot was injected (any named/team/object/area row).
+/// True when a host snapshot was injected (any named/team/object/area/tech row).
 pub fn host_script_query_has_any() -> bool {
     HOST_SCRIPT_QUERY.with(|slot| {
         let snap = slot.borrow();
-        !snap.named.is_empty() || !snap.objects.is_empty() || !snap.team_ids.is_empty()
+        !snap.named.is_empty()
+            || !snap.objects.is_empty()
+            || !snap.team_ids.is_empty()
+            || !snap.tech_buildings.is_empty()
     })
 }
 
@@ -1364,6 +1392,209 @@ pub fn host_eval_skirmish_player_has_units_in_area(
     }))
 }
 
+/// C++ ScriptConditions::evaluateSkirmishSuppliesWithinDistancePerimeter over
+/// the host warehouse census. `None` when no snapshot is injected.
+pub fn host_eval_skirmish_supplies_value_within_distance(
+    player_name: &str,
+    extra_distance: f32,
+    area_name: &str,
+    compare_value: f32,
+) -> Option<bool> {
+    if !host_script_query_has_any() {
+        return None;
+    }
+    if player_name.trim().is_empty() {
+        return Some(false);
+    }
+    let Some((center_x, center_y, trigger_radius)) = host_trigger_center_radius(area_name) else {
+        return Some(false);
+    };
+    let radius = trigger_radius + extra_distance;
+    let radius_sq = radius * radius;
+    let supply_box_value = host_query_player_census(player_name)
+        .map(|c| c.supply_box_value)
+        .filter(|&v| v > 0)
+        .unwrap_or(75) as f32;
+    let mut max_value = 0.0f32;
+    HOST_SCRIPT_QUERY.with(|slot| {
+        for obj in slot.borrow().objects.iter() {
+            if !obj.is_supply_warehouse || !obj.kind_structure || obj.off_map {
+                continue;
+            }
+            if !host_allow_neutral_affiliation(player_name, obj) {
+                continue;
+            }
+            let dx = obj.x - center_x;
+            let dy = obj.z - center_y;
+            if dx * dx + dy * dy > radius_sq {
+                continue;
+            }
+            let value = supply_box_value * obj.warehouse_boxes as f32;
+            if value > max_value {
+                max_value = value;
+            }
+        }
+    });
+    Some(max_value > compare_value)
+}
+
+/// C++ PolygonTrigger::getCenterPoint + getRadius, else host AABB circumradius.
+fn host_trigger_center_radius(area_name: &str) -> Option<(f32, f32, f32)> {
+    if let Some(trigger) = host_script_lookup_polygon_trigger(area_name) {
+        let center = trigger.get_center_point();
+        return Some((center.x, center.y, trigger.get_radius()));
+    }
+    let (min_x, min_z, max_x, max_z) = host_script_area_bounds(area_name)?;
+    let cx = (min_x + max_x) * 0.5;
+    let cz = (min_z + max_z) * 0.5;
+    let hx = (max_x - min_x) * 0.5;
+    let hz = (max_z - min_z) * 0.5;
+    Some((cx, cz, (hx * hx + hz * hz).sqrt()))
+}
+
+/// C++ PartitionFilterPlayerAffiliation(player, ALLOW_NEUTRAL, true).
+fn host_allow_neutral_affiliation(player_name: &str, obj: &HostScriptQueryObject) -> bool {
+    if host_owner_matches(obj, player_name) {
+        return true;
+    }
+    const HOST_NEUTRAL_TEAM: u32 = 3;
+    if obj.team == HOST_NEUTRAL_TEAM {
+        return true;
+    }
+    if obj.owner_player.is_empty() {
+        return true;
+    }
+    if let Ok(players) = player_list().read() {
+        if let (Some(a), Some(b)) = (
+            players.find_player_by_name(player_name),
+            players.find_player_by_name(&obj.owner_player),
+        ) {
+            if let (Ok(look), Ok(them)) = (a.read(), b.read()) {
+                return look.get_relationship(&them) == crate::common::Relationship::Neutral;
+            }
+        }
+    }
+    false
+}
+
+/// C++ PartitionFilterPlayerAffiliation(ALLOW_ALLIES, false) + PartitionFilterPlayer(false).
+fn host_allow_non_ally_tech_affiliation(player_name: &str, owner_player: &str) -> bool {
+    if owner_player.is_empty() {
+        return true;
+    }
+    let owner = HostScriptQueryObject {
+        owner_player: owner_player.to_string(),
+        ..Default::default()
+    };
+    if host_owner_matches(&owner, player_name) {
+        return false;
+    }
+    if let Ok(players) = player_list().read() {
+        if let (Some(a), Some(b)) = (
+            players.find_player_by_name(player_name),
+            players.find_player_by_name(owner_player),
+        ) {
+            if let (Ok(look), Ok(them)) = (a.read(), b.read()) {
+                return !matches!(
+                    look.get_relationship(&them),
+                    crate::common::Relationship::Allies
+                );
+            }
+        }
+    }
+    true
+}
+
+/// C++ evaluateSkirmishPlayerTechBuildingWithinDistancePerimeter over the host
+/// tech census. `None` when no snapshot or trigger geometry (do not latch).
+pub fn host_eval_skirmish_tech_building_within_distance(
+    player_name: &str,
+    extra_distance: f32,
+    area_name: &str,
+) -> Option<bool> {
+    if !host_script_query_has_any() {
+        return None;
+    }
+    let (center_x, center_y, trigger_radius) =
+        host_tech_building_search_circle(area_name, player_name)?;
+    let radius = trigger_radius + extra_distance;
+    let radius_sq = radius * radius;
+    HOST_SCRIPT_QUERY.with(|slot| {
+        let snap = slot.borrow();
+        if snap.tech_buildings.is_empty() && snap.objects.is_empty() {
+            return None;
+        }
+        if !snap.tech_buildings.is_empty() {
+            return Some(snap.tech_buildings.iter().any(|tb| {
+                if tb.off_map {
+                    return false;
+                }
+                if !host_allow_non_ally_tech_affiliation(player_name, &tb.owner_player) {
+                    return false;
+                }
+                let dx = tb.x - center_x;
+                let dy = tb.z - center_y;
+                dx * dx + dy * dy <= radius_sq
+            }));
+        }
+        Some(snap.objects.iter().any(|obj| {
+            if obj.off_map || !obj.alive || obj.effectively_dead {
+                return false;
+            }
+            if !host_object_has_kind(obj, crate::common::KindOf::TechBuilding) {
+                return false;
+            }
+            if !host_allow_non_ally_tech_affiliation(player_name, &obj.owner_player) {
+                return false;
+            }
+            let dx = obj.x - center_x;
+            let dy = obj.z - center_y;
+            dx * dx + dy * dy <= radius_sq
+        }))
+    })
+}
+
+/// C++ getQualifiedTriggerAreaByName + getCenterPoint/getRadius.
+/// Qualifies [Skirmish]MyInnerPerimeter with the SIDE player, then script engine.
+fn host_tech_building_search_circle(
+    area_name: &str,
+    player_name: &str,
+) -> Option<(f32, f32, f32)> {
+    let resolved = crate::scripting::engine::qualify_trigger_area_name(
+        area_name,
+        (!player_name.is_empty()).then_some(player_name),
+    )
+    .unwrap_or_else(|| area_name.to_string());
+    let from_terrain = |name: &str| {
+        crate::terrain::get_terrain_logic()
+            .read()
+            .ok()
+            .and_then(|terrain| terrain.get_trigger_area_by_name(name).cloned())
+    };
+    if let Some(trigger) = from_terrain(&resolved).or_else(|| from_terrain(area_name)) {
+        let center = trigger.get_center_point();
+        return Some((center.x, center.y, trigger.get_radius()));
+    }
+    if let Some(trigger) = crate::scripting::engine::with_script_engine_ref(|engine| {
+        engine.get_qualified_trigger_area_by_name(area_name)
+    })
+    .flatten()
+    {
+        let center = trigger.get_center_point();
+        return Some((center.x, center.y, trigger.get_radius()));
+    }
+    let (min_x, min_z, max_x, max_z) =
+        host_script_area_bounds(&resolved).or_else(|| host_script_area_bounds(area_name))?;
+    let cx = (min_x + max_x) * 0.5;
+    let cz = (min_z + max_z) * 0.5;
+    let hx = (max_x - min_x) * 0.5;
+    let hz = (max_z - min_z) * 0.5;
+    Some((cx, cz, (hx * hx + hz * hz).sqrt()))
+}
+
+
+
+
 fn host_object_has_status_bits(obj: &HostScriptQueryObject, mask: u64) -> bool {
     mask != 0 && (obj.status_bits & mask) != 0
 }
@@ -1913,3 +2144,70 @@ pub(super) fn parse_object_status_mask(status_str: &str) -> crate::common::Objec
         }
     }
 }
+
+#[cfg(test)]
+mod tech_building_census_tests {
+    use super::*;
+
+    #[test]
+    fn host_census_tech_building_none_without_snapshot() {
+        clear_host_script_query_snapshot();
+        assert_eq!(
+            host_eval_skirmish_tech_building_within_distance("PlyrAmerica", 100.0, "HomeBase"),
+            None
+        );
+    }
+
+    #[test]
+    fn host_census_tech_building_finds_neutral_derrick() {
+        clear_host_script_query_snapshot();
+        let mut snap = HostScriptQuerySnapshot::default();
+        snap.areas.insert("HomeBase".into(), (0.0, 0.0, 20.0, 20.0));
+        snap.tech_buildings.push(HostTechBuildingCensus {
+            x: 10.0,
+            z: 10.0,
+            owner_player: String::new(),
+            team: 3,
+            off_map: false,
+        });
+        set_host_script_query_snapshot(snap);
+        assert_eq!(
+            host_eval_skirmish_tech_building_within_distance("PlyrAmerica", 100.0, "HomeBase"),
+            Some(true)
+        );
+
+        let mut own = HostScriptQuerySnapshot::default();
+        own.areas.insert("HomeBase".into(), (0.0, 0.0, 20.0, 20.0));
+        own.tech_buildings.push(HostTechBuildingCensus {
+            x: 10.0,
+            z: 10.0,
+            owner_player: "PlyrAmerica".into(),
+            team: 0,
+            off_map: false,
+        });
+        set_host_script_query_snapshot(own);
+        assert_eq!(
+            host_eval_skirmish_tech_building_within_distance("PlyrAmerica", 100.0, "HomeBase"),
+            Some(false)
+        );
+        clear_host_script_query_snapshot();
+    }
+
+    #[test]
+    fn host_census_tech_building_missing_area_is_none() {
+        clear_host_script_query_snapshot();
+        let mut snap = HostScriptQuerySnapshot::default();
+        snap.tech_buildings.push(HostTechBuildingCensus {
+            x: 10.0,
+            z: 10.0,
+            ..Default::default()
+        });
+        set_host_script_query_snapshot(snap);
+        assert_eq!(
+            host_eval_skirmish_tech_building_within_distance("PlyrAmerica", 100.0, "MissingPad"),
+            None
+        );
+        clear_host_script_query_snapshot();
+    }
+}
+

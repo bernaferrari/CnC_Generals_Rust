@@ -595,6 +595,9 @@ pub struct View {
     camera_lock_type: CameraLockType,
     lock_distance: f32,
     snap_immediate: bool,
+    /// C++ `W3DView::m_doingScriptedCameraLock`.
+    doing_scripted_camera_lock: bool,
+
     /// C++ W3DView::update static followFactor; -1 when unlocked.
     follow_factor: f32,
 
@@ -723,6 +726,8 @@ impl View {
             lock_distance: 0.0,
             snap_immediate: false,
             follow_factor: -1.0,
+            doing_scripted_camera_lock: false,
+
             mouse_locked: false,
             ok_to_adjust_height: true,
             projection_mode: ProjectionMode::Perspective,
@@ -807,6 +812,8 @@ impl View {
     pub fn reset(&mut self) {
         self.zoom_limited = true;
         self.camera_path = None;
+        self.doing_scripted_camera_lock = false;
+
         self.is_camera_slaved = false;
         self.use_real_zoom_cam = false;
         self.fx_pitch = 1.0;
@@ -913,6 +920,8 @@ impl View {
         pos.z = 0.0;
         self.position = pos;
         self.camera_has_moved_since_request = true;
+        // C++ W3DView::lookAt: cancel rotate / waypoint path / scripted lock.
+        self.cancel_scripted_camera_from_player_look_at();
     }
 
     /// Scroll the view by a screen-space delta converted through the 3D camera.
@@ -943,6 +952,8 @@ impl View {
             self.position.y += delta.y;
         }
         self.camera_has_moved_since_request = true;
+        // C++ W3DView::scrollBy: only `m_doingRotateCamera = false`.
+        self.cancel_scripted_camera_from_player_scroll();
     }
 
     // Angle and rotation
@@ -951,6 +962,8 @@ impl View {
     }
     pub fn set_angle(&mut self, angle: f32) {
         self.angle = angle;
+        // C++ W3DView::setAngle cancels scripted rotate/pitch/zoom/path/lock.
+        self.cancel_scripted_camera_from_player_set();
     }
 
     pub fn pitch(&self) -> f32 {
@@ -960,6 +973,8 @@ impl View {
         // Limit pitch to reasonable range for RTS camera
         let limit = PI / 5.0; // 36 degrees
         self.pitch_angle = pitch.clamp(-limit, limit);
+        // C++ W3DView::setPitch cancels scripted rotate/pitch/zoom/path/lock.
+        self.cancel_scripted_camera_from_player_set();
     }
 
     /// Reset angle and pitch to default values
@@ -988,6 +1003,9 @@ impl View {
             self.zoom = zoom;
         }
         self.rebuild_real_zoom_fov();
+        // C++ W3DView::setZoom cancels scripted rotate/pitch/zoom/path/lock.
+        self.cancel_scripted_camera_from_player_set();
+        self.camera_constraint_valid = false;
     }
 
     pub fn height_above_ground(&self) -> f32 {
@@ -1000,12 +1018,7 @@ impl View {
         } else {
             height
         };
-        self.camera_path = None;
-        self.camera_move = None;
-        self.camera_rotate = None;
-        self.camera_zoom = None;
-        self.camera_pitch = None;
-        self.rotate_camera_toward = None;
+        self.cancel_scripted_camera_from_player_set();
         self.camera_constraint_valid = false;
         self.camera_has_moved_since_request = true;
     }
@@ -1034,9 +1047,36 @@ impl View {
             desired_zoom
         };
         self.height_above_ground = self.max_height_above_ground;
+        self.cancel_scripted_camera_from_player_set();
         self.camera_constraint_valid = false;
         self.camera_has_moved_since_request = true;
     }
+
+    /// C++ `setAngle`/`setPitch`/`setZoom`/`setHeightAboveGround`.
+    pub fn cancel_scripted_camera_from_player_set(&mut self) {
+        self.camera_path = None;
+        self.camera_move = None;
+        self.camera_rotate = None;
+        self.camera_zoom = None;
+        self.camera_pitch = None;
+        self.rotate_camera_toward = None;
+        self.doing_scripted_camera_lock = false;
+    }
+
+    /// C++ `W3DView::lookAt`: rotate + waypoint path + scripted lock.
+    pub fn cancel_scripted_camera_from_player_look_at(&mut self) {
+        self.camera_path = None;
+        self.camera_move = None;
+        self.camera_rotate = None;
+        self.rotate_camera_toward = None;
+        self.doing_scripted_camera_lock = false;
+    }
+
+    /// C++ `W3DView::scrollBy`: only `m_doingRotateCamera = false`.
+    pub fn cancel_scripted_camera_from_player_scroll(&mut self) {
+        self.camera_rotate = None;
+    }
+
 
     /// C++ `W3DView::initHeightForMap`.
     pub fn init_height_for_map(&mut self) {
@@ -1126,6 +1166,8 @@ impl View {
         self.camera_lock_id = id;
         self.lock_distance = 0.0;
         self.camera_lock_type = CameraLockType::Follow;
+        // C++ W3DView::setCameraLock clears m_doingScriptedCameraLock.
+        self.doing_scripted_camera_lock = false;
         if id.is_none() {
             self.follow_factor = -1.0;
         }
@@ -1138,6 +1180,8 @@ impl View {
     pub fn set_snap_mode(&mut self, lock_type: CameraLockType, distance: f32) {
         self.camera_lock_type = lock_type;
         self.lock_distance = distance;
+        // C++ W3DView::setSnapMode arms m_doingScriptedCameraLock.
+        self.doing_scripted_camera_lock = true;
     }
 
     fn apply_camera_lock_one_frame(&mut self) {
@@ -1217,6 +1261,16 @@ impl View {
         if !self.ok_to_adjust_height || self.camera_offset.z.abs() < 1.0e-4 {
             return;
         }
+        // C++ writes m_zoom directly and skips while didScriptedMovement.
+        if self.camera_path.is_some()
+            || self.camera_move.is_some()
+            || self.camera_rotate.is_some()
+            || self.camera_zoom.is_some()
+            || self.camera_pitch.is_some()
+            || self.doing_scripted_camera_lock
+        {
+            return;
+        }
         let desired_height = self.terrain_height_under_camera + self.height_above_ground;
         let desired_zoom = desired_height / self.camera_offset.z;
         let adjust = get_global_data()
@@ -1224,7 +1278,8 @@ impl View {
             .unwrap_or(0.1);
         let zoom_adj = (desired_zoom - self.zoom) * adjust;
         if zoom_adj.abs() >= 0.0001 {
-            self.set_zoom(self.zoom + zoom_adj);
+            self.zoom += zoom_adj;
+            self.rebuild_real_zoom_fov();
         }
     }
 
@@ -1891,7 +1946,13 @@ impl View {
         if let Some(mut transition) = self.camera_zoom.take() {
             let finished = transition.update();
             let zoom = transition.get_current_zoom();
-            self.set_zoom(zoom);
+            // C++ zoomCameraOneFrame writes m_zoom; setZoom would cancel this transition.
+            if self.zoom_limited {
+                self.zoom = zoom.clamp(self.min_zoom, self.max_zoom);
+            } else {
+                self.zoom = zoom;
+            }
+            self.rebuild_real_zoom_fov();
             if !finished {
                 self.camera_zoom = Some(transition);
             }

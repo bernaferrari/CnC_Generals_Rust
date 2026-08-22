@@ -1076,6 +1076,7 @@ impl CnCGameEngine {
     ) -> glam::Vec3 {
         // Wave 577/868/903: host camera target residual only (no request_camera_focus dual-read).
         // Presentation freeze / Main camera_target own observe path.
+        self.cancel_scripted_camera_from_player_look_at();
         let clamped = self.clamp_to_world_bounds(world_pos);
         self.camera_target.x = clamped.x;
         self.camera_target.z = clamped.z;
