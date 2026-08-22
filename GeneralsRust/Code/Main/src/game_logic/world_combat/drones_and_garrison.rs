@@ -853,6 +853,37 @@ impl GameLogic {
         }
     }
 
+    /// C++ `OpenContain::markAllPassengersDetected` (`OpenContain.cpp:1322-1343`).
+    /// Reveal `KINDOF_STEALTH_GARRISON` riders immediately before an evac dump
+    /// so they do not walk out still cloaked.
+    pub(crate) fn mark_all_passengers_detected(&mut self, container_id: ObjectId) {
+        let occupants = self
+            .objects
+            .get(&container_id)
+            .map(|c| c.contained_units())
+            .unwrap_or_default();
+        let now = self.frame;
+        for pid in occupants {
+            let stealth_garrison = self
+                .objects
+                .get(&pid)
+                .is_some_and(|o| o.is_kind_of(KindOf::StealthGarrison));
+            if !stealth_garrison {
+                continue;
+            }
+            let delay = self
+                .objects
+                .get(&pid)
+                .map(|o| o.stealth_delay_frames)
+                .unwrap_or(0)
+                .max(60);
+            if let Some(occ) = self.objects.get_mut(&pid) {
+                occ.mark_detected(now.saturating_add(delay));
+            }
+        }
+    }
+
+
     /// Residual fire-from-garrison: enclosing occupants fire from a FIREPOINT
     /// bone (C++ `calcBestGarrisonPosition`). Non-enclosing Fire Base fires
     /// from the occupant's pre-assigned STATION bone, not the building center.
@@ -984,13 +1015,32 @@ impl GameLogic {
             }
         }
 
+        let enclosing = container_id
+            .and_then(|cid| self.objects.get(&cid))
+            .is_some_and(|c| c.is_enclosing_garrison_container());
         let Some((target_id, _, slot, fire_pos, damage, point_index)) = best else {
+            // C++ removeInvalidObjectsFromGarrisonPoints: not attacking / out of
+            // range frees the window so another occupant can take it.
+            if enclosing {
+                if let Some(cid) = container_id {
+                    if let Some(container) = self.objects.get_mut(&cid) {
+                        if let Some(bd) = container.building_data.as_mut() {
+                            bd.free_garrison_point_for(garrisoned_id);
+                        }
+                    }
+                }
+            }
             return;
         };
 
         if let Some(cid) = container_id {
             if let Some(container) = self.objects.get_mut(&cid) {
                 if let Some(bd) = container.building_data.as_mut() {
+                    // C++ trackTargets / putObjectAtGarrisonPoint: release the old
+                    // FIREPOINT before claiming the closer window.
+                    if enclosing {
+                        bd.free_garrison_point_for(garrisoned_id);
+                    }
                     if bd.garrison_point_occupant.len() <= point_index {
                         bd.garrison_point_occupant.resize(point_index + 1, None);
                     }
@@ -4096,6 +4146,127 @@ mod tests {
         let (_, p2) = garrison_occupant_fire_point(&obj, crate::game_logic::ObjectId(2), Vec3::new(100.0, 0.0, 20.0));
         assert!((p2 - Vec3::new(50.0, 0.0, 20.0)).length() < 0.01);
     }
+
+    #[test]
+    fn garrison_fire_releases_old_firepoint_before_taking_closer() {
+        let mut logic = GameLogic::new();
+        logic.templates.insert(
+            "CivBunker".into(),
+            garrison_template("CivBunker", false, true),
+        );
+        logic
+            .templates
+            .insert("AmericaRanger".into(), infantry_template("AmericaRanger"));
+        logic
+            .templates
+            .insert("GLARebel".into(), infantry_template("GLARebel"));
+        let bunker = logic
+            .create_object("CivBunker", Team::USA, Vec3::ZERO)
+            .unwrap();
+        {
+            let b = logic.host_object_mut(bunker).unwrap();
+            let mut bd = crate::game_logic::BuildingData::new(crate::game_logic::BuildingType::Bunker);
+            bd.garrison_fire_points = vec![Vec3::new(-20.0, 0.0, 0.0), Vec3::new(20.0, 0.0, 0.0)];
+            bd.garrison_point_occupant = vec![None, None];
+            bd.garrison_points_initialized = true;
+            b.building_data = Some(bd);
+        }
+        let ranger = logic
+            .create_object("AmericaRanger", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let r = logic.host_object_mut(ranger).unwrap();
+            r.weapon = Some(crate::game_logic::Weapon {
+                damage: 40.0,
+                range: 200.0,
+                reload_time: 0.1,
+                last_fire_time: -10.0,
+                ..crate::game_logic::Weapon::default()
+            });
+            r.set_contained_by(Some(bunker));
+            r.set_ai_state(AIState::Garrisoned);
+        }
+        assert!(logic.host_object_mut(bunker).unwrap().add_occupant(ranger));
+        {
+            let b = logic.host_object_mut(bunker).unwrap();
+            if let Some(bd) = b.building_data.as_mut() {
+                bd.garrison_point_occupant = vec![Some(ranger), None];
+            }
+        }
+        let _enemy = logic
+            .create_object("GLARebel", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+            .unwrap();
+        logic.set_current_frame(30);
+        logic.try_garrison_residual_fire(ranger);
+        let slots = logic
+            .host_object(bunker)
+            .and_then(|b| b.building_data.as_ref())
+            .map(|bd| bd.garrison_point_occupant.clone())
+            .unwrap_or_default();
+        assert_eq!(
+            slots,
+            vec![None, Some(ranger)],
+            "C++ trackTargets frees the old FIREPOINT before taking the closer window: {slots:?}"
+        );
+    }
+
+    #[test]
+    fn garrison_fire_frees_firepoint_when_no_in_range_victim() {
+        let mut logic = GameLogic::new();
+        logic.templates.insert(
+            "CivBunker".into(),
+            garrison_template("CivBunker", false, true),
+        );
+        logic
+            .templates
+            .insert("AmericaRanger".into(), infantry_template("AmericaRanger"));
+        let bunker = logic
+            .create_object("CivBunker", Team::USA, Vec3::ZERO)
+            .unwrap();
+        {
+            let b = logic.host_object_mut(bunker).unwrap();
+            let mut bd = crate::game_logic::BuildingData::new(crate::game_logic::BuildingType::Bunker);
+            bd.garrison_fire_points = vec![Vec3::new(-8.0, 0.0, 0.0), Vec3::new(8.0, 0.0, 0.0)];
+            bd.garrison_point_occupant = vec![None, None];
+            bd.garrison_points_initialized = true;
+            b.building_data = Some(bd);
+        }
+        let ranger = logic
+            .create_object("AmericaRanger", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let r = logic.host_object_mut(ranger).unwrap();
+            r.weapon = Some(crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 20.0,
+                reload_time: 0.1,
+                last_fire_time: -10.0,
+                ..crate::game_logic::Weapon::default()
+            });
+            r.set_contained_by(Some(bunker));
+            r.set_ai_state(AIState::Garrisoned);
+        }
+        assert!(logic.host_object_mut(bunker).unwrap().add_occupant(ranger));
+        {
+            let b = logic.host_object_mut(bunker).unwrap();
+            if let Some(bd) = b.building_data.as_mut() {
+                bd.garrison_point_occupant = vec![Some(ranger), None];
+            }
+        }
+        logic.set_current_frame(30);
+        logic.try_garrison_residual_fire(ranger);
+        let slots = logic
+            .host_object(bunker)
+            .and_then(|b| b.building_data.as_ref())
+            .map(|bd| bd.garrison_point_occupant.clone())
+            .unwrap_or_default();
+        assert_eq!(
+            slots,
+            vec![None, None],
+            "C++ removeInvalid must free the window when no in-range victim: {slots:?}"
+        );
+    }
+
 
     #[test]
     fn transport_fire_origin_uses_firepoint_or_hull() {

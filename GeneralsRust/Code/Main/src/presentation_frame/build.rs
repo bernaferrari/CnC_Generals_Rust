@@ -814,6 +814,7 @@ impl PresentationFrame {
                     String::new()
                 },
                 under_construction: auth_under_construction,
+                is_dozer_task_pending: obj.dozer_task_build_target.is_some(),
                 construction_percent: auth_construction_percent.clamp(0.0, 1.0),
                 // Wave 1031: OCL timer residual for dual-world ControlBar OclTimer context.
                 ocl_timer_seconds:
@@ -1939,6 +1940,7 @@ impl PresentationFrame {
             superweapon_timers,
             can_make_cameos,
             can_make_producer_id,
+            restrict_a: PresentationRestrictA::default(),
             local_queued_upgrades,
             selected,
             events,
@@ -2198,6 +2200,7 @@ impl PresentationFrame {
             gameworld_rebuilt: 0,
             gameworld_primary_objects: false,
         };
+        frame.stamp_restrict_a(logic);
         // Wave 500: named damage/death/bone FX residual → particle observe list.
         let _ = frame.append_object_residual_fx_particles();
         frame
@@ -2380,7 +2383,8 @@ fn sync_live_terrain_decals(objects: &[RenderableObject], local_team: crate::gam
     #[cfg(feature = "game_client")]
     {
         use crate::game_logic::host_battlemaster::{
-            terrain_decal_texture_name, TERRAIN_DECAL_NONE, TERRAIN_DECAL_SHADOW_TEXTURE,
+            leftover_infantry_horde_decal_size_or_bbox, terrain_decal_texture_name,
+            TERRAIN_DECAL_NONE, TERRAIN_DECAL_SHADOW_TEXTURE,
         };
         use game_client::radius_decal::{enqueue_delivery_decal, ShadowHandle};
         use std::sync::Mutex;
@@ -2408,13 +2412,18 @@ fn sync_live_terrain_decals(objects: &[RenderableObject], local_team: crate::gam
             let size = if obj.terrain_decal_size > 0.0 {
                 obj.terrain_decal_size
             } else {
-                // C++ W3DModelDraw::setTerrainDecal uses ShadowSize (often 0).
-                // Do not invent 40wu for infantry EXHorde rings.
-                0.0
+                // C++ W3DProjectedShadow::addDecal: bbox Extent*2 when ShadowSize 0.
+                leftover_infantry_horde_decal_size_or_bbox(
+                    0.0,
+                    0.0,
+                    obj.selection_radius,
+                    obj.selection_radius,
+                )
             };
             if size <= 0.0 {
                 continue;
             }
+
 
             let color = match obj.terrain_decal_type {
                 5 => [255, 210, 64],

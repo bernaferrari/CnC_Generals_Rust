@@ -494,6 +494,17 @@ impl CnCGameEngine {
         // C++ pushes ScoreScreen then TheGameEngine->reset(). Rust Shell::reset
         // (if it runs via resetAll) pops the stack, so reset first then push
         // so the player still sees ScoreScreen. CampaignManager state survives.
+        // Snapshot the live end frame first: leftover get_frame and Eva reset to 0.
+        #[cfg(feature = "game_client")]
+        {
+            let frame = self.presentation_or_boot_logic_frame();
+            let frame = if frame != 0 {
+                frame
+            } else {
+                game_client::eva::eva_logic_frame()
+            };
+            game_client::gui::callbacks::publish_leftover_score_end_frame(frame);
+        }
         self.reset_match_state();
         if show_score {
             self.host_push_score_screen_like_cpp();

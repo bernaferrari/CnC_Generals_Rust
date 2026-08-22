@@ -389,6 +389,31 @@ impl GameLogic {
                     obj.set_status_moving(false);
                 }
                 obj.apply_hover_over_water(underwater);
+                // C++ locoUpdate_moveTowardsPosition:968-977 — non-air invalid
+                // terrain runs fixInvalidPosition and returns (no 2D motive).
+                if has_move_goal && !skip_loco_move {
+                    let surfaces = if obj.locomotor_surfaces != 0 {
+                        obj.locomotor_surfaces
+                    } else {
+                        gamelogic::ai::pathfind_complete::SURFACE_GROUND
+                    };
+                    let air = (surfaces & gamelogic::ai::pathfind_complete::SURFACE_AIR) != 0;
+                    if !air {
+                        let pos = obj.get_position();
+                        if !valid_movement_terrain_at(&self.pathfinding_system.grid, surfaces, pos)
+                            && try_fix_invalid_position_3x3(
+                                obj,
+                                &self.pathfinding_system.grid,
+                                surfaces,
+                            )
+                        {
+                            Self::apply_live_handle_behavior_z(obj, surface_y, None);
+                            Self::stamp_object_airborne_target(obj, ground_y);
+                            break 'unit;
+                        }
+                    }
+                }
+
 
 
                 // Horizontal (XZ) distance — path grid / terrain height use Y separately,
@@ -410,13 +435,28 @@ impl GameLogic {
                     obj.loco_appearance,
                     LocomotorAppearance::Hover | LocomotorAppearance::Wings
                 );
+                let close_enough = host_close_enough_dist(obj);
+                let close_enough_sanity =
+                    4.0 * crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
+
 
                 if !obj.movement.path.is_empty()
                     && obj.movement.current_path_index < obj.movement.path.len()
                 {
                     let current_pos = obj.get_position();
                     let waypoint = obj.movement.path[obj.movement.current_path_index];
-                    if horiz(current_pos, waypoint) < 1.0 {
+                    if horiz(current_pos, waypoint) < close_enough {
+                        let finishing =
+                            obj.movement.current_path_index + 1 >= obj.movement.path.len();
+                        let last = *obj.movement.path.last().unwrap_or(&waypoint);
+                        // C++ AIStates.cpp:1889-1904 — ground sanity refuses to
+                        // plant if 2D to last node > 4*PATHFIND_CELL_SIZE.
+                        if finishing
+                            && !z_motive
+                            && horiz(current_pos, last) > close_enough_sanity
+                        {
+                            // Keep marching toward the last node.
+                        } else {
                         obj.movement.current_path_index += 1;
                         if obj.movement.current_path_index >= obj.movement.path.len() {
                             let do_evac = obj.pending_evacuate_on_stop;
@@ -438,6 +478,7 @@ impl GameLogic {
                             Self::apply_live_handle_behavior_z(obj, surface_y, None);
                             Self::stamp_object_airborne_target(obj, ground_y);
                             break 'unit;
+                        }
                         }
                     }
 
@@ -504,6 +545,34 @@ impl GameLogic {
                             }
                         }
                         speed = obj.apply_do_locomotor_blocked_speed(speed);
+                        // C++ Locomotor.cpp:1016-1040 — blocked frame scrubs 2D
+                        // motive and only rotates / handleBehaviorZ.
+                        let mut loco_blocked = obj.num_frames_blocked > 0;
+                        if loco_blocked {
+                            if speed > obj.movement.velocity.length() {
+                                loco_blocked = false;
+                            }
+                            let air = (obj.locomotor_surfaces
+                                & gamelogic::ai::pathfind_complete::SURFACE_AIR)
+                                != 0;
+                            if air && current_pos.y - ground_y > 9.0 {
+                                loco_blocked = false;
+                            }
+                        }
+                        if loco_blocked {
+                            obj.scrub_velocity_2d(speed);
+                            if obj.wander_width_factor == 0.0 {
+                                let _ = obj.rotate_obj_around_loco_pivot(
+                                    flat_target,
+                                    obj.effective_turn_rate() * dt,
+                                );
+                            }
+                            obj.record_host_movement();
+                            Self::apply_live_handle_behavior_z(obj, surface_y, None);
+                            Self::stamp_object_airborne_target(obj, ground_y);
+                            break 'unit;
+                        }
+
                         let current_angle = obj.get_orientation();
                         let mut delta = desired_angle - current_angle;
                         while delta > std::f32::consts::PI {
@@ -735,7 +804,21 @@ impl GameLogic {
                             // C++ OBJECT_STATUS_BRAKING pose cheat (Locomotor.cpp:1092-1138).
                             new_position = obj.braking_cheat_step(march_from, flat_target, dt);
                         }
-                        let reached_target = dist < 1.0;
+                        let mut reached_target = dist < close_enough;
+                        if reached_target {
+                            let finishing = obj.movement.path.is_empty()
+                                || obj.movement.current_path_index + 1
+                                    >= obj.movement.path.len();
+                            if finishing {
+                                if let Some(last) = obj.movement.path.last().copied() {
+                                    if !z_motive
+                                        && horiz(current_pos, last) > close_enough_sanity
+                                    {
+                                        reached_target = false;
+                                    }
+                                }
+                            }
+                        }
 
                         obj.set_position(new_position);
                         // C++ Object.cpp:2580-2583 notifyTerrainObjectMoved →
@@ -982,6 +1065,77 @@ fn valid_movement_terrain_at(
     }
     (surfaces & valid_locomotor_surfaces_for_cell_type(ty)) != 0
 }
+
+/// C++ `Locomotor::getCloseEnoughDist` (default 1.0 at Locomotor.cpp:321).
+fn host_close_enough_dist(obj: &crate::game_logic::Object) -> f32 {
+    obj.close_enough_dist
+        .filter(|d| d.is_finite() && *d >= 0.0)
+        .unwrap_or(1.0)
+}
+
+/// C++ `Locomotor::fixInvalidPosition` (Locomotor.cpp:1500-1562).
+/// Dozer exempt, 3×3 vote, skip if already leaving (dot > 0.25), extra push
+/// when velocity-dot < 0.
+fn try_fix_invalid_position_3x3(
+    obj: &mut crate::game_logic::Object,
+    grid: &crate::game_logic::PathfindingGrid,
+    surfaces: u32,
+) -> bool {
+    if obj.is_dozer || obj.is_kind_of(crate::game_logic::KindOf::Dozer) {
+        return false;
+    }
+    let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
+    let pos = obj.get_position();
+    let mut dx_acc = 0.0f32;
+    let mut dz_acc = 0.0f32;
+    for j in -1i32..=1 {
+        for i in -1i32..=1 {
+            let check = Vec3::new(
+                pos.x + (i as f32) * cell,
+                pos.y,
+                pos.z + (j as f32) * cell,
+            );
+            if !valid_movement_terrain_at(grid, surfaces, check) {
+                if i < 0 {
+                    dx_acc += 1.0;
+                }
+                if i > 0 {
+                    dx_acc -= 1.0;
+                }
+                if j < 0 {
+                    dz_acc += 1.0;
+                }
+                if j > 0 {
+                    dz_acc -= 1.0;
+                }
+            }
+        }
+    }
+    if dx_acc == 0.0 && dz_acc == 0.0 {
+        return false;
+    }
+    let mass = obj.physics_get_mass();
+    let correction = glam::Vec3::new(dx_acc * mass / 5.0, 0.0, dz_acc * mass / 5.0);
+    let len = (correction.x * correction.x + correction.z * correction.z).sqrt();
+    let (nx, nz) = if len > 0.0001 {
+        (correction.x / len, correction.z / len)
+    } else {
+        (0.0, 0.0)
+    };
+    let v = obj.movement.velocity;
+    let dot = v.x * nx + v.z * nz;
+    if dot > 0.25 {
+        return false;
+    }
+    if dot < 0.0 {
+        let mag = (-dot).sqrt();
+        obj.apply_motive_force(glam::Vec3::new(nx * mag * mass, 0.0, nz * mag * mass));
+    }
+    obj.apply_motive_force(correction);
+    obj.record_host_movement();
+    true
+}
+
 
 
 #[cfg(test)]
@@ -2129,6 +2283,131 @@ mod tests {
             dist > 1.0,
             "arriver must snap off the occupied pad, pos={pos:?}"
         );
+    }
+
+    /// hq-99njb: blocked locoUpdate scrubs 2D motive when already at/above cap.
+    #[test]
+    fn blocked_loco_update_scrubs_instead_of_marching() {
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let mut logic = GameLogic::new();
+        let id = ObjectId(9710);
+        let mut unit = ranger_at(9710, Vec3::ZERO);
+        unit.set_orientation(0.0);
+        unit.movement.max_speed = 40.0;
+        unit.movement.acceleration = 10_000.0;
+        unit.movement.velocity = Vec3::new(4.0, 0.0, 0.0);
+        unit.movement.target_position = Some(Vec3::new(80.0, 0.0, 0.0));
+        unit.is_blocked = true;
+        unit.cur_max_blocked_speed = 4.0;
+        unit.bump_speed_limit = 4.0;
+        unit.no_slow_down_as_approaching_dest = true;
+        logic.objects.insert(id, unit);
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("unit");
+        assert!(
+            obj.get_position().x < 0.15,
+            "blocked unit at/above cap must not apply 2D motive, pos={}",
+            obj.get_position().x
+        );
+        assert!(
+            obj.movement.velocity.x <= 4.0 + 1e-3,
+            "scrubVelocity2D must cap, vel={}",
+            obj.movement.velocity.x
+        );
+    }
+
+    /// hq-g9idj: invalid terrain runs 3×3 fixInvalidPosition shove.
+    #[test]
+    fn fix_invalid_position_3x3_shoves_off_water() {
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let mut logic = GameLogic::new();
+        let water = logic
+            .pathfinding_system
+            .grid
+            .world_to_grid(Vec3::new(50.0, 0.0, 50.0));
+        logic.pathfinding_system.grid.set_cell_type(
+            water,
+            gamelogic::ai::pathfind_astar::PathfindCellType::Water,
+        );
+        logic.pathfinding_system.grid.set_cell_type(
+            GridPos::new(water.x - 1, water.y),
+            gamelogic::ai::pathfind_astar::PathfindCellType::Water,
+        );
+        let id = ObjectId(9711);
+        let mut unit = ranger_at(9711, Vec3::new(50.0, 0.0, 50.0));
+        unit.locomotor_surfaces = gamelogic::ai::pathfind_complete::SURFACE_GROUND;
+        unit.movement.target_position = Some(Vec3::new(80.0, 0.0, 50.0));
+        unit.movement.velocity = Vec3::ZERO;
+        logic.objects.insert(id, unit);
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("unit");
+        assert!(
+            obj.motive_frames_remaining > 0,
+            "3x3 shove must applyMotiveForce"
+        );
+        assert!(
+            obj.physics_accel.x != 0.0 || obj.physics_accel.z != 0.0,
+            "correction must be non-zero, accel={:?}",
+            obj.physics_accel
+        );
+        assert!(
+            (obj.get_position().x - 50.0).abs() < 0.01,
+            "locoUpdate returns without 2D march, pos={:?}",
+            obj.get_position()
+        );
+    }
+
+    /// hq-qdgxx: stamped CloseEnoughDist plants before the 1wu default.
+    #[test]
+    fn close_enough_dist_plants_before_default_one() {
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let mut logic = GameLogic::new();
+        let id = ObjectId(9712);
+        let start = Vec3::new(0.0, 0.0, 0.0);
+        let goal = Vec3::new(20.0, 0.0, 0.0);
+        let mut unit = ranger_at(9712, start);
+        unit.close_enough_dist = Some(25.0);
+        unit.movement.path = vec![start, goal];
+        unit.movement.current_path_index = 1;
+        unit.movement.target_position = Some(goal);
+        unit.set_status_moving(true);
+        logic.objects.insert(id, unit);
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("unit");
+        assert!(
+            obj.movement.path.is_empty() || !obj.status.moving,
+            "SET_STOPPING_DISTANCE 25 must plant at 20wu"
+        );
+        assert!(
+            obj.get_position().x.abs() < 1.0,
+            "must plant in place, not walk to 1wu, pos={:?}",
+            obj.get_position()
+        );
+    }
+
+    /// hq-qdgxx: ground sanity refuses to finish if last node is > 4 cells away.
+    #[test]
+    fn close_enough_ground_sanity_refuses_far_last_node() {
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let mut logic = GameLogic::new();
+        let id = ObjectId(9713);
+        let start = Vec3::new(0.0, 0.0, 0.0);
+        let last = Vec3::new(80.0, 0.0, 0.0);
+        let mut unit = ranger_at(9713, start);
+        unit.close_enough_dist = Some(25.0);
+        unit.movement.path = vec![start, last];
+        unit.movement.current_path_index = 1;
+        unit.movement.target_position = Some(last);
+        unit.movement.max_speed = 1.0;
+        unit.set_status_moving(true);
+        logic.objects.insert(id, unit);
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("unit");
+        assert!(
+            !obj.movement.path.is_empty(),
+            "4*cell sanity must refuse to plant 80wu out"
+        );
+        assert!(obj.status.moving, "must keep marching toward last node");
     }
 
     }

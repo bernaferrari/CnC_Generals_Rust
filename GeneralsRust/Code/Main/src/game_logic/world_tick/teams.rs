@@ -295,7 +295,7 @@ impl GameLogic {
             && (cand.is_garrison_contain() || !cand.contained_units().is_empty())
     }
 
-    /// C++ GuardRetaliateExitConditions — timer, aggressor radius, owner leash.
+    /// C++ GuardRetaliateExitConditions — timer, per-state victim radius, owner leash.
     fn guard_retaliate_chase_should_exit(
         &self,
         unit_id: ObjectId,
@@ -304,6 +304,7 @@ impl GameLogic {
         let Some(me) = self.objects.get(&unit_id) else {
             return false;
         };
+        // C++ Inner scan victims stamp no give-up timer.
         if me.guard_chase_give_up_frame != 0 && self.frame >= me.guard_chase_give_up_frame {
             return true;
         }
@@ -312,11 +313,16 @@ impl GameLogic {
             .or(me.guard_position)
             .unwrap_or_else(|| me.get_position());
         let (inner, outer) = self.host_std_guard_ranges(unit_id);
-        let aggressor_r = outer + inner;
+        // Inner: 1.5×stdGuard. Outer: 0.67×(vision+stdGuard). Aggressor: vision+stdGuard.
+        let victim_r = match me.guard_chase_phase {
+            1 => 1.5 * inner,
+            2 => 0.67 * (outer + inner),
+            _ => outer + inner,
+        };
         if let Some(vp) = victim_pos {
             let dx = vp.x - center.x;
             let dz = vp.z - center.z;
-            if aggressor_r > 0.0 && dx * dx + dz * dz > aggressor_r * aggressor_r {
+            if victim_r > 0.0 && dx * dx + dz * dz > victim_r * victim_r {
                 return true;
             }
         }
@@ -912,7 +918,8 @@ impl GameLogic {
             let frames = self.host_guard_chase_unit_frames();
             let now = self.frame;
             if let Some(o) = self.objects.get_mut(&id) {
-                if o.guard_chase_phase == GUARD_CHASE_PHASE_RETALIATE
+                if (o.guard_chase_phase == GUARD_CHASE_PHASE_RETALIATE
+                    || o.guard_chase_phase == 2)
                     && o.guard_chase_give_up_frame == 0
                 {
                     o.guard_chase_give_up_frame = now.saturating_add(frames);
@@ -936,6 +943,9 @@ impl GameLogic {
                     o.clear_guard_chase();
                     o.tick_guard_retaliate(false, None);
                 }
+                // C++ AIGuardRetaliate Inner/Aggressor onExit:
+                // getTeam()->setTeamTargetObject(NULL).
+                self.set_host_team_common_target(id, None);
                 continue;
             }
             if !alive {
@@ -957,6 +967,8 @@ impl GameLogic {
                             o.guard_retaliate_victim = Some(team_id);
                             o.target = Some(team_id);
                             o.status.attacking = true;
+                            o.guard_chase_phase = 1;
+                            o.guard_chase_give_up_frame = 0;
                         }
                         continue;
                     }
@@ -965,6 +977,8 @@ impl GameLogic {
                             o.guard_retaliate_victim = Some(next);
                             o.target = Some(next);
                             o.status.attacking = true;
+                            o.guard_chase_phase = 1;
+                            o.guard_chase_give_up_frame = 0;
                         }
                         continue;
                     }
@@ -998,6 +1012,8 @@ impl GameLogic {
                             o.guard_retaliate_victim = Some(aid);
                             o.target = Some(aid);
                             o.status.attacking = true;
+                            o.guard_chase_phase = GUARD_CHASE_PHASE_RETALIATE;
+                            o.guard_chase_give_up_frame = 0;
                         }
                         continue;
                     }

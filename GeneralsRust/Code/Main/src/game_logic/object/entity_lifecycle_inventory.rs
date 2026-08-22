@@ -2,7 +2,8 @@
 
 use super::entity_lifecycle_projectiles::ProjectileFlightResiduals;
 use super::entity_lifecycle_residuals::{
-    CreateObjectDieTransferResidual, EmoticonSurrenderResidual, FireWeaponWhenDeadResidual,
+    ActiveBodyCrushResidual, CreateObjectDieTransferResidual, EmoticonSurrenderResidual,
+    FireWeaponWhenDeadResidual, PhysicsBehaviorResidual, RailroadBehaviorResidual,
     SpecialPowerCooldownResidual, WeaponLockResidual,
 };
 use super::entity_lifecycle_tags::*;
@@ -228,6 +229,24 @@ pub(crate) fn collect_module_states(
         TAG_PROJECTILE_FLIGHT,
         ProjectileFlightResiduals::present(object),
         &ProjectileFlightResiduals::from_object(object),
+    )?;
+    push_present(
+        &mut out,
+        TAG_ACTIVE_BODY,
+        ActiveBodyCrushResidual::present(object),
+        &ActiveBodyCrushResidual::from_object(object),
+    )?;
+    push_present(
+        &mut out,
+        TAG_PHYSICS_BEHAVIOR,
+        PhysicsBehaviorResidual::present(object),
+        &PhysicsBehaviorResidual::from_object(object),
+    )?;
+    push_present(
+        &mut out,
+        TAG_RAILROAD,
+        RailroadBehaviorResidual::present(object),
+        &RailroadBehaviorResidual::from_object(object),
     )?;
     Ok(out)
 }

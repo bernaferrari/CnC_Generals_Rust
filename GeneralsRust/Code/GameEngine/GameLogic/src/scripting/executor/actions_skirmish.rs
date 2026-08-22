@@ -40,6 +40,18 @@ impl ScriptActionDispatcher {
             as_team
         );
 
+        if dual_world_registry_unavailable() {
+            super::request_host_skirmish_approach_path(
+                super::HostScriptSkirmishApproachPathRequest {
+                    team: team_name,
+                    path_label: waypoint_path_label,
+                    as_team,
+                    follow: true,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
         let team_arc = self.get_team_by_name(&team_name)?;
         let Some((center, first_unit)) = self.compute_team_center_and_first(&team_arc) else {
             return Ok(ScriptActionResult::Success);
@@ -104,6 +116,18 @@ impl ScriptActionDispatcher {
             waypoint_path_label
         );
 
+        if dual_world_registry_unavailable() {
+            super::request_host_skirmish_approach_path(
+                super::HostScriptSkirmishApproachPathRequest {
+                    team: team_name,
+                    path_label: waypoint_path_label,
+                    as_team: false,
+                    follow: false,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
         let team_arc = self.get_team_by_name(&team_name)?;
         let Some((center, _first_unit)) = self.compute_team_center_and_first(&team_arc) else {
             return Ok(ScriptActionResult::Success);
@@ -143,6 +167,14 @@ impl ScriptActionDispatcher {
             let _ = self.get_string_param(action, 0);
         }
         log::debug!("Skirmish building base defense front");
+        if dual_world_registry_unavailable() {
+            super::request_host_skirmish_base_defense(super::HostScriptSkirmishBaseDefenseRequest {
+                player: super::current_script_player_name(),
+                structure: None,
+                flank: false,
+            });
+            return Ok(ScriptActionResult::Success);
+        }
         self.with_current_player_ai(|ai_player| {
             let _ = ai_player.build_base_defense(false);
         });
@@ -157,6 +189,14 @@ impl ScriptActionDispatcher {
             let _ = self.get_string_param(action, 0);
         }
         log::debug!("Skirmish building base defense flank");
+        if dual_world_registry_unavailable() {
+            super::request_host_skirmish_base_defense(super::HostScriptSkirmishBaseDefenseRequest {
+                player: super::current_script_player_name(),
+                structure: None,
+                flank: true,
+            });
+            return Ok(ScriptActionResult::Success);
+        }
         self.with_current_player_ai(|ai_player| {
             let _ = ai_player.build_base_defense(true);
         });
@@ -169,6 +209,14 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let structure_type = self.get_string_param(action, 0)?;
         log::debug!("Skirmish building structure front '{}'", structure_type);
+        if dual_world_registry_unavailable() {
+            super::request_host_skirmish_base_defense(super::HostScriptSkirmishBaseDefenseRequest {
+                player: super::current_script_player_name(),
+                structure: Some(structure_type),
+                flank: false,
+            });
+            return Ok(ScriptActionResult::Success);
+        }
         let structure = structure_type.clone();
         self.with_current_player_ai(|ai_player| {
             let _ = ai_player.build_base_defense_structure(&structure, false);
@@ -182,6 +230,14 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let structure_type = self.get_string_param(action, 0)?;
         log::debug!("Skirmish building structure flank '{}'", structure_type);
+        if dual_world_registry_unavailable() {
+            super::request_host_skirmish_base_defense(super::HostScriptSkirmishBaseDefenseRequest {
+                player: super::current_script_player_name(),
+                structure: Some(structure_type),
+                flank: true,
+            });
+            return Ok(ScriptActionResult::Success);
+        }
         let structure = structure_type.clone();
         self.with_current_player_ai(|ai_player| {
             let _ = ai_player.build_base_defense_structure(&structure, true);
@@ -762,6 +818,13 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.get_string_param(action, 0)?;
         log::debug!("Idling all units for '{}'", player_name);
+        super::request_host_script_idle(super::HostScriptIdleRequest::IdleAll {
+            player: player_name.clone(),
+        });
+        if super::dual_world_registry_unavailable() {
+            return Ok(ScriptActionResult::Success);
+        }
+
         if let Ok(list) = player_list().read() {
             if !player_name.is_empty() {
                 if let Some(player_arc) = list.find_player_by_name(&player_name) {
@@ -792,6 +855,13 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.get_string_param(action, 0)?;
         log::debug!("Resuming supply trucking for '{}'", player_name);
+        super::request_host_script_idle(super::HostScriptIdleRequest::ResumeSupply {
+            player: player_name.clone(),
+        });
+        if super::dual_world_registry_unavailable() {
+            return Ok(ScriptActionResult::Success);
+        }
+
         if let Ok(list) = player_list().read() {
             if !player_name.is_empty() {
                 if let Some(player_arc) = list.find_player_by_name(&player_name) {

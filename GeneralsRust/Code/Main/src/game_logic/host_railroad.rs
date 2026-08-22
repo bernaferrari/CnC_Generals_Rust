@@ -429,6 +429,12 @@ impl HostRailroadRegistry {
             }
         })
     }
+
+    /// Replace a car after save/load. C++ `RailroadBehavior::xfer` v3.
+    pub fn restore_car(&mut self, car: HostRailroadCar) {
+        self.cars.insert(car.object_id, car);
+    }
+
 }
 
 thread_local! {
@@ -454,6 +460,12 @@ pub fn inject_railroad_track(id: ObjectId, track: HostTrainTrack) {
 pub fn railroad_car(id: ObjectId) -> Option<HostRailroadCar> {
     with_railroad_registry(|reg| reg.get(id).cloned())
 }
+
+/// C++ `RailroadBehavior::xfer` load: restore conductor/track/hitch.
+pub fn restore_railroad_car(car: HostRailroadCar) {
+    with_railroad_registry_mut(|reg| reg.restore_car(car));
+}
+
 
 /// Snapshot TerrainLogic waypoints (C++ `TheTerrainLogic->getFirstWaypoint`).
 pub fn snapshot_terrain_waypoints() -> Vec<HostWaypointSnap> {
@@ -883,6 +895,40 @@ mod tests {
         assert!(car.speed > 0.0);
         assert_eq!(car.conductor_state, HostConductorState::Accelerate);
     }
+
+    #[test]
+    fn railroad_xfer_fields_survive_lifecycle_envelope() {
+        railroad_registry_reset();
+        let mut logic = GameLogic::new();
+        let id = spawn_train(&mut logic, "CivilianTrainEngine", Vec3::ZERO);
+        inject_railroad_track(id, straight_track(400.0, None));
+        for _ in 0..20 {
+            logic.update_railroads();
+        }
+        let before = railroad_car(id).expect("moving loco");
+        assert!(before.speed > 0.0);
+        assert!(before.track_distance > 0.0);
+        let saved_speed = before.speed;
+        let saved_dist = before.track_distance;
+        let saved_state = before.conductor_state;
+
+        let envelope = logic
+            .host_object(id)
+            .expect("obj")
+            .entity_lifecycle_envelope();
+        railroad_registry_reset();
+        assert!(railroad_car(id).is_none());
+        if let Some(obj) = logic.host_object_mut(id) {
+            obj.entity_apply_lifecycle_envelope(&envelope).expect("apply");
+        }
+        let after = railroad_car(id).expect("restored loco");
+        assert_eq!(after.conductor_state, saved_state);
+        assert!((after.speed - saved_speed).abs() < 1e-5);
+        assert!((after.track_distance - saved_dist).abs() < 1e-5);
+        assert!(after.track_data_loaded);
+        railroad_registry_reset();
+    }
+
 
     /// C++ FindPosByPathDistance station edge → APPLY_BRAKES → WAIT_AT_STATION.
     #[test]

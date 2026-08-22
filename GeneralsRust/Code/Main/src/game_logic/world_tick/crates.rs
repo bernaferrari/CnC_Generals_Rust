@@ -585,7 +585,22 @@ impl GameLogic {
                 self.deploy_style_reg.record_deploy();
             }
         }
+        // C++ setMyState stamps UNPACKING/PACKING/DEPLOYED on the drawable.
+        for &id in &ids {
+            let Some(obj) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            let Some(state) = obj.deploy_style.as_ref().map(|d| d.state) else {
+                continue;
+            };
+            crate::game_logic::host_deploy_style::leftover_stamp_deploy_style_conditions(
+                &mut obj.model_condition_bits,
+                state,
+            );
+            obj.record_host_model_condition();
+        }
     }
+
 
     /// Ensure a source-authored DeployStyle unit is unpacking/unpacked before
     /// fire. Callers must establish a live, in-range attack target (or C++
@@ -617,25 +632,42 @@ impl GameLogic {
                     true
                 }
             } else {
-                let ready = if let Some(ds) = obj.deploy_style.as_mut() {
-                    if ds.is_ready_to_attack() {
-                        true
-                    } else {
-                        if ds.begin_deploy(frame) {
+                let ready_to_attack = obj
+                    .deploy_style
+                    .as_ref()
+                    .map(|ds| ds.is_ready_to_attack());
+                let ready = match ready_to_attack {
+                    Some(true) => true,
+                    Some(false) => {
+                        let started_now = obj
+                            .deploy_style
+                            .as_mut()
+                            .map(|ds| ds.begin_deploy(frame))
+                            .unwrap_or(false);
+                        let state = obj.deploy_style.as_ref().map(|ds| ds.state);
+                        if started_now {
                             started = true;
                             obj.stop_moving();
                             obj.set_status_moving(false);
+                            if let Some(state) = state {
+                                crate::game_logic::host_deploy_style::leftover_stamp_deploy_style_conditions(
+                                    &mut obj.model_condition_bits,
+                                    state,
+                                );
+                            }
+                            obj.record_host_model_condition();
                         } else {
                             blocked = true;
                         }
                         false
                     }
-                } else {
-                    // Object construction/save restore must install the live
-                    // state from the metadata. Missing it may not let a
-                    // deploy-only turret fire while packed.
-                    blocked = true;
-                    false
+                    None => {
+                        // Object construction/save restore must install the live
+                        // state from the metadata. Missing it may not let a
+                        // deploy-only turret fire while packed.
+                        blocked = true;
+                        false
+                    }
                 };
                 if !ready {
                     // Nested AttackStateMachine may have entered its fire

@@ -1,6 +1,11 @@
 //! Host tick `impl GameLogic` — `mood`.
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// C++ `TheScriptEngine->m_objectsShouldReceiveDifficultyBonus` last applied to live objects.
+static LAST_OBJECTS_SHOULD_RECEIVE_DIFFICULTY_BONUS: AtomicBool = AtomicBool::new(true);
+
 impl GameLogic {
     pub fn sync_attack_priority_from_script_engine(&mut self) {
         use gamelogic::scripting::engine::get_script_engine;
@@ -54,9 +59,14 @@ impl GameLogic {
                 self.register_attack_priority_set(host);
             }
         }
-        // Drop engine borrow before inheriting team defaults.
+        let bonus_flag = engine.get_objects_should_receive_difficulty_bonus();
+        // Drop engine borrow before inheriting team defaults / walking objects.
         drop(guard);
         drop(engine_arc);
+        if LAST_OBJECTS_SHOULD_RECEIVE_DIFFICULTY_BONUS.load(Ordering::Relaxed) != bonus_flag {
+            LAST_OBJECTS_SHOULD_RECEIVE_DIFFICULTY_BONUS.store(bonus_flag, Ordering::Relaxed);
+            self.apply_or_strip_difficulty_bonuses_for_all_objects(bonus_flag);
+        }
         let need_inherit: Vec<ObjectId> = self
             .objects
             .iter()
@@ -144,7 +154,22 @@ impl GameLogic {
         let need_los = (qualifiers & CAN_SEE) != 0;
         let unfogged = (qualifiers & UNFOGGED) != 0;
         let ignore_insig = (qualifiers & IGNORE_INSIGNIFICANT_BUILDINGS) != 0;
-        let prio = self.attack_priority_info_for(unit_id);
+        // C++ AIAttackSquadState::chooseVictim: script flag forces DIFFICULTY_NORMAL
+        // (closest), so Easy/Hard AI pick the same target.
+        let force_normal = gamelogic::scripting::engine::get_script_engine()
+            .read()
+            .ok()
+            .and_then(|guard| {
+                guard
+                    .as_ref()
+                    .map(|engine| engine.get_choose_victim_always_uses_normal())
+            })
+            .unwrap_or(false);
+        let prio = if force_normal {
+            None
+        } else {
+            self.attack_priority_info_for(unit_id)
+        };
 
         let mut best_dist: Option<(ObjectId, f32)> = None;
         let mut best_prio: Option<(ObjectId, i32, i32)> = None; // id, eff, actual
@@ -334,15 +359,19 @@ impl GameLogic {
             return;
         };
         // C++ PLAYER_COMPUTER only; Easy never shares a victim.
-        let is_computer = object
-            .owner_player_id
+        // C++ getPlayerDifficulty() is the controller, not session dominant.
+        let owner_pid = object.owner_player_id;
+        let is_computer = owner_pid
             .and_then(|pid| self.players.get(&pid))
             .map(|p| !p.is_local)
             .unwrap_or(false);
         if !is_computer {
             return;
         }
-        if self.get_difficulty() == crate::ai::AIDifficulty::Easy {
+        let controller_diff = owner_pid
+            .and_then(|pid| self.host_ai_difficulty(pid))
+            .unwrap_or_else(|| self.get_difficulty());
+        if controller_diff == crate::ai::AIDifficulty::Easy {
             return;
         }
         if let Some(id) = target {
@@ -785,12 +814,17 @@ impl GameLogic {
             }
         }
 
-        // Contained in enclosing container residual.
-        if victim.contained_by.is_some() {
-            // C++ rejects a victim inside an enclosing container regardless of
-            // force-attack.  Force fire can choose ground, but it cannot make a
-            // passenger itself a direct weapon target.
-            return CanAttackResult::NotPossible;
+        // C++ WeaponSet.cpp:545-550 — reject only enclosing containers.
+        // Fire Base crew, Overlord/Helix portable, parachute riders stay
+        // targetable. MASKED already covers typical enclosing occupants.
+        if let Some(cid) = victim.contained_by {
+            if self
+                .objects
+                .get(&cid)
+                .is_some_and(|container| container.is_enclosing_container_for(victim))
+            {
+                return CanAttackResult::NotPossible;
+            }
         }
 
         // Weapon legality / range residual.
@@ -1154,6 +1188,45 @@ mod common_target_parity {
     }
 
     #[test]
+    fn set_common_target_uses_controller_difficulty_not_session() {
+        reset_session_difficulty();
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "USA AI", false));
+        logic.add_ai_opponent(1, Team::USA, crate::ai::AIDifficulty::Easy);
+        let mut ranger = ThingTemplate::new("W26RangerCtrl");
+        ranger.add_kind_of(KindOf::Infantry);
+        ranger.add_kind_of(KindOf::Attackable);
+        logic.templates.insert("W26RangerCtrl".into(), ranger);
+        let attacker = logic
+            .create_object("W26RangerCtrl", Team::USA, glam::Vec3::ZERO)
+            .expect("atk");
+        if let Some(o) = logic.host_object_mut(attacker) {
+            o.owner_player_id = Some(1);
+            o.team_instance_name = "USA_AttackSquad".into();
+        }
+        let victim = logic
+            .create_object("W26RangerCtrl", Team::GLA, glam::Vec3::new(12.0, 0.0, 0.0))
+            .expect("vic");
+
+        crate::game_logic::host_faction_skirmish_residual::set_live_host_session_difficulty(2);
+        logic.set_host_team_common_target(attacker, Some(victim));
+        assert!(
+            logic.team_common_attack_targets.is_empty(),
+            "Easy controller in a Hard session must not seed a shared victim"
+        );
+
+        logic.set_ai_difficulty(1, crate::ai::AIDifficulty::Hard);
+        crate::game_logic::host_faction_skirmish_residual::set_live_host_session_difficulty(0);
+        logic.set_host_team_common_target(attacker, Some(victim));
+        assert_eq!(
+            logic.team_common_attack_targets.get("USA_AttackSquad"),
+            Some(&victim),
+            "Hard controller in an Easy session may share a victim"
+        );
+        reset_session_difficulty();
+    }
+
+    #[test]
     fn get_common_target_clears_garrisoned_and_aircraft() {
         let mut logic = GameLogic::new();
         logic.add_player(Player::new(1, Team::USA, "USA AI", false));
@@ -1499,6 +1572,116 @@ mod get_able_weapon_parity {
             ),
             CanAttackResult::Possible,
             "immobile SPAWNS_ARE_THE_WEAPONS site must inherit slave POSSIBLE"
+        );
+    }
+
+    #[test]
+    fn get_able_accepts_non_enclosing_firebase_crew() {
+        use crate::game_logic::{ContainModuleKind, ContainModuleMetadata};
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("AbleAtk");
+        at.add_kind_of(KindOf::Infantry);
+        at.add_kind_of(KindOf::Attackable);
+        logic.objects.insert(ObjectId(4101), {
+            let mut o = Object::new(at, ObjectId(4101), Team::USA);
+            o.set_position(Vec3::ZERO);
+            o.weapon = Some(Weapon {
+                range: 100.0,
+                damage: 10.0,
+                ..Default::default()
+            });
+            o
+        });
+        let mut fb = ThingTemplate::new("AmericaFireBase");
+        fb.add_kind_of(KindOf::Structure);
+        fb.contain_module = ContainModuleMetadata {
+            kind: ContainModuleKind::Garrison,
+            slots: Some(4),
+            is_enclosing_container: false,
+            ..Default::default()
+        };
+        let bid = ObjectId(4102);
+        logic.objects.insert(bid, {
+            let mut o = Object::new(fb, bid, Team::GLA);
+            o.set_position(Vec3::new(10.0, 0.0, 0.0));
+            let mut bd = BuildingData::new(BuildingType::Bunker);
+            bd.max_garrison = 4;
+            bd.garrisoned_units = vec![ObjectId(4103)];
+            o.building_data = Some(bd);
+            o
+        });
+        let mut crew = ThingTemplate::new("AbleCrew");
+        crew.add_kind_of(KindOf::Infantry);
+        crew.add_kind_of(KindOf::Attackable);
+        logic.objects.insert(ObjectId(4103), {
+            let mut o = Object::new(crew, ObjectId(4103), Team::GLA);
+            o.set_position(Vec3::new(10.0, 0.0, 0.0));
+            o.set_contained_by_enclosing(Some(bid), false);
+            o
+        });
+        assert_eq!(
+            logic.get_able_to_attack_specific_object(
+                ObjectId(4101),
+                ObjectId(4103),
+                AbleToAttackType::NewTarget,
+                false,
+            ),
+            CanAttackResult::Possible,
+            "Fire Base crew is non-enclosing and must stay targetable"
+        );
+    }
+
+    #[test]
+    fn get_able_rejects_enclosing_garrison_occupant() {
+        use crate::game_logic::{ContainModuleKind, ContainModuleMetadata};
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("AbleAtk2");
+        at.add_kind_of(KindOf::Infantry);
+        logic.objects.insert(ObjectId(4111), {
+            let mut o = Object::new(at, ObjectId(4111), Team::USA);
+            o.set_position(Vec3::ZERO);
+            o.weapon = Some(Weapon {
+                range: 100.0,
+                damage: 10.0,
+                ..Default::default()
+            });
+            o
+        });
+        let mut bunker = ThingTemplate::new("CivBunkerAble");
+        bunker.add_kind_of(KindOf::Structure);
+        bunker.contain_module = ContainModuleMetadata {
+            kind: ContainModuleKind::Garrison,
+            slots: Some(5),
+            is_enclosing_container: true,
+            ..Default::default()
+        };
+        let bid = ObjectId(4112);
+        logic.objects.insert(bid, {
+            let mut o = Object::new(bunker, bid, Team::GLA);
+            o.set_position(Vec3::new(10.0, 0.0, 0.0));
+            let mut bd = BuildingData::new(BuildingType::Bunker);
+            bd.max_garrison = 5;
+            bd.garrisoned_units = vec![ObjectId(4113)];
+            o.building_data = Some(bd);
+            o
+        });
+        let mut occ = ThingTemplate::new("AbleOcc");
+        occ.add_kind_of(KindOf::Infantry);
+        logic.objects.insert(ObjectId(4113), {
+            let mut o = Object::new(occ, ObjectId(4113), Team::GLA);
+            o.set_position(Vec3::new(10.0, 0.0, 0.0));
+            o.set_contained_by_enclosing(Some(bid), true);
+            o
+        });
+        assert_eq!(
+            logic.get_able_to_attack_specific_object(
+                ObjectId(4111),
+                ObjectId(4113),
+                AbleToAttackType::NewTarget,
+                false,
+            ),
+            CanAttackResult::NotPossible,
+            "enclosing garrison occupants stay untargetable"
         );
     }
 }

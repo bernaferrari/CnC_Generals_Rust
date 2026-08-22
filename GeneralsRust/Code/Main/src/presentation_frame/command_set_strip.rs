@@ -1,14 +1,17 @@
-// C++ `ControlBar::populateCommand` (`ControlBarCommand.cpp:246-323`).
+// C++ `ControlBar::evaluateContextUI` + `populateCommand` (`ControlBar.cpp:1830-1871`,
+// `ControlBarCommand.cpp:246-323`).
 //
-// GameHUD binds CommandSet.ini slots 1-14. Empty and SCRIPT_ONLY slots stay
-// hidden. Never invent Patrol / Scatter / Attitude / Cheer / Deploy /
+// After UNDER_CONSTRUCTION: OCLUpdate → OCLTimerWindow (hides CommandSet).
+// Empty CommandSet + garrisonable → StructureInventory (10 exits + Stop/Evacuate).
+// Otherwise GameHUD binds CommandSet.ini slots 1-14. Empty and SCRIPT_ONLY stay
+// holes. Never invent Patrol / Scatter / Attitude / Cheer / Deploy /
 // PurchaseScience or name-heuristic extras.
 
 use super::*;
-use crate::ui::UnitCommandButton;
+use crate::ui::{UnitCommandAvailability, UnitCommandButton};
 
 impl PresentationFrame {
-    /// Live GameHUD / unit-command-panel strip. CommandSet slots only.
+    /// Live GameHUD / unit-command-panel strip. Context first, then CommandSet.
     pub fn populate_command_set_strip(&self) -> Vec<UnitCommandButton> {
         let panel = self.control_bar_selection_panel();
         let Some(id) = panel.primary_object_id else {
@@ -31,20 +34,7 @@ impl PresentationFrame {
                 return cmds;
             }
             if ro.team == crate::game_logic::Team::Neutral && ro.max_garrison > 0 {
-                cmds.push(UnitCommandButton {
-                    command_name: "Command_StructureExit".into(),
-                    enabled: true,
-                    ..Default::default()
-                });
-                if !ro.garrisoned_units.is_empty() {
-                    cmds.push(UnitCommandButton {
-                        command_name: "Command_Evacuate".into(),
-                        enabled: true,
-                        ..Default::default()
-                    });
-                }
-                self.overlay_command_set_occupants(&mut cmds, ro);
-                return cmds;
+                return self.populate_structure_inventory_strip(ro);
             }
             return Vec::new();
         }
@@ -57,6 +47,24 @@ impl PresentationFrame {
             }];
             self.apply_host_disabled_command_strip(&mut cmds, ro);
             return cmds;
+        }
+
+        // C++ ControlBar.cpp:1830-1871 — after UC, OCLUpdate replaces the 14
+        // ButtonCommand slots with OCLTimerWindow (countdown + Sell/Rally).
+        if ro.ocl_timer_seconds > 0 {
+            return self.populate_ocl_timer_strip(ro);
+        }
+
+        // C++ ControlBar.cpp:1850-1865 — garrisonable + empty CommandSet
+        // rebuilds StructureInventory (not a blank strip).
+        if ro.max_garrison > 0
+            && ro.command_set_name.is_empty()
+            && ro.command_set_override.is_empty()
+        {
+            let selected = self.command_strip_selected_objects();
+            if selected.len() <= 1 {
+                return self.populate_structure_inventory_strip(ro);
+            }
         }
 
         let selected = self.command_strip_selected_objects();
@@ -137,33 +145,32 @@ impl PresentationFrame {
             if cmd.command_name.is_empty() {
                 continue;
             }
-            let mut any_ok = false;
-            let mut all_hidden = true;
+            let mut best = game_client::gui::control_bar::CommandAvailability::Hidden;
             for id in eval_ids {
-                match bar.leftover_evaluate_named_command(
+                let avail = bar.leftover_evaluate_named_command(
                     &cmd.command_name,
                     *id,
                     self.local_player_id,
-                ) {
-                    game_client::gui::control_bar::CommandAvailability::Hidden => {}
-                    game_client::gui::control_bar::CommandAvailability::Restricted
-                    | game_client::gui::control_bar::CommandAvailability::NotReady
-                    | game_client::gui::control_bar::CommandAvailability::CantAfford => {
-                        all_hidden = false;
-                    }
-                    game_client::gui::control_bar::CommandAvailability::Available
-                    | game_client::gui::control_bar::CommandAvailability::Active => {
-                        all_hidden = false;
-                        any_ok = true;
-                    }
+                );
+                best = leftover_merge_command_availability(best, avail);
+            }
+            cmd.availability = leftover_to_unit_availability(best);
+            match best {
+                game_client::gui::control_bar::CommandAvailability::Hidden => {
+                    *cmd = UnitCommandButton::default();
+                }
+                game_client::gui::control_bar::CommandAvailability::Restricted
+                | game_client::gui::control_bar::CommandAvailability::NotReady
+                | game_client::gui::control_bar::CommandAvailability::CantAfford => {
+                    cmd.enabled = false;
+                }
+                game_client::gui::control_bar::CommandAvailability::Available
+                | game_client::gui::control_bar::CommandAvailability::Active => {
+                    cmd.enabled = true;
                 }
             }
-            if all_hidden {
-                *cmd = UnitCommandButton::default();
-            } else if !any_ok {
-                cmd.enabled = false;
-            }
         }
+        self.apply_host_restrict_a_command_strip(cmds, ro);
     }
 
     fn leftover_availability_bar(
@@ -182,7 +189,7 @@ impl PresentationFrame {
                 completed.push(name.clone());
             }
         }
-        let residual = game_client::gui::control_bar::PresentationAvailabilityResidual {
+        let mut residual = game_client::gui::control_bar::PresentationAvailabilityResidual {
             moving: ro.moving,
             has_production: !ro.production_queue.is_empty(),
             occupant_count: ro.occupant_count as usize,
@@ -209,6 +216,7 @@ impl PresentationFrame {
             disabled_subdued: ro.disabled_subdued,
             ..Default::default()
         };
+        self.stamp_host_restrict_a_availability(&mut residual, Some(ro));
         bar.apply_presentation_availability(residual);
         bar.sync_command_set_from_presentation(if cs_name.is_empty() {
             None
@@ -325,6 +333,10 @@ impl PresentationFrame {
             if !cn.contains("construct") {
                 continue;
             }
+            if ro.is_dozer_task_pending {
+                cmd.enabled = false;
+                continue;
+            }
             if queue_full {
                 cmd.enabled = false;
                 continue;
@@ -387,6 +399,109 @@ impl PresentationFrame {
             })
             .collect()
     }
+
+    /// C++ `populateOCLTimer` — countdown display plus Sell or SetRallyPoint.
+    fn populate_ocl_timer_strip(&self, ro: &RenderableObject) -> Vec<UnitCommandButton> {
+        use game_client::gui::control_bar::control_bar_ocl_timer::{
+            format_ocl_timer_display, ocl_timer_button_kind, ocl_timer_kind_for_object,
+            OclTimerButtonKind,
+        };
+        let leftover_kind = ocl_timer_kind_for_object(ro.id.0);
+        let kind = if leftover_kind != OclTimerButtonKind::Hidden {
+            leftover_kind
+        } else {
+            let is_tech = Self::object_has_kind(ro, crate::game_logic::KindOf::TechBuilding);
+            let is_rally = Self::object_has_kind(ro, crate::game_logic::KindOf::AutoRallypoint);
+            if is_tech || is_rally {
+                ocl_timer_button_kind(is_tech, is_rally)
+            } else {
+                // Unknown leftover + no presentation tech bits: supply-drop Sell.
+                OclTimerButtonKind::Sell
+            }
+        };
+        let (text, _) = format_ocl_timer_display(ro.ocl_timer_seconds, 0.0);
+        let mut cmds = vec![UnitCommandButton {
+            command_name: String::new(),
+            enabled: false,
+            button_image: text,
+            ..Default::default()
+        }];
+        match kind {
+            OclTimerButtonKind::Sell => cmds.push(UnitCommandButton {
+                command_name: "Command_Sell".into(),
+                enabled: true,
+                ..Default::default()
+            }),
+            OclTimerButtonKind::RallyPoint => cmds.push(UnitCommandButton {
+                command_name: "Command_SetRallyPoint".into(),
+                enabled: true,
+                ..Default::default()
+            }),
+            OclTimerButtonKind::Hidden => {}
+        }
+        self.apply_host_disabled_command_strip(&mut cmds, ro);
+        cmds
+    }
+
+    /// C++ `populateStructureInventory` — slots 0-9 StructureExit + Stop/Evacuate.
+    fn populate_structure_inventory_strip(&self, ro: &RenderableObject) -> Vec<UnitCommandButton> {
+        use game_client::gui::control_bar::{
+            StructureInventoryOccupant, MAX_STRUCTURE_INVENTORY_BUTTONS,
+            STRUCTURE_INVENTORY_EVACUATE_COMMAND_NAME, STRUCTURE_INVENTORY_EVACUATE_ID,
+            STRUCTURE_INVENTORY_EXIT_COMMAND_NAME, STRUCTURE_INVENTORY_STOP_COMMAND_NAME,
+            STRUCTURE_INVENTORY_STOP_ID,
+        };
+        let mut occupants = self.presentation_inventory_occupants(ro);
+        let max_capacity = ro.max_garrison.max(occupants.len());
+        if occupants.is_empty() {
+            let count = ro
+                .garrisoned_units
+                .len()
+                .max(ro.occupant_count as usize)
+                .min(max_capacity);
+            occupants.resize(count, StructureInventoryOccupant::default());
+        }
+        let slot_count = max_capacity.min(MAX_STRUCTURE_INVENTORY_BUTTONS);
+        let contained = occupants.len();
+        let mut cmds = Vec::with_capacity(14);
+        for i in 0..14 {
+            if i < MAX_STRUCTURE_INVENTORY_BUTTONS {
+                if i < slot_count {
+                    let occ = occupants.get(i);
+                    cmds.push(UnitCommandButton {
+                        command_name: STRUCTURE_INVENTORY_EXIT_COMMAND_NAME.into(),
+                        enabled: occ.is_some(),
+                        exit_object_id: occ.and_then(|o| {
+                            (o.object_id != 0).then_some(o.object_id)
+                        }),
+                        button_image: occ
+                            .map(|o| o.button_image.clone())
+                            .unwrap_or_default(),
+                        overlay_image: occ.and_then(|o| o.overlay_image.clone()),
+                        ..Default::default()
+                    });
+                } else {
+                    cmds.push(UnitCommandButton::default());
+                }
+            } else if i == STRUCTURE_INVENTORY_STOP_ID {
+                cmds.push(UnitCommandButton {
+                    command_name: STRUCTURE_INVENTORY_STOP_COMMAND_NAME.into(),
+                    enabled: contained > 0,
+                    ..Default::default()
+                });
+            } else if i == STRUCTURE_INVENTORY_EVACUATE_ID {
+                cmds.push(UnitCommandButton {
+                    command_name: STRUCTURE_INVENTORY_EVACUATE_COMMAND_NAME.into(),
+                    enabled: contained > 0,
+                    ..Default::default()
+                });
+            } else {
+                cmds.push(UnitCommandButton::default());
+            }
+        }
+        self.apply_host_disabled_command_strip(&mut cmds, ro);
+        cmds
+    }
 }
 
 fn presentation_veterancy_overlay(level: PresentationVeterancy) -> Option<String> {
@@ -395,6 +510,40 @@ fn presentation_veterancy_overlay(level: PresentationVeterancy) -> Option<String
         PresentationVeterancy::Elite => Some("SSChevron2L".to_string()),
         PresentationVeterancy::Heroic => Some("SSChevron3L".to_string()),
         _ => None,
+    }
+}
+
+fn leftover_merge_command_availability(
+    a: game_client::gui::control_bar::CommandAvailability,
+    b: game_client::gui::control_bar::CommandAvailability,
+) -> game_client::gui::control_bar::CommandAvailability {
+    use game_client::gui::control_bar::CommandAvailability::*;
+    let rank = |v| match v {
+        Hidden => 0u8,
+        Restricted => 1,
+        CantAfford => 2,
+        NotReady => 3,
+        Active => 4,
+        Available => 5,
+    };
+    if rank(b) > rank(a) {
+        b
+    } else {
+        a
+    }
+}
+
+fn leftover_to_unit_availability(
+    a: game_client::gui::control_bar::CommandAvailability,
+) -> UnitCommandAvailability {
+    use game_client::gui::control_bar::CommandAvailability::*;
+    match a {
+        Hidden => UnitCommandAvailability::Hidden,
+        Restricted => UnitCommandAvailability::Restricted,
+        NotReady => UnitCommandAvailability::NotReady,
+        CantAfford => UnitCommandAvailability::CantAfford,
+        Active => UnitCommandAvailability::Active,
+        Available => UnitCommandAvailability::Available,
     }
 }
 

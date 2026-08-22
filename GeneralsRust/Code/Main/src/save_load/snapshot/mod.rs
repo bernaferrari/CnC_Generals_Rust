@@ -90,6 +90,8 @@ mod ability_hijack_persist;
 mod ai_team_persist;
 mod dock_queue_persist;
 mod module_runtime_persist;
+mod deliver_payload_persist;
+mod object_module_xfer_persist;
 
 
 mod particle_system_save;
@@ -189,6 +191,8 @@ pub const SNAPSHOT_SRC: &str = concat!(
     include_str!("ai_team_persist.rs"),
     include_str!("dock_queue_persist.rs"),
     include_str!("module_runtime_persist.rs"),
+    include_str!("deliver_payload_persist.rs"),
+    include_str!("object_module_xfer_persist.rs"),
 
 
     include_str!("particle_system_save.rs"),

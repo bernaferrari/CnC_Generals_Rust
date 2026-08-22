@@ -893,6 +893,8 @@ impl Object {
             parachute_initial_pitch_rate, parachute_initial_roll_rate,
         };
         self.set_status_parachute_open(true);
+        // C++ ParachuteContain.cpp:385 — opening chute sets CloseEnoughDist 10.
+        self.close_enough_dist = Some(10.0);
         self.status.parachute_pitch = 0.0;
         self.status.parachute_roll = 0.0;
         self.status.parachute_pitch_rate = parachute_initial_pitch_rate();

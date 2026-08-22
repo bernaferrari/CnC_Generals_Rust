@@ -110,6 +110,9 @@ pub struct PresentationFrame {
     pub can_make_cameos: Vec<PresentationCanMakeCameo>,
     /// Selected producer object id residual for can_make_cameos.
     pub can_make_producer_id: Option<u32>,
+    /// C++ getCommandAvailability restrict-A residual (dock/battle plan/overcharge).
+    #[serde(default)]
+    pub restrict_a: PresentationRestrictA,
 
     /// Queued upgrade template names residual (capped).
     pub local_queued_upgrades: Vec<String>,

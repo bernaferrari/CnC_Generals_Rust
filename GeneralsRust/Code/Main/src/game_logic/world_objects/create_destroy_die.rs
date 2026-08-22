@@ -3840,14 +3840,49 @@ impl GameLogic {
     /// Easy 1.50 / Normal 1.00 / Hard 0.80). Weapon bonus conditions are the
     /// C++ SOLO_HUMAN_* / SOLO_AI_* flags; host fire applies INI multipliers
     /// when present and otherwise leaves 1.0 (WeaponBonusSet default).
+    ///
+    /// C++ `Object::init` / `friend_applyDifficultyBonusesForObject` consults
+    /// `TheScriptEngine->getObjectsShouldReceiveDifficultyBonus`.
     pub(in super::super) fn apply_difficulty_bonuses_for_object(&mut self, object_id: ObjectId) {
+        self.apply_or_strip_difficulty_bonuses_for_object(object_id, true);
+    }
+
+    pub(in super::super) fn objects_should_receive_difficulty_bonus_from_script() -> bool {
+        gamelogic::scripting::engine::get_script_engine()
+            .read()
+            .ok()
+            .and_then(|guard| {
+                guard
+                    .as_ref()
+                    .map(|engine| engine.get_objects_should_receive_difficulty_bonus())
+            })
+            .unwrap_or(true)
+    }
+
+    /// C++ `Object::setReceivingDifficultyBonus` + `friend_applyDifficultyBonusesForObject`.
+    pub(in super::super) fn apply_or_strip_difficulty_bonuses_for_object(
+        &mut self,
+        object_id: ObjectId,
+        apply: bool,
+    ) {
         if self.game_mode != GameMode::SinglePlayer {
+            return;
+        }
+        if apply && !Self::objects_should_receive_difficulty_bonus_from_script() {
             return;
         }
         let owner_player_id = match self.objects.get(&object_id) {
             Some(object) => object.owner_player_id,
             None => return,
         };
+        let already = self
+            .objects
+            .get(&object_id)
+            .map(|object| object.weapon_bonus_solo != 0)
+            .unwrap_or(false);
+        if apply == already {
+            return;
+        }
         let is_human = owner_player_id
             .and_then(|player_id| self.players.get(&player_id))
             .map(|player| player.is_local)
@@ -3880,19 +3915,35 @@ impl GameLogic {
         );
         if let Some(object) = self.objects.get_mut(&object_id) {
             // C++ setWeaponBonusCondition even when healthFactor == 1.0 (Normal).
-            object.weapon_bonus_solo = solo;
+            object.weapon_bonus_solo = if apply { solo } else { 0 };
             if (health_factor - 1.0).abs() <= f32::EPSILON {
                 return;
             }
             let old_max = object.health.maximum.max(object.max_health).max(1.0);
             let ratio = (object.health.current / old_max).clamp(0.0, 1.0);
-            let new_max = old_max * health_factor;
+            let new_max = if apply {
+                old_max * health_factor
+            } else if health_factor != 0.0 {
+                old_max / health_factor
+            } else {
+                old_max
+            };
             object.health.maximum = new_max;
             object.max_health = new_max;
             object.health.current = new_max * ratio;
             object.record_host_max_health();
         }
+    }
 
+    /// C++ `doEnableOrDisableObjectDifficultyBonuses` walks every live Object.
+    pub(in super::super) fn apply_or_strip_difficulty_bonuses_for_all_objects(
+        &mut self,
+        apply: bool,
+    ) {
+        let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        for id in ids {
+            self.apply_or_strip_difficulty_bonuses_for_object(id, apply);
+        }
     }
 }
 

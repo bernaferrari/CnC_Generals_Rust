@@ -2095,4 +2095,126 @@ fn leftover_get_command_availability_hides_script_unsellable() {
     );
 }
 
+#[test]
+fn ocl_timer_selection_hides_command_set_strip() {
+    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut t = ThingTemplate::new("AmericaSupplyDropZone");
+    t.set_health(1000.0)
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable);
+    logic.templates.insert("AmericaSupplyDropZone".into(), t);
+    let id = logic
+        .create_object("AmericaSupplyDropZone", Team::USA, glam::Vec3::ZERO)
+        .expect("zone");
+    if let Some(o) = logic.host_object_mut(id) {
+        o.status.under_construction = false;
+        o.construction_percent = 1.0;
+        o.selected = true;
+        o.set_command_set_override(Some("AmericaInfantryRangerCommandSet".into()));
+    }
+    if let Some(p) = logic.get_player_mut(0) {
+        p.selected_objects = vec![id];
+    }
+    let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+    if let Some(ro) = frame.objects.iter_mut().find(|o| o.id == id) {
+        ro.ocl_timer_seconds = 45;
+    }
+    let cmds = frame.unit_command_buttons();
+    let names: Vec<_> = cmds.iter().map(|c| c.command_name.as_str()).collect();
+    assert!(
+        names.iter().any(|n| n.eq_ignore_ascii_case("Command_Sell")),
+        "OCL timer must expose Sell, got {:?}",
+        names
+    );
+    assert!(
+        !names.iter().any(|n| {
+            n.contains("Ranger")
+                || n.contains("AttackMove")
+                || n.eq_ignore_ascii_case("Command_Stop")
+        }),
+        "OCL timer must hide CommandSet strip, got {:?}",
+        names
+    );
+}
+
+#[test]
+fn empty_command_set_garrison_builds_structure_inventory() {
+    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
+    use crate::game_logic::{
+        buildings::{BuildingData, BuildingType},
+        KindOf, Team, ThingTemplate,
+    };
+    let mut logic = GameLogic::new();
+    let mut tb = ThingTemplate::new("CivilianEmptyCommandSetBunker");
+    tb.set_health(800.0)
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable);
+    logic
+        .templates
+        .insert("CivilianEmptyCommandSetBunker".into(), tb);
+    let mut tu = ThingTemplate::new("InventoryRanger");
+    tu.set_health(100.0)
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable);
+    logic.templates.insert("InventoryRanger".into(), tu);
+    let bunker = logic
+        .create_object(
+            "CivilianEmptyCommandSetBunker",
+            Team::USA,
+            glam::Vec3::ZERO,
+        )
+        .expect("bunker");
+    let ranger = logic
+        .create_object("InventoryRanger", Team::USA, glam::Vec3::new(5.0, 0.0, 0.0))
+        .expect("ranger");
+    if let Some(o) = logic.host_object_mut(bunker) {
+        o.status.under_construction = false;
+        o.construction_percent = 1.0;
+        o.selected = true;
+        let mut bd = BuildingData::new(BuildingType::Bunker);
+        bd.max_garrison = 5;
+        bd.garrisoned_units.push(ranger);
+        o.building_data = Some(bd);
+    }
+    if let Some(p) = logic.get_player_mut(0) {
+        p.selected_objects = vec![bunker];
+    }
+    let cmds = PresentationFrame::build_from_logic(&logic, 0).unit_command_buttons();
+    let names: Vec<_> = cmds.iter().map(|c| c.command_name.as_str()).collect();
+    assert_eq!(cmds.len(), 14, "inventory rebuilds 14 WND slots: {:?}", names);
+    assert!(
+        names
+            .iter()
+            .any(|n| n.eq_ignore_ascii_case("Command_StructureExit")),
+        "empty-CommandSet garrison must rebuild StructureExit: {:?}",
+        names
+    );
+    assert!(
+        names.iter().any(|n| n.eq_ignore_ascii_case("Command_Stop")),
+        "inventory must include Stop: {:?}",
+        names
+    );
+    assert!(
+        names
+            .iter()
+            .any(|n| n.eq_ignore_ascii_case("Command_Evacuate")),
+        "inventory must include Evacuate: {:?}",
+        names
+    );
+    assert_eq!(
+        names.get(10).copied().unwrap_or(""),
+        "Command_Stop",
+        "Stop is slot 10: {:?}",
+        names
+    );
+    assert_eq!(
+        names.get(11).copied().unwrap_or(""),
+        "Command_Evacuate",
+        "Evacuate is slot 11: {:?}",
+        names
+    );
+}
+
 

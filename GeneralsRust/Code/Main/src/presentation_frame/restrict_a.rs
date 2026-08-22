@@ -67,7 +67,7 @@ impl PresentationFrame {
     /// C++ getCommandAvailability restrict-A residual on the live command strip.
     pub fn apply_host_restrict_a_command_strip(
         &self,
-        cmds: &mut Vec<UnitCommandButton>,
+        cmds: &mut [UnitCommandButton],
         ro: &RenderableObject,
     ) {
         for cmd in cmds.iter_mut() {
@@ -316,6 +316,32 @@ mod restrict_a_tests {
         }
         let closed = PresentationFrame::build_from_logic(&logic, 0);
         assert!(!closed.restrict_a.dock_open);
+    }
+
+    #[test]
+    fn leftover_availability_and_neutral_peek_stamp_restrict_a() {
+        let strip = include_str!("command_set_strip.rs");
+        let apply = include_str!("apply.rs");
+        assert!(
+            strip.contains("self.stamp_host_restrict_a_availability(&mut residual, Some(ro))"),
+            "leftover_availability_bar must stamp dock_open"
+        );
+        assert!(
+            strip.contains("return self.populate_structure_inventory_strip(ro)"),
+            "Neutral peek must bind inventory Stop/Evacuate"
+        );
+        assert!(
+            strip.contains("STRUCTURE_INVENTORY_STOP_COMMAND_NAME"),
+            "inventory strip must bind Command_Stop"
+        );
+        assert!(
+            apply.contains("stamp_host_restrict_a_availability"),
+            "apply_to_control_bar must stamp leftover dock_open"
+        );
+        assert!(
+            apply.contains("let cmds = self.unit_command_buttons()"),
+            "apply_to_game_hud must keep full UnitCommandButton"
+        );
     }
 
     fn sample_ro(name: &str) -> RenderableObject {

@@ -4236,16 +4236,17 @@ impl GameLogic {
                 } else {
                     tpl.sight_range
                 };
-                // C++ Object::look has no UNDER_CONSTRUCTION branch on the
-                // ally/owner reveal (Object.cpp:4938-4966). Use the stored
-                // ShroudClearingRange, not the pick footprint.
-                let mut shroud_range = if obj.shroud_clearing_range > 0.0 {
-                    obj.shroud_clearing_range
-                } else {
-                    tpl.resolved_shroud_clearing_range()
-                };
-                if shroud_range < 0.0 {
-                    shroud_range = vision_range;
+                // C++ Object::look calls getShroudClearingRange() (Object.cpp:4938).
+                // The getter, not look() itself, clamps UNDER_CONSTRUCTION to
+                // the bounding-circle radius (Object.cpp:5128-5140).
+                let mut shroud_range = obj.get_shroud_clearing_range();
+                if !obj.status.under_construction {
+                    if shroud_range <= 0.0 {
+                        shroud_range = tpl.resolved_shroud_clearing_range();
+                    }
+                    if shroud_range < 0.0 {
+                        shroud_range = vision_range;
+                    }
                 }
                 let owner_pid = obj
                     .owner_player_id
@@ -4268,6 +4269,7 @@ impl GameLogic {
                     obj.status.under_construction,
                     blocked,
                     stealthed_hidden,
+                    obj.vision_spied_mask,
                 )
             })
             .collect();
@@ -4282,22 +4284,20 @@ impl GameLogic {
             under_construction,
             blocked,
             stealthed_hidden,
+            vision_spied_mask,
         ) in snaps
         {
             if blocked {
                 continue;
             }
-            let Some(owner_pid) = owner_pid else {
-                continue;
-            };
             let center = Coord3D::new(pos.x, pos.z, pos.y);
 
             if shroud_range > 0.0 {
-                let player_mask = if reveal_to_all_kind {
+                let mut player_mask = if reveal_to_all_kind {
                     player_ids
                         .iter()
                         .fold(0u32, |mask, &pid| mask | (1u32 << pid.min(31)))
-                } else {
+                } else if let Some(owner_pid) = owner_pid {
                     let mut mask = 0u32;
                     for &pid in &player_ids {
                         if self.player_relationship(owner_pid, pid)
@@ -4307,7 +4307,11 @@ impl GameLogic {
                         }
                     }
                     mask
+                } else {
+                    0u32
                 };
+                // C++ Object::look: lookingMask |= m_visionSpiedMask.
+                player_mask |= vision_spied_mask;
                 if player_mask != 0 {
                     restamp_host_partition_look(
                         &mut self.vision_last_looks,
@@ -4325,6 +4329,9 @@ impl GameLogic {
             }
 
             if reveal_all_range > 0.0 && !under_construction && !stealthed_hidden {
+                let Some(owner_pid) = owner_pid else {
+                    continue;
+                };
                 let mut reveal_mask = 0u32;
                 for &pid in &player_ids {
                     let rel = self.player_relationship(owner_pid, pid);
@@ -7697,10 +7704,12 @@ End
             .host_object(unit)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
+        let sliver = 80.0 / 60.0;
         assert!(
-            after > 20.0,
-            "GarrisonContain::healObjects must sliver-heal, got {after}"
+            (after - (20.0 + sliver)).abs() < 0.05,
+            "HealObjects must apply one sliver, not TimeForFullHeal+HealObjects double, got {after}"
         );
+
         assert!(
             logic.host_object(unit).is_some_and(|o| o.contained_by == Some(pad)),
             "garrison heal must not auto-exit like HealContain"
@@ -7971,6 +7980,112 @@ End
             "stealthed-not-detected skips reveal-to-all"
         );
     }
+
+    /// C++ Object.cpp:4961-4962 — vision-spied units look for the spy.
+    #[test]
+    fn crate_vision_spied_mask_makes_moving_looker() {
+        use gamelogic::system::shroud_manager::get_shroud_manager;
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "USA", true));
+        logic.add_player(Player::new(1, Team::China, "China", false));
+
+        let mut tpl = ThingTemplate::new("SpiedScout");
+        tpl.sight_range = 50.0;
+        tpl.shroud_clearing_range = 80.0;
+        logic.templates.insert("SpiedScout".into(), tpl);
+
+        {
+            let shroud = get_shroud_manager();
+            let mut mgr = shroud.lock().expect("shroud");
+            mgr.init_shroud_grid(512.0, 512.0);
+        }
+
+        let id = logic
+            .create_object_for_player("SpiedScout", 1, Vec3::new(10.0, 0.0, 20.0))
+            .expect("spawn");
+        if let Some(obj) = logic.host_object_mut(id) {
+            obj.set_vision_spied_by_player(0, true);
+        }
+        logic.update_main_crate_vision();
+        let look = *logic.vision_last_looks.get(&id).expect("looker");
+        assert_ne!(look.4 & (1u32 << 1), 0, "owner still looks for self");
+        assert_ne!(
+            look.4 & (1u32 << 0),
+            0,
+            "vision_spied_mask must OR the spy into looking_mask"
+        );
+        assert!((look.3 - 80.0).abs() < 0.01);
+
+        if let Some(obj) = logic.host_object_mut(id) {
+            obj.set_position(Vec3::new(90.0, 0.0, 110.0));
+        }
+        logic.update_main_crate_vision();
+        let moved = *logic.vision_last_looks.get(&id).expect("moved looker");
+        assert!((moved.0 - 90.0).abs() < 0.01);
+        assert!((moved.1 - 110.0).abs() < 0.01);
+        assert_ne!(moved.4 & (1u32 << 0), 0, "spy look follows the unit");
+    }
+
+    /// C++ Object.cpp:5128-5140 — UC look is bounding-circle, not stored range.
+    #[test]
+    fn crate_vision_under_construction_uses_bounding_circle() {
+        use crate::game_logic::{HostGeometryInfo, HostGeometryType};
+        use gamelogic::system::shroud_manager::get_shroud_manager;
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "USA", true));
+
+        let mut tpl = ThingTemplate::new("WarFactoryPad");
+        tpl.sight_range = 100.0;
+        tpl.shroud_clearing_range = 240.0;
+        tpl.geometry_info = HostGeometryInfo {
+            geom_type: HostGeometryType::Box,
+            is_small: false,
+            height: 20.0,
+            major_radius: 10.0,
+            minor_radius: 10.0,
+            authored: true,
+        };
+        logic.templates.insert("WarFactoryPad".into(), tpl);
+
+        {
+            let shroud = get_shroud_manager();
+            let mut mgr = shroud.lock().expect("shroud");
+            mgr.init_shroud_grid(512.0, 512.0);
+        }
+
+        let id = logic
+            .create_object_for_player("WarFactoryPad", 1, Vec3::new(40.0, 0.0, 40.0))
+            .expect("spawn");
+        let expected_circle = (10.0_f32 * 10.0 + 10.0 * 10.0).sqrt();
+        if let Some(obj) = logic.host_object_mut(id) {
+            obj.status.under_construction = true;
+            obj.shroud_clearing_range = 240.0;
+        }
+        logic.update_main_crate_vision();
+        let uc = *logic.vision_last_looks.get(&id).expect("uc looker");
+        assert!(
+            (uc.3 - expected_circle).abs() < 0.01,
+            "UC look must be bounding circle {}, got {}",
+            expected_circle,
+            uc.3
+        );
+
+        if let Some(obj) = logic.host_object_mut(id) {
+            obj.status.under_construction = false;
+        }
+        logic.update_main_crate_vision();
+        let done = *logic.vision_last_looks.get(&id).expect("complete looker");
+        assert!(
+            (done.3 - 240.0).abs() < 0.01,
+            "completed look uses stored ShroudClearingRange, got {}",
+            done.3
+        );
+    }
+
 
     #[test]
     fn ini_crusher_crushable_levels_stamp_live_objects() {

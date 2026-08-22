@@ -224,7 +224,12 @@ impl<'a> CommandExecutor<'a> {
             .tunnel_network_residual()
             .player_holding_unit(id)
             .is_some();
-        is_contained || in_tunnel || obj.container_id().is_some() || obj.contained_by.is_some()
+        let in_cave = self
+            .game_logic
+            .cave_system_residual()
+            .index_holding_unit(id)
+            .is_some();
+        is_contained || in_tunnel || in_cave || obj.container_id().is_some() || obj.contained_by.is_some()
     }
 
     pub(super) fn execute_exit(&mut self, units: &[ObjectId]) -> CommandResult {
@@ -232,6 +237,8 @@ impl<'a> CommandExecutor<'a> {
         let mut seen_units: HashSet<ObjectId> = HashSet::new();
         // Tunnel network residual: exit tunnel id for shared-pool bookkeeping.
         let mut tunnel_exit_for: HashMap<ObjectId, ObjectId> = HashMap::new();
+        // CaveSystem residual: exit cave id so leftover record_exit + LastEmpty run.
+        let mut cave_exit_for: HashMap<ObjectId, ObjectId> = HashMap::new();
 
         // C++ GameLogicDispatch.cpp:978-1004 MSG_EXIT selects the occupant.
         // If any selected unit is an occupant, do not dump containers (MSG_EVACUATE).
@@ -280,6 +287,30 @@ impl<'a> CommandExecutor<'a> {
                     continue;
                 }
 
+                // C++ CaveContain shared CaveIndex pool. Exit on this cave dumps
+                // leftover CaveSystem occupants so record_exit + LastEmpty run.
+                if selected_obj.is_cave_style_container() {
+                    let idx = selected_obj.cave_index;
+                    let shared = self
+                        .game_logic
+                        .cave_system_residual()
+                        .contained_for_index(idx);
+                    for contained in shared {
+                        if seen_units.insert(contained) {
+                            to_unload.push((contained, Some(selected_id), origin));
+                            cave_exit_for.insert(contained, selected_id);
+                        }
+                    }
+                    for contained in selected_obj.contained_units() {
+                        if seen_units.insert(contained) {
+                            to_unload.push((contained, Some(selected_id), origin));
+                            cave_exit_for.insert(contained, selected_id);
+                        }
+                    }
+                    continue;
+                }
+
+
                 for contained in selected_obj.contained_units() {
                     if seen_units.insert(contained) {
                         to_unload.push((contained, Some(selected_id), origin));
@@ -298,7 +329,12 @@ impl<'a> CommandExecutor<'a> {
                 .tunnel_network_residual()
                 .player_holding_unit(selected_id)
                 .is_some();
-            if !is_contained && !in_tunnel {
+            let in_cave = self
+                .game_logic
+                .cave_system_residual()
+                .index_holding_unit(selected_id)
+                .is_some();
+            if !is_contained && !in_tunnel && !in_cave {
                 continue;
             }
 
@@ -310,6 +346,28 @@ impl<'a> CommandExecutor<'a> {
                         rally.unwrap_or_else(|| container.get_position()),
                         Some(container_id),
                     )
+                } else {
+                    (selected_obj.get_position(), None)
+                }
+            } else if in_cave {
+                let cave_id = self
+                    .game_logic
+                    .cave_system_residual()
+                    .index_holding_unit(selected_id)
+                    .and_then(|idx| {
+                        self.game_logic
+                            .cave_system_residual()
+                            .cave_ids_for_index(idx)
+                            .into_iter()
+                            .next()
+                    });
+                if let Some(cid) = cave_id {
+                    if let Some(container) = self.game_logic.host_object(cid) {
+                        let rally = container.building_data.as_ref().and_then(|b| b.rally_point);
+                        (rally.unwrap_or_else(|| container.get_position()), Some(cid))
+                    } else {
+                        (selected_obj.get_position(), Some(cid))
+                    }
                 } else {
                     (selected_obj.get_position(), None)
                 }
@@ -333,6 +391,13 @@ impl<'a> CommandExecutor<'a> {
                         .unwrap_or(false)
                     {
                         tunnel_exit_for.insert(selected_id, cid);
+                    } else if self
+                        .game_logic
+                        .host_object(cid)
+                        .map(|c| c.is_cave_style_container())
+                        .unwrap_or(false)
+                    {
+                        cave_exit_for.insert(selected_id, cid);
                     }
                 }
             }
@@ -341,6 +406,22 @@ impl<'a> CommandExecutor<'a> {
         if to_unload.is_empty() {
             return CommandResult::InvalidCommand;
         }
+
+        // C++ AIUpdateInterface::privateEvacuate → markAllPassengersDetected
+        // immediately before orderAllPassengersToExit. Leftover
+        // order_all_passengers_to_exit does the same. Dump-all (Evac / Exit
+        // on the container) must destalth STEALTH_GARRISON riders.
+        if !occupant_selected {
+            let mut marked = HashSet::new();
+            for (_, container_id, _) in &to_unload {
+                if let Some(cid) = container_id {
+                    if marked.insert(*cid) {
+                        self.game_logic.mark_all_passengers_detected(*cid);
+                    }
+                }
+            }
+        }
+
 
         let frame = self.game_logic.frame;
         let mut dropped_from: HashSet<ObjectId> = HashSet::new();
@@ -359,9 +440,21 @@ impl<'a> CommandExecutor<'a> {
                             .host_object(cid)
                             .is_some_and(|c| c.is_tunnel_network_style_container())
                 });
+            let cave_exit = cave_exit_for.get(&unit_id).copied();
+            let is_cave_unit = cave_exit.is_some()
+                || container_id.is_some_and(|cid| {
+                    self.game_logic
+                        .cave_system_residual()
+                        .index_holding_unit(unit_id)
+                        .is_some()
+                        && self
+                            .game_logic
+                            .host_object(cid)
+                            .is_some_and(|c| c.is_cave_style_container())
+                });
 
             // C++ TransportContain::isExitBusy / reserveDoorForExit.
-            if !is_tunnel_unit {
+            if !is_tunnel_unit && !is_cave_unit {
                 if let Some(cid) = container_id {
                     if let Some(c) = self.game_logic.host_object(cid) {
                         if c.uses_transport_contain_exit_busy()
@@ -397,7 +490,20 @@ impl<'a> CommandExecutor<'a> {
                 false
             };
 
-            if !was_tunnel {
+            // C++ CaveContain::onRemoving → leftover record_exit + LastEmpty team revert.
+            let was_cave = if let Some(exit_cid) = cave_exit {
+                self.game_logic.exit_cave_unit(unit_id, exit_cid)
+            } else if is_cave_unit {
+                if let Some(cid) = container_id {
+                    self.game_logic.exit_cave_unit(unit_id, cid)
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+
+            if !was_tunnel && !was_cave {
                 if let Some(container_id) = container_id {
                     // Wave 233: remove occupant via GameLogic authority API.
                     let _ = self
@@ -419,7 +525,7 @@ impl<'a> CommandExecutor<'a> {
                 was_listening_outpost,
                 was_troop_crawler,
                 was_transport,
-            ) = if was_tunnel {
+            ) = if was_tunnel || was_cave {
                 (false, false, false, false, false, false, false, false)
             } else if let Some(unit) = self.game_logic.host_object(unit_id) {
                 let garrisoned = matches!(unit.ai_state, AIState::Garrisoned);
@@ -514,8 +620,8 @@ impl<'a> CommandExecutor<'a> {
                     .game_logic
                     .unit_command_exit_drop(unit_id, drop_position);
             }
-            if was_tunnel {
-                // Counters already recorded in exit_tunnel_network_unit.
+            if was_tunnel || was_cave {
+                // Counters already recorded in leftover exit_tunnel / exit_cave_unit.
             } else if was_garrisoned {
                 self.game_logic.record_garrison_residual_exit();
             } else if was_overlord_bunker {
@@ -2121,6 +2227,59 @@ mod tests {
         );
         assert!((r.get_position() - origin).length() < 2.0);
     }
+
+    #[test]
+    fn execute_evacuate_marks_stealth_garrison_detected() {
+        let mut logic = GameLogic::new();
+        let origin = Vec3::new(6.0, 0.0, 4.0);
+        let mut bunker_t = ThingTemplate::new("EVAC_SG_B");
+        bunker_t
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(1000.0);
+        bunker_t.contain_module = ContainModuleMetadata {
+            kind: ContainModuleKind::Garrison,
+            slots: Some(5),
+            admission: ContainAdmission::InfantryOnly,
+            is_enclosing_container: true,
+            ..Default::default()
+        };
+        logic.templates.insert("EVAC_SG_B".into(), bunker_t);
+        let mut ninja_t = ThingTemplate::new("EVAC_SG_N");
+        ninja_t
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::StealthGarrison)
+            .set_health(120.0);
+        ninja_t.transport_slot_count = Some(1);
+        logic.templates.insert("EVAC_SG_N".into(), ninja_t);
+        let bunker = logic.create_object("EVAC_SG_B", Team::USA, origin).unwrap();
+        let ninja = logic
+            .create_object("EVAC_SG_N", Team::USA, origin + Vec3::new(2.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let t = logic.host_object_mut(bunker).unwrap();
+            assert!(t.add_occupant(ninja));
+        }
+        {
+            let n = logic.host_object_mut(ninja).unwrap();
+            n.set_contained_by(Some(bunker));
+            n.set_ai_state(AIState::Garrisoned);
+            n.set_status_stealthed(true);
+            n.set_status_detected(false);
+        }
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(exec.execute_evacuate(&[bunker]), CommandResult::Success);
+        }
+        let n = logic.host_object(ninja).unwrap();
+        assert!(n.contained_by.is_none());
+        assert!(
+            n.status.detected,
+            "C++ markAllPassengersDetected must destalth STEALTH_GARRISON on Evac"
+        );
+    }
+
 
     #[test]
     fn execute_exit_garrison_occupant_inventory_walks_burst() {

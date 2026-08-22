@@ -2116,7 +2116,10 @@ impl RadarSystem {
         {
             return false;
         }
-        if obj.is_stealth
+        // C++ `calcStealthedStatusForPlayer` treats observers as allies, so
+        // undetected enemy stealth is VISIBLE_FRIENDLY — not hidden.
+        if self.local_player_active
+            && obj.is_stealth
             && obj.is_enemy
             && !obj.is_detected
             && !obj.is_disguised
@@ -3549,6 +3552,50 @@ mod tests {
             "defeated/observer local must unhide LOCAL_UNIT_ONLY"
         );
     }
+
+    #[test]
+    fn test_object_overlay_unhides_enemy_stealth_for_defeated_or_observer() {
+        let mut radar = RadarSystem::new();
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(128.0, 128.0, 0.0),
+            &[],
+        );
+        radar.clear_shroud();
+
+        let mut stealthed = RadarObject::new(3);
+        stealthed.world_pos = Coord3D::new(12.0, 18.0, 0.0);
+        stealthed.priority = RadarPriorityType::Unit;
+        stealthed.color = 0xFFFF0000;
+        stealthed.is_stealth = true;
+        stealthed.is_enemy = true;
+        stealthed.is_detected = false;
+        stealthed.is_disguised = false;
+        stealthed.stealth_revealed = false;
+        stealthed.hidden_by_stealth = false;
+        radar.add_object(stealthed);
+
+        let pixel = |radar: &RadarSystem| {
+            let texture = radar.build_object_overlay_texture_rgba();
+            let idx = ((18 * RADAR_CELL_WIDTH + 12) * 4) as usize;
+            texture[idx..idx + 4].to_vec()
+        };
+
+        radar.set_local_player_active(true);
+        assert_eq!(
+            pixel(&radar),
+            vec![0, 0, 0, 0],
+            "active local still hides undetected enemy stealth"
+        );
+
+        radar.set_local_player_active(false);
+        assert_eq!(
+            pixel(&radar),
+            vec![0xFF, 0x00, 0x00, 0xFF],
+            "defeated/observer local must see enemy stealth as VISIBLE_FRIENDLY"
+        );
+    }
+
 
 
     #[test]

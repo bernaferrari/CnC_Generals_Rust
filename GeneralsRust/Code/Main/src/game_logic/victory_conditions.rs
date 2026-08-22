@@ -209,9 +209,12 @@ fn counts_as_unit(obj: &Object) -> bool {
         && !obj.is_kind_of(KindOf::Mine)
 }
 
-/// C++ `Team::hasAnyObjects`: skip projectiles, mines (and inert, not hosted).
+/// C++ `Team::hasAnyObjects`: skip projectiles, mines, and inert
+/// (radiation fields stay living so ambulances can attack them).
 fn counts_as_any_object(obj: &Object) -> bool {
-    !obj.is_kind_of(KindOf::Projectile) && !obj.is_kind_of(KindOf::Mine)
+    !obj.is_kind_of(KindOf::Projectile)
+        && !obj.is_kind_of(KindOf::Mine)
+        && !obj.is_kind_of(KindOf::Inert)
 }
 
 impl PlayerArmyState {
@@ -729,7 +732,7 @@ mod tests {
         team: Team,
         kinds: &[KindOf],
     ) -> (ObjectId, Object) {
-        let mut tpl = ThingTemplate::new(format!("T{id}"));
+        let mut tpl = ThingTemplate::new(&format!("T{id}"));
         tpl.set_health(100.0);
         for k in kinds {
             tpl.add_kind_of(*k);
@@ -834,6 +837,26 @@ mod tests {
         assert!(gamelogic::helpers::TheVictoryConditions::is_local_allied_victory());
         vc.reset();
     }
+
+    #[test]
+    fn inert_objects_do_not_count_as_any_objects() {
+        let mut vc = VictoryConditions::new();
+        let mut players = HashMap::new();
+        players.insert(0, player(0, Team::USA, 1));
+        players.insert(1, player(1, Team::GLA, 2));
+        let mut objects = HashMap::new();
+        let (a, oa) = obj(1, 0, Team::USA, &[KindOf::Infantry]);
+        let (rad, orad) = obj(2, 1, Team::GLA, &[KindOf::Inert]);
+        objects.insert(a, oa);
+        objects.insert(rad, orad);
+        let outcome = vc.evaluate(&players, &objects, 5, GameMode::Skirmish);
+        assert!(
+            matches!(outcome, Some(VictoryCondition::Winner(0))),
+            "KINDOF_INERT radiation must not stall annihilation, got {outcome:?}"
+        );
+        vc.reset();
+    }
+
 
 
     fn leftover_named(id: u32) -> std::sync::Arc<std::sync::RwLock<gamelogic::player::Player>> {

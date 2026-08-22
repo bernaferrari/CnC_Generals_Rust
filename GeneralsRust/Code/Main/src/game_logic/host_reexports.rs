@@ -417,7 +417,7 @@ pub use super::host_radar_stealth_vision_residual::{
 pub use super::host_railroad::{
     honesty_railroad_residual_ok, inject_railroad_track, is_railroad_carriage_template,
     is_railroad_locomotive_template, is_railroad_template, railroad_car, railroad_registry_reset,
-    HostConductorState, HostRailroadCar, HostTrainTrack, RAILROAD_SPEED_MAX,
+    restore_railroad_car, HostConductorState, HostRailroadCar, HostTrainTrack, RAILROAD_SPEED_MAX,
     RAILROAD_WAIT_AT_STATION_FRAMES,
 };
 pub use super::host_railed_transport::{

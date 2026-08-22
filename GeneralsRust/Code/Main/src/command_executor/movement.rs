@@ -573,13 +573,22 @@ impl<'a> CommandExecutor<'a> {
             .collect()
     }
 
-    /// C++ GlobalData::m_groupMoveClickToGatherFactor residual (1.0 = full bbox).
-    const GROUP_MOVE_CLICK_TO_GATHER_FACTOR: f32 = 1.0;
+    /// Retail GameData.ini `GroupMoveClickToGatherAreaFactor` residual (0.5).
+    /// Leftover GlobalData ctor is 1.0 (C++ ctor) until INI applies; live
+    /// uses the leftover residual so click-to-gather is the inner half bbox.
+    /// C++ `ScaleRect2D` — no invented 20wu pad.
+    fn group_move_click_to_gather_factor() -> f32 {
+        crate::game_logic::host_ai_path_combat_residual_wave105::GROUP_MOVE_CLICK_TO_GATHER_FACTOR_RESIDUAL
+    }
 
     /// True when destination lies inside the selected group's XZ bounding rect
-    /// scaled by gather factor — C++ groupMoveToPosition tighten path.
+    /// scaled by gather factor — C++ groupMoveToPosition tighten path
+    /// (`AIGroup.cpp:1559-1608`). After ScaleRect2D the cell-area cap uses
+    /// the scaled x-span twice (retail quirk) and only tightens when
+    /// `cells < 2000`.
     pub(crate) fn should_tighten_group_move(&self, units: &[ObjectId], destination: Vec3) -> bool {
-        if Self::GROUP_MOVE_CLICK_TO_GATHER_FACTOR <= 0.0 || units.len() < 2 {
+        let factor = Self::group_move_click_to_gather_factor();
+        if factor <= 0.0 || units.len() < 2 {
             return false;
         }
         let mut min_x = f32::INFINITY;
@@ -618,18 +627,25 @@ impl<'a> CommandExecutor<'a> {
         if count < 2 {
             return false;
         }
-        // Scale rect about center by gather factor.
+        // ScaleRect2D about center by gather factor (no 20wu pad).
         let cx = 0.5 * (min_x + max_x);
         let cz = 0.5 * (min_z + max_z);
-        let hx = 0.5 * (max_x - min_x) * Self::GROUP_MOVE_CLICK_TO_GATHER_FACTOR;
-        let hz = 0.5 * (max_z - min_z) * Self::GROUP_MOVE_CLICK_TO_GATHER_FACTOR;
-        // Pad tiny groups so a click near the cluster still gathers.
-        let hx = hx.max(20.0);
-        let hz = hz.max(20.0);
-        destination.x >= cx - hx
+        let hx = 0.5 * (max_x - min_x) * factor;
+        let hz = 0.5 * (max_z - min_z) * factor;
+        if !(destination.x >= cx - hx
             && destination.x <= cx + hx
             && destination.z >= cz - hz
-            && destination.z <= cz + hz
+            && destination.z <= cz + hz)
+        {
+            return false;
+        }
+        // C++ AIGroup.cpp:1602-1605 after ScaleRect2D mutates min/max:
+        // dx=(max.x-min.x)/CELL; dy=(max.x-min.x)/CELL; cells=dx*dy; <2000.
+        let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
+        let scaled_x = hx * 2.0;
+        let dx = (scaled_x / cell) as i32;
+        let cells = dx.saturating_mul(dx);
+        cells < 2000
     }
 
     /// C++ AIGroup::groupTightenToPosition — near-to-far; helis get
@@ -950,14 +966,16 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
 
-            let (can_move, can_attack) = match self.game_logic.host_object(unit_id) {
+            // C++ groupAttackMoveToPosition: any AI member. No can_move gate —
+            // deployed artillery / turret structures still get attack-move.
+            let (alive, can_attack) = match self.game_logic.host_object(unit_id) {
                 Some(unit) => (
-                    unit.is_alive() && unit.can_move(),
+                    unit.is_alive(),
                     unit.can_attack() || unit.weapon.is_some(),
                 ),
                 None => continue,
             };
-            if !can_move {
+            if !alive {
                 continue;
             }
             if can_attack {

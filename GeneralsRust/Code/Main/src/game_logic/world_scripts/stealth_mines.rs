@@ -126,6 +126,9 @@ impl GameLogic {
                 let Some(obj) = self.objects.get_mut(&pid) else {
                     continue;
                 };
+                if !obj.stealth_or_detector_update_processes() {
+                    continue;
+                }
                 if obj.script_unstealthed {
                     if obj.status.stealthed {
                         obj.break_stealth();
@@ -860,6 +863,9 @@ impl GameLogic {
                 && !o.status.destroyed
                 && !o.status.sold)
             {
+                continue;
+            }
+            if !o.stealth_or_detector_update_processes() {
                 continue;
             }
             let range = o.effective_detection_range();

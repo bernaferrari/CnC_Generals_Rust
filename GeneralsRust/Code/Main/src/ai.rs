@@ -1096,6 +1096,31 @@ impl AIPlayer {
         }
     }
 
+    /// C++ `AISkirmishPlayer::buildAIBaseDefense` — script `SKIRMISH_BUILD_BASE_DEFENSE_*`.
+    pub fn build_script_base_defense(&mut self, game_logic: Option<&GameLogic>, flank: bool) -> bool {
+        let Some(defense) = self.base_defense_structure() else {
+            return false;
+        };
+        self.build_script_base_defense_structure(game_logic, defense, flank)
+    }
+
+    /// C++ `AISkirmishPlayer::buildAIBaseDefenseStructure` — script
+    /// `SKIRMISH_BUILD_STRUCTURE_FRONT/FLANK`.
+    pub fn build_script_base_defense_structure(
+        &mut self,
+        game_logic: Option<&GameLogic>,
+        thing_name: &str,
+        flank: bool,
+    ) -> bool {
+        let Some(position) = self.place_next_base_defense_structure(game_logic, thing_name, flank)
+        else {
+            return false;
+        };
+        self.add_building(thing_name, position, UNLIMITED_REBUILDS);
+        true
+    }
+
+
     /// Approach goal for the defense fan.
     ///
     /// C++ `buildAIBaseDefenseStructure` (`AISkirmishPlayer.cpp:599-609`):
@@ -3627,20 +3652,31 @@ impl AIPlayer {
         }
         let idx = self.skillset_selector.clamp(0, 4) as usize;
         let candidates = sets[idx].clone();
-        let Some(player) = game_logic.get_player_mut(self.player_id) else {
-            return;
-        };
-        for name in candidates {
-            if player.is_capable_of_purchasing_science(&name)
-                && player.attempt_to_purchase_science(&name)
-            {
-                log::debug!(
-                    "AI Player {} purchases from SkillSet{} {}",
-                    self.player_id,
-                    idx + 1,
-                    name
-                );
+        let purchased: Vec<String> = {
+            let Some(player) = game_logic.get_player_mut(self.player_id) else {
+                return;
+            };
+            let mut purchased = Vec::new();
+            for name in candidates {
+                if player.is_capable_of_purchasing_science(&name)
+                    && player.attempt_to_purchase_science(&name)
+                {
+                    log::debug!(
+                        "AI Player {} purchases from SkillSet{} {}",
+                        self.player_id,
+                        idx + 1,
+                        name
+                    );
+                    purchased.push(name);
+                }
             }
+            purchased
+        };
+        // C++ Player::addScience → onSpecialPowerCreation + setReadyFrame(now)
+        // for modules whose required science matches. Human/script purchase
+        // already calls this; AI skillset buys must too.
+        for name in purchased {
+            game_logic.on_special_power_science_creation(self.player_id, &name);
         }
     }
 
@@ -4138,11 +4174,12 @@ impl AIPlayer {
             if !Self::pad_object_still_ours(object, self.player_id, self.team) {
                 continue;
             }
-            if !object.is_alive() || object.is_kind_of(KindOf::Structure) {
+            if !object.is_alive() {
                 continue;
             }
-            // C++ Team::tryToRecruit DISABLED_HELD (Team.cpp:2353-2356).
-            if object.contained_by.is_some() || object.status.disabled_held {
+            // C++ Team::tryToRecruit DISABLED_HELD only (Team.cpp:2353-2356).
+            // No KindOf::Structure skip. No contained-by skip beyond HELD.
+            if object.status.disabled_held {
                 continue;
             }
             // C++ AIUpdateInterface::isRecruitable (Team.cpp:2350-2352).
@@ -6455,6 +6492,49 @@ impl AIManager {
             .any(|id| self.build_specific_ai_building(id, thing_name))
     }
 
+    /// C++ `Player::buildBaseDefense` live host entry (current skirmish AI).
+    pub fn build_ai_base_defense_for_token(
+        &mut self,
+        game_logic: &GameLogic,
+        player_token: &str,
+        flank: bool,
+    ) -> bool {
+        if let Some(id) = Self::resolve_player_id(game_logic, player_token) {
+            return self
+                .ai_players
+                .get_mut(&id)
+                .is_some_and(|ai| ai.build_script_base_defense(Some(game_logic), flank));
+        }
+        let ids: Vec<u32> = self.ai_players.keys().copied().collect();
+        ids.into_iter().any(|id| {
+            self.ai_players
+                .get_mut(&id)
+                .is_some_and(|ai| ai.build_script_base_defense(Some(game_logic), flank))
+        })
+    }
+
+    /// C++ `Player::buildBaseDefenseStructure` live host entry.
+    pub fn build_ai_base_defense_structure_for_token(
+        &mut self,
+        game_logic: &GameLogic,
+        player_token: &str,
+        thing_name: &str,
+        flank: bool,
+    ) -> bool {
+        if let Some(id) = Self::resolve_player_id(game_logic, player_token) {
+            return self.ai_players.get_mut(&id).is_some_and(|ai| {
+                ai.build_script_base_defense_structure(Some(game_logic), thing_name, flank)
+            });
+        }
+        let ids: Vec<u32> = self.ai_players.keys().copied().collect();
+        ids.into_iter().any(|id| {
+            self.ai_players.get_mut(&id).is_some_and(|ai| {
+                ai.build_script_base_defense_structure(Some(game_logic), thing_name, flank)
+            })
+        })
+    }
+
+
     /// C++ `AIPlayer::buildBySupplies` live host entry.
     pub fn build_by_supplies(
         &mut self,
@@ -7908,7 +7988,7 @@ mod cpp_parity_tests {
     }
 
     #[test]
-    fn queue_units_skips_held_garrisoned_units() {
+    fn queue_units_skips_disabled_held_units() {
         // C++ Team::tryToRecruit DISABLED_HELD (Team.cpp:2353-2356).
         let mut logic = crate::game_logic::GameLogic::new();
         let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
@@ -7925,7 +8005,7 @@ mod cpp_parity_tests {
             .expect("held ranger");
         if let Some(obj) = logic.host_object_mut(existing) {
             obj.owner_player_id = Some(1);
-            obj.contained_by = Some(crate::game_logic::ObjectId(99));
+            obj.status.disabled_held = true;
             obj.set_ai_state(crate::game_logic::AIState::Idle);
         }
 
@@ -7937,9 +8017,65 @@ mod cpp_parity_tests {
         let team = ai.team_queue.front().expect("queued team");
         assert_eq!(
             team.work_orders[0].num_completed, 0,
-            "garrisoned unit must not be recruited"
+            "DISABLED_HELD unit must not be recruited"
         );
         assert!(team.work_orders[0].observed_unit_ids.is_empty());
+    }
+
+    #[test]
+    fn try_to_recruit_takes_structures_and_contained() {
+        // C++ Team::tryToRecruit has no Structure skip and no contained-by skip.
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
+        player.resources.supplies = 50_000;
+        logic.add_player(player);
+        let mut pad_t = crate::game_logic::ThingTemplate::new("AmericaWarFactory");
+        pad_t.add_kind_of(crate::game_logic::KindOf::Structure);
+        logic.templates.insert("AmericaWarFactory".into(), pad_t);
+        let mut ranger_t = crate::game_logic::ThingTemplate::new("AmericaInfantryRanger");
+        ranger_t.add_kind_of(crate::game_logic::KindOf::Infantry);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".into(), ranger_t);
+
+        let pad = logic
+            .create_object("AmericaWarFactory", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("pad");
+        if let Some(obj) = logic.host_object_mut(pad) {
+            obj.owner_player_id = Some(1);
+            obj.set_ai_state(crate::game_logic::AIState::Idle);
+        }
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        let order = AIWorkOrder::new("AmericaWarFactory".into(), 1, 100);
+        ai.team_queue
+            .push_back(AITeamQueue::new("USA_FactoryTeam".into(), vec![order], false, 0));
+        ai.process_team_queue(&mut logic, 0.0);
+        let team = ai.team_queue.front().expect("queued factory team");
+        assert_eq!(
+            team.work_orders[0].num_completed, 1,
+            "matching structure template must be recruitable"
+        );
+        assert_eq!(team.work_orders[0].observed_unit_ids, vec![pad]);
+
+        let garrisoned = logic
+            .create_object("AmericaInfantryRanger", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+            .expect("garrisoned");
+        if let Some(obj) = logic.host_object_mut(garrisoned) {
+            obj.owner_player_id = Some(1);
+            obj.contained_by = Some(crate::game_logic::ObjectId(99));
+            obj.set_ai_state(crate::game_logic::AIState::Idle);
+        }
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        let order = AIWorkOrder::new("AmericaInfantryRanger".into(), 1, 100);
+        ai.team_queue
+            .push_back(AITeamQueue::new("USA_RangerSquad".into(), vec![order], false, 0));
+        ai.process_team_queue(&mut logic, 0.0);
+        let team = ai.team_queue.front().expect("queued ranger team");
+        assert_eq!(
+            team.work_orders[0].num_completed, 1,
+            "contained (not HELD) matching unit must be recruitable"
+        );
+        assert_eq!(team.work_orders[0].observed_unit_ids, vec![garrisoned]);
     }
 
     fn w21_ranger_logic() -> (
@@ -9173,6 +9309,35 @@ mod cpp_parity_tests {
         assert_eq!(first, "AirF_SCIENCE_A10ThunderboltMissileStrike1");
         assert_ne!(first, "SCIENCE_PaladinTank");
     }
+
+    #[test]
+    fn skillset_purchase_readies_required_special_powers() {
+        use crate::command_system::SpecialPowerType;
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
+        player.science_purchase_points = 10;
+        assert!(player.unlock_science("SCIENCE_AMERICA"));
+        player
+            .shared_special_power_cooldowns
+            .insert(SpecialPowerType::DaisyCutter, 99.0);
+        logic.add_player(player);
+
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        ai.select_skillset(0);
+        ai.try_purchase_skillset_science(&mut logic);
+        let player = logic.get_player(1).expect("player");
+        assert!(
+            player.has_unlocked_science("SCIENCE_DaisyCutter"),
+            "skillset 1 must buy DaisyCutter once AMERICA is owned"
+        );
+        assert!(
+            !player
+                .shared_special_power_cooldowns
+                .contains_key(&SpecialPowerType::DaisyCutter),
+            "C++ addScience onSpecialPowerCreation must ready the required shared power"
+        );
+    }
+
     #[test]
     fn check_bridges_queues_damaged_span_and_assigns_dozer() {
         use crate::game_logic::host_enum_table_residual::HostBodyDamageType;

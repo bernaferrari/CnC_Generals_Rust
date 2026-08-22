@@ -113,16 +113,13 @@ impl GameLogic {
             .saturating_add(EVA_FRAMES_BETWEEN_CHECKS_DEFAULT_RESIDUAL);
     }
 
-    /// C++ TheEva->setShouldPlay(EVA_InsufficientFunds) residual (local player).
+    /// C++ TheEva->setShouldPlay(EVA_InsufficientFunds) on every failed click.
+    /// Replay suppression is leftover Eva.ini TimeBetweenChecksMS, not a host throttle.
     pub fn try_eva_insufficient_funds(&mut self, player_id: u32) {
-        use crate::game_logic::host_ui_presentation_residual::EVA_FRAMES_BETWEEN_CHECKS_DEFAULT_RESIDUAL;
         let Some(p) = self.players.get(&player_id) else {
             return;
         };
         if !p.is_local || !p.is_alive {
-            return;
-        }
-        if self.frame < self.eva_insufficient_funds_next_frame {
             return;
         }
         let _ = gamelogic::helpers::TheEva::set_should_play(
@@ -132,9 +129,6 @@ impl GameLogic {
             gamelogic::helpers::EvaEvent::InsufficientFunds,
         );
         self.eva_insufficient_funds = self.eva_insufficient_funds.saturating_add(1);
-        self.eva_insufficient_funds_next_frame = self
-            .frame
-            .saturating_add(EVA_FRAMES_BETWEEN_CHECKS_DEFAULT_RESIDUAL);
     }
 
     pub fn honesty_eva_low_power_ok(&self) -> bool {
@@ -1540,6 +1534,27 @@ mod tests {
             Some(Team::USA),
         );
         assert!(logic.saboteur.honesty_eva_unit_lost_ok());
+    }
+
+    #[test]
+    fn try_eva_insufficient_funds_has_no_host_frame_throttle() {
+        // C++ ControlBarCommandProcessing setShouldPlay every failed click.
+        // Eva.ini TimeBetweenChecksMS is leftover Eva, not a 900-frame host gate.
+        let _ = TheEva::drain_events();
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "Local", true));
+        logic.try_eva_insufficient_funds(0);
+        logic.frame = 1;
+        logic.try_eva_insufficient_funds(0);
+        assert_eq!(logic.eva_insufficient_funds_count(), 2);
+        let events = TheEva::drain_events().expect("eva");
+        let funds = events
+            .iter()
+            .filter(|e| **e == EvaEvent::InsufficientFunds)
+            .count();
+        assert_eq!(funds, 2, "{events:?}");
     }
 
 

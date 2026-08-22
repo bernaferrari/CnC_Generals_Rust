@@ -88,6 +88,8 @@ impl SnapshotBuilder {
                 super::ai_team_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
                 super::dock_queue_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
                 super::module_runtime_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::deliver_payload_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::object_module_xfer_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
 
 
 
@@ -287,6 +289,14 @@ impl SnapshotBuilder {
             game_logic,
         )?;
         super::module_runtime_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::deliver_payload_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::object_module_xfer_persist::apply_from_lifecycle_tail(
             &snapshot.lifecycle_tail,
             game_logic,
         )?;
@@ -520,6 +530,22 @@ impl SnapshotBuilder {
             disabled_script_underpowered: object.status.disabled_script_underpowered,
             script_unsellable: object.script_unsellable,
             script_unstealthed: object.script_unstealthed,
+            disabled_paralyzed: object.status.disabled_paralyzed,
+            disabled_paralyzed_until_frame: object.status.disabled_paralyzed_until_frame,
+            spy_vision_disabled_until_frame: object.status.spy_vision_disabled_until_frame,
+            spy_vision_reset_timers: object.status.spy_vision_reset_timers,
+            spy_vision_hack_two_wake_frame: object.status.spy_vision_hack_two_wake_frame,
+            parachuting: object.status.parachuting,
+            parachute_open: object.status.parachute_open,
+            parachute_start_height: object.status.parachute_start_height,
+            parachute_pitch: object.status.parachute_pitch,
+            parachute_roll: object.status.parachute_roll,
+            parachute_pitch_rate: object.status.parachute_pitch_rate,
+            parachute_roll_rate: object.status.parachute_roll_rate,
+            parachute_landing_override: object.status.parachute_landing_override,
+            parachute_landing_override_set: object.status.parachute_landing_override_set,
+            faerie_fire: object.status.faerie_fire,
+            faerie_fire_until_frame: object.faerie_fire_until_frame,
         }
     }
 

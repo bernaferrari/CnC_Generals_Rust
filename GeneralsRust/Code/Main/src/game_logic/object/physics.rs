@@ -31,9 +31,13 @@ impl Object {
     ///
     /// Adds random yaw/pitch/roll rates and immediately kicks orientation yaw
     /// so the tumble is observable without a full rigid-body integrator.
-    /// Structures stick-to-ground residual: no rotation.
+    /// C++ PhysicsUpdate.cpp:357-358: STICK_TO_GROUND early-return (infantry
+    /// slide upright; no tumble rates, no ALLOW_BOUNCE from this path).
     pub fn apply_shock_random_rotation(&mut self, seed: u32) {
-        if self.is_kind_of(KindOf::Structure) {
+        if self.stick_to_ground
+            || self.is_kind_of(KindOf::Infantry)
+            || self.is_kind_of(KindOf::Structure)
+        {
             return;
         }
         use crate::game_logic::host_rng_residual::pure_logic_random_real;
@@ -54,6 +58,8 @@ impl Object {
         // upside-down kill can see integrated up-Y, not a synthetic scalar.
         let pryf = self.pitch_roll_yaw_factor;
         self.apply_physics_ypr(0.0, dpitch * pryf, droll * pryf);
+        // C++ applyRandomRotation: setAllowBouncing(true) after stick gate.
+        self.shock_allow_bounce = true;
         self.record_host_shock_stun();
     }
 
@@ -88,8 +94,6 @@ impl Object {
             .wrapping_add((force.x.to_bits()).wrapping_mul(0x85EB_CA6B))
             .wrapping_add(force.z.to_bits());
         self.apply_shock_random_rotation(seed);
-        // C++ applyRandomRotation sets ALLOW_BOUNCE until bounce completes.
-        self.shock_allow_bounce = true;
         self.shock_grounded_once = false;
         self.ensure_locomotor_surfaces();
         // Strong upward impulse residual: freefall model bit while airborne from shock.
@@ -98,10 +102,9 @@ impl Object {
             self.model_condition_bits |= 1u128 << MC_BIT_FREEFALL;
             self.shock_was_airborne = true;
         }
-        // C++ setStunned(true) + MODELCONDITION_STUNNED_FLAILING residual.
-        // Duration: 45 frames (~1.5s). First 30 flailing, then STUNNED, then clear.
-        const TOTAL: u32 = 45;
-        self.shock_stun_frames = self.shock_stun_frames.max(TOTAL);
+        // C++ setStunned(true) — no duration. Clear when |vel|<0.5 or
+        // !isSignificantlyAboveTerrain (PhysicsUpdate.cpp:671-682).
+        self.shock_stun_frames = u32::MAX;
         self.refresh_model_condition_bits();
         if matches!(
             self.ai_state,
@@ -112,10 +115,12 @@ impl Object {
         true
     }
 
-    /// C++ GlobalData::m_groundStiffness default residual.
-    pub const GROUND_STIFFNESS: f32 = 0.5;
-    /// Host gravity residual (world-Y up) while shock-airborne.
-    pub const SHOCK_GRAVITY: f32 = -1.0; // C++ GlobalData::m_gravity residual
+    /// Retail GameData.ini GroundStiffness (C++ ctor 0.5 is unused after parse).
+    pub const GROUND_STIFFNESS: f32 = 0.8;
+    /// Retail GameData.ini StructureStiffness.
+    pub const STRUCTURE_STIFFNESS: f32 = 0.3;
+    /// Retail GameData.ini Gravity -64 dist/sec² → parseAccelerationReal / 900.
+    pub const SHOCK_GRAVITY: f32 = -64.0 / 900.0;
     /// C++ handleBounce YPR damping residual.
     pub const BOUNCE_YPR_DAMPING: f32 = 0.7;
     /// C++ PhysicsBehavior mass default residual.
@@ -126,9 +131,9 @@ impl Object {
     pub const FALL_MIN_ANGLE_TAN: f32 = 3.0;
     pub const FALL_TINY_DELTA: f32 = 0.01;
 
-    /// C++ heightToSpeed(height) = sqrt(|2*g*h|) with g residual 1.0.
+    /// C++ heightToSpeed(height) = sqrt(|2*g*h|) with parsed GlobalData gravity.
     pub fn height_to_fall_speed(height: f32) -> f32 {
-        (2.0 * Self::SHOCK_GRAVITY.abs() * height.abs()).sqrt()
+        (2.0 * leftover_loco_gravity().abs() * height.abs()).sqrt()
     }
 
     /// C++ PhysicsBehaviorModuleData::m_minFallSpeedForDamage default (height 40).
@@ -956,11 +961,12 @@ impl Object {
 
     /// C++ Locomotor::calcLiftToUseAtPt residual (simplified).
     ///
-    /// Gravity residual = -1.0 (host world-Y). Returns lift accel to apply (not force).
+    /// Gravity is leftover `TheGlobalData->m_gravity` (host world-Y).
+    /// Returns lift accel to apply (not force).
     pub fn calc_lift_to_use_at_pt(&self, cur_y: f32, preferred_height: f32) -> f32 {
-        const GRAVITY: f32 = -1.0;
+        let gravity = leftover_loco_gravity();
         let max_gross = self.get_max_lift();
-        let mut max_net = max_gross + GRAVITY;
+        let mut max_net = max_gross + gravity;
         if max_net < 0.0 {
             max_net = 0.0;
         }
@@ -974,7 +980,7 @@ impl Object {
         } else if cur_vy < 0.0 {
             max_net
         } else {
-            GRAVITY
+            gravity
         };
         let desired_accel = if max_accel.abs() > 0.001 {
             let delta_y = preferred_height - cur_y;
@@ -990,7 +996,7 @@ impl Object {
         } else {
             0.0
         };
-        let mut lift = desired_accel - GRAVITY;
+        let mut lift = desired_accel - gravity;
         if self.ultra_accurate {
             const UP_FACTOR: f32 = 3.0;
             if lift > UP_FACTOR * max_gross {
@@ -1606,7 +1612,7 @@ impl Object {
     /// C++ Thing::isSignificantlyAboveTerrain — height > -(3*3)*gravity.
     pub fn is_significantly_above_terrain(&self) -> bool {
         let height = self.get_position().y - self.ground_height;
-        height > -(3.0 * 3.0) * Self::SHOCK_GRAVITY
+        height > -(3.0 * 3.0) * leftover_loco_gravity()
     }
 
     /// C++ DISABLED_HELD: garrisoned / parachute-cargo / prison / Battle Bus hulk.
@@ -1700,11 +1706,65 @@ fn thrust_vel_nearly_zero(v: f32) -> bool {
     v.abs() < 0.001
 }
 
-/// Leftover `loco_gravity` / C++ `TheGlobalData->m_gravity`. Host Y-up == C++ Z.
-fn leftover_loco_gravity() -> f32 {
-    game_engine::common::ini::get_global_data()
-        .map(|data| data.read().gravity)
-        .unwrap_or(Object::SHOCK_GRAVITY)
+/// Leftover `TheGlobalData->m_gravity` (parseAccelerationReal). Host Y-up == C++ Z.
+/// Ctor defaults (-1.0 / leftover INI -9.8) are unparsed; retail GameData.ini is -64/900.
+pub(super) fn leftover_loco_gravity() -> f32 {
+    leftover_physics_gravity()
+}
+
+fn leftover_physics_gravity() -> f32 {
+    const RETAIL: f32 = Object::SHOCK_GRAVITY;
+    let raw = leftover_global_gravity();
+    match raw {
+        Some(g)
+            if g.is_finite()
+                && g < 0.0
+                && (g + 1.0).abs() > 1e-4
+                && (g + 9.8).abs() > 1e-3 =>
+        {
+            g
+        }
+        _ => RETAIL,
+    }
+}
+
+fn leftover_global_gravity() -> Option<f32> {
+    if let Some(data) = game_engine::common::ini::get_global_data() {
+        return Some(data.read().gravity);
+    }
+    game_engine::common::global_data::read_safe()
+        .ok()
+        .map(|data| data.gravity)
+}
+
+/// Leftover `TheGlobalData->m_groundStiffness`. Ctor 0.5 → retail 0.8.
+pub(super) fn leftover_ground_stiffness() -> f32 {
+    sanitize_stiffness(leftover_global_stiffness_pair().0, Object::GROUND_STIFFNESS)
+}
+
+/// Leftover `TheGlobalData->m_structureStiffness`. Ctor 0.5 / leftover 1.0 → retail 0.3.
+pub(super) fn leftover_structure_stiffness() -> f32 {
+    sanitize_stiffness(leftover_global_stiffness_pair().1, Object::STRUCTURE_STIFFNESS)
+}
+
+fn leftover_global_stiffness_pair() -> (Option<f32>, Option<f32>) {
+    if let Ok(data) = game_engine::common::global_data::read_safe() {
+        return (Some(data.ground_stiffness), Some(data.structure_stiffness));
+    }
+    if let Some(data) = game_engine::common::ini::get_global_data() {
+        let data = data.read();
+        return (Some(data.ground_stiffness), Some(data.structure_stiffness));
+    }
+    (None, None)
+}
+
+fn sanitize_stiffness(raw: Option<f32>, retail: f32) -> f32 {
+    match raw {
+        Some(s) if s.is_finite() && (s - 0.5).abs() > 1e-6 && (s - 1.0).abs() > 1e-6 => {
+            s.clamp(0.01, 0.99)
+        }
+        _ => retail.clamp(0.01, 0.99),
+    }
 }
 
 /// C++ `Locomotor::getSurfaceHtAtPt` via leftover `TheTerrainLogic`.

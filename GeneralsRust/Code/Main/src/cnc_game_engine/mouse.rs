@@ -512,9 +512,9 @@ fn classic_left_context_action_allowed(
     has_selection && (!shift_down || !target_is_locally_selectable)
 }
 
-fn is_point_click_drag(drag_distance_screen: f32) -> bool {
-    // C++ `TheMouse->m_dragTolerance` from Mouse.ini (default 5).
-    drag_distance_screen <= host_mouse_drag_tolerance_px()
+fn is_point_click_drag(dx: f32, dy: f32) -> bool {
+    // C++ SelectionXlat.cpp:399-400 / Mouse::isClick — per-axis, not Euclidean.
+    host_screen_drag_is_click(dx, dy)
 }
 
 /// C++ `SelectionXlat.cpp:930-937`: alternate-mouse blank LMB-up deselects.
@@ -1374,15 +1374,15 @@ impl CnCGameEngine {
 
         let end = self.mouse_world_position;
         let selection_end_screen = glam::Vec2::new(self.mouse_position.0, self.mouse_position.1);
-        let drag_distance_screen = selection_start_screen
+        let (drag_dx, drag_dy) = selection_start_screen
             .map(|start_screen| {
-                glam::Vec2::new(
+                (
                     selection_end_screen.x - start_screen.0,
                     selection_end_screen.y - start_screen.1,
                 )
-                .length()
             })
-            .unwrap_or_default();
+            .unwrap_or((0.0, 0.0));
+        let drag_distance_screen = (drag_dx * drag_dx + drag_dy * drag_dy).sqrt();
 
         // A map-target, structure placement, force attack, or double-click
         // selection already consumed the press edge.  C++'s higher-priority
@@ -1393,7 +1393,7 @@ impl CnCGameEngine {
         }
 
         if release_behavior == LeftMouseReleaseBehavior::ContextCommand
-            && is_point_click_drag(drag_distance_screen)
+            && is_point_click_drag(drag_dx, drag_dy)
         {
             let had_selection = !self.ui_selected_ids(self.current_player_id).is_empty()
                 || !self.selected_objects.is_empty();
@@ -1420,7 +1420,7 @@ impl CnCGameEngine {
         // C++ starts an area selection from a pixel delta and dispatches an
         // IRegion2D on release.  Terrain-ray distance changes with camera
         // pitch and must not decide whether a mouse drag was a click.
-        if is_point_click_drag(drag_distance_screen) {
+        if is_point_click_drag(drag_dx, drag_dy) {
             if let Some(template) = self.pending_structure_placement.clone() {
                 if Self::is_wall_structure_template(&template) {
                     self.place_structure_from_ui(&template, end);
@@ -1462,7 +1462,7 @@ impl CnCGameEngine {
         // Movement within DragTolerance is a POINT CLICK, not a box.
         // Press already selected via `select_left_click_target` — do not
         // `box_select` + `host_set_selection([])` (hq-r5dmm).
-        if is_point_click_drag(drag_distance_screen) {
+        if is_point_click_drag(drag_dx, drag_dy) {
             let clicked = self.find_object_at_cursor(false);
             if clicked.is_none()
                 && alternate_mouse_blank_click_deselects(
@@ -3854,6 +3854,8 @@ impl CnCGameEngine {
         self.camera_yaw_target = None;
         self.camera_pitch_target = None;
         self.camera_zoom_target = None;
+        // C++ W3DView::setAngleAndPitchToDefault / resetCamera: m_FXPitch = 1.0.
+        self.camera_fx_pitch = 1.0;
         self.camera_zoom = self.compute_default_camera_zoom_for_target(
             self.camera_target,
             self.ui_script_default_camera_max_height(),
@@ -4035,6 +4037,23 @@ mod camera_pick_tests {
         assert!(src.contains("os_double_click_time_ms"));
         assert!(src.contains("OS_DOUBLE_CLICK_SLOP_PX"));
         assert!(!src.contains("time_delta < 500 && pos_delta < 10.0"));
+    }
+
+    #[test]
+    fn reset_camera_pose_restores_fx_pitch_to_one() {
+        let src = include_str!("mouse.rs");
+        let start = src
+            .find("fn reset_camera_pose_in_place")
+            .expect("reset_camera_pose_in_place");
+        let body = &src[start..start + 900];
+        assert!(
+            body.contains("self.camera_fx_pitch = 1.0"),
+            "CAMERA_RESET/MMB must restore C++ m_FXPitch 1.0"
+        );
+        assert!(
+            body.contains("self.camera_pitch_target = None"),
+            "reset must cancel an in-flight CAMERA_PITCH lerp"
+        );
     }
 
     fn cursor_pick_uses_camera_ray_not_twenty_wu_pad() {
@@ -4294,9 +4313,13 @@ mod camera_pick_tests {
     #[test]
     fn drag_tolerance_and_empty_click_match_cpp_selection_xlat() {
         // C++ Mouse.cpp DragTolerance default 5 / SelectionXlat.cpp:399-407, 575-597, 617-626, 930-937.
-        assert!(is_point_click_drag(0.0));
-        assert!(is_point_click_drag(5.0));
-        assert!(!is_point_click_drag(5.1));
+        assert!(is_point_click_drag(0.0, 0.0));
+        assert!(is_point_click_drag(5.0, 0.0));
+        assert!(is_point_click_drag(0.0, 5.0));
+        assert!(is_point_click_drag(4.0, 4.0), "4x4 diagonal is still a click");
+        assert!(is_point_click_drag(5.0, 5.0));
+        assert!(!is_point_click_drag(5.1, 0.0));
+        assert!(!is_point_click_drag(0.0, 5.1));
         assert!(!alternate_mouse_blank_click_deselects(false, false, false, false));
         assert!(alternate_mouse_blank_click_deselects(true, false, false, false));
         assert!(!alternate_mouse_blank_click_deselects(true, true, false, false));
@@ -4327,7 +4350,7 @@ mod camera_pick_tests {
         // C++ MetaEvent.cpp:571-596 + SelectionXlat.cpp:575-597 / 905-950.
         let src = include_str!("mouse.rs");
         assert!(src.contains("const DRAG_TOLERANCE_PX: f32 = 5.0"));
-        assert!(src.contains("is_point_click_drag(drag_distance_screen)"));
+        assert!(src.contains("is_point_click_drag(drag_dx, drag_dy)"));
         assert!(!src.contains("drag_distance_screen <= 2.0"));
         assert!(src.contains("alternate_mouse_blank_click_deselects"));
         assert!(src.contains("garrisonable_building_ids_in_screen_rect"));

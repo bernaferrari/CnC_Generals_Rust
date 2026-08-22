@@ -157,6 +157,10 @@ pub enum HostScriptNamedFireSpecialPowerRequest {
 pub enum HostScriptIdleRequest {
     NamedStop { unit: String },
     TeamStop { team: String, disband: bool },
+    /// C++ `doIdleAllPlayerUnits` — empty player = every human player.
+    IdleAll { player: String },
+    /// C++ `doResumeSupplyTruckingForIdleUnits`.
+    ResumeSupply { player: String },
 }
 
 /// Live host drain: NAMED/TEAM DELETE, KILL, DAMAGE.
@@ -170,6 +174,8 @@ pub enum HostScriptKillDeleteDamageRequest {
     TeamDelete { team: String, ignore_dead: bool },
     TeamKill { team: String },
     TeamDamage { team: String, amount: f32 },
+    /// C++ `doDestroyAllContained` (`iterateContained(killTheObject)`).
+    DestroyAllContained { unit: String },
 }
 
 /// Live host drain: SOUND_PLAY_NAMED / ENABLE_OBJECT_SOUND / DISABLE_OBJECT_SOUND.
@@ -403,6 +409,65 @@ pub enum HostScriptPlayerMiscRequest {
     SelectSkillset { player: String, skillset: i32 },
 }
 
+/// Live host drain: NAMED/TEAM USE_COMMANDBUTTON_ABILITY.
+/// C++ `doNamedUseCommandButtonAbility*` / `doTeamUseCommandButtonAbility*`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostScriptUseCommandButtonRequest {
+    Named {
+        unit: String,
+        button: String,
+    },
+    NamedOnNamed {
+        unit: String,
+        button: String,
+        target: String,
+    },
+    NamedAtWaypoint {
+        unit: String,
+        button: String,
+        waypoint: String,
+    },
+    NamedUsingWaypointPath {
+        unit: String,
+        button: String,
+        path: String,
+    },
+    Team {
+        team: String,
+        button: String,
+    },
+    TeamOnNamed {
+        team: String,
+        button: String,
+        target: String,
+    },
+    TeamAtWaypoint {
+        team: String,
+        button: String,
+        waypoint: String,
+    },
+}
+
+/// Live host drain: SKIRMISH_FOLLOW/MOVE_TO_APPROACH_PATH.
+/// C++ `doTeamFollowSkirmishApproachPath` / `doTeamMoveToSkirmishApproachPath`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostScriptSkirmishApproachPathRequest {
+    pub team: String,
+    pub path_label: String,
+    pub as_team: bool,
+    pub follow: bool,
+}
+
+/// Live host drain: SKIRMISH_BUILD_BASE_DEFENSE_* / SKIRMISH_BUILD_STRUCTURE_*.
+/// C++ `doBuildBaseDefense` / `doBuildBaseStructure`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostScriptSkirmishBaseDefenseRequest {
+    pub player: String,
+    pub structure: Option<String>,
+    pub flank: bool,
+}
+
+
 
 
 
@@ -502,6 +567,15 @@ thread_local! {
         RefCell::new(Vec::new());
     static HOST_SCRIPT_PLAYER_MISC_REQUESTS: RefCell<Vec<HostScriptPlayerMiscRequest>> =
         RefCell::new(Vec::new());
+    static HOST_SCRIPT_USE_COMMAND_BUTTON_REQUESTS:
+        RefCell<Vec<HostScriptUseCommandButtonRequest>> = RefCell::new(Vec::new());
+    static HOST_SCRIPT_TOPPLE_DIRECTIONS: RefCell<HashMap<String, (f32, f32)>> =
+        RefCell::new(HashMap::new());
+    static HOST_SKIRMISH_APPROACH_PATH_REQUESTS:
+        RefCell<Vec<HostScriptSkirmishApproachPathRequest>> = RefCell::new(Vec::new());
+    static HOST_SKIRMISH_BASE_DEFENSE_REQUESTS:
+        RefCell<Vec<HostScriptSkirmishBaseDefenseRequest>> = RefCell::new(Vec::new());
+
 
 
 
@@ -999,6 +1073,51 @@ pub fn take_host_script_player_misc_requests() -> Vec<HostScriptPlayerMiscReques
     HOST_SCRIPT_PLAYER_MISC_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
 
+/// Live host drain: NAMED/TEAM USE_COMMANDBUTTON_ABILITY.
+pub fn request_host_script_use_command_button(req: HostScriptUseCommandButtonRequest) {
+    HOST_SCRIPT_USE_COMMAND_BUTTON_REQUESTS.with(|q| q.borrow_mut().push(req));
+}
+
+pub fn take_host_script_use_command_button_requests() -> Vec<HostScriptUseCommandButtonRequest> {
+    HOST_SCRIPT_USE_COMMAND_BUTTON_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// C++ `ScriptEngine::setToppleDirection` live map. Consulted by host topple.
+pub fn request_host_script_topple_direction(unit: &str, dx: f32, dy: f32) {
+    if unit.is_empty() {
+        return;
+    }
+    HOST_SCRIPT_TOPPLE_DIRECTIONS.with(|m| {
+        m.borrow_mut().insert(unit.to_string(), (dx, dy));
+    });
+}
+
+pub fn host_script_topple_direction_for(unit: &str) -> Option<(f32, f32)> {
+    if unit.is_empty() {
+        return None;
+    }
+    HOST_SCRIPT_TOPPLE_DIRECTIONS.with(|m| m.borrow().get(unit).copied())
+}
+
+/// Live host drain: SKIRMISH_FOLLOW/MOVE_TO_APPROACH_PATH.
+pub fn request_host_skirmish_approach_path(req: HostScriptSkirmishApproachPathRequest) {
+    HOST_SKIRMISH_APPROACH_PATH_REQUESTS.with(|q| q.borrow_mut().push(req));
+}
+
+pub fn take_host_skirmish_approach_path_requests() -> Vec<HostScriptSkirmishApproachPathRequest> {
+    HOST_SKIRMISH_APPROACH_PATH_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: SKIRMISH_BUILD_BASE_DEFENSE_* / SKIRMISH_BUILD_STRUCTURE_*.
+pub fn request_host_skirmish_base_defense(req: HostScriptSkirmishBaseDefenseRequest) {
+    HOST_SKIRMISH_BASE_DEFENSE_REQUESTS.with(|q| q.borrow_mut().push(req));
+}
+
+pub fn take_host_skirmish_base_defense_requests() -> Vec<HostScriptSkirmishBaseDefenseRequest> {
+    HOST_SKIRMISH_BASE_DEFENSE_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+
 
 
 
@@ -1044,6 +1163,14 @@ pub fn take_host_skirmish_command_button_most_valuable_requests() -> Vec<(String
 fn dual_world_registry_unavailable() -> bool {
     OBJECT_REGISTRY.is_empty()
 }
+
+pub(super) fn current_script_player_name() -> String {
+    with_script_engine_ref(|engine| engine.get_current_player_name())
+        .flatten()
+        .unwrap_or_default()
+}
+
+
 
 fn to_radar_coord(pos: &Coord3D) -> game_engine::common::system::radar::Coord3D {
     game_engine::common::system::radar::Coord3D::new(pos.x, pos.y, pos.z)

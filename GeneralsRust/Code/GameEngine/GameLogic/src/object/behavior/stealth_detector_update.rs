@@ -526,6 +526,13 @@ pub fn stealth_detector_kindof_allows(
     )
 }
 
+/// C++ `GameLogic.cpp:3677` + leftover `get_disabled_types_to_process = HELD`.
+/// StealthUpdate / StealthDetectorUpdate tick if `!dis.any() || dis ∩ DISABLED_HELD`.
+#[inline]
+pub fn stealth_or_detector_update_processes(any_disabled: bool, disabled_held: bool) -> bool {
+    !any_disabled || disabled_held
+}
+
 /// StealthDetectorUpdate behavior module
 pub struct StealthDetectorUpdate {
     object_id: ObjectID,

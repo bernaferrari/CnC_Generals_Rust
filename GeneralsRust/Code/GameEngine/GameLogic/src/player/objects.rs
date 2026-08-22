@@ -527,6 +527,12 @@ pub fn notify_live_object_built(player_id: u32, template_name: &str) {
     };
     let bits = retail_kindof_bits_for_template(template_name);
     guard.score_keeper.add_object_built_template(template_name, bits);
+    // Live notify previously wrote ScoreKeeper only; leftover academy stayed empty.
+    if bits & (1u64 << 7) != 0 {
+        guard.academy_stats.record_building_built(template_name);
+    } else {
+        guard.academy_stats.record_unit_built(template_name);
+    }
 }
 
 /// Live mid-game kill → leftover `ScoreKeeper::addObjectDestroyed`.
@@ -552,6 +558,13 @@ pub fn notify_live_object_destroyed(
         victim_player_id as Int,
         under_construction,
     );
+    if !under_construction {
+        if bits & (1u64 << 7) != 0 {
+            guard.academy_stats.record_building_destroyed(template_name);
+        } else {
+            guard.academy_stats.record_unit_killed(template_name);
+        }
+    }
 }
 
 /// Live mid-game loss → leftover `ScoreKeeper::addObjectLost`.

@@ -339,6 +339,28 @@ impl HostSneakAttackRegistry {
         self.activated_this_frame.clear();
     }
 
+    pub fn next_id(&self) -> u32 {
+        self.next_id
+    }
+
+    pub fn get(&self, id: u32) -> Option<&HostSneakAttackMission> {
+        self.missions.get(&id)
+    }
+
+    pub fn restore_from_snapshot(
+        &mut self,
+        next_id: u32,
+        missions: impl IntoIterator<Item = HostSneakAttackMission>,
+    ) {
+        self.clear();
+        let mut max_id = 0_u32;
+        for mission in missions {
+            max_id = max_id.max(mission.id);
+            self.missions.insert(mission.id, mission);
+        }
+        self.next_id = next_id.max(max_id.saturating_add(1)).max(1);
+    }
+
     pub fn activation_count(&self) -> u32 {
         self.activation_count
     }
@@ -564,11 +586,6 @@ impl HostSneakAttackRegistry {
     }
 
     // --- Honesty flags (host residual; do not claim full retail parity) ---
-
-    /// Residual honesty: at least one sneak attack activated/queued.
-    pub fn get(&self, id: u32) -> Option<&HostSneakAttackMission> {
-        self.missions.get(&id)
-    }
 
     pub fn get_mut(&mut self, id: u32) -> Option<&mut HostSneakAttackMission> {
         self.missions.get_mut(&id)

@@ -81,6 +81,7 @@ impl GameLogic {
             ocl,
             "",
             0.0,
+            0.0,
         );
         if created.is_empty() {
             const EMBER_TEMPLATE: &str = "BurningEmbers";

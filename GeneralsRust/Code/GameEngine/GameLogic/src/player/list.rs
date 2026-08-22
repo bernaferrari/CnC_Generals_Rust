@@ -206,6 +206,8 @@ impl PlayerArcExt for Arc<RwLock<Player>> {
                     guard.upgrades_completed = guard.upgrades_completed | mask_bit;
                     // Remove from in-progress if it was there
                     guard.upgrades_in_progress = guard.upgrades_in_progress & !mask_bit;
+                    // Live leftover add_upgrade notify (host upgrade complete).
+                    guard.academy_stats.record_upgrade(upgrade_template, false);
                 }
                 crate::upgrade::UpgradeStatus::Invalid => {
                     // Do nothing for invalid status

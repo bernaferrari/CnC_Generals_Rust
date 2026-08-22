@@ -64,6 +64,10 @@ impl GameLogic {
         // Rebuild partition cells (C++ registerObject residual each update).
         // Dead wrecks stay registered and still onCollide (C++ PartitionManager).
         self.partition_manager.clear_registered_objects();
+        // C++ OpenContain::addOrRemoveObjFromWorld unRegisterObject when
+        // isEnclosingContainerFor (Humvee/Chinook/garrison/Troop Crawler).
+        // Fire Base / parachute / Overlord portable stay registered.
+        let enclosing_hidden = enclosing_hidden_rider_ids(&self.objects);
         // O(1) id → pose/radius for pair resolution (was linear find per neighbor).
         let mut entry_by_id: std::collections::HashMap<u32, (glam::Vec3, f32)> =
             std::collections::HashMap::new();
@@ -71,6 +75,9 @@ impl GameLogic {
         for (id, o) in self.objects.iter() {
             // C++ unRegisterObject while ride-hidden (hijacker mesh + collide).
             if o.drawable_hidden || o.hijacker_in_vehicle {
+                continue;
+            }
+            if enclosing_hidden.contains(&id.0) {
                 continue;
             }
             let pos = o.get_position();
@@ -906,4 +913,63 @@ impl GameLogic {
         }
         self.stop_attack_decision_aware(attacker_id);
     }
+}
+
+/// C++ `OpenContain::addOrRemoveObjFromWorld` — enclosing riders leave the
+/// collide partition on enter and re-register on exit. Live rebuilds each tick.
+fn enclosing_hidden_rider_ids(
+    objects: &std::collections::HashMap<ObjectId, Object>,
+) -> std::collections::HashSet<u32> {
+    let pairs: Vec<(ObjectId, ObjectId, String)> = objects
+        .iter()
+        .filter_map(|(id, o)| {
+            o.contained_by
+                .map(|cid| (*id, cid, o.template_name.clone()))
+        })
+        .collect();
+    pairs
+        .into_iter()
+        .filter(|(rid, cid, tmpl)| {
+            objects
+                .get(cid)
+                .is_some_and(|c| enclosing_container_hides_rider(c, *rid, tmpl))
+        })
+        .map(|(rid, _, _)| rid.0)
+        .collect()
+}
+
+/// Mirrors `Object::is_enclosing_container_for` without dual HashMap borrows.
+fn enclosing_container_hides_rider(
+    container: &Object,
+    victim_id: ObjectId,
+    victim_template: &str,
+) -> bool {
+    let name = container.template_name.to_ascii_lowercase();
+    if container.paradrop_parachute || name.contains("parachute") {
+        return false;
+    }
+    if container.is_overlord_style_container() {
+        if container.overlord_portable_occupant == Some(victim_id) {
+            return false;
+        }
+        if container
+            .contained_units()
+            .first()
+            .is_some_and(|&id| id == victim_id)
+        {
+            return false;
+        }
+        if crate::game_logic::host_battlemaster::is_portable_structure_template(victim_template) {
+            return false;
+        }
+    }
+    if container.is_helix_transport
+        && crate::game_logic::host_battlemaster::is_portable_structure_template(victim_template)
+    {
+        return false;
+    }
+    if container.is_garrison_contain() {
+        return container.is_enclosing_garrison_container();
+    }
+    true
 }

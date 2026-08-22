@@ -310,6 +310,12 @@ impl AIDecisionSystem {
             return AttackDecision::FindNewTarget;
         }
 
+        // C++ AIAttackApproachTargetState: computer, !AI_HUNT, KINDOF_AIRCRAFT
+        // && isAirborneTarget → STATE_FAILURE. Hunt is the only exemption.
+        if game_logic.computer_refuses_non_hunt_airborne_chase(attacker_id, target_id) {
+            return AttackDecision::FindNewTarget;
+        }
+
         // Check if attacker can actually attack
         if !attacker.can_attack() {
             return AttackDecision::Hold;
@@ -845,5 +851,77 @@ mod tests {
             target_id: air_id,
         });
         assert_eq!(game_logic.objects[&attacker_id].target, Some(air_id));
+    }
+
+    #[test]
+    fn computer_does_not_chase_airborne_unless_hunting() {
+        use crate::game_logic::{KindOf, Player, ThingTemplate, Weapon};
+
+        let mut game_logic = GameLogic::new();
+        game_logic.add_player(Player::new(1, Team::USA, "USA AI", false));
+        game_logic.add_player(Player::new(2, Team::USA, "Human", true));
+
+        let mut aa_t = ThingTemplate::new("QuadCannon");
+        aa_t.add_kind_of(KindOf::Vehicle);
+        aa_t.add_kind_of(KindOf::Attackable);
+        game_logic.templates.insert("QuadCannon".into(), aa_t);
+        let mut jet_t = ThingTemplate::new("Raptor");
+        jet_t.add_kind_of(KindOf::Aircraft);
+        jet_t.add_kind_of(KindOf::Attackable);
+        game_logic.templates.insert("Raptor".into(), jet_t);
+
+        let aa = game_logic
+            .create_object("QuadCannon", Team::USA, Vec3::ZERO)
+            .expect("aa");
+        if let Some(o) = game_logic.host_object_mut(aa) {
+            o.owner_player_id = Some(1);
+            o.weapon = Some(Weapon {
+                range: 200.0,
+                damage: 10.0,
+                can_target_air: true,
+                can_target_ground: true,
+                ..Default::default()
+            });
+        }
+        let jet = game_logic
+            .create_object("Raptor", Team::GLA, Vec3::new(25.0, 20.0, 0.0))
+            .expect("jet");
+        if let Some(o) = game_logic.host_object_mut(jet) {
+            o.status.airborne_target = true;
+        }
+
+        assert_eq!(
+            AIDecisionSystem::should_attack(&game_logic, aa, jet),
+            AttackDecision::FindNewTarget,
+            "computer non-hunt must drop an airborne aircraft"
+        );
+        assert!(
+            !game_logic.apply_engagement_decision_aware_for_ai(aa, jet),
+            "computer non-hunt must not start an airborne chase"
+        );
+
+        if let Some(o) = game_logic.host_object_mut(aa) {
+            o.hunting = true;
+        }
+        assert_ne!(
+            AIDecisionSystem::should_attack(&game_logic, aa, jet),
+            AttackDecision::FindNewTarget,
+            "hunting computer may keep an airborne aircraft"
+        );
+        assert!(
+            game_logic.apply_engagement_decision_aware_for_ai(aa, jet),
+            "hunting computer may engage an airborne aircraft"
+        );
+
+        if let Some(o) = game_logic.host_object_mut(aa) {
+            o.hunting = false;
+            o.owner_player_id = Some(2);
+            o.target = None;
+        }
+        assert_ne!(
+            AIDecisionSystem::should_attack(&game_logic, aa, jet),
+            AttackDecision::FindNewTarget,
+            "human may chase an airborne aircraft"
+        );
     }
 }

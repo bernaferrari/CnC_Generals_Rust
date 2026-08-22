@@ -297,13 +297,11 @@ impl Object {
 
     /// Mark this object as detected until `expires_frame` (logic frame exclusive).
     /// C++ StealthUpdate::markAsDetected residual (`StealthUpdate.cpp:846-912`).
-    /// Detection permanently starts disguise reveal (`disguiseAsObject(NULL)`).
+    /// Leftover `mark_as_detected` / `disguiseAsObject(NULL)` only if `m_disguised`
+    /// (committed halfpoint). Pre-halfpoint pending disguise finishes.
     /// Idle-enemy walk (`orderIdlesToAttack`) is `GameLogic::order_idle_enemies_to_attack_on_reveal`.
     pub fn mark_detected(&mut self, expires_frame: u32) {
-        if self.status.disguised
-            || self.disguise_as_template.is_some()
-            || self.disguise_pending_template.is_some()
-        {
+        if self.is_disguised() {
             self.clear_disguise();
         }
         self.set_status_detected(true);
@@ -513,9 +511,32 @@ impl Object {
         self.record_host_stealth_delay();
     }
 
+    /// Leftover StealthUpdate / StealthDetectorUpdate `get_disabled_types_to_process = HELD`.
+    /// C++ GameLogic.cpp:3677: tick if `!dis.any() || dis ∩ DISABLED_HELD`.
+    pub fn stealth_or_detector_update_processes(&self) -> bool {
+        let any_disabled = self.status.disabled_emp
+            || self.status.disabled_subdued
+            || self.status.disabled_hacked
+            || self.status.disabled_paralyzed
+            || self.status.disabled_unmanned
+            || self.status.disabled_underpowered
+            || self.status.disabled_freefall
+            || self.status.disabled_default
+            || self.status.disabled_script_disabled
+            || self.status.disabled_script_underpowered
+            || self.status.disabled_held;
+        gamelogic::object::behavior::stealth_or_detector_update_processes(
+            any_disabled,
+            self.status.disabled_held,
+        )
+    }
+
     /// C++ StealthUpdate.cpp:717-752 cloak / destalth + rolling StealthDelay.
     /// `allowed` is `allowedToStealth` (delay is applied here, not in `allowed`).
     pub fn apply_stealth_allowed_update(&mut self, now: u32, allowed: bool) {
+        if !self.stealth_or_detector_update_processes() {
+            return;
+        }
         let allowed = allowed && !self.script_unstealthed;
         if allowed {
             if self.stealth_delay_pending {
@@ -597,6 +618,15 @@ impl Object {
     pub fn is_vision_spied_by_player(&self, player_id: u32) -> bool {
         let bit = 1u32 << player_id.min(31);
         (self.vision_spied_mask & bit) != 0
+    }
+
+    /// C++ `Object::getShroudClearingRange` (Object.cpp:5128-5140).
+    /// Foundations only see their footprint until construction completes.
+    pub fn get_shroud_clearing_range(&self) -> f32 {
+        if self.status.under_construction {
+            return self.thing.template.geometry_info.bounding_circle_radius();
+        }
+        self.shroud_clearing_range
     }
 
     /// Whether an enemy of `attacker_team` may target this object.

@@ -173,6 +173,18 @@ fn omitted_object_status_bits_default_inactive() {
     assert!(!status.disabled_script_underpowered);
     assert!(!status.script_unsellable);
     assert!(!status.script_unstealthed);
+    assert!(!status.disabled_paralyzed);
+    assert_eq!(status.disabled_paralyzed_until_frame, 0);
+    assert_eq!(status.spy_vision_disabled_until_frame, 0);
+    assert!(!status.spy_vision_reset_timers);
+    assert_eq!(status.spy_vision_hack_two_wake_frame, 0);
+    assert!(!status.parachuting);
+    assert!(!status.parachute_open);
+    assert_eq!(status.parachute_start_height, 0.0);
+    assert!(status.parachute_landing_override.is_none());
+    assert!(!status.parachute_landing_override_set);
+    assert!(!status.faerie_fire);
+    assert_eq!(status.faerie_fire_until_frame, 0);
 }
 
 
@@ -4182,6 +4194,238 @@ fn snapshot_pre_v18_defaults_persist_tail() {
         .expect("restore");
     assert!(gamelogic::helpers::TheGameLogic::get_draw_icon_ui());
     assert!(restored.peek_script_named_timer_display_shown());
+}
+
+/// C++ `SpyVisionUpdate::xfer` v2 persists `m_disabledUntilFrame`,
+/// `m_resetTimersNextUpdate`, and the self-powered next-wake frame.
+/// CIA vision-spied mask persist does not restore these module timers.
+#[test]
+fn spy_vision_update_timers_survive_snapshot_and_keep_sabotage_dark() {
+    let mut source = GameLogic::new();
+    source.set_current_frame(200);
+    source
+        .templates
+        .insert("ChinaInternetCenter".into(), ThingTemplate::new("ChinaInternetCenter"));
+    source.add_player(Player::new(1, Team::China, "China", true));
+    let id = source
+        .create_object("ChinaInternetCenter", Team::China, Vec3::ZERO)
+        .expect("create");
+    {
+        let obj = source.host_object_mut(id).expect("obj");
+        obj.apply_spy_vision_disabled_until(350);
+        obj.status.spy_vision_reset_timers = true;
+        obj.status.spy_vision_hack_two_wake_frame = 500;
+    }
+
+    let builder = SnapshotBuilder::new();
+    let snap = builder.create_world_snapshot(&source).expect("snap");
+    let obj_snap = snap.objects.get(&id).expect("obj snap");
+    assert_eq!(obj_snap.status.spy_vision_disabled_until_frame, 350);
+    assert!(obj_snap.status.spy_vision_reset_timers);
+    assert_eq!(obj_snap.status.spy_vision_hack_two_wake_frame, 500);
+
+    let mut restored = GameLogic::new();
+    restored.templates = source.templates.clone();
+    builder
+        .restore_from_snapshot(&snap, &mut restored)
+        .expect("restore");
+    {
+        let obj = restored.host_object(id).expect("restored");
+        assert_eq!(obj.status.spy_vision_disabled_until_frame, 350);
+        assert!(obj.status.spy_vision_reset_timers);
+        assert_eq!(obj.status.spy_vision_hack_two_wake_frame, 500);
+        assert!(
+            obj.is_spy_vision_disabled(200),
+            "sabotage disable must still be dark at the saved frame"
+        );
+    }
+
+    restored.frame = 349;
+    {
+        let obj = restored.host_object_mut(id).expect("pre-expiry");
+        obj.tick_spy_vision_disabled(349);
+        assert!(obj.is_spy_vision_disabled(349));
+        assert_eq!(obj.status.spy_vision_disabled_until_frame, 350);
+    }
+
+    restored.frame = 350;
+    let obj = restored.host_object_mut(id).expect("post-expiry");
+    obj.tick_spy_vision_disabled(350);
+    assert!(
+        !obj.is_spy_vision_disabled(350),
+        "disabledUntilFrame must expire on the saved frame after load"
+    );
+    assert_eq!(obj.status.spy_vision_disabled_until_frame, 0);
+    assert_eq!(
+        obj.status.spy_vision_hack_two_wake_frame, 500,
+        "Hack II wake must survive disable expiry"
+    );
+}
+
+/// C++ `Object::xfer` writes `DISABLED_PARALYZED` + `m_disabledTillFrame`.
+/// Strategy Center plan-change freeze must keep remaining frames after load.
+#[test]
+fn disabled_paralyzed_freeze_survives_snapshot_until_saved_frame() {
+    let mut source = GameLogic::new();
+    source.set_current_frame(80);
+    source
+        .templates
+        .insert("USARanger".into(), ThingTemplate::new("USARanger"));
+    source.add_player(Player::new(1, Team::USA, "USA", true));
+    let id = source
+        .create_object("USARanger", Team::USA, Vec3::new(4.0, 0.0, 4.0))
+        .expect("create");
+    {
+        let obj = source.host_object_mut(id).expect("obj");
+        obj.apply_disabled_paralyzed(140);
+    }
+
+    let builder = SnapshotBuilder::new();
+    let snap = builder.create_world_snapshot(&source).expect("snap");
+    let obj_snap = snap.objects.get(&id).expect("obj snap");
+    assert!(obj_snap.status.disabled_paralyzed);
+    assert_eq!(obj_snap.status.disabled_paralyzed_until_frame, 140);
+
+    let mut restored = GameLogic::new();
+    restored.templates = source.templates.clone();
+    builder
+        .restore_from_snapshot(&snap, &mut restored)
+        .expect("restore");
+    {
+        let obj = restored.host_object(id).expect("restored");
+        assert!(obj.status.disabled_paralyzed);
+        assert_eq!(obj.status.disabled_paralyzed_until_frame, 140);
+        assert!(obj.is_disabled(), "plan-change freeze must hold after load");
+    }
+
+    restored.frame = 139;
+    {
+        let obj = restored.host_object_mut(id).expect("pre-expiry");
+        obj.tick_disabled_paralyzed(139);
+        assert!(obj.status.disabled_paralyzed);
+        assert_eq!(obj.status.disabled_paralyzed_until_frame, 140);
+    }
+
+    restored.frame = 140;
+    let obj = restored.host_object_mut(id).expect("post-expiry");
+    obj.tick_disabled_paralyzed(140);
+    assert!(
+        !obj.status.disabled_paralyzed,
+        "paralyze must expire on the saved frame after load"
+    );
+    assert_eq!(obj.status.disabled_paralyzed_until_frame, 0);
+}
+
+/// C++ `ParachuteContain::xfer` keeps pitch/roll/rates, start Z, landing
+/// override, and `m_opened`. Mid-fall pilots stay parachuting after load.
+#[test]
+fn parachute_contain_mid_fall_survives_snapshot() {
+    let mut source = GameLogic::new();
+    source.set_current_frame(30);
+    source
+        .templates
+        .insert("AmericaInfantryPilot".into(), ThingTemplate::new("AmericaInfantryPilot"));
+    source.add_player(Player::new(1, Team::USA, "USA", true));
+    let id = source
+        .create_object(
+            "AmericaInfantryPilot",
+            Team::USA,
+            Vec3::new(12.0, 180.0, 8.0),
+        )
+        .expect("create");
+    let landing = Vec3::new(40.0, 0.0, 22.0);
+    {
+        let obj = source.host_object_mut(id).expect("obj");
+        obj.apply_eject_parachuting();
+        obj.open_eject_parachute();
+        obj.status.parachute_pitch = 0.15;
+        obj.status.parachute_roll = -0.08;
+        obj.status.parachute_pitch_rate = 0.02;
+        obj.status.parachute_roll_rate = -0.01;
+        obj.set_parachute_override_destination(landing);
+    }
+
+    let builder = SnapshotBuilder::new();
+    let snap = builder.create_world_snapshot(&source).expect("snap");
+    let obj_snap = snap.objects.get(&id).expect("obj snap");
+    assert!(obj_snap.status.parachuting);
+    assert!(obj_snap.status.parachute_open);
+    assert!(obj_snap.status.parachute_start_height > 0.0);
+    assert!((obj_snap.status.parachute_pitch - 0.15).abs() < f32::EPSILON);
+    assert!((obj_snap.status.parachute_roll + 0.08).abs() < f32::EPSILON);
+    assert!((obj_snap.status.parachute_pitch_rate - 0.02).abs() < f32::EPSILON);
+    assert!((obj_snap.status.parachute_roll_rate + 0.01).abs() < f32::EPSILON);
+    assert_eq!(obj_snap.status.parachute_landing_override, Some(landing));
+    assert!(obj_snap.status.parachute_landing_override_set);
+
+    let mut restored = GameLogic::new();
+    restored.templates = source.templates.clone();
+    builder
+        .restore_from_snapshot(&snap, &mut restored)
+        .expect("restore");
+    let loaded = restored.host_object(id).expect("restored");
+    assert!(loaded.is_parachuting());
+    assert!(loaded.is_parachute_open());
+    assert!(loaded.status.parachute_start_height > 0.0);
+    assert!((loaded.parachute_pitch() - 0.15).abs() < f32::EPSILON);
+    assert!((loaded.status.parachute_roll + 0.08).abs() < f32::EPSILON);
+    assert!((loaded.status.parachute_pitch_rate - 0.02).abs() < f32::EPSILON);
+    assert!((loaded.status.parachute_roll_rate + 0.01).abs() < f32::EPSILON);
+    assert_eq!(loaded.parachute_landing_override(), Some(landing));
+    assert!(loaded.has_parachute_landing_override());
+}
+
+/// C++ `StatusDamageHelper::xfer` persists `m_statusToHeal` + `m_frameToHeal`.
+/// Avenger FAERIE_FIRE paint must keep the 150% ROF timer after load.
+#[test]
+fn faerie_fire_timer_survives_snapshot_and_expires_on_saved_frame() {
+    let mut source = GameLogic::new();
+    source.set_current_frame(60);
+    source
+        .templates
+        .insert("GLARebel".into(), ThingTemplate::new("GLARebel"));
+    source.add_player(Player::new(1, Team::GLA, "GLA", true));
+    let id = source
+        .create_object("GLARebel", Team::GLA, Vec3::new(3.0, 0.0, 3.0))
+        .expect("create");
+    {
+        let obj = source.host_object_mut(id).expect("obj");
+        obj.apply_faerie_fire(90);
+    }
+
+    let builder = SnapshotBuilder::new();
+    let snap = builder.create_world_snapshot(&source).expect("snap");
+    let obj_snap = snap.objects.get(&id).expect("obj snap");
+    assert!(obj_snap.status.faerie_fire);
+    assert_eq!(obj_snap.status.faerie_fire_until_frame, 90);
+
+    let mut restored = GameLogic::new();
+    restored.templates = source.templates.clone();
+    builder
+        .restore_from_snapshot(&snap, &mut restored)
+        .expect("restore");
+    {
+        let obj = restored.host_object(id).expect("restored");
+        assert!(obj.is_faerie_fire());
+        assert_eq!(obj.faerie_fire_until_frame, 90);
+    }
+
+    restored.frame = 89;
+    {
+        let obj = restored.host_object_mut(id).expect("pre-expiry");
+        obj.tick_faerie_fire(89);
+        assert!(obj.is_faerie_fire());
+        assert_eq!(obj.faerie_fire_until_frame, 90);
+    }
+
+    restored.frame = 90;
+    let obj = restored.host_object_mut(id).expect("post-expiry");
+    obj.tick_faerie_fire(90);
+    assert!(
+        !obj.is_faerie_fire(),
+        "FAERIE_FIRE must expire on the saved frame after load"
+    );
+    assert_eq!(obj.faerie_fire_until_frame, 0);
 }
 
 

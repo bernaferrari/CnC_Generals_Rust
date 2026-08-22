@@ -40,7 +40,7 @@ use gamelogic::helpers::{TheAudio, TheGameLogic, TheScriptEngine, TheVictoryCond
 use gamelogic::player::{Player, PlayerType, ThePlayerList};
 use gamelogic::system::game_logic::{GAME_INTERNET, GAME_LAN, GAME_SINGLE_PLAYER, GAME_SKIRMISH};
 use game_network::{GameInfo, GameSlot, SlotState, MAX_SLOTS as NETWORK_MAX_SLOTS};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 const KEY_ESC: usize = 0x1B;
@@ -929,8 +929,7 @@ fn grab_single_player_info(state: &mut ScoreScreenState) {
                         })
                         .unwrap_or(gamelogic::prelude::Relationship::Neutral);
 
-                    let is_allied = relationship == gamelogic::prelude::Relationship::Allies;
-                    if (is_friend && is_allied) || (!is_friend && !is_allied) {
+                    if include_in_campaign_side_row(is_friend, relationship) {
                         let score = player.get_score_keeper();
                         gather.total_buildings_built += score.get_total_buildings_built();
                         gather.total_buildings_destroyed += score.get_total_buildings_destroyed();
@@ -1198,7 +1197,9 @@ fn update_skirmish_battle_honors(stats: &mut SkirmishBattleHonors, player: &Play
         stats.set_honors(BATTLE_HONOR_AIR_WING as i32);
     }
 
-    let minutes = TheGameLogic::get_frame() / LOGICFRAMES_PER_SECOND / 60;
+    // C++ TheGameLogic->getFrame() is the live end frame. Leftover crate
+    // clock stays 0; Eva already publishes the host logic frame.
+    let minutes = leftover_score_logic_frame() / LOGICFRAMES_PER_SECOND / 60;
     if minutes < 5 {
         stats.set_honors(BATTLE_HONOR_BLITZ5 as i32);
     }
@@ -1296,9 +1297,54 @@ fn update_challenge_medals(medals: &mut i32) {
     } as i32;
 }
 
+/// C++ ScoreScreen.cpp:2163-2164 — ALLIES vs ENEMIES only. Neutral omitted.
+fn include_in_campaign_side_row(
+    is_friend: bool,
+    relationship: gamelogic::prelude::Relationship,
+) -> bool {
+    match relationship {
+        gamelogic::prelude::Relationship::Allies => is_friend,
+        gamelogic::prelude::Relationship::Enemies => !is_friend,
+        gamelogic::prelude::Relationship::Neutral => false,
+    }
+}
+
+thread_local! {
+    /// Live host end frame published before `reset_match_state` zeros Eva.
+    static LEFTOVER_SCORE_END_FRAME: Cell<u32> = const { Cell::new(0) };
+}
+
+/// Snapshot `TheGameLogic->getFrame()` from the live host before reset.
+pub fn publish_leftover_score_end_frame(frame: u32) {
+    LEFTOVER_SCORE_END_FRAME.with(|cell| cell.set(frame));
+}
+
+fn leftover_score_logic_frame() -> u32 {
+    let published = LEFTOVER_SCORE_END_FRAME.with(|cell| cell.get());
+    if published != 0 {
+        published
+    } else {
+        crate::eva::eva_logic_frame()
+    }
+}
+
+fn leftover_academy_from_live_notify(player: &Player) -> gamelogic::player::AcademyStats {
+    let mut stats = player.get_academy_stats().clone();
+    let researched_radar = player.has_radar() || player.get_radar_count() > 0;
+    let generals_points = i32::try_from(player.get_sciences().len()).unwrap_or(0);
+    stats.apply_live_notify_snapshot(
+        researched_radar,
+        generals_points,
+        0,
+        player.get_num_battle_plans_active() > 0,
+    );
+    stats
+}
+
 fn fill_academy_advice(listbox: &Rc<RefCell<GameWindow>>, player: &Player) {
     let mut info = game_engine::common::rts::AcademyAdviceInfo::default();
-    if !player.get_academy_stats().calculate_academy_advice(&mut info) {
+    let stats = leftover_academy_from_live_notify(player);
+    if !stats.calculate_academy_advice(&mut info) {
         return;
     }
     let mut listbox_ref = listbox.borrow_mut();
@@ -1869,6 +1915,55 @@ mod tests {
         assert!(!should_skip_skirmish_honor_persist(
             false, false, true, true
         ));
+    }
+
+    #[test]
+    fn campaign_side_row_skips_neutral_like_cpp() {
+        use gamelogic::prelude::Relationship;
+        assert!(include_in_campaign_side_row(true, Relationship::Allies));
+        assert!(!include_in_campaign_side_row(true, Relationship::Enemies));
+        assert!(!include_in_campaign_side_row(true, Relationship::Neutral));
+        assert!(include_in_campaign_side_row(false, Relationship::Enemies));
+        assert!(!include_in_campaign_side_row(false, Relationship::Allies));
+        assert!(!include_in_campaign_side_row(false, Relationship::Neutral));
+    }
+
+    #[test]
+    fn skirmish_blitz_honors_live_end_frame_not_leftover_zero() {
+        // Leftover TheGameLogic::get_frame() stays 0 after reset; published
+        // live end frame is the C++ getFrame() used for Blitz5/10.
+        publish_leftover_score_end_frame(0);
+        crate::eva::set_eva_host_frame(0);
+        assert_eq!(leftover_score_logic_frame(), 0);
+
+        publish_leftover_score_end_frame(18_000);
+        crate::eva::set_eva_host_frame(0);
+        assert_eq!(leftover_score_logic_frame(), 18_000);
+        let minutes = leftover_score_logic_frame() / LOGICFRAMES_PER_SECOND / 60;
+        assert_eq!(minutes, 10);
+        assert!(minutes >= 5, "10-minute match must not award Blitz5");
+        assert!(minutes >= 10, "10-minute match must not award Blitz10");
+
+        publish_leftover_score_end_frame(8_999);
+        let minutes = leftover_score_logic_frame() / LOGICFRAMES_PER_SECOND / 60;
+        assert!(minutes < 5);
+        assert!(minutes < 10);
+
+        publish_leftover_score_end_frame(0);
+        crate::eva::set_eva_host_frame(0);
+    }
+
+    #[test]
+    fn war_school_academy_advice_is_fed_from_leftover() {
+        let mut stats = gamelogic::player::AcademyStats::new();
+        let mut info = game_engine::common::rts::AcademyAdviceInfo::default();
+        assert!(stats.calculate_academy_advice(&mut info));
+        assert_eq!(info.advice.first().map(String::as_str), Some("ACADEMY:TryBuildingRadar"));
+
+        stats.apply_live_notify_snapshot(true, 3, 1, true);
+        info = game_engine::common::rts::AcademyAdviceInfo::default();
+        assert!(stats.calculate_academy_advice(&mut info));
+        assert_ne!(info.advice.first().map(String::as_str), Some("ACADEMY:TryBuildingRadar"));
     }
 }
 

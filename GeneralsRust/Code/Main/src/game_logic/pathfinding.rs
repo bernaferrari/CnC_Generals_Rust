@@ -3260,6 +3260,118 @@ impl PathfindingGrid {
         false
     }
 
+    fn occupancy_blocks_line_on(
+        &self,
+        pos: GridPos,
+        seeker_player: Option<u32>,
+        crusher_level: u8,
+        layer: PathfindLayerEnum,
+    ) -> bool {
+        let bits = self.occupancy_bits(pos, layer);
+        if bits.fixed == 0 {
+            return false;
+        }
+        let Some(player) = seeker_player else {
+            return true;
+        };
+        let bit = 1u16 << player.min(15);
+        let friend = bit | self.ally_mask_for(player);
+        if (bits.fixed & friend) != 0 {
+            return true;
+        }
+        if (bits.fixed & !friend) != 0 {
+            return crusher_level == 0 || crusher_level <= bits.crushable;
+        }
+        false
+    }
+
+    fn line_cell_ok_on(
+        &self,
+        cell: GridPos,
+        surfaces: u32,
+        is_crusher: bool,
+        allow_pinched: bool,
+        seeker_player: Option<u32>,
+        crusher_level: u8,
+        unpinched_cliff_passable: bool,
+        layer: PathfindLayerEnum,
+    ) -> bool {
+        if !self.is_valid_pos(cell) {
+            return false;
+        }
+        if !allow_pinched && self.is_pinched(cell) {
+            return false;
+        }
+        if self.occupancy_blocks_line_on(cell, seeker_player, crusher_level, layer) {
+            return false;
+        }
+        if !self.diameter_allows(is_crusher, cell) {
+            return false;
+        }
+        if unpinched_cliff_passable
+            && self.resolved_cell_type(layer, cell) == PathfindCellType::Cliff
+            && !self.is_pinched(cell)
+        {
+            return true;
+        }
+        self.cell_passable_for_layer(cell, layer, surfaces, is_crusher)
+    }
+
+    /// C++ `isLinePassable` on the **anchor node's layer** (AIPathfind.cpp:501-502).
+    fn line_passable_on_layer(
+        &self,
+        from: GridPos,
+        to: GridPos,
+        surfaces: u32,
+        is_crusher: bool,
+        allow_pinched: bool,
+        seeker_player: Option<u32>,
+        crusher_level: u8,
+        unpinched_cliff_passable: bool,
+        layer: PathfindLayerEnum,
+    ) -> bool {
+        if from == to {
+            return true;
+        }
+        let mut x0 = from.x;
+        let mut y0 = from.y;
+        let x1 = to.x;
+        let y1 = to.y;
+        let dx = (x1 - x0).abs();
+        let sx = if x0 < x1 { 1 } else { -1 };
+        let dy = -(y1 - y0).abs();
+        let sy = if y0 < y1 { 1 } else { -1 };
+        let mut err = dx + dy;
+        loop {
+            let cell = GridPos::new(x0, y0);
+            if !self.line_cell_ok_on(
+                cell,
+                surfaces,
+                is_crusher,
+                allow_pinched,
+                seeker_player,
+                crusher_level,
+                unpinched_cliff_passable,
+                layer,
+            ) {
+                return false;
+            }
+            if x0 == x1 && y0 == y1 {
+                return true;
+            }
+            let e2 = 2 * err;
+            if e2 >= dy {
+                err += dy;
+                x0 += sx;
+            }
+            if e2 <= dx {
+                err += dx;
+                y0 += sy;
+            }
+        }
+    }
+
+
     /// C++ `validLocomotorSurfacesForCellType` + fence crusher exception.
     pub fn cell_passable_for(&self, pos: GridPos, surfaces: u32, is_crusher: bool) -> bool {
         self.cell_passable_for_layer(pos, PathfindLayerEnum::Ground, surfaces, is_crusher)
@@ -4004,15 +4116,48 @@ impl PathfindingGrid {
         if waypoints.len() <= 2 {
             return waypoints.to_vec();
         }
+        // C++ Path::optimize ALLOWED_STEPS = 3 past a layer change
+        // (AIPathfind.cpp:472-485). Deck shortcuts stay on the deck.
+        const ALLOWED_STEPS: usize = 3;
+        let layers: Vec<PathfindLayerEnum> = waypoints
+            .iter()
+            .map(|p| self.layer_for_destination(*p))
+            .collect();
         let mut optimized = vec![waypoints[0]];
         let mut anchor = 0usize;
+        let mut first_node = true;
+        let first_layer = layers[0];
         while anchor < waypoints.len() - 1 {
-            let mut far = waypoints.len() - 1;
+            let mut layer = layers[anchor];
+            let mut cur_layer = layers[anchor];
+            let mut count = 0usize;
+            let mut node_idx = anchor + 1;
+            while node_idx + 1 < waypoints.len() {
+                count += 1;
+                if cur_layer == PathfindLayerEnum::Ground {
+                    if layers[node_idx] != cur_layer {
+                        layer = layers[node_idx];
+                        cur_layer = layer;
+                        if count > ALLOWED_STEPS {
+                            break;
+                        }
+                    }
+                } else if layers[node_idx + 1] != cur_layer && count > ALLOWED_STEPS {
+                    break;
+                }
+                cur_layer = layers[node_idx];
+                node_idx += 1;
+            }
+            if first_node {
+                layer = first_layer;
+                first_node = false;
+            }
             let mut found = false;
-            while far > anchor + 1 {
+            let mut far = node_idx;
+            while far > anchor {
                 let a = self.world_to_grid(waypoints[anchor]);
                 let b = self.world_to_grid(waypoints[far]);
-                if self.line_passable_ex(
+                if self.line_passable_on_layer(
                     a,
                     b,
                     surfaces,
@@ -4021,11 +4166,18 @@ impl PathfindingGrid {
                     seeker_player,
                     crusher_level,
                     true,
+                    layer,
                 ) || self.collinear_cells_force_passable(waypoints, anchor, far)
                 {
+                    if far == anchor {
+                        break;
+                    }
                     optimized.push(waypoints[far]);
                     anchor = far;
                     found = true;
+                    break;
+                }
+                if far == 0 {
                     break;
                 }
                 far -= 1;
@@ -8665,6 +8817,47 @@ mod tests {
             "straight pinched jog must collapse, got {opt:?}"
         );
     }
+
+    /// hq-9jz4r: layer change only looks ALLOWED_STEPS=3 past the ramp.
+    #[test]
+    fn optimize_caps_bridge_layer_steps() {
+        let mut g = open_grid(16, 12);
+        for y in 4..=6 {
+            for x in 4..12 {
+                g.set_cell_type(GridPos::new(x, y), PathfindCellType::Water);
+            }
+        }
+        g.stamp_bridge_deck(
+            Vec3::new(30.0, 20.0, 40.0),
+            Vec3::new(30.0, 20.0, 60.0),
+            Vec3::new(130.0, 20.0, 40.0),
+            Vec3::new(130.0, 20.0, 60.0),
+            false,
+        );
+        let mut raw = Vec::new();
+        // Five ground cells so count at the first deck node is > ALLOWED_STEPS.
+        for x in 0..=4 {
+            raw.push(g.grid_to_world(GridPos::new(x, 5)));
+        }
+        for x in 5..=12 {
+            raw.push(g.grid_to_world_on_layer(
+                GridPos::new(x, 5),
+                PathfindLayerEnum::from_u32(g.first_bridge_layer_id().unwrap_or(2) as u32),
+            ));
+        }
+        let opt = g.optimize_ground_path_ex(&raw, SURFACE_GROUND, false, None, 0);
+        assert!(
+            opt.len() >= 3,
+            "ALLOWED_STEPS=3 must keep ramp approach, got {opt:?}"
+        );
+        let start_layer = g.layer_for_destination(opt[0]);
+        assert_eq!(
+            start_layer,
+            PathfindLayerEnum::Ground,
+            "must keep a ground approach node"
+        );
+    }
+
 
 
     /// hq-5iup4: optimize must not cut through parked occupants; un-pinched cliff can.

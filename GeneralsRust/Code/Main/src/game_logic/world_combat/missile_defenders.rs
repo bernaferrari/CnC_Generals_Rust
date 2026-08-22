@@ -1955,7 +1955,9 @@ impl GameLogic {
         use crate::game_logic::host_bunker_buster::{
             bunker_buster_structure_damage, is_bunker_structure_name, BUNKER_BUSTER_AUDIO,
             BUNKER_BUSTER_HARM_AMOUNT, BUNKER_BUSTER_OCCUPANT_WEAPON,
-            STEALTH_JET_MISSILE_DAMAGE_TYPE, STEALTH_JET_MISSILE_DEATH_TYPE,
+            BUNKER_BUSTER_SHOCKWAVE_DAMAGE, BUNKER_BUSTER_SHOCKWAVE_RADIUS,
+            BUNKER_BUSTER_SHOCKWAVE_WEAPON, STEALTH_JET_MISSILE_DAMAGE_TYPE,
+            STEALTH_JET_MISSILE_DEATH_TYPE,
         };
 
         let (mut occupants, is_bunker, target_pos, is_tunnel, target_player) = {
@@ -2086,6 +2088,33 @@ impl GameLogic {
                 self.mark_object_for_destruction(target_id, Some(attacker_team));
             }
         }
+
+        // C++ BunkerBusterBehavior::bustTheBunker createAndFireTempWeapon
+        // leftover BunkerBusterShockwaveWeaponSmall (10 / r50) at the bunker.
+        {
+            use crate::game_logic::host_temporary_weapon_behavior::{
+                FireWeaponWhenDeadEphemeralWeaponSpec, TemporaryWeaponSlot,
+            };
+            let spec = FireWeaponWhenDeadEphemeralWeaponSpec {
+                module_source_index: 0,
+                weapon_template_name: BUNKER_BUSTER_SHOCKWAVE_WEAPON.to_string(),
+                weapon_slot: TemporaryWeaponSlot::Primary,
+            };
+            if self.create_and_fire_temp_weapon(target_id, &spec).is_none() {
+                let _ = self.apply_instant_hit_splash_at(
+                    target_pos,
+                    BUNKER_BUSTER_SHOCKWAVE_DAMAGE,
+                    0.0,
+                    BUNKER_BUSTER_SHOCKWAVE_RADIUS,
+                    0.0,
+                    attacker_id.unwrap_or(target_id),
+                    attacker_team,
+                    target_id,
+                    Some(BUNKER_BUSTER_SHOCKWAVE_WEAPON),
+                );
+            }
+        }
+
 
         self.bunker_buster.record_bunker_buster_blast(
             kills,

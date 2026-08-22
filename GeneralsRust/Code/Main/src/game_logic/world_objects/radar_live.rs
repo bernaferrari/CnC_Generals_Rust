@@ -348,7 +348,8 @@ impl GameLogic {
         let owner_index = self.host_player_index(owner_id, obj.team);
         let local = self.host_local_player();
         let local_index = local.map(|p| p.id as i32).unwrap_or(-1);
-        let local_active = local.map(|p| p.is_alive).unwrap_or(true);
+        // C++ `Player::isPlayerActive` = `!observer && !dead`.
+        let local_active = local.map(|p| p.is_alive && !p.is_observer).unwrap_or(true);
         let is_local = owner_id
             .and_then(|id| self.players.get(&id).map(|p| p.is_local))
             .unwrap_or(false);
@@ -382,7 +383,13 @@ impl GameLogic {
         radar_obj.is_stealth = obj.status.stealthed;
         radar_obj.is_detected = obj.status.detected;
         radar_obj.is_disguised = disguised;
-        radar_obj.is_enemy = !self.host_owner_is_ally_of_local(owner_id);
+        // C++ `calcStealthedStatusForPlayer` forces ALLIES when
+        // `!player->isPlayerActive()` ("Observer players are friends to
+        // everyone!"). `is_temporarily_hidden` reconstructs INVISIBLE from
+        // `is_enemy`, so inactive locals must not stamp enemy stealth.
+        let owner_is_ally = self.host_owner_is_ally_of_local(owner_id);
+        let observer_is_friendly = owner_is_ally || !local_active;
+        radar_obj.is_enemy = !observer_is_friendly;
 
         radar_obj.is_hero = obj.is_kind_of(KindOf::Hero);
         // C++ StealthDetectorUpdate DetectionRange (or VisionRange fallback).
@@ -403,7 +410,7 @@ impl GameLogic {
         let local_look = crate::game_logic::host_upgrades::calc_stealthed_status_for_player(
             obj.status.stealthed,
             obj.status.detected,
-            !radar_obj.is_enemy,
+            observer_is_friendly,
             is_disguiser,
             disguised,
         );
@@ -424,7 +431,7 @@ impl GameLogic {
             disguised_player_index: disguised_index,
             owner_player_index: owner_index,
             local_player_index: local_index,
-            owner_is_ally_of_local: self.host_owner_is_ally_of_local(owner_id),
+            owner_is_ally_of_local: owner_is_ally,
 
             local_player_active: local_active,
             contain_apparent_player_index,
@@ -1010,5 +1017,58 @@ mod tests {
             pack_rgb((80, 160, 255))
         );
     }
+
+    /// C++ StealthUpdate.cpp:481-485 — defeated/observer local is ALLIES.
+    #[test]
+    fn host_radar_defeated_local_sees_enemy_stealth_blip() {
+        let mut logic = GameLogic::new();
+        let mut local = Player::new(0, Team::USA, "USA", true);
+        local.is_alive = false;
+        local.color_rgb = (0, 80, 200);
+        let mut china = Player::new(1, Team::China, "China", false);
+        china.color_rgb = (200, 40, 40);
+        logic.add_player(local);
+        logic.add_player(china);
+
+        let mut tpl = ThingTemplate::new("Pathfinder");
+        tpl.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("Pathfinder".into(), tpl);
+        let id = logic
+            .create_object_for_player("Pathfinder", 1, Vec3::new(10.0, 0.0, 10.0))
+            .expect("spawn");
+        if let Some(obj) = logic.host_object_mut(id) {
+            obj.status.stealthed = true;
+            obj.status.detected = false;
+        }
+        let spec = insert_spec_for(&logic, id);
+        assert!(
+            !spec.local_player_active,
+            "defeated local is not isPlayerActive"
+        );
+        assert!(
+            !spec.owner_is_ally_of_local,
+            "relationship stays Enemies; only stealth look is forced Allies"
+        );
+        assert!(
+            !spec.object.is_enemy,
+            "inactive local must not reconstruct STEALTHLOOK_INVISIBLE"
+        );
+        assert!(
+            !spec.object.is_temporarily_hidden(),
+            "defeated local sees undetected enemy stealth as VISIBLE_FRIENDLY"
+        );
+
+        if let Some(p) = logic.players.get_mut(&0) {
+            p.is_alive = true;
+            p.is_observer = true;
+        }
+        let observer = insert_spec_for(&logic, id);
+        assert!(!observer.local_player_active);
+        assert!(
+            !observer.object.is_temporarily_hidden(),
+            "observer local also sees enemy stealth blips"
+        );
+    }
+
 
 }

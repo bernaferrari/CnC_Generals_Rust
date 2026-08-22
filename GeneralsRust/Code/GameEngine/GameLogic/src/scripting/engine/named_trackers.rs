@@ -1286,6 +1286,27 @@ impl ScriptEngine {
         })
     }
 
+    /// Name-keyed lookup for live host `begin_structure_topple`.
+    pub fn topple_direction_for_name(&self, object_name: &str) -> Option<crate::common::Coord3D> {
+        if object_name.is_empty() {
+            return None;
+        }
+        self.with_inner(|inner| {
+            inner
+                .topple_directions
+                .iter()
+                .find(|(name, _)| name == object_name)
+                .map(|(_, dir)| {
+                    let mut new_dir = crate::common::Coord3D::new(dir.x, dir.y, dir.z);
+                    if new_dir.length_squared() > 0.0 {
+                        new_dir = new_dir.normalize();
+                    }
+                    new_dir
+                })
+        })
+    }
+
+
     /// Get statistics string
     #[cfg(feature = "script_profiling")]
     pub fn get_stats(&self) -> String {
@@ -1534,39 +1555,20 @@ impl ScriptEngine {
             (saved_calling_team, saved_current_player)
         };
 
+        // C++ ScriptEngine::evaluateConditions walks OR/AND then evaluateCondition.
+        // evaluateCondition handles TRUE/FALSE/COUNTER/FLAG/TIMER locally and
+        // forwards every other type to TheScriptConditions (full switch).
+        // Leftover ScriptConditionEvaluator::evaluate_or_condition is that switch
+        // (PLAYER_HAS_CREDITS and the rest). with_active so leftover
+        // with_script_engine_ref does not re-lock the global handle while team
+        // production already holds write().
         let result = if let Some(or_cond) = script.condition.as_deref_mut() {
-            let mut test_value = false;
-            let mut current_or = Some(or_cond);
-            while let Some(or_node) = current_or {
-                if let Some(and_cond) = or_node.first_and.as_deref_mut() {
-                    let mut and_term = true;
-                    let mut current_and: Option<&mut Condition> = Some(and_cond);
-                    while let Some(cond) = current_and {
-                        let cond_type = cond.get_condition_type();
-                        let cond_result = match cond_type {
-                            ConditionType::Counter => self.evaluate_counter_condition_inline(cond),
-                            ConditionType::Flag => self.evaluate_flag_condition_inline(cond),
-                            ConditionType::TimerExpired => {
-                                self.evaluate_timer_condition_inline(cond)
-                            }
-                            ConditionType::ConditionTrue => true,
-                            ConditionType::ConditionFalse => false,
-                            _ => false,
-                        };
-                        if !cond_result {
-                            and_term = false;
-                            break;
-                        }
-                        current_and = cond.next_and_condition.as_deref_mut();
-                    }
-                    if and_term {
-                        test_value = true;
-                        break;
-                    }
-                }
-                current_or = or_node.next_or.as_deref_mut();
-            }
-            test_value
+            self.with_active(|| {
+                let mut leftover = crate::scripting::executor::ScriptConditionEvaluator::new(
+                    Arc::new(RwLock::new(crate::scripting::executor::ScriptContext::new())),
+                );
+                leftover.evaluate_or_condition(or_cond).unwrap_or(false)
+            })
         } else {
             false
         };
@@ -1575,58 +1577,6 @@ impl ScriptEngine {
         inner.calling_team = saved_calling_team;
         inner.current_player = saved_current_player;
         result
-    }
-
-    fn evaluate_counter_condition_inline(&self, condition: &Condition) -> bool {
-        let Some(param0) = condition.get_parameter(0) else {
-            return false;
-        };
-        let Some(param1) = condition.get_parameter(1) else {
-            return false;
-        };
-        let Some(param2) = condition.get_parameter(2) else {
-            return false;
-        };
-
-        let counter_name = param0.get_string();
-        let comparison = param1.get_int();
-        let target_value = param2.get_int();
-        let counter_value = self.get_counter(counter_name).map(|c| c.value).unwrap_or(0);
-
-        match comparison {
-            0 => counter_value < target_value,
-            1 => counter_value <= target_value,
-            2 => counter_value == target_value,
-            3 => counter_value >= target_value,
-            4 => counter_value > target_value,
-            5 => counter_value != target_value,
-            _ => false,
-        }
-    }
-
-    fn evaluate_flag_condition_inline(&self, condition: &Condition) -> bool {
-        let Some(param0) = condition.get_parameter(0) else {
-            return false;
-        };
-        let Some(param1) = condition.get_parameter(1) else {
-            return false;
-        };
-
-        let flag_name = param0.get_string();
-        let target_value = param1.get_int() != 0;
-        let flag_value = self.get_flag(flag_name).map(|f| f.value).unwrap_or(false);
-        // C++ evaluateFlag: UI hook name pulses true for this frame.
-        flag_value == target_value || self.has_ui_interaction(flag_name)
-    }
-
-    fn evaluate_timer_condition_inline(&self, condition: &Condition) -> bool {
-        let Some(param0) = condition.get_parameter(0) else {
-            return false;
-        };
-        let counter_name = param0.get_string();
-        self.get_counter(counter_name)
-            .map(|c| c.is_countdown_timer && c.value < 1)
-            .unwrap_or(false)
     }
 
     // PARITY_NOTE: C++ ScriptEngine::removeSequentialScript (empty body in C++)

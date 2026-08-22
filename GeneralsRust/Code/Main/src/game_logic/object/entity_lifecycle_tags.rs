@@ -120,6 +120,13 @@ pub const TAG_WEAPON_LOCK: &str = "WeaponLock";
 pub const TAG_EMOTICON_SURRENDER: &str = "EmoticonSurrender";
 /// C++ MissileAIUpdate / DumbProjectileBehavior / LifetimeUpdate flight residuals.
 pub const TAG_PROJECTILE_FLIGHT: &str = "ProjectileFlightResiduals";
+/// C++ ActiveBody::xfer crush flags + UNIT INDESTRUCTIBLE + last-damage stamps.
+pub const TAG_ACTIVE_BODY: &str = "ActiveBody";
+/// C++ PhysicsBehavior::xfer v2 stun rates, overlap chain, ignore-collisions, motive.
+pub const TAG_PHYSICS_BEHAVIOR: &str = "PhysicsBehavior";
+/// C++ RailroadBehavior::xfer v3 conductor / track / hitch residual.
+pub const TAG_RAILROAD: &str = "RailroadBehavior";
+
 
 /// Declaration-order inventory. Producer emits tags in this sequence.
 pub const INVENTORY_TAGS: &[&str] = &[
@@ -182,4 +189,7 @@ pub const INVENTORY_TAGS: &[&str] = &[
     TAG_WEAPON_LOCK,
     TAG_EMOTICON_SURRENDER,
     TAG_PROJECTILE_FLIGHT,
+    TAG_ACTIVE_BODY,
+    TAG_PHYSICS_BEHAVIOR,
+    TAG_RAILROAD,
 ];

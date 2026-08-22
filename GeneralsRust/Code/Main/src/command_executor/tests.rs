@@ -5575,3 +5575,193 @@ fn specialty_attack_voices_replace_voice_attack() {
 }
 
 
+#[test]
+fn click_to_gather_uses_gamedata_factor_and_cell_cap() {
+    // C++ AIGroup.cpp:1559-1608 — retail GroupMoveClickToGatherAreaFactor=0.5
+    // and cells<2000 (x-span used twice after ScaleRect2D).
+    use super::CommandExecutor;
+    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let prev_factor = game_engine::common::ini::get_global_data()
+        .map(|d| d.read().group_move_click_to_gather_factor);
+    if let Some(data) = game_engine::common::ini::get_global_data() {
+        data.write().group_move_click_to_gather_factor = 0.5;
+    }
+
+    let mut logic = GameLogic::new();
+    let mut tpl = ThingTemplate::new("CG_V");
+    tpl.add_kind_of(KindOf::Vehicle);
+    tpl.add_kind_of(KindOf::Selectable);
+    tpl.set_health(200.0);
+    logic.templates.insert("CG_V".to_string(), tpl);
+    let a = logic
+        .create_object("CG_V", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let b = logic
+        .create_object("CG_V", Team::USA, Vec3::new(100.0, 0.0, 0.0))
+        .unwrap();
+    let exec = CommandExecutor::new(&mut logic, 0);
+    assert!(
+        exec.should_tighten_group_move(&[a, b], Vec3::new(50.0, 0.0, 0.0)),
+        "click in the central half of the bbox must tighten"
+    );
+    assert!(
+        !exec.should_tighten_group_move(&[a, b], Vec3::new(5.0, 0.0, 0.0)),
+        "click inside the full bbox but outside the 0.5 gather rect must not tighten"
+    );
+
+    if let Some(data) = game_engine::common::ini::get_global_data() {
+        data.write().group_move_click_to_gather_factor =
+            prev_factor.unwrap_or(0.5);
+    }
+}
+
+#[test]
+fn click_to_gather_skips_wide_bbox_over_2000_cells() {
+    // C++ AIGroup.cpp:1602-1608 — widely spread group keeps relative offsets.
+    use super::CommandExecutor;
+    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut tpl = ThingTemplate::new("CW_V");
+    tpl.add_kind_of(KindOf::Vehicle);
+    tpl.add_kind_of(KindOf::Selectable);
+    tpl.set_health(200.0);
+    logic.templates.insert("CW_V".to_string(), tpl);
+    let a = logic
+        .create_object("CW_V", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let b = logic
+        .create_object("CW_V", Team::USA, Vec3::new(20000.0, 0.0, 0.0))
+        .unwrap();
+    let exec = CommandExecutor::new(&mut logic, 0);
+    assert!(
+        !exec.should_tighten_group_move(&[a, b], Vec3::new(10000.0, 0.0, 0.0)),
+        "screen-wide selection must not collapse onto the click"
+    );
+}
+
+#[test]
+fn attack_move_includes_immobile_attacker() {
+    // C++ AIGroup.cpp:2260-2273 — no can_move gate. Turret stays engaging.
+    use super::CommandExecutor;
+    use crate::command_system::CommandResult;
+    use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate, Weapon};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut turret = ThingTemplate::new("AM_TUR");
+    turret.add_kind_of(KindOf::Structure);
+    turret.add_kind_of(KindOf::Immobile);
+    turret.add_kind_of(KindOf::Selectable);
+    turret.set_health(400.0);
+    logic.templates.insert("AM_TUR".to_string(), turret);
+    let mut tank = ThingTemplate::new("AM_TK");
+    tank.add_kind_of(KindOf::Vehicle);
+    tank.add_kind_of(KindOf::Selectable);
+    tank.set_health(200.0);
+    logic.templates.insert("AM_TK".to_string(), tank);
+    let tur = logic
+        .create_object("AM_TUR", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let tk = logic
+        .create_object("AM_TK", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+        .unwrap();
+    for id in [tur, tk] {
+        let o = logic.host_object_mut(id).unwrap();
+        o.weapon = Some(Weapon {
+            damage: 10.0,
+            range: 150.0,
+            ..Weapon::default()
+        });
+    }
+    assert!(
+        !logic.host_object(tur).unwrap().can_move(),
+        "turret fixture must be immobile"
+    );
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_attack_move(&[tur, tk], Vec3::new(200.0, 0.0, 0.0), 4),
+            CommandResult::Success
+        );
+    }
+    let u = logic.host_object(tur).unwrap();
+    assert_eq!(u.ai_state, AIState::AttackMoving);
+    assert!(u.is_attack_path);
+    assert_eq!(u.max_shots_to_fire, 4);
+}
+
+#[test]
+fn group_path_thresholds_read_aidata_store() {
+    // C++ friend_computeGroundPath uses AIData MinDistance/DistanceRequiresGroup.
+    let src = crate::command_executor::COMMAND_EXECUTOR_SRC;
+    let i = src
+        .find("fn group_path_distance_thresholds")
+        .expect("group_path_distance_thresholds");
+    let w = &src[i..src.len().min(i + 1800)];
+    assert!(
+        w.contains("get_ai_data_store")
+            && w.contains("min_distance_for_group")
+            && w.contains("distance_requires_group"),
+        "group-path must read leftover AIData thresholds"
+    );
+
+    use super::CommandExecutor;
+    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let prev = {
+        let mut store = game_engine::common::ini::get_ai_data_store_mut();
+        store.ensure_base();
+        let data = store.get_active_mut().expect("aidata");
+        let prev = (data.min_distance_for_group, data.distance_requires_group);
+        data.min_distance_for_group = 10000.0;
+        data.distance_requires_group = 50000.0;
+        prev
+    };
+    let mut logic = GameLogic::new();
+    let mut tpl = ThingTemplate::new("GP_TH");
+    tpl.add_kind_of(KindOf::Vehicle);
+    tpl.add_kind_of(KindOf::Selectable);
+    tpl.set_health(200.0);
+    logic.templates.insert("GP_TH".to_string(), tpl);
+    let a = logic
+        .create_object("GP_TH", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let b = logic
+        .create_object("GP_TH", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+        .unwrap();
+    {
+        let exec = CommandExecutor::new(&mut logic, 0);
+        assert!(
+            !exec.compute_ground_path_should_group(&[a, b], Vec3::new(300.0, 0.0, 0.0)),
+            "click below AIData MinDistanceForGroup must skip group path"
+        );
+    }
+    {
+        let mut store = game_engine::common::ini::get_ai_data_store_mut();
+        if let Some(data) = store.get_active_mut() {
+            data.min_distance_for_group = prev.0;
+            data.distance_requires_group = prev.1;
+        }
+    }
+}
+
+#[test]
+fn click_to_gather_source_reads_gamedata_and_caps_cells() {
+    let src = crate::command_executor::COMMAND_EXECUTOR_SRC;
+    let i = src
+        .find("fn should_tighten_group_move")
+        .expect("should_tighten_group_move");
+    let w = &src[i..src.len().min(i + 2500)];
+    assert!(
+        w.contains("group_move_click_to_gather_factor")
+            && w.contains("cells < 2000")
+            && !w.contains("hx.max(20.0)"),
+        "tighten must use GameData factor, 2000-cell cap, no 20wu pad"
+    );
+}
+

@@ -262,7 +262,7 @@ impl Object {
             has_fanaticism_upgrade, hide_leftover_horde_flag_subobjects,
             is_portable_structure_template, leftover_horde_decal_fade, leftover_horde_decal_type,
             leftover_horde_fanaticism_bonus, leftover_horde_major_radius,
-            leftover_infantry_horde_decal_size, leftover_template_shadow_size,
+            leftover_infantry_horde_decal_size_or_bbox, leftover_template_shadow_size,
             leftover_unit_has_horde_flag_subobjects, leftover_vehicle_horde_decal_size,
             TERRAIN_DECAL_NONE,
         };
@@ -287,7 +287,18 @@ impl Object {
                         self.thing.template.shadow_size_x,
                         self.thing.template.shadow_size_y,
                     );
-                    let size = leftover_infantry_horde_decal_size(sx, sy);
+                    let geom = &self.thing.template.geometry_info;
+                    let major = leftover_horde_major_radius(
+                        geom.authored,
+                        geom.major_radius,
+                        self.selection_radius,
+                    );
+                    let minor = if geom.authored && geom.minor_radius > 0.0 {
+                        geom.minor_radius
+                    } else {
+                        major
+                    };
+                    let size = leftover_infantry_horde_decal_size_or_bbox(sx, sy, major, minor);
                     self.set_terrain_decal_size(size, size);
                 } else {
                     let geom = &self.thing.template.geometry_info;
@@ -819,6 +830,45 @@ impl Object {
             return true;
         }
         self.thing.template.contain_module.is_enclosing_container
+    }
+
+    /// C++ `ContainModuleInterface::isEnclosingContainerFor`.
+    /// OpenContain default TRUE. Exceptions: Parachute always FALSE,
+    /// Overlord first passenger / portable bunker FALSE, Helix portable
+    /// FALSE, Garrison reads `IsEnclosingContainer` (Fire Base No).
+    pub fn is_enclosing_container_for(&self, victim: &Object) -> bool {
+        let name = self.template_name.to_ascii_lowercase();
+        if self.paradrop_parachute || name.contains("parachute") {
+            return false;
+        }
+        if self.is_overlord_style_container() {
+            if self.overlord_portable_occupant == Some(victim.id) {
+                return false;
+            }
+            if self
+                .contained_units()
+                .first()
+                .is_some_and(|&id| id == victim.id)
+            {
+                return false;
+            }
+            if crate::game_logic::host_battlemaster::is_portable_structure_template(
+                &victim.template_name,
+            ) {
+                return false;
+            }
+        }
+        if self.is_helix_transport
+            && crate::game_logic::host_battlemaster::is_portable_structure_template(
+                &victim.template_name,
+            )
+        {
+            return false;
+        }
+        if self.is_garrison_contain() {
+            return self.is_enclosing_garrison_container();
+        }
+        true
     }
 
     /// C++ GarrisonContain::onContaining / onRemoving OBJECT_STATUS_CAN_ATTACK.

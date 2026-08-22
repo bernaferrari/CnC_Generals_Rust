@@ -2630,6 +2630,10 @@ impl GameLogic {
             jet.jet_ai.rtb_landing_phase = crate::game_logic::object::JET_RTB_PHASE_LANDING;
             jet.jet_ai.landing_in_progress = true;
             jet.apply_airborne_locomotor_set();
+            // C++ JetTakeoffOrLandingState::onEnter landing: setMaxSpeed(getMinSpeed()).
+            if jet.min_speed > 0.0 {
+                jet.movement.max_speed = jet.min_speed;
+            }
             jet.target = None;
             jet.set_status_attacking(false);
         }
@@ -2665,6 +2669,9 @@ impl GameLogic {
         airfield_id: ObjectId,
         pad: glam::Vec3,
     ) -> bool {
+        let parking_orientation = self
+            .calc_airfield_pp_info(airfield_id, jet_id)
+            .map(|info| info.parking_orientation);
         {
             let Some(jet) = self.objects.get_mut(&jet_id) else {
                 self.release_airfield_runway_for_jet(jet_id);
@@ -2682,6 +2689,11 @@ impl GameLogic {
             jet.movement.current_path_index = 0;
             jet.movement.target_position = None;
             jet.set_position(pad);
+            // C++ JetOrHeliParkOrientState: setLocomotorGoalOrientation(parkingOrientation).
+            // Live dock snaps pose; leftover already matches C++.
+            if let Some(orient) = parking_orientation {
+                jet.set_orientation(orient);
+            }
             jet.return_to_base_requested = false;
             if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 crate::game_logic::host_ai_decision_log::record_set_state(jet_id, 12);

@@ -1,12 +1,13 @@
+use super::physics::{
+    leftover_ground_stiffness, leftover_loco_gravity, leftover_structure_stiffness,
+};
 use super::*;
 
 impl Object {
     /// C++ applyGravitationalForces residual (host world Y up).
     pub fn apply_gravitational_forces(&mut self) {
-        // C++ TheGlobalData->m_gravity residual ≈ -1.0 world units / frame²
-        // Host shock gravity is -1.0 on Y. Called every tick_physics_motion_step
-        // so tossed units do not coast into orbit after stun expires.
-        self.physics_accel.y += Self::SHOCK_GRAVITY;
+        // C++ TheGlobalData->m_gravity (parseAccelerationReal, retail -0.0711).
+        self.physics_accel.y += leftover_loco_gravity();
     }
 
     /// C++ AIUpdateInterface::privateMoveAwayFromUnit residual.
@@ -444,7 +445,7 @@ impl Object {
     pub fn apply_structure_stiffness_bounce(
         &mut self,
         other_center: glam::Vec3,
-        stiffness: f32,
+        _stiffness: f32,
         mass: f32,
     ) -> glam::Vec3 {
         use crate::game_logic::host_partition_collision_physics_residual::structure_immobile_bounce_factor;
@@ -457,9 +458,8 @@ impl Object {
             dist = 1.0;
         }
         let mag = self.movement.velocity.length();
+        let stiffness = leftover_structure_stiffness();
         let factor = structure_immobile_bounce_factor(mag, mass, stiffness);
-        // C++ cheats: nuke velocity then apply force direction from delta.
-        self.movement.velocity = glam::Vec3::ZERO;
         let dir = glam::Vec3::new(dx / dist, dy / dist, dz / dist);
         // Force on us is opposite separation (push away from other): -delta direction * |factor|
         // factor is already negative; force = factor * unit(delta) pushes us away when factor<0?
@@ -679,7 +679,7 @@ impl Object {
         let vy = self.movement.velocity.y;
         let mut desired_accel_y = 0.0;
         if old_y > ground_y && vy < 0.0 {
-            let stiffness = Self::GROUND_STIFFNESS.clamp(0.01, 0.99);
+            let stiffness = leftover_ground_stiffness();
             desired_accel_y = vy.abs() * stiffness;
         }
         self.apply_ypr_damping(Self::BOUNCE_YPR_DAMPING);
@@ -750,7 +750,7 @@ impl Object {
         self.ground_height = ground_y;
 
         // C++ PhysicsUpdate.cpp:630 applyGravitationalForces every update.
-        // Stun tick already applies SHOCK_GRAVITY while IS_STUNNED.
+        // Stun tick already applies leftover gravity while IS_STUNNED.
         if self.shock_stun_frames == 0 {
             let flying_loco_aircraft = (self.is_kind_of(KindOf::Aircraft)
                 || self.object_type == ObjectType::Aircraft)
@@ -891,7 +891,7 @@ impl Object {
         let mut bounce_vy = 0.0;
         let vy = self.movement.velocity.y;
         if old_y > ground_y && vy < 0.0 {
-            let stiffness = Self::GROUND_STIFFNESS.clamp(0.01, 0.99);
+            let stiffness = leftover_ground_stiffness();
             // C++ desiredAccelZ = fabs(vz)*stiffness; mass≈1 → velocity kick.
             bounce_vy = vy.abs() * stiffness;
         }
@@ -1024,10 +1024,8 @@ impl Object {
         // one frame (C++ ≈1 frame grounded stun; FLAILING → STUNNED visible).
         let already_on_ground = self.shock_grounded_once
             || self.get_position().y <= self.ground_height + 0.05;
-        if countdown {
-            self.shock_stun_frames = self.shock_stun_frames.saturating_sub(1);
-            self.record_host_shock_stun();
-        }
+        // C++ has no stun timer. Keep IS_STUNNED until settle relief.
+        let _ = countdown;
         // Integrate YPR while stunned (tumble settle). Motion step skips YPR
         // when stunned so this is the sole live HAS_PITCHROLLYAW pass.
         // C++ PhysicsUpdate.cpp:715-727 COM sine applies every YPR frame,
@@ -1047,7 +1045,7 @@ impl Object {
         let old_y = self.get_position().y;
         // Gravity while airborne or still carrying vertical velocity.
         if old_y > ground_y + 0.01 || self.movement.velocity.y.abs() > 0.01 {
-            self.movement.velocity.y += Self::SHOCK_GRAVITY;
+            self.movement.velocity.y += leftover_loco_gravity();
             let mut pos = self.get_position();
             let new_y = pos.y + self.movement.velocity.y;
             if new_y <= ground_y {
@@ -1060,10 +1058,6 @@ impl Object {
                 // C++ first ground hit while stunned: FLAILING → STUNNED.
                 if !self.shock_grounded_once {
                     self.shock_grounded_once = true;
-                    // Force model into STUNNED band (frames 1..=15) if still flailing.
-                    if self.shock_stun_frames > 15 {
-                        self.shock_stun_frames = 15;
-                    }
                 }
                 // C++ WAS_AIRBORNE_LAST_FRAME && !airborneAtEnd → bounce sound + fall damage.
                 if was_air {

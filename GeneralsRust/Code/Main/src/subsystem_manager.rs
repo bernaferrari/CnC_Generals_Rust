@@ -590,18 +590,33 @@ impl AudioManagerSubsystem {
                     if volume_scale <= 0.0 {
                         continue;
                     }
-                    // C++ MilesAudioManager::playSample3D — keep pose on TheAudio
-                    // so Common SpatialSink pans. Do not drop to 2D volume-only.
-                    if let Some(handle) = crate::assets::audio::play_sound_through_the_audio_at(
-                        event.event_type.as_str(),
-                        position,
-                    ) {
-                        if event.is_looping {
+                    // C++ MilesAudioManager::playSample3D — keep pose + object_id
+                    // on TheAudio so Common SpatialSink follows the unit.
+                    // Leftover addAudioEvent already applied mute / not-for-local.
+                    // C++ has no second backend — do not replay on rodio.
+                    if crate::assets::audio::leftover_the_audio_is_live() {
+                        if let Some(handle) =
+                            crate::assets::audio::play_sound_through_the_audio_at(
+                                event.event_type.as_str(),
+                                position,
+                                event.object_id.map(|id| id.0),
+                            )
+                        {
+                            if event.is_looping {
+                                if let Some(id) = event.object_id {
+                                    self.track_looping_object_audio(
+                                        id.0,
+                                        event.event_type.clone(),
+                                        handle,
+                                    );
+                                }
+                            }
+                        } else if event.is_looping {
                             if let Some(id) = event.object_id {
                                 self.track_looping_object_audio(
                                     id.0,
                                     event.event_type.clone(),
-                                    handle,
+                                    0,
                                 );
                             }
                         }
@@ -2419,6 +2434,26 @@ mod tests {
             left,
             vec![("WarFactoryAmbientLoop".to_string(), 1002)],
             "stop must remove only the named leftover loop"
+        );
+    }
+
+    #[test]
+    fn leftover_live_muted_drain_does_not_need_sound_table() {
+        // C++ Miles is the only backend. When leftover TheAudio is constructed,
+        // AHSV_MUTED / AHSV_NOT_FOR_LOCAL / missing info stay silent — no rodio.
+        if !crate::assets::audio::leftover_the_audio_is_live() {
+            return;
+        }
+        let mut audio = AudioManagerSubsystem::new();
+        audio.queue_event(
+            crate::game_logic::AudioEventRequest::new("DefinitelyNotARealAudioEvent_hq_9cfvs")
+                .with_object(crate::game_logic::ObjectId(7))
+                .with_position(glam::Vec3::new(10.0, 4.0, 20.0)),
+        );
+        audio.drain_and_dispatch_queued_audio();
+        assert!(
+            audio.sound_effects_table.is_none(),
+            "leftover-muted drain must not require the rodio SoundEffectsTable"
         );
     }
 
