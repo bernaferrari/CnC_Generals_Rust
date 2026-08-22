@@ -1,5 +1,8 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::input::MouseInputOrigin;
+use super::selection_hud::{
+    is_os_style_double_click, os_double_click_time_ms, OS_DOUBLE_CLICK_SLOP_PX,
+};
 use super::*;
 
 
@@ -522,7 +525,7 @@ const PICK_RAY_EPSILON: f32 = 1.0e-5;
 const PICK_TERRAIN_STEPS: usize = 96;
 const PICK_TERRAIN_BISECTION_STEPS: usize = 12;
 
-fn unproject_mouse_ray(
+pub(super) fn unproject_mouse_ray(
     view_matrix: Mat4,
     projection_matrix: Mat4,
     mouse_position: (f32, f32),
@@ -691,6 +694,29 @@ impl CnCGameEngine {
         }
     }
 
+    /// C++ `LookAtXlat` `MSG_META_OPTIONS` `stopScrolling` + `SelectionXlat`
+    /// `m_leftMouseButtonIsDown = FALSE`.
+    pub(super) fn apply_meta_options_interrupt(&mut self) {
+        let _ = super::selection_hud::meta_options_clears_lookat_and_drag();
+        self.stop_rmb_lookat_scroll();
+        self.cancel_area_select_from_control_bar();
+    }
+
+    pub(super) fn host_quit_menu_blocks_world_selection(&self) -> bool {
+        if self.quit_menu_host_active {
+            return true;
+        }
+        #[cfg(feature = "game_client")]
+        {
+            return game_client::helpers::TheInGameUI::is_quit_menu_visible()
+                || game_client::gui::callbacks::is_quit_menu_visible();
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            false
+        }
+    }
+
     /// C++ `SelectionXlat.cpp:953-961` RMB-down click-vs-scroll samples.
     pub(super) fn note_rmb_deselect_anchor(&mut self) {
         self.rmb_deselect_down_at = Some(Instant::now());
@@ -725,7 +751,7 @@ impl CnCGameEngine {
         let mouse_pos = self.mouse_world_position;
         // C++ `SelectionXlat.cpp:469` / `:431`: a pick miss is no drawable.
         // Ground click never invents the first locally-owned selectable.
-        let clicked_object = self.find_object_at_position(mouse_pos, false);
+        let clicked_object = self.find_object_at_cursor(false);
 
         // C++ GameClient.cpp:276-280 attach order (lower number first):
         // PlaceEventTranslator 30, GUICommandTranslator 40, SelectionTranslator
@@ -777,20 +803,27 @@ impl CnCGameEngine {
             return;
         }
 
-        // Check for double-click
+        // C++ Mouse.cpp:209-214 — OS double-click (GetDoubleClickTime + SM_CXDOUBLECLK).
         let now = Instant::now();
-        let is_double_click = if let (Some(last_time), Some(last_pos)) =
+        let is_double_click = if let (Some(last_time), Some(last_screen)) =
             (self.last_click_time, self.last_click_position)
         {
             let time_delta = now.duration_since(last_time).as_millis();
-            let pos_delta = (mouse_pos - last_pos).length();
-            time_delta < 500 && pos_delta < 10.0
+            let dx = self.mouse_position.0 - last_screen.0;
+            let dy = self.mouse_position.1 - last_screen.1;
+            is_os_style_double_click(
+                time_delta,
+                dx,
+                dy,
+                os_double_click_time_ms(),
+                OS_DOUBLE_CLICK_SLOP_PX,
+            )
         } else {
             false
         };
 
         self.last_click_time = Some(now);
-        self.last_click_position = Some(mouse_pos);
+        self.last_click_position = Some(self.mouse_position);
 
         let shift_down = self.keys_pressed.contains(&Key::Named(NamedKey::Shift));
         let ctrl_down = self.keys_pressed.contains(&Key::Named(NamedKey::Control));
@@ -801,7 +834,7 @@ impl CnCGameEngine {
             // the pick is mass-selectable and locally controlled. Otherwise
             // KEEP_MESSAGE so CommandXlat.cpp:3698-3713 can issue DoGuardPosition
             // (enemy, building, or terrain) when UseDoubleClickAttackMove is on.
-            let picked = self.find_object_at_position(mouse_pos, false);
+            let picked = self.find_object_at_cursor(false);
             if let Some(object_id) = picked {
                 if self.presentation_double_click_consumes(object_id) {
                     self.select_similar_units_for_double_click(object_id, alt_down);
@@ -1269,7 +1302,7 @@ impl CnCGameEngine {
                 // command.  That exact fallthrough is what lets LMB replace
                 // selection instead of moving selected units into a friendly
                 // object under the cursor.
-                if let Some(object_id) = self.find_object_at_position(end, false) {
+                if let Some(object_id) = self.find_object_at_cursor(false) {
                     let shift_down = self.keys_pressed.contains(&Key::Named(NamedKey::Shift));
                     self.select_left_click_target(object_id, shift_down);
                 }
@@ -1323,7 +1356,7 @@ impl CnCGameEngine {
         // Press already selected via `select_left_click_target` — do not
         // `box_select` + `host_set_selection([])` (hq-r5dmm).
         if is_point_click_drag(drag_distance_screen) {
-            let clicked = self.find_object_at_position(end, false);
+            let clicked = self.find_object_at_cursor(false);
             if clicked.is_none()
                 && alternate_mouse_blank_click_deselects(
                     self.use_alternate_mouse,
@@ -1402,7 +1435,10 @@ impl CnCGameEngine {
                         viewport,
                     )
                 })
-                .unwrap_or_default();
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|&id| !self.host_object_id_blocked_by_opaque_hud(id))
+                .collect();
             (garrison_target, boxed, add_to_group, current)
         };
 
@@ -1490,7 +1526,7 @@ impl CnCGameEngine {
 
         // C++ context-sensitive click residual via CommandSystem:
         // attack / gather / repair / enter / get-repaired / get-healed / move / attack-move.
-        let target_object = self.find_object_at_position(mouse_pos, true);
+        let target_object = self.find_object_at_cursor(true);
         let ctrl = self.keys_pressed.iter().any(|k| {
             matches!(
                 k,
@@ -2344,7 +2380,7 @@ impl CnCGameEngine {
 
     /// C++ HintSpy::translate MSG_MOUSEOVER_DRAWABLE_HINT / LOCATION_HINT.
     fn sync_ingame_mouseover_hint(&mut self) {
-        let hover = self.find_object_at_position(self.mouse_world_position, true);
+        let hover = self.find_object_at_cursor(true);
         match hover {
             Some(id) => self.game_client.create_mouseover_hint(Some(id.0), false),
             None => self.game_client.create_mouseover_hint(None, true),
@@ -2394,7 +2430,7 @@ impl CnCGameEngine {
         // Wave 234: selection presence prefers engine/presentation freeze.
         let has_selection = !self.ui_selected_ids(self.current_player_id).is_empty();
 
-        let hover = self.find_object_at_position(self.mouse_world_position, true);
+        let hover = self.find_object_at_cursor(true);
         let ctrl = self.keys_pressed.contains(&Key::Named(NamedKey::Control));
         let alt = self.keys_pressed.contains(&Key::Named(NamedKey::Alt));
 
@@ -3213,6 +3249,10 @@ impl CnCGameEngine {
         self.host_find_object_at_position(position, command_context)
     }
 
+    pub(super) fn find_object_at_cursor(&self, command_context: bool) -> Option<ObjectId> {
+        self.host_pick_object_at_cursor(command_context)
+    }
+
 
 
 
@@ -3738,6 +3778,24 @@ mod camera_pick_tests {
     use super::*;
 
     #[test]
+    fn double_click_type_select_uses_os_pixel_slop() {
+        let src = include_str!("mouse.rs");
+        assert!(src.contains("is_os_style_double_click"));
+        assert!(src.contains("os_double_click_time_ms"));
+        assert!(src.contains("OS_DOUBLE_CLICK_SLOP_PX"));
+        assert!(!src.contains("time_delta < 500 && pos_delta < 10.0"));
+    }
+
+    fn cursor_pick_uses_camera_ray_not_twenty_wu_pad() {
+        let src = include_str!("selection.rs");
+        assert!(src.contains("fn host_pick_object_at_cursor"));
+        assert!(src.contains("pick_object_id_along_camera_ray"));
+        assert!(src.contains("host_cursor_blocked_by_opaque_window"));
+        let mouse = include_str!("mouse.rs");
+        assert!(mouse.contains("fn find_object_at_cursor"));
+        assert!(mouse.contains("self.find_object_at_cursor(false)"));
+    }
+
     fn classic_shift_lmb_only_prefers_selection_for_a_local_target() {
         assert!(classic_left_context_action_allowed(true, false, true));
         assert!(!classic_left_context_action_allowed(true, true, true));

@@ -116,6 +116,7 @@ mod run_loop;
 mod runtime;
 mod runtime_host;
 mod selection;
+mod selection_hud;
 mod shell;
 mod start_game;
 mod types;
