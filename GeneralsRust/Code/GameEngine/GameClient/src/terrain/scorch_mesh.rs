@@ -10,7 +10,33 @@
 
 use std::sync::{Mutex, OnceLock};
 
+use crate::terrain::textures::FLIPPED_MASK;
 use gamelogic::common::types::{MAP_HEIGHT_SCALE, MAP_XY_FACTOR};
+
+fn height_map_cell_flip(map: &crate::terrain::height_map::HeightMap, x: i32, y: i32) -> bool {
+    if x < 0 || y < 0 {
+        return false;
+    }
+    let idx = (y as u32 as usize)
+        .saturating_mul(map.width as usize)
+        .saturating_add(x as u32 as usize);
+    if let Some(&ndx) = map.cliff_info_ndxes.get(idx) {
+        if ndx > 0 {
+            if let Some(info) = map.cliff_info.get(ndx as usize) {
+                if info.flip {
+                    return true;
+                }
+            }
+        }
+    }
+    let blend_ndx = map.blend_tile_ndxes.get(idx).copied().unwrap_or(0);
+    if blend_ndx > 0 {
+        if let Some(tile) = map.blended_tiles.get(blend_ndx as usize) {
+            return (tile.inverted & FLIPPED_MASK) != 0;
+        }
+    }
+    false
+}
 
 /// C++ `MAX_SCORCH_MARKS`.
 pub const MAX_SCORCH_MARKS: usize = 500;
@@ -83,8 +109,8 @@ impl ScorchHeightSource for crate::terrain::height_map::HeightMap {
         self.world_height_at_index(cx, cy)
     }
 
-    fn flip_state(&self, _x: i32, _y: i32) -> bool {
-        false
+    fn flip_state(&self, x: i32, y: i32) -> bool {
+        height_map_cell_flip(self, x, y)
     }
 }
 
@@ -318,4 +344,63 @@ pub fn bake_terrain_scorch_gpu_mesh(
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .update_scorches(height, diffuse)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct MockHeight {
+        flip: bool,
+    }
+
+    impl ScorchHeightSource for MockHeight {
+        fn x_extent(&self) -> i32 {
+            4
+        }
+        fn y_extent(&self) -> i32 {
+            4
+        }
+        fn border_size(&self) -> i32 {
+            0
+        }
+        fn clip_height_world(&self, _x: i32, _y: i32) -> f32 {
+            0.0
+        }
+        fn flip_state(&self, _x: i32, _y: i32) -> bool {
+            self.flip
+        }
+    }
+
+    #[test]
+    fn flipped_cell_uses_opposite_triangle_winding() {
+        let mut buffer = TerrainScorchBuffer::new();
+        buffer.add_scorch([10.0, 10.0, 0.0], 20.0, 0);
+        let unflipped = buffer.update_scorches(&MockHeight { flip: false }, 0xFFFFFFFF);
+        buffer.scorches_in_buffer = 0;
+        let flipped = buffer.update_scorches(&MockHeight { flip: true }, 0xFFFFFFFF);
+        assert!(!unflipped.indices.is_empty());
+        assert_eq!(unflipped.indices.len(), flipped.indices.len());
+        assert_ne!(unflipped.indices, flipped.indices);
+        assert_eq!(flipped.indices[0], unflipped.indices[1]);
+    }
+
+    #[test]
+    fn height_map_reads_cliff_and_blend_flip_bits() {
+        let mut map = crate::terrain::height_map::HeightMap::new(4, 4, 10.0, 1.0);
+        map.cliff_info.push(crate::terrain::height_map::TCliffInfo {
+            flip: true,
+            ..crate::terrain::height_map::TCliffInfo::default()
+        });
+        map.cliff_info_ndxes[1] = (map.cliff_info.len() - 1) as i16;
+        assert!(height_map_cell_flip(&map, 1, 0));
+        assert!(!height_map_cell_flip(&map, 0, 0));
+
+        let mut blend = crate::terrain::textures::BlendTileInfo::new();
+        blend.inverted = FLIPPED_MASK;
+        map.blended_tiles.push(crate::terrain::textures::BlendTileInfo::new());
+        map.blended_tiles.push(blend);
+        map.blend_tile_ndxes[2] = 1;
+        assert!(height_map_cell_flip(&map, 2, 0));
+    }
 }
