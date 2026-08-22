@@ -103,11 +103,16 @@ pub(super) fn seed_radius_damage_affects_for(name: &str) -> u32 {
 ///
 /// `relationship` is `curVictim->getRelationship(source)` (Weapon.cpp:1360-1372).
 /// Leftover `should_apply_damage` uses the same ALLIES/ENEMIES/NEUTRALS bits.
+///
+/// `producer_id` is `source->getProducerID()` (Weapon.cpp:1330-1337). When
+/// `WEAPON_AFFECTS_SELF` is unset, C++ skips both the firer and the building
+/// that produced it (War Factory, airfield, Stinger Site).
 pub fn radius_damage_affects_victim(
     affects: u32,
     relationship: gamelogic::common::Relationship,
     shooter_id: crate::game_logic::ObjectId,
     victim_id: crate::game_logic::ObjectId,
+    producer_id: Option<crate::game_logic::ObjectId>,
     victim_airborne: bool,
     same_template: bool,
 ) -> bool {
@@ -117,7 +122,7 @@ pub fn radius_damage_affects_victim(
     };
     use gamelogic::common::Relationship;
 
-    if shooter_id == victim_id {
+    if shooter_id == victim_id || producer_id == Some(victim_id) {
         return (affects & WEAPON_AFFECTS_SELF) != 0;
     }
     if (affects & WEAPON_DOESNT_AFFECT_AIRBORNE) != 0 && victim_airborne {
@@ -135,4 +140,37 @@ pub fn radius_damage_affects_victim(
         Relationship::Neutral => WEAPON_AFFECTS_NEUTRALS,
     };
     (affects & required_mask) != 0
+}
+
+/// C++ `source->getTemplate()->isEquivalentTo(curVictim->getTemplate())`
+/// (`Weapon.cpp:1345`, `ThingTemplate.cpp:1454`).
+///
+/// Live splash only stores template names. Identity is case-insensitive; reskin
+/// / `BuildVariations` walk leftover `ThingTemplate::is_equivalent_to` on the
+/// already-loaded factory. Never `TheThingFactory::find_template` — that helper
+/// can rebuild the Object INI database on a miss.
+pub fn splash_templates_equivalent(shooter: &str, victim: &str) -> bool {
+    if shooter.is_empty() || victim.is_empty() {
+        return false;
+    }
+    if shooter.eq_ignore_ascii_case(victim) {
+        return true;
+    }
+    leftover_templates_equivalent(shooter, victim)
+}
+
+fn leftover_templates_equivalent(shooter: &str, victim: &str) -> bool {
+    let Some(guard) = game_engine::common::thing::thing_factory::try_get_thing_factory() else {
+        return false;
+    };
+    let Some(factory) = guard.as_ref() else {
+        return false;
+    };
+    let Some(source) = factory.find_template(shooter, false) else {
+        return false;
+    };
+    let Some(other) = factory.find_template(victim, false) else {
+        return false;
+    };
+    source.is_equivalent_to(other.as_ref())
 }

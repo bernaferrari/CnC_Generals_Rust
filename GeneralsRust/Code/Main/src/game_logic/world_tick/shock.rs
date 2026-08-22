@@ -230,6 +230,8 @@ impl GameLogic {
     pub(crate) fn apply_shock_wave_at_impact(
         &mut self,
         impact: glam::Vec3,
+        source_pos: glam::Vec3,
+        search_radius: f32,
         weapon_name: Option<&str>,
         skip_id: Option<ObjectId>,
     ) -> u32 {
@@ -243,10 +245,10 @@ impl GameLogic {
         let amount = host_shock_wave_amount_for_weapon_name(name);
         let radius = host_shock_wave_radius_for_weapon_name(name);
         let taper = host_shock_wave_taper_for_weapon_name(name);
-        if amount <= 0.0 || radius <= 0.0 {
+        if amount <= 0.0 || radius <= 0.0 || search_radius <= 0.0 {
             return 0;
         }
-        let r2 = radius * radius;
+        let r2 = search_radius * search_radius;
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
@@ -272,7 +274,7 @@ impl GameLogic {
                 Some(o) => o.get_position(),
                 None => continue,
             };
-            let Some(force) = compute_shock_wave_force(impact, pos, amount, radius, taper) else {
+            let Some(force) = compute_shock_wave_force(source_pos, pos, amount, radius, taper) else {
                 continue;
             };
             if let Some(o) = self.objects.get_mut(&id) {
@@ -307,7 +309,7 @@ impl GameLogic {
         let affects = weapon_name
             .map(host_radius_damage_affects_for_weapon_name)
             .unwrap_or(WEAPON_AFFECTS_DEFAULT);
-        let (shooter_template, attacker_owner, attacker_team_instance) = self
+        let (shooter_template, attacker_owner, attacker_team_instance, attacker_producer) = self
             .objects
             .get(&attacker_id)
             .map(|a| {
@@ -315,6 +317,7 @@ impl GameLogic {
                     a.template_name.clone(),
                     a.owner_player_id,
                     a.team_instance_name.clone(),
+                    a.producer_id,
                 )
             })
             .unwrap_or_default();
@@ -333,8 +336,10 @@ impl GameLogic {
                     return None;
                 }
                 let airborne = obj.is_significantly_above_terrain();
-                let same_tmpl = !shooter_template.is_empty()
-                    && obj.template_name.eq_ignore_ascii_case(&shooter_template);
+                let same_tmpl = crate::game_logic::weapon_bootstrap::splash_templates_equivalent(
+                    &shooter_template,
+                    &obj.template_name,
+                );
                 let relationship = GameLogic::object_relationship_from_owners(
                     players,
                     obj.owner_player_id,
@@ -347,6 +352,7 @@ impl GameLogic {
                     relationship,
                     attacker_id,
                     *id,
+                    attacker_producer,
                     airborne,
                     same_tmpl,
                 ) {
@@ -399,7 +405,12 @@ impl GameLogic {
         for id in destroy {
             self.mark_object_for_destruction(id, Some(attacker_team));
         }
-        let _ = self.apply_shock_wave_at_impact(impact, weapon_name, None);
+        let source_pos = self
+            .objects
+            .get(&attacker_id)
+            .map(|a| a.get_position())
+            .unwrap_or(impact);
+        let _ = self.apply_shock_wave_at_impact(impact, source_pos, max_r, weapon_name, None);
         hits
     }
 
@@ -436,7 +447,7 @@ impl GameLogic {
         let affects = weapon_name
             .map(host_radius_damage_affects_for_weapon_name)
             .unwrap_or(WEAPON_AFFECTS_DEFAULT);
-        let (shooter_template, attacker_owner, attacker_team_instance) = self
+        let (shooter_template, attacker_owner, attacker_team_instance, attacker_producer) = self
             .objects
             .get(&attacker_id)
             .map(|a| {
@@ -444,6 +455,7 @@ impl GameLogic {
                     a.template_name.clone(),
                     a.owner_player_id,
                     a.team_instance_name.clone(),
+                    a.producer_id,
                 )
             })
             .unwrap_or_default();
@@ -462,8 +474,10 @@ impl GameLogic {
                     return None;
                 }
                 let airborne = obj.is_significantly_above_terrain();
-                let same_tmpl = !shooter_template.is_empty()
-                    && obj.template_name.eq_ignore_ascii_case(&shooter_template);
+                let same_tmpl = crate::game_logic::weapon_bootstrap::splash_templates_equivalent(
+                    &shooter_template,
+                    &obj.template_name,
+                );
                 let relationship = GameLogic::object_relationship_from_owners(
                     players,
                     obj.owner_player_id,
@@ -476,6 +490,7 @@ impl GameLogic {
                     relationship,
                     attacker_id,
                     *id,
+                    attacker_producer,
                     airborne,
                     same_tmpl,
                 ) {
@@ -526,7 +541,18 @@ impl GameLogic {
         for id in destroy {
             self.mark_object_for_destruction(id, Some(attacker_team));
         }
-        let _ = self.apply_shock_wave_at_impact(impact, weapon_name, Some(skip_id));
+        let source_pos = self
+            .objects
+            .get(&attacker_id)
+            .map(|a| a.get_position())
+            .unwrap_or(impact);
+        let _ = self.apply_shock_wave_at_impact(
+            impact,
+            source_pos,
+            max_r,
+            weapon_name,
+            Some(skip_id),
+        );
         hits
     }
 
