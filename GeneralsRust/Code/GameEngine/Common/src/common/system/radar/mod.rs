@@ -2915,6 +2915,29 @@ mod tests {
     }
 
     #[test]
+    fn last_event_loc_skips_beacon_pulse_like_cpp() {
+        let mut radar = RadarSystem::new();
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(1024.0, 1024.0, 100.0),
+            &[],
+        );
+
+        let attack = Coord3D::new(111.0, 222.0, 7.0);
+        radar.create_event(&attack, RadarEventType::UnderAttack, 4.0);
+        radar.create_event(
+            &Coord3D::new(9.0, 8.0, 1.0),
+            RadarEventType::BeaconPulse,
+            0.5,
+        );
+
+        let last = radar.get_last_event_loc().expect("last real event");
+        assert!((last.x - 111.0).abs() < f32::EPSILON);
+        assert!((last.y - 222.0).abs() < f32::EPSILON);
+        assert!((last.z - 7.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
     fn test_radar_event_expiration() {
         let mut radar = RadarSystem::new();
         radar.new_map(
