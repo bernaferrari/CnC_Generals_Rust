@@ -207,25 +207,21 @@ pub fn clear_host_script_query_snapshot() {
 
 pub fn host_bridge_broken(bridge_name: &str) -> bool {
     HOST_SCRIPT_QUERY.with(|slot| {
-        let snap = slot.borrow();
-        snap.any_bridges_damage_states_changed
-            && snap
-                .named_bridge_broken
-                .get(bridge_name)
-                .copied()
-                .unwrap_or(false)
+        slot.borrow()
+            .named_bridge_broken
+            .get(bridge_name)
+            .copied()
+            .unwrap_or(false)
     })
 }
 
 pub fn host_bridge_repaired(bridge_name: &str) -> bool {
     HOST_SCRIPT_QUERY.with(|slot| {
-        let snap = slot.borrow();
-        snap.any_bridges_damage_states_changed
-            && snap
-                .named_bridge_repaired
-                .get(bridge_name)
-                .copied()
-                .unwrap_or(false)
+        slot.borrow()
+            .named_bridge_repaired
+            .get(bridge_name)
+            .copied()
+            .unwrap_or(false)
     })
 }
 
