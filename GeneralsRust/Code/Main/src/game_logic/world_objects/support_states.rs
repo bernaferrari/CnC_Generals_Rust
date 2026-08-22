@@ -2526,8 +2526,7 @@ impl GameLogic {
                                 continue;
                             }
                             if flying_only
-                                && !(cand.is_kind_of(KindOf::Aircraft)
-                                    || cand.object_type == ObjectType::Aircraft)
+                                && !(cand.is_above_terrain() || cand.status.airborne_target)
                             {
                                 continue;
                             }
@@ -5055,14 +5054,35 @@ impl GameLogic {
                             // C++ transferObjectName residual (script named object).
                             let _ = self.transfer_script_object_name(object_id, special_target_id);
                             self.car_bomb.record_conversion();
-                            self.queue_audio_event(
-                                AudioEventRequest::new(
-                                    crate::game_logic::host_car_bomb::CAR_BOMB_CONVERT_AUDIO,
-                                )
-                                .with_object(special_target_id)
-                                .with_position(target_position)
-                                .with_priority(170),
-                            );
+                            // C++ FXList::doFXObj(m_fxList, other) → FX_MakeCarBombSuccess
+                            // (Sound nugget TerroristCarBomb). Never play the FXList name.
+                            let fx = crate::game_logic::host_car_bomb::CAR_BOMB_CONVERT_FX_LIST;
+                            if !crate::game_logic::dispatch_fx_list_at_object(
+                                fx,
+                                special_target_id.0,
+                                Some(object_id.0),
+                            ) {
+                                let sounds = crate::game_logic::sound_names_for_fx_list(fx);
+                                if sounds.is_empty() {
+                                    self.queue_audio_event(
+                                        AudioEventRequest::new(
+                                            crate::game_logic::host_car_bomb::CAR_BOMB_CONVERT_FX_SOUND,
+                                        )
+                                        .with_object(special_target_id)
+                                        .with_position(target_position)
+                                        .with_priority(170),
+                                    );
+                                } else {
+                                    for sound in sounds {
+                                        self.queue_audio_event(
+                                            AudioEventRequest::new(&sound)
+                                                .with_object(special_target_id)
+                                                .with_position(target_position)
+                                                .with_priority(170),
+                                        );
+                                    }
+                                }
+                            }
                             let msg = localization::localize(
                                 "hud.carbomb.converted",
                                 "Vehicle converted to car bomb",
@@ -5944,12 +5964,7 @@ impl GameLogic {
 
                         }
                     } else if can_move {
-                        // Still heading to refinery.
-                        self.path_approach_with_state(
-                            object_id,
-                            refinery_pos,
-                            AIState::ReturningResources,
-                        );
+                        let _ = can_move;
                     }
                 }
                 AIState::Docked | AIState::Garrisoned => {
