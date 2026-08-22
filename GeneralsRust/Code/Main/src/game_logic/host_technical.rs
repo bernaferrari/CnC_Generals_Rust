@@ -44,6 +44,18 @@ pub const TECHNICAL_CANNON: &str = "TechnicalCannonWeapon";
 pub const TECHNICAL_RPG: &str = "TechnicalRPGWeapon";
 /// Retail Upgrade_GLAAPBullets.
 pub const UPGRADE_GLA_AP_BULLETS: &str = "Upgrade_GLAAPBullets";
+/// Retail TechnicalMachineGunWeapon DamageType residual.
+pub const TECH_MG_DAMAGE_TYPE: &str = "SMALL_ARMS";
+/// Retail TechnicalMachineGunWeapon DeathType residual.
+pub const TECH_MG_DEATH_TYPE: &str = "NORMAL";
+/// Retail TechnicalCannonWeapon DamageType residual.
+pub const TECH_CANNON_DAMAGE_TYPE: &str = "EXPLOSION";
+/// Retail TechnicalCannonWeapon DeathType residual.
+pub const TECH_CANNON_DEATH_TYPE: &str = "NORMAL";
+/// Retail TechnicalRPGWeapon DamageType residual.
+pub const TECH_RPG_DAMAGE_TYPE: &str = "INFANTRY_MISSILE";
+/// Retail TechnicalRPGWeapon DeathType residual.
+pub const TECH_RPG_DEATH_TYPE: &str = "EXPLODED";
 
 /// C++ TransportContain Slots = 5.
 pub const TECHNICAL_TRANSPORT_SLOTS: usize = 5;

@@ -66,6 +66,8 @@ pub const REBEL_CLIP_RELOAD_MS: u32 = 700;
 pub const REBEL_CLIP_RELOAD_FRAMES: u32 = 21;
 /// Retail DamageType residual.
 pub const REBEL_DAMAGE_TYPE: &str = "SMALL_ARMS";
+/// Retail DeathType residual.
+pub const REBEL_DEATH_TYPE: &str = "NORMAL";
 /// Retail FireFX residual.
 pub const REBEL_FIRE_FX: &str = "WeaponFX_GenericMachineGunFire";
 /// Residual fire audio.

@@ -338,13 +338,20 @@ impl GameLogic {
                     .looping(),
             );
         } else {
+            // C++ `TheAudio->removeAudioEvent(m_afterburnerSound)` uses the
+            // same per-unit event that start queued — never only the slot token.
+            let stop_name = crate::game_logic::audio_dispatch_impl::resolve_per_unit_sound(
+                template_name,
+                crate::game_logic::object::JET_AFTERBURNER_SOUND,
+            )
+            .unwrap_or_else(|| {
+                crate::game_logic::object::JET_AFTERBURNER_SOUND_STOP.to_string()
+            });
             self.queue_audio_event(
-                crate::game_logic::AudioEventRequest::new(
-                    crate::game_logic::object::JET_AFTERBURNER_SOUND_STOP,
-                )
-                .with_object(object_id)
-                .with_position(pos)
-                .stopping(),
+                crate::game_logic::AudioEventRequest::new(&stop_name)
+                    .with_object(object_id)
+                    .with_position(pos)
+                    .stopping(),
             );
         }
     }

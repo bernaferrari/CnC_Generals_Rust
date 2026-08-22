@@ -1093,6 +1093,10 @@ pub struct ResidualHiveSlave {
     /// 0 = none.
     #[serde(default)]
     pub attack_target_id: u32,
+    /// Residual ordered attack-ground world XYZ (C++ `aiAttackPosition`).
+    /// None = no ground order.
+    #[serde(default)]
+    pub attack_ground: Option<[f32; 3]>,
 }
 
 impl Default for ResidualHiveSlave {
@@ -1105,6 +1109,7 @@ impl Default for ResidualHiveSlave {
             facing_deg: 0.0,
             ai_attacking: false,
             attack_target_id: 0,
+            attack_ground: None,
         }
     }
 }
@@ -1155,6 +1160,7 @@ pub fn init_stinger_hive_slave_roster() -> [ResidualHiveSlave; 3] {
             facing_deg: facings[0],
             ai_attacking: false,
             attack_target_id: 0,
+            attack_ground: None,
         },
         ResidualHiveSlave {
             hp: STINGER_SOLDIER_MAX_HEALTH,
@@ -1164,6 +1170,7 @@ pub fn init_stinger_hive_slave_roster() -> [ResidualHiveSlave; 3] {
             facing_deg: facings[1],
             ai_attacking: false,
             attack_target_id: 0,
+            attack_ground: None,
         },
         ResidualHiveSlave {
             hp: STINGER_SOLDIER_MAX_HEALTH,
@@ -1173,6 +1180,7 @@ pub fn init_stinger_hive_slave_roster() -> [ResidualHiveSlave; 3] {
             facing_deg: facings[2],
             ai_attacking: false,
             attack_target_id: 0,
+            attack_ground: None,
         },
     ]
 }
@@ -1192,11 +1200,32 @@ pub fn order_hive_slaves_to_attack_target(slaves: &mut [ResidualHiveSlave], targ
         }
         s.ai_attacking = true;
         s.attack_target_id = target_id;
+        s.attack_ground = None;
         n = n.saturating_add(1);
     }
     n
 }
 
+/// Host residual of C++ `SpawnBehavior::orderSlavesToAttackPosition`.
+///
+/// Sets alive residual soldiers to attack a world point. Returns how many
+/// residual slaves received the order.
+pub fn order_hive_slaves_to_attack_position(slaves: &mut [ResidualHiveSlave], pos: Vec3) -> u32 {
+    if !pos.x.is_finite() || !pos.z.is_finite() {
+        return 0;
+    }
+    let mut n = 0u32;
+    for s in slaves.iter_mut() {
+        if !s.alive {
+            continue;
+        }
+        s.ai_attacking = true;
+        s.attack_target_id = 0;
+        s.attack_ground = Some([pos.x, pos.y, pos.z]);
+        n = n.saturating_add(1);
+    }
+    n
+}
 /// Host residual of C++ `SpawnBehavior::orderSlavesToGoIdle`.
 ///
 /// Clears attack residual on all residual soldiers. Returns idle count.
@@ -1208,6 +1237,7 @@ pub fn order_hive_slaves_to_go_idle(slaves: &mut [ResidualHiveSlave]) -> u32 {
         }
         s.ai_attacking = false;
         s.attack_target_id = 0;
+        s.attack_ground = None;
         n = n.saturating_add(1);
     }
     n
@@ -1418,6 +1448,7 @@ pub fn resolve_hive_structure_damage_roster(
                 roster[i].hp = 0.0;
                 roster[i].ai_attacking = false;
                 roster[i].attack_target_id = 0;
+                roster[i].attack_ground = None;
                 killed = 1;
             }
             // Write back.
@@ -1479,6 +1510,7 @@ pub fn respawn_one_hive_slave(slaves: &mut [ResidualHiveSlave]) -> bool {
         // Keep existing offset / facing (SpawnPoint residual).
         slot.ai_attacking = false;
         slot.attack_target_id = 0;
+        slot.attack_ground = None;
         true
     } else {
         false
@@ -1515,6 +1547,7 @@ pub fn align_hive_roster_to_count(slaves: &mut [ResidualHiveSlave; 3], desired_c
             slaves[i].hp = 0.0;
             slaves[i].ai_attacking = false;
             slaves[i].attack_target_id = 0;
+            slaves[i].attack_ground = None;
             alive -= 1;
         } else {
             break;
@@ -1529,6 +1562,7 @@ pub fn align_hive_roster_to_count(slaves: &mut [ResidualHiveSlave; 3], desired_c
             slaves[i].facing_deg = facings[i];
             slaves[i].ai_attacking = false;
             slaves[i].attack_target_id = 0;
+            slaves[i].attack_ground = None;
             alive += 1;
         } else {
             break;
@@ -1549,6 +1583,7 @@ pub fn clear_hive_slave_roster(slaves: &mut [ResidualHiveSlave; 3]) {
             facing_deg: facings[i],
             ai_attacking: false,
             attack_target_id: 0,
+            attack_ground: None,
         };
     }
 }
@@ -3250,7 +3285,17 @@ mod tests {
         assert!(live
             .iter()
             .filter(|s| s.alive)
-            .all(|s| s.attack_target_id == 0));
+            .all(|s| s.attack_target_id == 0 && s.attack_ground.is_none()));
+
+        // orderSlavesToAttackPosition residual (hq-ykxeg).
+        let n_pos = order_hive_slaves_to_attack_position(&mut live, Vec3::new(8.0, 0.0, 4.0));
+        assert_eq!(n_pos, 2);
+        assert!(live.iter().filter(|s| s.alive).all(|s| {
+            s.ai_attacking
+                && s.attack_target_id == 0
+                && s.attack_ground == Some([8.0, 0.0, 4.0])
+        }));
+        let _ = order_hive_slaves_to_go_idle(&mut live);
 
         // Attach presentation residual at site (10, 20).
         live[1].alive = true;

@@ -1142,6 +1142,9 @@ pub struct CnCGameEngine {
     // Camera system
     pub(crate) camera_position: Vec3,
     pub(crate) camera_target: Vec3,
+    /// C++ `W3DView::m_cameraConstraint` union of scripted pans
+    /// (`W3DView.cpp:3097-3212`). `(lo_x, hi_x, lo_z, hi_z)` in live Y-up.
+    pub(crate) scripted_camera_constraint_widen: Option<(f32, f32, f32, f32)>,
     pub(crate) camera_zoom: f32,
     pub(crate) camera_zoom_target: Option<f32>,
     pub(crate) camera_zoom_start: f32,
@@ -1294,6 +1297,9 @@ pub struct CnCGameEngine {
     pub(crate) pending_structure_placement: Option<String>,
     /// C++ context command awaiting map click (AttackMove/Guard/SetRally residual).
     pub(crate) pending_map_command: Option<PendingMapCommand>,
+    /// C++ `InGameUI::m_preventLeftClickDeselectionInAlternateMouseModeForOneClick`.
+    pub(crate) prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click: bool,
+
     pub(crate) active_menu_shell_hook: Option<&'static str>,
     pub(crate) runtime_host_headless: bool,
     /// True when `--runtime_host` is set (headless or windowed). Host cmds/status.

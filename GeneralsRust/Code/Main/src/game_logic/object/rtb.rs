@@ -284,6 +284,36 @@ impl Object {
         self.needs_return_to_base_rearm()
     }
 
+    /// C++ `Object::isOutOfAmmo` / leftover `WeaponSet::isOutOfAmmo`.
+    /// Present empty clips (not ReloadingClip) are OUT_OF_AMMO. A host unit
+    /// with no weapon slots is not exhausted (uninitialized clip ≠ empty clip).
+    pub fn is_out_of_ammo(&self) -> bool {
+        let slot_out = |w: &Weapon| w.ammo == Some(0) && !w.reloading_clip;
+        let mut any = false;
+        if let Some(w) = self.weapon.as_ref() {
+            any = true;
+            if !slot_out(w) {
+                return false;
+            }
+        }
+        if let Some(w) = self.secondary_weapon.as_ref() {
+            any = true;
+            if !slot_out(w) {
+                return false;
+            }
+        }
+        if let Some(w) = self.tertiary_weapon.as_ref() {
+            any = true;
+            if !slot_out(w) {
+                return false;
+            }
+        }
+        any
+    }
+
+
+
+
     /// Attack orders keep flying; only idle / guard-hunt interrupt auto-RTB.
     pub fn jet_empty_clip_should_auto_rtb(&self) -> bool {
         if !self.needs_return_to_base_rearm() {
@@ -405,23 +435,8 @@ impl Object {
         (center - ra).max(0.0)
     }
 
-    /// C++ Weapon::isWithinAttackRange residual for one concrete WeaponSet slot.
-    ///
-    /// Unknown or unbound slots fail closed.  Tertiary deliberately has no
-    /// inherited leech-range state: the host only persists the retail A/B
-    /// leech flags, and aliasing C to either one would change another
-    /// weapon's targeting behaviour.
-    pub fn is_within_attack_range_for_slot(&self, slot: u8, other: &Object) -> bool {
-        self.is_within_attack_range_at_distance(slot, self.distance_to_object(other))
-    }
-
-    /// C++ Weapon::isWithinAttackRange residual for a world position and one
-    /// concrete WeaponSet slot.
-    pub fn is_within_attack_range_pos_for_slot(&self, slot: u8, pos: glam::Vec3) -> bool {
-        self.is_within_attack_range_at_distance(slot, self.distance_to_pos(pos))
-    }
-
-    fn is_within_attack_range_at_distance(&self, slot: u8, dist: f32) -> bool {
+    /// C++ Weapon::isWithinAttackRange after FROM_BOUNDINGSPHERE_2D distance.
+    pub fn is_within_attack_range_at_distance(&self, slot: u8, dist: f32) -> bool {
         let Some(weapon) = self.weapon_slot(slot) else {
             return false;
         };
@@ -433,6 +448,224 @@ impl Object {
         }
         dist <= self.effective_weapon_range(weapon.range) + 1e-3
     }
+
+    /// C++ Weapon::isWithinAttackRange for a world position (no victim radius).
+    pub fn is_within_attack_range_pos_for_slot(&self, slot: u8, pos: glam::Vec3) -> bool {
+        self.is_within_attack_range_at_distance(slot, self.distance_to_pos(pos))
+    }
+
+    /// C++ Weapon::isWithinAttackRange residual for one concrete WeaponSet slot.
+    ///
+    /// Unknown or unbound slots fail closed.  Tertiary deliberately has no
+    /// inherited leech-range state: the host only persists the retail A/B
+    /// leech flags, and aliasing C to either one would change another
+    /// weapon's targeting behaviour.
+    ///
+    /// `KINDOF_BRIDGE`: nearer abutment (C++ `getBridgeAttackPoints`).
+    /// Contact vs `KINDOF_STRUCTURE`: numeric range then geometry overlap
+    /// (`iteratePotentialCollisions`).
+    pub fn is_within_attack_range_for_slot(&self, slot: u8, other: &Object) -> bool {
+        if other.is_kind_of(KindOf::Bridge) {
+            return self.is_within_attack_range_for_slot_bridge(slot, other);
+        }
+        if !self.is_within_attack_range_at_distance(slot, self.distance_to_object(other)) {
+            return false;
+        }
+        if other.is_kind_of(KindOf::Structure) && self.slot_is_contact_weapon(slot) {
+            return self.contact_weapon_touches_structure(other);
+        }
+        true
+    }
+
+    /// C++ `isSourceObjectWithGoalPositionWithinAttackRange` (Weapon.cpp:2110).
+    /// Distance from a fake source pose (garrison FIREPOINT) using this
+    /// object's bounding-circle radius, not the container origin.
+    pub fn is_within_attack_range_for_slot_from_goal(
+        &self,
+        slot: u8,
+        goal: glam::Vec3,
+        other: &Object,
+    ) -> bool {
+        let ra = self.thing.template.geometry_info.bounding_circle_radius();
+        let rb = other.thing.template.geometry_info.bounding_circle_radius();
+        let b = other.get_position();
+        let dx = goal.x - b.x;
+        let dz = goal.z - b.z;
+        let dist = ((dx * dx + dz * dz).sqrt() - ra - rb).max(0.0);
+        self.is_within_attack_range_at_distance(slot, dist)
+    }
+
+    /// Goal-pose range to a world position (no victim radius).
+    pub fn is_within_attack_range_pos_for_slot_from_goal(
+        &self,
+        slot: u8,
+        goal: glam::Vec3,
+        pos: glam::Vec3,
+    ) -> bool {
+        let ra = self.thing.template.geometry_info.bounding_circle_radius();
+        let dx = goal.x - pos.x;
+        let dz = goal.z - pos.z;
+        let dist = ((dx * dx + dz * dz).sqrt() - ra).max(0.0);
+        self.is_within_attack_range_at_distance(slot, dist)
+    }
+
+    fn slot_is_contact_weapon(&self, slot: u8) -> bool {
+        use crate::game_logic::weapon_bootstrap::{
+            host_is_contact_weapon_name, is_contact_weapon_range,
+        };
+        let Some(weapon) = self.weapon_slot(slot) else {
+            return false;
+        };
+        self.weapon_name_for_slot(slot)
+            .is_some_and(host_is_contact_weapon_name)
+            || is_contact_weapon_range(weapon.range)
+    }
+
+    /// C++ Weapon.cpp:2161-2171 — try abutment 1, then 2 if out of max range.
+    fn is_within_attack_range_for_slot_bridge(&self, slot: u8, other: &Object) -> bool {
+        let Some(weapon) = self.weapon_slot(slot) else {
+            return false;
+        };
+        let max_range = if self.leech_range_active_for_slot(slot) {
+            f32::MAX
+        } else {
+            self.effective_weapon_range(weapon.range) + 1e-3
+        };
+        let pos = other.get_position();
+        let half = other.selection_radius.max(20.0);
+        let a = glam::Vec3::new(pos.x - half, pos.y, pos.z);
+        let b = glam::Vec3::new(pos.x + half, pos.y, pos.z);
+        let d1 = self.distance_to_pos(a);
+        let dist = if d1 <= max_range {
+            d1
+        } else {
+            self.distance_to_pos(b)
+        };
+        if weapon.min_range > 0.0 && dist + 1e-4 < weapon.min_range {
+            return false;
+        }
+        dist <= max_range
+    }
+
+    /// C++ `iteratePotentialCollisions` after the contact numeric range test.
+    fn contact_weapon_touches_structure(&self, other: &Object) -> bool {
+        use crate::game_logic::host_squish_collide::authored_crusher_geometry;
+        use gamelogic::object::collide::{
+            collide_test_dispatch, CollideInfo, CollideLocAndNormal, Coord3D,
+        };
+        let src_info = &self.thing.template.geometry_info;
+        let tgt_info = &other.thing.template.geometry_info;
+        let g1 = authored_crusher_geometry(
+            src_info,
+            src_info.bounding_circle_radius().max(1.0),
+            src_info.height.max(1.0),
+        );
+        let g2 = authored_crusher_geometry(
+            tgt_info,
+            tgt_info.bounding_circle_radius().max(1.0),
+            tgt_info.height.max(1.0),
+        );
+        let p1 = self.get_position();
+        let p2 = other.get_position();
+        let info_a = CollideInfo::new(
+            Coord3D::new(p1.x, p1.z, p1.y),
+            g1,
+            self.get_orientation(),
+        );
+        let info_b = CollideInfo::new(
+            Coord3D::new(p2.x, p2.z, p2.y),
+            g2,
+            other.get_orientation(),
+        );
+        if info_a.position.z + info_a.geom.get_max_height_above_position() < info_b.position.z
+            || info_a.position.z
+                > info_b.position.z + info_b.geom.get_max_height_above_position()
+        {
+            return false;
+        }
+        let mut cinfo =
+            CollideLocAndNormal::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(0.0, 0.0, 0.0));
+        collide_test_dispatch(
+            g1.get_geom_type(),
+            g2.get_geom_type(),
+            &info_a,
+            &info_b,
+            Some(&mut cinfo),
+        )
+    }
+
+    /// C++ `WeaponSet::isAnyWithinTargetPitch` (WeaponSet.cpp:406-419).
+    /// Unlimited peels pass; if any candidate is loft-limited, one must fit.
+    pub fn is_any_within_target_pitch_for_slots(
+        &self,
+        victim: &Object,
+        slots: &[u8],
+    ) -> bool {
+        use crate::game_logic::weapon_bootstrap::{
+            host_target_pitch_limits_for_weapon_name, is_pitch_within_limits_geom,
+        };
+        let src = self.get_position();
+        let tgt = victim.get_position();
+        let src_half = self.thing.template.geometry_info.height.max(0.0) * 0.5;
+        let tgt_above = victim
+            .thing
+            .template
+            .geometry_info
+            .max_height_above_position();
+        let tgt_below = victim.thing.template.geometry_info.height.max(0.0) * 0.5;
+        let mut any_limited = false;
+        for &slot in slots {
+            if self.weapon_slot(slot).is_none() {
+                continue;
+            }
+            let name = self.weapon_name_for_slot(slot).unwrap_or("");
+            let limits = host_target_pitch_limits_for_weapon_name(name);
+            if limits.is_unlimited() {
+                continue;
+            }
+            any_limited = true;
+            if is_pitch_within_limits_geom(
+                src,
+                tgt,
+                &limits,
+                src_half,
+                tgt_above,
+                tgt_below,
+            ) {
+                return true;
+            }
+        }
+        !any_limited
+    }
+
+    /// C++ `GarrisonContain::calcBestGarrisonPosition` for an enclosing window.
+    /// `None` when the container is not an enclosing garrison or has no FIREPOINTs.
+    pub fn enclosing_garrison_fire_goal(
+        container: &Object,
+        occupant_id: ObjectId,
+        target: glam::Vec3,
+    ) -> Option<glam::Vec3> {
+        if !container.is_garrison_contain() || !container.is_enclosing_garrison_container() {
+            return None;
+        }
+        let bd = container.building_data.as_ref()?;
+        if bd.garrison_fire_points.is_empty() {
+            return None;
+        }
+        let mut best: Option<(f32, glam::Vec3)> = None;
+        for (i, p) in bd.garrison_fire_points.iter().enumerate() {
+            let taken = bd.garrison_point_occupant.get(i).and_then(|id| *id);
+            if taken.is_some() && taken != Some(occupant_id) {
+                continue;
+            }
+            let d = (*p - target).length_squared();
+            if best.map(|(bd, _)| d < bd).unwrap_or(true) {
+                best = Some((d, *p));
+            }
+        }
+        best.map(|(_, p)| p)
+    }
+
 
     /// C++ Weapon::isWithinAttackRange residual across all concrete slots.
     /// When LeechRange is active for a slot, max range is waived (C++ hasLeechRange).
@@ -541,5 +774,146 @@ mod tests {
             HostReloadType::ReturnToBase
         );
         assert!(jet.is_out_of_special_reload_ammo());
+    }
+
+    #[test]
+    fn bridge_range_uses_abutment_not_midspan() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+
+        let mut atk_t = ThingTemplate::new("BridgeAtk");
+        atk_t.add_kind_of(KindOf::Infantry);
+        let mut br_t = ThingTemplate::new("LongBridge");
+        br_t.add_kind_of(KindOf::Bridge);
+        br_t.add_kind_of(KindOf::Attackable);
+        let mut atk = Object::new(atk_t, ObjectId(1), Team::USA);
+        let mut bridge = Object::new(br_t, ObjectId(2), Team::Neutral);
+        atk.weapon = Some(Weapon {
+            range: 30.0,
+            damage: 10.0,
+            ..Weapon::default()
+        });
+        bridge.set_position(Vec3::new(100.0, 0.0, 0.0));
+        bridge.selection_radius = 80.0;
+        // Standing on the near abutment (x=20). Mid-span is 80 wu away (out of
+        // range 30); C++ accepts the nearer end at x=20.
+        atk.set_position(Vec3::new(20.0, 0.0, 0.0));
+        assert!(
+            atk.is_within_attack_range_for_slot(0, &bridge),
+            "near abutment must be in range even when mid-span is not"
+        );
+        atk.set_position(Vec3::new(-40.0, 0.0, 0.0));
+        assert!(
+            !atk.is_within_attack_range_for_slot(0, &bridge),
+            "far past both abutments stays out of range"
+        );
+    }
+
+    #[test]
+    fn contact_weapon_vs_structure_requires_geom_overlap() {
+        use crate::game_logic::{
+            HostGeometryInfo, HostGeometryType, KindOf, Team, ThingTemplate, Weapon,
+        };
+        use glam::Vec3;
+
+        let mut atk_t = ThingTemplate::new("SuicideAtk");
+        atk_t.add_kind_of(KindOf::Infantry);
+        atk_t.geometry_info = HostGeometryInfo {
+            geom_type: HostGeometryType::Cylinder,
+            is_small: true,
+            height: 8.0,
+            major_radius: 2.0,
+            minor_radius: 2.0,
+            authored: true,
+        };
+        atk_t.primary_weapon_name = Some("TerroristSuicideWeapon".to_string());
+        let mut bld_t = ThingTemplate::new("WideBunker");
+        bld_t.add_kind_of(KindOf::Structure);
+        bld_t.add_kind_of(KindOf::Immobile);
+        bld_t.geometry_info = HostGeometryInfo {
+            geom_type: HostGeometryType::Box,
+            is_small: false,
+            height: 20.0,
+            major_radius: 20.0,
+            minor_radius: 8.0,
+            authored: true,
+        };
+        let mut atk = Object::new(atk_t, ObjectId(1), Team::GLA);
+        let mut bld = Object::new(bld_t, ObjectId(2), Team::USA);
+        atk.weapon = Some(Weapon {
+            range: 5.0,
+            damage: 500.0,
+            ..Weapon::default()
+        });
+        bld.set_position(Vec3::ZERO);
+        // Surfaces ~6 wu apart: numeric contact range (~5–9) passes, box does not overlap.
+        atk.set_position(Vec3::new(28.0, 0.0, 0.0));
+        assert!(
+            !atk.is_within_attack_range_for_slot(0, &bld),
+            "contact vs structure must require geometry overlap, not just surface range"
+        );
+        // Overlap the box face (major 20 + attacker r 2).
+        atk.set_position(Vec3::new(21.0, 0.0, 0.0));
+        assert!(
+            atk.is_within_attack_range_for_slot(0, &bld),
+            "touching the building must pass contact collide"
+        );
+    }
+
+    #[test]
+    fn pitch_limited_tank_gun_rejects_steep_loft() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+
+        let mut atk_t = ThingTemplate::new("CrusaderGun");
+        atk_t.add_kind_of(KindOf::Vehicle);
+        atk_t.primary_weapon_name = Some("CrusaderTankGun".to_string());
+        let mut vic_t = ThingTemplate::new("HighVic");
+        vic_t.add_kind_of(KindOf::Infantry);
+        let mut atk = Object::new(atk_t, ObjectId(1), Team::USA);
+        let mut vic = Object::new(vic_t, ObjectId(2), Team::GLA);
+        atk.weapon = Some(Weapon {
+            range: 200.0,
+            damage: 10.0,
+            ..Weapon::default()
+        });
+        atk.set_position(Vec3::ZERO);
+        vic.set_position(Vec3::new(10.0, 50.0, 0.0));
+        assert!(
+            !atk.is_any_within_target_pitch_for_slots(&vic, &[0]),
+            "±15° tank gun must reject a 79° loft"
+        );
+        vic.set_position(Vec3::new(80.0, 0.0, 0.0));
+        assert!(
+            atk.is_any_within_target_pitch_for_slots(&vic, &[0]),
+            "level shot stays inside the loft window"
+        );
+    }
+
+
+    #[test]
+    fn goal_position_range_uses_firepoint_not_container_origin() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+
+        let mut atk_t = ThingTemplate::new("GarrRanger");
+        atk_t.add_kind_of(KindOf::Infantry);
+        let mut vic_t = ThingTemplate::new("GarrVic");
+        vic_t.add_kind_of(KindOf::Infantry);
+        let mut atk = Object::new(atk_t, ObjectId(1), Team::USA);
+        let mut vic = Object::new(vic_t, ObjectId(2), Team::GLA);
+        atk.weapon = Some(Weapon {
+            range: 40.0,
+            damage: 10.0,
+            ..Weapon::default()
+        });
+        atk.set_position(Vec3::ZERO);
+        vic.set_position(Vec3::new(100.0, 0.0, 0.0));
+        assert!(!atk.is_within_attack_range_for_slot(0, &vic));
+        let firepoint = Vec3::new(70.0, 0.0, 0.0);
+        assert!(
+            atk.is_within_attack_range_for_slot_from_goal(0, firepoint, &vic),
+            "FIREPOINT 30 wu from victim is inside range 40"
+        );
     }
 }

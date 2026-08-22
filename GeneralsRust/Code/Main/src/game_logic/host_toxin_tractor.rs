@@ -205,6 +205,9 @@ pub const TOXIN_SHELL_WEAPON: &str = "ToxinShellWeapon";
 pub const TOXIN_SHELL_WEAPON_UPGRADED: &str = "ToxinShellWeaponUpgraded";
 pub const TOXIN_SHELL_WEAPON_GAMMA: &str = "Chem_ToxinShellWeaponGamma";
 
+/// Retail ToxinStreamWeapon DamageType residual.
+pub const TOXIN_DAMAGE_TYPE: &str = "POISON";
+
 /// DeathType residual names (Weapon.ini).
 pub const TOXIN_DEATH_TYPE_POISONED: &str = "POISONED";
 pub const TOXIN_DEATH_TYPE_POISONED_BETA: &str = "POISONED_BETA";

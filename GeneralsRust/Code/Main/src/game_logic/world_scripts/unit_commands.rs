@@ -640,25 +640,34 @@ impl GameLogic {
         ) {
             return true;
         }
-        let (dock, ignore) = {
+        let (dozer_pos, airborne, site) = {
             let Some(dozer) = self.objects.get(&id) else {
                 return false;
             };
-            let dozer_pos = dozer.get_position();
-            if let Some(tid) = dozer.target {
-                if let Some(st) = self.objects.get(&tid) {
-                    let dock = crate::game_logic::host_repair::dozer_repair_approach_position(
-                        dozer_pos,
-                        st.get_position(),
-                        st.selection_radius,
-                    );
-                    (dock, Some(tid))
-                } else {
-                    (location, None)
-                }
-            } else {
-                (location, None)
+            let site = dozer.target.and_then(|tid| {
+                self.objects
+                    .get(&tid)
+                    .map(|st| (st.get_position(), st.selection_radius, tid))
+            });
+            (
+                dozer.get_position(),
+                dozer.is_kind_of(KindOf::Aircraft) || dozer.status.airborne_target,
+                site,
+            )
+        };
+        let (dock, ignore) = match site {
+            Some((st_pos, st_radius, tid)) => {
+                let dock = self.find_good_build_or_repair_position(
+                    dozer_pos,
+                    st_pos,
+                    st_radius,
+                    airborne,
+                    airborne.then_some(tid),
+                    Some(id),
+                );
+                (dock, Some(tid))
             }
+            None => (location, None),
         };
         if !self.assign_unit_path_ignoring(id, dock, &[], ignore) {
             if let Some(unit) = self.objects.get_mut(&id) {
@@ -1047,6 +1056,44 @@ impl GameLogic {
         true
     }
 
+    /// C++ `computeIndividualDestination` → `adjustDestination(..., groupDest)`.
+    pub fn adjust_group_member_goal(
+        &mut self,
+        id: ObjectId,
+        dest: glam::Vec3,
+        group_dest: glam::Vec3,
+    ) -> glam::Vec3 {
+        let Some(obj) = self.objects.get(&id) else {
+            return dest;
+        };
+        if !PathfindingGrid::is_doing_ground_movement(obj) {
+            return dest;
+        }
+        if (dest.x - group_dest.x).abs() < 0.5 && (dest.z - group_dest.z).abs() < 0.5 {
+            return dest;
+        }
+        let from = obj.get_position();
+        let surfaces = if obj.locomotor_surfaces != 0 {
+            obj.locomotor_surfaces
+        } else {
+            gamelogic::ai::pathfind_complete::SURFACE_GROUND
+        };
+
+        let is_crusher = obj.crusher_level > 0;
+        let seeker = obj.owner_player_id.or(Some(obj.team as u32));
+        let crusher_level = obj.crusher_level;
+        self.pathfinding_system.adjust_group_destination(
+            from,
+            dest,
+            group_dest,
+            surfaces,
+            is_crusher,
+            seeker,
+            crusher_level,
+            id.0,
+        )
+    }
+
     /// Wave 232: free group move — stop attack, path, clear formation if goal not offset.
     pub fn unit_command_move_free(
         &mut self,
@@ -1058,9 +1105,11 @@ impl GameLogic {
             return false;
         }
         self.stop_attack_clearing_jet_targeter(id);
+        let goal = self.adjust_group_member_goal(id, goal, click_destination);
         if !self.assign_unit_path(id, goal, &[]) {
             return false;
         }
+
         if let Some(unit) = self.objects.get_mut(&id) {
             // C++ setFormationID(NO_FORMATION) on free individual move when goal is not
             // the stamped formation offset destination.
@@ -1528,6 +1577,8 @@ impl GameLogic {
         };
         unit.set_order_target(Some(target_id));
         unit.set_ai_state(AIState::Entering);
+        // C++ AIEnterState::onEnter ignoreObstacle(goalObject).
+        unit.ignored_obstacle_id = Some(target_id);
         true
     }
 
@@ -1846,8 +1897,13 @@ impl GameLogic {
             return false;
         }
         self.cancel_dock_reservation(id);
-
         if let Some(unit) = self.objects.get_mut(&id) {
+            // C++ AIUpdateInterface::ignoreObstacle — persist for collide recrew.
+            if ignore_obstacle.is_some() {
+                unit.ignored_obstacle_id = ignore_obstacle;
+            } else if !matches!(state, AIState::Entering) {
+                unit.ignored_obstacle_id = None;
+            }
             unit.set_ai_state(state);
             return true;
         }

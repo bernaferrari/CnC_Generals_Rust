@@ -668,6 +668,12 @@ pub struct RenderableObject {
     /// remains snapshot-compatible while weapon-target picking stays exact.
     #[serde(default)]
     pub unattackable: bool,
+    /// C++ `KINDOF_FORCEATTACKABLE` frozen outside the compact 32-bit KindOf
+    /// bank. Force-attack and hover pick civ fences / cargo planes that are
+    /// not Selectable.
+    #[serde(default)]
+    pub is_force_attackable: bool,
+
     /// C++ `KINDOF_CRATE` frozen outside the compact 32-bit KindOf bank.
     /// Physical crate-click routing uses this instead of a template name.
     #[serde(default)]

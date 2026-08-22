@@ -266,44 +266,39 @@ impl ResourceDisplay {
 }
 
 /// Residual faction bucket for construction cameo lists.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ConstructionFaction {
-    America,
-    China,
-    Gla,
+#[derive(Debug, Clone)]
+struct CommandSetCameo {
+    tab: ConstructionTab,
+    item_name: String,
+    display_name: String,
+    cost: i32,
+    build_key: Option<KeyCode>,
 }
 
-/// Infer construction cameo faction from selected producer template residual.
-fn construction_faction_from_building(building_name: &str) -> ConstructionFaction {
-    let k = building_name.to_ascii_lowercase();
-    if k.contains("china")
-        || k.starts_with("nuke_")
-        || k.starts_with("tank_")
-        || k.starts_with("infa_")
+fn classify_live_cameo_tab(command: &str, object: &str) -> ConstructionTab {
+    let cmd = command.to_ascii_uppercase();
+    let obj = object.to_ascii_lowercase();
+    if cmd.contains("DOZER") || cmd.contains("OBJECT_BUILD") {
+        return ConstructionTab::Buildings;
+    }
+    if obj.contains("infantry") {
+        return ConstructionTab::Infantry;
+    }
+    if obj.contains("jet")
+        || obj.contains("aircraft")
+        || obj.contains("comanche")
+        || obj.contains("raptor")
+        || obj.contains("mig")
     {
-        ConstructionFaction::China
-    } else if k.contains("gla")
-        || k.contains("toxin")
-        || k.contains("demo")
-        || k.contains("stealth")
-    {
-        // Stealth/Demo/Toxin generals are GLA residual families.
-        if k.contains("america") {
-            ConstructionFaction::America
-        } else if k.contains("china") {
-            ConstructionFaction::China
-        } else {
-            ConstructionFaction::Gla
-        }
-    } else if k.contains("america")
-        || k.contains("airf_")
-        || k.contains("supw_")
-        || k.contains("laser_")
-    {
-        ConstructionFaction::America
+        return ConstructionTab::Aircraft;
+    }
+    if obj.contains("vehicle") || obj.contains("tank") || obj.contains("dozer") {
+        return ConstructionTab::Vehicles;
+    }
+    if cmd.contains("UNIT") {
+        ConstructionTab::Vehicles
     } else {
-        // Default USA residual when producer name is generic ("Barracks").
-        ConstructionFaction::America
+        ConstructionTab::Buildings
     }
 }
 
@@ -346,6 +341,7 @@ pub struct ConstructionPanel {
     command_set_override: String,
     tab_buttons: Vec<TabButton>,
     construction_buttons: Vec<ConstructionButton>,
+    command_set_cameos: Vec<CommandSetCameo>,
     /// C++ structure placement cursor residual (template awaiting map click).
     pub(crate) pending_structure_placement: Option<String>,
     /// Ghost overlay residual while arming DozerConstruct.
@@ -425,6 +421,7 @@ impl ConstructionPanel {
             command_set_override: String::new(),
             tab_buttons: Vec::new(),
             construction_buttons: Vec::new(),
+            command_set_cameos: Vec::new(),
             pending_structure_placement: None,
             placement: crate::ui::construction_panel::PlacementPreview::default(),
             radius_overlay: None,
@@ -445,23 +442,8 @@ impl ConstructionPanel {
 
     /// Cycle/force construction tab residual without changing selected producer.
     pub fn force_tab(&mut self, tab: ConstructionTab) {
-        let Some(building) = self.selected_building.clone() else {
-            self.current_tab = tab;
-            return;
-        };
-        let faction = construction_faction_from_building(&building);
-        self.construction_buttons.clear();
         self.current_tab = tab;
-        match tab {
-            ConstructionTab::Buildings => self.add_building_structures(faction),
-            ConstructionTab::Infantry => self.add_infantry_units(faction),
-            ConstructionTab::Vehicles => self.add_vehicle_units(faction),
-            ConstructionTab::Aircraft => self.add_aircraft_units(faction),
-            // Host residual tabs without dedicated cameo lists yet.
-            ConstructionTab::NavalUnits | ConstructionTab::SuperWeapons => {
-                self.add_building_structures(faction);
-            }
-        }
+        self.relayout_command_set_cameos();
     }
 
     pub fn pending_structure_placement(&self) -> Option<&str> {
@@ -541,153 +523,69 @@ impl ConstructionPanel {
         self.visible = false;
         self.selected_building = None;
         self.construction_buttons.clear();
+        self.command_set_cameos.clear();
         self.pending_structure_placement = None;
     }
 
     fn setup_construction_options(&mut self, building_name: &str) {
         self.construction_buttons.clear();
-        let faction = construction_faction_from_building(building_name);
-
-        // Setup tabs based on building type
-        let key = building_name.to_ascii_lowercase();
-        if key.contains("barracks") {
-            self.current_tab = ConstructionTab::Infantry;
-            self.add_infantry_units(faction);
-        } else if key.contains("warfactory")
-            || key.contains("war factory")
-            || key.contains("armsdealer")
-        {
-            self.current_tab = ConstructionTab::Vehicles;
-            self.add_vehicle_units(faction);
-        } else if key.contains("airfield") || key.contains("air field") {
-            self.current_tab = ConstructionTab::Aircraft;
-            self.add_aircraft_units(faction);
+        self.command_set_cameos.clear();
+        let override_cs = if self.command_set_override.is_empty() {
+            None
         } else {
-            // Command center / dozer / default: structure placement residual.
-            self.current_tab = ConstructionTab::Buildings;
-            self.add_building_structures(faction);
+            Some(self.command_set_override.as_str())
+        };
+        let Some(cs_name) =
+            crate::ui::construction_panel::resolve_command_set_name(building_name, override_cs)
+        else {
+            self.visible = true;
+            return;
+        };
+        for item in crate::ui::construction_panel::command_set_buildable_cameos(&cs_name) {
+            self.command_set_cameos.push(CommandSetCameo {
+                tab: classify_live_cameo_tab(&item.command, &item.template_name),
+                item_name: item.template_name,
+                display_name: item.display_name,
+                cost: item.cost,
+                build_key: item.hotkey,
+            });
         }
+        if let Some(first) = self.command_set_cameos.first() {
+            self.current_tab = first.tab;
+        }
+        self.relayout_command_set_cameos();
     }
 
-    fn add_infantry_units(&mut self, faction: ConstructionFaction) {
-        // item_name = ThingTemplate residual; display via localized_entry.
-        let units: &[(&str, i32, KeyCode)] = match faction {
-            ConstructionFaction::America => &[
-                ("AmericaInfantryRanger", 225, KeyCode::R),
-                ("AmericaInfantryMissileDefender", 300, KeyCode::M),
-                ("AmericaInfantryPathfinder", 600, KeyCode::P),
-                ("AmericaInfantryColonelBurton", 1500, KeyCode::B),
-            ],
-            ConstructionFaction::China => &[
-                ("ChinaInfantryRedguard", 300, KeyCode::R),
-                ("ChinaInfantryTankHunter", 300, KeyCode::T),
-                ("ChinaInfantryHacker", 500, KeyCode::H),
-                ("ChinaInfantryBlackLotus", 1500, KeyCode::B),
-            ],
-            ConstructionFaction::Gla => &[
-                ("GLAInfantryRebel", 150, KeyCode::R),
-                ("GLAInfantryRPGTrooper", 300, KeyCode::G),
-                ("GLAInfantryTerrorist", 200, KeyCode::T),
-                ("GLAInfantryHijacker", 400, KeyCode::H),
-                ("GLAInfantryJarmenKell", 1500, KeyCode::J),
-            ],
-        };
-        self.add_construction_buttons(units);
-    }
-
-    fn add_vehicle_units(&mut self, faction: ConstructionFaction) {
-        let units: &[(&str, i32, KeyCode)] = match faction {
-            ConstructionFaction::America => &[
-                ("AmericaVehicleHumvee", 700, KeyCode::H),
-                ("AmericaTankCrusader", 1400, KeyCode::C),
-                ("AmericaTankPaladin", 1800, KeyCode::P),
-                ("AmericaVehicleTomahawk", 1200, KeyCode::T),
-            ],
-            ConstructionFaction::China => &[
-                ("ChinaTankBattleMaster", 800, KeyCode::B),
-                ("ChinaTankGattling", 800, KeyCode::G),
-                ("ChinaTankOverlord", 2100, KeyCode::O),
-                ("ChinaVehicleInfernoCannon", 900, KeyCode::I),
-            ],
-            ConstructionFaction::Gla => &[
-                ("GLAVehicleTechnical", 500, KeyCode::T),
-                ("GLATankScorpion", 600, KeyCode::S),
-                ("GLAVehicleQuadCannon", 700, KeyCode::Q),
-                ("GLAVehicleRocketBuggy", 900, KeyCode::R),
-            ],
-        };
-        self.add_construction_buttons(units);
-    }
-
-    fn add_aircraft_units(&mut self, faction: ConstructionFaction) {
-        let units: &[(&str, i32, KeyCode)] = match faction {
-            ConstructionFaction::America => &[
-                ("AmericaJetComanche", 1200, KeyCode::C),
-                ("AmericaJetRaptor", 1600, KeyCode::R),
-                ("AmericaJetStealthFighter", 2500, KeyCode::S),
-            ],
-            ConstructionFaction::China => &[
-                ("ChinaJetMiG", 1200, KeyCode::M),
-                // China airfield residual sample set.
-            ],
-            ConstructionFaction::Gla => &[
-                // GLA has limited fixed-wing residual; keep empty-safe sample.
-            ],
-        };
-        self.add_construction_buttons(units);
-    }
-
-    fn add_building_structures(&mut self, faction: ConstructionFaction) {
-        let buildings: &[(&str, i32, KeyCode)] = match faction {
-            ConstructionFaction::America => &[
-                ("AmericaPowerPlant", 800, KeyCode::P),
-                ("AmericaBarracks", 600, KeyCode::B),
-                ("AmericaSupplyCenter", 2000, KeyCode::S),
-                ("AmericaWarFactory", 2000, KeyCode::W),
-            ],
-            ConstructionFaction::China => &[
-                ("ChinaPowerPlant", 800, KeyCode::P),
-                ("ChinaBarracks", 500, KeyCode::B),
-                ("ChinaSupplyCenter", 1500, KeyCode::S),
-                ("ChinaWarFactory", 2000, KeyCode::W),
-            ],
-            ConstructionFaction::Gla => &[
-                ("GLAPowerPlant", 800, KeyCode::P),
-                ("GLABarracks", 400, KeyCode::B),
-                ("GLASupplyStash", 1500, KeyCode::S),
-                ("GLAArmsDealer", 1800, KeyCode::A),
-            ],
-        };
-        self.add_construction_buttons(buildings);
-    }
-
-    fn add_construction_buttons(&mut self, items: &[(&str, i32, KeyCode)]) {
+    fn relayout_command_set_cameos(&mut self) {
+        self.construction_buttons.clear();
+        let items: Vec<&CommandSetCameo> = self
+            .command_set_cameos
+            .iter()
+            .filter(|c| c.tab == self.current_tab)
+            .collect();
         let buttons_per_row = 4;
         let button_size = 64u32;
         let spacing = 8u32;
         let start_x = self.position.0 + 10;
         let start_y = self.position.1 + 40;
-
-        for (i, &(name, cost, key)) in items.iter().enumerate() {
+        for (i, cameo) in items.into_iter().enumerate() {
             let row = i / buttons_per_row;
             let col = i % buttons_per_row;
-
             let x = start_x + col as i32 * (button_size + spacing) as i32;
             let y = start_y + row as i32 * (button_size + spacing) as i32;
-
             self.construction_buttons.push(ConstructionButton {
-                item_name: name.to_string(),
-                display_name: localized_entry(friendly_buildable_label(name)),
+                item_name: cameo.item_name.clone(),
+                display_name: if cameo.display_name.is_empty() {
+                    localized_entry(friendly_buildable_label(&cameo.item_name))
+                } else {
+                    cameo.display_name.clone()
+                },
                 position: (x, y),
                 size: (button_size, button_size),
-                cost,
+                cost: cameo.cost,
                 enabled: true,
                 hovered: false,
-                // C++ ControlBar.cpp:2472-2476 TextLabel `&` wins over hardcoded keys.
-                build_key: crate::ui::construction_panel::hotkey_for_command_name(&format!(
-                    "Command_Construct{name}"
-                ))
-                .or(Some(key)),
+                build_key: cameo.build_key,
             });
         }
     }
@@ -867,6 +765,9 @@ impl GameHUD {
         let start_x = (self.screen_size.0 / 2) as i32 - 200;
         let start_y = self.screen_size.1 as i32 - 60;
         for (i, (name, enabled)) in commands.iter().enumerate() {
+            if name.is_empty() {
+                continue;
+            }
             let hotkey = command_button_hotkey(name);
             self.command_buttons.push(CommandButton {
                 command: name.clone(),
@@ -1919,55 +1820,52 @@ mod tests {
     }
 
     #[test]
-    fn china_barracks_shows_redguard_cameo_residual() {
-        let mut panel = ConstructionPanel::new(0, 0);
-        panel.show_for_building("ChinaBarracks");
-        assert!(panel.is_structure_tab() == false);
-        let names: Vec<_> = panel
+    fn construction_panel_does_not_invent_faction_cameos() {
+        let src = include_str!("hud.rs");
+        assert!(
+            !src.contains("fn add_infantry_units")
+                && !src.contains("ChinaInfantryRedguard")
+                && !src.contains("ChinaTankBattleMaster")
+                && !src.contains("AmericaInfantryMissileDefender")
+                && src.contains("command_set_buildable_cameos"),
+            "GameHUD ConstructionPanel must use CommandSet objects, not faction heuristics"
+        );
+        let mut china = ConstructionPanel::new(0, 0);
+        china.show_for_building("ChinaBarracks");
+        let china_names: Vec<_> = china
             .construction_buttons
             .iter()
             .map(|b| b.item_name.as_str())
             .collect();
         assert!(
-            names.iter().any(|n| n.contains("Redguard")),
-            "China barracks should list Redguard residual: {:?}",
-            names
+            !china_names.iter().any(|n| n.contains("Ranger")),
+            "China barracks must not invent USA Ranger: {:?}",
+            china_names
         );
-        assert!(
-            !names.iter().any(|n| n.contains("Ranger")),
-            "China barracks must not list USA Ranger: {:?}",
-            names
-        );
-    }
-
-    #[test]
-    fn gla_barracks_shows_rebel_cameo_residual() {
-        let mut panel = ConstructionPanel::new(0, 0);
-        panel.show_for_building("GLABarracks");
-        let names: Vec<_> = panel
+        let mut gla = ConstructionPanel::new(0, 0);
+        gla.show_for_building("GLABarracks");
+        let gla_names: Vec<_> = gla
             .construction_buttons
             .iter()
             .map(|b| b.item_name.as_str())
             .collect();
         assert!(
-            names.iter().any(|n| n.contains("Rebel")),
-            "GLA barracks should list Rebel residual: {:?}",
-            names
+            !gla_names.iter().any(|n| n.contains("Ranger") || n.contains("Redguard")),
+            "GLA barracks must not invent USA/China infantry: {:?}",
+            gla_names
         );
-    }
-
-    #[test]
-    fn america_cc_shows_america_structures_residual() {
-        let mut panel = ConstructionPanel::new(0, 0);
-        panel.show_for_building("AmericaCommandCenter");
-        assert!(panel.is_structure_tab());
-        let names: Vec<_> = panel
+        let mut cc = ConstructionPanel::new(0, 0);
+        cc.show_for_building("AmericaCommandCenter");
+        let cc_names: Vec<_> = cc
             .construction_buttons
             .iter()
             .map(|b| b.item_name.as_str())
             .collect();
-        assert!(names.iter().any(|n| *n == "AmericaBarracks"));
-        assert!(names.iter().any(|n| *n == "AmericaPowerPlant"));
+        assert!(
+            !cc_names.iter().any(|n| *n == "AmericaBarracks" || *n == "AmericaPowerPlant"),
+            "CC must not invent dozer structure lists: {:?}",
+            cc_names
+        );
     }
 
     fn construction_click_emits_queue_unit_production_event_residual() {

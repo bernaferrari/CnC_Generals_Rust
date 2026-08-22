@@ -663,6 +663,9 @@ pub struct Object {
     /// C++ AIUpdate m_waitingForPath residual.
     #[serde(default)]
     pub waiting_for_path: bool,
+    /// C++ AIUpdateInterface::m_ignoreObstacleID residual.
+    #[serde(default)]
+    pub ignored_obstacle_id: Option<ObjectId>,
     /// C++ m_moveOutOfWay1 residual (object id we're yielding for).
     #[serde(default)]
     pub move_away_from: Option<ObjectId>,
@@ -843,6 +846,10 @@ pub struct Object {
     /// C++ m_requestedVictimID residual.
     #[serde(default)]
     pub requested_victim_id: Option<ObjectId>,
+    /// C++ `AIUpdateInterface::m_repulsor2` — prior safe-path threat.
+    #[serde(default)]
+    pub safe_path_repulsor2: Option<ObjectId>,
+
     /// C++ m_requestedDestination residual.
     #[serde(default)]
     pub requested_destination: Option<glam::Vec3>,
@@ -968,6 +975,12 @@ pub struct Object {
     /// C++ `flashAsSelected(&myHouseColor)` envelope RGB. `None` is white default.
     #[serde(default)]
     pub selection_flash_color: Option<[f32; 3]>,
+    /// C++ Drawable::m_flashCount (`NAMED/TEAM FLASH` / `FLASH_WHITE`).
+    #[serde(default)]
+    pub flash_count: i32,
+    /// C++ Drawable::m_flashColor packed RGB (`RGBColor::getAsInt`).
+    #[serde(default)]
+    pub flash_color: u32,
 
 
     /// AI state for autonomous behavior
@@ -1270,6 +1283,13 @@ pub struct Object {
     /// Remaining logic frames for emoticon (C++ duration frames).
     #[serde(default)]
     pub emoticon_frames_left: i32,
+    /// C++ Object custom indicator color residual (`NAMED_CUSTOM_COLOR`).
+    /// Packed GameMakeColor `(a<<24)|(r<<16)|(g<<8)|b`. None = house color.
+    #[serde(default)]
+    pub custom_indicator_color: Option<u32>,
+    /// C++ Locomotor::m_closeEnoughDist residual (`SET_STOPPING_DISTANCE`).
+    #[serde(default)]
+    pub close_enough_dist: Option<f32>,
     /// C++ AIUpdateInterface::setSurrendered residual.
     #[serde(default)]
     pub is_surrendered: bool,

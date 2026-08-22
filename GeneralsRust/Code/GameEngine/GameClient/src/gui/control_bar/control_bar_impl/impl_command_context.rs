@@ -223,6 +223,9 @@ impl ControlBar {
                 if command.command_type == CommandType::Sell && entry.script_unsellable {
                     return Ok(CommandAvailability::Hidden);
                 }
+                if let Some(avail) = leftover_presentation_sell_or_subdued(self, command) {
+                    return Ok(avail);
+                }
                 if entry.disabled && !self.force_disabled_evaluation(command) {
                     if !command_evaluable_when_disabled(command.command_type) {
                         return Ok(CommandAvailability::Restricted);
@@ -260,6 +263,9 @@ impl ControlBar {
             {
                 if leftover_presentation_command_set_hidden(self) {
                     return Ok(CommandAvailability::Hidden);
+                }
+                if let Some(avail) = leftover_presentation_sell_or_subdued(self, command) {
+                    return Ok(avail);
                 }
                 if let Some(hidden) = leftover_buildable_hidden(command, player_id) {
                     return Ok(hidden);
@@ -474,6 +480,27 @@ impl ControlBar {
             CommandType::ExecuteRailedTransport => Ok(CommandAvailability::Available),
             _ => Ok(CommandAvailability::Available),
         }
+    }
+
+    /// Live GameHUD strip: leftover `getCommandAvailability` without WND.
+    pub fn leftover_evaluate_named_command(
+        &self,
+        command_name: &str,
+        obj_id: u32,
+        player_id: u32,
+    ) -> CommandAvailability {
+        if command_name.is_empty() {
+            return CommandAvailability::Hidden;
+        }
+        let button = get_ini_control_bar()
+            .and_then(|bar| bar.find_command_button_resolved(command_name).cloned())
+            .map(|def| Self::command_from_definition(&def))
+            .unwrap_or_else(|| CommandButton {
+                command_name: command_name.to_string(),
+                ..CommandButton::default()
+            });
+        self.get_command_availability(&button, obj_id, player_id)
+            .unwrap_or(CommandAvailability::Hidden)
     }
 
     fn force_disabled_evaluation(&self, command: &CommandButton) -> bool {

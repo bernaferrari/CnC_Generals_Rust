@@ -15,16 +15,18 @@ struct IdleWorkerSelectionTarget {
 const CMD_ALLOW_SHRUBBERY_TARGET: u32 = 0x0000_0010;
 const CMD_ALLOW_MINE_TARGET: u32 = 0x0000_0800;
 
-/// Live-host analog of leftover `ContextPickProfile` mine/shrubbery bits.
+/// Live-host analog of leftover `ContextPickProfile` mine/shrubbery/force-attack bits.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct HostContextPickProfile {
     include_mines: bool,
     include_shrubbery: bool,
+    include_force_attackable: bool,
 }
 
 /// C++ `getPickTypesForContext` / `getPickTypesForCurrentSelection`
-/// (`SelectionInfo.cpp:227-295`). An armed GUI command owns the extra
-/// pick bits; otherwise force-attack + a `DAMAGE_FLAME` weapon adds
+/// (`SelectionInfo.cpp:227-295`). Always `PICK_TYPE_SELECTABLE`; force-attack
+/// adds `PICK_TYPE_FORCEATTACKABLE`. An armed GUI command owns the extra
+/// mine/shrubbery bits; otherwise force-attack + a `DAMAGE_FLAME` weapon adds
 /// shrubbery. Disarm no longer auto-picks mines.
 pub(super) fn host_context_pick_profile(
     force_attack_mode: bool,
@@ -32,6 +34,9 @@ pub(super) fn host_context_pick_profile(
     selection_has_flame: bool,
 ) -> HostContextPickProfile {
     let mut profile = HostContextPickProfile::default();
+    if force_attack_mode {
+        profile.include_force_attackable = true;
+    }
     if let Some(options) = armed_gui_command_options {
         if options & CMD_ALLOW_MINE_TARGET != 0 {
             profile.include_mines = true;
@@ -44,6 +49,7 @@ pub(super) fn host_context_pick_profile(
     }
     profile
 }
+
 
 fn presentation_is_mine_pick(o: &crate::presentation_frame::RenderableObject) -> bool {
     use crate::game_logic::KindOf;
@@ -61,6 +67,33 @@ fn presentation_is_shrubbery_pick(o: &crate::presentation_frame::RenderableObjec
     crate::game_logic::host_car_bomb::object_definition_has_kind(&o.template_name, "SHRUBBERY")
 }
 
+fn presentation_is_force_attackable_pick(o: &crate::presentation_frame::RenderableObject) -> bool {
+    use crate::game_logic::KindOf;
+    o.is_force_attackable
+        || crate::presentation_frame::PresentationFrame::object_has_kind(
+            o,
+            KindOf::ForceAttackable,
+        )
+        || crate::game_logic::host_car_bomb::object_definition_has_kind(
+            &o.template_name,
+            "FORCEATTACKABLE",
+        )
+}
+
+fn profile_widens_presentation(
+    o: &crate::presentation_frame::RenderableObject,
+    profile: HostContextPickProfile,
+) -> bool {
+    (profile.include_mines && presentation_is_mine_pick(o))
+        || (profile.include_shrubbery && presentation_is_shrubbery_pick(o))
+        || (profile.include_force_attackable && presentation_is_force_attackable_pick(o))
+}
+
+fn profile_has_widened_bits(profile: HostContextPickProfile) -> bool {
+    profile.include_mines || profile.include_shrubbery || profile.include_force_attackable
+}
+
+
 fn presentation_object_has_flame_weapon(
     o: &crate::presentation_frame::RenderableObject,
 ) -> bool {
@@ -71,7 +104,7 @@ fn presentation_object_has_flame_weapon(
         == crate::game_logic::combat::DamageType::Flame
 }
 
-/// Nearest mine/shrubbery under the cursor when the pick profile widens.
+/// Nearest mine/shrubbery/force-attackable under the cursor when the pick profile widens.
 pub(super) fn pick_widened_context_target(
     frame: &crate::presentation_frame::PresentationFrame,
     position: glam::Vec3,
@@ -79,7 +112,7 @@ pub(super) fn pick_widened_context_target(
     base_selection_radius: f32,
     profile: HostContextPickProfile,
 ) -> Option<ObjectId> {
-    if !profile.include_mines && !profile.include_shrubbery {
+    if !profile_has_widened_bits(profile) {
         return None;
     }
 
@@ -92,11 +125,10 @@ pub(super) fn pick_widened_context_target(
         if frame.box_pick_hides_non_local(o) {
             continue;
         }
-        let extra = (profile.include_mines && presentation_is_mine_pick(o))
-            || (profile.include_shrubbery && presentation_is_shrubbery_pick(o));
-        if !extra {
+        if !profile_widens_presentation(o, profile) {
             continue;
         }
+
         let distance = o.position.distance(position);
         let radius = base_selection_radius.max(o.selection_radius);
         if distance > radius {
@@ -116,7 +148,7 @@ fn pick_widened_context_target_along_ray(
     player_team: Option<crate::game_logic::Team>,
     profile: HostContextPickProfile,
 ) -> Option<ObjectId> {
-    if !profile.include_mines && !profile.include_shrubbery {
+    if !profile_has_widened_bits(profile) {
         return None;
     }
     let ray_dir = ray_end - ray_start;
@@ -128,11 +160,10 @@ fn pick_widened_context_target_along_ray(
         if frame.box_pick_hides_non_local(o) {
             continue;
         }
-        let extra = (profile.include_mines && presentation_is_mine_pick(o))
-            || (profile.include_shrubbery && presentation_is_shrubbery_pick(o));
-        if !extra {
+        if !profile_widens_presentation(o, profile) {
             continue;
         }
+
         let radius = crate::pick_ray::presentation_mesh_pick_radius(
             o.selection_radius,
             o.health_box_width,
@@ -387,6 +418,19 @@ impl CnCGameEngine {
 
     /// C++ `W3DView::pickDrawable` + point `iterateDrawablesInRegion`.
     pub(super) fn host_pick_object_at_cursor(&self, command_context: bool) -> Option<ObjectId> {
+        self.host_pick_object_at_cursor_ex(command_context, false)
+    }
+
+    /// C++ `SelectionXlat.cpp:429` mouseover hardcodes `getPickTypesForContext(true)`.
+    pub(super) fn host_pick_hover_object_at_cursor(&self) -> Option<ObjectId> {
+        self.host_pick_object_at_cursor_ex(true, true)
+    }
+
+    fn host_pick_object_at_cursor_ex(
+        &self,
+        command_context: bool,
+        hover_force_attackable: bool,
+    ) -> Option<ObjectId> {
         if self.host_cursor_blocked_by_opaque_window() {
             return None;
         }
@@ -405,11 +449,14 @@ impl CnCGameEngine {
         let force_attack_mode = self.keys_pressed.contains(&winit::keyboard::Key::Named(
             winit::keyboard::NamedKey::Control,
         ));
-        let profile = host_context_pick_profile(
+        let mut profile = host_context_pick_profile(
             force_attack_mode,
             self.host_armed_gui_command_options(),
             self.host_selection_has_flame_weapon(),
         );
+        if hover_force_attackable {
+            profile.include_force_attackable = true;
+        }
         let standard = crate::pick_ray::pick_object_id_along_camera_ray(
             frame,
             ray_start,
@@ -428,6 +475,7 @@ impl CnCGameEngine {
             .filter(|&id| !self.host_object_id_blocked_by_opaque_hud(id))
             .map(|id| self.remap_ignored_in_gui_pick(frame, id))
     }
+
 
     fn remap_ignored_in_gui_pick(
         &self,
@@ -1758,31 +1806,6 @@ impl CnCGameEngine {
         self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
 
-    /// Toggle camera follow on primary selection residual (Alt+F).
-
-    /// Snap camera to centroid of current selection residual (Alt+Space).
-    pub(super) fn center_camera_on_selection(&mut self) {
-        // Wave 234: selection prefers engine/presentation freeze.
-        let selected = self.ui_selected_ids(self.current_player_id);
-        if selected.is_empty() {
-            let msg = "Nothing selected";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
-            return;
-        }
-        // Presentation-only poses for InGame camera center.
-        let Some(frame) = self.last_presentation_frame.as_ref() else {
-            return;
-        };
-        let Some(center) = frame.centroid_of_ids(&selected) else {
-            return;
-        };
-        self.host_player_look_at(center);
-        let msg = "Centered on selection";
-        self.game_hud.push_info_message(msg);
-        self.ui_manager.game_hud_mut().push_info_message(msg);
-    }
-
     /// Select friendly dozers/workers currently constructing residual (Ctrl+Alt+B).
     pub(super) fn select_all_constructing_workers(&mut self) {
         // Presentation-only: InGame always has last_presentation_frame.
@@ -2132,13 +2155,18 @@ mod idle_worker_selection_tests {
         // C++ SelectionInfo.cpp:227-295.
         assert_eq!(
             host_context_pick_profile(true, None, false),
-            HostContextPickProfile::default()
+            HostContextPickProfile {
+                include_mines: false,
+                include_shrubbery: false,
+                include_force_attackable: true,
+            }
         );
         assert_eq!(
             host_context_pick_profile(true, None, true),
             HostContextPickProfile {
                 include_mines: false,
                 include_shrubbery: true,
+                include_force_attackable: true,
             }
         );
         assert_eq!(
@@ -2150,6 +2178,7 @@ mod idle_worker_selection_tests {
             HostContextPickProfile {
                 include_mines: true,
                 include_shrubbery: false,
+                include_force_attackable: true,
             }
         );
         assert_eq!(
@@ -2157,14 +2186,65 @@ mod idle_worker_selection_tests {
             HostContextPickProfile {
                 include_mines: false,
                 include_shrubbery: true,
+                include_force_attackable: true,
             }
         );
         // Armed GUI command with no extra bits must not fall through to flame.
         assert_eq!(
             host_context_pick_profile(true, Some(0), true),
-            HostContextPickProfile::default()
+            HostContextPickProfile {
+                include_mines: false,
+                include_shrubbery: false,
+                include_force_attackable: true,
+            }
         );
     }
+
+    #[test]
+    fn force_attack_pick_hits_forceattackable_only_fence() {
+        // C++ KindOf.h: FORCEATTACKABLE is pickable via force-attack even if
+        // not Selectable. Civ fences / cargo planes use this bit.
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use crate::presentation_frame::PresentationFrame;
+        let mut logic = GameLogic::new();
+        let mut fence = ThingTemplate::new("CivWoodenFence");
+        fence.set_health(50.0);
+        fence.add_kind_of(KindOf::ForceAttackable);
+        logic.templates.insert("CivWoodenFence".into(), fence);
+        let id = logic
+            .create_object("CivWoodenFence", Team::USA, glam::Vec3::ZERO)
+            .expect("fence");
+
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let stamped = frame.objects.iter().find(|o| o.id == id).expect("stamped");
+        assert!(
+            stamped.is_force_attackable,
+            "presentation must freeze KINDOF_FORCEATTACKABLE"
+        );
+        assert!(!crate::unit_control::UnitControlSystem::presentation_is_selectable(stamped));
+        assert!(!crate::unit_control::UnitControlSystem::presentation_is_attackable(stamped));
+        let armed = host_context_pick_profile(true, None, false);
+        assert_eq!(
+            pick_widened_context_target(&frame, glam::Vec3::ZERO, Some(Team::USA), 20.0, armed),
+            Some(id)
+        );
+        assert_eq!(
+            pick_widened_context_target(
+                &frame,
+                glam::Vec3::ZERO,
+                Some(Team::USA),
+                20.0,
+                HostContextPickProfile::default()
+            ),
+            None
+        );
+        let camera = glam::Vec3::new(0.0, 80.0, 80.0);
+        assert_eq!(
+            pick_widened_context_target_along_ray(&frame, camera, glam::Vec3::ZERO, Some(Team::USA), armed),
+            Some(id)
+        );
+    }
+
 
 
 }

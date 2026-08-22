@@ -16,6 +16,11 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         log::debug!("Player '{}' selling everything", player_name);
+        crate::scripting::executor::request_host_script_player_misc(
+            crate::scripting::executor::HostScriptPlayerMiscRequest::SellEverything {
+                player: player_name.clone(),
+            },
+        );
 
         let object_ids = player_list()
             .read()
@@ -78,6 +83,12 @@ impl ScriptActionDispatcher {
                 }
             }
         }
+        crate::scripting::executor::request_host_can_build(
+            crate::scripting::executor::HostScriptCanBuildRequest::Base {
+                player: player_name,
+                enable: false,
+            },
+        );
 
         Ok(ScriptActionResult::Success)
     }
@@ -101,6 +112,13 @@ impl ScriptActionDispatcher {
                 }
             }
         }
+        crate::scripting::executor::request_host_can_build(
+            crate::scripting::executor::HostScriptCanBuildRequest::Factories {
+                player: player_name,
+                template: object_name,
+                enable: false,
+            },
+        );
 
         Ok(ScriptActionResult::Success)
     }
@@ -119,6 +137,12 @@ impl ScriptActionDispatcher {
                 }
             }
         }
+        crate::scripting::executor::request_host_can_build(
+            crate::scripting::executor::HostScriptCanBuildRequest::Units {
+                player: player_name,
+                enable: false,
+            },
+        );
 
         Ok(ScriptActionResult::Success)
     }
@@ -137,6 +161,12 @@ impl ScriptActionDispatcher {
                 }
             }
         }
+        crate::scripting::executor::request_host_can_build(
+            crate::scripting::executor::HostScriptCanBuildRequest::Base {
+                player: player_name,
+                enable: true,
+            },
+        );
 
         Ok(ScriptActionResult::Success)
     }
@@ -156,6 +186,13 @@ impl ScriptActionDispatcher {
                 }
             }
         }
+        crate::scripting::executor::request_host_can_build(
+            crate::scripting::executor::HostScriptCanBuildRequest::Factories {
+                player: player_name,
+                template: object_name,
+                enable: true,
+            },
+        );
 
         Ok(ScriptActionResult::Success)
     }
@@ -174,6 +211,12 @@ impl ScriptActionDispatcher {
                 }
             }
         }
+        crate::scripting::executor::request_host_can_build(
+            crate::scripting::executor::HostScriptCanBuildRequest::Units {
+                player: player_name,
+                enable: true,
+            },
+        );
 
         Ok(ScriptActionResult::Success)
     }
@@ -612,6 +655,12 @@ impl ScriptActionDispatcher {
             player_name,
             structure_name
         );
+        crate::scripting::executor::request_host_script_player_misc(
+            crate::scripting::executor::HostScriptPlayerMiscRequest::RepairNamed {
+                player: player_name.clone(),
+                structure: structure_name.clone(),
+            },
+        );
 
         let tracker = get_named_object_tracker();
         let Some(structure_id) = tracker.get_object_id(&structure_name).ok().flatten() else {
@@ -668,6 +717,11 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         log::debug!("Excluding '{}' from score screen", player_name);
+        crate::scripting::executor::request_host_script_player_misc(
+            crate::scripting::executor::HostScriptPlayerMiscRequest::ExcludeFromScore {
+                player: player_name.clone(),
+            },
+        );
 
         if let Ok(list_guard) = player_list().read() {
             if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
@@ -740,6 +794,12 @@ impl ScriptActionDispatcher {
         let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         let mut skillset = self.get_int_param(action, 1)?;
         log::debug!("Player '{}' selecting skillset {}", player_name, skillset);
+        crate::scripting::executor::request_host_script_player_misc(
+            crate::scripting::executor::HostScriptPlayerMiscRequest::SelectSkillset {
+                player: player_name.clone(),
+                skillset,
+            },
+        );
 
         if let Ok(list_guard) = player_list().read() {
             if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {

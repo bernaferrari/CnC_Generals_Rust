@@ -1293,7 +1293,8 @@ impl GameLogic {
         profile: crate::game_logic::host_bomb_truck_detonate::BombTruckDetonationProfile,
     ) -> bool {
         use crate::game_logic::host_bomb_truck_detonate::{
-            bomb_truck_blast_damage_at, BOMB_TRUCK_POISON_AUDIO,
+            bomb_truck_blast_damage_at, BOMB_TRUCK_DAMAGE_TYPE, BOMB_TRUCK_DEATH_TYPE,
+            BOMB_TRUCK_POISON_AUDIO,
         };
 
         let max_radius = profile.secondary_radius();
@@ -1328,7 +1329,12 @@ impl GameLogic {
             if let Some(victim) = self.objects.get_mut(&vid) {
                 damage_dealt += dmg.min(victim.health.current.max(0.0));
                 blast_hits = blast_hits.saturating_add(1);
-                if victim.take_damage_from(dmg, Some(truck_id)) {
+                if victim.take_damage_from_immediate_residual(
+                    dmg,
+                    Some(truck_id),
+                    BOMB_TRUCK_DAMAGE_TYPE,
+                    BOMB_TRUCK_DEATH_TYPE,
+                ) {
                     destroy_ids.push((vid, truck_team));
                 }
             }

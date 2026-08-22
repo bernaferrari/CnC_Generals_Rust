@@ -2469,6 +2469,132 @@ fn money_crate_above_terrain_and_forbidden_kindof_residual() {
     );
 }
 
+#[test]
+fn money_crate_required_kindof_rejects_infantry() {
+    // C++ CrateCollide::isValidToExecute isKindOfMulti(m_kindof, m_kindofnot).
+    use crate::game_logic::host_money_crate::SUPPLY_DROP_CRATE_MONEY_PROVIDED;
+    use crate::game_logic::{KindOf, ThingTemplate};
+    use game_engine::common::system::kind_of::KindOfMask;
+
+    let mut game_logic = GameLogic::new();
+    ensure_test_player_for_team(&mut game_logic, Team::USA);
+    if !game_logic.templates.contains_key("TestSupplyDropZoneCrate") {
+        let mut t = ThingTemplate::new("TestSupplyDropZoneCrate");
+        t.add_kind_of(KindOf::Crate).set_health(1.0);
+        game_logic
+            .templates
+            .insert("TestSupplyDropZoneCrate".to_string(), t);
+    }
+    if !game_logic.templates.contains_key("TestRanger") {
+        let mut t = ThingTemplate::new("TestRanger");
+        t.add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        game_logic.templates.insert("TestRanger".to_string(), t);
+    }
+    if !game_logic.templates.contains_key("TestTank") {
+        ensure_test_tank_template(&mut game_logic);
+    }
+
+    let crate_id = game_logic
+        .create_object(
+            "TestSupplyDropZoneCrate",
+            Team::Neutral,
+            Vec3::new(10.0, 0.0, 10.0),
+        )
+        .expect("crate");
+    game_logic
+        .host_money_crates
+        .register_supply_drop_crate(crate_id);
+    game_logic.host_money_crates.set_kindof_gates(
+        crate_id,
+        KindOfMask::VEHICLE.bits(),
+        0,
+    );
+
+    let _ranger = game_logic
+        .create_object("TestRanger", Team::USA, Vec3::new(12.0, 0.0, 10.0))
+        .expect("ranger");
+    let cash_before = game_logic
+        .get_player_mut_by_team(Team::USA)
+        .map(|p| test_observed_supplies(p))
+        .unwrap_or(0);
+    game_logic.update_money_crate_collides();
+    let cash_inf = game_logic
+        .get_player_mut_by_team(Team::USA)
+        .map(|p| test_observed_supplies(p))
+        .unwrap_or(0);
+    assert_eq!(
+        cash_inf, cash_before,
+        "RequiredKindOf VEHICLE must reject infantry"
+    );
+    assert!(game_logic.host_money_crates.contains(crate_id));
+
+    let _tank = game_logic
+        .create_object("TestTank", Team::USA, Vec3::new(11.0, 0.0, 10.0))
+        .expect("tank");
+    game_logic.update_money_crate_collides();
+    let cash_veh = game_logic
+        .get_player_mut_by_team(Team::USA)
+        .map(|p| test_observed_supplies(p))
+        .unwrap_or(0);
+    assert_eq!(
+        cash_veh,
+        cash_before.saturating_add(SUPPLY_DROP_CRATE_MONEY_PROVIDED),
+        "RequiredKindOf VEHICLE must accept tank"
+    );
+}
+
+#[test]
+fn money_crate_mine_without_ai_does_not_pickup() {
+    // C++ CrateCollide::isValidToExecute requires getAIUpdateInterface unless BuildingPickup.
+    use crate::game_logic::{KindOf, ThingTemplate};
+
+    let mut game_logic = GameLogic::new();
+    ensure_test_player_for_team(&mut game_logic, Team::USA);
+    if !game_logic.templates.contains_key("TestSupplyDropZoneCrate") {
+        let mut t = ThingTemplate::new("TestSupplyDropZoneCrate");
+        t.add_kind_of(KindOf::Crate).set_health(1.0);
+        game_logic
+            .templates
+            .insert("TestSupplyDropZoneCrate".to_string(), t);
+    }
+    if !game_logic.templates.contains_key("TestLandMine") {
+        let mut t = ThingTemplate::new("TestLandMine");
+        t.add_kind_of(KindOf::Mine).set_health(10.0);
+        game_logic.templates.insert("TestLandMine".to_string(), t);
+    }
+
+    let crate_id = game_logic
+        .create_object(
+            "TestSupplyDropZoneCrate",
+            Team::Neutral,
+            Vec3::new(10.0, 0.0, 10.0),
+        )
+        .expect("crate");
+    game_logic
+        .host_money_crates
+        .register_supply_drop_crate(crate_id);
+    let _mine = game_logic
+        .create_object("TestLandMine", Team::USA, Vec3::new(11.0, 0.0, 10.0))
+        .expect("mine");
+    let cash_before = game_logic
+        .get_player_mut_by_team(Team::USA)
+        .map(|p| test_observed_supplies(p))
+        .unwrap_or(0);
+    game_logic.update_money_crate_collides();
+    let cash_after = game_logic
+        .get_player_mut_by_team(Team::USA)
+        .map(|p| test_observed_supplies(p))
+        .unwrap_or(0);
+    assert_eq!(
+        cash_after, cash_before,
+        "mine has no AIUpdateInterface and must not absorb crate"
+    );
+    assert!(game_logic.host_money_crates.contains(crate_id));
+}
+
+
 /// Residual: under-construction / neutral supply drop zone must not credit cash.
 #[test]
 fn supply_drop_zone_residual_skips_under_construction_and_neutral() {

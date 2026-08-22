@@ -124,13 +124,45 @@ impl GameLogic {
             return 0.0;
         };
         let base = obj.vision_range.max(0.0);
-        // Attitude multipliers residual (fail-closed approximate).
+        use crate::game_logic::host_radar_stealth_vision_residual::{
+            VISION_AGGRESSIVE_RANGE_MODIFIER_RESIDUAL, VISION_ALERT_RANGE_MODIFIER_RESIDUAL,
+        };
+        let leftover = game_engine::common::ini::get_ai_data_store()
+            .get_active()
+            .map(|d| (d.alert_range_modifier, d.aggressive_range_modifier));
+        let leftover = leftover.or_else(|| {
+            gamelogic::ai::THE_AI.read().ok().and_then(|ai| {
+                ai.get_ai_data()
+                    .read()
+                    .ok()
+                    .map(|d| (d.alert_range_modifier, d.aggressive_range_modifier))
+            })
+        });
+        let (alert, aggressive) = leftover
+            .map(|(a, g)| {
+                (
+                    if a > 0.0 {
+                        a
+                    } else {
+                        VISION_ALERT_RANGE_MODIFIER_RESIDUAL
+                    },
+                    if g > 0.0 {
+                        g
+                    } else {
+                        VISION_AGGRESSIVE_RANGE_MODIFIER_RESIDUAL
+                    },
+                )
+            })
+            .unwrap_or((
+                VISION_ALERT_RANGE_MODIFIER_RESIDUAL,
+                VISION_AGGRESSIVE_RANGE_MODIFIER_RESIDUAL,
+            ));
         let mult = match obj.ai_attitude.clamp(-2, 2) {
             -2 => 0.0, // Sleep: ignore all
             -1 => 1.0, // Passive: wait-for-attack (range still used for last-attacker)
             0 => 1.0,  // Normal
-            1 => 1.25, // Alert
-            _ => 1.5,  // Aggressive
+            1 => alert,
+            _ => aggressive,
         };
         base * mult
     }
@@ -205,7 +237,7 @@ impl GameLogic {
     /// C++ PartitionFilterRejectBuildings — keep non-buildings; computer
     /// players acquire all enemy structures; humans keep FS_BASE_DEFENSE and
     /// garrisoned attacking buildings.
-    fn host_reject_buildings_allows(&self, owner_id: ObjectId, cand: &Object) -> bool {
+    pub(crate) fn host_reject_buildings_allows(&self, owner_id: ObjectId, cand: &Object) -> bool {
         if !cand.is_kind_of(KindOf::Structure) {
             return true;
         }

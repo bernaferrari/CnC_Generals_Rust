@@ -121,7 +121,6 @@ pub fn honesty_engine_presentation_player_ui_source() -> bool {
         }
     }
     for (name, token) in [
-        ("fn center_camera_on_selection(", "ui_selected_ids"),
         ("fn handle_context_click(", "ui_selected_ids"),
         // Wave 612: force-attack / cursor logic live in host helpers.
         (

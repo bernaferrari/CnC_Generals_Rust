@@ -179,6 +179,9 @@ impl GameLogic {
         // owns path *commands* (move_to / attack-move logs) earlier in the frame.
         // Wave 875: movement authority early-return honesty — GW sole integrate.
         if crate::gameworld_shadow::gameworld_movement_authority_live() {
+            // Collide/friction still run on the host; C++ applyMotiveForce(0)
+            // flags the object as locomotor-driven even when GW integrates pose.
+            self.arm_march_motive_flags(object_ids);
             // Contain exit is not a locomotor integrate — still stream riders.
             self.drain_pending_transport_exits();
             // C++ doLocomotor still stamps AIRBORNE_TARGET after the frame.
@@ -205,17 +208,29 @@ impl GameLogic {
                 if let Some(rep) = obj.requested_victim_id {
                     let from = obj.get_position();
                     let vision = obj.vision_range.max(50.0);
+                    let rep2 = obj.safe_path_repulsor2;
+                    let fallback = obj.move_away_destination.unwrap_or(from);
+                    let is_human = obj
+                        .owner_player_id
+                        .and_then(|pid| self.players.get(&pid))
+                        .map(|p| p.is_local)
+                        .unwrap_or(true);
                     let rep_pos = self
                         .objects
                         .get(&rep)
                         .map(|r| r.get_position())
-                        .unwrap_or(obj.move_away_destination.unwrap_or(from));
-                    if let Some(path) = self.pathfinding_system.find_safe_path(
+                        .unwrap_or(fallback);
+                    let rep2_pos = rep2
+                        .and_then(|rid| self.objects.get(&rid).map(|r| r.get_position()))
+                        .unwrap_or(rep_pos);
+                    if let Some(path) = self.pathfinding_system.find_safe_path_from(
                         from,
                         rep_pos,
+                        rep2_pos,
                         vision,
                         surfaces,
                         is_crusher,
+                        is_human,
                     ) {
                         repaths.push((id, path));
                     }
@@ -308,6 +323,14 @@ impl GameLogic {
                 if obj.is_shock_stunned() {
                     Self::stamp_object_airborne_target(obj, ground_y);
                     continue;
+                }
+                // C++ locoUpdate_moveTowardsPosition always applyMotiveForce(0)
+                // so collide/friction treat the unit as driven (Locomotor.cpp:1010-1014).
+                let has_move_goal = obj.movement.target_position.is_some()
+                    || !obj.movement.path.is_empty();
+                let skip_loco_move = obj.waiting_for_path;
+                if has_move_goal && !skip_loco_move {
+                    obj.apply_motive_force(glam::Vec3::ZERO);
                 }
                 // C++ Locomotor.cpp:1005-1056 treatAsAirborne unless
                 // AllowAirborneMotiveForce. Still apply handleBehaviorZ.
@@ -762,6 +785,27 @@ impl GameLogic {
         }
 
         self.drain_pending_transport_exits();
+    }
+
+    /// C++ `applyMotiveForce(0)` at locoUpdate_moveTowardsPosition entry.
+    /// Host collide/friction need the motive window even when GW owns pose.
+    fn arm_march_motive_flags(&mut self, object_ids: &[ObjectId]) {
+        for &id in object_ids {
+            let Some(obj) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            if obj.is_disabled() || !obj.is_alive() || obj.is_shock_stunned() {
+                continue;
+            }
+            if obj.waiting_for_path {
+                continue;
+            }
+            let has_move_goal =
+                obj.movement.target_position.is_some() || !obj.movement.path.is_empty();
+            if has_move_goal {
+                obj.apply_motive_force(glam::Vec3::ZERO);
+            }
+        }
     }
 
     /// C++ `AIUpdate.cpp:2276-2279` after movement for the frame.
@@ -1850,6 +1894,34 @@ mod tests {
             "other stopped + facing dest must stick immediately"
         );
     }
+
+    #[test]
+    fn march_apply_motive_force_zero_flags_driven() {
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let mut logic = GameLogic::new();
+        let mut unit = ranger_at(9801, Vec3::ZERO);
+        unit.set_orientation(0.0);
+        unit.movement.target_position = Some(Vec3::new(80.0, 0.0, 0.0));
+        unit.motive_frames_remaining = 0;
+        logic.objects.insert(ObjectId(9801), unit);
+        logic.update_movement_for_test(&[ObjectId(9801)], 1.0 / 30.0);
+        {
+            let obj = logic.objects.get(&ObjectId(9801)).expect("unit");
+            assert_eq!(
+                obj.motive_frames_remaining,
+                crate::game_logic::MOTIVE_FRAMES_RESIDUAL,
+                "C++ applyMotiveForce(0) must arm motive so collide is lateral-only"
+            );
+        }
+        let obj = logic.objects.get_mut(&ObjectId(9801)).expect("unit");
+        obj.apply_physics_force(Vec3::new(10.0, 0.0, 0.0));
+        assert!(
+            obj.physics_accel.x.abs() < 1e-4,
+            "motive march must reject forward collide force, accel.x={}",
+            obj.physics_accel.x
+        );
+    }
+
 
     }
 

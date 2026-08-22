@@ -889,18 +889,29 @@ impl GameLogic {
             let Some(pid) = self.host_player_id_for_script_token(&player_token) else {
                 continue;
             };
-            if grant {
+            let applied = if grant {
                 if let Some(player) = self.players.get_mut(&pid) {
-                    if !player.grant_science(&science_name) {
-                        continue;
+                    let granted = player.grant_science(&science_name);
+                    if granted {
+                        crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::sync_host_science_to_crate_player(
+                            pid,
+                            &science_name,
+                        );
                     }
-                    crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::sync_host_science_to_crate_player(
-                        pid,
-                        &science_name,
-                    );
+                    granted
+                } else {
+                    false
                 }
             } else if let Some(player) = self.players.get_mut(&pid) {
-                let _ = player.attempt_to_purchase_science(&science_name);
+                player.attempt_to_purchase_science(&science_name)
+            } else {
+                false
+            };
+            // C++ Player::addScience walks owned SpecialPowerModules and
+            // expresses sharedNSync ready-now. ControlBar purchase already
+            // calls this; script grant/purchase must too.
+            if applied {
+                self.on_special_power_science_creation(pid, &science_name);
             }
         }
     }
@@ -925,6 +936,335 @@ impl GameLogic {
                 }
             }
         }
+    }
+
+    /// C++ PLAYER_DISABLE/ENABLE unit/base/factory construction drain.
+    /// Leftover writes leftover PlayerList; live flags live on host Player.
+    fn apply_host_can_build_script_requests(&mut self) {
+        use gamelogic::scripting::HostScriptCanBuildRequest;
+        for req in gamelogic::scripting::take_host_can_build_requests() {
+            match req {
+                HostScriptCanBuildRequest::Units { player, enable } => {
+                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
+                        continue;
+                    };
+                    if let Some(p) = self.players.get_mut(&pid) {
+                        p.set_can_build_units(enable);
+                    }
+                }
+                HostScriptCanBuildRequest::Base { player, enable } => {
+                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
+                        continue;
+                    };
+                    if let Some(p) = self.players.get_mut(&pid) {
+                        p.set_can_build_base(enable);
+                    }
+                }
+                HostScriptCanBuildRequest::Factories {
+                    player,
+                    template,
+                    enable,
+                } => {
+                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
+                        continue;
+                    };
+                    self.host_set_objects_enabled(pid, &template, enable);
+                }
+            }
+        }
+    }
+
+    /// C++ doNamedFlash: NULL color → `Object::getIndicatorColor`; white → RGB 1,1,1 `getAsInt`.
+    fn host_script_flash_color(&self, id: crate::game_logic::ObjectId, white: bool) -> u32 {
+        if white {
+            return 0x00FF_FFFF;
+        }
+        let Some(obj) = self.objects.get(&id) else {
+            return 0xFF00_0000;
+        };
+        if let Some(c) = obj.custom_indicator_color {
+            return c;
+        }
+        obj.owner_player_id
+            .and_then(|pid| self.players.get(&pid))
+            .map(|p| crate::game_logic::host_radar::pack_player_color_argb(p.color_rgb))
+            .unwrap_or(0xFF00_0000)
+    }
+
+    /// C++ NAMED_RECEIVE_UPGRADE / FLASH / EMOTICON / HELD / CUSTOM_COLOR /
+    /// NAMED_SET_ATTITUDE / REPULSOR / STOPPING_DISTANCE / FORCE_SELECT /
+    /// PLAYER_SELL_EVERYTHING / REPAIR_NAMED / EXCLUDE_FROM_SCORE / SELECT_SKILLSET.
+    fn apply_host_script_visual_status_requests(&mut self) {
+        use crate::game_logic::KindOf;
+        use gamelogic::scripting::{
+            HostScriptEmoticonRequest, HostScriptFlashRequest, HostScriptPlayerMiscRequest,
+            HostScriptRepulsorRequest, HostScriptStoppingDistanceRequest,
+        };
+
+        for req in gamelogic::scripting::take_host_script_named_upgrade_requests() {
+            if let Some(id) = self.host_object_id_by_script_name(&req.unit) {
+                self.apply_upgrade_to_object(id, &req.upgrade);
+            }
+        }
+
+        for req in gamelogic::scripting::take_host_script_flash_requests() {
+            let (ids, seconds, white) = match req {
+                HostScriptFlashRequest::Named {
+                    unit,
+                    seconds,
+                    white,
+                } => (
+                    self.host_object_id_by_script_name(&unit)
+                        .into_iter()
+                        .collect::<Vec<_>>(),
+                    seconds,
+                    white,
+                ),
+                HostScriptFlashRequest::Team {
+                    team,
+                    seconds,
+                    white,
+                } => (self.host_script_team_member_ids(&team), seconds, white),
+            };
+            // C++ doNamedFlash: timeInSeconds > 0; count = frames / DRAWABLE_FRAMES_PER_FLASH.
+            if seconds <= 0 {
+                continue;
+            }
+            for id in ids {
+                let color = self.host_script_flash_color(id, white);
+                if let Some(obj) = self.objects.get_mut(&id) {
+                    obj.set_script_flash(seconds, color);
+                }
+            }
+        }
+
+        for req in gamelogic::scripting::take_host_script_emoticon_requests() {
+            let (ids, name, frames) = match req {
+                HostScriptEmoticonRequest::Named {
+                    unit,
+                    emoticon,
+                    duration_frames,
+                } => (
+                    self.host_object_id_by_script_name(&unit)
+                        .into_iter()
+                        .collect::<Vec<_>>(),
+                    emoticon,
+                    duration_frames,
+                ),
+                HostScriptEmoticonRequest::Team {
+                    team,
+                    emoticon,
+                    duration_frames,
+                } => (
+                    self.host_script_team_member_ids(&team),
+                    emoticon,
+                    duration_frames,
+                ),
+            };
+            for id in ids {
+                if let Some(obj) = self.objects.get_mut(&id) {
+                    obj.set_emoticon(&name, frames);
+                }
+            }
+        }
+
+        for req in gamelogic::scripting::take_host_script_held_requests() {
+            if let Some(id) = self.host_object_id_by_script_name(&req.unit) {
+                if let Some(obj) = self.objects.get_mut(&id) {
+                    obj.set_status_disabled_held(req.held);
+                }
+            }
+        }
+
+        for req in gamelogic::scripting::take_host_script_custom_color_requests() {
+            if let Some(id) = self.host_object_id_by_script_name(&req.unit) {
+                if let Some(obj) = self.objects.get_mut(&id) {
+                    obj.set_custom_indicator_color_raw(req.color_raw);
+                }
+            }
+        }
+
+        for req in gamelogic::scripting::take_host_script_named_attitude_requests() {
+            if let Some(id) = self.host_object_id_by_script_name(&req.unit) {
+                if let Some(obj) = self.objects.get_mut(&id) {
+                    obj.set_ai_attitude_i8(req.mood as i8);
+                }
+            }
+        }
+
+        for req in gamelogic::scripting::take_host_script_repulsor_requests() {
+            let (ids, enabled) = match req {
+                HostScriptRepulsorRequest::Named { unit, enabled } => (
+                    self.host_object_id_by_script_name(&unit)
+                        .into_iter()
+                        .collect::<Vec<_>>(),
+                    enabled,
+                ),
+                HostScriptRepulsorRequest::Team { team, enabled } => {
+                    (self.host_script_team_member_ids(&team), enabled)
+                }
+            };
+            for id in ids {
+                if let Some(obj) = self.objects.get_mut(&id) {
+                    obj.repulsor_until_frame = 0;
+                    obj.set_status_repulsor(enabled);
+                }
+            }
+        }
+
+        for req in gamelogic::scripting::take_host_script_stopping_distance_requests() {
+            let (ids, distance) = match req {
+                HostScriptStoppingDistanceRequest::Named { unit, distance } => (
+                    self.host_object_id_by_script_name(&unit)
+                        .into_iter()
+                        .collect::<Vec<_>>(),
+                    distance,
+                ),
+                HostScriptStoppingDistanceRequest::Team { team, distance } => {
+                    (self.host_script_team_member_ids(&team), distance)
+                }
+            };
+            if distance < 0.5 {
+                continue;
+            }
+            for id in ids {
+                if let Some(obj) = self.objects.get_mut(&id) {
+                    obj.close_enough_dist = Some(distance);
+                }
+            }
+        }
+
+        for req in gamelogic::scripting::take_host_script_force_select_requests() {
+            let members = self.host_script_team_member_ids(&req.team);
+            let mut best: Option<ObjectId> = None;
+            for id in members {
+                let Some(obj) = self.objects.get(&id) else {
+                    continue;
+                };
+                if !obj.template_name.eq_ignore_ascii_case(&req.object_type) {
+                    continue;
+                }
+                if best.is_none_or(|cur| id.0 < cur.0) {
+                    best = Some(id);
+                }
+            }
+            let Some(selected_id) = best else {
+                continue;
+            };
+            let pos = self
+                .objects
+                .get(&selected_id)
+                .map(|o| o.get_position())
+                .unwrap_or(glam::Vec3::ZERO);
+            if let Some(pid) = self.players.values().find(|p| p.is_local).map(|p| p.id) {
+                self.select_objects(pid, vec![selected_id]);
+            }
+            if !req.audio.is_empty() {
+                self.queue_audio_event(crate::game_logic::AudioEventRequest::new(&req.audio));
+            }
+            if req.center_in_view {
+                self.request_camera_focus(pos);
+            }
+        }
+
+        for req in gamelogic::scripting::take_host_script_player_misc_requests() {
+            match req {
+                HostScriptPlayerMiscRequest::SellEverything { player } => {
+                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
+                        continue;
+                    };
+                    let ids: Vec<ObjectId> = self
+                        .objects
+                        .values()
+                        .filter(|obj| {
+                            obj.owner_player_id == Some(pid)
+                                && obj.is_alive()
+                                && !obj.status.effectively_dead
+                                && (obj.is_faction_structure()
+                                    || obj.is_kind_of(KindOf::CommandCenter)
+                                    || obj.is_kind_of(KindOf::FSPower))
+                        })
+                        .map(|obj| obj.id)
+                        .collect();
+                    for id in ids {
+                        let _ = self.start_sell_object(id);
+                    }
+                }
+                HostScriptPlayerMiscRequest::RepairNamed { player, structure } => {
+                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
+                        continue;
+                    };
+                    let Some(id) = self.host_object_id_by_script_name(&structure) else {
+                        continue;
+                    };
+                    let mut ai_mgr = std::mem::take(&mut self.ai_manager);
+                    if let Some(ai) = ai_mgr.ai_players.get_mut(&pid) {
+                        ai.repair_structure(self, id);
+                    }
+                    self.ai_manager = ai_mgr;
+                }
+                HostScriptPlayerMiscRequest::ExcludeFromScore { player } => {
+                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
+                        continue;
+                    };
+                    if let Some(p) = self.players.get_mut(&pid) {
+                        p.list_in_score_screen = false;
+                    }
+                }
+                HostScriptPlayerMiscRequest::SelectSkillset { player, skillset } => {
+                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
+                        continue;
+                    };
+                    if let Some(ai) = self.ai_manager.ai_players.get_mut(&pid) {
+                        ai.select_skillset(skillset - 1);
+                    }
+                }
+            }
+        }
+    }
+
+
+    /// C++ Player::setObjectsEnabled — SCRIPT_DISABLED on matching templates.
+    fn host_set_objects_enabled(&mut self, player_id: u32, template_name: &str, enable: bool) {
+        let ids: Vec<ObjectId> = self
+            .objects
+            .values()
+            .filter(|obj| {
+                obj.owner_player_id == Some(player_id)
+                    && obj.template_name.eq_ignore_ascii_case(template_name)
+            })
+            .map(|obj| obj.id)
+            .collect();
+        for id in ids {
+            if let Some(obj) = self.objects.get_mut(&id) {
+                obj.set_script_disabled(!enable);
+            }
+        }
+    }
+
+    /// C++ TECHTREE_MODIFY_BUILDABILITY_OBJECT drain.
+    fn apply_host_buildable_override_script_requests(&mut self) {
+        for req in gamelogic::scripting::take_host_buildable_status_override_requests() {
+            gamelogic::helpers::TheGameLogic::set_buildable_status_override(
+                &req.template,
+                req.status,
+            );
+            if let Some(template) = self.template_mut_by_name(&req.template) {
+                template.buildable_status = req.status.max(0) as u32;
+            }
+        }
+    }
+
+    fn template_mut_by_name(&mut self, name: &str) -> Option<&mut ThingTemplate> {
+        if self.templates.contains_key(name) {
+            return self.templates.get_mut(name);
+        }
+        let key = self
+            .templates
+            .keys()
+            .find(|k| k.eq_ignore_ascii_case(name))
+            .cloned()?;
+        self.templates.get_mut(&key)
     }
 
     /// C++ ScriptActions skill/rank leftover drain.
@@ -2686,6 +3026,8 @@ impl GameLogic {
         }
         self.apply_host_skirmish_script_requests();
         self.apply_host_money_script_requests();
+        self.apply_host_can_build_script_requests();
+        self.apply_host_buildable_override_script_requests();
         self.apply_host_rank_script_requests();
         self.apply_host_transfer_script_requests();
         self.apply_host_player_relates_script_requests();
@@ -2707,6 +3049,7 @@ impl GameLogic {
         self.apply_host_radar_event_script_requests();
         self.apply_host_stealth_enabled_script_requests();
         self.apply_host_team_attitude_script_requests();
+        self.apply_host_script_visual_status_requests();
         self.apply_host_guard_supply_center_script_requests();
         self.apply_host_guard_variant_script_requests();
         self.apply_host_named_fire_special_script_requests();

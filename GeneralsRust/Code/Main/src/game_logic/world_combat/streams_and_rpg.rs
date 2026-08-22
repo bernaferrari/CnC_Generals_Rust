@@ -314,7 +314,8 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_humvee::{
             humvee_air_tow_damage_at, humvee_ground_tow_damage_at, HUMVEE_AIR_TOW_RADIUS,
-            HUMVEE_GROUND_TOW_RADIUS, HUMVEE_TOW_FIRE_AUDIO,
+            HUMVEE_GROUND_TOW_RADIUS, HUMVEE_TOW_DAMAGE_TYPE, HUMVEE_TOW_DEATH_TYPE,
+            HUMVEE_TOW_FIRE_AUDIO,
         };
 
         let source_team = source
@@ -365,7 +366,12 @@ impl GameLogic {
                 continue;
             }
             if let Some(v) = self.objects.get_mut(&vid) {
-                let destroyed = v.take_damage(dmg);
+                let destroyed = v.take_damage_from_immediate_residual(
+                    dmg,
+                    source,
+                    HUMVEE_TOW_DAMAGE_TYPE,
+                    HUMVEE_TOW_DEATH_TYPE,
+                );
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -391,8 +397,9 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_ranger::{
             flashbang_damage_at, is_legal_ranger_target, ranger_flashbang_scatter_aim,
-            ranger_flashbang_scatter_misses, FLASHBANG_SECONDARY_RADIUS,
-            RANGER_FLASHBANG_FIRE_AUDIO, RANGER_RIFLE_DAMAGE, RANGER_RIFLE_FIRE_AUDIO,
+            ranger_flashbang_scatter_misses, FLASHBANG_DAMAGE_TYPE, FLASHBANG_DEATH_TYPE,
+            FLASHBANG_SECONDARY_RADIUS, RANGER_FLASHBANG_FIRE_AUDIO, RANGER_RIFLE_DAMAGE,
+            RANGER_RIFLE_DAMAGE_TYPE, RANGER_RIFLE_DEATH_TYPE, RANGER_RIFLE_FIRE_AUDIO,
         };
 
         let source_team = source
@@ -488,7 +495,12 @@ impl GameLogic {
 
             for (vid, dmg, _intended) in victims {
                 if let Some(obj) = self.objects.get_mut(&vid) {
-                    let destroyed = obj.take_damage_from(dmg, source);
+                    let destroyed = obj.take_damage_from_immediate_residual(
+                        dmg,
+                        source,
+                        FLASHBANG_DAMAGE_TYPE,
+                        FLASHBANG_DEATH_TYPE,
+                    );
                     hits = hits.saturating_add(1);
                     if destroyed {
                         any_destroyed = true;
@@ -535,7 +547,12 @@ impl GameLogic {
             let target_pos = target.get_position();
 
             if let Some(obj) = self.objects.get_mut(&target_id) {
-                let destroyed = obj.take_damage_from(damage, source);
+                let destroyed = obj.take_damage_from_immediate_residual(
+                    damage,
+                    source,
+                    RANGER_RIFLE_DAMAGE_TYPE,
+                    RANGER_RIFLE_DEATH_TYPE,
+                );
                 hits = 1;
                 if destroyed {
                     any_destroyed = true;
@@ -576,7 +593,8 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_gla_rebel::{
-            is_legal_rebel_target, REBEL_DAMAGE, REBEL_FIRE_AUDIO,
+            is_legal_rebel_target, REBEL_DAMAGE, REBEL_DAMAGE_TYPE, REBEL_DEATH_TYPE,
+            REBEL_FIRE_AUDIO,
         };
 
         let damage = source
@@ -611,7 +629,12 @@ impl GameLogic {
         let mut hits = 0u32;
         let mut any_destroyed = false;
         if let Some(obj) = self.objects.get_mut(&target_id) {
-            let destroyed = obj.take_damage_from(damage, source);
+            let destroyed = obj.take_damage_from_immediate_residual(
+                damage,
+                source,
+                REBEL_DAMAGE_TYPE,
+                REBEL_DEATH_TYPE,
+            );
             hits = 1;
             if destroyed {
                 any_destroyed = true;
@@ -652,8 +675,9 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_minigunner::{
             has_chain_guns_upgrade, is_legal_minigunner_target, minigunner_damage_with_chain_guns,
-            MINIGUNNER_AA_FIRE_AUDIO, MINIGUNNER_AIR_DAMAGE, MINIGUNNER_FIRE_AUDIO,
-            MINIGUNNER_GROUND_DAMAGE,
+            MINIGUNNER_AA_FIRE_AUDIO, MINIGUNNER_AIR_DAMAGE, MINIGUNNER_AIR_DAMAGE_TYPE,
+            MINIGUNNER_AIR_DEATH_TYPE, MINIGUNNER_FIRE_AUDIO, MINIGUNNER_GROUND_DAMAGE,
+            MINIGUNNER_GROUND_DAMAGE_TYPE, MINIGUNNER_GROUND_DEATH_TYPE,
         };
 
         let dmg = source
@@ -695,7 +719,13 @@ impl GameLogic {
                 obj.status.under_construction,
                 combat_kind,
             ) {
-                let destroyed = obj.take_damage_from(dmg, source);
+                let (dt_name, death_name) = if slot == 1 {
+                    (MINIGUNNER_AIR_DAMAGE_TYPE, MINIGUNNER_AIR_DEATH_TYPE)
+                } else {
+                    (MINIGUNNER_GROUND_DAMAGE_TYPE, MINIGUNNER_GROUND_DEATH_TYPE)
+                };
+                let destroyed =
+                    obj.take_damage_from_immediate_residual(dmg, source, dt_name, death_name);
                 hits = 1;
                 if destroyed {
                     any_destroyed = true;
@@ -841,8 +871,9 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_colonel_burton::{
             distance_2d, is_legal_burton_target, should_apply_burton_knife_residual,
-            BURTON_KNIFE_DAMAGE, BURTON_KNIFE_FIRE_AUDIO, BURTON_SNIPER_DAMAGE,
-            BURTON_SNIPER_FIRE_AUDIO,
+            BURTON_KNIFE_DAMAGE, BURTON_KNIFE_DAMAGE_TYPE, BURTON_KNIFE_DEATH_TYPE,
+            BURTON_KNIFE_FIRE_AUDIO, BURTON_SNIPER_DAMAGE, BURTON_SNIPER_DAMAGE_TYPE,
+            BURTON_SNIPER_DEATH_TYPE, BURTON_SNIPER_FIRE_AUDIO,
         };
 
         let source_team = source
@@ -887,7 +918,13 @@ impl GameLogic {
         let mut hits = 0u32;
         let mut any_destroyed = false;
         if let Some(obj) = self.objects.get_mut(&target_id) {
-            let destroyed = obj.take_damage_from(damage, source);
+            let (dt_name, death_name) = if knife {
+                (BURTON_KNIFE_DAMAGE_TYPE, BURTON_KNIFE_DEATH_TYPE)
+            } else {
+                (BURTON_SNIPER_DAMAGE_TYPE, BURTON_SNIPER_DEATH_TYPE)
+            };
+            let destroyed =
+                obj.take_damage_from_immediate_residual(damage, source, dt_name, death_name);
             hits = 1;
             if destroyed {
                 any_destroyed = true;
@@ -1178,7 +1215,8 @@ impl GameLogic {
         use crate::game_logic::host_rpg_trooper::{
             is_legal_rpg_trooper_splash_target, rpg_trooper_scatter_aim,
             rpg_trooper_scatter_misses_infantry, rpg_trooper_splash_damage_at, RPG_TROOPER_DAMAGE,
-            RPG_TROOPER_FIRE_AUDIO, RPG_TROOPER_SPLASH_RADIUS,
+            RPG_TROOPER_DAMAGE_TYPE, RPG_TROOPER_DEATH_TYPE, RPG_TROOPER_FIRE_AUDIO,
+            RPG_TROOPER_SPLASH_RADIUS,
         };
 
         let damage = source
@@ -1283,7 +1321,12 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from(dmg, source);
+                let destroyed = obj.take_damage_from_immediate_residual(
+                    dmg,
+                    source,
+                    RPG_TROOPER_DAMAGE_TYPE,
+                    RPG_TROOPER_DEATH_TYPE,
+                );
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -1332,7 +1375,8 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_terrorist::{
             is_legal_terrorist_aoe_target, suicide_dynamite_damage_at_profile,
-            terrorist_death_profile, TERRORIST_DETONATE_AUDIO,
+            terrorist_death_profile, SUICIDE_DYNAMITE_DAMAGE_TYPE, SUICIDE_DYNAMITE_DEATH_TYPE,
+            TERRORIST_DETONATE_AUDIO,
         };
 
         let Some(source_id) = source else {
@@ -1401,7 +1445,12 @@ impl GameLogic {
             }
             if let Some(obj) = self.objects.get_mut(&id) {
                 let applied = dmg.min(obj.health.current.max(0.0));
-                let destroyed = obj.take_damage_from(dmg, source);
+                let destroyed = obj.take_damage_from_immediate_residual(
+                    dmg,
+                    source,
+                    SUICIDE_DYNAMITE_DAMAGE_TYPE,
+                    SUICIDE_DYNAMITE_DEATH_TYPE,
+                );
                 hits = hits.saturating_add(1);
                 damage_dealt += applied;
                 if destroyed {
@@ -1685,7 +1734,9 @@ impl GameLogic {
         use crate::game_logic::host_missile_defender::{
             is_legal_missile_defender_splash_target, missile_defender_scatter_aim,
             missile_defender_scatter_misses_infantry, missile_defender_splash_damage_at,
-            MISSILE_DEFENDER_DAMAGE, MISSILE_DEFENDER_FIRE_AUDIO, MISSILE_DEFENDER_SPLASH_RADIUS,
+            MISSILE_DEFENDER_DAMAGE, MISSILE_DEFENDER_DEATH_TYPE, MISSILE_DEFENDER_FIRE_AUDIO,
+            MISSILE_DEFENDER_LASER_DAMAGE_TYPE, MISSILE_DEFENDER_PRIMARY_DAMAGE_TYPE,
+            MISSILE_DEFENDER_SPLASH_RADIUS,
         };
 
         let damage = source
@@ -1803,7 +1854,17 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from(dmg, source);
+                let dt_name = if laser_slot {
+                    MISSILE_DEFENDER_LASER_DAMAGE_TYPE
+                } else {
+                    MISSILE_DEFENDER_PRIMARY_DAMAGE_TYPE
+                };
+                let destroyed = obj.take_damage_from_immediate_residual(
+                    dmg,
+                    source,
+                    dt_name,
+                    MISSILE_DEFENDER_DEATH_TYPE,
+                );
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;

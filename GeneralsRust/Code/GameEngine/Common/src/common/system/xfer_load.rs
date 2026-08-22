@@ -228,20 +228,24 @@ impl<R: Read> Xfer for XferLoad<R> {
     }
 
     fn xfer_ascii_string(&mut self, ascii_string_data: &mut String) -> io::Result<()> {
-        // C++ uses UnsignedByte (u8) for string length, max 255 chars
-        // Matches C++ XferLoad.cpp lines 142-158
+        // C++ XferLoad.cpp:142-158 — UnsignedByte length + raw 8-bit payload
+        // into AsciiString::set. `String::from_utf8` rejects locale-encoded
+        // names (Windows-1252 map/player strings). Map each byte to U+00xx
+        // so the payload survives a Rust String the same way leftover does.
         let mut len = 0u8;
         self.xfer_unsigned_byte(&mut len)?;
         let mut bytes = vec![0u8; len as usize];
         if len > 0 {
             self.reader.read_exact(&mut bytes)?;
         }
-        *ascii_string_data = String::from_utf8(bytes)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Invalid UTF-8"))?;
+        *ascii_string_data = bytes.iter().map(|&b| b as char).collect();
         Ok(())
     }
 
     fn xfer_unicode_string(&mut self, unicode_string_data: &mut String) -> io::Result<()> {
+        // C++ XferLoad.cpp:168-190 — WideChar units into UnicodeString::set.
+        // Unpaired surrogates are legal C++ payload; `from_utf16` aborts the
+        // whole save. Match leftover `from_utf16_lossy`.
         let mut len = 0u8;
         self.xfer_unsigned_byte(&mut len)?;
         let mut units = Vec::with_capacity(len as usize);
@@ -250,8 +254,7 @@ impl<R: Read> Xfer for XferLoad<R> {
             self.reader.read_exact(&mut bytes)?;
             units.push(u16::from_le_bytes(bytes));
         }
-        *unicode_string_data = String::from_utf16(&units)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Invalid UTF-16"))?;
+        *unicode_string_data = String::from_utf16_lossy(&units);
         Ok(())
     }
 
@@ -281,6 +284,32 @@ mod tests {
         xfer.xfer_unicode_string(&mut value).unwrap();
 
         assert_eq!(value, "A\u{00df}\u{6f22}");
+    }
+
+    #[test]
+    fn ascii_string_reads_cpp_8bit_locale_payload() {
+        // C++ AsciiString::set keeps any 8-bit byte. 0xE9 is valid CP1252
+        // "é" and invalid UTF-8 as a lone starter + 'x'.
+        let bytes = vec![3, b'M', 0xE9, b'x'];
+        let mut xfer = XferLoad::new(Cursor::new(bytes), 1);
+        let mut value = String::new();
+
+        xfer.xfer_ascii_string(&mut value).unwrap();
+
+        assert_eq!(value, "M\u{00e9}x");
+    }
+
+    #[test]
+    fn unicode_string_reads_unpaired_utf16_surrogate() {
+        // Lone high surrogate U+D800. C++ UnicodeString::set accepts it;
+        // leftover uses from_utf16_lossy (U+FFFD).
+        let bytes = vec![1, 0x00, 0xD8];
+        let mut xfer = XferLoad::new(Cursor::new(bytes), 1);
+        let mut value = String::new();
+
+        xfer.xfer_unicode_string(&mut value).unwrap();
+
+        assert_eq!(value, "\u{FFFD}");
     }
 
     #[test]

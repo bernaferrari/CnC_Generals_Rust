@@ -1806,6 +1806,18 @@ impl ParticleSystem {
         }
 
         if self.attached_object_id != 0 {
+            // Live host IDs are not leftover OBJECT_REGISTRY entries.
+            // C++ ParticleSys.cpp:1880-1905 follows TheGameLogic object; on
+            // the production host path that is the published host pose / live
+            // drawable, not leftover find_object.
+            if let Some(pose) = gamelogic::helpers::host_fx_object_pose(self.attached_object_id)
+                .or_else(|| {
+                    crate::core::game_client::query_live_drawable_fx_pose(self.attached_object_id)
+                })
+            {
+                self.apply_host_fx_object_pose(&pose);
+                return;
+            }
             if let Some(object) =
                 gamelogic::helpers::TheGameLogic::find_object_by_id(self.attached_object_id)
             {
@@ -1847,6 +1859,14 @@ impl ParticleSystem {
         let (s, c) = yaw.sin_cos();
         self.parent_transform = Some(Matrix3::new(c, -s, 0.0, s, c, 0.0, 0.0, 0.0, 1.0));
     }
+
+    fn apply_host_fx_object_pose(&mut self, pose: &gamelogic::helpers::HostFxObjectPose) {
+        self.last_position = self.position;
+        let (rot, trans) = affine_from_glam_cols(pose.transform.to_cols_array());
+        self.parent_transform = Some(rot);
+        self.position = Point3::from(trans);
+    }
+
     fn read_particle_scale_from_global_data() -> f32 {
         match game_engine::common::ini::ini_game_data::get_global_data() {
             Some(arc) => arc.read().particle_scale,
@@ -2975,5 +2995,41 @@ mod tests {
         assert!(system.is_system_forever());
         assert!(system.system_lifetime_left == 0 || system.is_system_forever());
     }
+
+    #[test]
+    fn attached_host_object_id_follows_published_pose() {
+        let template = Arc::new(ParticleSystemTemplate::new("HostAttach".to_string()));
+        let mut system = ParticleSystem::new(template, 1, false);
+        system.attach_to_object(4242);
+        gamelogic::helpers::set_host_fx_object_pose(gamelogic::helpers::HostFxObjectPose {
+            id: 4242,
+            position: gamelogic::common::Coord3D::new(10.0, 20.0, 30.0),
+            transform: gamelogic::common::Matrix3D::from_cols_array(&[
+                1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 10.0, 20.0, 30.0,
+                1.0,
+            ]),
+            player_index: 0,
+            bounding_circle_radius: 0.0,
+        });
+        system.resolve_attached_parent(0);
+        assert!(!system.is_destroyed());
+        assert_eq!(system.attached_object_id(), 4242);
+        assert!((system.position().x - 10.0).abs() < 1e-5);
+        assert!((system.position().y - 20.0).abs() < 1e-5);
+        assert!((system.position().z - 30.0).abs() < 1e-5);
+        gamelogic::helpers::remove_host_fx_object_pose(4242);
+    }
+
+    #[test]
+    fn attached_missing_host_object_still_destroys() {
+        let template = Arc::new(ParticleSystemTemplate::new("HostMissing".to_string()));
+        let mut system = ParticleSystem::new(template, 1, false);
+        system.attach_to_object(4343);
+        gamelogic::helpers::remove_host_fx_object_pose(4343);
+        system.resolve_attached_parent(0);
+        assert!(system.is_destroyed());
+        assert_eq!(system.attached_object_id(), 0);
+    }
+
 
 }

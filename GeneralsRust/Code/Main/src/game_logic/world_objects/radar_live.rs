@@ -245,22 +245,102 @@ impl GameLogic {
         self.players.values().find(|p| p.is_local)
     }
 
-    fn host_owner_is_ally_of_local(&self, owner_team: Team, owner_id: Option<u32>) -> bool {
+    /// C++ `Player::getRelationship(clientPlayer->getDefaultTeam()) != ALLIES`.
+    /// Uses the live player-relation map (scripted diplomacy / campaign
+    /// `playerAllies` / lobby `alliance_team`), not faction `Team` equality.
+    fn host_owner_is_ally_of_local(&self, owner_id: Option<u32>) -> bool {
+        use gamelogic::common::Relationship;
         let Some(local) = self.host_local_player() else {
             return true;
         };
-        if owner_team == local.team {
-            return true;
-        }
-        if let Some(id) = owner_id {
-            if let Some(owner) = self.players.get(&id) {
-                if owner.alliance_team >= 0 && owner.alliance_team == local.alliance_team {
-                    return true;
-                }
+        let Some(oid) = owner_id else {
+            return false;
+        };
+        self.player_relationship(oid, local.id) == Relationship::Allies
+    }
+
+    /// C++ `StealthUpdate::getDisguisedPlayerIndex` → `getNthPlayer`.
+    /// Live stores `disguise_as_team`; pick that team's controlling player,
+    /// not the first HashMap hit of the faction (same-faction FFA must not
+    /// paint the truck its own house color).
+    fn host_disguised_player_id(&self, obj: &Object) -> Option<u32> {
+        let team = obj.disguise_as_team?;
+        let owner = obj.owner_player_id;
+        let mut first = None;
+        let mut copied = None;
+        for player in self.players.values() {
+            if player.team != team {
+                continue;
+            }
+            if first.is_none() {
+                first = Some(player.id);
+            }
+            if owner.is_none_or(|id| player.id != id) {
+                copied = Some(player.id);
             }
         }
-        false
+        copied.or(first)
     }
+
+    /// C++ `ContainModuleInterface::getApparentControllingPlayer(local)`.
+    /// Stealth-garrison hide returns the original team's player to non-allies.
+    fn host_contain_apparent(
+        &self,
+        obj: &Object,
+        owner_color: u32,
+    ) -> (Option<i32>, Option<u32>) {
+        let occupants = obj.contained_units();
+        let hide = obj
+            .building_data
+            .as_ref()
+            .is_some_and(|bd| bd.hide_garrisoned_state);
+        if occupants.is_empty() && !hide {
+            return (None, None);
+        }
+
+        let original_team = obj.building_data.as_ref().and_then(|bd| bd.original_team);
+        let current_owner = obj.owner_player_id;
+        if hide && !self.host_owner_is_ally_of_local(current_owner) {
+            if let Some(team) = original_team {
+                let idx = self.host_player_index(None, team);
+                let color = self.host_player_color(None, team);
+                return (Some(idx), Some(color));
+            }
+        }
+
+        if let Some(pid) = current_owner {
+            if !occupants.is_empty() {
+                let color = self
+                    .players
+                    .get(&pid)
+                    .map(|p| pack_player_color_argb(p.color_rgb))
+                    .unwrap_or(owner_color);
+                return (Some(pid as i32), Some(color));
+            }
+        }
+
+        let occupant_owner = occupants.into_iter().next().and_then(|uid| {
+            self.objects.get(&uid).and_then(|occupant| {
+                occupant.owner_player_id.or_else(|| {
+                    self.players
+                        .values()
+                        .find(|p| p.team == occupant.team)
+                        .map(|p| p.id)
+                })
+            })
+        });
+        if let Some(pid) = occupant_owner {
+            let color = self
+                .players
+                .get(&pid)
+                .map(|p| pack_player_color_argb(p.color_rgb))
+                .unwrap_or(owner_color);
+            (Some(pid as i32), Some(color))
+        } else {
+            (None, None)
+        }
+    }
+
 
     fn host_radar_insert_spec(&self, obj: &Object) -> RadarObjectInsert {
         let owner_id = obj.owner_player_id;
@@ -276,9 +356,13 @@ impl GameLogic {
         let is_disguiser = obj.is_kind_of(KindOf::Disguiser);
         let disguised = obj.status.disguised;
         let (disguised_index, disguised_color) = if disguised {
-            if let Some(team) = obj.disguise_as_team {
-                let idx = self.host_player_index(None, team);
-                (idx, self.host_player_color(None, team))
+            if let Some(pid) = self.host_disguised_player_id(obj) {
+                (pid as i32, self.host_player_color(Some(pid), obj.team))
+            } else if let Some(team) = obj.disguise_as_team {
+                (
+                    self.host_player_index(None, team),
+                    self.host_player_color(None, team),
+                )
             } else {
                 (-1, owner_color)
             }
@@ -286,27 +370,9 @@ impl GameLogic {
             (-1, owner_color)
         };
 
-        let occupant_owner = obj.contained_units().into_iter().next().and_then(|uid| {
-            self.objects.get(&uid).and_then(|occupant| {
-                occupant.owner_player_id.or_else(|| {
-                    self.players
-                        .values()
-                        .find(|p| p.team == occupant.team)
-                        .map(|p| p.id)
-                })
-            })
-        });
         let (contain_apparent_player_index, contain_apparent_color) =
-            if let Some(pid) = occupant_owner {
-                let color = self
-                    .players
-                    .get(&pid)
-                    .map(|p| pack_player_color_argb(p.color_rgb))
-                    .unwrap_or(owner_color);
-                (Some(pid as i32), Some(color))
-            } else {
-                (None, None)
-            };
+            self.host_contain_apparent(obj, owner_color);
+
 
         let pos = obj.get_position();
         let mut radar_obj = RadarObject::new(obj.id.0);
@@ -316,7 +382,8 @@ impl GameLogic {
         radar_obj.is_stealth = obj.status.stealthed;
         radar_obj.is_detected = obj.status.detected;
         radar_obj.is_disguised = disguised;
-        radar_obj.is_enemy = !self.host_owner_is_ally_of_local(obj.team, owner_id);
+        radar_obj.is_enemy = !self.host_owner_is_ally_of_local(owner_id);
+
         radar_obj.is_hero = obj.is_kind_of(KindOf::Hero);
         // C++ StealthDetectorUpdate DetectionRange (or VisionRange fallback).
         // RadarSystem::update_stealth_detection only reveals when these are set.
@@ -343,7 +410,8 @@ impl GameLogic {
             disguised_player_index: disguised_index,
             owner_player_index: owner_index,
             local_player_index: local_index,
-            owner_is_ally_of_local: self.host_owner_is_ally_of_local(obj.team, owner_id),
+            owner_is_ally_of_local: self.host_owner_is_ally_of_local(owner_id),
+
             local_player_active: local_active,
             contain_apparent_player_index,
             contain_apparent_color,
@@ -648,4 +716,285 @@ mod tests {
         assert!((loc.x - 40.0).abs() < 0.01);
         assert!((loc.y - 80.0).abs() < 0.01);
     }
+
+    fn pack_rgb(rgb: (u8, u8, u8)) -> u32 {
+        crate::game_logic::host_radar::pack_player_color_argb(rgb)
+    }
+
+    fn insert_spec_for(logic: &GameLogic, id: crate::game_logic::ObjectId) -> RadarObjectInsert {
+        let obj = logic.host_object(id).expect("object");
+        logic.host_radar_insert_spec(obj)
+    }
+
+    /// C++ Radar.cpp:415 — same-faction FFA is not ALLIES.
+    #[test]
+    fn host_radar_ffa_same_faction_stealth_hides() {
+        let mut logic = GameLogic::new();
+        let mut local = Player::new(0, Team::USA, "USA-A", true);
+        local.alliance_team = 1;
+        local.color_rgb = (0, 80, 200);
+        let mut other = Player::new(1, Team::USA, "USA-B", false);
+        other.alliance_team = 2;
+        other.color_rgb = (200, 40, 40);
+        logic.add_player(local);
+        logic.add_player(other);
+
+        let mut tpl = ThingTemplate::new("Pathfinder");
+        tpl.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("Pathfinder".into(), tpl);
+        let id = logic
+            .create_object_for_player("Pathfinder", 1, Vec3::new(10.0, 0.0, 10.0))
+            .expect("spawn");
+        if let Some(obj) = logic.host_object_mut(id) {
+            obj.status.stealthed = true;
+            obj.status.detected = false;
+        }
+        let spec = insert_spec_for(&logic, id);
+        assert!(
+            !spec.owner_is_ally_of_local,
+            "FFA same-faction must use Player relationship, not Team"
+        );
+        assert!(spec.object.is_enemy);
+        assert!(
+            spec.object.is_temporarily_hidden(),
+            "enemy same-faction stealth must hide"
+        );
+    }
+
+    /// Campaign `PLAYER_SET_RELATIONSHIP` / map playerAllies.
+    #[test]
+    fn host_radar_campaign_ally_stealth_stays_visible() {
+        use gamelogic::common::Relationship;
+        let mut logic = GameLogic::new();
+        let mut local = Player::new(0, Team::USA, "PlyrAmerica", true);
+        local.color_rgb = (0, 80, 200);
+        let mut china = Player::new(1, Team::China, "PlyrChina", false);
+        china.color_rgb = (200, 40, 40);
+        local.set_map_relationship(1, Relationship::Allies);
+        china.set_map_relationship(0, Relationship::Allies);
+        logic.add_player(local);
+        logic.add_player(china);
+
+        let mut tpl = ThingTemplate::new("RedGuard");
+        tpl.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("RedGuard".into(), tpl);
+        let id = logic
+            .create_object_for_player("RedGuard", 1, Vec3::new(12.0, 0.0, 12.0))
+            .expect("spawn");
+        if let Some(obj) = logic.host_object_mut(id) {
+            obj.status.stealthed = true;
+            obj.status.detected = false;
+        }
+        let spec = insert_spec_for(&logic, id);
+        assert!(
+            spec.owner_is_ally_of_local,
+            "scripted Allies must win over faction Team"
+        );
+        assert!(!spec.object.is_enemy);
+        assert!(
+            !spec.object.is_temporarily_hidden(),
+            "allied stealth is VISIBLE_FRIENDLY"
+        );
+    }
+
+    /// Disguise color comes from the copied player's house color.
+    #[test]
+    fn host_radar_disguise_uses_copied_player_color() {
+        let mut logic = GameLogic::new();
+        let mut local = Player::new(0, Team::USA, "USA", true);
+        local.alliance_team = 1;
+        local.color_rgb = (0, 80, 200);
+        let mut gla = Player::new(1, Team::GLA, "GLA", false);
+        gla.alliance_team = 2;
+        gla.color_rgb = (40, 180, 40);
+        let mut china = Player::new(2, Team::China, "China", false);
+        china.alliance_team = 3;
+        china.color_rgb = (200, 40, 40);
+        logic.add_player(local);
+        logic.add_player(gla);
+        logic.add_player(china);
+
+        let mut tpl = ThingTemplate::new("BombTruck");
+        tpl.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Disguiser)
+            .set_health(200.0);
+        logic.templates.insert("BombTruck".into(), tpl);
+        let id = logic
+            .create_object_for_player("BombTruck", 1, Vec3::new(8.0, 0.0, 8.0))
+            .expect("spawn");
+        if let Some(obj) = logic.host_object_mut(id) {
+            obj.status.disguised = true;
+            obj.disguise_as_team = Some(Team::China);
+        }
+        let spec = insert_spec_for(&logic, id);
+        assert!(!spec.owner_is_ally_of_local);
+        assert_eq!(spec.disguised_player_index, 2);
+        assert_eq!(spec.disguised_player_color, pack_rgb((200, 40, 40)));
+        assert_eq!(
+            resolve_radar_object_color(&spec),
+            pack_rgb((200, 40, 40)),
+            "non-ally must see disguise player color, not GLA"
+        );
+    }
+
+    /// Same-faction FFA: disguise is not skipped via Team equality.
+    #[test]
+    fn host_radar_ffa_same_faction_disguise_recolors() {
+        let mut logic = GameLogic::new();
+        let mut local = Player::new(0, Team::USA, "USA-A", true);
+        local.alliance_team = 1;
+        local.color_rgb = (0, 80, 200);
+        let mut other = Player::new(1, Team::USA, "USA-B", false);
+        other.alliance_team = 2;
+        other.color_rgb = (200, 40, 40);
+        logic.add_player(local);
+        logic.add_player(other);
+
+        let mut tpl = ThingTemplate::new("BombTruck");
+        tpl.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Disguiser)
+            .set_health(200.0);
+        logic.templates.insert("BombTruck".into(), tpl);
+        let id = logic
+            .create_object_for_player("BombTruck", 1, Vec3::new(8.0, 0.0, 8.0))
+            .expect("spawn");
+        if let Some(obj) = logic.host_object_mut(id) {
+            obj.status.disguised = true;
+            obj.disguise_as_team = Some(Team::USA);
+        }
+        let spec = insert_spec_for(&logic, id);
+        assert!(
+            !spec.owner_is_ally_of_local,
+            "FFA USA-vs-USA must not skip disguise"
+        );
+        assert_eq!(
+            spec.disguised_player_index, 0,
+            "copied player is the other USA slot, not first-of-faction owner"
+        );
+        assert_eq!(
+            resolve_radar_object_color(&spec),
+            pack_rgb((0, 80, 200)),
+            "enemy sees local USA color, not the truck's true red"
+        );
+    }
+
+    /// C++ GarrisonContain::getApparentControllingPlayer — non-allies see original owner.
+    #[test]
+    fn host_radar_stealth_garrison_uses_original_player_color() {
+        let mut logic = GameLogic::new();
+        let mut local = Player::new(0, Team::China, "China", true);
+        local.alliance_team = 1;
+        local.color_rgb = (200, 40, 40);
+        let mut usa = Player::new(1, Team::USA, "USA", false);
+        usa.alliance_team = 2;
+        usa.color_rgb = (0, 80, 200);
+        let mut civ = Player::new(9, Team::Neutral, "Civilian", false);
+        civ.color_rgb = (160, 160, 160);
+        logic.add_player(local);
+        logic.add_player(usa);
+        logic.add_player(civ);
+
+        let mut bunker_tpl = ThingTemplate::new("CivBunker");
+        bunker_tpl
+            .add_kind_of(KindOf::Structure)
+            .set_health(1000.0);
+        bunker_tpl.garrison_contain_max = Some(5);
+        logic.templates.insert("CivBunker".into(), bunker_tpl);
+
+        let mut ninja_tpl = ThingTemplate::new("JarmenKell");
+        ninja_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::StealthGarrison)
+            .set_health(120.0);
+        logic.templates.insert("JarmenKell".into(), ninja_tpl);
+
+        let bunker = logic
+            .create_object_for_player("CivBunker", 9, Vec3::ZERO)
+            .expect("bunker");
+        let ninja = logic
+            .create_object_for_player("JarmenKell", 1, Vec3::new(2.0, 0.0, 0.0))
+            .expect("ninja");
+        {
+            let obj = logic.host_object_mut(bunker).expect("bunker mut");
+            if let Some(bd) = obj.building_data.as_mut() {
+                bd.original_team = Some(Team::Neutral);
+                bd.hide_garrisoned_state = true;
+                bd.garrisoned_units.push(ninja);
+                bd.max_garrison = 5;
+            }
+            obj.set_team_and_owner(Team::USA, Some(1));
+        }
+
+        let spec = insert_spec_for(&logic, bunker);
+        let color = resolve_radar_object_color(&spec);
+        assert_eq!(
+            spec.contain_apparent_player_index,
+            Some(9),
+            "non-ally must see original civilian controller"
+        );
+        assert_eq!(
+            color,
+            pack_rgb((160, 160, 160)),
+            "stealth garrison must not paint USA on the enemy LeftHUD, got {color:#010x}"
+        );
+    }
+
+    /// Allies still see the occupier's color.
+    #[test]
+    fn host_radar_stealth_garrison_ally_sees_occupant_color() {
+        let mut logic = GameLogic::new();
+        let mut local = Player::new(0, Team::USA, "USA-A", true);
+        local.alliance_team = 7;
+        local.color_rgb = (0, 80, 200);
+        let mut ally = Player::new(1, Team::USA, "USA-B", false);
+        ally.alliance_team = 7;
+        ally.color_rgb = (80, 160, 255);
+        let mut civ = Player::new(9, Team::Neutral, "Civilian", false);
+        civ.color_rgb = (160, 160, 160);
+        logic.add_player(local);
+        logic.add_player(ally);
+        logic.add_player(civ);
+
+        let mut bunker_tpl = ThingTemplate::new("CivBunker");
+        bunker_tpl
+            .add_kind_of(KindOf::Structure)
+            .set_health(1000.0);
+        bunker_tpl.garrison_contain_max = Some(5);
+        logic.templates.insert("CivBunker".into(), bunker_tpl);
+        let mut ninja_tpl = ThingTemplate::new("JarmenKell");
+        ninja_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::StealthGarrison)
+            .set_health(120.0);
+        logic.templates.insert("JarmenKell".into(), ninja_tpl);
+
+        let bunker = logic
+            .create_object_for_player("CivBunker", 9, Vec3::ZERO)
+            .expect("bunker");
+        let ninja = logic
+            .create_object_for_player("JarmenKell", 1, Vec3::new(2.0, 0.0, 0.0))
+            .expect("ninja");
+        {
+            let obj = logic.host_object_mut(bunker).expect("bunker mut");
+            if let Some(bd) = obj.building_data.as_mut() {
+                bd.original_team = Some(Team::Neutral);
+                bd.hide_garrisoned_state = true;
+                bd.garrisoned_units.push(ninja);
+                bd.max_garrison = 5;
+            }
+            obj.set_team_and_owner(Team::USA, Some(1));
+        }
+
+        let spec = insert_spec_for(&logic, bunker);
+        assert_eq!(
+            spec.contain_apparent_player_index,
+            Some(1),
+            "ally must see occupier, not civilian original"
+        );
+        assert_eq!(
+            resolve_radar_object_color(&spec),
+            pack_rgb((80, 160, 255))
+        );
+    }
+
 }

@@ -116,6 +116,9 @@ impl GameLogic {
 
     pub fn set_paused(&mut self, paused: bool) {
         self.is_paused = paused;
+        // C++ GameLogic::setGamePaused (GameLogic.cpp:4164-4222) default
+        // pauseMusic=TRUE: TheAudio->pauseAudio / resumeAudio.
+        gamelogic::helpers::TheGameLogic::set_game_paused(paused, true);
         log::debug!("Game {}", if paused { "paused" } else { "unpaused" });
     }
 
@@ -505,6 +508,29 @@ impl GameLogic {
         self.transport_residual_loads = self.transport_residual_loads.saturating_add(1);
     }
 
+    /// C++ GarrisonContain::onRemoving Patch 1.01 — Fire Base (non-enclosing)
+    /// occupants snap host Y (C++ Z) to ground so they do not leave at STATION
+    /// bone altitude. Terrain sample wins; else the container's ground Y.
+    fn snap_garrison_exit_occupant_to_ground(
+        &mut self,
+        unit_id: ObjectId,
+        container_id: ObjectId,
+    ) {
+        let Some(pos) = self.objects.get(&unit_id).map(|p| p.get_position()) else {
+            return;
+        };
+        let Some(ground_y) = self.terrain_height_at(pos).or_else(|| {
+            self.objects.get(&container_id).map(|c| c.get_position().y)
+        }) else {
+            return;
+        };
+        if let Some(p) = self.objects.get_mut(&unit_id) {
+            let mut next = p.get_position();
+            next.y = ground_y;
+            p.set_position(next);
+        }
+    }
+
     /// C++ GarrisonContain::exitObjectViaDoor — EVAC_TO_LEFT / RIGHT / BURST.
     /// Occupant should already be removed from the container roster.
     pub fn garrison_exit_occupant_via_door(
@@ -583,6 +609,12 @@ impl GameLogic {
             p.set_ai_state(AIState::Moving);
             p.status.moving = true;
         }
+        if !enclosing {
+            // C++ GarrisonContain::onRemoving Patch 1.01: Fire Base station
+            // occupants snap Z to ground so sell/evac does not leave them
+            // floating at STATION bone height.
+            self.snap_garrison_exit_occupant_to_ground(unit_id, container_id);
+        }
         // C++ GarrisonContain::onRemoving setSafeOcclusionFrame(frame + OcclusionDelay).
         if let Some(p) = self.objects.get_mut(&unit_id) {
             p.stamp_safe_occlusion_frame(self.frame);
@@ -594,6 +626,8 @@ impl GameLogic {
                 crate::game_logic::host_move_log::record(unit_id, Some([pos.x, pos.y, pos.z]));
             }
         }
+        // C++ OpenContain::removeFromContain doUnloadSound — leftover TheAudio.
+        self.play_container_exit_sound(container_id);
         true
     }
 
@@ -846,10 +880,17 @@ impl GameLogic {
                 }
                 any = true;
             }
+            if is_garrison && !enclosing {
+                self.snap_garrison_exit_occupant_to_ground(*pid, container_id);
+            }
             if walked_transport {
                 self.walk_unit_via_open_contain_exit(*pid, container_id);
             }
             self.record_transport_residual_unload();
+        }
+        if any {
+            // C++ OpenContain::doUnloadSound once per frame per container.
+            self.play_container_exit_sound(container_id);
         }
         for hid in packing_hackers {
             self.hacker_income.stop_hacking(hid);
@@ -1190,6 +1231,8 @@ impl GameLogic {
         }
         self.record_garrison_residual_enter();
         self.apply_garrison_contain_on_enter(bldg_id, pid);
+        // C++ OpenContain::addToContain doLoadSound.
+        self.play_container_enter_sound(bldg_id);
     }
 
     /// C++ full-building scatter + `aiFollowPath` (AIStates.cpp:581-613).
@@ -3164,5 +3207,66 @@ mod garrison_evac_door_tests {
             "GarrisonContain::onRemoving must stamp OcclusionDelay"
         );
 
+    }
+
+    /// hq-ppag1: Fire Base exit snaps station height to Patch 1.01 ground Z.
+    #[test]
+    fn firebase_exit_snaps_station_height_to_ground() {
+        let mut logic = GameLogic::new();
+        let mut fb_t = ThingTemplate::new("AmericaFireBase");
+        fb_t.add_kind_of(KindOf::Structure).set_health(1000.0);
+        fb_t.contain_module = crate::game_logic::ContainModuleMetadata {
+            kind: crate::game_logic::ContainModuleKind::Garrison,
+            slots: Some(4),
+            is_enclosing_container: false,
+            ..Default::default()
+        };
+        logic.templates.insert("AmericaFireBase".into(), fb_t);
+        let mut pax_t = ThingTemplate::new("FB_PAX");
+        pax_t.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("FB_PAX".into(), pax_t);
+        let origin = glam::Vec3::new(10.0, 0.0, 20.0);
+        let fb = logic
+            .create_object("AmericaFireBase", crate::game_logic::Team::USA, origin)
+            .unwrap();
+        let pax = logic
+            .create_object(
+                "FB_PAX",
+                crate::game_logic::Team::USA,
+                glam::Vec3::new(12.0, 8.0, 22.0),
+            )
+            .unwrap();
+        {
+            let p = logic.host_object_mut(pax).unwrap();
+            p.set_contained_by(Some(fb));
+            p.set_position(glam::Vec3::new(12.0, 8.0, 22.0));
+        }
+        assert!(logic.garrison_exit_occupant_via_door(pax, fb));
+        let p = logic.host_object(pax).unwrap();
+        assert!(
+            (p.get_position().y - origin.y).abs() < 0.01,
+            "Fire Base exit must snap station Y to ground, got y={}",
+            p.get_position().y
+        );
+
+        let pax2 = logic
+            .create_object(
+                "FB_PAX",
+                crate::game_logic::Team::USA,
+                glam::Vec3::new(11.0, 9.0, 21.0),
+            )
+            .unwrap();
+        assert!(logic.host_object_mut(fb).unwrap().add_occupant(pax2));
+        if let Some(p) = logic.host_object_mut(pax2) {
+            p.set_contained_by(Some(fb));
+            p.set_position(glam::Vec3::new(11.0, 9.0, 21.0));
+        }
+        assert!(logic.evacuate_container_now(fb, false));
+        let p2 = logic.host_object(pax2).unwrap();
+        assert!(
+            (p2.get_position().y - origin.y).abs() < 0.01,
+            "Fire Base evac must snap station Y to ground, got y={}",
+            p2.get_position().y
+        );
     }
 }

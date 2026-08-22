@@ -107,6 +107,7 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::CarpetBomb => "SPECIAL_CARPET_BOMB",
             HostSuperweaponKind::ArtilleryBarrage => "SPECIAL_ARTILLERY_BARRAGE",
             HostSuperweaponKind::CruiseMissile => "SUPR_SPECIAL_CRUISE_MISSILE",
+            HostSuperweaponKind::NapalmStrike => "SPECIAL_NAPALM_STRIKE",
         }
     }
 
@@ -123,6 +124,7 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::ParticleCannon => 36,
             HostSuperweaponKind::SpectreGunship => 42,
             HostSuperweaponKind::CruiseMissile => 63,
+            HostSuperweaponKind::NapalmStrike => 6,
         }
     }
 }
@@ -299,6 +301,7 @@ pub fn special_power_ini_template_name(
         P::SneakAttack => "SuperweaponSneakAttack",
         P::CashHack => "SuperweaponCashHack",
         P::CrateDrop => "SuperweaponCrateDrop",
+        P::NapalmStrike => "SuperweaponNapalmStrike",
         _ => host_command_power_cpp_enum_name(power).unwrap_or("SPECIAL_INVALID"),
     }
 }
@@ -597,7 +600,6 @@ pub fn special_power_uses_shared_synced_timer(
         | P::SneakAttack
         | P::SpySatellite
         | P::SpyDrone
-        | P::RadarScan
         | P::FireWall
         | P::IonCannon => true,
         // Unit abilities / non-shared residual.
@@ -621,11 +623,11 @@ pub fn special_power_uses_shared_synced_timer(
         | P::RangerCaptureBuilding
         | P::RedGuardCaptureBuilding
         | P::RebelCaptureBuilding
-        | P::DisguiseAsVehiclePower
         | P::CleanupArea
         | P::BattlePlanBombardment
         | P::BattlePlanHoldTheLine
         | P::BattlePlanSearchAndDestroy
+        | P::RadarScan
         | P::Invalid => false,
         // Unknown residual: prefer shared for superweapon-like names is unsafe;
         // fail-closed to per-object so unit abilities never block teammates.
@@ -714,7 +716,7 @@ pub fn special_power_reload_seconds(
         P::DisguiseAsVehiclePower => Some(0),
         P::SpySatellite => Some(60_000),
         P::SpyDrone => Some(crate::game_logic::host_spy_drone::SPY_DRONE_RELOAD_MS),
-        P::RadarScan => Some(60_000),
+        P::RadarScan => Some(crate::game_logic::host_radar::RADAR_VAN_SCAN_RELOAD_MS),
         P::CleanupArea => Some(0),
         P::BattlePlanBombardment | P::BattlePlanHoldTheLine | P::BattlePlanSearchAndDestroy => {
             Some(0)
@@ -744,6 +746,8 @@ pub fn honesty_special_power_enum_residual_pack_wave80() -> bool {
                 && !special_power_uses_shared_synced_timer(&P::NuclearMissile)
                 && special_power_uses_shared_synced_timer(&P::DaisyCutter)
                 && special_power_uses_shared_synced_timer(&P::Airstrike)
+                && !special_power_uses_shared_synced_timer(&P::RadarScan)
+                && special_power_reload_seconds(&P::RadarScan) == Some(30.0)
         }
         // Host superweapon ordinal ↔ name table residual.
         && [
@@ -757,6 +761,7 @@ pub fn honesty_special_power_enum_residual_pack_wave80() -> bool {
             HostSuperweaponKind::CarpetBomb,
             HostSuperweaponKind::ArtilleryBarrage,
             HostSuperweaponKind::CruiseMissile,
+            HostSuperweaponKind::NapalmStrike,
         ]
         .iter()
         .all(|k| {

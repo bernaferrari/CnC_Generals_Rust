@@ -231,6 +231,8 @@ impl Object {
 
         // Moving: invalidate maintain pos residual.
         self.maintain_pos_valid = false;
+        // C++ locoUpdate_moveTowardsPosition applyMotiveForce(0) (Locomotor.cpp:1010-1014).
+        self.apply_motive_force(glam::Vec3::ZERO);
 
         if let Some(target_pos) = self.movement.target_position {
             let current_pos = self.get_position();
@@ -399,8 +401,15 @@ impl Object {
             }
 
             // Arrival residual.
+            // C++ Locomotor::getCloseEnoughDist after SET_STOPPING_DISTANCE
+            // (`setCloseEnoughDist`, ignore values < 0.5). Host default 2.0
+            // is the pre-script residual arrival band.
+            let arrive_dist = self
+                .close_enough_dist
+                .filter(|d| d.is_finite() && *d >= 0.5)
+                .unwrap_or(2.0);
             let distance_to_target = current_pos.distance(target_pos);
-            if distance_to_target < 2.0 {
+            if distance_to_target < arrive_dist {
                 let next_waypoint =
                     if self.movement.current_path_index + 1 < self.movement.path.len() {
                         self.movement.current_path_index += 1;

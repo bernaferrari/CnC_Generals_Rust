@@ -57,6 +57,8 @@ pub const BURTON_CLIP_RELOAD_MS: u32 = 500;
 pub const BURTON_CLIP_RELOAD_FRAMES: u32 = 15;
 /// Retail sniper DamageType residual.
 pub const BURTON_SNIPER_DAMAGE_TYPE: &str = "SMALL_ARMS";
+/// Retail sniper DeathType residual.
+pub const BURTON_SNIPER_DEATH_TYPE: &str = "NORMAL";
 /// Retail sniper PrimaryDamageRadius residual (intended-only).
 pub const BURTON_SNIPER_DAMAGE_RADIUS: f32 = 0.0;
 /// Retail sniper FireSound residual.

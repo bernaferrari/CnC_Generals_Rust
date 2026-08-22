@@ -879,6 +879,22 @@ fn execute_wait_deadline(prev_time: Instant, interval: Option<Duration>) -> Inst
     }
 }
 
+/// Map leftover/host `ObjectShroudStatus` onto Common radar discriminants.
+fn host_object_shroud_to_radar(
+    status: gamelogic::common::ObjectShroudStatus,
+) -> game_engine::common::game_common::ObjectShroudStatus {
+    use game_engine::common::game_common::ObjectShroudStatus as RadarShroud;
+    use gamelogic::common::ObjectShroudStatus as HostShroud;
+    match status {
+        HostShroud::Invalid => RadarShroud::Invalid,
+        HostShroud::Clear => RadarShroud::Clear,
+        HostShroud::PartialClear => RadarShroud::PartialClear,
+        HostShroud::Fogged => RadarShroud::Fogged,
+        HostShroud::Shrouded => RadarShroud::Shrouded,
+        HostShroud::InvalidButPreviousValid => RadarShroud::InvalidButPreviousValid,
+    }
+}
+
 
 impl CnCGameEngine {
     /// C++ `GameEngine::update` (`GameEngine.cpp:732`) `TheRadar->UPDATE()`.
@@ -888,9 +904,36 @@ impl CnCGameEngine {
         {
             shroud.refresh_shroud_for_local_player();
         }
+
+        let local_id = self
+            .presentation_or_boot_local_player_id()
+            .unwrap_or(self.current_player_id);
+        let player = self.game_logic.get_player(local_id);
+        // C++ `Player::isPlayerActive` = `!observer && !dead`.
+        let local_player_active = player
+            .map(|p| p.is_alive && !p.is_observer)
+            .unwrap_or(true);
+        let local_has_radar = player.map(|p| p.has_radar()).unwrap_or(false);
+        let radar_forced = self.game_logic.radar_forced();
+
         if let Ok(mut radar) = game_engine::common::system::radar::get_radar_system().write() {
+            radar.set_local_player_active(local_player_active);
+            radar.set_local_has_radar(local_has_radar);
+            radar.force_on(radar_forced);
             let frame = self.host_match_logic_frame.unwrap_or(0);
             radar.update(frame);
+            // C++ `getShroudedStatus` is queried at overlay render, after
+            // `Radar::update` rebuilds the object lists. Stamp after sync so
+            // PARTIAL_CLEAR fog-edge blips survive provider rebuild.
+            if let Ok(shroud) =
+                gamelogic::system::shroud_manager::get_shroud_manager().lock()
+            {
+                radar.apply_object_shrouds(|object_id| {
+                    shroud
+                        .get_host_object_shroud_status(local_id, object_id)
+                        .map(host_object_shroud_to_radar)
+                });
+            }
         }
     }
 
@@ -1060,6 +1103,16 @@ mod tests {
         assert!(
             live.contains("radar.update(frame)"),
             "host_update_the_radar must call RadarSystem::update"
+        );
+        let update_at = live
+            .find("radar.update(frame)")
+            .expect("RadarSystem::update");
+        let stamp_at = live
+            .rfind("apply_object_shrouds")
+            .expect("object shroud stamp");
+        assert!(
+            update_at < stamp_at,
+            "C++ getShroudedStatus is queried after Radar::update rebuilds lists"
         );
         assert!(
             live.contains("execute_wait_deadline("),

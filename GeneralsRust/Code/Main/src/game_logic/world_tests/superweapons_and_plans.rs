@@ -2654,6 +2654,40 @@ fn anthrax_bomb_flight_drops_payload() {
 }
 
 #[test]
+fn anthrax_bomb_queue_spawns_one_cargo_plane() {
+    use crate::command_system::SpecialPowerType;
+    use crate::game_logic::KindOf;
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::GLA);
+    let mut cc = crate::game_logic::ThingTemplate::new("GLACommandCenter");
+    cc.add_kind_of(KindOf::Structure).set_health(5000.0);
+    logic.templates.insert("GLACommandCenter".into(), cc);
+    let cc_id = logic
+        .create_object("GLACommandCenter", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    assert!(logic
+        .queue_special_power_strike(
+            &SpecialPowerType::AnthraxBomb,
+            cc_id,
+            Vec3::new(150.0, 0.0, 0.0),
+        )
+        .is_some());
+    let planes = logic
+        .host_objects()
+        .values()
+        .filter(|o| {
+            o.anthrax_bomb_transport.is_some() || o.template_name == "GLAJetCargoPlane"
+        })
+        .count();
+    assert_eq!(
+        planes, 1,
+        "Anthrax must not also run generic execute_ocl (got {planes} cargo planes)"
+    );
+    assert!(logic.anthrax_bomb_flight_reg.transports_spawned >= 1);
+}
+
+
+#[test]
 fn anthrax_bomb_exits_plane_at_delivery_distance_not_over_click() {
     use crate::game_logic::host_anthrax_bomb_flight::ANTHRAX_DELIVERY_DISTANCE;
     use crate::game_logic::KindOf;
@@ -4327,6 +4361,253 @@ fn can_make_unit_residual_gates_prereq_money_queue_disabled() {
     assert_eq!(
         logic.can_make_unit(barracks, "TestVehicleUnit"),
         CANMAKE_NO_PREREQ
+    );
+}
+
+#[test]
+fn can_make_unit_reports_disabled_and_maxed_before_prereq() {
+    use crate::game_logic::host_production_buildable_command_residual::{
+        CANMAKE_FACTORY_IS_DISABLED, CANMAKE_MAXED_OUT_FOR_PLAYER, CANMAKE_NO_PREREQ,
+    };
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    ensure_test_barracks_template(&mut logic);
+    ensure_test_infantry_template(&mut logic);
+
+    let barracks = logic
+        .create_object("TestBarracks", Team::USA, glam::Vec3::ZERO)
+        .expect("barracks");
+
+    // Missing prereq + disabled factory → FACTORY_IS_DISABLED (C++ order).
+    if let Some(tmpl) = logic.templates.get_mut("TestInfantry") {
+        tmpl.buildable_status =
+            crate::game_logic::host_production_buildable_command_residual::BSTATUS_NO;
+    }
+    if let Some(o) = logic.host_object_mut(barracks) {
+        o.set_status_disabled_underpowered(true);
+    }
+    assert_eq!(
+        logic.can_make_unit(barracks, "TestInfantry"),
+        CANMAKE_FACTORY_IS_DISABLED
+    );
+    if let Some(o) = logic.host_object_mut(barracks) {
+        o.set_status_disabled_underpowered(false);
+    }
+
+    // Missing prereq + maxed → MAXED_OUT (C++ does maxed before isPossibleToMakeUnit).
+    if let Some(tmpl) = logic.templates.get_mut("TestInfantry") {
+        tmpl.max_simultaneous_of_type = 1;
+    }
+    let _ = logic.create_object("TestInfantry", Team::USA, glam::Vec3::new(10.0, 0.0, 0.0));
+    assert_eq!(
+        logic.can_make_unit(barracks, "TestInfantry"),
+        CANMAKE_MAXED_OUT_FOR_PLAYER
+    );
+
+    // TECHTREE leftover override NO gates live can_make (no factory disable/maxed).
+    if let Some(tmpl) = logic.templates.get_mut("TestInfantry") {
+        tmpl.max_simultaneous_of_type = 0;
+        tmpl.buildable_status =
+            crate::game_logic::host_production_buildable_command_residual::BSTATUS_YES;
+    }
+    let _ = gamelogic::scripting::take_host_buildable_status_override_requests();
+    gamelogic::helpers::TheGameLogic::set_buildable_status_override("TestInfantry", 2);
+    assert_eq!(
+        logic.can_make_unit(barracks, "TestInfantry"),
+        CANMAKE_NO_PREREQ
+    );
+    gamelogic::helpers::TheGameLogic::set_buildable_status_override("TestInfantry", 0);
+}
+
+#[test]
+fn script_disable_unit_construction_and_techtree_override_write_live() {
+    use crate::game_logic::host_production_buildable_command_residual::{
+        BSTATUS_NO, CANMAKE_FACTORY_IS_DISABLED, CANMAKE_NO_PREREQ, CANMAKE_OK,
+    };
+    use crate::game_logic::Team;
+    use gamelogic::scripting::HostScriptCanBuildRequest;
+
+    let mut logic = GameLogic::new();
+    logic.scripts_loaded = true;
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    ensure_test_barracks_template(&mut logic);
+    ensure_test_infantry_template(&mut logic);
+    let barracks = logic
+        .create_object("TestBarracks", Team::USA, glam::Vec3::ZERO)
+        .expect("barracks");
+    assert_eq!(logic.can_make_unit(barracks, "TestInfantry"), CANMAKE_OK);
+
+    let _ = gamelogic::scripting::take_host_can_build_requests();
+    gamelogic::scripting::request_host_can_build(HostScriptCanBuildRequest::Units {
+        player: "TestPlayer".into(),
+        enable: false,
+    });
+    logic.evaluate_and_execute_scripts(0.0);
+    assert!(
+        !logic.get_player(0).expect("p").can_build_units,
+        "PLAYER_DISABLE_UNIT_CONSTRUCTION must flip live can_build_units"
+    );
+    assert_eq!(
+        logic.can_make_unit(barracks, "TestInfantry"),
+        CANMAKE_NO_PREREQ
+    );
+
+    gamelogic::scripting::request_host_can_build(HostScriptCanBuildRequest::Units {
+        player: "TestPlayer".into(),
+        enable: true,
+    });
+    logic.evaluate_and_execute_scripts(0.0);
+    assert!(logic.get_player(0).expect("p").can_build_units);
+
+    gamelogic::scripting::request_host_can_build(HostScriptCanBuildRequest::Factories {
+        player: "TestPlayer".into(),
+        template: "TestBarracks".into(),
+        enable: false,
+    });
+    logic.evaluate_and_execute_scripts(0.0);
+    assert!(
+        logic
+            .host_object(barracks)
+            .expect("barracks")
+            .is_script_disabled(),
+        "PLAYER_DISABLE_FACTORIES must set live SCRIPT_DISABLED"
+    );
+    assert_eq!(
+        logic.can_make_unit(barracks, "TestInfantry"),
+        CANMAKE_FACTORY_IS_DISABLED
+    );
+    gamelogic::scripting::request_host_can_build(HostScriptCanBuildRequest::Factories {
+        player: "TestPlayer".into(),
+        template: "TestBarracks".into(),
+        enable: true,
+    });
+    logic.evaluate_and_execute_scripts(0.0);
+
+    let _ = gamelogic::scripting::take_host_buildable_status_override_requests();
+    gamelogic::scripting::request_host_buildable_status_override("TestInfantry", BSTATUS_NO as i32);
+    logic.evaluate_and_execute_scripts(0.0);
+    assert_eq!(
+        logic.can_make_unit(barracks, "TestInfantry"),
+        CANMAKE_NO_PREREQ
+    );
+    assert!(
+        logic
+            .templates
+            .get("TestInfantry")
+            .expect("tmpl")
+            .human_control_bar_buildable_hidden()
+    );
+    gamelogic::helpers::TheGameLogic::set_buildable_status_override("TestInfantry", 0);
+}
+
+#[test]
+fn script_named_receive_upgrade_writes_live_object() {
+    use gamelogic::scripting::HostScriptNamedUpgradeRequest;
+
+    let mut logic = GameLogic::new();
+    logic.scripts_loaded = true;
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    ensure_test_infantry_template(&mut logic);
+    let id = logic
+        .create_object("TestInfantry", Team::USA, glam::Vec3::ZERO)
+        .expect("unit");
+    if let Some(obj) = logic.host_object_mut(id) {
+        obj.name = "Hero".into();
+    }
+
+    let _ = gamelogic::scripting::take_host_script_named_upgrade_requests();
+    gamelogic::scripting::request_host_script_named_upgrade(HostScriptNamedUpgradeRequest {
+        unit: "Hero".into(),
+        upgrade: "Upgrade_AmericaChemicalSuits".into(),
+    });
+    logic.evaluate_and_execute_scripts(0.0);
+    assert!(
+        logic
+            .host_object(id)
+            .expect("unit")
+            .has_upgrade_tag("Upgrade_AmericaChemicalSuits"),
+        "NAMED_RECEIVE_UPGRADE must apply giveUpgrade on the live host object"
+    );
+}
+
+#[test]
+fn script_player_sell_everything_sells_live_faction_structures() {
+    use gamelogic::scripting::HostScriptPlayerMiscRequest;
+
+    let mut logic = GameLogic::new();
+    logic.scripts_loaded = true;
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    ensure_test_barracks_template(&mut logic);
+    ensure_test_infantry_template(&mut logic);
+    let barracks = logic
+        .create_object("TestBarracks", Team::USA, glam::Vec3::ZERO)
+        .expect("barracks");
+    let unit = logic
+        .create_object("TestInfantry", Team::USA, glam::Vec3::new(50.0, 0.0, 0.0))
+        .expect("unit");
+
+    let _ = gamelogic::scripting::take_host_script_player_misc_requests();
+    gamelogic::scripting::request_host_script_player_misc(
+        HostScriptPlayerMiscRequest::SellEverything {
+            player: "TestPlayer".into(),
+        },
+    );
+    logic.evaluate_and_execute_scripts(0.0);
+    assert!(
+        logic.host_object(barracks).expect("barracks").status.sold,
+        "PLAYER_SELL_EVERYTHING must start_sell_object on faction structures"
+    );
+    assert!(
+        logic.sell_list.iter().any(|s| s.id == barracks),
+        "sold barracks must be on the live sell list"
+    );
+    assert!(
+        !logic.host_object(unit).expect("unit").status.sold,
+        "non-structure units must not be sold"
+    );
+}
+
+#[test]
+fn script_exclude_from_score_and_select_skillset_write_live() {
+    use crate::ai::AIDifficulty;
+    use gamelogic::scripting::HostScriptPlayerMiscRequest;
+
+    let mut logic = GameLogic::new();
+    logic.scripts_loaded = true;
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    logic
+        .ai_manager
+        .add_ai_player(0, Team::USA, AIDifficulty::Medium);
+    assert!(logic.get_player(0).expect("p").list_in_score_screen);
+
+    let _ = gamelogic::scripting::take_host_script_player_misc_requests();
+    gamelogic::scripting::request_host_script_player_misc(
+        HostScriptPlayerMiscRequest::ExcludeFromScore {
+            player: "TestPlayer".into(),
+        },
+    );
+    gamelogic::scripting::request_host_script_player_misc(
+        HostScriptPlayerMiscRequest::SelectSkillset {
+            player: "TestPlayer".into(),
+            skillset: 2,
+        },
+    );
+    logic.evaluate_and_execute_scripts(0.0);
+    assert!(
+        !logic.get_player(0).expect("p").list_in_score_screen,
+        "PLAYER_EXCLUDE_FROM_SCORE_SCREEN must set live list_in_score_screen false"
+    );
+    assert_eq!(
+        logic
+            .ai_manager
+            .ai_players
+            .get(&0)
+            .expect("ai")
+            .selected_skillset(),
+        1,
+        "PLAYER_SELECT_SKILLSET is 1-based; live selector is 0-based"
     );
 }
 

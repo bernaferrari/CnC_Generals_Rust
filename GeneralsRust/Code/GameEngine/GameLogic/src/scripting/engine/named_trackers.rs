@@ -1780,4 +1780,300 @@ impl ScriptEngine {
     pub fn start_quick_end_game_timer_cxx(&self) {
         self.start_quick_end_game_timer();
     }
+
+    /// C++ `ScriptEngine::xfer` tail after sequential/counters/flags.
+    pub fn snapshot_xfer_tail(&self) -> ScriptEngineXferTail {
+        let named_objects = get_named_object_tracker()
+            .get_all_named_objects()
+            .unwrap_or_default();
+        self.with_inner(|inner| {
+            let attack_count = inner.num_attack_info.min(inner.attack_priority_info.len());
+            let attack_priorities = inner.attack_priority_info[..attack_count]
+                .iter()
+                .map(|info| {
+                    let mut entries: Vec<(String, i32)> = info
+                        .priority_map
+                        .iter()
+                        .map(|(name, priority)| (name.clone(), *priority))
+                        .collect();
+                    entries.sort_by(|a, b| a.0.cmp(&b.0));
+                    (
+                        info.name.clone(),
+                        info.default_priority,
+                        entries,
+                    )
+                })
+                .collect();
+            let mut object_attack_priority_sets: Vec<(ObjectID, String)> = inner
+                .object_attack_priority_sets
+                .iter()
+                .map(|(id, name)| (*id, name.clone()))
+                .collect();
+            object_attack_priority_sets.sort_by_key(|(id, _)| *id);
+            let mut object_types: Vec<(String, Vec<String>)> = inner
+                .object_types
+                .iter()
+                .map(|(name, list)| {
+                    (
+                        name.clone(),
+                        list.iter().map(|entry| entry.as_str().to_string()).collect(),
+                    )
+                })
+                .collect();
+            object_types.sort_by(|a, b| a.0.cmp(&b.0));
+            ScriptEngineXferTail {
+                attack_priorities,
+                object_attack_priority_sets,
+                end_game_timer: inner.end_game_timer,
+                close_window_timer: inner.close_window_timer,
+                named_objects,
+                first_update: inner.first_update,
+                fade: inner.fade as i32,
+                min_fade: inner.min_fade,
+                max_fade: inner.max_fade,
+                cur_fade_value: inner.cur_fade_value,
+                cur_fade_frame: inner.cur_fade_frame,
+                fade_frames_increase: inner.fade_frames_increase,
+                fade_frames_hold: inner.fade_frames_hold,
+                fade_frames_decrease: inner.fade_frames_decrease,
+                completed_video: inner.completed_video.clone(),
+                testing_speech: inner.testing_speech.clone(),
+                testing_audio: inner.testing_audio.clone(),
+                ui_interactions: inner.ui_interactions.clone(),
+                triggered_special_powers: inner.triggered_special_powers.clone(),
+                midway_special_powers: inner.midway_special_powers.clone(),
+                finished_special_powers: inner.finished_special_powers.clone(),
+                completed_upgrades: inner.completed_upgrades.clone(),
+                acquired_sciences: inner
+                    .acquired_sciences
+                    .iter()
+                    .map(|list| list.iter().map(|science| *science as i32).collect())
+                    .collect(),
+                topple_directions: inner
+                    .topple_directions
+                    .iter()
+                    .map(|(name, coord)| (name.clone(), [coord.x, coord.y, coord.z]))
+                    .collect(),
+                breeze_direction: inner.breeze_info.direction,
+                breeze_direction_vec: inner.breeze_info.direction_vec,
+                breeze_intensity: inner.breeze_info.intensity,
+                breeze_lean: inner.breeze_info.lean,
+                breeze_randomness: inner.breeze_info.randomness,
+                breeze_period: inner.breeze_info.breeze_period,
+                breeze_version: inner.breeze_info.breeze_version,
+                game_difficulty: match inner.game_difficulty {
+                    crate::player::GameDifficulty::Easy => 0,
+                    crate::player::GameDifficulty::Normal => 1,
+                    crate::player::GameDifficulty::Hard => 2,
+                    crate::player::GameDifficulty::Brutal => 3,
+                },
+                freeze_by_script: inner.freeze_by_script,
+                object_types,
+                objects_should_receive_difficulty_bonus: inner
+                    .objects_should_receive_difficulty_bonus,
+                current_track_name: inner.current_track_name.clone(),
+                choose_victim_always_uses_normal: inner.choose_victim_always_uses_normal,
+            }
+        })
+    }
+
+    /// Restore the leftover ScriptEngine xfer tail into the live engine.
+    pub fn restore_xfer_tail(&self, tail: &ScriptEngineXferTail) {
+        {
+            let mut inner = self.lock_inner_mut();
+            inner.attack_priority_info = tail
+                .attack_priorities
+                .iter()
+                .map(|(name, default_priority, entries)| {
+                    let mut info = AttackPriorityInfo::new();
+                    info.name = name.clone();
+                    info.default_priority = *default_priority;
+                    info.priority_map = entries.iter().cloned().collect();
+                    info
+                })
+                .collect();
+            if inner.attack_priority_info.is_empty() {
+                inner.attack_priority_info.push(AttackPriorityInfo::new());
+            }
+            inner.num_attack_info = inner.attack_priority_info.len();
+            inner.object_attack_priority_sets = tail
+                .object_attack_priority_sets
+                .iter()
+                .filter(|(id, name)| *id != crate::common::INVALID_ID && !name.is_empty())
+                .cloned()
+                .collect();
+            inner.end_game_timer = tail.end_game_timer;
+            inner.close_window_timer = tail.close_window_timer;
+            inner.first_update = tail.first_update;
+            inner.fade = match tail.fade {
+                1 => TFade::Subtract,
+                2 => TFade::Add,
+                3 => TFade::Saturate,
+                4 => TFade::Multiply,
+                _ => TFade::None,
+            };
+            inner.min_fade = tail.min_fade;
+            inner.max_fade = tail.max_fade;
+            inner.cur_fade_value = tail.cur_fade_value;
+            inner.cur_fade_frame = tail.cur_fade_frame;
+            inner.fade_frames_increase = tail.fade_frames_increase;
+            inner.fade_frames_hold = tail.fade_frames_hold;
+            inner.fade_frames_decrease = tail.fade_frames_decrease;
+            inner.completed_video = tail.completed_video.clone();
+            inner.testing_speech = tail.testing_speech.clone();
+            inner.testing_audio = tail.testing_audio.clone();
+            inner.ui_interactions = tail.ui_interactions.clone();
+            let player_count = Self::MAX_PLAYER_COUNT;
+            inner.triggered_special_powers = pad_player_pairs(&tail.triggered_special_powers, player_count);
+            inner.midway_special_powers = pad_player_pairs(&tail.midway_special_powers, player_count);
+            inner.finished_special_powers = pad_player_pairs(&tail.finished_special_powers, player_count);
+            inner.completed_upgrades = pad_player_pairs(&tail.completed_upgrades, player_count);
+            inner.acquired_sciences = {
+                let mut lists = vec![Vec::new(); player_count];
+                for (index, sciences) in tail.acquired_sciences.iter().take(player_count).enumerate() {
+                    lists[index] = sciences.iter().copied().map(|value| value as ScienceType).collect();
+                }
+                lists
+            };
+            inner.topple_directions = tail
+                .topple_directions
+                .iter()
+                .map(|(name, xyz)| (name.clone(), Coord3D::new(xyz[0], xyz[1], xyz[2])))
+                .collect();
+            inner.breeze_info.direction = tail.breeze_direction;
+            inner.breeze_info.direction_vec = tail.breeze_direction_vec;
+            inner.breeze_info.intensity = tail.breeze_intensity;
+            inner.breeze_info.lean = tail.breeze_lean;
+            inner.breeze_info.randomness = tail.breeze_randomness;
+            inner.breeze_info.breeze_period = tail.breeze_period;
+            inner.breeze_info.breeze_version = tail.breeze_version;
+            inner.game_difficulty = match tail.game_difficulty {
+                0 => crate::player::GameDifficulty::Easy,
+                2 => crate::player::GameDifficulty::Hard,
+                3 => crate::player::GameDifficulty::Brutal,
+                _ => crate::player::GameDifficulty::Normal,
+            };
+            inner.freeze_by_script = tail.freeze_by_script;
+            inner.object_types.clear();
+            for (list_name, types) in &tail.object_types {
+                let mut list = ObjectTypes::with_list_name(AsciiString::from(list_name.as_str()));
+                for object_type in types {
+                    list.add_object_type(AsciiString::from(object_type.as_str()));
+                }
+                inner.object_types.insert(list_name.clone(), list);
+            }
+            inner.objects_should_receive_difficulty_bonus =
+                tail.objects_should_receive_difficulty_bonus;
+            inner.current_track_name = tail.current_track_name.clone();
+            inner.choose_victim_always_uses_normal = tail.choose_victim_always_uses_normal;
+        }
+
+        let tracker = get_named_object_tracker();
+        let _ = tracker.clear();
+        for (name, object_id) in &tail.named_objects {
+            if *object_id != crate::common::INVALID_ID && !name.is_empty() {
+                let _ = tracker.register_named_object(name.clone(), *object_id);
+            }
+        }
+    }
 }
+
+fn pad_player_pairs(
+    lists: &[Vec<(String, u32)>],
+    player_count: usize,
+) -> Vec<Vec<(String, u32)>> {
+    let mut padded = vec![Vec::new(); player_count];
+    for (index, list) in lists.iter().take(player_count).enumerate() {
+        padded[index] = list.clone();
+    }
+    padded
+}
+
+/// C++ `ScriptEngine::xfer` fields after counters/flags (`ScriptEngine.cpp:8812+`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScriptEngineXferTail {
+    pub attack_priorities: Vec<(String, i32, Vec<(String, i32)>)>,
+    pub object_attack_priority_sets: Vec<(ObjectID, String)>,
+    pub end_game_timer: i32,
+    pub close_window_timer: i32,
+    pub named_objects: Vec<(String, u32)>,
+    pub first_update: bool,
+    pub fade: i32,
+    pub min_fade: f32,
+    pub max_fade: f32,
+    pub cur_fade_value: f32,
+    pub cur_fade_frame: i32,
+    pub fade_frames_increase: i32,
+    pub fade_frames_hold: i32,
+    pub fade_frames_decrease: i32,
+    pub completed_video: Vec<String>,
+    pub testing_speech: Vec<(String, u32)>,
+    pub testing_audio: Vec<(String, u32)>,
+    pub ui_interactions: Vec<String>,
+    pub triggered_special_powers: Vec<Vec<(String, u32)>>,
+    pub midway_special_powers: Vec<Vec<(String, u32)>>,
+    pub finished_special_powers: Vec<Vec<(String, u32)>>,
+    pub completed_upgrades: Vec<Vec<(String, u32)>>,
+    pub acquired_sciences: Vec<Vec<i32>>,
+    pub topple_directions: Vec<(String, [f32; 3])>,
+    pub breeze_direction: f32,
+    pub breeze_direction_vec: [f32; 2],
+    pub breeze_intensity: f32,
+    pub breeze_lean: f32,
+    pub breeze_randomness: f32,
+    pub breeze_period: i16,
+    pub breeze_version: i16,
+    pub game_difficulty: i32,
+    pub freeze_by_script: bool,
+    pub object_types: Vec<(String, Vec<String>)>,
+    pub objects_should_receive_difficulty_bonus: bool,
+    pub current_track_name: String,
+    pub choose_victim_always_uses_normal: bool,
+}
+
+impl Default for ScriptEngineXferTail {
+    fn default() -> Self {
+        let breeze = BreezeInfo::new();
+        Self {
+            attack_priorities: Vec::new(),
+            object_attack_priority_sets: Vec::new(),
+            end_game_timer: -1,
+            close_window_timer: -1,
+            named_objects: Vec::new(),
+            first_update: true,
+            fade: TFade::None as i32,
+            min_fade: 0.0,
+            max_fade: 1.0,
+            cur_fade_value: 0.0,
+            cur_fade_frame: 0,
+            fade_frames_increase: 0,
+            fade_frames_hold: 0,
+            fade_frames_decrease: 0,
+            completed_video: Vec::new(),
+            testing_speech: Vec::new(),
+            testing_audio: Vec::new(),
+            ui_interactions: Vec::new(),
+            triggered_special_powers: Vec::new(),
+            midway_special_powers: Vec::new(),
+            finished_special_powers: Vec::new(),
+            completed_upgrades: Vec::new(),
+            acquired_sciences: Vec::new(),
+            topple_directions: Vec::new(),
+            breeze_direction: breeze.direction,
+            breeze_direction_vec: breeze.direction_vec,
+            breeze_intensity: breeze.intensity,
+            breeze_lean: breeze.lean,
+            breeze_randomness: breeze.randomness,
+            breeze_period: breeze.breeze_period,
+            breeze_version: breeze.breeze_version,
+            game_difficulty: 1,
+            freeze_by_script: false,
+            object_types: Vec::new(),
+            objects_should_receive_difficulty_bonus: true,
+            current_track_name: String::new(),
+            choose_victim_always_uses_normal: false,
+        }
+    }
+}
+
+

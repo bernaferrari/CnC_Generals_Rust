@@ -143,7 +143,7 @@ impl GameLogic {
         let within_ar = (qualifiers & WITHIN_ATTACK_RANGE) != 0;
         let need_los = (qualifiers & CAN_SEE) != 0;
         let unfogged = (qualifiers & UNFOGGED) != 0;
-        let _ignore_insig = (qualifiers & IGNORE_INSIGNIFICANT_BUILDINGS) != 0;
+        let ignore_insig = (qualifiers & IGNORE_INSIGNIFICANT_BUILDINGS) != 0;
         let prio = self.attack_priority_info_for(unit_id);
 
         let mut best_dist: Option<(ObjectId, f32)> = None;
@@ -163,14 +163,17 @@ impl GameLogic {
             }
             let is_bldg = obj.is_kind_of(crate::game_logic::KindOf::Structure)
                 || obj.object_type == crate::game_logic::ObjectType::Building;
-            if is_bldg && !attack_buildings {
-                let bldg_can_attack = obj.can_attack()
-                    || obj.weapon.is_some()
-                    || obj.secondary_weapon.is_some()
-                    || obj.tertiary_weapon.is_some();
-                if !bldg_can_attack {
-                    continue;
-                }
+            if !attack_buildings && !self.host_reject_buildings_allows(unit_id, obj) {
+                continue;
+            }
+            // C++ PartitionFilterInsignificantBuildings: drop non-FS structures
+            // that are not MP_COUNT_FOR_VICTORY (civilian huts).
+            if ignore_insig
+                && is_bldg
+                && obj.is_non_faction_structure()
+                && !obj.is_kind_of(crate::game_logic::KindOf::MpCountForVictory)
+            {
+                continue;
             }
             let opos = obj.get_position();
             let dx = opos.x - me_pos.x;
@@ -300,15 +303,6 @@ impl GameLogic {
                         && !target.status.disguised)
                     || target.contained_by.is_some()
                     || target.is_kind_of(KindOf::Aircraft)
-                    || !matches!(
-                        self.get_able_to_attack_specific_object(
-                            object_id,
-                            target_id,
-                            AbleToAttackType::NewTarget,
-                            false,
-                        ),
-                        CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
-                    )
             }
         };
         if reject {
@@ -387,7 +381,7 @@ impl GameLogic {
                 o.is_alive() && !o.status.destroyed,
                 o.status.using_ability,
                 o.status.attacking || o.ai_state == AIState::Attacking,
-                o.status.stealthed && !o.status.detected,
+                o.status.stealthed,
                 o.auto_acquire_idle_bits,
                 o.ai_attitude,
                 o.last_damage_source,
@@ -443,7 +437,20 @@ impl GameLogic {
         // C++ AIUpdate.cpp:4520-4535 — team common victim before mood scan rate.
         if called_by_ai && attitude >= 0 {
             if let Some(team_victim) = self.host_team_common_target(unit_id) {
-                return Some(team_victim);
+                // C++ getNextMoodTarget: caller can-attack vetoes this member
+                // only. Team::getTeamTargetObject never clears on that check.
+                let can = matches!(
+                    self.get_able_to_attack_specific_object(
+                        unit_id,
+                        team_victim,
+                        AbleToAttackType::NewTarget,
+                        false,
+                    ),
+                    CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+                );
+                if can {
+                    return Some(team_victim);
+                }
             }
         }
         if called_by_ai {
@@ -479,7 +486,9 @@ impl GameLogic {
         use find_enemy_flags::*;
         let mut flags = CAN_ATTACK;
         if let Some(o) = self.objects.get(&unit_id) {
-            if o.is_kind_of(crate::game_logic::KindOf::Structure) || !o.can_move() {
+            if Self::aidata_attack_uses_line_of_sight()
+                && o.is_kind_of(crate::game_logic::KindOf::AttackNeedsLineOfSight)
+            {
                 flags |= CAN_SEE;
             }
         }
@@ -489,9 +498,47 @@ impl GameLogic {
         if (auto_idle & AUTO_ACQUIRE_IDLE_ATTACK_BUILDINGS) != 0 {
             flags |= ATTACK_BUILDINGS;
         }
+        if Self::aidata_attack_ignore_insignificant_buildings() {
+            flags |= IGNORE_INSIGNIFICANT_BUILDINGS;
+        }
         let _ = (pos, team);
         self.find_closest_enemy(unit_id, range, flags)
     }
+
+    /// C++ `TheAI->getAiData()->m_attackIgnoreInsignificantBuildings`.
+    fn aidata_attack_ignore_insignificant_buildings() -> bool {
+        if let Some(data) = game_engine::common::ini::get_ai_data_store().get_active() {
+            return data.attack_ignore_insignificant_buildings;
+        }
+        gamelogic::ai::THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| {
+                ai.get_ai_data()
+                    .read()
+                    .ok()
+                    .map(|d| d.attack_ignore_insignificant_buildings)
+            })
+            .unwrap_or(false)
+    }
+
+    /// C++ `TheAI->getAiData()->m_attackUsesLineOfSight` (default true).
+    fn aidata_attack_uses_line_of_sight() -> bool {
+        if let Some(data) = game_engine::common::ini::get_ai_data_store().get_active() {
+            return data.attack_uses_line_of_sight;
+        }
+        gamelogic::ai::THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| {
+                ai.get_ai_data()
+                    .read()
+                    .ok()
+                    .map(|d| d.attack_uses_line_of_sight)
+            })
+            .unwrap_or(true)
+    }
+
 
     /// Idle mood auto-acquire: if idle and mood allows, set attack target.
     pub fn try_mood_auto_acquire(
@@ -768,7 +815,7 @@ impl GameLogic {
         unit_id: ObjectId,
         victim_id: Option<ObjectId>,
         pos: Option<glam::Vec3>,
-        _attack_type: AbleToAttackType,
+        attack_type: AbleToAttackType,
     ) -> CanAttackResult {
         let Some(source) = self.objects.get(&unit_id) else {
             return CanAttackResult::NotPossible;
@@ -790,29 +837,28 @@ impl GameLogic {
         } else {
             &[0, 1]
         };
-        if !candidate_slots
+        let has_a_weapon = candidate_slots
             .iter()
             .copied()
-            .any(|slot| source.weapon_slot(slot).is_some())
-        {
-            return CanAttackResult::InvalidShot;
-        }
+            .any(|slot| source.weapon_slot(slot).is_some());
 
-        let target_pos = if let Some(vid) = victim_id {
+        let contained_by = source.contained_by;
+        let immobile_or_spawn = source.is_kind_of(KindOf::Immobile)
+            || source.is_spawns_are_the_weapons();
+
+        let (
+            target_pos,
+            has_legal_anti,
+            has_legal_estimate,
+            pitch_ok,
+        ) = if let Some(vid) = victim_id {
             let Some(v) = self.objects.get(&vid) else {
                 return CanAttackResult::NotPossible;
             };
-            // C++ WeaponSet compares each weapon's actual Anti* mask with
-            // getVictimAntiMask(victim), not just an air/ground boolean. This
-            // keeps PointDefense/mine/projectile-only weapons from acquiring
-            // ordinary ground units and preserves their real target categories
-            // when an exact Weapon.ini template is present.
             let target_anti_mask = v.weapon_target_anti_mask();
             let kind_ok = |slot: u8, weapon: &crate::game_logic::Weapon| {
                 source.weapon_allows_target_anti_mask(weapon, Some(slot), target_anti_mask)
             };
-            // Stealthed gate already applied in get_able_to_attack_specific_object;
-            // still block here if stealthed and not ignoring (defense in depth).
             let owner_relationship_known = self.has_object_ownership_provenance(source, v);
             let allied = if owner_relationship_known {
                 self.object_relationship(source, v) == gamelogic::common::Relationship::Allies
@@ -840,7 +886,12 @@ impl GameLogic {
                 ))
                 && current_is_primary
                 && !source.is_weapon_locked();
-            let has_legal_weapon = candidate_slots.iter().copied().any(|slot| {
+            let has_legal_anti = candidate_slots.iter().copied().any(|slot| {
+                source
+                    .weapon_slot(slot)
+                    .is_some_and(|weapon| kind_ok(slot, weapon))
+            });
+            let has_legal_estimate = candidate_slots.iter().copied().any(|slot| {
                 source.weapon_slot(slot).is_some_and(|weapon| {
                     if !kind_ok(slot, weapon) {
                         return false;
@@ -874,32 +925,41 @@ impl GameLogic {
                     ) > 0.0
                 })
             });
-            if !has_legal_weapon {
-                return CanAttackResult::InvalidShot;
-            }
-            v.get_position()
+            let pitch_ok = source.is_any_within_target_pitch_for_slots(v, candidate_slots);
+            (v.get_position(), has_legal_anti, has_legal_estimate, pitch_ok)
         } else if let Some(p) = pos {
-            let can_target_ground = |slot: u8, weapon: &crate::game_logic::Weapon| {
-                source.weapon_allows_target_anti_mask(
-                    weapon,
-                    Some(slot),
-                    gamelogic::weapon::WeaponAntiMask::GROUND,
-                )
-            };
-            let has_legal_weapon = candidate_slots.iter().copied().any(|slot| {
-                source
-                    .weapon_slot(slot)
-                    .is_some_and(|weapon| can_target_ground(slot, weapon))
+            let has_legal_anti = candidate_slots.iter().copied().any(|slot| {
+                source.weapon_slot(slot).is_some_and(|weapon| {
+                    source.weapon_allows_target_anti_mask(
+                        weapon,
+                        Some(slot),
+                        gamelogic::weapon::WeaponAntiMask::GROUND,
+                    )
+                })
             });
-            if !has_legal_weapon {
-                return CanAttackResult::InvalidShot;
-            }
-            p
+            (p, has_legal_anti, has_legal_anti, true)
         } else {
             return CanAttackResult::NotPossible;
         };
 
-        let within = if let Some(vid) = victim_id {
+        // C++ WeaponSet.cpp:630-647 — enclosing garrison uses FIREPOINT goal pose.
+        let fire_goal = contained_by.and_then(|cid| {
+            self.objects
+                .get(&cid)
+                .and_then(|c| Object::enclosing_garrison_fire_goal(c, unit_id, target_pos))
+        });
+        let within = if let Some(goal) = fire_goal {
+            if let Some(vid) = victim_id {
+                let v = self.objects.get(&vid).unwrap();
+                candidate_slots.iter().copied().any(|slot| {
+                    source.is_within_attack_range_for_slot_from_goal(slot, goal, v)
+                })
+            } else {
+                candidate_slots.iter().copied().any(|slot| {
+                    source.is_within_attack_range_pos_for_slot_from_goal(slot, goal, target_pos)
+                })
+            }
+        } else if let Some(vid) = victim_id {
             let v = self.objects.get(&vid).unwrap();
             candidate_slots
                 .iter()
@@ -912,26 +972,132 @@ impl GameLogic {
                 .any(|slot| source.is_within_attack_range_pos_for_slot(slot, target_pos))
         };
 
-        // Contact / invalid pitch residual not expanded — range gate only.
-        if within {
+        // C++ WeaponSet.cpp:656-660 — immobile / spawn-weapons / contained
+        // with a bound weapon out of range is InvalidShot (not walk-there).
+        if (immobile_or_spawn || contained_by.is_some())
+            && has_a_weapon
+            && !within
+            && attack_type != AbleToAttackType::TunnelNetworkGuard
+        {
+            return CanAttackResult::InvalidShot;
+        }
+
+        let mut ok_result = if within {
             CanAttackResult::Possible
         } else {
-            // Mobile residual: max_speed > 0 or can_move.
-            let mobile = source.can_move() || source.movement.max_speed > 1e-3;
-            if mobile {
-                CanAttackResult::PossibleAfterMoving
-            } else {
-                // Immobile and out of range → invalid shot residual.
-                CanAttackResult::InvalidShot
+            CanAttackResult::PossibleAfterMoving
+        };
+
+        if has_a_weapon {
+            if !has_legal_anti {
+                return CanAttackResult::InvalidShot;
+            }
+            if victim_id.is_none() {
+                return ok_result;
+            }
+            if !pitch_ok {
+                return CanAttackResult::InvalidShot;
+            }
+            if has_legal_estimate {
+                return ok_result;
             }
         }
+
+        if let Some(r) =
+            self.passenger_weapon_able_result(unit_id, victim_id, pos, attack_type)
+        {
+            return r;
+        }
+
+        if self.spawn_slaves_possible_against(unit_id, victim_id, pos, attack_type) {
+            if self.objects.get(&unit_id).is_some_and(|s| {
+                s.is_kind_of(KindOf::Immobile)
+                    && s.is_spawns_are_the_weapons()
+                    && ok_result == CanAttackResult::PossibleAfterMoving
+            }) {
+                ok_result = CanAttackResult::Possible;
+            }
+            return ok_result;
+        }
+
+        CanAttackResult::InvalidShot
+    }
+
+    /// C++ WeaponSet.cpp:716-737 — occupied container passenger recurse.
+    fn passenger_weapon_able_result(
+        &self,
+        source_id: ObjectId,
+        victim_id: Option<ObjectId>,
+        pos: Option<glam::Vec3>,
+        attack_type: AbleToAttackType,
+    ) -> Option<CanAttackResult> {
+        let members = {
+            let source = self.objects.get(&source_id)?;
+            let bunker_may =
+                crate::game_logic::host_passengers_fire_upgrade::overlord_bunker_passengers_may_fire(
+                    source.overlord_bunker_slot_capacity(),
+                    source.contained_by.is_some(),
+                );
+            // C++ GarrisonContain::isPassengerAllowedToFire — always, unless SUBDUED.
+            let garrison_may = source.is_garrison_contain() && !source.is_subdued();
+            if !source.passengers_allowed_to_fire && !bunker_may && !garrison_may {
+                return None;
+            }
+            source.contained_units()
+        };
+        for mid in members {
+            if !self.objects.get(&mid).is_some_and(|m| m.can_attack()) {
+                continue;
+            }
+            let r = self.get_able_to_use_weapon_against_target(mid, victim_id, pos, attack_type);
+            if matches!(
+                r,
+                CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+            ) {
+                return Some(r);
+            }
+        }
+        None
+    }
+
+    /// C++ WeaponSet.cpp:741-756 — hive/spawn slaves POSSIBLE.
+    fn spawn_slaves_possible_against(
+        &self,
+        source_id: ObjectId,
+        victim_id: Option<ObjectId>,
+        pos: Option<glam::Vec3>,
+        attack_type: AbleToAttackType,
+    ) -> bool {
+        let Some(source) = self.objects.get(&source_id) else {
+            return false;
+        };
+        if !source.is_spawns_are_the_weapons() {
+            return false;
+        }
+        let hive_alive = source.hive_slaves.iter().any(|s| s.alive);
+        let slave_ids: Vec<ObjectId> = self
+            .objects
+            .values()
+            .filter(|o| o.producer_id == Some(source_id) && o.id != source_id && o.can_attack())
+            .map(|o| o.id)
+            .collect();
+        for sid in slave_ids {
+            if self.get_able_to_use_weapon_against_target(sid, victim_id, pos, attack_type)
+                == CanAttackResult::Possible
+            {
+                return true;
+            }
+        }
+        // Residual Stinger hive soldiers are not full Objects; an alive slot
+        // is C++ getCanAnySlavesUseWeaponAgainstTarget POSSIBLE.
+        hive_alive
     }
 }
 
 #[cfg(test)]
 mod common_target_parity {
     use super::*;
-    use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
+    use crate::game_logic::{GameLogic, KindOf, Object, ObjectId, Player, Team, ThingTemplate, Weapon};
 
     fn reset_session_difficulty() {
         crate::game_logic::host_faction_skirmish_residual::set_live_host_session_difficulty(
@@ -1037,5 +1203,307 @@ mod common_target_parity {
             "garrisoned common target must be cleared"
         );
     }
+
+    #[test]
+    fn detected_stealthed_idle_requires_stealthed_bit() {
+        use gamelogic::object::update::ai_update_interface::{
+            AUTO_ACQUIRE_IDLE, AUTO_ACQUIRE_IDLE_STEALTHED,
+        };
+        let mut logic = GameLogic::new();
+        logic.frame = 100;
+        let mut at = ThingTemplate::new("StealthScout");
+        at.add_kind_of(KindOf::Infantry);
+        at.add_kind_of(KindOf::Attackable);
+        let aid = ObjectId(2601);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.set_position(glam::Vec3::ZERO);
+            o.ai_attitude = 0;
+            o.vision_range = 200.0;
+            o.next_mood_check_time = 0;
+            o.auto_acquire_idle_bits = AUTO_ACQUIRE_IDLE;
+            o.status.stealthed = true;
+            o.status.detected = true;
+            o.weapon = Some(Weapon {
+                range: 80.0,
+                damage: 10.0,
+                can_target_ground: true,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("StealthVic");
+        vt.add_kind_of(KindOf::Infantry);
+        vt.add_kind_of(KindOf::Attackable);
+        let vid = ObjectId(2602);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            o.set_position(glam::Vec3::new(40.0, 0.0, 0.0));
+            o
+        });
+        assert!(
+            logic.get_next_mood_target(aid, true, true, false).is_none(),
+            "DETECTED must not lift the STEALTHED idle veto"
+        );
+        if let Some(o) = logic.objects.get_mut(&aid) {
+            o.auto_acquire_idle_bits = AUTO_ACQUIRE_IDLE | AUTO_ACQUIRE_IDLE_STEALTHED;
+            o.next_mood_check_time = 0;
+        }
+        assert_eq!(
+            logic.get_next_mood_target(aid, true, true, false),
+            Some(vid),
+            "Stealthed INI bit must allow idle acquire"
+        );
+    }
+
+    #[test]
+    fn mood_scan_ignores_insignificant_buildings() {
+        use gamelogic::object::update::ai_update_interface::{
+            AUTO_ACQUIRE_IDLE, AUTO_ACQUIRE_IDLE_ATTACK_BUILDINGS,
+        };
+        let prev = {
+            let mut store = game_engine::common::ini::get_ai_data_store_mut();
+            store.ensure_base();
+            let prev = store
+                .get_active()
+                .map(|d| d.attack_ignore_insignificant_buildings)
+                .unwrap_or(false);
+            if let Some(data) = store.get_active_mut() {
+                data.attack_ignore_insignificant_buildings = true;
+            }
+            prev
+        };
+        let mut logic = GameLogic::new();
+        logic.frame = 100;
+        let mut at = ThingTemplate::new("MoodHutAtk");
+        at.add_kind_of(KindOf::Infantry);
+        at.add_kind_of(KindOf::Attackable);
+        let aid = ObjectId(2701);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.set_position(glam::Vec3::ZERO);
+            o.ai_attitude = 0;
+            o.vision_range = 200.0;
+            o.next_mood_check_time = 0;
+            o.auto_acquire_idle_bits = AUTO_ACQUIRE_IDLE | AUTO_ACQUIRE_IDLE_ATTACK_BUILDINGS;
+            o.weapon = Some(Weapon {
+                range: 80.0,
+                damage: 10.0,
+                can_target_ground: true,
+                ..Default::default()
+            });
+            o
+        });
+        let mut hut_t = ThingTemplate::new("CivilianHut");
+        hut_t.add_kind_of(KindOf::Structure);
+        hut_t.add_kind_of(KindOf::Attackable);
+        let hut = ObjectId(2702);
+        logic.objects.insert(hut, {
+            let mut o = Object::new(hut_t, hut, Team::GLA);
+            o.set_position(glam::Vec3::new(30.0, 0.0, 0.0));
+            o
+        });
+        assert!(
+            logic.get_next_mood_target(aid, true, true, false).is_none(),
+            "ATTACK_BUILDINGS + ignore-insig must skip civilian huts"
+        );
+        if let Some(o) = logic.objects.get_mut(&aid) {
+            o.next_mood_check_time = 0;
+        }
+        let mut inf_t = ThingTemplate::new("MoodHutInf");
+        inf_t.add_kind_of(KindOf::Infantry);
+        inf_t.add_kind_of(KindOf::Attackable);
+        let inf = ObjectId(2703);
+        logic.objects.insert(inf, {
+            let mut o = Object::new(inf_t, inf, Team::GLA);
+            o.set_position(glam::Vec3::new(45.0, 0.0, 0.0));
+            o
+        });
+        assert_eq!(
+            logic.get_next_mood_target(aid, true, true, false),
+            Some(inf),
+            "ignore-insig must still acquire units"
+        );
+        {
+            let mut store = game_engine::common::ini::get_ai_data_store_mut();
+            if let Some(data) = store.get_active_mut() {
+                data.attack_ignore_insignificant_buildings = prev;
+            }
+        }
+    }
+
 }
+
+#[cfg(test)]
+mod get_able_weapon_parity {
+    use super::*;
+    use crate::game_logic::{
+        BuildingData, BuildingType, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon,
+    };
+    use glam::Vec3;
+
+    #[test]
+    fn garrisoned_building_recurses_to_occupant_fire() {
+        let mut logic = GameLogic::new();
+        let mut bt = ThingTemplate::new("CivBunker");
+        bt.add_kind_of(KindOf::Structure);
+        bt.add_kind_of(KindOf::Immobile);
+        let bid = ObjectId(4001);
+        logic.objects.insert(bid, {
+            let mut o = Object::new(bt, bid, Team::USA);
+            o.set_position(Vec3::ZERO);
+            let mut bd = BuildingData::new(BuildingType::Bunker);
+            bd.garrisoned_units = vec![ObjectId(4002)];
+            bd.garrison_fire_points = vec![Vec3::new(70.0, 0.0, 0.0)];
+            bd.garrison_point_occupant = vec![Some(ObjectId(4002))];
+            o.building_data = Some(bd);
+            o
+        });
+        let mut rt = ThingTemplate::new("AmericaRanger");
+        rt.add_kind_of(KindOf::Infantry);
+        rt.add_kind_of(KindOf::Attackable);
+        logic.objects.insert(ObjectId(4002), {
+            let mut o = Object::new(rt, ObjectId(4002), Team::USA);
+            o.set_position(Vec3::ZERO);
+            o.contained_by = Some(bid);
+            o.movement.max_speed = 10.0;
+            o.weapon = Some(Weapon {
+                range: 40.0,
+                damage: 10.0,
+                can_target_ground: true,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("GlaRebel");
+        vt.add_kind_of(KindOf::Infantry);
+        vt.add_kind_of(KindOf::Attackable);
+        logic.objects.insert(ObjectId(4003), {
+            let mut o = Object::new(vt, ObjectId(4003), Team::GLA);
+            o.set_position(Vec3::new(100.0, 0.0, 0.0));
+            o
+        });
+        assert_eq!(
+            logic.get_able_to_use_weapon_against_target(
+                bid,
+                Some(ObjectId(4003)),
+                None,
+                AbleToAttackType::NewTarget,
+            ),
+            CanAttackResult::Possible,
+            "garrisoned bunker with no own weapon must inherit occupant FIREPOINT shot"
+        );
+    }
+
+    #[test]
+    fn contained_infantry_oor_is_invalid_shot_not_after_moving() {
+        let mut logic = GameLogic::new();
+        let mut rt = ThingTemplate::new("GarrRangerOor");
+        rt.add_kind_of(KindOf::Infantry);
+        rt.add_kind_of(KindOf::Attackable);
+        logic.objects.insert(ObjectId(4010), {
+            let mut o = Object::new(rt, ObjectId(4010), Team::USA);
+            o.set_position(Vec3::ZERO);
+            o.contained_by = Some(ObjectId(4099));
+            o.movement.max_speed = 10.0;
+            o.weapon = Some(Weapon {
+                range: 30.0,
+                damage: 10.0,
+                can_target_ground: true,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("GarrVicOor");
+        vt.add_kind_of(KindOf::Infantry);
+        vt.add_kind_of(KindOf::Attackable);
+        logic.objects.insert(ObjectId(4011), {
+            let mut o = Object::new(vt, ObjectId(4011), Team::GLA);
+            o.set_position(Vec3::new(200.0, 0.0, 0.0));
+            o
+        });
+        assert_eq!(
+            logic.get_able_to_use_weapon_against_target(
+                ObjectId(4010),
+                Some(ObjectId(4011)),
+                None,
+                AbleToAttackType::NewTarget,
+            ),
+            CanAttackResult::InvalidShot,
+            "contained infantry cannot show walk-there cursor"
+        );
+    }
+
+    #[test]
+    fn pitch_limited_weapon_is_invalid_shot() {
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("CrusaderPitch");
+        at.add_kind_of(KindOf::Vehicle);
+        at.primary_weapon_name = Some("CrusaderTankGun".to_string());
+        logic.objects.insert(ObjectId(4020), {
+            let mut o = Object::new(at, ObjectId(4020), Team::USA);
+            o.set_position(Vec3::ZERO);
+            o.weapon = Some(Weapon {
+                range: 200.0,
+                damage: 10.0,
+                can_target_ground: true,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("HighInf");
+        vt.add_kind_of(KindOf::Infantry);
+        vt.add_kind_of(KindOf::Attackable);
+        logic.objects.insert(ObjectId(4021), {
+            let mut o = Object::new(vt, ObjectId(4021), Team::GLA);
+            o.set_position(Vec3::new(10.0, 50.0, 0.0));
+            o
+        });
+        assert_eq!(
+            logic.get_able_to_use_weapon_against_target(
+                ObjectId(4020),
+                Some(ObjectId(4021)),
+                None,
+                AbleToAttackType::NewTarget,
+            ),
+            CanAttackResult::InvalidShot,
+            "pitch-limited tank gun must reject a steep loft"
+        );
+    }
+
+    #[test]
+    fn stinger_site_falls_through_to_hive_slaves() {
+        let mut logic = GameLogic::new();
+        let mut st = ThingTemplate::new("GLAStingerSite");
+        st.add_kind_of(KindOf::Structure);
+        st.add_kind_of(KindOf::Immobile);
+        logic.objects.insert(ObjectId(4030), {
+            let mut o = Object::new(st, ObjectId(4030), Team::GLA);
+            o.set_position(Vec3::ZERO);
+            o.hive_slaves =
+                crate::game_logic::host_base_defense::init_stinger_hive_slave_roster();
+            o.hive_slave_count = 3;
+            o
+        });
+        let mut vt = ThingTemplate::new("UsaRanger");
+        vt.add_kind_of(KindOf::Infantry);
+        vt.add_kind_of(KindOf::Attackable);
+        logic.objects.insert(ObjectId(4031), {
+            let mut o = Object::new(vt, ObjectId(4031), Team::USA);
+            o.set_position(Vec3::new(80.0, 0.0, 0.0));
+            o
+        });
+        assert_eq!(
+            logic.get_able_to_use_weapon_against_target(
+                ObjectId(4030),
+                Some(ObjectId(4031)),
+                None,
+                AbleToAttackType::NewTarget,
+            ),
+            CanAttackResult::Possible,
+            "immobile SPAWNS_ARE_THE_WEAPONS site must inherit slave POSSIBLE"
+        );
+    }
+}
+
 

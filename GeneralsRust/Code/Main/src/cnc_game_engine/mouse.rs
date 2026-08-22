@@ -837,11 +837,13 @@ impl CnCGameEngine {
     }
 
     pub(super) fn handle_left_click(&mut self) {
+        if !self.lookat_input_enabled() {
+            return;
+        }
         self.is_dragging = true;
         self.selection_start = Some(self.mouse_world_position);
         self.selection_start_screen = Some(self.mouse_position);
         self.left_click_release_behavior = LeftMouseReleaseBehavior::Selection;
-
         let mouse_pos = self.mouse_world_position;
         // C++ `SelectionXlat.cpp:469` / `:431`: a pick miss is no drawable.
         // Ground click never invents the first locally-owned selectable.
@@ -1352,6 +1354,13 @@ impl CnCGameEngine {
         origin: MouseInputOrigin,
         physical_lmb_gesture: bool,
     ) {
+        if !self.lookat_input_enabled() {
+            self.is_dragging = false;
+            self.selection_start = None;
+            self.selection_start_screen = None;
+            self.left_click_release_behavior = LeftMouseReleaseBehavior::Selection;
+            return;
+        }
         self.is_dragging = false;
         let release_behavior = std::mem::replace(
             &mut self.left_click_release_behavior,
@@ -1463,8 +1472,12 @@ impl CnCGameEngine {
                     alt_down,
                 )
             {
-                // C++ `SelectionXlat.cpp:930-937` alternate-mouse blank LMB-up.
-                self.host_set_selection(self.current_player_id, Vec::new());
+                // C++ `SelectionXlat.cpp:930-943` — issuing GUI click is
+                // protected by armed command; the *next* blank LMB is
+                // protected by the one-click prevent flag.
+                if !self.host_consume_prevent_left_click_deselection() {
+                    self.host_set_selection(self.current_player_id, Vec::new());
+                }
             }
             return;
         }
@@ -1587,6 +1600,9 @@ impl CnCGameEngine {
         origin: MouseInputOrigin,
         physical_rmb_gesture: bool,
     ) -> bool {
+        if !self.lookat_input_enabled() {
+            return false;
+        }
         if self.host_note_right_double_click() && self.host_try_double_click_guard_command(true) {
             return true;
         }
@@ -2397,6 +2413,8 @@ impl CnCGameEngine {
         look_at_host_modes().desired_height_above_ground = Some(new_hag);
         // C++ setHeightAboveGround cancels scripted rotate/pitch/zoom/path/lock.
         self.cancel_scripted_camera_from_player_set();
+        // C++ setHeightAboveGround invalidates m_cameraConstraint (recalc from map).
+        self.scripted_camera_constraint_widen = None;
         // C++ View::zoomIn/Out only changes HAG; W3DView eases zoom at CameraAdjustSpeed.
     }
 
@@ -2505,12 +2523,14 @@ impl CnCGameEngine {
 
     /// C++ HintSpy::translate MSG_MOUSEOVER_DRAWABLE_HINT / LOCATION_HINT.
     fn sync_ingame_mouseover_hint(&mut self) {
-        let hover = self.find_object_at_cursor(true);
+        // C++ SelectionXlat.cpp:429 hardcodes getPickTypesForContext(true).
+        let hover = self.host_pick_hover_object_at_cursor();
         match hover {
             Some(id) => self.game_client.create_mouseover_hint(Some(id.0), false),
             None => self.game_client.create_mouseover_hint(None, true),
         }
     }
+
 
     /// Wave 612: via `host_resolve_context_cursor_icon`.
     pub(super) fn resolve_context_cursor_icon(&self) -> (&'static str, winit::window::CursorIcon) {
@@ -3378,6 +3398,26 @@ impl CnCGameEngine {
         self.host_pick_object_at_cursor(command_context)
     }
 
+    /// C++ `InGameUI::setPreventLeftClickDeselectionInAlternateMouseModeForOneClick`.
+    pub(super) fn host_set_prevent_left_click_deselection(&mut self, enabled: bool) {
+        self.prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click = enabled;
+        game_client::helpers::TheInGameUI::set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(
+            enabled,
+        );
+    }
+
+    /// C++ `SelectionXlat.cpp:935-943`: consume the one-click keep-selection flag.
+    pub(super) fn host_consume_prevent_left_click_deselection(&mut self) -> bool {
+        let leftover = game_client::helpers::TheInGameUI::get_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click();
+        let prevent =
+            self.prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click || leftover;
+        if prevent {
+            self.host_set_prevent_left_click_deselection(false);
+        }
+        prevent
+    }
+
+
 
 
 
@@ -3481,7 +3521,7 @@ impl CnCGameEngine {
         );
     }
 
-    fn lookat_input_enabled(&self) -> bool {
+    pub(super) fn lookat_input_enabled(&self) -> bool {
         #[cfg(feature = "game_client")]
         {
             game_client::helpers::TheInGameUI::get_input_enabled()
@@ -3818,6 +3858,8 @@ impl CnCGameEngine {
             self.camera_target,
             self.ui_script_default_camera_max_height(),
         );
+        // C++ resetCamera/setZoom invalidates m_cameraConstraint.
+        self.scripted_camera_constraint_widen = None;
         self.apply_camera_orbit_transform();
         if matches!(self.current_state, GameState::InGame | GameState::Paused) {
             self.update_mouse_world_position();
@@ -3827,11 +3869,17 @@ impl CnCGameEngine {
 
     /// C++ `LookAtXlat.cpp:550-587` SAVE_VIEW / VIEW_VIEW full `ViewLocation`.
     pub(super) fn save_or_recall_camera_view(&mut self, slot: usize) {
+        let save = self.keys_pressed.contains(&Key::Named(NamedKey::Control));
+        self.store_or_apply_camera_view(slot, save);
+    }
+
+    /// Explicit SAVE_VIEW (`save`) vs VIEW_VIEW so Keyboard Options remaps
+    /// do not depend on the live Ctrl key.
+    pub(super) fn store_or_apply_camera_view(&mut self, slot: usize, save: bool) {
         if slot >= 8 {
             return;
         }
-        let ctrl = self.keys_pressed.contains(&Key::Named(NamedKey::Control));
-        if ctrl {
+        if save {
             let loc = CameraViewLocation {
                 pos: self.camera_target,
                 yaw: self.camera_yaw_radians,
@@ -4261,6 +4309,18 @@ mod camera_pick_tests {
         assert!(!infantry_garrison_context_takes_region(false, false, true, 0));
 
     }
+
+    #[test]
+    fn alternate_mouse_one_click_prevent_deselect_matches_cpp() {
+        // C++ SelectionXlat.cpp:935-943 + GUICommandTranslator.cpp:471-473.
+        let mouse = include_str!("mouse.rs");
+        let ui = include_str!("ui_commands.rs");
+        assert!(mouse.contains("host_consume_prevent_left_click_deselection"));
+        assert!(mouse.contains("host_set_prevent_left_click_deselection"));
+        assert!(ui.contains("host_set_prevent_left_click_deselection(true)"));
+        assert!(mouse.contains("host_pick_hover_object_at_cursor"));
+    }
+
 
     #[test]
     fn left_release_point_click_does_not_box_wipe() {

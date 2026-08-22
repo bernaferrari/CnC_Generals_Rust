@@ -232,7 +232,8 @@ impl GameLogic {
         use crate::game_logic::host_battlemaster::{
             battlemaster_scatter_aim, battlemaster_scatter_misses_infantry,
             battlemaster_splash_damage_at, is_battlemaster_template,
-            is_legal_battlemaster_splash_target, BATTLE_MASTER_DAMAGE, BATTLE_MASTER_FIRE_AUDIO,
+            is_legal_battlemaster_splash_target, BATTLE_MASTER_DAMAGE,
+            BATTLE_MASTER_DAMAGE_TYPE, BATTLE_MASTER_DEATH_TYPE, BATTLE_MASTER_FIRE_AUDIO,
             BATTLE_MASTER_SPLASH_RADIUS,
         };
 
@@ -338,7 +339,12 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from(dmg, source);
+                let destroyed = obj.take_damage_from_immediate_residual(
+                    dmg,
+                    source,
+                    BATTLE_MASTER_DAMAGE_TYPE,
+                    BATTLE_MASTER_DEATH_TYPE,
+                );
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -720,8 +726,9 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_red_guard::{
-            distance_2d, should_apply_bayonet_residual, BAYONET_DAMAGE, BAYONET_FIRE_AUDIO,
-            REDGUARD_DAMAGE, REDGUARD_FIRE_AUDIO,
+            distance_2d, should_apply_bayonet_residual, BAYONET_DAMAGE, BAYONET_DAMAGE_TYPE,
+            BAYONET_FIRE_AUDIO, REDGUARD_DAMAGE, REDGUARD_DAMAGE_TYPE, REDGUARD_DEATH_TYPE,
+            REDGUARD_FIRE_AUDIO,
         };
 
         let source_team = source
@@ -756,7 +763,13 @@ impl GameLogic {
         let mut hits = 0u32;
         let mut any_destroyed = false;
         if let Some(obj) = self.objects.get_mut(&target_id) {
-            let destroyed = obj.take_damage_from(damage, source);
+            let (dt_name, death_name) = if bayonet {
+                (BAYONET_DAMAGE_TYPE, REDGUARD_DEATH_TYPE)
+            } else {
+                (REDGUARD_DAMAGE_TYPE, REDGUARD_DEATH_TYPE)
+            };
+            let destroyed =
+                obj.take_damage_from_immediate_residual(damage, source, dt_name, death_name);
             hits = 1;
             if destroyed {
                 any_destroyed = true;
@@ -1007,7 +1020,8 @@ impl GameLogic {
         use crate::game_logic::host_tank_hunter::{
             is_legal_tank_hunter_splash_target, tank_hunter_scatter_aim,
             tank_hunter_scatter_misses_infantry, tank_hunter_splash_damage_at, TANK_HUNTER_DAMAGE,
-            TANK_HUNTER_FIRE_AUDIO, TANK_HUNTER_SPLASH_RADIUS,
+            TANK_HUNTER_DAMAGE_TYPE, TANK_HUNTER_DEATH_TYPE, TANK_HUNTER_FIRE_AUDIO,
+            TANK_HUNTER_SPLASH_RADIUS,
         };
 
         let damage = source
@@ -1112,7 +1126,12 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from(dmg, source);
+                let destroyed = obj.take_damage_from_immediate_residual(
+                    dmg,
+                    source,
+                    TANK_HUNTER_DAMAGE_TYPE,
+                    TANK_HUNTER_DEATH_TYPE,
+                );
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;

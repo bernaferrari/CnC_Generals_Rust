@@ -1602,6 +1602,11 @@ impl PresentationFrame {
             weapons_jammed: ent.weapons_jammed,
             masked: ent.masked,
             unattackable: ent.unattackable,
+            is_force_attackable: crate::game_logic::host_car_bomb::object_definition_has_kind(
+                &ent.template.name,
+                "FORCEATTACKABLE",
+            ),
+
             is_crate: false,
             is_salvage_crate: false,
             ignoring_stealth: ent.ignoring_stealth,

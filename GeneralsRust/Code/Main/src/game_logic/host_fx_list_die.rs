@@ -4,8 +4,13 @@
 //! via ctor `giveSelfUpgrade`), DieMux, skip if object or player `ConflictsWith`
 //! mask matches, then `FXList::doFXObj` (`OrientToObject` default TRUE) or
 //! `doFXPos` with authored `DeathFX`.
-
 use serde::{Deserialize, Serialize};
+
+use crate::game_logic::host_usa_pilot::HostDeathType;
+
+fn default_death_types() -> u32 {
+    gamelogic::damage::DEATH_TYPE_FLAGS_ALL
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostFxListDieData {
@@ -19,6 +24,12 @@ pub struct HostFxListDieData {
     pub upgrade_active: bool,
     /// C++ `ConflictsWith` upgrade names.
     pub conflicts_with: Vec<String>,
+    /// C++ `DieMuxData::m_deathTypes` (`DEATH_TYPE_FLAGS_ALL` default).
+    #[serde(default = "default_death_types")]
+    pub death_types: u32,
+    /// Additional authored `FXListDie` modules on the same template.
+    #[serde(default)]
+    pub more: Vec<HostFxListDieData>,
     pub fired: bool,
 }
 
@@ -31,6 +42,8 @@ impl Default for HostFxListDieData {
             starts_active: true,
             upgrade_active: true,
             conflicts_with: Vec::new(),
+            death_types: default_death_types(),
+            more: Vec::new(),
             fired: false,
         }
     }
@@ -40,12 +53,7 @@ impl HostFxListDieData {
     pub fn with_fx(fx: &str) -> Self {
         Self {
             death_fx: Some(fx.into()),
-            death_audio: None,
-            orient_to_object: true,
-            starts_active: true,
-            upgrade_active: true,
-            conflicts_with: Vec::new(),
-            fired: false,
+            ..Self::default()
         }
     }
 
@@ -58,15 +66,24 @@ impl HostFxListDieData {
             })
     }
 
-    /// Fire once on die. Returns (fx, audio) names.
-    pub fn on_die(
+    /// C++ `getDeathTypeFlag` — `1UL << (dt - 1)` (NORMAL wraps to bit 31).
+    pub fn death_type_allowed(&self, death_type: HostDeathType) -> bool {
+        let shift = (death_type.ordinal() as u32).wrapping_sub(1) & 31;
+        (self.death_types & (1u32 << shift)) != 0
+    }
+
+    fn try_fire_self(
         &mut self,
         owned_upgrades: &[String],
+        death_type: HostDeathType,
     ) -> Option<(Option<String>, Option<String>)> {
         if self.fired {
             return None;
         }
         if !self.upgrade_active {
+            return None;
+        }
+        if !self.death_type_allowed(death_type) {
             return None;
         }
         if self.conflicts_with_owned(owned_upgrades) {
@@ -77,6 +94,35 @@ impl HostFxListDieData {
         }
         self.fired = true;
         Some((self.death_fx.clone(), self.death_audio.clone()))
+    }
+
+    /// Fire every applicable authored `FXListDie` (C++ walks all Die modules).
+    pub fn collect_applicable(
+        &mut self,
+        owned_upgrades: &[String],
+        death_type: HostDeathType,
+    ) -> Vec<(Option<String>, Option<String>)> {
+        let mut out = Vec::new();
+        if let Some(hit) = self.try_fire_self(owned_upgrades, death_type) {
+            out.push(hit);
+        }
+        for extra in &mut self.more {
+            if let Some(hit) = extra.try_fire_self(owned_upgrades, death_type) {
+                out.push(hit);
+            }
+        }
+        out
+    }
+
+    /// Fire once on die. Returns the first applicable (fx, audio) pair.
+    pub fn on_die(
+        &mut self,
+        owned_upgrades: &[String],
+        death_type: HostDeathType,
+    ) -> Option<(Option<String>, Option<String>)> {
+        self.collect_applicable(owned_upgrades, death_type)
+            .into_iter()
+            .next()
     }
 }
 
@@ -99,6 +145,16 @@ fn split_names(raw: &str) -> Vec<String> {
         .collect()
 }
 
+fn parse_death_types(raw: &str) -> u32 {
+    let tokens: Vec<&str> = raw
+        .split(|c: char| c == ',' || c.is_whitespace())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
+    gamelogic::object::die::parse_death_type_flags_tokens(&tokens)
+        .unwrap_or_else(|_| default_death_types())
+}
+
 pub fn fx_list_die_from_behavior_attrs(attrs: &[(&str, &str)]) -> HostFxListDieData {
     let get = |key: &str| {
         attrs
@@ -118,6 +174,10 @@ pub fn fx_list_die_from_behavior_attrs(attrs: &[(&str, &str)]) -> HostFxListDieD
         starts_active,
         upgrade_active: starts_active,
         conflicts_with: get("ConflictsWith").map(split_names).unwrap_or_default(),
+        death_types: get("DeathTypes")
+            .map(parse_death_types)
+            .unwrap_or_else(default_death_types),
+        more: Vec::new(),
         fired: false,
     }
 }
@@ -126,6 +186,7 @@ fn authored_fx_list_die(name: &str) -> Option<HostFxListDieData> {
     let manager = crate::assets::get_asset_manager()?;
     let manager = manager.lock().ok()?;
     let definition = manager.get_object_definition(name)?;
+    let mut found = Vec::new();
     for module in &definition.behavior_modules {
         if !module.class_name.eq_ignore_ascii_case("FXListDie") {
             continue;
@@ -137,10 +198,12 @@ fn authored_fx_list_die(name: &str) -> Option<HostFxListDieData> {
             .collect();
         let data = fx_list_die_from_behavior_attrs(&attrs);
         if data.death_fx.is_some() {
-            return Some(data);
+            found.push(data);
         }
     }
-    None
+    let mut first = found.drain(..).next()?;
+    first.more = found;
+    Some(first)
 }
 
 pub fn fx_list_die_config_for_template(name: &str) -> Option<HostFxListDieData> {
@@ -205,9 +268,9 @@ mod tests {
     #[test]
     fn fx_list_die_fires_once() {
         let mut d = HostFxListDieData::with_fx("FX_Test");
-        let (fx, _) = d.on_die(&[]).unwrap();
+        let (fx, _) = d.on_die(&[], HostDeathType::Normal).unwrap();
         assert_eq!(fx.as_deref(), Some("FX_Test"));
-        assert!(d.on_die(&[]).is_none());
+        assert!(d.on_die(&[], HostDeathType::Normal).is_none());
     }
 
     #[test]
@@ -218,7 +281,7 @@ mod tests {
             upgrade_active: false,
             ..Default::default()
         };
-        assert!(d.on_die(&[]).is_none());
+        assert!(d.on_die(&[], HostDeathType::Normal).is_none());
     }
 
     #[test]
@@ -229,14 +292,14 @@ mod tests {
             ..Default::default()
         };
         assert!(d
-            .on_die(&["Upgrade_GLAAnthraxBeta".into()])
+            .on_die(&["Upgrade_GLAAnthraxBeta".into()], HostDeathType::Normal)
             .is_none());
         let mut d2 = HostFxListDieData {
             death_fx: Some("FX_Base".into()),
             conflicts_with: vec!["Upgrade_GLAAnthraxBeta".into()],
             ..Default::default()
         };
-        assert!(d2.on_die(&[]).is_some());
+        assert!(d2.on_die(&[], HostDeathType::Normal).is_some());
     }
 
     #[test]
@@ -246,6 +309,7 @@ mod tests {
         assert!(d.orient_to_object);
         assert!(d.starts_active);
         assert!(d.upgrade_active);
+        assert_eq!(d.death_types, default_death_types());
     }
 
     #[test]
@@ -258,5 +322,17 @@ mod tests {
         assert!(!d.starts_active);
         assert!(!d.upgrade_active);
         assert_eq!(d.conflicts_with, vec!["Upgrade_A".to_string()]);
+    }
+
+    #[test]
+    fn crush_only_death_types_skip_normal() {
+        let mut d = fx_list_die_from_behavior_attrs(&[
+            ("DeathFX", "FX_CrushInfantry"),
+            ("DeathTypes", "NONE +CRUSHED"),
+        ]);
+        assert!(d.on_die(&[], HostDeathType::Normal).is_none());
+        assert!(d.on_die(&[], HostDeathType::Burned).is_none());
+        let (fx, _) = d.on_die(&[], HostDeathType::Crushed).unwrap();
+        assert_eq!(fx.as_deref(), Some("FX_CrushInfantry"));
     }
 }

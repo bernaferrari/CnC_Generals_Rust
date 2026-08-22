@@ -653,6 +653,76 @@ fn door_animated_factory_releases_after_opening_time() {
     );
 }
 
+#[test]
+fn closing_factory_door_pops_waiting_open_for_next_unit() {
+    // C++ ProductionUpdate.cpp:762-776 + 795: CLOSING (`m_doorClosedFrame != 0`)
+    // pops to WAITING_OPEN and the completed unit exits this frame.
+    use crate::game_logic::host_enum_table_residual::{
+        door_1_waiting_open_model_bit, host_model_condition_has,
+    };
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    let mut wf = ThingTemplate::new("AmericaWarFactory");
+    wf.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSWarFactory)
+        .set_health(1500.0)
+        .set_cost(2000, -1);
+    logic.templates.insert("AmericaWarFactory".into(), wf);
+    let mut crusader = ThingTemplate::new("AmericaTankCrusader");
+    crusader
+        .add_kind_of(KindOf::Vehicle)
+        .set_health(400.0)
+        .set_cost(0, 0);
+    crusader.build_time = 0.01;
+    logic
+        .templates
+        .insert("AmericaTankCrusader".into(), crusader);
+    let bid = logic
+        .create_object("AmericaWarFactory", Team::USA, glam::Vec3::ZERO)
+        .expect("wf");
+    if let Some(o) = logic.host_object_mut(bid) {
+        o.set_status_under_construction(false);
+        o.construction_percent = 1.0;
+        o.production_door_phase = 4;
+        o.production_door_phases[0] = 4;
+        o.production_door_active_index = 0;
+        o.production_door_phase_end_frame = logic.frame.saturating_add(90);
+        o.production_door_phase_end_frames[0] = logic.frame.saturating_add(90);
+    }
+    assert!(logic.enqueue_production(bid, "AmericaTankCrusader".into()));
+    if let Some(o) = logic.host_object_mut(bid) {
+        if let Some(b) = o.building_data.as_mut() {
+            if let Some(item) = b.production_queue.first_mut() {
+                item.progress = item.total_time;
+                item.construction_frames = 10_000;
+            }
+        }
+    }
+    let ids = [bid];
+    logic.frame = logic.frame.max(1);
+    logic.update_construction(&ids, 1.0 / 30.0);
+    logic.update_production(1.0 / 30.0);
+    let phase = logic
+        .host_object(bid)
+        .map(|o| o.production_door_phase)
+        .unwrap_or(0);
+    let waiting = logic.host_object(bid).is_some_and(|o| {
+        host_model_condition_has(o.model_condition_bits, door_1_waiting_open_model_bit())
+    });
+    let units = logic
+        .host_objects()
+        .values()
+        .filter(|o| o.template_name == "AmericaTankCrusader")
+        .count();
+    assert_eq!(phase, 2, "CLOSING must pop to WAITING_OPEN, phase={phase}");
+    assert!(waiting, "WAITING_OPEN model bit must be set");
+    assert_eq!(
+        units, 1,
+        "next unit must exit this frame, not wait out DoorCloseTime"
+    );
+}
+
+
 
 #[test]
 fn completed_production_preserves_factory_identity_exit_facing_and_rally() {

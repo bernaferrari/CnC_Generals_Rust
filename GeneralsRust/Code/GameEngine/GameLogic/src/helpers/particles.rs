@@ -88,6 +88,21 @@ pub fn host_fx_object_pose(id: ObjectID) -> Option<HostFxObjectPose> {
         .and_then(|map| map.get(&id).copied())
 }
 
+/// Drop a published host pose when the live object is gone.
+pub fn remove_host_fx_object_pose(id: ObjectID) {
+    if let Ok(mut map) = HOST_FX_OBJECT_POSES.write() {
+        map.remove(&id);
+    }
+}
+
+/// Keep poses for live host IDs still present (including dying wrecks).
+pub fn retain_host_fx_object_poses(keep: impl Fn(ObjectID) -> bool) {
+    if let Ok(mut map) = HOST_FX_OBJECT_POSES.write() {
+        map.retain(|&id, _| keep(id));
+    }
+}
+
+
 
 
 /// Particle system manager bridge to the client-side implementation.

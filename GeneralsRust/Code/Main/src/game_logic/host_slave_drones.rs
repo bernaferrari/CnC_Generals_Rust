@@ -100,6 +100,10 @@ pub const HELLFIRE_SHROUD_CLEARING_RANGE: f32 = 500.0;
 
 /// Battle Drone MachineGun PrimaryDamage residual.
 pub const BATTLE_DRONE_GUN_DAMAGE: f32 = 1.0;
+/// Retail Battle Drone MachineGun DamageType residual.
+pub const BATTLE_DRONE_GUN_DAMAGE_TYPE: &str = "SMALL_ARMS";
+/// Retail Battle Drone MachineGun DeathType residual.
+pub const BATTLE_DRONE_GUN_DEATH_TYPE: &str = "NORMAL";
 /// Battle Drone MachineGun AttackRange residual.
 pub const BATTLE_DRONE_GUN_RANGE: f32 = 110.0;
 /// Battle Drone DelayBetweenShots 100ms residual.

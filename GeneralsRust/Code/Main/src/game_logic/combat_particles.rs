@@ -1385,6 +1385,8 @@ fn spawn_attached_system(
     let world = rotate_yaw_host(origin, yaw, local);
     let id = registry.next_id;
     registry.next_id = registry.next_id.saturating_add(1).max(1);
+    crate::game_logic::publish_host_fx_object(owner.0, origin, yaw, -1);
+
     let cpp_local = host_local_to_cpp(local);
     let leftover_id = gamelogic::helpers::attach_particle_system_to_object_local(
         template,

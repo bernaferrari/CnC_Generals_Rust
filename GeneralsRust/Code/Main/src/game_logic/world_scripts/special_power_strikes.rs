@@ -148,10 +148,12 @@ impl GameLogic {
         }
         // C++ OCLSpecialPower::doSpecialPowerAtLocation → ObjectCreationList::create.
         // Dedicated flight spawners already create the DeliverPayload transport
-        // (A10 / Daisy / MOAB). Calling execute_ocl here doubled the jets.
+        // (A10 / Daisy / MOAB / Anthrax). Calling execute_ocl here doubled the jets.
         if !matches!(
             kind,
-            HostSuperweaponKind::A10Strike | HostSuperweaponKind::DaisyCutter
+            HostSuperweaponKind::A10Strike
+                | HostSuperweaponKind::DaisyCutter
+                | HostSuperweaponKind::AnthraxBomb
         ) {
             if let Some(tmpl) =
                 crate::game_logic::host_ocl_special_power::special_power_template_for_host_kind(

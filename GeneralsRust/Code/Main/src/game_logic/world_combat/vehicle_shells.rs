@@ -122,8 +122,9 @@ impl GameLogic {
         use crate::game_logic::host_scorpion::{
             has_ap_rockets_upgrade, is_legal_scorpion_splash_target, is_scorpion_template,
             salvage_tier_from_upgrades, scorpion_gun_splash_damage_at, scorpion_missile_damage_at,
-            scorpion_scatter_aim, scorpion_scatter_misses_infantry, SCORPION_GUN_FIRE_AUDIO,
-            SCORPION_GUN_SPLASH_RADIUS, SCORPION_MISSILE_FIRE_AUDIO,
+            scorpion_scatter_aim, scorpion_scatter_misses_infantry, SCORPION_GUN_DAMAGE_TYPE,
+            SCORPION_GUN_DEATH_TYPE, SCORPION_GUN_FIRE_AUDIO, SCORPION_GUN_SPLASH_RADIUS,
+            SCORPION_MISSILE_DAMAGE_TYPE, SCORPION_MISSILE_DEATH_TYPE, SCORPION_MISSILE_FIRE_AUDIO,
             SCORPION_MISSILE_SECONDARY_RADIUS,
         };
 
@@ -249,7 +250,13 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from(dmg, source);
+                let (dt_name, death_name) = if is_missile {
+                    (SCORPION_MISSILE_DAMAGE_TYPE, SCORPION_MISSILE_DEATH_TYPE)
+                } else {
+                    (SCORPION_GUN_DAMAGE_TYPE, SCORPION_GUN_DEATH_TYPE)
+                };
+                let destroyed =
+                    obj.take_damage_from_immediate_residual(dmg, source, dt_name, death_name);
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -567,8 +574,8 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_tomahawk::{
             is_legal_tomahawk_splash_target, is_tomahawk_template, tomahawk_damage_at,
-            tomahawk_scatter_aim, tomahawk_scatter_misses_infantry, TOMAHAWK_FIRE_AUDIO,
-            TOMAHAWK_SECONDARY_RADIUS,
+            tomahawk_scatter_aim, tomahawk_scatter_misses_infantry, TOMAHAWK_DAMAGE_TYPE,
+            TOMAHAWK_DEATH_TYPE, TOMAHAWK_FIRE_AUDIO, TOMAHAWK_SECONDARY_RADIUS,
         };
 
         let source_team = source
@@ -668,7 +675,12 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from(dmg, source);
+                let destroyed = obj.take_damage_from_immediate_residual(
+                    dmg,
+                    source,
+                    TOMAHAWK_DAMAGE_TYPE,
+                    TOMAHAWK_DEATH_TYPE,
+                );
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -961,7 +973,8 @@ impl GameLogic {
         use crate::game_logic::host_raptor::{
             has_laser_missiles_upgrade, is_king_raptor_template, is_legal_raptor_target,
             is_raptor_template, raptor_damage_at, raptor_scatter_aim,
-            raptor_scatter_misses_infantry, RAPTOR_FIRE_AUDIO, RAPTOR_PRIMARY_RADIUS,
+            raptor_scatter_misses_infantry, RAPTOR_DAMAGE_TYPE, RAPTOR_DEATH_TYPE,
+            RAPTOR_FIRE_AUDIO, RAPTOR_PRIMARY_RADIUS,
         };
 
         let (source_team, is_king, has_laser) = {
@@ -1072,7 +1085,12 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from(dmg, source);
+                let destroyed = obj.take_damage_from_immediate_residual(
+                    dmg,
+                    source,
+                    RAPTOR_DAMAGE_TYPE,
+                    RAPTOR_DEATH_TYPE,
+                );
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -1377,6 +1395,7 @@ impl GameLogic {
             is_legal_mig_target, is_mig_template, is_nuke_mig_template, mig_damage_at,
             mig_fire_field_upgraded, mig_loadout, mig_scatter_aim, mig_scatter_misses_infantry,
             mig_secondary_radius, mig_spawns_fire_field, mig_spawns_radiation, MigLoadout,
+            MIG_BLACK_DAMAGE_TYPE, MIG_BLACK_DEATH_TYPE, MIG_DAMAGE_TYPE, MIG_DEATH_TYPE,
             MIG_FIRE_AUDIO, MIG_PRIMARY_RADIUS,
         };
 
@@ -1499,7 +1518,15 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from(dmg, source);
+                let (dt_name, death_name) = match loadout {
+                    MigLoadout::BlackNapalm => (MIG_BLACK_DAMAGE_TYPE, MIG_BLACK_DEATH_TYPE),
+                    MigLoadout::NukeBase | MigLoadout::NukeTactical => {
+                        (MIG_BLACK_DAMAGE_TYPE, MIG_BLACK_DEATH_TYPE)
+                    }
+                    MigLoadout::Standard => (MIG_DAMAGE_TYPE, MIG_DEATH_TYPE),
+                };
+                let destroyed =
+                    obj.take_damage_from_immediate_residual(dmg, source, dt_name, death_name);
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -1743,8 +1770,8 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_fire_base::{
             fire_base_damage_at, fire_base_scatter_aim, fire_base_scatter_misses_infantry,
-            is_fire_base_template, is_legal_fire_base_target, FIRE_BASE_FIRE_AUDIO,
-            FIRE_BASE_PRIMARY_RADIUS,
+            is_fire_base_template, is_legal_fire_base_target, FIRE_BASE_DAMAGE_TYPE,
+            FIRE_BASE_DEATH_TYPE, FIRE_BASE_FIRE_AUDIO, FIRE_BASE_PRIMARY_RADIUS,
         };
 
         let source_team = source
@@ -1844,7 +1871,12 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from(dmg, source);
+                let destroyed = obj.take_damage_from_immediate_residual(
+                    dmg,
+                    source,
+                    FIRE_BASE_DAMAGE_TYPE,
+                    FIRE_BASE_DEATH_TYPE,
+                );
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;

@@ -10,6 +10,8 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter, Cursor, Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::Mutex;
+
 
 /// Save file format header
 #[derive(Debug, Serialize, Deserialize)]
@@ -63,6 +65,80 @@ const CPP_SAVE_FILE_TYPE_MISSION: i32 = 1;
 const CPP_INVALID_MISSION_NUMBER: i32 = -1;
 
 const SAVELOAD_BLOCK_NAMES: &[&str] = game_engine::System::SaveGame::SAVELOAD_BLOCK_NAMES;
+
+/// C++ `GameLogic.h` game-mode integers written by `GameStateMap::xfer` v2.
+const CPP_GAME_SINGLE_PLAYER: i32 = 0;
+const CPP_GAME_LAN: i32 = 1;
+const CPP_GAME_SKIRMISH: i32 = 2;
+const CPP_GAME_REPLAY: i32 = 3;
+const CPP_GAME_SHELL: i32 = 4;
+const CPP_GAME_INTERNET: i32 = 5;
+const CPP_GAME_NONE: i32 = 6;
+
+static PENDING_SAVE_GAME_MODE: Mutex<Option<i32>> = Mutex::new(None);
+static LOADED_GAME_STATE_MAP_MODE: Mutex<Option<i32>> = Mutex::new(None);
+
+fn cpp_game_mode_from_live(mode: crate::game_logic::GameMode) -> i32 {
+    use crate::game_logic::GameMode;
+    match mode {
+        GameMode::SinglePlayer => CPP_GAME_SINGLE_PLAYER,
+        GameMode::Lan | GameMode::Multiplayer => CPP_GAME_LAN,
+        GameMode::Skirmish => CPP_GAME_SKIRMISH,
+        GameMode::Replay => CPP_GAME_REPLAY,
+        GameMode::Shell => CPP_GAME_SHELL,
+        GameMode::Internet => CPP_GAME_INTERNET,
+        GameMode::None => CPP_GAME_NONE,
+    }
+}
+
+pub fn live_game_mode_from_cpp(mode: i32) -> Option<crate::game_logic::GameMode> {
+    use crate::game_logic::GameMode;
+    match mode {
+        CPP_GAME_SINGLE_PLAYER => Some(GameMode::SinglePlayer),
+        CPP_GAME_LAN => Some(GameMode::Lan),
+        CPP_GAME_SKIRMISH => Some(GameMode::Skirmish),
+        CPP_GAME_REPLAY => Some(GameMode::Replay),
+        CPP_GAME_SHELL => Some(GameMode::Shell),
+        CPP_GAME_INTERNET => Some(GameMode::Internet),
+        CPP_GAME_NONE => Some(GameMode::None),
+        _ => None,
+    }
+}
+
+fn set_pending_save_game_mode(mode: Option<i32>) {
+    if let Ok(mut slot) = PENDING_SAVE_GAME_MODE.lock() {
+        *slot = mode;
+    }
+}
+
+fn pending_save_game_mode() -> i32 {
+    PENDING_SAVE_GAME_MODE
+        .lock()
+        .ok()
+        .and_then(|slot| *slot)
+        .unwrap_or(0)
+}
+
+fn store_loaded_game_state_map_mode(mode: Option<i32>) {
+    if let Ok(mut slot) = LOADED_GAME_STATE_MAP_MODE.lock() {
+        *slot = mode;
+    }
+}
+
+/// Take the `GameStateMap` v2 game-mode last decoded from a save.
+pub fn take_loaded_game_state_map_mode() -> Option<i32> {
+    LOADED_GAME_STATE_MAP_MODE
+        .lock()
+        .ok()
+        .and_then(|mut slot| slot.take())
+}
+
+#[cfg(test)]
+pub fn store_loaded_game_state_map_mode_for_test(mode: Option<i32>) {
+    store_loaded_game_state_map_mode(mode);
+}
+
+
 
 /// C++ `GameState::xfer` writes `GetLocalTime` fields (`GameState.cpp:1562-1582`).
 /// Leftover `SaveDate::from_local_time` already matches that calendar.
@@ -453,7 +529,7 @@ fn apply_persist_chunks(
     }
     if let Some(payload) = script_engine {
         if payload.len() > 1 {
-            if let Ok((sequential, counters, flags, actives, named_reveals)) =
+            if let Ok((sequential, counters, flags, actives, named_reveals, tail)) =
                 persist_v18::parse_script_engine_block(payload)
             {
                 if !sequential.is_empty() {
@@ -471,6 +547,7 @@ fn apply_persist_chunks(
                 if !named_reveals.is_empty() {
                     snapshot.persist_v18.script_named_reveals = named_reveals;
                 }
+                snapshot.persist_v18.script_engine_tail = tail;
             }
         }
     }
@@ -516,7 +593,7 @@ fn write_game_state_map_block<W: Write + Seek>(
         format!("Maps\\{}", leaf)
     };
     write_ascii(xfer, &pristine)?;
-    let mut game_mode = 0i32;
+    let mut game_mode = pending_save_game_mode();
     xfer.xfer_int(&mut game_mode)
         .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
 
@@ -558,6 +635,7 @@ fn extract_embedded_map(payload: &[u8], save_dir: &Path) -> Option<PathBuf> {
     if version >= 2 {
         let mut game_mode = 0i32;
         xfer.xfer_int(&mut game_mode).ok()?;
+        store_loaded_game_state_map_mode(Some(game_mode));
     }
     let data_size = xfer.begin_block().ok()?;
     if data_size <= 0 {
@@ -775,11 +853,14 @@ impl SaveFileManager {
         let snapshot_builder = SnapshotBuilder::new();
         let mut world_snapshot = snapshot_builder.create_world_snapshot(game_logic)?;
         world_snapshot.client_drawables = client_drawables;
+        set_pending_save_game_mode(Some(cpp_game_mode_from_live(game_logic.game_mode())));
         crate::save_load::stamp_player_team_chunks(game_logic);
 
 
         // Save to temporary file first
-        self.save_to_file(&temp_path, &world_snapshot, save_info)?;
+        let write_result = self.save_to_file(&temp_path, &world_snapshot, save_info);
+        set_pending_save_game_mode(None);
+        write_result?;
 
         // Atomically move temp file to final location
         std::fs::rename(&temp_path, &save_path).map_err(|e| {
@@ -1278,6 +1359,7 @@ impl SaveFileManager {
         data: &[u8],
         save_dir: &Path,
     ) -> SaveLoadResult<(WorldSnapshot, SaveGameInfo)> {
+        store_loaded_game_state_map_mode(None);
         let blocks = walk_named_chunks(data)?;
         let mut save_info = SaveGameInfo {
             filename: String::new(),
@@ -1344,15 +1426,11 @@ impl SaveFileManager {
                 }
             } else if token.eq_ignore_ascii_case(CHUNK_GAME_STATE_MAP) {
                 // C++ extractAndSaveMap (GameStateMap.cpp:308-368) parks the
-                // embedded .map in the Save directory so custom maps travel
-                // with the save. Keep the listed map label when the retail
-                // file is already on disk.
+                // embedded .map in the Save directory and always sets
+                // TheWritableGlobalData->m_mapName to that scratch path.
+                // An installed same-named retail map must not override it.
                 if let Some(extracted) = extract_embedded_map(&payload, save_dir) {
-                    if crate::game_logic::script_loader::find_map_file(&save_info.map_name)
-                        .is_none()
-                    {
-                        save_info.map_name = extracted.to_string_lossy().into_owned();
-                    }
+                    save_info.map_name = extracted.to_string_lossy().into_owned();
                 }
             } else if token.eq_ignore_ascii_case(CHUNK_INGAME_UI) {
                 ingame_ui_payload = Some(payload);
@@ -2586,5 +2664,119 @@ mod tests {
         // MSG_NEW_GAME uses TheCampaignManager->getGameDifficulty()).
         assert_eq!(campaign_difficulty(&state), GameDifficulty::Hard);
     }
+
+    #[test]
+    fn load_prefers_embedded_scratch_over_installed_same_named_map() {
+        // C++ GameStateMap::xfer always plays the extracted Save-dir copy.
+        // Pre-fix live kept the header map when find_map_file hit retail.
+        let root = unique_fixture_directory();
+        let installed_dir = root.join("installed");
+        let save_dir = root.join("Save");
+        std::fs::create_dir_all(&installed_dir).expect("create installed dir");
+        std::fs::create_dir_all(&save_dir).expect("create save dir");
+        let leaf = "Hq6q2b5ScratchPrefer.map";
+        let installed = installed_dir.join(leaf);
+        std::fs::write(&installed, b"RETAIL-INSTALLED").expect("write installed map");
+
+        let mut save_info = fixture_save_info();
+        save_info.save_type = SaveFileType::Mission;
+        save_info.map_name = installed.to_string_lossy().into_owned();
+        assert!(
+            crate::game_logic::script_loader::find_map_file(&save_info.map_name).is_some(),
+            "fixture must make find_map_file hit the installed same-named map"
+        );
+
+        let mut header = Vec::new();
+        {
+            let mut cursor = Cursor::new(&mut header);
+            let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
+            write_cpp_game_state_header(&mut xfer, &save_info).expect("encode header");
+        }
+
+        let mut map_payload = Vec::new();
+        {
+            let mut cursor = Cursor::new(&mut map_payload);
+            let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
+            let mut version = 2u8;
+            xfer.xfer_version(&mut version, 2).expect("map version");
+            write_ascii(&mut xfer, &format!("Save\\{leaf}")).expect("save path");
+            write_ascii(&mut xfer, &format!("Maps\\{leaf}")).expect("pristine path");
+            let mut game_mode = 0i32;
+            xfer.xfer_int(&mut game_mode).expect("game mode");
+            xfer.begin_block().expect("begin embed");
+            let mut map_bytes = b"SCRATCH-CUSTOM".to_vec();
+            unsafe {
+                xfer.xfer_user(map_bytes.as_mut_ptr(), map_bytes.len())
+                    .expect("embed scratch");
+            }
+            xfer.end_block().expect("end embed");
+            let mut object_id = 1u32;
+            let mut drawable_id = 1u32;
+            xfer.xfer_unsigned_int(&mut object_id).expect("object id");
+            xfer.xfer_unsigned_int(&mut drawable_id).expect("drawable id");
+        }
+
+        let mut bytes = Vec::new();
+        bytes.push(CHUNK_GAME_STATE.len() as u8);
+        bytes.extend_from_slice(CHUNK_GAME_STATE.as_bytes());
+        bytes.extend_from_slice(&(header.len() as i32).to_le_bytes());
+        bytes.extend_from_slice(&header);
+        bytes.push(CHUNK_GAME_STATE_MAP.len() as u8);
+        bytes.extend_from_slice(CHUNK_GAME_STATE_MAP.as_bytes());
+        bytes.extend_from_slice(&(map_payload.len() as i32).to_le_bytes());
+        bytes.extend_from_slice(&map_payload);
+        bytes.push(SAVE_FILE_EOF.len() as u8);
+        bytes.extend_from_slice(SAVE_FILE_EOF.as_bytes());
+
+        let (_, listed) = SaveFileManager::read_common_sav_chunks(&bytes, &save_dir)
+            .expect("mission + GameStateMap must load");
+        let extracted = save_dir.join(leaf);
+        assert_eq!(
+            listed.map_name,
+            extracted.to_string_lossy().into_owned(),
+            "load must play the extracted Save-dir scratch, not the installed map"
+        );
+        assert_eq!(
+            std::fs::read(&extracted).expect("read extracted scratch"),
+            b"SCRATCH-CUSTOM"
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn game_state_map_round_trips_live_game_mode() {
+        set_pending_save_game_mode(Some(CPP_GAME_SKIRMISH));
+        let mut payload = Vec::new();
+        {
+            let mut cursor = Cursor::new(&mut payload);
+            let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
+            let info = SaveGameInfo {
+                filename: "mode".into(),
+                display_name: "Mode".into(),
+                description: "mode".into(),
+                map_name: String::new(),
+                campaign_side: None,
+                mission_number: None,
+                save_date: UNIX_EPOCH,
+                game_version: "test".into(),
+                play_time: std::time::Duration::from_secs(0),
+                difficulty: GameDifficulty::Medium,
+                save_type: SaveFileType::Normal,
+            };
+            write_game_state_map_block(&mut xfer, &info).expect("write map");
+        }
+        set_pending_save_game_mode(None);
+        store_loaded_game_state_map_mode(None);
+        let dest = unique_fixture_directory();
+        let _ = extract_embedded_map(&payload, &dest);
+        assert_eq!(
+            take_loaded_game_state_map_mode(),
+            Some(CPP_GAME_SKIRMISH),
+            "CHUNK_GameStateMap v2 must persist TheGameLogic game mode"
+        );
+        let _ = std::fs::remove_dir_all(dest);
+    }
+
 
 }

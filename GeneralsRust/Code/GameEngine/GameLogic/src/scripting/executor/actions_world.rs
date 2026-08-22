@@ -898,6 +898,15 @@ impl ScriptActionDispatcher {
             center_in_view,
             audio_to_play
         );
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_force_select(super::HostScriptForceSelectRequest {
+                team: team_name,
+                object_type,
+                center_in_view,
+                audio: audio_to_play,
+            });
+            return Ok(ScriptActionResult::Success);
+        }
 
         let team_arc = get_team_factory()
             .lock()
@@ -1224,20 +1233,24 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let object_type = self.get_string_param(action, 0)?;
         let buildable_status = self.get_int_param(action, 1)?;
-        let Some(template) = TheObjectFactory::find_template(&object_type) else {
-            log::warn!(
-                "Techtree buildability change ignored; template '{}' not found",
-                object_type
+        // Live leftover ThingFactory is empty. Always write the override by
+        // the script object-type name so host can_make_unit can read it.
+        TheGameLogic::set_buildable_status_override(&object_type, buildable_status);
+        if let Some(template) = TheObjectFactory::find_template(&object_type) {
+            TheGameLogic::set_buildable_status_override(
+                template.get_name().as_str(),
+                buildable_status,
             );
-            return Ok(ScriptActionResult::Success);
-        };
-
+        }
+        crate::scripting::executor::request_host_buildable_status_override(
+            &object_type,
+            buildable_status,
+        );
         log::debug!(
             "Modifying buildability for '{}' to status {}",
             object_type,
             buildable_status
         );
-        TheGameLogic::set_buildable_status_override(template.get_name().as_str(), buildable_status);
         Ok(ScriptActionResult::Success)
     }
 

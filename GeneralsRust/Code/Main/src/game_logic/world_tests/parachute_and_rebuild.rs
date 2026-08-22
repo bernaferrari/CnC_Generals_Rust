@@ -3041,12 +3041,181 @@ fn missile_defender_laser_guided_special_locks_secondary() {
         .expect("enemy");
 
     assert!(logic.activate_missile_defender_laser_guided(src, tgt));
+    logic.update_ai(&[src, tgt], 1.1);
     let o = logic.host_object(src).unwrap();
     assert_eq!(o.active_weapon_slot, 1);
     assert_eq!(o.target, Some(tgt));
     assert!(logic.missile_defender_residual_laser_specials >= 1);
     let _ = SpecialPowerType::MissileDefenderLaserGuided;
 }
+
+#[test]
+fn missile_defender_laser_oor_click_approaches() {
+    use crate::game_logic::host_hero_abilities::{LeftoverSaKind, LeftoverSaPhase};
+    use crate::game_logic::host_missile_defender::{
+        missile_defender_laser_guided_weapon, missile_defender_primary_weapon,
+        LASER_GUIDED_START_ABILITY_RANGE,
+    };
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut md = ThingTemplate::new("AmericaInfantryMissileDefender");
+    md.add_kind_of(KindOf::Infantry).set_health(100.0);
+    logic
+        .templates
+        .insert("AmericaInfantryMissileDefender".into(), md);
+    let mut enemy = ThingTemplate::new("GLAInfantryRebel");
+    enemy.add_kind_of(KindOf::Infantry).set_health(100.0);
+    logic.templates.insert("GLAInfantryRebel".into(), enemy);
+    let src = logic
+        .create_object(
+            "AmericaInfantryMissileDefender",
+            Team::USA,
+            glam::Vec3::new(0.0, 0.0, 0.0),
+        )
+        .expect("md");
+    if let Some(o) = logic.host_object_mut(src) {
+        o.weapon = Some(missile_defender_primary_weapon());
+        o.secondary_weapon = Some(missile_defender_laser_guided_weapon());
+    }
+    let tgt = logic
+        .create_object(
+            "GLAInfantryRebel",
+            Team::GLA,
+            glam::Vec3::new(LASER_GUIDED_START_ABILITY_RANGE + 80.0, 0.0, 0.0),
+        )
+        .expect("enemy");
+    assert!(
+        logic.activate_missile_defender_laser_guided(src, tgt),
+        "OOR laser click must start approach"
+    );
+    let ch = logic
+        .hero_abilities
+        .leftover_channel(src)
+        .copied()
+        .expect("approach channel");
+    assert_eq!(ch.kind, LeftoverSaKind::LaserGuided);
+    assert_eq!(ch.phase, LeftoverSaPhase::Facing);
+    assert_eq!(
+        logic.missile_defender_laser_beams_spawned, 0,
+        "beam waits for StartAbilityRange"
+    );
+    let md = logic.host_object(src).unwrap();
+    assert_eq!(md.ai_state, AIState::SpecialAbility);
+    assert!(
+        md.movement.target_position.is_some() || md.requested_destination.is_some(),
+        "must walk toward the laser target"
+    );
+}
+
+#[test]
+fn missile_defender_laser_persist_survives_attacking() {
+    use crate::game_logic::host_hero_abilities::{LeftoverSaKind, LeftoverSaPhase};
+    use crate::game_logic::host_missile_defender::{
+        missile_defender_laser_guided_weapon, missile_defender_primary_weapon,
+        LASER_GUIDED_START_ABILITY_RANGE,
+    };
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut md = ThingTemplate::new("AmericaInfantryMissileDefender");
+    md.add_kind_of(KindOf::Infantry).set_health(100.0);
+    logic
+        .templates
+        .insert("AmericaInfantryMissileDefender".into(), md);
+    let mut enemy = ThingTemplate::new("GLAInfantryRebel");
+    enemy.add_kind_of(KindOf::Infantry).set_health(100.0);
+    logic.templates.insert("GLAInfantryRebel".into(), enemy);
+    let src = logic
+        .create_object(
+            "AmericaInfantryMissileDefender",
+            Team::USA,
+            glam::Vec3::new(0.0, 0.0, 0.0),
+        )
+        .expect("md");
+    if let Some(o) = logic.host_object_mut(src) {
+        o.weapon = Some(missile_defender_primary_weapon());
+        o.secondary_weapon = Some(missile_defender_laser_guided_weapon());
+    }
+    let tgt = logic
+        .create_object(
+            "GLAInfantryRebel",
+            Team::GLA,
+            glam::Vec3::new(LASER_GUIDED_START_ABILITY_RANGE - 10.0, 0.0, 0.0),
+        )
+        .expect("enemy");
+    assert!(logic.activate_missile_defender_laser_guided(src, tgt));
+    logic.update_ai(&[src, tgt], 1.1);
+    assert!(logic.missile_defender_residual_laser_specials >= 1);
+    let ch = logic
+        .hero_abilities
+        .leftover_channel(src)
+        .copied()
+        .expect("persist channel");
+    assert_eq!(ch.kind, LeftoverSaKind::LaserGuided);
+    assert_eq!(ch.phase, LeftoverSaPhase::Preparing);
+    logic.update_ai(&[src, tgt], 1.0 / 30.0);
+    assert!(
+        logic.hero_abilities.leftover_channel(src).is_some(),
+        "CMD_FROM_AI Attacking must not abort PersistentPrepTime"
+    );
+}
+
+#[test]
+fn start_preparation_notifies_script_engine_triggered_only() {
+    use crate::command_system::SpecialPowerType;
+    use crate::game_logic::host_missile_defender::{
+        missile_defender_laser_guided_weapon, missile_defender_primary_weapon,
+    };
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use gamelogic::scripting::engine::{initialize_script_engine, with_script_engine_mut};
+    let _ = initialize_script_engine();
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    let mut md = ThingTemplate::new("AmericaInfantryMissileDefender");
+    md.add_kind_of(KindOf::Infantry).set_health(100.0);
+    logic
+        .templates
+        .insert("AmericaInfantryMissileDefender".into(), md);
+    let mut enemy = ThingTemplate::new("GLAInfantryRebel");
+    enemy.add_kind_of(KindOf::Infantry).set_health(100.0);
+    logic.templates.insert("GLAInfantryRebel".into(), enemy);
+    let src = logic
+        .create_object(
+            "AmericaInfantryMissileDefender",
+            Team::USA,
+            glam::Vec3::ZERO,
+        )
+        .expect("md");
+    if let Some(o) = logic.host_object_mut(src) {
+        o.weapon = Some(missile_defender_primary_weapon());
+        o.secondary_weapon = Some(missile_defender_laser_guided_weapon());
+        o.owner_player_id = Some(0);
+    }
+    let tgt = logic
+        .create_object("GLAInfantryRebel", Team::GLA, glam::Vec3::new(80.0, 0.0, 0.0))
+        .expect("enemy");
+    assert!(logic.activate_missile_defender_laser_guided(src, tgt));
+    let (triggered, completed) = with_script_engine_mut(|engine| {
+        (
+            engine.is_special_power_triggered(
+                0,
+                "SPECIAL_MISSILE_DEFENDER_LASER_GUIDED_MISSILES",
+                false,
+                src.0,
+            ),
+            engine.is_special_power_complete(
+                0,
+                "SPECIAL_MISSILE_DEFENDER_LASER_GUIDED_MISSILES",
+                false,
+                src.0,
+            ),
+        )
+    })
+    .unwrap_or((false, false));
+    assert!(triggered, "startPreparation must notify TRIGGERED");
+    assert!(!completed, "startPreparation must not notify COMPLETED");
+    let _ = SpecialPowerType::MissileDefenderLaserGuided;
+}
+
 
 #[test]
 fn host_upgrade_complete_helix_nuke_bomb_tags_helix() {
@@ -3302,7 +3471,8 @@ fn napalm_strike_and_general_paradrop_terror_cell_map_host_residuals() {
     use crate::game_logic::host_ambush::HostAmbushKind;
     use crate::game_logic::host_paradrop::HostParadropKind;
     use crate::game_logic::special_power_strikes::{
-        honesty_napalm_strike_residual_pack_ok, HostSuperweaponKind, NAPALM_STRIKE_RELOAD_MS,
+        honesty_napalm_strike_residual_pack_ok, HostSuperweaponKind, NAPALM_STRIKE_OCL,
+        NAPALM_STRIKE_PRIMARY_DAMAGE, NAPALM_STRIKE_RELOAD_MS,
     };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
@@ -3310,7 +3480,14 @@ fn napalm_strike_and_general_paradrop_terror_cell_map_host_residuals() {
     assert_eq!(NAPALM_STRIKE_RELOAD_MS, 600_000);
     assert_eq!(
         HostSuperweaponKind::from_command_power(&SpecialPowerType::NapalmStrike),
-        Some(HostSuperweaponKind::DaisyCutter)
+        Some(HostSuperweaponKind::NapalmStrike)
+    );
+    assert!((HostSuperweaponKind::NapalmStrike.max_damage() - NAPALM_STRIKE_PRIMARY_DAMAGE).abs() < 0.1);
+    assert!(
+        (HostSuperweaponKind::NapalmStrike.max_damage()
+            - HostSuperweaponKind::DaisyCutter.max_damage())
+            .abs()
+            > 1.0
     );
     assert_eq!(
         HostParadropKind::from_command_power(&SpecialPowerType::InfantryParadrop),
@@ -3348,6 +3525,16 @@ fn napalm_strike_and_general_paradrop_terror_cell_map_host_residuals() {
             glam::Vec3::new(90.0, 0.0, 0.0),
         )
         .is_some());
+    assert_eq!(logic.ocl_special_power_reg.last_ocl, NAPALM_STRIKE_OCL);
+    assert_ne!(logic.ocl_special_power_reg.last_ocl, "SUPERWEAPON_DaisyCutter");
+    let spawned_daisy_b52 = logic.objects.values().any(|o| {
+        o.template_name.contains("AmericaJetB52") || o.template_name.contains("DaisyCutterBomb")
+    });
+    assert!(
+        !spawned_daisy_b52,
+        "NapalmStrike must not spawn Fuel Air Bomb DaisyCutter transport/payload"
+    );
+    assert!(logic.objects.values().any(|o| o.template_name.contains("ChinaJetCargoPlane")));
     assert!(logic
         .queue_paradrop(
             &SpecialPowerType::InfantryParadrop,

@@ -1243,31 +1243,53 @@ impl CnCGameEngine {
 
     /// Select the only offline modes supported by the staged save restore.
     ///
-    /// A save does not currently serialize an explicit `GameMode`.  Preserve a
-    /// live single-player/skirmish mode when there is one; from the shell, a
-    /// mission save is single-player and every other offline save is skirmish.
-    /// Network/replay modes remain deliberately rejected rather than silently
-    /// restoring them as an offline match with different semantics.
+    /// C++ `GameStateMap::xfer` v2 writes `TheGameLogic->getGameMode()` and
+    /// load calls `setGameMode` before `startNewGame(TRUE)`. Prefer that saved
+    /// mode so a skirmish save loaded from a campaign (or the reverse) rebuilds
+    /// the matching player list. Network/replay modes remain rejected.
     fn offline_restore_mode_for_save(
         active_mode: crate::game_logic::GameMode,
         save_info: &SaveGameInfo,
     ) -> Result<crate::game_logic::GameMode, String> {
         use crate::game_logic::GameMode;
 
+        if matches!(
+            active_mode,
+            GameMode::Multiplayer | GameMode::Internet | GameMode::Lan | GameMode::Replay
+        ) {
+            return Err("network and replay save restore is deferred".to_string());
+        }
+
+        if let Some(saved) = crate::save_load::take_loaded_game_state_map_mode()
+            .and_then(crate::save_load::live_game_mode_from_cpp)
+        {
+            return match saved {
+                GameMode::SinglePlayer | GameMode::Skirmish => Ok(saved),
+                GameMode::Multiplayer | GameMode::Internet | GameMode::Lan | GameMode::Replay => {
+                    Err("network and replay save restore is deferred".to_string())
+                }
+                GameMode::Shell | GameMode::None => Self::offline_restore_mode_fallback(save_info),
+            };
+        }
+
         match active_mode {
             GameMode::SinglePlayer | GameMode::Skirmish => Ok(active_mode),
+            GameMode::Shell | GameMode::None => Self::offline_restore_mode_fallback(save_info),
             GameMode::Multiplayer | GameMode::Internet | GameMode::Lan | GameMode::Replay => {
                 Err("network and replay save restore is deferred".to_string())
             }
-            GameMode::Shell | GameMode::None => {
-                if matches!(save_info.save_type, SaveFileType::Mission)
-                    || save_info.mission_number.is_some()
-                {
-                    Ok(GameMode::SinglePlayer)
-                } else {
-                    Ok(GameMode::Skirmish)
-                }
-            }
+        }
+    }
+
+    fn offline_restore_mode_fallback(
+        save_info: &SaveGameInfo,
+    ) -> Result<crate::game_logic::GameMode, String> {
+        use crate::game_logic::GameMode;
+        if matches!(save_info.save_type, SaveFileType::Mission) || save_info.mission_number.is_some()
+        {
+            Ok(GameMode::SinglePlayer)
+        } else {
+            Ok(GameMode::Skirmish)
         }
     }
 
@@ -2012,6 +2034,26 @@ mod staged_restore_tests {
         let authority_body = &source[authority..];
         assert!(authority_body.contains("surface_load_game_ui_feedback"));
     }
+
+    #[test]
+    fn offline_restore_prefers_saved_skirmish_over_live_campaign() {
+        crate::save_load::store_loaded_game_state_map_mode_for_test(Some(2));
+        let mode = CnCGameEngine::offline_restore_mode_for_save(
+            GameMode::SinglePlayer,
+            &save_info("slot", "Maps\\Alpine.map".into()),
+        )
+        .expect("saved skirmish must restore");
+        assert_eq!(mode, GameMode::Skirmish);
+        crate::save_load::store_loaded_game_state_map_mode_for_test(Some(0));
+        let mode = CnCGameEngine::offline_restore_mode_for_save(
+            GameMode::Skirmish,
+            &save_info("slot", "Maps\\Alpine.map".into()),
+        )
+        .expect("saved campaign must restore");
+        assert_eq!(mode, GameMode::SinglePlayer);
+        crate::save_load::store_loaded_game_state_map_mode_for_test(None);
+    }
+
 
 
     #[test]

@@ -66,7 +66,12 @@ pub(super) fn should_draw_radar_check() -> bool {
         return false;
     }
 
-    // Check if local player has radar
+    // Live host stamps Player::hasRadar onto TheRadar each update.
+    if radar.local_has_radar() {
+        return true;
+    }
+
+    // Leftover PlayerList fallback (C++ ThePlayerList->getLocalPlayer()->hasRadar).
     let Ok(list) = ThePlayerList().read() else {
         return false;
     };
@@ -143,9 +148,14 @@ pub(super) fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
     }
 
     let radar_system = get_radar_system();
-    let Ok(radar) = radar_system.read() else {
+    let Ok(mut radar) = radar_system.write() else {
         return;
     };
+    // C++ `W3DRadar::draw` already passed hasRadar/forced; chirp here.
+    if !radar.is_radar_shown() && !radar.is_radar_hidden() {
+        radar.set_local_has_radar(true);
+    }
+    let events = radar.draw_events();
 
     // Draw terrain texture from radar system
     let terrain_texture = radar.get_terrain_texture();
@@ -329,8 +339,8 @@ pub(super) fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
             });
         }
 
-        // Draw active radar events
-        for event in radar.get_active_events() {
+        // Draw active radar events (chirp already consumed by draw_events).
+        for event in &events {
             let marker_kind = if event.event_type == RadarEventType::BeaconPulse {
                 RadarEventMarkerKind::Beacon
             } else {

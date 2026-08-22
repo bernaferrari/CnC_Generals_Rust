@@ -153,6 +153,8 @@ pub struct Player {
     pub can_build_base: bool,
     /// C++ Player::m_unitsShouldHunt. PLAYER_HUNT keeps map-wide hunt after clear.
     pub units_should_hunt: bool,
+    /// C++ Player::m_listInScoreScreen (`excludePlayerFromScoreScreen`).
+    pub list_in_score_screen: bool,
 
 
 
@@ -383,6 +385,7 @@ impl Player {
             can_build_units: true,
             can_build_base: true,
             units_should_hunt: false,
+            list_in_score_screen: true,
 
 
             shared_special_power_cooldowns: HashMap::new(),

@@ -1227,10 +1227,17 @@ impl OptionsMenu {
         crate::gui::options_host_bridge::apply_display_gamma(display_gamma, 0.0, 1.0, false);
 
         let audio = TheAudio;
-        audio.set_volume(music_volume as f32 / 100.0, EngineAudioAffect::Music);
-        audio.set_volume(sfx_2d_factor, EngineAudioAffect::Sound);
-        audio.set_volume(sfx_3d_factor, EngineAudioAffect::Sound3D);
-        audio.set_volume(voice_volume as f32 / 100.0, EngineAudioAffect::Speech);
+        // C++ OptionsMenu.cpp:1188/1214/1215/1235 AudioAffect_*|SystemSetting.
+        audio.set_volume(
+            music_volume as f32 / 100.0,
+            EngineAudioAffect::MusicSystemSetting,
+        );
+        audio.set_volume(sfx_2d_factor, EngineAudioAffect::SoundSystemSetting);
+        audio.set_volume(sfx_3d_factor, EngineAudioAffect::Sound3DSystemSetting);
+        audio.set_volume(
+            voice_volume as f32 / 100.0,
+            EngineAudioAffect::SpeechSystemSetting,
+        );
         get_header_template_manager().header_notify_resolution_change();
 
         let resolution_changed = resolution != old_resolution;

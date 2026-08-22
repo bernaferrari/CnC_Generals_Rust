@@ -59,43 +59,171 @@ impl PresentationFrame {
             return cmds;
         }
 
-        let cs_name = if !ro.command_set_name.is_empty() {
-            ro.command_set_name.clone()
-        } else if !ro.command_set_override.is_empty() {
-            ro.command_set_override.clone()
+        let selected = self.command_strip_selected_objects();
+        let multi = selected.len() > 1;
+        let slots = if multi {
+            intersect_command_set_slots(&self.selected_command_set_names())
         } else {
-            residual_command_set_name_for_template(&ro.template_name)
-                .unwrap_or("")
-                .to_string()
+            let cs_name = command_set_name_for_object(ro);
+            command_set_slots_for(&cs_name, &ro.template_name).unwrap_or_default()
         };
-        let Some(names) = command_set_buttons_for(&cs_name)
-            .or_else(|| residual_command_set_buttons(&cs_name, &ro.template_name))
-        else {
+        if slots.is_empty() {
             return Vec::new();
-        };
-
-        let mut cmds = Vec::new();
-        for command_name in names {
-            if cmds
-                .iter()
-                .any(|c: &UnitCommandButton| c.command_name.eq_ignore_ascii_case(&command_name))
-            {
-                continue;
-            }
-            let enabled = self.command_set_slot_enabled(ro, &command_name);
-            cmds.push(UnitCommandButton {
-                command_name,
-                enabled,
-                ..Default::default()
-            });
         }
 
-        cmds.retain(|c| self.host_need_special_power_science_owned(&c.command_name));
+        let mut cmds = Vec::with_capacity(slots.len());
+        for slot in &slots {
+            match slot {
+                Some(command_name) => {
+                    let enabled = self.command_set_slot_enabled(ro, command_name);
+                    cmds.push(UnitCommandButton {
+                        command_name: command_name.clone(),
+                        enabled,
+                        ..Default::default()
+                    });
+                }
+                None => cmds.push(UnitCommandButton::default()),
+            }
+        }
+
+        // NEED_SPECIAL_POWER_SCIENCE hides in place (C++ populateCommand).
+        for cmd in cmds.iter_mut() {
+            if !cmd.command_name.is_empty()
+                && !self.host_need_special_power_science_owned(&cmd.command_name)
+            {
+                *cmd = UnitCommandButton::default();
+            }
+        }
         self.overlay_command_set_occupants(&mut cmds, ro);
         self.apply_command_set_upgrade_restrictions(&mut cmds, ro, &panel);
         self.apply_command_set_can_make(&mut cmds, ro);
         self.apply_host_disabled_command_strip(&mut cmds, ro);
+        let eval_ids: Vec<u32> = if multi {
+            selected.iter().map(|o| o.id.0).collect()
+        } else {
+            vec![ro.id.0]
+        };
+        self.apply_leftover_get_command_availability(&mut cmds, ro, &eval_ids);
         cmds
+    }
+
+    fn command_strip_selected_objects(&self) -> Vec<&RenderableObject> {
+        let usable = |o: &&RenderableObject| {
+            !o.destroyed && !o.sold && !o.unselectable && !o.masked
+        };
+        if !self.selected.is_empty() {
+            self.selected
+                .iter()
+                .filter_map(|id| self.objects.iter().find(|o| o.id == *id && usable(o)))
+                .collect()
+        } else {
+            self.objects
+                .iter()
+                .filter(|o| o.selected && usable(o))
+                .collect()
+        }
+    }
+
+    /// C++ `ControlBar::getCommandAvailability` via leftover ControlBar.
+    fn apply_leftover_get_command_availability(
+        &self,
+        cmds: &mut [UnitCommandButton],
+        ro: &RenderableObject,
+        eval_ids: &[u32],
+    ) {
+        let cs_name = command_set_name_for_object(ro);
+        let bar = self.leftover_availability_bar(ro, &cs_name);
+        for cmd in cmds.iter_mut() {
+            if cmd.command_name.is_empty() {
+                continue;
+            }
+            let mut any_ok = false;
+            let mut all_hidden = true;
+            for id in eval_ids {
+                match bar.leftover_evaluate_named_command(
+                    &cmd.command_name,
+                    *id,
+                    self.local_player_id,
+                ) {
+                    game_client::gui::control_bar::CommandAvailability::Hidden => {}
+                    game_client::gui::control_bar::CommandAvailability::Restricted
+                    | game_client::gui::control_bar::CommandAvailability::NotReady
+                    | game_client::gui::control_bar::CommandAvailability::CantAfford => {
+                        all_hidden = false;
+                    }
+                    game_client::gui::control_bar::CommandAvailability::Available
+                    | game_client::gui::control_bar::CommandAvailability::Active => {
+                        all_hidden = false;
+                        any_ok = true;
+                    }
+                }
+            }
+            if all_hidden {
+                *cmd = UnitCommandButton::default();
+            } else if !any_ok {
+                cmd.enabled = false;
+            }
+        }
+    }
+
+    fn leftover_availability_bar(
+        &self,
+        ro: &RenderableObject,
+        cs_name: &str,
+    ) -> game_client::gui::control_bar::ControlBar {
+        let panel = self.control_bar_selection_panel();
+        let mut bar = game_client::gui::control_bar::ControlBar::new();
+        let mut completed = panel.applied_upgrades.clone();
+        for name in &self.local_unlocked_sciences {
+            if !completed
+                .iter()
+                .any(|owned| owned.eq_ignore_ascii_case(name))
+            {
+                completed.push(name.clone());
+            }
+        }
+        let residual = game_client::gui::control_bar::PresentationAvailabilityResidual {
+            moving: ro.moving,
+            has_production: !ro.production_queue.is_empty(),
+            occupant_count: ro.occupant_count as usize,
+            hacking_packing_or_unpacking: ro.hacking_packing_or_unpacking,
+            overcharge_active: ro.overcharge_enabled,
+            special_power_in_use: ro.using_ability,
+            weapon_reload_time: ro.weapon_reload_time,
+            weapon_fire_status: ro.weapon_fire_status,
+            has_primary_weapon: ro.has_weapon,
+            has_secondary_weapon: ro.has_secondary_weapon,
+            has_tertiary_weapon: ro.projectile_clip_statuses[2].is_some()
+                || ro.active_weapon_slot == 2,
+            active_weapon_slot: ro.active_weapon_slot,
+            battle_plan_bombardment: ro.weapon_bonus_battle_plan_bombardment,
+            battle_plan_hold_the_line: ro.weapon_bonus_battle_plan_hold_the_line,
+            battle_plan_search_and_destroy: ro.weapon_bonus_battle_plan_search_and_destroy,
+            script_disabled: ro.disabled_script_disabled,
+            script_unpowered: ro.disabled_script_underpowered,
+            unmanned: ro.disabled_unmanned,
+            completed_upgrades: completed.clone(),
+            object_applied_upgrades: panel.applied_upgrades.clone(),
+            player_completed_upgrades: self.local_completed_upgrades.clone(),
+            script_unsellable: ro.script_unsellable,
+            disabled_subdued: ro.disabled_subdued,
+            ..Default::default()
+        };
+        bar.apply_presentation_availability(residual);
+        bar.sync_command_set_from_presentation(if cs_name.is_empty() {
+            None
+        } else {
+            Some(cs_name)
+        });
+        bar.sync_upgrade_cameos_from_presentation(
+            &[],
+            &completed,
+            None,
+            ro.special_power_ready,
+            ro.special_power_cooldown_remaining,
+            ro.special_power_cooldown,
+        );
+        bar
     }
 
     fn command_set_slot_enabled(&self, ro: &RenderableObject, name: &str) -> bool {
@@ -181,15 +309,17 @@ impl PresentationFrame {
         }
         let queue_full = ro.production_queue.len()
             == crate::game_logic::host_production_buildable_command_residual::MAX_BUILD_QUEUE_BUTTONS_RESIDUAL;
-        cmds.retain(|c| {
-            let cn = c.command_name.to_ascii_lowercase();
+        for cmd in cmds.iter_mut() {
+            let cn = cmd.command_name.to_ascii_lowercase();
             if !cn.contains("construct") {
-                return true;
+                continue;
             }
-            !self.can_make_cameos.iter().any(|cameo| {
+            if self.can_make_cameos.iter().any(|cameo| {
                 cameo.buildable_hidden && cn.contains(&cameo.template_name.to_ascii_lowercase())
-            })
-        });
+            }) {
+                *cmd = UnitCommandButton::default();
+            }
+        }
         for cmd in cmds.iter_mut() {
             let cn = cmd.command_name.to_ascii_lowercase();
             if !cn.contains("construct") {
@@ -268,7 +398,24 @@ fn presentation_veterancy_overlay(level: PresentationVeterancy) -> Option<String
     }
 }
 
-fn command_set_buttons_for(set_name: &str) -> Option<Vec<String>> {
+fn command_set_name_for_object(ro: &RenderableObject) -> String {
+    if !ro.command_set_name.is_empty() {
+        ro.command_set_name.clone()
+    } else if !ro.command_set_override.is_empty() {
+        ro.command_set_override.clone()
+    } else {
+        residual_command_set_name_for_template(&ro.template_name)
+            .unwrap_or("")
+            .to_string()
+    }
+}
+
+/// C++ `ControlBar::populateCommand` — 14 WND slots, empty/SCRIPT_ONLY stay holes.
+fn command_set_slots_for(set_name: &str, template_name: &str) -> Option<Vec<Option<String>>> {
+    command_set_slots_from_ini(set_name).or_else(|| residual_command_set_slots(set_name, template_name))
+}
+
+fn command_set_slots_from_ini(set_name: &str) -> Option<Vec<Option<String>>> {
     if set_name.is_empty() {
         return None;
     }
@@ -284,19 +431,124 @@ fn command_set_buttons_for(set_name: &str) -> Option<Vec<String>> {
     if set.is_empty() {
         return None;
     }
-    let buttons: Vec<String> = set
-        .buttons
-        .iter()
-        .take(14)
-        .flatten()
-        .filter(|name| !command_is_script_only(name))
-        .cloned()
-        .collect();
-    if buttons.is_empty() {
-        None
-    } else {
-        Some(buttons)
+    let mut slots = vec![None; 14];
+    for (i, button) in set.buttons.iter().take(14).enumerate() {
+        match button {
+            Some(name) if !command_is_script_only(name) => {
+                slots[i] = Some(name.clone());
+            }
+            _ => {}
+        }
     }
+    Some(slots)
+}
+
+fn residual_command_set_slots(set_name: &str, template_name: &str) -> Option<Vec<Option<String>>> {
+    let aliased = if set_name.eq_ignore_ascii_case("CommandSetAmericaDozer") {
+        "AmericaDozerCommandSet"
+    } else {
+        set_name
+    };
+    for (name, template, pack) in HUD_COMMAND_SET_RESIDUAL_PACKS {
+        if name.eq_ignore_ascii_case(aliased)
+            || template.eq_ignore_ascii_case(template_name)
+            || template.eq_ignore_ascii_case(set_name)
+        {
+            let mut slots = vec![None; 14];
+            for (idx, button) in *pack {
+                let i = (*idx as usize).saturating_sub(1);
+                if i < 14 && !command_is_script_only(button) {
+                    slots[i] = Some((*button).to_string());
+                }
+            }
+            if slots.iter().all(|s| s.is_none()) {
+                return None;
+            }
+            return Some(slots);
+        }
+    }
+    None
+}
+
+/// C++ `ControlBar::addCommonCommands` — slot intersection, OK_FOR_MULTI_SELECT only.
+fn intersect_command_set_slots(set_names: &[String]) -> Vec<Option<String>> {
+    let mut common = vec![None; 14];
+    let mut saw_first = false;
+    for name in set_names {
+        let name = name.trim();
+        if name.is_empty() {
+            continue;
+        }
+        let Some(slots) = command_set_slots_for(name, name) else {
+            // C++ clears the shared set when a selected object has no CommandSet.
+            return vec![None; 14];
+        };
+        if !saw_first {
+            for i in 0..14 {
+                if let Some(cmd) = slots.get(i).and_then(|s| s.as_deref()) {
+                    if command_ok_for_multi_select(cmd) {
+                        common[i] = Some(cmd.to_string());
+                    }
+                }
+            }
+            saw_first = true;
+            continue;
+        }
+        for i in 0..14 {
+            let incoming = slots.get(i).and_then(|s| s.as_deref());
+            let existing = common[i].as_deref();
+            let attack = incoming.is_some_and(command_is_attack_move)
+                || existing.is_some_and(command_is_attack_move);
+            if attack && common[i].is_none() {
+                common[i] = incoming.map(str::to_string);
+                continue;
+            }
+            if attack {
+                continue;
+            }
+            let matches = match (incoming, existing) {
+                (Some(a), Some(b)) => a.eq_ignore_ascii_case(b),
+                (None, None) => true,
+                _ => false,
+            };
+            if !matches {
+                common[i] = None;
+            }
+        }
+    }
+    if !saw_first {
+        return Vec::new();
+    }
+    common
+}
+
+fn command_is_attack_move(name: &str) -> bool {
+    name.to_ascii_lowercase().contains("attackmove")
+}
+
+fn command_ok_for_multi_select(name: &str) -> bool {
+    if let Some(button) = game_engine::common::ini::ini_command_button::get_control_bar()
+        .and_then(|bar| bar.find_command_button_resolved(name).cloned())
+    {
+        return button.options.ok_for_multi_select;
+    }
+    let n = name.to_ascii_lowercase();
+    n.contains("attackmove")
+        || n.contains("guard")
+        || n.ends_with("stop")
+        || n.contains("evacuate")
+}
+
+fn command_set_buttons_for(set_name: &str) -> Option<Vec<String>> {
+    command_set_slots_from_ini(set_name).map(|slots| {
+        slots.into_iter().flatten().collect()
+    })
+}
+
+fn residual_command_set_buttons(set_name: &str, template_name: &str) -> Option<Vec<String>> {
+    residual_command_set_slots(set_name, template_name).map(|slots| {
+        slots.into_iter().flatten().collect()
+    })
 }
 
 fn command_is_script_only(name: &str) -> bool {
@@ -332,31 +584,6 @@ fn residual_command_set_name_for_template(template_name: &str) -> Option<&'stati
         .iter()
         .find(|(_, template, _)| template.eq_ignore_ascii_case(template_name))
         .map(|(set_name, _, _)| *set_name)
-}
-
-fn residual_command_set_buttons(set_name: &str, template_name: &str) -> Option<Vec<String>> {
-    let aliased = if set_name.eq_ignore_ascii_case("CommandSetAmericaDozer") {
-        "AmericaDozerCommandSet"
-    } else {
-        set_name
-    };
-    for (name, template, slots) in HUD_COMMAND_SET_RESIDUAL_PACKS {
-        if name.eq_ignore_ascii_case(aliased)
-            || template.eq_ignore_ascii_case(template_name)
-            || template.eq_ignore_ascii_case(set_name)
-        {
-            let buttons: Vec<String> = slots
-                .iter()
-                .map(|(_, button)| (*button).to_string())
-                .filter(|button| !command_is_script_only(button))
-                .collect();
-            if buttons.is_empty() {
-                return None;
-            }
-            return Some(buttons);
-        }
-    }
-    None
 }
 
 /// Retail CommandSet.ini slots 1-14 used when the live INI manager is empty.

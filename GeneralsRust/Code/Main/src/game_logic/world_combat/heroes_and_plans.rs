@@ -1813,7 +1813,9 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_angry_mob::{
             angry_mob_possible_to_attack, angry_mob_projectile_damage_at,
-            is_legal_angry_mob_damage_target,
+            is_legal_angry_mob_damage_target, AngryMobProjectileKind,
+            ANGRY_MOB_MOLOTOV_DAMAGE_TYPE, ANGRY_MOB_MOLOTOV_DEATH_TYPE,
+            ANGRY_MOB_ROCK_DAMAGE_TYPE, ANGRY_MOB_ROCK_DEATH_TYPE,
         };
 
         let source_team = source
@@ -1870,7 +1872,16 @@ impl GameLogic {
                 continue;
             }
             if let Some(v) = self.objects.get_mut(&vid) {
-                let destroyed = v.take_damage_from(dmg, source);
+                let (dt_name, death_name) = match kind {
+                    AngryMobProjectileKind::Molotov => {
+                        (ANGRY_MOB_MOLOTOV_DAMAGE_TYPE, ANGRY_MOB_MOLOTOV_DEATH_TYPE)
+                    }
+                    AngryMobProjectileKind::Rock => {
+                        (ANGRY_MOB_ROCK_DAMAGE_TYPE, ANGRY_MOB_ROCK_DEATH_TYPE)
+                    }
+                };
+                let destroyed =
+                    v.take_damage_from_immediate_residual(dmg, source, dt_name, death_name);
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;

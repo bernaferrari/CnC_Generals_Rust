@@ -66,6 +66,19 @@ fn daisy_cutter_maps_from_command_powers() {
         HostSuperweaponKind::from_command_power(&SpecialPowerType::EmpPulse),
         None
     );
+    assert_eq!(
+        HostSuperweaponKind::from_command_power(&SpecialPowerType::NapalmStrike),
+        Some(HostSuperweaponKind::NapalmStrike)
+    );
+    assert_ne!(
+        HostSuperweaponKind::from_command_power(&SpecialPowerType::NapalmStrike),
+        Some(HostSuperweaponKind::DaisyCutter)
+    );
+    assert!((HostSuperweaponKind::NapalmStrike.max_damage() - NAPALM_STRIKE_PRIMARY_DAMAGE).abs() < 0.1);
+    assert!(
+        (HostSuperweaponKind::NapalmStrike.max_damage() - DAISY_CUTTER_PRIMARY_DAMAGE).abs() > 1.0
+    );
+
 }
 
 #[test]

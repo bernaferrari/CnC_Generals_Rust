@@ -222,6 +222,22 @@ fn garrison_occupant_fire_point(
     )
 }
 
+/// C++ `Weapon::getDamageType() == DAMAGE_POISON` (Toxin / Anthrax).
+fn occupant_weapon_is_poison(obj: &Object, slot: u8) -> bool {
+    let Some(name) = obj.weapon_name_for_slot(slot) else {
+        return false;
+    };
+    if crate::game_logic::host_poisoned_behavior::is_poison_damage_type(
+        crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(name),
+    ) {
+        return true;
+    }
+    // Store-miss residual: same name peel the weapon seed uses for Poison.
+    let n = name.to_ascii_lowercase();
+    n.contains("toxin") || n.contains("anthrax") || n.contains("poison")
+}
+
+
 /// C++ `positionObjectsAtStationGarrisonPoints` / `pickAStationForMe`.
 fn station_occupant_fire_point(
     bd: &crate::game_logic::BuildingData,
@@ -844,12 +860,15 @@ impl GameLogic {
             return;
         }
         let container_id = attacker.container_id();
-        if container_id
-            .and_then(|cid| self.objects.get(&cid))
-            .is_some_and(|container| container.status.disabled_subdued)
-        {
+        if container_id.and_then(|cid| self.objects.get(&cid)).is_some_and(|container| {
+            container.status.disabled_subdued
+                || container.is_tunnel_network_style_container()
+                || !container.is_garrison_contain()
+        }) {
             // C++ GarrisonContain::isPassengerAllowedToFire: DISABLED_SUBDUED
             // (flashbang / neutron) silences window fire.
+            // C++ TunnelContain::isGarrisonable is FALSE — occupants never
+            // shoot out of an entrance (only TunnelNetworkGun does).
             return;
         }
         let has_any_weapon = attacker.weapon_slot(0).is_some()
@@ -1045,7 +1064,10 @@ impl GameLogic {
             self.mark_object_for_destruction(target_id, Some(team));
         }
         self.garrison_residual_fires = self.garrison_residual_fires.saturating_add(1);
-        self.ensure_garrison_gun_effect(container_id, point_index, fire_pos);
+        let flash_muzzle = self.objects.get(&garrisoned_id).is_some_and(|a| {
+            !occupant_weapon_is_poison(a, slot)
+        });
+        self.ensure_garrison_gun_effect(container_id, point_index, fire_pos, flash_muzzle);
     }
 
     /// C++ GarrisonContain::onContaining setTeam + academy + CAN_ATTACK + stations.
@@ -1100,6 +1122,8 @@ impl GameLogic {
             }
             self.apply_garrison_contain_on_enter(container_id, occupant_id);
             self.stamp_player_who_entered(container_id, occupant_id);
+            // C++ OpenContain::addToContain doLoadSound (once per frame).
+            self.play_container_enter_sound(container_id);
         }
     }
 
@@ -1521,11 +1545,21 @@ impl GameLogic {
         container_id: Option<ObjectId>,
         point_index: usize,
         pos: glam::Vec3,
+        flash_muzzle: bool,
     ) {
         const MUZZLE_FLASH_LIFETIME: u32 = 30 / 7;
         let Some(cid) = container_id else {
             return;
         };
+        // C++ putObjectAtGarrisonPoint: if occupants are shown (Fire Base
+        // IsEnclosingContainer=No), do not spawn a GarrisonGun drawable.
+        if !self
+            .objects
+            .get(&cid)
+            .is_some_and(|c| c.is_enclosing_garrison_container())
+        {
+            return;
+        }
         self.expire_garrison_gun_muzzle_flashes(cid, MUZZLE_FLASH_LIFETIME);
         let existing = self
             .objects
@@ -1547,8 +1581,11 @@ impl GameLogic {
         if let Some(gid) = gun_id {
             if let Some(gun) = self.objects.get_mut(&gid) {
                 gun.set_position(pos);
-                gun.model_condition_bits |=
-                    1u128 << crate::game_logic::host_enum_table_residual::MC_BIT_FIRING_A;
+                // C++ updateEffects: no MODELCONDITION_FIRING_A for DAMAGE_POISON.
+                if flash_muzzle {
+                    gun.model_condition_bits |=
+                        1u128 << crate::game_logic::host_enum_table_residual::MC_BIT_FIRING_A;
+                }
             }
         }
         if let Some(container) = self.objects.get_mut(&cid) {
@@ -1560,7 +1597,7 @@ impl GameLogic {
                 let gun = &mut bd.garrison_guns[point_index];
                 gun.drawable_id = gun_id;
                 gun.last_effect_frame = self.frame;
-                gun.firing = true;
+                gun.firing = flash_muzzle;
             }
         }
     }
@@ -4378,5 +4415,237 @@ mod tests {
             "HealObjects=No must not regenerate occupants, got {after}"
         );
     }
+
+    fn garrison_gun_template() -> ThingTemplate {
+        let mut t = ThingTemplate::new("GarrisonGun");
+        t.set_health(1.0);
+        t
+    }
+
+    /// hq-xr8yk: TunnelContain is not garrisonable — occupants do not fire out.
+    #[test]
+    fn tunnel_occupants_do_not_garrison_fire() {
+        use crate::game_logic::{ContainAdmission, ContainModuleKind, ContainModuleMetadata};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::GLA, "GLA", true));
+        let mut tunnel_t = ThingTemplate::new("GLATunnelNetwork");
+        tunnel_t
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(1000.0);
+        tunnel_t.contain_module = ContainModuleMetadata {
+            kind: ContainModuleKind::Tunnel,
+            slots: Some(10),
+            admission: ContainAdmission::InfantryOrVehicle,
+            ..ContainModuleMetadata::default()
+        };
+        logic.templates.insert("GLATunnelNetwork".into(), tunnel_t);
+        logic
+            .templates
+            .insert("GLARebel".into(), infantry_template("GLARebel"));
+        logic
+            .templates
+            .insert("UsaRanger".into(), infantry_template("UsaRanger"));
+
+        let tunnel = logic
+            .create_object("GLATunnelNetwork", Team::GLA, Vec3::ZERO)
+            .unwrap();
+        {
+            let t = logic.host_object_mut(tunnel).unwrap();
+            t.owner_player_id = Some(0);
+            t.install_tunnel_network_residual();
+        }
+        let rebel = logic
+            .create_object("GLARebel", Team::GLA, Vec3::ZERO)
+            .unwrap();
+        {
+            let r = logic.host_object_mut(rebel).unwrap();
+            r.owner_player_id = Some(0);
+            r.weapon = Some(crate::game_logic::Weapon {
+                damage: 40.0,
+                range: 100.0,
+                reload_time: 0.1,
+                last_fire_time: -10.0,
+                ..crate::game_logic::Weapon::default()
+            });
+            r.set_ai_state(AIState::Entering);
+            r.target = Some(tunnel);
+        }
+        logic.update_support_states(&[rebel], 1.0 / 30.0);
+        let after_enter = logic.host_object(rebel).unwrap();
+        assert_eq!(after_enter.contained_by, Some(tunnel));
+        assert_eq!(
+            after_enter.ai_state,
+            AIState::Docked,
+            "TunnelContain must not stamp Garrisoned"
+        );
+
+        let enemy = logic
+            .create_object("UsaRanger", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+            .unwrap();
+        let hp_before = logic.host_object(enemy).unwrap().health.current;
+        logic.set_current_frame(30);
+        logic.try_garrison_residual_fire(rebel);
+        let hp_after = logic.host_object(enemy).unwrap().health.current;
+        assert!(
+            (hp_after - hp_before).abs() < 0.01,
+            "tunnel occupants must not fire as garrison (before={hp_before} after={hp_after})"
+        );
+        assert_eq!(logic.garrison_residual_fires(), 0);
+
+        // Defense: even a wrongly stamped Garrisoned occupant stays silent.
+        if let Some(r) = logic.host_object_mut(rebel) {
+            r.set_ai_state(AIState::Garrisoned);
+        }
+        logic.try_garrison_residual_fire(rebel);
+        let hp_forced = logic.host_object(enemy).unwrap().health.current;
+        assert!(
+            (hp_forced - hp_before).abs() < 0.01,
+            "try_garrison_residual_fire must refuse TunnelContain"
+        );
+    }
+
+    /// hq-8fh9p: Fire Base (IsEnclosingContainer=No) never creates GarrisonGun.
+    #[test]
+    fn firebase_does_not_spawn_garrison_gun() {
+        let mut logic = GameLogic::new();
+        logic.templates.insert(
+            "AmericaFireBase".into(),
+            garrison_template("AmericaFireBase", false, false),
+        );
+        logic
+            .templates
+            .insert("AmericaRanger".into(), infantry_template("AmericaRanger"));
+        logic
+            .templates
+            .insert("GLARebel".into(), infantry_template("GLARebel"));
+        logic
+            .templates
+            .insert("GarrisonGun".into(), garrison_gun_template());
+
+        let fb = logic
+            .create_object("AmericaFireBase", Team::USA, Vec3::ZERO)
+            .unwrap();
+        {
+            let b = logic.host_object_mut(fb).unwrap();
+            if b.building_data.is_none() {
+                b.building_data = Some(crate::game_logic::BuildingData::new(
+                    crate::game_logic::BuildingType::Bunker,
+                ));
+            }
+        }
+        let ranger = logic
+            .create_object("AmericaRanger", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        let enemy = logic
+            .create_object("GLARebel", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let r = logic.host_object_mut(ranger).unwrap();
+            r.weapon = Some(crate::game_logic::Weapon {
+                damage: 25.0,
+                range: 100.0,
+                reload_time: 0.1,
+                last_fire_time: -10.0,
+                ..crate::game_logic::Weapon::default()
+            });
+            r.set_contained_by(Some(fb));
+            r.set_ai_state(AIState::Garrisoned);
+        }
+        assert!(logic.host_object_mut(fb).unwrap().add_occupant(ranger));
+
+        logic.set_current_frame(30);
+        logic.try_garrison_residual_fire(ranger);
+        assert!(logic.honesty_garrison_fire_ok());
+        let guns = logic
+            .host_object(fb)
+            .and_then(|c| c.building_data.as_ref())
+            .map(|bd| bd.garrison_guns.iter().filter(|g| g.drawable_id.is_some()).count())
+            .unwrap_or(0);
+        assert_eq!(
+            guns, 0,
+            "Fire Base must not spawn GarrisonGun drawables"
+        );
+        let spawned = logic
+            .objects
+            .values()
+            .filter(|o| o.template_name == "GarrisonGun")
+            .count();
+        assert_eq!(spawned, 0, "no GarrisonGun object at Fire Base stations");
+        let _ = enemy;
+    }
+
+    /// hq-r3dcp: DAMAGE_POISON occupant shots skip window FIRING_A muzzle.
+    #[test]
+    fn poison_garrison_shot_skips_muzzle_flash() {
+        use crate::game_logic::host_enum_table_residual::MC_BIT_FIRING_A;
+        let mut logic = GameLogic::new();
+        logic.templates.insert(
+            "CivBunker".into(),
+            garrison_template("CivBunker", false, true),
+        );
+        let mut toxin = infantry_template("GLAToxinRebel");
+        toxin.set_primary_weapon_name("ToxinTruckGun");
+        logic.templates.insert("GLAToxinRebel".into(), toxin);
+        logic
+            .templates
+            .insert("AmericaRanger".into(), infantry_template("AmericaRanger"));
+        logic
+            .templates
+            .insert("GarrisonGun".into(), garrison_gun_template());
+
+        let bunker = logic
+            .create_object("CivBunker", Team::USA, Vec3::ZERO)
+            .unwrap();
+        {
+            let b = logic.host_object_mut(bunker).unwrap();
+            if b.building_data.is_none() {
+                b.building_data = Some(crate::game_logic::BuildingData::new(
+                    crate::game_logic::BuildingType::Bunker,
+                ));
+            }
+        }
+        let rebel = logic
+            .create_object("GLAToxinRebel", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        let enemy = logic
+            .create_object("AmericaRanger", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let r = logic.host_object_mut(rebel).unwrap();
+            r.weapon = Some(crate::game_logic::Weapon {
+                damage: 20.0,
+                range: 100.0,
+                reload_time: 0.1,
+                last_fire_time: -10.0,
+                ..crate::game_logic::Weapon::default()
+            });
+            r.set_contained_by(Some(bunker));
+            r.set_ai_state(AIState::Garrisoned);
+        }
+        assert!(logic.host_object_mut(bunker).unwrap().add_occupant(rebel));
+
+        logic.set_current_frame(30);
+        logic.try_garrison_residual_fire(rebel);
+        assert!(logic.honesty_garrison_fire_ok());
+        let gun_id = logic
+            .host_object(bunker)
+            .and_then(|c| c.building_data.as_ref())
+            .and_then(|bd| bd.garrison_guns.iter().find_map(|g| g.drawable_id));
+        let Some(gid) = gun_id else {
+            panic!("enclosing bunker must still spawn GarrisonGun");
+        };
+        let bits = logic.host_object(gid).unwrap().model_condition_bits;
+        assert_eq!(
+            bits & (1u128 << MC_BIT_FIRING_A),
+            0,
+            "DAMAGE_POISON must not set MODELCONDITION_FIRING_A"
+        );
+        let _ = enemy;
+    }
+
 }
 

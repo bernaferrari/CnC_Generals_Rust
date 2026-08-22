@@ -255,7 +255,14 @@ pub struct ContainModuleMetadata {
     /// C++ OpenContain::isWeaponBonusPassedToPassengers residual.
     #[serde(default)]
     pub weapon_bonus_passed_to_passengers: bool,
+    /// C++ `OpenContainModuleData::m_enterSound` (INI `EnterSound`).
+    #[serde(default)]
+    pub enter_sound: String,
+    /// C++ `OpenContainModuleData::m_exitSound` (INI `ExitSound`).
+    #[serde(default)]
+    pub exit_sound: String,
 }
+
 
 /// Exact `OverchargeBehaviorModuleData` retained from one Object INI behavior
 /// declaration.  Presence is the authority contract: a power-plant KindOf or
@@ -318,6 +325,8 @@ impl Default for ContainModuleMetadata {
             initial_roster_template: String::new(),
             initial_roster_count: 0,
             weapon_bonus_passed_to_passengers: false,
+            enter_sound: String::new(),
+            exit_sound: String::new(),
         }
     }
 }
@@ -2641,9 +2650,13 @@ impl ThingTemplate {
     }
 
     /// C++ ControlBarCommand.cpp:1119-1121 / 1175-1177 — hide for humans.
+    /// `ThingTemplate::getBuildable` consults GameLogic override first.
     pub fn human_control_bar_buildable_hidden(&self) -> bool {
+        let status = gamelogic::helpers::TheGameLogic::find_buildable_status_override(&self.name)
+            .map(|s| s.max(0) as u32)
+            .unwrap_or(self.buildable_status);
         !crate::game_logic::host_production_buildable_command_residual::buildable_status_allows_human_residual(
-            self.buildable_status,
+            status,
         )
     }
 

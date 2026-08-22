@@ -238,6 +238,10 @@ pub struct WorldPersistV18 {
     pub camera_target: [f32; 3],
     pub camera_zoom: f32,
     pub drawable_xfer: Vec<DrawableXferPersist>,
+    /// Leftover ScriptEngine xfer tail. Skipped in WorldSnapshot bincode so
+    /// CHUNK_ScriptEngine can grow without a v21 snapshot migration.
+    #[serde(skip)]
+    pub script_engine_tail: Option<gamelogic::scripting::engine::ScriptEngineXferTail>,
 }
 
 impl Default for WorldPersistV18 {
@@ -278,6 +282,7 @@ impl Default for WorldPersistV18 {
             camera_target: [0.0; 3],
             camera_zoom: 1.0,
             drawable_xfer: Vec::new(),
+            script_engine_tail: None,
         }
     }
 }
@@ -395,7 +400,7 @@ pub fn capture_persist_v18(game_logic: &GameLogic) -> WorldPersistV18 {
         ids
     };
 
-    if let Some((counters, flags, sequential, named_reveals)) =
+    if let Some((counters, flags, sequential, named_reveals, tail)) =
         gamelogic::scripting::engine::with_script_engine_ref(|engine| {
             let (counters, flags) = engine.snapshot_named_trackers();
             (
@@ -403,6 +408,7 @@ pub fn capture_persist_v18(game_logic: &GameLogic) -> WorldPersistV18 {
                 flags,
                 engine.snapshot_sequential_scripts(),
                 engine.snapshot_named_reveals(),
+                engine.snapshot_xfer_tail(),
             )
         })
     {
@@ -441,6 +447,7 @@ pub fn capture_persist_v18(game_logic: &GameLogic) -> WorldPersistV18 {
                 },
             )
             .collect();
+        persist.script_engine_tail = Some(tail);
     }
 
 
@@ -714,6 +721,9 @@ pub fn restore_persist_v18(persist: &WorldPersistV18, game_logic: &mut GameLogic
         let _ = engine.restore_named_trackers(&counters, &flags);
         engine.restore_sequential_scripts(&sequential);
         engine.restore_named_reveals(&named_reveals);
+        if let Some(tail) = &persist.script_engine_tail {
+            engine.restore_xfer_tail(tail);
+        }
         engine.reapply_named_map_reveals();
     });
 
@@ -1021,8 +1031,8 @@ pub fn write_script_engine_block<W: Write + Seek>(
     xfer: &mut CommonXferSave<W>,
     persist: &WorldPersistV18,
 ) -> SaveLoadResult<()> {
-    let mut version = 7u8;
-    map_xfer(xfer.xfer_version(&mut version, 7))?;
+    let mut version = 8u8;
+    map_xfer(xfer.xfer_version(&mut version, 8))?;
     let mut sequential = persist.script_sequential.len() as u16;
     map_xfer(xfer.xfer_unsigned_short(&mut sequential))?;
     for script in &persist.script_sequential {
@@ -1095,6 +1105,202 @@ pub fn write_script_engine_block<W: Write + Seek>(
         map_xfer(xfer.xfer_real(&mut radius_to_reveal))?;
         map_xfer(xfer.xfer_ascii_string(&mut player_name))?;
     }
+    if let Some(tail) = &persist.script_engine_tail {
+        write_script_engine_xfer_tail(xfer, tail)?;
+    } else {
+        write_script_engine_xfer_tail(
+            xfer,
+            &gamelogic::scripting::engine::ScriptEngineXferTail::default(),
+        )?;
+    }
+    Ok(())
+}
+
+const SCRIPT_ENGINE_PLAYER_COUNT: u16 = 16;
+
+fn write_ascii_list<W: Write + Seek>(
+    xfer: &mut CommonXferSave<W>,
+    list: &[String],
+) -> SaveLoadResult<()> {
+    let mut version = 1u8;
+    map_xfer(xfer.xfer_version(&mut version, 1))?;
+    let mut count = list.len() as u16;
+    map_xfer(xfer.xfer_unsigned_short(&mut count))?;
+    for entry in list {
+        let mut value = entry.clone();
+        map_xfer(xfer.xfer_ascii_string(&mut value))?;
+    }
+    Ok(())
+}
+
+fn write_ascii_u32_list<W: Write + Seek>(
+    xfer: &mut CommonXferSave<W>,
+    list: &[(String, u32)],
+) -> SaveLoadResult<()> {
+    let mut version = 1u8;
+    map_xfer(xfer.xfer_version(&mut version, 1))?;
+    let mut count = list.len() as u16;
+    map_xfer(xfer.xfer_unsigned_short(&mut count))?;
+    for (name, value) in list {
+        let mut entry_name = name.clone();
+        let mut entry_value = *value;
+        map_xfer(xfer.xfer_ascii_string(&mut entry_name))?;
+        map_xfer(xfer.xfer_unsigned_int(&mut entry_value))?;
+    }
+    Ok(())
+}
+
+fn write_player_pair_lists<W: Write + Seek>(
+    xfer: &mut CommonXferSave<W>,
+    lists: &[Vec<(String, u32)>],
+) -> SaveLoadResult<()> {
+    let mut size = SCRIPT_ENGINE_PLAYER_COUNT;
+    map_xfer(xfer.xfer_unsigned_short(&mut size))?;
+    for index in 0..SCRIPT_ENGINE_PLAYER_COUNT as usize {
+        let empty = Vec::new();
+        write_ascii_u32_list(xfer, lists.get(index).unwrap_or(&empty))?;
+    }
+    Ok(())
+}
+
+fn write_script_engine_xfer_tail<W: Write + Seek>(
+    xfer: &mut CommonXferSave<W>,
+    tail: &gamelogic::scripting::engine::ScriptEngineXferTail,
+) -> SaveLoadResult<()> {
+    let mut attack_size = tail.attack_priorities.len() as u16;
+    map_xfer(xfer.xfer_unsigned_short(&mut attack_size))?;
+    for (name, default_priority, entries) in &tail.attack_priorities {
+        let mut info_version = 1u8;
+        map_xfer(xfer.xfer_version(&mut info_version, 1))?;
+        let mut info_name = name.clone();
+        map_xfer(xfer.xfer_ascii_string(&mut info_name))?;
+        let mut priority = *default_priority;
+        map_xfer(xfer.xfer_int(&mut priority))?;
+        let mut entry_count = entries.len() as u16;
+        map_xfer(xfer.xfer_unsigned_short(&mut entry_count))?;
+        for (template_name, value) in entries {
+            let mut entry_name = template_name.clone();
+            let mut entry_value = *value;
+            map_xfer(xfer.xfer_ascii_string(&mut entry_name))?;
+            map_xfer(xfer.xfer_int(&mut entry_value))?;
+        }
+    }
+    let mut num_attack = tail.attack_priorities.len() as i32;
+    map_xfer(xfer.xfer_int(&mut num_attack))?;
+    let mut object_priority = tail.object_attack_priority_sets.len() as u16;
+    map_xfer(xfer.xfer_unsigned_short(&mut object_priority))?;
+    for (object_id, set_name) in &tail.object_attack_priority_sets {
+        let mut id = *object_id;
+        let mut name = set_name.clone();
+        map_xfer(xfer.xfer_object_id(&mut id))?;
+        map_xfer(xfer.xfer_ascii_string(&mut name))?;
+    }
+    let mut end_game_timer = tail.end_game_timer;
+    map_xfer(xfer.xfer_int(&mut end_game_timer))?;
+    let mut close_window_timer = tail.close_window_timer;
+    map_xfer(xfer.xfer_int(&mut close_window_timer))?;
+    let mut named_count = tail.named_objects.len() as u16;
+    map_xfer(xfer.xfer_unsigned_short(&mut named_count))?;
+    for (name, object_id) in &tail.named_objects {
+        let mut entry_name = name.clone();
+        let mut entry_id = *object_id;
+        map_xfer(xfer.xfer_ascii_string(&mut entry_name))?;
+        map_xfer(xfer.xfer_object_id(&mut entry_id))?;
+    }
+    let mut first_update = tail.first_update;
+    map_xfer(xfer.xfer_bool(&mut first_update))?;
+    let mut fade = tail.fade;
+    map_xfer(xfer.xfer_int(&mut fade))?;
+    let mut min_fade = tail.min_fade;
+    map_xfer(xfer.xfer_real(&mut min_fade))?;
+    let mut max_fade = tail.max_fade;
+    map_xfer(xfer.xfer_real(&mut max_fade))?;
+    let mut cur_fade_value = tail.cur_fade_value;
+    map_xfer(xfer.xfer_real(&mut cur_fade_value))?;
+    let mut cur_fade_frame = tail.cur_fade_frame;
+    map_xfer(xfer.xfer_int(&mut cur_fade_frame))?;
+    let mut fade_frames_increase = tail.fade_frames_increase;
+    map_xfer(xfer.xfer_int(&mut fade_frames_increase))?;
+    let mut fade_frames_hold = tail.fade_frames_hold;
+    map_xfer(xfer.xfer_int(&mut fade_frames_hold))?;
+    let mut fade_frames_decrease = tail.fade_frames_decrease;
+    map_xfer(xfer.xfer_int(&mut fade_frames_decrease))?;
+    write_ascii_list(xfer, &tail.completed_video)?;
+    write_ascii_u32_list(xfer, &tail.testing_speech)?;
+    write_ascii_u32_list(xfer, &tail.testing_audio)?;
+    write_ascii_list(xfer, &tail.ui_interactions)?;
+    write_player_pair_lists(xfer, &tail.triggered_special_powers)?;
+    write_player_pair_lists(xfer, &tail.midway_special_powers)?;
+    write_player_pair_lists(xfer, &tail.finished_special_powers)?;
+    write_player_pair_lists(xfer, &tail.completed_upgrades)?;
+    let mut science_size = SCRIPT_ENGINE_PLAYER_COUNT;
+    map_xfer(xfer.xfer_unsigned_short(&mut science_size))?;
+    for index in 0..SCRIPT_ENGINE_PLAYER_COUNT as usize {
+        let empty = Vec::new();
+        let list = tail.acquired_sciences.get(index).unwrap_or(&empty);
+        let mut list_version = 1u8;
+        map_xfer(xfer.xfer_version(&mut list_version, 1))?;
+        let mut count = list.len() as u16;
+        map_xfer(xfer.xfer_unsigned_short(&mut count))?;
+        for science in list {
+            let mut value = *science;
+            map_xfer(xfer.xfer_int(&mut value))?;
+        }
+    }
+    let mut topple_version = 1u8;
+    map_xfer(xfer.xfer_version(&mut topple_version, 1))?;
+    let mut topple_count = tail.topple_directions.len() as u16;
+    map_xfer(xfer.xfer_unsigned_short(&mut topple_count))?;
+    for (name, xyz) in &tail.topple_directions {
+        let mut entry_name = name.clone();
+        let mut x = xyz[0];
+        let mut y = xyz[1];
+        let mut z = xyz[2];
+        map_xfer(xfer.xfer_ascii_string(&mut entry_name))?;
+        map_xfer(xfer.xfer_real(&mut x))?;
+        map_xfer(xfer.xfer_real(&mut y))?;
+        map_xfer(xfer.xfer_real(&mut z))?;
+    }
+    let mut breeze_direction = tail.breeze_direction;
+    map_xfer(xfer.xfer_real(&mut breeze_direction))?;
+    let mut breeze_x = tail.breeze_direction_vec[0];
+    map_xfer(xfer.xfer_real(&mut breeze_x))?;
+    let mut breeze_y = tail.breeze_direction_vec[1];
+    map_xfer(xfer.xfer_real(&mut breeze_y))?;
+    let mut breeze_intensity = tail.breeze_intensity;
+    map_xfer(xfer.xfer_real(&mut breeze_intensity))?;
+    let mut breeze_lean = tail.breeze_lean;
+    map_xfer(xfer.xfer_real(&mut breeze_lean))?;
+    let mut breeze_randomness = tail.breeze_randomness;
+    map_xfer(xfer.xfer_real(&mut breeze_randomness))?;
+    let mut breeze_period = tail.breeze_period;
+    map_xfer(xfer.xfer_short(&mut breeze_period))?;
+    let mut breeze_version = tail.breeze_version;
+    map_xfer(xfer.xfer_short(&mut breeze_version))?;
+    let mut game_difficulty = tail.game_difficulty;
+    map_xfer(xfer.xfer_int(&mut game_difficulty))?;
+    let mut freeze_by_script = tail.freeze_by_script;
+    map_xfer(xfer.xfer_bool(&mut freeze_by_script))?;
+    let mut object_type_count = tail.object_types.len() as u16;
+    map_xfer(xfer.xfer_unsigned_short(&mut object_type_count))?;
+    for (list_name, types) in &tail.object_types {
+        let mut obj_version = 1u8;
+        map_xfer(xfer.xfer_version(&mut obj_version, 1))?;
+        let mut name = list_name.clone();
+        map_xfer(xfer.xfer_ascii_string(&mut name))?;
+        let mut type_count = types.len() as u16;
+        map_xfer(xfer.xfer_unsigned_short(&mut type_count))?;
+        for object_type in types {
+            let mut type_name = object_type.clone();
+            map_xfer(xfer.xfer_ascii_string(&mut type_name))?;
+        }
+    }
+    let mut difficulty_bonus = tail.objects_should_receive_difficulty_bonus;
+    map_xfer(xfer.xfer_bool(&mut difficulty_bonus))?;
+    let mut current_track_name = tail.current_track_name.clone();
+    map_xfer(xfer.xfer_ascii_string(&mut current_track_name))?;
+    let mut choose_victim = tail.choose_victim_always_uses_normal;
+    map_xfer(xfer.xfer_bool(&mut choose_victim))?;
     Ok(())
 }
 
@@ -1106,10 +1312,11 @@ pub fn parse_script_engine_block(
     Vec<ScriptFlagPersist>,
     Vec<ScriptActivePersist>,
     Vec<NamedRevealPersist>,
+    Option<gamelogic::scripting::engine::ScriptEngineXferTail>,
 )> {
     let mut xfer = CommonXferLoad::new(Cursor::new(payload), 1);
     let mut version = 0u8;
-    map_xfer(xfer.xfer_version(&mut version, 7))?;
+    map_xfer(xfer.xfer_version(&mut version, 8))?;
     let mut sequential_count = 0u16;
     map_xfer(xfer.xfer_unsigned_short(&mut sequential_count))?;
     let mut sequential = Vec::new();
@@ -1224,9 +1431,189 @@ pub fn parse_script_engine_block(
             }
         }
     }
-    Ok((sequential, counters, flags, actives, named_reveals))
+    let tail = if version >= 8 {
+        Some(parse_script_engine_xfer_tail(&mut xfer)?)
+    } else {
+        None
+    };
+    Ok((sequential, counters, flags, actives, named_reveals, tail))
 }
 
+fn parse_ascii_list(xfer: &mut CommonXferLoad<Cursor<&[u8]>>) -> SaveLoadResult<Vec<String>> {
+    let mut version = 0u8;
+    map_xfer(xfer.xfer_version(&mut version, 1))?;
+    let mut count = 0u16;
+    map_xfer(xfer.xfer_unsigned_short(&mut count))?;
+    let mut list = Vec::new();
+    for _ in 0..count {
+        let mut value = String::new();
+        map_xfer(xfer.xfer_ascii_string(&mut value))?;
+        list.push(value);
+    }
+    Ok(list)
+}
+
+fn parse_ascii_u32_list(
+    xfer: &mut CommonXferLoad<Cursor<&[u8]>>,
+) -> SaveLoadResult<Vec<(String, u32)>> {
+    let mut version = 0u8;
+    map_xfer(xfer.xfer_version(&mut version, 1))?;
+    let mut count = 0u16;
+    map_xfer(xfer.xfer_unsigned_short(&mut count))?;
+    let mut list = Vec::new();
+    for _ in 0..count {
+        let mut name = String::new();
+        let mut value = 0u32;
+        map_xfer(xfer.xfer_ascii_string(&mut name))?;
+        map_xfer(xfer.xfer_unsigned_int(&mut value))?;
+        list.push((name, value));
+    }
+    Ok(list)
+}
+
+fn parse_player_pair_lists(
+    xfer: &mut CommonXferLoad<Cursor<&[u8]>>,
+) -> SaveLoadResult<Vec<Vec<(String, u32)>>> {
+    let mut size = 0u16;
+    map_xfer(xfer.xfer_unsigned_short(&mut size))?;
+    let mut lists = Vec::new();
+    for _ in 0..size {
+        lists.push(parse_ascii_u32_list(xfer)?);
+    }
+    Ok(lists)
+}
+
+fn parse_script_engine_xfer_tail(
+    xfer: &mut CommonXferLoad<Cursor<&[u8]>>,
+) -> SaveLoadResult<gamelogic::scripting::engine::ScriptEngineXferTail> {
+    let mut tail = gamelogic::scripting::engine::ScriptEngineXferTail::default();
+    let mut attack_size = 0u16;
+    map_xfer(xfer.xfer_unsigned_short(&mut attack_size))?;
+    for _ in 0..attack_size {
+        let mut info_version = 0u8;
+        map_xfer(xfer.xfer_version(&mut info_version, 1))?;
+        let mut name = String::new();
+        map_xfer(xfer.xfer_ascii_string(&mut name))?;
+        let mut default_priority = 1i32;
+        map_xfer(xfer.xfer_int(&mut default_priority))?;
+        let mut entry_count = 0u16;
+        map_xfer(xfer.xfer_unsigned_short(&mut entry_count))?;
+        let mut entries = Vec::new();
+        for _ in 0..entry_count {
+            let mut template_name = String::new();
+            let mut value = 0i32;
+            map_xfer(xfer.xfer_ascii_string(&mut template_name))?;
+            map_xfer(xfer.xfer_int(&mut value))?;
+            entries.push((template_name, value));
+        }
+        tail.attack_priorities
+            .push((name, default_priority, entries));
+    }
+    let mut num_attack = 0i32;
+    map_xfer(xfer.xfer_int(&mut num_attack))?;
+    let mut object_priority = 0u16;
+    map_xfer(xfer.xfer_unsigned_short(&mut object_priority))?;
+    for _ in 0..object_priority {
+        let mut object_id = 0u32;
+        let mut set_name = String::new();
+        map_xfer(xfer.xfer_object_id(&mut object_id))?;
+        map_xfer(xfer.xfer_ascii_string(&mut set_name))?;
+        if object_id != 0 && !set_name.is_empty() {
+            tail.object_attack_priority_sets.push((object_id, set_name));
+        }
+    }
+    map_xfer(xfer.xfer_int(&mut tail.end_game_timer))?;
+    map_xfer(xfer.xfer_int(&mut tail.close_window_timer))?;
+    let mut named_count = 0u16;
+    map_xfer(xfer.xfer_unsigned_short(&mut named_count))?;
+    for _ in 0..named_count {
+        let mut name = String::new();
+        let mut object_id = 0u32;
+        map_xfer(xfer.xfer_ascii_string(&mut name))?;
+        map_xfer(xfer.xfer_object_id(&mut object_id))?;
+        if !name.is_empty() {
+            tail.named_objects.push((name, object_id));
+        }
+    }
+    map_xfer(xfer.xfer_bool(&mut tail.first_update))?;
+    map_xfer(xfer.xfer_int(&mut tail.fade))?;
+    map_xfer(xfer.xfer_real(&mut tail.min_fade))?;
+    map_xfer(xfer.xfer_real(&mut tail.max_fade))?;
+    map_xfer(xfer.xfer_real(&mut tail.cur_fade_value))?;
+    map_xfer(xfer.xfer_int(&mut tail.cur_fade_frame))?;
+    map_xfer(xfer.xfer_int(&mut tail.fade_frames_increase))?;
+    map_xfer(xfer.xfer_int(&mut tail.fade_frames_hold))?;
+    map_xfer(xfer.xfer_int(&mut tail.fade_frames_decrease))?;
+    tail.completed_video = parse_ascii_list(xfer)?;
+    tail.testing_speech = parse_ascii_u32_list(xfer)?;
+    tail.testing_audio = parse_ascii_u32_list(xfer)?;
+    tail.ui_interactions = parse_ascii_list(xfer)?;
+    tail.triggered_special_powers = parse_player_pair_lists(xfer)?;
+    tail.midway_special_powers = parse_player_pair_lists(xfer)?;
+    tail.finished_special_powers = parse_player_pair_lists(xfer)?;
+    tail.completed_upgrades = parse_player_pair_lists(xfer)?;
+    let mut science_size = 0u16;
+    map_xfer(xfer.xfer_unsigned_short(&mut science_size))?;
+    for _ in 0..science_size {
+        let mut list_version = 0u8;
+        map_xfer(xfer.xfer_version(&mut list_version, 1))?;
+        let mut count = 0u16;
+        map_xfer(xfer.xfer_unsigned_short(&mut count))?;
+        let mut sciences = Vec::new();
+        for _ in 0..count {
+            let mut value = 0i32;
+            map_xfer(xfer.xfer_int(&mut value))?;
+            sciences.push(value);
+        }
+        tail.acquired_sciences.push(sciences);
+    }
+    let mut topple_version = 0u8;
+    map_xfer(xfer.xfer_version(&mut topple_version, 1))?;
+    let mut topple_count = 0u16;
+    map_xfer(xfer.xfer_unsigned_short(&mut topple_count))?;
+    for _ in 0..topple_count {
+        let mut name = String::new();
+        let mut x = 0.0f32;
+        let mut y = 0.0f32;
+        let mut z = 0.0f32;
+        map_xfer(xfer.xfer_ascii_string(&mut name))?;
+        map_xfer(xfer.xfer_real(&mut x))?;
+        map_xfer(xfer.xfer_real(&mut y))?;
+        map_xfer(xfer.xfer_real(&mut z))?;
+        tail.topple_directions.push((name, [x, y, z]));
+    }
+    map_xfer(xfer.xfer_real(&mut tail.breeze_direction))?;
+    map_xfer(xfer.xfer_real(&mut tail.breeze_direction_vec[0]))?;
+    map_xfer(xfer.xfer_real(&mut tail.breeze_direction_vec[1]))?;
+    map_xfer(xfer.xfer_real(&mut tail.breeze_intensity))?;
+    map_xfer(xfer.xfer_real(&mut tail.breeze_lean))?;
+    map_xfer(xfer.xfer_real(&mut tail.breeze_randomness))?;
+    map_xfer(xfer.xfer_short(&mut tail.breeze_period))?;
+    map_xfer(xfer.xfer_short(&mut tail.breeze_version))?;
+    map_xfer(xfer.xfer_int(&mut tail.game_difficulty))?;
+    map_xfer(xfer.xfer_bool(&mut tail.freeze_by_script))?;
+    let mut object_type_count = 0u16;
+    map_xfer(xfer.xfer_unsigned_short(&mut object_type_count))?;
+    for _ in 0..object_type_count {
+        let mut obj_version = 0u8;
+        map_xfer(xfer.xfer_version(&mut obj_version, 1))?;
+        let mut list_name = String::new();
+        map_xfer(xfer.xfer_ascii_string(&mut list_name))?;
+        let mut type_count = 0u16;
+        map_xfer(xfer.xfer_unsigned_short(&mut type_count))?;
+        let mut types = Vec::new();
+        for _ in 0..type_count {
+            let mut type_name = String::new();
+            map_xfer(xfer.xfer_ascii_string(&mut type_name))?;
+            types.push(type_name);
+        }
+        tail.object_types.push((list_name, types));
+    }
+    map_xfer(xfer.xfer_bool(&mut tail.objects_should_receive_difficulty_bonus))?;
+    map_xfer(xfer.xfer_ascii_string(&mut tail.current_track_name))?;
+    map_xfer(xfer.xfer_bool(&mut tail.choose_victim_always_uses_normal))?;
+    Ok(tail)
+}
 pub fn write_terrain_logic_block<W: Write + Seek>(
     xfer: &mut CommonXferSave<W>,
     persist: &WorldPersistV18,
@@ -1524,7 +1911,7 @@ mod tests {
             let mut xfer = CommonXferSave::new(&mut cursor, 1);
             write_script_engine_block(&mut xfer, &persist).expect("write");
         }
-        let (sequential, counters, _flags, _actives, named_reveals) =
+        let (sequential, counters, _flags, _actives, named_reveals, tail) =
             parse_script_engine_block(&cursor.into_inner()).expect("parse");
         assert_eq!(sequential.len(), 1, "sequential count must not be written as 0");
         assert_eq!(sequential[0].object_id, 42);
@@ -1536,6 +1923,7 @@ mod tests {
         assert_eq!(counters[0].name, "AfterSeq");
         assert_eq!(counters[0].value, 7);
         assert!(named_reveals.is_empty());
+        assert!(tail.is_some());
     }
 
     #[test]
@@ -1557,7 +1945,7 @@ mod tests {
             let mut xfer = CommonXferSave::new(&mut cursor, 1);
             write_script_engine_block(&mut xfer, &persist).expect("write");
         }
-        let (_sequential, counters, _flags, _actives, named_reveals) =
+        let (_sequential, counters, _flags, _actives, named_reveals, tail) =
             parse_script_engine_block(&cursor.into_inner()).expect("parse");
         assert_eq!(named_reveals.len(), 1);
         assert_eq!(named_reveals[0].reveal_name, "BaseLook");
@@ -1567,6 +1955,55 @@ mod tests {
         assert_eq!(counters[0].name, "AfterReveal");
         assert_eq!(counters[0].value, 4);
         assert!(counters[0].is_countdown_timer);
+        assert!(tail.is_some());
+    }
+
+    #[test]
+    fn script_engine_chunk_round_trips_leftover_xfer_tail() {
+        let mut persist = WorldPersistV18::default();
+        persist.script_engine_tail = Some(gamelogic::scripting::engine::ScriptEngineXferTail {
+            attack_priorities: vec![("Heroes".into(), 10, vec![("AmericaRanger".into(), 20)])],
+            object_attack_priority_sets: vec![(42, "Heroes".into())],
+            end_game_timer: 30,
+            close_window_timer: 12,
+            named_objects: vec![("NamedHero".into(), 42)],
+            first_update: false,
+            fade: 2,
+            min_fade: 0.2,
+            max_fade: 0.8,
+            cur_fade_value: 0.4,
+            cur_fade_frame: 5,
+            fade_frames_increase: 3,
+            fade_frames_hold: 4,
+            fade_frames_decrease: 6,
+            completed_video: vec!["Intro".into()],
+            freeze_by_script: true,
+            objects_should_receive_difficulty_bonus: false,
+            current_track_name: "Combat".into(),
+            choose_victim_always_uses_normal: true,
+            object_types: vec![("Tanks".into(), vec!["AmericaTank".into()])],
+            ..Default::default()
+        });
+        let mut cursor = Cursor::new(Vec::new());
+        {
+            let mut xfer = CommonXferSave::new(&mut cursor, 1);
+            write_script_engine_block(&mut xfer, &persist).expect("write");
+        }
+        let (_sequential, _counters, _flags, _actives, _reveals, tail) =
+            parse_script_engine_block(&cursor.into_inner()).expect("parse");
+        let tail = tail.expect("v8 tail");
+        assert_eq!(tail.attack_priorities[0].0, "Heroes");
+        assert_eq!(tail.object_attack_priority_sets[0], (42, "Heroes".into()));
+        assert_eq!(tail.end_game_timer, 30);
+        assert_eq!(tail.close_window_timer, 12);
+        assert_eq!(tail.named_objects[0], ("NamedHero".into(), 42));
+        assert_eq!(tail.fade, 2);
+        assert!(tail.freeze_by_script);
+        assert!(!tail.objects_should_receive_difficulty_bonus);
+        assert_eq!(tail.current_track_name, "Combat");
+        assert!(tail.choose_victim_always_uses_normal);
+        assert_eq!(tail.object_types[0].0, "Tanks");
+        assert_eq!(tail.completed_video[0], "Intro");
     }
 
 }

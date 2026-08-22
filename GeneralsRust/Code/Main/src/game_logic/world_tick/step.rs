@@ -1157,6 +1157,10 @@ impl GameLogic {
         // during deletion are processed this logic frame (GameLogic.cpp:2449-2510).
         self.fire_temporary_weapons_for_pending_deaths();
         self.process_destroy_list();
+        // C++ BridgeBehavior/Tower onDamage/onHealing/onDie + scaffold rise tick.
+        // Residual drain is same-frame after object combat/AI/repair and destroy.
+        self.sync_host_bridge_rubble_and_scaffolds();
+
 
         // -----------------------------------------------------------------------
         // Phase 14: Weapon Store Update (C++ line 3767)

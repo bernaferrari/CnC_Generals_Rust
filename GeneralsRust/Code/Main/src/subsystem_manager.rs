@@ -434,7 +434,8 @@ pub struct AudioManagerSubsystem {
     _speech_on: bool,
     queued_events: Vec<crate::game_logic::AudioEventRequest>,
     /// Wave 528: object ids with active presentation FireSound loops (stop residual).
-    looping_object_audio: HashSet<u32>,
+    /// Wave 23: leftover TheAudio handles so C++ `removeAudioEvent` can stop the sink.
+    looping_object_audio: HashMap<u32, Vec<(String, u32)>>,
     sound_effects_table: Option<crate::assets::SoundEffectsTable>,
     gameplay_dispatch: Arc<crate::game_logic::audio_dispatch_impl::MainAudioDispatch>,
 }
@@ -454,7 +455,7 @@ impl AudioManagerSubsystem {
             _sounds_on: true,
             _speech_on: true,
             queued_events: Vec::new(),
-            looping_object_audio: HashSet::new(),
+            looping_object_audio: HashMap::new(),
             sound_effects_table: None,
             gameplay_dispatch: dispatch,
         }
@@ -466,6 +467,58 @@ impl AudioManagerSubsystem {
 
     fn drain_events(&mut self) -> Vec<crate::game_logic::AudioEventRequest> {
         self.queued_events.drain(..).collect()
+    }
+
+    /// C++ `TheAudio->removeAudioEvent(handle)` / `removePlayingAudio(name)`.
+    fn stop_leftover_looping_audio(&mut self, object_id: Option<u32>, event_name: &str) {
+        let lookup = if event_name == "WeaponFireLoopStop" {
+            "WeaponFireLoop"
+        } else {
+            event_name
+        };
+        let token = matches!(event_name, "WeaponFireLoopStop" | "AfterburnerStop");
+
+        if let Some(id) = object_id {
+            if let Some(entries) = self.looping_object_audio.get_mut(&id) {
+                if let Some(audio) = gamelogic::helpers::TheAudio::get() {
+                    entries.retain(|(name, handle)| {
+                        if name == lookup {
+                            if *handle != 0 {
+                                audio.remove_audio_event(*handle);
+                            } else if !matches!(
+                                name.as_str(),
+                                "WeaponFireLoopStop" | "AfterburnerStop"
+                            ) {
+                                audio.remove_audio_event_by_name(name);
+                            }
+                            false
+                        } else {
+                            true
+                        }
+                    });
+                } else {
+                    entries.retain(|(name, _)| name != lookup);
+                }
+                if entries.is_empty() {
+                    self.looping_object_audio.remove(&id);
+                }
+            } else if !token {
+                if let Some(audio) = gamelogic::helpers::TheAudio::get() {
+                    audio.remove_audio_event_by_name(lookup);
+                }
+            }
+        } else if !token {
+            if let Some(audio) = gamelogic::helpers::TheAudio::get() {
+                audio.remove_audio_event_by_name(lookup);
+            }
+        }
+    }
+
+    fn track_looping_object_audio(&mut self, object_id: u32, event_name: String, handle: u32) {
+        self.looping_object_audio
+            .entry(object_id)
+            .or_default()
+            .push((event_name, handle));
     }
 
     /// Move gameplay and presentation events through the one live audio queue.
@@ -493,9 +546,10 @@ impl AudioManagerSubsystem {
         // Wave 528: presentation FireSound loop stop is stop-only (no replay).
         for event in self.drain_events() {
             if event.stop {
-                if let Some(id) = event.object_id {
-                    self.looping_object_audio.remove(&id.0);
-                }
+                self.stop_leftover_looping_audio(
+                    event.object_id.map(|id| id.0),
+                    event.event_type.as_str(),
+                );
                 continue;
             }
             match event.event_type.as_str() {
@@ -513,6 +567,7 @@ impl AudioManagerSubsystem {
                 }
                 "WeaponFireLoopStop" | "AfterburnerStop" => {
                     if let Some(id) = event.object_id {
+                        self.stop_leftover_looping_audio(Some(id.0), event.event_type.as_str());
                         self.looping_object_audio.remove(&id.0);
                         log::trace!("presentation loop stop residual object={}", id.0);
                     }
@@ -527,13 +582,6 @@ impl AudioManagerSubsystem {
                         continue;
                     }
 
-                    // Track looping FireSound residual from presentation.
-                    if event.is_looping {
-                        if let Some(id) = event.object_id {
-                            self.looping_object_audio.insert(id.0);
-                        }
-                    }
-
                     let position = event.position.map(|p| (p.x, p.y, p.z));
                     let volume_scale = crate::assets::audio::live_gameplay_sfx_volume(
                         event.event_type.as_str(),
@@ -544,13 +592,25 @@ impl AudioManagerSubsystem {
                     }
                     // C++ MilesAudioManager::playSample3D — keep pose on TheAudio
                     // so Common SpatialSink pans. Do not drop to 2D volume-only.
-                    if crate::assets::audio::play_sound_through_the_audio_at(
+                    if let Some(handle) = crate::assets::audio::play_sound_through_the_audio_at(
                         event.event_type.as_str(),
                         position,
-                    )
-                    .is_some()
-                    {
+                    ) {
+                        if event.is_looping {
+                            if let Some(id) = event.object_id {
+                                self.track_looping_object_audio(
+                                    id.0,
+                                    event.event_type.clone(),
+                                    handle,
+                                );
+                            }
+                        }
                         continue;
+                    }
+                    if event.is_looping {
+                        if let Some(id) = event.object_id {
+                            self.track_looping_object_audio(id.0, event.event_type.clone(), 0);
+                        }
                     }
                     let Some(table) = self.sound_effects_table.as_ref() else {
                         continue;
@@ -653,11 +713,20 @@ impl SubsystemInterface for AudioManagerSubsystem {
 
     fn reset(&mut self) -> Result<()> {
         info!("Resetting AudioManager subsystem");
-        // Stop all current sounds/music but keep the audio system active
+        // Stop host rodio leftovers; keep the audio system active.
         if let Some(audio_manager) = &mut self.audio_manager {
             audio_manager.stop_all_sounds();
         }
+        self.queued_events.clear();
         self.looping_object_audio.clear();
+        // C++ MilesAudioManager::reset via TheSubsystemList->resetAll
+        // (GameEngine.cpp). Leftover game_audio.rs::reset already matches
+        // C++ (stop handles, clear fading/requests, script volumes = 1.0).
+        if let Some(manager) = game_engine::common::audio::game_audio::get_global_audio_manager() {
+            if let Ok(mut audio) = manager.lock() {
+                audio.reset();
+            }
+        }
         Ok(())
     }
 
@@ -2328,5 +2397,47 @@ mod tests {
 
         assert!(get_control_bar_scheme_manager().is_some());
         assert!(get_shell_menu_scheme_manager().read().is_ok());
+    }
+
+    #[test]
+    fn drain_stop_clears_tracked_leftover_loop() {
+        let mut audio = AudioManagerSubsystem::new();
+        audio.track_looping_object_audio(7, "RaptorAfterburner".into(), 1001);
+        audio.track_looping_object_audio(7, "WarFactoryAmbientLoop".into(), 1002);
+        audio.queue_event(
+            crate::game_logic::AudioEventRequest::new("RaptorAfterburner")
+                .with_object(crate::game_logic::ObjectId(7))
+                .stopping(),
+        );
+        audio.drain_and_dispatch_queued_audio();
+        let left = audio
+            .looping_object_audio
+            .get(&7)
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(
+            left,
+            vec![("WarFactoryAmbientLoop".to_string(), 1002)],
+            "stop must remove only the named leftover loop"
+        );
+    }
+
+    #[test]
+    fn set_paused_calls_leftover_the_game_logic_set_game_paused() {
+        // C++ GameLogic::setGamePaused → TheAudio.pauseAudio / resumeAudio
+        // via leftover TheGameLogic::set_game_paused.
+        let prev = gamelogic::helpers::TheGameLogic::is_game_paused();
+        gamelogic::helpers::TheGameLogic::set_game_paused(false, true);
+        let mut logic = crate::game_logic::GameLogic::new();
+        logic.set_paused(true);
+        assert!(logic.is_paused());
+        assert!(
+            gamelogic::helpers::TheGameLogic::is_game_paused(),
+            "live pause must latch leftover TheGameLogic (and thus TheAudio.pauseAudio)"
+        );
+        logic.set_paused(false);
+        assert!(!logic.is_paused());
+        assert!(!gamelogic::helpers::TheGameLogic::is_game_paused());
+        gamelogic::helpers::TheGameLogic::set_game_paused(prev, true);
     }
 }

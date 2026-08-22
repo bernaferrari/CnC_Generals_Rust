@@ -518,14 +518,20 @@ pub const REBEL_MG_DELAY_MS: u32 = 100;
 pub const REBEL_MG_CLIP_RELOAD_MS: u32 = 700;
 /// Retail rebel DamageType residual.
 pub const REBEL_MG_DAMAGE_TYPE: &str = "SMALL_ARMS";
+/// Retail rebel DeathType residual.
+pub const REBEL_MG_DEATH_TYPE: &str = "NORMAL";
 /// Retail RPG DelayBetweenShots residual (msec).
 pub const RPG_DELAY_MS: u32 = 1_000;
 /// Retail RPG DamageType residual.
 pub const RPG_DAMAGE_TYPE: &str = "INFANTRY_MISSILE";
+/// Retail RPG DeathType residual.
+pub const RPG_DEATH_TYPE: &str = "EXPLODED";
 /// Retail Kell DelayBetweenShots residual (msec).
 pub const KELL_DELAY_MS: u32 = 750;
 /// Retail Kell DamageType residual.
 pub const KELL_DAMAGE_TYPE: &str = "SNIPER";
+/// Retail Kell DeathType residual.
+pub const KELL_DEATH_TYPE: &str = "NORMAL";
 /// Retail SuicideBikeBomb DamageType residual.
 pub const SUICIDE_DAMAGE_TYPE: &str = "EXPLOSION";
 /// Retail SuicideBikeBomb DeathType residual.

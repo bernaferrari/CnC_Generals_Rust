@@ -450,11 +450,8 @@ impl CnCGameEngine {
             self.runtime_host_last_gameplay_cmd = "camera_track_fail_not_ingame".into();
         } else {
             self.toggle_camera_tracking_drawable_hotkey();
-            self.runtime_host_last_gameplay_cmd = if self.camera_tracking_selection {
-                "camera_track_ok:on".into()
-            } else {
-                "camera_track_ok:off".into()
-            };
+            // C++ CommandXlat.cpp:3216-3218 only enables; no OFF path.
+            self.runtime_host_last_gameplay_cmd = "camera_track_ok:on".into();
         }
     }
 

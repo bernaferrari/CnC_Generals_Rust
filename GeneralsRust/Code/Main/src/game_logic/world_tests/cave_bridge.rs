@@ -224,3 +224,244 @@ fn bridge_rubble_restamps_and_splat_kills() {
     assert_eq!(unit.status.death_type, HostDeathType::Splatted);
     assert!(logic.bridge_behavior.honesty_rubble_ok());
 }
+
+fn ensure_bridge_span_and_tower(logic: &mut GameLogic) {
+    if !logic.templates.contains_key("TestBridgeSpan") {
+        let mut span = ThingTemplate::new("TestBridgeSpan");
+        span.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Bridge)
+            .set_health(200.0);
+        logic.templates.insert("TestBridgeSpan".into(), span);
+    }
+    if !logic.templates.contains_key("TestBridgeTower") {
+        let mut tower = ThingTemplate::new("TestBridgeTower");
+        tower
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::BridgeTower)
+            .set_health(100.0);
+        logic.templates.insert("TestBridgeTower".into(), tower);
+    }
+    if !logic.templates.contains_key(BRIDGE_SCAFFOLD_TEMPLATE) {
+        let mut scaf = ThingTemplate::new(BRIDGE_SCAFFOLD_TEMPLATE);
+        scaf.add_kind_of(KindOf::Structure).set_health(1.0);
+        logic
+            .templates
+            .insert(BRIDGE_SCAFFOLD_TEMPLATE.to_string(), scaf);
+    }
+    if !logic.templates.contains_key("TestDozer") {
+        let mut dozer = ThingTemplate::new("TestDozer");
+        dozer
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Dozer)
+            .add_kind_of(KindOf::Worker)
+            .set_health(300.0);
+        logic.templates.insert("TestDozer".into(), dozer);
+    }
+
+}
+
+fn spawn_linked_bridge(logic: &mut GameLogic) -> (ObjectId, ObjectId, ObjectId) {
+    ensure_bridge_span_and_tower(logic);
+    let span = logic
+        .create_object("TestBridgeSpan", Team::USA, Vec3::ZERO)
+        .expect("span");
+    let t0 = logic
+        .create_object("TestBridgeTower", Team::USA, Vec3::new(-20.0, 0.0, 0.0))
+        .expect("t0");
+    let t1 = logic
+        .create_object("TestBridgeTower", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+        .expect("t1");
+    logic.bridge_behavior.register_span(
+        span,
+        Vec3::new(-20.0, 0.0, -8.0),
+        Vec3::new(-20.0, 0.0, 8.0),
+        Vec3::new(20.0, 0.0, -8.0),
+        Vec3::new(20.0, 0.0, 8.0),
+    );
+    logic
+        .bridge_behavior
+        .bind_towers(span, [t0, t1, ObjectId(0), ObjectId(0)]);
+    (span, t0, t1)
+}
+
+#[test]
+fn repair_complete_removes_scaffolding() {
+    // C++ WorkerAIUpdate.cpp:830 removeBridgeScaffolding.
+    let mut logic = GameLogic::new();
+    let (span, _, _) = spawn_linked_bridge(&mut logic);
+    logic.spawn_bridge_scaffolding(span);
+    assert!(logic.bridge_behavior.is_scaffold_present(span));
+    let scaffold_ids = logic
+        .bridge_behavior
+        .span(span)
+        .map(|s| s.scaffold_ids.clone())
+        .unwrap_or_default();
+    assert!(!scaffold_ids.is_empty());
+
+    // TestDozer is registered by spawn_linked_bridge.
+    let dozer = logic
+        .create_object("TestDozer", Team::USA, Vec3::new(0.0, 0.0, 12.0))
+        .expect("dozer");
+    if let Some(d) = logic.host_object_mut(dozer) {
+        d.dozer_task_repair_target = Some(span);
+        d.set_target(Some(span));
+    }
+    logic.dozer_internal_task_complete(dozer, true);
+    assert!(
+        !logic.bridge_behavior.is_scaffold_present(span),
+        "repair-complete must clear scaffold_present"
+    );
+    for sid in scaffold_ids {
+        let gone = logic.host_object(sid).is_none_or(|o| o.status.destroyed);
+        assert!(gone, "scaffold object {sid:?} must be destroyed");
+    }
+}
+
+#[test]
+fn rubble_span_is_repairable() {
+    // C++ DozerAIUpdate.cpp:649-703 heals rubble bridge/tower.
+    let mut logic = GameLogic::new();
+    let (span, _, _) = spawn_linked_bridge(&mut logic);
+    if let Some(s) = logic.host_object_mut(span) {
+        s.convert_bridge_to_rubble_husk();
+    }
+    assert!(!logic.host_object(span).expect("span").is_alive());
+
+    let dozer = logic
+        .create_object("TestDozer", Team::USA, Vec3::new(0.0, 0.0, 10.0))
+        .expect("dozer");
+    if let Some(s) = logic.host_object_mut(span) {
+        s.revive_from_bridge_rubble();
+        assert!(
+            s.attempt_healing_from_sole_benefactor(25.0, dozer, 2, 1),
+            "rubble husk must accept sole-benefactor heal"
+        );
+    }
+    let after = logic.host_object(span).expect("span after heal");
+    assert!(after.health.current > 0.0);
+    assert!(!after.status.keep_as_rubble);
+    assert!(after.is_alive());
+
+    // Heal on the clicked tower mirrors percent onto the rubble span.
+    let mut logic = GameLogic::new();
+    let (span, t0, _) = spawn_linked_bridge(&mut logic);
+    if let Some(s) = logic.host_object_mut(span) {
+        s.convert_bridge_to_rubble_husk();
+    }
+    let t0_max = logic.host_object(t0).expect("t0").health.maximum;
+    crate::game_logic::host_bridge_behavior::record_mirror(
+        t0,
+        t0_max * 0.25,
+        t0_max,
+        None,
+        crate::game_logic::combat::DamageType::Healing.to_store() as u32,
+        0,
+        crate::game_logic::host_bridge_behavior::HostBridgeMirrorKind::Heal,
+    );
+    logic.sync_host_bridge_rubble_and_scaffolds();
+    let span_obj = logic.host_object(span).expect("mirrored span");
+    assert!(
+        span_obj.health.current > 0.0,
+        "clicked-tower heal must revive rubble span, hp={}",
+        span_obj.health.current
+    );
+    assert!(span_obj.is_alive());
+}
+
+#[test]
+fn tower_damage_and_heal_mirror_to_span_and_siblings() {
+    // C++ BridgeTowerBehavior.cpp:68-215 percent mirror.
+    let mut logic = GameLogic::new();
+    let (span, t0, t1) = spawn_linked_bridge(&mut logic);
+    let before_span = logic.host_object(span).expect("span").health.current;
+    let before_t1 = logic.host_object(t1).expect("t1").health.current;
+    let t0_max = logic.host_object(t0).expect("t0").health.maximum;
+    if let Some(t) = logic.host_object_mut(t0) {
+        let _ = t.take_damage_from(t0_max * 0.25, None);
+    }
+    logic.sync_host_bridge_rubble_and_scaffolds();
+    let span_hp = logic.host_object(span).expect("span").health.current;
+    let t1_hp = logic.host_object(t1).expect("t1").health.current;
+    assert!(
+        span_hp < before_span - 1.0,
+        "span must take mirrored % damage {before_span} -> {span_hp}"
+    );
+    assert!(
+        t1_hp < before_t1 - 1.0,
+        "sibling tower must take mirrored % damage {before_t1} -> {t1_hp}"
+    );
+
+    if let Some(t) = logic.host_object_mut(t0) {
+        t.revive_from_bridge_rubble();
+        let _ = t.take_damage_from_typed(
+            t0_max * 0.25,
+            None,
+            crate::game_logic::combat::DamageType::Healing,
+        );
+    }
+    logic.sync_host_bridge_rubble_and_scaffolds();
+    let span_healed = logic.host_object(span).expect("span").health.current;
+    let t1_healed = logic.host_object(t1).expect("t1").health.current;
+    assert!(
+        span_healed > span_hp + 1.0,
+        "span must take mirrored % heal {span_hp} -> {span_healed}"
+    );
+    assert!(
+        t1_healed > t1_hp + 1.0,
+        "sibling tower must take mirrored % heal {t1_hp} -> {t1_healed}"
+    );
+}
+
+#[test]
+fn killing_tower_collapses_span_and_span_death_kills_towers() {
+    // C++ tower onDie kills bridge; bridge onDie kills towers.
+    let mut logic = GameLogic::new();
+    let (span, t0, t1) = spawn_linked_bridge(&mut logic);
+    if let Some(t) = logic.host_object_mut(t0) {
+        let max = t.health.maximum;
+        let _ = t.take_damage_from(max * 2.0, None);
+    }
+    logic.sync_host_bridge_rubble_and_scaffolds();
+    let span_obj = logic.host_object(span).expect("span");
+    let t1_obj = logic.host_object(t1).expect("t1");
+    assert!(
+        span_obj.status.keep_as_rubble || span_obj.health.current <= 0.0,
+        "killing a tower must collapse the span"
+    );
+    assert!(
+        t1_obj.status.keep_as_rubble || t1_obj.health.current <= 0.0,
+        "span death must kill sibling towers"
+    );
+
+    let mut logic = GameLogic::new();
+    let (span, t0, t1) = spawn_linked_bridge(&mut logic);
+    logic.destroy_object(span);
+    logic.sync_host_bridge_rubble_and_scaffolds();
+    let t0_obj = logic.host_object(t0).expect("t0");
+    let t1_obj = logic.host_object(t1).expect("t1");
+    assert!(
+        t0_obj.status.keep_as_rubble || t0_obj.health.current <= 0.0,
+        "span destroy_object must kill towers"
+    );
+    assert!(
+        t1_obj.status.keep_as_rubble || t1_obj.health.current <= 0.0,
+        "span destroy_object must kill both towers"
+    );
+}
+
+#[test]
+fn live_tick_drains_bridge_mirrors_and_death_links() {
+    let step = include_str!("../world_tick/step.rs");
+    assert!(
+        step.contains("sync_host_bridge_rubble_and_scaffolds"),
+        "live update_simulation must drain bridge mirrors/death/scaffolds"
+    );
+    let repair = include_str!("../world_objects/support_states.rs");
+    assert!(
+        repair.contains("repair_target_rubble") && repair.contains("remove_bridge_scaffolding"),
+        "Repairing arm must allow rubble husks and remove scaffolds on complete"
+    );
+}
+
+

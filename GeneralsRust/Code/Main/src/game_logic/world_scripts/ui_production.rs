@@ -483,14 +483,54 @@ impl GameLogic {
         snapshot_beacons().len()
     }
 
+    /// C++ `ThingTemplate` geometry used by `iteratePotentialCollisions`.
+    /// Returns (major, minor, is_box).
+    pub(crate) fn structure_place_footprint(&self, template_name: &str) -> (f32, f32, bool) {
+        if let Some(tmpl) = self.templates.get(template_name) {
+            if tmpl.geometry_info.authored {
+                let g = &tmpl.geometry_info;
+                let is_box = matches!(g.geom_type, crate::game_logic::HostGeometryType::Box);
+                let major = g.major_radius.max(1.0);
+                let minor = if is_box {
+                    g.minor_radius.max(1.0)
+                } else {
+                    major
+                };
+                return (major, minor, is_box);
+            }
+        }
+        if let Some(footprint) = leftover_structure_place_footprint(template_name) {
+            return footprint;
+        }
+        let r = crate::game_logic::host_production_buildable_command_residual::STRUCTURE_PLACE_CLEARANCE_RESIDUAL
+            * 0.5;
+        (r, r, false)
+    }
+
+    pub(crate) fn structure_place_radius_for_template(&self, template_name: &str) -> f32 {
+        let (major, minor, is_box) = self.structure_place_footprint(template_name);
+        if is_box {
+            (major * major + minor * minor).sqrt()
+        } else {
+            major
+        }
+    }
+
     /// Structure placement radius residual for LBC_OBJECTS_IN_THE_WAY.
     pub(in super::super) fn structure_place_radius(obj: &Object) -> f32 {
-        use crate::game_logic::host_production_buildable_command_residual::STRUCTURE_PLACE_CLEARANCE_RESIDUAL;
-        // Prefer selection_radius when set; else default clearance residual.
+        if obj.thing.template.geometry_info.authored {
+            return obj
+                .thing
+                .template
+                .geometry_info
+                .bounding_circle_radius()
+                .max(1.0);
+        }
         if obj.selection_radius > 1.0 {
-            obj.selection_radius * 0.5
+            obj.selection_radius
         } else {
-            STRUCTURE_PLACE_CLEARANCE_RESIDUAL * 0.5
+            crate::game_logic::host_production_buildable_command_residual::STRUCTURE_PLACE_CLEARANCE_RESIDUAL
+                * 0.5
         }
     }
 
@@ -585,7 +625,8 @@ impl GameLogic {
         let too_close_edge = in_bounds
             && MIN_DIST_FROM_EDGE_OF_MAP_FOR_BUILD > 0.0
             && !is_legal_build_distance_from_map_edge(edge_dist);
-        let place_r = STRUCTURE_PLACE_CLEARANCE_RESIDUAL * 0.5;
+        let (_, extra_bib) = leftover_factory_exit_widths(template_name);
+        let place_r = self.structure_place_radius_for_template(template_name) + extra_bib.max(0.0);
         let builder = builder_id.and_then(|id| self.objects.get(&id));
         let mut blockers: Vec<(f32, f32, f32)> = Vec::new();
         let mut blocker_ids: Vec<ObjectId> = Vec::new();
@@ -600,7 +641,8 @@ impl GameLogic {
                 continue;
             }
             let p = obj.get_position();
-            let r = Self::structure_place_radius(obj);
+            let r = Self::structure_place_radius(obj)
+                + leftover_factory_exit_widths(&obj.template_name).1.max(0.0);
             if obj.is_kind_of(KindOf::SupplySource) {
                 supply_sources.push((p.x, p.z, r.max(10.0)));
             }
@@ -650,36 +692,22 @@ impl GameLogic {
                 blocker_ids.push(obj.id);
             }
             // C++ BuildAssistant.cpp:759-870 factory exit-width bibs.
-            if let Some(exit) = obj.thing.template.production_exit_metadata {
-                let forward = obj.thing.get_direction_vector();
-                let exit_pos = crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
-                    p,
-                    forward,
-                    (
-                        exit.unit_create_point[0],
-                        exit.unit_create_point[1],
-                        exit.unit_create_point[2],
-                    ),
-                );
-                blockers.push((exit_pos.x, exit_pos.z, r.max(place_r)));
+            if let Some((ex, ez, er)) =
+                leftover_factory_exit_blocker(&obj.template_name, p, obj.get_orientation())
+            {
+                blockers.push((ex, ez, er));
             }
         }
-        if let Some(tmpl) = self.templates.get(template_name) {
-            if let Some(exit) = tmpl.production_exit_metadata {
-                let exit_pos = glam::Vec3::new(
-                    position.x + exit.unit_create_point[0],
-                    position.y,
-                    position.z + exit.unit_create_point[1],
-                );
-                if legal_build_objects_in_the_way_residual(
-                    (exit_pos.x, exit_pos.z),
-                    place_r,
-                    &blockers,
-                ) {
-                    return crate::game_logic::host_production_buildable_command_residual::LBC_OBJECTS_IN_THE_WAY;
-                }
+        if let Some((ex, ez, er)) = leftover_factory_exit_blocker(
+            template_name,
+            position,
+            leftover_placement_view_angle(template_name),
+        ) {
+            if legal_build_objects_in_the_way_residual((ex, ez), er, &blockers) {
+                return crate::game_logic::host_production_buildable_command_residual::LBC_OBJECTS_IN_THE_WAY;
             }
         }
+
         let in_way = busy_ally_in_way
             || legal_build_objects_in_the_way_residual((position.x, position.z), place_r, &blockers);
         if stealth_fail_no_bib {
@@ -1467,6 +1495,51 @@ impl GameLogic {
         (occupied_slots.len() as u32).saturating_add(queued)
     }
 
+    /// C++ `ThingTemplate::getBuildable` — leftover GameLogic override first.
+    fn effective_buildable_status(&self, template_name: &str, ini_status: u32) -> u32 {
+        if let Some(status) =
+            gamelogic::helpers::TheGameLogic::find_buildable_status_override(template_name)
+        {
+            return status.max(0) as u32;
+        }
+        ini_status
+    }
+
+    /// C++ `Player::canBuild` allowedToBuild + BuildableStatus (not prereqs).
+    /// Returns `(player_may_build, ignore_prerequisites)`.
+    fn host_player_can_build(
+        &self,
+        owner_player_id: Option<u32>,
+        team: crate::game_logic::Team,
+        template_name: &str,
+        is_structure: bool,
+        ini_buildable: u32,
+    ) -> (bool, bool) {
+        use crate::game_logic::host_production_buildable_command_residual::{
+            BSTATUS_IGNORE_PREREQUISITES, BSTATUS_NO, BSTATUS_ONLY_BY_AI,
+        };
+        let status = self.effective_buildable_status(template_name, ini_buildable);
+        let ignore_prereq = status == BSTATUS_IGNORE_PREREQUISITES;
+        let owner = match owner_player_id {
+            Some(player_id) => self.get_player(player_id),
+            None => self.get_player_by_team(team),
+        };
+        let Some(player) = owner else {
+            return (status != BSTATUS_NO, ignore_prereq);
+        };
+        if !player.allowed_to_build(is_structure) {
+            return (false, ignore_prereq);
+        }
+        if status == BSTATUS_NO {
+            return (false, ignore_prereq);
+        }
+        let is_computer = self.ai_manager.ai_players.contains_key(&player.id);
+        if status == BSTATUS_ONLY_BY_AI && !is_computer {
+            return (false, ignore_prereq);
+        }
+        (true, ignore_prereq)
+    }
+
     /// Parking uses the parsed `ParkingPlaceBehavior` reservation contract.
     /// MaxSimultaneous uses the authored Object INI cap (or SW restriction),
     /// counted by equivalent template / shared link key.
@@ -1503,30 +1576,23 @@ impl GameLogic {
         // The small residual table remains only while that catalog has not
         // supplied a producer identity (for example test-only factories).
         let producer_template = producer.template_name.as_str();
-        match gamelogic::control_bar::parsed_unit_build_authorization(
+        let command_set_ok = match gamelogic::control_bar::parsed_unit_build_authorization(
             producer_template,
             template_name,
         ) {
-            gamelogic::control_bar::ParsedUnitBuildAuthorization::Rejected => {
-                return crate::game_logic::host_production_buildable_command_residual::CANMAKE_NO_PREREQ;
-            }
-            gamelogic::control_bar::ParsedUnitBuildAuthorization::Authorized => {}
+            gamelogic::control_bar::ParsedUnitBuildAuthorization::Rejected => false,
+            gamelogic::control_bar::ParsedUnitBuildAuthorization::Authorized => true,
             gamelogic::control_bar::ParsedUnitBuildAuthorization::Unavailable => {
                 match crate::game_logic::host_production_buildable_command_residual::command_set_allows_unit(
                     producer_template,
                     template_name,
                 ) {
-                    Some(false) => {
-                        return crate::game_logic::host_production_buildable_command_residual::CANMAKE_NO_PREREQ;
-                    }
-                    Some(true) => {}
-                    None if !building.can_produce(template) => {
-                        return crate::game_logic::host_production_buildable_command_residual::CANMAKE_NO_PREREQ;
-                    }
-                    None => {}
+                    Some(false) => false,
+                    Some(true) => true,
+                    None => building.can_produce(template),
                 }
             }
-        }
+        };
         let queue_full = building.production_queue.len() >= DEFAULT_PRODUCTION_QUEUE_LIMIT;
         // C++ ParkingPlaceBehavior `hasAvailableSpaceFor` gate for a real
         // FSAirfield.  No building-type or template-name approximation is
@@ -1582,6 +1648,15 @@ impl GameLogic {
             }
         };
         let has_prereq = has_prereq && science_ok;
+        let (player_can_build, ignore_prereq) = self.host_player_can_build(
+            owner_player_id,
+            team,
+            template_name,
+            template.is_kind_of(KindOf::Structure),
+            template.buildable_status,
+        );
+        let has_prereq =
+            player_can_build && command_set_ok && (ignore_prereq || has_prereq);
         let owner = match owner_player_id {
             Some(player_id) => self.get_player(player_id),
             None => self.get_player_by_team(team),
@@ -1639,9 +1714,8 @@ impl GameLogic {
         if !producer.is_alive() {
             return CANMAKE_FACTORY_IS_DISABLED;
         }
-        if let Some(false) = command_set_allows_unit(&producer.template_name, template_name) {
-            return CANMAKE_NO_PREREQ;
-        }
+        let command_set_ok =
+            !matches!(command_set_allows_unit(&producer.template_name, template_name), Some(false));
         let team = producer.team;
         let owner_player_id = producer.owner_player_id;
         let factory_disabled = producer.is_disabled();
@@ -1655,6 +1729,15 @@ impl GameLogic {
                     && self.can_start_superweapon_building(team, template_name)
             }
         };
+        let (player_can_build, ignore_prereq) = self.host_player_can_build(
+            owner_player_id,
+            team,
+            template_name,
+            template.is_kind_of(KindOf::Structure),
+            template.buildable_status,
+        );
+        let has_prereq =
+            player_can_build && command_set_ok && (ignore_prereq || has_prereq);
         let owner = match owner_player_id {
             Some(player_id) => self.get_player(player_id),
             None => self.get_player_by_team(team),
@@ -1885,4 +1968,64 @@ impl GameLogic {
     pub fn honesty_stealth_fighter_science_ok(&self) -> bool {
         self.stealth_fighter_science.honesty_ok()
     }
+}
+
+fn leftover_thing_template(
+    name: &str,
+) -> Option<std::sync::Arc<game_engine::common::thing::thing_template::ThingTemplate>> {
+    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
+    let factory = guard.as_ref()?;
+    factory.find_template(name, false)
+}
+
+fn leftover_structure_place_footprint(name: &str) -> Option<(f32, f32, bool)> {
+    let tmpl = leftover_thing_template(name)?;
+    let g = tmpl.get_template_geometry_info();
+    let major = g.major_radius();
+    if major <= 0.5 {
+        return None;
+    }
+    let is_box = matches!(
+        g.geometry_type,
+        game_engine::common::system::geometry::GeometryType::Box
+    );
+    let minor = if is_box {
+        g.minor_radius().max(1.0)
+    } else {
+        major
+    };
+    Some((major.max(1.0), minor, is_box))
+}
+
+fn leftover_factory_exit_widths(name: &str) -> (f32, f32) {
+    leftover_thing_template(name)
+        .map(|tmpl| (tmpl.get_factory_exit_width(), tmpl.get_factory_extra_bib_width()))
+        .unwrap_or((0.0, 0.0))
+}
+
+fn leftover_placement_view_angle(name: &str) -> f32 {
+    leftover_thing_template(name)
+        .map(|tmpl| tmpl.get_placement_view_angle())
+        .unwrap_or(0.0)
+}
+
+/// C++ BuildAssistant.cpp:786-794 factory exit rectangle as a circle residual.
+fn leftover_factory_exit_blocker(
+    template_name: &str,
+    position: glam::Vec3,
+    orientation: f32,
+) -> Option<(f32, f32, f32)> {
+    let (exit_w, _) = leftover_factory_exit_widths(template_name);
+    if exit_w <= 0.0 {
+        return None;
+    }
+    let major = leftover_structure_place_footprint(template_name)
+        .map(|(major, _, _)| major)
+        .unwrap_or(exit_w * 0.5);
+    let offset = major + exit_w * 0.5;
+    Some((
+        position.x + orientation.cos() * offset,
+        position.z + orientation.sin() * offset,
+        (exit_w * 0.5).max(1.0),
+    ))
 }

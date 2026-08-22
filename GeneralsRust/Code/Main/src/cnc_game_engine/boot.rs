@@ -454,6 +454,7 @@ impl CnCGameEngine {
             save_file_manager,
             camera_position,
             camera_target,
+            scripted_camera_constraint_widen: None,
             camera_zoom,
             camera_zoom_target: None,
             camera_zoom_start: camera_zoom,
@@ -555,6 +556,8 @@ impl CnCGameEngine {
             game_hud: GameHUD::new(),
             pending_structure_placement: None,
             pending_map_command: None,
+            prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click: false,
+
             active_menu_shell_hook: None,
             runtime_host_headless,
             runtime_host_active,

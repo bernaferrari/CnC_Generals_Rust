@@ -210,7 +210,9 @@ impl SnapshotBuilder {
             object.supply_truck_force_pending = runtime.supply_truck_force_pending;
             object.supply_truck_next_dock_action_frame =
                 runtime.supply_truck_next_dock_action_frame;
-            object.stored_resources.supplies = runtime.stored_supply_boxes;
+            // C++ SupplyWarehouseDockUpdate::loadPostProcess
+            // updateDrawableSupplyStatus(startingBoxes, boxesStored).
+            object.set_stored_supplies(runtime.stored_supply_boxes);
         }
 
         // C++ TempWeaponBonusHelper::xfer (`TempWeaponBonusHelper.cpp:112-113`)
@@ -498,7 +500,7 @@ impl SnapshotBuilder {
                 } else {
                     ObjectType::Neutral
                 };
-                object.stored_resources.supplies = resource_snapshot.amount;
+                object.set_stored_supplies(resource_snapshot.amount);
             }
         }
 
@@ -653,6 +655,7 @@ impl SnapshotBuilder {
                 can_build_units: true,
                 can_build_base: true,
                 units_should_hunt: false,
+                list_in_score_screen: true,
 
 
                 kind_of_production_cost_changes: Vec::new(),
@@ -840,7 +843,7 @@ impl SnapshotBuilder {
                 };
                 resource_obj.set_position(depot.position);
                 resource_obj.position = depot.position;
-                resource_obj.stored_resources.supplies = depot.amount;
+                resource_obj.set_stored_supplies(depot.amount);
                 if resource_obj.object_type != ObjectType::Supply
                     && (resource_obj.is_kind_of(KindOf::Resource)
                         || resource_obj.is_kind_of(KindOf::Harvestable))

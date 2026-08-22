@@ -60,6 +60,8 @@ pub const JARMEN_KELL_DELAY_FRAMES: u32 = 30;
 pub const JARMEN_KELL_AP_DAMAGE_MULT: f32 = 1.25;
 /// Retail DamageType residual.
 pub const JARMEN_KELL_DAMAGE_TYPE: &str = "SNIPER";
+/// Retail DeathType residual.
+pub const JARMEN_KELL_DEATH_TYPE: &str = "NORMAL";
 /// Retail PrimaryDamageRadius residual (intended-only).
 pub const JARMEN_KELL_DAMAGE_RADIUS: f32 = 0.0;
 /// Retail ClipSize residual (0 == infinite).

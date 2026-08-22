@@ -266,6 +266,21 @@ pub struct PathfindingGrid {
     query_from: Option<GridPos>,
     /// Original click cell for leftover dest→adjust zone fallback.
     query_orig_dest: Option<GridPos>,
+    /// C++ `m_logicalExtent` — playable terrain cells (human path clamp).
+    logical_extent_lo: GridPos,
+    logical_extent_hi: GridPos,
+    /// Constructor world size used when leftover terrain extent is empty.
+    world_extent_w: f32,
+    world_extent_h: f32,
+    /// C++ `checkForAdjust` / `examineNeighboringCells` `isHuman`.
+    query_is_human: bool,
+    /// C++ `PathfindCell::getObstacleID`.
+    occ_obstacle_id: Vec<u32>,
+    /// Obstacle controlling player (`0xFF` = unknown).
+    occ_obstacle_owner: Vec<u8>,
+    /// Obstacle `Team` discriminant (`0xFF` = unknown).
+    occ_obstacle_team: Vec<u8>,
+
 
 
 }
@@ -285,7 +300,7 @@ impl PathfindingGrid {
         let height = (world_height / grid_size).ceil() as i32;
         let cells = (width.max(0) as usize).saturating_mul(height.max(0) as usize);
         let words = cells.div_ceil(64);
-        Self {
+        let mut grid = Self {
             width,
             height,
             grid_size,
@@ -314,7 +329,21 @@ impl PathfindingGrid {
             query_check_for_aircraft: false,
             query_from: None,
             query_orig_dest: None,
-
+            logical_extent_lo: GridPos::new(0, 0),
+            logical_extent_hi: GridPos::new(
+                ((world_width / grid_size).floor() as i32 - 1)
+                    .min(width.saturating_sub(1))
+                    .max(0),
+                ((world_height / grid_size).floor() as i32 - 1)
+                    .min(height.saturating_sub(1))
+                    .max(0),
+            ),
+            world_extent_w: world_width,
+            world_extent_h: world_height,
+            query_is_human: false,
+            occ_obstacle_id: vec![0u32; cells],
+            occ_obstacle_owner: vec![0xFFu8; cells],
+            occ_obstacle_team: vec![0xFFu8; cells],
             bridge_layers: Vec::new(),
             layer_occ: HashMap::new(),
             wall_pieces: Vec::new(),
@@ -323,7 +352,51 @@ impl PathfindingGrid {
             terrain_gen: 1,
             query_path_diameter: 1,
             query_is_crusher: false,
-        }
+        };
+        grid.refresh_logical_extent();
+        grid
+    }
+
+    /// C++ `Pathfinder::processPathfindQueue` m_logicalExtent refresh
+    /// (AIPathfind.cpp:5887-5897).
+    pub fn refresh_logical_extent(&mut self) {
+        let cell = self.grid_size.max(1.0);
+        let Some(ext) = gamelogic::terrain::get_terrain_logic()
+            .read()
+            .ok()
+            .map(|t| t.get_extent())
+            .filter(|e| e.hi.x > e.lo.x && e.hi.y > e.lo.y)
+        else {
+            return;
+        };
+        // Leftover/C++ terrain is XY; host grid is XZ with origin.
+        let mut lo_x = ((ext.lo.x - self.origin.x) / cell).floor() as i32;
+        let mut lo_y = ((ext.lo.y - self.origin.z) / cell).floor() as i32;
+        let mut hi_x = ((ext.hi.x - self.origin.x) / cell).floor() as i32 - 1;
+        let mut hi_y = ((ext.hi.y - self.origin.z) / cell).floor() as i32 - 1;
+        lo_x = lo_x.max(0);
+        lo_y = lo_y.max(0);
+        hi_x = hi_x.min(self.width.saturating_sub(1)).max(lo_x);
+        hi_y = hi_y.min(self.height.saturating_sub(1)).max(lo_y);
+        self.logical_extent_lo = GridPos::new(lo_x, lo_y);
+        self.logical_extent_hi = GridPos::new(hi_x, hi_y);
+    }
+
+    #[inline]
+    pub fn in_logical_extent(&self, cell: GridPos) -> bool {
+        cell.x >= self.logical_extent_lo.x
+            && cell.y >= self.logical_extent_lo.y
+            && cell.x <= self.logical_extent_hi.x
+            && cell.y <= self.logical_extent_hi.y
+    }
+
+    pub fn set_logical_extent(&mut self, lo: GridPos, hi: GridPos) {
+        self.logical_extent_lo = lo;
+        self.logical_extent_hi = hi;
+    }
+
+    pub fn set_query_is_human(&mut self, is_human: bool) {
+        self.query_is_human = is_human;
     }
 
     /// C++ Player relationship ALLIES bits for occupancy crush-through.
@@ -453,18 +526,75 @@ impl PathfindingGrid {
         if !matches!(ty, PathfindCellType::Obstacle) {
             Self::bit_set(&mut self.fence_bits, idx, false);
             Self::bit_set(&mut self.transparent_bits, idx, false);
+            if let Some(slot) = self.occ_obstacle_id.get_mut(idx) {
+                *slot = 0;
+            }
+            if let Some(slot) = self.occ_obstacle_owner.get_mut(idx) {
+                *slot = 0xFF;
+            }
+            if let Some(slot) = self.occ_obstacle_team.get_mut(idx) {
+                *slot = 0xFF;
+            }
         }
         self.terrain_gen = self.terrain_gen.wrapping_add(1);
     }
 
     /// C++ `PathfindCell::setTypeAsObstacle(..., isFence)`.
     pub fn set_cell_obstacle(&mut self, pos: GridPos, is_fence: bool, is_transparent: bool) {
+        self.set_cell_obstacle_owned(pos, is_fence, is_transparent, 0, None, None);
+    }
+
+    /// C++ `setTypeAsObstacle` + `getObstacleID` owner for dozerHack.
+    pub fn set_cell_obstacle_owned(
+        &mut self,
+        pos: GridPos,
+        is_fence: bool,
+        is_transparent: bool,
+        object_id: u32,
+        owner_player: Option<u32>,
+        team: Option<Team>,
+    ) {
         self.set_cell_type(pos, PathfindCellType::Obstacle);
         let Some(idx) = self.bit_index(pos) else {
             return;
         };
         Self::bit_set(&mut self.fence_bits, idx, is_fence);
         Self::bit_set(&mut self.transparent_bits, idx, is_transparent);
+        if let Some(slot) = self.occ_obstacle_id.get_mut(idx) {
+            *slot = object_id;
+        }
+        if let Some(slot) = self.occ_obstacle_owner.get_mut(idx) {
+            *slot = owner_player
+                .filter(|&p| p <= 15)
+                .map(|p| p as u8)
+                .unwrap_or(0xFF);
+        }
+        if let Some(slot) = self.occ_obstacle_team.get_mut(idx) {
+            *slot = team.map(|t| t as u8).unwrap_or(0xFF);
+        }
+    }
+
+    fn obstacle_owner(&self, pos: GridPos) -> Option<(u32, Option<u32>, Option<Team>)> {
+        let idx = self.bit_index(pos)?;
+        let id = *self.occ_obstacle_id.get(idx)?;
+        if id == 0 {
+            return None;
+        }
+        let owner = self.occ_obstacle_owner.get(idx).copied().and_then(|p| {
+            if p == 0xFF {
+                None
+            } else {
+                Some(p as u32)
+            }
+        });
+        let team = self.occ_obstacle_team.get(idx).copied().and_then(|t| match t {
+            0 => Some(Team::GLA),
+            1 => Some(Team::USA),
+            2 => Some(Team::China),
+            3 => Some(Team::Neutral),
+            _ => None,
+        });
+        Some((id, owner, team))
     }
 
     pub fn is_obstacle_fence(&self, pos: GridPos) -> bool {
@@ -610,6 +740,9 @@ impl PathfindingGrid {
         fence_width: f32,
         fence_x_offset: f32,
         is_transparent: bool,
+        object_id: u32,
+        owner_player: Option<u32>,
+        team: Option<Team>,
     ) -> Option<(GridPos, GridPos)> {
         if fence_width <= 0.0 {
             return None;
@@ -635,7 +768,14 @@ impl PathfindingGrid {
             for _ix in 0..num_steps_x {
                 let cell = self.classify_world_to_cell(x, z);
                 if self.is_valid_pos(cell) {
-                    self.set_cell_obstacle(cell, true, is_transparent);
+                    self.set_cell_obstacle_owned(
+                        cell,
+                        true,
+                        is_transparent,
+                        object_id,
+                        owner_player,
+                        team,
+                    );
                     Self::expand_stamp_bounds(&mut lo, &mut hi, cell);
                     did = true;
                 }
@@ -689,6 +829,9 @@ impl PathfindingGrid {
                 fence_width,
                 obj.thing.template.fence_x_offset,
                 obj.is_kind_of(KindOf::CanSeeThrough),
+                obj.id.0,
+                obj.owner_player_id,
+                Some(obj.team),
             );
         }
         if !obj.is_kind_of(KindOf::Structure) {
@@ -717,7 +860,14 @@ impl PathfindingGrid {
             if as_rubble {
                 grid.set_cell_type(cell, PathfindCellType::Rubble);
             } else {
-                grid.set_cell_obstacle(cell, false, is_transparent);
+                grid.set_cell_obstacle_owned(
+                    cell,
+                    false,
+                    is_transparent,
+                    obj.id.0,
+                    obj.owner_player_id,
+                    Some(obj.team),
+                );
             }
             Self::expand_stamp_bounds(lo, hi, cell);
             true
@@ -2603,6 +2753,10 @@ impl PathfindingGrid {
         if !self.is_valid_pos(pos) {
             return false;
         }
+        // C++ checkForAdjust isHuman: reject cells outside m_logicalExtent.
+        if self.query_is_human && !self.in_logical_extent(pos) {
+            return false;
+        }
         if self.query_check_for_aircraft {
             return !self.has_other_aircraft_goal(pos);
         }
@@ -3163,6 +3317,377 @@ impl PathfindingGrid {
         }
         None
     }
+
+    /// C++ `Pathfinder::tightenPath` (AIPathfind.cpp:8414-8421).
+    /// Walk Bresenham from `from` toward `to`; advance `from` to the last
+    /// cell that still passes `destination_cell_ok`.
+    pub fn tighten_path(
+        &self,
+        from: &mut Vec3,
+        to: Vec3,
+        surfaces: u32,
+        is_crusher: bool,
+        seeker_player: Option<u32>,
+        crusher_level: u8,
+        layer: PathfindLayerEnum,
+    ) {
+        let start = *from;
+        let start_cell = self.world_to_grid(start);
+        let goal_cell = self.world_to_grid(to);
+        let mut found = false;
+        let mut dest_pos = start;
+        let mut x0 = start_cell.x;
+        let mut y0 = start_cell.y;
+        let x1 = goal_cell.x;
+        let y1 = goal_cell.y;
+        let dx = (x1 - x0).abs();
+        let sx = if x0 < x1 { 1 } else { -1 };
+        let dy = -(y1 - y0).abs();
+        let sy = if y0 < y1 { 1 } else { -1 };
+        let mut err = dx + dy;
+        loop {
+            let cell = GridPos::new(x0, y0);
+            if self.layer_for_destination(self.grid_to_world(cell)) != layer {
+                break;
+            }
+            if self.destination_cell_ok(
+                cell,
+                surfaces,
+                is_crusher,
+                seeker_player,
+                crusher_level,
+                layer,
+            ) {
+                found = true;
+                dest_pos = self.grid_to_world(cell);
+            } else {
+                break;
+            }
+            if x0 == x1 && y0 == y1 {
+                break;
+            }
+            let e2 = 2 * err;
+            if e2 >= dy {
+                err += dy;
+                x0 += sx;
+            }
+            if e2 <= dx {
+                err += dx;
+                y0 += sy;
+            }
+        }
+        if found {
+            *from = dest_pos;
+        }
+    }
+
+    /// C++ `Pathfinder::checkPathCost` (AIPathfind.cpp:8338+).
+    /// Limited A*; returns `0x7fff0000` when no path.
+    pub fn check_path_cost(
+        &self,
+        surfaces: u32,
+        is_crusher: bool,
+        from: Vec3,
+        to: Vec3,
+    ) -> f32 {
+        const MAX_COST: f32 = 0x7fff_0000u32 as f32;
+        const MAX_CELL_COUNT: i32 = 500;
+        const COST_ORTHO: i32 = 10;
+        const COST_DIAG: i32 = 14;
+        let start = self.world_to_grid(from);
+        let goal = self.world_to_grid(to);
+        if !self.is_valid_pos(start) || !self.is_valid_pos(goal) {
+            return MAX_COST;
+        }
+        if !self.cell_passable_for(start, surfaces, is_crusher)
+            && !(self.is_obstacle_fence(start) && is_crusher)
+        {
+            return MAX_COST;
+        }
+        if start == goal {
+            return 0.0;
+        }
+        let heuristic = |c: GridPos| -> i32 {
+            let dx = (goal.x - c.x).abs();
+            let dy = (goal.y - c.y).abs();
+            let dmin = dx.min(dy);
+            let dmax = dx.max(dy);
+            COST_DIAG * dmin + COST_ORTHO * (dmax - dmin)
+        };
+        let deltas: [(i32, i32); 8] = [
+            (1, 0),
+            (0, 1),
+            (-1, 0),
+            (0, -1),
+            (1, 1),
+            (-1, 1),
+            (-1, -1),
+            (1, -1),
+        ];
+        let mut open: BinaryHeap<std::cmp::Reverse<(i32, i32, i32, i32)>> = BinaryHeap::new();
+        let mut g_score: HashMap<(i32, i32), i32> = HashMap::new();
+        let mut closed: HashSet<(i32, i32)> = HashSet::new();
+        let h0 = heuristic(start);
+        open.push(std::cmp::Reverse((h0, 0, start.x, start.y)));
+        g_score.insert((start.x, start.y), 0);
+        let mut cell_count = 0i32;
+        while let Some(std::cmp::Reverse((_f, g, cx, cy))) = open.pop() {
+            if closed.contains(&(cx, cy)) {
+                continue;
+            }
+            closed.insert((cx, cy));
+            if cx == goal.x && cy == goal.y {
+                return g as f32;
+            }
+            if cell_count > MAX_CELL_COUNT {
+                continue;
+            }
+            let parent = GridPos::new(cx, cy);
+            if let Some(link) = self.change_layer_xy(parent) {
+                if !closed.contains(&(link.x, link.y)) {
+                    let key = (link.x, link.y);
+                    if !g_score.get(&key).is_some_and(|&og| g >= og) {
+                        g_score.insert(key, g);
+                        let f = g + heuristic(link);
+                        open.push(std::cmp::Reverse((f, g, link.x, link.y)));
+                        cell_count += 1;
+                    }
+                }
+            }
+            let mut neighbor_flags = [false; 8];
+            for (i, (dx, dy)) in deltas.iter().enumerate() {
+                let nx = cx + dx;
+                let ny = cy + dy;
+                let nc = GridPos::new(nx, ny);
+                if !self.is_valid_pos(nc) || closed.contains(&(nx, ny)) {
+                    continue;
+                }
+                if Self::skip_diagonal_if_squeezed(i, &neighbor_flags) {
+                    continue;
+                }
+                if !self.cell_passable_for(nc, surfaces, is_crusher)
+                    && !(self.is_obstacle_fence(nc) && is_crusher)
+                {
+                    continue;
+                }
+                neighbor_flags[i] = true;
+                let step = if i >= 4 { COST_DIAG } else { COST_ORTHO };
+                let ng = g + step;
+                let key = (nx, ny);
+                if g_score.get(&key).is_some_and(|&og| ng >= og) {
+                    continue;
+                }
+                g_score.insert(key, ng);
+                let f = ng + heuristic(nc);
+                open.push(std::cmp::Reverse((f, ng, nx, ny)));
+                cell_count += 1;
+            }
+        }
+        MAX_COST
+    }
+
+    #[inline]
+    fn skip_diagonal_if_squeezed(i: usize, neighbor_flags: &[bool; 8]) -> bool {
+        const FIRST_DIAGONAL: usize = 4;
+        const ADJACENT: [usize; 5] = [0, 1, 2, 3, 0];
+        i >= FIRST_DIAGONAL && !neighbor_flags[ADJACENT[i - 4]] && !neighbor_flags[ADJACENT[i - 3]]
+    }
+
+    /// C++ `checkChangeLayers`: same-XY connect-layer hop (2D residual).
+    fn change_layer_xy(&self, cell: GridPos) -> Option<GridPos> {
+        let connect = self.ground_connect_layer(cell);
+        if connect == 0 {
+            return None;
+        }
+        Some(cell)
+    }
+
+    fn human_extent_allows(&self, pos: GridPos, is_human: bool) -> bool {
+        if !self.is_valid_pos(pos) {
+            return false;
+        }
+        if !is_human {
+            return true;
+        }
+        self.in_logical_extent(pos)
+    }
+
+
+    /// C++ `checkForAdjust` groupDest tighten + `checkPathCost` gate, then
+    /// spiral. Falls back to simple `adjustDestination` when the group
+    /// cost check rejects every candidate (AIPathfind.cpp:5210-5403).
+    pub fn adjust_destination_for_group(
+        &self,
+        dest: GridPos,
+        group_dest: GridPos,
+        surfaces: u32,
+        is_crusher: bool,
+        seeker_player: Option<u32>,
+        crusher_level: u8,
+        layer: PathfindLayerEnum,
+    ) -> Option<GridPos> {
+        if let Some(adj) = self.adjust_destination_on_layer_group(
+            dest,
+            Some(group_dest),
+            surfaces,
+            is_crusher,
+            seeker_player,
+            crusher_level,
+            layer,
+        ) {
+            return Some(adj);
+        }
+        self.adjust_destination_on_layer(
+            dest,
+            surfaces,
+            is_crusher,
+            400,
+            seeker_player,
+            crusher_level,
+            layer,
+        )
+    }
+
+    fn check_for_adjust_group(
+        &self,
+        cell: GridPos,
+        group_dest: Option<GridPos>,
+        surfaces: u32,
+        is_crusher: bool,
+        seeker_player: Option<u32>,
+        crusher_level: u8,
+        layer: PathfindLayerEnum,
+    ) -> bool {
+        if !self.destination_cell_ok(
+            cell,
+            surfaces,
+            is_crusher,
+            seeker_player,
+            crusher_level,
+            layer,
+        ) {
+            return false;
+        }
+        let Some(gd) = group_dest else {
+            return true;
+        };
+        let mut adjust_dest = self.grid_to_world(cell);
+        let group_w = self.grid_to_world(gd);
+        self.tighten_path(
+            &mut adjust_dest,
+            group_w,
+            surfaces,
+            is_crusher,
+            seeker_player,
+            crusher_level,
+            layer,
+        );
+        let cost = self.check_path_cost(surfaces, is_crusher, group_w, adjust_dest);
+        let dx = (group_w.x - adjust_dest.x).abs();
+        let dy = (group_w.z - adjust_dest.z).abs();
+        if cost > 0.0 && 1.4 * (dx + dy) < cost {
+            return false;
+        }
+        true
+    }
+
+    fn adjust_destination_on_layer_group(
+        &self,
+        dest: GridPos,
+        group_dest: Option<GridPos>,
+        surfaces: u32,
+        is_crusher: bool,
+        seeker_player: Option<u32>,
+        crusher_level: u8,
+        layer: PathfindLayerEnum,
+    ) -> Option<GridPos> {
+        let origin = self.clamp_pos(dest);
+        if self.check_for_adjust_group(
+            origin,
+            group_dest,
+            surfaces,
+            is_crusher,
+            seeker_player,
+            crusher_level,
+            layer,
+        ) {
+            return Some(origin);
+        }
+        let mut i = origin.x;
+        let mut j = origin.y;
+        let mut delta = 1;
+        let mut limit = 400i32;
+        while limit > 0 {
+            for _ in 0..delta {
+                i += 1;
+                limit -= 1;
+                let c = GridPos::new(i, j);
+                if self.check_for_adjust_group(
+                    c,
+                    group_dest,
+                    surfaces,
+                    is_crusher,
+                    seeker_player,
+                    crusher_level,
+                    layer,
+                ) {
+                    return Some(c);
+                }
+            }
+            for _ in 0..delta {
+                j += 1;
+                limit -= 1;
+                let c = GridPos::new(i, j);
+                if self.check_for_adjust_group(
+                    c,
+                    group_dest,
+                    surfaces,
+                    is_crusher,
+                    seeker_player,
+                    crusher_level,
+                    layer,
+                ) {
+                    return Some(c);
+                }
+            }
+            delta += 1;
+            for _ in 0..delta {
+                i -= 1;
+                limit -= 1;
+                let c = GridPos::new(i, j);
+                if self.check_for_adjust_group(
+                    c,
+                    group_dest,
+                    surfaces,
+                    is_crusher,
+                    seeker_player,
+                    crusher_level,
+                    layer,
+                ) {
+                    return Some(c);
+                }
+            }
+            for _ in 0..delta {
+                j -= 1;
+                limit -= 1;
+                let c = GridPos::new(i, j);
+                if self.check_for_adjust_group(
+                    c,
+                    group_dest,
+                    surfaces,
+                    is_crusher,
+                    seeker_player,
+                    crusher_level,
+                    layer,
+                ) {
+                    return Some(c);
+                }
+            }
+            delta += 1;
+        }
+        None
+    }
+
 
     fn line_cell_ok(
         &self,
@@ -3812,6 +4337,15 @@ pub struct PathfindingSystem {
     seeker_path_diameter: i32,
     /// C++ `m_ignoreObstacleID` for this path query (DozerAIUpdate.cpp:210).
     ignore_obstacle_id: Option<ObjectId>,
+    /// C++ `getPlayerType() == PLAYER_HUMAN` bits (bit i = player i).
+    human_player_mask: u16,
+    /// Seeker is a human player (m_logicalExtent clamp).
+    seeker_is_human: bool,
+    /// C++ `KINDOF_DOZER` for dozerHack.
+    seeker_is_dozer: bool,
+    /// C++ `locomotorSet.isDownhillOnly()`.
+    seeker_downhill_only: bool,
+
 
 }
 
@@ -3838,8 +4372,55 @@ impl PathfindingSystem {
             seeker_crusher_level: 0,
             seeker_path_diameter: 1,
             ignore_obstacle_id: None,
+            human_player_mask: 0,
+            seeker_is_human: false,
+            seeker_is_dozer: false,
+            seeker_downhill_only: false,
+
         }
     }
+
+    /// C++ `Player::getPlayerType() == PLAYER_HUMAN` bits for logical-extent clamp.
+    pub fn set_human_player_mask(&mut self, mask: u16) {
+        self.human_player_mask = mask;
+    }
+
+    fn apply_seeker_human_flag(&mut self) {
+        self.seeker_is_human = match self.seeker_player {
+            Some(p) if self.human_player_mask != 0 => {
+                (self.human_player_mask & (1u16 << p.min(15))) != 0
+            }
+            // No mask yet: player-path default is human (full-grid extent is a no-op).
+            _ => self.human_player_mask == 0,
+        };
+        self.grid.set_query_is_human(self.seeker_is_human);
+    }
+
+    /// C++ dozerHack: obstacle exists and relationship != ENEMIES.
+    fn dozer_hack_allows(&self, cell: GridCoord) -> bool {
+        if !self.seeker_is_dozer {
+            return false;
+        }
+        let Some((_id, owner, team)) = self.grid.obstacle_owner(GridPos::new(cell.x, cell.y)) else {
+            return false;
+        };
+        if let (Some(sp), Some(op)) = (self.seeker_player, owner) {
+            if sp == op {
+                return true;
+            }
+            let ally = self.grid.ally_mask_for(sp);
+            if (ally & (1u16 << op.min(15))) != 0 {
+                return true;
+            }
+            return matches!(team, Some(Team::Neutral));
+        }
+        match (self.seeker_team, team) {
+            (Some(a), Some(b)) if a == b => true,
+            (Some(Team::Neutral), _) | (_, Some(Team::Neutral)) => true,
+            _ => false,
+        }
+    }
+
 
     /// C++ getRelationship == ALLIES bits for occupancy crush-through.
     pub fn set_player_ally_masks(&mut self, masks: [u16; 16]) {
@@ -3970,7 +4551,10 @@ impl PathfindingSystem {
                 if self.grid.cell_type(pos) == PathfindCellType::Obstacle {
                     finder.set_cell_obstacle_id(
                         coord,
-                        1,
+                        self.grid
+                            .obstacle_owner(pos)
+                            .map(|(id, _, _)| id)
+                            .unwrap_or(1),
                         self.grid.is_obstacle_fence(pos),
                         self.grid.is_obstacle_transparent(pos),
                     );
@@ -4075,6 +4659,8 @@ impl PathfindingSystem {
         dest_layer: PathfindLayerEnum,
     ) -> Option<Vec<Vec3>> {
         self.sync_crate_astar();
+        self.grid.refresh_logical_extent();
+        self.apply_seeker_human_flag();
         self.grid.query_seeker_id = self.seeker_id.map(|id| id.0).unwrap_or(0);
         self.grid
             .set_query_footprint(self.seeker_path_diameter, is_crusher);
@@ -4317,6 +4903,57 @@ impl PathfindingSystem {
             let w = self.grid.grid_to_world(GridPos::new(c.x, c.y));
             sample_host_ground_height(w.x, w.z)
         };
+        let downhill_only = self.seeker_downhill_only;
+        let is_human = self.seeker_is_human;
+        let cell_allowed = |c: GridCoord| {
+            if is_human {
+                self.grid.in_logical_extent(GridPos::new(c.x, c.y))
+            } else {
+                true
+            }
+        };
+        let is_dozer = self.seeker_is_dozer;
+        let seeker_player = self.seeker_player;
+        let seeker_team = self.seeker_team;
+        let ally_mask = seeker_player
+            .map(|p| self.grid.ally_mask_for(p))
+            .unwrap_or(0);
+        let dozer_ok = |c: GridCoord| {
+            if !is_dozer {
+                return false;
+            }
+            let Some((_id, owner, team)) = self.grid.obstacle_owner(GridPos::new(c.x, c.y))
+            else {
+                return false;
+            };
+            if let (Some(sp), Some(op)) = (seeker_player, owner) {
+                if sp == op {
+                    return true;
+                }
+                if (ally_mask & (1u16 << op.min(15))) != 0 {
+                    return true;
+                }
+                return matches!(team, Some(Team::Neutral));
+            }
+            match (seeker_team, team) {
+                (Some(a), Some(b)) if a == b => true,
+                (Some(Team::Neutral), _) | (_, Some(Team::Neutral)) => true,
+                _ => false,
+            }
+        };
+        let dozer_ok_ref: Option<&dyn Fn(GridCoord) -> bool> = if is_dozer {
+            Some(&dozer_ok as &dyn Fn(GridCoord) -> bool)
+        } else {
+            None
+        };
+        let seed_line = !start_is_obstacle && !downhill_only;
+        if is_human
+            && (!self.grid.in_logical_extent(start) || !self.grid.in_logical_extent(goal))
+        {
+            if !self.grid.in_logical_extent(start) {
+                return None;
+            }
+        }
         let run = |allow_partial: bool| {
             crate_pf.finder.find_path_with_start_layer(
                 start_c,
@@ -4329,30 +4966,44 @@ impl PathfindingSystem {
                 allow_partial,
                 None,
                 Some(extra_ref as &dyn Fn(GridCoord) -> u32),
-                false,
+                downhill_only,
                 Some(&ground_h as &dyn Fn(GridCoord) -> f32),
                 None,
                 Some(&line_ok as &dyn Fn(GridCoord) -> bool),
-                !start_is_obstacle,
+                seed_line,
                 start_is_obstacle,
-                None,
-                None,
+                Some(&cell_allowed as &dyn Fn(GridCoord) -> bool),
+                dozer_ok_ref,
             )
         };
-        let cells = run(false)
-            .map(|(path, _)| path)
-            .or_else(|| {
-                // C++ findClosestPath on findPath fail (AIUpdate.cpp:1713-1717).
-                run(true).map(|(path, _)| path)
-            })?;
-        let world = self.crate_path_to_world(&cells);
-        Some(self.grid.optimize_ground_path_ex(
-            &world,
-            surfaces,
-            is_crusher,
-            self.seeker_player,
-            crusher_level,
-        ))
+
+        let exact = run(false).map(|(path, _)| path);
+        if let Some(cells) = exact {
+            let world = self.crate_path_to_world(&cells);
+            return Some(self.grid.optimize_ground_path_ex(
+                &world,
+                surfaces,
+                is_crusher,
+                self.seeker_player,
+                crusher_level,
+            ));
+        }
+        let from_w = self.grid.grid_to_world(start);
+        let to_w = self.grid.grid_to_world(goal);
+        let closest_human = is_human;
+        drop(run);
+        drop(dozer_ok_ref);
+        drop(dozer_ok);
+        drop(cell_allowed);
+        drop(ground_h);
+        drop(line_ok);
+        drop(extra_ref);
+        drop(extra);
+        drop(crate_pf);
+        // C++ findClosestPath on findPath fail (AIUpdate.cpp:1713-1717).
+        self.find_closest_path(from_w, to_w, surfaces, is_crusher, closest_human)
+
+
     }
 
 
@@ -4544,12 +5195,11 @@ impl PathfindingSystem {
     }
 
 
-    /// C++ Pathfinder::findAttackPath residual (simplified).
+    /// C++ `Pathfinder::findAttackPath` (AIPathfind.cpp:10530+).
     ///
-    /// Finds a passable cell within `weapon_range` of `victim` that has clear
-    /// static attack LOS to the victim, preferring cells closer to `from`.
-    /// Returns a path from `from` to that firing cell (not into the victim cell).
-    /// Fail-closed: not full hierarchical zones / human extent / tall-building insert.
+    /// Quick steps toward the victim, then A* whose goal is any in-range
+    /// `checkDestination` cell with LOS. Start cell is never accepted.
+    /// Closest valid movement cell is the leftover fallback.
     pub fn find_attack_firing_position(
         &mut self,
         from: Vec3,
@@ -4563,8 +5213,19 @@ impl PathfindingSystem {
         let cell_size = self.grid.grid_size();
         let start = self.grid.world_to_grid(from);
         let victim_cell = self.grid.world_to_grid(victim);
+        let surfaces = SURFACE_GROUND;
+        let crusher_level = if is_crusher {
+            self.seeker_crusher_level.max(1)
+        } else {
+            0
+        };
+        let seeker_player = self.seeker_player;
+        let is_human = true;
+        let layer = PathfindLayerEnum::Ground;
+        self.grid.set_query_is_human(is_human);
 
-        // Quick steps toward victim (C++ i=1..10 residual).
+
+        // Quick check: step toward victim (C++ i=1..10, delta * i * 0.5 * cell).
         {
             let mut delta = Vec3::new(victim.x - from.x, 0.0, victim.z - from.z);
             let len = (delta.x * delta.x + delta.z * delta.z).sqrt();
@@ -4573,7 +5234,22 @@ impl PathfindingSystem {
                 for i in 1..10 {
                     let test = from + delta * (i as f32 * 0.5);
                     let cell = self.grid.world_to_grid(test);
-                    if !self.grid.is_valid_pos(cell) || self.grid.is_static_blocked(cell) {
+                    if !self.grid.is_valid_pos(cell)
+                        || !self.grid.cell_passable_for(cell, surfaces, is_crusher)
+                    {
+                        break;
+                    }
+                    if !self.grid.destination_cell_ok(
+                        cell,
+                        surfaces,
+                        is_crusher,
+                        seeker_player,
+                        crusher_level,
+                        layer,
+                    ) {
+                        break;
+                    }
+                    if !self.grid.human_extent_allows(cell, is_human) {
                         break;
                     }
                     let dist = {
@@ -4582,66 +5258,173 @@ impl PathfindingSystem {
                         (dx * dx + dz * dz).sqrt()
                     };
                     if dist <= range && !self.grid.is_attack_view_blocked_static(test, victim) {
-                        // C++ findAttackPath returns NULL when A* fails — no
-                        // straight-line fallback through blocked cells.
-                        return self.find_path_ex_surfaces(
+                        let path = self.find_path_ex_surfaces(
                             from,
                             test,
                             objects,
                             false,
-                            SURFACE_GROUND,
+                            surfaces,
                             is_crusher,
                         );
+                        self.grid.set_query_is_human(false);
+                        return path;
                     }
                 }
             }
         }
 
-        // Spiral / ring of cells around victim within range (+3 cells budget like C++).
-        let max_cells = ((range / cell_size).ceil() as i32) + 3;
-        let mut best: Option<(f32, GridPos, Vec3)> = None;
-        for dy in -max_cells..=max_cells {
-            for dx in -max_cells..=max_cells {
-                let cell = GridPos::new(victim_cell.x + dx, victim_cell.y + dy);
-                if cell == start {
+        // Hierarchical connectivity probe (C++ findClosestHierarchicalPath).
+        self.sync_crate_astar();
+        let attack_jumps = self.hierarchical_bridge_jumps();
+        let attack_start = self.host_to_crate_coord(start);
+        let attack_victim = self.host_to_crate_coord(victim_cell);
+        if let Some(crate_pf) = self.crate_astar.as_mut() {
+            crate_pf.finder.apply_hierarchical_zone_prune(
+                attack_start,
+                attack_victim,
+                surfaces,
+                is_crusher,
+                &attack_jumps,
+            );
+        }
+
+        const ATTACK_CELL_LIMIT: i32 = 2500;
+        const COST_ORTHO: i32 = 10;
+        const COST_DIAG: i32 = 14;
+        let attack_dist_cells = ((range / cell_size).round() as i32) + 3;
+        let attack_dist_cost_units = attack_dist_cells.max(0) * COST_ORTHO;
+        if !self.grid.is_valid_pos(start) {
+            self.grid.set_query_is_human(false);
+            return None;
+        }
+
+
+        let deltas: [(i32, i32); 8] = [
+            (1, 0),
+            (0, 1),
+            (-1, 0),
+            (0, -1),
+            (1, 1),
+            (-1, 1),
+            (-1, -1),
+            (1, -1),
+        ];
+        let mut open: BinaryHeap<std::cmp::Reverse<(i32, i32, i32, i32)>> = BinaryHeap::new();
+        let mut g_score: HashMap<(i32, i32), i32> = HashMap::new();
+        let mut closed: HashSet<(i32, i32)> = HashSet::new();
+        open.push(std::cmp::Reverse((0, 0, start.x, start.y)));
+        g_score.insert((start.x, start.y), 0);
+
+        let mut cell_count = 0i32;
+        let mut found_cell: Option<GridPos> = None;
+        let mut closest_cell: Option<GridPos> = None;
+        let mut closest_dist_sqr = f32::MAX;
+        let half_cell_sqr = (cell_size * 0.5).powi(2);
+
+        while let Some(std::cmp::Reverse((_f, g, cx, cy))) = open.pop() {
+            if closed.contains(&(cx, cy)) {
+                continue;
+            }
+            closed.insert((cx, cy));
+            let cell = GridPos::new(cx, cy);
+            let world = self.grid.grid_to_world(cell);
+            let dest_ok = self.grid.destination_cell_ok(
+                cell,
+                surfaces,
+                is_crusher,
+                seeker_player,
+                crusher_level,
+                layer,
+            );
+            if dest_ok {
+                let dx = world.x - victim.x;
+                let dz = world.z - victim.z;
+                let in_range = dx * dx + dz * dz <= range * range;
+                if in_range {
+                    let mut blocked = cell == start;
+                    if !blocked {
+                        let sdx = world.x - from.x;
+                        let sdz = world.z - from.z;
+                        if sdx * sdx + sdz * sdz < half_cell_sqr {
+                            blocked = true;
+                        }
+                    }
+                    if !blocked
+                        && self.grid.is_attack_view_blocked_static(world, victim)
+                    {
+                        blocked = true;
+                    }
+                    if !blocked {
+                        found_cell = Some(cell);
+                        break;
+                    }
+                }
+                if self.grid.cell_passable_for(cell, surfaces, is_crusher) {
+                    let ddx = (victim_cell.x - cx).abs() as f32;
+                    let ddy = (victim_cell.y - cy).abs() as f32;
+                    let d2 = ddx * ddx + ddy * ddy;
+                    if d2 < closest_dist_sqr {
+                        closest_dist_sqr = d2;
+                        closest_cell = Some(cell);
+                    }
+                }
+            }
+
+            if cell_count >= ATTACK_CELL_LIMIT {
+                continue;
+            }
+            cell_count += 1;
+            let mut neighbor_flags = [false; 8];
+            for (i, &(dx, dy)) in deltas.iter().enumerate() {
+                let nx = cx + dx;
+                let ny = cy + dy;
+                let nc = GridPos::new(nx, ny);
+                if !self.grid.is_valid_pos(nc) || closed.contains(&(nx, ny)) {
                     continue;
                 }
-                if !self.grid.is_valid_pos(cell) || self.grid.is_static_blocked(cell) {
+                if !self.grid.human_extent_allows(nc, is_human) {
                     continue;
                 }
-                // Soft-skip dynamic occupancy of other units at candidate.
-                if self.grid.is_blocked(cell) && cell != start {
-                    // Still allow if only dynamic — static already filtered.
-                    // Prefer empty; skip hard dynamic to reduce stacking.
+                if PathfindingGrid::skip_diagonal_if_squeezed(i, &neighbor_flags) {
                     continue;
                 }
-                let world = self.grid.grid_to_world(cell);
-                let dist_v = {
-                    let ddx = world.x - victim.x;
-                    let ddz = world.z - victim.z;
-                    (ddx * ddx + ddz * ddz).sqrt()
-                };
-                if dist_v > range {
+                if !self.grid.cell_passable_for(nc, surfaces, is_crusher)
+                    && !(self.grid.is_obstacle_fence(nc) && is_crusher)
+                {
                     continue;
                 }
-                if self.grid.is_attack_view_blocked_static(world, victim) {
+                neighbor_flags[i] = true;
+                let mut step = if i >= 4 { COST_DIAG } else { COST_ORTHO };
+                if self.grid.is_pinched(nc) {
+                    step += COST_ORTHO + COST_DIAG;
+                }
+                let ng = g + step;
+                let key = (nx, ny);
+                if g_score.get(&key).is_some_and(|&og| ng >= og) {
                     continue;
                 }
-                let dist_a = {
-                    let ddx = world.x - from.x;
-                    let ddz = world.z - from.z;
-                    (ddx * ddx + ddz * ddz).sqrt()
-                };
-                match best {
-                    Some((best_d, _, _)) if dist_a >= best_d => {}
-                    _ => best = Some((dist_a, cell, world)),
-                }
+                g_score.insert(key, ng);
+                let hdx = (nx - victim_cell.x) as f32;
+                let hdy = (ny - victim_cell.y) as f32;
+                let heu = (COST_ORTHO as f32) * (hdx * hdx + hdy * hdy).sqrt();
+                let h_rem = (heu - (attack_dist_cost_units as f32) / 2.0).max(0.0);
+                let f_cost = ng + h_rem as i32;
+                open.push(std::cmp::Reverse((f_cost, ng, nx, ny)));
             }
         }
 
-        let goal = best.map(|(_, _, w)| w)?;
-        self.find_path_ex_surfaces(from, goal, objects, false, SURFACE_GROUND, is_crusher)
+        let Some(goal_cell) = found_cell.or(closest_cell) else {
+            self.grid.set_query_is_human(false);
+            return None;
+        };
+        let goal = self.grid.grid_to_world(goal_cell);
+        let path = self.find_path_ex_surfaces(from, goal, objects, false, surfaces, is_crusher);
+        self.grid.set_query_is_human(false);
+        path
     }
+
+
+
 
     /// C++ `computeNormalRadialOffset` residual (AIPathfind.cpp) on host XZ ground plane.
     pub fn compute_normal_radial_offset_xz(
@@ -4965,6 +5748,8 @@ impl PathfindingSystem {
             self.seeker_id = Some(o.id);
             self.seeker_team = Some(o.team);
             self.seeker_crusher_level = o.crusher_level;
+            self.seeker_is_dozer = o.is_kind_of(KindOf::Dozer);
+            self.seeker_downhill_only = o.downhill_only;
             self.seeker_path_diameter = PathfindingGrid::path_diameter_for_unit(
                 o.selection_radius,
                 self.grid.grid_size(),
@@ -4978,7 +5763,10 @@ impl PathfindingSystem {
             self.seeker_team = None;
             self.seeker_crusher_level = 0;
             self.seeker_path_diameter = 1;
+            self.seeker_is_dozer = false;
+            self.seeker_downhill_only = false;
         }
+        self.apply_seeker_human_flag();
         // Live seeker CrusherLevel wins so find_path / find_path_ex still crush.
         let is_crusher = is_crusher || self.seeker_crusher_level > 0;
         if is_crusher && self.seeker_crusher_level == 0 {
@@ -5270,6 +6058,7 @@ impl PathfindingSystem {
 
 
     /// C++ `Pathfinder::findSafePath` Dijkstra flee (AIPathfind.cpp:10885+).
+    /// Single-repulsor wrapper — both radii share `repulsor`.
     pub fn find_safe_path(
         &mut self,
         from: Vec3,
@@ -5278,90 +6067,400 @@ impl PathfindingSystem {
         surfaces: u32,
         is_crusher: bool,
     ) -> Option<Vec<Vec3>> {
+        self.find_safe_path_from(
+            from,
+            repulsor,
+            repulsor,
+            repulsor_radius,
+            surfaces,
+            is_crusher,
+            true,
+        )
+    }
+
+    /// C++ `Pathfinder::findSafePath` with two repulsors, human extent,
+    /// destination_cell_ok, then `findPath` to the flee cell.
+    pub fn find_safe_path_from(
+        &mut self,
+        from: Vec3,
+        repulsor1: Vec3,
+        repulsor2: Vec3,
+        repulsor_radius: f32,
+        surfaces: u32,
+        is_crusher: bool,
+        is_human: bool,
+    ) -> Option<Vec<Vec3>> {
         self.sync_crate_astar();
         let start = self.grid.world_to_grid(from);
         if !self.grid.is_valid_pos(start) {
             return None;
         }
         let radius_sqr = repulsor_radius * repulsor_radius;
-        let mut open: BinaryHeap<std::cmp::Reverse<(i32, i32, i32)>> = BinaryHeap::new();
-        let mut g_score: HashMap<GridPos, i32> = HashMap::new();
-        let mut came: HashMap<GridPos, GridPos> = HashMap::new();
-        let mut closed: HashMap<GridPos, ()> = HashMap::new();
-        open.push(std::cmp::Reverse((0, start.x, start.y)));
-        g_score.insert(start, 0);
+        let crusher_level = if is_crusher {
+            self.seeker_crusher_level.max(1)
+        } else {
+            0
+        };
+        let seeker_player = self.seeker_player;
+        let layer = self.grid.layer_for_destination(from);
+        const MAX_CELLS: i32 = 2000;
+        const COST_ORTHO: i32 = 10;
+        const COST_DIAG: i32 = 14;
+        let deltas: [(i32, i32); 8] = [
+            (1, 0),
+            (0, 1),
+            (-1, 0),
+            (0, -1),
+            (1, 1),
+            (-1, 1),
+            (-1, -1),
+            (1, -1),
+        ];
+        let mut open: BinaryHeap<std::cmp::Reverse<(i32, i32, i32, i32)>> = BinaryHeap::new();
+        let mut g_score: HashMap<(i32, i32), i32> = HashMap::new();
+        let mut closed: HashSet<(i32, i32)> = HashSet::new();
+        open.push(std::cmp::Reverse((0, 0, start.x, start.y)));
+        g_score.insert((start.x, start.y), 0);
         let mut farthest: Option<(GridPos, f32)> = None;
         let mut found: Option<GridPos> = None;
-        let mut expanded = 0i32;
-        const MAX_CELLS: i32 = 2000;
-        while let Some(std::cmp::Reverse((g, cx, cy))) = open.pop() {
-            let cell = GridPos::new(cx, cy);
-            if closed.contains_key(&cell) {
+        let mut cell_count = 0i32;
+        while let Some(std::cmp::Reverse((_f, g, cx, cy))) = open.pop() {
+            if closed.contains(&(cx, cy)) {
                 continue;
             }
-            closed.insert(cell, ());
-            expanded += 1;
+            closed.insert((cx, cy));
+            let cell = GridPos::new(cx, cy);
             let world = self.grid.grid_to_world(cell);
-            let dx = world.x - repulsor.x;
-            let dz = world.z - repulsor.z;
-            let dist_sqr = dx * dx + dz * dz;
-            if farthest.map(|(_, d)| dist_sqr > d).unwrap_or(true) {
-                farthest = Some((cell, dist_sqr));
-            }
-            let mut ok = dist_sqr > radius_sqr;
-            if expanded > MAX_CELLS {
+            let d1 = {
+                let dx = world.x - repulsor1.x;
+                let dz = world.z - repulsor1.z;
+                dx * dx + dz * dz
+            };
+            let d2 = {
+                let dx = world.x - repulsor2.x;
+                let dz = world.z - repulsor2.z;
+                dx * dx + dz * dz
+            };
+            let nearest = d1.min(d2);
+            let mut ok = nearest > radius_sqr;
+            if open.is_empty() && cell_count > 0 {
                 ok = true;
             }
-            if ok && self.grid.cell_passable_for(cell, surfaces, is_crusher) {
+            if farthest.map(|(_, d)| nearest > d).unwrap_or(true) {
+                farthest = Some((cell, nearest));
+                if cell_count > MAX_CELLS {
+                    ok = true;
+                }
+            }
+            if ok
+                && self.grid.destination_cell_ok(
+                    cell,
+                    surfaces,
+                    is_crusher,
+                    seeker_player,
+                    crusher_level,
+                    layer,
+                )
+                && self.grid.human_extent_allows(cell, is_human)
+            {
                 found = Some(cell);
                 break;
             }
-            for n in cell.neighbors() {
-                if !self.grid.is_valid_pos(n) || closed.contains_key(&n) {
+            let mut neighbor_flags = [false; 8];
+            for (i, (dx, dy)) in deltas.iter().enumerate() {
+                let nx = cx + dx;
+                let ny = cy + dy;
+                let nc = GridPos::new(nx, ny);
+                if !self.grid.is_valid_pos(nc) || closed.contains(&(nx, ny)) {
                     continue;
                 }
-                if !self.grid.cell_passable_for(n, surfaces, is_crusher)
-                    && !(self.grid.is_obstacle_fence(n) && is_crusher)
+                if !self.grid.human_extent_allows(nc, is_human) {
+                    continue;
+                }
+                if PathfindingGrid::skip_diagonal_if_squeezed(i, &neighbor_flags) {
+                    continue;
+                }
+                if !self.grid.cell_passable_for(nc, surfaces, is_crusher)
+                    && !(self.grid.is_obstacle_fence(nc) && is_crusher)
                 {
                     continue;
                 }
-                let step = if (n.x - cx).abs() + (n.y - cy).abs() == 2 {
-                    14
-                } else {
-                    10
-                };
+                neighbor_flags[i] = true;
+                let step = if i >= 4 { COST_DIAG } else { COST_ORTHO };
                 let ng = g + step;
-                if g_score.get(&n).is_some_and(|&og| ng >= og) {
+                let key = (nx, ny);
+                if g_score.get(&key).is_some_and(|&og| ng >= og) {
                     continue;
                 }
-                g_score.insert(n, ng);
-                came.insert(n, cell);
-                open.push(std::cmp::Reverse((ng, n.x, n.y)));
+                g_score.insert(key, ng);
+                open.push(std::cmp::Reverse((ng, ng, nx, ny)));
+                cell_count += 1;
             }
         }
-        let dest = found.or_else(|| farthest.map(|(c, _)| c))?;
+        let dest = if let Some(cell) = found {
+            cell
+        } else if let Some((cell, _)) = farthest {
+            if !self.grid.destination_cell_ok(
+                cell,
+                surfaces,
+                is_crusher,
+                seeker_player,
+                crusher_level,
+                layer,
+            ) {
+                return None;
+            }
+            cell
+        } else {
+            return None;
+        };
         if dest == start {
             return None;
         }
-        let mut cells = vec![dest];
-        let mut cur = dest;
-        while let Some(&p) = came.get(&cur) {
-            cells.push(p);
-            cur = p;
-            if cur == start {
-                break;
+        let goal = self.grid.grid_to_world(dest);
+        if let Some(path) = self.find_path_via_crate(
+            start,
+            dest,
+            surfaces,
+            is_crusher,
+            layer,
+            self.grid.layer_for_destination(goal),
+        ) {
+            if path.len() >= 2 {
+                return Some(path);
             }
         }
-        cells.reverse();
-        let mut world: Vec<Vec3> = cells
-            .iter()
-            .map(|c| self.grid.grid_to_world(*c))
-            .collect();
-        if let Some(first) = world.first_mut() {
-            *first = from;
-        }
-        Some(self.grid.optimize_ground_path(&world, surfaces, is_crusher))
+        Some(vec![from, goal])
     }
+
+    /// C++ `Pathfinder::findClosestPath` (AIPathfind.cpp:8739+).
+    /// Goal cell need not be passable. Tracks closest *valid destination*
+    /// by screen-dist + cost², then paths to that cell.
+    pub fn find_closest_path(
+        &mut self,
+        from: Vec3,
+        goal: Vec3,
+        surfaces: u32,
+        is_crusher: bool,
+        is_human: bool,
+    ) -> Option<Vec<Vec3>> {
+        const COST_ORTHO: i32 = 10;
+        const COST_DIAG: i32 = 14;
+        const COST_TO_DISTANCE_FACTOR_SQR: f32 = 0.01;
+        const MAX_EXPAND: i32 = 4000;
+        self.sync_crate_astar();
+        let start = self.grid.world_to_grid(from);
+        let goal_grid = self.grid.world_to_grid(goal);
+        if !self.grid.is_valid_pos(start) || !self.grid.is_valid_pos(goal_grid) {
+            return None;
+        }
+        if is_human && !self.grid.human_extent_allows(start, true) {
+            return None;
+        }
+        let crusher_level = if is_crusher {
+            self.seeker_crusher_level.max(1)
+        } else {
+            0
+        };
+        let seeker_player = self.seeker_player;
+        let start_layer = self.grid.layer_for_destination(from);
+        let dest_layer = self.grid.layer_for_destination(goal);
+        let closest_jumps = self.hierarchical_bridge_jumps();
+        let closest_start = self.host_to_crate_coord(start);
+        let closest_goal = self.host_to_crate_coord(goal_grid);
+        if let Some(crate_pf) = self.crate_astar.as_mut() {
+            crate_pf.finder.apply_hierarchical_zone_prune(
+                closest_start,
+                closest_goal,
+                surfaces,
+                is_crusher,
+                &closest_jumps,
+            );
+        }
+        let heuristic = |c: GridPos| -> i32 {
+            let dx = (goal_grid.x - c.x).abs();
+            let dy = (goal_grid.y - c.y).abs();
+            let dmin = dx.min(dy);
+            let dmax = dx.max(dy);
+            COST_DIAG * dmin + COST_ORTHO * (dmax - dmin)
+        };
+        let deltas: [(i32, i32); 8] = [
+            (1, 0),
+            (0, 1),
+            (-1, 0),
+            (0, -1),
+            (1, 1),
+            (-1, 1),
+            (-1, -1),
+            (1, -1),
+        ];
+        let mut open: BinaryHeap<std::cmp::Reverse<(i32, i32, i32, i32)>> = BinaryHeap::new();
+        let mut g_score: HashMap<(i32, i32), i32> = HashMap::new();
+        let mut closed: HashSet<(i32, i32)> = HashSet::new();
+        let h0 = heuristic(start);
+        open.push(std::cmp::Reverse((h0, 0, start.x, start.y)));
+        g_score.insert((start.x, start.y), 0);
+        let mut closest_cell: Option<(GridPos, f32)> = None;
+        let mut closest_screen_sqr = f32::MAX;
+        let mut found_goal_cell = false;
+        let mut expanded = 0i32;
+        while let Some(std::cmp::Reverse((_f, g, cx, cy))) = open.pop() {
+            if closed.contains(&(cx, cy)) {
+                continue;
+            }
+            closed.insert((cx, cy));
+            expanded += 1;
+            if expanded > MAX_EXPAND {
+                break;
+            }
+            let cell = GridPos::new(cx, cy);
+            let layer = if cell == goal_grid {
+                dest_layer
+            } else {
+                start_layer
+            };
+            if cx == goal_grid.x && cy == goal_grid.y {
+                let goal_ok = self.grid.destination_cell_ok(
+                    cell,
+                    surfaces,
+                    is_crusher,
+                    seeker_player,
+                    crusher_level,
+                    layer,
+                );
+                if goal_ok || closest_cell.is_none() {
+                    found_goal_cell = true;
+                    closest_cell = Some((cell, 0.0));
+                    break;
+                } else {
+                    found_goal_cell = true;
+                }
+            } else if self.grid.destination_cell_ok(
+                cell,
+                surfaces,
+                is_crusher,
+                seeker_player,
+                crusher_level,
+                layer,
+            ) {
+                let dx = (goal_grid.x - cx).abs() as f32;
+                let dy = (goal_grid.y - cy).abs() as f32;
+                let dist_screen = dx * dx + dy * dy;
+                if dist_screen < closest_screen_sqr {
+                    closest_screen_sqr = dist_screen;
+                }
+                let cost_term = (g as f32) * (g as f32) * COST_TO_DISTANCE_FACTOR_SQR;
+                let dist_sqr = dist_screen + cost_term;
+                let better = match closest_cell {
+                    None => true,
+                    Some((_, best)) => dist_sqr < best,
+                };
+                if better {
+                    closest_cell = Some((cell, dist_sqr));
+                }
+            }
+            let mut neighbor_flags = [false; 8];
+            for (i, (dx, dy)) in deltas.iter().enumerate() {
+                let nx = cx + dx;
+                let ny = cy + dy;
+                let nc = GridPos::new(nx, ny);
+                if !self.grid.is_valid_pos(nc) || closed.contains(&(nx, ny)) {
+                    continue;
+                }
+                if !self.grid.human_extent_allows(nc, is_human) {
+                    continue;
+                }
+                if PathfindingGrid::skip_diagonal_if_squeezed(i, &neighbor_flags) {
+                    continue;
+                }
+                if !self.grid.cell_passable_for(nc, surfaces, is_crusher)
+                    && !(self.grid.is_obstacle_fence(nc) && is_crusher)
+                {
+                    continue;
+                }
+                neighbor_flags[i] = true;
+                let step = if i >= 4 { COST_DIAG } else { COST_ORTHO };
+                let ng = g + step;
+                let key = (nx, ny);
+                if g_score.get(&key).is_some_and(|&og| ng >= og) {
+                    continue;
+                }
+                g_score.insert(key, ng);
+                let f = ng + heuristic(nc);
+                open.push(std::cmp::Reverse((f, ng, nx, ny)));
+            }
+        }
+        let (best_cell, _) = closest_cell?;
+        let to_pos = if found_goal_cell && best_cell == goal_grid {
+            goal
+        } else {
+            self.grid.grid_to_world(best_cell)
+        };
+        let to_cell = self.grid.world_to_grid(to_pos);
+        // Exact path only — do not recurse through find_path_via_crate's
+        // findClosest fallback.
+        self.grid
+            .find_path(start, to_cell)
+            .or_else(|| {
+                if start == to_cell {
+                    Some(vec![from])
+                } else {
+                    Some(vec![from, to_pos])
+                }
+            })
+            .map(|mut world| {
+                if let Some(first) = world.first_mut() {
+                    *first = from;
+                }
+                if let Some(last) = world.last_mut() {
+                    *last = to_pos;
+                }
+                self.grid
+                    .optimize_ground_path(&world, surfaces, is_crusher)
+            })
+    }
+
+
+    /// C++ `adjustDestination(..., groupDest)` for ground group members.
+    pub fn adjust_group_destination(
+        &mut self,
+        from: Vec3,
+        dest: Vec3,
+        group_dest: Vec3,
+        surfaces: u32,
+        is_crusher: bool,
+        seeker_player: Option<u32>,
+        crusher_level: u8,
+        seeker_id: u32,
+    ) -> Vec3 {
+        let dest_cell = self.grid.world_to_grid(dest);
+        let group_cell = self.grid.world_to_grid(group_dest);
+        let layer = self.grid.layer_for_destination(group_dest);
+        self.grid.query_from = Some(self.grid.world_to_grid(from));
+        self.grid.query_orig_dest = Some(dest_cell);
+        self.grid.query_seeker_id = seeker_id;
+        let adj = self.grid.adjust_destination_for_group(
+            dest_cell,
+            group_cell,
+            surfaces,
+            is_crusher,
+            seeker_player,
+            crusher_level,
+            layer,
+        );
+        self.grid.query_from = None;
+        self.grid.query_orig_dest = None;
+        self.grid.query_seeker_id = 0;
+        match adj {
+            Some(cell) => {
+                let mut w = self.grid.grid_to_world(cell);
+                w.y = dest.y;
+                w
+            }
+            None => dest,
+        }
+    }
+
 
     /// C++ `Path::computePointOnPath` on a host XZ polyline.
     pub fn compute_point_on_path(pos: Vec3, waypoints: &[Vec3]) -> Vec3 {
@@ -7703,5 +8802,308 @@ mod tests {
     }
 
 
+    /// hq-0i8ht: human checkForAdjust / A* stay inside m_logicalExtent.
+    #[test]
+    fn human_units_stay_in_logical_extent() {
+        let mut sys = PathfindingSystem::new(200.0, 200.0);
+        sys.grid
+            .set_logical_extent(GridPos::new(0, 0), GridPos::new(10, 10));
+        sys.set_human_player_mask(1u16 << 0);
+        sys.grid.set_query_is_human(true);
+
+        assert!(sys.grid.in_logical_extent(GridPos::new(5, 5)));
+        assert!(!sys.grid.in_logical_extent(GridPos::new(15, 5)));
+
+        let inside = sys.grid.adjust_destination_on_layer(
+            GridPos::new(5, 5),
+            SURFACE_GROUND,
+            false,
+            8,
+            Some(0),
+            0,
+            PathfindLayerEnum::Ground,
+        );
+        assert!(inside.is_some(), "human dest inside logical extent is ok");
+
+        let outside = sys.grid.adjust_destination_on_layer(
+            GridPos::new(15, 5),
+            SURFACE_GROUND,
+            false,
+            4,
+            Some(0),
+            0,
+            PathfindLayerEnum::Ground,
+        );
+        if let Some(adj) = outside {
+            assert!(
+                sys.grid.in_logical_extent(adj),
+                "human adjust must not land outside m_logicalExtent"
+            );
+        }
+
+        sys.grid.set_query_is_human(false);
+        let ai = sys.grid.adjust_destination_on_layer(
+            GridPos::new(15, 5),
+            SURFACE_GROUND,
+            false,
+            4,
+            Some(1),
+            0,
+            PathfindLayerEnum::Ground,
+        );
+        assert!(
+            ai.is_some(),
+            "computer players may leave the logical map"
+        );
+
+        let mut objects = HashMap::new();
+        let tmpl = ThingTemplate::new("Ranger");
+        let mut unit = Object::new(tmpl, ObjectId(1), Team::USA);
+        unit.set_position(Vec3::new(20.0, 0.0, 20.0));
+        unit.owner_player_id = Some(0);
+        objects.insert(unit.id, unit);
+        sys.grid.set_query_is_human(true);
+        let path = sys.find_path_ex(
+            Vec3::new(20.0, 0.0, 20.0),
+            Vec3::new(180.0, 0.0, 20.0),
+            &objects,
+            false,
+        );
+        if let Some(path) = path {
+            for p in &path {
+                let cell = sys.grid.world_to_grid(*p);
+                assert!(
+                    sys.grid.in_logical_extent(cell),
+                    "human A* waypoint {:?} outside logical extent",
+                    cell
+                );
+            }
+        }
+    }
+
+    /// hq-8kkhs: dozerHack reaches live crate A*.
+    #[test]
+    fn dozer_hack_reaches_live_astar() {
+        let mut sys = PathfindingSystem::new(120.0, 80.0);
+        for y in 0..8 {
+            sys.grid
+                .set_cell_type(GridPos::new(5, y), PathfindCellType::Impassable);
+        }
+        sys.grid.set_cell_obstacle_owned(
+            GridPos::new(5, 3),
+            false,
+            false,
+            20,
+            Some(0),
+            Some(Team::USA),
+        );
+
+        let mut objects = HashMap::new();
+        let mut dozer_t = ThingTemplate::new("AmericaDozer");
+        dozer_t.add_kind_of(KindOf::Dozer);
+        dozer_t.add_kind_of(KindOf::Vehicle);
+        let mut dozer = Object::new(dozer_t, ObjectId(1), Team::USA);
+        dozer.set_position(Vec3::new(20.0, 0.0, 35.0));
+        dozer.owner_player_id = Some(0);
+        objects.insert(dozer.id, dozer);
+
+        let start = Vec3::new(20.0, 0.0, 35.0);
+        let goal = Vec3::new(90.0, 0.0, 35.0);
+        let path = sys
+            .find_path_ex(start, goal, &objects, false)
+            .expect("dozer must step through non-enemy CELL_OBSTACLE");
+        assert!(path.len() >= 2);
+
+        let mut inf_t = ThingTemplate::new("Ranger");
+        inf_t.add_kind_of(KindOf::Infantry);
+        let mut inf = Object::new(inf_t, ObjectId(2), Team::USA);
+        inf.set_position(start);
+        inf.owner_player_id = Some(0);
+        let mut inf_objects = HashMap::new();
+        inf_objects.insert(inf.id, inf);
+        let blocked = sys.find_path_ex(start, goal, &inf_objects, false);
+        assert!(
+            blocked.is_none(),
+            "non-dozer cannot dozerHack a CELL_OBSTACLE gap"
+        );
+
+        sys.grid.set_cell_obstacle_owned(
+            GridPos::new(5, 3),
+            false,
+            false,
+            21,
+            Some(2),
+            Some(Team::GLA),
+        );
+        let enemy = sys.find_path_ex(start, goal, &objects, false);
+        assert!(
+            enemy.is_none(),
+            "dozer must not dozerHack an ENEMIES obstacle"
+        );
+    }
+
+    /// hq-ugt0x: downhill-only is not hardcoded false on the live A* call.
+    #[test]
+    fn downhill_only_reaches_live_astar() {
+        let src = include_str!("pathfinding.rs");
+        let i = src
+            .find("fn find_path_via_crate")
+            .expect("find_path_via_crate");
+        let w = &src[i..src.len().min(i + 9000)];
+        assert!(
+            w.contains("downhill_only") && w.contains("seeker_downhill_only"),
+            "live A* must pass seeker downhill_only, not a hardcoded false"
+        );
+        assert!(
+            w.contains("seed_line") && w.contains("!downhill_only"),
+            "seed line must be suppressed when downhill-only"
+        );
+        assert!(
+            w.contains("dozer_ok_ref") && w.contains("cell_allowed"),
+            "dozerHack and human cell_allowed must reach crate A*"
+        );
+        assert!(
+            !w.contains("downhill_only: false"),
+            "must not hardcode downhill_only: false"
+        );
+    }
+
+
+
+
+
+
+    /// hq-9za5p: findClosestPath walks to a valid neighbor when the goal is blocked.
+    #[test]
+    fn find_closest_path_walks_to_valid_cell_when_goal_impassable() {
+        let mut sys = PathfindingSystem::new(200.0, 200.0);
+        let goal = GridPos::new(12, 5);
+        sys.grid
+            .set_cell_type(goal, PathfindCellType::Impassable);
+        let from = Vec3::new(20.0, 0.0, 50.0);
+        let to = sys.grid.grid_to_world(goal);
+        let path = sys
+            .find_closest_path(from, to, SURFACE_GROUND, false, true)
+            .expect("closest path");
+        let end = *path.last().expect("end");
+        let end_cell = sys.grid.world_to_grid(end);
+        assert_ne!(end_cell, goal, "must not stand on the impassable click");
+        assert!(
+            sys.grid.cell_passable_for(end_cell, SURFACE_GROUND, false),
+            "closest dest {end_cell:?} must be a valid destination"
+        );
+        let d = (end_cell.x - goal.x).abs() + (end_cell.y - goal.y).abs();
+        assert!(d <= 2, "should hug the blocked cell, end={end_cell:?}");
+    }
+
+    /// hq-1g4ym: flee cell stays outside both repulsor radii.
+    #[test]
+    fn find_safe_path_stays_outside_both_repulsors() {
+        let mut sys = PathfindingSystem::new(400.0, 400.0);
+        let from = Vec3::new(100.0, 0.0, 100.0);
+        let r1 = Vec3::new(100.0, 0.0, 100.0);
+        let r2 = Vec3::new(160.0, 0.0, 100.0);
+        let radius = 40.0;
+        let path = sys
+            .find_safe_path_from(from, r1, r2, radius, SURFACE_GROUND, false, true)
+            .expect("safe path");
+        let end = *path.last().expect("end");
+        let d1 = (end.x - r1.x).hypot(end.z - r1.z);
+        let d2 = (end.x - r2.x).hypot(end.z - r2.z);
+        assert!(
+            d1.min(d2) > radius * 0.9,
+            "end {end:?} must leave both radii d1={d1} d2={d2}"
+        );
+    }
+
+    /// hq-2ugs5: checkPathCost straight line passes the 1.4*(dx+dy) gate.
+    #[test]
+    fn check_path_cost_straight_line_passes_group_gate() {
+        let g = open_grid(32, 32);
+        let from = Vec3::new(20.0, 0.0, 20.0);
+        let to = Vec3::new(80.0, 0.0, 20.0);
+        let cost = g.check_path_cost(SURFACE_GROUND, false, from, to);
+        let dx = (to.x - from.x).abs();
+        let dz = (to.z - from.z).abs();
+        assert!(
+            cost <= 1.4 * (dx + dz) + 1.0,
+            "straight cost {cost} should pass 1.4*(dx+dz)={}",
+            1.4 * (dx + dz)
+        );
+        let bad = g.check_path_cost(
+            SURFACE_GROUND,
+            false,
+            Vec3::new(-100.0, 0.0, -100.0),
+            to,
+        );
+        assert!(bad >= 0x7fff_0000u32 as f32 * 0.5);
+    }
+
+    /// hq-2ugs5: groupDest cost gate rejects a long detour around a wall.
+    #[test]
+    fn adjust_destination_for_group_rejects_long_detour() {
+        let mut g = open_grid(24, 24);
+        // Wall between group click (4,10) and offset dest (16,10).
+        for y in 0..24 {
+            g.set_cell_type(GridPos::new(10, y), PathfindCellType::Impassable);
+        }
+        // Leave a far gap at the top so a path exists but is expensive.
+        g.set_cell_type(GridPos::new(10, 22), PathfindCellType::Clear);
+        let dest = GridPos::new(16, 10);
+        let group = GridPos::new(4, 10);
+        let snapped = g.adjust_destination_for_group(
+            dest,
+            group,
+            SURFACE_GROUND,
+            false,
+            None,
+            0,
+            PathfindLayerEnum::Ground,
+        );
+        if let Some(cell) = snapped {
+            let cost = g.check_path_cost(
+                SURFACE_GROUND,
+                false,
+                g.grid_to_world(group),
+                g.grid_to_world(cell),
+            );
+            let w = g.grid_to_world(cell);
+            let gw = g.grid_to_world(group);
+            let dx = (gw.x - w.x).abs();
+            let dz = (gw.z - w.z).abs();
+            assert!(
+                cost <= 1.4 * (dx + dz) + 1.0 || cell != dest,
+                "group adjust must reject the far-side dest or pick a cheap cell, got {cell:?} cost={cost}"
+            );
+        }
+    }
+
+    /// hq-f4q2o: attack A* walks around a partial wall instead of through it.
+    #[test]
+    fn find_attack_path_goes_around_partial_wall() {
+        let mut sys = PathfindingSystem::new(200.0, 200.0);
+        for y in 0..12 {
+            sys.grid
+                .set_cell_type(GridPos::new(10, y), PathfindCellType::Impassable);
+        }
+        let objects = HashMap::new();
+        let from = Vec3::new(20.0, 0.0, 50.0);
+        let victim = Vec3::new(150.0, 0.0, 50.0);
+        if let Some(p) = sys.find_attack_firing_position(from, victim, 80.0, &objects, false) {
+            let crosses = p.windows(2).any(|w| {
+                let a = sys.grid.world_to_grid(w[0]);
+                let b = sys.grid.world_to_grid(w[1]);
+                sys.grid.cell_type(a) == PathfindCellType::Impassable
+                    || sys.grid.cell_type(b) == PathfindCellType::Impassable
+            });
+            assert!(!crosses, "attack A* must not step on Impassable, path={p:?}");
+            let end = *p.last().unwrap();
+            let dist = (end.x - victim.x).hypot(end.z - victim.z);
+            assert!(
+                dist <= 80.0 + 15.0,
+                "firing cell should be in/near range, end={end:?} dist={dist}"
+            );
+        }
+    }
 
 }

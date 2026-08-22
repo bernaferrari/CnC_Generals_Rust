@@ -13,7 +13,8 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_scud_launcher::{
             is_legal_scud_splash_target, scud_explosive_damage_at, scud_splash_radius,
-            scud_toxin_blast_damage_at, SCUD_FIRE_AUDIO, SCUD_POISON_AUDIO,
+            scud_toxin_blast_damage_at, SCUD_DAMAGE_TYPE, SCUD_DEATH_TYPE, SCUD_FIRE_AUDIO,
+            SCUD_POISON_AUDIO, SCUD_POISON_DAMAGE_TYPE, SCUD_POISON_DEATH_TYPE,
             UPGRADE_GLA_ANTHRAX_BETA,
         };
 
@@ -67,7 +68,13 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from(dmg, source);
+                let (dt_name, death_name) = if toxin_warhead {
+                    (SCUD_POISON_DAMAGE_TYPE, SCUD_POISON_DEATH_TYPE)
+                } else {
+                    (SCUD_DAMAGE_TYPE, SCUD_DEATH_TYPE)
+                };
+                let destroyed =
+                    obj.take_damage_from_immediate_residual(dmg, source, dt_name, death_name);
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;

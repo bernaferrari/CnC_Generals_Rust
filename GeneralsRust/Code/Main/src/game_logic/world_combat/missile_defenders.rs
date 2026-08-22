@@ -146,11 +146,10 @@ impl GameLogic {
         target_id: ObjectId,
     ) -> bool {
         use crate::game_logic::host_hero_abilities::{
-            leftover_sa_timings, LeftoverSaChannel, LeftoverSaKind, LeftoverSaPhase,
+            LeftoverSaChannel, LeftoverSaKind, LeftoverSaPhase,
         };
         use crate::game_logic::host_missile_defender::{
             can_activate_laser_guided, is_missile_defender_template, laser_guided_in_start_range,
-            LASER_GUIDED_INITIATE_AUDIO,
         };
 
         let Some(obj) = self.objects.get(&object_id) else {
@@ -186,10 +185,52 @@ impl GameLogic {
             (dx * dx + dz * dz).sqrt()
         };
         if !laser_guided_in_start_range(dist) {
-            return false;
+            // C++ initiateIntent then update() approachTarget (aiMoveToObject).
+            self.hero_abilities.set_leftover_channel(
+                object_id,
+                LeftoverSaChannel::new(
+                    LeftoverSaKind::LaserGuided,
+                    target_id,
+                    LeftoverSaPhase::Facing,
+                    0,
+                ),
+            );
+            if let Some(obj) = self.objects.get_mut(&object_id) {
+                obj.set_target(Some(target_id));
+                obj.set_ai_state(AIState::SpecialAbility);
+            }
+            self.path_approach_with_state_ignoring(
+                object_id,
+                tgt_pos,
+                AIState::SpecialAbility,
+                Some(target_id),
+            );
+            return true;
         }
 
+        self.start_leftover_laser_guided_preparation(object_id, target_id, src_pos, tgt_pos);
+        true
+    }
+
+    /// C++ `SpecialAbilityUpdate::startPreparation` for MD laser.
+    fn start_leftover_laser_guided_preparation(
+        &mut self,
+        object_id: ObjectId,
+        target_id: ObjectId,
+        src_pos: glam::Vec3,
+        tgt_pos: glam::Vec3,
+    ) {
+        use crate::game_logic::host_hero_abilities::{
+            leftover_sa_timings, LeftoverSaChannel, LeftoverSaKind, LeftoverSaPhase,
+        };
+        use crate::game_logic::host_missile_defender::LASER_GUIDED_INITIATE_AUDIO;
+
         let timings = leftover_sa_timings(LeftoverSaKind::LaserGuided);
+        if let Some(obj) = self.objects.get_mut(&object_id) {
+            obj.stop_moving();
+            obj.set_ai_state(AIState::SpecialAbility);
+            obj.set_status_using_ability(true);
+        }
         self.hero_abilities.set_leftover_channel(
             object_id,
             LeftoverSaChannel::new(
@@ -207,13 +248,14 @@ impl GameLogic {
                 .with_position(src_pos)
                 .with_priority(160),
         );
-        true
+        self.leftover_sa_notify_start_preparation(object_id, LeftoverSaKind::LaserGuided);
     }
 
     pub(crate) fn update_leftover_laser_guided_channels(&mut self, dt: f32) {
         use crate::game_logic::host_hero_abilities::{
             leftover_sa_timings, leftover_within_abort_range, LeftoverSaKind, LeftoverSaPhase,
         };
+        use crate::game_logic::host_missile_defender::laser_guided_in_start_range;
         use crate::game_logic::KindOf;
         const EPS: f32 = 0.000_1;
         let ids: Vec<ObjectId> = self
@@ -233,7 +275,7 @@ impl GameLogic {
                 continue;
             };
             let timings = leftover_sa_timings(LeftoverSaKind::LaserGuided);
-            let Some((src_pos, tgt_pos, tgt_alive, is_structure, stealth_hidden)) =
+            let Some((src_pos, tgt_pos, tgt_alive, is_structure, stealth_hidden, can_move)) =
                 self.objects.get(&object_id).and_then(|src| {
                     self.objects.get(&channel.target_id).map(|tgt| {
                         (
@@ -242,6 +284,7 @@ impl GameLogic {
                             tgt.is_alive(),
                             tgt.is_kind_of(KindOf::Structure),
                             tgt.status.stealthed && !tgt.status.detected,
+                            src.can_move(),
                         )
                     })
                 })
@@ -255,16 +298,33 @@ impl GameLogic {
                 let dz = src_pos.z - tgt_pos.z;
                 (dx * dx + dz * dz).sqrt()
             };
-            if !tgt_alive
-                || is_structure
-                || stealth_hidden
-                || !leftover_within_abort_range(dist, timings.abort_range)
-            {
+            if !tgt_alive || is_structure || stealth_hidden {
                 self.leftover_kill_special_objects(object_id);
                 self.hero_abilities.take_leftover_channel(object_id);
                 continue;
             }
             if channel.phase != LeftoverSaPhase::Preparing {
+                // C++ approachTarget until StartAbilityRange; abort range is prep-only.
+                if laser_guided_in_start_range(dist) {
+                    self.start_leftover_laser_guided_preparation(
+                        object_id,
+                        channel.target_id,
+                        src_pos,
+                        tgt_pos,
+                    );
+                } else if can_move {
+                    self.path_approach_with_state_ignoring(
+                        object_id,
+                        tgt_pos,
+                        AIState::SpecialAbility,
+                        Some(channel.target_id),
+                    );
+                }
+                continue;
+            }
+            if !leftover_within_abort_range(dist, timings.abort_range) {
+                self.leftover_kill_special_objects(object_id);
+                self.hero_abilities.take_leftover_channel(object_id);
                 continue;
             }
             let remaining = (channel.remaining_seconds - dt.max(0.0)).max(0.0);
@@ -492,7 +552,9 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_combat_cycle::{
             combat_cycle_audio_for_rider, is_legal_combat_cycle_target, is_terrorist_suicide_rider,
-            rpg_splash_damage_at, suicide_bike_damage_at, CombatCycleRider, RPG_DAMAGE, RPG_SPLASH,
+            rpg_splash_damage_at, suicide_bike_damage_at, CombatCycleRider, KELL_DAMAGE_TYPE,
+            KELL_DEATH_TYPE, REBEL_MG_DAMAGE_TYPE, REBEL_MG_DEATH_TYPE, RPG_DAMAGE,
+            RPG_DAMAGE_TYPE, RPG_DEATH_TYPE, RPG_SPLASH, SUICIDE_DAMAGE_TYPE, SUICIDE_DEATH_TYPE,
             SUICIDE_SECONDARY_RADIUS,
         };
 
@@ -585,7 +647,12 @@ impl GameLogic {
                     continue;
                 }
                 if let Some(obj) = self.objects.get_mut(&id) {
-                    let destroyed = obj.take_damage_from(dmg, source);
+                    let destroyed = obj.take_damage_from_immediate_residual(
+                        dmg,
+                        source,
+                        SUICIDE_DAMAGE_TYPE,
+                        SUICIDE_DEATH_TYPE,
+                    );
                     hits = hits.saturating_add(1);
                     if destroyed {
                         any_destroyed = true;
@@ -640,7 +707,12 @@ impl GameLogic {
                     continue;
                 }
                 if let Some(obj) = self.objects.get_mut(&id) {
-                    let destroyed = obj.take_damage_from(dmg, source);
+                    let destroyed = obj.take_damage_from_immediate_residual(
+                        dmg,
+                        source,
+                        RPG_DAMAGE_TYPE,
+                        RPG_DEATH_TYPE,
+                    );
                     hits = hits.saturating_add(1);
                     if destroyed {
                         any_destroyed = true;
@@ -665,7 +737,18 @@ impl GameLogic {
                             obj.status.under_construction,
                             true,
                         ) {
-                            let destroyed = obj.take_damage_from(dmg, source);
+                            let (dt_name, death_name) = match rider {
+                                CombatCycleRider::JarmenKell => {
+                                    (KELL_DAMAGE_TYPE, KELL_DEATH_TYPE)
+                                }
+                                CombatCycleRider::TunnelDefender => {
+                                    (RPG_DAMAGE_TYPE, RPG_DEATH_TYPE)
+                                }
+                                _ => (REBEL_MG_DAMAGE_TYPE, REBEL_MG_DEATH_TYPE),
+                            };
+                            let destroyed = obj.take_damage_from_immediate_residual(
+                                dmg, source, dt_name, death_name,
+                            );
                             hits = hits.saturating_add(1);
                             if destroyed {
                                 any_destroyed = true;
@@ -723,9 +806,10 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_toxin_tractor::{
             anthrax_tier_from_flags, is_chem_general_template, is_legal_toxin_target,
-            toxin_stream_damage, toxin_stream_damage_at, AnthraxResidualTier,
-            ToxinTractorSalvageTier, TOXIN_STREAM_AUDIO, TOXIN_STREAM_RADIUS,
-            UPGRADE_GLA_ANTHRAX_BETA, UPGRADE_GLA_ANTHRAX_GAMMA, UPGRADE_GLA_ANTHRAX_GAMMA_ALT,
+            toxin_death_type_name, toxin_stream_damage, toxin_stream_damage_at,
+            AnthraxResidualTier, ToxinTractorSalvageTier, TOXIN_DAMAGE_TYPE, TOXIN_STREAM_AUDIO,
+            TOXIN_STREAM_RADIUS, UPGRADE_GLA_ANTHRAX_BETA, UPGRADE_GLA_ANTHRAX_GAMMA,
+            UPGRADE_GLA_ANTHRAX_GAMMA_ALT,
         };
 
         let (anthrax, tier) = source
@@ -805,7 +889,12 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from(dmg, source);
+                let destroyed = obj.take_damage_from_immediate_residual(
+                    dmg,
+                    source,
+                    TOXIN_DAMAGE_TYPE,
+                    toxin_death_type_name(anthrax),
+                );
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -852,9 +941,9 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_toxin_tractor::{
             anthrax_tier_from_flags, is_chem_general_template, is_legal_toxin_target,
-            toxin_spray_damage, toxin_spray_damage_at, AnthraxResidualTier, TOXIN_POISON_AUDIO,
-            TOXIN_SPRAY_AUDIO, TOXIN_SPRAY_RADIUS, UPGRADE_GLA_ANTHRAX_BETA,
-            UPGRADE_GLA_ANTHRAX_GAMMA, UPGRADE_GLA_ANTHRAX_GAMMA_ALT,
+            toxin_death_type_name, toxin_spray_damage, toxin_spray_damage_at, AnthraxResidualTier,
+            TOXIN_DAMAGE_TYPE, TOXIN_POISON_AUDIO, TOXIN_SPRAY_AUDIO, TOXIN_SPRAY_RADIUS,
+            UPGRADE_GLA_ANTHRAX_BETA, UPGRADE_GLA_ANTHRAX_GAMMA, UPGRADE_GLA_ANTHRAX_GAMMA_ALT,
         };
 
         let anthrax = source
@@ -926,7 +1015,12 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from(dmg, source);
+                let destroyed = obj.take_damage_from_immediate_residual(
+                    dmg,
+                    source,
+                    TOXIN_DAMAGE_TYPE,
+                    toxin_death_type_name(anthrax),
+                );
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -1238,7 +1332,7 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_comanche_rocket_pods::{
             is_legal_rocket_pod_splash_target, rocket_pod_damage_at_distance, ROCKET_POD_AUDIO,
-            ROCKET_POD_SECONDARY_RADIUS,
+            ROCKET_POD_DAMAGE_TYPE, ROCKET_POD_DEATH_TYPE, ROCKET_POD_SECONDARY_RADIUS,
         };
 
         let impact_xz = (impact.x, impact.z);
@@ -1287,7 +1381,12 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from(dmg, source);
+                let destroyed = obj.take_damage_from_immediate_residual(
+                    dmg,
+                    source,
+                    ROCKET_POD_DAMAGE_TYPE,
+                    ROCKET_POD_DEATH_TYPE,
+                );
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -1850,6 +1949,7 @@ impl GameLogic {
         use crate::game_logic::host_bunker_buster::{
             bunker_buster_structure_damage, is_bunker_structure_name, BUNKER_BUSTER_AUDIO,
             BUNKER_BUSTER_HARM_AMOUNT, BUNKER_BUSTER_OCCUPANT_WEAPON,
+            STEALTH_JET_MISSILE_DAMAGE_TYPE, STEALTH_JET_MISSILE_DEATH_TYPE,
         };
 
         let (mut occupants, is_bunker, target_pos, is_tunnel, target_player) = {
@@ -1970,7 +2070,12 @@ impl GameLogic {
             bunker_buster_structure_damage(base_weapon_damage, is_bunker, had_occupants);
         let mut destroyed = false;
         if let Some(target) = self.objects.get_mut(&target_id) {
-            destroyed = target.take_damage_from(structure_dmg, attacker_id);
+            destroyed = target.take_damage_from_immediate_residual(
+                structure_dmg,
+                attacker_id,
+                STEALTH_JET_MISSILE_DAMAGE_TYPE,
+                STEALTH_JET_MISSILE_DEATH_TYPE,
+            );
             if destroyed {
                 self.mark_object_for_destruction(target_id, Some(attacker_team));
             }

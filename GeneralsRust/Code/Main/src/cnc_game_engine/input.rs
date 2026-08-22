@@ -139,6 +139,7 @@ impl CnCGameEngine {
                         GameState::InGame | GameState::Paused | GameState::Menu
                     );
                 let chat_open = self.chat_panel.is_open();
+                let input_enabled = self.lookat_input_enabled();
                 match state {
                     ElementState::Pressed => {
                         self.keys_pressed.insert(key.clone());
@@ -156,7 +157,7 @@ impl CnCGameEngine {
                                 // Chat (WindowXlat) owns the key first — do not steal
                                 // letters into the control bar while the edit is open.
                                 use crate::ui::Interactive;
-                                if !os_repeat && !chat_open {
+                                if !os_repeat && !chat_open && input_enabled {
                                     construction_consumed =
                                         Interactive::handle_key_press(&mut self.game_hud, ui_key);
                                     for ev in self.game_hud.drain_pending_ui_events() {
@@ -164,32 +165,6 @@ impl CnCGameEngine {
                                     }
                                 }
                             }
-                        }
-                        // Retail numpad camera residual (physical hold keys).
-                        // Numpad5 CAMERA_RESET is CommandMap KEY_KP5 (0x65) via
-                        // handle_mapped_key_press so remaps onto KP5 dispatch.
-                        match physical_key {
-                            winit::keyboard::PhysicalKey::Code(
-                                winit::keyboard::KeyCode::Numpad4,
-                            ) => {
-                                self.camera_rotate_left_held = true;
-                            }
-                            winit::keyboard::PhysicalKey::Code(
-                                winit::keyboard::KeyCode::Numpad6,
-                            ) => {
-                                self.camera_rotate_right_held = true;
-                            }
-                            winit::keyboard::PhysicalKey::Code(
-                                winit::keyboard::KeyCode::Numpad8,
-                            ) => {
-                                self.camera_zoom_in_held = true;
-                            }
-                            winit::keyboard::PhysicalKey::Code(
-                                winit::keyboard::KeyCode::Numpad2,
-                            ) => {
-                                self.camera_zoom_out_held = true;
-                            }
-                            _ => {}
                         }
                         match physical_key {
                             // QuitMenu.wnd deliberately uses GameWinBlockInput
@@ -204,6 +179,37 @@ impl CnCGameEngine {
                                 // Construction cameo / Escape placement cancel residual.
                             }
                             _ => {
+                                // Retail numpad camera residual (physical hold keys).
+                                // After wnd_used: C++ RAW keys die in WindowTranslator
+                                // (chat/quit-menu focus). DISABLE_INPUT also eats them
+                                // (CommandXlat.cpp:2322-2326).
+                                // Numpad5 CAMERA_RESET is CommandMap KEY_KP5 (0x65) via
+                                // handle_mapped_key_press so remaps onto KP5 dispatch.
+                                if input_enabled {
+                                    match physical_key {
+                                        winit::keyboard::PhysicalKey::Code(
+                                            winit::keyboard::KeyCode::Numpad4,
+                                        ) => {
+                                            self.camera_rotate_left_held = true;
+                                        }
+                                        winit::keyboard::PhysicalKey::Code(
+                                            winit::keyboard::KeyCode::Numpad6,
+                                        ) => {
+                                            self.camera_rotate_right_held = true;
+                                        }
+                                        winit::keyboard::PhysicalKey::Code(
+                                            winit::keyboard::KeyCode::Numpad8,
+                                        ) => {
+                                            self.camera_zoom_in_held = true;
+                                        }
+                                        winit::keyboard::PhysicalKey::Code(
+                                            winit::keyboard::KeyCode::Numpad2,
+                                        ) => {
+                                            self.camera_zoom_out_held = true;
+                                        }
+                                        _ => {}
+                                    }
+                                }
                                 // CommandMap binds CREATE/SELECT/ADD/VIEW_TEAM to
                                 // the physical number row (`KEY_0`..`KEY_9`).  A
                                 // shifted number row key has a punctuation logical
@@ -217,30 +223,17 @@ impl CnCGameEngine {
                                     Self::control_group_from_physical_number_row(physical_key)
                                         .filter(|_| !chat_open)
                                 {
-                                    self.handle_control_group_hotkey(group);
-                                } else if let Key::Named(named) = key.clone() {
-                                    if let Some(slot) = super::mouse::lookat_view_slot(named) {
-                                        let ctrl = self
-                                            .keys_pressed
-                                            .contains(&Key::Named(NamedKey::Control));
-                                        // Ctrl+F1..F4 remain debug overlays in hotkeys.rs.
-                                        if ctrl && slot < 4 {
-                                            self.handle_mapped_key_press(
-                                                key,
-                                                Some(*physical_key),
-                                                false,
-                                            );
-                                        } else {
-                                            self.save_or_recall_camera_view(slot);
-                                        }
-                                    } else {
-                                        self.handle_mapped_key_press(
-                                            key,
-                                            Some(*physical_key),
-                                            false,
-                                        );
+                                    // C++ CommandXlat.cpp:2322-2326 DESTROY_MESSAGE
+                                    // for CREATE/SELECT/ADD/VIEW_TEAM while
+                                    // DISABLE_INPUT. Do not fall through.
+                                    if input_enabled {
+                                        self.handle_control_group_hotkey(group);
                                     }
                                 } else {
+                                    // F1-F8 SAVE_VIEW / VIEW_VIEW go through
+                                    // CommandMap remaps in handle_mapped_key_press
+                                    // (LookAtXlat.cpp:550-587). Do not steal
+                                    // Ctrl+F1..F4 for debug overlays.
                                     self.handle_mapped_key_press(key, Some(*physical_key), false);
                                 }
                             }
@@ -280,6 +273,7 @@ impl CnCGameEngine {
                         if !os_repeat
                             && !mods_down
                             && !chat_open
+                            && input_enabled
                             && route_keyboard_to_legacy_ui
                             && matches!(
                                 self.current_state,
@@ -319,7 +313,10 @@ impl CnCGameEngine {
                 let x = self.mouse_position.0 as i32;
                 let y = self.mouse_position.1 as i32;
                 let wnd_used = self.dispatch_os_mouse_wheel(delta, x, y);
-                if matches!(self.current_state, GameState::InGame | GameState::Paused) && !wnd_used
+                // C++ WindowXlat.cpp:254-274: windows first, then DISABLE_INPUT eats zoom.
+                if matches!(self.current_state, GameState::InGame | GameState::Paused)
+                    && !wnd_used
+                    && self.lookat_input_enabled()
                 {
                     self.handle_mouse_wheel(delta);
                 }
@@ -519,7 +516,7 @@ impl CnCGameEngine {
         }
 
 
-        if in_world && !wnd_used && !hud_cameo_consumed {
+        if in_world && !wnd_used && !hud_cameo_consumed && self.lookat_input_enabled() {
             let targeting_active =
                 self.pending_map_command.is_some() || self.pending_structure_placement.is_some();
             let world_action =
@@ -2507,6 +2504,41 @@ mod tests {
             )),
             None,
             "retail CommandMap only binds KEY_1, never KEY_KP1"
+        );
+    }
+
+    #[test]
+    fn disable_input_eats_control_groups_wheel_and_world_orders() {
+        // C++ WindowXlat/CommandXlat eat input when !getInputEnabled.
+        let src = include_str!("input.rs");
+        let groups = src
+            .find("control_group_from_physical_number_row(physical_key)")
+            .map(|i| &src[i..src.len().min(i + 700)])
+            .expect("control group dispatch");
+        assert!(
+            groups.contains("if input_enabled")
+                && groups.contains("handle_control_group_hotkey(group)"),
+            "CREATE/SELECT/ADD/VIEW_TEAM must die under DISABLE_INPUT"
+        );
+        let wheel = src
+            .find("WindowEvent::MouseWheel")
+            .map(|i| &src[i..src.len().min(i + 520)])
+            .expect("mouse wheel dispatch");
+        assert!(
+            wheel.contains("lookat_input_enabled()")
+                && wheel.contains("handle_mouse_wheel(delta)"),
+            "wheel zoom must die under DISABLE_INPUT after WindowXlat"
+        );
+        assert!(
+            src.contains("!wnd_used && !hud_cameo_consumed && self.lookat_input_enabled()"),
+            "world mouse orders must die under DISABLE_INPUT"
+        );
+        let hk = include_str!("hotkeys.rs");
+        assert!(
+            hk.contains("if !self.lookat_input_enabled()")
+                && hk.contains("NamedKey::Escape")
+                && hk.contains("return;"),
+            "hotkeys must reject DISABLE_INPUT except OPTIONS/Escape"
         );
     }
 

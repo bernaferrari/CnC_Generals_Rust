@@ -718,13 +718,41 @@ impl Object {
     }
 
     pub fn set_emoticon(&mut self, name: &str, duration_frames: i32) {
-        if name.is_empty() || duration_frames <= 0 {
+        // C++ Drawable::setEmoticon: duration < 0 is FOREVER; 0 clears.
+        if name.is_empty() || duration_frames == 0 {
             self.emoticon_name.clear();
             self.emoticon_frames_left = 0;
             return;
         }
         self.emoticon_name = name.to_string();
-        self.emoticon_frames_left = duration_frames;
+        self.emoticon_frames_left = if duration_frames < 0 {
+            i32::MAX
+        } else {
+            duration_frames
+        };
+    }
+
+    /// C++ `Drawable::setFlashCount` / `setFlashColor`.
+    pub fn set_script_flash(&mut self, seconds: i32, color: u32) {
+        if seconds <= 0 {
+            return;
+        }
+        let frames = 30i32.saturating_mul(seconds);
+        let count = frames / 15; // C++ DRAWABLE_FRAMES_PER_FLASH
+        if count <= 0 {
+            return;
+        }
+        self.flash_count = count;
+        self.flash_color = color;
+    }
+
+    /// C++ `Object::setCustomIndicatorColor` (`0` removes custom color).
+    pub fn set_custom_indicator_color_raw(&mut self, color_raw: u32) {
+        self.custom_indicator_color = if color_raw == 0 {
+            None
+        } else {
+            Some(color_raw)
+        };
     }
 
     pub fn set_active_weapon_slot(&mut self, slot: u8) {

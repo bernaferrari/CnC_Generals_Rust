@@ -3741,6 +3741,11 @@ fn stunned_off_map_cliff_water_kills_without_loco() {
     assert!(is_off_map_default_residual(o.get_position()));
     assert!(o.test_stunned_unit_for_destruction());
     assert!(o.status.destroyed);
+    assert_eq!(
+        o.status.death_type,
+        crate::game_logic::host_usa_pilot::HostDeathType::Normal
+    );
+    assert!(o.health.current <= 0.0);
 
     let mut t2 = ThingTemplate::new("CliffVictim");
     t2.add_kind_of(KindOf::Infantry);
@@ -3774,6 +3779,49 @@ fn stunned_off_map_cliff_water_kills_without_loco() {
     h.locomotor_surfaces |= LOCO_SURFACE_CLIFF;
     assert!(!h.test_stunned_unit_for_destruction());
 }
+
+#[test]
+fn stunned_center_of_mass_offset_scales_pitch() {
+    let mut tmpl = ThingTemplate::new("ComTruck");
+    tmpl.add_kind_of(KindOf::Vehicle);
+    let mut o = Object::new(tmpl, ObjectId(35), Team::USA);
+    o.center_of_mass_offset = 2.0;
+    o.pitch_roll_yaw_factor = 1.0;
+    o.shock_stun_frames = 20;
+    o.shock_pitch_rate = 0.2;
+    o.shock_yaw_rate = 0.0;
+    o.shock_roll_rate = 0.0;
+    o.set_position(glam::Vec3::new(0.0, 2.0, 0.0));
+    o.ground_height = 0.0;
+    let mut raw = Object::new(ThingTemplate::new("ComRaw"), ObjectId(36), Team::USA);
+    raw.center_of_mass_offset = 0.0;
+    raw.pitch_roll_yaw_factor = 1.0;
+    raw.shock_stun_frames = 20;
+    raw.shock_pitch_rate = 0.2;
+    raw.shock_yaw_rate = 0.0;
+    raw.shock_roll_rate = 0.0;
+    raw.set_position(glam::Vec3::new(0.0, 2.0, 0.0));
+    raw.ground_height = 0.0;
+    // Nose-up so remaining = π/2 - π/4 = π/4, sin < 1.
+    o.apply_physics_ypr(0.0, std::f32::consts::FRAC_PI_4, 0.0);
+    raw.apply_physics_ypr(0.0, std::f32::consts::FRAC_PI_4, 0.0);
+    let pitch = |m: glam::Mat4| {
+        let f = m.x_axis;
+        f.y.atan2((f.x * f.x + f.z * f.z).sqrt())
+    };
+    let o0 = pitch(o.get_transform_matrix());
+    let r0 = pitch(raw.get_transform_matrix());
+    o.tick_shock_stun();
+    raw.tick_shock_stun();
+    let o_dpitch = (pitch(o.get_transform_matrix()) - o0).abs();
+    let r_dpitch = (pitch(raw.get_transform_matrix()) - r0).abs();
+    assert!(
+        o_dpitch + 1e-5 < r_dpitch,
+        "stunned COM offset must damp pitch vs raw rate ({o_dpitch} vs {r_dpitch})"
+    );
+}
+
+
 #[test]
 fn stunned_upside_down_bounce_kills_and_freefall_disables() {
     let mut tmpl = ThingTemplate::new("StunKill");
@@ -4465,5 +4513,151 @@ fn extra_friction_overlap_force_and_rest_kill() {
     assert!(!air.maybe_kill_when_resting_on_ground());
     air.set_position(Vec3::ZERO);
     assert!(air.maybe_kill_when_resting_on_ground());
+}
+
+#[test]
+fn script_emoticon_flash_color_match_cpp() {
+    let mut obj = make_test_object();
+    obj.set_emoticon("EmoticonAlert", 60);
+    assert_eq!(obj.emoticon_name, "EmoticonAlert");
+    assert_eq!(obj.emoticon_frames_left, 60);
+    obj.set_emoticon("EmoticonCheer", -30);
+    assert_eq!(obj.emoticon_name, "EmoticonCheer");
+    assert_eq!(obj.emoticon_frames_left, i32::MAX);
+    obj.set_emoticon("Gone", 0);
+    assert!(obj.emoticon_name.is_empty());
+    assert_eq!(obj.emoticon_frames_left, 0);
+
+    obj.set_script_flash(2, 0x00FF_FFFF);
+    assert_eq!(obj.flash_count, 4, "2s * 30fps / 15 frames-per-flash");
+    assert_eq!(obj.flash_color, 0x00FF_FFFF);
+    obj.set_script_flash(0, 0x00FF_0000);
+    assert_eq!(obj.flash_count, 4, "C++ named flash ignores seconds <= 0");
+
+    obj.set_custom_indicator_color_raw(0xFFFF_0000);
+    assert_eq!(obj.custom_indicator_color, Some(0xFFFF_0000));
+    obj.set_custom_indicator_color_raw(0);
+    assert_eq!(obj.custom_indicator_color, None);
+}
+
+#[test]
+fn live_host_script_visual_status_apply() {
+    use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
+    use gamelogic::object::registry::OBJECT_REGISTRY;
+    use gamelogic::scripting::{
+        request_host_script_custom_color, request_host_script_emoticon, request_host_script_flash,
+        request_host_script_held, request_host_script_repulsor, HostScriptCustomColorRequest,
+        HostScriptEmoticonRequest, HostScriptFlashRequest, HostScriptHeldRequest,
+        HostScriptRepulsorRequest,
+    };
+    use glam::Vec3;
+
+    OBJECT_REGISTRY.clear();
+    let _ = gamelogic::scripting::take_host_script_flash_requests();
+    let _ = gamelogic::scripting::take_host_script_emoticon_requests();
+    let _ = gamelogic::scripting::take_host_script_held_requests();
+    let _ = gamelogic::scripting::take_host_script_custom_color_requests();
+    let _ = gamelogic::scripting::take_host_script_repulsor_requests();
+
+    let mut logic = GameLogic::new();
+    logic.scripts_loaded = true;
+    let mut p = Player::new(0, Team::USA, "PlyrAmerica", true);
+    p.color_rgb = (0x12, 0x34, 0x56);
+    logic.add_player(p);
+    let mut tmpl = ThingTemplate::new("AmericaInfantryRanger");
+    tmpl.add_kind_of(KindOf::Infantry);
+    tmpl.set_health(100.0);
+    logic.templates.insert("AmericaInfantryRanger".into(), tmpl);
+    let id = logic
+        .create_object(
+            "AmericaInfantryRanger",
+            Team::USA,
+            Vec3::new(10.0, 0.0, 20.0),
+        )
+        .expect("ranger");
+    if let Some(o) = logic.host_object_mut(id) {
+        o.name = "FlashRanger".into();
+        o.team_instance_name = "teamAmerica".into();
+        o.owner_player_id = Some(0);
+    }
+
+    request_host_script_flash(HostScriptFlashRequest::Named {
+        unit: "FlashRanger".into(),
+        seconds: 2,
+        white: false,
+    });
+    request_host_script_flash(HostScriptFlashRequest::Team {
+        team: "teamAmerica".into(),
+        seconds: 3,
+        white: true,
+    });
+    request_host_script_emoticon(HostScriptEmoticonRequest::Named {
+        unit: "FlashRanger".into(),
+        emoticon: "EmoticonAlert".into(),
+        duration_frames: -30,
+    });
+    request_host_script_held(HostScriptHeldRequest {
+        unit: "FlashRanger".into(),
+        held: true,
+    });
+    request_host_script_custom_color(HostScriptCustomColorRequest {
+        unit: "FlashRanger".into(),
+        color_raw: 0xFFFF_0000,
+    });
+    request_host_script_repulsor(HostScriptRepulsorRequest::Named {
+        unit: "FlashRanger".into(),
+        enabled: true,
+    });
+    logic.evaluate_and_execute_scripts(0.0);
+
+    let obj = logic.host_object(id).expect("applied");
+    assert_eq!(obj.flash_count, 6, "team white 3s * 30 / 15 overwrites named 2s");
+    assert_eq!(obj.flash_color, 0x00FF_FFFF, "FLASH_WHITE RGBColor(1,1,1).getAsInt");
+    assert_eq!(obj.emoticon_name, "EmoticonAlert");
+    assert_eq!(obj.emoticon_frames_left, i32::MAX, "duration < 0 is FOREVER");
+    assert!(obj.status.disabled_held, "NAMED_SET_HELD DISABLED_HELD");
+    assert!(obj.is_physics_held());
+    assert!(!obj.can_move());
+    assert_eq!(obj.custom_indicator_color, Some(0xFFFF_0000));
+    assert!(obj.status.repulsor, "OBJECT_STATUS_REPULSOR");
+    assert_eq!(obj.repulsor_until_frame, 0, "script repulsor is permanent");
+
+    request_host_script_held(HostScriptHeldRequest {
+        unit: "FlashRanger".into(),
+        held: false,
+    });
+    request_host_script_custom_color(HostScriptCustomColorRequest {
+        unit: "FlashRanger".into(),
+        color_raw: 0,
+    });
+    request_host_script_repulsor(HostScriptRepulsorRequest::Team {
+        team: "teamAmerica".into(),
+        enabled: false,
+    });
+    request_host_script_emoticon(HostScriptEmoticonRequest::Team {
+        team: "teamAmerica".into(),
+        emoticon: "EmoticonCheer".into(),
+        duration_frames: 45,
+    });
+    request_host_script_flash(HostScriptFlashRequest::Named {
+        unit: "FlashRanger".into(),
+        seconds: 2,
+        white: false,
+    });
+    logic.evaluate_and_execute_scripts(0.0);
+
+    let obj = logic.host_object(id).expect("toggled");
+    assert!(!obj.status.disabled_held);
+    assert_eq!(obj.custom_indicator_color, None, "color 0 removes custom");
+    assert!(!obj.status.repulsor);
+    assert_eq!(obj.emoticon_name, "EmoticonCheer");
+    assert_eq!(obj.emoticon_frames_left, 45);
+    assert_eq!(obj.flash_count, 4);
+    assert_eq!(
+        obj.flash_color,
+        crate::game_logic::host_radar::pack_player_color_argb((0x12, 0x34, 0x56)),
+        "NAMED_FLASH uses getIndicatorColor"
+    );
+    assert!(OBJECT_REGISTRY.is_empty());
 }
 

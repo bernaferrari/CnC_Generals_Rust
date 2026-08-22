@@ -58,7 +58,12 @@ pub use heal_contain::{HealContain, HealContainModuleData};
 pub use helix_contain::{HelixContain, HelixContainModuleData};
 pub use internet_hack_contain::{InternetHackContain, InternetHackContainModuleData};
 pub use mob_nexus_contain::{MobNexusContain, MobNexusContainModuleData};
-pub use open_contain::{ObjectTemplate, OpenContain, OpenContainModuleData, CONTAIN_MAX_UNKNOWN};
+pub use open_contain::{
+    leftover_contain_module_enter_sound, leftover_contain_module_exit_sound,
+    leftover_do_load_sound, leftover_do_unload_sound, leftover_play_container_enter_sound,
+    leftover_play_container_exit_sound, ObjectTemplate, OpenContain, OpenContainModuleData,
+    CONTAIN_MAX_UNKNOWN,
+};
 pub use overlord_contain::{OverlordContain, OverlordContainModuleData};
 pub use parachute_contain::{ParachuteContain, ParachuteContainModuleData};
 pub use railed_transport_contain::{RailedTransportContain, RailedTransportContainModuleData};

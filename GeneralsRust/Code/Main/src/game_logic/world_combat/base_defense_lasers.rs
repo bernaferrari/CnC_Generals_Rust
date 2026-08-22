@@ -1410,7 +1410,8 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_rocket_buggy::{
             is_legal_rocket_buggy_splash_target, rocket_buggy_damage_at, rocket_buggy_scatter_aim,
-            rocket_buggy_scatter_misses_infantry, BUGGY_FIRE_AUDIO, BUGGY_SECONDARY_RADIUS,
+            rocket_buggy_scatter_misses_infantry, BUGGY_DAMAGE_TYPE, BUGGY_DEATH_TYPE,
+            BUGGY_FIRE_AUDIO, BUGGY_SECONDARY_RADIUS,
         };
 
         // C++ BuggyRocketWeapon ScatterRadiusVsInfantry residual on instant apply (**20**).
@@ -1514,7 +1515,12 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from(dmg, source);
+                let destroyed = obj.take_damage_from_immediate_residual(
+                    dmg,
+                    source,
+                    BUGGY_DAMAGE_TYPE,
+                    BUGGY_DEATH_TYPE,
+                );
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;

@@ -9,6 +9,7 @@
 // Port from C++ Radar.cpp and Radar.h (Colin Day, January 2002)
 ///////////////////////////////////////////////////////////////////////////////
 
+use crate::common::game_common::ObjectShroudStatus;
 use crate::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use std::sync::{Arc, RwLock};
 use std::sync::OnceLock;
@@ -737,6 +738,8 @@ pub struct RadarObject {
     pub is_hero: bool,            // Draw HeroReticle in W3D radar icon layer
     pub drawable_hidden: bool,    // C++ Drawable::m_hidden
     pub hidden_by_stealth: bool,  // C++ Drawable::m_hiddenByStealth
+    /// C++ `Object::getShroudedStatus`. `Invalid` falls back to cell Clear.
+    pub object_shroud: ObjectShroudStatus,
 }
 
 impl RadarObject {
@@ -762,6 +765,7 @@ impl RadarObject {
             is_hero: false,
             drawable_hidden: false,
             hidden_by_stealth: false,
+            object_shroud: ObjectShroudStatus::Invalid,
         }
     }
 
@@ -1015,6 +1019,10 @@ pub struct RadarSystem {
 
     /// C++ `m_radarWindow` — bound `ControlBar.wnd:LeftHUD` rectangle.
     radar_window: Option<window::RadarWindowGeom>,
+    /// C++ `ThePlayerList->getLocalPlayer()->isPlayerActive()`.
+    local_player_active: bool,
+    /// C++ `Player::hasRadar()` for the local (or observed) player.
+    local_has_radar: bool,
 }
 
 impl RadarSystem {
@@ -1069,6 +1077,8 @@ impl RadarSystem {
             radar_scans: Vec::new(),
             jamming_sources: Vec::new(),
             radar_window: None,
+            local_player_active: true,
+            local_has_radar: false,
         }
     }
 
@@ -1108,7 +1118,6 @@ impl RadarSystem {
                 event.active = false;
             }
         }
-        self.play_unplayed_event_sounds();
 
         // Check for queued terrain refresh
         if let Some(refresh_frame) = self.queue_terrain_refresh_frame {
@@ -1528,6 +1537,48 @@ impl RadarSystem {
     pub fn is_radar_forced(&self) -> bool {
         self.radar_force_on
     }
+    /// C++ `Player::isPlayerActive` — observers / defeated locals see LOCAL_UNIT_ONLY.
+    pub fn set_local_player_active(&mut self, active: bool) {
+        self.local_player_active = active;
+    }
+
+    #[must_use]
+    pub fn local_player_active(&self) -> bool {
+        self.local_player_active
+    }
+
+    /// C++ `Player::hasRadar()` stamped from the live host each radar update.
+    pub fn set_local_has_radar(&mut self, has_radar: bool) {
+        self.local_has_radar = has_radar;
+    }
+
+    #[must_use]
+    pub fn local_has_radar(&self) -> bool {
+        self.local_has_radar
+    }
+
+    /// C++ `W3DRadar::draw` / LeftHUD: forced, or not hidden and local has radar.
+    #[must_use]
+    pub fn is_radar_shown(&self) -> bool {
+        self.radar_force_on || (!self.radar_hidden && self.local_has_radar)
+    }
+
+    /// Stamp C++ object shroud onto overlay blips (`getShroudedStatus`).
+    pub fn apply_object_shrouds<F>(&mut self, mut lookup: F)
+    where
+        F: FnMut(u32) -> Option<ObjectShroudStatus>,
+    {
+        for obj in self
+            .object_list
+            .iter_mut()
+            .chain(self.local_object_list.iter_mut())
+        {
+            if let Some(status) = lookup(obj.object_id) {
+                obj.object_shroud = status;
+            }
+        }
+    }
+
 
     /// C++ `Radar::xfer` hidden/force-on + event ring.
     pub fn snapshot_persist_state(
@@ -2058,7 +2109,11 @@ impl RadarSystem {
         if obj.is_temporarily_hidden() || !obj.priority.is_visible() {
             return false;
         }
-        if obj.priority == RadarPriorityType::LocalUnitOnly && !obj.is_local {
+        // C++ W3DRadar.cpp:647-650 — LOCAL_UNIT_ONLY skip only while local is active.
+        if obj.priority == RadarPriorityType::LocalUnitOnly
+            && !obj.is_local
+            && self.local_player_active
+        {
             return false;
         }
         if obj.is_stealth
@@ -2070,7 +2125,17 @@ impl RadarSystem {
             return false;
         }
 
-        self.get_shroud_level_at_world(&obj.world_pos) == CellShroudStatus::Clear
+        self.object_shroud_allows_overlay_blip(obj)
+    }
+
+    /// C++ `getShroudedStatus(playerIndex) > OBJECTSHROUD_PARTIAL_CLEAR` skip.
+    fn object_shroud_allows_overlay_blip(&self, obj: &RadarObject) -> bool {
+        match obj.object_shroud {
+            ObjectShroudStatus::Invalid | ObjectShroudStatus::InvalidButPreviousValid => {
+                self.get_shroud_level_at_world(&obj.world_pos) == CellShroudStatus::Clear
+            }
+            status => (status as u32) <= (ObjectShroudStatus::PartialClear as u32),
+        }
     }
 
     /// Build the W3D radar shroud overlay as black RGBA pixels.
@@ -3386,6 +3451,105 @@ mod tests {
         assert!(should_refresh_w3d_object_overlay(12));
         assert!(!should_refresh_w3d_object_overlay(17));
     }
+
+    #[test]
+    fn test_draw_events_chirp_requires_radar_online() {
+        let mut radar = RadarSystem::new();
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(128.0, 128.0, 0.0),
+            &[],
+        );
+        radar.create_event(
+            &Coord3D::new(10.0, 10.0, 0.0),
+            RadarEventType::UnderAttack,
+            4.0,
+        );
+
+        // C++ `W3DRadar::drawEvents` is only reached after the hasRadar gate.
+        // Leftover `Radar::update` must not consume the chirp while offline.
+        radar.update(1);
+        let offline = radar.draw_events();
+        assert!(
+            offline.iter().any(|e| e.active && !e.sound_played),
+            "RadarEvent chirp must wait until the radar is on screen"
+        );
+
+        radar.set_local_has_radar(true);
+        let online = radar.draw_events();
+        assert!(
+            online.iter().any(|e| e.active && e.sound_played),
+            "RadarEvent chirp plays on the first visible drawEvents frame"
+        );
+    }
+
+    #[test]
+    fn test_object_overlay_draws_partial_clear_fog_edge_blips() {
+        let mut radar = RadarSystem::new();
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(128.0, 128.0, 0.0),
+            &[],
+        );
+        radar.clear_shroud();
+
+        let mut obj = RadarObject::new(1);
+        obj.world_pos = Coord3D::new(10.0, 20.0, 0.0);
+        obj.priority = RadarPriorityType::Unit;
+        obj.color = 0xFFFF0000;
+        obj.object_shroud = ObjectShroudStatus::PartialClear;
+        radar.add_object(obj);
+        // Cell fog must not drop an object whose getShroudedStatus is PARTIAL_CLEAR.
+        radar.set_shroud_level(10, 20, CellShroudStatus::Fogged);
+
+        let texture = radar.build_object_overlay_texture_rgba();
+        let idx = ((20 * RADAR_CELL_WIDTH + 10) * 4) as usize;
+        assert_eq!(
+            &texture[idx..idx + 4],
+            &[0xFF, 0x00, 0x00, 0xFF],
+            "C++ skip only when getShroudedStatus > OBJECTSHROUD_PARTIAL_CLEAR"
+        );
+    }
+
+    #[test]
+    fn test_object_overlay_unhides_local_unit_only_for_defeated_or_observer() {
+        let mut radar = RadarSystem::new();
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(128.0, 128.0, 0.0),
+            &[],
+        );
+        radar.clear_shroud();
+
+        let mut nonlocal = RadarObject::new(2);
+        nonlocal.world_pos = Coord3D::new(30.0, 40.0, 0.0);
+        nonlocal.priority = RadarPriorityType::LocalUnitOnly;
+        nonlocal.color = 0xFF00FF00;
+        nonlocal.is_local = false;
+        radar.add_object(nonlocal);
+
+        let pixel = |radar: &RadarSystem| {
+            let texture = radar.build_object_overlay_texture_rgba();
+            let idx = ((40 * RADAR_CELL_WIDTH + 30) * 4) as usize;
+            texture[idx..idx + 4].to_vec()
+        };
+
+        radar.set_local_player_active(true);
+        assert_eq!(
+            pixel(&radar),
+            vec![0, 0, 0, 0],
+            "active local still skips non-local LOCAL_UNIT_ONLY"
+        );
+
+        // C++ `isPlayerActive` exemption: observers / defeated see every blip.
+        radar.set_local_player_active(false);
+        assert_eq!(
+            pixel(&radar),
+            vec![0x00, 0xFF, 0x00, 0xFF],
+            "defeated/observer local must unhide LOCAL_UNIT_ONLY"
+        );
+    }
+
 
     #[test]
     fn test_hero_reticle_rects_match_w3d_icon_positioning() {
