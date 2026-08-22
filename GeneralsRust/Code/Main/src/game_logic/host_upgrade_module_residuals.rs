@@ -310,14 +310,52 @@ pub fn is_chemical_suits_upgrade(upgrade: &str) -> bool {
     upgrade.to_ascii_lowercase().contains("chemicalsuits")
 }
 
-/// C++ `LocomotorSetUpgrade::upgradeImplementation` → `AIUpdate::setLocomotorUpgrade(true)`.
-pub fn is_locomotor_set_upgrade(upgrade: &str) -> bool {
+/// Residual name peels used only when Object INI is unavailable.
+/// Retail LocomotorSetUpgrade TriggeredBy: WorkerShoes, NuclearTanks.
+/// Heroic rank (`Upgrade_Veterancy_HEROIC`) and AutoLoader are not modules —
+/// C++ only swaps via `Behavior = LocomotorSetUpgrade`.
+fn is_residual_locomotor_set_upgrade_peel(upgrade: &str) -> bool {
     let n = upgrade.to_ascii_lowercase();
-    n.contains("workershoes")
-        || n.contains("nucleartanks")
-        || n.contains("autoloader")
-        || n.contains("veterancy_heroic")
-        || n.contains("heroic")
+    n.contains("workershoes") || n.contains("nucleartanks")
+}
+
+/// C++ `LocomotorSetUpgrade` residual peel (no template). Heroic / AutoLoader
+/// are not peels — they only fire when the object authors the module.
+pub fn is_locomotor_set_upgrade(upgrade: &str) -> bool {
+    is_residual_locomotor_set_upgrade_peel(upgrade)
+}
+
+/// Authored `Behavior = LocomotorSetUpgrade` + `TriggeredBy` on `template_name`.
+/// `None` when the asset catalog is missing or the template is unknown.
+pub fn template_locomotor_set_upgrade_triggered(
+    template_name: &str,
+    upgrade_name: &str,
+) -> Option<bool> {
+    let am = crate::assets::get_asset_manager()?;
+    let mgr = am.lock().ok()?;
+    let def = mgr
+        .get_object_definition(template_name)
+        .or_else(|| mgr.resolve_object_definition(template_name, None))?;
+    Some(def.behavior_modules.iter().any(|module| {
+        module
+            .class_name
+            .eq_ignore_ascii_case("LocomotorSetUpgrade")
+            && module.attribute("TriggeredBy").is_some_and(|triggered| {
+                crate::game_logic::host_status_bits_upgrade::triggered_by_lists_upgrade(
+                    triggered,
+                    upgrade_name,
+                )
+            })
+    }))
+}
+
+/// C++ only `LocomotorSetUpgrade::upgradeImplementation` swaps. INI module
+/// wins when the template is known; residual peels cover catalog-less tests.
+pub fn should_apply_locomotor_set_upgrade(template_name: &str, upgrade: &str) -> bool {
+    match template_locomotor_set_upgrade_triggered(template_name, upgrade) {
+        Some(has_module) => has_module,
+        None => is_residual_locomotor_set_upgrade_peel(upgrade),
+    }
 }
 
 /// C++ `LocomotorSetType` residual used by `chooseLocomotorSet`.
@@ -629,12 +667,7 @@ pub fn locomotor_set_swap_for_kind(
 
 fn upgrade_set_kind(upgrade: &str) -> Option<HostLocomotorSetKind> {
     let u = upgrade.to_ascii_lowercase();
-    if u.contains("workershoes")
-        || u.contains("nucleartanks")
-        || u.contains("autoloader")
-        || u.contains("veterancy_heroic")
-        || u.contains("heroic")
-    {
+    if is_residual_locomotor_set_upgrade_peel(&u) {
         Some(HostLocomotorSetKind::NormalUpgraded)
     } else if u.contains("panic") {
         Some(HostLocomotorSetKind::Panic)
@@ -720,13 +753,23 @@ pub fn apply_choose_locomotor_set(
 }
 
 /// C++ `LocomotorSetUpgrade::upgradeImplementation` live apply.
+/// Sets `m_upgradedLocomotors` and installs SET_NORMAL_UPGRADED only when this
+/// object authors the module (or a WorkerShoes / NuclearTanks residual peel).
 pub fn apply_locomotor_set_upgrade(
     obj: &mut crate::game_logic::object::Object,
     upgrade: &str,
 ) -> bool {
-    obj.set_locomotor_upgrade(true);
-    let Some(swap) = locomotor_upgrade_set(upgrade, &obj.template_name) else {
+    if !should_apply_locomotor_set_upgrade(&obj.template_name, upgrade) {
         return false;
+    }
+    obj.set_locomotor_upgrade(true);
+    let swap = locomotor_set_swap_for_kind(
+        &obj.template_name,
+        HostLocomotorSetKind::NormalUpgraded,
+    )
+    .or_else(|| locomotor_upgrade_set(upgrade, &obj.template_name));
+    let Some(swap) = swap else {
+        return true;
     };
     apply_swap_fields(obj, &swap);
     true
@@ -800,6 +843,19 @@ mod tests {
         assert!(is_armor_upgrade("Upgrade_AmericaChemicalSuits"));
         assert!(is_chemical_suits_upgrade("Upgrade_AmericaChemicalSuits"));
         assert!(is_locomotor_set_upgrade("Upgrade_GLAWorkerShoes"));
+        assert!(is_locomotor_set_upgrade("Upgrade_ChinaNuclearTanks"));
+        assert!(!is_locomotor_set_upgrade("Upgrade_Veterancy_HEROIC"));
+        assert!(!is_locomotor_set_upgrade(
+            "Tank_Upgrade_ChinaTankAutoLoader"
+        ));
+        assert!(!should_apply_locomotor_set_upgrade(
+            "ChinaTankBattleMaster",
+            "Upgrade_Veterancy_HEROIC"
+        ));
+        assert!(!should_apply_locomotor_set_upgrade(
+            "ChinaTankOverlord",
+            "Tank_Upgrade_ChinaTankAutoLoader"
+        ));
         assert_eq!(
             locomotor_upgrade_speed("Upgrade_GLAWorkerShoes", "GLAInfantryWorker"),
             Some(30.0)
@@ -841,8 +897,15 @@ mod tests {
             .expect("SET_NORMAL");
         let panic = locomotor_set_swap_for_kind("GLAInfantryWorker", HostLocomotorSetKind::Panic)
             .expect("SET_PANIC");
-        let heroic = locomotor_upgrade_set("Upgrade_Veterancy_HEROIC", "GLAInfantryWorker")
-            .expect("heroic SET_NORMAL_UPGRADED");
+        assert!(
+            locomotor_upgrade_set("Upgrade_Veterancy_HEROIC", "GLAInfantryWorker").is_none(),
+            "Heroic rank is giveUpgrade, not LocomotorSetUpgrade"
+        );
+        assert!(
+            locomotor_upgrade_set("Tank_Upgrade_ChinaTankAutoLoader", "ChinaTankBattleMaster")
+                .is_none(),
+            "AutoLoader is WeaponSetUpgrade, not LocomotorSetUpgrade"
+        );
         assert_eq!(panic.locomotor_name, "PanicHumanLocomotor");
         assert!(
             (panic.max_speed - normal.max_speed).abs() > 1.0,
@@ -854,8 +917,6 @@ mod tests {
                 || (panic.braking - normal.braking).abs() > 1.0,
             "panic must swap accel/turn/brake, not speed only"
         );
-        assert_eq!(heroic.locomotor_name, "WorkerShoesLocomotor");
-        assert!((heroic.max_speed - 30.0).abs() < 0.05);
     }
 
     /// Live apply must write turn/accel/brake/surfaces, not max_speed only.
@@ -891,6 +952,31 @@ mod tests {
             obj.movement.turn_rate
         );
         assert_ne!(obj.locomotor_surfaces, 0, "must swap surfaces");
+    }
+
+    /// C++ giveUpgrade(HEROIC) / AutoLoader WeaponSetUpgrade must not install
+    /// SET_NORMAL_UPGRADED (Nuclear* 25→35 / 20→30) on China tanks.
+    #[test]
+    fn heroic_and_autoloader_do_not_swap_china_tank_loco() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut t = ThingTemplate::new("ChinaTankBattleMaster");
+        t.add_kind_of(KindOf::Vehicle);
+        let mut obj = Object::new(t, ObjectId(2), Team::China);
+        obj.movement.max_speed = 25.0;
+        obj.movement.acceleration = 10.0;
+        obj.locomotor_upgrade = false;
+        assert!(!apply_locomotor_set_upgrade(
+            &mut obj,
+            "Upgrade_Veterancy_HEROIC"
+        ));
+        assert!(!obj.locomotor_upgrade);
+        assert!((obj.movement.max_speed - 25.0).abs() < 0.05);
+        assert!(!apply_locomotor_set_upgrade(
+            &mut obj,
+            "Tank_Upgrade_ChinaTankAutoLoader"
+        ));
+        assert!(!obj.locomotor_upgrade);
+        assert!((obj.movement.max_speed - 25.0).abs() < 0.05);
     }
 
     #[test]

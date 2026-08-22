@@ -184,6 +184,14 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let from_player = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         let to_player = self.resolve_player_name_token(&self.get_string_param(action, 1)?);
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_transfer(super::HostScriptTransferRequest::Player {
+                from: from_player,
+                to: to_player,
+            });
+            return Ok(ScriptActionResult::Success);
+        }
+
         log::debug!(
             "Transferring ownership from '{}' to '{}'",
             from_player,
@@ -276,6 +284,12 @@ impl ScriptActionDispatcher {
                 source_guard.set_player_relationship_by_index(target_player_index, relationship);
             }
         }
+
+        request_host_player_relates(HostScriptPlayerRelatesRequest {
+            source: player1,
+            dest: player2,
+            relationship,
+        });
 
         Ok(ScriptActionResult::Success)
     }

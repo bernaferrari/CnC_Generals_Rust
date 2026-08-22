@@ -1438,6 +1438,9 @@ pub struct Object {
     /// Pending death audio residual.
     #[serde(default)]
     pub pending_death_audio: Option<String>,
+    /// C++ `TheAudio->removeAudioEvent` for SoundDeathLoop on ground hit.
+    #[serde(default)]
+    pub pending_death_audio_stop: bool,
     /// C++ CreateObjectDie residual.
     #[serde(default)]
     pub create_object_die:

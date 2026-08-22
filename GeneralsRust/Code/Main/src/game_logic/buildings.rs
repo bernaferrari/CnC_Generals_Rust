@@ -786,6 +786,18 @@ impl BuildingData {
     pub fn ungarrison_unit(&mut self) -> Option<ObjectId> {
         self.garrisoned_units.pop()
     }
+
+    /// C++ `GarrisonContain::removeObjectFromGarrisonPoint` /
+    /// `removeObjectFromStationPoint`. FIREPOINT and STATION share this
+    /// occupancy vector — clear by occupant id so a survivor can take the
+    /// window. Do not wipe the whole list (other occupants keep their slots).
+    pub fn free_garrison_point_for(&mut self, occupant_id: ObjectId) {
+        for slot in &mut self.garrison_point_occupant {
+            if *slot == Some(occupant_id) {
+                *slot = None;
+            }
+        }
+    }
 }
 
 /// Building factory functions
@@ -1158,6 +1170,32 @@ impl BuildingBehavior {
         }
     }
 
+    /// C++ `GarrisonContain::update` effectively-dead sweep: `removeFromContain`
+    /// → `onRemoving` → free FIREPOINT/STATION. Missing occupants (already
+    /// destroyed) also drop their slot.
+    pub fn sweep_dead_garrison_occupants(objects: &mut HashMap<ObjectId, Object>) {
+        let mut dead: Vec<(ObjectId, ObjectId)> = Vec::new();
+        for (&cid, container) in objects.iter() {
+            if !container.is_garrison_contain() {
+                continue;
+            }
+            for occ in container.contained_units() {
+                let gone = objects
+                    .get(&occ)
+                    .map(|o| !o.is_alive())
+                    .unwrap_or(true);
+                if gone {
+                    dead.push((cid, occ));
+                }
+            }
+        }
+        for (cid, occ) in dead {
+            if let Some(container) = objects.get_mut(&cid) {
+                let _ = container.remove_occupant(occ);
+            }
+        }
+    }
+
     /// Update defensive buildings (turrets, etc.)
     pub fn update_defense_behavior(object_id: ObjectId, objects: &mut HashMap<ObjectId, Object>) {
         let (position, team, range) = {
@@ -1342,6 +1380,89 @@ mod tests {
         assert!(
             !bd.can_produce(&rebel),
             "missing KINDOF_INFANTRY must fail can_produce"
+        );
+    }
+
+    #[test]
+    fn free_garrison_point_for_clears_only_that_occupant() {
+        let mut bd = BuildingData::new(BuildingType::Bunker);
+        let a = ObjectId(10);
+        let b = ObjectId(11);
+        bd.garrison_point_occupant = vec![Some(a), Some(b), None];
+        bd.free_garrison_point_for(a);
+        assert_eq!(
+            bd.garrison_point_occupant,
+            vec![None, Some(b), None],
+            "C++ onRemoving frees this occupant's FIREPOINT, not the whole ring"
+        );
+    }
+
+    #[test]
+    fn remove_occupant_frees_firepoint_while_survivors_keep_theirs() {
+        use crate::game_logic::{ContainModuleKind, ContainModuleMetadata};
+        let mut t = ThingTemplate::new("CivBunker");
+        t.add_kind_of(KindOf::Structure);
+        t.set_health(500.0);
+        t.contain_module = ContainModuleMetadata {
+            kind: ContainModuleKind::Garrison,
+            slots: Some(10),
+            ..ContainModuleMetadata::default()
+        };
+        let mut bunker = Object::new(t, ObjectId(1), Team::Neutral);
+        let mut bd = BuildingData::new(BuildingType::Bunker);
+        let dead = ObjectId(10);
+        let survivor = ObjectId(11);
+        bd.garrisoned_units = vec![dead, survivor];
+        bd.garrison_point_occupant = vec![Some(dead), Some(survivor)];
+        bunker.building_data = Some(bd);
+        assert!(bunker.remove_occupant(dead));
+        let bd = bunker.building_data.as_ref().unwrap();
+        assert_eq!(bd.garrisoned_units, vec![survivor]);
+        assert_eq!(
+            bd.garrison_point_occupant,
+            vec![None, Some(survivor)],
+            "survivor must keep their window after a death/exit"
+        );
+    }
+
+    #[test]
+    fn sweep_dead_garrison_occupants_frees_missing_and_dead() {
+        use crate::game_logic::{ContainModuleKind, ContainModuleMetadata};
+        let mut bunker_t = ThingTemplate::new("CivBunker");
+        bunker_t.add_kind_of(KindOf::Structure);
+        bunker_t.set_health(500.0);
+        bunker_t.contain_module = ContainModuleMetadata {
+            kind: ContainModuleKind::Garrison,
+            slots: Some(10),
+            ..ContainModuleMetadata::default()
+        };
+        let mut bunker = Object::new(bunker_t, ObjectId(1), Team::Neutral);
+        let mut ranger_t = ThingTemplate::new("AmericaRanger");
+        ranger_t.add_kind_of(KindOf::Infantry);
+        ranger_t.set_health(120.0);
+        let mut dead = Object::new(ranger_t.clone(), ObjectId(10), Team::USA);
+        dead.health.current = 0.0;
+        dead.status.effectively_dead = true;
+        let live = Object::new(ranger_t, ObjectId(11), Team::USA);
+        let mut bd = BuildingData::new(BuildingType::Bunker);
+        bd.garrisoned_units = vec![ObjectId(10), ObjectId(11), ObjectId(99)];
+        bd.garrison_point_occupant = vec![Some(ObjectId(10)), Some(ObjectId(11)), Some(ObjectId(99))];
+        bunker.building_data = Some(bd);
+        let mut objects = HashMap::new();
+        objects.insert(bunker.id, bunker);
+        objects.insert(dead.id, dead);
+        objects.insert(live.id, live);
+        BuildingBehavior::sweep_dead_garrison_occupants(&mut objects);
+        let bd = objects
+            .get(&ObjectId(1))
+            .unwrap()
+            .building_data
+            .as_ref()
+            .unwrap();
+        assert_eq!(bd.garrisoned_units, vec![ObjectId(11)]);
+        assert_eq!(
+            bd.garrison_point_occupant,
+            vec![None, Some(ObjectId(11)), None]
         );
     }
 }

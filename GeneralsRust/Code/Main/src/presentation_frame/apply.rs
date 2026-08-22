@@ -1218,6 +1218,34 @@ impl PresentationFrame {
                 completed_upgrades.push(name.clone());
             }
         }
+        {
+            let mut residual =
+                game_client::gui::control_bar::PresentationAvailabilityResidual {
+                    completed_upgrades: completed_upgrades.clone(),
+                    ..Default::default()
+                };
+            if let Some(ro) = primary.filter(|_| controllable) {
+                residual.moving = ro.moving;
+                residual.has_production = !ro.production_queue.is_empty();
+                residual.occupant_count = ro.occupant_count as usize;
+                residual.hacking_packing_or_unpacking = ro.hacking_packing_or_unpacking;
+                residual.overcharge_active = ro.overcharge_enabled;
+                residual.special_power_in_use = ro.using_ability;
+                residual.weapon_reload_time = ro.weapon_reload_time;
+                residual.weapon_fire_status = ro.weapon_fire_status;
+                residual.has_primary_weapon = ro.has_weapon;
+                residual.has_secondary_weapon = ro.has_secondary_weapon;
+                residual.has_tertiary_weapon = ro.projectile_clip_statuses[2].is_some()
+                    || ro.active_weapon_slot == 2;
+                residual.active_weapon_slot = ro.active_weapon_slot;
+                residual.battle_plan_bombardment = ro.weapon_bonus_battle_plan_bombardment;
+                residual.battle_plan_hold_the_line = ro.weapon_bonus_battle_plan_hold_the_line;
+                residual.battle_plan_search_and_destroy =
+                    ro.weapon_bonus_battle_plan_search_and_destroy;
+            }
+            control_bar.apply_presentation_availability(residual);
+        }
+
         control_bar.sync_upgrade_cameos_from_presentation(
             &authored_cameos,
             &completed_upgrades,

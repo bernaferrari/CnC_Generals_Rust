@@ -617,6 +617,13 @@ impl PresentationFrame {
                     p
                 },
                 orientation: obj.get_orientation(),
+                float_yaw: {
+                    let yaw = obj.float_update.as_ref().map(|f| f.yaw).unwrap_or(0.0);
+                    let pitch = obj.float_update.as_ref().map(|f| f.pitch).unwrap_or(0.0);
+                    crate::game_logic::host_float_update::publish_sway(obj.id.0, yaw, pitch);
+                    yaw
+                },
+                float_pitch: obj.float_update.as_ref().map(|f| f.pitch).unwrap_or(0.0),
                 topple_lean_radians: obj.presentation_topple_lean_radians(),
                 topple_dir_x: obj.presentation_topple_dir().0,
                 topple_dir_y: obj.presentation_topple_dir().1,

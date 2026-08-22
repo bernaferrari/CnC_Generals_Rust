@@ -210,8 +210,13 @@ impl Object {
                 .unwrap_or(false);
         }
         let mut h =
-            crate::game_logic::host_helicopter_slow_death::HostHelicopterSlowDeathData::default();
+            crate::game_logic::host_helicopter_slow_death::HostHelicopterSlowDeathData::with_fx(
+                crate::game_logic::host_helicopter_slow_death::heli_slow_death_fx_for_template(
+                    &self.template_name,
+                ),
+            );
         h.begin();
+        self.apply_heli_death_phase(h.take_pending_effects());
         self.helicopter_slow_death = Some(h);
         if self.health.current <= 0.0 {
             self.health.current = 0.01;
@@ -220,6 +225,52 @@ impl Object {
         self.set_ai_state(crate::game_logic::AIState::Idle);
         self.target = None;
         true
+    }
+
+    pub(crate) fn apply_heli_death_phase(
+        &mut self,
+        ev: crate::game_logic::host_helicopter_slow_death::HostHeliDeathPhaseEvent,
+    ) {
+        if let Some(fx) = ev.fx {
+            self.pending_death_fx = Some(fx);
+        }
+        if ev.stop_loop {
+            self.pending_death_audio_stop = true;
+            if self.pending_death_audio.is_none() {
+                if let Some(loop_name) = self
+                    .helicopter_slow_death
+                    .as_ref()
+                    .and_then(|h| h.fx.death_loop_sound.clone())
+                {
+                    self.pending_death_audio = Some(loop_name);
+                }
+            }
+        } else if let Some(audio) = ev.audio {
+            if self.pending_death_audio.is_none() {
+                self.pending_death_audio = Some(audio);
+            }
+        }
+        if let Some(ocl) = ev.ocl {
+            let templates =
+                crate::game_logic::host_create_object_die::peel_ocl_spawn_templates(&ocl);
+            if !templates.is_empty() {
+                self.pending_create_object_die_spawns.extend(templates);
+            } else {
+                self.pending_create_object_die_spawns.push(ocl);
+            }
+        }
+        if let Some(rubble) = ev.rubble {
+            if !rubble.is_empty() && !rubble.eq_ignore_ascii_case("none") {
+                self.pending_create_object_die_spawns.push(rubble);
+            }
+        }
+        if ev.held {
+            self.set_status_disabled_held(true);
+        }
+        if ev.special_damaged {
+            let bit = crate::game_logic::host_enum_table_residual::special_damaged_model_bit();
+            self.model_condition_bits |= 1u128 << bit;
+        }
     }
 
     /// Returns true when heli crash finished and should destroy.
@@ -234,6 +285,7 @@ impl Object {
             return false;
         }
         let (dx, dy, dz, dori, done, _blade) = h.tick(current_frame, hat);
+        let ev = h.take_pending_effects();
         let mut np = pos;
         np.x += dx;
         np.y = (np.y + dy).max(terrain_height);
@@ -244,8 +296,10 @@ impl Object {
             self.health.current = 0.0;
             self.status.destroyed = true;
             self.refresh_model_condition_bits();
+            self.apply_heli_death_phase(ev);
             return true;
         }
+        self.apply_heli_death_phase(ev);
         false
     }
 

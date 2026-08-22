@@ -672,6 +672,27 @@ pub fn collector_carrying_from_boxes(current_boxes: u32) -> bool {
     current_boxes > 0
 }
 
+/// C++ `SupplyTruckWantsToPickUpOrDeliverBoxesState::update`
+/// (`SupplyTruckAIUpdate.cpp:507-529`): `numBoxes > 0` docks a center
+/// first. Empty cargo seeks a warehouse. Neither search falls through —
+/// leftover `truck_states.rs` returns Failure → regroup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WantingDockTarget {
+    Center,
+    Warehouse,
+}
+
+/// Leftover `SupplyTruckWantsToPickUpOrDeliverBoxesState::update`
+/// (`truck_states.rs:231-257`) — wire this instead of retargeting a
+/// warehouse while the collector is still carrying.
+pub fn wanting_dock_target(number_boxes: i32) -> WantingDockTarget {
+    if number_boxes > 0 {
+        WantingDockTarget::Center
+    } else {
+        WantingDockTarget::Warehouse
+    }
+}
+
 /// Retail W3DSupplyDraw `SupplyBonePrefix` default (`SupplyBox01`…).
 pub const DEFAULT_SUPPLY_BONE_PREFIX: &str = "SupplyBox";
 /// Leftover Device / typical warehouse crate-bone count when HTree is unknown.

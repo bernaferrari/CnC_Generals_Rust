@@ -366,13 +366,14 @@ impl GameLogic {
                     .get(&object_id)
                     .map(|o| o.get_position())
                     .unwrap_or(glam::Vec3::ZERO);
-                let (transition_evs, death_fx, death_audio) =
+                let (transition_evs, death_fx, death_audio, death_audio_stop) =
                     if let Some(o) = self.objects.get_mut(&object_id) {
                         let te = o.take_pending_transition_damage_fx();
                         let (df, da) = o.take_pending_death_fx_audio();
-                        (te, df, da)
+                        let stop = o.take_pending_death_audio_stop();
+                        (te, df, da, stop)
                     } else {
-                        (Vec::new(), None, None)
+                        (Vec::new(), None, None, false)
                     };
                 for ev in transition_evs {
                     if let Some(a) = ev.audio_name {
@@ -424,16 +425,24 @@ impl GameLogic {
                     }
                 }
                 if let Some(a) = death_audio {
-                    self.queue_audio_event(
-                        AudioEventRequest::new(&a)
-                            .with_object(object_id)
-                            .with_position(pos)
-                            .with_priority(200),
-                    );
+                    let mut req = AudioEventRequest::new(&a)
+                        .with_object(object_id)
+                        .with_position(pos)
+                        .with_priority(200);
+                    if death_audio_stop {
+                        req = req.stopping();
+                    } else if a.contains("DamagedLoop") || a.contains("DeathLoop") {
+                        req = req.looping();
+                    }
+                    self.queue_audio_event(req);
                 }
                 if let Some(fx) = death_fx {
                     if !self.dispatch_fx_list_at_host_object(&fx, object_id, None) {
-                        for sound in crate::game_logic::sound_names_for_fx_list(&fx) {
+                        let mut sounds = crate::game_logic::sound_names_for_fx_list(&fx);
+                        if sounds.is_empty() {
+                            sounds = heli_fx_fallback_sounds(&fx);
+                        }
+                        for sound in sounds {
                             self.queue_audio_event(
                                 AudioEventRequest::new(&sound)
                                     .with_object(object_id)
@@ -963,6 +972,19 @@ impl GameLogic {
     }
 
 }
+
+/// Retail FXList.ini Sound nuggets when the FX store is not loaded.
+fn heli_fx_fallback_sounds(fx: &str) -> Vec<String> {
+    match fx {
+        "FX_HelicopterHitGround" => vec!["ComancheCrash".into()],
+        "FX_GroundedHelicopterBlowUp" | "FX_HelixHelicopterBlowUpBig" => {
+            vec!["CarDie".into()]
+        }
+        "FX_HelicopterBladeExplosion" => vec!["ComancheSpinExplosion".into()],
+        _ => Vec::new(),
+    }
+}
+
 
 /// C++ SlavedUpdate.cpp:196-258 attack / scout-ahead / 2×GuardMaxRange recall / guard.
 pub fn slaved_update_follow_goal(

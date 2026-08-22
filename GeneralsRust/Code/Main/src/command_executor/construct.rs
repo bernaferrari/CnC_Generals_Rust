@@ -356,7 +356,12 @@ impl<'a> CommandExecutor<'a> {
                 .game_logic
                 .unit_command_set_orientation(building_id, orientation);
         }
-        // C++ onStructureCreated + onStructureConstructionComplete same frame.
+        // C++ BuildAssistant.cpp:368 newObject keeps ActiveBody initialHealth,
+        // then onStructureCreated + onStructureConstructionComplete same frame.
+        // Live create_under_construction starts at 1 HP for dozer scaffolds.
+        if let Some(obj) = self.game_logic.host_object_mut(building_id) {
+            obj.health.current = obj.health.maximum;
+        }
         let _ = self.game_logic.force_complete_construction(building_id);
         self.game_logic
             .notify_structure_construction_complete(building_id);

@@ -1842,13 +1842,14 @@ impl GameLogic {
 
     /// Wave 224: host residual — force-complete an under-construction structure
     /// (train/construct producer path). Authority mutation owned by GameLogic.
+    /// C++ completion (DozerAIUpdate.cpp:536-561 / BuildAssistant.cpp:361-418)
+    /// never writes max health; persist scaffold damage.
     pub fn force_complete_construction(&mut self, id: ObjectId) -> bool {
         let Some(obj) = self.objects.get_mut(&id) else {
             return false;
         };
         obj.construction_percent = 1.0;
         obj.status.under_construction = false;
-        obj.health.current = obj.health.maximum;
         true
     }
 

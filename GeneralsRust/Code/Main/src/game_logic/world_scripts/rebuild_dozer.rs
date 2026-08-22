@@ -547,7 +547,10 @@ impl GameLogic {
         if !obj.is_alive() || !obj.is_kind_of(KindOf::Structure) {
             return false;
         }
-        if obj.status.sold || obj.status.under_construction || obj.status.reconstructing {
+        // C++ BuildAssistant::sellObject has no UNDER_CONSTRUCTION / RECONSTRUCTING
+        // gate (BuildAssistant.cpp:1478-1500). Already-sold matches the sell-list
+        // duplicate check.
+        if obj.status.sold {
             return false;
         }
         if obj.is_script_unsellable() {

@@ -177,32 +177,10 @@ impl GameLogic {
                     } else {
                         true
                     };
-                    if may_complete && projected >= 1.0 {
-                        obj.construction_percent = 1.0;
-                        obj.set_status_under_construction(false);
-                        obj.clear_under_construction_model_conditions();
-                        let full_hp = obj.health.maximum;
-                        if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                            // HP last-writer via heal channel + writeback.
-                            crate::game_logic::host_heal_log::record(id, full_hp);
-                        } else {
-                            obj.health.current = full_hp;
-                            crate::game_logic::host_heal_log::record(id, obj.health.current);
-                        }
-                        crate::game_logic::host_construction_progress_log::record(
-                            id, 1.0, false, 0.0,
-                        );
-                        crate::game_logic::host_construction_log::record(
-                            id,
-                            obj.template_name.clone(),
-                        );
-                        // C++ onStructureConstructionComplete SuperweaponDetected residual.
-                        completed_superweapon_detects.push(id);
-                        completed_structures.push(id);
-                        stop_build_loops.push(id);
-                    } else if !(construction_sole && gw_mapped) {
-                        // C++ DozerAIUpdate.cpp:526: +maxHealth / framesToBuild per frame
-                        // starting from 1 HP, not 10% + 90% * percent.
+                    // C++ DozerAIUpdate.cpp:526 then :536 — increment health first,
+                    // then complete. Completion itself never writes max health, so
+                    // scaffold damage taken during build persists.
+                    if !(construction_sole && gw_mapped) {
                         let frames = authored_frames.max(1) as f32;
                         let per_frame = obj.health.maximum / frames;
                         let logic_frames = (dt * 30.0).max(0.0);
@@ -219,6 +197,22 @@ impl GameLogic {
                             obj.health.current = build_hp;
                             crate::game_logic::host_heal_log::record(id, obj.health.current);
                         }
+                    }
+                    if may_complete && projected >= 1.0 {
+                        obj.construction_percent = 1.0;
+                        obj.set_status_under_construction(false);
+                        obj.clear_under_construction_model_conditions();
+                        crate::game_logic::host_construction_progress_log::record(
+                            id, 1.0, false, 0.0,
+                        );
+                        crate::game_logic::host_construction_log::record(
+                            id,
+                            obj.template_name.clone(),
+                        );
+                        // C++ onStructureConstructionComplete SuperweaponDetected residual.
+                        completed_superweapon_detects.push(id);
+                        completed_structures.push(id);
+                        stop_build_loops.push(id);
                     }
 
                     if !(may_complete && projected >= 1.0) && actively_built {
@@ -437,13 +431,9 @@ impl GameLogic {
             obj.construction_percent = 1.0;
             obj.set_status_under_construction(false);
             obj.clear_under_construction_model_conditions();
-            let full_hp = obj.health.maximum;
-            if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                crate::game_logic::host_heal_log::record(id, full_hp);
-            } else {
-                obj.health.current = full_hp;
-                crate::game_logic::host_heal_log::record(id, obj.health.current);
-            }
+            // C++ DozerAIUpdate.cpp:538-561: complete does not set health.
+            // Persist scaffold HP (damage authority writeback already owns it).
+            crate::game_logic::host_heal_log::record(id, obj.health.current);
             crate::game_logic::host_construction_progress_log::record(id, 1.0, false, 0.0);
             crate::game_logic::host_construction_log::record(id, obj.template_name.clone());
             completed_superweapon_detects.push(id);

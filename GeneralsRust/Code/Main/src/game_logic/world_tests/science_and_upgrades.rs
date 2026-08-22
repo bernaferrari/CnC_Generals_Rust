@@ -1805,7 +1805,8 @@ fn sell_destroys_owned_mines_by_producer() {
 }
 
 #[test]
-fn sell_rejects_under_construction_and_reconstructing() {
+fn sell_allows_under_construction_and_reconstructing() {
+    // C++ BuildAssistant::sellObject has no UC / reconstructing gate.
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     logic
@@ -1817,29 +1818,33 @@ fn sell_rejects_under_construction_and_reconstructing() {
         .set_health(500.0);
     st.build_cost.supplies = 800;
     logic.templates.insert("AmericaPowerPlant".into(), st);
-    let id = logic
+    let uc = logic
         .create_object(
             "AmericaPowerPlant",
             Team::USA,
             glam::Vec3::new(0.0, 0.0, 0.0),
         )
-        .expect("pp");
-    if let Some(o) = logic.host_object_mut(id) {
+        .expect("uc");
+    if let Some(o) = logic.host_object_mut(uc) {
         o.set_status_under_construction(true);
         o.construction_percent = 0.5;
     }
-    assert!(!logic.start_sell_object(id));
-    if let Some(o) = logic.host_object_mut(id) {
-        o.set_status_under_construction(false);
-        o.construction_percent = 1.0;
+    assert!(logic.start_sell_object(uc));
+    assert!(logic.is_object_being_sold(uc));
+    let recon = logic
+        .create_object(
+            "AmericaPowerPlant",
+            Team::USA,
+            glam::Vec3::new(20.0, 0.0, 0.0),
+        )
+        .expect("recon");
+    if let Some(o) = logic.host_object_mut(recon) {
+        o.set_status_under_construction(true);
         o.set_status_reconstructing(true);
+        o.construction_percent = 0.3;
     }
-    assert!(!logic.start_sell_object(id));
-    if let Some(o) = logic.host_object_mut(id) {
-        o.set_status_reconstructing(false);
-    }
-    assert!(logic.start_sell_object(id));
-    assert!(logic.is_object_being_sold(id));
+    assert!(logic.start_sell_object(recon));
+    assert!(logic.is_object_being_sold(recon));
 }
 
 #[test]

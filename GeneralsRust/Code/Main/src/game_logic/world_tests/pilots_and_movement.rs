@@ -3987,6 +3987,7 @@ fn ecm_jam_spawns_disable_stream_laser() {
     logic.frame = ECM_VEHICLE_DISABLER_DELAY_FRAMES;
     logic.update_ecm_jam_field();
     assert!(logic.host_object(enemy).unwrap().status.weapons_jammed);
+    assert!(logic.host_object(enemy).unwrap().status.disabled_subdued);
     assert!(logic.honesty_ecm_jam_ok());
     assert!(
         logic.honesty_ecm_laser_ok(),
@@ -4071,6 +4072,10 @@ fn ecm_jam_residual_jams_enemy_weapons_in_radius() {
         "enemy weapons must be jammed near ECM residual"
     );
     assert!(
+        enemy.is_subdued_disabled(),
+        "C++ DISABLED_SUBDUED after ECM vehicle subdual"
+    );
+    assert!(
         !enemy.can_attack(),
         "jammed enemy must fail can_attack residual"
     );
@@ -4078,10 +4083,9 @@ fn ecm_jam_residual_jams_enemy_weapons_in_radius() {
         !enemy.can_fire(0.0),
         "jammed enemy must fail can_fire residual"
     );
-    // Weapons-only residual: movement still allowed.
     assert!(
-        enemy.can_move(),
-        "weapons jam residual must not freeze movement"
+        !enemy.can_move(),
+        "DISABLED_SUBDUED skips AI/locomotor (full halt)"
     );
 
     let ally = game_logic.host_object(ally_id).expect("ally");
@@ -4125,7 +4129,7 @@ fn ecm_jam_residual_jams_enemy_weapons_in_radius() {
         game_logic
             .host_object(enemy_id)
             .expect("enemy")
-            .is_weapons_jammed(),
+            .is_subdued_disabled(),
         "leaving radius must linger while subdual bar is full"
     );
     {
@@ -4137,6 +4141,10 @@ fn ecm_jam_residual_jams_enemy_weapons_in_radius() {
     assert!(
         !enemy.is_weapons_jammed(),
         "weapons recover after subdual heals out"
+    );
+    assert!(
+        !enemy.is_subdued_disabled(),
+        "DISABLED_SUBDUED clears after subdual heals out"
     );
     assert!(enemy.can_attack(), "recovered enemy must can_attack again");
 

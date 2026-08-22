@@ -172,6 +172,13 @@ impl GameLogic {
             }
 
             if let Some(obj) = self.objects.remove(&event.id) {
+                // C++ contain onRemoving when the occupant dies: leave the
+                // garrison list and free this unit's FIREPOINT/STATION slot.
+                if let Some(cid) = obj.contained_by {
+                    if let Some(container) = self.objects.get_mut(&cid) {
+                        let _ = container.remove_occupant(event.id);
+                    }
+                }
                 self.host_radar_remove_object(event.id);
                 crate::game_logic::host_destroy_log::record(event.id);
                 // Wave 681: mid-frame GameWorld Destroy while coupled shadow tick is live.

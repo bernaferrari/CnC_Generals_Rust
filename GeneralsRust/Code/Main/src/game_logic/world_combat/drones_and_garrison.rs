@@ -194,6 +194,12 @@ fn garrison_occupant_fire_point(
     let Some(bd) = container.building_data.as_ref() else {
         return (0, fallback);
     };
+    // C++ WeaponSet.cpp:632-633 / GarrisonContain.cpp:662-663:
+    // non-enclosing Fire Base does not use FIREPOINTs. Occupants fire from
+    // their pre-assigned STATION bone (not the building center).
+    if !container.is_enclosing_garrison_container() {
+        return station_occupant_fire_point(bd, occupant_id, fallback);
+    }
     let idx = garrison_condition_index(container.body_damage_state);
     closest_free_garrison_point(
         garrison_points_for_condition(bd, idx),
@@ -202,6 +208,31 @@ fn garrison_occupant_fire_point(
         target_pos,
         fallback,
     )
+}
+
+/// C++ `positionObjectsAtStationGarrisonPoints` / `pickAStationForMe`.
+fn station_occupant_fire_point(
+    bd: &crate::game_logic::BuildingData,
+    occupant_id: ObjectId,
+    fallback: glam::Vec3,
+) -> (usize, glam::Vec3) {
+    if bd.garrison_station_points.is_empty() {
+        return (0, fallback);
+    }
+    for (i, slot) in bd.garrison_point_occupant.iter().enumerate() {
+        if *slot == Some(occupant_id) {
+            if let Some(&pos) = bd.garrison_station_points.get(i) {
+                return (i, pos);
+            }
+        }
+    }
+    for (i, pos) in bd.garrison_station_points.iter().enumerate() {
+        let taken = bd.garrison_point_occupant.get(i).and_then(|id| *id);
+        if taken.is_none() {
+            return (i, *pos);
+        }
+    }
+    (0, bd.garrison_station_points[0])
 }
 
 impl GameLogic {
@@ -787,9 +818,9 @@ impl GameLogic {
         }
     }
 
-    /// Residual fire-from-garrison: each occupant fires **their current weapon**
-    /// from a FIREPOINT bone (C++ GarrisonContain `getCurrentWeapon` +
-    /// `calcBestGarrisonPosition`), not a synthetic 8-point ring.
+    /// Residual fire-from-garrison: enclosing occupants fire from a FIREPOINT
+    /// bone (C++ `calcBestGarrisonPosition`). Non-enclosing Fire Base fires
+    /// from the occupant's pre-assigned STATION bone, not the building center.
     pub(in super::super) fn try_garrison_residual_fire(&mut self, garrisoned_id: ObjectId) {
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
 
@@ -926,6 +957,16 @@ impl GameLogic {
                         bd.garrison_point_occupant.resize(point_index + 1, None);
                     }
                     bd.garrison_point_occupant[point_index] = Some(garrisoned_id);
+                }
+            }
+            // C++ positionObjectsAtStationGarrisonPoints: stay on STATION.
+            let pin_station = self
+                .objects
+                .get(&cid)
+                .is_some_and(|c| !c.is_enclosing_garrison_container());
+            if pin_station {
+                if let Some(occ) = self.objects.get_mut(&garrisoned_id) {
+                    occ.set_position(fire_pos);
                 }
             }
         }
@@ -1160,22 +1201,25 @@ impl GameLogic {
                 }
             }
         }
-        // C++ findConditionIndex + redeployOccupants on body-state change.
-        let idx = self
-            .objects
-            .get(&container_id)
-            .map(|c| garrison_condition_index(c.body_damage_state))
-            .unwrap_or(0);
-        if let Some(container) = self.objects.get_mut(&container_id) {
-            if let Some(bd) = container.building_data.as_mut() {
-                if bd.garrison_points_condition != idx {
-                    bd.garrison_points_condition = idx;
-                    for slot in &mut bd.garrison_point_occupant {
-                        *slot = None;
-                    }
-                    let n = garrison_points_for_condition(bd, idx).len();
-                    if n > 0 {
-                        bd.garrison_point_occupant.resize(n, None);
+        // C++ findConditionIndex + redeployOccupants is enclosing-only.
+        // Non-enclosing Fire Base keeps pre-assigned STATION occupants.
+        if enclosing {
+            let idx = self
+                .objects
+                .get(&container_id)
+                .map(|c| garrison_condition_index(c.body_damage_state))
+                .unwrap_or(0);
+            if let Some(container) = self.objects.get_mut(&container_id) {
+                if let Some(bd) = container.building_data.as_mut() {
+                    if bd.garrison_points_condition != idx {
+                        bd.garrison_points_condition = idx;
+                        for slot in &mut bd.garrison_point_occupant {
+                            *slot = None;
+                        }
+                        let n = garrison_points_for_condition(bd, idx).len();
+                        if n > 0 {
+                            bd.garrison_point_occupant.resize(n, None);
+                        }
                     }
                 }
             }
@@ -1199,11 +1243,19 @@ impl GameLogic {
                 return;
             };
             let mut chosen = None;
-            for (i, slot) in bd.garrison_point_occupant.iter_mut().enumerate() {
-                if slot.is_none() {
-                    *slot = Some(occupant_id);
+            for (i, slot) in bd.garrison_point_occupant.iter().enumerate() {
+                if *slot == Some(occupant_id) {
                     chosen = bd.garrison_station_points.get(i).copied();
                     break;
+                }
+            }
+            if chosen.is_none() {
+                for (i, slot) in bd.garrison_point_occupant.iter_mut().enumerate() {
+                    if slot.is_none() {
+                        *slot = Some(occupant_id);
+                        chosen = bd.garrison_station_points.get(i).copied();
+                        break;
+                    }
                 }
             }
             chosen
@@ -1704,7 +1756,7 @@ impl GameLogic {
         self.honesty_propaganda_heal_ok() || self.honesty_propaganda_buff_ok()
     }
 
-    /// Host ECM tank residual jam honesty ticks (weapons_jammed grants).
+    /// Host ECM tank residual jam honesty ticks (DISABLED_SUBDUED grants).
     pub fn ecm_residual_jams(&self) -> u32 {
         self.ecm_residual_jams
     }

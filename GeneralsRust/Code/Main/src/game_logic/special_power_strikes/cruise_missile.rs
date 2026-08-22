@@ -134,6 +134,9 @@ pub const DAISY_CUTTER_PRIMARY_RADIUS: f32 = 100.0;
 pub const DAISY_CUTTER_OUTER_RADIUS: f32 = 170.0;
 /// FuelAirBombPower residual impact delay frames (3.0s @ 30 FPS).
 pub const DAISY_CUTTER_IMPACT_DELAY_FRAMES: u32 = 90;
+/// Retail DaisyCutterDetonationWeapon residual name.
+pub const DAISY_CUTTER_WEAPON_NAME: &str = "DaisyCutterDetonationWeapon";
+
 /// Retail DaisyCutterDetonationWeapon DamageType residual.
 pub const DAISY_CUTTER_DAMAGE_TYPE: &str = "EXPLOSION";
 /// Retail DaisyCutterDetonationWeapon DeathType residual.

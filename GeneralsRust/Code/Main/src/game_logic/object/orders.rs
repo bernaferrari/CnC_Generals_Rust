@@ -1843,6 +1843,10 @@ impl Object {
                 .position(|&id| id == unit_id)
             {
                 building.garrisoned_units.remove(pos);
+                // C++ GarrisonContain::onRemoving → removeObjectFromGarrisonPoint
+                // (or station) for this occupant, not only when the building
+                // becomes empty. Survivors must inherit the freed window.
+                building.free_garrison_point_for(unit_id);
                 crate::game_logic::host_contain_log::record_garrison(
                     self.id,
                     &building.garrisoned_units,

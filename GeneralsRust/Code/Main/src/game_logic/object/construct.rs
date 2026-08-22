@@ -275,6 +275,7 @@ impl Object {
             fx_list_die: None,
             pending_death_fx: None,
             pending_death_audio: None,
+            pending_death_audio_stop: false,
             create_object_die: None,
             pending_create_object_die_spawns: Vec::new(),
             create_object_die_transfer_damage: 0.0,
@@ -1120,6 +1121,7 @@ impl Object {
             fx_list_die: None,
             pending_death_fx: None,
             pending_death_audio: None,
+            pending_death_audio_stop: false,
             create_object_die: None,
             pending_create_object_die_spawns: Vec::new(),
             create_object_die_transfer_damage: 0.0,
@@ -2115,10 +2117,11 @@ impl Object {
     /// C++ parity (Object::isDisabled): returns true if the object is in any
     /// disabled state that prevents it from acting (attacking, producing, etc.)
     ///
-    /// Note: `weapons_jammed` (ECM residual) is intentionally **not** full
-    /// disabled — C++ DISABLED_SUBDUED on vehicles only blocks `canFireWeapon`;
-    /// residual keeps movement. Check `is_weapons_jammed()` / `can_attack()` for fire.
-    /// Structure `disabled_subdued` (Microwave residual) **is** full disable.
+    /// Note: `weapons_jammed` is fire-only (canFireWeapon / MODELCONDITION_JAMMED).
+    /// C++ `DISABLED_SUBDUED` (ECM vehicle / microwave subdual) skips update
+    /// modules — AIUpdate only processes `DISABLED_HELD` — so movement halts.
+    /// Check `is_weapons_jammed()` / `can_attack()` for fire; `is_disabled()`
+    /// includes `disabled_subdued` for the full halt.
     pub fn is_disabled(&self) -> bool {
         self.status.disabled_underpowered
             || self.status.disabled_unmanned
@@ -2177,23 +2180,21 @@ impl Object {
         self.status.disabled_paralyzed
     }
 
-    /// Host ECM / jammer residual: weapons cannot fire while in jam radius.
-    /// C++ DISABLED_SUBDUED / canFireWeapon residual (Microwave/ECM disabler).
+    /// Fire-only residual: weapons cannot fire. Does not halt movement.
     pub fn is_weapons_jammed(&self) -> bool {
         self.status.weapons_jammed
     }
 
-    /// C++ DISABLED_SUBDUED residual (Microwave building disabler on structures).
+    /// C++ DISABLED_SUBDUED residual (ECM vehicle / Microwave building).
     pub fn is_subdued_disabled(&self) -> bool {
         self.status.disabled_subdued
     }
 
-    /// Apply / clear weapons-jam residual (ECM field coverage).
+    /// Apply / clear fire-only weapons-jam residual.
     pub fn set_weapons_jammed(&mut self, jammed: bool) {
         if jammed {
             self.set_status_weapons_jammed(true);
-            // C++ canFireWeapon false while subdued: drop in-progress attack fire
-            // but do not freeze movement (jam residual is weapons-only).
+            // canFireWeapon false: drop in-progress attack fire only.
             self.status.attacking = false;
             self.set_status_force_attack(false);
         } else {
@@ -2201,11 +2202,9 @@ impl Object {
         }
     }
 
-    // Apply / clear DISABLED_SUBDUED residual (Microwave structure cook).
-    //
+    // DISABLED_SUBDUED apply/clear lives on set_disabled_subdued (install.rs):
     // C++ ActiveBody::onSubdualChange → setDisabled(DISABLED_SUBDUED).
-    // Structures stop production / attack while cooked; residual continuous
-    // while microwave keeps attacking (not full subdual accumulate/heal).
+    // Full halt: stop_moving + Idle AI (AIUpdate skipped except DISABLED_HELD).
 }
 
 #[cfg(test)]

@@ -30,13 +30,11 @@ impl<'a> CommandExecutor<'a> {
                 return CommandResult::InvalidTarget;
             }
             if obj.status.sold
-                || obj.status.reconstructing
-                || obj.status.under_construction
                 || obj.is_script_unsellable()
                 || self.game_logic.is_object_being_sold(object_id)
             {
                 // C++ ControlBar hides GUI_COMMAND_SELL for SCRIPT_UNSELLABLE.
-                // Live host also rejects so a leftover/hardcoded Sell cannot refund.
+                // sellObject itself has no UC / reconstructing gate.
                 return CommandResult::InvalidCommand;
             }
             // C++ BuildAssistant::sellObject multi-frame residual (scaffold → SOLD → refund).

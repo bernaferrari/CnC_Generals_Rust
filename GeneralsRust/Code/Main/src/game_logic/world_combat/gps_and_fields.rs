@@ -170,13 +170,16 @@ impl GameLogic {
     /// Host China ECM Tank / jammer residual: jam enemy weapons in radius.
     ///
     /// C++ `ECMTankVehicleDisabler` (SUBDUAL_VEHICLE, AttackRange 200, 24/100ms):
-    /// ActiveBody.cpp:471-487 accumulates (no HP); jam when `isSubdued()`
-    /// (`maxHealth <= subdual`, :1292-1294). Infantry/aircraft are not targets.
-    /// SubdualDamageHelper.cpp:32-50 heals so disable lingers after leaving.
+    /// ActiveBody.cpp:471-487 accumulates (no HP); `onSubdualChange` sets
+    /// `DISABLED_SUBDUED` when `isSubdued()` (`maxHealth <= subdual`, :1292-1294).
+    /// AIUpdate only processes `DISABLED_HELD`, so movement/AI halt. Live
+    /// `weapons_jammed` stays fire-only (`canFireWeapon` / JAMMED mesh).
+    /// Infantry/aircraft are not targets. SubdualDamageHelper.cpp:32-50 heals
+    /// so disable lingers after leaving.
     pub fn update_ecm_jam_field(&mut self) {
         use crate::game_logic::host_ecm_jam::{
-            accumulate_subdual_damage, in_ecm_jam_radius_2d, is_ecm_hostile_team, is_ecm_jammer,
-            is_legal_ecm_vehicle_disabler_target, is_subdual_full, seed_host_subdual_if_unauthored,
+            in_ecm_jam_radius_2d, is_ecm_hostile_team, is_ecm_jammer,
+            is_legal_ecm_vehicle_disabler_target, seed_host_subdual_if_unauthored,
             ECM_VEHICLE_DISABLER_ATTACK_RANGE, ECM_VEHICLE_DISABLER_DELAY_FRAMES,
             ECM_VEHICLE_DISABLER_PRIMARY_DAMAGE,
         };
@@ -215,9 +218,18 @@ impl GameLogic {
         if jammers.is_empty() {
             // Linger: C++ SubdualDamageHelper heals then onSubdualChange clears.
             for obj in self.objects.values_mut() {
-                let max_h = obj.health.maximum.max(obj.max_health);
-                if obj.status.weapons_jammed && !is_subdual_full(obj.subdual_damage, max_h) {
+                let vehicle = obj.is_kind_of(KindOf::Vehicle)
+                    && !obj.is_kind_of(KindOf::Aircraft)
+                    && obj.object_type != ObjectType::Aircraft;
+                let full = obj.is_subdued();
+                // weapons_jammed is fire-only; clear when the bar is no longer full.
+                if obj.status.weapons_jammed && !full {
                     obj.set_weapons_jammed(false);
+                }
+                // DISABLED_SUBDUED is a full halt. Only vehicles here — microwave
+                // structures use the same flag via update_microwave_disable_field.
+                if vehicle && obj.status.disabled_subdued && !full {
+                    obj.set_disabled_subdued(false);
                 }
             }
             return;
@@ -308,24 +320,24 @@ impl GameLogic {
                     &mut target.subdual_heal_amount,
                     max_h,
                 );
-                // Manual pool: apply_subdual_damage would set DISABLED_SUBDUED
-                // and freeze movement. C++ vehicles cannot fire but still move.
-                target.subdual_damage = accumulate_subdual_damage(
-                    target.subdual_damage,
-                    ECM_VEHICLE_DISABLER_PRIMARY_DAMAGE,
-                    target.subdual_damage_cap,
-                );
-                target.subdual_heal_countdown = target.subdual_heal_rate_frames;
+                // C++ ActiveBody::internalAddSubdualDamage + onSubdualChange
+                // → setDisabled(DISABLED_SUBDUED). AIUpdate only processes
+                // DISABLED_HELD, so movement/AI halt. weapons_jammed stays fire-only.
+                target.apply_subdual_damage(ECM_VEHICLE_DISABLER_PRIMARY_DAMAGE);
             }
         }
 
-        // Sync weapons_jammed from isSubdued so disable lingers after leaving.
+        // Sync fire-only weapons_jammed + DISABLED_SUBDUED full halt from isSubdued.
         for obj in self.objects.values_mut() {
             let vehicle = obj.is_kind_of(KindOf::Vehicle)
                 && !obj.is_kind_of(KindOf::Aircraft)
                 && obj.object_type != ObjectType::Aircraft;
-            let max_h = obj.health.maximum.max(obj.max_health);
-            let should = vehicle && is_subdual_full(obj.subdual_damage, max_h);
+            let should = vehicle && obj.is_subdued();
+            if should && !obj.status.disabled_subdued {
+                obj.set_disabled_subdued(true);
+            } else if !should && vehicle && obj.status.disabled_subdued {
+                obj.set_disabled_subdued(false);
+            }
             if should && !obj.status.weapons_jammed {
                 obj.set_weapons_jammed(true);
                 jam_ticks = jam_ticks.saturating_add(1);
@@ -2114,8 +2126,16 @@ mod tests {
             "C++ ECMTankVehicleDisabler does not jam infantry"
         );
         assert!(
+            !logic.host_object(inf).unwrap().is_subdued_disabled(),
+            "infantry must not get DISABLED_SUBDUED from ECM"
+        );
+        assert!(
             !logic.host_object(air).unwrap().is_weapons_jammed(),
             "C++ ECMTankVehicleDisabler does not jam aircraft"
+        );
+        assert!(
+            !logic.host_object(air).unwrap().is_subdued_disabled(),
+            "aircraft must not get DISABLED_SUBDUED from ECM"
         );
     }
 
@@ -2163,7 +2183,7 @@ mod tests {
         logic.update_ecm_jam_field();
         let after_one = logic.host_object(tank).unwrap();
         assert!(
-            !after_one.is_weapons_jammed(),
+            !after_one.is_weapons_jammed() && !after_one.is_subdued_disabled(),
             "one 24 pulse must not jam a 400 HP tank"
         );
         assert!(
@@ -2179,11 +2199,19 @@ mod tests {
             logic.frame = i * ECM_VEHICLE_DISABLER_DELAY_FRAMES;
             logic.update_ecm_jam_field();
         }
+        let tank_o = logic.host_object(tank).unwrap();
         assert!(
-            logic.host_object(tank).unwrap().is_weapons_jammed(),
-            "tank jams after subdual >= maxHealth"
+            tank_o.is_weapons_jammed(),
+            "tank weapons_jammed after subdual >= maxHealth (fire-only)"
         );
-        assert!(logic.host_object(tank).unwrap().can_move());
+        assert!(
+            tank_o.is_subdued_disabled(),
+            "C++ DISABLED_SUBDUED after isSubdued"
+        );
+        assert!(
+            !tank_o.can_move(),
+            "DISABLED_SUBDUED skips AI/locomotor updates"
+        );
     }
 
     /// C++ ECMTankVehicleDisabler AttackRange 200 (missile-jammer splash is 150).

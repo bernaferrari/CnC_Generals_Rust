@@ -166,6 +166,8 @@ impl CnCGameEngine {
                 self.runtime_host_last_gameplay_cmd =
                     "control_group_assign_fail_no_selection".into();
             } else {
+                self.evict_ids_from_other_control_groups(&selected, group);
+                self.write_leftover_player_create_team(group, &selected);
                 self.control_groups.insert(group, selected.clone());
                 self.runtime_host_last_gameplay_cmd =
                     format!("control_group_assign_ok:{}:{}", group, selected.len());

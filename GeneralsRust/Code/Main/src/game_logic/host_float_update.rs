@@ -9,14 +9,72 @@
 //!
 //! Host Y-up: water height is world Y.
 //!
-//! Fail-closed: not full Drawable instance matrix scrub / TerrainLogic wave mesh.
+//! Live path applies leftover `isUnderwater` waterZ (not lakebed) and the
+//! C++ instance matrix (`Rotate_Z` heading / `Rotate_Y` yaw / `Rotate_X` pitch)
+//! remapped to host Y-up on GameClient drawables and unit meshes.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
 
 /// C++ sway coefficients residual.
 pub const FLOAT_YAW_PHASE: f32 = 0.0291;
 pub const FLOAT_PITCH_PHASE: f32 = 0.0515;
 pub const FLOAT_SWAY_AMP: f32 = 0.05;
+
+static LIVE_SWAY: LazyLock<Mutex<HashMap<u32, (f32, f32)>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Publish last FloatUpdate yaw/pitch for live drawable / mesh apply.
+pub fn publish_sway(object_id: u32, yaw: f32, pitch: f32) {
+    let Ok(mut map) = LIVE_SWAY.lock() else {
+        return;
+    };
+    if yaw.abs() <= 1.0e-8 && pitch.abs() <= 1.0e-8 {
+        map.remove(&object_id);
+    } else {
+        map.insert(object_id, (yaw, pitch));
+    }
+}
+
+/// Last published sway for a host object (0,0 if none).
+pub fn sway_for(object_id: u32) -> (f32, f32) {
+    LIVE_SWAY
+        .lock()
+        .ok()
+        .and_then(|map| map.get(&object_id).copied())
+        .unwrap_or((0.0, 0.0))
+}
+
+pub fn clear_published_sway() {
+    if let Ok(mut map) = LIVE_SWAY.lock() {
+        map.clear();
+    }
+}
+
+/// Leftover `TerrainLogic::isUnderwater` waterZ at host map XZ (Y-up height).
+///
+/// C++ writes waterZ only when a water handle exists (polygon / grid).
+/// None means no water table — do not snap to lakebed.
+pub fn leftover_water_surface_y(map_x: f32, map_y: f32) -> Option<f32> {
+    let tl = gamelogic::terrain::get_terrain_logic().try_read().ok()?;
+    if tl.get_water_handle(map_x, map_y).is_none() {
+        return None;
+    }
+    let mut water_z = 0.0;
+    let _ = tl.is_underwater(map_x, map_y, Some(&mut water_z), None);
+    Some(water_z)
+}
+
+/// C++ `FloatUpdate::update` instance matrix in host Y-up.
+///
+/// C++ Z-up: Identity; Rotate_Z(heading); Rotate_Y(yaw); Rotate_X(pitch).
+/// Host Y-up: heading is Ry, C++ Ry (map Y) is host Rz, Rx stays Rx.
+pub fn instance_matrix_yup(heading: f32, yaw: f32, pitch: f32) -> glam::Mat4 {
+    glam::Mat4::from_rotation_y(heading)
+        * glam::Mat4::from_rotation_z(yaw)
+        * glam::Mat4::from_rotation_x(pitch)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostFloatUpdateData {
@@ -99,6 +157,7 @@ impl HostFloatUpdateRegistry {
     }
     pub fn clear(&mut self) {
         *self = Self::default();
+        clear_published_sway();
     }
     pub fn record_install(&mut self) {
         self.installed = self.installed.saturating_add(1);
@@ -135,5 +194,12 @@ mod tests {
         assert!(d.snap_height_y(Some(12.0)).is_none());
         d.set_enabled(true);
         assert_eq!(d.snap_height_y(Some(12.0)), Some(12.0));
+        let mx = instance_matrix_yup(0.3, d.yaw, d.pitch);
+        assert!(mx.is_finite());
+        publish_sway(7, d.yaw, d.pitch);
+        let (y, p) = sway_for(7);
+        assert!((y - d.yaw).abs() < 1.0e-6);
+        assert!((p - d.pitch).abs() < 1.0e-6);
+        clear_published_sway();
     }
 }

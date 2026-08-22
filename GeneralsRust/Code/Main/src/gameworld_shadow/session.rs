@@ -1226,7 +1226,43 @@ pub fn shadow_session_after_host_tick(
         }
         // Wave 773: HelicopterSlowDeathBehavior done → host destroy (no dual timer).
         for id in crate::game_logic::host_heli_slow_death_kill_log::drain() {
-            // Wave 941: force-kill residual via host residual mutation authority.
+            // C++ :457-472 FinalBlowUp FX/OCL + rubble before destroyObject.
+            if let Some(obj) = logic.objects.get_mut(&id) {
+                if let Some(h) = obj.helicopter_slow_death.as_mut() {
+                    if h.pending_fx.is_none() {
+                        h.pending_fx = h.fx.fx_final_blow_up.clone();
+                        h.pending_ocl = h.fx.ocl_final_blow_up.clone();
+                        h.pending_rubble = h.fx.final_rubble_object.clone();
+                    }
+                    let ev = h.take_pending_effects();
+                    obj.apply_heli_death_phase(ev);
+                }
+            }
+            if let Some(fx) = logic
+                .objects
+                .get(&id)
+                .and_then(|o| o.pending_death_fx.clone())
+            {
+                let _ = logic.dispatch_fx_list_at_host_object(&fx, id, None);
+            }
+            if let Some(a) = logic
+                .objects
+                .get(&id)
+                .and_then(|o| o.pending_death_audio.clone())
+            {
+                let pos = logic
+                    .objects
+                    .get(&id)
+                    .map(|o| o.get_position())
+                    .unwrap_or(glam::Vec3::ZERO);
+                logic.queue_audio_event(
+                    crate::game_logic::AudioEventRequest::new(&a)
+                        .with_object(id)
+                        .with_position(pos)
+                        .with_priority(200),
+                );
+            }
+            logic.apply_pending_create_object_die(id);
             logic.apply_host_residual_mutation_op(
                 crate::game_logic::HostResidualMutationOp::ForceKill {
                     id,

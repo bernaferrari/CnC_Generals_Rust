@@ -1895,6 +1895,8 @@ impl CnCGameEngine {
                     template_name: o.template_name.clone(),
                     position: [o.position.x, o.position.y, o.position.z],
                     orientation: o.orientation,
+                    float_yaw: o.float_yaw,
+                    float_pitch: o.float_pitch,
                     destroyed: o.destroyed,
                     model_condition_bits: o.model_condition_bits,
                     body_damage_state: o.body_damage_state,
@@ -1978,6 +1980,8 @@ impl CnCGameEngine {
                     effectively_dead,
                     [object.position.x, object.position.y, object.position.z],
                     object.orientation,
+                    object.float_yaw,
+                    object.float_pitch,
                 ))
             })
             .collect::<Vec<_>>();
@@ -1995,7 +1999,7 @@ impl CnCGameEngine {
         let direct_bindings = direct_sources
             .into_iter()
             .filter_map(
-                |(object_id, raw_status, effectively_dead, position, orientation)| {
+                |(object_id, raw_status, effectively_dead, position, orientation, float_yaw, float_pitch)| {
                     let binding_key = self
                         .game_client
                         .presentation_direct_drawable_state(host_epoch, object_id)?
@@ -2006,6 +2010,8 @@ impl CnCGameEngine {
                         effectively_dead,
                         position,
                         orientation,
+                        float_yaw,
+                        float_pitch,
                     ))
                 },
             )
@@ -2018,7 +2024,7 @@ impl CnCGameEngine {
             let shroud_entries =
                 direct_bindings
                     .iter()
-                    .map(|(binding_key, raw_status, effectively_dead, _, _)| {
+                    .map(|(binding_key, raw_status, effectively_dead, _, _, _, _)| {
                         game_client::core::game_client::FrozenDirectShroudStatus {
                             binding_key: *binding_key,
                             raw_status: *raw_status,
@@ -2035,11 +2041,13 @@ impl CnCGameEngine {
         let pose_entries =
             direct_bindings
                 .into_iter()
-                .map(|(binding_key, _, _, position, orientation)| {
+                .map(|(binding_key, _, _, position, orientation, float_yaw, float_pitch)| {
                     game_client::core::game_client::FrozenDirectPresentationPose {
                         binding_key,
                         position,
                         orientation,
+                        float_yaw,
+                        float_pitch,
                     }
                 });
         let n = self

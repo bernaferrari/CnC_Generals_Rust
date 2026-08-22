@@ -402,10 +402,15 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    // BodyModule last_damage_source residual for cash bounty killer
-                    // (superweapon blast path — same residual as combat fire).
-                    let destroyed =
-                        target.take_damage_from_immediate(hit.damage, Some(plan.source_object));
+                    // C++ Weapon.cpp dealDamage / NeutronMissileSlowDeath: authored
+                    // DamageType through Armor.ini. Not DAMAGE_UNRESISTABLE.
+                    let destroyed = target.take_damage_from_immediate_typed_death(
+                        hit.damage,
+                        Some(plan.source_object),
+                        plan.kind.authored_damage_type(),
+                        plan.kind.authored_death_type(),
+                    );
+
                     total_damage += hit.damage;
                     objects_hit += 1;
                     if destroyed {
@@ -699,8 +704,14 @@ impl GameLogic {
                     }
                 }
                 if hit.damage > 0.0 && alive {
-                    let destroyed =
-                        obj.take_damage_from_immediate(hit.damage, Some(meta.source_object));
+                    // C++ NeutronMissileSlowDeathUpdate.cpp:284-286 DAMAGE_EXPLOSION / DEATH_EXPLODED.
+                    let destroyed = obj.take_damage_from_immediate_typed_death(
+                        hit.damage,
+                        Some(meta.source_object),
+                        crate::game_logic::combat::DamageType::Explosive,
+                        crate::game_logic::host_usa_pilot::HostDeathType::Exploded,
+                    );
+
                     if destroyed {
                         destroy_ids.push((id, meta.source_team));
                     }
@@ -1251,14 +1262,28 @@ impl GameLogic {
             let mut applications = 0_u32;
             let mut destroyed = 0_u32;
             let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+            let source_template = self
+                .objects
+                .get(&plan.source_object)
+                .map(|o| o.template_name.clone());
+            let (damage_type, death_type) =
+                crate::game_logic::special_power_strikes::particle_beam_authored_types(
+                    source_template.as_deref(),
+                );
 
             for hit in &plan.hits {
                 if let Some(target) = self.objects.get_mut(&hit.target_id) {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed =
-                        target.take_damage_from_immediate(hit.damage, Some(plan.source_object));
+                    // C++ ParticleUplinkCannonUpdate.cpp:633-634 module DamageType/DeathType.
+                    let killed = target.take_damage_from_immediate_typed_death(
+                        hit.damage,
+                        Some(plan.source_object),
+                        damage_type,
+                        death_type,
+                    );
+
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -1902,14 +1927,21 @@ impl GameLogic {
             let mut applications = 0_u32;
             let mut destroyed = 0_u32;
             let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+            let (damage_type, death_type) =
+                crate::game_logic::special_power_strikes::particle_remnant_authored_types();
 
             for hit in &plan.hits {
                 if let Some(target) = self.objects.get_mut(&hit.target_id) {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed =
-                        target.take_damage_from_immediate(hit.damage, Some(plan.source_object));
+                    let killed = target.take_damage_from_immediate_typed_death(
+                        hit.damage,
+                        Some(plan.source_object),
+                        damage_type,
+                        death_type,
+                    );
+
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {

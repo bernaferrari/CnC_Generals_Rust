@@ -78,6 +78,10 @@ mod restore;
 mod shroud;
 mod special_powers;
 mod special_power_cooldown_persist;
+mod subdual_persist;
+mod hotkey_squad_persist;
+
+
 mod terrain;
 mod types;
 mod w3d_ghost_save;
@@ -103,6 +107,9 @@ pub use lifecycle_tail::{
 pub use object::*;
 pub use persist_v18::{
     CameraPersist, WorldPersistV18, peek_pending_camera, set_pending_camera, take_pending_camera,
+};
+pub use hotkey_squad_persist::{
+    peek_pending_control_groups, set_pending_control_groups, take_pending_control_groups,
 };
 pub use player::*;
 pub use special_powers::*;
@@ -139,6 +146,10 @@ pub const SNAPSHOT_SRC: &str = concat!(
     include_str!("shroud.rs"),
     include_str!("special_powers.rs"),
     include_str!("special_power_cooldown_persist.rs"),
+    include_str!("subdual_persist.rs"),
+    include_str!("hotkey_squad_persist.rs"),
+
+
     include_str!("terrain.rs"),
     include_str!("types.rs"),
     include_str!("xfer_helpers.rs"),
