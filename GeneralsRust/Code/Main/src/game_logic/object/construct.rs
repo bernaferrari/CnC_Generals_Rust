@@ -690,6 +690,8 @@ impl Object {
             ground_height_from_terrain: false,
             team_color: team.get_color(),
             occupants: Vec::new(),
+            player_who_entered: String::new(),
+
             max_transport: authored_transport_slots,
             overlord_bunker_capacity: None,
             passengers_allowed_to_fire: false,
@@ -1521,6 +1523,8 @@ impl Object {
             ground_height_from_terrain: false,
             team_color: team.get_color(),
             occupants: Vec::new(),
+            player_who_entered: String::new(),
+
             max_transport: 0,
             overlord_bunker_capacity: None,
             passengers_allowed_to_fire: false,

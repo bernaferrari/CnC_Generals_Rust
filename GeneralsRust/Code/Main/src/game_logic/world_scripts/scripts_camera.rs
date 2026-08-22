@@ -21,6 +21,118 @@ fn leftover_host_template_is_inert(template_name: &str) -> bool {
         })
 }
 
+/// C++ Object::getStatusBits: packed OBJECT_STATUS_* from live host flags.
+fn host_query_object_status_bits(obj: &crate::game_logic::object::Object) -> u64 {
+    use crate::game_logic::host_status_bits_upgrade::object_status_mask_from_names;
+    let s = &obj.status;
+    let mut names: Vec<&str> = Vec::new();
+    if s.destroyed {
+        names.push("DESTROYED");
+    }
+    if s.under_construction {
+        names.push("UNDER_CONSTRUCTION");
+    }
+    if s.unselectable {
+        names.push("UNSELECTABLE");
+    }
+    if s.no_collisions {
+        names.push("NO_COLLISIONS");
+    }
+    if s.airborne_target {
+        names.push("AIRBORNE_TARGET");
+    }
+    if s.parachuting {
+        names.push("PARACHUTING");
+    }
+    if s.repulsor {
+        names.push("REPULSOR");
+    }
+    if s.hijacked {
+        names.push("HIJACKED");
+    }
+    if s.wet {
+        names.push("WET");
+    }
+    if s.is_firing_weapon {
+        names.push("IS_FIRING_WEAPON");
+    }
+    if s.stealthed {
+        names.push("STEALTHED");
+    }
+    if s.detected {
+        names.push("DETECTED");
+    }
+    if s.sold {
+        names.push("SOLD");
+    }
+    if s.reconstructing {
+        names.push("RECONSTRUCTING");
+    }
+    if s.masked {
+        names.push("MASKED");
+    }
+    if s.attacking {
+        names.push("IS_ATTACKING");
+    }
+    if s.using_ability {
+        names.push("USING_ABILITY");
+    }
+    if s.is_aiming_weapon {
+        names.push("IS_AIMING_WEAPON");
+    }
+    if s.ignoring_stealth {
+        names.push("IGNORING_STEALTH");
+    }
+    if s.is_carbomb {
+        names.push("IS_CARBOMB");
+    }
+    if s.deck_height_offset {
+        names.push("DECK_HEIGHT_OFFSET");
+    }
+    if s.faerie_fire {
+        names.push("FAERIE_FIRE");
+    }
+    if s.booby_trapped {
+        names.push("BOOBY_TRAPPED");
+    }
+    if s.disguised {
+        names.push("DISGUISED");
+    }
+    if s.deployed {
+        names.push("DEPLOYED");
+    }
+    obj.object_status_bits | object_status_mask_from_names(&names)
+}
+
+/// C++ OpenContain::getPlayerWhoEntered — sticky last enterer SIDE name.
+fn host_query_player_who_entered(
+    logic: &GameLogic,
+    obj: &crate::game_logic::object::Object,
+) -> String {
+    if !obj.player_who_entered.is_empty() {
+        return obj.player_who_entered.clone();
+    }
+    obj.contained_units()
+        .last()
+        .copied()
+        .and_then(|uid| {
+            logic.objects.get(&uid).and_then(|occ| {
+                occ.owner_player_id
+                    .and_then(|pid| logic.player_name(pid))
+                    .or_else(|| {
+                        logic
+                            .players
+                            .values()
+                            .find(|p| p.team == occ.team)
+                            .map(|p| p.name.clone())
+                    })
+            })
+        })
+        .unwrap_or_default()
+}
+
+
+
 
 impl GameLogic {
     pub(in super::super) fn build_script_game_state_context(
@@ -371,6 +483,10 @@ impl GameLogic {
                 unmanned: obj.status.disabled_unmanned,
                 garrisonable: obj.is_garrison_contain(),
                 build_cost: obj.thing.template.build_cost.supplies as i32,
+                status_bits: host_query_object_status_bits(obj),
+                player_who_entered: host_query_player_who_entered(self, obj),
+
+
                 ..Default::default()
             });
             if !obj.team_instance_name.is_empty() {
@@ -520,6 +636,16 @@ impl GameLogic {
                         || obj.is_kind_of(KindOf::FSAirfield))
                 {
                     census.has_any_build_facility = true;
+                }
+                if !obj.status.under_construction && !obj.template_name.is_empty() {
+                    let key = obj.template_name.to_ascii_lowercase();
+                    *census.template_counts.entry(key.clone()).or_insert(0) += 1;
+                    if !dead {
+                        *census
+                            .template_counts_ignore_dead
+                            .entry(key)
+                            .or_insert(0) += 1;
+                    }
                 }
             }
             let mut insert = |name: &str| {
@@ -871,6 +997,105 @@ impl GameLogic {
             }
         }
     }
+
+    /// C++ ScriptActions NAMED/TEAM DELETE / KILL / DAMAGE.
+    /// Leftover `OBJECT_REGISTRY` is empty on the host path; leftover actions
+    /// queue [`gamelogic::scripting::HostScriptKillDeleteDamageRequest`].
+    fn apply_host_kill_delete_damage_script_requests(&mut self) {
+        use crate::game_logic::KindOf;
+        use gamelogic::scripting::HostScriptKillDeleteDamageRequest;
+        const HUGE_DAMAGE_AMOUNT: f32 = 999999.0;
+        for req in gamelogic::scripting::take_host_script_kill_delete_damage_requests() {
+            match req {
+                HostScriptKillDeleteDamageRequest::NamedDelete { unit } => {
+                    if let Some(id) = self.host_object_id_by_script_name(&unit) {
+                        self.destroy_object(id);
+                    }
+                }
+                HostScriptKillDeleteDamageRequest::NamedKill { unit } => {
+                    if let Some(id) = self.host_object_id_by_script_name(&unit) {
+                        self.host_script_kill_object(id, HUGE_DAMAGE_AMOUNT);
+                    }
+                }
+                HostScriptKillDeleteDamageRequest::NamedDamage { unit, amount } => {
+                    if let Some(id) = self.host_object_id_by_script_name(&unit) {
+                        self.host_script_apply_unresistable(id, amount as f32, HUGE_DAMAGE_AMOUNT);
+                    }
+                }
+                HostScriptKillDeleteDamageRequest::TeamDelete { team, ignore_dead } => {
+                    let members = self.host_script_team_member_ids(&team);
+                    for id in members {
+                        if ignore_dead {
+                            let skip = self
+                                .host_object(id)
+                                .map(|o| !o.is_alive() || o.status.destroyed)
+                                .unwrap_or(true);
+                            if skip {
+                                continue;
+                            }
+                        }
+                        self.destroy_object(id);
+                    }
+                }
+                HostScriptKillDeleteDamageRequest::TeamKill { team } => {
+                    let members = self.host_script_team_member_ids(&team);
+                    for id in members {
+                        let is_tech = self
+                            .host_object(id)
+                            .map(|o| o.is_kind_of(KindOf::TechBuilding))
+                            .unwrap_or(false);
+                        if is_tech {
+                            if let Some(obj) = self.host_object_mut(id) {
+                                obj.team = Team::Neutral;
+                            }
+                            continue;
+                        }
+                        self.host_script_kill_object(id, HUGE_DAMAGE_AMOUNT);
+                    }
+                }
+                HostScriptKillDeleteDamageRequest::TeamDamage { team, amount } => {
+                    let members = self.host_script_team_member_ids(&team);
+                    for id in members {
+                        let skip = self
+                            .host_object(id)
+                            .map(|o| !o.is_alive() || o.status.destroyed)
+                            .unwrap_or(true);
+                        if skip {
+                            continue;
+                        }
+                        self.host_script_apply_unresistable(id, amount, HUGE_DAMAGE_AMOUNT);
+                    }
+                }
+            }
+        }
+    }
+
+    /// C++ `Object::kill()` — HUGE unresistable damage with death effects.
+    fn host_script_kill_object(&mut self, id: ObjectId, huge: f32) {
+        let dead = self
+            .host_object_mut(id)
+            .map(|obj| obj.take_damage_from(huge, None))
+            .unwrap_or(false);
+        if dead {
+            self.destroy_object(id);
+        }
+    }
+
+    /// C++ `attemptDamage` UNRESISTABLE; amount < 0 is `Object::kill()`.
+    fn host_script_apply_unresistable(&mut self, id: ObjectId, amount: f32, huge: f32) {
+        if amount < 0.0 {
+            self.host_script_kill_object(id, huge);
+            return;
+        }
+        let dead = self
+            .host_object_mut(id)
+            .map(|obj| obj.take_damage_from(amount, None))
+            .unwrap_or(false);
+        if dead {
+            self.destroy_object(id);
+        }
+    }
+
 
 
     /// C++ ScriptActions TEAM/NAMED FOLLOW_WAYPOINTS and EXACT.
@@ -1775,6 +2000,8 @@ impl GameLogic {
         self.apply_host_move_attack_script_requests();
         self.apply_host_hunt_guard_script_requests();
         self.apply_host_idle_script_requests();
+        self.apply_host_kill_delete_damage_script_requests();
+
 
         self.apply_host_follow_waypoints_script_requests();
 

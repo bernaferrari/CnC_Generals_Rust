@@ -1382,6 +1382,16 @@ impl ScriptActionDispatcher {
 
         // C++ parity: TEAM_DELETE_LIVING -> doTeamDelete(team, TRUE).
         let team_name = self.resolve_team_name_token(&team_name);
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_kill_delete_damage(
+                super::HostScriptKillDeleteDamageRequest::TeamDelete {
+                    team: team_name,
+                    ignore_dead: true,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
         if let Ok(mut factory_guard) = get_team_factory().lock() {
             if let Some(team_arc) = factory_guard.find_team(&team_name) {
                 if let Ok(mut team_guard) = team_arc.write() {

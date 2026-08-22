@@ -10,7 +10,8 @@ impl GameLogic {
     /// - FinalRadius residual 100 (RadiusCursorRadius / GrantStealth FinalRadius)
     /// - KindOf VEHICLE | INFANTRY, C++ ALLOW_ALLIES (same player or allied players)
     /// - receiveGrant only when the target already has StealthUpdate
-    ///   (host proxy: `innate_stealth`) — C++ GrantStealthBehavior.cpp:170-179
+    ///   (host proxy: `innate_stealth`) then Drawable::flashAsSelected
+    ///   — C++ GrantStealthBehavior.cpp:170-179
     /// - Skips bomb-truck disguise residual by name (C++ canDisguise skip)
     /// Returns true when the residual activation was recorded (even if 0 targets).
     pub fn activate_gps_scrambler(
@@ -100,6 +101,8 @@ impl GameLogic {
             }
             let was_stealthed = target.is_effectively_stealthed();
             target.apply_grant_stealth();
+            // C++ grantStealthToObject: receiveGrant() then draw->flashAsSelected().
+            target.flash_as_selected();
             // Count new grants and refreshes as residual grant events for honesty.
             if !was_stealthed || target.is_effectively_stealthed() {
                 grants = grants.saturating_add(1);
@@ -1954,6 +1957,16 @@ mod tests {
             logic.host_object(pf).unwrap().is_effectively_stealthed(),
             "Pathfinder innate stealth module receives receiveGrant"
         );
+        assert_eq!(
+            logic.host_object(pf).unwrap().selection_flash_remaining,
+            crate::game_logic::host_saboteur::SABOTEUR_FLASH_DECAY_FRAMES,
+            "granted Pathfinder must flashAsSelected"
+        );
+        assert_eq!(
+            logic.host_object(pal).unwrap().selection_flash_remaining,
+            0,
+            "Paladin without StealthUpdate must not flash"
+        );
         assert!(!logic.host_object(pal).unwrap().innate_stealth);
         assert!(!logic.host_object(rng).unwrap().innate_stealth);
     }
@@ -2026,6 +2039,16 @@ mod tests {
         assert!(
             !logic.host_object(enemy).unwrap().is_effectively_stealthed(),
             "enemy China tank must not receive GPS grant"
+        );
+        assert_eq!(
+            logic.host_object(ally).unwrap().selection_flash_remaining,
+            crate::game_logic::host_saboteur::SABOTEUR_FLASH_DECAY_FRAMES,
+            "C++ grantStealthToObject flashes granted units"
+        );
+        assert_eq!(
+            logic.host_object(enemy).unwrap().selection_flash_remaining,
+            0,
+            "ungranted enemy must not flashAsSelected"
         );
     }
 

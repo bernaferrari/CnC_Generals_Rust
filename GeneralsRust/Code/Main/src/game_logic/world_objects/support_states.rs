@@ -3943,6 +3943,8 @@ impl GameLogic {
                         }
                         self.apply_cave_capture_event(idx, ev);
                     }
+                    self.stamp_player_who_entered(container_id, object_id);
+
 
                     let container_is_heal_contain = self.objects.get(&container_id).is_some_and(
                         |c| c.thing.template.contain_module.kind.is_heal_contain(),

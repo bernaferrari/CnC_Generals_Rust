@@ -1672,6 +1672,20 @@ impl PresentationFrame {
             },
             // Wave 490: applied upgrades from GW entity.
             applied_upgrades: ent.applied_upgrade_names.clone(),
+            sub_object_visibility: {
+                use crate::game_logic::host_sub_objects_upgrade::{
+                    sub_objects_for_upgrade_tags, HostSubObjectVisibility,
+                };
+                let tags: std::collections::HashSet<String> =
+                    ent.applied_upgrade_names.iter().cloned().collect();
+                let applied = sub_objects_for_upgrade_tags(&tags, &ent.template.name);
+                let mut vis = HostSubObjectVisibility::default();
+                if applied.matched {
+                    vis.apply_show_hide(&applied.show, &applied.hide);
+                }
+                vis
+            },
+
             upgrade_cameo_names: {
                 #[cfg(feature = "game_client")]
                 {
@@ -2223,6 +2237,11 @@ impl PresentationFrame {
                 ro.is_salvage_crate = is_salvage_crate;
                 dirty = true;
             }
+            if ro.sub_object_visibility != obj.sub_object_visibility {
+                ro.sub_object_visibility = obj.sub_object_visibility.clone();
+                dirty = true;
+            }
+
             if dirty {
                 stamped += 1;
             }

@@ -1763,6 +1763,9 @@ impl Snapshotable for GameClient {
             }
         }
 
+        // C++ GameClient::xfer v2+ briefing history (GameClient.cpp:1531-1560).
+        xfer_diplomacy_briefing_history(xfer, version)?;
+
         if xfer.is_reading() {
             self.load_post_process()?;
         }
@@ -1844,6 +1847,40 @@ impl Drop for GameClient {
     }
 }
 
+/// C++ `GameClient::xfer` v2+ (`GameClient.cpp:1531-1560`): persist
+/// `GetBriefingTextList` and restore via `UpdateDiplomacyBriefingText`.
+fn xfer_diplomacy_briefing_history(
+    xfer: &mut dyn Xfer,
+    version: XferVersion,
+) -> Result<(), String> {
+    if version < 2 {
+        return Ok(());
+    }
+
+    if xfer.is_writing() {
+        let list = crate::gui::callbacks::diplomacy::get_briefing_text_list();
+        let mut num_entries = i32::try_from(list.len()).unwrap_or(i32::MAX);
+        xfer.xfer_int(&mut num_entries)
+            .map_err(|e| e.to_string())?;
+        for mut temp_str in list {
+            xfer.xfer_ascii_string(&mut temp_str)
+                .map_err(|e| e.to_string())?;
+        }
+    } else {
+        let mut num_entries = 0i32;
+        xfer.xfer_int(&mut num_entries)
+            .map_err(|e| e.to_string())?;
+        crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text("", true);
+        for _ in 0..num_entries.max(0) {
+            let mut temp_str = String::new();
+            xfer.xfer_ascii_string(&mut temp_str)
+                .map_err(|e| e.to_string())?;
+            crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text(&temp_str, false);
+        }
+    }
+    Ok(())
+}
+
 fn write_game_client_xfer_bytes(client: &mut GameClient) -> Result<Vec<u8>, String> {
     client.import_objectless_from_logic_client();
     let mut bytes = Vec::new();
@@ -1864,7 +1901,8 @@ fn read_game_client_xfer_bytes(client: &mut GameClient, bytes: &[u8]) -> Result<
 }
 
 /// C++ `CHUNK_GameClient` payload: leftover `GameClient::xfer` plus objectless
-/// TheGameClient DRAWABLE_STATE rows (PUC beams, lock-on, ropes).
+/// TheGameClient DRAWABLE_STATE rows (PUC beams, lock-on, ropes) and Diplomacy
+/// briefing history.
 pub fn capture_live_game_client_xfer_bytes() -> Result<Vec<u8>, String> {
     if let Some(result) = with_live_game_client_mut(write_game_client_xfer_bytes) {
         return result;

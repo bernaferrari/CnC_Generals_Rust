@@ -287,6 +287,16 @@ impl ScriptActionDispatcher {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
 
         log::info!("Deleting team '{}'", team_name);
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_kill_delete_damage(
+                super::HostScriptKillDeleteDamageRequest::TeamDelete {
+                    team: team_name,
+                    ignore_dead: false,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         // C++ parity: TeamDelete delegates to Team::deleteTeam(ignoreDead=false).
         let factory = get_team_factory();
@@ -312,6 +322,13 @@ impl ScriptActionDispatcher {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
 
         log::info!("Killing team '{}'", team_name);
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_kill_delete_damage(
+                super::HostScriptKillDeleteDamageRequest::TeamKill { team: team_name },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         // Get team by name and kill all members
         let factory = get_team_factory();
@@ -339,6 +356,16 @@ impl ScriptActionDispatcher {
         let damage_amount = self.get_real_param(action, 1)?;
 
         log::info!("Damaging team '{}' for {} points", team_name, damage_amount);
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_kill_delete_damage(
+                super::HostScriptKillDeleteDamageRequest::TeamDamage {
+                    team: team_name,
+                    amount: damage_amount,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let members = get_team_factory()
             .lock()
@@ -589,6 +616,13 @@ impl ScriptActionDispatcher {
         let unit_name = self.get_string_param(action, 0)?;
 
         log::info!("Deleting named unit '{}'", unit_name);
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_kill_delete_damage(
+                super::HostScriptKillDeleteDamageRequest::NamedDelete { unit: unit_name },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         // Look up object ID by name and delete
         let tracker = get_named_object_tracker();
@@ -616,19 +650,24 @@ impl ScriptActionDispatcher {
         let unit_name = self.get_string_param(action, 0)?;
 
         log::info!("Killing named unit '{}'", unit_name);
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_kill_delete_damage(
+                super::HostScriptKillDeleteDamageRequest::NamedKill { unit: unit_name },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         // Look up object ID by name and kill
         let tracker = get_named_object_tracker();
         let object_id_opt = tracker.get_object_id(&unit_name).ok().flatten();
 
         if let Some(object_id) = object_id_opt {
-            // Get the object from manager and kill/destroy it
-            if let Ok(mgr) = get_object_manager().read() {
-                let killed = mgr.with_object_mut(object_id, |obj_guard| {
-                    // Use destroy() which handles death with effects
-                    obj_guard.destroy();
-                });
-                if killed.is_some() {
+            // C++ ScriptActions::doNamedKill: pUnit->kill().
+            if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
+                if obj_arc.write().ok().map(|mut obj_guard| {
+                    obj_guard.kill(Some(DamageType::Unresistable), Some(DeathType::Normal));
+                }).is_some() {
                     log::info!("Named unit '{}' killed (ID: {})", unit_name, object_id);
                 }
             }
@@ -652,6 +691,16 @@ impl ScriptActionDispatcher {
             unit_name,
             damage_amount
         );
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_kill_delete_damage(
+                super::HostScriptKillDeleteDamageRequest::NamedDamage {
+                    unit: unit_name,
+                    amount: damage_amount,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         // Look up object ID by name and apply damage
         let tracker = get_named_object_tracker();
@@ -664,7 +713,7 @@ impl ScriptActionDispatcher {
                     // Create damage info with script damage (unresistable type)
                     let mut damage_info = DamageInfo::with_simple(
                         damage_amount as f32,
-                        0, // No source object for script damage
+                        INVALID_ID,
                         DamageType::Unresistable,
                         DeathType::Normal,
                     );

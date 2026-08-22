@@ -372,20 +372,23 @@ impl PresentationFrame {
                     && object.innate_stealth
                     && object.owner_player_id == Some(self.local_player_id)
                     && (object.is_firing_weapon || object.using_ability);
-                input.second_material_pass_opacity =
-                    crate::game_logic::stealth_second_material_pass_opacity(
-                        object.stealthed,
-                        object.detected,
-                        object.can_disguise_as_team,
-                        is_mine,
-                        object.drawable_shroud.effectively_dead,
-                        hint,
-                    );
-                if object.camo_heat_vision_opacity > 0.0 {
-                    input.second_material_pass_opacity = object
-                        .camo_heat_vision_opacity
-                        .max(input.second_material_pass_opacity);
-                }
+                // C++ Drawable::draw reads m_secondMaterialPassOpacity residual.
+                // setStealthLook / detector pulse arm 1.0; draw fades by 0.8/frame.
+                // Do not recompute a hard 1.0 from stealthed&&detected — that locks
+                // the overlay for the whole DETECTED window.
+                let gated = crate::game_logic::stealth_second_material_pass_opacity(
+                    object.stealthed,
+                    object.detected,
+                    object.can_disguise_as_team,
+                    is_mine,
+                    object.drawable_shroud.effectively_dead,
+                    hint,
+                );
+                input.second_material_pass_opacity = if gated > 0.0 {
+                    object.camo_heat_vision_opacity
+                } else {
+                    0.0
+                };
                 let fade = crate::game_logic::drawable_explicit_fade_opacity(
                     object.drawable_fade_mode,
                     object.drawable_fade_start_frame,

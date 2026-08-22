@@ -706,6 +706,8 @@ impl GameLogic {
                 }
                 let was = target.is_effectively_stealthed();
                 target.apply_grant_stealth();
+                // C++ grantStealthToObject: receiveGrant() then draw->flashAsSelected().
+                target.flash_as_selected();
                 if !was || target.is_effectively_stealthed() {
                     grants = grants.saturating_add(1);
                 }

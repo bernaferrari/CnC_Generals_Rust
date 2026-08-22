@@ -21,9 +21,10 @@
 //!
 //! - GrantStealthBehavior grow-radius pulse residual closed (Start 20 → Final 100)
 //! - C++ GrantStealthBehavior.cpp:170-179 only receiveGrant() when getStealth()
-//!   exists. Host proxy: innate_stealth / stealth module already present.
+//!   exists, then Drawable::flashAsSelected. Host: innate_stealth then
+//!   Object::flash_as_selected (selection_flash_remaining = 4).
 //! - C++ PartitionFilterRelationship ALLOW_ALLIES (same player or allied players)
-//! - Not full particle / flashAsSelected drawable path
+//! - Not full radius particle GPU path (GPS_SCRAMBLER_RADIUS_PARTICLE honesty-only)
 //! - Not network GPS Scrambler replication (network deferred)
 //!
 //! Note: Older module comments claiming "disables enemy radar" are incorrect for ZH

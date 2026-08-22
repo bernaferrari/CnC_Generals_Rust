@@ -1595,6 +1595,32 @@ pub fn camo_netting_stealth_look(
     }
 }
 
+/// C++ `StealthUpdate::calcStealthedStatusForPlayer` (`StealthUpdate.cpp:436-528`).
+///
+/// `canDisguise()` short-circuits before detected/invisible: non-allies of a
+/// disguised unit get `STEALTHLOOK_DISGUISED_ENEMY`; otherwise `STEALTHLOOK_NONE`.
+/// CamoNetting / cloak units keep [`camo_netting_stealth_look`].
+pub fn calc_stealthed_status_for_player(
+    stealthed: bool,
+    detected: bool,
+    observer_is_friendly: bool,
+    can_disguise: bool,
+    is_disguised: bool,
+) -> HostCamoStealthLook {
+    if !stealthed {
+        return HostCamoStealthLook::None;
+    }
+    if can_disguise {
+        if !observer_is_friendly && is_disguised {
+            HostCamoStealthLook::DisguisedEnemy
+        } else {
+            HostCamoStealthLook::None
+        }
+    } else {
+        camo_netting_stealth_look(true, detected, observer_is_friendly)
+    }
+}
+
 /// Heat-vision second material pass opacity residual (0.0 or 1.0).
 pub fn camo_netting_heat_vision_opacity(look: HostCamoStealthLook) -> f32 {
     if look.heat_vision_active() {
@@ -2096,6 +2122,23 @@ mod camo_netting_and_gamma_tests {
         );
         assert_eq!(
             camo_netting_stealth_look(true, false, false),
+            HostCamoStealthLook::Invisible
+        );
+        // C++ canDisguise() special-case: never STEALTHLOOK_INVISIBLE.
+        assert_eq!(
+            calc_stealthed_status_for_player(true, false, false, true, true),
+            HostCamoStealthLook::DisguisedEnemy
+        );
+        assert_eq!(
+            calc_stealthed_status_for_player(true, false, true, true, true),
+            HostCamoStealthLook::None
+        );
+        assert_eq!(
+            calc_stealthed_status_for_player(true, false, false, true, false),
+            HostCamoStealthLook::None
+        );
+        assert_eq!(
+            calc_stealthed_status_for_player(true, false, false, false, false),
             HostCamoStealthLook::Invisible
         );
         assert!(!HostCamoStealthLook::VisibleFriendly.heat_vision_active());

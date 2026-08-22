@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
 /// Active sub-object visibility residual for one object.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostSubObjectVisibility {
     pub shown: BTreeSet<String>,
     pub hidden: BTreeSet<String>,

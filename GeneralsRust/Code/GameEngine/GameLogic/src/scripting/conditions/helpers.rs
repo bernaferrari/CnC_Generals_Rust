@@ -82,6 +82,12 @@ pub struct HostScriptQueryObject {
     pub garrisonable: bool,
     /// C++ ThingTemplate::friend_getBuildCost.
     pub build_cost: i32,
+    /// C++ Object::getStatusBits packed mask (OBJECT_STATUS_*).
+    pub status_bits: u64,
+    /// C++ OpenContain::getPlayerWhoEntered — last enterer's SIDE name.
+    pub player_who_entered: String,
+
+
 
 
 }
@@ -110,6 +116,11 @@ pub struct HostScriptPlayerCensus {
     pub science_purchase_points: i32,
     /// C++ Player science vec names (SCIENCE_RankN / purchased).
     pub unlocked_sciences: Vec<String>,
+    /// C++ countObjectsByThingTemplate(..., ignoreDead=false, ignoreUnderConstruction=true).
+    /// Keyed by lowercase ThingTemplate name.
+    pub template_counts: HashMap<String, i32>,
+    /// C++ countObjectsByThingTemplate(..., ignoreDead=true, ignoreUnderConstruction=true).
+    pub template_counts_ignore_dead: HashMap<String, i32>,
 }
 
 impl HostScriptPlayerCensus {
@@ -141,6 +152,29 @@ impl HostScriptPlayerCensus {
         } else {
             self.energy_production - self.energy_consumption
         }
+    }
+
+    /// Sum census counts for the given template / ObjectTypes names.
+    pub fn count_templates(
+        &self,
+        type_names: impl IntoIterator<Item = impl AsRef<str>>,
+        ignore_dead: bool,
+    ) -> i32 {
+        let map = if ignore_dead {
+            &self.template_counts_ignore_dead
+        } else {
+            &self.template_counts
+        };
+        let mut seen = HashSet::new();
+        let mut sum = 0;
+        for name in type_names {
+            let key = name.as_ref().trim().to_ascii_lowercase();
+            if key.is_empty() || !seen.insert(key.clone()) {
+                continue;
+            }
+            sum += map.get(&key).copied().unwrap_or(0);
+        }
+        sum
     }
 }
 
@@ -273,6 +307,20 @@ pub fn host_script_query_object_by_id(id: u32) -> Option<HostScriptQueryObject> 
     })
 }
 
+/// C++ evaluateBuildingEntered on the host snapshot (no leftover contain).
+/// None = named building missing from snapshot.
+pub fn host_building_entered_by_player(building_name: &str, player_name: &str) -> Option<bool> {
+    let obj = host_script_query_object(building_name)?;
+    if !obj.has_contain {
+        return Some(false);
+    }
+    if obj.player_who_entered.is_empty() {
+        return Some(false);
+    }
+    Some(obj.player_who_entered.eq_ignore_ascii_case(player_name))
+}
+
+
 /// C++ Team::hasAnyObjects over host snapshot members.
 pub fn host_team_has_any_live_objects(team_name: &str) -> bool {
     let ids: HashSet<u32> = host_script_team_member_ids(team_name).into_iter().collect();
@@ -363,6 +411,17 @@ pub fn host_query_player_census(player_name: &str) -> Option<HostScriptPlayerCen
         return None;
     }
     HOST_SCRIPT_QUERY.with(|slot| slot.borrow().player_census.get(&key).cloned())
+}
+
+/// C++ Player::countObjectsByThingTemplate from the live host census.
+/// `ignore_dead` matches C++ ignoreDead; under-construction is already excluded.
+pub fn host_query_player_template_count(
+    player_name: &str,
+    type_names: &[String],
+    ignore_dead: bool,
+) -> Option<i32> {
+    let census = host_query_player_census(player_name)?;
+    Some(census.count_templates(type_names, ignore_dead))
 }
 
 /// C++ Player::getSciencePurchasePoints from the live host census.
@@ -1274,6 +1333,66 @@ pub fn host_eval_skirmish_player_has_units_in_area(
         })
     }))
 }
+
+fn host_object_has_status_bits(obj: &HostScriptQueryObject, mask: u64) -> bool {
+    mask != 0 && (obj.status_bits & mask) != 0
+}
+
+/// C++ ScriptConditions::evaluateUnitHasObjectStatus over the host snapshot.
+/// `None` when no snapshot is injected (leftover OBJECT_REGISTRY path).
+pub fn host_eval_unit_has_object_status(unit_name: &str, status_mask: u64) -> Option<bool> {
+    if !host_script_query_has_any() {
+        return None;
+    }
+    let Some(obj) = host_script_query_object(unit_name) else {
+        return Some(false);
+    };
+    Some(host_object_has_status_bits(&obj, status_mask))
+}
+
+/// C++ ScriptConditions::evaluateTeamHasObjectStatus over the host snapshot.
+/// `None` when no snapshot is injected (leftover OBJECT_REGISTRY path).
+pub fn host_eval_team_has_object_status(
+    team_name: &str,
+    status_mask: u64,
+    entire_team: bool,
+) -> Option<bool> {
+    if !host_script_query_has_any() {
+        return None;
+    }
+    if team_name.is_empty() {
+        return Some(false);
+    }
+    let ids = host_script_team_member_ids(team_name);
+    if ids.is_empty() {
+        if host_team_name_known(team_name) || leftover_named_team_exists(team_name) {
+            return Some(entire_team);
+        }
+        return Some(false);
+    }
+    for id in ids {
+        let Some(obj) = host_script_query_object_by_id(id) else {
+            return Some(false);
+        };
+        let has = host_object_has_status_bits(&obj, status_mask);
+        if entire_team && !has {
+            return Some(false);
+        }
+        if !entire_team && has {
+            return Some(true);
+        }
+    }
+    Some(entire_team)
+}
+
+fn leftover_named_team_exists(team_name: &str) -> bool {
+    crate::team::get_team_factory()
+        .lock()
+        .ok()
+        .and_then(|mut factory| factory.find_team(team_name))
+        .is_some()
+}
+
 
 enum LeftoverCommandButtonKind {
     /// Leftover ControlBar is populated and the name is absent. C++ false.

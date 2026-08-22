@@ -70,7 +70,7 @@ use host_mods_structures::host_black_market;
 use host_mods_structures::host_model_condition_upgrade;
 use host_mods_structures::host_preorder_create;
 use host_mods_structures::host_replace_object_upgrade;
-use host_mods_structures::host_sub_objects_upgrade;
+pub use host_mods_structures::host_sub_objects_upgrade;
 
 pub mod locomotor_bootstrap;
 pub mod mission_scripts;

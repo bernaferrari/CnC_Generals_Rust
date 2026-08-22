@@ -211,6 +211,22 @@ fn host_player_census_injected_for_script_player_conditions() {
     assert!(census.has_any_build_facility);
     assert_eq!(census.building_count, 1);
     assert_eq!(census.faction_building_count, 1);
+    assert_eq!(
+        census
+            .template_counts
+            .get("americacommandcenter")
+            .copied()
+            .unwrap_or(0),
+        1
+    );
+    assert_eq!(
+        census
+            .template_counts_ignore_dead
+            .get("americacommandcenter")
+            .copied()
+            .unwrap_or(0),
+        1
+    );
 
     player = Player::new(2, Team::China, "PlyrChina", false);
     player.resources.supplies = 0;

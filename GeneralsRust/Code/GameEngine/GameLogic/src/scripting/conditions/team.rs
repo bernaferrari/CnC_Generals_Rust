@@ -2,7 +2,8 @@
 
 use super::helpers::{
     compare_f64, compare_i64, dual_world_registry_unavailable, event_type_from_name,
-    get_player_arc, get_str_param, get_str_param_optional, lookup_named_object_id,
+    get_player_arc, get_str_param, get_str_param_optional, host_eval_team_has_object_status,
+    lookup_named_object_id,
     parse_nested_condition, parse_object_status_mask, perform_comparison, with_script_engine_mut,
 };
 use super::{ConditionRegistry, ScriptCondition, ScriptContext, ScriptValue};
@@ -789,11 +790,6 @@ impl ScriptCondition for TeamAllHasObjectStatusCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        // Wave 271: empty dual-world → fail-closed condition.
-        if dual_world_registry_unavailable() {
-            return Ok(false);
-        }
-
         let team_name = match parameters.get("team") {
             Some(ScriptValue::Team(n)) => n.clone(),
             Some(ScriptValue::String(n)) => n.clone(),
@@ -805,6 +801,15 @@ impl ScriptCondition for TeamAllHasObjectStatusCondition {
         };
         let status_str = get_str_param(parameters, "status")?;
         let status_mask = parse_object_status_mask(&status_str);
+        if dual_world_registry_unavailable() {
+            return Ok(host_eval_team_has_object_status(
+                &team_name,
+                status_mask.bits(),
+                true,
+            )
+            .unwrap_or(false));
+        }
+
 
         let factory = get_team_factory();
         let mut guard = factory.lock().map_err(|e| {
@@ -857,11 +862,6 @@ impl ScriptCondition for TeamSomeHasObjectStatusCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        // Wave 271: empty dual-world → fail-closed condition.
-        if dual_world_registry_unavailable() {
-            return Ok(false);
-        }
-
         let team_name = match parameters.get("team") {
             Some(ScriptValue::Team(n)) => n.clone(),
             Some(ScriptValue::String(n)) => n.clone(),
@@ -873,6 +873,15 @@ impl ScriptCondition for TeamSomeHasObjectStatusCondition {
         };
         let status_str = get_str_param(parameters, "status")?;
         let status_mask = parse_object_status_mask(&status_str);
+        if dual_world_registry_unavailable() {
+            return Ok(host_eval_team_has_object_status(
+                &team_name,
+                status_mask.bits(),
+                false,
+            )
+            .unwrap_or(false));
+        }
+
 
         let factory = get_team_factory();
         let mut guard = factory.lock().map_err(|e| {

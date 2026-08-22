@@ -159,6 +159,20 @@ pub enum HostScriptIdleRequest {
     TeamStop { team: String, disband: bool },
 }
 
+/// Live host drain: NAMED/TEAM DELETE, KILL, DAMAGE.
+/// C++ `ScriptActions::doNamedDelete` / `doNamedKill` / `doNamedDamage` /
+/// `doTeamDelete` / `doTeamKill` / `doDamageTeamMembers`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum HostScriptKillDeleteDamageRequest {
+    NamedDelete { unit: String },
+    NamedKill { unit: String },
+    NamedDamage { unit: String, amount: i32 },
+    TeamDelete { team: String, ignore_dead: bool },
+    TeamKill { team: String },
+    TeamDamage { team: String, amount: f32 },
+}
+
+
 
 
 
@@ -207,6 +221,9 @@ thread_local! {
         RefCell<Vec<HostScriptNamedFireSpecialPowerRequest>> = RefCell::new(Vec::new());
     static HOST_SCRIPT_IDLE_REQUESTS: RefCell<Vec<HostScriptIdleRequest>> =
         RefCell::new(Vec::new());
+    static HOST_SCRIPT_KILL_DELETE_DAMAGE_REQUESTS:
+        RefCell<Vec<HostScriptKillDeleteDamageRequest>> = RefCell::new(Vec::new());
+
 
 
 
@@ -483,6 +500,16 @@ pub fn request_host_script_idle(req: HostScriptIdleRequest) {
 pub fn take_host_script_idle_requests() -> Vec<HostScriptIdleRequest> {
     HOST_SCRIPT_IDLE_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
+
+/// Live host drain: NAMED/TEAM DELETE / KILL / DAMAGE.
+pub fn request_host_script_kill_delete_damage(req: HostScriptKillDeleteDamageRequest) {
+    HOST_SCRIPT_KILL_DELETE_DAMAGE_REQUESTS.with(|q| q.borrow_mut().push(req));
+}
+
+pub fn take_host_script_kill_delete_damage_requests() -> Vec<HostScriptKillDeleteDamageRequest> {
+    HOST_SCRIPT_KILL_DELETE_DAMAGE_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
 
 
 

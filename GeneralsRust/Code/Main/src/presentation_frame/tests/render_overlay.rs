@@ -104,6 +104,7 @@ fn unit_render_input_world_matrix_applies_mesh_scale() {
         drawable_supply_max_boxes: 0,
         dock_kind: crate::game_logic::DockKind::None,
         drawable_shroud: PresentationDrawableShroudFacts::default(),
+        sub_object_visibility: Default::default(),
     };
     let m = u.world_matrix();
     // Column-major: scale is on the diagonal of the upper 3x3 after T*R*S.
@@ -283,6 +284,7 @@ fn unit_render_input_fixture() -> UnitRenderInput {
         drawable_supply_max_boxes: 0,
         dock_kind: crate::game_logic::DockKind::None,
         drawable_shroud: PresentationDrawableShroudFacts::default(),
+        sub_object_visibility: Default::default(),
     }
 }
 

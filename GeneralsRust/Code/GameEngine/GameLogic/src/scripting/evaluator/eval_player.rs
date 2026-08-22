@@ -8,11 +8,6 @@ impl ScriptEvaluator {
         &self,
         condition: &mut Condition,
     ) -> GameLogicResult<bool> {
-        // Wave 343: empty dual-world → Ok(false).
-        if dual_world_registry_unavailable() {
-            return Ok(false);
-        }
-
         let type_param = condition.get_parameter(0).ok_or_else(|| {
             GameLogicError::Configuration(
                 "BuiltByPlayer condition missing type parameter".to_string(),
@@ -32,28 +27,55 @@ impl ScriptEvaluator {
             return Ok(condition.custom_data == 1);
         }
 
-        let Some(player_arc) = self.resolve_player_from_param(player_param) else {
-            return Ok(false);
-        };
-        let Ok(player_guard) = player_arc.read() else {
-            return Ok(false);
-        };
-        let types = self.resolve_object_types(type_param);
+        let type_name = type_param.get_string().to_string();
+        let player_name = player_param.get_string().to_string();
 
-        let mut count = 0;
-        for obj_id in player_guard.get_object_ids() {
-            let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-            else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            if types.contains_template(Some(obj_guard.get_template())) {
-                count += 1;
+        // C++ findTemplate(raw) must exist. Live leftover factory may be empty;
+        // a host object of that exact type is proof the template exists.
+        if crate::helpers::TheThingFactory::find_template(&type_name).is_none() {
+            let key = type_name.to_ascii_lowercase();
+            let host_has = crate::scripting::host_query_player_census(&player_name).is_some_and(
+                |c| {
+                    c.template_counts.contains_key(&key)
+                        || c.template_counts_ignore_dead.contains_key(&key)
+                },
+            );
+            if !host_has {
+                return Ok(false);
             }
         }
+
+        let count = if let Some(sum) =
+            crate::scripting::host_query_player_template_count(&player_name, &[type_name.clone()], false)
+        {
+            sum
+        } else {
+            if dual_world_registry_unavailable() {
+                return Ok(false);
+            }
+            let Some(player_arc) = self.resolve_player_from_param(player_param) else {
+                return Ok(false);
+            };
+            let Ok(player_guard) = player_arc.read() else {
+                return Ok(false);
+            };
+            let types = self.resolve_object_types(type_param);
+            let mut count = 0;
+            for obj_id in player_guard.get_object_ids() {
+                let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+                else {
+                    continue;
+                };
+                let Ok(obj_guard) = obj_arc.read() else {
+                    continue;
+                };
+                if types.contains_template(Some(obj_guard.get_template())) {
+                    count += 1;
+                }
+            }
+            count
+        };
 
         let result = count != 0;
         condition.custom_data = if result { 1 } else { -1 };
@@ -105,10 +127,27 @@ impl ScriptEvaluator {
         &self,
         condition: &Condition,
     ) -> GameLogicResult<bool> {
-        // Wave 343: empty dual-world → Ok(false).
+        // Wave 343: empty dual-world → host snapshot (C++ getPlayerWhoEntered).
         if dual_world_registry_unavailable() {
-            return Ok(false);
+            let player_param = condition.get_parameter(0).ok_or_else(|| {
+                GameLogicError::Configuration(
+                    "BuildingEnteredByPlayer condition missing player parameter".to_string(),
+                )
+            })?;
+            let building_param = condition.get_parameter(1).ok_or_else(|| {
+                GameLogicError::Configuration(
+                    "BuildingEnteredByPlayer condition missing building parameter".to_string(),
+                )
+            })?;
+            return Ok(
+                crate::scripting::host_building_entered_by_player(
+                    building_param.get_string(),
+                    player_param.get_string(),
+                )
+                .unwrap_or(false),
+            );
         }
+
 
         let player_param = condition.get_parameter(0).ok_or_else(|| {
             GameLogicError::Configuration(

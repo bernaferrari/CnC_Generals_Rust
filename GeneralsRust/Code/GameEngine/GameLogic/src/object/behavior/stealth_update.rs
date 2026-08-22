@@ -237,6 +237,7 @@ pub struct StealthUpdate {
 
     // Disguise state
     disguise_as_player_index: Int,
+    disguise_as_template_name: Option<String>,
     disguise_transition_frames: UnsignedInt,
     disguise_halfpoint_reached: Bool,
     transitioning_to_disguise: Bool,
@@ -288,6 +289,7 @@ impl StealthUpdate {
             pulse_phase_rate: 0.2,
             pulse_phase: 0.0,
             disguise_as_player_index: -1,
+            disguise_as_template_name: None,
             disguise_transition_frames: 0,
             disguise_halfpoint_reached: false,
             transitioning_to_disguise: false,
@@ -304,10 +306,11 @@ impl StealthUpdate {
         self.module_data.reveal_distance_from_target
     }
 
-    /// Check if unit is disguised
+    /// C++ `StealthUpdate::isDisguised` is `m_disguiseAsTemplate != NULL`.
     pub fn is_disguised(&self) -> Bool {
-        self.disguised
+        self.disguise_as_template_name.is_some()
     }
+
 
     /// Get disguised player index
     pub fn get_disguised_player_index(&self) -> Int {
@@ -1146,11 +1149,19 @@ impl Snapshotable for StealthUpdate {
             })?;
 
         // disguise as template -- C++ StealthUpdate.cpp line 1145-1165
-        // The Rust port does not store a disguise template pointer, so we xfer
-        // an empty string for compatibility with the C++ save format.
-        let mut disguise_template_name = String::new();
+        let mut disguise_template_name = self
+            .disguise_as_template_name
+            .clone()
+            .unwrap_or_default();
         xfer.xfer_ascii_string(&mut disguise_template_name)
             .map_err(|e| format!("StealthUpdate disguise_template_name xfer failed: {:?}", e))?;
+        if xfer.get_xfer_mode() == game_engine::common::system::xfer::XferMode::Load {
+            self.disguise_as_template_name = if disguise_template_name.is_empty() {
+                None
+            } else {
+                Some(disguise_template_name)
+            };
+        }
 
         // disguise transition frames -- C++ StealthUpdate.cpp line 1168
         xfer.xfer_unsigned_int(&mut self.disguise_transition_frames)
@@ -1194,11 +1205,9 @@ impl Snapshotable for StealthUpdate {
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        // C++ StealthUpdate.cpp line 1189-1204
-        // Restore disguise flag after load so visual disguise can be applied
-        // when the game is ready to run (cannot do it here because drawable
-        // destruction during load is unsafe).
-        if self.disguised {
+        // C++ StealthUpdate::loadPostProcess: if (isDisguised())
+        // isDisguised() is m_disguiseAsTemplate != NULL, not m_disguised.
+        if self.disguise_as_template_name.is_some() {
             self.xfer_restore_disguise = true;
         }
         Ok(())

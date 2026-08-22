@@ -2,9 +2,11 @@
 
 use super::helpers::{
     compare_f64, compare_i64, dual_world_registry_unavailable, event_type_from_name,
-    get_player_arc, get_str_param, get_str_param_optional, lookup_named_object_id,
-    parse_nested_condition, parse_object_status_mask, perform_comparison, with_script_engine_mut,
+    get_player_arc, get_str_param, get_str_param_optional, host_eval_unit_has_object_status,
+    lookup_named_object_id, parse_nested_condition, parse_object_status_mask, perform_comparison,
+    with_script_engine_mut,
 };
+
 use super::{ConditionRegistry, ScriptCondition, ScriptContext, ScriptValue};
 use crate::common::{Coord3D, KindOf, Relationship, LOGICFRAMES_PER_SECOND};
 use crate::helpers::{TheGameLogic, ThePartitionManager, TheVictoryConditions};
@@ -469,19 +471,21 @@ impl ScriptCondition for UnitHasObjectStatusCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        // Wave 271: empty dual-world → fail-closed condition.
-        if dual_world_registry_unavailable() {
-            return Ok(false);
-        }
-
         let unit_name = get_str_param(parameters, "unit_name")?;
         let status_str = get_str_param(parameters, "status")?;
+        let status_mask = parse_object_status_mask(&status_str);
+        if dual_world_registry_unavailable() {
+            return Ok(
+                host_eval_unit_has_object_status(&unit_name, status_mask.bits()).unwrap_or(false),
+            );
+        }
+
+
 
         let object_id = match lookup_named_object_id(&unit_name)? {
             Some(id) => id,
             None => return Ok(false),
         };
-        let status_mask = parse_object_status_mask(&status_str);
         Ok(OBJECT_REGISTRY
             .with_object(object_id, |obj| {
                 obj.get_status_bits().intersects(status_mask)

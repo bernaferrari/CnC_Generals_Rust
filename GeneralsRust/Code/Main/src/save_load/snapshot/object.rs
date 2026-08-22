@@ -725,6 +725,31 @@ impl XferData for ObjectCommandSetSnapshot {
     }
 }
 
+impl XferData for ObjectDisguiseSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("ObjectDisguiseSnapshot")?;
+        xfer.xfer_marker_label("ObjectId")?;
+        self.object_id.xfer(xfer)?;
+        xfer.xfer_marker_label("DisguiseAsTemplate")?;
+        self.disguise_as_template.xfer(xfer)?;
+        xfer.xfer_marker_label("DisguiseAsTeam")?;
+        xfer.xfer_u8(&mut self.disguise_as_team)?;
+        xfer.xfer_marker_label("DisguisePendingTemplate")?;
+        self.disguise_pending_template.xfer(xfer)?;
+        xfer.xfer_marker_label("DisguisePendingTeam")?;
+        xfer.xfer_u8(&mut self.disguise_pending_team)?;
+        xfer.xfer_marker_label("Disguised")?;
+        xfer.xfer_bool(&mut self.disguised)?;
+        xfer.xfer_marker_label("DisguiseTransitionFrames")?;
+        xfer.xfer_u32(&mut self.disguise_transition_frames)?;
+        xfer.xfer_marker_label("DisguiseTransitioningTo")?;
+        xfer.xfer_bool(&mut self.disguise_transitioning_to)?;
+        xfer.xfer_marker_label("DisguiseHalfpointReached")?;
+        xfer.xfer_bool(&mut self.disguise_halfpoint_reached)?;
+        Ok(())
+    }
+}
+
 impl XferData for ObjectOverchargeSnapshot {
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
         xfer.xfer_marker_label("ObjectOverchargeSnapshot")?;

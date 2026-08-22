@@ -1554,7 +1554,9 @@ impl Snapshotable for StealthUpdateModule {
             .controller
             .lock()
             .map_err(|_| "StealthUpdateModule: controller lock poisoned".to_string())?;
-        if controller.disguised {
+        // C++ StealthUpdate::loadPostProcess: if (isDisguised()) where
+        // isDisguised() is m_disguiseAsTemplate != NULL, not m_disguised.
+        if controller.disguise_as_template_name.is_some() {
             controller.xfer_restore_disguise = true;
         }
         Ok(())

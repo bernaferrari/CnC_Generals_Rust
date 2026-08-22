@@ -802,13 +802,15 @@ fn host_locomotor_binding_from_template(t: &LocomotorTemplate) -> Option<HostLoc
         SourceLocomotorBehaviorZ::SmoothRelativeToHighestLayer => {
             crate::game_logic::LocomotorBehaviorZ::SmoothRelativeToHighestLayer
         }
-        // The active host has no distinct fixed-height / building-relative
-        // locomotor mode.  Treating either as a normal surface-relative
-        // state would silently change an authored RiderChange row, so an
-        // attempt to use one is deliberately not physically admissible.
-        SourceLocomotorBehaviorZ::FixedSurfaceRelativeHeight
-        | SourceLocomotorBehaviorZ::FixedAbsoluteHeight
-        | SourceLocomotorBehaviorZ::RelativeToGroundAndBuildings => return None,
+        SourceLocomotorBehaviorZ::FixedSurfaceRelativeHeight => {
+            crate::game_logic::LocomotorBehaviorZ::FixedSurfaceRelativeHeight
+        }
+        SourceLocomotorBehaviorZ::FixedAbsoluteHeight => {
+            crate::game_logic::LocomotorBehaviorZ::FixedAbsoluteHeight
+        }
+        SourceLocomotorBehaviorZ::RelativeToGroundAndBuildings => {
+            crate::game_logic::LocomotorBehaviorZ::RelativeToGroundAndBuildings
+        }
     };
     Some(HostLocomotorBinding {
         movement,
