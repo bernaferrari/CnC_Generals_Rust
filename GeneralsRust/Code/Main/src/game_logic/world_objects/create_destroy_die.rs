@@ -2887,7 +2887,9 @@ impl GameLogic {
             Some((p.x, p.z))
         });
         if let Some(obj) = self.objects.get_mut(&id) {
-            obj.fire_crush_die_from_crusher(crusher_xz);
+            if !obj.front_crushed && !obj.back_crushed {
+                obj.fire_crush_die_from_crusher(crusher_xz);
+            }
         }
         // Wave 482: BuildAssistant sell finish removes the object immediately.
         // Do not defer into StructureTopple/Collapse / SlowDeath / KeepObjectDie —

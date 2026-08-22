@@ -791,7 +791,12 @@ impl Object {
         {
             self.fire_fx_list_die();
             self.fire_create_object_die();
-            self.fire_crush_die();
+            if !matches!(
+                self.status.death_type,
+                crate::game_logic::host_usa_pilot::HostDeathType::Crushed
+            ) {
+                self.fire_crush_die();
+            }
         }
         let visual_state = if show_health_visuals {
             state
@@ -863,7 +868,12 @@ impl Object {
         {
             self.fire_fx_list_die();
             self.fire_create_object_die();
-            self.fire_crush_die();
+            if !matches!(
+                self.status.death_type,
+                crate::game_logic::host_usa_pilot::HostDeathType::Crushed
+            ) {
+                self.fire_crush_die();
+            }
         }
         let visual_state = if show_health_visuals {
             state
