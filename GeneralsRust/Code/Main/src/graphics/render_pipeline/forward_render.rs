@@ -332,6 +332,7 @@ impl ForwardPass {
                 return Ok(());
             };
             let color_view = frame.color_view_arc();
+            let color_texture = frame.color_texture().clone();
             let encoder = frame.encoder();
 
             let Ok(mut renderer_guard) = renderer.lock() else {
@@ -457,6 +458,7 @@ impl ForwardPass {
                         encoder,
                         color_view.as_ref(),
                         depth_view.as_ref(),
+                        Some(&color_texture),
                         &smudges,
                         &uniforms,
                     );

@@ -1475,10 +1475,21 @@ impl GameLogic {
                     _ => crate::game_logic::host_repair::DOZER_MIN_ACTION_TOLERANCE,
                 };
                 let p = o.get_position();
-                let t = target.get_position();
-                let dx = p.x - t.x;
-                let dz = p.z - t.z;
+                let goal = if matches!(o.ai_state, AIState::Repairing) {
+                    target.get_position()
+                } else {
+                    // C++ DOZER_DO_BUILD_AT_DOCK (cpp:511): ACTION dock, not centre.
+                    crate::game_logic::host_repair::resolve_dozer_action_dock(
+                        o.dozer_dock_action,
+                        p,
+                        target.get_position(),
+                        target.selection_radius,
+                    )
+                };
+                let dx = p.x - goal.x;
+                let dz = p.z - goal.z;
                 (id, (dx * dx + dz * dz).sqrt() <= range)
+
             })
             .collect();
         // Only workers / producers / objects already carrying the bit — skip the

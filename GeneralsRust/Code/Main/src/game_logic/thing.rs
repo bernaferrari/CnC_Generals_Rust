@@ -1011,6 +1011,27 @@ pub struct HackerDisableBuildingMetadata {
     pub persistence_requires_recharge: bool,
 }
 
+impl HackerDisableBuildingMetadata {
+    /// Host command enum for this paired source. C++ has no distinct
+    /// Microwave SpecialPowerType; both templates are
+    /// `SPECIAL_HACKER_DISABLE_BUILDING`, but the live command adapter
+    /// keeps the authored template identity for charge keys and buttons.
+    pub fn command_power(&self) -> crate::command_system::SpecialPowerType {
+        crate::command_system::special_power_type_from_template_name(&self.special_power_template)
+            .unwrap_or(crate::command_system::SpecialPowerType::HackerDisableBuilding)
+    }
+
+    /// `Command_HackerDisableBuilding` is only the Hacker identity.
+    /// Microwave keeps its own SpecialPower button.
+    pub fn is_hacker_command(&self) -> bool {
+        matches!(
+            self.command_power(),
+            crate::command_system::SpecialPowerType::HackerDisableBuilding
+        )
+    }
+}
+
+
 /// Exact `SpecialAbilityUpdate` data for Burton C4 / Tank Hunter TNT plants.
 ///
 /// C++ `SpecialAbilityUpdate::startUnpacking` then `triggerAbilityEffect`
@@ -1433,6 +1454,7 @@ pub struct ThingTemplate {
     pub asset_scale: f32,
     /// Authored DockUpdate family.  Never infer this from a template name.
     #[serde(default)]
+
     pub dock_kind: DockKind,
     /// `SupplyWarehouseDockUpdate::StartingBoxes`, when authored.  `Some(0)`
     /// is meaningful and must remain distinct from no warehouse module.
@@ -1454,6 +1476,11 @@ pub struct ThingTemplate {
     /// transport capacity.
     #[serde(default)]
     pub railed_transport_slots: Option<usize>,
+    /// C++ `RailedTransportAIUpdateModuleData::m_pathPrefixName`.
+    /// Empty unless that exact AI module authored `PathPrefixName`.
+    #[serde(default)]
+    pub railed_path_prefix_name: String,
+
     /// Exact source containment behavior and capacity, parsed from the Object
     /// INI module rather than inferred from VEHICLE, dimensions, or a name.
     #[serde(default)]
@@ -1869,6 +1896,8 @@ impl ThingTemplate {
             supply_truck_metadata: None,
             supplies_depleted_voice: String::new(),
             railed_transport_slots: None,
+            railed_path_prefix_name: String::new(),
+
             contain_module: ContainModuleMetadata::default(),
 
             stealth_friendly_opacity_min: default_stealth_friendly_opacity_min(),

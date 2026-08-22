@@ -1222,6 +1222,19 @@ impl GameLogic {
         template.dock_starting_boxes = None;
         template.dock_delete_when_empty = false;
         template.railed_transport_slots = None;
+        template.railed_path_prefix_name = definition
+            .behavior_modules
+            .iter()
+            .find(|module| {
+                module
+                    .class_name
+                    .eq_ignore_ascii_case("RailedTransportAIUpdate")
+            })
+            .and_then(|module| module.attribute("PathPrefixName"))
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_default();
+
         template.contain_module = ContainModuleMetadata::default();
         template.transport_slot_count =
             Self::object_definition_attr(definition, "transportslotcount")
@@ -1936,7 +1949,10 @@ impl GameLogic {
                     allow_airborne_creation: false,
                     initial_burst: 0,
                     use_spawn_rally_point: false,
-                    grant_temporary_stealth_frames: 0,
+                    grant_temporary_stealth_frames: match module.attribute("GrantTemporaryStealth") {
+                        Some(value) => parse_duration_frames(value)?,
+                        None => 0,
+                    },
                 }),
             }
         })();
@@ -2591,14 +2607,16 @@ impl GameLogic {
         }
     }
 
-    /// Retain a complete, exact `SPECIAL_HACKER_DISABLE_BUILDING` module pair.
+    /// Retain a complete `SPECIAL_HACKER_DISABLE_BUILDING` module pair.
     ///
     /// C++ `ActionManager::canDisableBuildingViaHacking` queries the source
     /// `SpecialAbility` module, while the actual target channel belongs to a
     /// matching `SpecialAbilityUpdate`.  An HDB enum by itself is therefore
-    /// insufficient.  Parse only a unique pair pointing at the *same loaded*
-    /// SpecialPower template; a partial, duplicate, or malformed pair remains
-    /// unavailable rather than inheriting retail Hacker timings by name.
+    /// insufficient.  Parse a unique pair pointing at the *same loaded*
+    /// SpecialPower template — either the Hacker or Microwave retail identity
+    /// (both C++ Enum `SPECIAL_HACKER_DISABLE_BUILDING`).  A partial,
+    /// duplicate, or malformed pair remains unavailable rather than inheriting
+    /// retail Hacker timings by name.
     fn apply_authored_hacker_disable_building_metadata(
         template: &mut ThingTemplate,
         definition: &ObjectDefinition,
@@ -2659,15 +2677,16 @@ impl GameLogic {
                     .and_then(|module| {
                         let raw = module.attribute("SpecialPowerTemplate")?.trim();
                         let power = power_store.find_template(raw)?;
-                        // Common's enum deliberately aliases the retail
-                        // Microwave template to SPECIAL_HACKER_DISABLE_BUILDING.
-                        // HDB's player channel belongs only to the exact
-                        // `SpecialAbilityHackerDisableBuilding` identity in
-                        // CommandButton/SpecialPower data, not every source
-                        // template with that shared C++ enum value.
+                        // C++ has no distinct Microwave SpecialPowerType: both
+                        // retail templates are SPECIAL_HACKER_DISABLE_BUILDING.
+                        // Admit either authored identity so Microwave uses the
+                        // same disable-building channel with its own timings.
                         (power.power_type == SpecialPowerType::HackerDisableBuilding
-                            && special_power_type_from_template_name(&power.name)
-                                == Some(HostSpecialPowerType::HackerDisableBuilding))
+                            && matches!(
+                                special_power_type_from_template_name(&power.name),
+                                Some(HostSpecialPowerType::HackerDisableBuilding)
+                                    | Some(HostSpecialPowerType::MicrowaveDisableBuilding)
+                            ))
                         .then_some((module, power))
                     })
             })
@@ -5114,10 +5133,8 @@ mod tests {
         parser
             .parse_ini_content(&china_infantry, "ChinaInfantry.ini")
             .expect("parse retail China hacker");
-        // This synthetic probe intentionally gives Microwave the same Common
-        // enum/module shape as HDB.  It is the collision the exact template
-        // lookup protects against; a real Microwave runtime stays separately
-        // unsupported rather than borrowing HDB's persistent channel.
+        // Microwave shares the C++ HDB enum and must expose the same
+        // disable-building channel, keyed by its own SpecialPowerTemplate.
         parser
             .parse_ini_content(
                 r#"
@@ -5173,10 +5190,25 @@ End
                 .expect("microwave alias probe"),
             None,
         );
-        assert!(
-            microwave.hacker_disable_building.is_none(),
-            "a Common SPECIAL_HACKER_DISABLE_BUILDING enum alias must not expose the Hacker channel"
+        let microwave_hdb = microwave
+            .hacker_disable_building
+            .expect("Microwave SPECIAL_HACKER_DISABLE_BUILDING pair must expose the disable channel");
+        assert_eq!(
+            microwave_hdb.special_power_template,
+            "SpecialAbilityMicrowaveDisableBuilding"
         );
+        assert_eq!(
+            microwave_hdb.command_power(),
+            crate::command_system::SpecialPowerType::MicrowaveDisableBuilding
+        );
+        assert!(!microwave_hdb.is_hacker_command());
+        assert_eq!(microwave_hdb.reload_time_frames, 120);
+        assert_eq!(microwave_hdb.start_ability_range, 150.0);
+        assert_eq!(microwave_hdb.unpack_time_ms, 1);
+        assert_eq!(microwave_hdb.preparation_time_ms, 1);
+        assert_eq!(microwave_hdb.persistent_prep_time_ms, 1);
+        assert_eq!(microwave_hdb.effect_duration_ms, 1);
+        assert_eq!(microwave_hdb.pack_time_ms, 1);
     }
 
     #[test]

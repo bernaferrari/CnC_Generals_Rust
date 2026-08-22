@@ -32,7 +32,8 @@ pub struct ClientDrawableWorldSnapshot {
 /// resume a stale visual timeline after load.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClientDrawableStateSnapshot {
-    /// Numeric `ObjectId`; zero is not a valid active Main object identity.
+    /// Numeric `ObjectId`. Zero is C++ `INVALID_ID` for objectless drawables
+    /// (PUC beams, lock-on, ropes, prison visuals).
     #[serde(default)]
     pub object_id: u32,
     /// Exact frozen `AuthoredDrawModel::module_index`.
@@ -68,9 +69,10 @@ impl ClientDrawableStateSnapshot {
     /// This deliberately cannot validate hierarchy compatibility or barrel
     /// topology: those are fresh W3D asset facts, not durable snapshot data.
     pub fn has_stable_source_identity(&self) -> bool {
-        self.object_id != 0
-            && !self.source_template_name.trim().is_empty()
-            && !self.model_key.trim().is_empty()
+        // C++ GameClient::xfer saves objectless rows with objectID = INVALID_ID
+        // and identifies them by Thing template. Require a template + model
+        // (or, for objectless, the template reused as model_key).
+        !self.source_template_name.trim().is_empty() && !self.model_key.trim().is_empty()
     }
 
     /// Snapshot-local numeric validation.  A failed check means import must

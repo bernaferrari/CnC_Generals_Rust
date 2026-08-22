@@ -518,6 +518,13 @@ impl Object {
         self.record_host_guard();
     }
 
+    /// Drop AIGuard inner/outer/aggressor chase exits (player order or return).
+    pub fn clear_guard_chase(&mut self) {
+        self.guard_chase_phase = 0;
+        self.guard_chase_give_up_frame = 0;
+    }
+
+
     /// C++ AIUpdateInterface::privateGuardRetaliate residual.
     ///
     /// Clears current goal, anchors at `pos` (unit position if None), sets

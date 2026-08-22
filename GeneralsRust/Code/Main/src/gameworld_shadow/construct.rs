@@ -381,7 +381,8 @@ impl GameWorldShadow {
                         .thing
                         .template
                         .hacker_disable_building
-                        .is_some();
+                        .as_ref()
+                        .is_some_and(|metadata| metadata.is_hacker_command());
                     e.hacker_disable_building_ready =
                         logic.is_hacker_disable_building_ready(oid);
                     if let Some((template_name, template_id)) =
@@ -1874,7 +1875,8 @@ impl GameWorldShadow {
                     .thing
                     .template
                     .hacker_disable_building
-                    .is_some();
+                    .as_ref()
+                    .is_some_and(|metadata| metadata.is_hacker_command());
                 e.hacker_disable_building_ready = logic.is_hacker_disable_building_ready(oid);
                 if let Some((template_name, template_id)) =
                     Self::host_ready_structure_special_power_template(logic, obj)

@@ -39,9 +39,9 @@ pub(crate) use types::{xfer_vector3, DEFAULT_STEALTH_FRIENDLY_OPACITY};
 
 pub use types::{
     format_under_construction_desc, health_bar_colors, Color, DrawableId, DrawableOverlayData,
-    DrawableStatus, ICoord2D, IRegion2D, Matrix4, StealthLook, TintStatus, Vector3,
-    DARK_GRAY_DISABLED_COLOR, FRENZY_COLOR, FRENZY_COLOR_INFANTRY, INVALID_DRAWABLE_ID,
-    RED_IRRADIATED_COLOR, SICKLY_GREEN_POISONED_COLOR, SUBDUAL_DAMAGE_COLOR,
+    DrawableStatus, DrawableXferVisualSnapshot, ICoord2D, IRegion2D, Matrix4, StealthLook,
+    TintStatus, Vector3, DARK_GRAY_DISABLED_COLOR, FRENZY_COLOR, FRENZY_COLOR_INFANTRY,
+    INVALID_DRAWABLE_ID, RED_IRRADIATED_COLOR, SICKLY_GREEN_POISONED_COLOR, SUBDUAL_DAMAGE_COLOR,
 };
 
 pub use icons::{Anim2DIcon, Icon, IconInfo, IconType};

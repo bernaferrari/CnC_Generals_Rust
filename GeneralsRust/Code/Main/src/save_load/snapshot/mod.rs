@@ -64,6 +64,7 @@ mod builder;
 mod client_drawable;
 mod client_drawable_xfer;
 mod game_state;
+mod game_client_save;
 mod legacy_bincode;
 mod lifecycle_tail;
 mod load_post_process;
@@ -108,6 +109,11 @@ pub use w3d_ghost_save::{
     save_lock_live_w3d_ghosts, stash_loaded_w3d_ghost_xfer, take_loaded_w3d_ghost_xfer,
     CHUNK_GHOST_OBJECT,
 };
+pub use game_client_save::{
+    capture_game_client_xfer_bytes, restore_game_client_from_xfer_bytes,
+    restore_objectless_from_client_drawables, stash_loaded_game_client_xfer,
+    take_loaded_game_client_xfer, CHUNK_GAME_CLIENT,
+};
 
 /// Concatenated live snapshot sources for residual `include_str` scans.
 pub const SNAPSHOT_SRC: &str = concat!(
@@ -117,6 +123,7 @@ pub const SNAPSHOT_SRC: &str = concat!(
     include_str!("client_drawable.rs"),
     include_str!("client_drawable_xfer.rs"),
     include_str!("game_state.rs"),
+    include_str!("game_client_save.rs"),
     include_str!("lifecycle_tail.rs"),
     include_str!("load_post_process.rs"),
     include_str!("object.rs"),

@@ -150,13 +150,19 @@ fn direct_host_visual_mesh_scale(
     obj: &crate::game_logic::Object,
     visual_template_name: &str,
 ) -> f32 {
-    logic
+    let authored = logic
         .templates
         .get(visual_template_name)
         .map(crate::assets::mesh_asset_resolve::mesh_scale_from_template)
         .unwrap_or_else(|| {
             crate::assets::mesh_asset_resolve::mesh_scale_from_template(obj.get_template())
-        })
+        });
+    let instance = if obj.drawable_instance_scale.is_finite() && obj.drawable_instance_scale > 0.0 {
+        obj.drawable_instance_scale
+    } else {
+        1.0
+    };
+    authored * instance
 }
 
 /// Freeze the local player's energy grid from host Player fields, falling
@@ -500,8 +506,18 @@ impl PresentationFrame {
             );
             let model_key = draw_models.first().map(|model| model.model_key.clone());
             // Wave 75: freeze mesh scale residual (common combat = 1.0; CINE/weapon peels).
-            let mesh_scale =
-                crate::assets::mesh_asset_resolve::mesh_scale_from_template(obj.get_template());
+            let mesh_scale = {
+                let authored =
+                    crate::assets::mesh_asset_resolve::mesh_scale_from_template(obj.get_template());
+                let instance = if obj.drawable_instance_scale.is_finite()
+                    && obj.drawable_instance_scale > 0.0
+                {
+                    obj.drawable_instance_scale
+                } else {
+                    1.0
+                };
+                authored * instance
+            };
             let fow_visibility = if fow_shell_bypass {
                 ObjectVisibility::FULLY_VISIBLE
             } else if obj.owner_player_id == Some(local_player_id) {
@@ -615,10 +631,15 @@ impl PresentationFrame {
                 airborne_target: obj.status.airborne_target,
                 producer_id: obj.producer_id,
                 show_healing: {
-                    // C++ HEALING_ICON_DISPLAY_TIME residual via sole-benefactor claim window.
+                    // C++ HEALING_ICON_DISPLAY_TIME residual via sole-benefactor
+                    // claim window, plus Drawable::xfer keepTillFrame icons.
                     let now = logic.get_current_frame() as u32;
-                    obj.sole_healing_benefactor_expiration_frame > now
-                        && obj.sole_healing_benefactor_expiration_frame != 0
+                    (obj.sole_healing_benefactor_expiration_frame > now
+                        && obj.sole_healing_benefactor_expiration_frame != 0)
+                        || obj.overlay_icon_active(
+                            &["DefaultHeal", "StructureHeal", "VehicleHeal"],
+                            now,
+                        )
                 },
                 healing_icon_type: if obj.is_kind_of(KindOf::Structure) {
                     1
@@ -725,7 +746,8 @@ impl PresentationFrame {
                     .thing
                     .template
                     .hacker_disable_building
-                    .is_some(),
+                    .as_ref()
+                    .is_some_and(|metadata| metadata.is_hacker_command()),
                 hacker_disable_building_ready: logic.is_hacker_disable_building_ready(obj.id),
                 special_power_ready_template_name: ready_structure_special_power_module
                     .map(|module| module.special_power_template.clone()),
@@ -1104,6 +1126,8 @@ impl PresentationFrame {
                 drawable_fade_start_frame: obj.drawable_fade_start_frame,
                 drawable_fade_frames: obj.drawable_fade_frames,
                 gaining_subdual: obj.subdual_damage > 0.0,
+                drawable_explicit_opacity: obj.drawable_explicit_opacity,
+                camo_heat_vision_opacity: obj.camo_heat_vision_opacity,
             };
             direct_host_drawables.push(PresentationDirectHostDrawable {
                 object: renderable.clone(),

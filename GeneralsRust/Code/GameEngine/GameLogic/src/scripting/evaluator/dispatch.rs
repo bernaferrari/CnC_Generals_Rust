@@ -1140,6 +1140,22 @@ impl ScriptEvaluator {
                 })?;
 
                 let power_name = power_name_param.get_string();
+                let player_name = self
+                    .resolve_player_from_param(player_param)
+                    .and_then(|p| {
+                        p.read()
+                            .ok()
+                            .and_then(|g| NameKeyGenerator::key_to_name(g.get_player_name_key()))
+                    })
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| player_param.get_string().to_string());
+                if let Some(ready) = crate::scripting::host_eval_skirmish_special_power_ready(
+                    &player_name,
+                    power_name,
+                ) {
+                    return Ok(ready);
+                }
+
                 let Some(player_arc) = self.resolve_player_from_param(player_param) else {
                     return Ok(false);
                 };
@@ -1197,6 +1213,24 @@ impl ScriptEvaluator {
                 let comparison = comparison_param.get_int() as u32;
                 let target_value = value_param.get_int();
                 let area_name = trigger_param.get_string();
+                let player_name = self
+                    .resolve_player_from_param(player_param)
+                    .and_then(|p| {
+                        p.read()
+                            .ok()
+                            .and_then(|g| NameKeyGenerator::key_to_name(g.get_player_name_key()))
+                    })
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| player_param.get_string().to_string());
+                if let Some(ok) = crate::scripting::host_eval_skirmish_value_in_area(
+                    &player_name,
+                    comparison as i32,
+                    target_value,
+                    area_name,
+                ) {
+                    return Ok(ok);
+                }
+
 
                 let trigger = match self.get_trigger_area(area_name) {
                     Some(t) => t,
@@ -1576,6 +1610,23 @@ impl ScriptEvaluator {
                     )
                 })?;
 
+                if let Some(num_faction_units) =
+                    crate::scripting::host_eval_skirmish_unowned_faction_unit_count()
+                {
+                    let comparison = comparison_param.get_int() as u32;
+                    let target_count = count_param.get_int();
+                    return Ok(match comparison {
+                        0 => num_faction_units < target_count,
+                        1 => num_faction_units <= target_count,
+                        2 => num_faction_units == target_count,
+                        3 => num_faction_units >= target_count,
+                        4 => num_faction_units > target_count,
+                        5 => num_faction_units != target_count,
+                        _ => false,
+                    });
+                }
+
+
                 // C++ counts neutral player objects with DISABLED_UNMANNED
                 let Ok(list) = player_list().read() else {
                     return Ok(false);
@@ -1602,8 +1653,9 @@ impl ScriptEvaluator {
                         num_faction_units += 1;
                     }
                 }
-
                 let comparison = comparison_param.get_int() as u32;
+
+
                 let target_count = count_param.get_int();
                 match comparison {
                     0 => Ok(num_faction_units < target_count),
@@ -1664,6 +1716,31 @@ impl ScriptEvaluator {
                     )
                 })?;
 
+                let player_name = self
+                    .resolve_player_from_param(player_param)
+                    .and_then(|p| {
+                        p.read()
+                            .ok()
+                            .and_then(|g| NameKeyGenerator::key_to_name(g.get_player_name_key()))
+                    })
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| player_param.get_string().to_string());
+                if let Some(num_garrisoned) =
+                    crate::scripting::host_eval_skirmish_garrisoned_count(&player_name)
+                {
+                    let comparison = comparison_param.get_int() as u32;
+                    let target_count = count_param.get_int();
+                    return Ok(match comparison {
+                        0 => num_garrisoned < target_count,
+                        1 => num_garrisoned <= target_count,
+                        2 => num_garrisoned == target_count,
+                        3 => num_garrisoned >= target_count,
+                        4 => num_garrisoned > target_count,
+                        5 => num_garrisoned != target_count,
+                        _ => false,
+                    });
+                }
+
                 let Some(player_arc) = self.resolve_player_from_param(player_param) else {
                     return Ok(false);
                 };
@@ -1723,6 +1800,31 @@ impl ScriptEvaluator {
                         "SkirmishPlayerHasComparisonCapturedUnits condition missing count parameter".to_string(),
                     )
                 })?;
+
+                let player_name = self
+                    .resolve_player_from_param(player_param)
+                    .and_then(|p| {
+                        p.read()
+                            .ok()
+                            .and_then(|g| NameKeyGenerator::key_to_name(g.get_player_name_key()))
+                    })
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| player_param.get_string().to_string());
+                if let Some(num_captured) =
+                    crate::scripting::host_eval_skirmish_captured_count(&player_name)
+                {
+                    let comparison = comparison_param.get_int() as u32;
+                    let target_count = count_param.get_int();
+                    return Ok(match comparison {
+                        0 => num_captured < target_count,
+                        1 => num_captured <= target_count,
+                        2 => num_captured == target_count,
+                        3 => num_captured >= target_count,
+                        4 => num_captured > target_count,
+                        5 => num_captured != target_count,
+                        _ => false,
+                    });
+                }
 
                 let Some(player_arc) = self.resolve_player_from_param(player_param) else {
                     return Ok(false);
@@ -1787,6 +1889,22 @@ impl ScriptEvaluator {
                 })?;
 
                 let area_name = trigger_param.get_string();
+                let player_name = self
+                    .resolve_player_from_param(player_param)
+                    .and_then(|p| {
+                        p.read()
+                            .ok()
+                            .and_then(|g| NameKeyGenerator::key_to_name(g.get_player_name_key()))
+                    })
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| player_param.get_string().to_string());
+                if let Some(ok) = crate::scripting::host_eval_skirmish_player_has_units_in_area(
+                    &player_name,
+                    area_name,
+                ) {
+                    return Ok(ok);
+                }
+
 
                 let trigger = match self.get_trigger_area(area_name) {
                     Some(t) => t,
@@ -1872,6 +1990,22 @@ impl ScriptEvaluator {
                 })?;
 
                 let area_name = trigger_param.get_string();
+
+                let player_name = self
+                    .resolve_player_from_param(player_param)
+                    .and_then(|p| {
+                        p.read()
+                            .ok()
+                            .and_then(|g| NameKeyGenerator::key_to_name(g.get_player_name_key()))
+                    })
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| player_param.get_string().to_string());
+                if let Some(inside) = crate::scripting::host_eval_skirmish_player_has_units_in_area(
+                    &player_name,
+                    area_name,
+                ) {
+                    return Ok(!inside);
+                }
 
                 let trigger = match self.get_trigger_area(area_name) {
                     Some(t) => t,

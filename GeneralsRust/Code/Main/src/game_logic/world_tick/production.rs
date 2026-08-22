@@ -2,9 +2,10 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 impl GameLogic {
-    /// Update construction progress.
-    /// C++ parity: buildings only progress when a worker/dozer is nearby.
+    /// C++ DozerActionDoActionState BUILD (DozerAIUpdate.cpp:482-526):
+    /// progress only after idle at ACTION dock (`DOZER_DO_BUILD_AT_DOCK`).
     /// C++ DozerAIUpdate.cpp:305 — one exclusive builder per structure.
+
     pub(in super::super) fn update_construction(&mut self, object_ids: &[ObjectId], dt: f32) {
 
         const BUILDER_RANGE: f32 = crate::game_logic::host_repair::DOZER_MIN_ACTION_TOLERANCE;
@@ -41,23 +42,26 @@ impl GameLogic {
             })
             .collect();
 
-        // Pre-scan dozers: exclusive dock = assigned to this building (C++ DozerAIUpdate).
-        let dozer_info: Vec<(ObjectId, Vec3, Option<u32>, Option<ObjectId>, bool)> = self
-            .objects
-            .values()
-            .filter(|obj| obj.is_alive() && obj.can_construct())
-            .map(|obj| {
-                let arrived = !obj.status.moving
-                    && obj.movement.current_path_index >= obj.movement.path.len();
-                (
-                    obj.id,
-                    obj.get_position(),
-                    object_owner_player_ids.get(&obj.id).copied().flatten(),
-                    obj.target,
-                    arrived,
-                )
-            })
-            .collect();
+        // Pre-scan dozers: exclusive builder + idle at ACTION dock
+        // (C++ DozerActionDoActionState BUILD, DozerAIUpdate.cpp:482-507).
+        let dozer_info: Vec<(ObjectId, Vec3, Option<u32>, Option<ObjectId>, bool, Option<Vec3>)> =
+            self.objects
+                .values()
+                .filter(|obj| obj.is_alive() && obj.can_construct())
+                .map(|obj| {
+                    let arrived = !obj.status.moving
+                        && obj.movement.current_path_index >= obj.movement.path.len();
+                    (
+                        obj.id,
+                        obj.get_position(),
+                        object_owner_player_ids.get(&obj.id).copied().flatten(),
+                        obj.target,
+                        arrived,
+                        obj.dozer_dock_action,
+                    )
+                })
+                .collect();
+
 
 
         let mut completed_superweapon_detects: Vec<ObjectId> = Vec::new();
@@ -78,6 +82,7 @@ impl GameLogic {
             if let Some(obj) = self.objects.get_mut(&id) {
                 if obj.status.under_construction {
                     let build_pos = obj.get_position();
+                    let build_radius = obj.selection_radius;
                     let site_template = obj.template_name.clone();
                     let build_owner_player_id = object_owner_player_ids.get(&id).copied().flatten();
                     // Exclusive dock: only the structure's builder_id (C++ getBuilderID)
@@ -85,15 +90,26 @@ impl GameLogic {
                     let exclusive_builder = obj.builder_id;
                     let nearby_dozers = dozer_info
                         .iter()
-                        .filter(|(did, pos, owner_player_id, target, arrived)| {
+                        .filter(|(did, pos, owner_player_id, target, arrived, stored_dock)| {
                             *owner_player_id == build_owner_player_id
                                 && *target == Some(id)
                                 && *arrived
-                                && pos.distance(build_pos) <= BUILDER_RANGE
                                 && exclusive_builder.map(|bid| bid == *did).unwrap_or(true)
+                                && {
+                                    // C++ DOZER_DO_BUILD_AT_DOCK: idle at ACTION dock,
+                                    // not within 70wu of the structure centre (cpp:485-507).
+                                    let dock = crate::game_logic::host_repair::resolve_dozer_action_dock(
+                                        *stored_dock,
+                                        *pos,
+                                        build_pos,
+                                        build_radius,
+                                    );
+                                    pos.distance(dock) <= BUILDER_RANGE
+                                }
                         })
                         .count()
                         .min(1);
+
                     // C++ DozerAIUpdate: no docked dozer ⇒ no progress. Do not invent a ghost builder.
                     let dozer_count = nearby_dozers;
                     let actively_built = nearby_dozers > 0;

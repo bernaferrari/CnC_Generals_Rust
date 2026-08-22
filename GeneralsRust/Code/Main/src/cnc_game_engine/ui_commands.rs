@@ -2343,6 +2343,7 @@ fn special_power_pending_options(power: &crate::command_system::SpecialPowerType
         P::BlackLotusStealCash
         | P::BlackLotusDisableVehicle
         | P::HackerDisableBuilding
+        | P::MicrowaveDisableBuilding
         | P::CashHack
         | P::RangerCaptureBuilding
         | P::RedGuardCaptureBuilding

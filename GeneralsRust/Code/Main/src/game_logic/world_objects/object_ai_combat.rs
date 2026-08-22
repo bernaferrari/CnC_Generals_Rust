@@ -14,7 +14,7 @@ impl GameLogic {
             }
         };
 
-        if ai_state == AIState::Attacking {
+        if matches!(ai_state, AIState::Attacking | AIState::AttackMoving) {
             if let Some(target_id) = target_id {
                 // Check if target still exists; fire when in range.
                 // Out-of-range chase is owned by update_combat (assign_unit_path) —
@@ -22,33 +22,37 @@ impl GameLogic {
                 if let Some(target) = self.objects.get(&target_id) {
                     if !target.is_alive() {
                         self.stop_attack_decision_aware(object_id);
-                    } else if let Some(attacker) = self.objects.get(&object_id) {
-                        if attacker.can_target(target) {
-                            let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
-                            let (tgt_inf, tgt_faerie) = self
-                                .objects
-                                .get(&target_id)
-                                .map(|t| (t.is_kind_of(KindOf::Infantry), t.is_faerie_fire()))
-                                .unwrap_or((false, false));
-                            if let Some(attacker) = self.objects.get_mut(&object_id) {
-                                // can_fire without target uses base ROF; fire_at_ex applies
-                                // TARGET_FAERIE_FIRE ROF residual against painted targets.
-                                if attacker.can_fire(current_time)
-                                    || (tgt_faerie
-                                        && attacker.weapon.as_ref().is_some_and(|w| {
-                                            Object::weapon_ready_vs_target(w, current_time, true)
-                                        }))
-                                {
-                                    attacker.fire_at_ex(
-                                        target_id,
-                                        current_time,
-                                        tgt_inf,
-                                        tgt_faerie,
-                                    );
+                    } else if ai_state == AIState::Attacking {
+                        if let Some(attacker) = self.objects.get(&object_id) {
+                            if attacker.can_target(target) {
+                                let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
+                                let (tgt_inf, tgt_faerie) = self
+                                    .objects
+                                    .get(&target_id)
+                                    .map(|t| (t.is_kind_of(KindOf::Infantry), t.is_faerie_fire()))
+                                    .unwrap_or((false, false));
+                                if let Some(attacker) = self.objects.get_mut(&object_id) {
+                                    // can_fire without target uses base ROF; fire_at_ex applies
+                                    // TARGET_FAERIE_FIRE ROF residual against painted targets.
+                                    if attacker.can_fire(current_time)
+                                        || (tgt_faerie
+                                            && attacker.weapon.as_ref().is_some_and(|w| {
+                                                Object::weapon_ready_vs_target(
+                                                    w, current_time, true,
+                                                )
+                                            }))
+                                    {
+                                        attacker.fire_at_ex(
+                                            target_id,
+                                            current_time,
+                                            tgt_inf,
+                                            tgt_faerie,
+                                        );
+                                    }
                                 }
                             }
+                            // else: OOR or weapon rules — combat chase / wait residual
                         }
-                        // else: OOR or weapon rules — combat chase / wait residual
                     }
                 } else {
                     // Target no longer exists

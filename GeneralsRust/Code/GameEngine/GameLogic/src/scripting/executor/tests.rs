@@ -4866,5 +4866,138 @@ fn eval_player_has_comparison_unit_kind_in_trigger_area_n_units_ge_n() {
     crate::scripting::clear_host_script_query_snapshot();
 }
 
+#[test]
+fn live_skirmish_leftover_conditions_read_host_snapshot() {
+    let _test_lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    crate::scripting::clear_host_script_query_snapshot();
+
+    let mut command_center = live_host_area_unit(
+        1,
+        "PlyrAmerica",
+        "AmericaCommandCenter",
+        5.0,
+        5.0,
+        &["Structure"],
+    );
+    command_center.special_power_ready = true;
+    command_center.special_power_templates = vec!["SuperweaponDaisyCutter".into()];
+    command_center.build_cost = 2000;
+    command_center.garrisonable = true;
+    command_center.contain_count = 2;
+    command_center.captured = true;
+
+    let mut unmanned = live_host_area_unit(2, "PlyrNeutral", "AmericaTankCrusader", 50.0, 50.0, &[]);
+    unmanned.unmanned = true;
+    unmanned.team = 3;
+
+    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+        objects: vec![command_center, unmanned],
+        areas: [("HoldZone".into(), (0.0, 0.0, 10.0, 10.0))].into_iter().collect(),
+        ..Default::default()
+    });
+
+    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+
+    let mut power = Condition::new(ConditionType::SkirmishSpecialPowerReady);
+    power
+        .add_parameter(Parameter::with_string(ParameterType::Side, "PlyrAmerica".into()))
+        .unwrap();
+    power
+        .add_parameter(Parameter::with_string(
+            ParameterType::SpecialPower,
+            "SuperweaponDaisyCutter".into(),
+        ))
+        .unwrap();
+    assert_eq!(
+        evaluator.evaluate_condition(&mut power).unwrap(),
+        ScriptConditionResult::True,
+        "SKIRMISH_SPECIAL_POWER_READY must see host special_power_ready"
+    );
+
+    let mut value = Condition::new(ConditionType::SkirmishValueInArea);
+    value
+        .add_parameter(Parameter::with_string(ParameterType::Side, "PlyrAmerica".into()))
+        .unwrap();
+    value
+        .add_parameter(Parameter::with_int(ParameterType::Comparison, 3))
+        .unwrap();
+    value
+        .add_parameter(Parameter::with_int(ParameterType::Int, 2000))
+        .unwrap();
+    value
+        .add_parameter(Parameter::with_string(ParameterType::TriggerArea, "HoldZone".into()))
+        .unwrap();
+    assert_eq!(
+        evaluator.evaluate_condition(&mut value).unwrap(),
+        ScriptConditionResult::True,
+        "SKIRMISH_VALUE_IN_AREA must sum host build_cost"
+    );
+
+    let mut unowned = Condition::new(ConditionType::SkirmishUnownedFactionUnitExists);
+    unowned
+        .add_parameter(Parameter::with_string(ParameterType::Side, "PlyrAmerica".into()))
+        .unwrap();
+    unowned
+        .add_parameter(Parameter::with_int(ParameterType::Comparison, 2))
+        .unwrap();
+    unowned
+        .add_parameter(Parameter::with_int(ParameterType::Int, 1))
+        .unwrap();
+    assert_eq!(
+        evaluator.evaluate_condition(&mut unowned).unwrap(),
+        ScriptConditionResult::True,
+        "SKIRMISH_UNOWNED_FACTION_UNIT_EXISTS must count host unmanned"
+    );
+
+    let mut garrisoned = Condition::new(ConditionType::SkirmishPlayerHasComparisonGarrisoned);
+    garrisoned
+        .add_parameter(Parameter::with_string(ParameterType::Side, "PlyrAmerica".into()))
+        .unwrap();
+    garrisoned
+        .add_parameter(Parameter::with_int(ParameterType::Comparison, 3))
+        .unwrap();
+    garrisoned
+        .add_parameter(Parameter::with_int(ParameterType::Int, 1))
+        .unwrap();
+    assert_eq!(
+        evaluator.evaluate_condition(&mut garrisoned).unwrap(),
+        ScriptConditionResult::True,
+        "SKIRMISH_PLAYER_HAS_COMPARISON_GARRISONED must count host garrisonable+occupied"
+    );
+
+    let mut captured = Condition::new(ConditionType::SkirmishPlayerHasComparisonCapturedUnits);
+    captured
+        .add_parameter(Parameter::with_string(ParameterType::Side, "PlyrAmerica".into()))
+        .unwrap();
+    captured
+        .add_parameter(Parameter::with_int(ParameterType::Comparison, 2))
+        .unwrap();
+    captured
+        .add_parameter(Parameter::with_int(ParameterType::Int, 1))
+        .unwrap();
+    assert_eq!(
+        evaluator.evaluate_condition(&mut captured).unwrap(),
+        ScriptConditionResult::True,
+        "SKIRMISH_PLAYER_HAS_COMPARISON_CAPTURED_UNITS must count host captured"
+    );
+
+    let mut units = Condition::new(ConditionType::SkirmishPlayerHasUnitsInArea);
+    units
+        .add_parameter(Parameter::with_string(ParameterType::Side, "PlyrAmerica".into()))
+        .unwrap();
+    units
+        .add_parameter(Parameter::with_string(ParameterType::TriggerArea, "HoldZone".into()))
+        .unwrap();
+    assert_eq!(
+        evaluator.evaluate_condition(&mut units).unwrap(),
+        ScriptConditionResult::True,
+        "SKIRMISH_PLAYER_HAS_UNITS_IN_AREA must see host objects in the pad"
+    );
+
+    crate::scripting::clear_host_script_query_snapshot();
+}
+
+
 
 

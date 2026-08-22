@@ -4905,10 +4905,16 @@ impl AIPlayer {
             }
             if game_logic.assign_unit_path(unit_id, enemy_base, &[]) {
                 game_logic.set_ai_state_decision_aware_for_ai(unit_id, AIState::AttackMoving);
+                if let Some(unit) = game_logic.host_object_mut(unit_id) {
+                    unit.is_attack_path = true;
+                    unit.requested_destination = Some(enemy_base);
+                }
                 Self::dispatch_crate_attack_move(unit_id, enemy_base, focus_enemy);
             } else {
                 if let Some(unit) = game_logic.host_object_mut(unit_id) {
                     unit.move_to(enemy_base);
+                    unit.is_attack_path = true;
+                    unit.requested_destination = Some(enemy_base);
                 }
                 game_logic.set_ai_state_decision_aware_for_ai(unit_id, AIState::AttackMoving);
                 Self::dispatch_crate_attack_move(unit_id, enemy_base, focus_enemy);

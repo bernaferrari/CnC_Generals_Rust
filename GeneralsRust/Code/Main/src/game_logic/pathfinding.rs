@@ -792,6 +792,10 @@ impl PathfindingGrid {
                 let _ = cells;
             }
         }
+        let mut zones = std::mem::take(&mut self.terrain_zones);
+        self.merge_zones_via_connect_layer(&mut zones);
+        self.terrain_zones = zones;
+
     }
 
     pub fn terrain_zone(&self, pos: GridPos) -> u16 {
@@ -827,6 +831,80 @@ impl PathfindingGrid {
                 | PathfindCellType::Cliff
         )
     }
+
+    /// C++ `PathfindZoneManager::calculateZones` resolveZones
+    /// (`AIPathfind.cpp:2629-2633`): CLEAR ground cells with
+    /// `getConnectLayer() > LAYER_GROUND` merge with that bridge layer's
+    /// zone in `m_hierarchicalZones`. Leftover `build_surface_combiners`
+    /// already does this; live floods store the effective id on the cell.
+    fn merge_zones_via_connect_layer(&self, zones: &mut [u16]) {
+        if zones.len() != self.ground_connect.len() {
+            return;
+        }
+        let mut max_z = 0u16;
+        for &z in zones.iter() {
+            if z > max_z {
+                max_z = z;
+            }
+        }
+        if max_z == 0 {
+            return;
+        }
+        let mut parent: Vec<u16> = (0..=max_z).collect();
+        fn find(parent: &mut [u16], mut z: u16) -> u16 {
+            while (z as usize) < parent.len() && parent[z as usize] != z {
+                let p = parent[z as usize];
+                if (p as usize) < parent.len() {
+                    parent[z as usize] = parent[p as usize];
+                }
+                z = p;
+            }
+            z
+        }
+        fn union(parent: &mut [u16], a: u16, b: u16) {
+            if a == 0 || b == 0 {
+                return;
+            }
+            let pa = find(parent, a);
+            let pb = find(parent, b);
+            if pa == pb {
+                return;
+            }
+            // C++ resolveZones keeps the lower zone id.
+            if pa < pb {
+                parent[pb as usize] = pa;
+            } else {
+                parent[pa as usize] = pb;
+            }
+        }
+        // Union every CLEAR ground cell that shares a connectLayer
+        // (equivalent to resolveZones(cell.zone, layer.zone)).
+        let mut layer_rep = [0u16; 16];
+        for (idx, &cl) in self.ground_connect.iter().enumerate() {
+            if cl <= PathfindLayerEnum::Ground as u8 || (cl as usize) >= layer_rep.len() {
+                continue;
+            }
+            if self.cell_type_at_index(idx) != PathfindCellType::Clear {
+                continue;
+            }
+            let z = zones.get(idx).copied().unwrap_or(0);
+            if z == 0 {
+                continue;
+            }
+            let slot = cl as usize;
+            if layer_rep[slot] == 0 {
+                layer_rep[slot] = z;
+            } else {
+                union(&mut parent, layer_rep[slot], z);
+            }
+        }
+        for z in zones.iter_mut() {
+            if *z != 0 {
+                *z = find(&mut parent, *z);
+            }
+        }
+    }
+
 
     /// Structure-aware zones (C++ clientSafeQuickDoesPathExist).
     pub fn rebuild_path_zones(&mut self) {
@@ -867,6 +945,10 @@ impl PathfindingGrid {
                 }
             }
         }
+        let mut zones = std::mem::take(&mut self.path_zones);
+        self.merge_zones_via_connect_layer(&mut zones);
+        self.path_zones = zones;
+
     }
 
     pub fn path_zone(&self, pos: GridPos) -> u16 {
@@ -2943,8 +3025,53 @@ impl PathfindingSystem {
             .collect()
     }
 
-    /// C++ `Pathfinder::internalFindPath` via crate `AStarPathfinder`.
+    /// C++ hierarchical bridge start/end cells (AIPathfind.cpp:7595-7623).
+    fn hierarchical_bridge_jumps(&self) -> Vec<(GridCoord, GridCoord)> {
+        let mut out = Vec::new();
+        for layer in &self.grid.bridge_layers {
+            let start = self.grid.world_to_grid(Vec3::new(
+                (layer.from_left.x + layer.from_right.x) * 0.5,
+                0.0,
+                (layer.from_left.z + layer.from_right.z) * 0.5,
+            ));
+            let end = self.grid.world_to_grid(Vec3::new(
+                (layer.to_left.x + layer.to_right.x) * 0.5,
+                0.0,
+                (layer.to_left.z + layer.to_right.z) * 0.5,
+            ));
+            out.push((
+                GridCoord::new(start.x, start.y),
+                GridCoord::new(end.x, end.y),
+            ));
+            let connects: Vec<GridCoord> = layer
+                .cells
+                .iter()
+                .filter(|(_, (_, connect))| *connect == PathfindLayerEnum::Ground as u8)
+                .map(|((x, y), _)| GridCoord::new(*x, *y))
+                .collect();
+            if connects.len() >= 2 {
+                let mut lo = connects[0];
+                let mut hi = connects[0];
+                for &c in &connects {
+                    if c.x + c.y < lo.x + lo.y {
+                        lo = c;
+                    }
+                    if c.x + c.y > hi.x + hi.y {
+                        hi = c;
+                    }
+                }
+                if lo != hi {
+                    out.push((lo, hi));
+                }
+            }
+        }
+        out
+    }
+
+
+    /// C++ `Pathfinder::findPath` via crate A* after hierarchical zone-block prune.
     /// Falls back to the host grid A* if crate types cannot run (empty grid).
+
     fn find_path_via_crate(
         &mut self,
         start: GridPos,
@@ -3033,6 +3160,19 @@ impl PathfindingSystem {
         }
         let start_c = self.host_to_crate_coord(start);
         let goal_c = self.host_to_crate_coord(goal);
+        // C++ findPath: clearPassableFlags + findHierarchicalPath corridor
+        // (AIPathfind.cpp:6375-6381). Fine A* then consults isPassable.
+        let jumps = self.hierarchical_bridge_jumps();
+        if let Some(crate_pf) = self.crate_astar.as_mut() {
+            crate_pf.finder.apply_hierarchical_zone_prune(
+                start_c,
+                goal_c,
+                surfaces,
+                is_crusher,
+                &jumps,
+            );
+        }
+
         let width = self.grid.width;
         let occ_fixed = self.grid.occ_fixed_mask.clone();
         let occ_moving = self.grid.occ_moving_mask.clone();
@@ -4803,6 +4943,50 @@ mod tests {
             "crate A* must hop the classified deck across water"
         );
     }
+
+    /// hq-z66hi: rally/dozer zone gate must honor bridge connectLayer.
+    #[test]
+    fn connect_layer_merges_zones_across_river() {
+        let mut g = open_grid(12, 12);
+        for y in 0..12 {
+            for x in 3..8 {
+                g.set_cell_type(GridPos::new(x, y), PathfindCellType::Water);
+            }
+        }
+        g.stamp_bridge_deck(
+            Vec3::new(20.0, 20.0, 40.0),
+            Vec3::new(20.0, 20.0, 60.0),
+            Vec3::new(90.0, 20.0, 40.0),
+            Vec3::new(90.0, 20.0, 60.0),
+            false,
+        );
+        g.rebuild_terrain_zones();
+        g.rebuild_path_zones();
+        let from = g.grid_to_world(GridPos::new(1, 5));
+        let to = g.grid_to_world(GridPos::new(10, 5));
+        assert!(
+            g.quick_path_exists(from, to),
+            "clientSafeQuickDoesPathExist must join banks via connectLayer"
+        );
+        assert!(
+            g.quick_path_exists_for_ui(from, to),
+            "ForUI effectiveTerrainZone still applies hierarchical bridge merge"
+        );
+        g.stamp_bridge_deck(
+            Vec3::new(20.0, 20.0, 40.0),
+            Vec3::new(20.0, 20.0, 60.0),
+            Vec3::new(90.0, 20.0, 40.0),
+            Vec3::new(90.0, 20.0, 60.0),
+            true,
+        );
+        g.rebuild_terrain_zones();
+        g.rebuild_path_zones();
+        assert!(
+            !g.quick_path_exists(from, to),
+            "destroyed deck must drop ground connect and split banks"
+        );
+    }
+
 
     /// hq-54w0z: dest on a deck stays on the deck (not snapped to the riverbank).
     #[test]

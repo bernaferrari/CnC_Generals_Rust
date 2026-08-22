@@ -93,6 +93,24 @@ pub fn dozer_repair_approach_position(
     target_position + direction * side_offset
 }
 
+/// C++ `m_dockPoint[BUILD][ACTION]`, or recompute the half-radius seed.
+#[inline]
+pub fn resolve_dozer_action_dock(
+    stored: Option<Vec3>,
+    dozer_position: Vec3,
+    structure_position: Vec3,
+    structure_selection_radius: f32,
+) -> Vec3 {
+    stored.unwrap_or_else(|| {
+        dozer_repair_approach_position(
+            dozer_position,
+            structure_position,
+            structure_selection_radius,
+        )
+    })
+}
+
+
 /// C++ arrival window: `max(MIN_ACTION_TOLERANCE, boundingSphere + 15)`.
 #[inline]
 pub fn repair_action_range(target_selection_radius: f32) -> f32 {

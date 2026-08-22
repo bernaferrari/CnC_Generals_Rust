@@ -173,6 +173,10 @@ impl SnapshotBuilder {
             restore_w3d_ghost_manager_from_xfer_bytes(&ghost_bytes)?;
         }
         save_lock_live_w3d_ghosts(false)?;
+        if let Some(client_bytes) = take_loaded_game_client_xfer() {
+            restore_game_client_from_xfer_bytes(&client_bytes)?;
+        }
+        restore_objectless_from_client_drawables(&snapshot.client_drawables);
 
         // Map loading initializes a fresh shroud grid and may reveal
         // staging-map objects. Replace that singleton only when this save
@@ -1077,22 +1081,30 @@ impl SnapshotBuilder {
             };
             let hidden_by_stealth = object.camo_stealth_look == 5;
             let stealth_opacity = object.camo_friendly_opacity;
+            let hidden = object.drawable_hidden;
+            let loco_pitch = object.drawable_loco_pitch;
+            let loco_roll = object.drawable_loco_roll;
+            let expiration_date = object.drawable_expiration_date;
             if !hidden_by_stealth
+                && !hidden
                 && (stealth_opacity - 1.0).abs() <= f32::EPSILON
                 && object.terrain_decal_type == 8
+                && loco_pitch == 0.0
+                && loco_roll == 0.0
+                && expiration_date == 0
             {
                 continue;
             }
             entries.push(ClientDrawableVisualSnapshot {
                 object_id: id.0,
                 draw_module_index: 0,
-                hidden: false,
+                hidden,
                 hidden_by_stealth,
                 stealth_opacity,
-                effective_opacity: stealth_opacity,
-                loco_pitch: 0.0,
-                loco_roll: 0.0,
-                expiration_date: 0,
+                effective_opacity: object.drawable_explicit_opacity * stealth_opacity,
+                loco_pitch,
+                loco_roll,
+                expiration_date,
                 terrain_decal: object.terrain_decal_type,
             });
         }
@@ -1111,13 +1123,18 @@ impl SnapshotBuilder {
             let Some(object) = game_logic.host_object_mut(ObjectId(entry.object_id)) else {
                 continue;
             };
+            object.drawable_hidden = entry.hidden;
             if entry.hidden_by_stealth {
                 object.camo_stealth_look = 5;
             }
             object.camo_friendly_opacity = entry.stealth_opacity;
+            object.drawable_loco_pitch = entry.loco_pitch;
+            object.drawable_loco_roll = entry.loco_roll;
+            object.drawable_expiration_date = entry.expiration_date;
             object.terrain_decal_type = entry.terrain_decal;
         }
     }
+
 
     fn restore_cia_vision_builder_sell(
         &self,

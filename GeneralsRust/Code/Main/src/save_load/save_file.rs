@@ -35,8 +35,10 @@ const SAVE_HEADER_SIZE: usize = std::mem::size_of::<SaveFileHeader>();
 /// cannot be restored into the live host world; load fails closed instead of
 /// reporting success with an empty snapshot. `CHUNK_InGameUI`,
 /// `CHUNK_TacticalView`, `CHUNK_ScriptEngine`, `CHUNK_TerrainLogic`, and
-/// `CHUNK_Radar` write live persist_v18 state in C++ xfer layout. Remaining
-/// registered blocks are NullSnapshot version-1 placeholders.
+/// `CHUNK_Radar` write live persist_v18 state in C++ xfer layout.
+/// `CHUNK_GameClient` writes leftover `GameClient::xfer` so objectless
+/// PUC / lock-on / rope drawables survive save/load.
+/// Remaining registered blocks are NullSnapshot version-1 placeholders.
 /// `CHUNK_GameStateMap` embeds the `.map` when the file is on disk
 /// (`GameStateMap.cpp:55-156`).
 const CHUNK_GAME_STATE: &str = "CHUNK_GameState";
@@ -1088,6 +1090,7 @@ impl SaveFileManager {
         logic_payload: Vec<u8>,
     ) -> SaveLoadResult<Vec<u8>> {
         let ghost_bytes = capture_w3d_ghost_xfer_bytes().unwrap_or_default();
+        let game_client_bytes = capture_game_client_xfer_bytes().unwrap_or_default();
         let block_names: &[&str] = if save_info.save_type == SaveFileType::Mission {
             // C++ `xferSaveData` (`GameState.cpp:1339-1346`) writes only
             // CHUNK_GameState + CHUNK_Campaign for SAVE_FILE_TYPE_MISSION.
@@ -1123,6 +1126,17 @@ impl SaveFileManager {
                             }
                         }
                         Ok(())
+                    }
+                    CHUNK_GAME_CLIENT => {
+                        if game_client_bytes.is_empty() {
+                            write_null_snapshot_version(xfer)
+                        } else {
+                            let mut bytes = game_client_bytes.clone();
+                            unsafe {
+                                xfer.xfer_user(bytes.as_mut_ptr(), bytes.len())
+                                    .map_err(|e| SaveLoadError::Serialization(e.to_string()))
+                            }
+                        }
                     }
                     CHUNK_CAMPAIGN => write_campaign_block(xfer),
                     CHUNK_INGAME_UI => {
@@ -1249,6 +1263,12 @@ impl SaveFileManager {
                     if block.xfer(&mut xfer).is_ok() {
                         stash_loaded_w3d_ghost_xfer(block.data);
                     }
+                }
+            } else if token.eq_ignore_ascii_case(CHUNK_GAME_CLIENT) {
+                // NullSnapshot is a lone version-1 byte. Leftover GameClient::xfer
+                // starts at version 3 and recreates objectless drawables.
+                if payload.first().copied() != Some(1) || payload.len() > 1 {
+                    stash_loaded_game_client_xfer(payload);
                 }
             } else if token.eq_ignore_ascii_case(CHUNK_GAME_STATE_MAP) {
                 let scratch = std::env::temp_dir().join("generals_scratch_maps");

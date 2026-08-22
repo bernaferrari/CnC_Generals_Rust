@@ -103,6 +103,27 @@ impl GameLogic {
         (inner, outer)
     }
 
+    /// C++ TAiData::m_guardChaseUnitFrames — leftover AIData, else retail 4s.
+    pub fn host_guard_chase_unit_frames(&self) -> u32 {
+        let leftover = game_engine::common::ini::get_ai_data_store()
+            .get_active()
+            .map(|d| d.guard_chase_unit_frames)
+            .filter(|&frames| frames > 0)
+            .or_else(|| {
+                gamelogic::ai::THE_AI.read().ok().and_then(|ai| {
+                    ai.get_ai_data()
+                        .read()
+                        .ok()
+                        .map(|d| d.guard_chase_unit_frames)
+                        .filter(|&frames| frames > 0)
+                })
+            });
+        leftover.unwrap_or(
+            crate::game_logic::host_radar_stealth_vision_residual::GUARD_CHASE_UNIT_FRAMES_RESIDUAL,
+        )
+    }
+
+
 
     /// C++ AIGuardRetaliate lookForInnerTarget — enemies, reject buildings.
     fn scan_guard_retaliate_inner(&self, unit_id: ObjectId) -> Option<ObjectId> {

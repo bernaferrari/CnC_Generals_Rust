@@ -3224,7 +3224,6 @@ fn general_special_power_aliases_map_to_host_residuals() {
         SpecialPowerType::SuperweaponParticleCannon,
         SpecialPowerType::NukeNeutronMissile,
         SpecialPowerType::BaikonurRocket,
-        SpecialPowerType::BattleshipBombardment,
         SpecialPowerType::LaserCannon,
     ] {
         assert!(

@@ -503,6 +503,7 @@ impl GameLogic {
         }
         self.update_technical_rpg_missile_projectiles();
         self.update_technical_cannon_shell_projectiles();
+        self.update_cleanup_area_orders();
         self.update_cleanup_stream_projectiles();
         self.update_missile_defender_laser_beam_objects();
 
@@ -761,6 +762,10 @@ impl GameLogic {
         // gated empty (OBJECT_REGISTRY) so this is the live path.
         // C++ RailroadBehavior::update (RailroadGuideAIUpdate.cpp:652-832).
         self.update_railroads();
+        // C++ RailedTransportAIUpdate::update — park at nearest End, open dock
+        // when the current End is reached. Crate leftover is dual-world gated.
+        self.update_railed_transports();
+
 
         // Host stealth residual: detector scans + DETECTED expiry.
         // Fail-closed vs full StealthUpdate/StealthDetectorUpdate modules

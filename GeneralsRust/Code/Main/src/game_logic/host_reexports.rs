@@ -414,6 +414,11 @@ pub use super::host_railroad::{
     HostConductorState, HostRailroadCar, HostTrainTrack, RAILROAD_SPEED_MAX,
     RAILROAD_WAIT_AT_STATION_FRAMES,
 };
+pub use super::host_railed_transport::{
+    default_railed_current_path, inject_railed_waypoint, railed_waypoint_overlay_reset,
+    RAILED_ARRIVE_DISTANCE, RAILED_INVALID_PATH, RAILED_MAX_WAYPOINT_PATHS,
+};
+
 
 pub use super::host_rank_ui_residual::{
     honesty_chat_residual_host_pack_wave89, honesty_experience_residual_tables_pack_wave89,

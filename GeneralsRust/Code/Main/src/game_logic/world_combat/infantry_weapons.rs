@@ -539,6 +539,49 @@ impl GameLogic {
         Some(id)
     }
 
+
+    /// C++ FireWeaponPower::doSpecialPowerAtLocation residual.
+    ///
+    /// Leftover `FireWeaponPower` already matches C++ (reloadAllAmmo +
+    /// aiAttackPosition + turret aim). Live host objects use the same
+    /// residual: reload, queue maxShots attack-position, aim turrets.
+    pub fn activate_fire_weapon_power(&mut self, source_id: ObjectId, location: Vec3) -> bool {
+        // Leftover FireWeaponPower when dual-world object is registered.
+        if let Some(obj) = gamelogic::helpers::TheGameLogic::find_object_by_id(source_id.0) {
+            if let Ok(guard) = obj.read() {
+                let loc = gamelogic::common::Coord3D::new(location.x, location.z, location.y);
+                guard.do_special_power_at_location(
+                    "SpecialPowerBattleshipBombardment",
+                    &loc,
+                    gamelogic::object_creation_list::nuggets::INVALID_ANGLE,
+                    gamelogic::object::special_power_module::SpecialPowerCommandOptions::NONE,
+                    false,
+                );
+            }
+        }
+
+        let ok = self
+            .objects
+            .get_mut(&source_id)
+            .is_some_and(|o| o.activate_fire_weapon_power(Some((location.x, location.z))));
+        if !ok {
+            return false;
+        }
+        // C++ aiAttackPosition(loc, maxShotsToFire, CMD_FROM_AI)
+        if let Some(o) = self.objects.get_mut(&source_id) {
+            o.target_location = Some(location);
+            o.set_ai_state(crate::game_logic::AIState::Attacking);
+            let shots = o
+                .fire_weapon_power
+                .as_ref()
+                .map(|r| r.shots_remaining as i32)
+                .unwrap_or(1);
+            o.set_max_shots_to_fire(shots);
+        }
+        // C++ for i in MAX_TURRETS: setTurretTargetPosition(i, loc)
+        self.set_turret_target_position(source_id, Some(location));
+        true
+    }
     /// C++ AttackNugget::create residual — multi-shot attack position + delivery decal.
     pub fn execute_ocl_attack(
         &mut self,

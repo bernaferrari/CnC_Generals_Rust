@@ -120,6 +120,22 @@ impl Object {
         if self.shock_stun_frames > 0 {
             return;
         }
+        if matches!(self.ai_state, AIState::AttackMoving) && self.target.is_some() {
+            let dest_walk = self.requested_destination.map(|dest| {
+                let near = |p: Vec3| {
+                    let dx = p.x - dest.x;
+                    let dz = p.z - dest.z;
+                    dx * dx + dz * dz < 16.0
+                };
+                self.movement.path.last().copied().is_some_and(near)
+                    || self.movement.target_position.is_some_and(near)
+            });
+            if dest_walk.unwrap_or(true) {
+                self.movement.velocity = Vec3::ZERO;
+                self.set_status_moving(false);
+                return;
+            }
+        }
 
         // C++ fixInvalidPosition residual when on invalid terrain.
         if self.fix_invalid_position() {

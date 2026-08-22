@@ -213,7 +213,7 @@ pub enum SpecialPowerType {
     BlackLotusStealCash,
     /// Black Lotus capture building residual (SPECIAL_BLACKLOTUS_CAPTURE_BUILDING).
     BlackLotusCaptureBuilding,
-    /// Microwave Tank disable building residual (SPECIAL_MICROWAVE_DISABLE_BUILDING).
+    /// Microwave Tank disable building (C++ Enum SPECIAL_HACKER_DISABLE_BUILDING).
     MicrowaveDisableBuilding,
     /// Ranger capture building residual (SPECIAL_INFANTRY_CAPTURE_BUILDING).
     RangerCaptureBuilding,

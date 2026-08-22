@@ -44,7 +44,11 @@ pub use actions::*;
 pub use conditions::*;
 pub use conditions::{
     capture_host_object_trigger_persists, clear_host_script_query_snapshot,
-    clear_host_trigger_flags, host_eval_skirmish_command_button_ready, host_object_did_enter,
+    clear_host_trigger_flags, host_eval_skirmish_command_button_ready,
+    host_eval_skirmish_captured_count, host_eval_skirmish_garrisoned_count,
+    host_eval_skirmish_player_has_units_in_area, host_eval_skirmish_special_power_ready,
+    host_eval_skirmish_unowned_faction_unit_count, host_eval_skirmish_value_in_area,
+    host_object_did_enter,
     host_object_did_exit, host_query_player_census, host_query_player_has_science,
     host_query_player_science_purchase_points, host_query_supply_source_attacked,
     host_query_supply_source_safe, host_count_player_kind_in_area, host_count_player_type_in_area,

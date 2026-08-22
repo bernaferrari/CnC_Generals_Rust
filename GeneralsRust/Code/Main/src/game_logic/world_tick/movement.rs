@@ -266,6 +266,26 @@ impl GameLogic {
                     Self::apply_live_handle_behavior_z(obj, surface_y, None);
                     continue;
                 }
+                if matches!(obj.ai_state, AIState::AttackMoving) && obj.target.is_some() {
+                    // C++ AIAttackMoveToState::update: setLocomotorGoalNone while
+                    // the nested attack machine is not idle. A replaced chase
+                    // path (findAttackPath) is the nested locomotor goal.
+                    let dest_walk = obj.requested_destination.map(|dest| {
+                        let near = |p: Vec3| {
+                            let dx = p.x - dest.x;
+                            let dz = p.z - dest.z;
+                            dx * dx + dz * dz < 16.0
+                        };
+                        obj.movement.path.last().copied().is_some_and(near)
+                            || obj.movement.target_position.is_some_and(near)
+                    });
+                    if dest_walk.unwrap_or(true) {
+                        obj.movement.velocity = Vec3::ZERO;
+                        obj.set_status_moving(false);
+                        Self::apply_live_handle_behavior_z(obj, surface_y, None);
+                        continue;
+                    }
+                }
 
                 // C++ doLocomotor: chooseGoodLocomotorFromCurrentSet then blocked bookkeeping.
                 obj.choose_good_locomotor_from_current_set(cell_type);

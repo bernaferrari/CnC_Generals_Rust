@@ -21,20 +21,22 @@ use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
 
 impl<'a> CommandExecutor<'a> {
-    /// C++ `AIGroup::groupExecuteRailedTransport` delegates only to
+    /// C++ `AIGroup::groupExecuteRailedTransport` →
     /// `RailedTransportAIUpdate::privateExecuteRailedTransport`.
-    ///
-    /// The active Main host world retains the separate railed dock/contain
-    /// metadata, but not the AI module's authored `PathPrefixName`, paired
-    /// terrain waypoints, current-path/transit state, or loading interface.
-    /// Treating a generic contain object (or a name containing "rail") as a
-    /// railed transport used to evacuate passengers and replay an unrelated
-    /// movement target.  That is a different command.  Reject until that
-    /// complete source-backed runtime exists rather than claiming success or
-    /// mutating a player-visible transport.
-    pub(crate) fn execute_railed_transport(&mut self, _units: &[ObjectId]) -> CommandResult {
-        CommandResult::InvalidCommand
+    pub(crate) fn execute_railed_transport(&mut self, units: &[ObjectId]) -> CommandResult {
+        let mut any = false;
+        for &unit_id in units {
+            if self.game_logic.execute_railed_transport_for(unit_id) {
+                any = true;
+            }
+        }
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
     }
+
 
     /// Find the nearest building that can accept this unit for garrison/enter.
     pub(super) fn find_nearest_garrison_target(&self, unit_id: ObjectId) -> Option<ObjectId> {

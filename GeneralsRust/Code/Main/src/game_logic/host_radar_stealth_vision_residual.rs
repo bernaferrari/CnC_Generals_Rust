@@ -755,6 +755,9 @@ pub const VISION_GUARD_OUTER_MODIFIER_HUMAN_RESIDUAL: f32 = 2.2;
 pub const VISION_ALERT_RANGE_MODIFIER_RESIDUAL: f32 = 1.1;
 /// Retail AIData.ini AggressiveRangeModifier residual.
 pub const VISION_AGGRESSIVE_RANGE_MODIFIER_RESIDUAL: f32 = 1.5;
+/// Retail AIData.ini GuardChaseUnitsDuration residual (4s × 30 fps).
+pub const GUARD_CHASE_UNIT_FRAMES_RESIDUAL: u32 = 120;
+
 
 /// C++ DynamicShroudClearingRangeUpdate GRID_FX_DECAL_COUNT residual.
 pub const DYNAMIC_SHROUD_GRID_FX_DECAL_COUNT_RESIDUAL: u32 = 30;
