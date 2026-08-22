@@ -1514,11 +1514,18 @@ impl GameLogic {
             // next normal Enter would leave the old rider/container corrupted.
             return self.rider_change_remove_occupant(container_id, occupant_id);
         }
+        let is_garrison = self
+            .objects
+            .get(&container_id)
+            .is_some_and(|c| c.is_garrison_contain());
         let Some(container) = self.objects.get_mut(&container_id) else {
             return false;
         };
-        container.remove_occupant(occupant_id);
-        true
+        let removed = container.remove_occupant(occupant_id);
+        if removed && is_garrison {
+            self.recalc_garrison_apparent_controller(container_id);
+        }
+        removed
     }
 
     /// C++ TransportContain patch 1.01: CLIFF_JUMPER + HERO/SALVAGER shot-stat copy.

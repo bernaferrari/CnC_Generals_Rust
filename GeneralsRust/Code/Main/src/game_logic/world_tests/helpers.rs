@@ -7,6 +7,25 @@ use super::super::*;
 pub(super) static HOST_STATE_RESIDUAL_TEST_ENV_LOCK: std::sync::Mutex<()> =
     std::sync::Mutex::new(());
 
+/// Install a tall ridge through the pathfinding-grid mid X cells so
+/// `is_clear_line_of_sight_terrain` fails between low endpoints on either side.
+pub(super) fn install_test_mid_ridge(game_logic: &mut GameLogic) {
+    let w = game_logic.pathfinding_system.grid.width().max(8) as u32;
+    let h = game_logic.pathfinding_system.grid.height().max(8) as u32;
+    let mut heights = vec![0.0f32; (w * h) as usize];
+    let mid = w / 2;
+    for y in 0..h {
+        for x in mid.saturating_sub(1)..=(mid + 1).min(w - 1) {
+            heights[(y * w + x) as usize] = 80.0;
+        }
+    }
+    assert!(
+        game_logic.restore_terrain_heights_from_grid(w, h, &heights),
+        "height cache install"
+    );
+}
+
+
 pub(super) fn ensure_test_tank_template(game_logic: &mut GameLogic) {
     if game_logic.templates.contains_key("TestTank") {
         return;

@@ -71,6 +71,20 @@ fn apply_to_ui_state_overwrites_live_identity_after_mutation() {
 }
 
 #[test]
+fn apply_to_ui_state_copies_scripted_camera_fade() {
+    let logic = GameLogic::new();
+    let mut snap = PresentationFrame::build_from_logic(&logic, 0);
+    snap.camera_fade = crate::presentation_frame::PresentationCameraFade {
+        fade: 4,
+        intensity: 0.5,
+        diffuse: 0xff80_8080,
+    };
+    let mut ui = crate::ui::GameUIState::default();
+    snap.apply_to_ui_state(&mut ui);
+    assert_eq!(ui.camera_fade, Some((4, 0.5, 0xff80_8080)));
+}
+
+#[test]
 fn path_and_beacon_presentation_residual() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = crate::game_logic::GameLogic::new();

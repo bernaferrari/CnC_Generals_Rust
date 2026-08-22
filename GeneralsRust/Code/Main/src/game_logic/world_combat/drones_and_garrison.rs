@@ -1185,7 +1185,7 @@ impl GameLogic {
     }
 
     /// C++ OpenContain::addToContain `m_playerEnteredMask = rider->getControllingPlayer()`.
-    /// Sticky last enterer; not cleared on exit.
+    /// One-frame pulse: `OpenContain::update` zeros it next logic frame.
     pub(in super::super) fn stamp_player_who_entered(
         &mut self,
         container_id: ObjectId,
@@ -1210,6 +1210,15 @@ impl GameLogic {
         };
         if let Some(container) = self.objects.get_mut(&container_id) {
             container.player_who_entered = name;
+        }
+    }
+
+    /// C++ OpenContain::update `m_playerEnteredMask = 0`.
+    pub(in super::super) fn clear_open_contain_player_who_entered(&mut self) {
+        for obj in self.objects.values_mut() {
+            if !obj.player_who_entered.is_empty() {
+                obj.player_who_entered.clear();
+            }
         }
     }
 
@@ -5083,6 +5092,161 @@ mod tests {
             "GarrisonGun yaw {got} must face victim {expected} (gun={gun_pos:?} tgt={enemy_pos:?})"
         );
     }
+
+    #[test]
+    fn partial_exit_recalcs_hide_garrisoned_state() {
+        // hq-ct5z2: C++ GarrisonContain::onRemoving always recals hide.
+        let mut logic = GameLogic::new();
+        logic
+            .templates
+            .insert("CivBunker".into(), garrison_template("CivBunker", false, true));
+        logic
+            .templates
+            .insert("AmericaRanger".into(), infantry_template("AmericaRanger"));
+        let mut ninja = infantry_template("JapanNinja");
+        ninja.add_kind_of(KindOf::StealthGarrison);
+        logic.templates.insert("JapanNinja".into(), ninja);
+
+        let bunker = logic
+            .create_object("CivBunker", Team::Neutral, Vec3::ZERO)
+            .unwrap();
+        let ranger_id = logic
+            .create_object("AmericaRanger", Team::USA, Vec3::new(4.0, 0.0, 0.0))
+            .unwrap();
+        let ninja_id = logic
+            .create_object("JapanNinja", Team::USA, Vec3::new(5.0, 0.0, 0.0))
+            .unwrap();
+        assert!(logic.host_object_mut(bunker).unwrap().add_occupant(ranger_id));
+        assert!(logic.host_object_mut(bunker).unwrap().add_occupant(ninja_id));
+        if let Some(r) = logic.host_object_mut(ranger_id) {
+            r.set_contained_by(Some(bunker));
+        }
+        if let Some(n) = logic.host_object_mut(ninja_id) {
+            n.set_contained_by(Some(bunker));
+            n.status.detected = false;
+        }
+        logic.recalc_garrison_apparent_controller(bunker);
+        assert!(
+            !logic
+                .host_object(bunker)
+                .unwrap()
+                .building_data
+                .as_ref()
+                .unwrap()
+                .hide_garrisoned_state,
+            "mixed garrison must not hide"
+        );
+
+        assert!(logic.unit_command_remove_occupant(bunker, ranger_id));
+        assert!(
+            logic
+                .host_object(bunker)
+                .unwrap()
+                .building_data
+                .as_ref()
+                .unwrap()
+                .hide_garrisoned_state,
+            "stealth-only remainder after ranger exit must hide from non-allies"
+        );
+    }
+
+    #[test]
+    fn occupant_death_recalcs_hide_garrisoned_state() {
+        let mut logic = GameLogic::new();
+        logic
+            .templates
+            .insert("CivBunker".into(), garrison_template("CivBunker", false, true));
+        logic
+            .templates
+            .insert("AmericaRanger".into(), infantry_template("AmericaRanger"));
+        let mut ninja = infantry_template("JapanNinja");
+        ninja.add_kind_of(KindOf::StealthGarrison);
+        logic.templates.insert("JapanNinja".into(), ninja);
+
+        let bunker = logic
+            .create_object("CivBunker", Team::Neutral, Vec3::ZERO)
+            .unwrap();
+        let ranger_id = logic
+            .create_object("AmericaRanger", Team::USA, Vec3::new(4.0, 0.0, 0.0))
+            .unwrap();
+        let ninja_id = logic
+            .create_object("JapanNinja", Team::USA, Vec3::new(5.0, 0.0, 0.0))
+            .unwrap();
+        assert!(logic.host_object_mut(bunker).unwrap().add_occupant(ranger_id));
+        assert!(logic.host_object_mut(bunker).unwrap().add_occupant(ninja_id));
+        if let Some(r) = logic.host_object_mut(ranger_id) {
+            r.set_contained_by(Some(bunker));
+        }
+        if let Some(n) = logic.host_object_mut(ninja_id) {
+            n.set_contained_by(Some(bunker));
+            n.status.detected = false;
+        }
+        logic.recalc_garrison_apparent_controller(bunker);
+        logic.mark_object_for_destruction(ranger_id, None);
+        logic.process_destroy_list();
+        assert!(
+            logic
+                .host_object(bunker)
+                .unwrap()
+                .building_data
+                .as_ref()
+                .unwrap()
+                .hide_garrisoned_state,
+            "stealth-only remainder after ranger death must hide"
+        );
+    }
+
+    #[test]
+    fn player_who_entered_pulses_one_frame() {
+        // hq-5yuxu: C++ OpenContain::update zeros the mask; BUILDING_ENTERED is not sticky.
+        use gamelogic::scripting::{
+            clear_host_script_query_snapshot, host_building_entered_by_player,
+        };
+        clear_host_script_query_snapshot();
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "PlyrAmerica", true));
+        logic
+            .templates
+            .insert("CivBunker".into(), garrison_template("CivBunker", false, true));
+        logic
+            .templates
+            .insert("AmericaRanger".into(), infantry_template("AmericaRanger"));
+        let bunker = logic
+            .create_object("CivBunker", Team::Neutral, Vec3::ZERO)
+            .unwrap();
+        if let Some(b) = logic.host_object_mut(bunker) {
+            b.name = "NamedBunker".into();
+        }
+        let ranger_id = logic
+            .create_object("AmericaRanger", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+            .unwrap();
+        if let Some(r) = logic.host_object_mut(ranger_id) {
+            r.owner_player_id = Some(0);
+        }
+        assert!(logic.host_object_mut(bunker).unwrap().add_occupant(ranger_id));
+        if let Some(r) = logic.host_object_mut(ranger_id) {
+            r.set_contained_by(Some(bunker));
+        }
+        logic.stamp_player_who_entered(bunker, ranger_id);
+        logic.inject_host_script_query_snapshot();
+        assert_eq!(
+            host_building_entered_by_player("NamedBunker", "PlyrAmerica"),
+            Some(true),
+            "enter frame must pulse BUILDING_ENTERED"
+        );
+
+        logic.update_support_states(&[bunker, ranger_id], 1.0 / 30.0);
+        logic.inject_host_script_query_snapshot();
+        assert_eq!(
+            host_building_entered_by_player("NamedBunker", "PlyrAmerica"),
+            Some(false),
+            "next OpenContain::update must clear the pulse even while occupied"
+        );
+        clear_host_script_query_snapshot();
+    }
+
 
 
 }

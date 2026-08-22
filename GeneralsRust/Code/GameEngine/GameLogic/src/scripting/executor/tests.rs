@@ -4312,6 +4312,31 @@ fn named_team_kill_delete_damage_queue_host_when_dual_world_empty() {
 }
 
 #[test]
+fn player_kill_queues_host_even_when_leftover_player_missing() {
+    let _test_lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    let _ = take_host_script_player_misc_requests();
+    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let mut action = ScriptAction::new(ScriptActionType::PlayerKill);
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Side,
+            "PlyrGLA".into(),
+        ))
+        .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&action).unwrap(),
+        ScriptActionResult::Success
+    );
+    assert_eq!(
+        take_host_script_player_misc_requests(),
+        vec![HostScriptPlayerMiscRequest::Kill {
+            player: "PlyrGLA".to_string()
+        }]
+    );
+}
+
+#[test]
 fn named_object_sound_queues_host_when_dual_world_empty() {
     let _test_lock = crate::test_sync::lock();
     crate::object::registry::OBJECT_REGISTRY.clear();

@@ -513,12 +513,31 @@ impl CnCGameEngine {
         // C++ GameWinBlockInput GWM_LEFT_UP: drag released on the control bar
         // is a clean cancel. Do this even when WND/cameo consume the release
         // so `is_dragging` / the yellow marquee cannot stay latched.
+        // C++ WindowXlat.cpp:186-192: if placement is already anchored, force
+        // KEEP the raw LMB-up so PlaceEventTranslator can still confirm.
         if in_world
             && matches!(button, MouseButton::Left)
             && !pressed
             && (wnd_used || hud_cameo_consumed)
         {
-            self.cancel_area_select_from_control_bar();
+            let placement_anchored = self.pending_structure_placement.is_some() && {
+                #[cfg(feature = "game_client")]
+                {
+                    game_client::helpers::TheInGameUI::is_placement_anchored()
+                }
+                #[cfg(not(feature = "game_client"))]
+                {
+                    self.selection_start.is_some()
+                }
+            };
+            if placement_anchored && self.lookat_input_enabled() {
+                let physical_lmb_gesture = matches!(origin, MouseInputOrigin::Physical)
+                    && self.lmb_context_started_physically;
+                self.handle_left_release(origin, physical_lmb_gesture);
+                self.lmb_context_started_physically = false;
+            } else {
+                self.cancel_area_select_from_control_bar();
+            }
         }
 
 
@@ -1863,6 +1882,13 @@ impl CnCGameEngine {
                     10_000.0,
                 );
             }
+            if let Some(pres) = self.last_presentation_frame.as_ref() {
+                game_client::display::status_circle::queue_live_camera_fade(
+                    pres.camera_fade.fade,
+                    pres.camera_fade.intensity,
+                    pres.camera_fade.diffuse,
+                );
+            }
             if let Some((text, font, _frames)) = self.game_client.cinematic_overlay() {
                 let font_size = Self::cinematic_font_size(font);
                 let y = height * 0.9;
@@ -2590,6 +2616,27 @@ mod tests {
         assert!(src.contains("world_lmb_selection_allowed"));
         assert!(src.contains("host_quit_menu_blocks_world_selection"));
     }
+
+    #[test]
+    fn hud_consumed_lmb_up_confirms_anchored_placement() {
+        // C++ WindowXlat.cpp:186-192 forceKeepMessage when isPlacementAnchored.
+        let src = include_str!("input.rs");
+        let start = src
+            .find("C++ WindowXlat.cpp:186-192")
+            .expect("WindowXlat placement keep");
+        let body = &src[start..src.len().min(start + 900)];
+        assert!(
+            body.contains("is_placement_anchored")
+                && body.contains("handle_left_release")
+                && body.contains("wnd_used || hud_cameo_consumed"),
+            "HUD-consumed LMB-up must still confirm an anchored placement"
+        );
+        assert!(
+            body.contains("cancel_area_select_from_control_bar"),
+            "non-placement HUD LMB-up must still cancel the marquee"
+        );
+    }
+
 
     #[test]
     fn mouse_lock_passes_scrolling_lmb_to_window_manager() {

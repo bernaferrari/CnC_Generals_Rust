@@ -272,7 +272,10 @@ pub enum KindOf {
     /// C++ `KINDOF_INERT` (KindOf.h:110). Never removable for construction.
     /// Gameplay-only: the compact presentation KindOf bank is full.
     Inert,
-
+    /// C++ `KINDOF_BLAST_CRATER` (KindOf.h). Permanent pathfind footprints
+    /// that also skip the airborne height gate. Gameplay-only: the compact
+    /// presentation KindOf bank is full.
+    BlastCrater,
 
 }
 
@@ -305,6 +308,7 @@ impl KindOf {
             "SHRUBBERY" => Some(Self::Shrubbery),
             "CLEARED_BY_BUILD" | "CLEAREDBYBUILD" => Some(Self::ClearedByBuild),
             "INERT" => Some(Self::Inert),
+            "BLAST_CRATER" | "BLASTCRATER" => Some(Self::BlastCrater),
 
             "DRONE" => Some(Self::Drone),
             _ => None,
@@ -836,6 +840,10 @@ mod tests {
             Some(KindOf::ClearedByBuild)
         );
         assert_eq!(KindOf::from_ini_token("INERT"), Some(KindOf::Inert));
+        assert_eq!(
+            KindOf::from_ini_token("BLAST_CRATER"),
+            Some(KindOf::BlastCrater)
+        );
 
         assert_eq!(KindOf::from_ini_token("FS_FACTORY"), None);
     }

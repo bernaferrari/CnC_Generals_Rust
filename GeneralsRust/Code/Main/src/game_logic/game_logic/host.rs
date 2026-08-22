@@ -407,7 +407,7 @@ pub struct GameLogic {
 
     /// Host GLA GPS Scrambler residual — GrantStealth ally vehicles/infantry in radius.
     /// Fail-closed: not full OCL GPSScrambler_InvisibleMarker grow-radius pulse path.
-    pub(super) gps_scramblers: crate::game_logic::host_gps_scrambler::HostGpsScramblerRegistry,
+    pub(crate) gps_scramblers: crate::game_logic::host_gps_scrambler::HostGpsScramblerRegistry,
 
     /// Host base-defense residual honesty (Patriot / Gattling auto-fire).
     /// Fail-closed: not full AutoAcquire / WeaponSet / continuous-fire matrix.
@@ -469,12 +469,12 @@ pub struct GameLogic {
 
     /// Host RadarScan / RadarVanScan FOW temporary-reveal residual.
     /// RadarVanPing object residual closed; fail-closed vs grid decal GPU path.
-    pub(super) radar_scans: crate::game_logic::host_radar_scan::HostRadarScanRegistry,
+    pub(crate) radar_scans: crate::game_logic::host_radar_scan::HostRadarScanRegistry,
 
     /// Host SpySatellite FOW temporary-reveal residual.
     /// SpySatellitePing object residual closed; fail-closed vs GridDecal GPU path.
-    pub(super) spy_drones: crate::game_logic::host_spy_drone::HostSpyDroneRegistry,
-    pub(super) spy_satellites: crate::game_logic::host_spy_satellite::HostSpySatelliteRegistry,
+    pub(crate) spy_drones: crate::game_logic::host_spy_drone::HostSpyDroneRegistry,
+    pub(crate) spy_satellites: crate::game_logic::host_spy_satellite::HostSpySatelliteRegistry,
     /// Host America Countermeasures residual (aircraft flare diversion).
     /// CountermeasureFlare SpecialObject spawn residual closed.
     pub(crate) countermeasures:
@@ -553,7 +553,7 @@ pub struct GameLogic {
 
     /// Host China Helix NapalmBomb special ability residual (blast + FirestormSmall).
     /// Fail-closed: not full SpecialObject NapalmBomb fall / expand animation.
-    pub(super) helix_napalm: crate::game_logic::host_helix_napalm::HostHelixNapalmRegistry,
+    pub(crate) helix_napalm: crate::game_logic::host_helix_napalm::HostHelixNapalmRegistry,
 
     /// Host China FireWall / Firestorm residual (Dragon Tank line of fire zones).
     /// FireWallSegment OCL spawn + InchForwardLocomotor crawl residual closed.

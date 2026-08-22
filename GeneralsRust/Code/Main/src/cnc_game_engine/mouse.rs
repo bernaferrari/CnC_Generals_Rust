@@ -920,6 +920,46 @@ impl CnCGameEngine {
         game_client::helpers::TheInGameUI::set_placement_angle(angle);
     }
 
+    /// C++ `W3DView::screenToTerrain` analog through the live WGPU camera.
+    /// Placement drag/confirm reprojects the original screen pixel so a camera
+    /// pan during rotate does not spin the ghost around a stale world point.
+    fn screen_to_terrain(&self, screen: (f32, f32)) -> Option<Vec3> {
+        let (view_w, view_h) = self.tactical_viewport_size();
+        let (world_min, world_max) = self.presentation_world_bounds();
+        let world_env = self
+            .render_pipeline
+            .presentation_frame()
+            .or(self.last_presentation_frame.as_ref())
+            .map(|frame| &frame.world_env);
+        unproject_mouse_ray(
+            self.view_matrix,
+            self.projection_matrix,
+            screen,
+            view_w,
+            view_h,
+        )
+        .and_then(|(near, far)| {
+            raycast_frozen_terrain(near, far, world_min, world_max, world_env).or_else(|| {
+                raycast_ground_plane_clamped(near, far, world_min, world_max, world_env)
+            })
+        })
+    }
+
+    /// C++ `PlaceEventTranslator.cpp:68-75` — `findObjectByID` of the pending
+    /// place source. Dead/sold/missing builder cancels instead of anchoring.
+    fn pending_place_builder_is_gone(&self) -> bool {
+        let builder_id = game_client::helpers::TheInGameUI::get_pending_place_source_object_id();
+        if builder_id == 0 {
+            return true;
+        }
+        let id = crate::game_logic::ObjectId(builder_id);
+        let Some(object) = self.presentation_ro(id) else {
+            return !self.presentation_or_boot_object_alive(id);
+        };
+        object.destroyed || object.health_current <= 0.0 || object.sold
+    }
+
+
     /// C++ PlaceEventTranslator RAW_MOUSE_POSITION: `setPlacementEnd` after 5px.
     pub(super) fn update_anchored_placement_from_cursor(&mut self) {
         if self.pending_structure_placement.is_none() || !self.is_dragging {
@@ -938,7 +978,9 @@ impl CnCGameEngine {
             self.mouse_position.1 as i32,
         );
         game_client::helpers::TheInGameUI::set_placement_end(Some(end));
-        let start_world = self.selection_start.unwrap_or(self.mouse_world_position);
+        let start_world = self.screen_to_terrain(start)
+            .or(self.selection_start)
+            .unwrap_or(self.mouse_world_position);
         let end_world = self.mouse_world_position;
         let wdx = end_world.x - start_world.x;
         let wdz = end_world.z - start_world.z;
@@ -966,14 +1008,19 @@ impl CnCGameEngine {
         // 50, CommandTranslator 70.  Both Place and GUI own LMB in every
         // mouse layout and must outrank a stale double-click selection.
         if let Some(template) = self.pending_structure_placement.clone() {
-            // C++ PlaceEventTranslator: LMB-down anchors; confirm is on click-up.
-            let start = game_client::message_stream::game_message::ICoord2D::new(
-                self.mouse_position.0 as i32,
-                self.mouse_position.1 as i32,
-            );
-            game_client::helpers::TheInGameUI::set_placement_start(Some(start));
             let _ = template;
-            return;
+            // C++ PlaceEventTranslator.cpp:68-75: missing builder
+            // `placeBuildAvailable(NULL,NULL)` and does not anchor.
+            if self.pending_place_builder_is_gone() {
+                self.cancel_structure_placement_from_ui();
+            } else {
+                let start = game_client::message_stream::game_message::ICoord2D::new(
+                    self.mouse_position.0 as i32,
+                    self.mouse_position.1 as i32,
+                );
+                game_client::helpers::TheInGameUI::set_placement_start(Some(start));
+                return;
+            }
         }
         if self.pending_map_command.is_some() {
             // C++ CommandXlat issueMoveToLocationCommand / evaluateContextCommand:
@@ -1544,7 +1591,11 @@ impl CnCGameEngine {
         }
 
         if let Some(template) = self.pending_structure_placement.clone() {
-            let start_world = start;
+            // C++ PlaceEventTranslator.cpp:155-160 / InGameUI handleBuildPlacements:
+            // confirm re-projects the screen anchor, not the LMB-down world point.
+            let start_world = selection_start_screen
+                .and_then(|s| self.screen_to_terrain(s))
+                .unwrap_or(start);
             let end_world = end;
             let dx = end_world.x - start_world.x;
             let dz = end_world.z - start_world.z;
@@ -4555,6 +4606,60 @@ mod camera_pick_tests {
             "placement rotate must use 5px screen, not 1wu release gate"
         );
     }
+
+    #[test]
+    fn placement_lmb_down_cancels_when_builder_gone() {
+        // C++ PlaceEventTranslator.cpp:68-75 — missing builder does not anchor.
+        let src = include_str!("mouse.rs");
+        let start = src
+            .find("fn handle_left_click")
+            .expect("handle_left_click");
+        let body = &src[start..src.len().min(start + 2200)];
+        assert!(
+            body.contains("pending_place_builder_is_gone")
+                && body.contains("cancel_structure_placement_from_ui")
+                && body.contains("set_placement_start"),
+            "LMB-down must cancel when the pending place source is gone"
+        );
+        assert!(
+            src.contains("get_pending_place_source_object_id")
+                && src.contains("object.sold"),
+            "builder-gone must look up leftover place source and treat sold as gone"
+        );
+        let ui = include_str!("ui_commands.rs");
+        let begin = ui
+            .find("fn begin_structure_placement_from_ui")
+            .expect("begin_structure_placement_from_ui");
+        assert!(
+            ui[begin..ui.len().min(begin + 1200)].contains("place_build_available"),
+            "arming placement must store leftover pending place source"
+        );
+    }
+
+    #[test]
+    fn placement_angle_reprojects_screen_anchor() {
+        // C++ InGameUI::handleBuildPlacements screenToTerrain both points.
+        let src = include_str!("mouse.rs");
+        let drag = src
+            .find("fn update_anchored_placement_from_cursor")
+            .expect("update_anchored_placement_from_cursor");
+        let drag_body = &src[drag..src.len().min(drag + 900)];
+        assert!(
+            drag_body.contains("self.screen_to_terrain(start)")
+                && !drag_body.contains("self.selection_start.unwrap_or(self.mouse_world_position)"),
+            "anchored rotate must reproject the screen start, not the stale world point"
+        );
+        let confirm = src
+            .find("confirm re-projects the screen anchor")
+            .expect("placement confirm comment");
+        let confirm_body = &src[confirm..src.len().min(confirm + 700)];
+        assert!(
+            confirm_body.contains("self.screen_to_terrain(s)")
+                && confirm_body.contains("place_structure_from_ui(&template, start_world)"),
+            "placement confirm must place at the reprojected screen anchor"
+        );
+    }
+
 
     #[test]
     fn alternate_mouse_one_click_prevent_deselect_matches_cpp() {

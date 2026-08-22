@@ -217,6 +217,8 @@ pub struct GameUIState {
     pub camera_pitch: Option<(f32, f32)>,
     /// Pending camera rotate residual (rotations, duration).
     pub camera_rotate: Option<(f32, f32)>,
+    /// Frozen C++ `W3DStatusCircle` camera fade (type, intensity, packed ARGB).
+    pub camera_fade: Option<(u8, f32, u32)>,
     /// Pending look-toward residual.
     pub camera_look_toward: Option<[f32; 3]>,
     /// Pending slave-mode enable residual (template, bone).
@@ -309,6 +311,7 @@ impl Default for GameUIState {
             camera_pitch: None,
             camera_rotate: None,
             camera_look_toward: None,
+            camera_fade: None,
             camera_slave_enable: None,
             camera_slave_disable: false,
             named_timers: Vec::new(),

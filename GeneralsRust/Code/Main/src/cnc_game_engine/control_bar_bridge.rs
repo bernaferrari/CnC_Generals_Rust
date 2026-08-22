@@ -662,10 +662,7 @@ impl CnCGameEngine {
                 );
             }
             HostControlBarDirectAction::ArmUnitAbility(ability) => {
-                self.arm_pending_unit_ability(
-                    ability,
-                    host_control_bar_unit_ability_message(ability),
-                );
+                self.arm_pending_unit_ability(ability);
             }
         }
     }
@@ -744,10 +741,7 @@ impl CnCGameEngine {
             } => {
                 let special_key = host_control_bar_key(&special_power_name);
                 if special_key == "specialabilityboobytrap" {
-                    self.arm_pending_unit_ability(
-                        PendingUnitAbility::PlantBoobyTrap,
-                        "Booby trap: click structure",
-                    );
+                    self.arm_pending_unit_ability(PendingUnitAbility::PlantBoobyTrap);
                     return;
                 }
                 let Some(power_type) = crate::command_system::special_power_type_from_template_name(
@@ -791,14 +785,11 @@ impl CnCGameEngine {
                     self.arm_radius_cursor_for_pending(if uses_mine_clearing_weapon_set {
                         "CLEARMINES"
                     } else {
-                        "OFFENSIVE_SPECIALPOWER"
+                        "ATTACK_DAMAGE_AREA"
                     });
                 }
                 Some(HostControlBarGenericTargetAction::UnitAbility(ability)) => {
-                    self.arm_pending_unit_ability(
-                        ability,
-                        host_control_bar_unit_ability_message(ability),
-                    );
+                    self.arm_pending_unit_ability(ability);
                 }
                 Some(HostControlBarGenericTargetAction::AttackMove) => {
                     self.pending_map_command = Some(PendingMapCommand::AttackMove);
@@ -1260,14 +1251,6 @@ fn host_control_bar_generic_target_action(
     }
 }
 
-fn host_control_bar_unit_ability_message(ability: PendingUnitAbility) -> &'static str {
-    match ability {
-        PendingUnitAbility::Hijack => "Hijack: click vehicle",
-        PendingUnitAbility::Sabotage => "Sabotage: click building",
-        PendingUnitAbility::ConvertToCarbomb => "Car bomb: click vehicle",
-        _ => "Unit ability: click target",
-    }
-}
 
 /// Case-insensitive comparison remains faithful to INI identifiers while
 /// deliberately refusing punctuation-stripped or substring aliases.

@@ -533,6 +533,23 @@ fn apply_presentation_to_huds_dual_no_recurse_residual() {
     );
 }
 
+#[test]
+fn live_letterbox_overlay_queues_scripted_camera_fade() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    let i = src
+        .find("fn queue_live_letterbox_and_cinematic_overlays")
+        .expect("letterbox overlay helper");
+    let body = &src[i..src.len().min(i + 1800)];
+    assert!(
+        body.contains("queue_live_camera_fade"),
+        "live overlay queue must stamp scripted CAMERA_FADE for the 3D blit"
+    );
+    assert!(
+        body.contains("pres.camera_fade"),
+        "fade overlay must read frozen PresentationFrame.camera_fade"
+    );
+}
+
 use super::{
     should_exit_for_smoke_test, should_keep_logic_running_while_iconic, CnCGameEngine, GameMode,
     GameState, StartupNewGameDispatch,

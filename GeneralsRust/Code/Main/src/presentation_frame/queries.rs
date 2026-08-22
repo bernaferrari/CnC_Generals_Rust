@@ -28,42 +28,6 @@ fn template_uses_overlord_draw(template: &str) -> bool {
     false
 }
 
-/// Retail general-object prefixes used by `ThingTemplate::isEquivalentTo` reskins.
-const TYPE_SELECT_GENERAL_PREFIXES: &[&str] = &[
-    "GC_Chem_",
-    "GC_Slth_",
-    "GC_Infa_",
-    "AirF_",
-    "Chem_",
-    "Demo_",
-    "Infa_",
-    "Lazr_",
-    "Nuke_",
-    "Slth_",
-    "SupW_",
-    "SuperWeapon_",
-    "Tank_",
-    "Boss_",
-    "Early_",
-];
-
-fn type_select_template_stem(name: &str) -> String {
-    let mut rest = name;
-    loop {
-        let Some(prefix) = TYPE_SELECT_GENERAL_PREFIXES
-            .iter()
-            .find(|prefix| rest.len() >= prefix.len() && rest[..prefix.len()].eq_ignore_ascii_case(prefix))
-        else {
-            break;
-        };
-        rest = &rest[prefix.len()..];
-    }
-    rest.bytes()
-        .filter(|byte| *byte != b'_')
-        .map(|byte| byte.to_ascii_lowercase() as char)
-        .collect()
-}
-
 
 impl PresentationFrame {
     /// C++ `ActionManager::canEnterObject(..., CHECK_CAPACITY)` expressed only
@@ -1184,13 +1148,11 @@ impl PresentationFrame {
         )
     }
 
-    /// C++ `ThingTemplate::isEquivalentTo` residual for presentation type-select.
-    /// Case-insensitive identity, then general-prefix / stem reskin (AirF_/SupW_/…).
+    /// C++ `ThingTemplate::isEquivalentTo` (`ThingTemplate.cpp:1454-1494`).
+    /// Identity plus leftover reskin / final-override / BuildVariations walk.
+    /// Not a general-prefix stem compare.
     fn templates_equivalent_for_type_select(left: &str, right: &str) -> bool {
-        if left.eq_ignore_ascii_case(right) {
-            return true;
-        }
-        type_select_template_stem(left) == type_select_template_stem(right)
+        crate::game_logic::weapon_bootstrap::splash_templates_equivalent(left, right)
     }
 
     fn similar_unit_is_local(

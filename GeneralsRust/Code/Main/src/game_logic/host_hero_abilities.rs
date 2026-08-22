@@ -510,6 +510,21 @@ pub fn leftover_sa_los_iterate_range(start_ability_range: f32) -> f32 {
     leftover_undersized_start_range(start_ability_range)
 }
 
+/// C++ `ActionManager::canDoSpecialPowerAtObject` charge cases
+/// (`SPECIAL_REMOTE_CHARGES` / `SPECIAL_TIMED_CHARGES` / `SPECIAL_HELIX_NAPALM_BOMB`):
+/// dead / `KINDOF_BRIDGE` / `KINDOF_BRIDGE_TOWER` are illegal; target must be
+/// Structure or Vehicle. Tank Hunter TNT uses the same reject plus aircraft.
+pub fn leftover_charge_plant_target_ok(
+    alive: bool,
+    is_bridge: bool,
+    is_bridge_tower: bool,
+    is_structure: bool,
+    is_vehicle: bool,
+) -> bool {
+    alive && !is_bridge && !is_bridge_tower && (is_structure || is_vehicle)
+}
+
+
 /// C++ `isFacing` complete residual (~3 deg, matches `Object::face_position`).
 pub const LEFTOVER_SA_FACING_EPSILON: f32 = 0.05;
 
@@ -1342,6 +1357,25 @@ mod tests {
 
         assert!(leftover_sa_approach_requires_los());
         assert!((leftover_sa_los_iterate_range(150.0) - 147.5).abs() < 1e-4);
+        assert!((leftover_sa_los_iterate_range(PLANT_START_ABILITY_RANGE) - 2.5).abs() < 1e-4);
+        assert!(leftover_charge_plant_target_ok(
+            true, false, false, true, false
+        ));
+        assert!(leftover_charge_plant_target_ok(
+            true, false, false, false, true
+        ));
+        assert!(!leftover_charge_plant_target_ok(
+            false, false, false, true, false
+        ));
+        assert!(!leftover_charge_plant_target_ok(
+            true, true, false, true, false
+        ));
+        assert!(!leftover_charge_plant_target_ok(
+            true, false, true, true, false
+        ));
+        assert!(!leftover_charge_plant_target_ok(
+            true, false, false, false, false
+        ));
         assert!(leftover_sa_is_facing_target(
             Vec3::new(0.0, 0.0, 0.0),
             0.0,

@@ -1080,7 +1080,7 @@ pub struct Object {
     /// Tracked occupants for transports/garrisons
     pub occupants: Vec<ObjectId>,
     /// C++ OpenContain::m_playerEnteredMask — last rider's controlling player name.
-    /// Sticky after exit (only reset with the object).
+    /// One-frame pulse: stamped on enter, cleared by OpenContain::update next frame.
     #[serde(default)]
     pub player_who_entered: String,
 

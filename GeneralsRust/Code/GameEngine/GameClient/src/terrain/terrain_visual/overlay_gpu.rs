@@ -956,10 +956,12 @@ impl TerrainVisualImpl {
                 }
             }
         }
-        if let (Some(snow), Some(snow_bg)) =
-            (self.snow_mesh.as_ref(), self.snow_texture_bind_group.as_ref())
-        {
-            pass.set_pipeline(road_pipeline);
+        if let (Some(snow), Some(snow_bg), Some(snow_pipeline)) = (
+            self.snow_mesh.as_ref(),
+            self.snow_texture_bind_group.as_ref(),
+            self.snow_pipeline.as_ref(),
+        ) {
+            pass.set_pipeline(snow_pipeline);
             pass.set_bind_group(0, camera_bg, &[]);
             pass.set_bind_group(1, snow_bg, &[]);
             pass.set_vertex_buffer(0, snow.vertex_buffer.slice(..));

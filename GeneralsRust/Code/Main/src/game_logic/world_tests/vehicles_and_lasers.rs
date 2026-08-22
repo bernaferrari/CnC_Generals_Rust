@@ -3441,6 +3441,130 @@ fn tick_turret_aim_continues_while_turning() {
 }
 
 #[test]
+fn turret_move_loop_plays_authored_event_and_stops() {
+    use crate::game_logic::audio_dispatch_impl::{
+        clear_test_template_voices, set_test_per_unit_sound,
+    };
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+    use glam::Vec3;
+    clear_test_template_voices();
+    set_test_per_unit_sound(
+        "AmericaInfantryRanger",
+        "TurretMoveLoop",
+        "RangerTurretMoveLoop",
+    );
+    let mut logic = GameLogic::new();
+    let mut at = ThingTemplate::new("AmericaInfantryRanger");
+    at.add_kind_of(KindOf::Infantry);
+    let aid = ObjectId(28021);
+    logic.objects.insert(aid, {
+        let mut o = Object::new(at, aid, Team::USA);
+        o.set_position(Vec3::ZERO);
+        o.set_orientation(0.0);
+        o.turret_enabled = true;
+        o.turret_angle_deg = 0.0;
+        o.turret_turn_rate_rad = 0.02;
+        o.weapon = Some(Weapon {
+            range: 200.0,
+            ..Default::default()
+        });
+        o
+    });
+    let mut vt = ThingTemplate::new("TurVicLoop");
+    vt.add_kind_of(KindOf::Infantry);
+    let vid = ObjectId(28022);
+    logic.objects.insert(vid, {
+        let mut o = Object::new(vt, vid, Team::GLA);
+        o.set_position(Vec3::new(-50.0, 0.0, 0.0));
+        o
+    });
+    logic.set_turret_target_object(aid, Some(vid), false);
+    let r = logic.tick_turret_state_machine(aid, 1.0, 1);
+    assert_eq!(r, crate::game_logic::AttackAimResult::Continue);
+    assert!(logic.objects[&aid].turret_rotating);
+    assert!(
+        logic.queued_audio_events.iter().any(|e| {
+            e.event_type == "RangerTurretMoveLoop"
+                && e.object_id == Some(aid)
+                && e.is_looping
+                && !e.stop
+        }),
+        "TurretMoveLoop must play the INI value, not the slot token: {:?}",
+        logic.queued_audio_events
+    );
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .all(|e| e.event_type != "TurretMoveLoop"),
+        "must not queue the TurretMoveLoop slot token: {:?}",
+        logic.queued_audio_events
+    );
+
+    logic.queued_audio_events.clear();
+    if let Some(u) = logic.objects.get_mut(&aid) {
+        u.turret_turn_rate_rad = 10.0;
+    }
+    let _ = logic.tick_turret_state_machine(aid, 1.0, 2);
+    assert!(
+        !logic.objects[&aid].turret_rotating,
+        "fast turn should snap and clear rotating"
+    );
+    assert!(
+        logic.queued_audio_events.iter().any(|e| {
+            e.event_type == "RangerTurretMoveLoop" && e.object_id == Some(aid) && e.stop
+        }),
+        "stopping the turret must removeAudioEvent the authored loop: {:?}",
+        logic.queued_audio_events
+    );
+    clear_test_template_voices();
+}
+
+#[test]
+fn turret_move_loop_missing_unit_sound_stays_silent() {
+    use crate::game_logic::audio_dispatch_impl::clear_test_template_voices;
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+    use glam::Vec3;
+    clear_test_template_voices();
+    let mut logic = GameLogic::new();
+    let mut at = ThingTemplate::new("SilentTurret");
+    at.add_kind_of(KindOf::Vehicle);
+    let aid = ObjectId(28023);
+    logic.objects.insert(aid, {
+        let mut o = Object::new(at, aid, Team::USA);
+        o.set_position(Vec3::ZERO);
+        o.set_orientation(0.0);
+        o.turret_enabled = true;
+        o.turret_angle_deg = 0.0;
+        o.turret_turn_rate_rad = 0.02;
+        o.weapon = Some(Weapon {
+            range: 200.0,
+            ..Default::default()
+        });
+        o
+    });
+    let mut vt = ThingTemplate::new("SilentVic");
+    vt.add_kind_of(KindOf::Infantry);
+    let vid = ObjectId(28024);
+    logic.objects.insert(vid, {
+        let mut o = Object::new(vt, vid, Team::GLA);
+        o.set_position(Vec3::new(-50.0, 0.0, 0.0));
+        o
+    });
+    logic.set_turret_target_object(aid, Some(vid), false);
+    let _ = logic.tick_turret_state_machine(aid, 1.0, 1);
+    assert!(logic.objects[&aid].turret_rotating);
+    assert!(
+        logic.queued_audio_events.iter().all(|e| {
+            e.event_type != "TurretMoveLoop" && e.event_type != "SilentTurretTurretMoveLoop"
+        }),
+        "missing UnitSpecificSounds.TurretMoveLoop must stay silent: {:?}",
+        logic.queued_audio_events
+    );
+}
+
+
+#[test]
 fn turn_turret_towards_angle_snaps_within_rate() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut t = ThingTemplate::new("Snap");

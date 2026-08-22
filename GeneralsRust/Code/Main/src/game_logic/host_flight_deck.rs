@@ -698,17 +698,17 @@ impl GameLogic {
         if state.catapult_system_frame[runway] <= now {
             state.catapult_system_frame[runway] = FOREVER;
             state.catapult_fx_count = state.catapult_fx_count.saturating_add(1);
-            let start = state
+            let (start, start_orient) = state
                 .runways
                 .get(runway)
-                .map(|r| r.start)
-                .unwrap_or(Vec3::ZERO);
+                .map(|r| (r.start, r.start_orient))
+                .unwrap_or((Vec3::ZERO, 0.0));
             let system = metadata
                 .catapult_system
                 .get(runway)
                 .and_then(|name| name.as_deref())
                 .unwrap_or("AircraftCarrierCatapultSteam");
-            let _ = crate::game_logic::host_fx_list_dispatch::dispatch_fx_list_at_pos(system, start);
+            spawn_carrier_catapult_steam(system, start, start_orient);
         }
         if state.ramp_up[runway] && state.lower_ramp_frame[runway] <= now {
             state.ramp_up[runway] = false;
@@ -1140,6 +1140,26 @@ fn flight_deck_runway_pose(
     Vec3::new(pos.x, origin.y + deck, pos.z)
 }
 
+/// C++ `FlightDeckBehavior.cpp:1248-1257`: `TheParticleSystemManager->createParticleSystem`
+/// then `setLocalTransform(startTransform)` + `setPosition(start)`.
+/// `RunwayNCatapultSystem` is a ParticleSystemTemplate, not an FXList.
+fn spawn_carrier_catapult_steam(template: &str, start: Vec3, start_orient: f32) {
+    if template.is_empty() || template.eq_ignore_ascii_case("None") {
+        return;
+    }
+    let Some(manager) = gamelogic::helpers::TheParticleSystemManager::get() else {
+        return;
+    };
+    let Some(system_id) = manager.create_particle_system(Some(template)) else {
+        return;
+    };
+    // Host Y-up `(x, height, z)` → leftover/C++ Z-up `(x, y_ground, z_height)`.
+    let leftover_pos = gamelogic::common::Coord3D::new(start.x, start.z, start.y);
+    let leftover_transform = gamelogic::common::Matrix3D::from_rotation_z(start_orient);
+    manager.set_particle_system_transform(system_id, &leftover_transform);
+    manager.set_particle_system_position(system_id, &leftover_pos);
+}
+
 #[allow(dead_code)]
 fn _kindof_aircraft_hint() -> KindOf {
     KindOf::Aircraft
@@ -1304,6 +1324,41 @@ mod tests {
         assert!(
             jet.has_object_status_bit("REASSIGN_PARKING") || jet.ai_state == AIState::Moving,
             "promoted jet taxis with REASSIGN_PARKING"
+        );
+    }
+
+    /// C++ FlightDeckBehavior.cpp:1248-1257 createParticleSystem + setLocalTransform/setPosition.
+    #[test]
+    fn catapult_steam_uses_particle_system_not_fx_list() {
+        let src = include_str!("host_flight_deck.rs");
+        let start = src
+            .find("fn spawn_carrier_catapult_steam")
+            .expect("catapult spawn");
+        let body = &src[start..start + 900];
+        assert!(
+            body.contains("TheParticleSystemManager::get()"),
+            "catapult steam must create a leftover ParticleSystem"
+        );
+        assert!(
+            body.contains("create_particle_system(Some(template))"),
+            "RunwayNCatapultSystem is a ParticleSystemTemplate"
+        );
+        assert!(
+            body.contains("set_particle_system_transform")
+                && body.contains("set_particle_system_position"),
+            "C++ setLocalTransform(startTransform) + setPosition(start)"
+        );
+        assert!(
+            body.contains("Coord3D::new(start.x, start.z, start.y)"),
+            "host Y-up must swizzle to leftover Z-up"
+        );
+        let fire = src
+            .find("spawn_carrier_catapult_steam(system, start, start_orient)")
+            .expect("fire site");
+        let fire_win = &src[fire.saturating_sub(400)..fire + 80];
+        assert!(
+            !fire_win.contains("dispatch_fx_list_at_pos"),
+            "AircraftCarrierCatapultSteam is not an FXList: {fire_win}"
         );
     }
 }

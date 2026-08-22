@@ -907,7 +907,7 @@ pub fn is_defeated_residual(
         (true, true) => !has_any_objects,
         (true, false) => !has_units,
         (false, true) => !has_structures,
-        (false, false) => !has_any_objects,
+        (false, false) => false,
     }
 }
 
@@ -933,8 +933,8 @@ pub fn honesty_victory_condition_residual_pack_wave85() -> bool {
         // NOBUILDINGS only — hasAnyBuildings residual.
         && is_defeated_residual(false, true, true, true, false)
         && !is_defeated_residual(false, true, true, false, true)
-        // Neither flag residual falls back to hasAnyObjects.
-        && is_defeated_residual(false, false, false, false, false)
+        // Neither flag: C++ falls through to return false (never auto-eliminated).
+        && !is_defeated_residual(false, false, false, false, false)
         && !is_defeated_residual(false, false, true, false, false)
         && MAX_PLAYER_COUNT_RESIDUAL == 16
 }

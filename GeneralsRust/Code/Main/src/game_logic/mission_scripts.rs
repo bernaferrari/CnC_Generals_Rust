@@ -2641,7 +2641,7 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         // TheAudio via doMusicTrackChange — do not leave this as a UI note.
         Self::play_music_track_through_the_audio(track, fade_out, fade_in);
         self.hooks.note_music_started(track);
-        self.hooks.push_message(format!("Music track: {}", track));
+        // C++ doMusicTrackChange: TheAudio only — no InGameUI / broadcast.
         Ok(())
     }
 
@@ -3700,6 +3700,22 @@ mod tests {
             "TheAudio music name must be the script track, not a leftover"
         );
     }
+
+    #[test]
+    fn music_set_track_does_not_broadcast_track_name() {
+        // C++ ScriptActions::doMusicTrackChange has no TheInGameUI->message.
+        let hooks = MissionScriptHooks::new().expect("mission script hooks should initialize");
+        let handler = MissionScriptActionHandler::new(hooks.clone());
+        handler
+            .music_set_track("ShellMapMusic", false, true)
+            .expect("MUSIC_SET_TRACK must succeed");
+        let messages = hooks.drain_messages();
+        assert!(
+            messages.iter().all(|m| !m.contains("Music track:")),
+            "MUSIC_SET_TRACK must not broadcast Music track: name: {messages:?}"
+        );
+    }
+
 
     #[test]
     fn handler_forwards_weather_visibility_requests() {

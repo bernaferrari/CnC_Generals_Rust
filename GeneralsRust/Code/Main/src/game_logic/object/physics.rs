@@ -635,11 +635,7 @@ impl Object {
         let mut delta = preferred_raw - p.y;
         delta *= self.loco_preferred_height_damping.clamp(0.0, 1.0);
         let preferred = p.y + delta;
-        let lift = if self.effective_max_lift() > 0.0 {
-            self.calc_lift_to_use_at_pt(p.y, preferred)
-        } else {
-            preferred - p.y
-        };
+        let lift = self.calc_lift_to_use_at_pt(p.y, preferred);
         if lift.abs() > 1.0e-4 {
             let force_y = lift * self.physics_get_mass();
             self.apply_motive_force(glam::Vec3::new(0.0, force_y, 0.0));

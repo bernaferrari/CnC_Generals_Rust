@@ -91,6 +91,17 @@ fn chinook_dist_sqr(a: &Coord3D, b: &Coord3D) -> Real {
     dx * dx + dy * dy + dz * dz
 }
 
+/// C++ `while (ai->loseOneBox())` crate-visual dump (Drawable::updateDrawableSupplyStatus).
+fn chinook_dump_owner_crate_visuals(owner: &Object, max_boxes: i32) {
+    let Some(drawable) = owner.get_drawable() else {
+        return;
+    };
+    if let Ok(mut draw_guard) = drawable.try_write() {
+        draw_guard.update_supply_status(max_boxes, 0);
+    }
+}
+
+
 /// C++ `getObject()->isKindOf(KINDOF_CAN_ATTACK)` — not `OBJECT_STATUS_CAN_ATTACK`.
 fn chinook_kind_of_can_attack(owner: &Object) -> bool {
     chinook_attack_allowed_by_kind_of(owner.is_kind_of(KindOf::CanAttack))
@@ -856,12 +867,15 @@ impl ChinookAIUpdate {
         };
 
         owner_guard.set_disabled(crate::common::DisabledType::Held);
+        // C++ ChinookCombatDropState::onEnter: while (ai->loseOneBox()).
         while self.base.lose_one_box() {}
-
         let now = TheGameLogic::get_frame();
         let rope_template = TheThingFactory::find_template(self.data.rope_name.as_str());
         let mut rope_positions = draw_guard.get_pristine_bone_positions("RopeStart", 1, 32);
         let mut drop_transforms = draw_guard.get_pristine_bone_transforms("RopeEnd", 1, 32);
+        drop(draw_guard);
+        chinook_dump_owner_crate_visuals(&owner_guard, self.base.get_max_boxes());
+
 
         let mut num_ropes = self.data.num_ropes as usize;
         if num_ropes > rope_positions.len() {
@@ -1301,8 +1315,10 @@ impl ChinookAIUpdate {
             ai,
         );
         if landing {
+            // C++ ChinookTakeoffOrLandingState::onEnter: while (ai->loseOneBox()).
             while self.base.lose_one_box() {}
         }
+
 
         let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
             return;
@@ -1310,6 +1326,10 @@ impl ChinookAIUpdate {
         let Ok(mut owner_guard) = owner.write() else {
             return;
         };
+        if landing {
+            chinook_dump_owner_crate_visuals(&owner_guard, self.base.get_max_boxes());
+        }
+
         if let Some(physics) = owner_guard.get_physics() {
             if let Ok(mut physics_guard) = physics.lock() {
                 physics_guard.scrub_velocity_2d(0.0);
@@ -2890,5 +2910,19 @@ mod tests {
         assert!(chinook_move_to_bldg_arrived(true, 140.0, 141.0));
         assert!(!chinook_move_to_bldg_arrived(false, 140.0, 140.0));
     }
+
+    /// C++ ChinookAIUpdate.cpp:213-216 / :473-475 while(loseOneBox()).
+    #[test]
+    fn landing_and_combat_drop_lose_all_boxes() {
+        let data = ChinookAIUpdateData::default();
+        let mut ai = ChinookAIUpdate::new(data, 1, 0);
+        assert!(ai.base.gain_one_box(2));
+        assert!(ai.base.gain_one_box(1));
+        assert_eq!(ai.base.get_number_boxes(), 2);
+        while ai.base.lose_one_box() {}
+        assert_eq!(ai.base.get_number_boxes(), 0);
+        assert!(!ai.base.lose_one_box());
+    }
+
 
 }

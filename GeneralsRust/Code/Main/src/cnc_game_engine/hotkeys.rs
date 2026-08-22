@@ -384,9 +384,6 @@ impl CnCGameEngine {
                     self.pending_map_command = Some(PendingMapCommand::AttackMove);
                     self.pending_structure_placement = None;
                     self.arm_radius_cursor_for_pending("ATTACK_CONTINUE_AREA");
-                    let msg = "Attack-move: click destination";
-                    self.game_hud.push_info_message(msg);
-                    self.ui_manager.game_hud_mut().push_info_message(msg);
                 }
             }
             Key::Character(c)

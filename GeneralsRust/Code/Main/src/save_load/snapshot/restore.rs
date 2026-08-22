@@ -636,17 +636,9 @@ impl SnapshotBuilder {
                     .cloned(),
             );
 
-            // Cash bounty residual: re-derive percent from unlocked sciences.
-            let mut cash_bounty_percent = 0.0_f32;
-            for sci in &unlocked_sciences {
-                if let Some(pct) =
-                    crate::game_logic::host_cash_bounty::cash_bounty_percent_for_science(sci)
-                {
-                    if pct > cash_bounty_percent {
-                        cash_bounty_percent = pct;
-                    }
-                }
-            }
+            // C++ Player.cpp:2513-2539 addScience never sets m_cashBountyPercent.
+            // Palace CashBountyPower modules re-apply after objects restore.
+            let cash_bounty_percent = 0.0_f32;
 
             game_logic.add_player(Player {
                 id: snap.id,

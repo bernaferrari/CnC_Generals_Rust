@@ -180,8 +180,9 @@ impl GameLogic {
     }
 
     /// C++ `Player::killPlayer` after `VictoryConditions` marks a slot dead:
-    /// evacuate containers, Neutral-transfer KINDOF_TECH_BUILDING, kill army, zero money.
-    pub(in super::super) fn kill_player_for_victory(&mut self, player_id: u32) {
+    /// evacuate containers, Neutral-transfer KINDOF_TECH_BUILDING, kill army
+    /// (including beacons), then wipe money unless single-player computer.
+    pub(crate) fn kill_player_for_victory(&mut self, player_id: u32) {
         let player_team = self.players.get(&player_id).map(|p| p.team);
         let unique_team = player_team.and_then(|team| {
             let mut found = None;
@@ -228,20 +229,10 @@ impl GameLogic {
             .map(|(id, _)| *id)
             .collect();
         for id in army {
-            let (is_tech, is_beacon) = self
+            let is_tech = self
                 .objects
                 .get(&id)
-                .map(|obj| {
-                    (
-                        obj.is_kind_of(KindOf::TechBuilding),
-                        obj.template_name.to_ascii_lowercase().contains("beacon"),
-                    )
-                })
-                .unwrap_or((false, false));
-            if is_beacon {
-                // C++ Team::killTeam skips beacons.
-                continue;
-            }
+                .is_some_and(|obj| obj.is_kind_of(KindOf::TechBuilding));
             if is_tech {
                 // C++ Team::killTeam: KINDOF_TECH_BUILDING → Neutral default team.
                 if let Some(obj) = self.objects.get_mut(&id) {
@@ -249,7 +240,18 @@ impl GameLogic {
                 }
                 continue;
             }
+            // C++ Team::killTeam keeps beacons in the kill list (effectively-dead
+            // exception) and kill()s them. Do not name-sniff skip.
             self.destroy_object(id);
+        }
+
+        // C++ Player.cpp:2055-2063 — SP PLAYER_COMPUTER resurrect before cash wipe.
+        if self.should_resurrect_sp_computer_player(player_id) {
+            if let Some(player) = self.players.get_mut(&player_id) {
+                player.is_alive = true;
+                player.selected_objects.clear();
+            }
+            return;
         }
 
         if let Some(player) = self.players.get_mut(&player_id) {
@@ -258,6 +260,15 @@ impl GameLogic {
             player.pending_supply_delta = 0;
             player.selected_objects.clear();
         }
+    }
+
+    /// C++ `isInSinglePlayerGame() && getPlayerType()==PLAYER_COMPUTER`.
+    pub(crate) fn should_resurrect_sp_computer_player(&self, player_id: u32) -> bool {
+        matches!(self.game_mode, GameMode::SinglePlayer)
+            && self
+                .players
+                .get(&player_id)
+                .is_some_and(|p| !p.is_local && !p.is_observer)
     }
 
     pub(in super::super) fn convert_script_event(
@@ -304,5 +315,56 @@ impl GameLogic {
             timestamp: std::time::Instant::now(),
             priority: ScriptPriority::Normal,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game_logic::{GameLogic, GameMode, KindOf, Player, Team, ThingTemplate};
+
+    #[test]
+    fn victory_kill_destroys_beacons() {
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "USA", true));
+        let mut beacon = ThingTemplate::new("AmericaBeacon");
+        beacon.add_kind_of(KindOf::Immobile).set_health(1.0);
+        logic.templates.insert("AmericaBeacon".into(), beacon);
+        let id = logic
+            .create_object("AmericaBeacon", Team::USA, glam::Vec3::ZERO)
+            .expect("beacon");
+        logic.kill_player_for_victory(0);
+        assert!(
+            logic.host_object(id).is_none()
+                || logic
+                    .host_object(id)
+                    .is_some_and(|o| !o.is_alive() || o.status.destroyed),
+            "C++ Team::killTeam destroys beacons on killPlayer"
+        );
+    }
+
+    #[test]
+    fn sp_computer_kill_preserves_cash() {
+        let mut logic = GameLogic::new();
+        logic.game_mode = GameMode::SinglePlayer;
+        let mut ai = Player::new(1, Team::GLA, "GLA", false);
+        ai.resources.supplies = 4_000;
+        logic.add_player(ai);
+        let mut ranger = ThingTemplate::new("GLARebel");
+        ranger.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("GLARebel".into(), ranger);
+        let id = logic
+            .create_object("GLARebel", Team::GLA, glam::Vec3::ZERO)
+            .expect("unit");
+        logic.kill_player_for_victory(1);
+        assert!(
+            logic.host_object(id).is_none()
+                || logic
+                    .host_object(id)
+                    .is_some_and(|o| !o.is_alive() || o.status.destroyed)
+        );
+        let p = logic.get_player(1).expect("ai");
+        assert!(p.is_alive, "C++ resurrects SP PLAYER_COMPUTER");
+        assert_eq!(p.resources.supplies, 4_000, "SP AI keeps cash");
     }
 }

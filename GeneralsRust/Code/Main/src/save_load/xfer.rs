@@ -262,6 +262,8 @@ fn write_kind_of_variant(kind_of: KindOf) -> u8 {
         KindOf::Shrubbery => 78,
         KindOf::ClearedByBuild => 79,
         KindOf::Inert => 80,
+        // Append-only: KINDOF_BLAST_CRATER permanent pathfind footprints.
+        KindOf::BlastCrater => 81,
 
 
     }
@@ -349,6 +351,7 @@ fn read_kind_of_variant(variant: u8) -> SaveLoadResult<KindOf> {
         78 => Ok(KindOf::Shrubbery),
         79 => Ok(KindOf::ClearedByBuild),
         80 => Ok(KindOf::Inert),
+        81 => Ok(KindOf::BlastCrater),
 
 
 

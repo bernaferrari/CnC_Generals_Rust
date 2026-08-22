@@ -52,14 +52,26 @@ impl TerrainDecalClient for ProjectedDecalClient {
         let info = ShadowTypeInfo {
             allow_updates: false,
             allow_world_align: true,
-            shadow_type: gamelogic::common::SHADOW_ALPHA_DECAL,
+            shadow_type: if desc.is_unit_blob {
+                gamelogic::common::SHADOW_DECAL
+            } else {
+                gamelogic::common::SHADOW_ALPHA_DECAL
+            },
             shadow_name: gamelogic::common::AsciiString::from(desc.texture_name.as_str()),
             size_x: desc.size_x,
             size_y: desc.size_y,
         };
-        let Some(handle) = get_projected_shadow_manager().write().add_decal(&info) else {
+        let mut manager = get_projected_shadow_manager().write();
+        let Some(handle) = (if desc.is_unit_blob {
+            manager.add_shadow(&info)
+        } else {
+            manager.add_decal(&info)
+        }) else {
             return;
         };
+        drop(manager);
+
+
         handle.set_position(desc.position.x, desc.position.y, desc.position.z);
         handle.set_angle(desc.angle);
         handle.set_opacity((desc.opacity.clamp(0.0, 1.0) * 255.0) as i32);

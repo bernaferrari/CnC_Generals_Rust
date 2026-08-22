@@ -1195,56 +1195,15 @@ fn host_transfer_assets_from(logic: &mut GameLogic, dest_player: u32, source_pla
 }
 
 fn host_kill_player(logic: &mut GameLogic, player_id: u32) {
-    // C++ Player::killPlayer — evacuate, Neutral-transfer tech, kill remaining,
-    // wipe cash.
-    let container_ids: Vec<ObjectId> = logic
-        .host_objects()
-        .iter()
-        .filter(|(_, obj)| {
-            obj.owner_player_id == Some(player_id) && !obj.contained_units().is_empty()
-        })
-        .map(|(id, _)| *id)
-        .collect();
-    for container_id in container_ids {
-        let _ = logic.evacuate_container_now(container_id, false);
-    }
-
-    let neutral_owner = logic
-        .get_players()
-        .values()
-        .find(|p| p.team == Team::Neutral && !p.is_observer)
-        .map(|p| p.id);
-
+    // C++ Player::killPlayer — same army/beacon/tech/SP-AI path as victory.
     let ids: Vec<ObjectId> = logic
         .host_objects()
         .iter()
         .filter_map(|(id, obj)| (obj.owner_player_id == Some(player_id)).then_some(*id))
         .collect();
+    logic.kill_player_for_victory(player_id);
     for id in ids {
-        let is_tech = logic
-            .host_object(id)
-            .is_some_and(|obj| obj.is_kind_of(KindOf::TechBuilding));
-        if is_tech {
-            if let Some(obj) = logic.host_object_mut(id) {
-                obj.set_team_and_owner(Team::Neutral, neutral_owner);
-            }
-            continue;
-        }
-        logic.destroy_object(id);
         live_beacon_clear(id);
-    }
-    if let Some(player) = logic.get_player_mut(player_id) {
-        player.is_alive = false;
-        player.selected_objects.clear();
-        let cash = player.effective_supplies();
-        if cash > 0 {
-            crate::game_logic::host_economy_log::record_money_audio(
-                player_id,
-                crate::game_logic::host_economy_log::HostMoneyAudio::Withdraw,
-            );
-            player.apply_supply_spend_unchecked(cash);
-        }
-        player.pending_supply_delta = 0;
     }
 }
 

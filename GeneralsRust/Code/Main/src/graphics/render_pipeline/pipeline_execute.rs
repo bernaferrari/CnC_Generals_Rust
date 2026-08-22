@@ -340,6 +340,57 @@ impl RenderPipeline {
                 );
                 Ok(())
             });
+            // C++ W3DView::draw filterPostRender + W3DStatusCircle fade overlay.
+            // Leftover Display::draw is not the live 3D path.
+            let filter_composite = {
+                game_client::display::view::with_tactical_view(|view| {
+                    view.tick_filter_fade();
+                });
+                game_client::display::view::with_tactical_view_ref(|view| view.filter_composite())
+            };
+            let camera_fade = self
+                .presentation_frame
+                .as_ref()
+                .map(|frame| frame.camera_fade)
+                .unwrap_or_default();
+            self.enqueue_post_frame_callback(move |gpu_frame| {
+                let dest = gpu_frame.color_view_arc();
+                let format = gpu_frame.color_format();
+                let device = gpu_frame.device_arc();
+                let queue = gpu_frame.queue_arc();
+                let (color_texture, encoder) = gpu_frame.color_texture_and_encoder();
+                let width = color_texture.width();
+                let height = color_texture.height();
+                game_client::display::shader_filter::composite_live_view_filter(
+                    device.as_ref(),
+                    queue.as_ref(),
+                    encoder,
+                    dest.as_ref(),
+                    color_texture,
+                    format,
+                    width,
+                    height,
+                    &filter_composite,
+                );
+                let fade = game_client::display::status_circle::take_queued_live_camera_fade()
+                    .map(|overlay| (overlay.fade as u8, overlay.intensity, overlay.diffuse))
+                    .unwrap_or((
+                        camera_fade.fade,
+                        camera_fade.intensity,
+                        camera_fade.diffuse,
+                    ));
+                game_client::display::status_circle::record_camera_fade(
+                    device.as_ref(),
+                    queue.as_ref(),
+                    encoder,
+                    dest.as_ref(),
+                    format,
+                    fade.0,
+                    fade.1,
+                    fade.2,
+                );
+                Ok(())
+            });
         }
 
         let forward_elapsed = forward_started.elapsed();

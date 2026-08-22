@@ -3,6 +3,8 @@
 //! Port of `GameClient/RadiusDecal.cpp` using a lightweight projected shadow manager.
 
 use crate::effects::decals::DecalRenderItem;
+use game_engine::common::game_lod;
+
 use game_engine::common::ini::{FieldParse, INIError, INIResult, INI};
 use game_engine::common::system::{Coord3D, Xfer, XferMode, XferVersion};
 use gamelogic::common::{
@@ -69,6 +71,8 @@ pub struct ShadowDecal {
     position: Coord3D,
     opacity: i32,
     active: Bool,
+    /// C++ `addShadow` / `m_shadowList` blob, not `addDecal` / `m_decalList`.
+    is_unit_blob: bool,
 }
 
 impl ShadowDecal {
@@ -80,8 +84,10 @@ impl ShadowDecal {
             position: Coord3D::new(0.0, 0.0, 0.0),
             opacity: 255,
             active: true,
+            is_unit_blob: false,
         }
     }
+
 
     fn set_angle(&mut self, angle: Real) {
         self.angle = angle;
@@ -140,11 +146,29 @@ impl ProjectedShadowManager {
     }
 
     pub fn add_decal(&mut self, info: &ShadowTypeInfo) -> Option<ShadowHandle> {
+        self.insert_projected(info, false)
+    }
+
+    /// C++ `W3DProjectedShadowManager::addShadow` (`W3DProjectedShadow.cpp:1723`).
+    /// Returns None when `!TheGlobalData->m_useShadowDecals`.
+    pub fn add_shadow(&mut self, info: &ShadowTypeInfo) -> Option<ShadowHandle> {
+        if !game_lod::use_shadow_decals() {
+            return None;
+        }
+        self.insert_projected(info, true)
+    }
+
+    fn insert_projected(
+        &mut self,
+        info: &ShadowTypeInfo,
+        is_unit_blob: bool,
+    ) -> Option<ShadowHandle> {
         if info.shadow_name.is_empty() || info.size_x <= 0.0 || info.size_y <= 0.0 {
             return None;
         }
 
-        let decal = ShadowDecal::new(info.clone());
+        let mut decal = ShadowDecal::new(info.clone());
+        decal.is_unit_blob = is_unit_blob;
         let handle = ShadowHandle(Arc::new(Mutex::new(decal)));
         self.decals.push(handle.clone());
         Some(handle)
@@ -159,11 +183,18 @@ impl ProjectedShadowManager {
     /// C++ `W3DProjectedShadowManager::queueDecal` / `flushDecals` issues these
     /// as textured projected decals. The live wgpu path reuses
     /// `ParticleRenderer::render_decals`.
+    ///
+    /// C++ `renderShadows` (`W3DProjectedShadow.cpp:1303`) draws `m_shadowList`
+    /// only when `m_useShadowDecals`. `m_decalList` / `addDecal` stays ungated.
     pub fn collect_render_items(&self) -> Vec<DecalRenderItem> {
+        let blobs_on = game_lod::use_shadow_decals();
         let mut items = Vec::new();
         for handle in &self.decals {
             let decal = handle.0.lock();
             if !decal.active {
+                continue;
+            }
+            if decal.is_unit_blob && !blobs_on {
                 continue;
             }
             let opacity = decal.opacity.clamp(0, 255) as f32 / 255.0;
@@ -189,6 +220,7 @@ impl ProjectedShadowManager {
         }
         items
     }
+
 }
 
 static PROJECTED_SHADOW_MANAGER: OnceCell<RwLock<ProjectedShadowManager>> = OnceCell::new();
@@ -822,6 +854,68 @@ mod tests {
         handle.release();
         assert!(manager.collect_render_items().is_empty());
     }
+
+    /// C++ addShadow NULL + renderShadows skip when !m_useShadowDecals.
+    /// addDecal radius/terrain items stay visible.
+    #[test]
+    fn add_shadow_and_blob_collect_none_when_use_shadow_decals_off() {
+        let prev = game_engine::common::global_data::read_safe()
+            .map(|g| g.writable.use_shadow_decals)
+            .unwrap_or(true);
+        let restore = || {
+            if let Ok(mut runtime) = game_engine::common::global_data::write_safe() {
+                runtime.writable.use_shadow_decals = prev;
+            }
+        };
+
+        let blob_info = ShadowTypeInfo {
+            allow_updates: false,
+            allow_world_align: true,
+            shadow_type: gamelogic::common::SHADOW_DECAL,
+            shadow_name: AsciiString::from("shadow"),
+            size_x: 20.0,
+            size_y: 20.0,
+        };
+        let ring_info = ShadowTypeInfo {
+            allow_updates: false,
+            allow_world_align: true,
+            shadow_type: SHADOW_ALPHA_DECAL,
+            shadow_name: AsciiString::from("SCCScudStorm_GLA"),
+            size_x: 80.0,
+            size_y: 80.0,
+        };
+
+        if let Ok(mut runtime) = game_engine::common::global_data::write_safe() {
+            runtime.writable.use_shadow_decals = true;
+        }
+        let mut manager = ProjectedShadowManager::new();
+        let blob = manager.add_shadow(&blob_info).expect("blob while 2D on");
+        blob.set_position(1.0, 2.0, 3.0);
+        let ring = manager.add_decal(&ring_info).expect("addDecal ungated");
+        ring.set_position(9.0, 8.0, 7.0);
+        assert_eq!(manager.collect_render_items().len(), 2);
+
+        if let Ok(mut runtime) = game_engine::common::global_data::write_safe() {
+            runtime.writable.use_shadow_decals = false;
+        }
+        assert!(
+            manager.add_shadow(&blob_info).is_none(),
+            "C++ addShadow returns NULL when !UseShadowDecals"
+        );
+        let still_ring = manager.add_decal(&ring_info);
+        assert!(still_ring.is_some(), "addDecal stays ungated");
+        if let Some(extra) = still_ring {
+            extra.release();
+        }
+        let items = manager.collect_render_items();
+        assert_eq!(items.len(), 1, "2D Shadows off hides unit blobs only");
+        assert_eq!(items[0].texture_name, "SCCScudStorm_GLA");
+
+        blob.release();
+        ring.release();
+        restore();
+    }
+
 
     /// C++ RadiusDecal.cpp:61 addDecal — global manager must expose the ring
     /// to Display/forward_render collect_render_items.

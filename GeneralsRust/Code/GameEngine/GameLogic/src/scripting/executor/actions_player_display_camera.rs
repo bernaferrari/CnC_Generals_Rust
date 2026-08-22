@@ -139,21 +139,24 @@ impl ScriptActionDispatcher {
 
         log::info!("Killing all units for player '{}' (scripted)", player_name);
 
+        // Live host objects are not in leftover OBJECT_REGISTRY. Always queue.
+        super::request_host_script_player_misc(super::HostScriptPlayerMiscRequest::Kill {
+            player: player_name.clone(),
+        });
+
         let player_arc = {
             let list = player_list();
             let Ok(list_guard) = list.read() else {
                 return Ok(ScriptActionResult::Success);
             };
-            let Some(player_arc) = list_guard.find_player_by_name(&player_name) else {
-                log::warn!("Player '{}' not found for kill", player_name);
-                return Ok(ScriptActionResult::Success);
-            };
-            player_arc.clone()
+            list_guard.find_player_by_name(&player_name).clone()
         };
 
         // Drop PlayerList before kill_player: Team::kill_team re-enters the list.
-        if let Ok(mut player) = player_arc.write() {
-            player.kill_player();
+        if let Some(player_arc) = player_arc {
+            if let Ok(mut player) = player_arc.write() {
+                player.kill_player();
+            }
         }
 
         Ok(ScriptActionResult::Success)

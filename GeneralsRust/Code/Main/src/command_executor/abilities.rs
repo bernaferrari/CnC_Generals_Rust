@@ -523,6 +523,8 @@ impl<'a> CommandExecutor<'a> {
             target_is_structure,
             target_is_vehicle,
             target_is_airborne,
+            target_is_bridge,
+            target_is_bridge_tower,
         ) = match self.game_logic.host_object(target_id) {
             Some(target) => (
                 target.team,
@@ -531,13 +533,19 @@ impl<'a> CommandExecutor<'a> {
                 target.is_kind_of(KindOf::Structure),
                 target.is_kind_of(KindOf::Vehicle),
                 target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target,
+                target.is_kind_of(KindOf::Bridge),
+                target.is_kind_of(KindOf::BridgeTower),
             ),
             None => return CommandResult::InvalidTarget,
         };
 
-        let valid_target = target_alive
-            && target_team != Team::Neutral
-            && (target_is_structure || (target_is_vehicle && !target_is_airborne));
+        let valid_target = crate::game_logic::host_hero_abilities::leftover_charge_plant_target_ok(
+            target_alive,
+            target_is_bridge,
+            target_is_bridge_tower,
+            target_is_structure,
+            target_is_vehicle && !target_is_airborne,
+        ) && target_team != Team::Neutral;
         if !valid_target {
             return CommandResult::InvalidTarget;
         }
@@ -592,6 +600,8 @@ impl<'a> CommandExecutor<'a> {
             target_is_structure,
             target_is_vehicle,
             target_is_airborne,
+            target_is_bridge,
+            target_is_bridge_tower,
         ) = match self.game_logic.host_object(target_id) {
             Some(target) => (
                 target.team,
@@ -600,13 +610,19 @@ impl<'a> CommandExecutor<'a> {
                 target.is_kind_of(KindOf::Structure),
                 target.is_kind_of(KindOf::Vehicle),
                 target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target,
+                target.is_kind_of(KindOf::Bridge),
+                target.is_kind_of(KindOf::BridgeTower),
             ),
             None => return CommandResult::InvalidTarget,
         };
 
-        let valid_target = target_alive
-            && target_team != Team::Neutral
-            && (target_is_structure || (target_is_vehicle && !target_is_airborne));
+        let valid_target = crate::game_logic::host_hero_abilities::leftover_charge_plant_target_ok(
+            target_alive,
+            target_is_bridge,
+            target_is_bridge_tower,
+            target_is_structure,
+            target_is_vehicle && !target_is_airborne,
+        ) && target_team != Team::Neutral;
         if !valid_target {
             return CommandResult::InvalidTarget;
         }

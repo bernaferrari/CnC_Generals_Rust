@@ -957,12 +957,12 @@ impl GameLogic {
     }
 
 
-    /// C++ `Locomotor::handleBehaviorZ` live pose (Locomotor.cpp:2196-2306).
+    /// C++ `Locomotor::handleBehaviorZ` live pose (Locomotor.cpp:2196-2323).
     ///
-    /// Host march skips Physics Euler Y while pathing (`tick_physics_motion_step`),
-    /// so SurfaceRelative lift force never integrates. Apply the damped
-    /// `preferredHeight + surfaceHt` pose C++ targets, then call
-    /// `handle_behavior_z` for lift / hover-maintain bookkeeping.
+    /// `Z_SURFACE_RELATIVE_HEIGHT` / `Z_SMOOTH_RELATIVE_TO_HIGHEST_LAYER` apply
+    /// lift via `calcLiftToUseAtPt` + `applyMotiveForce` — never `setPosition`
+    /// on Z (hq-ygdfb). Host march skips full Physics `pos+=v` while pathing,
+    /// so integrate the leftover Y Euler step here (maxLift / speedLimitZ / vel.y).
     pub(in super::super) fn apply_live_handle_behavior_z(
         obj: &mut Object,
         ground_y: f32,
@@ -992,28 +992,19 @@ impl GameLogic {
         }
         let _ = obj.handle_behavior_z(ground_y, goal_y);
         match obj.loco_behavior_z {
-            LocomotorBehaviorZ::SurfaceRelativeHeight => {
-                if obj.loco_preferred_height == 0.0 && goal_y.is_none() {
-                    return;
+            LocomotorBehaviorZ::SurfaceRelativeHeight
+            | LocomotorBehaviorZ::SmoothRelativeToHighestLayer => {
+                // Leftover PhysicsBehavior Euler Z: vel += a; pos += vel.
+                let lift_a = obj.physics_accel.y;
+                if lift_a.abs() > 1.0e-8 {
+                    obj.movement.velocity.y += lift_a;
+                    obj.physics_accel.y = 0.0;
+                    obj.invalidate_velocity_magnitude();
+                    let mut p = obj.get_position();
+                    p.y += obj.movement.velocity.y;
+                    obj.set_position(p);
+                    obj.record_host_movement();
                 }
-                let mut p = obj.get_position();
-                let preferred_raw = goal_y.unwrap_or(obj.loco_preferred_height + ground_y);
-                let mut delta = preferred_raw - p.y;
-                delta *= obj.loco_preferred_height_damping.clamp(0.0, 1.0);
-                p.y += delta;
-                obj.set_position(p);
-            }
-            LocomotorBehaviorZ::SmoothRelativeToHighestLayer => {
-                if obj.loco_preferred_height == 0.0 && goal_y.is_none() {
-                    return;
-                }
-                let surface = obj.highest_layer_surface_ht(ground_y);
-                let mut p = obj.get_position();
-                let preferred_raw = goal_y.unwrap_or(obj.loco_preferred_height + surface);
-                let mut delta = preferred_raw - p.y;
-                delta *= obj.loco_preferred_height_damping.clamp(0.0, 1.0);
-                p.y += delta;
-                obj.set_position(p);
             }
             _ => {}
         }

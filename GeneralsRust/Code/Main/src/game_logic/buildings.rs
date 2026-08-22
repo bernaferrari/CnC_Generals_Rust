@@ -1176,7 +1176,7 @@ impl BuildingBehavior {
     pub fn sweep_dead_garrison_occupants(
         objects: &mut HashMap<ObjectId, Object>,
         current_frame: u32,
-    ) {
+    ) -> Vec<ObjectId> {
         let mut dead: Vec<(ObjectId, ObjectId)> = Vec::new();
         for (&cid, container) in objects.iter() {
             if !container.is_garrison_contain() {
@@ -1192,16 +1192,19 @@ impl BuildingBehavior {
                 }
             }
         }
+        let mut dirty: Vec<ObjectId> = Vec::new();
         for (cid, occ) in dead {
             if let Some(container) = objects.get_mut(&cid) {
-                let _ = container.remove_occupant(occ);
+                if container.remove_occupant(occ) && !dirty.contains(&cid) {
+                    dirty.push(cid);
+                }
             }
             if let Some(occ_obj) = objects.get_mut(&occ) {
                 // C++ GarrisonContain.cpp:912-913 HUGE_FRAME_IN_FUTURE.
                 occ_obj.stamp_safe_occlusion_frame_huge(current_frame);
             }
-
         }
+        dirty
     }
 
     /// Update defensive buildings (turrets, etc.)

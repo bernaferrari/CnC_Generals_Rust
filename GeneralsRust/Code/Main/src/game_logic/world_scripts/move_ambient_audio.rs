@@ -6,6 +6,31 @@ use crate::game_logic::host_move_ambient_audio::{
     resolve_for_object, TemplateMoveAmbientSlot,
 };
 
+
+fn leftover_ambient_is_playing(object_id: ObjectId, name: &str) -> bool {
+    let Some(manager) = game_engine::common::audio::game_audio::get_global_audio_manager() else {
+        return false;
+    };
+    manager
+        .lock()
+        .ok()
+        .map(|guard| guard.is_named_event_playing_for_object(object_id.0, name))
+        .unwrap_or(false)
+}
+
+fn leftover_ambient_is_permanent(name: &str) -> bool {
+    // C++ Drawable::update: `eventInfo == NULL || isPermanentSound()`.
+    let Some(manager) = game_engine::common::audio::game_audio::get_global_audio_manager() else {
+        return true;
+    };
+    manager
+        .lock()
+        .ok()
+        .and_then(|guard| guard.find_audio_event_info(name))
+        .map(|info| info.is_permanent_sound())
+        .unwrap_or(true)
+}
+
 impl GameLogic {
     pub(crate) fn drain_pending_move_ambient_audio(&mut self) {
         for ev in drain_move_loop_stops() {
@@ -19,6 +44,50 @@ impl GameLogic {
         let restarts = drain_ambient_restarts();
         for id in restarts {
             self.start_ambient_sound(id);
+        }
+        self.restart_ambient_sounds_if_dropped();
+    }
+
+    /// C++ `Drawable::update` (`Drawable.cpp:1290-1314`): permanent (loop-forever)
+    /// SoundAmbient is re-added when Miles / leftover TheAudio culls it out of range.
+    fn restart_ambient_sounds_if_dropped(&mut self) {
+        if !crate::assets::audio::leftover_the_audio_is_live() {
+            return;
+        }
+        let candidates: Vec<(ObjectId, String, glam::Vec3)> = self
+            .objects
+            .iter()
+            .filter(|(_, unit)| unit.ambient_sound_enabled_from_script)
+            .filter_map(|(id, unit)| {
+                let name = unit.ambient_audio.as_ref()?;
+                if name.is_empty() {
+                    return None;
+                }
+                Some((*id, name.clone(), unit.get_position()))
+            })
+            .collect();
+        for (id, name, pos) in candidates {
+            if self.queued_audio_events.iter().any(|event| {
+                event.object_id == Some(id)
+                    && event.event_type == name
+                    && event.is_looping
+                    && !event.stop
+            }) {
+                continue;
+            }
+            if leftover_ambient_is_playing(id, &name) {
+                continue;
+            }
+            if !leftover_ambient_is_permanent(&name) {
+                continue;
+            }
+            self.queue_audio_event(
+                AudioEventRequest::new(&name)
+                    .with_object(id)
+                    .with_position(pos)
+                    .with_priority(80)
+                    .looping(),
+            );
         }
     }
 
@@ -491,6 +560,119 @@ mod tests {
             logic.queued_audio_events
         );
     }
+
+    fn register_ambient_event(name: &str, permanent: bool) {
+        let manager = game_engine::common::audio::game_audio::initialize_global_audio_manager();
+        if let Ok(mut guard) = manager.lock() {
+            guard.register_audio_event_info(game_engine::common::audio::AudioEventInfo {
+                sound_type: game_engine::common::audio::AudioType::SoundEffect,
+                control: if permanent {
+                    game_engine::common::audio::AC_LOOP
+                } else {
+                    0
+                },
+                audio_name: name.to_string(),
+                volume: 0.8,
+                sounds_morning: Vec::new(),
+                sounds: Vec::new(),
+                sounds_night: Vec::new(),
+                sounds_evening: Vec::new(),
+                attack_sounds: Vec::new(),
+                decay_sounds: Vec::new(),
+                pitch_shift_min: 1.0,
+                pitch_shift_max: 1.0,
+                volume_shift: 0.0,
+                min_volume: 0.0,
+                limit: 0,
+                loop_count: if permanent { 0 } else { 1 },
+                delay_min: 0.0,
+                delay_max: 0.0,
+                filename: String::new(),
+                sound_type_field: game_engine::common::audio::AudioType::SoundEffect,
+                type_field: 0,
+                priority: game_engine::common::audio::AudioPriority::Normal,
+                min_distance: 25.0,
+                max_distance: 1000.0,
+                ..Default::default()
+            });
+        }
+    }
+
+    #[test]
+    fn permanent_ambient_restarts_after_the_audio_cull() {
+        // C++ Drawable::update restarts loop-forever SoundAmbient when
+        // Miles processPlayingList drops the out-of-range 3D loop.
+        register_ambient_event("WarFactoryAmbientLoop", true);
+        let mut logic = GameLogic::new();
+        let mut tmpl = ThingTemplate::new("AmericaWarFactory");
+        tmpl.add_kind_of(KindOf::Structure);
+        tmpl.sound_ambient = Some("WarFactoryAmbientLoop".into());
+        logic
+            .templates
+            .insert("AmericaWarFactory".to_string(), tmpl);
+        let id = logic
+            .create_object("AmericaWarFactory", Team::USA, Vec3::new(10.0, 0.0, 10.0))
+            .expect("factory");
+        logic.queued_audio_events.clear();
+        logic.drain_pending_move_ambient_audio();
+        assert!(
+            logic.queued_audio_events.iter().any(|e| {
+                e.event_type == "WarFactoryAmbientLoop"
+                    && e.object_id == Some(id)
+                    && e.is_looping
+                    && !e.stop
+            }),
+            "culled permanent ambient must re-queue: {:?}",
+            logic.queued_audio_events
+        );
+
+        logic.queued_audio_events.clear();
+        {
+            let manager = game_engine::common::audio::game_audio::initialize_global_audio_manager();
+            let mut guard = manager.lock().expect("THE_AUDIO lock");
+            guard.test_insert_active_named_event(id.0, "WarFactoryAmbientLoop");
+        }
+        logic.drain_pending_move_ambient_audio();
+        assert!(
+            logic.queued_audio_events.iter().all(|e| {
+                !(e.event_type == "WarFactoryAmbientLoop" && e.is_looping && !e.stop)
+            }),
+            "playing permanent ambient must not re-queue: {:?}",
+            logic.queued_audio_events
+        );
+    }
+
+    #[test]
+    fn one_shot_ambient_does_not_restart_after_cull() {
+        register_ambient_event("FactoryOneShotAmbient", false);
+        let mut logic = GameLogic::new();
+        let mut tmpl = ThingTemplate::new("AmericaWarFactory");
+        tmpl.add_kind_of(KindOf::Structure);
+        tmpl.sound_ambient = Some("FactoryOneShotAmbient".into());
+        logic
+            .templates
+            .insert("AmericaWarFactory".to_string(), tmpl);
+        let id = logic
+            .create_object("AmericaWarFactory", Team::USA, Vec3::new(10.0, 0.0, 10.0))
+            .expect("factory");
+        assert_eq!(
+            logic
+                .objects
+                .get(&id)
+                .and_then(|o| o.ambient_audio.as_deref()),
+            Some("FactoryOneShotAmbient")
+        );
+        logic.queued_audio_events.clear();
+        logic.drain_pending_move_ambient_audio();
+        assert!(
+            logic.queued_audio_events.iter().all(|e| {
+                !(e.event_type == "FactoryOneShotAmbient" && e.is_looping && !e.stop)
+            }),
+            "non-permanent ambient must not restart after cull: {:?}",
+            logic.queued_audio_events
+        );
+    }
+
 
 
 }

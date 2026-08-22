@@ -857,7 +857,7 @@ impl GameLogic {
     }
 
     fn apply_turret_rotate_fx(&mut self, unit_id: ObjectId, prev_angle_deg: f32) {
-        let (rotating, angle_deg, pitch_sound, pos, occupants, keep_loop) = {
+        let (rotating, angle_deg, pitch_sound, pos, occupants, keep_loop, template_name) = {
             let Some(u) = self.objects.get(&unit_id) else {
                 return;
             };
@@ -872,6 +872,7 @@ impl GameLogic {
                 u.get_position(),
                 u.contained_units(),
                 keep_loop,
+                u.template_name.clone(),
             )
         };
         with_host_turret_extra(unit_id, |e| {
@@ -889,25 +890,43 @@ impl GameLogic {
                 u.record_host_model_condition();
             }
         }
-        let play = rotating || pitch_sound || keep_loop;
-        let started = with_host_turret_extra(unit_id, |e| {
+        // C++ TurretAI ctor: getPerUnitSound("TurretMoveLoop") — INI value, not slot key.
+        let authored = crate::game_logic::audio_dispatch_impl::resolve_per_unit_sound(
+            &template_name,
+            "TurretMoveLoop",
+        );
+        let want_play = rotating || pitch_sound || keep_loop;
+        let play = want_play && authored.is_some();
+        let (started, stopped) = with_host_turret_extra(unit_id, |e| {
             if play && !e.move_loop_playing {
                 e.move_loop_playing = true;
-                true
-            } else if !play {
+                (true, false)
+            } else if !play && e.move_loop_playing {
                 e.move_loop_playing = false;
-                false
+                (false, true)
             } else {
-                false
+                if !play {
+                    e.move_loop_playing = false;
+                }
+                (false, false)
             }
         });
-        if started {
-            self.queue_audio_event(
-                AudioEventRequest::new("TurretMoveLoop")
-                    .with_object(unit_id)
-                    .with_position(pos)
-                    .looping(),
-            );
+        if let Some(name) = authored {
+            if started {
+                self.queue_audio_event(
+                    AudioEventRequest::new(&name)
+                        .with_object(unit_id)
+                        .with_position(pos)
+                        .looping(),
+                );
+            } else if stopped {
+                self.queue_audio_event(
+                    AudioEventRequest::new(&name)
+                        .with_object(unit_id)
+                        .with_position(pos)
+                        .stopping(),
+                );
+            }
         }
         // C++ Object::reactToTurretChange → Contain::containReactToTransformChange.
         if (angle_deg - prev_angle_deg).abs() > 0.01 {

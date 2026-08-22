@@ -785,6 +785,7 @@ pub fn live_kind_of_cpp_mask(kind: crate::game_logic::KindOf) -> u128 {
         KindOf::Shrubbery => M::SHRUBBERY.bits(),
         KindOf::ClearedByBuild => M::CLEARED_BY_BUILD.bits(),
         KindOf::Inert => M::INERT.bits(),
+        KindOf::BlastCrater => M::BLAST_CRATER.bits(),
 
         KindOf::Resource | KindOf::Worker | KindOf::Harvestable => 0,
 

@@ -596,8 +596,6 @@ pub struct GameHUD {
     beacon_events: Vec<GameMessage>,
     /// Current game time
     game_time: Duration,
-    /// Last known low-power state, used to avoid repeating the same warning every frame.
-    power_low_active: bool,
     /// Last PresentationFrame::frame whose events were enqueued on this HUD.
     /// `apply_to_game_hud` re-runs every render on the same freeze; events apply once.
     applied_presentation_event_frame: Option<u32>,
@@ -777,7 +775,6 @@ impl GameHUD {
             beacon_markers: Vec::new(),
             beacon_events: Vec::new(),
             game_time: Duration::from_secs(0),
-            power_low_active: false,
             applied_presentation_event_frame: None,
         }
     }
@@ -787,13 +784,8 @@ impl GameHUD {
         std::mem::take(&mut self.pending_ui_events)
     }
 
-    /// Initialize HUD
     pub fn initialize(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let message = localization::localize(
-            "hud.message.game_started",
-            "Game started - Good luck, Commander!",
-        );
-        self.add_message(&message, MessageType::Info);
+        // C++ InGameUI::init has no "game started" overlay toast.
         Ok(())
     }
 
@@ -1092,15 +1084,7 @@ impl GameHUD {
             }
         }
 
-        let power_low = self.resource_display.is_power_low();
-        if power_low && !self.power_low_active {
-            let message = localization::localize(
-                "hud.message.power_low",
-                "Power running low - Build more generators!",
-            );
-            self.add_message(&message, MessageType::Warning);
-        }
-        self.power_low_active = power_low;
+        // C++ low power is EVA + PowerWindow fill, not an InGameUI message.
     }
 
     /// Update minimap
@@ -1731,6 +1715,30 @@ mod tests {
 
         display.update_resources(5000, 15, 60);
         assert!(display.is_power_low());
+    }
+
+    #[test]
+    fn game_hud_does_not_invent_game_started_or_power_low_overlay() {
+        let src = include_str!("hud.rs");
+        assert!(
+            !src.contains("Game started - Good luck, Commander!")
+                && !src.contains("hud.message.game_started")
+                && !src.contains("Power running low - Build more generators!")
+                && !src.contains("hud.message.power_low")
+                && !src.contains("power_low_active"),
+            "GameHUD must not invent game-started or power-low overlay toasts"
+        );
+        let mut hud = GameHUD::new();
+        hud.initialize().expect("initialize");
+        assert!(
+            hud.messages.is_empty(),
+            "initialize must not queue an overlay toast"
+        );
+        hud.update_resources(5000, 0, 1);
+        assert!(
+            hud.messages.is_empty(),
+            "update_resources must not queue a power-low overlay toast"
+        );
     }
 
     #[test]

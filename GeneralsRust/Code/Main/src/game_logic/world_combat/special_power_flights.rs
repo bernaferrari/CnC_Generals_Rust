@@ -2280,8 +2280,17 @@ impl GameLogic {
                 ai.preferred_height
             };
             let destroyed = ai.destroyed;
+            let dump_crates = crate::game_logic::host_combat_chinook::chinook_flight_dumps_carried_boxes(
+                ai.flight_status,
+            );
             drop(ai);
+
+
             obj.set_position(new_pos);
+            if dump_crates {
+                crate::game_logic::host_combat_chinook::lose_all_chinook_object_boxes(obj);
+            }
+
             obj.loco_preferred_height = preferred;
             if let Some(dest) = evac_fly {
                 if obj.movement.path.is_empty() && !obj.status.moving {

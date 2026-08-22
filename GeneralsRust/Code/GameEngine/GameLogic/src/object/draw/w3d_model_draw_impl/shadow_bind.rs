@@ -67,7 +67,12 @@ impl W3DModelDraw {
         if shadow_none {
             return;
         }
+        // C++ addShadow returns NULL when !TheGlobalData->m_useShadowDecals.
+        if !game_engine::common::game_lod::use_shadow_decals() {
+            return;
+        }
         self.apply_terrain_decal(TerrainDecalType::ShadowTexture);
+
         if terrain_decal_client().is_some() {
             self.shadow_allocated = true;
         }

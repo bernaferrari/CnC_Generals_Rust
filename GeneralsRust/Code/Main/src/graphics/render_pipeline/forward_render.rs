@@ -425,12 +425,15 @@ impl ForwardPass {
             } else {
                 Vec::new()
             };
-            // C++ W3DProjectedShadowManager::flushDecals — radius delivery rings.
+            // C++ W3DProjectedShadowManager::flushDecals — radius addDecal rings
+            // stay ungated. Unit addShadow blobs are omitted when 2D Shadows off
+            // (`collect_render_items` / W3DProjectedShadow.cpp:1303).
             decals.extend(
                 get_projected_shadow_manager()
                     .read()
                     .collect_render_items(),
             );
+
             if !decals.is_empty() {
                 let mut decal_uniforms = uniforms;
                 decal_uniforms.particle_count = decals.len().min(u32::MAX as usize) as u32;

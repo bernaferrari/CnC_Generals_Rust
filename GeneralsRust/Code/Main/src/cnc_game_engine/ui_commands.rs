@@ -101,6 +101,75 @@ fn resolve_voice_no_build(template_name: &str) -> Option<String> {
     }
 }
 
+/// Leftover SpecialPower.ini `RadiusCursorRadius` by template name.
+fn leftover_store_radius_cursor_radius(template_name: &str) -> f32 {
+    if let Some(store) = gamelogic::object::special_power_template::get_special_power_store() {
+        if let Some(template) = store.find_special_power_template(template_name) {
+            let radius = template.get_radius_cursor_radius();
+            if radius > 0.0 {
+                return radius;
+            }
+        }
+    }
+    crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::special_power_template_row_wave109(
+        template_name,
+    )
+    .map(|row| row.radius_cursor_radius)
+    .filter(|r| *r > 0.0)
+    .unwrap_or(0.0)
+}
+
+fn leftover_special_templates_for_cursor(cursor_type: &str) -> &'static [&'static str] {
+    match cursor_type {
+        "DAISYCUTTER" => &["SuperweaponDaisyCutter"],
+        "A10STRIKE" => &["SuperweaponA10ThunderboltMissileStrike"],
+        "SCUDSTORM" => &["SuperweaponScudStorm"],
+        "PARTICLECANNON" => &["SuperweaponParticleUplinkCannon"],
+        "SPYSATELLITE" => &["SpecialPowerSpySatellite"],
+        "RADAR" => &["SpecialPowerRadarVanScan"],
+        "CARPETBOMB" => &["SuperweaponCarpetBomb"],
+        "CLUSTERMINES" => &["SuperweaponClusterMines"],
+        "PARADROP" => &["SuperweaponParadropAmerica"],
+        "SPYDRONE" => &["SpecialPowerSpyDrone"],
+        "NUCLEARMISSILE" => &["SuperweaponNeutronMissile", "SuperweaponNuclearMissile"],
+        "EMPPULSE" => &["SuperweaponEMPPulse"],
+        "ARTILLERYBARRAGE" => &["SuperweaponArtilleryBarrage"],
+        "NAPALMSTRIKE" => &["SuperweaponNapalmStrike"],
+        "SPECTREGUNSHIP" => &["SuperweaponSpectreGunship"],
+        "ANTHRAXBOMB" => &["SuperweaponAnthraxBomb"],
+        "AMBUSH" => &["SuperweaponRebelAmbush"],
+        "FRENZY" => &["SpecialPowerFrenzy"],
+        "EMERGENCY_REPAIR" => &["SpecialPowerEmergencyRepair"],
+        "HELIX_NAPALM_BOMB" => &["HelixNapalmBomb"],
+        "AMBULANCE" => &["SpecialPowerAmbulance"],
+        _ => &[],
+    }
+}
+
+fn leftover_store_radius_cursor_for_type(cursor_type: &str) -> f32 {
+    for name in leftover_special_templates_for_cursor(cursor_type) {
+        let radius = leftover_store_radius_cursor_radius(name);
+        if radius > 0.0 {
+            return radius;
+        }
+    }
+    if cursor_type == "OFFENSIVE_SPECIALPOWER" {
+        return 0.0;
+    }
+    crate::ui::construction_panel::RadiusCursorOverlay::radius_for_type(cursor_type)
+}
+
+fn leftover_special_template_name_for_power(
+    power: &crate::command_system::SpecialPowerType,
+) -> Option<&'static str> {
+    leftover_special_templates_for_cursor(CnCGameEngine::radius_cursor_type_for_special_power(
+        power,
+    ))
+    .first()
+    .copied()
+}
+
+
 /// Whether a shared ControlBar superweapon button can arm this exact parsed
 /// module power.
 ///
@@ -473,6 +542,9 @@ impl CnCGameEngine {
             .game_hud_mut()
             .construction_panel
             .clear_structure_placement();
+        game_client::helpers::TheInGameUI::place_build_available(None, None);
+        game_client::helpers::TheInGameUI::clear_pending_special_power();
+        game_client::helpers::TheInGameUI::set_placement_start(None);
     }
 
     /// Update structure placement ghost legality under cursor residual.
@@ -509,50 +581,162 @@ impl CnCGameEngine {
         }
     }
 
-    /// C++ `InGameUI::setRadiusCursor` radius: weapon primary/scatter/continue,
-    /// `AIGuardMachine` vision, else SpecialPower.ini `RadiusCursorRadius`.
+    /// C++ `InGameUI::setRadiusCursor` radius (InGameUI.cpp:1210-1258).
+    /// Leftover `resolve_radius_cursor_radius`: ATTACK_DAMAGE_AREA = primary
+    /// damage, SCATTER = scatter+scalar, CONTINUE/CLEARMINES = continueAttackRange,
+    /// GUARD = `AIGuardMachine::get_std_guard_range`, special = RadiusCursorRadius.
+    /// Never uses the construction_panel OFFENSIVE_SPECIALPOWER=0 table.
     pub(super) fn resolve_radius_cursor_radius(&self, cursor_type: &str) -> f32 {
-        let from_ini = crate::ui::construction_panel::RadiusCursorOverlay::radius_for_type(cursor_type);
         let seed = self.ui_selection_seed_id();
-        let selected = seed.and_then(|id| {
-            self.last_presentation_frame
-                .as_ref()
-                .and_then(|frame| frame.objects.iter().find(|o| o.id == id))
-        });
-        match cursor_type {
-            "ATTACK_DAMAGE_AREA" => {
-                let template = selected.map(|o| o.template_name.as_str()).unwrap_or("");
-                let from_weapon = if let Some(weapon) =
-                    crate::game_logic::primary_weapon_name_for_unit(template)
-                {
-                    crate::game_logic::weapon_bootstrap::host_primary_damage_radius_for_weapon_name(
-                        weapon,
-                    )
-                } else {
-                    crate::game_logic::weapon_bootstrap::host_primary_damage_radius_for_weapon_name(
-                        template,
-                    )
-                };
-                if from_weapon > 0.0 {
-                    from_weapon
-                } else {
-                    from_ini
+
+        #[cfg(feature = "game_client")]
+        {
+            if let Some(kind) = game_client::in_game_ui::RadiusCursorType::from_name(cursor_type) {
+                let leftover =
+                    game_client::in_game_ui::InGameUI::leftover_resolve_radius_cursor_radius(
+                        kind,
+                        seed.map(|id| id.0),
+                        0.0,
+                    );
+                if leftover > 0.0 {
+                    return leftover;
                 }
             }
-            "ATTACK_SCATTER_AREA" => selected
-                .map(|o| o.weapon_range)
-                .filter(|r| *r > 0.0)
-                .unwrap_or(from_ini),
-            "ATTACK_CONTINUE_AREA" | "CLEARMINES" => selected
-                .map(|o| o.weapon_range)
-                .filter(|r| *r > 0.0)
-                .unwrap_or(from_ini),
-            "GUARD_AREA" => selected
-                .map(|o| o.vision_range)
-                .filter(|r| *r > 0.0)
-                .unwrap_or(from_ini),
-            _ => from_ini,
         }
+
+        let weapon_name = self.radius_cursor_primary_weapon_name(seed);
+        match cursor_type {
+            "ATTACK_DAMAGE_AREA" => self.radius_cursor_primary_damage(weapon_name.as_deref()),
+            "ATTACK_SCATTER_AREA" => self.radius_cursor_scatter(weapon_name.as_deref()),
+            "ATTACK_CONTINUE_AREA" | "CLEARMINES" => {
+                self.radius_cursor_continue_attack(weapon_name.as_deref())
+            }
+            "GUARD_AREA" => self.radius_cursor_guard_range(seed),
+            _ => {
+                let special = self.leftover_special_power_radius_cursor(cursor_type);
+                if special > 0.0 {
+                    special
+                } else {
+                    0.0
+                }
+            }
+        }
+    }
+
+    fn radius_cursor_primary_weapon_name(
+        &self,
+        seed: Option<crate::game_logic::ObjectId>,
+    ) -> Option<String> {
+        let id = seed?;
+        if let Some(obj) = self.game_logic.host_object(id) {
+            if let Some(name) = obj.weapon_name_for_slot(0) {
+                if !name.is_empty() {
+                    return Some(name.to_string());
+                }
+            }
+            if let Some(name) = obj.get_template().primary_weapon_name.as_deref() {
+                if !name.is_empty() {
+                    return Some(name.to_string());
+                }
+            }
+            let template = obj.template_name.clone();
+            if let Some(name) = crate::game_logic::primary_weapon_name_for_unit(&template) {
+                return Some(name.to_string());
+            }
+            if !template.is_empty() {
+                return Some(template);
+            }
+        }
+        let template = self
+            .last_presentation_frame
+            .as_ref()
+            .and_then(|frame| frame.objects.iter().find(|o| o.id == id))
+            .map(|o| o.template_name.as_str())
+            .unwrap_or("");
+        crate::game_logic::primary_weapon_name_for_unit(template)
+            .map(str::to_string)
+            .or_else(|| {
+                if template.is_empty() {
+                    None
+                } else {
+                    Some(template.to_string())
+                }
+            })
+    }
+
+    fn radius_cursor_primary_damage(&self, weapon_name: Option<&str>) -> f32 {
+        let Some(name) = weapon_name.filter(|n| !n.is_empty()) else {
+            return 0.0;
+        };
+        crate::game_logic::weapon_bootstrap::host_primary_damage_radius_for_weapon_name(name)
+    }
+
+    fn radius_cursor_scatter(&self, weapon_name: Option<&str>) -> f32 {
+        let Some(name) = weapon_name.filter(|n| !n.is_empty()) else {
+            return 0.0;
+        };
+        crate::game_logic::weapon_bootstrap::host_scatter_radius_for_weapon_name(name)
+            + crate::game_logic::weapon_bootstrap::host_scatter_target_scalar_for_weapon_name(name)
+    }
+
+    fn radius_cursor_continue_attack(&self, weapon_name: Option<&str>) -> f32 {
+        let Some(name) = weapon_name.filter(|n| !n.is_empty()) else {
+            return 0.0;
+        };
+        crate::game_logic::weapon_bootstrap::host_continue_attack_range_for_weapon_name(name)
+    }
+
+    fn radius_cursor_guard_range(&self, seed: Option<crate::game_logic::ObjectId>) -> f32 {
+        let Some(id) = seed else {
+            return 0.0;
+        };
+        let leftover = gamelogic::ai::guard::AIGuardMachine::get_std_guard_range(id.0);
+        if leftover > 0.0 {
+            if leftover > 100.0
+                || gamelogic::object::registry::OBJECT_REGISTRY
+                    .get_object(id.0)
+                    .is_some()
+            {
+                return leftover;
+            }
+        }
+        let (inner, _) = self.game_logic.host_std_guard_ranges(id);
+        if inner > 0.0 {
+            inner
+        } else if leftover > 0.0 {
+            leftover
+        } else {
+            0.0
+        }
+    }
+
+    fn leftover_special_power_radius_cursor(&self, cursor_type: &str) -> f32 {
+        #[cfg(feature = "game_client")]
+        {
+            if let Some(pending) = game_client::helpers::TheInGameUI::get_pending_special_power() {
+                if let Some(store) =
+                    gamelogic::object::special_power_template::get_special_power_store()
+                {
+                    if let Some(template) =
+                        store.find_special_power_template_by_id(pending.power_id)
+                    {
+                        let radius = template.get_radius_cursor_radius();
+                        if radius > 0.0 {
+                            return radius;
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(PendingMapCommand::SpecialPower(power)) = self.pending_map_command.as_ref() {
+            if let Some(name) = leftover_special_template_name_for_power(power) {
+                let radius = leftover_store_radius_cursor_radius(name);
+                if radius > 0.0 {
+                    return radius;
+                }
+            }
+        }
+        leftover_store_radius_cursor_for_type(cursor_type)
     }
 
     pub(super) fn arm_radius_cursor_for_pending(&mut self, cursor_type: &str) {
@@ -596,7 +780,7 @@ impl CnCGameEngine {
             PendingMapCommand::Weapon(ref weapon) if weapon.uses_mine_clearing_weapon_set() => {
                 "CLEARMINES"
             }
-            PendingMapCommand::Weapon(_) => "OFFENSIVE_SPECIALPOWER",
+            PendingMapCommand::Weapon(_) => "ATTACK_DAMAGE_AREA",
             PendingMapCommand::UnitAbility(_) => "OFFENSIVE_SPECIALPOWER",
         };
         // Ensure overlay exists (re-arm if missing).
@@ -652,6 +836,24 @@ impl CnCGameEngine {
             .game_hud_mut()
             .construction_panel
             .arm_structure_placement(template_name.to_string());
+        // C++ ControlBar::enterTargetingMode / placeBuildAvailable stores the
+        // selected dozer as the pending place source. LMB-down cancels if gone.
+        let selected = self.ui_selected_ids(self.current_player_id);
+        let source_id = selected
+            .iter()
+            .copied()
+            .find(|&id| self.ui_object_is_dozer(id))
+            .or_else(|| selected.first().copied())
+            .map(|id| id.0)
+            .or_else(|| {
+                let existing =
+                    game_client::helpers::TheInGameUI::get_pending_place_source_object_id();
+                (existing != 0).then_some(existing)
+            });
+        game_client::helpers::TheInGameUI::place_build_available(
+            Some(template_name.to_string()),
+            source_id,
+        );
         log::debug!("BeginStructurePlacement residual: {template_name}");
     }
 
@@ -2008,12 +2210,10 @@ impl CnCGameEngine {
 
     /// C++ ControlBar named command button residual (Upgrade/Cancel/Stop/…).
 
-    pub(super) fn arm_pending_unit_ability(&mut self, ability: PendingUnitAbility, msg: &str) {
+    pub(super) fn arm_pending_unit_ability(&mut self, ability: PendingUnitAbility) {
         self.pending_map_command = Some(PendingMapCommand::UnitAbility(ability));
         self.pending_structure_placement = None;
         self.arm_radius_cursor_for_pending("OFFENSIVE_SPECIALPOWER");
-        self.game_hud.push_info_message(msg);
-        self.ui_manager.game_hud_mut().push_info_message(msg);
     }
 
     pub(super) fn issue_named_command_from_ui(&mut self, command_name: &str) {
@@ -2036,27 +2236,18 @@ impl CnCGameEngine {
                 self.pending_map_command = Some(PendingMapCommand::AttackMove);
                 self.pending_structure_placement = None;
                 self.arm_radius_cursor_for_pending("ATTACK_CONTINUE_AREA");
-                let msg = "Attack-move: click target location";
-                self.game_hud.push_info_message(msg);
-                self.ui_manager.game_hud_mut().push_info_message(msg);
                 return;
             }
             crate::command_system::CommandType::Guard { mode, .. } => {
                 self.pending_map_command = Some(PendingMapCommand::Guard(mode));
                 self.pending_structure_placement = None;
                 self.arm_radius_cursor_for_pending("GUARD_AREA");
-                let msg = "Guard: click location or unit";
-                self.game_hud.push_info_message(msg);
-                self.ui_manager.game_hud_mut().push_info_message(msg);
                 return;
             }
             crate::command_system::CommandType::SetRallyPoint { .. } => {
                 self.pending_map_command = Some(PendingMapCommand::SetRallyPoint);
                 self.pending_structure_placement = None;
                 self.arm_radius_cursor_for_pending("FRIENDLY_SPECIALPOWER");
-                let msg = "Set rally point: click location";
-                self.game_hud.push_info_message(msg);
-                self.ui_manager.game_hud_mut().push_info_message(msg);
                 return;
             }
             crate::command_system::CommandType::CombatDrop { .. } => {
@@ -2065,9 +2256,6 @@ impl CnCGameEngine {
                 ));
                 self.pending_structure_placement = None;
                 self.arm_radius_cursor_for_pending("COMBATDROP");
-                let msg = "Combat drop: click landing zone";
-                self.game_hud.push_info_message(msg);
-                self.ui_manager.game_hud_mut().push_info_message(msg);
                 return;
             }
             crate::command_system::CommandType::DoSpecialPower {
@@ -2124,9 +2312,6 @@ impl CnCGameEngine {
                     }
                 }
                 let Some(power) = resolved else {
-                    let msg = "No ready special power on selection";
-                    self.game_hud.push_info_message(msg);
-                    self.ui_manager.game_hud_mut().push_info_message(msg);
                     return;
                 };
                 // Map before move into pending.  The same table also serves
@@ -2136,9 +2321,6 @@ impl CnCGameEngine {
                 self.pending_map_command = Some(PendingMapCommand::SpecialPower(power));
                 self.pending_structure_placement = None;
                 self.arm_radius_cursor_for_pending(cursor);
-                let msg = "Special power: click target location";
-                self.game_hud.push_info_message(msg);
-                self.ui_manager.game_hud_mut().push_info_message(msg);
                 return;
             }
             crate::command_system::CommandType::PlaceBeacon { .. } => {
@@ -2156,107 +2338,63 @@ impl CnCGameEngine {
                 self.pending_map_command = Some(PendingMapCommand::PlaceBeacon);
                 self.pending_structure_placement = None;
                 self.arm_radius_cursor_for_pending("RADAR");
-                let msg = "Place beacon: click location";
-                self.game_hud.push_info_message(msg);
-                self.ui_manager.game_hud_mut().push_info_message(msg);
                 return;
             }
             // Unit special-ability buttons: arm target click residual.
             crate::command_system::CommandType::Hijack { .. } => {
-                self.arm_pending_unit_ability(PendingUnitAbility::Hijack, "Hijack: click vehicle");
+                self.arm_pending_unit_ability(PendingUnitAbility::Hijack);
                 return;
             }
             crate::command_system::CommandType::Sabotage { .. } => {
-                self.arm_pending_unit_ability(
-                    PendingUnitAbility::Sabotage,
-                    "Sabotage: click building",
-                );
+                self.arm_pending_unit_ability(PendingUnitAbility::Sabotage);
                 return;
             }
             crate::command_system::CommandType::CaptureBuilding { .. } => {
-                self.arm_pending_unit_ability(
-                    PendingUnitAbility::CaptureBuilding,
-                    "Capture: click structure",
-                );
+                self.arm_pending_unit_ability(PendingUnitAbility::CaptureBuilding);
                 return;
             }
             crate::command_system::CommandType::SnipeVehicle { .. } => {
-                self.arm_pending_unit_ability(
-                    PendingUnitAbility::SnipeVehicle,
-                    "Snipe: click vehicle",
-                );
+                self.arm_pending_unit_ability(PendingUnitAbility::SnipeVehicle);
                 return;
             }
             crate::command_system::CommandType::PlantTimedDemoCharge { .. } => {
-                self.arm_pending_unit_ability(
-                    PendingUnitAbility::PlantTimedDemoCharge,
-                    "Plant timed charge: click target",
-                );
+                self.arm_pending_unit_ability(PendingUnitAbility::PlantTimedDemoCharge);
                 return;
             }
             crate::command_system::CommandType::PlantRemoteDemoCharge { .. } => {
-                self.arm_pending_unit_ability(
-                    PendingUnitAbility::PlantRemoteDemoCharge,
-                    "Plant remote charge: click target",
-                );
+                self.arm_pending_unit_ability(PendingUnitAbility::PlantRemoteDemoCharge);
                 return;
             }
             crate::command_system::CommandType::StealCashHack { .. } => {
-                self.arm_pending_unit_ability(
-                    PendingUnitAbility::StealCashHack,
-                    "Steal cash: click supply",
-                );
+                self.arm_pending_unit_ability(PendingUnitAbility::StealCashHack);
                 return;
             }
             crate::command_system::CommandType::DisableVehicleHack { .. } => {
-                self.arm_pending_unit_ability(
-                    PendingUnitAbility::DisableVehicleHack,
-                    "Hack vehicle: click target",
-                );
+                self.arm_pending_unit_ability(PendingUnitAbility::DisableVehicleHack);
                 return;
             }
             crate::command_system::CommandType::HackerDisableBuilding { .. } => {
                 let selected = self.ui_selected_ids(self.current_player_id);
                 if !self.host_control_bar_selection_has_ready_hacker_disable(&selected) {
-                    self.game_hud
-                        .push_info_message("Hacker Disable Building is not ready");
-                    self.ui_manager
-                        .game_hud_mut()
-                        .push_info_message("Hacker Disable Building is not ready");
                     return;
                 }
-                self.arm_pending_unit_ability(
-                    PendingUnitAbility::HackerDisableBuilding,
-                    "Hack building: click target",
-                );
+                self.arm_pending_unit_ability(PendingUnitAbility::HackerDisableBuilding);
                 return;
             }
             crate::command_system::CommandType::DisguiseAsVehicle { .. } => {
-                self.arm_pending_unit_ability(
-                    PendingUnitAbility::DisguiseAsVehicle,
-                    "Disguise: click vehicle",
-                );
+                self.arm_pending_unit_ability(PendingUnitAbility::DisguiseAsVehicle);
                 return;
             }
             crate::command_system::CommandType::PlantBoobyTrap { .. } => {
-                self.arm_pending_unit_ability(
-                    PendingUnitAbility::PlantBoobyTrap,
-                    "Booby trap: click structure",
-                );
+                self.arm_pending_unit_ability(PendingUnitAbility::PlantBoobyTrap);
                 return;
             }
             crate::command_system::CommandType::ConvertToCarbomb { .. } => {
-                self.arm_pending_unit_ability(
-                    PendingUnitAbility::ConvertToCarbomb,
-                    "Car bomb: click vehicle",
-                );
+                self.arm_pending_unit_ability(PendingUnitAbility::ConvertToCarbomb);
                 return;
             }
             crate::command_system::CommandType::Repair { .. } => {
-                self.arm_pending_unit_ability(
-                    PendingUnitAbility::Repair,
-                    "Repair: click damaged structure",
-                );
+                self.arm_pending_unit_ability(PendingUnitAbility::Repair);
                 return;
             }
             crate::command_system::CommandType::PurchaseScience { science_name } => {
@@ -2589,6 +2727,33 @@ mod tests {
         assert_eq!(
             button.unit_specific_sound.playable_event_name(),
             "BlackLotusVoiceModeBuilding"
+        );
+    }
+
+    #[test]
+    fn leftover_radius_cursor_attack_ground_is_not_table_zero() {
+        assert_eq!(
+            leftover_store_radius_cursor_for_type("OFFENSIVE_SPECIALPOWER"),
+            0.0
+        );
+        let src = include_str!("ui_commands.rs");
+        assert!(
+            src.contains("PendingMapCommand::Weapon(_) => \"ATTACK_DAMAGE_AREA\""),
+            "FIRE_WEAPON / attack-ground must arm leftover ATTACK_DAMAGE_AREA"
+        );
+        assert!(
+            !src.contains("o.weapon_range") && !src.contains("o.vision_range"),
+            "must not proxy radius from presentation weapon/vision"
+        );
+        assert!(
+            !src.contains("Attack-move: click target location")
+                && !src.contains("Guard: click location or unit")
+                && !src.contains("Set rally point: click location")
+                && !src.contains("Combat drop: click landing zone")
+                && !src.contains("Special power: click target location")
+                && !src.contains("No ready special power on selection")
+                && !src.contains("Place beacon: click location"),
+            "command arming must not invent HUD instruction toasts"
         );
     }
 }

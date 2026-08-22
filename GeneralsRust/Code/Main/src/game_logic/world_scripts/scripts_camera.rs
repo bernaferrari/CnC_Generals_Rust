@@ -190,31 +190,12 @@ fn host_query_object_status_bits(obj: &crate::game_logic::object::Object) -> u64
     obj.object_status_bits | object_status_mask_from_names(&names)
 }
 
-/// C++ OpenContain::getPlayerWhoEntered — sticky last enterer SIDE name.
+/// C++ OpenContain::getPlayerWhoEntered — SIDE name, one-frame pulse after enter.
 fn host_query_player_who_entered(
-    logic: &GameLogic,
+    _logic: &GameLogic,
     obj: &crate::game_logic::object::Object,
 ) -> String {
-    if !obj.player_who_entered.is_empty() {
-        return obj.player_who_entered.clone();
-    }
-    obj.contained_units()
-        .last()
-        .copied()
-        .and_then(|uid| {
-            logic.objects.get(&uid).and_then(|occ| {
-                occ.owner_player_id
-                    .and_then(|pid| logic.player_name(pid))
-                    .or_else(|| {
-                        logic
-                            .players
-                            .values()
-                            .find(|p| p.team == occ.team)
-                            .map(|p| p.name.clone())
-                    })
-            })
-        })
-        .unwrap_or_default()
+    obj.player_who_entered.clone()
 }
 
 
@@ -1235,6 +1216,12 @@ impl GameLogic {
                     if let Some(ai) = self.ai_manager.ai_players.get_mut(&pid) {
                         ai.select_skillset(skillset - 1);
                     }
+                }
+                HostScriptPlayerMiscRequest::Kill { player } => {
+                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
+                        continue;
+                    };
+                    self.kill_player_for_victory(pid);
                 }
             }
         }
@@ -4315,8 +4302,6 @@ impl GameLogic {
             // Pin the in-flight move/path. Do not leave a queued travel look.
             self.pending_camera_look_toward = None;
         }
-        // C++ cameraModFreezeAngle is a no-op when no movement is active.
-        // Never arm for the next move — a later ROTATE_CAMERA must replace.
     }
 
     /// C++ `cameraModLookToward` / `cameraModFinalLookToward`: rewrite the
@@ -4324,22 +4309,37 @@ impl GameLogic {
     pub(in super::super) fn apply_script_camera_mod_look_toward(
         &mut self,
         position: Vec3,
-        _final_look: bool,
+        final_look: bool,
     ) {
+        // C++ `cameraModLookToward` / `cameraModFinalLookToward` no-op while rotating.
+        if self.pending_camera_rotate.is_some() {
+            return;
+        }
         let mut applied = false;
+        let mut path_final = false;
         if let Some(move_to) = self.script_camera_move_to.as_mut() {
             move_to.set_look_toward(position);
             applied = true;
         }
         if let Some(path) = self.script_camera_path.as_mut() {
-            path.set_look_toward(position);
+            if final_look {
+                path.camera_mod_final_look_toward(position);
+                path_final = true;
+            } else {
+                path.camera_mod_look_toward(position);
+            }
             applied = true;
         }
         if !applied {
             return;
         }
-        let remaining = self.script_camera_remaining_seconds();
         self.pending_camera_rotate = None;
+        if path_final {
+            // Last-segment swing is applied as the path advances. Do not retarget
+            // the whole remaining duration (C++ only rewrites last 1-2 waypoints).
+            return;
+        }
+        let remaining = self.script_camera_remaining_seconds();
         self.pending_camera_look_toward = Some(CameraLookTowardWaypointRequest {
             position,
             duration_seconds: remaining,
@@ -4462,7 +4462,7 @@ impl GameLogic {
             if path_move.is_finished() {
                 (true, path_move.final_focus(), None, 0.0)
             } else if let Some(focus) = path_move.advance(dt) {
-                let look = if let Some(look) = path_move.look_toward() {
+                let look = if let Some(look) = path_move.look_toward_for_current_segment() {
                     Some(look)
                 } else if path_move.freeze_angle() || path_move.suppress_travel_look() {
                     None

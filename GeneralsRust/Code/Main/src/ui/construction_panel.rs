@@ -338,6 +338,42 @@ pub struct RadiusCursorOverlay {
     pub is_legal: bool,
 }
 
+fn leftover_special_radius_cursor_radius(cursor_type: &str) -> Option<f32> {
+    let names: &[&str] = match cursor_type {
+        "DAISYCUTTER" => &["SuperweaponDaisyCutter"],
+        "A10STRIKE" => &["SuperweaponA10ThunderboltMissileStrike"],
+        "SCUDSTORM" => &["SuperweaponScudStorm"],
+        "PARTICLECANNON" => &["SuperweaponParticleUplinkCannon"],
+        "SPYSATELLITE" => &["SpecialPowerSpySatellite"],
+        "RADAR" => &["SpecialPowerRadarVanScan"],
+        "CARPETBOMB" => &["SuperweaponCarpetBomb"],
+        "CLUSTERMINES" => &["SuperweaponClusterMines"],
+        "PARADROP" => &["SuperweaponParadropAmerica"],
+        "SPYDRONE" => &["SpecialPowerSpyDrone"],
+        "NUCLEARMISSILE" => &["SuperweaponNeutronMissile", "SuperweaponNuclearMissile"],
+        "EMPPULSE" => &["SuperweaponEMPPulse"],
+        "ARTILLERYBARRAGE" => &["SuperweaponArtilleryBarrage"],
+        "NAPALMSTRIKE" => &["SuperweaponNapalmStrike"],
+        "SPECTREGUNSHIP" => &["SuperweaponSpectreGunship"],
+        "ANTHRAXBOMB" => &["SuperweaponAnthraxBomb"],
+        "AMBUSH" => &["SuperweaponRebelAmbush"],
+        "FRENZY" => &["SpecialPowerFrenzy"],
+        "EMERGENCY_REPAIR" => &["SpecialPowerEmergencyRepair"],
+        _ => return None,
+    };
+    let store = gamelogic::object::special_power_template::get_special_power_store()?;
+    for name in names {
+        if let Some(template) = store.find_special_power_template(name) {
+            let radius = template.get_radius_cursor_radius();
+            if radius > 0.0 {
+                return Some(radius);
+            }
+        }
+    }
+    None
+}
+
+
 impl RadiusCursorOverlay {
     pub fn new(cursor_type: &str, radius: f32) -> Self {
         Self {
@@ -349,21 +385,23 @@ impl RadiusCursorOverlay {
         }
     }
 
-    /// Retail `SpecialPower.ini` `RadiusCursorRadius` / weapon+guard fallbacks.
-    /// C++ `InGameUI::setRadiusCursor` (InGameUI.cpp:1210-1258).
+    /// Leftover SpecialPower.ini `RadiusCursorRadius` (C++ InGameUI.cpp:1257).
+    /// Weapon/guard rings are 0 here — leftover `resolve_radius_cursor_radius`
+    /// supplies primary/scatter/continue/`AIGuardMachine` radii.
+    /// `OFFENSIVE_SPECIALPOWER` is not a table radius (C++ uses specPowTempl).
     pub fn radius_for_type(cursor_type: &str) -> f32 {
+        if cursor_type != "OFFENSIVE_SPECIALPOWER" {
+            if let Some(radius) = leftover_special_radius_cursor_radius(cursor_type) {
+                return radius;
+            }
+        }
         match cursor_type {
-            // Weapon/guard rings are resolved from the selected object when armed;
-            // these values are the C++ 0-or-fallback when no object/weapon exists.
-            "ATTACK_DAMAGE_AREA" => 0.0,
-            "ATTACK_SCATTER_AREA" => 0.0,
-            "ATTACK_CONTINUE_AREA" => 0.0,
-            "CLEARMINES" => 0.0,
-            "GUARD_AREA" => 100.0, // AIGuardMachine fallback when vision is unknown
+            "ATTACK_DAMAGE_AREA" | "ATTACK_SCATTER_AREA" | "ATTACK_CONTINUE_AREA"
+            | "CLEARMINES" | "GUARD_AREA" => 0.0,
+            "FRIENDLY_SPECIALPOWER" | "OFFENSIVE_SPECIALPOWER" | "SUPERWEAPON_SCATTER_AREA" => {
+                0.0
+            }
             "EMERGENCY_REPAIR" => 100.0,
-            "FRIENDLY_SPECIALPOWER" => 0.0,
-            "OFFENSIVE_SPECIALPOWER" => 0.0,
-            "SUPERWEAPON_SCATTER_AREA" => 0.0,
             "PARTICLECANNON" => 0.0, // SuperweaponParticleUplinkCannon omits / 0
             "A10STRIKE" => 50.0,
             "CARPETBOMB" => 100.0,

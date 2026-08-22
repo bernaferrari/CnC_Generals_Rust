@@ -227,6 +227,7 @@ pub(super) struct ScriptCameraPathMove {
     pub(in super) freeze_time: bool,
     pub(in super) freeze_angle: bool,
     pub(in super) look_toward: Option<Vec3>,
+    pub(in super) look_toward_is_final: bool,
     pub(in super) suppress_travel_look: bool,
     pub(in super) rolling_average_frames: i32,
     pub(in super) smoothed_focus: Option<Vec3>,
@@ -343,6 +344,7 @@ impl ScriptCameraPathMove {
             freeze_time: false,
             freeze_angle: false,
             look_toward: None,
+            look_toward_is_final: false,
             suppress_travel_look: false,
             rolling_average_frames: 1,
             smoothed_focus: None,
@@ -383,8 +385,47 @@ impl ScriptCameraPathMove {
 
     pub(super) fn set_look_toward(&mut self, position: Vec3) {
         self.look_toward = Some(position);
+        self.look_toward_is_final = false;
         self.freeze_angle = false;
         self.suppress_travel_look = false;
+    }
+
+    /// C++ `W3DView::cameraModLookToward` — whole remaining path faces `target`.
+    pub(super) fn camera_mod_look_toward(&mut self, target: Vec3) {
+        self.set_look_toward(target);
+    }
+
+    /// C++ `W3DView::cameraModFinalLookToward` — last one or two segments only.
+    pub(super) fn camera_mod_final_look_toward(&mut self, target: Vec3) {
+        self.set_look_toward(target);
+        self.look_toward_is_final = true;
+    }
+
+    /// Look used for the current path segment. Final-look stays travel-facing
+    /// until `cur_segment >= max(last-1, 2)`; the last waypoint is full look,
+    /// the previous one half-lerps the yaw (C++ `W3DView.cpp:2667-2708`).
+    pub(super) fn look_toward_for_current_segment(&self) -> Option<Vec3> {
+        let target = self.look_toward?;
+        if !self.look_toward_is_final {
+            return Some(target);
+        }
+        let last_meaningful = self.points.len().saturating_sub(2);
+        let min = last_meaningful.saturating_sub(1).max(2);
+        if self.cur_segment < min {
+            return None;
+        }
+        if self.cur_segment >= last_meaningful {
+            return Some(target);
+        }
+        let focus = self
+            .smoothed_focus
+            .or_else(|| self.points.get(self.cur_segment).copied())?;
+        let travel = self.travel_look_toward()?;
+        let current_angle = look_angle_xz(focus, travel);
+        let target_angle = look_angle_xz(focus, target);
+        let delta = normalize_camera_angle(target_angle - current_angle);
+        let half = normalize_camera_angle(current_angle + delta * 0.5);
+        Some(look_point_from_angle_xz(focus, half))
     }
 
     pub(super) fn look_toward(&self) -> Option<Vec3> {
@@ -547,6 +588,111 @@ impl ScriptCameraPathMove {
         };
         self.smoothed_focus = Some(smoothed);
         Some(smoothed)
+    }
+}
+
+fn look_angle_xz(from: Vec3, to: Vec3) -> f32 {
+    let dir = Vec2::new(to.x - from.x, to.z - from.z);
+    if dir.length() < 0.1 {
+        return 0.0;
+    }
+    normalize_camera_angle(dir.y.atan2(dir.x) - std::f32::consts::PI * 0.5)
+}
+
+fn look_point_from_angle_xz(from: Vec3, angle: f32) -> Vec3 {
+    Vec3::new(
+        from.x - angle.sin() * 100.0,
+        from.y,
+        from.z + angle.cos() * 100.0,
+    )
+}
+
+fn normalize_camera_angle(mut angle: f32) -> f32 {
+    if !(-10.0 * std::f32::consts::PI..=10.0 * std::f32::consts::PI).contains(&angle) {
+        angle = 0.0;
+    }
+    while angle > std::f32::consts::PI {
+        angle -= 2.0 * std::f32::consts::PI;
+    }
+    while angle < -std::f32::consts::PI {
+        angle += 2.0 * std::f32::consts::PI;
+    }
+    angle
+}
+
+#[cfg(test)]
+impl ScriptCameraPathMove {
+    pub(super) fn from_points_for_test(points: Vec<Vec3>, seconds: f32) -> Self {
+        let n = points.len();
+        Self {
+            points,
+            segment_length: vec![1.0; n],
+            total_distance: 1.0,
+            ease: ParabolicEase::new(0.0, 0.0),
+            total_time_seconds: seconds.max(0.001),
+            elapsed_seconds: 0.0,
+            cur_segment: 1,
+            cur_seg_distance: 0.0,
+            shutter_frames: 1,
+            cur_shutter: 1,
+            last_ease: 0.0,
+            freeze_time: false,
+            freeze_angle: false,
+            look_toward: None,
+            look_toward_is_final: false,
+            suppress_travel_look: false,
+            rolling_average_frames: 1,
+            smoothed_focus: None,
+            speed_ramp_start_t: 0.0,
+            speed_ramp_start_multiplier: 1.0,
+            speed_ramp_final_multiplier: 1.0,
+        }
+    }
+}
+
+#[cfg(test)]
+mod camera_mod_look_tests {
+    use super::*;
+
+    fn padded_path() -> ScriptCameraPathMove {
+        // [pad, start, mid, last, pad] — last_meaningful = 3, min final = 2
+        ScriptCameraPathMove::from_points_for_test(
+            vec![
+                Vec3::new(-10.0, 0.0, 0.0),
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(100.0, 0.0, 0.0),
+                Vec3::new(200.0, 0.0, 0.0),
+                Vec3::new(300.0, 0.0, 0.0),
+            ],
+            4.0,
+        )
+    }
+
+    #[test]
+    fn final_look_toward_skips_early_path_segments() {
+        let mut path = padded_path();
+        path.camera_mod_final_look_toward(Vec3::new(200.0, 0.0, 200.0));
+        path.cur_segment = 1;
+        assert!(
+            path.look_toward_for_current_segment().is_none(),
+            "CAMERA_MOD_FINAL_LOOK_TOWARD must not yaw mid-path corners"
+        );
+        path.cur_segment = 3;
+        let look = path
+            .look_toward_for_current_segment()
+            .expect("last segment takes the full look");
+        assert!((look.x - 200.0).abs() < 0.01 && (look.z - 200.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn look_toward_rewrites_every_remaining_segment() {
+        let mut path = padded_path();
+        path.camera_mod_look_toward(Vec3::new(50.0, 0.0, 80.0));
+        path.cur_segment = 1;
+        let look = path
+            .look_toward_for_current_segment()
+            .expect("LOOK_TOWARD faces the target on every remaining segment");
+        assert!((look.x - 50.0).abs() < 0.01 && (look.z - 80.0).abs() < 0.01);
     }
 }
 

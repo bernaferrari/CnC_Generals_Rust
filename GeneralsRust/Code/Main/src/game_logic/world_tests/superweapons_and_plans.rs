@@ -3990,6 +3990,235 @@ fn factory_spawn_keeps_unit_create_point_without_selection_radius_jitter() {
 }
 
 #[test]
+fn queue_exit_applies_airborne_motive_and_pitch_after_ground_snap() {
+    use crate::game_logic::buildings::BuildingType;
+    use crate::game_logic::{
+        KindOf, ProductionExitMetadata, ProductionExitStyle, Team, ThingTemplate,
+        MOTIVE_FRAMES_RESIDUAL,
+    };
+
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::China);
+    let w = logic.pathfinding_system.grid.width().max(8) as u32;
+    let h = logic.pathfinding_system.grid.height().max(8) as u32;
+    let heights = vec![0.0f32; (w * h) as usize];
+    assert!(
+        logic.restore_terrain_heights_from_grid(w, h, &heights),
+        "flat ground cache"
+    );
+
+    let mut bar = ThingTemplate::new("ChinaBarracks");
+    bar.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSBarracks)
+        .set_health(1000.0);
+    bar.production_exit_metadata = Some(ProductionExitMetadata {
+        style: ProductionExitStyle::Queue,
+        unit_create_point: [0.0, -25.0, 15.0],
+        natural_rally_point: [36.0, -25.0, 0.0],
+        exit_delay_frames: 9,
+        allow_airborne_creation: false,
+        initial_burst: 0,
+        use_spawn_rally_point: false,
+        grant_temporary_stealth_frames: 0,
+    });
+    logic.templates.insert("ChinaBarracks".into(), bar);
+    let mut rg = ThingTemplate::new("ChinaInfantryRedguard");
+    rg.add_kind_of(KindOf::Infantry).set_health(100.0);
+    rg.physics_mass = 5.0;
+    rg.center_of_mass_offset = 2.5;
+    logic.templates.insert("ChinaInfantryRedguard".into(), rg);
+
+    let bid = logic
+        .create_object(
+            "ChinaBarracks",
+            Team::China,
+            glam::Vec3::new(20.0, 0.0, 20.0),
+        )
+        .expect("barracks");
+    let producer_vel = glam::Vec3::new(8.0, 3.0, -2.0);
+    if let Some(o) = logic.host_object_mut(bid) {
+        o.building_data = Some(crate::game_logic::BuildingData::new(BuildingType::Barracks));
+        o.thing.set_orientation(0.0);
+        o.movement.velocity = producer_vel;
+    }
+    let create_pos = glam::Vec3::new(20.0, 15.0, 10.0);
+    assert_eq!(logic.terrain_height_at(create_pos), Some(0.0));
+    let uid = logic
+        .create_object("ChinaInfantryRedguard", Team::China, create_pos)
+        .expect("redguard");
+
+    crate::game_logic::host_production_spawn_ready_log::clear();
+    crate::game_logic::host_production_spawn_ready_log::record(
+        uid,
+        bid,
+        "ChinaInfantryRedguard".into(),
+        [create_pos.x, create_pos.y, create_pos.z],
+        None,
+    );
+    assert_eq!(logic.host_apply_production_spawn_ready_completions(), 1);
+
+    let unit = logic.host_object(uid).expect("unit after exit");
+    assert!(
+        (unit.get_position().y - 0.0).abs() < 1e-4,
+        "AllowAirborneCreation false still snaps Y, pos={:?}",
+        unit.get_position()
+    );
+    assert!(
+        (unit.physics_accel - producer_vel).length() < 1e-4,
+        "startingForce = producer vel * mass → accel == vel, accel={:?} vel={:?}",
+        unit.physics_accel,
+        producer_vel
+    );
+    assert_eq!(unit.motive_frames_remaining, MOTIVE_FRAMES_RESIDUAL);
+    assert!(
+        (unit.shock_pitch_rate - 2.5 * 0.04).abs() < 1e-5,
+        "setPitchRate(COM * 0.04), got {}",
+        unit.shock_pitch_rate
+    );
+}
+
+#[test]
+fn queue_exit_airborne_kick_keeps_y_when_allow_airborne() {
+    use crate::game_logic::buildings::BuildingType;
+    use crate::game_logic::{
+        KindOf, ProductionExitMetadata, ProductionExitStyle, Team, ThingTemplate,
+        MOTIVE_FRAMES_RESIDUAL,
+    };
+
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::China);
+    let w = logic.pathfinding_system.grid.width().max(8) as u32;
+    let h = logic.pathfinding_system.grid.height().max(8) as u32;
+    let heights = vec![0.0f32; (w * h) as usize];
+    assert!(logic.restore_terrain_heights_from_grid(w, h, &heights));
+
+    let mut bar = ThingTemplate::new("ChinaBarracks");
+    bar.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSBarracks)
+        .set_health(1000.0);
+    bar.production_exit_metadata = Some(ProductionExitMetadata {
+        style: ProductionExitStyle::Queue,
+        unit_create_point: [0.0, -25.0, 15.0],
+        natural_rally_point: [36.0, -25.0, 0.0],
+        exit_delay_frames: 9,
+        allow_airborne_creation: true,
+        initial_burst: 0,
+        use_spawn_rally_point: false,
+        grant_temporary_stealth_frames: 0,
+    });
+    logic.templates.insert("ChinaBarracks".into(), bar);
+    let mut rg = ThingTemplate::new("ChinaInfantryRedguard");
+    rg.add_kind_of(KindOf::Infantry).set_health(100.0);
+    rg.physics_mass = 4.0;
+    rg.center_of_mass_offset = -1.25;
+    logic.templates.insert("ChinaInfantryRedguard".into(), rg);
+
+    let bid = logic
+        .create_object(
+            "ChinaBarracks",
+            Team::China,
+            glam::Vec3::new(20.0, 0.0, 20.0),
+        )
+        .expect("barracks");
+    let producer_vel = glam::Vec3::new(1.0, 6.0, 0.0);
+    if let Some(o) = logic.host_object_mut(bid) {
+        o.building_data = Some(crate::game_logic::BuildingData::new(BuildingType::Barracks));
+        o.movement.velocity = producer_vel;
+    }
+    let create_pos = glam::Vec3::new(20.0, 15.0, 10.0);
+    let uid = logic
+        .create_object("ChinaInfantryRedguard", Team::China, create_pos)
+        .expect("redguard");
+
+    crate::game_logic::host_production_spawn_ready_log::clear();
+    crate::game_logic::host_production_spawn_ready_log::record(
+        uid,
+        bid,
+        "ChinaInfantryRedguard".into(),
+        [create_pos.x, create_pos.y, create_pos.z],
+        None,
+    );
+    assert_eq!(logic.host_apply_production_spawn_ready_completions(), 1);
+
+    let unit = logic.host_object(uid).expect("unit after exit");
+    assert!(
+        (unit.get_position().y - 15.0).abs() < 1e-4,
+        "AllowAirborneCreation keeps transformed Y, pos={:?}",
+        unit.get_position()
+    );
+    assert!((unit.physics_accel - producer_vel).length() < 1e-4);
+    assert_eq!(unit.motive_frames_remaining, MOTIVE_FRAMES_RESIDUAL);
+    assert!((unit.shock_pitch_rate - (-1.25 * 0.04)).abs() < 1e-5);
+}
+
+#[test]
+fn queue_exit_ground_spawn_skips_airborne_kick() {
+    use crate::game_logic::buildings::BuildingType;
+    use crate::game_logic::{
+        KindOf, ProductionExitMetadata, ProductionExitStyle, Team, ThingTemplate,
+    };
+
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::China);
+    let w = logic.pathfinding_system.grid.width().max(8) as u32;
+    let h = logic.pathfinding_system.grid.height().max(8) as u32;
+    let heights = vec![0.0f32; (w * h) as usize];
+    assert!(logic.restore_terrain_heights_from_grid(w, h, &heights));
+
+    let mut bar = ThingTemplate::new("ChinaBarracks");
+    bar.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSBarracks)
+        .set_health(1000.0);
+    bar.production_exit_metadata = Some(ProductionExitMetadata {
+        style: ProductionExitStyle::Queue,
+        unit_create_point: [0.0, -25.0, 0.0],
+        natural_rally_point: [36.0, -25.0, 0.0],
+        exit_delay_frames: 9,
+        allow_airborne_creation: false,
+        initial_burst: 0,
+        use_spawn_rally_point: false,
+        grant_temporary_stealth_frames: 0,
+    });
+    logic.templates.insert("ChinaBarracks".into(), bar);
+    let mut rg = ThingTemplate::new("ChinaInfantryRedguard");
+    rg.add_kind_of(KindOf::Infantry).set_health(100.0);
+    rg.center_of_mass_offset = 3.0;
+    logic.templates.insert("ChinaInfantryRedguard".into(), rg);
+
+    let bid = logic
+        .create_object(
+            "ChinaBarracks",
+            Team::China,
+            glam::Vec3::new(20.0, 0.0, 20.0),
+        )
+        .expect("barracks");
+    if let Some(o) = logic.host_object_mut(bid) {
+        o.building_data = Some(crate::game_logic::BuildingData::new(BuildingType::Barracks));
+        o.movement.velocity = glam::Vec3::new(9.0, 0.0, 0.0);
+    }
+    let create_pos = glam::Vec3::new(20.0, 0.0, 10.0);
+    let uid = logic
+        .create_object("ChinaInfantryRedguard", Team::China, create_pos)
+        .expect("redguard");
+
+    crate::game_logic::host_production_spawn_ready_log::clear();
+    crate::game_logic::host_production_spawn_ready_log::record(
+        uid,
+        bid,
+        "ChinaInfantryRedguard".into(),
+        [create_pos.x, create_pos.y, create_pos.z],
+        None,
+    );
+    assert_eq!(logic.host_apply_production_spawn_ready_completions(), 1);
+
+    let unit = logic.host_object(uid).expect("unit after exit");
+    assert_eq!(unit.physics_accel, glam::Vec3::ZERO);
+    assert_eq!(unit.motive_frames_remaining, 0);
+    assert_eq!(unit.shock_pitch_rate, 0.0);
+}
+
+
+#[test]
 fn attack_move_to_command_sets_moving_residual() {
     use crate::command_system::{CommandType, GameCommand, ModifierKeys};
     use crate::game_logic::{KindOf, Team, ThingTemplate};
@@ -4702,6 +4931,32 @@ fn script_exclude_from_score_and_select_skillset_write_live() {
             .selected_skillset(),
         1,
         "PLAYER_SELECT_SKILLSET is 1-based; live selector is 0-based"
+    );
+}
+
+#[test]
+fn script_player_kill_destroys_live_army() {
+    use gamelogic::scripting::HostScriptPlayerMiscRequest;
+
+    let mut logic = GameLogic::new();
+    logic.scripts_loaded = true;
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    ensure_test_infantry_template(&mut logic);
+    let unit = logic
+        .create_object("TestInfantry", Team::USA, glam::Vec3::ZERO)
+        .expect("unit");
+
+    let _ = gamelogic::scripting::take_host_script_player_misc_requests();
+    gamelogic::scripting::request_host_script_player_misc(HostScriptPlayerMiscRequest::Kill {
+        player: "TestPlayer".into(),
+    });
+    logic.evaluate_and_execute_scripts(0.0);
+    assert!(
+        logic.host_object(unit).is_none()
+            || logic
+                .host_object(unit)
+                .is_some_and(|o| !o.is_alive() || o.status.destroyed),
+        "PLAYER_KILL must destroy the live host army"
     );
 }
 

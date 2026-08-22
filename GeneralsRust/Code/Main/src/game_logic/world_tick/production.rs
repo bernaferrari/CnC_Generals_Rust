@@ -1584,10 +1584,14 @@ impl GameLogic {
             if !sole && !parked_jet {
                 // C++ Default/SupplyCenter snap spawn Z to terrain. Queue keeps
                 // transformed Z only when AllowAirborneCreation is set.
+                // creationInAir is pre-snap Y != ground (QueueProductionExitUpdate.cpp:69-73).
+                let queue_exit = producer_exit_metadata.is_some_and(|exit| exit.is_queue());
+                let ground_y = self.terrain_height_at(spawn_pos);
+                let creation_in_air = queue_exit && ground_y.is_some_and(|h| spawn_pos.y != h);
                 let snap_spawn_z = !producer_exit_metadata
                     .is_some_and(|exit| exit.is_queue() && exit.allow_airborne_creation);
                 if snap_spawn_z {
-                    if let Some(h) = self.terrain_height_at(spawn_pos) {
+                    if let Some(h) = ground_y {
                         spawn_pos.y = h;
                     }
                 }
@@ -1602,6 +1606,25 @@ impl GameLogic {
                         unit.record_host_movement();
                     } else {
                         unit.set_position(spawn_pos);
+                    }
+                }
+                // C++ QueueProductionExitUpdate.cpp:91-105: kick after snap when
+                // creationInAir (not AllowAirborneCreation). startingForce =
+                // producer velocity * newborn mass, then pitchRate = COM * 0.04.
+                if creation_in_air {
+                    let producer_vel = self
+                        .objects
+                        .get(&producer_id)
+                        .map(|producer| producer.movement.velocity);
+                    if let (Some(vel), Some(unit)) =
+                        (producer_vel, self.objects.get_mut(&new_id))
+                    {
+                        let mass = unit.physics_get_mass();
+                        unit.apply_motive_force(vel * mass);
+                        const STARTING_PITCH_COEFF: f32 = 0.04;
+                        unit.shock_pitch_rate =
+                            unit.center_of_mass_offset * STARTING_PITCH_COEFF;
+                        unit.record_host_shock_stun();
                     }
                 }
             }
