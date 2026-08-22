@@ -550,6 +550,28 @@ impl GameLogic {
         }
     }
 
+    pub fn mood_adjusted_move_state(&self, unit_id: ObjectId, state: AIState) -> AIState {
+        if state != AIState::Moving {
+            return state;
+        }
+        let is_player = self
+            .objects
+            .get(&unit_id)
+            .and_then(|o| o.owner_player_id)
+            .and_then(|pid| self.players.get(&pid))
+            .is_some_and(|p| p.is_local);
+        let adj = self.get_mood_matrix_action_adjustment(
+            unit_id,
+            MoodMatrixAction::Move,
+            is_player,
+        );
+        if (adj & mood_action_adjust::ACTION_TO_ATTACK_MOVE) != 0 {
+            AIState::AttackMoving
+        } else {
+            state
+        }
+    }
+
     /// True when mood allows attack action (MAA_Action_Ok bit set, not forced to idle).
     pub fn mood_allows_attack(&self, unit_id: ObjectId, is_player_controlled: bool) -> bool {
         use mood_action_adjust::*;
