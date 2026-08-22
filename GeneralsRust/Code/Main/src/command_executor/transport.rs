@@ -176,12 +176,21 @@ impl<'a> CommandExecutor<'a> {
                     .and_then(|id| self.game_logic.host_object(*id)),
                 self.game_logic.host_object(target_id),
             ) {
-                (Some(unit), Some(target)) => (
-                    target.is_kind_of(crate::game_logic::KindOf::HealPad),
-                    target.is_kind_of(crate::game_logic::KindOf::Structure),
-                    unit.team != target.team,
-                    unit.team == target.team,
-                ),
+                (Some(unit), Some(target)) => {
+                    let rel = match (unit.owner_player_id, target.owner_player_id) {
+                        (Some(a), Some(b)) => self.game_logic.player_relationship(a, b),
+                        _ if unit.team == target.team => {
+                            gamelogic::common::Relationship::Allies
+                        }
+                        _ => gamelogic::common::Relationship::Neutral,
+                    };
+                    (
+                        target.is_kind_of(crate::game_logic::KindOf::HealPad),
+                        target.is_kind_of(crate::game_logic::KindOf::Structure),
+                        rel == gamelogic::common::Relationship::Enemies,
+                        rel == gamelogic::common::Relationship::Allies,
+                    )
+                }
                 _ => (false, false, false, true),
             };
             let slot = crate::game_logic::audio_dispatch_impl::enter_voice_slot(
