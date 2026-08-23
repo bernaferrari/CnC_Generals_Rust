@@ -268,6 +268,10 @@ pub struct ContainModuleMetadata {
     /// Leftover `OpenContainModuleData::forbid_inside_kind_of` (C++ KindOf mask).
     #[serde(default)]
     pub forbid_inside_kind_of: u128,
+    /// C++ TransportContainModuleData::m_keepContainerVelocityOnExit (default false).
+    /// No retail Object INI authors this; do not invent a hull-velocity kick.
+    #[serde(default)]
+    pub keep_container_velocity_on_exit: bool,
 }
 
 
@@ -336,6 +340,7 @@ impl Default for ContainModuleMetadata {
             exit_sound: String::new(),
             allow_inside_kind_of: 0,
             forbid_inside_kind_of: 0,
+            keep_container_velocity_on_exit: false,
         }
     }
 }
@@ -1925,6 +1930,12 @@ pub struct ThingTemplate {
     /// C++ `AIUpdateModuleData::m_forbidPlayerCommands` (Spectre gunship).
     #[serde(default)]
     pub forbid_player_commands: bool,
+    /// Leftover `ThingTemplate::m_prereqInfo` from Object INI `Prerequisites`.
+    /// Template data, not instance state — re-parsed from leftover factory / INI.
+    #[serde(skip)]
+    pub production_prerequisites:
+        Vec<game_engine::common::rts::ProductionPrerequisite>,
+
 
 }
 
@@ -2077,6 +2088,8 @@ impl ThingTemplate {
             structure_rubble_height: 0,
             auto_acquire_enemies_when_idle: 0,
             forbid_player_commands: false,
+            production_prerequisites: Vec::new(),
+
 
         }
     }
@@ -2435,26 +2448,27 @@ impl ThingTemplate {
     /// Convert a gamelogic WeaponStore template into Main host Weapon stats.
     /// Returns None if store is missing or stats are unusable (0 dmg/range).
     pub fn weapon_from_store(name: &str) -> Option<Weapon> {
-        use gamelogic::weapon::{with_weapon_store, WeaponAntiMask};
+        use gamelogic::weapon::{with_weapon_store, WeaponAntiMask, WeaponBonus};
         const FPS: f32 = 30.0;
         let wt = with_weapon_store(|store| store.find_weapon_template(name).cloned()).ok()??;
         if wt.primary_damage <= 0.0 || wt.attack_range <= 0.0 {
             return None;
         }
-        let between_frames = wt.min_delay_between_shots.max(0) as f32;
-        let clip_frames = wt.max_delay_between_shots.max(0) as f32;
-        let delay_frames = if wt.clip_size > 0 {
-            // Within-clip cadence residual (C++ DelayBetweenShots).
-            if between_frames > 0.0 {
-                between_frames
-            } else {
-                clip_frames
-            }
+        // Leftover WeaponTemplate::get_delay_between_shots (Weapon.cpp:475-490).
+        // DelayBetweenShots is a Min/Max range, not clip vs between. Identity
+        // RATE_OF_FIRE here — leftover applies the ROF floor at fire. Ready-checks
+        // must not consume GameLogicRandomValue (C++ draws once in privateFireWeapon);
+        // force leftover's min==max branch for the stored yardstick.
+        let delay_frames = if wt.min_delay_between_shots == wt.max_delay_between_shots {
+            wt.get_delay_between_shots(&WeaponBonus::new())
         } else {
-            between_frames.max(clip_frames)
+            let mut yardstick = gamelogic::weapon::WeaponTemplate::new(wt.name.clone());
+            yardstick.min_delay_between_shots = wt.min_delay_between_shots;
+            yardstick.max_delay_between_shots = wt.min_delay_between_shots;
+            yardstick.get_delay_between_shots(&WeaponBonus::new())
         };
-        let reload_time = if delay_frames > 0.0 {
-            delay_frames / FPS
+        let reload_time = if delay_frames > 0 {
+            delay_frames as f32 / FPS
         } else {
             1.0
         };
@@ -2700,6 +2714,22 @@ impl ThingTemplate {
             status,
         )
     }
+
+    /// C++ `ThingTemplate::parsePrerequisites` via leftover parse_prerequisites_block.
+    pub fn parse_prerequisites_from_ini_lines(&mut self, lines: &[String]) {
+        let mut scratch = game_engine::common::thing::thing_template::ThingTemplate::new();
+        scratch.parse_prerequisites_block(lines);
+        self.production_prerequisites = scratch.get_prereqs().to_vec();
+    }
+
+    /// Copy leftover-factory `m_prereqInfo` (already parsed + resolveNames).
+    pub fn set_production_prerequisites(
+        &mut self,
+        prereqs: Vec<game_engine::common::rts::ProductionPrerequisite>,
+    ) {
+        self.production_prerequisites = prereqs;
+    }
+
 
     pub fn set_model(&mut self, model: &str) -> &mut Self {
         self.model_name = Some(model.to_string());
@@ -3096,6 +3126,46 @@ mod weapon_resolve_tests {
         );
         assert_eq!(vary_pack_unpack_duration_ms(0, 0.5), 0);
         assert_eq!(vary_pack_unpack_duration_ms(5500, 0.0), 5500);
+    }
+
+    #[test]
+    fn weapon_from_store_uses_leftover_delay_not_max_flatten() {
+        // Old flatten treated max as clip and used max(min,max) when clip_size==0.
+        // Leftover get_delay_between_shots yardstick is Min (Weapon.cpp:475-490).
+        const NAME: &str = "__RustLiveDelayBetweenShotsRange";
+        let _ = super::super::weapon_bootstrap::ensure_host_weapon_store();
+        let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
+            let mut template = gamelogic::weapon::WeaponTemplate::new(NAME.to_string());
+            template.primary_damage = 10.0;
+            template.attack_range = 100.0;
+            template.min_delay_between_shots = 6;
+            template.max_delay_between_shots = 30;
+            template.clip_size = 0;
+            store.add_weapon_template(template);
+        });
+        let weapon = ThingTemplate::weapon_from_store(NAME).expect("store weapon");
+        let leftover = {
+            let mut yardstick = gamelogic::weapon::WeaponTemplate::new(NAME.to_string());
+            yardstick.min_delay_between_shots = 6;
+            yardstick.max_delay_between_shots = 6;
+            yardstick.get_delay_between_shots(&gamelogic::weapon::WeaponBonus::new())
+        };
+        assert_eq!(leftover, 6);
+        assert!(
+            (weapon.reload_time - leftover as f32 / 30.0).abs() < 1e-6,
+            "reload_time={} leftover_min={} flattened_max={}",
+            weapon.reload_time,
+            leftover as f32 / 30.0,
+            30.0 / 30.0
+        );
+        let rof = 2.0;
+        let with_rof =
+            super::super::weapon_bootstrap::host_delay_between_shots_secs_nominal_with_rof(
+                NAME, rof,
+            )
+            .expect("leftover ROF yardstick");
+        // leftover REAL_TO_INT_FLOOR(6 / 2) = 3 frames → 0.1s, not (6/30)/2.
+        assert!((with_rof - 3.0 / 30.0).abs() < 1e-6, "with_rof={with_rof}");
     }
 
 }

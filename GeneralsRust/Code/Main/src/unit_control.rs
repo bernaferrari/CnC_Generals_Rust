@@ -323,12 +323,30 @@ impl UnitControlSystem {
     pub fn presentation_is_selectable(o: &RenderableObject) -> bool {
         // Wave 1092: presentation selectable residual fail-closed on sold /
         // unselectable/masked (catalog + pick peels match C++ status).
+        // C++ CanSelectDrawable (SelectionXlat.cpp:113-116) keeps
+        // KINDOF_ALWAYS_SELECTABLE even when effectively dead. Object.cpp:3011
+        // returns TRUE first, so KINDOF_SELECTABLE is not required.
+        if Self::presentation_is_always_selectable(o) {
+            return !o.sold && !o.unselectable && !o.masked && o.contained_by.is_none();
+        }
         !o.destroyed
             && !o.sold
             && !o.unselectable
             && !o.masked
             && PresentationFrame::object_has_kind(o, KindOf::Selectable)
             && o.contained_by.is_none()
+    }
+
+    /// Packed `always_selectable` bool (32-bit KindOf bank is full) or kind vec.
+    pub fn presentation_is_always_selectable(o: &RenderableObject) -> bool {
+        o.always_selectable
+            || PresentationFrame::object_has_kind(o, KindOf::AlwaysSelectable)
+    }
+
+    /// C++ `CanSelectDrawable` (`SelectionXlat.cpp:113-116`): drop dead objects
+    /// unless `KINDOF_ALWAYS_SELECTABLE`.
+    pub fn presentation_pick_skips_dead(o: &RenderableObject) -> bool {
+        o.destroyed && !Self::presentation_is_always_selectable(o)
     }
 
     /// C++ `CanSelectDrawable(draw, dragSelecting=TRUE)` rejects `KINDOF_STRUCTURE`
@@ -370,7 +388,7 @@ impl UnitControlSystem {
             .objects
             .iter()
             .filter_map(|o| {
-                if o.destroyed {
+                if Self::presentation_pick_skips_dead(o) {
                     return None;
                 }
                 // Wave 1094: non-local FOW residual fail-closed (Clear only),
@@ -1600,6 +1618,85 @@ mod tests {
                 20.0,
             ),
             Some(id)
+        );
+    }
+
+    #[test]
+    fn presentation_is_selectable_keeps_always_selectable_dead_objects() {
+        // C++ SelectionXlat.cpp:113-116 CanSelectDrawable + Object.cpp:3011.
+        use crate::pick_ray::pick_object_id_along_camera_ray;
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("UIBeacon");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::AlwaysSelectable);
+        logic.templates.insert("UIBeacon".into(), t);
+        let id = logic
+            .create_object("UIBeacon", Team::USA, glam::Vec3::ZERO)
+            .expect("beacon");
+        let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+        {
+            let obj = frame
+                .objects
+                .iter_mut()
+                .find(|o| o.id == id)
+                .expect("beacon row");
+            assert!(
+                obj.always_selectable,
+                "presentation must freeze KINDOF_ALWAYS_SELECTABLE outside the 32-bit bank"
+            );
+            obj.destroyed = true;
+            obj.kind_of.retain(|k| *k != KindOf::Selectable);
+            assert!(
+                UnitControlSystem::presentation_is_selectable(obj),
+                "ALWAYS_SELECTABLE dead objects stay clickable without Selectable kind"
+            );
+            assert!(!UnitControlSystem::presentation_pick_skips_dead(obj));
+        }
+        assert_eq!(
+            UnitControlSystem::pick_object_id_at_world_from_presentation(
+                &frame,
+                glam::Vec3::ZERO,
+                Some(Team::USA),
+                false,
+                20.0,
+            ),
+            Some(id)
+        );
+        assert_eq!(
+            pick_object_id_along_camera_ray(
+                &frame,
+                glam::Vec3::new(0.0, 40.0, 40.0),
+                glam::Vec3::ZERO,
+                Some(Team::USA),
+                false,
+            ),
+            Some(id)
+        );
+    }
+
+    #[test]
+    fn presentation_is_selectable_drops_ordinary_dead_objects() {
+        let (logic, id) = logic_with_selectable_unit();
+        let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+        {
+            let obj = frame
+                .objects
+                .iter_mut()
+                .find(|o| o.id == id)
+                .expect("unit");
+            obj.destroyed = true;
+            assert!(!UnitControlSystem::presentation_is_selectable(obj));
+            assert!(UnitControlSystem::presentation_pick_skips_dead(obj));
+        }
+        assert_eq!(
+            UnitControlSystem::pick_object_id_at_world_from_presentation(
+                &frame,
+                glam::Vec3::ZERO,
+                Some(Team::USA),
+                false,
+                20.0,
+            ),
+            None
         );
     }
 

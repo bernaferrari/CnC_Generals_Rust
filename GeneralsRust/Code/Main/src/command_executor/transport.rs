@@ -1807,7 +1807,7 @@ mod tests {
     }
 
     #[test]
-    fn execute_exit_airborne_allows_fall_and_keeps_hull_velocity() {
+    fn execute_exit_airborne_allows_fall_without_hull_velocity_kick() {
         let mut logic = GameLogic::new();
         let mut t = ThingTemplate::new("WALK_AIR_T");
         t.add_kind_of(KindOf::Aircraft);
@@ -1844,6 +1844,15 @@ mod tests {
         assert!(
             rider.allow_to_fall,
             "C++ onRemoving setAllowToFall when hull is above terrain"
+        );
+        assert_eq!(
+            rider.motive_frames_remaining, 0,
+            "hq-qhzox: default KeepContainerVelocityOnExit is false; airborne must not invent a hull kick"
+        );
+        assert_eq!(
+            rider.physics_accel,
+            Vec3::ZERO,
+            "hq-qhzox: rider must not inherit Chinook/Helix cruise velocity"
         );
     }
 

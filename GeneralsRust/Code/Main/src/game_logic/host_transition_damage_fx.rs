@@ -707,12 +707,17 @@ pub fn take_played_transition_event_fx_ocl(
 
 
 /// Play leftover OCL at a live-host pose (C++ `ObjectCreationList::create`).
+///
+/// C++ `TransitionDamageFX.cpp:354-355` / leftover `play_fx_for_state`:
+/// secondary is `damageSource->getPosition()`, falling back to the bone/loc
+/// world pos when no source is snapshotted (`peek_damage_fx_source`).
 pub fn play_authored_transition_ocl(name: &str, owner: u32, pos: glam::Vec3) {
     let trimmed = name.trim();
     if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("none") {
         return;
     }
-    let leftover_pos = gamelogic::common::Coord3D::new(pos.x, pos.z, pos.y);
+    let leftover_pos = host_pos_to_leftover_coord(pos);
+    let leftover_secondary = leftover_transition_ocl_secondary(pos);
     let Some(ocl) =
         gamelogic::helpers::TheObjectCreationListStore::find_object_creation_list(trimmed)
     else {
@@ -725,10 +730,26 @@ pub fn play_authored_transition_ocl(name: &str, owner: u32, pos: glam::Vec3) {
         &ctx,
         owner_guard.as_deref(),
         &leftover_pos,
-        &leftover_pos,
+        &leftover_secondary,
         true,
         0,
     );
+}
+
+/// Host Y-up `Vec3` → leftover Z-up `Coord3D`.
+fn host_pos_to_leftover_coord(pos: glam::Vec3) -> gamelogic::common::Coord3D {
+    gamelogic::common::Coord3D::new(pos.x, pos.z, pos.y)
+}
+
+/// Leftover `play_fx_for_state` secondary: damage-source world pos, else `pos`.
+pub fn leftover_transition_ocl_secondary(pos: glam::Vec3) -> gamelogic::common::Coord3D {
+    peek_damage_fx_source()
+        .map(|src| {
+            gamelogic::helpers::TheGameLogic::find_object_by_id(src.id)
+                .and_then(|source| source.read().ok().map(|guard| *guard.get_position()))
+                .unwrap_or_else(|| host_pos_to_leftover_coord(src.pos))
+        })
+        .unwrap_or_else(|| host_pos_to_leftover_coord(pos))
 }
 
 /// `Bone:Name RandomBone:No PSys:Template` or `Loc: X:0 Y:0 Z:0 PSys:Template`.
@@ -1106,6 +1127,8 @@ pub struct HostDamageFxVictim {
     pub name: String,
     pub id: u32,
     pub vet: usize,
+    /// Host Y-up world position (C++ `damageSource->getPosition()`).
+    pub pos: glam::Vec3,
 }
 
 /// C++ `source ? source->getVeterancyLevel() : LEVEL_REGULAR` (Rookie = 0).
@@ -1123,6 +1146,7 @@ pub fn snapshot_damage_fx_source(obj: &crate::game_logic::Object) -> HostDamageF
         name: obj.template_name.clone(),
         id: obj.id.0,
         vet: veterancy_to_damage_fx_level(obj.experience.level),
+        pos: obj.get_position(),
     }
 }
 
@@ -1185,6 +1209,7 @@ pub fn dispatch_armor_damage_fx(
         name: obj.template_name.clone(),
         id: obj.id.0,
         vet: veterancy_to_damage_fx_level(obj.experience.level),
+        pos: obj.get_position(),
     };
     // C++ DamageFX.cpp:61-93 — throttle + major/minor list use SOURCE veterancy.
     // Missing source → LEVEL_REGULAR. Victim stays primary FX object.
@@ -1572,6 +1597,26 @@ mod tests {
             1.0,
         );
         assert!((world - glam::Vec3::new(11.0, 8.0, 6.0)).length() < 0.01);
+    }
+
+    #[test]
+    fn leftover_transition_ocl_secondary_uses_damage_source_pos() {
+        // C++ TransitionDamageFX.cpp:354-355 — secondary is attacker pos.
+        set_damage_fx_source(Some(HostDamageFxVictim {
+            name: "AmericaTankCrusader".into(),
+            id: 2,
+            vet: 0,
+            pos: glam::Vec3::new(10.0, 4.0, 6.0),
+        }));
+        let secondary = leftover_transition_ocl_secondary(glam::Vec3::new(1.0, 2.0, 3.0));
+        assert_eq!(secondary.x, 10.0);
+        assert_eq!(secondary.y, 6.0);
+        assert_eq!(secondary.z, 4.0);
+        clear_damage_fx_source();
+        let fallback = leftover_transition_ocl_secondary(glam::Vec3::new(1.0, 2.0, 3.0));
+        assert_eq!(fallback.x, 1.0);
+        assert_eq!(fallback.y, 3.0);
+        assert_eq!(fallback.z, 2.0);
     }
 
 }

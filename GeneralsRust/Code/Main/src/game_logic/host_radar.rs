@@ -1,16 +1,18 @@
 //! Host CommandCenter / RadarVan radar-online residual.
 //!
 //! Residual slice (playability):
-//! - Owning an alive, constructed Command Center (not Fake*) grants radar to
-//!   that player (retail America GrantUpgradeCreate+RadarUpgrade / China CC
-//!   radar path residual; GLA CC name residual for playability).
+//! - Owning an alive, constructed America/China Command Center (not Fake*,
+//!   not GLA) grants radar (retail America GrantUpgradeCreate+RadarUpgrade /
+//!   China CC RadarUpgrade TriggeredBy Upgrade_ChinaRadar). GLACommandCenter
+//!   has no RadarUpgrade — radar comes from the Radar Van only.
 //! - Owning an alive Radar Van grants radar (retail GLAVehicleRadarVan
 //!   GrantUpgradeCreate Upgrade_GLARadar + RadarUpgrade DisableProof).
 //! - Player radar state drives minimap / control-bar radar online (C++
 //!   `Player::hasRadar()` residual).
 //!
 //! Wave 63 residual pack (retail INI honesty):
-//! - Provider residual: CommandCenter (not Fake*) + RadarVan grant radar online.
+//! - Provider residual: America/China CommandCenter (not Fake*, not GLA)
+//!   + RadarVan grant radar online.
 //! - Radar Van body residual: MaxHealth **200**, Vision **200**, Shroud **500**,
 //!   BuildCost **500**, BuildTime **10**s → **300**f, TransportSlotCount **3**.
 //! - Grant residual: Upgrade_GLARadar + RadarUpgrade DisableProof **Yes**.
@@ -20,13 +22,48 @@
 //! Fail-closed honesty:
 //! - Not full RadarUpgrade / RadarUpdate extend-animation / grant-upgrade matrix
 //! - Disable-proof vs brownout: `Player::has_radar` honors `disable_proof_radar_count`
+//! - leftover Object::onDisabledEdge: EMP/hacked/held applied RadarUpgrade removeRadar
 //! - Not full capture / sabotage / shared-allied radar edge cases
-//! - Fake command centers residual-skip (`*Fake*CommandCenter*`)
+//! - Fake / GLA command centers residual-skip (no RadarUpgrade on GLACommandCenter)
 
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use game_engine::common::system::radar::{
     get_radar_system, Coord3D, RadarEventType,
 };
+
+/// Leftover `Object::on_disabled_edge` radar add/remove pending apply.
+#[derive(Debug, Clone, Copy)]
+pub struct LeftoverRadarDisabledEdge {
+    pub player_id: Option<u32>,
+    pub becoming_disabled: bool,
+    pub disable_proof: bool,
+}
+
+thread_local! {
+    static LEFTOVER_RADAR_DISABLED_EDGES: RefCell<Vec<LeftoverRadarDisabledEdge>> =
+        const { RefCell::new(Vec::new()) };
+}
+
+/// Record leftover onDisabledEdge radar walk for the controlling player.
+pub fn record_leftover_radar_disabled_edge(
+    player_id: Option<u32>,
+    becoming_disabled: bool,
+    disable_proof: bool,
+) {
+    LEFTOVER_RADAR_DISABLED_EDGES.with(|log| {
+        log.borrow_mut().push(LeftoverRadarDisabledEdge {
+            player_id,
+            becoming_disabled,
+            disable_proof,
+        });
+    });
+}
+
+/// Drain leftover onDisabledEdge radar walks (Player::removeRadar/addRadar).
+pub fn drain_leftover_radar_disabled_edges() -> Vec<LeftoverRadarDisabledEdge> {
+    LEFTOVER_RADAR_DISABLED_EDGES.with(|log| std::mem::take(&mut *log.borrow_mut()))
+}
 
 
 /// Logic frames per second (host fixed step).
@@ -164,9 +201,12 @@ pub fn host_radar_refresh_terrain() {
 }
 
 /// True when template is a residual radar-providing Command Center (not fake).
+///
+/// Leftover/INI attach RadarUpgrade only to America/China CC (and Radar Van).
+/// GLACommandCenter has no RadarUpgrade, so a GLA CC name is not a provider.
 pub fn is_radar_command_center_template(name: &str) -> bool {
     let n = name.to_ascii_lowercase();
-    if n.contains("fake") {
+    if n.contains("fake") || n.contains("gla") {
         return false;
     }
     n.contains("commandcenter") || n.contains("headquarters")
@@ -181,6 +221,53 @@ pub fn is_radar_van_template(name: &str) -> bool {
 /// True when template name is a residual radar provider (CC or RadarVan).
 pub fn is_radar_provider_template(name: &str) -> bool {
     is_radar_command_center_template(name) || is_radar_van_template(name)
+}
+
+/// Leftover RadarUpgrade DisableProof for an applied module on this template.
+/// `None` when the template has no RadarUpgrade (GLA CC, barracks, …).
+pub fn leftover_radar_upgrade_disable_proof(template_name: &str) -> Option<bool> {
+    if is_radar_van_template(template_name) {
+        return Some(RADAR_VAN_DISABLE_PROOF);
+    }
+    if is_radar_command_center_template(template_name) {
+        return Some(false);
+    }
+    None
+}
+
+/// Leftover `RadarUpgrade::isAlreadyUpgraded` residual.
+/// America CC / RadarVan GrantUpgradeCreate apply on construction.
+/// China CC RadarUpgrade stays unapplied until Upgrade_ChinaRadar is tagged.
+pub fn leftover_radar_upgrade_is_applied(
+    template_name: &str,
+    has_required_research_tag: bool,
+) -> bool {
+    if leftover_radar_upgrade_disable_proof(template_name).is_none() {
+        return false;
+    }
+    if crate::game_logic::host_upgrades::radar_provider_required_research_upgrade(template_name)
+        .is_some()
+    {
+        return has_required_research_tag;
+    }
+    true
+}
+
+/// Leftover `Object::on_disabled_edge` radar walk (object_upgrade.rs:312-319).
+/// `Some(disable_proof)` when an applied RadarUpgrade must add/remove radar.
+pub fn leftover_on_disabled_edge_radar(
+    template_name: &str,
+    radar_upgrade_applied: bool,
+) -> Option<bool> {
+    if !radar_upgrade_applied {
+        return None;
+    }
+    leftover_radar_upgrade_disable_proof(template_name)
+}
+
+/// C++ `Object::isDisabled` for radar (DisabledType mask, not UNDER_CONSTRUCTION).
+pub fn is_disabled_for_radar(is_disabled: bool, under_construction: bool) -> bool {
+    is_disabled && !under_construction
 }
 
 /// Whether a residual object can grant radar this frame.
@@ -201,7 +288,7 @@ pub fn is_legal_radar_provider(
         return true;
     }
     if is_command_center_kind || is_radar_command_center_template(template_name) {
-        // Fake CC residual-skip.
+        // Fake / GLA CC residual-skip (no RadarUpgrade on GLACommandCenter).
         return is_radar_command_center_template(template_name);
     }
     false
@@ -277,13 +364,26 @@ pub fn honesty_radar_provider_residual_ok() -> bool {
         && RADAR_OFFLINE_AUDIO == "RadarOff"
         && is_radar_command_center_template("AmericaCommandCenter")
         && is_radar_command_center_template("ChinaCommandCenter")
-        && is_radar_command_center_template("GLA_CommandCenter")
+        && !is_radar_command_center_template("GLA_CommandCenter")
+        && !is_radar_command_center_template("GLACommandCenter")
+        && !is_radar_command_center_template("Chem_GLACommandCenter")
         && !is_radar_command_center_template("FakeGLACommandCenter")
         && is_radar_van_template("GLAVehicleRadarVan")
         && is_radar_provider_template("USA_CommandCenter")
+        && !is_radar_provider_template("GLACommandCenter")
         && is_legal_radar_provider(true, true, true, "USA_CommandCenter")
         && !is_legal_radar_provider(true, false, true, "USA_CommandCenter")
+        && !is_legal_radar_provider(true, true, true, "GLACommandCenter")
         && is_legal_radar_provider(true, true, false, "GLAVehicleRadarVan")
+        && leftover_radar_upgrade_disable_proof("GLACommandCenter").is_none()
+        && leftover_radar_upgrade_disable_proof("AmericaCommandCenter") == Some(false)
+        && leftover_radar_upgrade_disable_proof("GLAVehicleRadarVan") == Some(true)
+        && leftover_on_disabled_edge_radar("AmericaCommandCenter", true) == Some(false)
+        && leftover_on_disabled_edge_radar("GLACommandCenter", true).is_none()
+        && leftover_on_disabled_edge_radar("GLAVehicleRadarVan", true) == Some(true)
+        && leftover_on_disabled_edge_radar("AmericaCommandCenter", false).is_none()
+        && is_disabled_for_radar(true, false)
+        && !is_disabled_for_radar(true, true)
 }
 
 /// Wave 63 residual honesty: Radar Van body residual peel.
@@ -329,12 +429,24 @@ mod tests {
         assert!(is_radar_command_center_template("USA_CommandCenter"));
         assert!(is_radar_command_center_template("AmericaCommandCenter"));
         assert!(is_radar_command_center_template("ChinaCommandCenter"));
-        assert!(is_radar_command_center_template("GLA_CommandCenter"));
+        assert!(!is_radar_command_center_template("GLA_CommandCenter"));
+        assert!(!is_radar_command_center_template("GLACommandCenter"));
+        assert!(!is_radar_command_center_template("Slth_GLACommandCenter"));
         assert!(!is_radar_command_center_template("FakeGLACommandCenter"));
         assert!(is_radar_van_template("GLAVehicleRadarVan"));
         assert!(is_radar_van_template("TestRadarVan"));
         assert!(is_radar_provider_template("TestCommandCenter"));
         assert!(!is_radar_provider_template("TestBarracks"));
+        assert!(!is_radar_provider_template("GLACommandCenter"));
+        assert_eq!(
+            leftover_on_disabled_edge_radar("AmericaCommandCenter", true),
+            Some(false)
+        );
+        assert!(leftover_on_disabled_edge_radar("GLACommandCenter", true).is_none());
+        assert_eq!(
+            leftover_on_disabled_edge_radar("GLAVehicleRadarVan", true),
+            Some(true)
+        );
     }
 
     #[test]
@@ -409,6 +521,12 @@ mod tests {
             true,
             false,
             "GLAVehicleRadarVan"
+        ));
+        assert!(!is_legal_radar_provider(
+            true,
+            true,
+            true,
+            "GLACommandCenter"
         ));
     }
 

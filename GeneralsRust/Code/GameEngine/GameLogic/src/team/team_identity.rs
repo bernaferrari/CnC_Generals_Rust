@@ -287,6 +287,17 @@ impl Team {
         self.state = state.to_string().into();
     }
 
+    /// C++ `Team::xfer` `m_enteredOrExited` + `m_checkEnemySighted`.
+    /// Restore writes the two flags only; does not re-run update/OnCreate.
+    pub fn restore_save_edge_flags(&mut self, entered_or_exited: Bool, check_enemy_sighted: Bool) {
+        self.entered_or_exited = entered_or_exited;
+        self.check_enemy_sighted = check_enemy_sighted;
+    }
+
+    pub fn get_check_enemy_sighted(&self) -> Bool {
+        self.check_enemy_sighted
+    }
+
 
     /// Check if this team can be recruited by AI/team-building logic.
     pub fn is_recruitable(&self) -> Bool {

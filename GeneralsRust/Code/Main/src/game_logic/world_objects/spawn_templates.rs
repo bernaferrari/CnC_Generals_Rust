@@ -112,6 +112,37 @@ fn overlay_leftover_object_create_overrides_to_live(
     }
 }
 
+fn leftover_thing_template_for_prereq(
+    name: &str,
+) -> Option<std::sync::Arc<game_engine::common::thing::thing_template::ThingTemplate>> {
+    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
+    let factory = guard.as_ref()?;
+    factory.find_template(name, false)
+}
+
+/// Leftover factory `m_prereqInfo` wins; else leftover parse_prerequisites_block.
+fn apply_production_prerequisites_from_definition(
+    template: &mut crate::game_logic::ThingTemplate,
+    definition: &crate::assets::ObjectDefinition,
+) {
+    if let Some(leftover) = leftover_thing_template_for_prereq(&template.name)
+        .or_else(|| leftover_thing_template_for_prereq(&definition.name))
+    {
+        template.set_production_prerequisites(leftover.get_prereqs().to_vec());
+        return;
+    }
+    if definition.prerequisite_lines.is_empty() {
+        return;
+    }
+    let lines: Vec<String> = definition
+        .prerequisite_lines
+        .iter()
+        .map(|(key, value)| format!("{key} = {value}"))
+        .collect();
+    template.parse_prerequisites_from_ini_lines(&lines);
+}
+
+
 
 fn apply_locomotor_set_names_from_definition(
     template: &mut crate::game_logic::ThingTemplate,
@@ -950,6 +981,8 @@ impl GameLogic {
             &mut template,
             definition,
         );
+        apply_production_prerequisites_from_definition(&mut template, definition);
+
 
 
         template
@@ -1628,6 +1661,10 @@ impl GameLogic {
                     forbid_inside_kind_of: parse_leftover_kind_of_mask(
                         module.attribute("ForbidInsideKindOf"),
                     ),
+                    keep_container_velocity_on_exit: module
+                        .attribute("KeepContainerVelocityOnExit")
+                        .and_then(parse_bool)
+                        .unwrap_or(false),
                 };
                 // Retail gives an object one active normal contain interface.
                 // A malformed/custom stack is not safely representable here;
@@ -4116,6 +4153,8 @@ impl GameLogic {
         Self::apply_authored_physics_behavior_metadata(template, definition);
         Self::apply_authored_geometry(template, definition);
         Self::apply_authored_stealth_update_metadata(template, definition);
+        apply_production_prerequisites_from_definition(template, definition);
+
     }
 
 
@@ -6120,6 +6159,91 @@ End
         assert_eq!(ranger.max_simultaneous_of_type, 0);
         assert!(!ranger.max_simultaneous_determined_by_superweapon_restriction);
     }
+
+    #[test]
+    fn leftover_prerequisites_parse_blocks_black_market_without_palace() {
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(
+                r#"
+Object GLAPalace
+  KindOf = STRUCTURE
+End
+Object GLABlackMarket
+  KindOf = STRUCTURE
+  Prerequisites
+    Object = GLAPalace
+  End
+End
+Object AmericaSupplyDropZone
+  KindOf = STRUCTURE
+  Prerequisites
+    Object = AmericaStrategyCenter
+  End
+End
+"#,
+                "leftover_prereq_probe.ini",
+            )
+            .expect("parse leftover prereq probe");
+        let market = GameLogic::build_template_from_object_definition(
+            "GLABlackMarket",
+            parser
+                .get_definition("GLABlackMarket")
+                .expect("market definition"),
+            None,
+        );
+        assert_eq!(market.production_prerequisites.len(), 1);
+        let units = market.production_prerequisites[0].get_unit_prereqs();
+        assert_eq!(units.len(), 1);
+        if !units[0].name.is_empty() {
+            assert_eq!(units[0].name, "GLAPalace");
+            assert!(!units[0].flags.has_or_with_prev());
+        }
+
+
+        let drop = GameLogic::build_template_from_object_definition(
+            "AmericaSupplyDropZone",
+            parser
+                .get_definition("AmericaSupplyDropZone")
+                .expect("drop definition"),
+            None,
+        );
+        let drop_units = drop.production_prerequisites[0].get_unit_prereqs();
+        assert_eq!(drop_units.len(), 1);
+        if !drop_units[0].name.is_empty() {
+            assert_eq!(drop_units[0].name, "AmericaStrategyCenter");
+        }
+
+
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::GLA, "GLA", true));
+        logic
+            .templates
+            .insert("GLAPalace".into(), ThingTemplate::new("GLAPalace"));
+        logic
+            .templates
+            .insert("GLABlackMarket".into(), market);
+        assert!(
+            !logic.player_satisfies_build_prerequisites(0, "GLABlackMarket"),
+            "Black Market must not fail-open without Palace"
+        );
+        assert!(
+            logic
+                .create_object_under_construction(
+                    "GLABlackMarket",
+                    Team::GLA,
+                    glam::Vec3::ZERO
+                )
+                .is_none(),
+            "under-construction Black Market requires Palace"
+        );
+        let palace = logic
+            .create_object("GLAPalace", Team::GLA, glam::Vec3::new(40.0, 0.0, 0.0))
+            .expect("palace");
+        assert!(logic.host_object(palace).is_some_and(|o| o.is_constructed()));
+        assert!(logic.player_satisfies_build_prerequisites(0, "GLABlackMarket"));
+    }
+
 
     #[test]
     fn parsed_flight_deck_behavior_keeps_authored_shape_without_name_fallback() {

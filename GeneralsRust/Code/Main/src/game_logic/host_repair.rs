@@ -267,6 +267,21 @@ pub fn dozer_end_dock_position(dock_position: Vec3, building_position: Vec3) -> 
     dock_position + direction * push
 }
 
+/// C++ construction complete: `getDockPoint(END)` stored from ACTION at
+/// `newTask`, falling back to the dozer's current pose only if END is missing.
+#[inline]
+pub fn dozer_complete_end_dock(
+    stored_action: Option<Vec3>,
+    dozer_position: Vec3,
+    building_position: Vec3,
+) -> Vec3 {
+    match stored_action {
+        Some(action) => dozer_end_dock_position(action, building_position),
+        None => dozer_position,
+    }
+}
+
+
 /// Retail DozerAIUpdate / WorkerAIUpdate RepairHealthPercentPerSecond residual (= 2%).
 pub const DOZER_REPAIR_HEALTH_PERCENT_PER_SEC: f32 = 0.02;
 
@@ -530,6 +545,26 @@ mod tests {
         assert!((end.x - 70.0).abs() < 0.01);
         assert!((end.z).abs() < 0.01);
     }
+
+    #[test]
+    fn complete_end_dock_uses_stored_action_not_current_pose() {
+        // hq-pogoh: C++ newTask stores END from ACTION; complete falls back
+        // to current pose only if that dock is missing.
+        let building = Vec3::ZERO;
+        let action = Vec3::new(20.0, 0.0, 0.0);
+        let current = Vec3::new(0.0, 0.0, 80.0);
+        let from_action = dozer_complete_end_dock(Some(action), current, building);
+        let from_pose = dozer_end_dock_position(current, building);
+        assert!((from_action.x - 70.0).abs() < 0.01);
+        assert!(from_action.z.abs() < 0.01);
+        assert!(
+            (from_action - from_pose).length() > 10.0,
+            "current pose would push along +Z, stored ACTION along +X"
+        );
+        let missing = dozer_complete_end_dock(None, current, building);
+        assert_eq!(missing, current);
+    }
+
 
     #[test]
     fn computer_dozer_bored_range_is_double() {

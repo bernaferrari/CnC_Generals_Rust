@@ -280,9 +280,10 @@ impl Object {
         None
     }
 
-    /// C++ Object::findWaypointFollowingCapableWeapon residual (slot index).
+    /// C++ `WeaponSet::findWaypointFollowingCapableWeapon` slot index.
     ///
-    /// Scans TERTIARY, SECONDARY then PRIMARY (C++ WEAPONSLOT_COUNT-1 .. PRIMARY).
+    /// Scans TERTIARY, SECONDARY then PRIMARY (C++ WEAPONSLOT_COUNT-1 .. PRIMARY)
+    /// on leftover store `CapableOfFollowingWaypoints`. Name seeds are never consulted.
     pub fn find_waypoint_following_capable_weapon_slot(&self) -> Option<u8> {
         use crate::game_logic::weapon_bootstrap::host_capable_of_following_waypoint_for_weapon_name;
         for slot in [2u8, 1u8, 0u8] {

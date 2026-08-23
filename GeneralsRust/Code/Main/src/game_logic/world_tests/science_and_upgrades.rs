@@ -4225,6 +4225,225 @@ fn america_parachute_land_releases_hijacker() {
 }
 
 #[test]
+fn parachute_land_use_spawn_rally_point_walks_factory_exit() {
+    use crate::game_logic::host_car_bomb::HIJACKER_PARACHUTE_NAME;
+    use crate::game_logic::host_usa_pilot::PARACHUTE_OPEN_DIST;
+    use crate::game_logic::{
+        BuildingData, BuildingType, KindOf, ProductionExitMetadata, ProductionExitStyle, Team,
+        ThingTemplate, AIState,
+    };
+
+    let mut logic = GameLogic::new();
+    let mut factory_t = ThingTemplate::new("SpawnRallyFactory");
+    factory_t
+        .add_kind_of(KindOf::Structure)
+        .set_health(1000.0);
+    factory_t.production_exit_metadata = Some(ProductionExitMetadata {
+        style: ProductionExitStyle::Default,
+        unit_create_point: [-10.0, -30.0, 0.0],
+        natural_rally_point: [53.0, -30.0, 0.0],
+        exit_delay_frames: 0,
+        allow_airborne_creation: false,
+        initial_burst: 0,
+        use_spawn_rally_point: true,
+        grant_temporary_stealth_frames: 0,
+    });
+    logic.templates.insert("SpawnRallyFactory".into(), factory_t);
+    if !logic.templates.contains_key(HIJACKER_PARACHUTE_NAME) {
+        let mut ct = ThingTemplate::new(HIJACKER_PARACHUTE_NAME);
+        ct.add_kind_of(KindOf::Vehicle).set_health(1.0);
+        logic
+            .templates
+            .insert(HIJACKER_PARACHUTE_NAME.to_string(), ct);
+    }
+    if !logic.templates.contains_key("AmericaInfantryRanger") {
+        let mut rt = ThingTemplate::new("AmericaInfantryRanger");
+        rt.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("AmericaInfantryRanger".into(), rt);
+    }
+
+    let factory_pos = glam::Vec3::new(100.0, 0.0, 100.0);
+    let factory_id = logic
+        .create_object("SpawnRallyFactory", Team::USA, factory_pos)
+        .expect("factory");
+    if let Some(o) = logic.host_object_mut(factory_id) {
+        o.building_data = Some(BuildingData::new(BuildingType::WarFactory));
+        o.set_orientation(0.0);
+    }
+
+    let high = PARACHUTE_OPEN_DIST + 80.0;
+    let lz = glam::Vec3::new(0.0, high, 0.0);
+    let chute_id = logic
+        .create_object(HIJACKER_PARACHUTE_NAME, Team::USA, lz)
+        .expect("chute");
+    let rider_id = logic
+        .create_object("AmericaInfantryRanger", Team::USA, lz)
+        .expect("rider");
+    {
+        let chute = logic.objects.get_mut(&chute_id).unwrap();
+        chute.max_transport = 1;
+        chute.producer_id = Some(factory_id);
+        chute.apply_eject_parachuting();
+        if !chute.enter_transport(rider_id) && !chute.occupants.contains(&rider_id) {
+            chute.occupants.push(rider_id);
+        }
+    }
+    {
+        let r = logic.objects.get_mut(&rider_id).unwrap();
+        r.set_contained_by(Some(chute_id));
+        r.producer_id = Some(chute_id);
+        r.apply_eject_parachuting();
+    }
+
+    for _ in 0..200 {
+        logic.tick_eject_parachute_residual(chute_id);
+        logic.tick_eject_parachute_residual(rider_id);
+        if logic
+            .objects
+            .get(&rider_id)
+            .is_some_and(|r| r.contained_by.is_none() && !r.is_parachuting())
+        {
+            break;
+        }
+    }
+
+    let factory = logic.host_object(factory_id).expect("factory live");
+    let exit = factory
+        .thing
+        .template
+        .production_exit_metadata
+        .expect("exit");
+    let create = crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
+        factory.get_position(),
+        factory.thing.get_direction_vector(),
+        (
+            exit.unit_create_point[0],
+            exit.unit_create_point[1],
+            exit.unit_create_point[2],
+        ),
+    );
+    let rider = logic.objects.get(&rider_id).expect("rider");
+    assert!(rider.is_alive());
+    assert!(
+        (rider.get_position().x - create.x).abs() < 1.5
+            && (rider.get_position().z - create.z).abs() < 1.5,
+        "UseSpawnRallyPoint land must exit at UnitCreatePoint, pos={:?} create={:?}",
+        rider.get_position(),
+        create
+    );
+    assert!(
+        matches!(rider.ai_state, AIState::Moving)
+            || rider.movement.target_position.is_some()
+            || !rider.movement.path.is_empty(),
+        "rider must follow factory exit/rally, ai={:?}",
+        rider.ai_state
+    );
+}
+
+#[test]
+fn parachute_land_without_spawn_rally_idles_at_lz() {
+    use crate::game_logic::host_car_bomb::HIJACKER_PARACHUTE_NAME;
+    use crate::game_logic::host_usa_pilot::PARACHUTE_OPEN_DIST;
+    use crate::game_logic::{
+        BuildingData, BuildingType, KindOf, ProductionExitMetadata, ProductionExitStyle, Team,
+        ThingTemplate, AIState,
+    };
+
+    let mut logic = GameLogic::new();
+    let mut factory_t = ThingTemplate::new("NoSpawnRallyFactory");
+    factory_t
+        .add_kind_of(KindOf::Structure)
+        .set_health(1000.0);
+    factory_t.production_exit_metadata = Some(ProductionExitMetadata {
+        style: ProductionExitStyle::Default,
+        unit_create_point: [-10.0, -30.0, 0.0],
+        natural_rally_point: [53.0, -30.0, 0.0],
+        exit_delay_frames: 0,
+        allow_airborne_creation: false,
+        initial_burst: 0,
+        use_spawn_rally_point: false,
+        grant_temporary_stealth_frames: 0,
+    });
+    logic
+        .templates
+        .insert("NoSpawnRallyFactory".into(), factory_t);
+    if !logic.templates.contains_key(HIJACKER_PARACHUTE_NAME) {
+        let mut ct = ThingTemplate::new(HIJACKER_PARACHUTE_NAME);
+        ct.add_kind_of(KindOf::Vehicle).set_health(1.0);
+        logic
+            .templates
+            .insert(HIJACKER_PARACHUTE_NAME.to_string(), ct);
+    }
+    if !logic.templates.contains_key("AmericaInfantryRanger") {
+        let mut rt = ThingTemplate::new("AmericaInfantryRanger");
+        rt.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("AmericaInfantryRanger".into(), rt);
+    }
+
+    let factory_id = logic
+        .create_object(
+            "NoSpawnRallyFactory",
+            Team::USA,
+            glam::Vec3::new(100.0, 0.0, 100.0),
+        )
+        .expect("factory");
+    if let Some(o) = logic.host_object_mut(factory_id) {
+        o.building_data = Some(BuildingData::new(BuildingType::WarFactory));
+    }
+
+    let high = PARACHUTE_OPEN_DIST + 80.0;
+    let lz = glam::Vec3::new(12.0, high, -8.0);
+    let chute_id = logic
+        .create_object(HIJACKER_PARACHUTE_NAME, Team::USA, lz)
+        .expect("chute");
+    let rider_id = logic
+        .create_object("AmericaInfantryRanger", Team::USA, lz)
+        .expect("rider");
+    {
+        let chute = logic.objects.get_mut(&chute_id).unwrap();
+        chute.max_transport = 1;
+        chute.producer_id = Some(factory_id);
+        chute.apply_eject_parachuting();
+        if !chute.enter_transport(rider_id) && !chute.occupants.contains(&rider_id) {
+            chute.occupants.push(rider_id);
+        }
+    }
+    {
+        let r = logic.objects.get_mut(&rider_id).unwrap();
+        r.set_contained_by(Some(chute_id));
+        r.producer_id = Some(chute_id);
+        r.apply_eject_parachuting();
+    }
+
+    for _ in 0..200 {
+        logic.tick_eject_parachute_residual(chute_id);
+        logic.tick_eject_parachute_residual(rider_id);
+        if logic
+            .objects
+            .get(&rider_id)
+            .is_some_and(|r| r.contained_by.is_none() && !r.is_parachuting())
+        {
+            break;
+        }
+    }
+
+    let rider = logic.objects.get(&rider_id).expect("rider");
+    assert!(rider.is_alive());
+    assert!(
+        (rider.get_position().x - 12.0).abs() < 15.0
+            && (rider.get_position().z + 8.0).abs() < 15.0,
+        "no UseSpawnRallyPoint must idle at LZ, pos={:?}",
+        rider.get_position()
+    );
+    assert!(
+        matches!(rider.ai_state, AIState::Idle),
+        "no UseSpawnRallyPoint must aiIdle, ai={:?}",
+        rider.ai_state
+    );
+}
+
+
+#[test]
 fn america_parachute_empty_dies_midair_after_rider_loss() {
     use crate::game_logic::host_car_bomb::HIJACKER_PARACHUTE_NAME;
     use crate::game_logic::host_usa_pilot::{

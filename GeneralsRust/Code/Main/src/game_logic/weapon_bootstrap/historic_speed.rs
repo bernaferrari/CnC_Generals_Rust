@@ -33,41 +33,55 @@ impl HostHistoricBonusPeel {
     }
 }
 
-/// Resolve HistoricBonus peels from Weapon.ini store / seeds.
+/// Resolve HistoricBonus peels from leftover Weapon.ini store / seeds.
+///
+/// Leftover `resolve_historic_bonus_weapon` is RIGHT: Weak → stored
+/// `historic_bonus_weapon_name` → store lookup. Live must not substitute
+/// hardcoded firestorm seeds when the Weak is dead (INI order).
 pub fn host_historic_bonus_for_weapon_name(name: &str) -> HostHistoricBonusPeel {
     use gamelogic::weapon::with_weapon_store;
     let _ = ensure_host_weapon_store();
     let from_store = with_weapon_store(|store| {
-        store.find_weapon_template(name).map(|wt| {
-            let weapon_name = wt
-                .historic_bonus_weapon
-                .as_ref()
-                .and_then(|w| w.upgrade())
-                .map(|arc| arc.name.clone())
-                .unwrap_or_default();
-            // Store may keep name via other path — if Weak dead, seed by weapon.
-            HostHistoricBonusPeel {
-                time_frames: wt.historic_bonus_time,
-                count: wt.historic_bonus_count,
-                radius: wt.historic_bonus_radius.max(0.0),
-                bonus_weapon: weapon_name,
-            }
+        store.find_weapon_template(name).map(|wt| HostHistoricBonusPeel {
+            time_frames: wt.historic_bonus_time,
+            count: wt.historic_bonus_count,
+            radius: wt.historic_bonus_radius.max(0.0),
+            bonus_weapon: leftover_historic_bonus_weapon_name(wt),
         })
     })
     .ok()
     .flatten();
-    if let Some(mut p) = from_store {
+    if let Some(p) = from_store {
+        // Store authored HistoricBonusTime/Count: keep leftover name (or empty).
+        // Do not seed Firestorm* over HistoricBonusWeapon = None / custom name.
         if p.count > 0 && p.time_frames > 0 {
-            if p.bonus_weapon.is_empty() {
-                // Weak may not resolve; seed bonus name from parent weapon.
-                p.bonus_weapon = seed_historic_bonus_weapon_for(name);
-            }
-            if p.is_active() {
-                return p;
-            }
+            return p;
         }
     }
     seed_historic_bonus_for(name)
+}
+
+/// Leftover resolve order without re-entering the store lock: live Weak, else
+/// authored `historic_bonus_weapon_name` (C++ `INI::parseWeaponTemplate`).
+fn leftover_historic_bonus_weapon_name(wt: &WeaponTemplate) -> String {
+    if let Some(arc) = wt
+        .historic_bonus_weapon
+        .as_ref()
+        .and_then(|weak| weak.upgrade())
+    {
+        if !arc.name.is_empty() && !arc.name.eq_ignore_ascii_case(&wt.name) {
+            return arc.name.clone();
+        }
+        return String::new();
+    }
+    let named = wt.historic_bonus_weapon_name.trim();
+    if !named.is_empty()
+        && !named.eq_ignore_ascii_case("None")
+        && !named.eq_ignore_ascii_case(&wt.name)
+    {
+        return named.to_string();
+    }
+    String::new()
 }
 
 pub(super) fn seed_historic_bonus_weapon_for(name: &str) -> String {

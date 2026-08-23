@@ -3785,6 +3785,7 @@ fn strategy_center_turret_idle_scan_residual() {
         STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES, STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG,
         STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG, STRATEGY_CENTER_TURRET_TURN_DEG_PER_FRAME,
     };
+    use game_engine::common::random_value::init_random_with_seed;
 
     let mut game_logic = GameLogic::new();
     let mut sc_template = ThingTemplate::new("AmericaStrategyCenter");
@@ -3841,7 +3842,14 @@ fn strategy_center_turret_idle_scan_residual() {
         sc.turret_idle_scanning = false;
     }
 
-    // One tick should start idle scan toward natural+30 = -60.
+    // One tick should start idle scan toward leftover GameLogicRandomValueReal offset.
+    init_random_with_seed(0xBEEF);
+    let expected_desired = idle_scan_desired_angle_deg(0);
+    assert!(
+        (expected_desired - STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG).abs() > 2.0,
+        "seeded leftover offset must leave natural, got {expected_desired}"
+    );
+    init_random_with_seed(0xBEEF);
     game_logic.tick_battle_plan_door_residuals();
     assert!(
         game_logic.honesty_strategy_center_turret_idle_scan_ok(),
@@ -3850,15 +3858,16 @@ fn strategy_center_turret_idle_scan_residual() {
     assert_eq!(game_logic.battle_plans().turret_idle_scan_start_count(), 1);
     {
         let sc = game_logic.host_object(sc_id).expect("sc");
-        let desired = idle_scan_desired_angle_deg(0);
-        assert!((desired - (-60.0)).abs() < 0.01);
-        // Stepped toward desired: from -90 toward -60 at 2 deg/frame → -88.
+        assert!((sc.turret_idle_scan_desired_angle_deg - expected_desired).abs() < 0.01);
+        let natural = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
+        let rate = STRATEGY_CENTER_TURRET_TURN_DEG_PER_FRAME;
+        let stepped = if expected_desired >= natural {
+            natural + rate
+        } else {
+            natural - rate
+        };
         assert!(
-            (sc.turret_angle_deg
-                - (STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG
-                    + STRATEGY_CENTER_TURRET_TURN_DEG_PER_FRAME))
-                .abs()
-                < 0.01,
+            (sc.turret_angle_deg - stepped).abs() < 0.01,
             "idle-scan residual must step toward desired angle, got {}",
             sc.turret_angle_deg
         );
@@ -3869,8 +3878,8 @@ fn strategy_center_turret_idle_scan_residual() {
         assert!(sc.turret_idle_scanning, "must be mid idle-scan residual");
     }
 
-    // Advance enough frames for remaining ~28° at 2 deg/frame.
-    let desired = idle_scan_desired_angle_deg(0);
+    // Advance enough frames for remaining offset at 2 deg/frame.
+    let desired = expected_desired;
     for _ in 0..30 {
         game_logic.frame = game_logic.frame.saturating_add(1);
         game_logic.tick_battle_plan_door_residuals();
@@ -3944,8 +3953,9 @@ fn strategy_center_turret_idle_scan_residual() {
 #[test]
 fn strategy_center_turret_hold_and_idle_recenter_residual() {
     use crate::game_logic::host_strategy_center::{
-        hold_turret_until_frame, idle_scan_desired_angle_deg, idle_scan_interval_frames,
-        turret_angles_are_natural, HostBattlePlan, STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG,
+        hold_turret_until_frame, idle_scan_desired_angle_deg, turret_angles_are_natural,
+        HostBattlePlan, STRATEGY_CENTER_MAX_IDLE_SCAN_INTERVAL_FRAMES,
+        STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES, STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG,
         STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG, STRATEGY_CENTER_RECENTER_TIME_FRAMES,
     };
 
@@ -4068,12 +4078,16 @@ fn strategy_center_turret_hold_and_idle_recenter_residual() {
             sc.turret_pitch_deg
         );
         assert!(!sc.turret_idle_recentering);
-        // Next idle-scan scheduled with scan_index 1 → MaxIdleScanInterval 30.
+        // Next idle-scan scheduled via leftover GameLogicRandomValue(min, max).
         assert!(
             sc.turret_idle_scan_next_frame
                 >= game_logic
                     .frame
-                    .saturating_add(idle_scan_interval_frames(1).saturating_sub(1)),
+                    .saturating_add(STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES)
+                && sc.turret_idle_scan_next_frame
+                    <= game_logic
+                        .frame
+                        .saturating_add(STRATEGY_CENTER_MAX_IDLE_SCAN_INTERVAL_FRAMES),
             "idle-recenter complete must reschedule next idle scan, next={} frame={}",
             sc.turret_idle_scan_next_frame,
             game_logic.frame

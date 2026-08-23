@@ -76,11 +76,11 @@ impl GameLogic {
                 .insert(HIJACKER_PARACHUTE_NAME.to_string(), chute_tpl);
         }
 
-        let rider_team = self
+        let (rider_team, rider_producer) = self
             .objects
             .get(&rider_id)
-            .map(|o| o.team)
-            .unwrap_or(crate::game_logic::Team::Neutral);
+            .map(|o| (o.team, o.producer_id))
+            .unwrap_or((crate::game_logic::Team::Neutral, None));
 
         let mut pos = eject_pos;
         // Keep elevated for freefall residual (C++ m_ejectPos may already be high).
@@ -115,6 +115,11 @@ impl GameLogic {
                     }
                 }
                 chute.apply_eject_parachuting();
+                // C++ ParachuteContain::onRemoving: rider.producer = chute,
+                // chute.producer = producing building (or prior rider producer).
+                if chute.producer_id.is_none() {
+                    chute.producer_id = rider_producer;
+                }
                 // Parachute is not selectable residual (C++ drawable on container).
                 chute.set_status_unselectable(true);
                 chute.set_status_no_collisions(true);
@@ -124,6 +129,7 @@ impl GameLogic {
         // Rider: contained + parachuting residual (hidden inside chute).
         if let Some(r) = self.objects.get_mut(&rider_id) {
             r.set_contained_by(Some(chute_id));
+            r.producer_id = Some(chute_id);
             r.set_ai_state(crate::game_logic::AIState::Docked);
             if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 crate::game_logic::host_ai_decision_log::record_set_state(rider_id, 12);

@@ -258,6 +258,18 @@ fn script_indestructible_panel_flag_sets_body() {
     assert!(!obj.is_indestructible());
 }
 
+#[test]
+fn leftover_sa_player_targetable_sets_script_targetable() {
+    let mut obj = make_test_object();
+    assert!(!obj.is_script_targetable());
+    obj.apply_object_panel_flag("Player Targetable", true);
+    assert!(obj.script_targetable);
+    assert!(obj.is_script_targetable());
+    obj.apply_object_panel_flag("PlayerTargetable", false);
+    assert!(!obj.script_targetable);
+}
+
+
 
 #[test]
 fn paralyzed_rejects_move_orders() {
@@ -2134,10 +2146,22 @@ fn most_percent_ready_between_shots_progresses() {
 
 #[test]
 fn ammo_pip_and_waypoint_weapon_helpers() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
     use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+    ensure_host_weapon_store();
+    const PIPS: &str = "AmericaJetRaptorMissileWeapon";
+    const WAYPT: &str = "HuntWaypointFollowWeapon";
+    let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
+        let mut pips = gamelogic::weapon::WeaponTemplate::new(PIPS.to_string());
+        pips.is_shows_ammo_pips = true;
+        store.add_weapon_template(pips);
+        let mut waypt = gamelogic::weapon::WeaponTemplate::new(WAYPT.to_string());
+        waypt.capable_of_following_waypoint = true;
+        store.add_weapon_template(waypt);
+    });
     let mut tmpl = ThingTemplate::new("Raptor");
-    tmpl.primary_weapon_name = Some("AmericaJetRaptorMissileWeapon".into());
-    tmpl.secondary_weapon_name = Some("ScudStormWeapon".into());
+    tmpl.primary_weapon_name = Some(PIPS.into());
+    tmpl.secondary_weapon_name = Some(WAYPT.into());
     tmpl.set_health(100.0);
     tmpl.add_kind_of(KindOf::Aircraft);
     let mut o = Object::new(tmpl, ObjectId(3), Team::USA);
@@ -2148,13 +2172,13 @@ fn ammo_pip_and_waypoint_weapon_helpers() {
         clip_size: 4,
         ammo: Some(2),
         ..Weapon::default()
-});
+    });
     o.secondary_weapon = Some(Weapon {
         damage: 100.0,
         range: 500.0,
         reload_time: 5.0,
         ..Weapon::default()
-});
+    });
     assert_eq!(o.get_ammo_pip_showing_info(), Some((4, 2)));
     assert_eq!(o.find_waypoint_following_capable_weapon_slot(), Some(1));
 }

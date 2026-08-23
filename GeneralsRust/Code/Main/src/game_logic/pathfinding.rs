@@ -151,6 +151,12 @@ struct HostBridgeLayer {
     to_right: Vec3,
     /// Non-IMPASSABLE layer cells: (x,y) → (type, connectLayer).
     cells: HashMap<(i32, i32), (PathfindCellType, u8)>,
+    /// C++ `PathfindLayer::m_destroyed`.
+    destroyed: bool,
+    /// C++ `PathfindLayer::getBridgeID`.
+    object_id: u32,
+    /// C++ layer cells with `getConnectLayer()==LAYER_GROUND`.
+    ground_connect_cells: Vec<(i32, i32)>,
 }
 
 /// C++ PathfindLayer pos/goal occupancy (`updatePos` / `updateGoal`).
@@ -2012,6 +2018,12 @@ impl PathfindingGrid {
             }
         }
 
+        let ground_connect_cells: Vec<(i32, i32)> = cells
+            .iter()
+            .filter(|(_, (_, connect))| *connect == PathfindLayerEnum::Ground as u8)
+            .map(|(&(x, y), _)| (x, y))
+            .collect();
+
         if destroyed {
             // C++ classifyCells m_destroyed: every layer cell BRIDGE_IMPASSABLE,
             // drop ground connect (AIPathfind.cpp:3504-3519).
@@ -2031,6 +2043,10 @@ impl PathfindingGrid {
             layer.to_left = to_left;
             layer.to_right = to_right;
             layer.cells = cells;
+            layer.destroyed = destroyed;
+            if !ground_connect_cells.is_empty() {
+                layer.ground_connect_cells = ground_connect_cells;
+            }
         }
         self.terrain_gen = self.terrain_gen.wrapping_add(1);
     }
@@ -2250,6 +2266,62 @@ impl PathfindingGrid {
         self.bridge_layers.first().map(|l| l.id)
     }
 
+    /// Bind leftover/host bridge object id onto the matching span.
+    pub fn bind_bridge_layer_object_id(
+        &mut self,
+        from_left: Vec3,
+        from_right: Vec3,
+        to_left: Vec3,
+        to_right: Vec3,
+        object_id: u32,
+    ) {
+        if object_id == 0 {
+            return;
+        }
+        if let Some(layer) = self.bridge_layers.iter_mut().find(|layer| {
+            span_xz_eq(layer.from_left, from_left)
+                && span_xz_eq(layer.from_right, from_right)
+                && span_xz_eq(layer.to_left, to_left)
+                && span_xz_eq(layer.to_right, to_right)
+        }) {
+            layer.object_id = object_id;
+        }
+    }
+
+    /// C++ `Pathfinder::findBrokenBridge` layer scan (destroyed + connectsZones).
+    pub fn find_broken_bridge(&self, from: Vec3, to: Vec3) -> Option<ObjectId> {
+        let from_c = self.world_to_grid(from);
+        let to_c = self.world_to_grid(to);
+        let zone1 = self.path_zone(from_c);
+        let zone2 = self.path_zone(to_c);
+        if zone1 == zone2 {
+            return None;
+        }
+        for layer in &self.bridge_layers {
+            if !layer.destroyed || layer.object_id == 0 {
+                continue;
+            }
+            let mut found1 = false;
+            let mut found2 = false;
+            for &(x, y) in &layer.ground_connect_cells {
+                let z = self.path_zone(GridPos::new(x, y));
+                if z == 0 {
+                    continue;
+                }
+                if z == zone1 {
+                    found1 = true;
+                }
+                if z == zone2 {
+                    found2 = true;
+                }
+                if found1 && found2 {
+                    return Some(ObjectId(layer.object_id));
+                }
+            }
+        }
+        None
+    }
+
     /// C++ `TerrainLogic::getLayerForDestination` (host Y-up).
     /// Nearest deck/ground height among bridges whose quad covers XZ.
     pub fn layer_for_destination(&self, pos: Vec3) -> PathfindLayerEnum {
@@ -2403,6 +2475,8 @@ impl PathfindingGrid {
                 slot.to_left = to_left;
                 slot.to_right = to_right;
                 slot.cells.clear();
+                slot.destroyed = false;
+                slot.ground_connect_cells.clear();
                 return id;
             }
         }
@@ -2413,6 +2487,9 @@ impl PathfindingGrid {
             to_left,
             to_right,
             cells: HashMap::new(),
+            destroyed: false,
+            object_id: 0,
+            ground_connect_cells: Vec::new(),
         });
         id
     }
@@ -7590,6 +7667,11 @@ impl PathfindingSystem {
             .quick_path_exists_for_crusher(from, to, surfaces, is_crusher)
     }
 
+    /// C++ `Pathfinder::findBrokenBridge` on the live host grid.
+    pub fn find_broken_bridge(&self, from: Vec3, to: Vec3) -> Option<ObjectId> {
+        self.grid.find_broken_bridge(from, to)
+    }
+
     /// C++ `Pathfinder::adjustToPossibleDestination` (AIPathfind.cpp:5510-5617).
     pub fn adjust_to_possible_destination(
         &self,
@@ -9424,6 +9506,42 @@ mod tests {
         assert!(
             !g.quick_path_exists(from, to),
             "destroyed deck must drop ground connect and split banks"
+        );
+    }
+
+    /// hq-nya50: findBrokenBridge returns the destroyed span that joins the banks.
+    #[test]
+    fn find_broken_bridge_returns_destroyed_connecting_span() {
+        let mut g = open_grid(12, 12);
+        for y in 0..12 {
+            for x in 3..8 {
+                g.set_cell_type(GridPos::new(x, y), PathfindCellType::Water);
+            }
+        }
+        let from_l = Vec3::new(20.0, 20.0, 40.0);
+        let from_r = Vec3::new(20.0, 20.0, 60.0);
+        let to_l = Vec3::new(90.0, 20.0, 40.0);
+        let to_r = Vec3::new(90.0, 20.0, 60.0);
+        g.stamp_bridge_deck(from_l, from_r, to_l, to_r, false);
+        g.bind_bridge_layer_object_id(from_l, from_r, to_l, to_r, 42);
+        g.rebuild_terrain_zones();
+        g.rebuild_path_zones();
+        let from = g.grid_to_world(GridPos::new(1, 5));
+        let to = g.grid_to_world(GridPos::new(10, 5));
+        assert!(g.find_broken_bridge(from, to).is_none());
+
+        g.stamp_bridge_deck(from_l, from_r, to_l, to_r, true);
+        g.bind_bridge_layer_object_id(from_l, from_r, to_l, to_r, 42);
+        g.rebuild_terrain_zones();
+        g.rebuild_path_zones();
+        assert_eq!(
+            g.find_broken_bridge(from, to),
+            Some(ObjectId(42)),
+            "destroyed layer that connects the two banks must return the span id"
+        );
+        assert!(
+            g.find_broken_bridge(from, from).is_none(),
+            "same-zone hop must not pick a bridge"
         );
     }
 

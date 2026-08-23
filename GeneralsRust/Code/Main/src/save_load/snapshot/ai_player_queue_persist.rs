@@ -5,13 +5,15 @@
 //! readyToBuild flags, teamTimer/structureTimer/buildDelay/teamDelay, warehouse
 //! ID, repair-dozer, and structuresToRepair. Leftover `team_in_queue.rs` /
 //! `work_order.rs` already match that table. C++ / leftover `Player::xfer` also
-//! writes each `BuildListInfo.num_rebuilds` remaining count. Live spends that
-//! budget as `AIBuildingInfo.rebuild_count`.
+//! writes each `BuildListInfo.num_rebuilds` remaining count and
+//! `BuildListInfo.object_timestamp` rebuild-delay clock. Live spends remaining
+//! rebuilds as `AIBuildingInfo.rebuild_count` and the clock as
+//! `AIBuildingInfo.destroyed_at_time`.
 //!
 //! Append a tagged suffix after the historical v9 contain/producer payload
 //! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
-//! Restore writes queues/clocks and remaining rebuild counts only; it never
-//! re-runs selectTeamToBuild or rebuilds the INI layout.
+//! Restore writes queues/clocks, remaining rebuild counts, and rebuild-delay
+//! timestamps only; it never re-runs selectTeamToBuild or rebuilds the INI layout.
 
 use crate::ai::{AITeamQueue, AIWorkOrder};
 use crate::game_logic::{GameLogic, ObjectId};
@@ -19,7 +21,8 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const AITQ_MAGIC: &[u8; 4] = b"AITQ";
-const AITQ_VERSION: u32 = 3;
+const AITQ_VERSION: u32 = 4;
+const AITQ_VERSION_V3: u32 = 3;
 const AITQ_VERSION_V2: u32 = 2;
 const AITQ_VERSION_V1: u32 = 1;
 
@@ -36,6 +39,11 @@ struct AIPlayerQueuePersistPayloadV1 {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct AIPlayerQueuePersistPayloadV2 {
     players: Vec<AIPlayerQueuePersistV2>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct AIPlayerQueuePersistPayloadV3 {
+    players: Vec<AIPlayerQueuePersistV3>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,6 +74,8 @@ pub struct AIPlayerQueuePersist {
     pub cur_right_flank_right_defense_angle: f32,
     /// Live `AIBuildingInfo.rebuild_count` per pad, leftover remaining spend.
     pub building_rebuild_counts: Vec<u32>,
+    /// Live `AIBuildingInfo.destroyed_at_time` per pad, leftover object_timestamp.
+    pub building_destroyed_at_times: Vec<Option<f32>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -116,6 +126,35 @@ struct AIPlayerQueuePersistV2 {
     cur_right_flank_right_defense_angle: f32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AIPlayerQueuePersistV3 {
+    player_id: u32,
+    team_queue: Vec<AITeamQueuePersist>,
+    team_ready_queue: Vec<AITeamQueuePersist>,
+    next_building_time: f32,
+    next_team_queue_time: f32,
+    next_team_time: f32,
+    team_seconds: f32,
+    last_update_time: f32,
+    current_warehouse_id: Option<u32>,
+    repair_dozer: Option<u32>,
+    repair_dozer_origin: [f32; 3],
+    structures_to_repair: Vec<u32>,
+    dozer_queued_for_repair: bool,
+    dozer_is_repairing: bool,
+    last_bridge_repair_time: f32,
+    skillset_selector: i32,
+    cur_front_base_defense: i32,
+    cur_flank_base_defense: i32,
+    cur_front_left_defense_angle: f32,
+    cur_front_right_defense_angle: f32,
+    cur_left_flank_left_defense_angle: f32,
+    cur_left_flank_right_defense_angle: f32,
+    cur_right_flank_left_defense_angle: f32,
+    cur_right_flank_right_defense_angle: f32,
+    building_rebuild_counts: Vec<u32>,
+}
+
 impl From<AIPlayerQueuePersistV1> for AIPlayerQueuePersist {
     fn from(old: AIPlayerQueuePersistV1) -> Self {
         Self {
@@ -144,6 +183,7 @@ impl From<AIPlayerQueuePersistV1> for AIPlayerQueuePersist {
             cur_right_flank_left_defense_angle: 0.0,
             cur_right_flank_right_defense_angle: 0.0,
             building_rebuild_counts: Vec::new(),
+            building_destroyed_at_times: Vec::new(),
         }
     }
 }
@@ -176,6 +216,40 @@ impl From<AIPlayerQueuePersistV2> for AIPlayerQueuePersist {
             cur_right_flank_left_defense_angle: old.cur_right_flank_left_defense_angle,
             cur_right_flank_right_defense_angle: old.cur_right_flank_right_defense_angle,
             building_rebuild_counts: Vec::new(),
+            building_destroyed_at_times: Vec::new(),
+        }
+    }
+}
+
+impl From<AIPlayerQueuePersistV3> for AIPlayerQueuePersist {
+    fn from(old: AIPlayerQueuePersistV3) -> Self {
+        Self {
+            player_id: old.player_id,
+            team_queue: old.team_queue,
+            team_ready_queue: old.team_ready_queue,
+            next_building_time: old.next_building_time,
+            next_team_queue_time: old.next_team_queue_time,
+            next_team_time: old.next_team_time,
+            team_seconds: old.team_seconds,
+            last_update_time: old.last_update_time,
+            current_warehouse_id: old.current_warehouse_id,
+            repair_dozer: old.repair_dozer,
+            repair_dozer_origin: old.repair_dozer_origin,
+            structures_to_repair: old.structures_to_repair,
+            dozer_queued_for_repair: old.dozer_queued_for_repair,
+            dozer_is_repairing: old.dozer_is_repairing,
+            last_bridge_repair_time: old.last_bridge_repair_time,
+            skillset_selector: old.skillset_selector,
+            cur_front_base_defense: old.cur_front_base_defense,
+            cur_flank_base_defense: old.cur_flank_base_defense,
+            cur_front_left_defense_angle: old.cur_front_left_defense_angle,
+            cur_front_right_defense_angle: old.cur_front_right_defense_angle,
+            cur_left_flank_left_defense_angle: old.cur_left_flank_left_defense_angle,
+            cur_left_flank_right_defense_angle: old.cur_left_flank_right_defense_angle,
+            cur_right_flank_left_defense_angle: old.cur_right_flank_left_defense_angle,
+            cur_right_flank_right_defense_angle: old.cur_right_flank_right_defense_angle,
+            building_rebuild_counts: old.building_rebuild_counts,
+            building_destroyed_at_times: Vec::new(),
         }
     }
 }
@@ -307,7 +381,11 @@ pub fn apply_from_lifecycle_tail(
     };
     let mut rest = suffix;
     let version = take_u32(&mut rest)?;
-    if version != AITQ_VERSION && version != AITQ_VERSION_V2 && version != AITQ_VERSION_V1 {
+    if version != AITQ_VERSION
+        && version != AITQ_VERSION_V3
+        && version != AITQ_VERSION_V2
+        && version != AITQ_VERSION_V1
+    {
         return Err(SaveLoadError::Corrupted(format!(
             "unknown AITQ suffix version {version}"
         )));
@@ -328,6 +406,12 @@ pub fn apply_from_lifecycle_tail(
     } else if version == AITQ_VERSION_V2 {
         let old: AIPlayerQueuePersistPayloadV2 = bincode::deserialize(encoded)
             .map_err(|err| SaveLoadError::Corrupted(format!("AITQ v2 payload decode: {err}")))?;
+        AIPlayerQueuePersistPayload {
+            players: old.players.into_iter().map(AIPlayerQueuePersist::from).collect(),
+        }
+    } else if version == AITQ_VERSION_V3 {
+        let old: AIPlayerQueuePersistPayloadV3 = bincode::deserialize(encoded)
+            .map_err(|err| SaveLoadError::Corrupted(format!("AITQ v3 payload decode: {err}")))?;
         AIPlayerQueuePersistPayload {
             players: old.players.into_iter().map(AIPlayerQueuePersist::from).collect(),
         }
@@ -489,6 +573,7 @@ mod tests {
             last_bridge_repair_time: 22.0,
             skillset_selector: 2,
             building_rebuild_counts: vec![2, 1, 0],
+            building_destroyed_at_times: vec![Some(12.5), None, Some(3.0)],
         }]);
 
         let builder = SnapshotBuilder::new();
@@ -540,6 +625,11 @@ mod tests {
         assert_eq!(row.skillset_selector, 2);
         assert!(row.building_rebuild_counts.len() >= 3);
         assert_eq!(&row.building_rebuild_counts[..3], &[2, 1, 0]);
+        assert!(row.building_destroyed_at_times.len() >= 3);
+        assert_eq!(
+            &row.building_destroyed_at_times[..3],
+            &[Some(12.5), None, Some(3.0)]
+        );
     }
 
     #[test]
@@ -638,6 +728,49 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_round_trips_rebuild_delay_timestamps() {
+        let mut source = china_ai_logic();
+        let mut rows = source.capture_ai_player_queue_persist();
+        {
+            let row = rows
+                .iter_mut()
+                .find(|row| row.player_id == 1)
+                .expect("china persist row");
+            assert!(
+                row.building_destroyed_at_times.len() >= 2,
+                "layout pads exist to stamp rebuild delay"
+            );
+            row.building_destroyed_at_times[0] = Some(18.0);
+            row.building_destroyed_at_times[1] = Some(4.5);
+        }
+        source.apply_ai_player_queue_persist(rows);
+
+        let builder = SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
+        let mut restored = china_ai_logic();
+        restored.templates = source.templates.clone();
+        builder
+            .restore_from_snapshot(&snapshot, &mut restored)
+            .expect("restore");
+
+        let row = restored
+            .capture_ai_player_queue_persist()
+            .into_iter()
+            .find(|row| row.player_id == 1)
+            .expect("restored row");
+        assert_eq!(row.building_destroyed_at_times[0], Some(18.0));
+        assert_eq!(row.building_destroyed_at_times[1], Some(4.5));
+        assert!(
+            row.building_destroyed_at_times
+                .iter()
+                .skip(2)
+                .all(|stamp| stamp.is_none()),
+            "unstamped pads stay without a rebuild-delay clock"
+        );
+    }
+
+
+    #[test]
     fn v2_suffix_loads_queues_and_leaves_rebuild_counts_empty() {
         let mut logic = china_ai_logic();
         let v2 = AIPlayerQueuePersistPayloadV2 {
@@ -697,6 +830,74 @@ mod tests {
         assert!(
             row.building_rebuild_counts.iter().all(|count| *count == 0),
             "v2 saves have no remaining-rebuild table"
+        );
+        assert!(
+            row.building_destroyed_at_times.iter().all(|stamp| stamp.is_none()),
+            "v2 saves have no rebuild-delay clock table"
+        );
+    }
+
+    #[test]
+    fn v3_suffix_loads_rebuild_counts_and_leaves_timestamps_empty() {
+        let mut logic = china_ai_logic();
+        let v3 = AIPlayerQueuePersistPayloadV3 {
+            players: vec![AIPlayerQueuePersistV3 {
+                player_id: 1,
+                team_queue: vec![AITeamQueuePersist {
+                    name: "LegacyV3".into(),
+                    team_id: Some(6),
+                    work_orders: Vec::new(),
+                    priority_build: false,
+                    frame_started: 0,
+                    completed: false,
+                    execute_actions: false,
+                    sent_to_start_location: false,
+                    activated: false,
+                    reinforcement: false,
+                    reinforcement_id: None,
+                }],
+                team_ready_queue: Vec::new(),
+                next_building_time: 4.0,
+                next_team_queue_time: 1.0,
+                next_team_time: 2.0,
+                team_seconds: 10.0,
+                last_update_time: 0.0,
+                current_warehouse_id: None,
+                repair_dozer: None,
+                repair_dozer_origin: [0.0, 0.0, 0.0],
+                structures_to_repair: Vec::new(),
+                dozer_queued_for_repair: false,
+                dozer_is_repairing: false,
+                last_bridge_repair_time: -1.0,
+                skillset_selector: 0,
+                cur_front_base_defense: 1,
+                cur_flank_base_defense: 0,
+                cur_front_left_defense_angle: 0.0,
+                cur_front_right_defense_angle: 0.0,
+                cur_left_flank_left_defense_angle: 0.0,
+                cur_left_flank_right_defense_angle: 0.0,
+                cur_right_flank_left_defense_angle: 0.0,
+                cur_right_flank_right_defense_angle: 0.0,
+                building_rebuild_counts: vec![2, 1],
+            }],
+        };
+        let encoded = bincode::serialize(&v3).expect("encode v3");
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(AITQ_MAGIC);
+        append_u32(&mut bytes, AITQ_VERSION_V3);
+        append_u32(&mut bytes, encoded.len() as u32);
+        bytes.extend_from_slice(&encoded);
+        apply_from_lifecycle_tail(&bytes, &mut logic).expect("apply v3");
+        let row = logic
+            .capture_ai_player_queue_persist()
+            .into_iter()
+            .find(|row| row.player_id == 1)
+            .expect("row");
+        assert_eq!(row.team_queue[0].name, "LegacyV3");
+        assert_eq!(&row.building_rebuild_counts[..2], &[2, 1]);
+        assert!(
+            row.building_destroyed_at_times.iter().all(|stamp| stamp.is_none()),
+            "v3 saves have no rebuild-delay clock table"
         );
     }
 

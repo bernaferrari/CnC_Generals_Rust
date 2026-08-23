@@ -1269,22 +1269,11 @@ impl GameLogic {
             .collect()
     }
 
-    /// C++ ProductionPrerequisite residual for known sample templates.
-    ///
-    /// Fail-closed: unknown templates (not in residual sample table) are allowed
-    /// so map/script spawns and unported INI trees still work. Known SW / tech
-    /// buildings require their Prerequisites Object list.
+    /// C++ `Player::canBuild` walks leftover `getNthPrereq(i)->isSatisfied`
+    /// for every template. Empty leftover/live prereq lists are satisfied.
     pub fn team_satisfies_build_prerequisites(&self, team: Team, template_name: &str) -> bool {
-        use crate::game_logic::host_production_buildable_command_residual::{
-            prereq_is_satisfied_residual, prereq_objects_for_template_residual,
-        };
-        let Some((prereqs, or_chain)) = prereq_objects_for_template_residual(template_name) else {
-            return true;
-        };
-        let owned = self.team_owned_constructed_templates(team);
-        let owned_refs: Vec<&str> = owned.iter().map(|s| s.as_str()).collect();
-        // Science residual: fail-open for structure Object prereqs (no RequiredScience on SW).
-        prereq_is_satisfied_residual(prereqs, or_chain, &owned_refs, true)
+        let player_id = self.get_player_by_team(team).map(|player| player.id);
+        self.leftover_prereqs_satisfied(template_name, player_id, Some(team))
     }
 
     /// C++ player-owned prerequisite scan for a known controlling player.
@@ -1293,16 +1282,105 @@ impl GameLogic {
         player_id: u32,
         template_name: &str,
     ) -> bool {
-        use crate::game_logic::host_production_buildable_command_residual::{
-            prereq_is_satisfied_residual, prereq_objects_for_template_residual,
-        };
-        let Some((prereqs, or_chain)) = prereq_objects_for_template_residual(template_name) else {
-            return true;
-        };
-        let owned = self.player_owned_constructed_templates(player_id);
-        let owned_refs: Vec<&str> = owned.iter().map(|name| name.as_str()).collect();
-        prereq_is_satisfied_residual(prereqs, or_chain, &owned_refs, true)
+        self.leftover_prereqs_satisfied(template_name, Some(player_id), None)
     }
+
+    fn leftover_prereqs_satisfied(
+        &self,
+        template_name: &str,
+        player_id: Option<u32>,
+        team: Option<Team>,
+    ) -> bool {
+        let prereqs =
+            leftover_or_live_production_prereqs(template_name, self.templates.get(template_name));
+        for prereq in &prereqs {
+            if !prereq.is_satisfied_with_counter(
+                |science| self.host_player_has_prereq_science(player_id, team, science),
+                |handles, ignore_dead, counts| {
+                    self.count_prereq_objects(
+                        player_id,
+                        team,
+                        handles,
+                        ignore_dead,
+                        counts,
+                        prereq,
+                    );
+                },
+            ) {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn host_player_has_prereq_science(
+        &self,
+        player_id: Option<u32>,
+        team: Option<Team>,
+        science: game_engine::common::rts::ScienceType,
+    ) -> bool {
+        use game_engine::common::rts::SCIENCE_INVALID;
+        if science == SCIENCE_INVALID {
+            return true;
+        }
+        let player = match player_id {
+            Some(id) => self.get_player(id),
+            None => team.and_then(|team| self.get_player_by_team(team)),
+        };
+        if let Some(player) = player {
+            if leftover_player_has_science(player.id, &player.name, science) == Some(true) {
+                return true;
+            }
+            return live_unlocked_has_science(&player.unlocked_sciences, science);
+        }
+        if let Some(id) = player_id {
+            return leftover_player_has_science(id, "", science) == Some(true);
+        }
+        false
+    }
+
+    fn count_prereq_objects(
+        &self,
+        player_id: Option<u32>,
+        team: Option<Team>,
+        handles: &[game_engine::common::rts::ThingTemplateHandle],
+        ignore_dead: bool,
+        counts: &mut [i32],
+        prereq: &game_engine::common::rts::ProductionPrerequisite,
+    ) {
+        let units = prereq.get_unit_prereqs();
+        for (i, handle) in handles.iter().enumerate() {
+            if i >= counts.len() {
+                break;
+            }
+            let required = leftover_template_name_for_handle(*handle)
+                .or_else(|| {
+                    units.get(i).and_then(|rec| {
+                        (!rec.name.is_empty()).then(|| rec.name.clone())
+                    })
+                })
+                .unwrap_or_default();
+            if required.is_empty() {
+                counts[i] = 0;
+                continue;
+            }
+            counts[i] = self
+                .objects
+                .values()
+                .filter(|obj| {
+                    let owned = match player_id {
+                        Some(id) => obj.owner_player_id == Some(id),
+                        None => team.is_some_and(|team| obj.team == team),
+                    };
+                    owned
+                        && obj.is_constructed()
+                        && (!ignore_dead || obj.is_alive())
+                        && object_matches_prereq_template(obj, &required)
+                })
+                .count() as i32;
+        }
+    }
+
 
     /// C++ MaxSimultaneousOfType Superweapon residual gate.
     pub fn can_start_superweapon_building(&self, team: Team, template_name: &str) -> bool {
@@ -2077,6 +2155,80 @@ fn leftover_thing_template(
     let factory = guard.as_ref()?;
     factory.find_template(name, false)
 }
+
+fn leftover_or_live_production_prereqs(
+    template_name: &str,
+    live: Option<&ThingTemplate>,
+) -> Vec<game_engine::common::rts::ProductionPrerequisite> {
+    if let Some(tmpl) = leftover_thing_template(template_name) {
+        return tmpl.get_prereqs().to_vec();
+    }
+    live.map(|template| template.production_prerequisites.clone())
+        .unwrap_or_default()
+}
+
+fn leftover_template_name_for_handle(
+    handle: game_engine::common::rts::ThingTemplateHandle,
+) -> Option<String> {
+    if !handle.is_valid() {
+        return None;
+    }
+    let id = u16::try_from(handle.value()).ok()?;
+    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
+    let factory = guard.as_ref()?;
+    Some(factory.find_by_template_id(id)?.get_name().to_string())
+}
+
+fn leftover_player_has_science(
+    player_id: u32,
+    host_name: &str,
+    science: game_engine::common::rts::ScienceType,
+) -> Option<bool> {
+    let list = gamelogic::player::ThePlayerList().read().ok()?;
+    let named = format!("player{player_id}");
+    let arc = list.find_player_by_name(&named).or_else(|| {
+        if host_name.is_empty() {
+            None
+        } else {
+            list.find_player_by_name(host_name)
+        }
+    })?;
+    let guard = arc.read().ok()?;
+    Some(guard.has_science(science))
+}
+
+fn live_unlocked_has_science(
+    unlocked: &std::collections::HashSet<String>,
+    science: game_engine::common::rts::ScienceType,
+) -> bool {
+    let Some(store) = game_engine::common::rts::get_science_store() else {
+        return false;
+    };
+    let name = store.get_internal_name_for_science(science);
+    if name.is_empty() {
+        return false;
+    }
+    let name = name.as_str();
+    unlocked.iter().any(|owned| {
+        owned.eq_ignore_ascii_case(name)
+            || owned.eq_ignore_ascii_case(&format!("SCIENCE_{name}"))
+            || name.eq_ignore_ascii_case(&format!("SCIENCE_{owned}"))
+    })
+}
+
+fn object_matches_prereq_template(obj: &Object, required: &str) -> bool {
+    if obj.template_name.eq_ignore_ascii_case(required) {
+        return true;
+    }
+    let Some(owned) = leftover_thing_template(&obj.template_name) else {
+        return false;
+    };
+    let Some(wanted) = leftover_thing_template(required) else {
+        return false;
+    };
+    owned.is_equivalent_to(wanted.as_ref())
+}
+
 
 fn leftover_structure_place_footprint(name: &str) -> Option<(f32, f32, bool)> {
     let tmpl = leftover_thing_template(name)?;

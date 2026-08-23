@@ -1780,6 +1780,15 @@ impl Object {
             || self.template_name.to_ascii_lowercase().contains("chinook")
     }
 
+    /// C++ TransportContain `KeepContainerVelocityOnExit`.
+    /// Default FALSE; only the authored store field enables the hull kick.
+    pub fn transport_keep_container_velocity_on_exit(&self) -> bool {
+        self.thing
+            .template
+            .contain_module
+            .keep_container_velocity_on_exit
+    }
+
     /// C++ OpenContainModuleData::m_numberOfExitPaths.
     pub fn transport_number_of_exit_paths(&self) -> i32 {
         if self.is_humvee_style_container() {

@@ -888,6 +888,37 @@ pub fn particle_outer_node_bone_position(building_origin: Vec3, index: u32) -> V
     )
 }
 
+/// C++ `ParticleUplinkCannonUpdate::createEffects` outer-node flares.
+///
+/// Attaches Light/Medium/Intense templates at FX01..FX05 ring locals so the
+/// dish is not visually idle through CHARGING→FIRING.
+pub fn spawn_particle_outer_node_flares(
+    source: ObjectId,
+    building_origin: Vec3,
+    intensity: ParticleIntensity,
+) {
+    let name = intensity.outer_flare_name();
+    if name.is_empty() {
+        return;
+    }
+    for i in 0..PARTICLE_OUTER_EFFECT_NUM_BONES {
+        let world = particle_outer_node_bone_position(building_origin, i);
+        let local = world - building_origin;
+        let cpp = gamelogic::common::Coord3D::new(local.x, local.z, local.y);
+        let _ = gamelogic::helpers::attach_particle_system_to_object_local(
+            name,
+            source.0,
+            Some(&cpp),
+            None,
+        );
+    }
+}
+
+/// C++ `ParticleUplinkCannonUpdate.cpp:711-721` BeamLaunchFX at laser origin.
+pub fn play_particle_beam_launch_fx(origin: Vec3) {
+    let _ = crate::game_logic::dispatch_fx_list_at_pos(PARTICLE_BEAM_LAUNCH_FX, origin);
+}
+
 /// Connector residual origin (dish connector bone) for STATUS_FIRING residual.
 ///
 /// Fail-closed: not full FXConnector bone matrix; host places connector above origin.

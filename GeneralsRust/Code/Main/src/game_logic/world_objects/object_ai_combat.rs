@@ -911,6 +911,101 @@ mod live_upgrade_mux_tests {
     }
 
     #[test]
+    fn gla_command_center_does_not_grant_radar() {
+        // Leftover/INI: GLACommandCenter has no RadarUpgrade (hq-0clzf).
+        let mut logic = GameLogic::new();
+        add_player(&mut logic, 1, Team::GLA);
+        let mut t = ThingTemplate::new("GLACommandCenter");
+        t.set_health(2000.0);
+        t.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::CommandCenter);
+        logic.templates.insert("GLACommandCenter".into(), t);
+        let cc = logic
+            .create_object_for_player("GLACommandCenter", 1, Vec3::ZERO)
+            .expect("gla cc");
+        if let Some(obj) = logic.host_object_mut(cc) {
+            obj.set_status_under_construction(false);
+            obj.construction_percent = 1.0;
+        }
+        logic.update_player_radar();
+        assert!(
+            !logic.get_player(1).expect("player").has_radar(),
+            "GLA CC must not invent radar without a Radar Van"
+        );
+    }
+
+    #[test]
+    fn emp_revokes_command_center_radar_via_leftover_disabled_edge() {
+        // leftover Object::on_disabled_edge removeRadar (hq-13kyr).
+        let mut logic = GameLogic::new();
+        add_player(&mut logic, 1, Team::USA);
+        let mut t = ThingTemplate::new("AmericaCommandCenter");
+        t.set_health(2000.0);
+        t.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::CommandCenter);
+        logic.templates.insert("AmericaCommandCenter".into(), t);
+        let cc = logic
+            .create_object_for_player("AmericaCommandCenter", 1, Vec3::ZERO)
+            .expect("usa cc");
+        if let Some(obj) = logic.host_object_mut(cc) {
+            obj.set_status_under_construction(false);
+            obj.construction_percent = 1.0;
+        }
+        logic.update_player_radar();
+        assert!(
+            logic.get_player(1).expect("player").has_radar(),
+            "America CC grants radar"
+        );
+        if let Some(obj) = logic.host_object_mut(cc) {
+            obj.apply_disabled_emp(100);
+        }
+        logic.update_player_radar();
+        assert!(
+            !logic.get_player(1).expect("player").has_radar(),
+            "EMP on the only CC must take radar offline"
+        );
+        if let Some(obj) = logic.host_object_mut(cc) {
+            obj.tick_disabled_emp(100);
+        }
+        logic.update_player_radar();
+        assert!(
+            logic.get_player(1).expect("player").has_radar(),
+            "radar returns when EMP expires"
+        );
+    }
+
+    #[test]
+    fn emp_revokes_radar_van_even_when_disable_proof() {
+        // Disable-proof only survives player brownout, not EMP on the van.
+        let mut logic = GameLogic::new();
+        add_player(&mut logic, 1, Team::GLA);
+        let mut t = ThingTemplate::new("GLAVehicleRadarVan");
+        t.set_health(200.0);
+        t.add_kind_of(KindOf::Vehicle);
+        logic.templates.insert("GLAVehicleRadarVan".into(), t);
+        let van = logic
+            .create_object_for_player("GLAVehicleRadarVan", 1, Vec3::ZERO)
+            .expect("van");
+        if let Some(obj) = logic.host_object_mut(van) {
+            obj.set_status_under_construction(false);
+            obj.construction_percent = 1.0;
+        }
+        logic.update_player_radar();
+        assert!(
+            logic.get_player(1).expect("player").has_radar(),
+            "Radar Van grants radar"
+        );
+        if let Some(obj) = logic.host_object_mut(van) {
+            obj.apply_disabled_hacked(80);
+        }
+        logic.update_player_radar();
+        assert!(
+            !logic.get_player(1).expect("player").has_radar(),
+            "hacked Radar Van must drop radar"
+        );
+    }
+
+    #[test]
     fn object_upgrade_complete_stays_off_player_set() {
         let mut logic = GameLogic::new();
         add_player(&mut logic, 1, Team::China);

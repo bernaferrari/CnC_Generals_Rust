@@ -2525,7 +2525,7 @@ impl GameLogic {
             );
             return None;
         }
-        // C++ ProductionPrerequisite residual (known sample table / SW tech tree).
+        // C++ ProductionPrerequisite: leftover is_satisfied for every template.
         let prerequisites_ok = owner_player_id
             .map(|player_id| self.player_satisfies_build_prerequisites(player_id, template_name))
             .unwrap_or_else(|| self.team_satisfies_build_prerequisites(team, template_name));

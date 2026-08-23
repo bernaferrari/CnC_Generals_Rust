@@ -396,6 +396,27 @@ impl Object {
         self.record_host_stealth_delay();
     }
 
+    /// C++ StealthUpdate.cpp:203-214 `receiveGrant(false)` leftover revoke.
+    /// Clears CAN_STEALTH/STEALTHED, `m_stealthAllowedFrame = FOREVER`,
+    /// `m_framesGranted = 0`, `setEffectiveOpacity(1.0)`. Temp stash grants
+    /// latch `innate_stealth`; expiry must still strip it so workers cannot recloak.
+    pub fn revoke_grant_stealth(&mut self) {
+        if self.status.disguised {
+            return;
+        }
+        self.innate_stealth = false;
+        self.set_status_stealthed(false);
+        self.set_status_detected(false);
+        self.detection_expires_frame = 0;
+        self.temporary_stealth_expires_frame = 0;
+        self.stealth_allowed_frame = u32::MAX;
+        self.stealth_delay_pending = false;
+        self.camo_friendly_opacity = 1.0;
+        self.record_host_stealth_flags();
+        self.record_host_stealth_delay();
+        self.record_host_vision_camo();
+    }
+
     /// C++ StealthUpdate.cpp:717-752 — cloak after `m_stealthAllowedFrame` when allowed.
     /// Forbidden frames roll `m_stealthAllowedFrame = now + StealthDelay` every tick.
     pub fn try_recloak_after_stealth_delay(&mut self, now: u32, forbidden: bool) -> bool {
@@ -1443,6 +1464,37 @@ mod stealth_grant_tests {
         assert!(!Object::temporary_stealth_grant_should_expire(100, 50, false));
         assert!(Object::temporary_stealth_grant_should_expire(100, 100, false));
         assert!(!Object::temporary_stealth_grant_should_expire(0, 50, true));
+    }
+
+    #[test]
+    fn temp_grant_revoke_clears_innate_latch_and_cannot_recloak() {
+        // C++ receiveGrant(FALSE): clear CAN_STEALTH|STEALTHED, FOREVER delay,
+        // opacity 1.0. Live apply_grant_stealth latches innate_stealth; expire
+        // must leftover-revoke instead of no-op on that latch.
+        let mut worker = Object::new(
+            ThingTemplate::new("GLAInfantryWorker"),
+            super::ObjectId(12),
+            super::Team::GLA,
+        );
+        worker.apply_grant_stealth();
+        worker.temporary_stealth_expires_frame = 600;
+        worker.camo_friendly_opacity = 0.5;
+        assert!(worker.innate_stealth);
+        assert!(worker.status.stealthed);
+        assert!(Object::temporary_stealth_grant_should_expire(
+            worker.temporary_stealth_expires_frame,
+            600,
+            false,
+        ));
+
+        worker.revoke_grant_stealth();
+        assert!(!worker.innate_stealth, "receiveGrant(false) clears CAN_STEALTH");
+        assert!(!worker.status.stealthed);
+        assert_eq!(worker.temporary_stealth_expires_frame, 0);
+        assert_eq!(worker.stealth_allowed_frame, u32::MAX);
+        assert!((worker.camo_friendly_opacity - 1.0).abs() < 1e-5);
+        assert!(!worker.try_recloak_after_stealth_delay(700, false));
+        assert!(!worker.status.stealthed, "stash worker cannot re-cloak after grant expiry");
     }
 
     #[test]

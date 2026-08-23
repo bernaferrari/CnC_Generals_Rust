@@ -223,7 +223,7 @@ impl PresentationFrame {
     /// on these members — it does **not** use `CanSelectDrawable`, so contained
     /// (garrison/transport/FireBase) and MASKED members stay live.
     pub fn presentation_is_squad_live(o: &RenderableObject) -> bool {
-        if Self::object_has_kind(o, crate::game_logic::KindOf::AlwaysSelectable) {
+        if crate::unit_control::UnitControlSystem::presentation_is_always_selectable(o) {
             return true;
         }
         !o.destroyed

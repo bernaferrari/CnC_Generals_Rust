@@ -56,8 +56,8 @@
 //!   MinIdleScanInterval **500**ms → **15** frames, MaxIdleScanInterval
 //!   **1000**ms → **30** frames, MinIdleScanAngle **0**, MaxIdleScanAngle
 //!   **60** deg off NaturalTurretAngle. Idle residual schedules scan, rotates
-//!   toward natural ± offset. Deterministic host residual
-//!   (alternate min/max interval + signed mid/max offset by scan index).
+//!   toward natural ± leftover `GameLogicRandomValue` / `GameLogicRandomValueReal`
+//!   offset (not a scan-index min/max mix).
 //!
 //! - **TurretAI HoldTurret + idle-recenter residual**: after idle-scan completes,
 //!   HOLD for RecenterTime (default **2** logic seconds → **60** frames; Strategy
@@ -320,29 +320,31 @@ pub fn hold_turret_elapsed(frame: u32, hold_until_frame: u32) -> bool {
     hold_until_frame > 0 && frame >= hold_until_frame
 }
 
-/// Deterministic residual idle-scan interval for scan index `n`.
-///
-/// C++ `GameLogicRandomValue(min, max)` residual; host alternates min/max.
-pub fn idle_scan_interval_frames(scan_index: u32) -> u32 {
-    if scan_index % 2 == 0 {
-        STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES
+/// Leftover `TurretAIIdleState::resetIdleScan`: `GameLogicRandomValue(min, max)`.
+/// `scan_index` is unused (C++ does not seed interval from an index).
+pub fn idle_scan_interval_frames(_scan_index: u32) -> u32 {
+    let min_iv = STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES;
+    let max_iv = if STRATEGY_CENTER_MAX_IDLE_SCAN_INTERVAL_FRAMES < min_iv {
+        min_iv
     } else {
         STRATEGY_CENTER_MAX_IDLE_SCAN_INTERVAL_FRAMES
-    }
+    };
+    gamelogic::helpers::get_game_logic_random_value(min_iv as i32, max_iv as i32) as u32
 }
 
-/// Deterministic residual idle-scan angle offset (deg off natural) for scan index `n`.
-///
-/// C++ picks `minA + rand(0, maxA-minA)` then random sign. Host residual uses
-/// mid-span angle (**30**) with alternating sign so both directions exercise.
-pub fn idle_scan_desired_offset_deg(scan_index: u32) -> f32 {
-    let span = STRATEGY_CENTER_MAX_IDLE_SCAN_ANGLE_DEG - STRATEGY_CENTER_MIN_IDLE_SCAN_ANGLE_DEG;
-    let mid = STRATEGY_CENTER_MIN_IDLE_SCAN_ANGLE_DEG + span * 0.5;
-    if scan_index % 2 == 0 {
-        mid
-    } else {
-        -mid
+/// Leftover `TurretAIIdleScanState::classic_on_enter`:
+/// `minA + GameLogicRandomValueReal(0, maxA-minA)` then random sign.
+/// `scan_index` is unused (C++ does not pick mid-span by index).
+pub fn idle_scan_desired_offset_deg(_scan_index: u32) -> f32 {
+    let span = (STRATEGY_CENTER_MAX_IDLE_SCAN_ANGLE_DEG
+        - STRATEGY_CENTER_MIN_IDLE_SCAN_ANGLE_DEG)
+        .max(0.0);
+    let mut off = STRATEGY_CENTER_MIN_IDLE_SCAN_ANGLE_DEG
+        + gamelogic::helpers::get_game_logic_random_value_real(0.0, span);
+    if gamelogic::helpers::get_game_logic_random_value(0, 1) == 0 {
+        off = -off;
     }
+    off
 }
 
 /// Absolute residual idle-scan target yaw = NaturalTurretAngle + offset.
@@ -2129,14 +2131,36 @@ mod tests {
         assert_eq!(STRATEGY_CENTER_MAX_IDLE_SCAN_INTERVAL_FRAMES, 30);
         assert!((STRATEGY_CENTER_MIN_IDLE_SCAN_ANGLE_DEG - 0.0).abs() < 0.001);
         assert!((STRATEGY_CENTER_MAX_IDLE_SCAN_ANGLE_DEG - 60.0).abs() < 0.001);
-        assert_eq!(idle_scan_interval_frames(0), 15);
-        assert_eq!(idle_scan_interval_frames(1), 30);
-        assert_eq!(idle_scan_interval_frames(2), 15);
-        assert!((idle_scan_desired_offset_deg(0) - 30.0).abs() < 0.001);
-        assert!((idle_scan_desired_offset_deg(1) - (-30.0)).abs() < 0.001);
-        // Desired absolute yaw = natural (-90) + offset.
-        assert!((idle_scan_desired_angle_deg(0) - (-60.0)).abs() < 0.001);
-        assert!((idle_scan_desired_angle_deg(1) - (-120.0)).abs() < 0.001);
+        use game_engine::common::random_value::init_random_with_seed;
+        init_random_with_seed(0xC0FFEE);
+        let expected_iv = gamelogic::helpers::get_game_logic_random_value(
+            STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES as i32,
+            STRATEGY_CENTER_MAX_IDLE_SCAN_INTERVAL_FRAMES as i32,
+        ) as u32;
+        init_random_with_seed(0xC0FFEE);
+        assert_eq!(idle_scan_interval_frames(0), expected_iv);
+        assert_ne!(
+            expected_iv, STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES,
+            "seeded leftover draw must not collapse to the old index-0 min mix"
+        );
+        init_random_with_seed(0xBEEF);
+        let span = (STRATEGY_CENTER_MAX_IDLE_SCAN_ANGLE_DEG
+            - STRATEGY_CENTER_MIN_IDLE_SCAN_ANGLE_DEG)
+            .max(0.0);
+        let mut expected_off = STRATEGY_CENTER_MIN_IDLE_SCAN_ANGLE_DEG
+            + gamelogic::helpers::get_game_logic_random_value_real(0.0, span);
+        if gamelogic::helpers::get_game_logic_random_value(0, 1) == 0 {
+            expected_off = -expected_off;
+        }
+        init_random_with_seed(0xBEEF);
+        let off = idle_scan_desired_offset_deg(0);
+        assert!((off - expected_off).abs() < 0.001);
+        init_random_with_seed(0xBEEF);
+        let expected_abs = normalize_angle_deg(
+            STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG + expected_off,
+        );
+        init_random_with_seed(0xBEEF);
+        assert!((idle_scan_desired_angle_deg(0) - expected_abs).abs() < 0.001);
         // Idle-scan step toward desired: from natural toward -60 at 2 deg/frame.
         let (sa, sp) = step_turret_toward_angles(-90.0, 45.0, -60.0, 45.0);
         assert!((sa - (-88.0)).abs() < 0.001);

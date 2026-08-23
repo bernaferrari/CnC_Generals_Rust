@@ -2124,6 +2124,8 @@ impl CnCGameEngine {
         if self.is_rmb_scrolling {
             self.stop_rmb_lookat_scroll();
         }
+        // C++ stopScrolling unlocks KEY/SCREENEDGE immediately, not next tick.
+        self.set_lookat_scroll_mouse_lock(false);
         let mut modes = look_at_host_modes();
         modes.scroll_type = LookAtScrollType::None;
         modes.wheel_stopped_scroll = true;
@@ -2170,6 +2172,7 @@ impl CnCGameEngine {
             if self.is_rmb_scrolling {
                 self.stop_rmb_lookat_scroll();
             }
+            self.set_lookat_scroll_mouse_lock(false);
             look_at_host_modes().scroll_type = LookAtScrollType::None;
         }
         // C++ LookAt keyboard scroll uses arrows (not WASD). Tokens must stay
@@ -2242,6 +2245,11 @@ impl CnCGameEngine {
         if scroll_type.is_scrolling() && !prev_scroll.is_scrolling() {
             self.break_camera_follow_lock();
         }
+        // C++ LookAtXlat.cpp:50-76 setScrolling/stopScrolling: KEY, RMB, and
+        // SCREENEDGE all mouse-lock. RMB already engaged in start_rmb; this
+        // catches KEY/SCREENEDGE start/stop so WindowXlat keeps hover/RMB/MMB
+        // off the HUD (`input.rs` look_at_host_mouse_locked).
+        self.set_lookat_scroll_mouse_lock(scroll_type.is_scrolling());
         let mut screen_scroll = Vec2::ZERO;
         if self.camera_slave_mode.is_none() {
             match scroll_type {
@@ -2723,8 +2731,8 @@ impl CnCGameEngine {
     /// residual names from `MOUSE_CURSOR_INI_NAME_LIST`.
     pub(super) fn sync_context_mouse_cursor(&mut self) {
         // C++ LookAtXlat.cpp:55-70 saves prevCursor for the scroll and restores
-        // it on stop; do not overwrite the locked cursor mid-drag.
-        if self.is_rmb_scrolling && look_at_host_mouse_locked() {
+        // it on stop; do not overwrite the locked cursor mid KEY/RMB/EDGE pan.
+        if look_at_host_mouse_locked() {
             return;
         }
         // C++ SelectionXlat.cpp:425-446 + HintSpy.cpp:26-35 — hover always
@@ -3962,6 +3970,50 @@ impl CnCGameEngine {
         }
     }
 
+    /// C++ `LookAtXlat.cpp:50-76` `setScrolling` / `stopScrolling`.
+    ///
+    /// Every exclusive scroll type (KEY / RMB / SCREENEDGE) mouse-locks the
+    /// tactical view and sets InGameUI scrolling so WindowXlat keeps hover,
+    /// RMB, and MMB off HUD gadgets. Idempotent: RMB start/stop may already
+    /// have applied the same flags.
+    fn set_lookat_scroll_mouse_lock(&mut self, locked: bool) {
+        if look_at_host_modes().mouse_locked == locked {
+            return;
+        }
+        if locked {
+            let mut modes = look_at_host_modes();
+            modes.prev_cursor = self.last_context_cursor;
+            modes.mouse_locked = true;
+            drop(modes);
+            #[cfg(feature = "game_client")]
+            {
+                game_client::helpers::TheInGameUI::set_scrolling(true);
+                game_client::display::view::with_tactical_view(|view| {
+                    view.set_mouse_lock(true);
+                });
+            }
+            // C++ InGameUI.cpp:2797 setMouseCursor(SCROLL).
+            self.last_context_cursor = Some("Scroll");
+            self.window.set_cursor(winit::window::CursorIcon::AllScroll);
+        } else {
+            {
+                let mut modes = look_at_host_modes();
+                modes.mouse_locked = false;
+                // C++ LookAtXlat.cpp:70 TheMouse->setCursor(prevCursor).
+                let _prev = modes.prev_cursor.take();
+            }
+            #[cfg(feature = "game_client")]
+            {
+                game_client::helpers::TheInGameUI::set_scrolling(false);
+                game_client::display::view::with_tactical_view(|view| {
+                    view.set_mouse_lock(false);
+                });
+            }
+            self.last_context_cursor = None;
+            self.sync_context_mouse_cursor();
+        }
+    }
+
     /// C++ `LookAtXlat.cpp:50-62` `setScrolling(SCROLL_RMB)`.
     pub(super) fn start_rmb_lookat_scroll(&mut self) {
         lookat_stamp_mouse_activity(self.frame_counter);
@@ -3978,22 +4030,11 @@ impl CnCGameEngine {
         }
         let mut modes = look_at_host_modes();
         modes.wheel_stopped_scroll = false;
-        modes.prev_cursor = self.last_context_cursor;
-        modes.mouse_locked = true;
         modes.scroll_type = LookAtScrollType::Rmb;
         drop(modes);
         self.is_rmb_scrolling = true;
         self.break_camera_follow_lock();
-        #[cfg(feature = "game_client")]
-        {
-            game_client::helpers::TheInGameUI::set_scrolling(true);
-            game_client::display::view::with_tactical_view(|view| {
-                view.set_mouse_lock(true);
-            });
-        }
-        // C++ InGameUI.cpp:2797 setMouseCursor(SCROLL).
-        self.last_context_cursor = Some("Scroll");
-        self.window.set_cursor(winit::window::CursorIcon::AllScroll);
+        self.set_lookat_scroll_mouse_lock(true);
     }
 
     /// C++ `LookAtXlat.cpp:65-76` `stopScrolling`.
@@ -4001,25 +4042,13 @@ impl CnCGameEngine {
         lookat_stamp_mouse_activity(self.frame_counter);
         {
             let mut modes = look_at_host_modes();
-            modes.mouse_locked = false;
             if modes.scroll_type == LookAtScrollType::Rmb {
                 modes.scroll_type = LookAtScrollType::None;
             }
-            // C++ LookAtXlat.cpp:70 TheMouse->setCursor(prevCursor) — applied
-            // below via force-resync so the SCROLL icon cannot stick.
-            let _prev = modes.prev_cursor.take();
         }
         self.is_rmb_scrolling = false;
         self.rmb_scroll_anchor = None;
-        #[cfg(feature = "game_client")]
-        {
-            game_client::helpers::TheInGameUI::set_scrolling(false);
-            game_client::display::view::with_tactical_view(|view| {
-                view.set_mouse_lock(false);
-            });
-        }
-        self.last_context_cursor = None;
-        self.sync_context_mouse_cursor();
+        self.set_lookat_scroll_mouse_lock(false);
     }
 
     /// C++ `LookAtTranslator::resetModes` — drop scroll/rotate/pitch/FOV flags
@@ -4028,6 +4057,9 @@ impl CnCGameEngine {
         if self.is_rmb_scrolling {
             self.stop_rmb_lookat_scroll();
         }
+        // Live host also unlocks KEY/SCREENEDGE so WindowXlat cannot stay
+        // suppressed after doDisableInput (C++ resetModes only clears flags).
+        self.set_lookat_scroll_mouse_lock(false);
         self.is_mmb_rotating = false;
         self.mmb_anchor = None;
         self.camera_rotate_left_held = false;
@@ -5021,6 +5053,60 @@ mod camera_pick_tests {
             "setScrolling clears lock + drawable"
         );
     }
+
+    #[test]
+    fn key_and_screenedge_scroll_mouse_lock_like_cpp() {
+        // C++ LookAtXlat.cpp:50-62 setScrolling — KEY/SCREENEDGE lock the mouse
+        // the same as RMB so WindowXlat keeps hover/RMB/MMB off the HUD.
+        let src = include_str!("mouse.rs");
+        let helper = src
+            .find("fn set_lookat_scroll_mouse_lock")
+            .expect("set_lookat_scroll_mouse_lock");
+        let helper_body = &src[helper..src.len().min(helper + 900)];
+        assert!(
+            helper_body.contains("modes.mouse_locked = true")
+                && helper_body.contains("TheInGameUI::set_scrolling(true)")
+                && helper_body.contains("view.set_mouse_lock(true)")
+                && helper_body.contains("set_scrolling(false)")
+                && helper_body.contains("view.set_mouse_lock(false)"),
+            "shared setScrolling path must lock/unlock mouse + InGameUI"
+        );
+        let cam = src
+            .find("fn update_camera(&mut self, dt: f32)")
+            .expect("update_camera");
+        let cam_end = src[cam..]
+            .find("fn is_character_key_pressed")
+            .map(|i| cam + i)
+            .unwrap_or(src.len());
+        let cam_body = &src[cam..cam_end];
+        assert!(
+            cam_body.contains("self.set_lookat_scroll_mouse_lock(scroll_type.is_scrolling())")
+                && cam_body.contains("self.set_lookat_scroll_mouse_lock(false)"),
+            "update_camera must mouse-lock KEY/SCREENEDGE and unlock when input dies"
+        );
+        let wheel = src
+            .find("fn handle_mouse_wheel")
+            .map(|i| &src[i..src.len().min(i + 1800)])
+            .expect("handle_mouse_wheel");
+        assert!(
+            wheel.contains("self.set_lookat_scroll_mouse_lock(false)"),
+            "wheel stopScrolling must unlock KEY/SCREENEDGE immediately"
+        );
+        let reset = src
+            .find("fn apply_look_at_reset_modes")
+            .map(|i| &src[i..src.len().min(i + 700)])
+            .expect("apply_look_at_reset_modes");
+        assert!(
+            reset.contains("self.set_lookat_scroll_mouse_lock(false)"),
+            "doDisableInput reset must not leave KEY/SCREENEDGE mouse-locked"
+        );
+        assert!(
+            src.contains("if look_at_host_mouse_locked()")
+                && src.contains("do not overwrite the locked cursor mid KEY/RMB/EDGE pan"),
+            "context cursor must stay put during KEY/SCREENEDGE lock"
+        );
+    }
+
 
 
     #[test]

@@ -226,7 +226,9 @@ impl GameWorldShadow {
 
         // Wave 818: player radar provider count residual.
         {
-            use crate::game_logic::host_radar::is_legal_radar_provider;
+            use crate::game_logic::host_radar::{
+                is_disabled_for_radar, is_legal_radar_provider,
+            };
             const COMMAND_CENTER_BIT: u32 = 1u32 << 8;
             let mut providers_by_team: std::collections::HashMap<u8, u32> =
                 std::collections::HashMap::new();
@@ -239,6 +241,10 @@ impl GameWorldShadow {
                 let constructed = !e.under_construction && e.construction_percent + 0.001 >= 1.0;
                 let is_cc = (e.kind_of_bits & COMMAND_CENTER_BIT) != 0;
                 let name = e.template_name();
+                // leftover Object::on_disabled_edge: EMP/hacked CC/van drop radar.
+                if is_disabled_for_radar(e.is_disabled(), e.under_construction) {
+                    continue;
+                }
                 if !is_legal_radar_provider(alive, constructed, is_cc, name) {
                     continue;
                 }

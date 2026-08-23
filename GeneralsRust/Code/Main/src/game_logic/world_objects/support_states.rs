@@ -8197,10 +8197,10 @@ impl GameLogic {
             return;
         }
         if let Some(object) = self.objects.get_mut(&object_id) {
-            object.temporary_stealth_expires_frame = 0;
-            if !object.innate_stealth {
-                object.break_stealth();
-            }
+            // Leftover receive_grant(false): strip CAN_STEALTH even when the
+            // grant latched innate_stealth. Skipping that latch left stash
+            // workers permanently cloaked.
+            object.revoke_grant_stealth();
         }
     }
 

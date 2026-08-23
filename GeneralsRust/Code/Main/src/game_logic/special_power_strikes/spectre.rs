@@ -511,6 +511,33 @@ pub fn spectre_is_fair_distance_from_ship(
     (dx * dx + dz * dz).sqrt() > gunship_orbit_radius * 0.75
 }
 
+/// Leftover `SpectreGunshipUpdate::is_disguised_as_enemy`.
+/// KINDOF_DISGUISER + OBJECT_STATUS_DISGUISED + gunship relationship to the
+/// disguise (apparent) team is ENEMIES.
+#[inline]
+pub fn spectre_orbit_is_disguised_as_enemy(
+    is_disguiser: bool,
+    disguised: bool,
+    disguise_team_is_enemy: bool,
+) -> bool {
+    is_disguiser && disguised && disguise_team_is_enemy
+}
+
+/// Leftover `find_target_in_radius` stealth gate / C++
+/// `PartitionFilterStealthedAndUndetected(false)`.
+///
+/// STEALTHED && !DETECTED blocks unless `is_disguised_as_enemy`.
+/// `Object::is_effectively_stealthed` is wrong here: DISGUISED clears that
+/// flag so any disguised unit would pass the gate.
+#[inline]
+pub fn spectre_orbit_stealthed_undetected_blocks(
+    stealthed: bool,
+    detected: bool,
+    disguised_as_enemy: bool,
+) -> bool {
+    stealthed && !detected && !disguised_as_enemy
+}
+
 /// C++ `SpectreGunshipUpdate.cpp:498-507` acquire filters as a pure residual.
 ///
 /// `PartitionFilterLiveMapEnemies` (alive + relationship ENEMIES — not
@@ -528,6 +555,7 @@ pub fn spectre_orbit_target_passes_partition_filters(
 ) -> bool {
     alive && relationship_enemies && !stealthed_undetected && !is_air && fog_clear
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -561,5 +589,54 @@ mod tests {
             Vec3::new(200.0, 0.0, 0.0),
             orbit
         ));
+    }
+
+    #[test]
+    fn disguised_as_friend_is_stealthed_undetected_for_spectre() {
+        // GLA Bomb Truck disguised as USA/ally: leftover is_disguised_as_enemy
+        // is false, so STEALTHED && !DETECTED still blocks acquire.
+        assert!(!spectre_orbit_is_disguised_as_enemy(true, true, false));
+        assert!(spectre_orbit_stealthed_undetected_blocks(true, false, false));
+        assert!(!spectre_orbit_target_passes_partition_filters(
+            true, true, true, false, true
+        ));
+    }
+
+    #[test]
+    fn disguised_as_enemy_exempts_stealth_gate() {
+        // GLA Bomb Truck disguised as China vs USA Spectre: apparent team is
+        // ENEMIES, so the stealth filter does not hide the truck. Real-team
+        // ENEMIES then allows acquire.
+        assert!(spectre_orbit_is_disguised_as_enemy(true, true, true));
+        assert!(!spectre_orbit_stealthed_undetected_blocks(true, false, true));
+        assert!(spectre_orbit_target_passes_partition_filters(
+            true, true, false, false, true
+        ));
+    }
+
+    #[test]
+    fn effectively_stealthed_would_wrongly_pass_any_disguise() {
+        // is_effectively_stealthed = STEALTHED && !DETECTED && !DISGUISED.
+        // Using that as the Spectre stealth bit lets every disguised unit
+        // through (stealthed_undetected=false) and then real-team ENEMIES
+        // shoots a friendly-presenting Bomb Truck.
+        let effectively_stealthed = true && !false && !true;
+        assert!(!effectively_stealthed);
+        assert!(
+            spectre_orbit_target_passes_partition_filters(
+                true, true, effectively_stealthed, false, true
+            ),
+            "is_effectively_stealthed lets disguised-as-friend pass — leftover rejects"
+        );
+        assert!(
+            !spectre_orbit_target_passes_partition_filters(
+                true,
+                true,
+                spectre_orbit_stealthed_undetected_blocks(true, false, false),
+                false,
+                true
+            ),
+            "leftover stealth gate must skip disguised-as-friend"
+        );
     }
 }

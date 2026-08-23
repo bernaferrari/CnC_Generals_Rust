@@ -786,6 +786,17 @@ impl GameLogic {
                         && o.is_alive()
                         && !o.status.stealthed
                         && o.contained_by.is_none()
+                        && !Object::temporary_stealth_grant_should_expire(
+                            o.temporary_stealth_expires_frame,
+                            frame,
+                            matches!(
+                                o.ai_state,
+                                AIState::Moving
+                                    | AIState::Attacking
+                                    | AIState::AttackMoving
+                                    | AIState::AttackingGround
+                            ),
+                        )
                 })
                 .map(|(id, _)| *id)
                 .collect();

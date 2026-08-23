@@ -380,6 +380,7 @@ impl Object {
             script_unsellable: false,
             single_use_command_used: false,
             script_unstealthed: false,
+            script_targetable: false,
             indestructible: false,
 
             eject_pilot_die_applied: false,
@@ -1268,6 +1269,7 @@ impl Object {
             script_unsellable: false,
             single_use_command_used: false,
             script_unstealthed: false,
+            script_targetable: false,
             indestructible: false,
 
             eject_pilot_die_applied: false,

@@ -639,20 +639,45 @@ fn projectile_stream_name_reads_store_not_just_seed() {
     );
 }
 #[test]
-fn shows_ammo_pips_and_waypoint_seeds() {
-    assert!(host_shows_ammo_pips_for_weapon_name(
-        "AmericaJetRaptorMissileWeapon"
-    ));
+fn shows_ammo_pips_reads_store_not_name_seed() {
+    ensure_host_weapon_store();
+    const NAME: &str = "HuntShowsAmmoPipsWeapon";
+    let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
+        let mut template = WeaponTemplate::new(NAME.to_string());
+        template.is_shows_ammo_pips = true;
+        store.add_weapon_template(template);
+    });
+    assert!(host_shows_ammo_pips_for_weapon_name(NAME));
     assert!(!host_shows_ammo_pips_for_weapon_name(
         "AmericaTankCrusaderGun"
     ));
-    assert!(host_capable_of_following_waypoint_for_weapon_name(
-        "ScudStormWeapon"
+    // Name seed must not invent ShowsAmmoPips when the store field is false.
+    assert!(!host_shows_ammo_pips_for_weapon_name(
+        "NotInStoreRaptorMissileWeapon"
     ));
+    assert!(!host_shows_ammo_pips_for_weapon_name(""));
+}
+
+#[test]
+fn capable_of_following_waypoint_reads_store_not_name_seed() {
+    ensure_host_weapon_store();
+    const NAME: &str = "HuntWaypointFollowWeapon";
+    let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
+        let mut template = WeaponTemplate::new(NAME.to_string());
+        template.capable_of_following_waypoint = true;
+        store.add_weapon_template(template);
+    });
+    assert!(host_capable_of_following_waypoint_for_weapon_name(NAME));
     assert!(!host_capable_of_following_waypoint_for_weapon_name(
         "AmericaTankCrusaderGun"
     ));
+    // Name seed must not invent CapableOfFollowingWaypoints when the store field is false.
+    assert!(!host_capable_of_following_waypoint_for_weapon_name(
+        "NotInStoreParticleCannon"
+    ));
+    assert!(!host_capable_of_following_waypoint_for_weapon_name(""));
 }
+
 #[test]
 fn play_fx_when_stealthed_uses_the_retail_weapon_field() {
     assert!(!host_play_fx_when_stealthed_for_weapon_name(

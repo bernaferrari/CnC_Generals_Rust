@@ -558,6 +558,11 @@ impl AIPlayer {
                 .iter()
                 .map(|building| building.rebuild_count)
                 .collect(),
+            building_destroyed_at_times: self
+                .building_queue
+                .iter()
+                .map(|building| building.destroyed_at_time)
+                .collect(),
         }
     }
 
@@ -613,6 +618,15 @@ impl AIPlayer {
             .zip(persist.building_rebuild_counts)
         {
             building.rebuild_count = remaining;
+        }
+        // Leftover Player::xfer object_timestamp. Write rebuild-delay clock only;
+        // do not rebind pad object_id or under-construction.
+        for (building, stamp) in self
+            .building_queue
+            .iter_mut()
+            .zip(persist.building_destroyed_at_times)
+        {
+            building.destroyed_at_time = stamp;
         }
     }
 
@@ -715,8 +729,8 @@ impl AIPlayer {
         // doTeamBuilding
         self.update_military_management(game_logic, current_time);
         self.do_upgrades_and_skills(game_logic);
-        // updateBridgeRepair — queue damaged spans and send a dozer
-        self.check_bridges(game_logic);
+        // updateBridgeRepair — C++ AIPlayer::update never calls checkBridges
+        // (scripts do, via leftover findBrokenBridge + clientSafeQuickDoesPathExist).
         self.update_bridge_repair(game_logic, current_time);
 
         self.update_strategic_decisions(game_logic, current_time);
@@ -3867,9 +3881,13 @@ impl AIPlayer {
     }
 
     /// C++ `AIPlayer::doUpgradesAndSkills` (AIPlayer.cpp:2908) spends science
-    /// points from a randomly chosen `AISideInfo` SkillSet. Host also runs a
+    /// points from an `AISideInfo` SkillSet. Host also runs a
     /// residual of `AIPlayer::buildUpgrade` (AIPlayer.cpp:1728).
     fn do_upgrades_and_skills(&mut self, game_logic: &mut GameLogic) {
+        // C++ AIPlayer.cpp:2910-2912 — can't do updates on the first few frames.
+        if game_logic.get_frame() < 2 {
+            return;
+        }
         self.try_queue_structure_upgrade(game_logic);
         self.try_purchase_skillset_science(game_logic);
     }
@@ -4055,8 +4073,13 @@ impl AIPlayer {
                     }
                 }
             }
-            // Host leftover AIPlayer is the skirmish path — randomize.
-            self.skillset_selector = self.placement_rng.next_int(0, limit);
+            // C++ AIPlayer.cpp:2944-2948 — only AISkirmishPlayer randomizes.
+            // Campaign/script AIPlayer always buys SkillSet1 (selector 0).
+            if self.leftover_is_skirmish_ai() {
+                self.skillset_selector = self.placement_rng.next_int(0, limit);
+            } else {
+                self.skillset_selector = 0;
+            }
         }
         let idx = self.skillset_selector.clamp(0, 4) as usize;
         let candidates = sets[idx].clone();
@@ -5908,21 +5931,6 @@ impl AIPlayer {
         ))
     }
 
-    fn host_object_is_bridge(object: &crate::game_logic::object::Object) -> bool {
-        let n = object.template_name.to_ascii_lowercase();
-        (n.contains("bridge") && !n.contains("tower") && !n.contains("scaffold"))
-            || object.template_name.eq_ignore_ascii_case("Bridge")
-    }
-
-    fn host_object_is_damaged(object: &crate::game_logic::object::Object) -> bool {
-        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
-        if !object.is_alive() {
-            return false;
-        }
-        !matches!(object.body_damage_state, HostBodyDamageType::Pristine)
-            || object.health.current + 0.01 < object.health.maximum
-    }
-
     /// C++ `AIPlayer::repairStructure` (`AIPlayer.cpp:2254-2280`).
     pub fn repair_structure(&mut self, game_logic: &GameLogic, structure_id: ObjectId) {
         use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
@@ -5943,19 +5951,85 @@ impl AIPlayer {
         self.structures_to_repair.push(structure_id);
     }
 
-    /// Host residual of `AISkirmishPlayer::checkBridges`: enqueue damaged spans.
-    pub fn check_bridges(&mut self, game_logic: &GameLogic) {
-        let damaged: Vec<ObjectId> = game_logic
-            .host_objects()
-            .iter()
-            .filter_map(|(&id, object)| {
-                (Self::host_object_is_bridge(object) && Self::host_object_is_damaged(object))
-                    .then_some(id)
-            })
-            .collect();
-        for id in damaged {
-            self.repair_structure(game_logic, id);
+    /// C++ `AISkirmishPlayer::checkBridges` (AISkirmishPlayer.cpp:694-711).
+    ///
+    /// Walk leftover `way->getNext()` hops. Live
+    /// `clientSafeQuickDoesPathExist` continues; else leftover
+    /// `findBrokenBridge` (then live destroyed-layer scan) → `repairStructure`
+    /// → true. Does **not** enqueue every damaged span.
+    pub fn check_bridges(
+        &mut self,
+        game_logic: &GameLogic,
+        unit_id: ObjectId,
+        start_waypoint_id: u32,
+    ) -> bool {
+        let Some(unit) = game_logic.host_object(unit_id) else {
+            return false;
+        };
+        // C++: if (!ai) return false;
+        if unit.is_kind_of(KindOf::Structure) || unit.is_kind_of(KindOf::Immobile) {
+            return false;
         }
+        let unit_pos = unit.get_position();
+        let surfaces = if unit.locomotor_surfaces != 0 {
+            unit.locomotor_surfaces
+        } else {
+            gamelogic::ai::pathfind_complete::SURFACE_GROUND
+        };
+        let is_crusher = unit.crusher_level > 0;
+        let from = gamelogic::common::Coord3D::new(unit_pos.x, unit_pos.z, unit_pos.y);
+        let hop_targets: Vec<gamelogic::common::Coord3D> = {
+            let Ok(terrain) = gamelogic::terrain::get_terrain_logic().read() else {
+                return false;
+            };
+            let mut out = Vec::new();
+            let mut cur = terrain.get_waypoint_by_id(start_waypoint_id);
+            while let Some(way) = cur {
+                out.push(*way.get_location());
+                cur = way.get_next();
+            }
+            out
+        };
+        let loco = gamelogic::locomotor::LocomotorSet::from_surfaces(surfaces);
+        let leftover_pf = gamelogic::ai::THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| ai.pathfinder());
+
+        for target in hop_targets {
+            let hop = Vec3::new(target.x, target.z, target.y);
+            // Player path: live zone connectivity. Leftover empty zones
+            // would report true and skip a destroyed span.
+            if game_logic
+                .pathfinding_system
+                .client_safe_quick_does_path_exist_for_crusher(
+                    unit_pos, hop, surfaces, is_crusher,
+                )
+            {
+                continue;
+            }
+            if let Some(pf_arc) = leftover_pf.as_ref() {
+                if let Ok(pf) = pf_arc.read() {
+                    if pf.client_safe_quick_does_path_exist(&loco, &from, &target) {
+                        // Leftover terrain still joins; live already said no.
+                    }
+                    if let Some(bridge_id) = pf.find_broken_bridge(&loco, &from, &target) {
+                        if bridge_id != 0 {
+                            self.repair_structure(game_logic, ObjectId(bridge_id));
+                            return true;
+                        }
+                    }
+                }
+            }
+            if let Some(bridge_id) = game_logic
+                .pathfinding_system
+                .find_broken_bridge(unit_pos, hop)
+            {
+                self.repair_structure(game_logic, bridge_id);
+                return true;
+            }
+        }
+        false
     }
 
     /// C++ `AIPlayer::updateBridgeRepair` (`AIPlayer.cpp:2296-2384`).
@@ -6226,6 +6300,116 @@ impl AIPlayer {
             (3..=5, _) => AIBuildPhase::Expansion,
             _ => AIBuildPhase::MassProduction,
         };
+    }
+}
+
+/// Leftover `iterateCellsAlongLine` Bresenham (AIPathfind.cpp / tall_buildings.rs).
+fn dest_line_cells(sx: i32, sy: i32, ex: i32, ey: i32) -> Vec<(i32, i32)> {
+    if sx == ex && sy == ey {
+        return vec![(sx, sy)];
+    }
+    let mut out = Vec::new();
+    let delta_x = (ex - sx).abs();
+    let delta_y = (ey - sy).abs();
+    let mut x = sx;
+    let mut y = sy;
+    let (mut xinc1, mut xinc2) = if ex >= sx { (1, 1) } else { (-1, -1) };
+    let (mut yinc1, mut yinc2) = if ey >= sy { (1, 1) } else { (-1, -1) };
+    let (den, mut num, numadd, numpixels);
+    if delta_x >= delta_y {
+        xinc1 = 0;
+        yinc2 = 0;
+        den = delta_x;
+        num = delta_x / 2;
+        numadd = delta_y;
+        numpixels = delta_x;
+    } else {
+        xinc2 = 0;
+        yinc1 = 0;
+        den = delta_y;
+        num = delta_y / 2;
+        numadd = delta_x;
+        numpixels = delta_y;
+    }
+    for _ in 0..=numpixels {
+        out.push((x, y));
+        num += numadd;
+        if den != 0 && num >= den {
+            num -= den;
+            x += xinc1;
+            y += yinc1;
+            out.push((x, y));
+        }
+        x += xinc2;
+        y += yinc2;
+    }
+    out
+}
+
+impl GameLogic {
+    /// C++ `Pathfinder::moveAlliesAwayFromDestination` (AIPathfind.cpp:6911-6922).
+    /// Factory-exit dest-line: leftover occupancy first, then host idle allies.
+    pub fn move_allies_away_from_destination(&mut self, unit_id: ObjectId, destination: Vec3) {
+        let Some(unit) = self.objects.get(&unit_id) else {
+            return;
+        };
+        let from = unit.get_position();
+        let ignore = unit.ignored_obstacle_id;
+        let mover_player = unit.owner_player_id.unwrap_or(unit.team as u32);
+        let mover_team = unit.team;
+
+        let leftover_from = gamelogic::common::Coord3D::new(from.x, from.z, from.y);
+        let leftover_dest =
+            gamelogic::common::Coord3D::new(destination.x, destination.z, destination.y);
+        if let Ok(ai) = gamelogic::ai::THE_AI.read() {
+            if let Some(pf) = ai.pathfinder() {
+                if let Ok(pf) = pf.read() {
+                    let _ = pf.move_allies_away_from_destination_for(
+                        unit_id.0,
+                        &leftover_from,
+                        &leftover_dest,
+                    );
+                }
+            }
+        }
+
+        let from_c = self.pathfinding_system.grid.world_to_grid(from);
+        let to_c = self.pathfinding_system.grid.world_to_grid(destination);
+        let cells = dest_line_cells(from_c.x, from_c.y, to_c.x, to_c.y);
+
+        let mut nudged = Vec::new();
+        for (cx, cy) in cells {
+            for obj in self.objects.values() {
+                if obj.id == unit_id || !obj.is_alive() || ignore == Some(obj.id) {
+                    continue;
+                }
+                if obj.is_kind_of(KindOf::Structure) || obj.is_kind_of(KindOf::Immobile) {
+                    continue;
+                }
+                let other_p = obj.owner_player_id.unwrap_or(obj.team as u32);
+                if other_p != mover_player && obj.team != mover_team {
+                    continue;
+                }
+                if !obj.movement.path.is_empty()
+                    || obj.movement.velocity.length_squared() > 0.25
+                    || obj.status.attacking
+                    || obj.status.using_ability
+                    || obj.deploy_style.as_ref().is_some_and(|d| d.is_busy())
+                {
+                    continue;
+                }
+                let oc = self.pathfinding_system.grid.world_to_grid(obj.get_position());
+                if oc.x == cx && oc.y == cy && !nudged.contains(&obj.id) {
+                    nudged.push(obj.id);
+                }
+            }
+        }
+
+        for ally in nudged {
+            if let Some(obj) = self.objects.get_mut(&ally) {
+                obj.ai_move_away_from_unit(unit_id, from);
+            }
+        }
     }
 }
 
@@ -7172,6 +7356,23 @@ mod cpp_parity_tests {
         }
         if let Ok(mut list) = gamelogic::player::player_list().write() {
             list.clear();
+        }
+    }
+
+    fn install_leftover_computer_player(player_id: i32, skirmish: bool) {
+        use std::sync::{Arc, RwLock};
+        let mut list = gamelogic::player::player_list()
+            .write()
+            .expect("player list");
+        list.clear();
+        for i in 0..=player_id {
+            let p = Arc::new(RwLock::new(gamelogic::player::Player::new(i)));
+            if i == player_id {
+                if let Ok(mut pg) = p.write() {
+                    pg.set_player_type(gamelogic::player::PlayerType::Computer, skirmish);
+                }
+            }
+            list.add_player(p);
         }
     }
 
@@ -10231,6 +10432,92 @@ mod cpp_parity_tests {
     }
 
     #[test]
+    fn do_upgrades_and_skills_skips_first_two_frames_like_cpp() {
+        // C++ AIPlayer.cpp:2910-2912 — if (TheGameLogic->getFrame() < 2) return;
+        if let Ok(mut list) = gamelogic::player::player_list().write() {
+            list.clear();
+        }
+        let mut logic = crate::game_logic::GameLogic::new();
+        logic.frame = 0;
+        let mut player = crate::game_logic::Player::new(1, Team::China, "China AI", false);
+        player.science_purchase_points = 1;
+        logic.add_player(player);
+        let mut ai = AIPlayer::new(1, Team::China, AIDifficulty::Medium);
+        ai.do_upgrades_and_skills(&mut logic);
+        assert_eq!(ai.skillset_selector, INVALID_SKILLSET_SELECTION);
+        assert!(
+            !logic
+                .get_player(1)
+                .unwrap()
+                .has_unlocked_science("SCIENCE_NukeLauncher"),
+            "frame 0 must not spend Rank1 SPP"
+        );
+
+        logic.frame = 1;
+        ai.do_upgrades_and_skills(&mut logic);
+        assert_eq!(ai.skillset_selector, INVALID_SKILLSET_SELECTION);
+
+        logic.frame = 2;
+        ai.do_upgrades_and_skills(&mut logic);
+        assert_eq!(
+            ai.skillset_selector, 0,
+            "non-skirmish AI must pick SkillSet1 after the frame gate"
+        );
+    }
+
+    #[test]
+    fn non_skirmish_ai_skillset_defaults_to_skillset1() {
+        // C++ AIPlayer.cpp:2944-2948 — isSkirmishAI() false → selector 0.
+        install_leftover_computer_player(1, false);
+        let mut logic = crate::game_logic::GameLogic::new();
+        logic.frame = 2;
+        let mut player = crate::game_logic::Player::new(1, Team::China, "China AI", false);
+        player.science_purchase_points = 1;
+        logic.add_player(player);
+        let mut ai = AIPlayer::new(1, Team::China, AIDifficulty::Medium);
+        assert!(!ai.leftover_is_skirmish_ai());
+        ai.try_purchase_skillset_science(&mut logic);
+        assert_eq!(ai.skillset_selector, 0);
+        assert_eq!(ai.side_skillsets()[0][0], "SCIENCE_NukeLauncher");
+        clear_player_team_prototypes();
+    }
+
+    #[test]
+    fn skirmish_ai_skillset_randomizes_like_cpp() {
+        // C++ AIPlayer.cpp:2944-2945 — isSkirmishAI() true → GameLogicRandomValue(0, limit).
+        install_leftover_computer_player(1, true);
+        let mut logic = crate::game_logic::GameLogic::new();
+        logic.frame = 2;
+        let mut player = crate::game_logic::Player::new(1, Team::China, "China AI", false);
+        player.science_purchase_points = 1;
+        logic.add_player(player);
+        let mut ai = AIPlayer::new(1, Team::China, AIDifficulty::Medium);
+        assert!(ai.leftover_is_skirmish_ai());
+        let sets = ai.live_side_skillsets(&logic);
+        let mut limit = 0i32;
+        if !sets[1].is_empty() {
+            limit = 1;
+            if !sets[2].is_empty() {
+                limit = 2;
+                if !sets[3].is_empty() {
+                    limit = 3;
+                    if !sets[4].is_empty() {
+                        limit = 4;
+                    }
+                }
+            }
+        }
+        let mut probe = crate::game_logic::host_rng_residual::HostRandomState::seeded(
+            1u32.wrapping_add(0xA17A_0001),
+        );
+        let expected = probe.next_int(0, limit);
+        ai.try_purchase_skillset_science(&mut logic);
+        assert_eq!(ai.skillset_selector, expected);
+        assert!((0..=limit).contains(&ai.skillset_selector));
+        clear_player_team_prototypes();
+    }
+
+    #[test]
     fn air_force_side_info_skillset_is_a10_not_paladin() {
         let residual = AIPlayer::residual_general_skillsets("AmericaAirForceGeneral")
             .expect("Air Force residual SideInfo");
@@ -10284,7 +10571,24 @@ mod cpp_parity_tests {
     }
 
     #[test]
-    fn check_bridges_queues_damaged_span_and_assigns_dozer() {
+    fn check_bridges_uses_leftover_find_broken_bridge_gate() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai.rs"));
+        let i = src
+            .find("pub fn check_bridges(")
+            .expect("check_bridges");
+        let w = &src[i..src.len().min(i + 2500)];
+        assert!(
+            w.contains("client_safe_quick_does_path_exist")
+                && w.contains("find_broken_bridge")
+                && w.contains("repair_structure")
+                && w.contains("get_waypoint_by_id")
+                && !w.contains("host_object_is_bridge"),
+            "checkBridges must use leftover findBrokenBridge + clientSafeQuickDoesPathExist"
+        );
+    }
+
+    #[test]
+    fn check_bridges_does_not_queue_every_damaged_span() {
         use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
         let mut logic = crate::game_logic::GameLogic::new();
         logic.add_player(crate::game_logic::Player::new(1, Team::USA, "USA AI", false));
@@ -10314,12 +10618,92 @@ mod cpp_parity_tests {
 
         let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
         ai.base_center = Vec3::ZERO;
-        ai.check_bridges(&logic);
-        assert_eq!(ai.structures_to_repair, vec![bridge]);
+        // No leftover waypoint hop / destroyed layer → must not scan every span.
+        assert!(!ai.check_bridges(&logic, dozer, 0));
+        assert!(ai.structures_to_repair.is_empty());
+        ai.repair_structure(&logic, bridge);
         ai.last_bridge_repair_time = -1.0;
         ai.update_bridge_repair(&mut logic, 0.0);
         assert_eq!(ai.repair_dozer, Some(dozer));
         assert!(ai.dozer_is_repairing);
+    }
+
+    #[test]
+    fn factory_exit_nudge_calls_leftover_move_allies() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai.rs"));
+        let i = src
+            .find("pub fn move_allies_away_from_destination")
+            .expect("moveAlliesAwayFromDestination");
+        let w = &src[i..src.len().min(i + 2500)];
+        assert!(
+            w.contains("move_allies_away_from_destination_for")
+                && w.contains("ai_move_away_from_unit")
+                && w.contains("ignored_obstacle_id")
+                && w.contains("using_ability"),
+            "factory-exit dest-line must call leftover then nudge idle host allies"
+        );
+    }
+
+    #[test]
+    fn factory_exit_nudge_idle_ally_on_dest_line() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut t = crate::game_logic::ThingTemplate::new("AmericaInfantryRanger");
+        t.add_kind_of(crate::game_logic::KindOf::Infantry)
+            .set_health(100.0);
+        logic.templates.insert("AmericaInfantryRanger".into(), t);
+        let mover = logic
+            .create_object(
+                "AmericaInfantryRanger",
+                Team::USA,
+                Vec3::new(5.0, 0.0, 5.0),
+            )
+            .expect("mover");
+        let ally = logic
+            .create_object(
+                "AmericaInfantryRanger",
+                Team::USA,
+                Vec3::new(15.0, 0.0, 5.0),
+            )
+            .expect("ally");
+        logic.move_allies_away_from_destination(mover, Vec3::new(25.0, 0.0, 5.0));
+        let ally_obj = logic.host_object(ally).expect("ally");
+        assert_eq!(
+            ally_obj.move_away_from,
+            Some(mover),
+            "idle ally on factory-exit dest line must scoot"
+        );
+    }
+
+    #[test]
+    fn factory_exit_nudge_scoots_idle_ally_on_destination_line() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut mover_t = crate::game_logic::ThingTemplate::new("Ranger");
+        mover_t.add_kind_of(crate::game_logic::KindOf::Infantry);
+        logic.templates.insert("Ranger".into(), mover_t);
+        let mut ally_t = crate::game_logic::ThingTemplate::new("Humvee");
+        ally_t.add_kind_of(crate::game_logic::KindOf::Vehicle);
+        logic.templates.insert("Humvee".into(), ally_t);
+
+        let mover = logic
+            .create_object("Ranger", Team::USA, Vec3::new(10.0, 0.0, 10.0))
+            .expect("mover");
+        let ally = logic
+            .create_object("Humvee", Team::USA, Vec3::new(50.0, 0.0, 10.0))
+            .expect("ally");
+        if let Some(o) = logic.host_object_mut(ally) {
+            o.owner_player_id = Some(0);
+        }
+        if let Some(o) = logic.host_object_mut(mover) {
+            o.owner_player_id = Some(0);
+        }
+
+        logic.move_allies_away_from_destination(mover, Vec3::new(80.0, 0.0, 10.0));
+        let ally_obj = logic.host_object(ally).expect("ally after nudge");
+        assert_eq!(
+            ally_obj.move_away_from,
+            Some(mover),
+            "idle ally on the dest line must aiMoveAwayFromUnit"
+        );
     }
 
 

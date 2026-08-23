@@ -1075,6 +1075,19 @@ mod tests {
     }
 
     #[test]
+    fn restore_save_edge_flags_writes_clocks_only() {
+        let mut team = Team::new(AsciiString::from("EdgeTeam"), 1);
+        assert!(!team.did_enter_or_exit());
+        assert!(!team.get_check_enemy_sighted());
+        team.restore_save_edge_flags(true, true);
+        assert!(team.did_enter_or_exit());
+        assert!(team.get_check_enemy_sighted());
+        team.restore_save_edge_flags(false, false);
+        assert!(!team.did_enter_or_exit());
+        assert!(!team.get_check_enemy_sighted());
+    }
+
+    #[test]
     fn team_relation_override_pairs_round_trip_team_and_player_maps() {
         let mut team = Team::new(AsciiString::from("RelTeam"), 1);
         team.set_override_team_relationship(8, Relationship::Neutral);

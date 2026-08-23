@@ -2,15 +2,16 @@
 //!
 //! C++ `Object::xfer` writes vision/shroud ranges, DISABLED_HELD,
 //! `m_singleUseCommandUsed`, `m_indicatorColor`, `m_weaponBonusCondition`,
-//! `m_smcUntil`, and `m_isReceivingDifficultyBonus`. `Weapon::xfer` writes
-//! `m_whenPreAttackFinished`, `m_maxShotCount`, and
+//! `m_smcUntil`, `m_isReceivingDifficultyBonus`, and v9 `m_safeOcclusionFrame`.
+//! `Weapon::xfer` writes `m_whenPreAttackFinished`, `m_maxShotCount`, and
 //! `m_scatterTargetsUnused`. `TurretAI::xfer` v2 writes
 //! angle/pitch/target/hold/enabled/state. `StealthUpdate::xfer` v2 writes
 //! `m_framesGranted`. `OpenContain::xfer` v2 writes `m_whichExitPath`.
 //! Leftover xfer already matches those tables. Live stores the same residual
 //! on host `Object` but ObjectSnapshot never wrote cheer/`SPECIAL_CHEERING`,
-//! mid-clip scatter unused, or HORDE/ENTHUSIASTIC/SUBLIMINAL bits — load
-//! dropped mid-cheer pose, repeated scatter offsets, and horde/speaker ROF.
+//! mid-clip scatter unused, HORDE/ENTHUSIASTIC/SUBLIMINAL bits, or
+//! `safe_occlusion_frame` — load dropped mid-cheer pose, repeated scatter
+//! offsets, horde/speaker ROF, and garrison-exit occlusion delay.
 //!
 //! Append a tagged suffix after the historical v9 contain/producer payload
 //! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
@@ -22,7 +23,7 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const OXOB_MAGIC: &[u8; 4] = b"OXOB";
-const OXOB_VERSION: u32 = 2;
+const OXOB_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ObjectXferPersistPayload {
@@ -32,6 +33,11 @@ struct ObjectXferPersistPayload {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ObjectXferPersistPayloadV1 {
     objects: Vec<ObjectXferPersistV1>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct ObjectXferPersistPayloadV2 {
+    objects: Vec<ObjectXferPersistV2>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,6 +79,7 @@ struct ObjectXferPersist {
     weapon_bonus_horde: bool,
     weapon_bonus_enthusiastic: bool,
     weapon_bonus_subliminal: bool,
+    safe_occlusion_frame: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,6 +115,47 @@ struct ObjectXferPersistV1 {
     weapon_bonus_solo: u8,
     which_exit_path: u8,
  }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ObjectXferPersistV2 {
+    object_id: u32,
+    disabled_held: bool,
+    single_use_command_used: bool,
+    ai_attitude: i8,
+    custom_indicator_color: Option<u32>,
+    vision_range: f32,
+    shroud_clearing_range: f32,
+    shroud_range: f32,
+    pre_attack_ready_at: f32,
+    pre_attack_target: Option<u32>,
+    consecutive_shot_target: Option<u32>,
+    max_shots_to_fire: i32,
+    turret_angle_deg: f32,
+    turret_pitch_deg: f32,
+    turret_idle_scan_next_frame: u32,
+    turret_idle_scanning: bool,
+    turret_idle_scan_desired_angle_deg: f32,
+    turret_idle_scan_index: u32,
+    turret_holding: bool,
+    turret_hold_until_frame: u32,
+    turret_idle_recentering: bool,
+    turret_mood_target: bool,
+    turret_target_id: Option<u32>,
+    turret_force_attacking: bool,
+    turret_enabled: bool,
+    turret_substate: u8,
+    turret_rotating: bool,
+    temporary_stealth_expires_frame: u32,
+    weapon_bonus_solo: u8,
+    which_exit_path: u8,
+    cheer_timer: f32,
+    special_cheering: bool,
+    weapon_scatter_targets_unused: [Vec<i32>; 3],
+    weapon_scatter_targets_inited: [bool; 3],
+    weapon_bonus_horde: bool,
+    weapon_bonus_enthusiastic: bool,
+    weapon_bonus_subliminal: bool,
+}
 
 impl From<ObjectXferPersistV1> for ObjectXferPersist {
     fn from(v1: ObjectXferPersistV1) -> Self {
@@ -149,6 +197,52 @@ impl From<ObjectXferPersistV1> for ObjectXferPersist {
             weapon_bonus_horde: false,
             weapon_bonus_enthusiastic: false,
             weapon_bonus_subliminal: false,
+            safe_occlusion_frame: 0,
+        }
+    }
+}
+
+impl From<ObjectXferPersistV2> for ObjectXferPersist {
+    fn from(v2: ObjectXferPersistV2) -> Self {
+        Self {
+            object_id: v2.object_id,
+            disabled_held: v2.disabled_held,
+            single_use_command_used: v2.single_use_command_used,
+            ai_attitude: v2.ai_attitude,
+            custom_indicator_color: v2.custom_indicator_color,
+            vision_range: v2.vision_range,
+            shroud_clearing_range: v2.shroud_clearing_range,
+            shroud_range: v2.shroud_range,
+            pre_attack_ready_at: v2.pre_attack_ready_at,
+            pre_attack_target: v2.pre_attack_target,
+            consecutive_shot_target: v2.consecutive_shot_target,
+            max_shots_to_fire: v2.max_shots_to_fire,
+            turret_angle_deg: v2.turret_angle_deg,
+            turret_pitch_deg: v2.turret_pitch_deg,
+            turret_idle_scan_next_frame: v2.turret_idle_scan_next_frame,
+            turret_idle_scanning: v2.turret_idle_scanning,
+            turret_idle_scan_desired_angle_deg: v2.turret_idle_scan_desired_angle_deg,
+            turret_idle_scan_index: v2.turret_idle_scan_index,
+            turret_holding: v2.turret_holding,
+            turret_hold_until_frame: v2.turret_hold_until_frame,
+            turret_idle_recentering: v2.turret_idle_recentering,
+            turret_mood_target: v2.turret_mood_target,
+            turret_target_id: v2.turret_target_id,
+            turret_force_attacking: v2.turret_force_attacking,
+            turret_enabled: v2.turret_enabled,
+            turret_substate: v2.turret_substate,
+            turret_rotating: v2.turret_rotating,
+            temporary_stealth_expires_frame: v2.temporary_stealth_expires_frame,
+            weapon_bonus_solo: v2.weapon_bonus_solo,
+            which_exit_path: v2.which_exit_path,
+            cheer_timer: v2.cheer_timer,
+            special_cheering: v2.special_cheering,
+            weapon_scatter_targets_unused: v2.weapon_scatter_targets_unused,
+            weapon_scatter_targets_inited: v2.weapon_scatter_targets_inited,
+            weapon_bonus_horde: v2.weapon_bonus_horde,
+            weapon_bonus_enthusiastic: v2.weapon_bonus_enthusiastic,
+            weapon_bonus_subliminal: v2.weapon_bonus_subliminal,
+            safe_occlusion_frame: 0,
         }
     }
 }
@@ -177,7 +271,7 @@ pub fn apply_from_lifecycle_tail(
     };
     let mut rest = suffix;
     let version = take_u32(&mut rest)?;
-    if version != 1 && version != OXOB_VERSION {
+    if version != 1 && version != 2 && version != OXOB_VERSION {
         return Err(SaveLoadError::Corrupted(format!(
             "unknown OXOB suffix version {version}"
         )));
@@ -191,6 +285,12 @@ pub fn apply_from_lifecycle_tail(
     let encoded = &rest[..payload_len];
     let payload = if version == 1 {
         let old: ObjectXferPersistPayloadV1 = bincode::deserialize(encoded)
+            .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
+        ObjectXferPersistPayload {
+            objects: old.objects.into_iter().map(ObjectXferPersist::from).collect(),
+        }
+    } else if version == 2 {
+        let old: ObjectXferPersistPayloadV2 = bincode::deserialize(encoded)
             .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
         ObjectXferPersistPayload {
             objects: old.objects.into_iter().map(ObjectXferPersist::from).collect(),
@@ -247,6 +347,7 @@ fn capture(game_logic: &GameLogic) -> ObjectXferPersistPayload {
             weapon_bonus_horde: object.weapon_bonus_horde,
             weapon_bonus_enthusiastic: object.weapon_bonus_enthusiastic,
             weapon_bonus_subliminal: object.weapon_bonus_subliminal,
+            safe_occlusion_frame: object.safe_occlusion_frame,
         });
     }
     ObjectXferPersistPayload { objects }
@@ -332,6 +433,7 @@ fn apply_payload(game_logic: &mut GameLogic, payload: ObjectXferPersistPayload) 
         object.weapon_bonus_horde = entry.weapon_bonus_horde;
         object.weapon_bonus_enthusiastic = entry.weapon_bonus_enthusiastic;
         object.weapon_bonus_subliminal = entry.weapon_bonus_subliminal;
+        object.safe_occlusion_frame = entry.safe_occlusion_frame;
     }
  }
 
@@ -421,6 +523,7 @@ mod tests {
             object.weapon_bonus_horde = true;
             object.weapon_bonus_enthusiastic = true;
             object.weapon_bonus_subliminal = true;
+            object.safe_occlusion_frame = 12_345;
         }
 
         let builder = super::super::SnapshotBuilder::new();
@@ -471,6 +574,7 @@ mod tests {
         assert!(loaded.weapon_bonus_horde);
         assert!(loaded.weapon_bonus_enthusiastic);
         assert!(loaded.weapon_bonus_subliminal);
+        assert_eq!(loaded.safe_occlusion_frame, 12_345);
     }
 
     #[test]
@@ -623,5 +727,68 @@ mod tests {
         assert!(loaded.weapon_bonus_horde);
         assert!(loaded.weapon_bonus_enthusiastic);
         assert!(loaded.weapon_bonus_subliminal);
+    }
+
+    #[test]
+    fn oxob_round_trips_safe_occlusion_frame() {
+        let mut source = GameLogic::new();
+        source.templates.insert(
+            "AmericaInfantryRanger".to_string(),
+            ThingTemplate::new("AmericaInfantryRanger"),
+        );
+        source.add_player(Player::new(0, Team::USA, "USA", true));
+        let id = source
+            .create_object("AmericaInfantryRanger", Team::USA, Vec3::ZERO)
+            .expect("unit");
+        {
+            let object = source.host_object_mut(id).expect("unit");
+            // Garrison/tunnel exit stamp (now + delay) or HUGE_FRAME leftover.
+            object.safe_occlusion_frame = 30_090;
+        }
+
+        let mut bytes = Vec::new();
+        append_to_lifecycle_tail(&mut bytes, &source);
+        assert!(find_oxob_suffix(&bytes).is_some());
+
+        let mut dest = GameLogic::new();
+        dest.templates = source.templates.clone();
+        dest.add_player(Player::new(0, Team::USA, "USA", true));
+        let dest_id = dest
+            .create_object("AmericaInfantryRanger", Team::USA, Vec3::ZERO)
+            .expect("dest unit");
+        {
+            let object = dest.host_object_mut(dest_id).expect("dest");
+            object.safe_occlusion_frame = 90;
+        }
+        apply_from_lifecycle_tail(&bytes, &mut dest).expect("apply");
+
+        let loaded = dest.host_object(dest_id).expect("loaded");
+        assert_eq!(
+            loaded.safe_occlusion_frame, 30_090,
+            "m_safeOcclusionFrame must survive load"
+        );
+    }
+
+    #[test]
+    fn absent_suffix_keeps_template_safe_occlusion_frame() {
+        let mut logic = GameLogic::new();
+        logic.templates.insert(
+            "AmericaInfantryRanger".to_string(),
+            ThingTemplate::new("AmericaInfantryRanger"),
+        );
+        logic.add_player(Player::new(0, Team::USA, "USA", true));
+        let id = logic
+            .create_object("AmericaInfantryRanger", Team::USA, Vec3::ZERO)
+            .expect("unit");
+        {
+            let object = logic.host_object_mut(id).expect("unit");
+            object.safe_occlusion_frame = 777;
+        }
+        apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
+        let object = logic.host_object(id).expect("unit");
+        assert_eq!(
+            object.safe_occlusion_frame, 777,
+            "absent OXOB must not wipe template/garrison occlusion clock"
+        );
     }
 }

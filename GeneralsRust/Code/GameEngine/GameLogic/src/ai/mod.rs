@@ -3196,6 +3196,18 @@ impl Pathfinder {
             .move_allies_away_from_destination(obj.get_id(), &from, destination)
     }
 
+    /// Host-facing `moveAlliesAwayFromDestination` (id + from/dest).
+    /// Same leftover occupancy walk as the Object wrapper.
+    pub fn move_allies_away_from_destination_for(
+        &self,
+        obj_id: ObjectID,
+        from: &Coord3D,
+        destination: &Coord3D,
+    ) -> Vec<ObjectID> {
+        self.inner
+            .move_allies_away_from_destination(obj_id, from, destination)
+    }
+
     /// C++ `Pathfinder::tightenPath`.
     pub fn tighten_path(
         &self,

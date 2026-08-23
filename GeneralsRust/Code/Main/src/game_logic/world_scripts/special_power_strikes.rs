@@ -1410,7 +1410,10 @@ impl GameLogic {
         })
     }
 
-    /// C++ `PartitionFilterLiveMapEnemies` relationship: ENEMIES only.
+    /// C++ `PartitionFilterLiveMapEnemies` / leftover `relationship_to`:
+    /// real-team ENEMIES only. Disguise is not applied here — C++ uses
+    /// `getRelationship` on the real object, then
+    /// `PartitionFilterStealthedAndUndetected` exempts `isDisguisedAsEnemy`.
     /// Missing owner ids fall back to faction residual (other playable team).
     fn spectre_orbit_relationship_enemies_ids(
         &self,
@@ -1429,19 +1432,99 @@ impl GameLogic {
             .get(&target_id)
             .map(|o| (o.owner_player_id, o.team_instance_name.clone()))
             .unwrap_or((None, String::new()));
+        self.spectre_orbit_owners_are_enemies(
+            src_owner,
+            &src_inst,
+            source_team,
+            tgt_owner,
+            &tgt_inst,
+            target_team,
+        )
+    }
+
+    fn spectre_orbit_owners_are_enemies(
+        &self,
+        src_owner: Option<u32>,
+        src_inst: &str,
+        source_team: Team,
+        tgt_owner: Option<u32>,
+        tgt_inst: &str,
+        target_team: Team,
+    ) -> bool {
         if src_owner.is_some() && tgt_owner.is_some() {
             return Self::object_relationship_from_owners(
                 &self.players,
                 src_owner,
-                &src_inst,
+                src_inst,
                 tgt_owner,
-                &tgt_inst,
+                tgt_inst,
             ) == gamelogic::common::Relationship::Enemies;
         }
         target_team != source_team
             && target_team != Team::Neutral
             && source_team != Team::Neutral
     }
+
+    /// C++ `StealthUpdate::getDisguisedPlayerIndex` → `getNthPlayer`.
+    /// Live stores `disguise_as_team`; pick that team's controlling player,
+    /// not the truck's own owner (same-faction FFA).
+    fn spectre_orbit_disguised_player_id(&self, target_id: ObjectId) -> Option<u32> {
+        let obj = self.objects.get(&target_id)?;
+        let team = obj.disguise_as_team?;
+        let owner = obj.owner_player_id;
+        let mut first = None;
+        let mut copied = None;
+        for player in self.players.values() {
+            if player.team != team {
+                continue;
+            }
+            if first.is_none() {
+                first = Some(player.id);
+            }
+            if owner.is_none_or(|id| player.id != id) {
+                copied = Some(player.id);
+            }
+        }
+        copied.or(first)
+    }
+
+    /// Leftover `SpectreGunshipUpdate::is_disguised_as_enemy`.
+    /// KINDOF_DISGUISER + OBJECT_STATUS_DISGUISED + gunship relationship to
+    /// the disguise (apparent) player's default team is ENEMIES.
+    fn spectre_orbit_is_disguised_as_enemy(
+        &self,
+        source_id: ObjectId,
+        source_team: Team,
+        target_id: ObjectId,
+    ) -> bool {
+        let Some(target) = self.objects.get(&target_id) else {
+            return false;
+        };
+        if !target.is_kind_of(KindOf::Disguiser) || !target.status.disguised {
+            return false;
+        }
+        let Some(disguise_team) = target.disguise_as_team else {
+            return false;
+        };
+        let (src_owner, src_inst) = self
+            .objects
+            .get(&source_id)
+            .map(|o| (o.owner_player_id, o.team_instance_name.clone()))
+            .unwrap_or((None, String::new()));
+        crate::game_logic::special_power_strikes::spectre_orbit_is_disguised_as_enemy(
+            true,
+            true,
+            self.spectre_orbit_owners_are_enemies(
+                src_owner,
+                &src_inst,
+                source_team,
+                self.spectre_orbit_disguised_player_id(target_id),
+                "",
+                disguise_team,
+            ),
+        )
+    }
+
 
     /// C++ `PartitionFilterFreeOfFog`: `getShroudedStatus == OBJECTSHROUD_CLEAR`.
     /// No FOW / no grid / no PartitionData → CLEAR (Object.cpp:1786-1788).
@@ -1466,6 +1549,11 @@ impl GameLogic {
     }
 
     /// Live residual of C++ Spectre acquire filters (stealth / fog / neutral / air).
+    ///
+    /// Stealth gate is leftover `find_target_in_radius`: STEALTHED && !DETECTED
+    /// unless `is_disguised_as_enemy`. `is_effectively_stealthed` is wrong —
+    /// DISGUISED clears that flag so any disguised Bomb Truck would pass and
+    /// then real-team ENEMIES would shoot a friendly-presenting truck.
     fn spectre_orbit_target_allowed_by_id(
         &self,
         source_id: ObjectId,
@@ -1473,16 +1561,25 @@ impl GameLogic {
         source_player_id: Option<u32>,
         target_id: ObjectId,
     ) -> bool {
-        let Some((alive, stealthed, is_air, team)) = self.objects.get(&target_id).map(|t| {
-            (
-                t.is_alive(),
-                t.is_effectively_stealthed(),
-                t.is_kind_of(KindOf::Aircraft) || t.status.airborne_target,
-                t.team,
-            )
-        }) else {
+        let Some((alive, stealthed, detected, is_air, team)) =
+            self.objects.get(&target_id).map(|t| {
+                (
+                    t.is_alive(),
+                    t.status.stealthed,
+                    t.status.detected,
+                    t.is_kind_of(KindOf::Aircraft) || t.status.airborne_target,
+                    t.team,
+                )
+            })
+        else {
             return false;
         };
+        let stealthed_undetected =
+            crate::game_logic::special_power_strikes::spectre_orbit_stealthed_undetected_blocks(
+                stealthed,
+                detected,
+                self.spectre_orbit_is_disguised_as_enemy(source_id, source_team, target_id),
+            );
         crate::game_logic::special_power_strikes::spectre_orbit_target_passes_partition_filters(
             alive,
             self.spectre_orbit_relationship_enemies_ids(
@@ -1491,10 +1588,32 @@ impl GameLogic {
                 target_id,
                 team,
             ),
-            stealthed,
+            stealthed_undetected,
             is_air,
             self.spectre_orbit_fog_clear(source_player_id, target_id),
         )
+    }
+
+    #[cfg(test)]
+    pub(in super::super) fn test_spectre_orbit_target_allowed_by_id(
+        &self,
+        source_id: ObjectId,
+        source_team: Team,
+        source_player_id: Option<u32>,
+        target_id: ObjectId,
+    ) -> bool {
+        self.spectre_orbit_target_allowed_by_id(source_id, source_team, source_player_id, target_id)
+    }
+
+    #[cfg(test)]
+    pub(in super::super) fn test_spectre_orbit_relationship_enemies_ids(
+        &self,
+        source_id: ObjectId,
+        source_team: Team,
+        target_id: ObjectId,
+        target_team: Team,
+    ) -> bool {
+        self.spectre_orbit_relationship_enemies_ids(source_id, source_team, target_id, target_team)
     }
 
     fn spectre_orbit_source_viewer(&self, source_object: ObjectId, source_team: Team) -> Option<u32> {

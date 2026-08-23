@@ -4715,6 +4715,110 @@ fn spectre_orbit_skips_gattling_when_gunship_overhead() {
     );
 }
 
+/// hq-jqgq6: leftover `is_disguised_as_enemy` + real-team ENEMIES.
+/// A GLA Bomb Truck disguised as USA is stealthed-undetected to a USA
+/// Spectre (friendly-presenting). The same truck disguised as China is
+/// exempt from the stealth gate and real-team ENEMIES still acquires it.
+#[test]
+fn spectre_gattling_skips_friendly_presenting_bomb_truck() {
+    let mut logic = GameLogic::new();
+    ensure_test_tank_template(&mut logic);
+    ensure_test_bomb_truck_template(&mut logic);
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    if let Some(tpl) = logic.templates.get_mut("TestBombTruck") {
+        tpl.add_kind_of(KindOf::Disguiser);
+    }
+
+    let caster = logic
+        .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("caster");
+    let friend_face = logic
+        .create_object("TestBombTruck", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+        .expect("friendly-presenting truck");
+    let enemy_face = logic
+        .create_object("TestBombTruck", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
+        .expect("enemy-presenting truck");
+    let open_gla = logic
+        .create_object("TestTank", Team::GLA, Vec3::new(120.0, 0.0, 0.0))
+        .expect("open GLA tank");
+
+    {
+        let truck = logic.host_object_mut(friend_face).expect("friend face");
+        truck.thing.template.add_kind_of(KindOf::Disguiser);
+        truck.status.stealthed = true;
+        truck.status.detected = false;
+        truck.status.disguised = true;
+        truck.disguise_as_team = Some(Team::USA);
+    }
+    {
+        let truck = logic.host_object_mut(enemy_face).expect("enemy face");
+        truck.thing.template.add_kind_of(KindOf::Disguiser);
+        truck.status.stealthed = true;
+        truck.status.detected = false;
+        truck.status.disguised = true;
+        truck.disguise_as_team = Some(Team::China);
+    }
+
+    let viewer = logic
+        .host_object(caster)
+        .and_then(|o| o.owner_player_id);
+
+    assert!(
+        logic.test_spectre_orbit_relationship_enemies_ids(
+            caster,
+            Team::USA,
+            friend_face,
+            Team::GLA
+        ),
+        "real-team ENEMIES still holds for a GLA truck"
+    );
+    assert!(
+        !logic.test_spectre_orbit_target_allowed_by_id(caster, Team::USA, viewer, friend_face),
+        "USA Spectre must not acquire a Bomb Truck disguised as USA"
+    );
+    assert!(
+        logic.test_spectre_orbit_target_allowed_by_id(caster, Team::USA, viewer, enemy_face),
+        "USA Spectre must acquire a Bomb Truck disguised as China (is_disguised_as_enemy)"
+    );
+    assert!(
+        logic.test_spectre_orbit_target_allowed_by_id(caster, Team::USA, viewer, open_gla),
+        "open GLA tank remains a legal Spectre target"
+    );
+
+    // Live gattling tick must not apply damage to the friendly-presenting truck.
+    {
+        let truck = logic.host_object_mut(friend_face).expect("friend face hp");
+        truck.health.current = 200.0;
+        truck.health.maximum = 200.0;
+        truck.thing.template.armor = 0.0;
+    }
+    let hp0 = logic.host_object(friend_face).unwrap().health.current;
+    logic.special_power_strikes_mut().spawn_orbit_field(
+        caster,
+        Team::USA,
+        Vec3::new(40.0, 0.0, 0.0),
+        logic.frame,
+        1,
+    );
+    logic.update_special_power_strikes();
+    let hp1 = logic.host_object(friend_face).unwrap().health.current;
+    assert_eq!(
+        hp1, hp0,
+        "friendly-presenting Bomb Truck must not take Spectre gattling"
+    );
+
+    // Detected friendly-presenting truck: stealth gate lifts, real ENEMIES shoots.
+    {
+        let truck = logic.host_object_mut(friend_face).expect("friend face");
+        truck.status.detected = true;
+    }
+    assert!(
+        logic.test_spectre_orbit_target_allowed_by_id(caster, Team::USA, viewer, friend_face),
+        "detected disguised-as-friend is no longer stealthed-undetected"
+    );
+}
+
+
 
 /// C++ StealthDetectorUpdate.cpp:167 PartitionFilterRelationship
 /// ALLOW_ENEMIES|ALLOW_NEUTRAL. Allied players on different Team enums

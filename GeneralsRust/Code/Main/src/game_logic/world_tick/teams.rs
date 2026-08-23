@@ -485,48 +485,34 @@ impl GameLogic {
         n
     }
 
-    /// Inherit team prototype attack priority + initial attitude when missing.
+    /// Inherit named team prototype attack priority + initial attitude.
     ///
-    /// C++ Object creation: ai->setAttitude(proto initial); setAttackInfo(proto priority name).
+    /// C++ Object.cpp:439-448 / leftover `apply_team_ai_profile`:
+    /// `ai->setAttitude(getTeam()->getPrototype()->...m_initialTeamAttitude)`.
+    /// The prototype is the object's Team instance (`AmericaTeamRangers`,
+    /// `teamAmerica`), never the faction enum (`USA`/`America`).
     pub fn inherit_team_ai_defaults(&mut self, unit_id: ObjectId) {
-        let team = match self.objects.get(&unit_id).map(|o| o.team) {
-            Some(t) => t,
+        let (owner, team, instance) = match self.objects.get(&unit_id) {
+            Some(o) => (
+                o.owner_player_id,
+                o.team,
+                o.team_instance_name.clone(),
+            ),
             None => return,
         };
-        let team_name = match team {
-            crate::game_logic::Team::USA => "America",
-            crate::game_logic::Team::China => "China",
-            crate::game_logic::Team::GLA => "GLA",
-            crate::game_logic::Team::Neutral => return,
-        };
-        let (prio_name, initial_att_i8) = {
-            let Ok(factory) = gamelogic::team::get_team_factory().lock() else {
+        let trimmed = instance.trim();
+        if trimmed.is_empty() {
+            let default = self.default_host_team_instance_name(owner, team);
+            if default.is_empty() {
                 return;
-            };
-            let Some(proto) = factory.find_team_prototype(team_name) else {
-                return;
-            };
-            let name = proto.get_attack_priority_name().as_str().to_string();
-            // C++ Object.cpp: ai->setAttitude(proto->getTemplateInfo()->m_initialTeamAttitude)
-            let att = match proto.get_initial_team_attitude() {
-                gamelogic::team::AttitudeType::Sleep => -2i8,
-                gamelogic::team::AttitudeType::Passive => -1,
-                gamelogic::team::AttitudeType::Normal => 0,
-                gamelogic::team::AttitudeType::Alert => 1,
-                gamelogic::team::AttitudeType::Aggressive => 2,
-                gamelogic::team::AttitudeType::Invalid => 0,
-            };
-            (name, att)
-        };
+            }
+            if let Some(u) = self.objects.get_mut(&unit_id) {
+                u.team_instance_name = default;
+            }
+        }
         if let Some(u) = self.objects.get_mut(&unit_id) {
-            if u.attack_priority_set.is_none() && !prio_name.is_empty() {
-                u.attack_priority_set = Some(prio_name);
-            }
-            // Only apply prototype attitude when still at default Normal (0).
-            // Script/setAttitude overrides must win over re-inherit.
-            if u.ai_attitude == 0 && initial_att_i8 != 0 {
-                u.set_ai_attitude_i8(initial_att_i8.clamp(-2, 2));
-            }
+            // Create / re-inherit: scripted setAttitude must win.
+            u.apply_named_team_ai_profile(false);
         }
     }
 
@@ -1415,6 +1401,8 @@ impl GameLogic {
                 if let Some(pid) = dest_owner {
                     obj.owner_player_id = Some(pid);
                 }
+                // C++ obj->setTeam(teamDest) applies dest proto attitude.
+                obj.apply_named_team_ai_profile(true);
             }
             self.activate_leftover_team_for_host_object(id);
         }
@@ -1606,36 +1594,13 @@ impl GameLogic {
     }
 
     /// Leftover `WeaponSet::findWaypointFollowingCapableWeapon` (TERTIARY..PRIMARY)
-    /// plus leftover store `CapableOfFollowingWaypoints`.
+    /// on leftover store `CapableOfFollowingWaypoints`. Name seeds are never consulted.
     fn host_script_waypoint_following_weapon_name(
         &self,
         obj: &crate::game_logic::object::Object,
     ) -> Option<String> {
-        use crate::game_logic::weapon_bootstrap::host_capable_of_following_waypoint_for_weapon_name;
-
-        if let Some(slot) = obj.find_waypoint_following_capable_weapon_slot() {
-            return obj.weapon_name_for_slot(slot).map(str::to_string);
-        }
-        for slot in [2u8, 1u8, 0u8] {
-            if obj.weapon_slot(slot).is_none() {
-                continue;
-            }
-            let Some(name) = obj.weapon_name_for_slot(slot) else {
-                continue;
-            };
-            let leftover = gamelogic::weapon::with_weapon_store(|store| {
-                store
-                    .find_weapon_template(name)
-                    .map(|wt| wt.capable_of_following_waypoint)
-            })
-            .ok()
-            .flatten()
-            .unwrap_or(false);
-            if leftover || host_capable_of_following_waypoint_for_weapon_name(name) {
-                return Some(name.to_string());
-            }
-        }
-        None
+        obj.find_waypoint_following_capable_weapon_slot()
+            .and_then(|slot| obj.weapon_name_for_slot(slot).map(str::to_string))
     }
 
     /// C++ `PartitionFilterUnmannedObject` + `ALLOW_ENEMIES|ALLOW_NEUTRAL` +
@@ -2378,6 +2343,7 @@ mod tests {
 
     #[test]
     fn named_fire_weapon_follows_live_waypoint_path() {
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
         use crate::game_logic::Weapon;
         use gamelogic::object::registry::OBJECT_REGISTRY;
         use gamelogic::scripting::{
@@ -2385,9 +2351,19 @@ mod tests {
             take_host_script_named_fire_weapon_path_requests,
         };
         use gamelogic::system::map_loader::{Coord3D, MapData, MapWaypoint};
+        use gamelogic::weapon::WeaponTemplate;
 
         OBJECT_REGISTRY.clear();
         let _ = take_host_script_named_fire_weapon_path_requests();
+        ensure_host_weapon_store();
+        let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
+            let mut template = store
+                .find_weapon_template("ScudStormWeapon")
+                .map(|wt| (**wt).clone())
+                .unwrap_or_else(|| WeaponTemplate::new("ScudStormWeapon".to_string()));
+            template.capable_of_following_waypoint = true;
+            store.add_weapon_template(template);
+        });
 
         let mut data = MapData::new();
         data.width = 16;

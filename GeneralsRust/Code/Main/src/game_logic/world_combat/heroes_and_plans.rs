@@ -924,7 +924,7 @@ impl GameLogic {
                             ));
                             let _ = center.replace_weapon_set_slot(1, None);
                             // TurretAI idle-scan residual: schedule first idle scan
-                            // after MinIdleScanInterval (scan_index 0 → 15 frames).
+                            // via leftover GameLogicRandomValue(min, max).
                             center.turret_idle_scan_index = 0;
                             center.turret_idle_scanning = false;
                             center.turret_holding = false;

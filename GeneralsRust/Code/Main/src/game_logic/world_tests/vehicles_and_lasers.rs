@@ -4214,6 +4214,7 @@ fn choose_best_weapon_prefers_ready_slot() {
     assert_eq!(logic.objects[&aid].active_weapon_slot, 1);
 }
 
+
 #[test]
 fn hijack_hides_in_eject_capable_vehicle() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, VeterancyLevel};

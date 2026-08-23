@@ -1511,7 +1511,8 @@ impl GameLogic {
 
     /// C++ OpenContain::exitObjectViaDoor — ExitStart/End + follow-path.
     /// TransportContain::onRemoving then matches hull orientation, GoAggressiveOnExit,
-    /// airborne setAllowToFall, and KeepContainerVelocityOnExit (hull motive).
+    /// airborne setAllowToFall. KeepContainerVelocityOnExit hull motive is
+    /// independent and only runs when that INI flag is authored (default false).
     pub(in super::super) fn walk_unit_via_open_contain_exit(
         &mut self,
         unit_id: ObjectId,
@@ -1523,7 +1524,8 @@ impl GameLogic {
         };
         let go_aggressive = container.transport_go_aggressive_on_exit();
         let airborne = container.is_above_terrain_for_exit();
-        let hull_vel = container.movement.velocity;
+        let keep_velocity = container.transport_keep_container_velocity_on_exit();
+        let hull_vel = keep_velocity.then_some(container.movement.velocity);
         let yaw = container.get_orientation();
         let rally = container
             .building_data
@@ -1594,12 +1596,15 @@ impl GameLogic {
                     crate::game_logic::host_strategy_center::HostAiAttitude::Aggressive,
                 );
             }
-            if airborne {
-                // C++ onRemoving: isAboveTerrain → setAllowToFall; keep hull vel
-                // so airborne unloads do not freeze at the door.
-                unit.allow_to_fall = true;
+            if let Some(hull_vel) = hull_vel {
+                // C++ onRemoving: KeepContainerVelocityOnExit copies parent
+                // velocity×mass as motive force. Independent of airborne.
                 let mass = unit.physics_get_mass();
                 unit.apply_motive_force(hull_vel * mass);
+            }
+            if airborne {
+                // C++ onRemoving: isAboveTerrain → setAllowToFall only.
+                unit.allow_to_fall = true;
             }
         }
         // C++ TransportContain::onRemoving ResetMoodCheckTimeOnExit + OpenContain
@@ -4525,6 +4530,85 @@ mod tests {
         assert_eq!(audio.container_id, transport.0);
         assert_eq!(audio.rider_template, "MOOD_HV_P");
         assert_eq!(audio.rider_id, rider.0);
+    }
+
+    #[test]
+    fn walk_unit_via_open_contain_exit_airborne_falls_without_invented_hull_kick() {
+        // hq-qhzox: C++ onRemoving setAllowToFall when above terrain.
+        // KeepContainerVelocityOnExit defaults false; do not invent hull motive.
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("AIR_DROP_T");
+        t.add_kind_of(KindOf::Aircraft);
+        t.set_health(200.0);
+        t.contain_module = crate::game_logic::ContainModuleMetadata {
+            kind: crate::game_logic::ContainModuleKind::Transport,
+            slots: Some(8),
+            ..Default::default()
+        };
+        logic.templates.insert("AIR_DROP_T".into(), t);
+        let mut p = ThingTemplate::new("AIR_DROP_P");
+        p.add_kind_of(KindOf::Infantry);
+        p.set_health(100.0);
+        logic.templates.insert("AIR_DROP_P".into(), p);
+        let transport = logic
+            .create_object("AIR_DROP_T", Team::USA, Vec3::new(0.0, 20.0, 0.0))
+            .unwrap();
+        {
+            let h = logic.host_object_mut(transport).unwrap();
+            h.status.airborne_target = true;
+            h.movement.velocity = Vec3::new(12.0, 0.0, 0.0);
+        }
+        let rider = logic
+            .create_object("AIR_DROP_P", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        if let Some(u) = logic.host_object_mut(rider) {
+            u.set_contained_by(Some(transport));
+        }
+        logic.walk_unit_via_open_contain_exit(rider, transport);
+        let u = logic.host_object(rider).unwrap();
+        assert!(u.allow_to_fall);
+        assert_eq!(u.motive_frames_remaining, 0);
+        assert_eq!(u.physics_accel, Vec3::ZERO);
+    }
+
+    #[test]
+    fn walk_unit_via_open_contain_exit_keep_velocity_applies_authored_kick() {
+        // hq-qhzox: leftover/C++ kick only when KeepContainerVelocityOnExit is Yes.
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("KEEP_VEL_T");
+        t.add_kind_of(KindOf::Vehicle);
+        t.set_health(200.0);
+        t.contain_module = crate::game_logic::ContainModuleMetadata {
+            kind: crate::game_logic::ContainModuleKind::Transport,
+            slots: Some(5),
+            keep_container_velocity_on_exit: true,
+            ..Default::default()
+        };
+        logic.templates.insert("KEEP_VEL_T".into(), t);
+        let mut p = ThingTemplate::new("KEEP_VEL_P");
+        p.add_kind_of(KindOf::Infantry);
+        p.set_health(100.0);
+        logic.templates.insert("KEEP_VEL_P".into(), p);
+        let transport = logic
+            .create_object("KEEP_VEL_T", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        {
+            logic.host_object_mut(transport).unwrap().movement.velocity = Vec3::new(9.0, 0.0, 0.0);
+        }
+        let rider = logic
+            .create_object("KEEP_VEL_P", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        if let Some(u) = logic.host_object_mut(rider) {
+            u.set_contained_by(Some(transport));
+        }
+        logic.walk_unit_via_open_contain_exit(rider, transport);
+        let u = logic.host_object(rider).unwrap();
+        assert_eq!(
+            u.motive_frames_remaining,
+            crate::game_logic::MOTIVE_FRAMES_RESIDUAL
+        );
+        assert!((u.physics_accel.x - 9.0).abs() < 1e-4);
+        assert!(!u.allow_to_fall);
     }
 
     #[test]

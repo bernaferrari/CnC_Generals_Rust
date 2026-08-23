@@ -840,7 +840,8 @@ impl GameLogic {
     }
 
     /// C++ TurretAI::friend_checkForIdleMoodTarget (TurretAI.cpp:855-876).
-    fn turret_check_for_idle_mood_target(&mut self, unit_id: ObjectId) {
+    /// Leftover `turret.rs` friend_check_for_idle_mood_target: PreferMostDamage FromAi.
+    fn turret_check_for_idle_mood_target(&mut self, unit_id: ObjectId, current_time: f32) {
         use mood_action_adjust::AFFECT_RANGE_IGNORE_ALL;
         let adj =
             self.get_mood_matrix_action_adjustment(unit_id, MoodMatrixAction::Idle, false);
@@ -850,6 +851,9 @@ impl GameLogic {
         let Some(enemy) = self.get_next_mood_target(unit_id, true, true, false) else {
             return;
         };
+        // Leftover: choose_best_weapon_for_target PreferMostDamage FromAi, then
+        // set idle-mood turret target. AIM/FIRE read selected_weapon_slot.
+        let _ = self.choose_best_weapon_for_target(unit_id, Some(enemy), current_time);
         self.set_turret_target_object(unit_id, Some(enemy), false);
         if let Some(u) = self.objects.get_mut(&unit_id) {
             u.turret_mood_target = true;
@@ -1005,19 +1009,20 @@ impl GameLogic {
                                 return AttackAimResult::Failure;
                             };
                             if u.turret_idle_scan_next_frame == 0 {
-                                let span = max_iv.saturating_sub(min_iv);
-                                let mix = if span == 0 {
-                                    0
-                                } else {
-                                    (u.turret_idle_scan_index % (span + 1)) as u32
-                                };
+                                // Leftover TurretAIIdleState::reset_idle_scan:
+                                // GameLogicRandomValue(min, max), not index mix.
+                                let max_iv = if max_iv < min_iv { min_iv } else { max_iv };
+                                let interval = gamelogic::helpers::get_game_logic_random_value(
+                                    min_iv as i32,
+                                    max_iv as i32,
+                                ) as u32;
                                 u.turret_idle_scan_next_frame =
-                                    logic_frame.saturating_add(min_iv + mix);
+                                    logic_frame.saturating_add(interval);
                             }
                         }
                     }
                 }
-                self.turret_check_for_idle_mood_target(unit_id);
+                self.turret_check_for_idle_mood_target(unit_id, current_time);
                 if self
                     .objects
                     .get(&unit_id)
@@ -1058,19 +1063,12 @@ impl GameLogic {
                             e.idle_scan_desired_rad = 0.0;
                             return (0.0, 0.0, None);
                         }
+                        // Leftover TurretAIIdleScanState::classic_on_enter:
+                        // GameLogicRandomValueReal(0, max-min) + GameLogicRandomValue(0,1) sign.
                         let span = (e.max_idle_scan_angle - e.min_idle_scan_angle).max(0.0);
-                        let idx = self
-                            .objects
-                            .get(&unit_id)
-                            .map(|u| u.turret_idle_scan_index)
-                            .unwrap_or(0);
-                        let t = if span <= 0.0 {
-                            0.0
-                        } else {
-                            (idx % 8) as f32 / 7.0
-                        };
-                        let mut off = e.min_idle_scan_angle + span * t;
-                        if idx % 2 == 0 {
+                        let mut off = e.min_idle_scan_angle
+                            + gamelogic::helpers::get_game_logic_random_value_real(0.0, span);
+                        if gamelogic::helpers::get_game_logic_random_value(0, 1) == 0 {
                             off = -off;
                         }
                         e.idle_scan_desired_rad = off;
@@ -1276,7 +1274,7 @@ impl GameLogic {
                 }
             }
             TurretSubState::Hold => {
-                self.turret_check_for_idle_mood_target(unit_id);
+                self.turret_check_for_idle_mood_target(unit_id, current_time);
                 if self
                     .objects
                     .get(&unit_id)

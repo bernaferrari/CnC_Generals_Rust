@@ -350,28 +350,18 @@ impl GameLogic {
                     impact.position,
                 );
             }
-            let radius = host_fire_fx_override_radius(self.objects.get(&impact.shooter_id));
-            let matrix = self
-                .objects
-                .get(&impact.shooter_id)
-                .map(|o| o.get_transform_matrix());
-            let _ = self.combat_particles.spawn_weapon_fire_fx_named_ocl_oriented(
-                impact.position,
-                Some(impact.position),
-                self.frame,
-                impact.shooter_id,
-                impact.target_id,
-                "",
-                &impact.detonation_fx_name,
-                "",
-                &impact.detonation_ocl_name,
-                0.0,
-                radius,
-                matrix,
-            );
+            // C++ Weapon.cpp:903-939 plays ProjectileDetonationFX exactly once
+            // (handleWeaponFireFX or a single doFXPos). Never invents a
+            // fire-time MuzzleFlash at the crater and never unhides the
+            // shooter's muzzle at detonation.
             if !impact.detonation_fx_name.trim().is_empty()
                 && !impact.detonation_fx_name.trim().eq_ignore_ascii_case("None")
             {
+                let radius = host_fire_fx_override_radius(self.objects.get(&impact.shooter_id));
+                let matrix = self
+                    .objects
+                    .get(&impact.shooter_id)
+                    .map(|o| o.get_transform_matrix());
                 let _ = crate::game_logic::dispatch_fx_list_at_pos_oriented(
                     &impact.detonation_fx_name,
                     impact.position,
