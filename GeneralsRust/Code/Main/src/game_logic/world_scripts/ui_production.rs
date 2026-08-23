@@ -1034,6 +1034,7 @@ impl GameLogic {
                 if let Some(obj) = self.objects.get_mut(&id) {
                     obj.set_position(glam::Vec3::new(pos.x, z, pos.z));
                 }
+                self.sweep_under_construction_footprint_mines(id);
                 return;
             }
         }
@@ -1042,6 +1043,8 @@ impl GameLogic {
                 obj.set_position(glam::Vec3::new(pos.x, h, pos.z));
             }
         }
+        self.sweep_under_construction_footprint_mines(id);
+
     }
 
     /// C++ AIUpdateInterface::isQuickPathAvailable residual (simplified host pathfind).

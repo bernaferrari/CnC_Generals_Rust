@@ -85,6 +85,9 @@ pub struct HostSpecialPowerStrikeRegistry {
     /// C++ `initiateIntent` waypoint: next ParticleCannon queue from this
     /// source drives leftover `scriptedWaypointMode` (waypoint id).
     pub(crate) scripted_waypoint_special_power_sources: std::collections::HashMap<ObjectId, u32>,
+    /// C++ ParticleUplinkCannonUpdate::setClientStatus loop cues this frame
+    /// (PoweringUp / UnpackToIdle / FiringToPack). Drained by GameLogic.
+    pub(crate) puc_loop_audio_this_frame: Vec<(ObjectId, Vec3, &'static str)>,
 
 
 }
@@ -190,6 +193,7 @@ impl HostSpecialPowerStrikeRegistry {
             remnant_damage_applications_total: 0,
             view_objects: Vec::new(),
             view_objects_spawned_total: 0,
+            puc_loop_audio_this_frame: Vec::new(),
             spectre_ai_controllers: std::collections::HashSet::new(),
             script_fired_special_power_sources: std::collections::HashSet::new(),
             scripted_waypoint_special_power_sources: std::collections::HashMap::new(),
@@ -241,6 +245,7 @@ impl HostSpecialPowerStrikeRegistry {
         self.remnant_damage_applications_total = 0;
         self.view_objects.clear();
         self.view_objects_spawned_total = 0;
+        self.puc_loop_audio_this_frame.clear();
         self.spectre_ai_controllers.clear();
         self.script_fired_special_power_sources.clear();
         self.scripted_waypoint_special_power_sources.clear();
@@ -253,6 +258,7 @@ impl HostSpecialPowerStrikeRegistry {
         self.radiation_spawned_this_frame.clear();
         self.toxin_spawned_this_frame.clear();
         self.orbit_spawned_this_frame.clear();
+        self.puc_loop_audio_this_frame.clear();
         self.howitzer_shell_spawns_this_frame.clear();
         self.beam_spawned_this_frame.clear();
         self.remnant_spawned_this_frame.clear();
@@ -339,6 +345,19 @@ impl HostSpecialPowerStrikeRegistry {
     /// Active residual Particle Uplink continuous beam fields.
     pub fn beam_fields(&self) -> &[HostParticleBeamField] {
         &self.beam_fields
+    }
+
+    pub fn take_puc_loop_audio_this_frame(&mut self) -> Vec<(ObjectId, Vec3, &'static str)> {
+        std::mem::take(&mut self.puc_loop_audio_this_frame)
+    }
+
+    pub(crate) fn note_puc_loop_audio(
+        &mut self,
+        source: ObjectId,
+        pos: Vec3,
+        cue: &'static str,
+    ) {
+        self.puc_loop_audio_this_frame.push((source, pos, cue));
     }
 
     pub fn beam_spawned_this_frame(&self) -> &[u32] {
@@ -976,7 +995,9 @@ impl HostSpecialPowerStrikeRegistry {
         }
         // Seed ParticleCannon pre-fire intensity residual at activate frame.
         if kind == HostSuperweaponKind::ParticleCannon {
-            apply_particle_charge_status(&mut strike, activate_frame);
+            if let Some(cue) = apply_particle_charge_status(&mut strike, activate_frame) {
+                self.note_puc_loop_audio(strike.source_object, strike.target_position, cue);
+            }
         }
         // Seed ScudStorm PreAttack + Chem FX residual at activate.
         if kind == HostSuperweaponKind::ScudStorm {

@@ -704,6 +704,9 @@ pub struct Object {
     /// C++ m_extraFriction residual.
     #[serde(default)]
     pub extra_friction: f32,
+    /// C++ m_extraBounciness residual (OCL CreateDebris / SlowDeath).
+    #[serde(default)]
+    pub extra_bounciness: f32,
     /// C++ APPLY_FRICTION2D_WHEN_AIRBORNE flag residual.
     #[serde(default)]
     pub apply_friction_2d_when_airborne: bool,

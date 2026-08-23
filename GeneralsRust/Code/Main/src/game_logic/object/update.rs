@@ -118,10 +118,18 @@ impl Object {
         };
         let before = data.door_state;
         data.update(now, ready_frame, is_ready);
+        // Leftover `TheFXList::do_fx_at_position` on every door-state enter
+        // (C++ `FXList::doFXPos` at the building). `pending_fx` is the name.
+        let pending_fx = data.pending_fx.take();
         if data.door_state != before || data.pending_initiate {
             // pending_initiate is consumed inside update; bits still need apply.
         }
         self.apply_missile_launcher_door_bits();
+        if let Some(fx) = pending_fx {
+            if !fx.is_empty() && !fx.eq_ignore_ascii_case("None") {
+                let _ = crate::game_logic::dispatch_fx_list_at_pos(&fx, self.get_position());
+            }
+        }
     }
 
     fn apply_missile_launcher_door_bits(&mut self) {

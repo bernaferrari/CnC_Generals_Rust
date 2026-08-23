@@ -76,6 +76,20 @@ impl Object {
         v
     }
 
+    /// Consume C++ `orderAllPassengersToIdle` edge from `onSubdualChange`.
+    pub fn take_pending_subdual_passenger_idle(&mut self) -> bool {
+        let v = self.status.pending_subdual_passenger_idle;
+        self.status.pending_subdual_passenger_idle = false;
+        v
+    }
+
+    /// Consume C++ IC `orderAllPassengersToHackInternet` un-subdual edge.
+    pub fn take_pending_internet_center_resume_hack(&mut self) -> bool {
+        let v = self.status.pending_internet_center_resume_hack;
+        self.status.pending_internet_center_resume_hack = false;
+        v
+    }
+
     /// Residual mine / demo-trap / booby identity for DAMAGE_DISARM targeting.
     ///
     /// C++ Weapon.cpp DISARM estimate is nonzero for KINDOF_MINE | BOOBY_TRAP | DEMOTRAP.
@@ -188,6 +202,7 @@ impl Object {
     pub fn set_disabled_subdued(&mut self, subdued: bool) {
         if subdued {
             let already_power = self.is_power_style_disabled();
+            let becoming = !self.status.disabled_subdued;
             self.set_status_disabled_subdued(true);
             // C++ orderAllPassengersToIdle residual: drop attack / move orders.
             self.status.attacking = false;
@@ -203,11 +218,24 @@ impl Object {
             if !already_power {
                 self.queue_power_disable_misc_audio(true);
             }
+            // C++ ActiveBody::onSubdualChange: non-projectile contain
+            // `orderAllPassengersToIdle`. Occupants are other HostObjects;
+            // GameLogic flushes `pending_subdual_passenger_idle`.
+            if becoming && !self.is_kind_of(KindOf::Projectile) {
+                self.status.pending_subdual_passenger_idle = true;
+            }
         } else {
             let was = self.status.disabled_subdued;
             self.set_status_disabled_subdued(false);
             if was && !self.is_power_style_disabled() {
                 self.queue_power_disable_misc_audio(false);
+            }
+            // C++ Patch 1.01: IC un-subdual → orderAllPassengersToHackInternet.
+            if was
+                && !self.is_kind_of(KindOf::Projectile)
+                && self.is_kind_of(KindOf::FSInternetCenter)
+            {
+                self.status.pending_internet_center_resume_hack = true;
             }
         }
     }

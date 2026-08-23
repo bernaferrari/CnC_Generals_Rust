@@ -1461,6 +1461,121 @@ fn deploy_style_sentry_must_unpack_before_fire_and_pack_before_move() {
 }
 
 #[test]
+fn deploy_style_plays_authored_deploy_and_undeploy_sounds() {
+    use crate::game_logic::audio_dispatch_impl::{
+        clear_test_template_voices, set_test_per_unit_sound,
+    };
+    use crate::game_logic::host_deploy_style::{
+        DEPLOY_STYLE_DEPLOY_AUDIO, DEPLOY_STYLE_UNDEPLOY_AUDIO,
+    };
+
+    clear_test_template_voices();
+    set_test_per_unit_sound(
+        "AmericaVehicleSentryDrone",
+        DEPLOY_STYLE_DEPLOY_AUDIO,
+        "SentryDroneDeploy",
+    );
+    set_test_per_unit_sound(
+        "AmericaVehicleSentryDrone",
+        DEPLOY_STYLE_UNDEPLOY_AUDIO,
+        "SentryDroneUndeploy",
+    );
+    let mut game_logic = GameLogic::new();
+    let mut tpl = ThingTemplate::new("AmericaVehicleSentryDrone");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(300.0);
+    tpl.deploy_style_metadata = Some(crate::game_logic::DeployStyleMetadata {
+        pack_time_frames: 30,
+        unpack_time_frames: 30,
+        ..Default::default()
+    });
+    game_logic
+        .templates
+        .insert("AmericaVehicleSentryDrone".into(), tpl);
+    let id = game_logic
+        .create_object(
+            "AmericaVehicleSentryDrone",
+            Team::USA,
+            Vec3::new(0.0, 0.0, 0.0),
+        )
+        .expect("sentry");
+
+    assert!(!game_logic.ensure_deploy_style_ready_to_fire(id));
+    assert!(
+        game_logic.queued_audio_events.iter().any(|e| {
+            e.event_type == "SentryDroneDeploy" && e.object_id == Some(id)
+        }),
+        "Deploy must play the authored per-unit event: {:?}",
+        game_logic.queued_audio_events
+    );
+    assert!(
+        game_logic
+            .queued_audio_events
+            .iter()
+            .all(|e| e.event_type != DEPLOY_STYLE_DEPLOY_AUDIO),
+        "must not queue the Deploy slot token: {:?}",
+        game_logic.queued_audio_events
+    );
+
+    for f in 1..=30 {
+        game_logic.frame = f;
+        game_logic.tick_deploy_style_updates();
+    }
+    assert!(game_logic.ensure_deploy_style_ready_to_fire(id));
+    game_logic.queued_audio_events.clear();
+    assert!(!game_logic.assign_unit_path(id, Vec3::new(100.0, 0.0, 0.0), &[]));
+    assert!(
+        game_logic.queued_audio_events.iter().any(|e| {
+            e.event_type == "SentryDroneUndeploy" && e.object_id == Some(id)
+        }),
+        "Undeploy must play the authored per-unit event: {:?}",
+        game_logic.queued_audio_events
+    );
+    assert!(
+        game_logic
+            .queued_audio_events
+            .iter()
+            .all(|e| e.event_type != DEPLOY_STYLE_UNDEPLOY_AUDIO),
+        "must not queue the Undeploy slot token: {:?}",
+        game_logic.queued_audio_events
+    );
+    clear_test_template_voices();
+}
+
+#[test]
+fn deploy_style_missing_unit_sound_stays_silent() {
+    use crate::game_logic::audio_dispatch_impl::clear_test_template_voices;
+    use crate::game_logic::host_deploy_style::{
+        DEPLOY_STYLE_DEPLOY_AUDIO, DEPLOY_STYLE_UNDEPLOY_AUDIO,
+    };
+
+    clear_test_template_voices();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = ThingTemplate::new("SilentDeployer");
+    tpl.add_kind_of(KindOf::Vehicle).set_health(100.0);
+    tpl.deploy_style_metadata = Some(crate::game_logic::DeployStyleMetadata {
+        pack_time_frames: 10,
+        unpack_time_frames: 10,
+        ..Default::default()
+    });
+    game_logic.templates.insert("SilentDeployer".into(), tpl);
+    let id = game_logic
+        .create_object("SilentDeployer", Team::USA, Vec3::ZERO)
+        .expect("deployer");
+    assert!(!game_logic.ensure_deploy_style_ready_to_fire(id));
+    assert!(
+        game_logic.queued_audio_events.iter().all(|e| {
+            e.event_type != DEPLOY_STYLE_DEPLOY_AUDIO && e.event_type != "SilentDeployerDeploy"
+        }),
+        "missing UnitSpecificSounds.Deploy must stay silent: {:?}",
+        game_logic.queued_audio_events
+    );
+    let _ = DEPLOY_STYLE_UNDEPLOY_AUDIO;
+}
+
+#[test]
 fn deploy_style_nuke_launcher_normal_attack_waits_for_range_and_unpack() {
     use crate::game_logic::host_deploy_style::HostDeployStyleState;
 
@@ -2092,6 +2207,66 @@ fn command_button_hunt_named_arms_capture_and_flashbang() {
         "capture hunt must arm"
     );
 }
+
+/// hq-tb5nn: FireWeapon CommandButtonHunt re-arms LOCKED_TEMPORARILY every frame.
+#[test]
+fn fire_weapon_command_button_hunt_rearms_lock_every_frame() {
+    use crate::game_logic::host_command_button_hunt::HostCommandButtonHuntMode;
+    use crate::game_logic::{Team, Weapon, WeaponLockType};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    ensure_test_infantry_template(&mut logic);
+    let ranger = logic
+        .create_object("TestInfantry", Team::USA, Vec3::ZERO)
+        .expect("ranger");
+    {
+        let r = logic.host_object_mut(ranger).unwrap();
+        r.template_name = "AmericaInfantryRanger".into();
+        r.secondary_weapon = Some(Weapon {
+            range: 100.0,
+            damage: 5.0,
+            ..Weapon::default()
+        });
+        r.set_ai_state(AIState::Idle);
+    }
+    assert!(logic.start_command_button_hunt_named(
+        ranger,
+        Some("Command_AmericaRangerFlashBangGrenade")
+    ));
+    logic.frame = 0;
+    logic.tick_command_button_hunt_updates();
+    {
+        let r = logic.host_object(ranger).unwrap();
+        assert_eq!(r.ai_state, AIState::Patrolling);
+        assert_eq!(r.weapon_lock_type, WeaponLockType::LockedTemporarily);
+        assert_eq!(r.weapon_lock_slot, 1);
+    }
+    // C++ Object::fireCurrentWeapon releases temp lock when the clip auto-reloads.
+    logic
+        .host_object_mut(ranger)
+        .unwrap()
+        .release_weapon_lock(WeaponLockType::LockedTemporarily);
+    assert_eq!(
+        logic.host_object(ranger).unwrap().weapon_lock_type,
+        WeaponLockType::NotLocked
+    );
+    // Old live scheduled +30 for FireWeapon, so frame 1 would not re-arm.
+    logic.frame = 1;
+    logic.tick_command_button_hunt_updates();
+    let r = logic.host_object(ranger).unwrap();
+    assert_eq!(
+        r.command_button_hunt.as_ref().map(|h| h.mode),
+        Some(HostCommandButtonHuntMode::FireWeapon)
+    );
+    assert_eq!(
+        r.weapon_lock_type,
+        WeaponLockType::LockedTemporarily,
+        "FireWeapon hunt must re-arm LOCKED_TEMPORARILY the next frame"
+    );
+    assert_eq!(r.weapon_lock_slot, 1);
+}
+
 
 #[test]
 fn command_button_hunt_quits_after_player_move() {
@@ -3172,6 +3347,10 @@ fn ocl_create_debris_disposition_spawn() {
     assert!(
         o.movement.velocity.length() > 0.5,
         "debris should receive disposition force"
+    );
+    assert!(
+        o.shock_allow_bounce,
+        "C++ setAllowBouncing(true) on flying CreateDebris"
     );
     assert!(logic.ocl_create_debris_reg.debris_spawned >= 3);
     assert!(logic.ocl_create_debris_reg.flying_forces >= 1);

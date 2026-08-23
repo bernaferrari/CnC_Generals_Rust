@@ -357,13 +357,16 @@ pub struct HostStrikeImpactPlan {
 /// Apply pre-fire intensity schedule residual onto a ParticleCannon strike.
 ///
 /// Anchors ready-to-fire at `strike.impact_frame` (host beam spawn residual).
-pub(crate) fn apply_particle_charge_status(strike: &mut HostSpecialPowerStrike, now: u32) {
+pub(crate) fn apply_particle_charge_status(
+    strike: &mut HostSpecialPowerStrike,
+    now: u32,
+) -> Option<&'static str> {
     if strike.kind != HostSuperweaponKind::ParticleCannon {
-        return;
+        return None;
     }
     let next = particle_status_for_ready_countdown(now, strike.impact_frame);
     if next == strike.particle_status {
-        return;
+        return None;
     }
     strike.particle_status = next;
     strike.particle_intensity_transitions = strike.particle_intensity_transitions.saturating_add(1);
@@ -377,6 +380,7 @@ pub(crate) fn apply_particle_charge_status(strike: &mut HostSpecialPowerStrike, 
             // PoweringUpSoundLoop residual (STATUS_CHARGING).
             strike.particle_powerup_audio_applications =
                 strike.particle_powerup_audio_applications.saturating_add(1);
+            Some(PARTICLE_POWERUP_AUDIO)
         }
         ParticleUplinkStatus::Preparing => {
             strike.particle_preparing_applications =
@@ -386,23 +390,27 @@ pub(crate) fn apply_particle_charge_status(strike: &mut HostSpecialPowerStrike, 
             // UnpackToIdleSoundLoop residual (STATUS_PREPARING).
             strike.particle_unpack_audio_applications =
                 strike.particle_unpack_audio_applications.saturating_add(1);
+            Some(PARTICLE_UNPACK_AUDIO)
         }
         ParticleUplinkStatus::AlmostReady => {
             strike.particle_almost_ready_applications =
                 strike.particle_almost_ready_applications.saturating_add(1);
             strike.particle_model_deployed_sets =
                 strike.particle_model_deployed_sets.saturating_add(1);
+            None
         }
         ParticleUplinkStatus::ReadyToFire => {
             strike.particle_ready_applications =
                 strike.particle_ready_applications.saturating_add(1);
             strike.particle_model_deployed_sets =
                 strike.particle_model_deployed_sets.saturating_add(1);
+            None
         }
         ParticleUplinkStatus::Packing => {
             strike.particle_model_packing_sets =
                 strike.particle_model_packing_sets.saturating_add(1);
+            None
         }
-        _ => {}
+        _ => None,
     }
 }

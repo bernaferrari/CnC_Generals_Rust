@@ -935,7 +935,57 @@ impl GameLogic {
                 },
                 None => (false, None),
             };
+            // C++ AIGuardRetaliateOuterState::update: refresh give-up while the
+            // goal stays within stdGuardRange of the retaliate center.
+            if alive {
+                let phase = self
+                    .objects
+                    .get(&id)
+                    .map(|o| o.guard_chase_phase)
+                    .unwrap_or(0);
+                if phase == 2 {
+                    if let Some(vp) = vpos {
+                        let center = self
+                            .objects
+                            .get(&id)
+                            .map(|o| {
+                                o.guard_retaliate_anchor
+                                    .or(o.guard_position)
+                                    .unwrap_or_else(|| o.get_position())
+                            })
+                            .unwrap_or(vp);
+                        let (inner, _) = self.host_std_guard_ranges(id);
+                        let dx = vp.x - center.x;
+                        let dz = vp.z - center.z;
+                        if inner > 0.0 && dx * dx + dz * dz <= inner * inner {
+                            let frames = self.host_guard_chase_unit_frames();
+                            let now = self.frame;
+                            if let Some(o) = self.objects.get_mut(&id) {
+                                o.guard_chase_give_up_frame = now.saturating_add(frames);
+                            }
+                        }
+                    }
+                }
+            }
             if alive && self.guard_retaliate_chase_should_exit(id, vpos) {
+                let phase = self
+                    .objects
+                    .get(&id)
+                    .map(|o| o.guard_chase_phase)
+                    .unwrap_or(0);
+                if phase == 1 {
+                    // C++ INNER success AND failure → OUTER. Re-attack the same
+                    // nemesis with 0.67*(vision+stdGuard) + give-up timer.
+                    // AIGuardRetaliateInnerState::onExit: setTeamTargetObject(NULL).
+                    let frames = self.host_guard_chase_unit_frames();
+                    let now = self.frame;
+                    if let Some(o) = self.objects.get_mut(&id) {
+                        o.guard_chase_phase = 2;
+                        o.guard_chase_give_up_frame = now.saturating_add(frames);
+                    }
+                    self.set_host_team_common_target(id, None);
+                    continue;
+                }
                 if let Some(o) = self.objects.get_mut(&id) {
                     o.guard_retaliate_victim = None;
                     o.target = None;

@@ -922,6 +922,12 @@ impl Object {
         self.extra_friction = friction;
     }
 
+    /// C++ PhysicsBehavior::setExtraBounciness (OCL CreateDebris / SlowDeath).
+    pub fn set_extra_bounciness(&mut self, bounciness: f32) {
+        self.extra_bounciness = bounciness;
+    }
+
+
     /// C++ PhysicsBehavior::setBounceSound.
     pub fn set_bounce_sound(&mut self, name: impl Into<String>) {
         self.bounce_sound_name = name.into();

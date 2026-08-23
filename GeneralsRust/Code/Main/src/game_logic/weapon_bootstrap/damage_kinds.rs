@@ -110,6 +110,27 @@ pub fn host_die_on_detonate_for_weapon_name(name: &str) -> bool {
     .unwrap_or(false)
 }
 
+/// C++ Weapon.ini DamageDealtAtSelfPosition / WeaponTemplate::m_damageDealtAtSelfPosition.
+///
+/// Leftover store is source of truth. Default false when the template is
+/// missing — do not invent the flag from weapon-name substrings.
+pub fn host_damage_dealt_at_self_position_for_weapon_name(name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    with_weapon_store(|store| {
+        store
+            .find_weapon_template(name)
+            .map(|weapon| weapon.damage_dealt_at_self_position)
+    })
+    .ok()
+    .flatten()
+    .unwrap_or(false)
+}
+
+
 
 /// C++ Weapon.ini DamageType=STATUS residual.
 pub fn host_weapon_is_status_damage(name: &str) -> bool {

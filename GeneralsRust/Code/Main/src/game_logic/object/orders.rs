@@ -1345,7 +1345,7 @@ impl Object {
     /// C++ UndeadBody::startSecondLife + BattleBus first-death begin residual.
     pub fn start_battle_bus_second_life(&mut self) {
         use crate::game_logic::host_battle_bus::{
-            HostBattleBusBodyData, BATTLE_BUS_MC_BIT_SECOND_LIFE,
+            battle_bus_start_undeath_fx_name, HostBattleBusBodyData, BATTLE_BUS_MC_BIT_SECOND_LIFE,
             BATTLE_BUS_SECOND_LIFE_MAX_HEALTH, BATTLE_BUS_THROW_FORCE,
         };
         let frame = crate::game_logic::host_historic_bonus::logic_frame();
@@ -1378,6 +1378,15 @@ impl Object {
         self.status.attacking = false;
         let _ = BATTLE_BUS_MC_BIT_SECOND_LIFE; // set on land
         self.record_host_weapon_set();
+        // Leftover `execute_fx_at_object_id` / C++ `FXList::doFXObj(m_fxStartUndeath, me)`.
+        let fx = battle_bus_start_undeath_fx_name(&self.template_name);
+        crate::game_logic::publish_host_fx_object(
+            self.id.0,
+            self.get_position(),
+            self.get_orientation(),
+            self.owner_player_id.map(|p| p as i32).unwrap_or(-1),
+        );
+        let _ = crate::game_logic::dispatch_fx_list_at_object(&fx, self.id.0, None);
     }
 
     /// Tick BattleBusSlowDeath first-death air time + empty hulk arming.
@@ -1388,7 +1397,9 @@ impl Object {
         _above_terrain_hint: bool,
         passenger_count: usize,
     ) -> (bool, bool) {
-        use crate::game_logic::host_battle_bus::BATTLE_BUS_MC_BIT_SECOND_LIFE;
+        use crate::game_logic::host_battle_bus::{
+            battle_bus_hit_ground_fx_name, BATTLE_BUS_MC_BIT_SECOND_LIFE,
+        };
         if self.battle_bus_body.is_none() {
             return (false, false);
         }
@@ -1425,6 +1436,15 @@ impl Object {
             self.stop_moving();
             self.set_ai_state(AIState::Idle);
             self.refresh_model_condition_bits();
+            // Leftover `finish_first_death` / C++ `FXList::doFXObj(m_fxHitGround, me)`.
+            let fx = battle_bus_hit_ground_fx_name(&self.template_name);
+            crate::game_logic::publish_host_fx_object(
+                self.id.0,
+                self.get_position(),
+                self.get_orientation(),
+                self.owner_player_id.map(|p| p as i32).unwrap_or(-1),
+            );
+            let _ = crate::game_logic::dispatch_fx_list_at_object(&fx, self.id.0, None);
         }
         let empty_kill = self
             .battle_bus_body

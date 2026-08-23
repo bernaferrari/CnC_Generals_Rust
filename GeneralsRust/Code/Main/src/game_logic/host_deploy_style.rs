@@ -23,6 +23,11 @@ use serde::{Deserialize, Serialize};
 /// Logic FPS residual.
 pub const DEPLOY_STYLE_LOGIC_FPS: f32 = 30.0;
 
+
+/// C++ DeployStyleAIUpdate PerUnitSound slots (resolve before queue).
+pub const DEPLOY_STYLE_DEPLOY_AUDIO: &str = "Deploy";
+pub const DEPLOY_STYLE_UNDEPLOY_AUDIO: &str = "Undeploy";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum HostDeployStyleState {
     #[default]

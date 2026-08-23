@@ -54,8 +54,8 @@ pub const GATTLING_CHAIN_GUN_DAMAGE_MULT: f32 = 1.25;
 
 /// Residual fire audio.
 pub const GATTLING_FIRE_AUDIO: &str = "GattlingTankWeapon";
-/// Retail VoiceRapidFire residual cue when entering FAST.
-pub const GATTLING_RAPID_FIRE_AUDIO: &str = "GattlingTankVoiceRapid";
+/// C++ FiringTracker PerUnitSound slot `VoiceRapidFire` (MEAN→FAST).
+pub const GATTLING_RAPID_FIRE_AUDIO: &str = "VoiceRapidFire";
 
 /// Continuous-fire ramp residual level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -435,7 +435,7 @@ pub fn honesty_gattling_tank_continuous_fire_residual_ok() -> bool {
         && (gattling_damage_with_chain_guns(15.0, true) - 18.75).abs() < 0.01
         && preferred_gattling_slot(true) == 1
         && preferred_gattling_slot(false) == 0
-        && GATTLING_RAPID_FIRE_AUDIO == "GattlingTankVoiceRapid"
+        && GATTLING_RAPID_FIRE_AUDIO == "VoiceRapidFire"
 }
 
 /// Wave 69 residual honesty: body residual peel.

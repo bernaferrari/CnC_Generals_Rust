@@ -112,6 +112,15 @@ pub fn pack_player_color_argb(rgb: (u8, u8, u8)) -> u32 {
     0xFF00_0000 | ((rgb.0 as u32) << 16) | ((rgb.1 as u32) << 8) | (rgb.2 as u32)
 }
 
+/// C++ `TheGlobalData->m_timeOfDay == TIME_OF_DAY_NIGHT`.
+pub fn host_time_of_day_is_night() -> bool {
+    use game_engine::common::ini::ini_game_data::{get_global_data, TimeOfDay};
+    get_global_data()
+        .map(|data| matches!(data.read().time_of_day, TimeOfDay::Night))
+        .unwrap_or(false)
+}
+
+
 /// C++ `TheRadar->createEvent` — rotating triangle + last-event (not beacon).
 pub fn host_create_radar_event(pos: glam::Vec3, event_type: RadarEventType) {
     host_create_radar_event_for(pos, event_type, RADAR_EVENT_SECONDS_TO_LIVE);

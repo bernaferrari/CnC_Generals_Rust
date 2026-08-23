@@ -47,7 +47,8 @@ impl Object {
 
     /// Update team color (useful for changing allegiance)
     pub fn set_team(&mut self, team: Team) {
-        if self.team != team {
+        let changed = self.team != team;
+        if changed {
             self.team = team;
             self.team_color = team.get_color();
             // A team-only transfer has no controlling-player provenance. Do
@@ -61,6 +62,10 @@ impl Object {
         }
         self.record_host_identity();
         self.apply_fake_building_terrain_decal();
+        if changed {
+            // C++ Team::setControllingPlayer / Object::setTeam → handlePartitionCellMaintenance.
+            self.handle_partition_cell_maintenance();
+        }
     }
 
     /// Set faction presentation and exact controlling-player identity together.
@@ -75,6 +80,10 @@ impl Object {
         }
         self.record_host_identity();
         self.apply_fake_building_terrain_decal();
+        if changed {
+            // C++ Object::setTeam then onCapture handlePartitionCellMaintenance.
+            self.handle_partition_cell_maintenance();
+        }
     }
 
     /// Check if this object is visible to a team (for fog of war / targeting UI).

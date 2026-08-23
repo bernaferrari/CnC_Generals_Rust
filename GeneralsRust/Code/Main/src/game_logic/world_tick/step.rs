@@ -789,6 +789,7 @@ impl GameLogic {
         self.update_combat(&object_ids, dt);
         self.mirror_overlord_addon_damage_after_combat();
         self.flush_pending_garrison_really_damaged_ejects();
+        self.flush_subdual_passenger_orders();
         // Nested AttackStateMachine residual (privateAttackObject enter path).
         let frame = self.frame;
         let t = frame as f32 * LOGIC_FRAME_TIMESTEP;

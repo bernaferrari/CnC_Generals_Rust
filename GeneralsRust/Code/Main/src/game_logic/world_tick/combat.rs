@@ -2142,6 +2142,16 @@ impl GameLogic {
                                         fire_wname.as_deref(),
                                         damage_type,
                                     );
+                                    let at_self = fire_wname.as_deref().map(
+                                        crate::game_logic::weapon_bootstrap::host_damage_dealt_at_self_position_for_weapon_name,
+                                    )
+                                    .unwrap_or(false);
+                                    let shooter_pos = self
+                                        .objects
+                                        .get(&attacker_id)
+                                        .map(|a| a.get_position())
+                                        .unwrap_or(target_position);
+                                    if !at_self {
                                     if let Some(target) = self.objects.get_mut(&target_id) {
                                         if target.get_sneaky_targeting_offset(self.frame).is_some() {
                                             // C++ fireWeaponTemplate clears victimObj; the shot
@@ -2173,7 +2183,10 @@ impl GameLogic {
                                         }
                                         }
                                     }
+                                    }
                                     // C++ dual-radius splash residual after direct hit.
+                                    // DamageDealtAtSelfPosition recenters on the shooter and
+                                    // clears primary-victim skip (Weapon.cpp:1008, 1035).
                                     {
                                         use crate::game_logic::weapon_bootstrap::{
                                             host_primary_damage_radius_for_weapon_name,
@@ -2213,15 +2226,25 @@ impl GameLogic {
                                         let secondary_r = sr * radius_mult;
                                         if primary_r > 0.0 || secondary_r > 0.0 {
                                             let sec_dmg = sd;
+                                            let splash_pos = if at_self {
+                                                shooter_pos
+                                            } else {
+                                                target_position
+                                            };
+                                            let splash_intended = if at_self {
+                                                ObjectId(0)
+                                            } else {
+                                                target_id
+                                            };
                                             let hits = self.apply_instant_hit_splash_at(
-                                                target_position,
+                                                splash_pos,
                                                 weapon_damage,
                                                 sec_dmg,
                                                 primary_r,
                                                 secondary_r,
                                                 attacker_id,
                                                 attacker_team,
-                                                target_id,
+                                                splash_intended,
                                                 wname.as_deref(),
                                             );
                                         }

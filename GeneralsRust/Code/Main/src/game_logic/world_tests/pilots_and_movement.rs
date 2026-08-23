@@ -2835,12 +2835,139 @@ fn hacker_internet_center_residual_deposits_cash() {
     );
 }
 
+/// hq-9izx7: C++ ActiveBody::onSubdualChange idles IC occupants; Patch 1.01
+/// resumes HackInternet when DISABLED_SUBDUED clears.
+#[test]
+fn internet_center_subdual_idles_occupant_hackers_and_resumes() {
+    use crate::game_logic::host_hacker_income::{
+        HACKER_CASH_INTERVAL_FAST_FRAMES, HACKER_CASH_INTERVAL_FRAMES, HACKER_CASH_REGULAR,
+    };
+    use crate::game_logic::{
+        ContainAdmission, ContainModuleKind, ContainModuleMetadata, HackInternetAIUpdateMetadata,
+        KindOf, ThingTemplate,
+    };
+
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::China);
+
+    let mut hacker_t = ThingTemplate::new("TestHackerSubdual");
+    hacker_t
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::MoneyHacker)
+        .set_health(100.0);
+    hacker_t.transport_slot_count = Some(1);
+    hacker_t.hack_internet_ai_update = Some(HackInternetAIUpdateMetadata {
+        unpack_time_frames: 0,
+        pack_time_frames: 0,
+        cash_update_delay_frames: HACKER_CASH_INTERVAL_FRAMES,
+        cash_update_delay_fast_frames: HACKER_CASH_INTERVAL_FAST_FRAMES,
+        regular_cash_amount: HACKER_CASH_REGULAR,
+        veteran_cash_amount: 6,
+        elite_cash_amount: 8,
+        heroic_cash_amount: 10,
+        xp_per_cash_update: 1.0,
+        pack_unpack_variation_factor: 0.0,
+    });
+    logic.templates.insert("TestHackerSubdual".into(), hacker_t);
+
+    let mut ic_t = ThingTemplate::new("TestInternetCenterSubdual");
+    ic_t.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSInternetCenter)
+        .set_health(2000.0);
+    ic_t.contain_module = ContainModuleMetadata {
+        kind: ContainModuleKind::InternetHack,
+        slots: Some(8),
+        admission: ContainAdmission::MoneyHackerOnly,
+        ..Default::default()
+    };
+    logic
+        .templates
+        .insert("TestInternetCenterSubdual".into(), ic_t);
+
+    let ic = logic
+        .create_object(
+            "TestInternetCenterSubdual",
+            Team::China,
+            Vec3::ZERO,
+        )
+        .expect("ic");
+    if let Some(obj) = logic.host_object_mut(ic) {
+        obj.set_status_under_construction(false);
+    }
+    let hacker = logic
+        .create_object(
+            "TestHackerSubdual",
+            Team::China,
+            Vec3::new(1.0, 0.0, 0.0),
+        )
+        .expect("hacker");
+    assert!(logic.host_object_mut(ic).expect("ic").add_occupant(hacker));
+    if let Some(obj) = logic.host_object_mut(hacker) {
+        obj.set_contained_by(Some(ic));
+        obj.set_ai_state(AIState::Docked);
+    }
+
+    logic.frame = 0;
+    logic.update_hacker_income();
+    assert!(
+        logic.hacker_income().is_hacking(hacker),
+        "contained hacker must auto-start"
+    );
+
+    if let Some(obj) = logic.host_object_mut(ic) {
+        obj.set_disabled_subdued(true);
+    }
+    logic.update_hacker_income();
+    assert!(
+        !logic.hacker_income().is_hacking(hacker),
+        "subdued IC must stop occupant hacking"
+    );
+    assert_eq!(
+        logic.host_object(hacker).expect("rider").ai_state,
+        AIState::Idle,
+        "occupants must go Idle"
+    );
+
+    let cash_at_stun = logic
+        .get_player_mut_by_team(Team::China)
+        .map(|p| p.resources.supplies)
+        .unwrap_or(0);
+    logic.frame = HACKER_CASH_INTERVAL_FAST_FRAMES + 2;
+    logic.update_hacker_income();
+    assert_eq!(
+        logic
+            .get_player_mut_by_team(Team::China)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(u32::MAX),
+        cash_at_stun,
+        "subdued IC must not deposit"
+    );
+
+    if let Some(obj) = logic.host_object_mut(ic) {
+        obj.set_disabled_subdued(false);
+    }
+    logic.update_hacker_income();
+    assert!(
+        logic.hacker_income().is_hacking(hacker),
+        "IC un-subdual must resume HackInternet"
+    );
+}
+
+
 /// Residual: field HackInternet command deposits $5 after the authored
 /// 60-frame delay and the following logic update.
 #[test]
 fn hacker_field_residual_deposits_cash_on_interval() {
-    use crate::game_logic::host_hacker_income::{HACKER_CASH_INTERVAL_FRAMES, HACKER_CASH_REGULAR};
+    use crate::game_logic::audio_dispatch_impl::{
+        clear_test_template_voices, set_test_per_unit_sound,
+    };
+    use crate::game_logic::host_hacker_income::{
+        HACKER_CASH_INTERVAL_FRAMES, HACKER_CASH_REGULAR, HACKER_UNIT_CASH_PING_AUDIO,
+    };
     use crate::game_logic::{HackInternetAIUpdateMetadata, KindOf, ThingTemplate};
+
+    clear_test_template_voices();
+    set_test_per_unit_sound("TestHacker", HACKER_UNIT_CASH_PING_AUDIO, "ChinaHackerCashPing");
 
     let mut game_logic = GameLogic::new();
     ensure_test_player_for_team(&mut game_logic, Team::China);
@@ -2899,6 +3026,7 @@ fn hacker_field_residual_deposits_cash_on_interval() {
         cash_before,
         "C++ UNPACKING then field delay before first cash"
     );
+    game_logic.queued_audio_events.clear();
     game_logic.frame = first;
     game_logic.update_hacker_income();
     let cash_after = game_logic
@@ -2917,9 +3045,25 @@ fn hacker_field_residual_deposits_cash_on_interval() {
             .unwrap_or(0),
         HACKER_CASH_REGULAR
     );
+    assert!(
+        game_logic.queued_audio_events.iter().any(|e| {
+            e.event_type == "ChinaHackerCashPing" && e.object_id == Some(hacker_id)
+        }),
+        "UnitCashPing must play the authored per-unit event: {:?}",
+        game_logic.queued_audio_events
+    );
+    assert!(
+        game_logic
+            .queued_audio_events
+            .iter()
+            .all(|e| e.event_type != HACKER_UNIT_CASH_PING_AUDIO),
+        "must not queue the UnitCashPing slot token: {:?}",
+        game_logic.queued_audio_events
+    );
     assert!(game_logic.honesty_hacker_income_ok());
     // Field path is not internet-center classified.
     assert!(!game_logic.honesty_hacker_internet_center_ok());
+    clear_test_template_voices();
 }
 
 /// C++ aiDoCommand PACKING: a move order stops HackInternet cash.
@@ -2976,6 +3120,9 @@ fn hacker_move_command_stops_hacking() {
 
 #[test]
 fn hacker_field_unpack_stamps_unpacking_then_firing_a() {
+    use crate::game_logic::audio_dispatch_impl::{
+        clear_test_template_voices, set_test_per_unit_sound,
+    };
     use crate::game_logic::host_enum_table_residual::{
         firing_a_model_bit, unpacking_model_bit,
     };
@@ -2985,6 +3132,12 @@ fn hacker_field_unpack_stamps_unpacking_then_firing_a() {
     };
     use crate::game_logic::{HackInternetAIUpdateMetadata, KindOf, ThingTemplate};
 
+    clear_test_template_voices();
+    set_test_per_unit_sound(
+        "TestHackerUnpackPose",
+        HACKER_UNIT_UNPACK_AUDIO,
+        "ChinaHackerVoiceUnpack",
+    );
     let mut game_logic = GameLogic::new();
     ensure_test_player_for_team(&mut game_logic, Team::China);
     let mut t = ThingTemplate::new("TestHackerUnpackPose");
@@ -3010,10 +3163,21 @@ fn hacker_field_unpack_stamps_unpacking_then_firing_a() {
     assert!(game_logic.start_hacker_internet_hack(hacker_id));
     let bits = game_logic.objects[&hacker_id].model_condition_bits;
     assert_ne!(bits & (1u128 << unpacking_model_bit()), 0);
-    assert!(game_logic
-        .queued_audio_events
-        .iter()
-        .any(|e| e.event_type == HACKER_UNIT_UNPACK_AUDIO));
+    assert!(
+        game_logic.queued_audio_events.iter().any(|e| {
+            e.event_type == "ChinaHackerVoiceUnpack" && e.object_id == Some(hacker_id)
+        }),
+        "UnitUnpack must play the authored per-unit event: {:?}",
+        game_logic.queued_audio_events
+    );
+    assert!(
+        game_logic
+            .queued_audio_events
+            .iter()
+            .all(|e| e.event_type != HACKER_UNIT_UNPACK_AUDIO),
+        "must not queue the UnitUnpack slot token: {:?}",
+        game_logic.queued_audio_events
+    );
     assert_eq!(
         game_logic.hacker_income().pack_phase(hacker_id),
         Some(HackerInternetPhase::Unpacking)
@@ -3028,10 +3192,14 @@ fn hacker_field_unpack_stamps_unpacking_then_firing_a() {
         game_logic.hacker_income().pack_phase(hacker_id),
         Some(HackerInternetPhase::Hacking)
     );
+    clear_test_template_voices();
 }
 
 #[test]
 fn hacker_move_while_hacking_packs_before_walking() {
+    use crate::game_logic::audio_dispatch_impl::{
+        clear_test_template_voices, set_test_per_unit_sound,
+    };
     use crate::game_logic::host_enum_table_residual::packing_model_bit;
     use crate::game_logic::host_hacker_income::{
         HackerInternetPhase, HACKER_CASH_INTERVAL_FRAMES, HACKER_CASH_REGULAR,
@@ -3039,6 +3207,12 @@ fn hacker_move_while_hacking_packs_before_walking() {
     };
     use crate::game_logic::{HackInternetAIUpdateMetadata, KindOf, ThingTemplate};
 
+    clear_test_template_voices();
+    set_test_per_unit_sound(
+        "TestHackerPackHold",
+        HACKER_UNIT_PACK_AUDIO,
+        "ChinaHackerVoicePack",
+    );
     let mut game_logic = GameLogic::new();
     ensure_test_player_for_team(&mut game_logic, Team::China);
     let mut t = ThingTemplate::new("TestHackerPackHold");
@@ -3068,6 +3242,7 @@ fn hacker_move_while_hacking_packs_before_walking() {
         Some(HackerInternetPhase::Hacking)
     );
 
+    game_logic.queued_audio_events.clear();
     assert!(game_logic.unit_command_move_to(hacker_id, Vec3::new(40.0, 0.0, 0.0)));
     assert!(!game_logic.hacker_income().is_hacking(hacker_id));
     assert_eq!(
@@ -3079,14 +3254,158 @@ fn hacker_move_while_hacking_packs_before_walking() {
         0
     );
     assert_ne!(game_logic.objects[&hacker_id].ai_state, AIState::Moving);
-    assert!(game_logic
-        .queued_audio_events
-        .iter()
-        .any(|e| e.event_type == HACKER_UNIT_PACK_AUDIO));
+    assert!(
+        game_logic.queued_audio_events.iter().any(|e| {
+            e.event_type == "ChinaHackerVoicePack" && e.object_id == Some(hacker_id)
+        }),
+        "UnitPack must play the authored per-unit event: {:?}",
+        game_logic.queued_audio_events
+    );
+    assert!(
+        game_logic
+            .queued_audio_events
+            .iter()
+            .all(|e| e.event_type != HACKER_UNIT_PACK_AUDIO),
+        "must not queue the UnitPack slot token: {:?}",
+        game_logic.queued_audio_events
+    );
 
     game_logic.frame = 3;
     game_logic.update_hacker_income();
     assert_eq!(game_logic.objects[&hacker_id].ai_state, AIState::Moving);
+    clear_test_template_voices();
+}
+
+#[test]
+fn sticky_bomb_plays_authored_created_and_ping_sounds() {
+    use crate::game_logic::audio_dispatch_impl::{
+        clear_test_template_voices, set_test_per_unit_sound,
+    };
+    use crate::game_logic::host_mines::{
+        HostMineKind, STICKY_BOMB_CREATED_AUDIO, TANK_HUNTER_TNT_OBJECT, UNIT_BOMB_PING_AUDIO,
+        UNIT_BOMB_PING_FRAMES,
+    };
+    use crate::game_logic::{KindOf, ThingTemplate};
+
+    clear_test_template_voices();
+    set_test_per_unit_sound(
+        TANK_HUNTER_TNT_OBJECT,
+        STICKY_BOMB_CREATED_AUDIO,
+        "TNTStickyBombCreated",
+    );
+    set_test_per_unit_sound(
+        TANK_HUNTER_TNT_OBJECT,
+        UNIT_BOMB_PING_AUDIO,
+        "TNTStickyBombPing",
+    );
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::GLA);
+    let mut charge_t = ThingTemplate::new(TANK_HUNTER_TNT_OBJECT);
+    charge_t.add_kind_of(KindOf::Mine).set_health(1.0);
+    logic
+        .templates
+        .insert(TANK_HUNTER_TNT_OBJECT.to_string(), charge_t);
+    let mut tgt_t = ThingTemplate::new("StickyVic");
+    tgt_t.add_kind_of(KindOf::Vehicle).set_health(200.0);
+    logic.templates.insert("StickyVic".into(), tgt_t);
+    let target = logic
+        .create_object("StickyVic", Team::USA, Vec3::new(10.0, 0.0, 10.0))
+        .expect("target");
+    let charge = logic
+        .place_mine_kind(
+            HostMineKind::TimedDemoCharge,
+            TANK_HUNTER_TNT_OBJECT,
+            Team::GLA,
+            Vec3::new(10.0, 0.0, 10.0),
+            None,
+            Some(target),
+            Some(300),
+        )
+        .expect("charge");
+    assert!(
+        logic.queued_audio_events.iter().any(|e| {
+            e.event_type == "TNTStickyBombCreated" && e.position.is_some()
+        }),
+        "StickyBombCreated must play the authored event at bomb pos: {:?}",
+        logic.queued_audio_events
+    );
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .all(|e| e.event_type != STICKY_BOMB_CREATED_AUDIO),
+        "must not queue the StickyBombCreated slot token: {:?}",
+        logic.queued_audio_events
+    );
+
+    logic.queued_audio_events.clear();
+    let ping_at = logic
+        .objects
+        .get(&charge)
+        .and_then(|o| o.mine_data.as_ref())
+        .and_then(|md| md.next_ping_frame)
+        .unwrap_or(UNIT_BOMB_PING_FRAMES);
+    logic.frame = ping_at;
+    logic.update_sticky_bomb_attachments();
+    assert!(
+        logic.queued_audio_events.iter().any(|e| {
+            e.event_type == "TNTStickyBombPing" && e.object_id == Some(charge)
+        }),
+        "UnitBombPing must play the authored event on the charge: {:?}",
+        logic.queued_audio_events
+    );
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .all(|e| e.event_type != UNIT_BOMB_PING_AUDIO),
+        "must not queue the UnitBombPing slot token: {:?}",
+        logic.queued_audio_events
+    );
+    clear_test_template_voices();
+}
+
+#[test]
+fn sticky_bomb_missing_unit_sound_stays_silent() {
+    use crate::game_logic::audio_dispatch_impl::clear_test_template_voices;
+    use crate::game_logic::host_mines::{
+        HostMineKind, STICKY_BOMB_CREATED_AUDIO, UNIT_BOMB_PING_AUDIO,
+    };
+    use crate::game_logic::{KindOf, ThingTemplate};
+
+    clear_test_template_voices();
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::GLA);
+    let mut charge_t = ThingTemplate::new("SilentSticky");
+    charge_t.add_kind_of(KindOf::Mine).set_health(1.0);
+    logic.templates.insert("SilentSticky".into(), charge_t);
+    let charge = logic
+        .place_mine_kind(
+            HostMineKind::RemoteDemoCharge,
+            "SilentSticky",
+            Team::GLA,
+            Vec3::ZERO,
+            None,
+            None,
+            None,
+        )
+        .expect("charge");
+    assert!(
+        logic.queued_audio_events.iter().all(|e| {
+            e.event_type != STICKY_BOMB_CREATED_AUDIO && e.event_type != "SilentStickyStickyBombCreated"
+        }),
+        "missing StickyBombCreated must stay silent: {:?}",
+        logic.queued_audio_events
+    );
+    logic.queued_audio_events.clear();
+    logic.frame = 30;
+    logic.update_sticky_bomb_attachments();
+    assert!(
+        logic.queued_audio_events.iter().all(|e| e.event_type != UNIT_BOMB_PING_AUDIO),
+        "missing UnitBombPing must stay silent: {:?}",
+        logic.queued_audio_events
+    );
+    let _ = charge;
 }
 
 /// Residual: non-hacker template must not start residual internet hack.

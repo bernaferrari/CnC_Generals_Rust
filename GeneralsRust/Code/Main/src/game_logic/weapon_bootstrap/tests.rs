@@ -592,6 +592,26 @@ fn die_on_detonate_reads_store_not_name_seed() {
 }
 
 #[test]
+fn damage_dealt_at_self_position_reads_store_not_name_seed() {
+    ensure_host_weapon_store();
+    const NAME: &str = "HuntDamageDealtAtSelfWeapon";
+    let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
+        let mut template = WeaponTemplate::new(NAME.to_string());
+        template.damage_dealt_at_self_position = true;
+        store.add_weapon_template(template);
+    });
+    assert!(host_damage_dealt_at_self_position_for_weapon_name(NAME));
+    assert!(!host_damage_dealt_at_self_position_for_weapon_name(
+        "AmericaTankCrusaderGun"
+    ));
+    assert!(!host_damage_dealt_at_self_position_for_weapon_name(
+        "NotInStoreSuicideDynamite"
+    ));
+    assert!(!host_damage_dealt_at_self_position_for_weapon_name(""));
+}
+
+
+#[test]
 fn projectile_stream_name_seeds() {
     assert_eq!(
         host_projectile_stream_name_for_weapon_name("DragonTankFlameWeapon"),

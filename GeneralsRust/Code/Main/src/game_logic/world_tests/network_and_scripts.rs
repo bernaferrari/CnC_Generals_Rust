@@ -1470,6 +1470,7 @@ fn process_ai_behavior_hunt_seeks_map_wide_not_100_circle() {
         let unit = game_logic.host_object(unit_id).expect("unit should exist");
         (unit.get_position(), unit.team, unit.can_attack())
     };
+    game_logic.hunt_next_enemy_scan.insert(unit_id, 30);
 
     let command = game_logic.process_ai_behavior(
         unit_id,

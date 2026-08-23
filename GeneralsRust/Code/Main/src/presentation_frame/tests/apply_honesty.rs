@@ -2023,8 +2023,82 @@ fn command_set_strip_keeps_authored_holes() {
         src.contains("command_set_slots_from_ini")
             && src.contains("intersect_command_set_slots")
             && src.contains("leftover_evaluate_named_command")
+            && src.contains("find_control_bar_override")
+            && src.contains("apply_leftover_control_bar_overrides")
             && !src.contains(".take(14)\n            .flatten()"),
-        "live strip must keep holes, intersect multi-select, and use leftover getCommandAvailability"
+        "live strip must keep holes, intersect multi-select, leftover availability, and leftover GameLogic commandbar overrides"
+    );
+}
+
+#[test]
+fn leftover_control_bar_override_hides_and_replaces_strip_slots() {
+    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
+    let snapshot = gamelogic::system::game_logic::lock_game_logic()
+        .ok()
+        .map(|logic| logic.snapshot_control_bar_overrides_raw())
+        .unwrap_or_default();
+    let restore = || {
+        if let Ok(mut leftover) = gamelogic::system::game_logic::lock_game_logic() {
+            leftover.restore_control_bar_overrides_raw(snapshot.clone());
+        }
+    };
+
+    let mut logic = GameLogic::new();
+    let mut t = ThingTemplate::new("AmericaInfantryRanger");
+    t.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    logic.templates.insert("AmericaInfantryRanger".into(), t);
+    let id = logic
+        .create_object("AmericaInfantryRanger", Team::USA, glam::Vec3::ZERO)
+        .expect("ranger");
+    if let Some(o) = logic.host_object_mut(id) {
+        o.selected = true;
+    }
+    if let Some(p) = logic.get_player_mut(0) {
+        p.selected_objects = vec![id];
+    }
+
+    let baseline = PresentationFrame::build_from_logic(&logic, 0).unit_command_buttons();
+    assert!(
+        baseline.iter().any(|c| c
+            .command_name
+            .eq_ignore_ascii_case("Command_AmericaRangerCaptureBuilding")),
+        "ranger residual must expose capture before leftover remove: {:?}",
+        baseline
+            .iter()
+            .map(|c| c.command_name.as_str())
+            .collect::<Vec<_>>()
+    );
+
+    if let Ok(mut leftover) = gamelogic::system::game_logic::lock_game_logic() {
+        leftover.set_control_bar_override("AmericaInfantryRangerCommandSet", 0, None);
+        leftover.set_control_bar_override(
+            "AmericaInfantryRangerCommandSet",
+            2,
+            Some("Command_Guard"),
+        );
+    } else {
+        restore();
+        panic!("leftover GameLogic lock required for commandbar override");
+    }
+
+    let cmds = PresentationFrame::build_from_logic(&logic, 0).unit_command_buttons();
+    restore();
+    assert!(
+        cmds.len() >= 14,
+        "override strip must keep 14 WND slots: {:?}",
+        cmds.iter().map(|c| c.command_name.as_str()).collect::<Vec<_>>()
+    );
+    assert!(
+        cmds[0].command_name.is_empty(),
+        "COMMANDBAR_REMOVE must hide leftover-nulled slot 0: {:?}",
+        cmds.iter().map(|c| c.command_name.as_str()).collect::<Vec<_>>()
+    );
+    assert!(
+        cmds[2].command_name.eq_ignore_ascii_case("Command_Guard"),
+        "COMMANDBAR_ADD must replace leftover slot 2: {:?}",
+        cmds.iter().map(|c| c.command_name.as_str()).collect::<Vec<_>>()
     );
 }
 

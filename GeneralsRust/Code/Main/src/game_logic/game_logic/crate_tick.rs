@@ -186,6 +186,8 @@ pub struct AudioEventRequest {
     pub is_looping: bool,            // false = fire-and-forget, true = continuous
     /// C++ `TheAudio->removeAudioEvent` — stop a previously queued looping event.
     pub stop: bool,
+    /// C++ `AudioEventRTS::setPlayerIndex` — VoiceEject and other owner-local voices.
+    pub player_index: Option<i32>,
 }
 
 impl AudioEventRequest {
@@ -197,6 +199,7 @@ impl AudioEventRequest {
             priority: 128,
             is_looping: false,
             stop: false,
+            player_index: None,
         }
     }
 
@@ -212,6 +215,11 @@ impl AudioEventRequest {
 
     pub fn with_priority(mut self, priority: u8) -> Self {
         self.priority = priority;
+        self
+    }
+
+    pub fn with_player_index(mut self, player_index: i32) -> Self {
+        self.player_index = Some(player_index);
         self
     }
 

@@ -813,7 +813,7 @@ impl GameLogic {
             // Fail-closed: not full W3DLaserDraw texture/arc GPU draw
             // (endpoint track + draw-param honesty residual closed 2026-07-13).
             if !destroyed {
-                self.process_patriot_assist_request(defense_id, target_id);
+                self.process_patriot_assist_request(defense_id, target_id, slot);
             }
         }
         if is_tunnel {
@@ -822,20 +822,23 @@ impl GameLogic {
         }
     }
 
-    /// C++ Weapon::processRequestAssistance residual for Patriot RequestAssistRange.
+    /// C++ Weapon::processRequestAssistance residual for leftover RequestAssistRange.
     ///
-    /// Same-team equivalent Patriots within **200** that are free to assist accept
-    /// a clip of **4** assist-weapon shots (range **450**).
+    /// Same-team equivalent Patriots within leftover `getRequestAssistRange()` that
+    /// are free to assist accept a clip of **4** assist-weapon shots (range **450**).
+    /// Range ≤ 0 skips the request (C++ `if (getRequestAssistRange() && victimObj)`).
     pub(in super::super) fn process_patriot_assist_request(
         &mut self,
         requester_id: ObjectId,
         victim_id: ObjectId,
+        slot: u8,
     ) {
         use crate::game_logic::host_base_defense::{
             is_patriot_battery_structure, is_patriot_free_to_assist,
             is_within_patriot_assist_weapon_range, is_within_patriot_request_assist_range,
-            make_patriot_assist_lasers, patriots_are_assist_equivalent, PatriotAssistLaserKind,
-            PendingPatriotAssist, PATRIOT_ASSIST_LASER_AUDIO,
+            make_patriot_assist_lasers, patriot_request_assist_range_for_template,
+            patriots_are_assist_equivalent, PatriotAssistLaserKind, PendingPatriotAssist,
+            PATRIOT_ASSIST_LASER_AUDIO,
         };
 
         let Some(requester) = self.objects.get(&requester_id) else {
@@ -856,12 +859,17 @@ impl GameLogic {
         }
         let victim_pos = victim.get_position();
 
+        // C++ Weapon.cpp:2477 — only fan out when leftover RequestAssistRange > 0.
+        let request_range = patriot_request_assist_range_for_template(&requester_template, slot == 1);
+        if request_range <= 0.0 {
+            return;
+        }
+
         self.patriot_assist_residual_requests =
             self.patriot_assist_residual_requests.saturating_add(1);
 
-        // Pure residual acquire: all free equivalent Patriots in request-assist range
-        // that can still weapon-range the victim (nearest-first).
-        use crate::game_logic::host_base_defense::PATRIOT_REQUEST_ASSIST_RANGE;
+        // Pure residual acquire: all free equivalent Patriots in leftover
+        // RequestAssistRange that can still weapon-range the victim (nearest-first).
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
         let cand_snap: Vec<_> = self
             .objects
@@ -924,7 +932,7 @@ impl GameLogic {
         let filtered = crate::game_logic::host_residual_acquire::filter_residual_targets_xz(
             Some(requester_id),
             (requester_pos.x, requester_pos.z),
-            PATRIOT_REQUEST_ASSIST_RANGE,
+            request_range,
             cand_snap.iter().map(|(c, _, _)| c.clone()),
             |c| {
                 // Distance already gated by filter; keep request-assist helper for parity.
@@ -933,7 +941,7 @@ impl GameLogic {
                     let dz = c.position.z - requester_pos.z;
                     (dx * dx + dz * dz).sqrt()
                 };
-                is_within_patriot_request_assist_range(dist)
+                is_within_patriot_request_assist_range(dist, request_range)
             },
         );
         let candidates: Vec<(ObjectId, String, Vec3)> = filtered
@@ -1284,9 +1292,9 @@ impl GameLogic {
         let until = supw_patriot_emp_until_frame(self.frame);
         let radius = SUPW_PATRIOT_EMP_RADIUS;
         use crate::game_logic::host_emp_pulse::{
-            emp_skip_ground_when_airborne_only, in_emp_pulse_radius_from_bounding_sphere_3d,
-            leftover_emp_bounding_sphere_radius, should_emp_kill_airborne,
-            should_emp_skip_hardened_airborne,
+            emp_intended_victim_near_miss_disables, emp_skip_ground_when_airborne_only,
+            in_emp_pulse_radius_from_bounding_sphere_3d, leftover_emp_bounding_sphere_radius,
+            should_emp_kill_airborne, should_emp_skip_hardened_airborne,
         };
         // C++ EMPUpdate.cpp:164-175 / 198-201 — producer AI victim airborne.
         let only_effect_airborne = intended_target
@@ -1344,6 +1352,7 @@ impl GameLogic {
             })
             .collect();
         let mut any = false;
+        let mut intended_victim_processed = false;
         let mut destroy_ids: Vec<ObjectId> = Vec::new();
         let mut spark_ids: Vec<ObjectId> = Vec::new();
         for (vid, kill, disable) in victims {
@@ -1357,6 +1366,35 @@ impl GameLogic {
                     v.apply_disabled_emp(until);
                     any = true;
                     spark_ids.push(vid);
+                    if intended_target == Some(vid) {
+                        intended_victim_processed = true;
+                    }
+                }
+            }
+        }
+        // C++ EMPUpdate.cpp:321-339 leftover near-miss: intended aircraft
+        // outside EffectRadius still DISABLED_EMP when dist_sqr <= radius*2
+        // or <= 40*40. No sparks on this path.
+        if let Some(victim_id) = intended_target {
+            if !intended_victim_processed {
+                let apply = self.objects.get(&victim_id).is_some_and(|v| {
+                    let pos = v.get_position();
+                    let dx = pos.x - impact.x;
+                    let dy = pos.y - impact.y;
+                    let dz = pos.z - impact.z;
+                    emp_intended_victim_near_miss_disables(
+                        false,
+                        v.is_kind_of(KindOf::Aircraft),
+                        is_emp_hardened_name(&v.template_name),
+                        dx * dx + dy * dy + dz * dz,
+                        radius,
+                    )
+                });
+                if apply {
+                    if let Some(v) = self.objects.get_mut(&victim_id) {
+                        v.apply_disabled_emp(until);
+                        any = true;
+                    }
                 }
             }
         }
@@ -1583,7 +1621,7 @@ impl GameLogic {
         use crate::game_logic::host_point_defense::{
             intercept_priority, is_point_defense_carrier, is_primary_intercept_target,
             is_secondary_intercept_target, pdl_damage, pdl_delay_frames, pdl_fire_range,
-            PDL_INTERCEPT_AUDIO,
+            pdl_module_count, PDL_INTERCEPT_AUDIO,
         };
 
         // Snapshot carriers first (immutable pass).
@@ -1619,156 +1657,183 @@ impl GameLogic {
         let mut intercepts_this_pass = 0u32;
 
         for (carrier_id, template_name, team, carrier_pos) in carriers {
-            let ready_frame = self
-                .point_defense_next_ready_frame
-                .get(&carrier_id)
-                .copied()
-                .unwrap_or(0);
-            if frame < ready_frame {
-                continue;
-            }
-
             let fire_range = pdl_fire_range(&template_name);
             let damage = pdl_damage(&template_name);
             let delay = pdl_delay_frames(&template_name);
             let carrier_xz = (carrier_pos.x, carrier_pos.z);
+            // Leftover PointDefenseLaserUpdate is per-module. Avenger authors two
+            // independent 500ms clocks; each update scans after prior modules fire
+            // so two missiles in the same window can both die.
+            let module_count = pdl_module_count(&template_name);
 
-            // Pure residual acquire: primary missiles first, then secondary infantry;
-            // closer wins within the same priority band (XZ range / 3D tiebreak).
-            let allow_secondary =
-                crate::game_logic::host_usa_tanks::paladin_allows_secondary_infantry_intercept(
-                    &template_name,
-                );
-            let candidates: Vec<_> = self
-                .objects
-                .iter()
-                .map(|(&tid, target)| {
-                    let same_team = target.team == team;
-                    let is_primary = is_primary_intercept_target(
-                        target.is_kind_of(KindOf::Projectile)
-                            || target.object_type == ObjectType::Projectile,
-                        target.is_alive(),
-                        same_team,
-                        &target.template_name,
-                    );
-                    // Retail: only Paladin has SecondaryTargetTypes = INFANTRY.
-                    // Avenger / King Raptor / Combat Chinook: missiles only.
-                    let is_secondary = if allow_secondary {
-                        is_secondary_intercept_target(
-                            target.is_kind_of(KindOf::Infantry),
-                            target.is_alive(),
-                            same_team,
-                            target.status.under_construction,
-                        )
-                    } else {
-                        false
-                    };
-                    crate::game_logic::host_residual_acquire::PriorityAcquireCandidate {
-                        id: tid,
-                        position: target.get_position(),
-                        is_alive: target.is_alive(),
-                        priority: intercept_priority(is_primary, is_secondary),
-                    }
-                })
-                .collect();
-            let Some((target_id, prio, _)) =
-                crate::game_logic::host_residual_acquire::pick_best_priority_residual_target(
-                    carrier_id,
-                    carrier_pos,
-                    carrier_xz,
-                    fire_range,
-                    candidates,
-                )
-            else {
-                continue;
-            };
-
-            // Primary missiles / projectiles: destroy residual (laser one-shots).
-            // Secondary infantry: apply PDL damage residual.
-            let mut destroyed = false;
-            let mut impact_pos = carrier_pos;
-            if prio == 0 {
-                if let Some(target) = self.objects.get_mut(&target_id) {
-                    impact_pos = target.get_position();
+            for module_i in 0..module_count {
+                let ready_frame = if module_i == 0 {
+                    self.point_defense_next_ready_frame
+                        .get(&carrier_id)
+                        .copied()
+                        .unwrap_or(0)
+                } else {
+                    self.point_defense_next_ready_frame_1
+                        .get(&carrier_id)
+                        .copied()
+                        .unwrap_or(0)
+                };
+                if frame < ready_frame {
+                    continue;
                 }
-                // Instant destroy residual for interceptable missiles.
-                // Damage-authority aware: HP last-write via damage log; destroy flag host-local.
-                self.mark_destroyed_authority_aware(target_id, Some(carrier_id));
-                destroyed = self
+
+                // Pure residual acquire: primary missiles first, then secondary infantry;
+                // closer wins within the same priority band (XZ range / 3D tiebreak).
+                let allow_secondary =
+                    crate::game_logic::host_usa_tanks::paladin_allows_secondary_infantry_intercept(
+                        &template_name,
+                    );
+                let candidates: Vec<_> = self
                     .objects
-                    .get(&target_id)
-                    .map(|t| t.status.destroyed || !t.is_alive() || t.health.current <= 0.0)
-                    .unwrap_or(true);
-            } else if let Some(target) = self.objects.get_mut(&target_id) {
-                impact_pos = target.get_position();
-                destroyed = target.take_damage_from_immediate_residual(
-                    damage,
-                    Some(carrier_id),
-                    crate::game_logic::host_usa_tanks::PALADIN_PDL_DAMAGE_TYPE,
-                    crate::game_logic::host_usa_tanks::PALADIN_PDL_DEATH_TYPE,
-                );
-                // Under damage authority take_damage does not zero host HP; project kill for
-                // mark_object_for_destruction when lethal residual is logged.
-                if !destroyed
-                    && crate::gameworld_shadow::gameworld_damage_authority_live()
-                    && damage >= target.health.current
-                {
-                    destroyed = true;
-                }
-            }
-
-            self.point_defense_next_ready_frame
-                .insert(carrier_id, frame.saturating_add(delay));
-            intercepts_this_pass = intercepts_this_pass.saturating_add(1);
-            self.point_defense_residual_intercepts =
-                self.point_defense_residual_intercepts.saturating_add(1);
-            // C++ Weapon::createLaser / PointDefenseLaserBeam Lifetime residual.
-            let _ = self.spawn_point_defense_laser_beam(
-                carrier_id,
-                &template_name,
-                carrier_pos,
-                impact_pos,
-                Some(target_id),
-            );
-            // AI attack authority: PDL discharge records fire-intent for GameWorld last-writer.
-            if crate::gameworld_shadow::gameworld_ai_attack_authority_live() {
-                if let Some(carrier) = self.objects.get_mut(&carrier_id) {
-                    let next_count = carrier.fire_intent_count.saturating_add(1);
-                    let sim_t = frame as f32 * LOGIC_FRAME_TIMESTEP;
-                    crate::game_logic::host_fire_intent_log::record(
+                    .iter()
+                    .map(|(&tid, target)| {
+                        let same_team = target.team == team;
+                        let stealthed = target.status.stealthed;
+                        let detected = target.status.detected;
+                        let disguised = target.status.disguised;
+                        // Leftover scan_closest_target: STEALTHED && !DETECTED &&
+                        // !DISGUISED continue (primary and secondary).
+                        let cloaked = stealthed && !detected && !disguised;
+                        let is_primary = !cloaked
+                            && is_primary_intercept_target(
+                                target.is_kind_of(KindOf::Projectile)
+                                    || target.object_type == ObjectType::Projectile,
+                                target.is_alive(),
+                                same_team,
+                                &target.template_name,
+                            );
+                        // Retail: only Paladin has SecondaryTargetTypes = INFANTRY.
+                        // Avenger / King Raptor / Combat Chinook: missiles only.
+                        let is_secondary = if allow_secondary {
+                            is_secondary_intercept_target(
+                                target.is_kind_of(KindOf::Infantry),
+                                target.is_alive(),
+                                same_team,
+                                target.status.under_construction,
+                                stealthed,
+                                detected,
+                                disguised,
+                            )
+                        } else {
+                            false
+                        };
+                        crate::game_logic::host_residual_acquire::PriorityAcquireCandidate {
+                            id: tid,
+                            position: target.get_position(),
+                            is_alive: target.is_alive(),
+                            priority: intercept_priority(is_primary, is_secondary),
+                        }
+                    })
+                    .collect();
+                let Some((target_id, prio, _)) =
+                    crate::game_logic::host_residual_acquire::pick_best_priority_residual_target(
                         carrier_id,
-                        target_id.0,
-                        0,
-                        damage,
+                        carrier_pos,
+                        carrier_xz,
                         fire_range,
-                        sim_t,
-                        frame,
-                        next_count,
+                        candidates,
+                    )
+                else {
+                    continue;
+                };
+
+                // Primary missiles / projectiles: destroy residual (laser one-shots).
+                // Secondary infantry: apply PDL damage residual.
+                let mut destroyed = false;
+                let mut impact_pos = carrier_pos;
+                if prio == 0 {
+                    if let Some(target) = self.objects.get_mut(&target_id) {
+                        impact_pos = target.get_position();
+                    }
+                    // Instant destroy residual for interceptable missiles.
+                    // Damage-authority aware: HP last-write via damage log; destroy flag host-local.
+                    self.mark_destroyed_authority_aware(target_id, Some(carrier_id));
+                    destroyed = self
+                        .objects
+                        .get(&target_id)
+                        .map(|t| t.status.destroyed || !t.is_alive() || t.health.current <= 0.0)
+                        .unwrap_or(true);
+                } else if let Some(target) = self.objects.get_mut(&target_id) {
+                    impact_pos = target.get_position();
+                    destroyed = target.take_damage_from_immediate_residual(
+                        damage,
+                        Some(carrier_id),
+                        crate::game_logic::host_usa_tanks::PALADIN_PDL_DAMAGE_TYPE,
+                        crate::game_logic::host_usa_tanks::PALADIN_PDL_DEATH_TYPE,
                     );
-                    carrier.fire_intent_count = next_count;
+                    // Under damage authority take_damage does not zero host HP; project kill for
+                    // mark_object_for_destruction when lethal residual is logged.
+                    if !destroyed
+                        && crate::gameworld_shadow::gameworld_damage_authority_live()
+                        && damage >= target.health.current
+                    {
+                        destroyed = true;
+                    }
                 }
-            }
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                crate::game_logic::host_ai_decision_log::record_attack(carrier_id, target_id);
-            }
 
-            if destroyed {
-                self.mark_object_for_destruction(target_id, Some(team));
-            }
+                if module_i == 0 {
+                    self.point_defense_next_ready_frame
+                        .insert(carrier_id, frame.saturating_add(delay));
+                } else {
+                    self.point_defense_next_ready_frame_1
+                        .insert(carrier_id, frame.saturating_add(delay));
+                }
+                intercepts_this_pass = intercepts_this_pass.saturating_add(1);
+                self.point_defense_residual_intercepts =
+                    self.point_defense_residual_intercepts.saturating_add(1);
+                // C++ Weapon::createLaser / PointDefenseLaserBeam Lifetime residual.
+                let _ = self.spawn_point_defense_laser_beam(
+                    carrier_id,
+                    &template_name,
+                    carrier_pos,
+                    impact_pos,
+                    Some(target_id),
+                );
+                // AI attack authority: PDL discharge records fire-intent for GameWorld last-writer.
+                if crate::gameworld_shadow::gameworld_ai_attack_authority_live() {
+                    if let Some(carrier) = self.objects.get_mut(&carrier_id) {
+                        let next_count = carrier.fire_intent_count.saturating_add(1);
+                        let sim_t = frame as f32 * LOGIC_FRAME_TIMESTEP;
+                        crate::game_logic::host_fire_intent_log::record(
+                            carrier_id,
+                            target_id.0,
+                            0,
+                            damage,
+                            fire_range,
+                            sim_t,
+                            frame,
+                            next_count,
+                        );
+                        carrier.fire_intent_count = next_count;
+                    }
+                }
+                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+                    crate::game_logic::host_ai_decision_log::record_attack(carrier_id, target_id);
+                }
 
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                carrier_pos,
-                Some(impact_pos),
-                frame,
-                carrier_id,
-                Some(target_id),
-            );
-            self.queue_audio_event(
-                AudioEventRequest::new(PDL_INTERCEPT_AUDIO)
-                    .with_object(carrier_id)
-                    .with_position(carrier_pos)
-                    .with_priority(150),
-            );
+                if destroyed {
+                    self.mark_object_for_destruction(target_id, Some(team));
+                }
+
+                let _ = self.combat_particles.spawn_weapon_fire_fx(
+                    carrier_pos,
+                    Some(impact_pos),
+                    frame,
+                    carrier_id,
+                    Some(target_id),
+                );
+                self.queue_audio_event(
+                    AudioEventRequest::new(PDL_INTERCEPT_AUDIO)
+                        .with_object(carrier_id)
+                        .with_position(carrier_pos)
+                        .with_priority(150),
+                );
+            }
         }
 
         if intercepts_this_pass > 0 {

@@ -114,6 +114,8 @@ impl SnapshotBuilder {
                 super::neutron_slow_death_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
                 super::turret_aim_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
                 super::stealth_grant_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::weapon_leech_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::score_keeper_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
 
 
 
@@ -417,6 +419,14 @@ impl SnapshotBuilder {
             game_logic,
         )?;
         super::stealth_grant_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::weapon_leech_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::score_keeper_persist::apply_from_lifecycle_tail(
             &snapshot.lifecycle_tail,
             game_logic,
         )?;

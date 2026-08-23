@@ -63,6 +63,13 @@ thread_local! {
     static LIVE_LAST_UNLOAD_SOUND_FRAME: RefCell<HashMap<ObjectID, UnsignedInt>> =
         RefCell::new(HashMap::new());
 }
+thread_local! {
+    static LAST_ON_CONTAINING_TEMPLATE: RefCell<Option<LeftoverOnContainingTemplateCall>> =
+        RefCell::new(None);
+    static LAST_ON_REMOVING_TEMPLATE: RefCell<Option<LeftoverOnRemovingTemplateCall>> =
+        RefCell::new(None);
+}
+
 
 const LEFTOVER_CONTAIN_MODULE_NAMES: &[&str] = &[
     "OpenContain",
@@ -204,6 +211,223 @@ pub fn leftover_contain_module_enter_sound(template_name: &str) -> Option<String
 pub fn leftover_contain_module_exit_sound(template_name: &str) -> Option<String> {
     leftover_contain_module_sound_name(template_name, false)
 }
+
+/// C++ `OpenContain::onContaining` / `onRemoving` leftover call record (live tests).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LeftoverOnContainingTemplateCall {
+    pub template_name: String,
+    pub object_id: ObjectID,
+    pub load_sounds_enabled: bool,
+    pub played: Option<String>,
+}
+
+/// C++ `OpenContain::onRemoving` leftover template SoundExit + rider SoundFalling.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LeftoverOnRemovingTemplateCall {
+    pub container_template: String,
+    pub container_id: ObjectID,
+    pub rider_template: String,
+    pub rider_id: ObjectID,
+    pub played_exit: Option<String>,
+    pub played_falling: Option<String>,
+}
+
+/// C++ `OpenContain::scatterToNearbyPosition` dest in leftover Z-up coords.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LeftoverScatterNearby {
+    pub dest_x: f32,
+    pub dest_y: f32,
+    pub dest_z: f32,
+    pub orientation: f32,
+    pub min_radius: f32,
+    pub max_radius: f32,
+}
+
+fn leftover_template_audio_event_name(
+    template_name: &str,
+    audio_type: game_engine::common::thing::thing_template::ThingTemplateAudioType,
+) -> Option<String> {
+    if template_name.is_empty() {
+        return None;
+    }
+    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
+    let factory = guard.as_ref()?;
+    let tmpl = factory.find_template(template_name, false)?;
+    let event = tmpl.audio_event(audio_type)?;
+    let name = event.get_event_name();
+    leftover_contain_sound_name_is_playable(name).then(|| name.to_string())
+}
+
+/// Leftover ThingFactory Object `SoundEnter`.
+pub fn leftover_template_sound_enter(template_name: &str) -> Option<String> {
+    leftover_template_audio_event_name(
+        template_name,
+        game_engine::common::thing::thing_template::ThingTemplateAudioType::SoundEnter,
+    )
+}
+
+/// Leftover ThingFactory Object `SoundExit`.
+pub fn leftover_template_sound_exit(template_name: &str) -> Option<String> {
+    leftover_template_audio_event_name(
+        template_name,
+        game_engine::common::thing::thing_template::ThingTemplateAudioType::SoundExit,
+    )
+}
+
+/// Leftover ThingFactory Object `SoundFallingFromPlane`.
+pub fn leftover_template_sound_falling(template_name: &str) -> Option<String> {
+    leftover_template_audio_event_name(
+        template_name,
+        game_engine::common::thing::thing_template::ThingTemplateAudioType::SoundFalling,
+    )
+}
+
+fn leftover_play_template_audio_event(event_name: Option<&str>, object_id: ObjectID) -> Option<String> {
+    let name = event_name.filter(|n| leftover_contain_sound_name_is_playable(n))?;
+    let mut event = AudioEventRts::new(name);
+    if object_id != 0 {
+        event.set_object_id(object_id);
+    }
+    if let Some(audio) = TheAudio::get() {
+        audio.add_audio_event(&event);
+    }
+    Some(name.to_string())
+}
+
+fn leftover_first_playable_template_sound(
+    leftover: Option<String>,
+    fallback: Option<&str>,
+) -> Option<String> {
+    leftover
+        .filter(|n| leftover_contain_sound_name_is_playable(n))
+        .or_else(|| {
+            fallback
+                .map(str::trim)
+                .filter(|n| leftover_contain_sound_name_is_playable(n))
+                .map(str::to_string)
+        })
+}
+
+/// C++ `OpenContain::onContaining` template `SoundEnter` (gated by load-sounds-enabled).
+pub fn leftover_play_on_containing_template_sounds(
+    container_template: &str,
+    container_id: ObjectID,
+    load_sounds_enabled: bool,
+    fallback_enter: Option<&str>,
+) -> Option<String> {
+    let played = if load_sounds_enabled {
+        leftover_play_template_audio_event(
+            leftover_first_playable_template_sound(
+                leftover_template_sound_enter(container_template),
+                fallback_enter,
+            )
+            .as_deref(),
+            container_id,
+        )
+    } else {
+        None
+    };
+    LAST_ON_CONTAINING_TEMPLATE.with(|slot| {
+        *slot.borrow_mut() = Some(LeftoverOnContainingTemplateCall {
+            template_name: container_template.to_string(),
+            object_id: container_id,
+            load_sounds_enabled,
+            played: played.clone(),
+        });
+    });
+    played
+}
+
+/// C++ `OpenContain::onRemoving` container `SoundExit` + rider `SoundFallingFromPlane`.
+pub fn leftover_play_on_removing_template_sounds(
+    container_template: &str,
+    container_id: ObjectID,
+    rider_template: &str,
+    rider_id: ObjectID,
+    fallback_exit: Option<&str>,
+    fallback_falling: Option<&str>,
+) -> (Option<String>, Option<String>) {
+    let played_exit = leftover_play_template_audio_event(
+        leftover_first_playable_template_sound(
+            leftover_template_sound_exit(container_template),
+            fallback_exit,
+        )
+        .as_deref(),
+        container_id,
+    );
+    let played_falling = leftover_play_template_audio_event(
+        leftover_first_playable_template_sound(
+            leftover_template_sound_falling(rider_template),
+            fallback_falling,
+        )
+        .as_deref(),
+        rider_id,
+    );
+    LAST_ON_REMOVING_TEMPLATE.with(|slot| {
+        *slot.borrow_mut() = Some(LeftoverOnRemovingTemplateCall {
+            container_template: container_template.to_string(),
+            container_id,
+            rider_template: rider_template.to_string(),
+            rider_id,
+            played_exit: played_exit.clone(),
+            played_falling: played_falling.clone(),
+        });
+    });
+    (played_exit, played_falling)
+}
+
+pub fn leftover_last_on_containing_template_call() -> Option<LeftoverOnContainingTemplateCall> {
+    LAST_ON_CONTAINING_TEMPLATE.with(|slot| slot.borrow().clone())
+}
+
+pub fn leftover_last_on_removing_template_call() -> Option<LeftoverOnRemovingTemplateCall> {
+    LAST_ON_REMOVING_TEMPLATE.with(|slot| slot.borrow().clone())
+}
+
+/// C++ `OpenContain::scatterToNearbyPosition` ring dest (leftover Z-up).
+pub fn leftover_scatter_to_nearby_position(
+    container_x: f32,
+    container_y: f32,
+    container_z: f32,
+    bounding_radius: f32,
+    layer_height: Option<f32>,
+) -> LeftoverScatterNearby {
+    let min_radius = bounding_radius.max(0.0);
+    let max_radius = min_radius + min_radius / 2.0;
+    let angle = crate::helpers::get_game_logic_random_value_real(0.0, 2.0 * std::f32::consts::PI);
+    let dist = crate::helpers::get_game_logic_random_value_real(min_radius, max_radius);
+    leftover_scatter_to_nearby_position_at(
+        container_x,
+        container_y,
+        container_z,
+        min_radius,
+        max_radius,
+        angle,
+        dist,
+        layer_height,
+    )
+}
+
+pub fn leftover_scatter_to_nearby_position_at(
+    container_x: f32,
+    container_y: f32,
+    container_z: f32,
+    min_radius: f32,
+    max_radius: f32,
+    angle: f32,
+    dist: f32,
+    layer_height: Option<f32>,
+) -> LeftoverScatterNearby {
+    LeftoverScatterNearby {
+        dest_x: dist * angle.cos() + container_x,
+        dest_y: dist * angle.sin() + container_y,
+        dest_z: layer_height.unwrap_or(container_z),
+        orientation: angle,
+        min_radius,
+        max_radius,
+    }
+}
+
 
 /// Configuration data for OpenContain module
 #[derive(Debug, Clone)]

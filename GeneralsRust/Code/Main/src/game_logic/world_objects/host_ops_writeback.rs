@@ -106,7 +106,10 @@ impl GameLogic {
                 // C++ Drawable::flashAsSelected residual on select / create-team.
                 obj.flash_as_selected();
             }
+            // C++ Drawable::onSelected → contain->clientVisibleContainedFlashAsSelected.
+            self.client_visible_contained_flash_as_selected(object_id);
         }
+
 
         let any_local = player_ids.iter().any(|&id| {
             self.players.get(&id).map(|p| p.is_local).unwrap_or(false)
@@ -139,6 +142,40 @@ impl GameLogic {
             create_new_selection
         );
     }
+
+    /// C++ `Drawable::onSelected` → `contain->clientVisibleContainedFlashAsSelected`.
+    /// `OpenContain` default is empty. Overlord walks contained
+    /// `KINDOF_PORTABLE_STRUCTURE`; Helix flashes `getPortableStructure()`.
+    pub(crate) fn client_visible_contained_flash_as_selected(&mut self, host_id: ObjectId) {
+        let Some(host) = self.objects.get(&host_id) else {
+            return;
+        };
+        let mut candidates: Vec<ObjectId> = Vec::new();
+        if let Some(id) = host.overlord_portable_occupant {
+            candidates.push(id);
+        }
+        for &id in &host.occupants {
+            if !candidates.contains(&id) {
+                candidates.push(id);
+            }
+        }
+        let flash: Vec<ObjectId> = candidates
+            .into_iter()
+            .filter(|&id| {
+                self.objects.get(&id).is_some_and(|occ| {
+                    crate::game_logic::host_battlemaster::is_portable_structure_template(
+                        &occ.template_name,
+                    )
+                })
+            })
+            .collect();
+        for id in flash {
+            if let Some(occ) = self.objects.get_mut(&id) {
+                occ.flash_as_selected();
+            }
+        }
+    }
+
 
     /// C++ CommandXlat.cpp:3490-3516 `MSG_CREATE_SELECTED_GROUP` / `SELECT_TEAM`
     /// pickAndPlay after weeding to `isLocallyControlled()`.
@@ -2294,5 +2331,105 @@ mod select_object_cpp_parity_tests {
         );
         clear_test_template_voices();
     }
+
+    #[test]
+    fn select_overlord_flashes_portable_addon() {
+        use crate::game_logic::host_overlord_addons::UPGRADE_OVERLORD_GATTLING;
+        use crate::game_logic::host_saboteur::SABOTEUR_FLASH_DECAY_FRAMES;
+
+        let mut logic = two_player_logic();
+        ensure_tpl(
+            &mut logic,
+            "ChinaTankOverlord",
+            &[KindOf::Vehicle, KindOf::Selectable],
+        );
+        let overlord = spawn(&mut logic, "ChinaTankOverlord", 0, 0.0);
+        logic.apply_upgrade_to_object(overlord, UPGRADE_OVERLORD_GATTLING);
+        let addon = logic
+            .host_object(overlord)
+            .and_then(|o| o.overlord_portable_occupant)
+            .expect("portable occupant");
+
+        logic.select_objects(0, vec![overlord]);
+        assert_eq!(
+            logic
+                .host_object(overlord)
+                .expect("hull")
+                .selection_flash_remaining,
+            SABOTEUR_FLASH_DECAY_FRAMES
+        );
+        assert_eq!(
+            logic
+                .host_object(addon)
+                .expect("addon")
+                .selection_flash_remaining,
+            SABOTEUR_FLASH_DECAY_FRAMES,
+            "portable addon must flash with the hull"
+        );
+        assert!(
+            !logic.host_object(addon).expect("addon").selected,
+            "addon is flashed, not added to the selection list"
+        );
+        assert_eq!(
+            logic.get_player(0).expect("p0").selected_objects,
+            vec![overlord]
+        );
+    }
+
+    #[test]
+    fn select_helix_flashes_portable_addon_not_infantry() {
+        use crate::game_logic::host_overlord_addons::UPGRADE_HELIX_GATTLING;
+        use crate::game_logic::host_saboteur::SABOTEUR_FLASH_DECAY_FRAMES;
+
+        let mut logic = two_player_logic();
+        ensure_tpl(
+            &mut logic,
+            "ChinaVehicleHelix",
+            &[KindOf::Vehicle, KindOf::Aircraft, KindOf::Selectable],
+        );
+        let helix = spawn(&mut logic, "ChinaVehicleHelix", 0, 0.0);
+        logic.apply_upgrade_to_object(helix, UPGRADE_HELIX_GATTLING);
+        let infantry = spawn(&mut logic, "SelectParityUnit", 0, 10.0);
+        {
+            let h = logic.host_object_mut(helix).expect("helix");
+            if !h.occupants.contains(&infantry) {
+                h.occupants.push(infantry);
+            }
+        }
+        {
+            let i = logic.host_object_mut(infantry).expect("infantry");
+            i.set_contained_by(Some(helix));
+        }
+        let addon = logic
+            .host_object(helix)
+            .and_then(|o| o.overlord_portable_occupant)
+            .expect("helix portable occupant");
+
+        logic.select_objects(0, vec![helix]);
+        assert_eq!(
+            logic
+                .host_object(helix)
+                .expect("hull")
+                .selection_flash_remaining,
+            SABOTEUR_FLASH_DECAY_FRAMES
+        );
+        assert_eq!(
+            logic
+                .host_object(addon)
+                .expect("addon")
+                .selection_flash_remaining,
+            SABOTEUR_FLASH_DECAY_FRAMES,
+            "Helix portable addon must flash with the hull"
+        );
+        assert_eq!(
+            logic
+                .host_object(infantry)
+                .expect("infantry")
+                .selection_flash_remaining,
+            0,
+            "Helix infantry occupants must not flash"
+        );
+    }
+
 }
 

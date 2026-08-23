@@ -44,6 +44,7 @@ impl GameLogic {
             attack_priority_sets: std::collections::HashMap::new(),
             team_common_attack_targets: std::collections::HashMap::new(),
             guard_next_enemy_scan: HashMap::new(),
+            hunt_next_enemy_scan: HashMap::new(),
             guard_guardee_pos: HashMap::new(),
 
             enable_repulsors: false,
@@ -201,6 +202,7 @@ impl GameLogic {
             ecm_laser_beams_spawned: 0,
             point_defense_laser_beams_spawned: 0,
             point_defense_next_ready_frame: HashMap::new(),
+            point_defense_next_ready_frame_1: HashMap::new(),
             avenger: crate::game_logic::host_avenger::HostAvengerRegistry::new(),
             neutron_shell_residual_blasts: 0,
             neutron_shell_residual_infantry_kills: 0,
@@ -698,6 +700,7 @@ impl GameLogic {
         crate::assets::clear_live_draw_playback();
 
         self.objects.clear();
+        self.hunt_next_enemy_scan.clear();
         self.host_view_dirty.clear();
         self.vision_last_looks.clear();
         self.vision_last_reveal_all.clear();
@@ -814,6 +817,7 @@ impl GameLogic {
         self.ecm_laser_beams_spawned = 0;
         self.point_defense_laser_beams_spawned = 0;
         self.point_defense_next_ready_frame.clear();
+        self.point_defense_next_ready_frame_1.clear();
         self.avenger.clear();
         self.neutron_shell_residual_blasts = 0;
         self.neutron_shell_residual_infantry_kills = 0;

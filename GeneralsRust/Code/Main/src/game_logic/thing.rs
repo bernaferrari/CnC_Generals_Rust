@@ -1477,6 +1477,10 @@ pub struct ThingTemplate {
     /// a non-zero value is an exact sale refund.
     #[serde(default)]
     pub refund_value: u16,
+    /// C++ `ThingTemplate::m_threatValue` from Object INI `ThreatValue`.
+    /// Object::addThreat stamps this, never BuildCost (Object.cpp:4873).
+    #[serde(default)]
+    pub threat_value: u16,
     pub model_name: Option<String>,
     pub texture_name: Option<String>,
     /// C++ `ThingTemplate::m_assetScale` from Object INI `Scale`.
@@ -1934,6 +1938,7 @@ impl ThingTemplate {
             build_time: 1.0,
             buildable_status: 0,
             refund_value: 0,
+            threat_value: 0,
             model_name: None,
             texture_name: None,
             asset_scale: default_asset_scale(),
@@ -2670,6 +2675,11 @@ impl ThingTemplate {
         self
     }
 
+    /// C++ `ThingTemplate::getThreatValue`. Leftover factory wins when loaded.
+    pub fn get_threat_value(&self) -> u16 {
+        leftover_template_threat_value(&self.name).unwrap_or(self.threat_value)
+    }
+
     /// C++ ControlBarCommand.cpp:1119-1121 / 1175-1177 — hide for humans.
     /// `ThingTemplate::getBuildable` consults GameLogic override first.
     pub fn human_control_bar_buildable_hidden(&self) -> bool {
@@ -2700,6 +2710,14 @@ impl ThingTemplate {
             format!("{}.w3d", model_name)
         }
     }
+}
+
+/// Leftover Common ThingTemplate::getThreatValue when the factory is live.
+fn leftover_template_threat_value(template_name: &str) -> Option<u16> {
+    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
+    let factory = guard.as_ref()?;
+    let tmpl = factory.find_template(template_name, false)?;
+    Some(tmpl.get_threat_value())
 }
 
 fn default_auto_choose_masks() -> [u32; 3] {

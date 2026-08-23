@@ -285,6 +285,11 @@ impl GameLogic {
         // TunnelContain::onCapture remeshes Player::m_tunnelSystem even when
         // two same-faction players trade an entrance.
         self.on_capture_tunnel_network_residual(object_id, old_team, new_team);
+        // C++ Object::onCapture handlePartitionCellMaintenance (Object.cpp:6165)
+        // after the ownership flip: unstamp old player mask, restamp new.
+        if let Some(obj) = self.objects.get_mut(&object_id) {
+            obj.handle_partition_cell_maintenance();
+        }
         if old_team == new_team {
             return;
         }

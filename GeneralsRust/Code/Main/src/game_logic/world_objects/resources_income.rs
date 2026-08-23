@@ -612,8 +612,86 @@ impl GameLogic {
 
     }
 
+    /// C++ `ActiveBody::onSubdualChange` passenger walk (leftover
+    /// `order_all_passengers_to_idle` / `order_all_passengers_to_hack_internet`).
+    pub(crate) fn flush_subdual_passenger_orders(&mut self) {
+        use crate::game_logic::host_hacker_income::is_legal_hacker_income_source;
+        let mut idle_containers: Vec<ObjectId> = Vec::new();
+        let mut hack_containers: Vec<ObjectId> = Vec::new();
+        for (id, obj) in &self.objects {
+            if obj.status.pending_subdual_passenger_idle {
+                idle_containers.push(*id);
+            }
+            if obj.status.pending_internet_center_resume_hack {
+                hack_containers.push(*id);
+            }
+        }
+        for container_id in idle_containers {
+            let occupants = match self.objects.get_mut(&container_id) {
+                Some(obj) => {
+                    let _ = obj.take_pending_subdual_passenger_idle();
+                    obj.contained_units()
+                }
+                None => continue,
+            };
+            for occ_id in occupants {
+                if let Some(occ) = self.objects.get_mut(&occ_id) {
+                    occ.status.attacking = false;
+                    occ.set_status_force_attack(false);
+                    occ.target = None;
+                    occ.target_location = None;
+                    occ.set_ai_state(AIState::Idle);
+                }
+                // C++ `aiIdle` leaves HACK_INTERNET (`aiDoCommand` PACKING).
+                self.hacker_income.stop_hacking(occ_id);
+            }
+        }
+        let frame = self.frame;
+        for container_id in hack_containers {
+            let occupants = match self.objects.get_mut(&container_id) {
+                Some(obj) => {
+                    let _ = obj.take_pending_internet_center_resume_hack();
+                    obj.contained_units()
+                }
+                None => continue,
+            };
+            for occ_id in occupants {
+                let Some((is_hacker, metadata, alive, neutral, disabled_hacked)) =
+                    self.objects.get(&occ_id).map(|occ| {
+                        (
+                            occ.is_kind_of(KindOf::MoneyHacker),
+                            occ.thing.template.hack_internet_ai_update,
+                            occ.is_alive(),
+                            occ.team == Team::Neutral,
+                            occ.status.disabled_hacked,
+                        )
+                    })
+                else {
+                    continue;
+                };
+                if !is_hacker {
+                    continue;
+                }
+                let Some(metadata) = metadata else {
+                    continue;
+                };
+                if !is_legal_hacker_income_source(alive, neutral, disabled_hacked) {
+                    continue;
+                }
+                self.hacker_income.ensure_internet_center_hacking(
+                    occ_id,
+                    frame,
+                    metadata.unpack_time_frames,
+                    metadata.cash_update_delay_frames(true),
+                );
+            }
+        }
+    }
+
+
     pub(in super::super) fn update_hacker_income(&mut self) {
         use crate::game_logic::host_hacker_income::is_legal_hacker_income_source;
+        self.flush_subdual_passenger_orders();
         self.tick_hacker_pack_phases();
 
 
@@ -663,6 +741,7 @@ impl GameLogic {
             container_team: Team,
             container_owner_player_id: Option<u32>,
             container_radius: f32,
+            container_subdued: bool,
             moving: bool,
             ai_state: AIState,
         }
@@ -684,18 +763,20 @@ impl GameLogic {
                             && self.normal_enter_controller_matches(obj, target)
                     })
                 });
-                let (c_stealthed, c_detected, c_team, c_owner_player_id, c_radius) = container
-                    .and_then(|cid| self.objects.get(&cid))
-                    .map(|c| {
-                        (
-                            c.status.stealthed,
-                            c.status.detected,
-                            c.team,
-                            c.owner_player_id,
-                            c.thing.geometry.radius,
-                        )
-                    })
-                    .unwrap_or((false, false, Team::Neutral, None, 0.0));
+                let (c_stealthed, c_detected, c_team, c_owner_player_id, c_radius, c_subdued) =
+                    container
+                        .and_then(|cid| self.objects.get(&cid))
+                        .map(|c| {
+                            (
+                                c.status.stealthed,
+                                c.status.detected,
+                                c.team,
+                                c.owner_player_id,
+                                c.thing.geometry.radius,
+                                c.status.disabled_subdued,
+                            )
+                        })
+                        .unwrap_or((false, false, Team::Neutral, None, 0.0, false));
                 Some(HackerSnap {
                     id: *id,
                     team: obj.team,
@@ -720,6 +801,7 @@ impl GameLogic {
                     container_team: c_team,
                     container_owner_player_id: c_owner_player_id,
                     container_radius: c_radius,
+                    container_subdued: c_subdued,
                     moving: obj.status.moving,
                     ai_state: obj.ai_state.clone(),
                 })
@@ -743,7 +825,13 @@ impl GameLogic {
                 continue;
             }
             // Internet Center residual: auto-start hacking when contained.
-            if h.in_ic && is_legal_hacker_income_source(h.alive, h.neutral, h.disabled_hacked) {
+            // C++ `onSubdualChange` idles occupants while DISABLED_SUBDUED;
+            // do not re-enter HACK_INTERNET until the center clears.
+            if h.in_ic && h.container_subdued {
+                self.hacker_income.stop_hacking(h.id);
+            } else if h.in_ic
+                && is_legal_hacker_income_source(h.alive, h.neutral, h.disabled_hacked)
+            {
                 self.hacker_income.ensure_internet_center_hacking(
                     h.id,
                     frame,
@@ -828,7 +916,16 @@ impl GameLogic {
             } else {
                 self.hacker_income.record_floating_text_suppressed();
             }
-
+            // C++ HackInternetAIUpdate::doCashUpdate UnitCashPing (object ID), even
+            // when floating text is suppressed.
+            self.queue_resolved_per_unit_sound(
+                h.id,
+                crate::game_logic::host_hacker_income::HACKER_UNIT_CASH_PING_AUDIO,
+                true,
+                false,
+                None,
+                150,
+            );
         }
     }
 
@@ -865,12 +962,13 @@ impl GameLogic {
             obj.set_ai_state(AIState::Idle);
         }
         self.leftover_sa_set_pack_model(hacker_id, true, false, false);
-        self.queue_audio_event(
-            AudioEventRequest::new(
-                crate::game_logic::host_hacker_income::HACKER_UNIT_UNPACK_AUDIO,
-            )
-            .with_object(hacker_id)
-            .with_priority(150),
+        self.queue_resolved_per_unit_sound(
+            hacker_id,
+            crate::game_logic::host_hacker_income::HACKER_UNIT_UNPACK_AUDIO,
+            true,
+            false,
+            None,
+            150,
         );
         true
     }

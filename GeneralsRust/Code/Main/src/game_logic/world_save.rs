@@ -406,6 +406,8 @@ impl GameLogic {
         observer.start_position = 0;
         observer.alliance_team = -1;
         observer.color_rgb = (170, 170, 170);
+        observer.color_night_rgb = (170, 170, 170);
+
         self.add_player(observer);
         if let Some(identity) = PlayerTemplateIdentity::from_exact_name("FactionObserver") {
             let _ = self.bind_player_template_identity(id, identity);
@@ -1491,6 +1493,14 @@ impl GameLogic {
         }
         if started_undeploy {
             self.deploy_style_reg.record_undeploy();
+            self.queue_resolved_per_unit_sound(
+                unit_id,
+                crate::game_logic::host_deploy_style::DEPLOY_STYLE_UNDEPLOY_AUDIO,
+                true,
+                false,
+                None,
+                150,
+            );
         }
         if block_path {
             self.deploy_style_reg.record_blocked_move();
@@ -1855,6 +1865,15 @@ impl GameLogic {
     /// C++ Pathfinder::isAttackViewBlockedByObstacle residual for host combat.
     /// Units with AttackNeedsLineOfSight cannot fire through static obstacles.
     /// Aircraft / non-LOS kinds always clear. Fail-closed: not full weapon terrain LOS.
+    /// C++ `Pathfinder::adjustToPossibleDestination` for a live unit.
+    pub fn adjust_to_possible_destination(&self, unit_id: ObjectId, dest: &mut Vec3) -> bool {
+        let Some(obj) = self.objects.get(&unit_id) else {
+            return false;
+        };
+        self.pathfinding_system
+            .adjust_to_possible_destination_for(obj, dest)
+    }
+
     /// Path toward a firing position with LOS (C++ findAttackPath residual).
     /// Falls back to path-to-target if no in-range LOS cell is found.
     pub fn assign_unit_attack_path(
@@ -1906,6 +1925,7 @@ impl GameLogic {
             path_range,
             &self.objects,
             is_crusher,
+            Some(unit_id),
         );
         // LOS_TERRAIN residual: reject firing cell if terrain occludes eye-line.
         if let Some(ref full_path) = path {
@@ -1964,8 +1984,10 @@ impl GameLogic {
                 return true;
             }
         }
-        // Fallback: path to target footprint (prior residual).
-        if self.assign_unit_path(unit_id, target_pos, &[]) {
+        // C++ doPathfind attack fail: adjustToPossibleDestination + ignoreObstacle(victim).
+        let mut dest = target_pos;
+        self.adjust_to_possible_destination(unit_id, &mut dest);
+        if self.assign_unit_path_ignoring(unit_id, dest, &[], target_id) {
             if decision_auth {
                 if let Some(tid) = target_id {
                     crate::game_logic::host_ai_decision_log::record_attack(unit_id, tid);

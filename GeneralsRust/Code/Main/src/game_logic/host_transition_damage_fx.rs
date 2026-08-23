@@ -103,6 +103,13 @@ pub struct HostTransitionDamageFxData {
     /// C++ `m_OCL[state][0..12]` authored OCL names.
     #[serde(default)]
     pub ocl_for_state: [Vec<String>; TRANSITION_DAMAGE_FX_SLOTS],
+    /// Leftover `FXLocInfo` for each authored FXList slot.
+    #[serde(default)]
+    pub fx_locs_for_state: [Vec<HostTransitionLoc>; TRANSITION_DAMAGE_FX_SLOTS],
+    /// Leftover `FXLocInfo` for each authored OCL slot.
+    #[serde(default)]
+    pub ocl_locs_for_state: [Vec<HostTransitionLoc>; TRANSITION_DAMAGE_FX_SLOTS],
+
     /// C++ `m_particleSystem[state][slot]` authored PSys names + loc.
     #[serde(default)]
     pub particles_for_state: [Vec<HostTransitionParticle>; TRANSITION_DAMAGE_FX_SLOTS],
@@ -128,6 +135,9 @@ impl Default for HostTransitionDamageFxData {
             enabled: false,
             fx_lists_for_state: Default::default(),
             ocl_for_state: Default::default(),
+            fx_locs_for_state: Default::default(),
+            ocl_locs_for_state: Default::default(),
+
             particles_for_state: Default::default(),
             attached_ids: Default::default(),
             damage_fx_types: default_leftover_damage_type_flags(),
@@ -146,29 +156,35 @@ pub struct HostTransitionParticle {
     pub random_bone: bool,
 }
 
+/// Leftover `FXLocInfo` (Bone / RandomBone / Loc) for FXList and OCL slots.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct HostTransitionLoc {
+    pub bone: Option<String>,
+    pub loc: [f32; 3],
+    pub random_bone: bool,
+}
+
+impl HostTransitionLoc {
+    fn as_particle(&self) -> HostTransitionParticle {
+        HostTransitionParticle {
+            name: String::new(),
+            bone: self.bone.clone(),
+            loc: self.loc,
+            random_bone: self.random_bone,
+        }
+    }
+}
+
+
 impl HostTransitionDamageFxData {
     pub fn generic_structure_residual() -> Self {
+        // C++ TransitionDamageFX plays only authored PSys slots. Inventing
+        // BuildingDamageSmoke/Fire (not in ParticleSystem.ini) made every
+        // structure billow generic smoke (hq-uzzbc). Audio is ActiveBody.
         Self {
             enabled: true,
             fx_for_state: [None, None, None, None],
             audio_for_state: [None, None, None, None],
-            particles_for_state: [
-                Vec::new(),
-                vec![HostTransitionParticle {
-                    name: "BuildingDamageSmoke".into(),
-                    bone: Some("Smoke01".into()),
-                    loc: [0.0, 0.0, 0.0],
-                    random_bone: false,
-                }],
-                vec![HostTransitionParticle {
-                    name: "BuildingDamageFire".into(),
-                    bone: Some("Fire01".into()),
-                    loc: [0.0, 0.0, 0.0],
-                    random_bone: false,
-                }],
-                Vec::new(),
-            ],
-            attached_ids: Default::default(),
             ..Self::default()
         }
     }
@@ -239,6 +255,13 @@ pub struct HostTransitionDamageFxEvent {
     pub ocl_names: Vec<String>,
     #[serde(default)]
     pub particles: Vec<HostTransitionParticle>,
+    /// Leftover loc for `fx_name` then `extra_fx_names`.
+    #[serde(default)]
+    pub fx_locs: Vec<HostTransitionLoc>,
+    /// Leftover loc for each `ocl_names` slot.
+    #[serde(default)]
+    pub ocl_locs: Vec<HostTransitionLoc>,
+
     #[serde(default)]
     pub clear_old_state: Option<u8>,
 }
@@ -249,14 +272,26 @@ pub fn is_condition_worse(new_state: HostBodyDamageType, old_state: HostBodyDama
 }
 
 fn authored_fx_lists_for_state(data: &HostTransitionDamageFxData, idx: usize) -> Vec<String> {
+    authored_fx_slots_for_state(data, idx).0
+}
+
+fn authored_fx_slots_for_state(
+    data: &HostTransitionDamageFxData,
+    idx: usize,
+) -> (Vec<String>, Vec<HostTransitionLoc>) {
     let mut names = data.fx_lists_for_state[idx].clone();
+    let mut locs = data.fx_locs_for_state[idx].clone();
     if names.is_empty() {
         if let Some(fx) = data.fx_for_state[idx].clone() {
             names.push(fx);
         }
     }
-    names
+    if locs.len() < names.len() {
+        locs.resize(names.len(), HostTransitionLoc::default());
+    }
+    (names, locs)
 }
+
 
 /// Build residual event when state worsens.
 pub fn transition_event(
@@ -311,28 +346,43 @@ pub fn on_body_damage_state_change_for_damage(
     let play_fx = leftover_should_play_for_damage_type(data.damage_fx_types, last_damage);
     let play_ocl = leftover_should_play_for_damage_type(data.damage_ocl_types, last_damage);
     let play_psys = leftover_should_play_for_damage_type(data.damage_particle_types, last_damage);
-    let (mut fx_lists, audio, ocl_names, particles) = if worse && idx < TRANSITION_DAMAGE_FX_SLOTS {
-        (
-            if play_fx {
-                authored_fx_lists_for_state(data, idx)
+    let (mut fx_lists, fx_locs, audio, ocl_names, ocl_locs, particles) =
+        if worse && idx < TRANSITION_DAMAGE_FX_SLOTS {
+            let (names, locs) = if play_fx {
+                authored_fx_slots_for_state(data, idx)
             } else {
-                Vec::new()
-            },
-            data.audio_for_state[idx].clone(),
-            if play_ocl {
-                data.ocl_for_state[idx].clone()
+                (Vec::new(), Vec::new())
+            };
+            let (ocl_names, ocl_locs) = if play_ocl {
+                (
+                    data.ocl_for_state[idx].clone(),
+                    data.ocl_locs_for_state[idx].clone(),
+                )
             } else {
-                Vec::new()
-            },
-            if play_psys {
-                data.particles_for_state[idx].clone()
-            } else {
-                Vec::new()
-            },
-        )
-    } else {
-        (Vec::new(), None, Vec::new(), Vec::new())
-    };
+                (Vec::new(), Vec::new())
+            };
+            (
+                names,
+                locs,
+                data.audio_for_state[idx].clone(),
+                ocl_names,
+                ocl_locs,
+                if play_psys {
+                    data.particles_for_state[idx].clone()
+                } else {
+                    Vec::new()
+                },
+            )
+        } else {
+            (
+                Vec::new(),
+                Vec::new(),
+                None,
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+        };
     let fx = if fx_lists.is_empty() {
         None
     } else {
@@ -347,6 +397,8 @@ pub fn on_body_damage_state_change_for_damage(
             extra_fx_names: Vec::new(),
             ocl_names: Vec::new(),
             particles: Vec::new(),
+            fx_locs: Vec::new(),
+            ocl_locs: Vec::new(),
             clear_old_state: Some(old_state.ordinal()),
         });
     }
@@ -367,9 +419,13 @@ pub fn on_body_damage_state_change_for_damage(
         extra_fx_names: fx_lists,
         ocl_names,
         particles,
+        fx_locs,
+        ocl_locs,
         clear_old_state: Some(old_state.ordinal()),
     })
 }
+
+
 
 pub fn transition_damage_fx_config_for_template(
     name: &str,
@@ -443,16 +499,19 @@ fn overlay_authored_transition_slots(data: &mut HostTransitionDamageFxData, name
         ] {
             let idx = state.ordinal() as usize;
             let mut parsed = Vec::new();
+            let mut parsed_locs = Vec::new();
             for slot in 1..=12 {
                 let key = format!("{prefix}{slot}");
                 if let Some(raw) = module.attribute(&key) {
                     if let Some(name) = parse_transition_named_attr(raw, "fxlist") {
                         parsed.push(name);
+                        parsed_locs.push(parse_transition_loc_attr(raw));
                     }
                 }
             }
             if !parsed.is_empty() {
                 data.fx_lists_for_state[idx] = parsed.clone();
+                data.fx_locs_for_state[idx] = parsed_locs;
                 data.fx_for_state[idx] = parsed.into_iter().next();
             }
         }
@@ -463,18 +522,22 @@ fn overlay_authored_transition_slots(data: &mut HostTransitionDamageFxData, name
         ] {
             let idx = state.ordinal() as usize;
             let mut parsed = Vec::new();
+            let mut parsed_locs = Vec::new();
             for slot in 1..=12 {
                 let key = format!("{prefix}{slot}");
                 if let Some(raw) = module.attribute(&key) {
                     if let Some(name) = parse_transition_named_attr(raw, "ocl") {
                         parsed.push(name);
+                        parsed_locs.push(parse_transition_loc_attr(raw));
                     }
                 }
             }
             if !parsed.is_empty() {
                 data.ocl_for_state[idx] = parsed;
+                data.ocl_locs_for_state[idx] = parsed_locs;
             }
         }
+
         if let Some(raw) = module.attribute("DamageFXTypes") {
             if let Some(bits) = parse_leftover_damage_type_flags(raw) {
                 data.damage_fx_types = bits;
@@ -526,6 +589,122 @@ pub fn parse_transition_named_attr(raw: &str, tag: &str) -> Option<String> {
         None
     }
 }
+
+/// Leftover `parse_fx_loc_info` for FXList / OCL / PSys loc tokens.
+pub fn parse_transition_loc_attr(raw: &str) -> HostTransitionLoc {
+    let p = parse_transition_particle_attr(&format!("{raw} PSys:_"))
+        .unwrap_or_default();
+    HostTransitionLoc {
+        bone: p.bone,
+        loc: p.loc,
+        random_bone: p.random_bone,
+    }
+}
+
+/// Leftover `get_local_effect_pos` + `convert_bone_pos_to_world_pos` in host space.
+pub fn leftover_named_slot_world_pos(
+    loc: Option<&HostTransitionLoc>,
+    owner: u32,
+    host_pos: glam::Vec3,
+    yaw: f32,
+    model: &str,
+    scale: f32,
+) -> glam::Vec3 {
+    let loc = loc.cloned().unwrap_or_default();
+    let particle = loc.as_particle();
+    let leftover_owner = gamelogic::helpers::TheGameLogic::find_object_by_id(owner);
+    let leftover_guard = leftover_owner.as_ref().and_then(|h| h.read().ok());
+    let leftover_yaw = leftover_guard
+        .as_ref()
+        .map(|obj| obj.get_orientation())
+        .unwrap_or(yaw);
+    let leftover_local = {
+        let leftover_drawable_handle = leftover_guard.as_ref().and_then(|obj| obj.get_drawable());
+        let leftover_drawable = leftover_drawable_handle.as_ref().and_then(|d| d.read().ok());
+        leftover_local_effect_pos_live(
+            &particle,
+            leftover_drawable.as_deref(),
+            model,
+            scale,
+        )
+    };
+    if let Some(obj) = leftover_guard.as_deref() {
+        let world = obj.convert_bone_pos_to_world_pos(Some(&leftover_local), None);
+        let translation = world.w_axis;
+        return leftover_to_host_local(gamelogic::common::Coord3D::new(
+            translation.x,
+            translation.y,
+            translation.z,
+        ));
+    }
+    let host_local = leftover_to_host_local(leftover_local);
+    let (sin, cos) = leftover_yaw.sin_cos();
+    glam::Vec3::new(
+        host_pos.x + host_local.x * cos - host_local.z * sin,
+        host_pos.y + host_local.y,
+        host_pos.z + host_local.x * sin + host_local.z * cos,
+    )
+}
+
+/// Leftover `play_fx_for_state` FXList/OCL: `doFXPos` / OCL create at bone/loc world pos.
+pub fn play_transition_event_fx_ocl(
+    ev: &HostTransitionDamageFxEvent,
+    owner: u32,
+    host_pos: glam::Vec3,
+    yaw: f32,
+    model: &str,
+    scale: f32,
+) {
+    if let Some(fx) = ev.fx_name.as_deref() {
+        let world = leftover_named_slot_world_pos(
+            ev.fx_locs.first(),
+            owner,
+            host_pos,
+            yaw,
+            model,
+            scale,
+        );
+        let _ = crate::game_logic::dispatch_fx_list_at_pos(fx, world);
+    }
+    for (i, fx) in ev.extra_fx_names.iter().enumerate() {
+        let world = leftover_named_slot_world_pos(
+            ev.fx_locs.get(i + 1),
+            owner,
+            host_pos,
+            yaw,
+            model,
+            scale,
+        );
+        let _ = crate::game_logic::dispatch_fx_list_at_pos(fx, world);
+    }
+    for (i, ocl) in ev.ocl_names.iter().enumerate() {
+        let world = leftover_named_slot_world_pos(
+            ev.ocl_locs.get(i),
+            owner,
+            host_pos,
+            yaw,
+            model,
+            scale,
+        );
+        play_authored_transition_ocl(ocl, owner, world);
+    }
+}
+
+/// Play leftover FX/OCL then drop names so origin-dispatch consumers do not replay.
+pub fn take_played_transition_event_fx_ocl(
+    ev: &mut HostTransitionDamageFxEvent,
+    owner: u32,
+    host_pos: glam::Vec3,
+    yaw: f32,
+    model: &str,
+    scale: f32,
+) {
+    play_transition_event_fx_ocl(ev, owner, host_pos, yaw, model, scale);
+    ev.fx_name = None;
+    ev.extra_fx_names.clear();
+    ev.ocl_names.clear();
+}
+
 
 /// Play leftover OCL at a live-host pose (C++ `ObjectCreationList::create`).
 pub fn play_authored_transition_ocl(name: &str, owner: u32, pos: glam::Vec3) {
@@ -634,9 +813,9 @@ fn leftover_local_effect_pos(
         return loc;
     };
     if !particle.random_bone {
-        let positions = drawable.get_pristine_bone_positions(bone, 0, 1);
-        if let Some(pos) = positions.first() {
-            return *pos;
+        let mut positions = drawable.get_pristine_bone_positions(bone, 0, 1);
+        if let Some(pos) = positions.pop() {
+            return pos;
         }
         return loc;
     }
@@ -646,7 +825,7 @@ fn leftover_local_effect_pos(
         return loc;
     }
     let pick = gamelogic::common::game_logic_random_value(0, positions.len() as u32 - 1) as usize;
-    positions[pick]
+    positions.into_iter().nth(pick).unwrap_or(loc)
 }
 
 fn leftover_to_host_local(pos: gamelogic::common::Coord3D) -> glam::Vec3 {
@@ -710,7 +889,15 @@ pub fn spawn_transition_particles_at_pose(
         if p.name.is_empty() || p.name.eq_ignore_ascii_case("none") {
             continue;
         }
-        let leftover_local = leftover_local_effect_pos_live(p, None, model, scale);
+        let leftover_drawable_handle = leftover_guard.as_ref().and_then(|obj| obj.get_drawable());
+        let leftover_drawable = leftover_drawable_handle.as_ref().and_then(|d| d.read().ok());
+
+        let leftover_local = leftover_local_effect_pos_live(
+            p,
+            leftover_drawable.as_deref(),
+            model,
+            scale,
+        );
         let host_local = leftover_to_host_local(leftover_local);
         if let Some(id) = registry.attach_named_to_object_local(
             owner,
@@ -1098,6 +1285,9 @@ pub fn queue_voice_fear_event(
         extra_fx_names: Vec::new(),
         ocl_names: Vec::new(),
         particles: Vec::new(),
+        fx_locs: Vec::new(),
+        ocl_locs: Vec::new(),
+
         clear_old_state: None,
     });
 }
@@ -1108,7 +1298,7 @@ mod tests {
     use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
 
     #[test]
-    fn worse_transition_emits_fx() {
+    fn worse_transition_does_not_invent_structure_smoke() {
         let d = HostTransitionDamageFxData::generic_structure_residual();
         assert!(transition_event(
             &d,
@@ -1116,20 +1306,36 @@ mod tests {
             HostBodyDamageType::Pristine
         )
         .is_none());
+        // Unauthored TransitionDamageFX: no invented BuildingDamageSmoke/Fire.
+        assert!(
+            transition_event(
+                &d,
+                HostBodyDamageType::Pristine,
+                HostBodyDamageType::Damaged,
+            )
+            .is_none(),
+            "must not invent BuildingDamageSmoke for templates without authored PSys"
+        );
+    }
+
+    #[test]
+    fn authored_transition_particles_still_emit() {
+        let mut d = HostTransitionDamageFxData::generic_structure_residual();
+        d.particles_for_state[HostBodyDamageType::Damaged.ordinal() as usize] =
+            vec![HostTransitionParticle {
+                name: "AuthoredDamagedPSys".into(),
+                bone: Some("Smoke01".into()),
+                loc: [0.0, 0.0, 0.0],
+                random_bone: false,
+            }];
         let e = transition_event(
             &d,
             HostBodyDamageType::Pristine,
             HostBodyDamageType::Damaged,
         )
-        .expect("worse");
-        assert_eq!(e.new_state, 1);
-        assert!(
-            e.fx_name.is_none(),
-            "must not invent FX_StructureDamagedTransition"
-        );
-        assert!(e.audio_name.is_none(), "must not invent BuildingDamaged");
+        .expect("authored");
         assert_eq!(e.particles.len(), 1);
-        assert_eq!(e.particles[0].name, "BuildingDamageSmoke");
+        assert_eq!(e.particles[0].name, "AuthoredDamagedPSys");
         assert_eq!(e.clear_old_state, Some(0));
     }
 
@@ -1320,4 +1526,52 @@ mod tests {
         assert_eq!(entry.attach_offset, glam::Vec3::new(1.0, 8.0, 2.0));
         assert!((entry.position - glam::Vec3::new(11.0, 8.0, 6.0)).length() < 0.01);
     }
+
+    #[test]
+    fn leftover_fxlist_and_ocl_loc_info_is_parsed() {
+        let fx = parse_transition_loc_attr("Bone:FXBone01 RandomBone:No FXList:FX_AuthoredDamaged");
+        assert_eq!(fx.bone.as_deref(), Some("FXBone01"));
+        assert!(!fx.random_bone);
+        let ocl = parse_transition_loc_attr("Loc: X:0 Y:0 Z:8 OCL:OCL_AuthoredDebris");
+        assert!(ocl.bone.is_none());
+        assert_eq!(ocl.loc, [0.0, 0.0, 8.0]);
+    }
+
+    #[test]
+    fn leftover_get_local_effect_pos_used_for_fx_and_ocl() {
+        let mut d = HostTransitionDamageFxData::vehicle_residual();
+        let damaged = HostBodyDamageType::Damaged.ordinal() as usize;
+        d.fx_lists_for_state[damaged] = vec!["FX_AuthoredDamaged".into()];
+        d.fx_locs_for_state[damaged] = vec![HostTransitionLoc {
+            bone: None,
+            loc: [1.0, 2.0, 8.0],
+            random_bone: false,
+        }];
+        d.ocl_for_state[damaged] = vec!["OCL_AuthoredDebris".into()];
+        d.ocl_locs_for_state[damaged] = vec![HostTransitionLoc {
+            bone: None,
+            loc: [3.0, 4.0, 5.0],
+            random_bone: false,
+        }];
+        let ev = transition_event(
+            &d,
+            HostBodyDamageType::Pristine,
+            HostBodyDamageType::Damaged,
+        )
+        .expect("authored loc");
+        assert_eq!(ev.fx_name.as_deref(), Some("FX_AuthoredDamaged"));
+        assert_eq!(ev.fx_locs.len(), 1);
+        assert_eq!(ev.fx_locs[0].loc, [1.0, 2.0, 8.0]);
+        assert_eq!(ev.ocl_locs[0].loc, [3.0, 4.0, 5.0]);
+        let world = leftover_named_slot_world_pos(
+            ev.fx_locs.first(),
+            0,
+            glam::Vec3::new(10.0, 0.0, 4.0),
+            0.0,
+            "",
+            1.0,
+        );
+        assert!((world - glam::Vec3::new(11.0, 8.0, 6.0)).length() < 0.01);
+    }
+
 }

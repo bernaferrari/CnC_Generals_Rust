@@ -16,8 +16,8 @@ const INVALID_SKILLSET_SELECTION: i32 = -1;
 const MAX_STRUCTURES_TO_REPAIR: usize = 2;
 /// C++ `HUGE_DIST` (`PartitionManager.h:45`).
 const HUGE_DIST: f32 = 1_000_000.0;
-/// Host residual when a leftover team has no prototype `m_initialIdleFrames`.
-const TEAM_BUILD_TIME_SECONDS: f32 = 180.0;
+/// C++ `TeamInQueue::isBuildTimeExpired` uses prototype `m_initialIdleFrames`.
+/// `< 1` means unlimited (never expires). No prototype → unlimited.
 
 
 
@@ -200,10 +200,41 @@ impl AITeamQueue {
         self.work_orders.iter().all(|order| order.factory_id.is_none())
     }
 
-    /// Host residual of `TeamInQueue::isBuildTimeExpired` (180s when no prototype).
+    /// C++ `TeamInQueue::isBuildTimeExpired` (`AIPlayer.cpp:3488-3496`).
     fn is_build_time_expired(&self, current_time: f32) -> bool {
-        let started = self.frame_started as f32 / LOGIC_FRAMES_PER_SECOND;
-        current_time - started >= TEAM_BUILD_TIME_SECONDS
+        let proto_name = self
+            .team_id
+            .and_then(Self::leftover_team_proto_name)
+            .unwrap_or_else(|| self.name.clone());
+        let idle_frames = Self::leftover_initial_idle_frames(&proto_name);
+        if idle_frames < 1 {
+            return false;
+        }
+        let now = (current_time * LOGIC_FRAMES_PER_SECOND) as u32;
+        now > self.frame_started.saturating_add(idle_frames as u32)
+    }
+
+    fn leftover_team_proto_name(team_id: u32) -> Option<String> {
+        gamelogic::team::get_team_factory()
+            .lock()
+            .ok()
+            .and_then(|factory| {
+                factory
+                    .find_team_by_id(team_id)
+                    .and_then(|arc| arc.read().ok().map(|t| t.get_name().to_string()))
+            })
+    }
+
+    fn leftover_initial_idle_frames(team_name: &str) -> i32 {
+        gamelogic::team::get_team_factory()
+            .lock()
+            .ok()
+            .and_then(|factory| {
+                factory
+                    .find_team_prototype(team_name)
+                    .map(|proto| proto.get_initial_idle_frames())
+            })
+            .unwrap_or(0)
     }
 }
 
@@ -3038,6 +3069,178 @@ impl AIPlayer {
             .unwrap_or(false)
     }
 
+    fn leftover_instance_member_ids(team_id: Option<u32>) -> Vec<u32> {
+        let Some(id) = team_id else {
+            return Vec::new();
+        };
+        gamelogic::team::get_team_factory()
+            .lock()
+            .ok()
+            .and_then(|factory| factory.find_team_by_id(id))
+            .and_then(|arc| arc.read().ok().map(|tg| tg.get_members().to_vec()))
+            .unwrap_or_default()
+    }
+
+    /// C++ `Team::hasAnyUnits` on one instance, using live host objects.
+    fn leftover_instance_has_any_host_units(game_logic: &GameLogic, team_id: u32) -> bool {
+        Self::leftover_instance_member_ids(Some(team_id))
+            .into_iter()
+            .any(|id| {
+                game_logic.host_object(ObjectId(id)).is_some_and(|o| {
+                    o.is_alive()
+                        && !o.is_kind_of(KindOf::Structure)
+                        && !o.is_kind_of(KindOf::Projectile)
+                        && !o.is_kind_of(KindOf::Mine)
+                })
+            })
+    }
+
+    /// C++ `Team::countObjectsByThingTemplate` on one instance.
+    fn leftover_instance_count_template(
+        game_logic: &GameLogic,
+        team_id: u32,
+        template_name: &str,
+    ) -> u32 {
+        Self::leftover_instance_member_ids(Some(team_id))
+            .into_iter()
+            .filter(|&id| {
+                game_logic.host_object(ObjectId(id)).is_some_and(|o| {
+                    Self::recruit_template_matches(template_name, &o.template_name)
+                })
+            })
+            .count() as u32
+    }
+
+    fn leftover_instance_first_member_pos(
+        game_logic: &GameLogic,
+        team_id: u32,
+    ) -> Option<Vec3> {
+        for id in Self::leftover_instance_member_ids(Some(team_id)) {
+            if let Some(obj) = game_logic.host_object(ObjectId(id)) {
+                return Some(obj.get_position());
+            }
+        }
+        None
+    }
+
+    fn leftover_prototype_is_singleton(team_name: &str) -> bool {
+        gamelogic::team::get_team_factory()
+            .lock()
+            .ok()
+            .and_then(|factory| factory.find_team_prototype(team_name).map(|p| p.is_singleton()))
+            .unwrap_or(false)
+    }
+
+    fn leftover_default_team_arc(
+        player_id: u32,
+    ) -> Option<std::sync::Arc<std::sync::RwLock<gamelogic::team::Team>>> {
+        gamelogic::player::player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_player(player_id as i32).cloned())
+            .and_then(|player| player.read().ok().and_then(|p| p.get_default_team()))
+    }
+
+    fn leftover_is_skirmish_ai(&self) -> bool {
+        gamelogic::player::player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_player(self.player_id as i32).cloned())
+            .and_then(|player| player.read().ok().map(|p| p.is_skirmish_ai()))
+            .unwrap_or(false)
+    }
+
+    /// C++ `Object::setTeam` onto the destination leftover instance.
+    fn assign_host_unit_to_leftover_team(
+        game_logic: &mut GameLogic,
+        unit_id: ObjectId,
+        dest_team_id: Option<u32>,
+        dest_team_name: &str,
+    ) {
+        if let Ok(factory) = gamelogic::team::get_team_factory().lock() {
+            for team in factory.get_all_teams() {
+                if let Ok(mut tg) = team.write() {
+                    if dest_team_id != Some(tg.get_id()) {
+                        tg.remove_member(unit_id.0);
+                    }
+                }
+            }
+            if let Some(id) = dest_team_id {
+                if let Some(arc) = factory.find_team_by_id(id) {
+                    if let Ok(mut tg) = arc.write() {
+                        tg.add_member(unit_id.0);
+                    }
+                }
+            }
+        }
+        if let Some(obj) = game_logic.host_object_mut(unit_id) {
+            obj.team_instance_name = dest_team_name.to_string();
+        }
+    }
+
+    /// C++ `TeamInQueue::disband` (`AIPlayer.cpp:3554-3566`).
+    fn disband_queued_team(&self, game_logic: &mut GameLogic, team: &AITeamQueue) {
+        let default_name =
+            game_logic.default_host_team_instance_name(Some(self.player_id), self.team);
+        let mut member_ids: HashSet<u32> = Self::leftover_instance_member_ids(team.team_id)
+            .into_iter()
+            .collect();
+        for order in &team.work_orders {
+            member_ids.extend(order.observed_unit_ids.iter().map(|id| id.0));
+        }
+        for mid in &member_ids {
+            if let Some(obj) = game_logic.host_object_mut(ObjectId(*mid)) {
+                obj.team_instance_name = default_name.clone();
+            }
+        }
+
+        let Some(src_id) = team.team_id else {
+            if self.leftover_is_skirmish_ai() {
+                Self::clear_leftover_team_flags();
+            }
+            return;
+        };
+        let default_arc = Self::leftover_default_team_arc(self.player_id);
+        let default_id = default_arc
+            .as_ref()
+            .and_then(|arc| arc.read().ok().map(|tg| tg.get_id()));
+        if default_id == Some(src_id) {
+            return;
+        }
+        if let Some(default_arc) = default_arc {
+            if let Ok(mut dg) = default_arc.write() {
+                for mid in &member_ids {
+                    dg.add_member(*mid);
+                }
+            }
+        }
+        if let Ok(factory) = gamelogic::team::get_team_factory().lock() {
+            if let Some(src) = factory.find_team_by_id(src_id) {
+                if let Ok(mut sg) = src.write() {
+                    for mid in &member_ids {
+                        sg.remove_member(*mid);
+                    }
+                }
+            }
+        }
+        if !Self::leftover_prototype_is_singleton(&team.name) {
+            if let Ok(mut factory) = gamelogic::team::get_team_factory().lock() {
+                factory.team_about_to_be_deleted(src_id);
+            }
+        }
+        if self.leftover_is_skirmish_ai() {
+            Self::clear_leftover_team_flags();
+        }
+    }
+
+    fn clear_leftover_team_flags() {
+        if let Ok(mut eng) = gamelogic::scripting::engine::get_script_engine().write() {
+            if let Some(e) = eng.as_mut() {
+                e.clear_team_flags();
+            }
+        }
+    }
+
     fn queue_team_members_wiped(game_logic: &GameLogic, team: &AITeamQueue) -> bool {
         let mut any = false;
         for order in &team.work_orders {
@@ -3448,6 +3651,7 @@ impl AIPlayer {
                     i += 1;
                 }
             } else if let Some(team) = self.team_queue.remove(i) {
+                self.disband_queued_team(game_logic, &team);
                 log::debug!(
                     "AI Player {} disbanded expired team: {}",
                     self.player_id,
@@ -4067,7 +4271,7 @@ impl AIPlayer {
         self.is_possible_to_build_team(game_logic, team_name)
     }
 
-    /// C++ `AIPlayer::selectTeamToReinforce`.
+    /// C++ `AIPlayer::selectTeamToReinforce` (`AIPlayer.cpp:1513-1625`).
     fn select_team_to_reinforce(
         &mut self,
         game_logic: &mut GameLogic,
@@ -4075,7 +4279,7 @@ impl AIPlayer {
         current_time: f32,
     ) -> bool {
         let candidates = self.collect_auto_reinforce_candidates();
-        let mut best: Option<(String, String, i32)> = None;
+        let mut best: Option<(u32, String, String, i32)> = None;
         let mut cur = min_priority;
         for cand in candidates {
             if cand.priority <= cur {
@@ -4084,34 +4288,54 @@ impl AIPlayer {
             if self.team_queue.iter().any(|t| t.name == cand.name) {
                 continue;
             }
-            if !self.player_has_any_units(game_logic, self.team) {
-                continue;
-            }
-            for unit in &cand.units {
-                if unit.max_units < 1 || unit.thing.is_empty() {
+            let instances = gamelogic::team::get_team_factory()
+                .lock()
+                .ok()
+                .map(|factory| factory.find_team_instances(&cand.name))
+                .unwrap_or_default();
+            for inst in instances {
+                let Ok(tg) = inst.read() else {
+                    continue;
+                };
+                let inst_id = tg.get_id();
+                drop(tg);
+                if !Self::leftover_instance_has_any_host_units(game_logic, inst_id) {
                     continue;
                 }
-                let count = self.count_owned_template_units(game_logic, &unit.thing);
-                if count >= unit.max_units as u32 {
-                    continue;
+                for unit in &cand.units {
+                    if unit.max_units < 1 || unit.thing.is_empty() {
+                        continue;
+                    }
+                    let count =
+                        Self::leftover_instance_count_template(game_logic, inst_id, &unit.thing);
+                    if count >= unit.max_units as u32 {
+                        continue;
+                    }
+                    if Self::find_factory_for_unit_ex(game_logic, &unit.thing, self.team, false)
+                        .is_none()
+                    {
+                        continue;
+                    }
+                    best = Some((inst_id, cand.name.clone(), unit.thing.clone(), cand.priority));
+                    cur = cand.priority;
                 }
-                if Self::find_factory_for_unit_ex(game_logic, &unit.thing, self.team, false)
-                    .is_none()
-                {
-                    continue;
-                }
-                best = Some((cand.name.clone(), unit.thing.clone(), cand.priority));
-                cur = cand.priority;
             }
         }
-        let Some((team_name, thing, _)) = best else {
+        let Some((inst_id, team_name, thing, _)) = best else {
             return false;
         };
         let mut order = AIWorkOrder::new(thing.clone(), 1, 100);
-        let home = self.team_home_or_base(&team_name);
+        let home = Self::leftover_instance_first_member_pos(game_logic, inst_id)
+            .unwrap_or_else(|| self.team_home_or_base(&team_name));
         if let Some(unit_id) = self.try_to_recruit(game_logic, &team_name, &thing, home, None) {
             order.num_completed = 1;
             order.observed_unit_ids.push(unit_id);
+            Self::assign_host_unit_to_leftover_team(
+                game_logic,
+                unit_id,
+                Some(inst_id),
+                &team_name,
+            );
             if let Some(obj) = game_logic.host_object_mut(unit_id) {
                 obj.set_ai_state(AIState::Idle);
             }
@@ -4127,11 +4351,7 @@ impl AIPlayer {
             q.reinforcement_id = Some(*id);
         }
         // C++ reinforce uses the existing team instance, not a new inactive team.
-        q.team_id = gamelogic::team::get_team_factory()
-            .lock()
-            .ok()
-            .and_then(|factory| factory.find_team_instances(&q.name).into_iter().next())
-            .and_then(|arc| arc.read().ok().map(|t| t.get_id()));
+        q.team_id = Some(inst_id);
         self.team_queue.push_front(q);
         // C++ m_teamDelay = 0
         self.next_team_queue_time = current_time;
@@ -4369,19 +4589,23 @@ impl AIPlayer {
 
     fn recruit_waiting_work_orders(&mut self, game_logic: &mut GameLogic) {
         let max_dist = Self::aidata_max_recruit_distance();
+        for team in self.team_queue.iter_mut() {
+            Self::bind_inactive_team_handle(team);
+        }
         let mut assigned: HashSet<ObjectId> = HashSet::new();
         for team in self.team_queue.iter().chain(self.team_ready_queue.iter()) {
             for order in &team.work_orders {
                 assigned.extend(order.observed_unit_ids.iter().copied());
             }
         }
-        let jobs: Vec<(usize, usize, String, String, Vec3, bool, u32)> = self
+        let jobs: Vec<(usize, usize, String, Option<u32>, String, Vec3, bool, u32)> = self
             .team_queue
             .iter()
             .enumerate()
             .flat_map(|(ti, team)| {
                 let home = self.team_home_or_base(&team.name);
                 let dest_name = team.name.clone();
+                let dest_id = team.team_id;
                 let has_home = gamelogic::team::get_team_factory()
                     .lock()
                     .ok()
@@ -4396,6 +4620,7 @@ impl AIPlayer {
                                 ti,
                                 oi,
                                 dest_name.clone(),
+                                dest_id,
                                 order.template_name.clone(),
                                 home,
                                 has_home,
@@ -4408,8 +4633,8 @@ impl AIPlayer {
                     .collect::<Vec<_>>()
             })
             .collect();
-        let mut found: Vec<(usize, usize, ObjectId, Vec3, bool)> = Vec::new();
-        for (ti, oi, dest_name, thing, home, has_home, need) in jobs {
+        let mut found: Vec<(usize, usize, ObjectId, Option<u32>, String, Vec3, bool)> = Vec::new();
+        for (ti, oi, dest_name, dest_id, thing, home, has_home, need) in jobs {
             let mut got = 0u32;
             while got < need {
                 let Some(unit_id) = self.try_to_recruit_excluding(
@@ -4424,11 +4649,11 @@ impl AIPlayer {
                     break;
                 };
                 assigned.insert(unit_id);
-                found.push((ti, oi, unit_id, home, has_home));
+                found.push((ti, oi, unit_id, dest_id, dest_name.clone(), home, has_home));
                 got = got.saturating_add(1);
             }
         }
-        for (ti, oi, unit_id, home, has_home) in found {
+        for (ti, oi, unit_id, dest_id, dest_name, home, has_home) in found {
             if let Some(order) = self
                 .team_queue
                 .get_mut(ti)
@@ -4437,6 +4662,7 @@ impl AIPlayer {
                 order.num_completed = order.num_completed.saturating_add(1);
                 order.observed_unit_ids.push(unit_id);
             }
+            Self::assign_host_unit_to_leftover_team(game_logic, unit_id, dest_id, &dest_name);
             if has_home {
                 let _ = game_logic.unit_command_move_to(unit_id, home);
             } else if let Some(obj) = game_logic.host_object_mut(unit_id) {
@@ -5746,11 +5972,13 @@ impl AIPlayer {
                 self.structures_to_repair.remove(0);
                 self.dozer_is_repairing = false;
                 if self.structures_to_repair.is_empty() {
-                    let home = if self.base_center.length_squared() > 0.0 {
+                    let mut home = if self.base_center.length_squared() > 0.0 {
                         self.base_center
                     } else {
                         self.repair_dozer_origin
                     };
+                    // C++ AIPlayer.cpp:2370-2372 adjustToPossibleDestination then aiMoveToPosition.
+                    let _ = game_logic.adjust_to_possible_destination(dozer_id, &mut home);
                     let _ = game_logic.unit_command_move_to(dozer_id, home);
                 }
                 return;
@@ -8148,6 +8376,24 @@ mod cpp_parity_tests {
             team.work_orders[0].factory_id.is_none(),
             "recruited unit must not also startTraining"
         );
+        let dest_id = team.team_id.expect("inactive dest team bound on recruit");
+        assert_eq!(
+            logic
+                .host_object(existing)
+                .map(|o| o.team_instance_name.as_str()),
+            Some("USA_RangerSquad"),
+            "C++ queueUnits setTeam onto dest instance immediately"
+        );
+        let members = gamelogic::team::get_team_factory()
+            .lock()
+            .ok()
+            .and_then(|factory| factory.find_team_by_id(dest_id))
+            .and_then(|arc| arc.read().ok().map(|tg| tg.get_members().to_vec()))
+            .unwrap_or_default();
+        assert!(
+            members.contains(&existing.0),
+            "leftover dest instance must list the recruited unit"
+        );
     }
 
     #[test]
@@ -8368,6 +8614,48 @@ mod cpp_parity_tests {
     }
 
     #[test]
+    fn recruit_waiting_work_orders_joins_destination_team_instance() {
+        // C++ queueUnits: unit->setTeam(team->m_team) immediately on recruit.
+        let (mut logic, existing) = w21_ranger_logic();
+        if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
+            let mut dest = gamelogic::team::TeamPrototype::new("HQ_6_RecruitDest".into());
+            dest.set_production_priority(50);
+            tf.replace_team_prototype(dest);
+        }
+        assert_eq!(
+            w21_enqueue_and_recruit(&mut logic, "HQ_6_RecruitDest"),
+            1,
+            "default-team ranger must be recruited"
+        );
+        let obj = logic.host_object(existing).expect("recruited ranger");
+        assert_eq!(
+            obj.team_instance_name, "HQ_6_RecruitDest",
+            "recruited unit must join dest team_instance_name during build"
+        );
+        let members: Vec<u32> = gamelogic::team::get_team_factory()
+            .lock()
+            .ok()
+            .map(|factory| {
+                factory
+                    .find_team_instances("HQ_6_RecruitDest")
+                    .into_iter()
+                    .flat_map(|arc| {
+                        arc.read()
+                            .ok()
+                            .map(|tg| tg.get_members().to_vec())
+                            .unwrap_or_default()
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        assert!(
+            members.contains(&existing.0),
+            "leftover dest instance must gain the recruited member"
+        );
+    }
+
+
+    #[test]
     fn check_ready_teams_execute_actions_requires_production_condition_action() {
         // C++ anyIdle shortcut needs ProductionCondition script WITH an action.
         let mut logic = crate::game_logic::GameLogic::new();
@@ -8453,11 +8741,25 @@ mod cpp_parity_tests {
             .add_kind_of(crate::game_logic::KindOf::FSWarFactory);
         logic.templates.insert("AmericaWarFactory".into(), wf);
 
-        let _tank_id = logic
+        let tank_id = logic
             .create_object("AmericaTankCrusader", Team::USA, Vec3::ZERO)
             .expect("live crusader");
-        if let Some(obj) = logic.host_object_mut(_tank_id) {
+        if let Some(obj) = logic.host_object_mut(tank_id) {
             obj.owner_player_id = Some(1);
+            obj.team_instance_name = "HQ_V3_TankTeam".into();
+        }
+        // Player-wide census is at maxUnits, but the instance is still short.
+        for i in 1..=2 {
+            let extra = logic
+                .create_object(
+                    "AmericaTankCrusader",
+                    Team::USA,
+                    Vec3::new(i as f32 * 8.0, 4.0, 0.0),
+                )
+                .expect("extra crusader");
+            if let Some(obj) = logic.host_object_mut(extra) {
+                obj.owner_player_id = Some(1);
+            }
         }
         let factory = logic
             .create_object("AmericaWarFactory", Team::USA, Vec3::new(40.0, 0.0, 0.0))
@@ -8466,8 +8768,9 @@ mod cpp_parity_tests {
             obj.owner_player_id = Some(1);
         }
 
+        let mut inst_id = None;
         if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
-            let mut proto = gamelogic::team::TeamPrototype::new("USA_TankTeam".into());
+            let mut proto = gamelogic::team::TeamPrototype::new("HQ_V3_TankTeam".into());
             proto.set_automatically_reinforce(true);
             proto.set_production_priority(50);
             proto.set_units_info(
@@ -8479,15 +8782,53 @@ mod cpp_parity_tests {
                 },
             );
             tf.replace_team_prototype(proto);
+            if let Some(team) = tf.create_team("HQ_V3_TankTeam") {
+                if let Ok(mut tg) = team.write() {
+                    tg.add_member(tank_id.0);
+                    inst_id = Some(tg.get_id());
+                }
+            }
         }
 
         let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
         assert!(ai.select_team_to_reinforce(&mut logic, 0, 1.0));
         let team = ai.team_queue.front().expect("reinforce order");
         assert!(team.reinforcement);
+        assert_eq!(team.team_id, inst_id, "reinforce the instance that has units");
         assert_eq!(team.work_orders[0].num_required, 1);
         assert_eq!(team.work_orders[0].template_name, "AmericaTankCrusader");
         assert_eq!(ai.next_team_queue_time, 1.0);
+        if let Some(recruited) = team.work_orders[0].observed_unit_ids.first().copied() {
+            assert_eq!(
+                logic
+                    .host_object(recruited)
+                    .map(|o| o.team_instance_name.as_str()),
+                Some("HQ_V3_TankTeam"),
+                "C++ selectTeamToReinforce setTeam onto the reinforced instance"
+            );
+        }
+
+        // Empty instance is skipped even if the player owns units elsewhere.
+        if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
+            let mut proto = gamelogic::team::TeamPrototype::new("HQ_V3_EmptyTeam".into());
+            proto.set_automatically_reinforce(true);
+            proto.set_production_priority(80);
+            proto.set_units_info(
+                0,
+                gamelogic::team::CreateUnitsInfo {
+                    min_units: 1,
+                    max_units: 3,
+                    unit_thing_name: "AmericaTankCrusader",
+                },
+            );
+            tf.replace_team_prototype(proto);
+            let _ = tf.create_inactive_team("HQ_V3_EmptyTeam");
+        }
+        let mut ai_empty = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        assert!(
+            !ai_empty.select_team_to_reinforce(&mut logic, 50, 1.0),
+            "empty leftover instance must not auto-reinforce from player-wide census"
+        );
     }
 
 
@@ -9280,21 +9621,86 @@ mod cpp_parity_tests {
 
     #[test]
     fn check_queued_teams_disbands_expired_incomplete_team() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        logic.add_player(crate::game_logic::Player::new(1, Team::USA, "USA AI", false));
+        let mut ranger_t = crate::game_logic::ThingTemplate::new("AmericaInfantryRanger");
+        ranger_t.add_kind_of(crate::game_logic::KindOf::Infantry);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".into(), ranger_t);
+        let ranger = logic
+            .create_object("AmericaInfantryRanger", Team::USA, Vec3::ZERO)
+            .expect("ranger");
+        if let Some(obj) = logic.host_object_mut(ranger) {
+            obj.owner_player_id = Some(1);
+            obj.team_instance_name = "HQ_9_Disband".into();
+        }
+
+        let mut inst_id = None;
+        if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
+            let mut proto = gamelogic::team::TeamPrototype::new("HQ_9_Disband".into());
+            proto.set_initial_idle_frames(30);
+            tf.replace_team_prototype(proto);
+            if let Some(team) = tf.create_inactive_team("HQ_9_Disband") {
+                if let Ok(mut tg) = team.write() {
+                    tg.add_member(ranger.0);
+                    inst_id = Some(tg.get_id());
+                }
+            }
+        }
+
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        let mut order = AIWorkOrder::new("AmericaInfantryRanger".into(), 2, 100);
+        order.num_completed = 0;
+        order.observed_unit_ids.push(ranger);
+        let mut q = AITeamQueue::new("HQ_9_Disband".into(), vec![order], false, 0);
+        q.team_id = inst_id;
+        ai.team_queue.push_back(q);
+
+        ai.check_queued_teams(&mut logic, 2.0);
+        assert!(
+            ai.team_queue.is_empty() && ai.team_ready_queue.is_empty(),
+            "expired team below minimum must disband"
+        );
+        let default = logic.default_host_team_instance_name(Some(1), Team::USA);
+        assert_eq!(
+            logic
+                .host_object(ranger)
+                .map(|o| o.team_instance_name.clone())
+                .unwrap_or_default(),
+            default,
+            "disband must transfer recruits to the default team"
+        );
+        assert!(
+            AIPlayer::leftover_team_instance_gone(inst_id),
+            "non-singleton leftover instance must be deleted on disband"
+        );
+    }
+
+    #[test]
+    fn check_queued_teams_zero_idle_frames_never_expires() {
+        if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
+            let mut proto = gamelogic::team::TeamPrototype::new("HQ_80_Never".into());
+            proto.set_initial_idle_frames(0);
+            tf.replace_team_prototype(proto);
+        }
         let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
         let mut order = AIWorkOrder::new("AmericaInfantryRanger".into(), 2, 100);
         order.num_completed = 0;
         ai.team_queue.push_back(AITeamQueue::new(
-            "stuck".into(),
+            "HQ_80_Never".into(),
             vec![order],
             false,
             0,
         ));
         let mut logic = crate::game_logic::GameLogic::new();
-        ai.check_queued_teams(&mut logic, TEAM_BUILD_TIME_SECONDS + 1.0);
-        assert!(
-            ai.team_queue.is_empty() && ai.team_ready_queue.is_empty(),
-            "expired team below minimum must disband"
+        ai.check_queued_teams(&mut logic, 999.0);
+        assert_eq!(
+            ai.team_queue.len(),
+            1,
+            "InitialIdleFrames < 1 is unlimited; team must not expire"
         );
+        assert!(ai.team_ready_queue.is_empty());
     }
 
     #[test]

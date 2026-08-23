@@ -117,6 +117,9 @@ pub struct Player {
     pub power_sabotaged_till_frame: u32,
     /// Skirmish UI color (RGB) applied from match config.
     pub color_rgb: (u8, u8, u8),
+    /// C++ `Player::m_nightColor` / `getPlayerNightColor`.
+    pub color_night_rgb: (u8, u8, u8),
+
     /// Skirmish start position index from match config.
     pub start_position: i32,
     /// Skirmish alliance team index from match config (not faction Team).
@@ -145,6 +148,8 @@ pub struct Player {
     pub science_purchase_points: i32,
     /// C++ Player::m_skillPointsModifier residual (default 1.0).
     pub skill_points_modifier: f32,
+    /// C++ AcademyStats::m_specialPowersUsed — ACT_SUPERPOWER fires this match.
+    pub special_powers_used: u32,
 
     /// C++ Player::m_canBuildUnits (Player.cpp:2301). Scripts flip this via
     /// PLAYER_DISABLE/ENABLE_UNIT_CONSTRUCTION.
@@ -376,6 +381,8 @@ impl Player {
             statistics: PlayerStatistics::default(),
             power_sabotaged_till_frame: 0,
             color_rgb: (200, 200, 200),
+            color_night_rgb: (200, 200, 200),
+
             start_position: -1,
             alliance_team: -1,
             cash_bounty_percent: 0.0,
@@ -388,6 +395,7 @@ impl Player {
             skill_points: 0,
             science_purchase_points: 0,
             skill_points_modifier: 1.0,
+            special_powers_used: 0,
 
             can_build_units: true,
             can_build_base: true,
@@ -401,6 +409,7 @@ impl Player {
             team_instance_player_relations: HashMap::new(),
             sciences_disabled: HashSet::new(),
             sciences_hidden: HashSet::new(),
+
             map_side: PlayerMapSideState::default(),
             completed_upgrades: HashSet::new(),
             resource_supply_centers: Vec::new(),
@@ -410,6 +419,17 @@ impl Player {
         }
     }
 
+    /// C++ `Object::getNightIndicatorColor` / `getIndicatorColor` by TOD.
+    pub fn house_color_rgb(&self) -> (u8, u8, u8) {
+        if crate::game_logic::host_radar::host_time_of_day_is_night() {
+            self.color_night_rgb
+        } else {
+            self.color_rgb
+        }
+    }
+
+
+
     /// C++ `Player::addUpgrade(..., UPGRADE_STATUS_COMPLETE)`.
     pub fn add_completed_upgrade(&mut self, name: &str) {
         if name.is_empty() {
@@ -418,6 +438,50 @@ impl Player {
         self.completed_upgrades.insert(name.to_string());
         self.unlocked_sciences.insert(name.to_string());
         self.sync_leftover_player_upgrade_from_host(name);
+    }
+
+    /// C++ SpecialPowerModule::initiateIntentToDoSpecialPower →
+    /// AcademyStats::recordSpecialPowerUsed (ACT_SUPERPOWER only).
+    pub fn record_special_power_used(&mut self) {
+        self.special_powers_used = self.special_powers_used.saturating_add(1);
+        self.sync_leftover_academy_special_power_used();
+    }
+
+    fn sync_leftover_academy_special_power_used(&self) {
+        let named = format!("player{}", self.id);
+        let leftover = {
+            let Ok(list) = gamelogic::player::player_list().read() else {
+                return;
+            };
+            let by_name = [self.name.as_str(), self.map_side.map_player_name.as_str(), named.as_str()]
+                .into_iter()
+                .find_map(|n| {
+                    if n.is_empty() {
+                        None
+                    } else {
+                        list.find_player_by_name(n)
+                    }
+                });
+            by_name
+                .or_else(|| list.get_player(self.id as i32).cloned())
+                .or_else(|| {
+                    list.iter().find_map(|arc| {
+                        arc.read()
+                            .ok()
+                            .is_some_and(|guard| guard.get_player_index() as u32 == self.id)
+                            .then(|| std::sync::Arc::clone(arc))
+                    })
+                })
+        };
+        let Some(arc) = leftover else {
+            return;
+        };
+        let Ok(mut guard) = arc.write() else {
+            return;
+        };
+        guard.get_academy_stats_mut().record_special_power_used(
+            game_engine::common::rts::academy_stats::AcademyClassificationType::Superpower,
+        );
     }
 
     /// Leftover `Player::addUpgrade` already xfers `m_upgradesCompleted`.
@@ -1227,6 +1291,8 @@ impl Player {
             ((color >> 8) & 0xff) as u8,
             (color & 0xff) as u8,
         );
+        self.color_night_rgb = self.color_rgb;
+
         self.is_observer = template.is_observer();
         self.is_alive = !self.is_observer;
         self.rank_level = 1;
@@ -1392,7 +1458,17 @@ impl Player {
                 ((color >> 8) & 0xff) as u8,
                 (color & 0xff) as u8,
             );
+            self.color_night_rgb = self.color_rgb;
         }
+        if dict.get_type(key_player_night_color()).is_some() {
+            let color = dict.get_int(key_player_night_color()) as u32;
+            self.color_night_rgb = (
+                ((color >> 16) & 0xff) as u8,
+                ((color >> 8) & 0xff) as u8,
+                (color & 0xff) as u8,
+            );
+        }
+
 
         self.map_side.read_handicap_from_dict(dict);
     }

@@ -345,7 +345,59 @@ impl GameLogic {
             Some(source_object),
             None,
         );
+        // C++ initiateIntentToDoSpecialPower → recordSpecialPowerUsed
+        // (ACT_SUPERPOWER). Live fire never ran leftover special_power_module.
+        self.record_academy_special_power_used(source_object, power);
+        self.drain_puc_loop_audio();
         Some(id)
+    }
+
+    /// C++ SpecialPowerModule::initiateIntentToDoSpecialPower →
+    /// AcademyStats::recordSpecialPowerUsed. Gate is ACT_SUPERPOWER only.
+    pub fn record_academy_special_power_used(
+        &mut self,
+        source_object: ObjectId,
+        power: &crate::command_system::SpecialPowerType,
+    ) {
+        if !special_power_is_act_superpower(power) {
+            return;
+        }
+        let owner_id = self
+            .objects
+            .get(&source_object)
+            .and_then(|obj| self.player_owner_for_host_object(obj));
+        let owner_team = self.objects.get(&source_object).map(|o| o.team);
+        if let Some(pid) = owner_id {
+            if let Some(player) = self.get_player_mut(pid) {
+                player.record_special_power_used();
+                return;
+            }
+        }
+        if let Some(team) = owner_team {
+            if let Some(player) = self.get_player_mut_by_team(team) {
+                player.record_special_power_used();
+            }
+        }
+    }
+
+    /// C++ ParticleUplinkCannonUpdate::setClientStatus — play authored loops
+    /// on CHARGING / PREPARING / FIRING (hq-l0dl2).
+    fn drain_puc_loop_audio(&mut self) {
+        let events = self.special_power_strikes.take_puc_loop_audio_this_frame();
+        for (object_id, position, cue) in events {
+            // C++ setLogicalStatus binds the loops to the PUC object, not the beam target.
+            let pos = self
+                .objects
+                .get(&object_id)
+                .map(|o| o.get_position())
+                .unwrap_or(position);
+            self.queue_audio_event(
+                AudioEventRequest::new(cue)
+                    .with_object(object_id)
+                    .with_position(pos)
+                    .with_priority(150),
+            );
+        }
     }
 
     /// C++ `SpecialPowerModule::createViewObject` — spawn reveal at strike target.
@@ -637,6 +689,7 @@ impl GameLogic {
                         .with_priority(150),
                 );
             }
+            self.drain_puc_loop_audio();
 
             log::info!(
                 "Host superweapon {} strike {} completed at {:?} (dmg={:.1}, hit={}, killed={})",
@@ -1331,6 +1384,32 @@ impl GameLogic {
         saw_gunship
     }
 
+    /// Live gunship world position for leftover `is_fair_distance_from_ship`.
+    fn spectre_orbit_gunship_position(&self, source: ObjectId) -> Option<Vec3> {
+        if let Some(obj) = self.objects.get(&source) {
+            if obj.spectre_gunship_update.is_some() {
+                return Some(obj.get_position());
+            }
+            if let Some(gid) = obj
+                .spectre_gunship_deployment
+                .as_ref()
+                .and_then(|d| d.gunship_id)
+            {
+                return self
+                    .objects
+                    .get(&gid)
+                    .filter(|g| g.is_alive())
+                    .map(|g| g.get_position());
+            }
+        }
+        self.objects.values().find_map(|obj| {
+            (obj.producer_id == Some(source)
+                && obj.spectre_gunship_update.is_some()
+                && obj.is_alive())
+                .then(|| obj.get_position())
+        })
+    }
+
     /// C++ `PartitionFilterLiveMapEnemies` relationship: ENEMIES only.
     /// Missing owner ids fall back to faction residual (other playable team).
     fn spectre_orbit_relationship_enemies_ids(
@@ -1481,6 +1560,28 @@ impl GameLogic {
                 |src| dead_sources.contains(&src),
             );
         }
+        // Bind live ship position when a gunship exists. Keep the orbit-ring
+        // stand-in when the residual host path has no ship object yet — C++
+        // acquire always has getObject(); None here would fail-close gattling
+        // on every caster-only orbit field.
+        let gunship_pos: Vec<(u32, Option<Vec3>)> = self
+            .special_power_strikes
+            .orbit_fields()
+            .iter()
+            .map(|f| (f.id, self.spectre_orbit_gunship_position(f.source_object)))
+            .collect();
+        for (id, pos) in gunship_pos {
+            if let Some(pos) = pos {
+                if let Some(field) = self
+                    .special_power_strikes
+                    .orbit_fields_mut()
+                    .iter_mut()
+                    .find(|f| f.id == id)
+                {
+                    field.gunship_position = Some(pos);
+                }
+            }
+        }
         self.special_power_strikes
             .advance_orbit_shoot_at(self.frame);
 
@@ -1616,6 +1717,7 @@ impl GameLogic {
         // (also advances ScudStorm PreAttack residual frame counter).
         self.special_power_strikes
             .advance_particle_intensity_schedule(frame);
+        self.drain_puc_loop_audio();
         // Manual beam driving residual: advance current target toward override
         // before damage / scorch planning (retail update order).
         self.special_power_strikes.advance_manual_beam_drive(frame);
@@ -2348,4 +2450,79 @@ impl GameLogic {
 
         self.special_power_strikes.prune_expired_remnant(frame);
     }
+}
+
+/// C++ AcademyStats::recordSpecialPowerUsed increments only when
+/// `getAcademyClassificationType() == ACT_SUPERPOWER`.
+fn special_power_is_act_superpower(power: &crate::command_system::SpecialPowerType) -> bool {
+    use crate::command_system::SpecialPowerType;
+    use crate::game_logic::special_power_strikes::HostSuperweaponKind;
+    if HostSuperweaponKind::from_command_power(power).is_some() {
+        return true;
+    }
+    // Retail SuperweaponCIAIntelligence / CommunicationsDownload AcademyClassify.
+    if matches!(
+        power,
+        SpecialPowerType::CiaIntelligence | SpecialPowerType::CommunicationsDownload
+    ) {
+        return true;
+    }
+    leftover_special_power_is_act_superpower(power)
+}
+
+fn leftover_special_power_is_act_superpower(
+    power: &crate::command_system::SpecialPowerType,
+) -> bool {
+    let Some(name) = leftover_academy_special_power_template_name(power) else {
+        return false;
+    };
+    let rts = game_engine::common::rts::special_power::get_special_power_store();
+    if let Some(template) = rts.find_template(name) {
+        return template.get_academy_classification_type()
+            == game_engine::common::rts::special_power::AcademyClassificationType::Superpower;
+    }
+    if let Some(store) = gamelogic::object::special_power_template::get_special_power_store() {
+        if let Some(template) = store.find_special_power_template(name) {
+            return matches!(
+                template.get_academy_classification_type(),
+                gamelogic::object::special_power_template::AcademyClassificationType::Superweapon
+            );
+        }
+    }
+    false
+}
+
+fn leftover_academy_special_power_template_name(
+    power: &crate::command_system::SpecialPowerType,
+) -> Option<&'static str> {
+    use crate::command_system::SpecialPowerType;
+    Some(match power {
+        SpecialPowerType::CiaIntelligence => "SuperweaponCIAIntelligence",
+        SpecialPowerType::CommunicationsDownload => "SpecialPowerCommunicationsDownload",
+        SpecialPowerType::EmpPulse => "SuperweaponEMPPulse",
+        SpecialPowerType::Frenzy | SpecialPowerType::EarlyFrenzy => "SuperweaponFrenzy",
+        SpecialPowerType::GpsScrambler | SpecialPowerType::StealthGpsScrambler => {
+            "SuperweaponGPSScrambler"
+        }
+        SpecialPowerType::LeafletDrop | SpecialPowerType::EarlyLeafletDrop => {
+            "SuperweaponLeafletDrop"
+        }
+        SpecialPowerType::Paradrop | SpecialPowerType::InfantryParadrop => {
+            "SuperweaponParadropAmerica"
+        }
+        SpecialPowerType::TankParadrop => "Tank_SuperweaponTankParadrop",
+        SpecialPowerType::Ambush | SpecialPowerType::TerrorCell => "SuperweaponRebelAmbush",
+        SpecialPowerType::SneakAttack => "SuperweaponSneakAttack",
+        SpecialPowerType::ClusterMines | SpecialPowerType::NukeDrop => "SuperweaponClusterMines",
+        SpecialPowerType::EmergencyRepair | SpecialPowerType::EarlyEmergencyRepair => {
+            "SuperweaponEmergencyRepair"
+        }
+        SpecialPowerType::SpySatellite => "SpecialPowerSpySatellite",
+        SpecialPowerType::SpyDrone => "SpecialPowerSpyDrone",
+        SpecialPowerType::RadarScan => "SpecialPowerRadarVanScan",
+        SpecialPowerType::CrateDrop => "SuperweaponCrateDrop",
+        SpecialPowerType::CashHack => "SuperweaponCashHack",
+        SpecialPowerType::CleanupArea => "SpecialAbilityAmbulanceCleanupArea",
+        _ => return None,
+    })
 }

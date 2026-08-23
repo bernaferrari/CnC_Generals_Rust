@@ -107,6 +107,13 @@ impl Object {
         }
     }
 
+    /// C++ Object::handlePartitionCellMaintenance value+threat half
+    /// (Object.cpp:4771-4776 handleValueMap + handleThreatMap): unstamp then restamp
+    /// with the current controlling-player mask.
+    pub fn handle_partition_cell_maintenance(&mut self) {
+        self.stamp_partition_value_threat();
+    }
+
     fn restamp_partition_value_threat(&mut self) {
         if self.partition_last_affect.is_some() || self.partition_cash_value > 0 {
             self.stamp_partition_value_threat();
@@ -791,6 +798,21 @@ impl Object {
         true
     }
 
+    fn queue_transition_damage_fx_event(
+        &mut self,
+        mut ev: crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxEvent,
+    ) {
+        crate::game_logic::host_transition_damage_fx::take_played_transition_event_fx_ocl(
+            &mut ev,
+            self.id.0,
+            self.get_position(),
+            self.get_orientation(),
+            self.thing.template.get_model_name(),
+            self.thing.template.asset_scale,
+        );
+        self.pending_transition_damage_fx.push(ev);
+    }
+
     /// Wave 623: apply BodyDamageType transition residual after GW writeback.
     ///
     /// Does not recompute state from HP (GameWorld is last-writer for the enum).
@@ -833,10 +855,11 @@ impl Object {
                         self.last_damage_info_type.map(|d| d.to_store()),
                     )
                 {
-                    self.pending_transition_damage_fx.push(ev);
+                    self.queue_transition_damage_fx_event(ev);
                 }
             }
         }
+
         // C++ ActiveBody::setCorrectDamageState rubble (ActiveBody.cpp:189-208)
         // is independent of UNDER_CONSTRUCTION visual skip.
         if matches!(state, HostBodyDamageType::Rubble)
@@ -916,7 +939,6 @@ impl Object {
                 let _ = bfx.on_body_damage_state_change(&self.template_name, old_state, state);
             }
         }
-        // C++ TransitionDamageFX::onBodyDamageStateChange residual.
         if show_health_visuals {
             self.ensure_transition_damage_fx();
             if let Some(cfg) = self.transition_damage_fx.as_ref() {
@@ -928,10 +950,11 @@ impl Object {
                         self.last_damage_info_type.map(|d| d.to_store()),
                     )
                 {
-                    self.pending_transition_damage_fx.push(ev);
+                    self.queue_transition_damage_fx_event(ev);
                 }
             }
         }
+
         // C++ FXListDie when entering rubble / destroyed.
         if show_health_visuals
             && matches!(state, HostBodyDamageType::Rubble)

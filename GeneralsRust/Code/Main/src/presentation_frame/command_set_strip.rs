@@ -622,8 +622,36 @@ fn command_set_name_for_object(ro: &RenderableObject) -> String {
 }
 
 /// C++ `ControlBar::populateCommand` — 14 WND slots, empty/SCRIPT_ONLY stay holes.
+/// `CommandSet::getCommandButton` consults leftover `GameLogic::findControlBarOverride`
+/// before INI / residual buttons so COMMANDBAR_ADD/REMOVE hide or replace slots.
 fn command_set_slots_for(set_name: &str, template_name: &str) -> Option<Vec<Option<String>>> {
-    command_set_slots_from_ini(set_name).or_else(|| residual_command_set_slots(set_name, template_name))
+    let mut slots = command_set_slots_from_ini(set_name)
+        .or_else(|| residual_command_set_slots(set_name, template_name))?;
+    apply_leftover_control_bar_overrides(set_name, &mut slots);
+    Some(slots)
+}
+
+/// C++ `CommandSet::getCommandButton` (`ControlBar.cpp:810-817`).
+fn apply_leftover_control_bar_overrides(set_name: &str, slots: &mut [Option<String>]) {
+    if set_name.is_empty() {
+        return;
+    }
+    let Ok(logic) = gamelogic::system::game_logic::lock_game_logic() else {
+        return;
+    };
+    for (i, slot) in slots.iter_mut().enumerate() {
+        match logic.find_control_bar_override(set_name, i as i32) {
+            None => {}
+            Some(None) => *slot = None,
+            Some(Some(name)) => {
+                *slot = if command_is_script_only(name) {
+                    None
+                } else {
+                    Some(name.to_string())
+                };
+            }
+        }
+    }
 }
 
 fn command_set_slots_from_ini(set_name: &str) -> Option<Vec<Option<String>>> {

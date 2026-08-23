@@ -175,6 +175,23 @@ pub fn emp_skip_ground_when_airborne_only(
     intended_victim_is_airborne && !victim_is_airborne
 }
 
+/// C++ EMPUpdate.cpp:321-339 / leftover `do_disable_attack` Patch 1.01.
+/// When the intended victim was not processed in the radius scan, still
+/// disable an un-hardened aircraft whose 3D `dist_sqr` is `<= radius * 2`
+/// or `<= 40*40` (near-miss).
+pub fn emp_intended_victim_near_miss_disables(
+    intended_processed: bool,
+    is_aircraft: bool,
+    is_emp_hardened: bool,
+    dist_sqr: f32,
+    radius: f32,
+) -> bool {
+    if intended_processed || !is_aircraft || is_emp_hardened {
+        return false;
+    }
+    dist_sqr <= radius * 2.0 || dist_sqr <= 40.0 * 40.0
+}
+
 /// 2D distance check residual (ground plane x/z; host gameplay convention).
 /// Kept for honesty / older call sites; playable EMP uses the 3D helper.
 pub fn in_emp_pulse_radius_2d(center: (f32, f32), target: (f32, f32), radius: f32) -> bool {
@@ -623,6 +640,34 @@ mod tests {
         assert!(!is_legal_emp_disable_target(
             false, false, false, true, false, false
         )); // non-faction structure path uses is_faction_structure=false
+    }
+
+    #[test]
+    fn emp_intended_victim_near_miss_fallback_matrix() {
+        // Outside EffectRadius 10 but within 40: near-miss disables aircraft.
+        assert!(emp_intended_victim_near_miss_disables(
+            false, true, false, 35.0 * 35.0, 10.0
+        ));
+        // Already processed in the radius scan → no fallback.
+        assert!(!emp_intended_victim_near_miss_disables(
+            true, true, false, 35.0 * 35.0, 10.0
+        ));
+        // Ground vehicle / infantry → no fallback.
+        assert!(!emp_intended_victim_near_miss_disables(
+            false, false, false, 35.0 * 35.0, 10.0
+        ));
+        // EMP_HARDENED aircraft → no fallback.
+        assert!(!emp_intended_victim_near_miss_disables(
+            false, true, true, 35.0 * 35.0, 10.0
+        ));
+        // Farther than 40 and radius*2 → miss.
+        assert!(!emp_intended_victim_near_miss_disables(
+            false, true, false, 50.0 * 50.0, 10.0
+        ));
+        // Leftover/C++: dist_sqr <= radius * 2.0 (not squared).
+        assert!(emp_intended_victim_near_miss_disables(
+            false, true, false, 19.0, 10.0
+        ));
     }
 
     #[test]

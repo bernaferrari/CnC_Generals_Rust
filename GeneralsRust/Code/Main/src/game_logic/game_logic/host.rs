@@ -17,6 +17,8 @@ pub struct GameLogic {
     pub team_common_attack_targets: std::collections::HashMap<String, ObjectId>,
     /// C++ AIGuardIdleState::m_nextEnemyScanTime residual.
     pub(crate) guard_next_enemy_scan: HashMap<ObjectId, u32>,
+    /// C++ AIHuntState::m_nextEnemyScanTime residual.
+    pub(crate) hunt_next_enemy_scan: HashMap<ObjectId, u32>,
     /// C++ AIGuardIdleState::m_guardeePos residual.
     pub(crate) guard_guardee_pos: HashMap<ObjectId, glam::Vec3>,
 
@@ -425,8 +427,11 @@ pub struct GameLogic {
     pub(super) ecm_laser_beams_spawned: u32,
     /// Honesty: PointDefenseLaserBeam objects spawned on intercept residual.
     pub(super) point_defense_laser_beams_spawned: u32,
-    /// Per-carrier next ready frame for residual PDL shot delay.
+    /// Per-carrier next ready frame for leftover PDL module 0 (DelayBetweenShots).
     pub(crate) point_defense_next_ready_frame: HashMap<ObjectId, u32>,
+    /// Avenger leftover PointDefenseLaserUpdate module 1 fire clock (independent
+    /// 500ms stream). Paladin / Chinook / King Raptor residual do not use this.
+    pub(crate) point_defense_next_ready_frame_1: HashMap<ObjectId, u32>,
 
     /// Host America Avenger residual honesty (FAERIE_FIRE paint / air laser / ROF).
     /// Fail-closed: not full portable laser turret / dual AirLaser stream matrix.

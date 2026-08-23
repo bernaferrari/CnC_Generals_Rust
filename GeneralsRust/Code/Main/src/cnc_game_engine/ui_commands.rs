@@ -306,9 +306,7 @@ impl CnCGameEngine {
         // object; invalid DO_COMMAND leaves the GUI command armed.
         let filtered_target = self.filter_pending_map_target(&kind, target_object);
         if !self.pending_map_command_currently_valid(&kind, filtered_target) {
-            let msg = "Select a valid target";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
+            // C++ CommandXlat.cpp:1505-1629 — invalid DO_COMMAND stays armed.
             return;
         }
         let _ = self.pending_map_command.take();
@@ -2057,9 +2055,6 @@ impl CnCGameEngine {
         }
         if any {
             self.play_sound_effect(SoundType::Command);
-            let msg = "Canceled all production";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
         }
         any
     }
@@ -2761,8 +2756,10 @@ mod tests {
                 && !src.contains("Combat drop: click landing zone")
                 && !src.contains("Special power: click target location")
                 && !src.contains("No ready special power on selection")
-                && !src.contains("Place beacon: click location"),
-            "command arming must not invent HUD instruction toasts"
+                && !src.contains("Place beacon: click location")
+                && !src.contains(concat!("Select a valid", " target"))
+                && !src.contains(concat!("Canceled all", " production")),
+            "command arming/cancel must not invent HUD instruction toasts"
         );
     }
 }

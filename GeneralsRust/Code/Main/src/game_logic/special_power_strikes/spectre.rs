@@ -493,6 +493,24 @@ pub fn spectre_wind_gattling_aim(
 
 
 
+/// C++ `SpectreGunshipUpdate::isFairDistanceFromShip` (cpp:713-731).
+///
+/// 2D ship-to-target (host XZ / C++ XY with Z=0) must exceed
+/// `gunship_orbit_radius * 0.75`. Missing ship → false (skip acquire).
+#[inline]
+pub fn spectre_is_fair_distance_from_ship(
+    ship_pos: Option<Vec3>,
+    target_pos: Vec3,
+    gunship_orbit_radius: f32,
+) -> bool {
+    let Some(ship) = ship_pos else {
+        return false;
+    };
+    let dx = ship.x - target_pos.x;
+    let dz = ship.z - target_pos.z;
+    (dx * dx + dz * dz).sqrt() > gunship_orbit_radius * 0.75
+}
+
 /// C++ `SpectreGunshipUpdate.cpp:498-507` acquire filters as a pure residual.
 ///
 /// `PartitionFilterLiveMapEnemies` (alive + relationship ENEMIES — not
@@ -509,4 +527,39 @@ pub fn spectre_orbit_target_passes_partition_filters(
     fog_clear: bool,
 ) -> bool {
     alive && relationship_enemies && !stealthed_undetected && !is_air && fog_clear
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fair_distance_skips_under_ship_and_missing_gunship() {
+        let ship = Some(Vec3::new(0.0, 80.0, 0.0));
+        let orbit = SPECTRE_GUNSHIP_ORBIT_RADIUS;
+        // Directly under the ship (0 2D) — not fair.
+        assert!(!spectre_is_fair_distance_from_ship(
+            ship,
+            Vec3::new(0.0, 0.0, 0.0),
+            orbit
+        ));
+        // Just inside 0.75 * 250 = 187.5.
+        assert!(!spectre_is_fair_distance_from_ship(
+            ship,
+            Vec3::new(180.0, 0.0, 0.0),
+            orbit
+        ));
+        // Outside the 0.75 ring — gattling may acquire.
+        assert!(spectre_is_fair_distance_from_ship(
+            ship,
+            Vec3::new(200.0, 0.0, 0.0),
+            orbit
+        ));
+        // No live gunship position → fail-closed skip.
+        assert!(!spectre_is_fair_distance_from_ship(
+            None,
+            Vec3::new(200.0, 0.0, 0.0),
+            orbit
+        ));
+    }
 }

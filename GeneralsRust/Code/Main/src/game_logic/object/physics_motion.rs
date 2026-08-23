@@ -579,6 +579,25 @@ impl Object {
         self.shock_up_z = 1.0;
     }
 
+    /// Leftover handle_bounce first-righting (PhysicsUpdate.cpp:505-512):
+    /// pitch = 0, roll = 0 or PI from current up so stun-kill still sees a flip.
+    fn right_physics_pitch_keep_flip(&mut self) {
+        let pos = self.get_position();
+        let yaw = self.get_orientation();
+        let roll = if self.physics_transform_up_y() > 0.0 {
+            0.0
+        } else {
+            std::f32::consts::PI
+        };
+        self.thing.set_transform_matrix(
+            glam::Mat4::from_translation(pos)
+                * glam::Mat4::from_rotation_y(yaw)
+                * glam::Mat4::from_rotation_x(roll),
+        );
+        self.sync_shock_up_from_transform();
+    }
+
+
     /// C++ killWhenRestingOnGround residual.
     ///
     /// When settled on ground with near-zero velocity, kill non-drone (or
@@ -685,15 +704,16 @@ impl Object {
             desired_accel_y = vy.abs() * stiffness;
         }
         self.apply_ypr_damping(Self::BOUNCE_YPR_DAMPING);
+        if vy < 0.0 {
+            // Leftover handle_bounce vz<0: pitch=0, roll=0 or PI from up.
+            // End-of-update setAngles(yaw,0,0) is after stun-kill in the caller.
+            self.right_physics_pitch_keep_flip();
+            self.shock_pitch_rate = 0.0;
+            self.shock_roll_rate = 0.0;
+        }
         if desired_accel_y > 0.0 {
             // C++ bounceForce.z = mass * desiredAccelZ
             let force_y = self.physics_get_mass() * desired_accel_y;
-            // C++ setAngles after bounce rights pitch/roll when not killed.
-            if self.physics_transform_up_y() < 0.0 {
-                self.right_physics_pitch_roll();
-            }
-            self.shock_pitch_rate = 0.0;
-            self.shock_roll_rate = 0.0;
             Some(glam::Vec3::new(0.0, force_y, 0.0))
         } else {
             // Restore original allow bounce residual.
@@ -859,7 +879,10 @@ impl Object {
                 // Immediate integrate of bounce accel residual (C++ applies same frame).
                 self.integrate_physics_accel();
                 bounced = true;
-                let _ = self.test_stunned_unit_for_destruction();
+                // C++ testStunnedUnitForDestruction before gotBounceForce righting.
+                if !self.test_stunned_unit_for_destruction() && !self.status.destroyed {
+                    self.right_physics_pitch_roll();
+                }
             }
         }
 

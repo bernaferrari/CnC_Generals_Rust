@@ -128,8 +128,8 @@ pub const MINIGUNNER_CHAIN_GUN_DAMAGE_MULT: f32 = 1.25;
 pub const MINIGUNNER_FIRE_AUDIO: &str = "RedGuardMinigunnerWeapon";
 /// Residual AA fire audio.
 pub const MINIGUNNER_AA_FIRE_AUDIO: &str = "GattlingTankWeapon";
-/// Retail VoiceRapidFire residual cue when entering FAST.
-pub const MINIGUNNER_RAPID_FIRE_AUDIO: &str = "RedMinigunnerVoiceAttack";
+/// C++ FiringTracker PerUnitSound slot `VoiceRapidFire` (MEAN→FAST).
+pub const MINIGUNNER_RAPID_FIRE_AUDIO: &str = "VoiceRapidFire";
 
 /// Whether template is a residual China MiniGunner infantry.
 ///

@@ -386,6 +386,13 @@ pub struct ObjectStatus {
     /// the edge into BODY_REALLYDAMAGED (unless GARRISONABLE_UNTIL_DESTROYED).
     #[serde(default)]
     pub pending_garrison_really_damaged_eject: bool,
+    /// C++ ActiveBody::onSubdualChange → OpenContain::orderAllPassengersToIdle.
+    /// HostObject cannot mutate occupants; GameLogic flushes this edge.
+    #[serde(default)]
+    pub pending_subdual_passenger_idle: bool,
+    /// C++ Patch 1.01 IC un-subdual → orderAllPassengersToHackInternet.
+    #[serde(default)]
+    pub pending_internet_center_resume_hack: bool,
     /// C++ DISABLED_HACKED residual (Black Lotus DisableVehicleHack).
     /// Vehicle stays alive on its team but cannot move/attack until frame expires.
     #[serde(default)]

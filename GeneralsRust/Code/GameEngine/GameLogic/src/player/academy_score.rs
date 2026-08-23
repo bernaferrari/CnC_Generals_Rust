@@ -169,6 +169,11 @@ impl AcademyStats {
         self.special_powers_used = self.special_powers_used.saturating_add(1);
     }
 
+    /// C++ AcademyStats::m_specialPowersUsed.
+    pub fn get_special_powers_used(&self) -> Int {
+        self.special_powers_used
+    }
+
     /// C++ `AcademyStats::recordMine`.
     pub fn record_mine(&mut self) {
         self.mines = self.mines.saturating_add(1);

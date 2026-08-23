@@ -230,9 +230,9 @@ impl GameLogic {
         if !authored.is_empty() && !authored.eq_ignore_ascii_case("NONE") {
             return Some(authored.to_string());
         }
-        // Retail garrison residual when leftover/live INI omitted the event.
-        // Transport only plays when INI authored EnterSound/ExitSound
-        // (Humvee comments them out — C++ is silent).
+        // Module EnterSound/ExitSound only. Humvee comments those out so
+        // doLoad/doUnload stay silent; C++ still plays Object SoundEnter /
+        // SoundExit + rider SoundFallingFromPlane from onContaining/onRemoving.
         container.is_garrison_contain().then(|| {
             if enter {
                 "GarrisonEnter".to_string()
@@ -253,6 +253,8 @@ impl GameLogic {
             container_id.0,
             self.frame,
         );
+        // C++ OpenContain::onContaining template SoundEnter (load-sounds-enabled).
+        self.play_container_containing_template_sounds(container_id);
     }
 
     /// C++ `OpenContain::doUnloadSound` — leftover TheAudio, once per frame per container.
@@ -266,6 +268,64 @@ impl GameLogic {
             container_id.0,
             self.frame,
         );
+    }
+
+    /// C++ `OpenContain::onContaining` Object `SoundEnter` via leftover TheAudio.
+    pub(crate) fn play_container_containing_template_sounds(&self, container_id: ObjectId) {
+        let Some(container) = self.objects.get(&container_id) else {
+            return;
+        };
+        let _ = gamelogic::object::contain::open_contain::leftover_play_on_containing_template_sounds(
+            &container.template_name,
+            container_id.0,
+            true,
+            None,
+        );
+    }
+
+    /// C++ `OpenContain::onRemoving` Object `SoundExit` + rider `SoundFallingFromPlane`.
+    pub(crate) fn play_container_removing_template_sounds(
+        &self,
+        container_id: ObjectId,
+        rider_id: ObjectId,
+    ) {
+        let Some(container) = self.objects.get(&container_id) else {
+            return;
+        };
+        let Some(rider) = self.objects.get(&rider_id) else {
+            return;
+        };
+        self.play_container_removing_template_sounds_named(
+            &container.template_name,
+            container_id,
+            &rider.template_name,
+            rider_id,
+        );
+    }
+
+    pub(crate) fn play_container_removing_template_sounds_named(
+        &self,
+        container_template: &str,
+        container_id: ObjectId,
+        rider_template: &str,
+        rider_id: ObjectId,
+    ) {
+        let _ = gamelogic::object::contain::open_contain::leftover_play_on_removing_template_sounds(
+            container_template,
+            container_id.0,
+            rider_template,
+            rider_id.0,
+            None,
+            None,
+        );
+    }
+
+    /// C++ TransportContain `ResetMoodCheckTimeOnExit` → `wakeUpAndAttemptToTarget`.
+    pub(crate) fn reset_rider_mood_check_on_exit(&mut self, rider_id: ObjectId) {
+        let now = self.frame;
+        if let Some(unit) = self.objects.get_mut(&rider_id) {
+            unit.next_mood_check_time = now;
+        }
     }
 
 
@@ -7446,7 +7506,11 @@ impl GameLogic {
         use crate::game_logic::KindOf;
         use gamelogic::common::Relationship;
 
-        let mut writes: Vec<(u32, ObjectId)> = Vec::new();
+        // C++ AITNGuardIdleState::lookForInnerTarget (goal victim first) then
+        // TunnelContain::update last-damage write. Scan-rate is AIData
+        // m_guardEnemyScanRate (host_guard_enemy_scan_rate), not a hard 30.
+        let scan_rate = self.host_guard_enemy_scan_rate();
+        let mut writes: Vec<(u32, ObjectId, bool)> = Vec::new();
         for obj in self.objects.values() {
             if !obj.is_alive() || obj.status.under_construction {
                 continue;
@@ -7458,18 +7522,30 @@ impl GameLogic {
             if !is_tunnel {
                 continue;
             }
+            let player_id = obj.tunnel_system_key();
+            if let Some(vid) = obj.target {
+                writes.push((player_id, vid, false));
+            }
             let Some(src) = obj.last_damage_source else {
                 continue;
             };
             let Some(ts) = obj.last_damage_timestamp else {
                 continue;
             };
-            if ts.saturating_add(30) <= self.frame {
+            // C++ `if (info && info->m_noEffect) continue;` — status / subdual
+            // / kill-pilot / kill-garrisoned do not rally the pool.
+            if obj
+                .last_damage_info_type
+                .is_some_and(|t| !t.is_health_damaging())
+            {
                 continue;
             }
-            writes.push((obj.tunnel_system_key(), src));
+            if ts.saturating_add(scan_rate) <= self.frame {
+                continue;
+            }
+            writes.push((player_id, src, true));
         }
-        for (player_id, src) in writes {
+        for (player_id, src, from_damage) in writes {
             let Some((v, s, inf, air, att_team, att_alive, att_owner, tunnel_rel_enemies)) = self
                 .objects
                 .get(&src)
@@ -7514,8 +7590,26 @@ impl GameLogic {
             if !tunnel_rel_enemies {
                 continue;
             }
+            // C++ lookForInnerTarget: getAbleToAttackSpecificObject(
+            // ATTACK_TUNNEL_NETWORK_GUARD) before setNemesisID + team target.
+            // Goal-object victims skip this gate (C++). Empty pool still writes
+            // (TunnelContain::update).
+            let able_guard = if from_damage {
+                self.first_tn_guard_able_to_attack(player_id, src)
+            } else {
+                None
+            };
+            if from_damage
+                && self.tn_guard_pool_has_occupants(player_id)
+                && able_guard.is_none()
+            {
+                continue;
+            }
             self.tunnel_network
                 .update_nemesis(player_id, src, v, s, inf, air, self.frame);
+            if let Some(gid) = able_guard {
+                self.set_host_team_common_target(gid, Some(src));
+            }
         }
 
         // C++ AITNGuardIdleState::update (AITNGuard.cpp:682-707):
@@ -7677,6 +7771,39 @@ impl GameLogic {
         let is_defender =
             crate::game_logic::host_rpg_trooper::is_rpg_trooper_template(&unit.template_name);
         guard_is_tunnel || is_defender
+    }
+
+    fn tn_guard_pool_has_occupants(&self, player_id: u32) -> bool {
+        self.tunnel_network
+            .contained_for_player(player_id)
+            .into_iter()
+            .any(|uid| self.is_tunnel_network_guard_unit(uid))
+    }
+
+    /// C++ AITNGuardIdleState::lookForInnerTarget able-to-attack gate
+    /// (`ATTACK_TUNNEL_NETWORK_GUARD`) over the shared pool.
+    fn first_tn_guard_able_to_attack(
+        &self,
+        player_id: u32,
+        victim_id: ObjectId,
+    ) -> Option<ObjectId> {
+        for uid in self.tunnel_network.contained_for_player(player_id) {
+            if !self.is_tunnel_network_guard_unit(uid) {
+                continue;
+            }
+            match self.get_able_to_attack_specific_object(
+                uid,
+                victim_id,
+                AbleToAttackType::TunnelNetworkGuard,
+                false,
+            ) {
+                CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving => {
+                    return Some(uid);
+                }
+                _ => {}
+            }
+        }
+        None
     }
 
 

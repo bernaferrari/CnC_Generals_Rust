@@ -841,8 +841,6 @@ impl GameLogic {
         }
         obj.record_host_weapon_stats();
 
-        let pos = obj.get_position();
-
         if new_level == GattlingFireLevel::Mean && prev_level != GattlingFireLevel::Mean {
             self.minigunner_residual_ramp_mean =
                 self.minigunner_residual_ramp_mean.saturating_add(1);
@@ -852,11 +850,14 @@ impl GameLogic {
         if became_fast {
             self.minigunner_residual_ramp_fast =
                 self.minigunner_residual_ramp_fast.saturating_add(1);
-            self.queue_audio_event(
-                AudioEventRequest::new(MINIGUNNER_RAPID_FIRE_AUDIO)
-                    .with_object(attacker_id)
-                    .with_position(pos)
-                    .with_priority(140),
+            // C++ FiringTracker::speedUp MEAN→FAST: getPerUnitSound("VoiceRapidFire") + setObjectID.
+            self.queue_resolved_per_unit_sound(
+                attacker_id,
+                MINIGUNNER_RAPID_FIRE_AUDIO,
+                true,
+                false,
+                None,
+                140,
             );
         }
         let _ = slot; // slot honesty counted in apply_minigunner_residual_at

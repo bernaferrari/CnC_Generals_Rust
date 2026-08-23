@@ -10,12 +10,12 @@
 //!   ScanRate **500**ms, PredictTargetVelocityFactor **3.0**,
 //!   PrimaryTargetTypes BALLISTIC_MISSILE SMALL_MISSILE,
 //!   SecondaryTargetTypes INFANTRY.
-//! - Avenger dual lasers: AttackRange **100**, Delay **500**ms each,
-//!   ScanRange **200**, ScanRate 0 / 100ms, Predict **1.0** (no Secondary).
+//! - Avenger leftover dual PointDefenseLaserUpdate modules: AttackRange **100**,
+//!   Delay **500**ms each, ScanRange **200**, ScanRate 0 / 100ms, Predict **1.0**
+//!   (no Secondary). Two independent 500ms streams (not one collapsed clock).
 //! - King Raptor (AirF_AmericaJetRaptor): dual modules
 //!   (AirF_RaptorPointDefenseLaser ScanRate **10** + AirF_PointDefenseLaser
 //!   ScanRate **0**), AttackRange **65** / Delay **250**ms / ScanRange **200**,
-//!   Predict **2.0** / **1.0**. Residual collapses dual lasers into one stream.
 //! - Combat Chinook: ScanRange **250**, ScanRate **33**ms, Predict **1.0**.
 //!
 //! Fail-closed honesty:
@@ -72,9 +72,9 @@ pub const AVENGER_PDL_SCAN_RATE_FRAMES: u32 = 3;
 pub const AVENGER_PDL_VELOCITY_PREDICT: f32 = 1.0;
 
 /// Retail Avenger dual-laser DelayBetweenShots residual (msec each).
+/// Each leftover PointDefenseLaserUpdate module has its own 500ms fire clock.
 pub const AVENGER_PDL_DELAY_MS: u32 = 500;
-/// Retail Avenger dual-laser DelayBetweenShots 500ms → 15 frames.
-/// Residual collapses two lasers into one fire stream with Avenger delay.
+/// Retail Avenger DelayBetweenShots 500ms → 15 frames per independent module.
 pub const AVENGER_PDL_DELAY_FRAMES: u32 = 15;
 
 /// Retail AvengerPointDefenseLaser PrimaryDamage residual.
@@ -228,6 +228,17 @@ pub fn is_point_defense_carrier(template_name: &str) -> bool {
 pub fn is_avenger_carrier(template_name: &str) -> bool {
     let n = template_name.to_ascii_lowercase();
     n.contains("avenger") || n == "testavenger"
+}
+
+/// Independent leftover `PointDefenseLaserUpdate` modules on this carrier.
+/// Avenger authors two modules (500ms each). Paladin / Combat Chinook / King
+/// Raptor live residual keep one stream (King Raptor collapse is out of scope).
+pub fn pdl_module_count(template_name: &str) -> usize {
+    if is_avenger_carrier(template_name) {
+        2
+    } else {
+        1
+    }
 }
 
 /// Residual fire range for a PDL carrier.
@@ -423,12 +434,20 @@ pub fn is_missile_name_residual(template_name: &str) -> bool {
 
 /// Secondary residual target (Paladin SecondaryTargetTypes = INFANTRY).
 /// Lower priority than missiles; residual damages infantry in fire range.
+/// Leftover `scan_closest_target` / C++ `scanClosestTarget` skip STEALTHED &&
+/// !DETECTED && !DISGUISED (cloaked Ninja/Burton/Kell never lock).
 pub fn is_secondary_intercept_target(
     is_infantry: bool,
     is_alive: bool,
     same_team: bool,
     under_construction: bool,
+    stealthed: bool,
+    detected: bool,
+    disguised: bool,
 ) -> bool {
+    if stealthed && !detected && !disguised {
+        return false;
+    }
     is_infantry && is_alive && !same_team && !under_construction
 }
 
@@ -542,9 +561,28 @@ mod tests {
             false,
             "ScudMissile"
         ));
-        assert!(is_secondary_intercept_target(true, true, false, false));
-        assert!(!is_secondary_intercept_target(true, true, true, false));
-        assert!(!is_secondary_intercept_target(false, true, false, false));
+        assert!(is_secondary_intercept_target(
+            true, true, false, false, false, false, false
+        ));
+        assert!(!is_secondary_intercept_target(
+            true, true, true, false, false, false, false
+        ));
+        assert!(!is_secondary_intercept_target(
+            false, true, false, false, false, false, false
+        ));
+        // Leftover scan_closest_target: STEALTHED && !DETECTED && !DISGUISED skip.
+        assert!(!is_secondary_intercept_target(
+            true, true, false, false, true, false, false
+        ));
+        assert!(is_secondary_intercept_target(
+            true, true, false, false, true, true, false
+        ));
+        assert!(is_secondary_intercept_target(
+            true, true, false, false, true, false, true
+        ));
+        assert_eq!(pdl_module_count("USA_Avenger"), 2);
+        assert_eq!(pdl_module_count("USA_Paladin"), 1);
+        assert_eq!(pdl_module_count("AirF_AmericaJetRaptor"), 1);
     }
 
     #[test]

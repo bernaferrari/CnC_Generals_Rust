@@ -2,15 +2,15 @@
 //!
 //! C++ `Object::xfer` writes vision/shroud ranges, DISABLED_HELD,
 //! `m_singleUseCommandUsed`, `m_indicatorColor`, `m_weaponBonusCondition`,
-//! and `m_isReceivingDifficultyBonus`. `Weapon::xfer` writes
-//! `m_whenPreAttackFinished` + `m_maxShotCount`. `TurretAI::xfer` v2 writes
+//! `m_smcUntil`, and `m_isReceivingDifficultyBonus`. `Weapon::xfer` writes
+//! `m_whenPreAttackFinished`, `m_maxShotCount`, and
+//! `m_scatterTargetsUnused`. `TurretAI::xfer` v2 writes
 //! angle/pitch/target/hold/enabled/state. `StealthUpdate::xfer` v2 writes
 //! `m_framesGranted`. `OpenContain::xfer` v2 writes `m_whichExitPath`.
 //! Leftover xfer already matches those tables. Live stores the same residual
-//! on host `Object` but ObjectSnapshot never wrote it — load dropped
-//! script-held units, spent SingleUse buttons, painted radar colors, hijack
-//! sight, Burton knife wind-up, turret aim, supply-dock stealth, and exit
-//! door cycling.
+//! on host `Object` but ObjectSnapshot never wrote cheer/`SPECIAL_CHEERING`,
+//! mid-clip scatter unused, or HORDE/ENTHUSIASTIC/SUBLIMINAL bits — load
+//! dropped mid-cheer pose, repeated scatter offsets, and horde/speaker ROF.
 //!
 //! Append a tagged suffix after the historical v9 contain/producer payload
 //! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
@@ -22,11 +22,16 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const OXOB_MAGIC: &[u8; 4] = b"OXOB";
-const OXOB_VERSION: u32 = 1;
+const OXOB_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ObjectXferPersistPayload {
     objects: Vec<ObjectXferPersist>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct ObjectXferPersistPayloadV1 {
+    objects: Vec<ObjectXferPersistV1>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -61,6 +66,91 @@ struct ObjectXferPersist {
     temporary_stealth_expires_frame: u32,
     weapon_bonus_solo: u8,
     which_exit_path: u8,
+    cheer_timer: f32,
+    special_cheering: bool,
+    weapon_scatter_targets_unused: [Vec<i32>; 3],
+    weapon_scatter_targets_inited: [bool; 3],
+    weapon_bonus_horde: bool,
+    weapon_bonus_enthusiastic: bool,
+    weapon_bonus_subliminal: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ObjectXferPersistV1 {
+    object_id: u32,
+    disabled_held: bool,
+    single_use_command_used: bool,
+    ai_attitude: i8,
+    custom_indicator_color: Option<u32>,
+    vision_range: f32,
+    shroud_clearing_range: f32,
+    shroud_range: f32,
+    pre_attack_ready_at: f32,
+    pre_attack_target: Option<u32>,
+    consecutive_shot_target: Option<u32>,
+    max_shots_to_fire: i32,
+    turret_angle_deg: f32,
+    turret_pitch_deg: f32,
+    turret_idle_scan_next_frame: u32,
+    turret_idle_scanning: bool,
+    turret_idle_scan_desired_angle_deg: f32,
+    turret_idle_scan_index: u32,
+    turret_holding: bool,
+    turret_hold_until_frame: u32,
+    turret_idle_recentering: bool,
+    turret_mood_target: bool,
+    turret_target_id: Option<u32>,
+    turret_force_attacking: bool,
+    turret_enabled: bool,
+    turret_substate: u8,
+    turret_rotating: bool,
+    temporary_stealth_expires_frame: u32,
+    weapon_bonus_solo: u8,
+    which_exit_path: u8,
+ }
+
+impl From<ObjectXferPersistV1> for ObjectXferPersist {
+    fn from(v1: ObjectXferPersistV1) -> Self {
+        Self {
+            object_id: v1.object_id,
+            disabled_held: v1.disabled_held,
+            single_use_command_used: v1.single_use_command_used,
+            ai_attitude: v1.ai_attitude,
+            custom_indicator_color: v1.custom_indicator_color,
+            vision_range: v1.vision_range,
+            shroud_clearing_range: v1.shroud_clearing_range,
+            shroud_range: v1.shroud_range,
+            pre_attack_ready_at: v1.pre_attack_ready_at,
+            pre_attack_target: v1.pre_attack_target,
+            consecutive_shot_target: v1.consecutive_shot_target,
+            max_shots_to_fire: v1.max_shots_to_fire,
+            turret_angle_deg: v1.turret_angle_deg,
+            turret_pitch_deg: v1.turret_pitch_deg,
+            turret_idle_scan_next_frame: v1.turret_idle_scan_next_frame,
+            turret_idle_scanning: v1.turret_idle_scanning,
+            turret_idle_scan_desired_angle_deg: v1.turret_idle_scan_desired_angle_deg,
+            turret_idle_scan_index: v1.turret_idle_scan_index,
+            turret_holding: v1.turret_holding,
+            turret_hold_until_frame: v1.turret_hold_until_frame,
+            turret_idle_recentering: v1.turret_idle_recentering,
+            turret_mood_target: v1.turret_mood_target,
+            turret_target_id: v1.turret_target_id,
+            turret_force_attacking: v1.turret_force_attacking,
+            turret_enabled: v1.turret_enabled,
+            turret_substate: v1.turret_substate,
+            turret_rotating: v1.turret_rotating,
+            temporary_stealth_expires_frame: v1.temporary_stealth_expires_frame,
+            weapon_bonus_solo: v1.weapon_bonus_solo,
+            which_exit_path: v1.which_exit_path,
+            cheer_timer: 0.0,
+            special_cheering: false,
+            weapon_scatter_targets_unused: Default::default(),
+            weapon_scatter_targets_inited: [false; 3],
+            weapon_bonus_horde: false,
+            weapon_bonus_enthusiastic: false,
+            weapon_bonus_subliminal: false,
+        }
+    }
 }
 
 pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
@@ -87,7 +177,7 @@ pub fn apply_from_lifecycle_tail(
     };
     let mut rest = suffix;
     let version = take_u32(&mut rest)?;
-    if version != OXOB_VERSION {
+    if version != 1 && version != OXOB_VERSION {
         return Err(SaveLoadError::Corrupted(format!(
             "unknown OXOB suffix version {version}"
         )));
@@ -98,8 +188,17 @@ pub fn apply_from_lifecycle_tail(
             "OXOB payload truncated".to_string(),
         ));
     }
-    let payload: ObjectXferPersistPayload = bincode::deserialize(&rest[..payload_len])
-        .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
+    let encoded = &rest[..payload_len];
+    let payload = if version == 1 {
+        let old: ObjectXferPersistPayloadV1 = bincode::deserialize(encoded)
+            .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
+        ObjectXferPersistPayload {
+            objects: old.objects.into_iter().map(ObjectXferPersist::from).collect(),
+        }
+    } else {
+        bincode::deserialize(encoded)
+            .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?
+    };
     apply_payload(game_logic, payload);
     Ok(())
 }
@@ -141,6 +240,13 @@ fn capture(game_logic: &GameLogic) -> ObjectXferPersistPayload {
             temporary_stealth_expires_frame: object.temporary_stealth_expires_frame,
             weapon_bonus_solo: object.weapon_bonus_solo,
             which_exit_path: object.which_exit_path,
+            cheer_timer: object.cheer_timer,
+            special_cheering: object_has_special_cheering(object),
+            weapon_scatter_targets_unused: object.weapon_scatter_targets_unused.clone(),
+            weapon_scatter_targets_inited: object.weapon_scatter_targets_inited,
+            weapon_bonus_horde: object.weapon_bonus_horde,
+            weapon_bonus_enthusiastic: object.weapon_bonus_enthusiastic,
+            weapon_bonus_subliminal: object.weapon_bonus_subliminal,
         });
     }
     ObjectXferPersistPayload { objects }
@@ -174,6 +280,13 @@ fn reset_object_xfer(game_logic: &mut GameLogic) {
         object.weapon_bonus_solo = 0;
         object.is_receiving_difficulty_bonus = false;
         object.which_exit_path = 0;
+        object.cheer_timer = 0.0;
+        set_object_special_cheering(object, false);
+        object.weapon_scatter_targets_unused = Default::default();
+        object.weapon_scatter_targets_inited = [false; 3];
+        object.weapon_bonus_horde = false;
+        object.weapon_bonus_enthusiastic = false;
+        object.weapon_bonus_subliminal = false;
     }
 }
 
@@ -212,6 +325,30 @@ fn apply_payload(game_logic: &mut GameLogic, payload: ObjectXferPersistPayload) 
         object.weapon_bonus_solo = entry.weapon_bonus_solo;
         object.is_receiving_difficulty_bonus = entry.weapon_bonus_solo != 0;
         object.which_exit_path = entry.which_exit_path;
+        object.cheer_timer = entry.cheer_timer;
+        set_object_special_cheering(object, entry.special_cheering);
+        object.weapon_scatter_targets_unused = entry.weapon_scatter_targets_unused;
+        object.weapon_scatter_targets_inited = entry.weapon_scatter_targets_inited;
+        object.weapon_bonus_horde = entry.weapon_bonus_horde;
+        object.weapon_bonus_enthusiastic = entry.weapon_bonus_enthusiastic;
+        object.weapon_bonus_subliminal = entry.weapon_bonus_subliminal;
+    }
+ }
+
+fn special_cheering_mask() -> u128 {
+    1u128 << crate::game_logic::host_enum_table_residual::special_cheering_model_bit()
+}
+
+fn object_has_special_cheering(object: &crate::game_logic::Object) -> bool {
+    object.model_condition_bits & special_cheering_mask() != 0
+}
+
+fn set_object_special_cheering(object: &mut crate::game_logic::Object, on: bool) {
+    let mask = special_cheering_mask();
+    if on {
+        object.model_condition_bits |= mask;
+    } else {
+        object.model_condition_bits &= !mask;
     }
 }
 
@@ -276,6 +413,14 @@ mod tests {
             object.temporary_stealth_expires_frame = 600;
             object.weapon_bonus_solo = 16;
             object.which_exit_path = 2;
+            object.cheer_timer = 1.5;
+            object.model_condition_bits |=
+                1u128 << crate::game_logic::host_enum_table_residual::special_cheering_model_bit();
+            object.weapon_scatter_targets_unused = [vec![2, 0], vec![1], Vec::new()];
+            object.weapon_scatter_targets_inited = [true, true, false];
+            object.weapon_bonus_horde = true;
+            object.weapon_bonus_enthusiastic = true;
+            object.weapon_bonus_subliminal = true;
         }
 
         let builder = super::super::SnapshotBuilder::new();
@@ -313,6 +458,19 @@ mod tests {
             "m_isReceivingDifficultyBonus latch follows restored SOLO bits"
         );
         assert_eq!(loaded.which_exit_path, 2);
+        assert!((loaded.cheer_timer - 1.5).abs() < 1e-4);
+        assert!(
+            object_has_special_cheering(&loaded),
+            "SPECIAL_CHEERING must survive load"
+        );
+        assert_eq!(
+            loaded.weapon_scatter_targets_unused,
+            [vec![2, 0], vec![1], Vec::new()]
+        );
+        assert_eq!(loaded.weapon_scatter_targets_inited, [true, true, false]);
+        assert!(loaded.weapon_bonus_horde);
+        assert!(loaded.weapon_bonus_enthusiastic);
+        assert!(loaded.weapon_bonus_subliminal);
     }
 
     #[test]
@@ -337,6 +495,14 @@ mod tests {
             object.max_shots_to_fire = 1;
             object.weapon_bonus_solo = 18;
             object.which_exit_path = 3;
+            object.cheer_timer = 2.0;
+            object.model_condition_bits |=
+                1u128 << crate::game_logic::host_enum_table_residual::special_cheering_model_bit();
+            object.weapon_scatter_targets_unused = [vec![3], Vec::new(), Vec::new()];
+            object.weapon_scatter_targets_inited = [true, false, false];
+            object.weapon_bonus_horde = true;
+            object.weapon_bonus_enthusiastic = true;
+            object.weapon_bonus_subliminal = true;
         }
         apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
         let object = logic.host_object(id).expect("unit");
@@ -350,6 +516,13 @@ mod tests {
         assert_eq!(object.max_shots_to_fire, -1);
         assert_eq!(object.weapon_bonus_solo, 0);
         assert_eq!(object.which_exit_path, 0);
+        assert_eq!(object.cheer_timer, 0.0);
+        assert!(!object_has_special_cheering(&object));
+        assert!(object.weapon_scatter_targets_unused.iter().all(Vec::is_empty));
+        assert_eq!(object.weapon_scatter_targets_inited, [false, false, false]);
+        assert!(!object.weapon_bonus_horde);
+        assert!(!object.weapon_bonus_enthusiastic);
+        assert!(!object.weapon_bonus_subliminal);
     }
 
     #[test]
@@ -402,5 +575,53 @@ mod tests {
         assert_eq!(loaded.pre_attack_target, Some(ObjectId(9)));
         assert_eq!(loaded.consecutive_shot_target, Some(ObjectId(9)));
         assert_eq!(loaded.max_shots_to_fire, 3);
+    }
+
+    #[test]
+    fn oxob_round_trips_cheer_scatter_horde_bonus() {
+        let mut source = GameLogic::new();
+        source.templates.insert(
+            "AmericaInfantryRanger".to_string(),
+            ThingTemplate::new("AmericaInfantryRanger"),
+        );
+        source.add_player(Player::new(0, Team::USA, "USA", true));
+        let id = source
+            .create_object("AmericaInfantryRanger", Team::USA, Vec3::ZERO)
+            .expect("unit");
+        {
+            let object = source.host_object_mut(id).expect("unit");
+            object.cheer_timer = 2.25;
+            object.model_condition_bits |=
+                1u128 << crate::game_logic::host_enum_table_residual::special_cheering_model_bit();
+            object.weapon_scatter_targets_unused = [vec![4, 1, 0], Vec::new(), vec![2]];
+            object.weapon_scatter_targets_inited = [true, false, true];
+            object.weapon_bonus_horde = true;
+            object.weapon_bonus_enthusiastic = true;
+            object.weapon_bonus_subliminal = true;
+        }
+
+        let mut bytes = Vec::new();
+        append_to_lifecycle_tail(&mut bytes, &source);
+        assert!(find_oxob_suffix(&bytes).is_some());
+
+        let mut dest = GameLogic::new();
+        dest.templates = source.templates.clone();
+        dest.add_player(Player::new(0, Team::USA, "USA", true));
+        let dest_id = dest
+            .create_object("AmericaInfantryRanger", Team::USA, Vec3::ZERO)
+            .expect("dest unit");
+        apply_from_lifecycle_tail(&bytes, &mut dest).expect("apply");
+
+        let loaded = dest.host_object(dest_id).expect("loaded");
+        assert!((loaded.cheer_timer - 2.25).abs() < 1e-4);
+        assert!(object_has_special_cheering(&loaded));
+        assert_eq!(
+            loaded.weapon_scatter_targets_unused,
+            [vec![4, 1, 0], Vec::new(), vec![2]]
+        );
+        assert_eq!(loaded.weapon_scatter_targets_inited, [true, false, true]);
+        assert!(loaded.weapon_bonus_horde);
+        assert!(loaded.weapon_bonus_enthusiastic);
+        assert!(loaded.weapon_bonus_subliminal);
     }
 }

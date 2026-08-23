@@ -241,6 +241,59 @@ impl GameLogic {
         self.queued_audio_events.push(event);
     }
 
+    /// C++ `ThingTemplate::getPerUnitSound(slot)` + `TheAudio->addAudioEvent`.
+    /// Missing or empty UnitSpecificSounds stay silent — never queue the slot key.
+    pub(crate) fn queue_resolved_per_unit_sound(
+        &mut self,
+        object_id: crate::game_logic::ObjectId,
+        slot: &str,
+        attach_object: bool,
+        attach_position: bool,
+        player_index: Option<i32>,
+        priority: u8,
+    ) {
+        let Some(obj) = self.objects.get(&object_id) else {
+            return;
+        };
+        let template = obj.thing.template.name.clone();
+        let pos = obj.get_position();
+        self.queue_resolved_per_unit_sound_named(
+            &template,
+            slot,
+            attach_object.then_some(object_id),
+            attach_position.then_some(pos),
+            player_index,
+            priority,
+        );
+    }
+
+    pub(crate) fn queue_resolved_per_unit_sound_named(
+        &mut self,
+        template_name: &str,
+        slot: &str,
+        object_id: Option<crate::game_logic::ObjectId>,
+        position: Option<glam::Vec3>,
+        player_index: Option<i32>,
+        priority: u8,
+    ) {
+        let Some(event) =
+            crate::game_logic::audio_dispatch_impl::resolve_per_unit_sound(template_name, slot)
+        else {
+            return;
+        };
+        let mut req = AudioEventRequest::new(&event).with_priority(priority);
+        if let Some(id) = object_id {
+            req = req.with_object(id);
+        }
+        if let Some(pos) = position {
+            req = req.with_position(pos);
+        }
+        if let Some(idx) = player_index {
+            req = req.with_player_index(idx);
+        }
+        self.queue_audio_event(req);
+    }
+
     pub fn play_ui_sound(&mut self, event_type: &str) {
         let translated = translate_audio_event(event_type);
         self.queue_audio_event(AudioEventRequest::new(translated));
@@ -1447,6 +1500,29 @@ impl GameLogic {
                 HostScriptTeamOverrideRelationRequest::RemoveAll { source } => {
                     for player in self.players.values_mut() {
                         player.clear_team_instance_overrides(&source);
+                    }
+                }
+                HostScriptTeamOverrideRelationRequest::SetPlayerToTeam {
+                    source_player,
+                    dest_team,
+                    relationship,
+                } => {
+                    let Some(pid) = self.host_player_id_for_script_token(&source_player) else {
+                        continue;
+                    };
+                    if let Some(player) = self.players.get_mut(&pid) {
+                        player.set_team_relationship_override(&dest_team, relationship);
+                    }
+                }
+                HostScriptTeamOverrideRelationRequest::RemovePlayerToTeam {
+                    source_player,
+                    dest_team,
+                } => {
+                    let Some(pid) = self.host_player_id_for_script_token(&source_player) else {
+                        continue;
+                    };
+                    if let Some(player) = self.players.get_mut(&pid) {
+                        let _ = player.remove_team_relationship_override(&dest_team);
                     }
                 }
             }
@@ -3146,41 +3222,182 @@ impl GameLogic {
 
         let buttons = gamelogic::scripting::take_host_skirmish_command_button_most_valuable_requests();
         for (team, ability, range) in buttons {
-            let members = self.host_script_team_member_ids(&team);
-            if members.is_empty() {
+            self.host_script_skirmish_command_button_on_most_valuable(&team, &ability, range);
+        }
+    }
+
+    /// C++ `ScriptActions::doSkirmishCommandButtonOnMostValuable` /
+    /// leftover `do_skirmish_perform_command_button_on_most_valuable_object`.
+    /// Find the scripted button, pick the most valuable valid target in range
+    /// of the group center, then `groupDoCommandButtonAtObject`.
+    fn host_script_skirmish_command_button_on_most_valuable(
+        &mut self,
+        team: &str,
+        ability: &str,
+        range: f32,
+    ) {
+        use crate::command_executor::CommandExecutor;
+        use gamelogic::object::update::special_power_update::SpecialPowerCommandOption;
+
+        if !Self::leftover_skirmish_command_button_exists(ability) {
+            return;
+        }
+        let members = self.host_script_team_member_ids(team);
+        if members.is_empty() {
+            return;
+        }
+        let Some(center) = self.host_script_team_center(&members) else {
+            return;
+        };
+        let pid = self
+            .host_object(members[0])
+            .and_then(|o| o.owner_player_id)
+            .unwrap_or(0);
+        let range2 = range.max(0.0) * range.max(0.0);
+        let team_set: std::collections::HashSet<_> = members.iter().copied().collect();
+        let options = Self::leftover_skirmish_command_button_options(ability);
+        let requires_object_target = options.intersects(
+            SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT
+                | SpecialPowerCommandOption::NEED_TARGET_NEUTRAL_OBJECT
+                | SpecialPowerCommandOption::NEED_TARGET_ALLY_OBJECT
+                | SpecialPowerCommandOption::NEED_TARGET_PRISONER,
+        );
+
+        let mut best: Option<(i32, crate::game_logic::ObjectId)> = None;
+        for obj in self.objects.values() {
+            if !obj.is_alive() || obj.status.destroyed || obj.status.effectively_dead {
                 continue;
             }
-            let attacker_team = self
-                .objects
-                .get(&members[0])
-                .map(|o| o.team)
-                .unwrap_or(crate::game_logic::Team::Neutral);
-            let range2 = range.max(0.0) * range.max(0.0);
-            let mut best: Option<(i32, crate::game_logic::ObjectId, crate::game_logic::ObjectId)> =
-                None;
-            for sid in &members {
-                let Some(src) = self.objects.get(sid) else {
-                    continue;
-                };
-                let spos = src.get_position();
-                for (tid, tgt) in &self.objects {
-                    if *tid == *sid || !tgt.is_alive() || tgt.team == attacker_team {
-                        continue;
-                    }
-                    if (tgt.get_position() - spos).length_squared() > range2 {
-                        continue;
-                    }
-                    let cost = tgt.thing.template.build_cost.supplies as i32;
-                    if best.map(|(c, _, _)| cost > c).unwrap_or(true) {
-                        best = Some((cost, *sid, *tid));
-                    }
-                }
+            if obj.status.under_construction {
+                continue;
             }
-            if let Some((_, sid, tid)) = best {
-                let _ = ability;
-                let _ = self.unit_command_force_attack(sid, tid);
+            if team_set.contains(&obj.id) {
+                continue;
+            }
+            let p = obj.get_position();
+            let dx = p.x - center.x;
+            let dz = p.z - center.z;
+            if dx * dx + dz * dz > range2 {
+                continue;
+            }
+            let rel = self.host_script_relationship(pid, obj);
+            let relationship_ok = if requires_object_target {
+                (options.contains(SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT)
+                    && rel == gamelogic::common::Relationship::Enemies)
+                    || (options.contains(SpecialPowerCommandOption::NEED_TARGET_NEUTRAL_OBJECT)
+                        && rel == gamelogic::common::Relationship::Neutral)
+                    || (options.contains(SpecialPowerCommandOption::NEED_TARGET_ALLY_OBJECT)
+                        && rel == gamelogic::common::Relationship::Allies)
+                    || (!options.intersects(
+                        SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT
+                            | SpecialPowerCommandOption::NEED_TARGET_NEUTRAL_OBJECT
+                            | SpecialPowerCommandOption::NEED_TARGET_ALLY_OBJECT,
+                    ) && rel == gamelogic::common::Relationship::Enemies)
+            } else {
+                rel == gamelogic::common::Relationship::Enemies
+            };
+            if !relationship_ok {
+                continue;
+            }
+            let cost = obj.thing.template.build_cost.supplies as i32;
+            if best.map(|(c, _)| cost > c).unwrap_or(true) {
+                best = Some((cost, obj.id));
             }
         }
+        let Some((_, tid)) = best else {
+            return;
+        };
+        let _ = CommandExecutor::new(self, pid).execute_do_command_button(
+            &members,
+            ability,
+            None,
+            Some(tid),
+        );
+    }
+
+    /// C++ `TheControlBar->findCommandButton` / leftover host-queue payload.
+    /// Empty INI catalog falls back to the live button mapper.
+    fn leftover_skirmish_command_button_exists(ability: &str) -> bool {
+        use crate::command_system::command_type_from_button_name;
+        if ability.trim().is_empty() {
+            return false;
+        }
+        if let Some(bar) = gamelogic::control_bar::get_control_bar_bridge() {
+            if bar.find_command_button_by_name(ability).is_some() {
+                return true;
+            }
+        }
+        if let Some(bar) = game_engine::common::ini::ini_command_button::get_control_bar() {
+            if bar.find_command_button_resolved(ability).is_some() {
+                return true;
+            }
+            if !bar.get_button_names().is_empty() {
+                return false;
+            }
+        }
+        command_type_from_button_name(ability).is_some()
+    }
+
+    fn leftover_skirmish_command_button_options(
+        ability: &str,
+    ) -> gamelogic::object::update::special_power_update::SpecialPowerCommandOption {
+        use gamelogic::object::update::special_power_update::SpecialPowerCommandOption;
+        if let Some(bar) = gamelogic::control_bar::get_control_bar_bridge() {
+            if let Some(btn) = bar.find_command_button_by_name(ability) {
+                return SpecialPowerCommandOption::from_bits_truncate(btn.get_options_bits());
+            }
+        }
+        if let Some(bar) = game_engine::common::ini::ini_command_button::get_control_bar() {
+            if let Some(btn) = bar.find_command_button_resolved(ability) {
+                return SpecialPowerCommandOption::from_bits_truncate(btn.options_bits);
+            }
+        }
+        SpecialPowerCommandOption::from_bits_truncate(0)
+    }
+
+    fn host_script_relationship(
+        &self,
+        viewer: u32,
+        candidate: &crate::game_logic::Object,
+    ) -> gamelogic::common::Relationship {
+        use crate::game_logic::Team;
+        use gamelogic::common::Relationship;
+        let Some(oid) = candidate.owner_player_id else {
+            let vt = self
+                .players
+                .get(&viewer)
+                .map(|p| p.team)
+                .unwrap_or(Team::Neutral);
+            if candidate.team == Team::Neutral || vt == Team::Neutral {
+                return Relationship::Neutral;
+            }
+            if candidate.team == vt {
+                return Relationship::Allies;
+            }
+            return Relationship::Enemies;
+        };
+        self.players
+            .get(&viewer)
+            .and_then(|p| p.map_relationship(oid))
+            .unwrap_or_else(|| {
+                let vt = self
+                    .players
+                    .get(&viewer)
+                    .map(|p| p.team)
+                    .unwrap_or(candidate.team);
+                let ot = self
+                    .players
+                    .get(&oid)
+                    .map(|p| p.team)
+                    .unwrap_or(candidate.team);
+                if vt == ot {
+                    Relationship::Allies
+                } else if vt == Team::Neutral || ot == Team::Neutral {
+                    Relationship::Neutral
+                } else {
+                    Relationship::Enemies
+                }
+            })
     }
 
 
@@ -4049,6 +4266,11 @@ impl GameLogic {
             .last()
         {
             self.camera_follow_target = None;
+            // C++ setupWaypointPath ends with m_doingRotateCamera = false.
+            // Leftover reset_camera replaces camera_rotate so a prior ROTATE
+            // cannot keep peeking into presentation after the reset.
+            self.pending_camera_rotate = None;
+            self.script_camera_rotate_remaining = 0.0;
             self.pending_camera_zoom_reset = true;
             self.pending_camera_zoom_reset_duration = last.duration_seconds.max(0.0);
             self.pending_camera_zoom_reset_ease_in = last.ease_in_seconds.max(0.0);
@@ -4066,16 +4288,6 @@ impl GameLogic {
             }
         }
 
-        // C++ mods apply to the in-flight animation. Drain MOVE/PATH/RESET first so
-        // same-frame CAMERA_MOVE_TO + CAMERA_MOD_FREEZE_ANGLE pins the new move
-        // without arming a later unrelated move.
-        if !self
-            .mission_scripts
-            .drain_camera_mod_freeze_angle_requests()
-            .is_empty()
-        {
-            self.apply_script_camera_mod_freeze_angle();
-        }
 
         if let Some(last) = self
             .mission_scripts
@@ -4109,23 +4321,40 @@ impl GameLogic {
             self.pending_camera_rotate = Some(last);
         }
 
+        // C++ mods apply to the in-flight animation. Drain MOVE/PATH/RESET/ROTATE
+        // first so same-frame ROTATE_CAMERA + CAMERA_MOD_FREEZE_ANGLE pins yaw.
+        if !self
+            .mission_scripts
+            .drain_camera_mod_freeze_angle_requests()
+            .is_empty()
+        {
+            self.apply_script_camera_mod_freeze_angle();
+        }
+
         if let Some(last) = self
             .mission_scripts
             .drain_camera_mod_final_zoom_requests()
             .into_iter()
             .last()
         {
-            let remaining = self.script_camera_remaining_seconds();
-            let max_zoom = (320.0 + 300.0) / 320.0;
-            if remaining > 0.0 {
-                self.begin_script_camera_zoom(remaining);
+            #[cfg(feature = "game_client")]
+            {
+                game_client::display::view::with_tactical_view(|view| {
+                    view.camera_mod_final_zoom(last.zoom, last.ease_in, last.ease_out);
+                });
             }
-            self.pending_camera_zoom = Some(CameraZoomRequest {
-                zoom: last.zoom * max_zoom,
-                duration_seconds: remaining,
-                ease_in_seconds: (remaining * last.ease_in.clamp(0.0, 1.0)).max(0.0),
-                ease_out_seconds: (remaining * last.ease_out.clamp(0.0, 1.0)).max(0.0),
-            });
+            // Leftover/C++ cameraModFinalZoom: idle (no rotate/path/move) is a no-op.
+            let remaining = self.script_camera_remaining_seconds();
+            if remaining > 0.0 {
+                let max_zoom = (320.0 + 300.0) / 320.0;
+                self.begin_script_camera_zoom(remaining);
+                self.pending_camera_zoom = Some(CameraZoomRequest {
+                    zoom: last.zoom * max_zoom,
+                    duration_seconds: remaining,
+                    ease_in_seconds: (remaining * last.ease_in.clamp(0.0, 1.0)).max(0.0),
+                    ease_out_seconds: (remaining * last.ease_out.clamp(0.0, 1.0)).max(0.0),
+                });
+            }
         }
 
         if let Some(last) = self
@@ -4134,16 +4363,23 @@ impl GameLogic {
             .into_iter()
             .last()
         {
+            #[cfg(feature = "game_client")]
+            {
+                game_client::display::view::with_tactical_view(|view| {
+                    view.camera_mod_final_pitch(last.pitch, last.ease_in, last.ease_out);
+                });
+            }
+            // Leftover/C++ cameraModFinalPitch: idle (no rotate/path/move) is a no-op.
             let remaining = self.script_camera_remaining_seconds();
             if remaining > 0.0 {
                 self.begin_script_camera_pitch(remaining);
+                self.pending_camera_pitch = Some(CameraPitchRequest {
+                    pitch: last.pitch,
+                    duration_seconds: remaining,
+                    ease_in_seconds: (remaining * last.ease_in.clamp(0.0, 1.0)).max(0.0),
+                    ease_out_seconds: (remaining * last.ease_out.clamp(0.0, 1.0)).max(0.0),
+                });
             }
-            self.pending_camera_pitch = Some(CameraPitchRequest {
-                pitch: last.pitch,
-                duration_seconds: remaining,
-                ease_in_seconds: (remaining * last.ease_in.clamp(0.0, 1.0)).max(0.0),
-                ease_out_seconds: (remaining * last.ease_out.clamp(0.0, 1.0)).max(0.0),
-            });
         }
 
         if let Some(last) = self
@@ -4153,6 +4389,14 @@ impl GameLogic {
             .last()
         {
             self.camera_follow_target = None;
+            // C++ moveCameraTo → setupWaypointPath rebuilds m_mcwpInfo and
+            // sets m_doingRotateCamera = false. Leftover setup_camera →
+            // look_at cancels camera_move / camera_path / camera_rotate.
+            self.script_camera_move_to = None;
+            self.script_camera_path = None;
+            self.script_look_toward_object_id = None;
+            self.script_look_toward_hold_seconds = 0.0;
+            self.script_camera_rotate_remaining = 0.0;
             self.request_camera_focus(last.position);
             let max_zoom = (320.0 + 300.0) / 320.0;
             self.pending_camera_zoom = Some(CameraZoomRequest {
@@ -4633,6 +4877,9 @@ impl GameLogic {
 
     pub(in super::super) fn start_camera_path_move(&mut self, request: CameraPathRequest) {
         self.script_camera_move_to = None;
+        // C++ setupWaypointPath: m_doingRotateCamera = false.
+        self.pending_camera_rotate = None;
+        self.script_camera_rotate_remaining = 0.0;
         if let Some(move_state) =
             ScriptCameraPathMove::new(self.script_camera_focus_estimate, &request)
         {
@@ -4666,6 +4913,10 @@ impl GameLogic {
     pub(in super::super) fn start_camera_move_to(&mut self, request: CameraMoveToRequest) {
         self.mission_scripts.set_camera_movement_finished(false);
         self.script_camera_path = None;
+        // C++ setupWaypointPath: m_doingRotateCamera = false. RESET_CAMERA
+        // and MOVE_CAMERA_TO must not leave a stale ROTATE_CAMERA ticking.
+        self.pending_camera_rotate = None;
+        self.script_camera_rotate_remaining = 0.0;
         let mut move_state = ScriptCameraMoveTo::new(self.script_camera_focus_estimate, &request);
         if self.script_camera_freeze_time_armed {
             move_state.set_freeze_time(true);
@@ -4679,6 +4930,11 @@ impl GameLogic {
             move_state.set_final_speed_multiplier(multiplier);
         }
         self.script_camera_move_to = Some(move_state);
+    }
+
+    #[cfg(test)]
+    pub fn script_camera_path_active(&self) -> bool {
+        self.script_camera_path.is_some()
     }
 
     #[cfg(test)]
@@ -4829,13 +5085,32 @@ impl GameLogic {
     }
 
     pub(in super::super) fn apply_script_camera_mod_freeze_angle(&mut self) {
+        #[cfg(feature = "game_client")]
+        {
+            game_client::display::view::with_tactical_view(|view| {
+                view.camera_mod_freeze_angle();
+            });
+        }
         let mut applied = false;
         if let Some(move_to) = self.script_camera_move_to.as_mut() {
             move_to.set_freeze_angle(true);
             applied = true;
         }
         if let Some(path) = self.script_camera_path.as_mut() {
-            path.set_freeze_angle(true);
+            path.freeze_angles_to_start();
+            applied = true;
+        }
+        // Leftover freeze_current_angle: pin in-flight rotate start=end=current.
+        if let Some(rotate) = self.pending_camera_rotate.as_mut() {
+            rotate.rotations = 0.0;
+            applied = true;
+        } else if self.script_camera_rotate_remaining > 0.0 {
+            self.pending_camera_rotate = Some(CameraRotateRequest {
+                rotations: 0.0,
+                duration_seconds: self.script_camera_rotate_remaining,
+                ease_in_seconds: 0.0,
+                ease_out_seconds: 0.0,
+            });
             applied = true;
         }
         if applied {
@@ -5003,7 +5278,9 @@ impl GameLogic {
             if path_move.is_finished() {
                 (true, path_move.final_focus(), None, 0.0)
             } else if let Some(focus) = path_move.advance(dt) {
-                let look = if let Some(look) = path_move.look_toward_for_current_segment() {
+                let look = if let Some(look) = path_move.frozen_start_look_toward(focus) {
+                    Some(look)
+                } else if let Some(look) = path_move.look_toward_for_current_segment() {
                     Some(look)
                 } else if path_move.freeze_angle() || path_move.suppress_travel_look() {
                     None

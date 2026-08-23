@@ -762,6 +762,8 @@ pub enum DamageEvent {
         shooter_template: String,
         /// C++ `primaryVictim`: intended target skips RadiusDamageAffects.
         primary_victim: Option<ObjectId>,
+        /// Leftover WeaponStore `radius_damage_angle` (C++ PI = full circle).
+        radius_damage_angle: f32,
     },
 }
 
@@ -1136,6 +1138,15 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             fire_target_id = None;
         }
 
+        // C++ DamageDealtAtSelfPosition: fire/detonate at source, not victim.
+        if crate::game_logic::weapon_bootstrap::host_damage_dealt_at_self_position_for_weapon_name(
+            &p.historic_weapon_key,
+        ) {
+            fire_target_id = None;
+            target_pos = p.shooter_pos;
+        }
+
+
         // C++ DumbProjectileBehavior ScaleWeaponSpeed residual (2D range ratio).
         let mut flight_speed = p.speed;
         if p.scale_weapon_speed {
@@ -1446,6 +1457,21 @@ impl CombatSystem {
         position: Vec3,
     ) -> DamageEvent {
         let live = objects.get(&projectile.shooter_id);
+        // C++ fireWeaponTemplate: DamageDealtAtSelfPosition → damageID=INVALID,
+        // damagePos=sourcePos (Weapon.cpp:1008, 1035). Stay off cone field.
+        let at_self = crate::game_logic::weapon_bootstrap::host_damage_dealt_at_self_position_for_weapon_name(
+            &projectile.historic_weapon_key,
+        );
+        let position = if at_self {
+            live.map(|o| o.get_position()).unwrap_or(position)
+        } else {
+            position
+        };
+        let primary_victim = if at_self {
+            None
+        } else {
+            projectile.target_id
+        };
         DamageEvent::Area {
             position,
             damage: projectile.damage,
@@ -1471,7 +1497,8 @@ impl CombatSystem {
             shooter_template: live
                 .map(|o| o.template_name.clone())
                 .unwrap_or_default(),
-            primary_victim: projectile.target_id,
+            primary_victim,
+            radius_damage_angle: leftover_radius_damage_angle(&projectile.historic_weapon_key),
         }
     }
 
@@ -1979,6 +2006,7 @@ impl CombatSystem {
                     shooter_template,
                     shooter_id,
                     primary_victim,
+                    radius_damage_angle,
                     ..
                 } => {
                     // C++ dealDamageInternal (Weapon.cpp:1438):
@@ -1998,6 +2026,7 @@ impl CombatSystem {
                     let shock_taper = (*shock_wave_taper_off).clamp(0.0, 1.0);
                     let shooter_pos = objects.get(shooter_id).map(|s| s.get_position());
                     let shooter_producer = objects.get(shooter_id).and_then(|s| s.producer_id);
+                    let shooter_dir_xz = objects.get(shooter_id).map(|s| s.unit_direction_xz());
                     for (vid, obj) in objects.iter_mut() {
                         let op = obj.get_position();
                         let dist = splash_from_bounding_sphere_3d(
@@ -2043,6 +2072,16 @@ impl CombatSystem {
                             if !allowed {
                                 continue;
                             }
+                        }
+                        // Leftover deal_damage_internal / C++ Weapon.cpp:1393-1408:
+                        // allowed_angle < PI → skip victims outside the firer's facing cone.
+                        if !leftover_radius_damage_cone_allows(
+                            *radius_damage_angle,
+                            shooter_pos,
+                            shooter_dir_xz,
+                            op,
+                        ) {
+                            continue;
                         }
                         if dist <= outer {
                             let area_damage = if kills_self && !is_primary {
@@ -2296,6 +2335,47 @@ pub(crate) fn victim_splash_sphere_radius(obj: &Object) -> f32 {
         geom.bounding_sphere_radius(),
         obj.selection_radius,
     )
+}
+
+/// Leftover `WeaponTemplate::radius_damage_angle`. Missing name / store miss → C++ PI (full circle).
+fn leftover_radius_damage_angle(weapon_name: &str) -> f32 {
+    if weapon_name.is_empty() {
+        return std::f32::consts::PI;
+    }
+    let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+    gamelogic::weapon::with_weapon_store(|store| {
+        store
+            .find_weapon_template(weapon_name)
+            .map(|wt| wt.radius_damage_angle)
+    })
+    .ok()
+    .flatten()
+    .unwrap_or(std::f32::consts::PI)
+}
+
+/// Leftover `deal_damage_internal` cone (Weapon.cpp:1393-1408).
+/// `allowed_angle < PI` gates splash to the source facing cone; missing source skips the victim.
+fn leftover_radius_damage_cone_allows(
+    allowed_angle: f32,
+    source_pos: Option<Vec3>,
+    source_dir_xz: Option<(f32, f32)>,
+    victim_pos: Vec3,
+) -> bool {
+    if allowed_angle >= std::f32::consts::PI {
+        return true;
+    }
+    let Some(source_pos) = source_pos else {
+        return false;
+    };
+    let Some((fx, fz)) = source_dir_xz else {
+        return false;
+    };
+    // Live XZ ground: leftover/C++ source X-vector is horizontal facing (Y-up host).
+    let source_dir = Vec3::new(fx, 0.0, fz);
+    let damage_dir = victim_pos - source_pos;
+    let source_n = source_dir.normalize_or_zero();
+    let damage_n = damage_dir.normalize_or_zero();
+    source_n.dot(damage_n) >= allowed_angle.cos()
 }
 
 
@@ -3303,12 +3383,19 @@ mod tests {
             0.0,
             false,
         );
+        crate::game_logic::host_fx_list_die::set_test_fx_list_die(
+            "ScudStormMissile",
+            crate::game_logic::host_fx_list_die::HostFxListDieData::with_fx(
+                "FX_AuthoredMissileDie",
+            ),
+        );
         if let Some(p) = combat.projectile_mut(pid) {
             p.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Exploded;
             p.die_on_detonate = true;
             p.projectile_object_name = "ScudStormMissile".into();
         }
         let _ = combat.update_projectiles(1.0 / 30.0, &mut objects);
+        crate::game_logic::host_fx_list_die::clear_test_fx_list_die();
         let victim = objects.get(&target).expect("victim");
         assert_eq!(
             victim.status.death_type,
@@ -3318,8 +3405,13 @@ mod tests {
         let fx = combat.take_impact_fx();
         assert!(
             fx.iter()
-                .any(|ev| ev.detonation_fx_name == "FX_ScudMissileDie"),
-            "missile FXListDie must fire on die_on_detonate, got {fx:?}"
+                .any(|ev| ev.detonation_fx_name == "FX_AuthoredMissileDie"),
+            "authored missile FXListDie must fire on die_on_detonate, got {fx:?}"
+        );
+        assert!(
+            fx.iter()
+                .all(|ev| ev.detonation_fx_name != "FX_ScudMissileDie"),
+            "must not invent FX_ScudMissileDie, got {fx:?}"
         );
     }
 
@@ -3864,6 +3956,94 @@ mod tests {
         );
         assert_eq!(by1, by0, "bystander ally must still be skipped");
     }
+
+    #[test]
+    fn splash_damage_dealt_at_self_position_recenters_and_clears_victim() {
+        ensure_unit_test_direct_damage();
+        crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+        const NAME: &str = "HuntLiveDamageAtSelfSplash";
+        let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
+            let mut template = gamelogic::weapon::WeaponTemplate::new(NAME.to_string());
+            template.damage_dealt_at_self_position = true;
+            store.add_weapon_template(template);
+        });
+
+        let mut objects = HashMap::new();
+        let atk = ObjectId(190);
+        let near = ObjectId(191);
+        let far = ObjectId(192);
+        objects.insert(
+            atk,
+            make_obj(
+                "USA_Ranger",
+                atk,
+                Team::USA,
+                Vec3::ZERO,
+                &[KindOf::Infantry, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        objects.insert(
+            near,
+            make_obj(
+                "GLA_Rebel",
+                near,
+                Team::GLA,
+                Vec3::new(3.0, 0.0, 0.0),
+                &[KindOf::Infantry, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        objects.insert(
+            far,
+            make_obj(
+                "GLA_Rebel",
+                far,
+                Team::GLA,
+                Vec3::new(80.0, 0.0, 0.0),
+                &[KindOf::Infantry, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        let near0 = objects.get(&near).unwrap().health.current;
+        let far0 = objects.get(&far).unwrap().health.current;
+
+        let mut combat = CombatSystem::new();
+        let w = Weapon {
+            damage: 40.0,
+            splash_radius: 20.0,
+            projectile_speed: 0.0,
+            ..Weapon::default()
+        };
+        let pid = combat.fire_projectile_ex(
+            Vec3::ZERO,
+            Vec3::new(80.0, 0.0, 0.0),
+            &w,
+            atk,
+            Some(far),
+            0.0,
+            false,
+        );
+        if let Some(p) = combat.projectile_mut(pid) {
+            p.explosion_radius = 20.0;
+            p.historic_weapon_key = NAME.to_string();
+            p.radius_damage_affects =
+                crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
+                    | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS;
+        }
+        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects);
+        let near1 = objects.get(&near).unwrap().health.current;
+        let far1 = objects.get(&far).unwrap().health.current;
+        assert!(
+            near1 < near0 - 1.0,
+            "splash must recenter on shooter ({near0}->{near1})"
+        );
+        assert_eq!(
+            far1, far0,
+            "cleared victim at impact must not take splash ({far0}->{far1})"
+        );
+    }
+
 
     #[test]
     fn splash_kills_self_deals_huge_damage() {

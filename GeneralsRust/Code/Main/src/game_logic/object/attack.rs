@@ -356,6 +356,9 @@ impl Object {
         } else {
             super::combat::DamageType::Bullet
         };
+        let at_self = name
+            .map(crate::game_logic::weapon_bootstrap::host_damage_dealt_at_self_position_for_weapon_name)
+            .unwrap_or(false);
         super::combat::queue_projectile(super::combat::PendingProjectile {
             shooter_id,
             shooter_pos,
@@ -366,8 +369,9 @@ impl Object {
                 source_orientation: self.get_orientation(),
                 source_velocity: self.movement.velocity,
             }),
-            target_id: Some(target_id),
-            target_pos: None,
+            // C++ DamageDealtAtSelfPosition: damageID=INVALID, damagePos=source.
+            target_id: if at_self { None } else { Some(target_id) },
+            target_pos: if at_self { Some(shooter_pos) } else { None },
             damage: weapon_damage,
             speed: weapon_speed,
             splash_radius: weapon_splash,

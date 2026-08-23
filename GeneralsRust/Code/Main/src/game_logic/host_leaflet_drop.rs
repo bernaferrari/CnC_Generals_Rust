@@ -4,10 +4,10 @@
 //! - `DoSpecialPower(LeafletDrop)` at a world location queues a delayed disable
 //!   residual (retail SuperweaponLeafletDrop → SUPERWEAPON_LeafletDrop B52
 //!   payload → LeafletContainer LeafletDropBehavior).
-//! - After Delay (2500 ms), enemy infantry and vehicles in AffectRadius receive
-//!   DISABLED_EMP for DisabledDuration (20000 ms) — matches C++
-//!   LeafletDropBehavior::doDisableAttack setDisabledUntil(DISABLED_EMP, ...).
-//! - Honesty counters/flags for residual gates and tests.
+//! - After Delay (2500 ms), leftover LeafletDropBehavior::update calls
+//!   do_disable_attack every frame (UPDATE_SLEEP_NONE) so walk-ins in
+//!   AffectRadius receive DISABLED_EMP for DisabledDuration (20000 ms).
+//!   Live pulses the same leftover disable every frame after impact_frame.
 //!
 //! Wave 70 residual pack (retail SpecialPower.ini / WeaponObjects.ini / OCL):
 //! - Special power residual: SuperweaponLeafletDrop ReloadTime **300000**ms → **9000**f,
@@ -19,7 +19,7 @@
 //! - Honesty: `honesty_leaflet_drop_residual_pack_ok` + layer honesty tests.
 //!
 //! Fail-closed honesty:
-//! - Not full OCL AmericaJetB52 / LeafletContainer drawable / LeafletFX particles
+//! - Not full OCL AmericaJetB52 / LeafletContainer drawable
 //! - Not full relationship matrix beyond player ENEMIES (C++ getRelationship)
 //! - Not EarlyLeafletDrop science shortcut timer matrix
 //! - Not network leaflet replication (network deferred)
@@ -28,7 +28,7 @@ use super::ObjectId;
 use crate::command_system::SpecialPowerType;
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Logic frames per second (host fixed step).
 pub const LEAFLET_LOGIC_FPS: f32 = 30.0;
@@ -93,6 +93,55 @@ pub const LEAFLET_DELIVERY_DISTANCE: f32 = 160.0;
 pub const LEAFLET_DECAL_RADIUS: f32 = 100.0;
 /// Retail LeafletDropBehavior LeafletFXParticleSystem residual.
 pub const LEAFLET_FX_PARTICLE: &str = "LeafletParticles1";
+
+/// Leftover ThingFactory `LeafletDropBehavior` `LeafletFXParticleSystem`.
+pub fn leftover_leaflet_fx_particle_name(template_name: &str) -> Option<String> {
+    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
+    let factory = guard.as_ref()?;
+    let tmpl = factory.find_template(template_name, false)?;
+    for entry in tmpl.get_behavior_module_info().iter() {
+        if !entry
+            .name
+            .as_str()
+            .eq_ignore_ascii_case("LeafletDropBehavior")
+        {
+            continue;
+        }
+        if let Some(data) = entry
+            .data
+            .downcast_ref::<gamelogic::object::behavior::LeafletDropBehaviorModuleData>()
+        {
+            return data
+                .leaflet_fx_particle_system
+                .as_ref()
+                .map(|s| s.as_str().to_string())
+                .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("NONE"));
+        }
+        return entry
+            .data
+            .get_ini_field("LeafletFXParticleSystem")
+            .map(str::trim)
+            .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("NONE"))
+            .map(str::to_string);
+    }
+    None
+}
+
+/// Authored LeafletFX template — leftover store, else retail `LeafletParticles1`.
+pub fn leaflet_fx_particle_name(template_name: &str) -> String {
+    leftover_leaflet_fx_particle_name(template_name)
+        .unwrap_or_else(|| LEAFLET_FX_PARTICLE.to_string())
+}
+
+/// C++ `LeafletDropBehavior::update` first tick: create + `attachToObject`.
+pub fn attach_leaflet_fx_particle(object_id: u32, template_name: &str) -> bool {
+    let name = leaflet_fx_particle_name(template_name);
+    if name.is_empty() || name.eq_ignore_ascii_case("None") {
+        return false;
+    }
+    gamelogic::helpers::attach_particle_system_to_object(&name, object_id).is_some()
+}
+
 
 /// Activate audio residual (SoundEffects.ini LeafletDrop).
 pub const LEAFLET_ACTIVATE_AUDIO: &str = "LeafletDrop";
@@ -174,7 +223,7 @@ impl HostLeafletDropKind {
 pub enum HostLeafletDropPhase {
     /// Queued after DoSpecialPower; waiting for delay frame.
     Queued,
-    /// Disable residual resolved against enemy infantry/vehicles.
+    /// First disable pulse recorded; leftover still pulses every later frame.
     Completed,
     /// Cancelled (source died / invalid) before impact.
     Cancelled,
@@ -195,7 +244,10 @@ pub struct HostLeafletDropMission {
     pub disables: u32,
 }
 
-/// Impact plan for one due leaflet drop (computed before mutable disable).
+/// Disable pulse for one leaflet cloud (computed before mutable disable).
+///
+/// Leftover `do_disable_attack` runs every frame after `start_frame`;
+/// `initial_impact` is only the first pulse (audio / FX / honesty complete).
 #[derive(Debug, Clone)]
 pub struct HostLeafletDropImpactPlan {
     pub mission_id: u32,
@@ -205,6 +257,8 @@ pub struct HostLeafletDropImpactPlan {
     pub target_position: Vec3,
     pub radius: f32,
     pub disable_until_frame: u32,
+    /// True only while the mission is still Queued (first leftover pulse).
+    pub initial_impact: bool,
 }
 
 /// Whether residual target can receive Leaflet disable.
@@ -248,6 +302,8 @@ pub struct HostLeafletDropRegistry {
     pub transports_spawned: u32,
     /// C++ LeafletContainer payload drops residual.
     pub containers_dropped: u32,
+    /// C++ `LeafletDropBehavior::m_fxFired` — attach LeafletFX once per container.
+    fx_attached: HashSet<u32>,
 }
 
 impl HostLeafletDropRegistry {
@@ -261,11 +317,22 @@ impl HostLeafletDropRegistry {
             disable_count: 0,
             transports_spawned: 0,
             containers_dropped: 0,
+            fx_attached: HashSet::new(),
         }
     }
 
     pub fn clear(&mut self) {
         *self = Self::new();
+    }
+
+    /// C++ `LeafletDropBehavior::update` first tick (`m_fxFired`).
+    /// Returns true the first time this container is seen (even if create fails).
+    pub fn try_attach_leaflet_fx(&mut self, object_id: u32, template_name: &str) -> bool {
+        if !self.fx_attached.insert(object_id) {
+            return false;
+        }
+        let _ = attach_leaflet_fx_particle(object_id, template_name);
+        true
     }
 
     pub fn clear_frame_events(&mut self) {
@@ -363,13 +430,20 @@ impl HostLeafletDropRegistry {
         id
     }
 
-    /// Build impact plans for all missions whose delay frame has arrived.
+    /// Build leftover-style disable pulses after Delay (`start_frame`).
+    ///
+    /// C++ / leftover `LeafletDropBehavior::update` after `m_startFrame` calls
+    /// `doDisableAttack()` every frame (`UPDATE_SLEEP_NONE`). Completed missions
+    /// keep emitting so walk-ins still get `setDisabledUntil(DISABLED_EMP, now+dur)`.
     pub fn plan_due_impacts(&self, current_frame: u32) -> Vec<HostLeafletDropImpactPlan> {
         let mut plans = Vec::new();
         for mission in self.missions.values() {
-            if mission.phase != HostLeafletDropPhase::Queued || current_frame < mission.impact_frame
-            {
+            if current_frame < mission.impact_frame {
                 continue;
+            }
+            match mission.phase {
+                HostLeafletDropPhase::Queued | HostLeafletDropPhase::Completed => {}
+                HostLeafletDropPhase::Cancelled => continue,
             }
             plans.push(HostLeafletDropImpactPlan {
                 mission_id: mission.id,
@@ -380,6 +454,7 @@ impl HostLeafletDropRegistry {
                 radius: mission.kind.radius(),
                 disable_until_frame: current_frame
                     .saturating_add(mission.kind.disabled_duration_frames()),
+                initial_impact: mission.phase == HostLeafletDropPhase::Queued,
             });
         }
         plans.sort_by_key(|p| p.mission_id);
@@ -590,6 +665,38 @@ mod tests {
     }
 
     #[test]
+    fn leaflet_pulses_every_frame_after_start_for_walk_ins() {
+        let mut reg = HostLeafletDropRegistry::new();
+        let id = reg.queue(
+            HostLeafletDropKind::UsaLeafletDrop,
+            ObjectId(1),
+            Team::USA,
+            Vec3::new(100.0, 0.0, 50.0),
+            0,
+        );
+        assert!(reg.plan_due_impacts(LEAFLET_DELAY_FRAMES - 1).is_empty());
+        let first = reg.plan_due_impacts(LEAFLET_DELAY_FRAMES);
+        assert_eq!(first.len(), 1);
+        assert!(first[0].initial_impact);
+        assert_eq!(
+            first[0].disable_until_frame,
+            LEAFLET_DELAY_FRAMES + LEAFLET_DISABLED_DURATION_FRAMES
+        );
+
+        reg.record_impact_complete(id, 1);
+        assert_eq!(reg.pending_count(), 0);
+        assert_eq!(reg.get(id).unwrap().phase, HostLeafletDropPhase::Completed);
+
+        let later = reg.plan_due_impacts(LEAFLET_DELAY_FRAMES + 10);
+        assert_eq!(later.len(), 1, "leftover update pulses after start_frame");
+        assert!(!later[0].initial_impact);
+        assert_eq!(
+            later[0].disable_until_frame,
+            LEAFLET_DELAY_FRAMES + 10 + LEAFLET_DISABLED_DURATION_FRAMES
+        );
+    }
+
+    #[test]
     fn radius_filter() {
         assert!(in_leaflet_radius_2d((0.0, 0.0), (110.0, 0.0), 110.0));
         assert!(!in_leaflet_radius_2d((0.0, 0.0), (111.0, 0.0), 110.0));
@@ -619,6 +726,37 @@ mod tests {
         assert_eq!(
             HostLeafletDropKind::UsaEarlyLeafletDrop.disabled_duration_frames(),
             LEAFLET_DISABLED_DURATION_FRAMES
+        );
+    }
+
+    #[test]
+    fn leaflet_fx_name_is_authored_leaflet_particles() {
+        assert_eq!(LEAFLET_FX_PARTICLE, "LeafletParticles1");
+        assert_eq!(
+            leaflet_fx_particle_name("LeafletContainer"),
+            "LeafletParticles1"
+        );
+        assert_eq!(leaflet_fx_particle_name("None"), "LeafletParticles1");
+    }
+
+    #[test]
+    fn leaflet_fx_attaches_once_like_cpp_fx_fired() {
+        let mut reg = HostLeafletDropRegistry::new();
+        assert!(reg.try_attach_leaflet_fx(7, "LeafletContainer"));
+        assert!(!reg.try_attach_leaflet_fx(7, "LeafletContainer"));
+        assert!(reg.try_attach_leaflet_fx(8, "LeafletContainer"));
+        let live = include_str!("world_combat/registries.rs");
+        let start = live
+            .find("C++ LeafletDropBehavior::update first tick")
+            .expect("leaflet fall loop");
+        let win = &live[start..start + 1600];
+        assert!(
+            win.contains("try_attach_leaflet_fx"),
+            "C++ first-tick LeafletFX attach missing: {win}"
+        );
+        assert!(
+            !win.contains("DeathExplosion"),
+            "LeafletFX must not use DeathExplosion residual: {win}"
         );
     }
 }

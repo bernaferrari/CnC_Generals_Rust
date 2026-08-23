@@ -30,8 +30,9 @@
 //!   base defenses (not full turret pitch / LOS).
 //!
 //! - **AssistedTargetingUpdate residual** (AmericaPatriotBattery ModuleTag_07):
-//!   When a Patriot fires PRIMARY/AA with `RequestAssistRange` **200**, same-team
-//!   equivalent Patriots within range that are free to assist fire
+//!   When a Patriot fires PRIMARY/AA, leftover `WeaponTemplate.request_assist_range`
+//!   (retail Weapon.ini **200**) fans out to same-team equivalent Patriots
+//!   within that leftover range that are free to assist. They fire
 //!   `AssistingClipSize` **4** shots of the assist weapon (retail SECONDARY
 //!   `PatriotMissileAssistWeapon` / Lazr / SupW variants, AttackRange **450**).
 //!   Host residual processes the assist clip over DelayBetweenShots **250**ms
@@ -1631,8 +1632,8 @@ pub const GATTLING_BUILDING_COAST_FRAMES: u32 = 60;
 
 /// Residual fire audio for structure gattling.
 pub const GATTLING_BUILDING_FIRE_AUDIO: &str = "GattlingCannonWeapon";
-/// Retail VoiceRapidFire residual cue when entering FAST.
-pub const GATTLING_BUILDING_RAPID_FIRE_AUDIO: &str = "GattlingCannonVoiceRapid";
+/// C++ FiringTracker PerUnitSound slot `VoiceRapidFire` (MEAN→FAST).
+pub const GATTLING_BUILDING_RAPID_FIRE_AUDIO: &str = "VoiceRapidFire";
 
 /// Whether template is a residual base-defense structure that should auto-fire.
 ///
@@ -2207,9 +2208,35 @@ pub fn is_patriot_free_to_assist(
         && weapon_ready
 }
 
-/// Whether assistant is within RequestAssistRange of the requesting Patriot.
-pub fn is_within_patriot_request_assist_range(dist_2d: f32) -> bool {
-    dist_2d <= PATRIOT_REQUEST_ASSIST_RANGE
+/// Leftover `WeaponTemplate::getRequestAssistRange` (C++ Weapon.cpp:2477 / :2907).
+///
+/// Live Patriot assist must read the leftover store. Missing template → 0
+/// (C++ default `m_requestAssistRange`).
+pub fn leftover_request_assist_range(weapon_name: &str) -> f32 {
+    let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+    gamelogic::weapon::with_weapon_store(|store| {
+        store
+            .find_weapon_template(weapon_name)
+            .map(|wt| wt.get_request_assist_range().max(0.0))
+    })
+    .ok()
+    .flatten()
+    .unwrap_or(0.0)
+}
+
+/// Leftover RequestAssistRange for the Patriot slot that just fired.
+pub fn patriot_request_assist_range_for_template(template_name: &str, air_slot: bool) -> f32 {
+    let weapon_name = if air_slot {
+        secondary_weapon_name_for_defense(template_name)
+    } else {
+        primary_weapon_name_for_defense(template_name)
+    };
+    leftover_request_assist_range(weapon_name.unwrap_or(PATRIOT_PRIMARY_WEAPON))
+}
+
+/// Whether assistant is within leftover RequestAssistRange of the requesting Patriot.
+pub fn is_within_patriot_request_assist_range(dist_2d: f32, request_assist_range: f32) -> bool {
+    request_assist_range > 0.0 && dist_2d <= request_assist_range
 }
 
 /// Whether victim is within assist weapon AttackRange from the assistant.
@@ -2867,8 +2894,15 @@ mod tests {
             true, false, true, false, false, true
         )); // not constructed
 
-        assert!(is_within_patriot_request_assist_range(200.0));
-        assert!(!is_within_patriot_request_assist_range(201.0));
+        assert!(is_within_patriot_request_assist_range(
+            200.0,
+            PATRIOT_REQUEST_ASSIST_RANGE
+        ));
+        assert!(!is_within_patriot_request_assist_range(
+            201.0,
+            PATRIOT_REQUEST_ASSIST_RANGE
+        ));
+        assert!(!is_within_patriot_request_assist_range(0.0, 0.0));
         assert!(is_within_patriot_assist_weapon_range(450.0));
         assert!(!is_within_patriot_assist_weapon_range(451.0));
 
@@ -2964,6 +2998,30 @@ mod tests {
         assert_eq!(live.len(), 2);
         assert_eq!(expire_patriot_assist_lasers(&mut live, 28), 2);
         assert!(live.is_empty());
+    }
+
+    #[test]
+    fn leftover_request_assist_range_reads_store_not_hardcode() {
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+        use gamelogic::weapon::{with_weapon_store_mut, WeaponTemplate};
+
+        ensure_host_weapon_store();
+        const NAME: &str = "__RustRequestAssistRangePeel";
+        let _ = with_weapon_store_mut(|store| {
+            let mut template = WeaponTemplate::new(NAME.to_string());
+            template.request_assist_range = 50.0;
+            store.add_weapon_template(template);
+        });
+        assert!((leftover_request_assist_range(NAME) - 50.0).abs() < 0.01);
+        assert!(is_within_patriot_request_assist_range(
+            50.0,
+            leftover_request_assist_range(NAME)
+        ));
+        assert!(!is_within_patriot_request_assist_range(
+            51.0,
+            leftover_request_assist_range(NAME)
+        ));
+        assert_eq!(leftover_request_assist_range("__MissingRequestAssistWeapon"), 0.0);
     }
 
     #[test]

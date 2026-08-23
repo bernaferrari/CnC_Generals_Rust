@@ -1575,6 +1575,7 @@ impl CnCGameEngine {
             if let Some(hit) = airborne_look_at_ground(
                 self.camera_position,
                 world_pos,
+                self.camera_target - self.camera_position,
                 DEFAULT_VIEW_FAR_CLIP,
                 world_min,
                 world_max,

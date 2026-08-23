@@ -365,3 +365,66 @@ pub fn honesty_missile_launcher_building_update_residual_ok() -> bool {
                 }
         }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ini_with_door_fx() -> HostMissileLauncherIni {
+        let mut ini = residual_missile_launcher_ini("GLAScudStorm").unwrap();
+        ini.opening_fx = Some("FX_TestDoorOpening".into());
+        ini.open_fx = Some("FX_TestDoorOpen".into());
+        ini.waiting_to_close_fx = Some("FX_TestDoorWaitClose".into());
+        ini.closing_fx = Some("FX_TestDoorClosing".into());
+        ini.closed_fx = Some("FX_TestDoorClosed".into());
+        ini
+    }
+
+    #[test]
+    fn residual_ini_does_not_invent_door_fx_names() {
+        let ini = residual_missile_launcher_ini("GLAScudStorm").unwrap();
+        assert!(ini.opening_fx.is_none());
+        assert!(ini.open_fx.is_none());
+        assert!(ini.waiting_to_close_fx.is_none());
+        assert!(ini.closing_fx.is_none());
+        assert!(ini.closed_fx.is_none());
+    }
+
+    #[test]
+    fn door_state_enter_stashes_pending_fx_like_cpp_do_fx_pos() {
+        let mut d = HostMissileLauncherBuildingUpdateData::from_ini(ini_with_door_fx());
+        d.update(0, 240, false);
+        assert_eq!(d.door_state, HostMissileLauncherDoorState::Opening);
+        assert_eq!(d.pending_fx.as_deref(), Some("FX_TestDoorOpening"));
+        d.update(239, 240, true);
+        assert_eq!(d.door_state, HostMissileLauncherDoorState::Open);
+        assert_eq!(d.pending_fx.as_deref(), Some("FX_TestDoorOpen"));
+        d.initiate_intent(300);
+        assert_eq!(d.door_state, HostMissileLauncherDoorState::WaitingToClose);
+        assert_eq!(d.pending_fx.as_deref(), Some("FX_TestDoorWaitClose"));
+        d.update(361, 1000, false);
+        assert_eq!(d.door_state, HostMissileLauncherDoorState::Closing);
+        assert_eq!(d.pending_fx.as_deref(), Some("FX_TestDoorClosing"));
+        let close_at = d.timeout_frame;
+        d.update(close_at + 1, 1000, false);
+        assert_eq!(d.door_state, HostMissileLauncherDoorState::Closed);
+        assert_eq!(d.pending_fx.as_deref(), Some("FX_TestDoorClosed"));
+    }
+
+    #[test]
+    fn live_tick_dispatches_pending_door_fx_at_building_pos() {
+        let tick = include_str!("object/update.rs");
+        let start = tick
+            .find("pub fn tick_missile_launcher_building")
+            .expect("tick_missile_launcher_building");
+        let win = &tick[start..start + 1800];
+        assert!(
+            win.contains("let pending_fx = data.pending_fx.take()"),
+            "door pending_fx must be consumed: {win}"
+        );
+        assert!(
+            win.contains("dispatch_fx_list_at_pos(&fx, self.get_position())"),
+            "C++ doFXPos at building missing: {win}"
+        );
+    }
+}

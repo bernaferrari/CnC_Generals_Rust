@@ -62,11 +62,25 @@ struct PlayerArmyState {
     has_structures: bool,
 }
 
-/// C++ `Player::getRelationship`: explicit map entry, else slot-team default.
+/// C++ `Player::getRelationship(const Team*)` (`Player.cpp:542-572`).
+/// Team-id override (`PLAYER_SET_OVERRIDE_RELATION_TO_TEAM`) wins first,
+/// then leftover `m_teamRelations`, then player->player map, then lobby
+/// `alliance_team` as the initial slot-team default.
 fn live_player_relationship(source: &Player, target: &Player) -> gamelogic::common::Relationship {
     use gamelogic::common::Relationship;
     if source.id == target.id {
         return Relationship::Allies;
+    }
+    if let Some(rel) = leftover_relationship_to_default_team(source, target) {
+        return rel;
+    }
+    for name in default_team_instance_names(target) {
+        if let Some(rel) = leftover_player_team_relationship_override(source, &name) {
+            return rel;
+        }
+        if let Some(rel) = source.team_relationship_override(&name) {
+            return rel;
+        }
     }
     if let Some(rel) = source.map_relationship(target.id) {
         return rel;
@@ -80,9 +94,91 @@ fn live_player_relationship(source: &Player, target: &Player) -> gamelogic::comm
     }
 }
 
+/// C++ `"team" + playerName` default team plus leftover / `teamplayerN` aliases.
+fn default_team_instance_names(player: &Player) -> Vec<String> {
+    let mut names = Vec::new();
+    let push = |names: &mut Vec<String>, raw: String| {
+        let name = raw.trim();
+        if name.is_empty() {
+            return;
+        }
+        if !names.iter().any(|existing| existing.eq_ignore_ascii_case(name)) {
+            names.push(name.to_string());
+        }
+    };
+    if let Some(name) = leftover_default_team_instance_name(player) {
+        push(&mut names, name);
+    }
+    let host_name = player.name.trim();
+    if !host_name.is_empty() {
+        push(&mut names, format!("team{host_name}"));
+    }
+    let map_name = player.map_side.map_player_name.trim();
+    if !map_name.is_empty() {
+        push(&mut names, format!("team{map_name}"));
+    }
+    push(&mut names, format!("teamplayer{}", player.id));
+    names
+}
+
+fn leftover_default_team_instance_name(player: &Player) -> Option<String> {
+    let arc = leftover_player_arc_for_host(player.id, &player.name, false)?;
+    let team = {
+        let guard = arc.read().ok()?;
+        guard.get_default_team()?
+    };
+    let name = team.read().ok()?.get_name().to_string();
+    if name.trim().is_empty() {
+        None
+    } else {
+        Some(name)
+    }
+}
+
+/// C++ `p1->getRelationship(p2->getDefaultTeam())` leftover `m_teamRelations` tier.
+fn leftover_relationship_to_default_team(
+    source: &Player,
+    target: &Player,
+) -> Option<gamelogic::common::Relationship> {
+    let source_arc = leftover_player_arc_for_host(source.id, &source.name, false)?;
+    let target_arc = leftover_player_arc_for_host(target.id, &target.name, false)?;
+    let team = {
+        let target_guard = target_arc.read().ok()?;
+        target_guard.get_default_team()?
+    };
+    let team_guard = team.read().ok()?;
+    let source_guard = source_arc.read().ok()?;
+    source_guard.override_relationship_for_team(&team_guard)
+}
+
+/// C++ leftover `Player::m_teamRelations` keyed by named team instance.
+fn leftover_player_team_relationship_override(
+    source: &Player,
+    team_name: &str,
+) -> Option<gamelogic::common::Relationship> {
+    if team_name.trim().is_empty() {
+        return None;
+    }
+    let team = {
+        let Ok(factory) = gamelogic::team::get_team_factory().lock() else {
+            return None;
+        };
+        factory.find_team_instances(team_name).into_iter().next()?
+    };
+    let player_arc = leftover_player_arc_for_host(source.id, &source.name, false)?;
+    let Ok(player) = player_arc.read() else {
+        return None;
+    };
+    let Ok(team_guard) = team.read() else {
+        return None;
+    };
+    player.override_relationship_for_team(&team_guard)
+}
+
 /// C++ `VictoryConditions::areAllies`.
-/// Mutual `Player::getRelationship` ALLIES and not the same player.
-/// Live host `map_relationship` (PLAYER_RELATES / map playerAllies) wins;
+/// Mutual `Player::getRelationship(getDefaultTeam())` ALLIES and not the same player.
+/// Team-id overrides (`PLAYER_SET_OVERRIDE_RELATION_TO_TEAM`) win first;
+/// live host `map_relationship` (PLAYER_RELATES / map playerAllies) next;
 /// lobby `alliance_team` is the initial slot-team default when neither map is set.
 fn live_players_are_allies(a: &Player, b: &Player) -> bool {
     use gamelogic::common::Relationship;
@@ -915,6 +1011,70 @@ mod tests {
         );
         vc.reset();
     }
+
+    #[test]
+    fn scripted_team_override_allies_counts_for_victory() {
+        use gamelogic::common::Relationship;
+        let mut vc = VictoryConditions::new();
+        let mut allies = HashMap::new();
+        let mut usa = player(0, Team::USA, 1);
+        let mut gla = player(1, Team::GLA, 2);
+        usa.set_map_relationship(1, Relationship::Enemies);
+        gla.set_map_relationship(0, Relationship::Enemies);
+        usa.set_team_relationship_override("teamP1", Relationship::Allies);
+        gla.set_team_relationship_override("teamP0", Relationship::Allies);
+        allies.insert(0, usa);
+        allies.insert(1, gla);
+        let mut objects = HashMap::new();
+        let (a, oa) = obj(1, 0, Team::USA, &[KindOf::Infantry]);
+        let (b, ob) = obj(2, 1, Team::GLA, &[KindOf::Infantry]);
+        objects.insert(a, oa);
+        objects.insert(b, ob);
+        let outcome = vc.evaluate(&allies, &objects, 14, GameMode::Skirmish);
+        assert!(
+            matches!(outcome, Some(VictoryCondition::Winner(_))),
+            "mutual PLAYER_SET_OVERRIDE_RELATION_TO_TEAM Allies must be one alliance, got {outcome:?}"
+        );
+        assert!(vc.is_local_allied_victory(&allies));
+        vc.reset();
+
+        let mut one_way = HashMap::new();
+        let mut usa = player(0, Team::USA, 1);
+        let gla = player(1, Team::GLA, 2);
+        usa.set_team_relationship_override("teamP1", Relationship::Allies);
+        one_way.insert(0, usa);
+        one_way.insert(1, gla);
+        let mut objs = HashMap::new();
+        let (c, oc) = obj(3, 0, Team::USA, &[KindOf::Infantry]);
+        let (d, od) = obj(4, 1, Team::GLA, &[KindOf::Infantry]);
+        objs.insert(c, oc);
+        objs.insert(d, od);
+        assert!(
+            vc.evaluate(&one_way, &objs, 15, GameMode::Skirmish).is_none(),
+            "one-way PLAYER_SET_OVERRIDE_RELATION_TO_TEAM must not share victory"
+        );
+        vc.reset();
+
+        let mut teamplayer = HashMap::new();
+        let mut usa = player(0, Team::USA, 1);
+        let mut gla = player(1, Team::GLA, 2);
+        usa.set_team_relationship_override("teamplayer1", Relationship::Allies);
+        gla.set_team_relationship_override("teamplayer0", Relationship::Allies);
+        teamplayer.insert(0, usa);
+        teamplayer.insert(1, gla);
+        let mut objs = HashMap::new();
+        let (e, oe) = obj(5, 0, Team::USA, &[KindOf::Infantry]);
+        let (f, of) = obj(6, 1, Team::GLA, &[KindOf::Infantry]);
+        objs.insert(e, oe);
+        objs.insert(f, of);
+        let outcome = vc.evaluate(&teamplayer, &objs, 16, GameMode::Skirmish);
+        assert!(
+            matches!(outcome, Some(VictoryCondition::Winner(_))),
+            "scripted teamplayerN default-team ALLIES must share victory, got {outcome:?}"
+        );
+        vc.reset();
+    }
+
 
     #[test]
     fn campaign_and_shell_do_not_evaluate() {

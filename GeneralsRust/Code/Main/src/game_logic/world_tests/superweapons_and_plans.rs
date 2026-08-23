@@ -1750,9 +1750,10 @@ fn gps_scrambler_does_not_queue_superweapon_strike() {
 /// Residual: Leaflet Drop special power queues a delayed disable of enemy
 /// infantry/vehicles (DISABLED_EMP residual).
 ///
-/// C++ SuperweaponLeafletDrop → LeafletContainer LeafletDropBehavior
 /// Delay=2500ms / AffectRadius=110 / DisabledDuration=20000ms / ENEMIES
-/// INFANTRY|VEHICLE only. Fail-closed: not full OCL B52 / LeafletFX path.
+/// INFANTRY|VEHICLE only. Leftover update pulses do_disable_attack every
+/// frame after start_frame so walk-ins still get DISABLED_EMP.
+/// Fail-closed: not full OCL B52 / LeafletFX path.
 #[test]
 fn leaflet_drop_residual_disables_enemy_infantry_and_vehicles() {
     use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
@@ -1965,6 +1966,31 @@ fn leaflet_drop_residual_disables_enemy_infantry_and_vehicles() {
     // Radius residual honesty.
     assert!((HOST_LEAFLET_RADIUS - 110.0).abs() < 0.01);
 
+    // Leftover update_simple after start_frame: walk-in still disabled.
+    {
+        let far = game_logic.host_object_mut(far_vehicle_id).expect("far mut");
+        far.set_position(Vec3::new(5.0, 0.0, 0.0));
+    }
+    game_logic.frame = LEAFLET_DELAY_FRAMES + 1;
+    game_logic.update_leaflet_drops();
+    let walked_in = game_logic.host_object(far_vehicle_id).expect("walk-in");
+    assert!(
+        walked_in.is_emp_disabled(),
+        "walk-in after first pulse must receive leftover DISABLED_EMP"
+    );
+    assert_eq!(
+        walked_in.status.disabled_emp_until_frame,
+        game_logic.frame + LEAFLET_DISABLED_DURATION_FRAMES
+    );
+    let impact_audio = game_logic
+        .queued_audio_events
+        .iter()
+        .filter(|e| e.event_type == "LeafletDropEffect")
+        .count();
+    assert_eq!(
+        impact_audio, 1,
+        "later leftover pulses must not re-queue impact audio"
+    );
     // Expire residual timer → vehicle recovers.
     let until = game_logic
         .host_object(enemy_vehicle_id)
@@ -5312,6 +5338,74 @@ fn script_team_nearest_and_partial_command_button_live() {
         "nearest search must not pick the distant enemy"
     );
 }
+
+#[test]
+fn script_skirmish_command_button_most_valuable_does_button_not_force_attack() {
+    use crate::game_logic::AIState;
+    use gamelogic::scripting::request_host_skirmish_command_button_most_valuable;
+
+    let mut logic = GameLogic::new();
+    logic.scripts_loaded = true;
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    ensure_test_player_for_team(&mut logic, Team::China);
+    ensure_test_infantry_template(&mut logic);
+
+    let attacker = logic
+        .create_object("TestInfantry", Team::USA, glam::Vec3::ZERO)
+        .expect("attacker");
+    if let Some(obj) = logic.host_object_mut(attacker) {
+        obj.team_instance_name = "teamAmerica".into();
+        obj.owner_player_id = Some(0);
+    }
+    let _ = logic.unit_command_move_to(attacker, glam::Vec3::new(300.0, 0.0, 0.0));
+    assert_ne!(
+        logic.host_object(attacker).expect("attacker").ai_state,
+        AIState::Idle
+    );
+
+    let cheap = logic
+        .create_object("TestInfantry", Team::China, glam::Vec3::new(20.0, 0.0, 0.0))
+        .expect("cheap");
+    let mut expensive_tmpl = ThingTemplate::new("ExpensiveInfantry");
+    expensive_tmpl
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    expensive_tmpl.build_cost.supplies = 5000;
+    logic
+        .templates
+        .insert("ExpensiveInfantry".into(), expensive_tmpl);
+    let expensive = logic
+        .create_object(
+            "ExpensiveInfantry",
+            Team::China,
+            glam::Vec3::new(40.0, 0.0, 0.0),
+        )
+        .expect("expensive");
+    if let Some(obj) = logic.host_object_mut(cheap) {
+        obj.owner_player_id = Some(1);
+    }
+    if let Some(obj) = logic.host_object_mut(expensive) {
+        obj.owner_player_id = Some(1);
+    }
+
+    let _ = gamelogic::scripting::take_host_skirmish_command_button_most_valuable_requests();
+    request_host_skirmish_command_button_most_valuable("teamAmerica", "Command_Stop", 200.0);
+    logic.evaluate_and_execute_scripts(0.0);
+
+    let after = logic.host_object(attacker).expect("attacker");
+    assert_eq!(
+        after.ai_state,
+        AIState::Idle,
+        "SKIRMISH most-valuable must execute the scripted button, not force-attack"
+    );
+    assert_eq!(
+        after.target,
+        None,
+        "Command_Stop must not leave a force-attack target"
+    );
+}
+
 
 
 

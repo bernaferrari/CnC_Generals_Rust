@@ -671,9 +671,6 @@ impl CnCGameEngine {
                     return;
                 };
                 let command_type = match action {
-                    HostControlBarFirstSelectedObjectAction::Sell => {
-                        crate::command_system::CommandType::Sell { object_id }
-                    }
                     HostControlBarFirstSelectedObjectAction::CancelConstruction => {
                         crate::command_system::CommandType::DozerCancelConstruct { object_id }
                     }
@@ -1048,9 +1045,8 @@ impl CnCGameEngine {
     }
 
     fn host_reject_control_bar_request(&mut self, reason: &str) {
+        // C++ leftover-WND rejects are silent except CanMake `GUI:*` labels.
         debug!("Control Bar host request rejected: {reason}");
-        self.game_hud.push_info_message(reason);
-        self.ui_manager.game_hud_mut().push_info_message(reason);
     }
 }
 
@@ -1070,7 +1066,6 @@ enum HostControlBarDirectAction {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum HostControlBarFirstSelectedObjectAction {
-    Sell,
     CancelConstruction,
 }
 
@@ -1133,9 +1128,11 @@ fn host_control_bar_direct_action(
         LegacyCommandType::RemoveBeacon | LegacyCommandType::MetaRemoveBeacon => {
             HostControlBarDirectAction::Queue(HostCommandType::RemoveBeacon)
         }
-        LegacyCommandType::Sell => HostControlBarDirectAction::FirstSelectedObject(
-            HostControlBarFirstSelectedObjectAction::Sell,
-        ),
+        // C++ `MSG_SELL` has no object argument; GameLogicDispatch groupSells
+        // the current selection. Queue the full leftover WND selection.
+        LegacyCommandType::Sell => HostControlBarDirectAction::Queue(HostCommandType::Sell {
+            object_id: crate::game_logic::ObjectId(0),
+        }),
         LegacyCommandType::DozerCancelConstruct => HostControlBarDirectAction::FirstSelectedObject(
             HostControlBarFirstSelectedObjectAction::CancelConstruction,
         ),
@@ -1795,6 +1792,10 @@ mod tests {
             Ok(HostControlBarDirectAction::Queue(HostCommandType::Cheer))
         ));
         assert!(matches!(
+            host_control_bar_direct_action(LegacyCommandType::Sell, "Command_Sell", None),
+            Ok(HostControlBarDirectAction::Queue(HostCommandType::Sell { .. }))
+        ));
+        assert!(matches!(
             host_control_bar_direct_action(
                 LegacyCommandType::SwitchWeapons,
                 "Command_SetDemoTrapManualDetonation",
@@ -1808,6 +1809,24 @@ mod tests {
             Some(3),
         )
         .is_err());
+    }
+
+    #[test]
+    fn leftover_wnd_host_rejects_do_not_invent_hud_toasts() {
+        let src = include_str!("control_bar_bridge.rs");
+        let reject = src
+            .find("fn host_reject_control_bar_request")
+            .map(|i| &src[i..src.len().min(i + 350)])
+            .expect("host_reject_control_bar_request");
+        assert!(
+            !reject.contains("push_info_message"),
+            "hq-0foy9: leftover-WND host rejects must stay silent"
+        );
+        let prod = src.split("#[cfg(test)]").next().unwrap_or(src);
+        assert!(
+            !prod.contains("FirstSelectedObjectAction::Sell"),
+            "hq-5mdst: Sell must queue the full selection, not first-selected"
+        );
     }
 
     #[test]

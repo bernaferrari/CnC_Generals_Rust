@@ -5,6 +5,9 @@
 //! mask matches, then `FXList::doFXObj` (`OrientToObject` default TRUE) or
 //! `doFXPos` with authored `DeathFX`.
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
+use std::collections::HashMap;
+
 
 use crate::game_logic::host_usa_pilot::HostDeathType;
 
@@ -31,9 +34,6 @@ pub fn leftover_veterancy_from_host(
     }
 }
 
-fn leftover_death_from_host(death_type: HostDeathType) -> gamelogic::damage::DeathType {
-    gamelogic::damage::DeathType::from_u32(death_type.ordinal() as u32)
-}
 
 fn parse_leftover_flag_tokens(raw: &str) -> Vec<&str> {
     raw.split(|c: char| c == ',' || c.is_whitespace())
@@ -54,6 +54,13 @@ pub struct HostFxListDieData {
     pub upgrade_active: bool,
     /// C++ `ConflictsWith` upgrade names.
     pub conflicts_with: Vec<String>,
+    /// C++ `UpgradeMuxData::m_activationUpgradeNames` / `TriggeredBy`.
+    #[serde(default)]
+    pub triggered_by: Vec<String>,
+    /// C++ `UpgradeMuxData::m_requiresAllTriggers` default FALSE.
+    #[serde(default)]
+    pub requires_all_triggers: bool,
+
     /// C++ `DieMuxData::m_deathTypes` (`DEATH_TYPE_FLAGS_ALL` default).
     #[serde(default = "default_death_types")]
     pub death_types: u32,
@@ -81,6 +88,9 @@ impl Default for HostFxListDieData {
             starts_active: true,
             upgrade_active: true,
             conflicts_with: Vec::new(),
+            triggered_by: Vec::new(),
+            requires_all_triggers: false,
+
             death_types: default_death_types(),
             veterancy_levels: default_veterancy_levels(),
             exempt_status: 0,
@@ -108,6 +118,34 @@ impl HostFxListDieData {
             })
     }
 
+    /// C++ `UpgradeMux::wouldUpgrade` TriggeredBy check (StartsActive via `upgrade_active`).
+    pub fn triggered_by_owned(&self, owned: &[String]) -> bool {
+        if self.triggered_by.is_empty() {
+            return false;
+        }
+        let owns = |need: &str| owned.iter().any(|tag| tag.eq_ignore_ascii_case(need));
+        if self.requires_all_triggers {
+            self.triggered_by.iter().all(|need| owns(need))
+        } else {
+            self.triggered_by.iter().any(|need| owns(need))
+        }
+    }
+
+    /// Leftover ctor `giveSelfUpgrade` only when StartsActive; else attemptUpgrade.
+    pub fn gate_upgrade_active(&mut self, owned: &[String]) {
+        if !self.upgrade_active && self.triggered_by_owned(owned) {
+            self.upgrade_active = true;
+        }
+    }
+
+
+    /// C++ `getDeathTypeFlag` — `1UL << (dt - 1)` (NORMAL wraps to bit 31).
+    pub fn death_type_allowed(&self, death_type: HostDeathType) -> bool {
+        let shift = (death_type.ordinal() as u32).wrapping_sub(1) & 31;
+        (self.death_types & (1u32 << shift)) != 0
+    }
+
+
     /// C++ `DieMuxData::isDieApplicable` using leftover death/vet/status masks.
     pub fn leftover_die_mux_allows(
         &self,
@@ -115,10 +153,7 @@ impl HostFxListDieData {
         veterancy: gamelogic::common::VeterancyLevel,
         status_bits: u64,
     ) -> bool {
-        if !gamelogic::damage::get_death_type_flag(
-            self.death_types,
-            leftover_death_from_host(death_type),
-        ) {
+        if !self.death_type_allowed(death_type) {
             return false;
         }
         if !gamelogic::object::die::get_veterancy_level_flag(self.veterancy_levels, veterancy) {
@@ -142,10 +177,11 @@ impl HostFxListDieData {
         death_type: HostDeathType,
         veterancy: gamelogic::common::VeterancyLevel,
         status_bits: u64,
-    ) -> Option<(Option<String>, Option<String>)> {
+    ) -> Option<HostFxListDieHit> {
         if self.fired {
             return None;
         }
+        self.gate_upgrade_active(owned_upgrades);
         if !self.upgrade_active {
             return None;
         }
@@ -159,8 +195,13 @@ impl HostFxListDieData {
             return None;
         }
         self.fired = true;
-        Some((self.death_fx.clone(), self.death_audio.clone()))
+        Some(HostFxListDieHit {
+            death_fx: self.death_fx.clone(),
+            death_audio: self.death_audio.clone(),
+            orient_to_object: self.orient_to_object,
+        })
     }
+
 
     /// Fire every applicable authored `FXListDie` (C++ walks all Die modules).
     pub fn collect_applicable(
@@ -168,7 +209,19 @@ impl HostFxListDieData {
         owned_upgrades: &[String],
         death_type: HostDeathType,
     ) -> Vec<(Option<String>, Option<String>)> {
-        self.collect_applicable_mux(
+        self.collect_applicable_hits(owned_upgrades, death_type)
+            .into_iter()
+            .map(|hit| (hit.death_fx, hit.death_audio))
+            .collect()
+    }
+
+    /// Fire every applicable authored `FXListDie`, keeping leftover OrientToObject.
+    pub fn collect_applicable_hits(
+        &mut self,
+        owned_upgrades: &[String],
+        death_type: HostDeathType,
+    ) -> Vec<HostFxListDieHit> {
+        self.collect_applicable_mux_hits(
             owned_upgrades,
             death_type,
             gamelogic::common::VeterancyLevel::Regular,
@@ -183,6 +236,19 @@ impl HostFxListDieData {
         veterancy: gamelogic::common::VeterancyLevel,
         status_bits: u64,
     ) -> Vec<(Option<String>, Option<String>)> {
+        self.collect_applicable_mux_hits(owned_upgrades, death_type, veterancy, status_bits)
+            .into_iter()
+            .map(|hit| (hit.death_fx, hit.death_audio))
+            .collect()
+    }
+
+    pub fn collect_applicable_mux_hits(
+        &mut self,
+        owned_upgrades: &[String],
+        death_type: HostDeathType,
+        veterancy: gamelogic::common::VeterancyLevel,
+        status_bits: u64,
+    ) -> Vec<HostFxListDieHit> {
         let mut out = Vec::new();
         if let Some(hit) = self.try_fire_self(owned_upgrades, death_type, veterancy, status_bits) {
             out.push(hit);
@@ -195,6 +261,7 @@ impl HostFxListDieData {
         }
         out
     }
+
 
     /// Fire once on die. Returns the first applicable (fx, audio) pair.
     pub fn on_die(
@@ -219,6 +286,15 @@ impl HostFxListDieData {
             .next()
     }
 }
+
+/// One leftover `FXListDie::onDie` hit (`DeathFX` + `OrientToObject`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostFxListDieHit {
+    pub death_fx: Option<String>,
+    pub death_audio: Option<String>,
+    pub orient_to_object: bool,
+}
+
 
 fn parse_bool(raw: &str) -> Option<bool> {
     let t = raw.trim();
@@ -268,6 +344,11 @@ pub fn fx_list_die_from_behavior_attrs(attrs: &[(&str, &str)]) -> HostFxListDieD
         starts_active,
         upgrade_active: starts_active,
         conflicts_with: get("ConflictsWith").map(split_names).unwrap_or_default(),
+        triggered_by: get("TriggeredBy").map(split_names).unwrap_or_default(),
+        requires_all_triggers: get("RequiresAllTriggers")
+            .and_then(parse_bool)
+            .unwrap_or(false),
+
         death_types: get("DeathTypes")
             .map(parse_death_types)
             .unwrap_or_else(default_death_types),
@@ -323,59 +404,28 @@ fn authored_fx_list_die(name: &str) -> Option<HostFxListDieData> {
     Some(first)
 }
 
+thread_local! {
+    static TEST_FX_LIST_DIE: RefCell<HashMap<String, HostFxListDieData>> =
+        RefCell::new(HashMap::new());
+}
+
+/// Test-only authored FXListDie inject (INI module, not name heuristics).
+pub fn set_test_fx_list_die(name: &str, data: HostFxListDieData) {
+    TEST_FX_LIST_DIE.with(|m| {
+        m.borrow_mut().insert(name.to_string(), data);
+    });
+}
+
+pub fn clear_test_fx_list_die() {
+    TEST_FX_LIST_DIE.with(|m| m.borrow_mut().clear());
+}
+
+/// Leftover `FXListDie`: play only authored `DeathFX`. No name fallback.
 pub fn fx_list_die_config_for_template(name: &str) -> Option<HostFxListDieData> {
     if let Some(authored) = authored_fx_list_die(name) {
         return Some(authored);
     }
-    let n = name.to_ascii_lowercase();
-    if n.contains("bombtruck") || n.contains("demotruck") {
-        return Some(HostFxListDieData {
-            death_fx: Some("WeaponFX_BombTruckHighExplosiveBombDetonation".into()),
-            death_audio: Some("ExplosionBombTruck".into()),
-            ..Default::default()
-        });
-    }
-    if n.contains("terrorist") {
-        return Some(HostFxListDieData {
-            death_fx: Some("WeaponFX_TerroristDynamitePackDetonation".into()),
-            death_audio: Some("ExplosionTerrorist".into()),
-            ..Default::default()
-        });
-    }
-    if n.contains("scud") && n.contains("missile") {
-        return Some(HostFxListDieData {
-            death_fx: Some("FX_ScudMissileDie".into()),
-            death_audio: Some("ExplosionScud".into()),
-            ..Default::default()
-        });
-    }
-    if n.contains("nuke") && n.contains("missile") {
-        return Some(HostFxListDieData {
-            death_fx: Some("FX_NukeMissileDie".into()),
-            death_audio: Some("ExplosionNuke".into()),
-            ..Default::default()
-        });
-    }
-    if n.contains("tank") || n.contains("vehicle") || n.contains("truck") {
-        return Some(HostFxListDieData {
-            death_fx: Some("FX_VehicleDie".into()),
-            death_audio: Some("VehicleDestroyed".into()),
-            ..Default::default()
-        });
-    }
-    if n.contains("building")
-        || n.contains("factory")
-        || n.contains("barracks")
-        || n.contains("center")
-        || n.contains("plant")
-    {
-        return Some(HostFxListDieData {
-            death_fx: Some("FX_StructureDie".into()),
-            death_audio: Some("BuildingCollapse".into()),
-            ..Default::default()
-        });
-    }
-    None
+    TEST_FX_LIST_DIE.with(|m| m.borrow().get(name).cloned())
 }
 
 #[cfg(test)]
@@ -443,6 +493,66 @@ mod tests {
         assert!(!d.upgrade_active);
         assert_eq!(d.conflicts_with, vec!["Upgrade_A".to_string()]);
     }
+
+    #[test]
+    fn leftover_triggered_by_gates_upgrade_active() {
+        let mut d = fx_list_die_from_behavior_attrs(&[
+            ("DeathFX", "FX_UpgradeDie"),
+            ("StartsActive", "No"),
+            ("TriggeredBy", "Upgrade_A Upgrade_B"),
+            ("RequiresAllTriggers", "No"),
+        ]);
+        assert!(!d.starts_active);
+        assert!(!d.upgrade_active);
+        assert_eq!(d.triggered_by, vec!["Upgrade_A".to_string(), "Upgrade_B".to_string()]);
+        assert!(!d.requires_all_triggers);
+        assert!(d.on_die(&[], HostDeathType::Normal).is_none());
+        assert!(!d.upgrade_active);
+        let (fx, _) = d
+            .on_die(&["Upgrade_B".into()], HostDeathType::Normal)
+            .unwrap();
+        assert_eq!(fx.as_deref(), Some("FX_UpgradeDie"));
+        assert!(d.upgrade_active);
+    }
+
+    #[test]
+    fn leftover_requires_all_triggers_needs_every_name() {
+        let mut d = fx_list_die_from_behavior_attrs(&[
+            ("DeathFX", "FX_AllTriggersDie"),
+            ("StartsActive", "No"),
+            ("TriggeredBy", "Upgrade_A Upgrade_B"),
+            ("RequiresAllTriggers", "Yes"),
+        ]);
+        assert!(d.requires_all_triggers);
+        assert!(d
+            .on_die(&["Upgrade_A".into()], HostDeathType::Normal)
+            .is_none());
+        let (fx, _) = d
+            .on_die(
+                &["Upgrade_A".into(), "Upgrade_B".into()],
+                HostDeathType::Normal,
+            )
+            .unwrap();
+        assert_eq!(fx.as_deref(), Some("FX_AllTriggersDie"));
+    }
+
+    #[test]
+    fn leftover_orient_to_object_no_is_parsed() {
+        let d = fx_list_die_from_behavior_attrs(&[
+            ("DeathFX", "FX_PosDie"),
+            ("OrientToObject", "No"),
+        ]);
+        assert!(!d.orient_to_object);
+        let mut d = d;
+        let hit = d
+            .collect_applicable_hits(&[], HostDeathType::Normal)
+            .into_iter()
+            .next()
+            .expect("fires");
+        assert_eq!(hit.death_fx.as_deref(), Some("FX_PosDie"));
+        assert!(!hit.orient_to_object);
+    }
+
 
     #[test]
     fn crush_only_death_types_skip_normal() {
@@ -532,5 +642,39 @@ mod tests {
             )
             .unwrap();
         assert_eq!(fx.as_deref(), Some("FX_RequiredDie"));
+    }
+
+    #[test]
+    fn unauthored_templates_do_not_invent_death_fx() {
+        clear_test_fx_list_die();
+        for name in [
+            "TestTankNoFxListDie",
+            "TestVehicleNoDeathFx",
+            "TestBombTruckFake",
+            "TestTerroristFake",
+            "TestScudMissileFake",
+            "TestNukeMissileFake",
+            "TestFactoryFake",
+        ] {
+            assert!(
+                fx_list_die_config_for_template(name).is_none(),
+                "{name} has no authored FXListDie; must not invent DeathFX/audio"
+            );
+        }
+    }
+
+    #[test]
+    fn test_override_is_authored_not_name_heuristic() {
+        clear_test_fx_list_die();
+        set_test_fx_list_die(
+            "ScudStormMissile",
+            HostFxListDieData::with_fx("FX_AuthoredMissileDie"),
+        );
+        let d = fx_list_die_config_for_template("ScudStormMissile").expect("override");
+        assert_eq!(d.death_fx.as_deref(), Some("FX_AuthoredMissileDie"));
+        assert!(d.death_audio.is_none());
+        assert_ne!(d.death_fx.as_deref(), Some("FX_ScudMissileDie"));
+        clear_test_fx_list_die();
+        assert!(fx_list_die_config_for_template("ScudStormMissile").is_none());
     }
 }

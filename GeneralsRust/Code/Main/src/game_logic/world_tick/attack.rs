@@ -2114,6 +2114,7 @@ impl GameLogic {
             Object::default_locomotor_surfaces_for_template(&obj.thing.template)
         };
         let is_crusher = obj.crusher_level > 0;
+        let unit_radius = obj.selection_radius;
         let loco = if is_aircraft {
             gamelogic::ai::pathfind_complete::SURFACE_AIR
         } else if surfaces != 0 {
@@ -2121,22 +2122,48 @@ impl GameLogic {
         } else {
             gamelogic::ai::pathfind_complete::SURFACE_GROUND
         };
-        let Some(waypoints) = self.pathfinding_system.find_path_ex_surfaces(
+        let mut dest = destination;
+        let waypoints = match self.pathfinding_system.find_path_ex_surfaces(
             start,
-            destination,
+            dest,
             &self.objects,
             is_aircraft,
             loco,
             is_crusher,
             Some(id),
-        ) else {
-            return false;
+        ) {
+            Some(w) => w,
+            None => {
+                // C++ AIUpdateInterface::doPathfind: adjustToPossibleDestination
+                // then computePath (AIUpdate.cpp:434-438).
+                if !self.pathfinding_system.adjust_to_possible_destination(
+                    start,
+                    &mut dest,
+                    loco,
+                    is_crusher,
+                    unit_radius,
+                ) {
+                    return false;
+                }
+                let Some(w) = self.pathfinding_system.find_path_ex_surfaces(
+                    start,
+                    dest,
+                    &self.objects,
+                    is_aircraft,
+                    loco,
+                    is_crusher,
+                    Some(id),
+                ) else {
+                    return false;
+                };
+                w
+            }
         };
         if waypoints.is_empty() {
             return false;
         }
         if let Some(obj) = self.objects.get_mut(&id) {
-            obj.request_path(destination, Some(waypoints));
+            obj.request_path(dest, Some(waypoints));
             true
         } else {
             false

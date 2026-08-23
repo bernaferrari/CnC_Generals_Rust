@@ -529,13 +529,18 @@ fn lookup_audio_event_info(event_name: &str) -> Option<AudioEventInfo> {
 }
 
 fn live_position_is_cellshroud_clear(local_player: i32, host_pos: glam::Vec3) -> bool {
-    // Host AudioEventRequest is Y-up (x, height, z_ground). Leftover partition is Z-up
-    // (x, y_ground) on the 40wu grid.
-    let cell = 40.0_f32;
-    let cx = (host_pos.x / cell).floor() as i32;
-    let cy = (host_pos.z / cell).floor() as i32;
+    // C++ SoundManager::canPlayNow: ThePartitionManager->getShroudStatusForPlayer
+    // (GameSounds.cpp:203-205). Leftover ThePartitionManager maps that onto
+    // ShroudManager::get_shroud_state — DiscreteCircle looker cells, not the
+    // PARTITION_MANAGER square r² disk (partition_shroud.rs:137-163).
+    // Host AudioEventRequest is Y-up (x, height, z_ground); leftover Coord3D
+    // is Z-up (x, y_ground, z_height).
+    let Some(pm) = gamelogic::helpers::ThePartitionManager::get() else {
+        return false;
+    };
+    let world = gamelogic::common::Coord3D::new(host_pos.x, host_pos.z, host_pos.y);
     matches!(
-        gamelogic::object::partition_cell_shroud_status(local_player, cx, cy),
+        pm.get_shroud_status_for_player(local_player, &world),
         game_engine::common::system::radar::CellShroudStatus::Clear
     )
 }
@@ -679,7 +684,9 @@ pub fn owning_player_for_audio_object(object_id: Option<crate::game_logic::Objec
 
 /// True when this request may enter the live SFX drain.
 pub fn should_dispatch_audio_request(event: &crate::game_logic::AudioEventRequest) -> bool {
-    let owner = owning_player_for_audio_object(event.object_id);
+    let owner = event
+        .player_index
+        .or_else(|| owning_player_for_audio_object(event.object_id));
     should_dispatch_live_audio(event.event_type.as_str(), owner, event.position)
 }
 
