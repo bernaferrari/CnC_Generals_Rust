@@ -2564,6 +2564,20 @@ impl GameLogic {
             let Some(path) = self.host_script_waypoint_path_from(&path_label, center) else {
                 continue;
             };
+            // C++ ScriptActions.cpp:1702-1704 checkBridges(firstUnit, way).
+            if let Some(&first) = members.first() {
+                if let Some(wid) = self.host_script_closest_waypoint_id(&path_label, center) {
+                    let pid = self
+                        .host_object(first)
+                        .and_then(|o| o.owner_player_id)
+                        .unwrap_or(0);
+                    let mut ai_mgr = std::mem::take(&mut self.ai_manager);
+                    if let Some(ai) = ai_mgr.ai_players.get_mut(&pid) {
+                        let _ = ai.check_bridges(self, first, wid);
+                    }
+                    self.ai_manager = ai_mgr;
+                }
+            }
             if req.follow {
                 self.host_script_issue_follow_waypoint_path(
                     &members,
@@ -3035,11 +3049,10 @@ impl GameLogic {
         }
     }
 
-    /// C++ `Team::getEstimateTeamPosition` — average of live members.
+    /// C++ `Team::getEstimateTeamPosition` — first living member, not centroid.
     fn host_script_estimate_team_position(&self, team_name: &str) -> Option<glam::Vec3> {
         let ids = self.host_script_team_member_ids(team_name);
-        let mut sum = glam::Vec3::ZERO;
-        let mut n = 0u32;
+        let mut first: Option<(u32, glam::Vec3)> = None;
         for id in ids {
             let Some(obj) = self.objects.get(&id) else {
                 continue;
@@ -3047,14 +3060,11 @@ impl GameLogic {
             if !obj.is_alive() || obj.status.destroyed {
                 continue;
             }
-            sum += obj.get_position();
-            n = n.saturating_add(1);
+            if first.map(|(oid, _)| id.0 < oid).unwrap_or(true) {
+                first = Some((id.0, obj.get_position()));
+            }
         }
-        if n == 0 {
-            None
-        } else {
-            Some(sum / n as f32)
-        }
+        first.map(|(_, pos)| pos)
     }
 
     /// C++ `doNamedEnableStealth` / `doTeamEnableStealth`.
@@ -3189,29 +3199,16 @@ impl GameLogic {
                 continue;
             }
             let origin = glam::Vec3::new(cx / n, 0.0, cz / n);
-            let attacker_team = self
+            let attacker_pid = self
                 .objects
                 .get(&members[0])
-                .map(|o| o.team)
-                .unwrap_or(crate::game_logic::Team::Neutral);
+                .and_then(|o| o.owner_player_id)
+                .unwrap_or(0);
             let mut dest = origin;
             if matches!(comparison, 3 | 4) {
-                let mut best: Option<(f32, glam::Vec3)> = None;
-                for obj in self.objects.values() {
-                    if !obj.is_alive() || obj.team == attacker_team || obj.team == crate::game_logic::Team::Neutral {
-                        continue;
-                    }
-                    let cost = obj.thing.template.build_cost.supplies as i32;
-                    if cost < value {
-                        continue;
-                    }
-                    let pos = obj.get_position();
-                    let d = (pos - origin).length_squared();
-                    if best.map(|(bd, _)| d < bd).unwrap_or(true) {
-                        best = Some((d, pos));
-                    }
-                }
-                if let Some((_, pos)) = best {
+                if let Some(pos) =
+                    self.host_script_nearest_enemy_group_with_value(attacker_pid, origin, value)
+                {
                     dest = pos;
                 }
             }
@@ -3398,6 +3395,174 @@ impl GameLogic {
                     Relationship::Enemies
                 }
             })
+    }
+
+    /// C++ `getPlayersWithRelationship(ALLOW_ENEMIES)` — player map, not faction Team.
+    fn host_script_enemy_player_mask(&self, attacker_pid: u32) -> u32 {
+        use crate::game_logic::Team;
+        use gamelogic::common::Relationship;
+        let mut mask = 0u32;
+        for &oid in self.players.keys() {
+            if oid == attacker_pid {
+                continue;
+            }
+            let rel = self
+                .players
+                .get(&attacker_pid)
+                .and_then(|p| p.map_relationship(oid))
+                .unwrap_or_else(|| {
+                    let vt = self
+                        .players
+                        .get(&attacker_pid)
+                        .map(|p| p.team)
+                        .unwrap_or(Team::Neutral);
+                    let ot = self
+                        .players
+                        .get(&oid)
+                        .map(|p| p.team)
+                        .unwrap_or(Team::Neutral);
+                    if vt == Team::Neutral || ot == Team::Neutral {
+                        Relationship::Neutral
+                    } else {
+                        Relationship::Enemies
+                    }
+                });
+            if rel == Relationship::Enemies {
+                mask |= 1u32 << oid.min(15);
+            }
+        }
+        if mask == 0 {
+            for obj in self.objects.values() {
+                if !obj.is_alive() {
+                    continue;
+                }
+                let Some(pid) = obj.owner_player_id else {
+                    continue;
+                };
+                if pid == attacker_pid {
+                    continue;
+                }
+                let rel = self
+                    .players
+                    .get(&attacker_pid)
+                    .and_then(|p| p.map_relationship(pid))
+                    .unwrap_or(Relationship::Enemies);
+                if rel == Relationship::Enemies {
+                    mask |= 1u32 << pid.min(15);
+                }
+            }
+        }
+        mask
+    }
+
+    /// C++ `PartitionManager::getNearestGroupWithValue` / leftover cell cash strict `>`.
+    /// ALLOW_ENEMIES player mask (relationship, not faction Team). Per-cell aggregate
+    /// cash, BFS from the group center, dest is the cell corner.
+    fn host_script_nearest_enemy_group_with_value(
+        &self,
+        attacker_pid: u32,
+        origin: glam::Vec3,
+        value: i32,
+    ) -> Option<glam::Vec3> {
+        use crate::game_logic::partition_manager::PARTITION_CELL_SIZE_RESIDUAL as CELL;
+        use gamelogic::object::collide::partition_manager::ValueOrThreat;
+        use std::collections::{HashMap, HashSet, VecDeque};
+
+        let enemy_mask = self.host_script_enemy_player_mask(attacker_pid);
+        if enemy_mask == 0 {
+            return None;
+        }
+
+        let source = gamelogic::common::Coord3D::new(origin.x, origin.z, 0.0);
+        if let Some(loc) = gamelogic::helpers::ThePartitionManager::get().and_then(|pm| {
+            pm.get_nearest_group_with_value(
+                attacker_pid as i32,
+                enemy_mask,
+                ValueOrThreat::CashValue,
+                &source,
+                value,
+                true,
+            )
+        }) {
+            return Some(glam::Vec3::new(loc.x, 0.0, loc.y));
+        }
+
+        let mut cells: HashMap<(i32, i32), i32> = HashMap::new();
+        for obj in self.objects.values() {
+            if !obj.is_alive() || obj.status.destroyed || obj.status.effectively_dead {
+                continue;
+            }
+            if obj.status.under_construction {
+                continue;
+            }
+            let Some(pid) = obj.owner_player_id else {
+                continue;
+            };
+            let bit = 1u32 << pid.min(15);
+            if (enemy_mask & bit) == 0 {
+                continue;
+            }
+            let pos = obj.get_position();
+            let cx = (pos.x / CELL).floor() as i32;
+            let cz = (pos.z / CELL).floor() as i32;
+            let cash = if obj.partition_cash_value > 0 {
+                obj.partition_cash_value as i32
+            } else {
+                obj.thing.template.build_cost.supplies as i32
+            };
+            *cells.entry((cx, cz)).or_insert(0) += cash;
+        }
+        if cells.is_empty() {
+            return None;
+        }
+
+        // C++ `parms.greaterThan = valueRequired` (nonzero Int → strict >).
+        let greater_than = value != 0;
+        let start = (
+            (origin.x / CELL).floor() as i32,
+            (origin.z / CELL).floor() as i32,
+        );
+        let mut min_x = start.0;
+        let mut min_z = start.1;
+        let mut max_x = start.0;
+        let mut max_z = start.1;
+        for &(cx, cz) in cells.keys() {
+            min_x = min_x.min(cx);
+            min_z = min_z.min(cz);
+            max_x = max_x.max(cx);
+            max_z = max_z.max(cz);
+        }
+        let max_x_ex = max_x + 1;
+        let max_z_ex = max_z + 1;
+
+        let mut visited: HashSet<(i32, i32)> = HashSet::new();
+        let mut queue: VecDeque<(i32, i32)> = VecDeque::new();
+        visited.insert(start);
+        queue.push_back(start);
+        while let Some((cx, cz)) = queue.pop_front() {
+            let neighbors = [
+                (cx - 1, cz),
+                (cx, cz - 1),
+                (cx + 1, cz),
+                (cx, cz + 1),
+            ];
+            for n in neighbors {
+                if n.0 >= min_x && n.0 < max_x_ex && n.1 >= min_z && n.1 < max_z_ex && visited.insert(n)
+                {
+                    queue.push_back(n);
+                }
+            }
+            let cash = cells.get(&(cx, cz)).copied().unwrap_or(0);
+            let passes = if greater_than {
+                cash > value
+            } else {
+                cash < value
+            };
+            if passes {
+                return Some(glam::Vec3::new(cx as f32 * CELL, 0.0, cz as f32 * CELL));
+            }
+        }
+        None
     }
 
 
@@ -3724,6 +3889,18 @@ impl GameLogic {
                 })
                 .collect(),
         )
+    }
+
+    /// C++ `TheTerrainLogic->getClosestWaypointOnPath` id for checkBridges.
+    fn host_script_closest_waypoint_id(
+        &self,
+        path_label: &str,
+        from: glam::Vec3,
+    ) -> Option<u32> {
+        let leftover_pos = gamelogic::common::Coord3D::new(from.x, from.z, from.y);
+        let terrain = gamelogic::terrain::get_terrain_logic().read().ok()?;
+        let start = terrain.get_closest_waypoint_on_path(&leftover_pos, path_label)?;
+        Some(start.get_id())
     }
 
     /// C++ `aiFollowWaypointPath` / `groupFollowWaypointPath` / Exact / AsTeam.

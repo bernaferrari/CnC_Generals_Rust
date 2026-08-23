@@ -23,8 +23,9 @@ impl GameLogic {
             .collect();
 
         // C++ `ThingTemplate::calcTimeToBuild(player)` converts build time to
-        // integer logic frames, applies the exact PlayerTemplate
-        // `ProductionTimeChange`, and only then applies low-power timing.
+        // integer logic frames, multiplies Handicap::BUILDTIME (BUILDINGS vs
+        // GENERIC) then PlayerTemplate `ProductionTimeChange`, and only then
+        // applies low-power timing.
         // Snapshot the pre-power frame counts before mutable Object borrows;
         // they remain player-owned start state and do not depend on tick
         // ordering.
@@ -33,8 +34,15 @@ impl GameLogic {
             .filter_map(|id| {
                 let obj = self.objects.get(id)?;
                 let player_id = object_owner_player_ids.get(id).copied().flatten()?;
-                let factor =
-                    self.player_template_production_time_factor(player_id, &obj.template_name);
+                let is_structure = obj.is_kind_of(KindOf::Structure);
+                let handicap = self
+                    .players
+                    .get(&player_id)
+                    .map(|p| p.handicap_build_time_multiplier(is_structure))
+                    .unwrap_or(1.0);
+                let factor = self
+                    .player_template_production_time_factor(player_id, &obj.template_name)
+                    * handicap;
                 Some((
                     *id,
                     Self::cpp_build_time_frames_from_factor(obj.thing.template.build_time, factor),
@@ -287,6 +295,7 @@ impl GameLogic {
                 {
                     let oid = obj.id;
                     let dozer_pos = obj.get_position();
+                    let stored_action = obj.dozer_dock_action;
                     let is_worker = obj.is_resource_collector()
                         || obj.template_name.to_ascii_lowercase().contains("worker");
                     obj.set_target(None);
@@ -295,8 +304,10 @@ impl GameLogic {
                     } else if let Some(bpos) = building_pos {
                         end_moves.push((
                             oid,
-                            crate::game_logic::host_repair::dozer_end_dock_position(
-                                dozer_pos, bpos,
+                            crate::game_logic::host_repair::dozer_complete_end_dock(
+                                stored_action,
+                                dozer_pos,
+                                bpos,
                             ),
                         ));
                     } else {
@@ -454,6 +465,7 @@ impl GameLogic {
                 {
                     let oid = obj.id;
                     let dozer_pos = obj.get_position();
+                    let stored_action = obj.dozer_dock_action;
                     let is_worker = obj.is_resource_collector()
                         || obj.template_name.to_ascii_lowercase().contains("worker");
                     obj.set_target(None);
@@ -462,8 +474,10 @@ impl GameLogic {
                     } else if let Some(bpos) = building_pos {
                         end_moves.push((
                             oid,
-                            crate::game_logic::host_repair::dozer_end_dock_position(
-                                dozer_pos, bpos,
+                            crate::game_logic::host_repair::dozer_complete_end_dock(
+                                stored_action,
+                                dozer_pos,
+                                bpos,
                             ),
                         ));
                     } else {
@@ -1469,6 +1483,9 @@ impl GameLogic {
         if let Some(unit) = self.objects.get_mut(&unit_id) {
             unit.can_path_through_units = true;
         }
+        // C++ AIUpdate.cpp:1674-1681 computePath factory-exit:
+        // computeQuickPath ok → leftover moveAlliesAwayFromDestination.
+        self.move_allies_away_from_destination(unit_id, path[0]);
     }
 
     /// Wave 679: drain production-spawn ready log and apply host presentation residual

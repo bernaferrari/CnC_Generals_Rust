@@ -866,16 +866,42 @@ impl GameLogic {
     /// GLA RadarVan GrantUpgradeCreate Upgrade_GLARadar + RadarUpgrade DisableProof.
     pub(crate) fn update_player_radar(&mut self) {
         use crate::game_logic::host_radar::{
-            is_legal_radar_provider, RADAR_OFFLINE_AUDIO, RADAR_ONLINE_AUDIO,
+            drain_leftover_radar_disabled_edges, is_disabled_for_radar, is_legal_radar_provider,
+            RADAR_OFFLINE_AUDIO, RADAR_ONLINE_AUDIO,
         };
         use crate::game_logic::host_upgrades::{
             normalize_upgrade_identity, radar_provider_required_research_upgrade,
         };
         use std::collections::HashMap;
 
+        // leftover Object::on_disabled_edge: capture hasRadar before remove/add.
+        let prior_has: HashMap<u32, bool> = self
+            .players
+            .iter()
+            .map(|(&id, player)| (id, player.has_radar()))
+            .collect();
+        for edge in drain_leftover_radar_disabled_edges() {
+            let Some(pid) = edge.player_id else {
+                continue;
+            };
+            let Some(player) = self.players.get_mut(&pid) else {
+                continue;
+            };
+            if edge.becoming_disabled {
+                player.remove_radar(edge.disable_proof);
+            } else {
+                player.add_radar(edge.disable_proof);
+            }
+        }
+
         let mut providers_by_player: HashMap<u32, u32> = HashMap::new();
         let mut disable_proof_by_player: HashMap<u32, u32> = HashMap::new();
         for obj in self.objects.values() {
+            // leftover Object::on_disabled_edge: EMP/hacked/held applied
+            // RadarUpgrade does not contribute (removeRadar while disabled).
+            if is_disabled_for_radar(obj.is_disabled(), obj.status.under_construction) {
+                continue;
+            }
             if !is_legal_radar_provider(
                 obj.is_alive(),
                 obj.is_constructed() && !obj.status.under_construction,
@@ -924,7 +950,7 @@ impl GameLogic {
             let sabotaged = player.power_sabotaged_till_frame > 0
                 && self.frame < player.power_sabotaged_till_frame;
             let brownout = player.power_available < 0 || sabotaged;
-            let had = player.has_radar();
+            let had = prior_has.get(&pid).copied().unwrap_or_else(|| player.has_radar());
             player.disable_proof_radar_count = proof;
             if brownout {
                 player.disable_radar();

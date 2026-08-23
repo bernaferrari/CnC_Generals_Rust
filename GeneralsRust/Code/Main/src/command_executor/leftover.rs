@@ -1617,11 +1617,7 @@ impl GameLogic {
         let Some((is_repair, tid)) = self.dozer_most_recent_pending_task(dozer_id) else {
             return false;
         };
-        if is_repair {
-            return false;
-        }
-        // C++ idleConditions → DOZER_PRIMARY_BUILD. This is our parked slot,
-        // not a player resume (ActionManager::canResumeConstructionOf).
+        // C++ idleConditions: isBuildMostImportant → BUILD, isRepairMostImportant → REPAIR.
         let (dozer_pos, st_pos, st_radius, airborne, stored_dock) = {
             let d = self.objects.get(&dozer_id);
             let dpos = d.map(|d| d.get_position()).unwrap_or(glam::Vec3::ZERO);
@@ -1636,6 +1632,30 @@ impl GameLogic {
                 .unwrap_or((glam::Vec3::ZERO, 0.0));
             (dpos, spos, srad, airborne, stored)
         };
+        if is_repair {
+            let approach = self.find_good_build_or_repair_position(
+                dozer_pos,
+                st_pos,
+                st_radius,
+                airborne,
+                airborne.then_some(tid),
+                Some(dozer_id),
+            );
+            if let Some(dozer) = self.objects.get_mut(&dozer_id) {
+                dozer.target = Some(tid);
+                dozer.set_ai_state(AIState::Repairing);
+                dozer.idle_since_frame = 0;
+            }
+            self.path_approach_with_state_ignoring(
+                dozer_id,
+                approach,
+                AIState::Repairing,
+                Some(tid),
+            );
+            return true;
+        }
+        // C++ idleConditions → DOZER_PRIMARY_BUILD. This is our parked slot,
+        // not a player resume (ActionManager::canResumeConstructionOf).
         let snapped = stored_dock.unwrap_or_else(|| {
             self.find_good_build_or_repair_position(
                 dozer_pos,
@@ -2401,6 +2421,128 @@ mod leftover_dispatch_tests {
         assert_eq!(dz.ai_state, AIState::Constructing);
         assert_eq!(dz.target, Some(scaffold));
     }
+
+    #[test]
+    fn idle_resumes_parked_repair_when_most_recent() {
+        // hq-ja2nm: C++ isRepairMostImportant resumes the parked REPAIR slot.
+        use crate::game_logic::ThingTemplate;
+        let mut logic = GameLogic::new();
+        logic.frame = 10;
+        logic
+            .get_players_mut()
+            .insert(0, Player::new(0, Team::USA, "P0", true));
+        let mut dozer_tpl = ThingTemplate::new("DozerIdleRepair");
+        dozer_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Dozer)
+            .add_kind_of(KindOf::Worker)
+            .set_health(300.0);
+        logic
+            .templates
+            .insert("DozerIdleRepair".into(), dozer_tpl);
+        let mut bld = ThingTemplate::new("DamagedIdleRepair");
+        bld.add_kind_of(KindOf::Structure).set_health(500.0);
+        logic.templates.insert("DamagedIdleRepair".into(), bld);
+        let dozer = logic
+            .create_object_for_player("DozerIdleRepair", 0, Vec3::ZERO)
+            .expect("dozer");
+        let damaged = logic
+            .create_object_for_player("DamagedIdleRepair", 0, Vec3::new(40.0, 0.0, 0.0))
+            .expect("damaged");
+        {
+            let dmg = logic.host_object_mut(damaged).expect("dmg");
+            let _ = dmg.take_damage(200.0);
+        }
+        logic.dozer_new_task_repair(dozer, damaged);
+        if let Some(dz) = logic.host_object_mut(dozer) {
+            dz.set_target(None);
+            dz.set_ai_state(AIState::Idle);
+        }
+        assert!(
+            logic.dozer_idle_resume_pending_build(dozer),
+            "hq-ja2nm: idle isRepairMostImportant must resume parked REPAIR"
+        );
+        let dz = logic.host_object(dozer).expect("dz");
+        assert_eq!(dz.ai_state, AIState::Repairing);
+        assert_eq!(dz.target, Some(damaged));
+        assert_eq!(dz.dozer_task_repair_target, Some(damaged));
+    }
+
+    #[test]
+    fn idle_resumes_repair_parked_by_newer_build() {
+        // hq-ja2nm: BUILD parks REPAIR; after BUILD is dropped, idle resumes REPAIR.
+        use crate::game_logic::ThingTemplate;
+        let mut logic = GameLogic::new();
+        logic.frame = 8;
+        logic
+            .get_players_mut()
+            .insert(0, Player::new(0, Team::USA, "P0", true));
+        let mut dozer_tpl = ThingTemplate::new("DozerParkedRepair");
+        dozer_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Dozer)
+            .add_kind_of(KindOf::Worker)
+            .set_health(300.0);
+        logic
+            .templates
+            .insert("DozerParkedRepair".into(), dozer_tpl);
+        let mut bld = ThingTemplate::new("ScaffoldParkedRepair");
+        bld.add_kind_of(KindOf::Structure).set_health(500.0);
+        logic
+            .templates
+            .insert("ScaffoldParkedRepair".into(), bld.clone());
+        logic
+            .templates
+            .insert("DamagedParkedRepair".into(), bld);
+        let dozer = logic
+            .create_object_for_player("DozerParkedRepair", 0, Vec3::ZERO)
+            .expect("dozer");
+        let scaffold = logic
+            .create_object_for_player("ScaffoldParkedRepair", 0, Vec3::new(20.0, 0.0, 0.0))
+            .expect("scaffold");
+        let damaged = logic
+            .create_object_for_player("DamagedParkedRepair", 0, Vec3::new(40.0, 0.0, 0.0))
+            .expect("damaged");
+        {
+            let sc = logic.host_object_mut(scaffold).expect("sc");
+            sc.status.under_construction = true;
+            sc.builder_id = Some(dozer);
+        }
+        {
+            let dmg = logic.host_object_mut(damaged).expect("dmg");
+            let _ = dmg.take_damage(200.0);
+        }
+        logic.dozer_new_task_repair(dozer, damaged);
+        logic.frame = 9;
+        logic.dozer_new_task_build(dozer, scaffold);
+        if let Some(dz) = logic.host_object_mut(dozer) {
+            dz.set_target(None);
+            dz.set_ai_state(AIState::Idle);
+        }
+        assert!(
+            logic.dozer_idle_resume_pending_build(dozer),
+            "newer BUILD still wins getMostRecentCommand"
+        );
+        assert_eq!(
+            logic.host_object(dozer).unwrap().ai_state,
+            AIState::Constructing
+        );
+        logic.dozer_internal_task_complete(dozer, false);
+        if let Some(dz) = logic.host_object_mut(dozer) {
+            dz.set_target(None);
+            dz.set_ai_state(AIState::Idle);
+        }
+        assert!(
+            logic.dozer_idle_resume_pending_build(dozer),
+            "hq-ja2nm: after BUILD clears, idle must resume parked REPAIR"
+        );
+        let dz = logic.host_object(dozer).expect("dz");
+        assert_eq!(dz.ai_state, AIState::Repairing);
+        assert_eq!(dz.target, Some(damaged));
+    }
+
 
     #[test]
     fn player_stop_cancels_current_build_so_idle_does_not_resume() {

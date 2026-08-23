@@ -220,6 +220,129 @@ fn exact_player_template_production_maps_keep_cpp_namekey_semantics() {
 }
 
 #[test]
+fn dozer_construction_rate_applies_handicap_buildtime() {
+    // hq-mzfv5: C++ calcTimeToBuild multiplies Handicap::BUILDTIME before power.
+    use crate::game_logic::{KindOf, Player, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut player = Player::new(0, Team::USA, "P0", true);
+    player.map_side.handicap_build_time_buildings = 2.0;
+    player.power_produced = 10;
+    player.power_consumed = 0;
+    logic.add_player(player);
+
+
+    let mut pad = ThingTemplate::new("HandicapPad");
+    pad.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(1_000.0);
+    pad.build_time = 10.0;
+    logic.templates.insert("HandicapPad".into(), pad);
+
+    let mut dozer_tpl = ThingTemplate::new("HandicapDozer");
+    dozer_tpl
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Dozer)
+        .set_health(200.0);
+    logic.templates.insert("HandicapDozer".into(), dozer_tpl);
+
+    let pad_id = logic
+        .create_object_for_player("HandicapPad", 0, Vec3::ZERO)
+        .expect("pad");
+    let dozer = logic
+        .create_object_for_player("HandicapDozer", 0, Vec3::new(5.0, 0.0, 0.0))
+        .expect("dozer");
+    {
+        let obj = logic.host_object_mut(pad_id).expect("pad");
+        obj.set_status_under_construction(true);
+        obj.construction_percent = 0.0;
+        obj.builder_id = Some(dozer);
+    }
+    {
+        let obj = logic.host_object_mut(dozer).expect("dozer");
+        obj.set_target(Some(pad_id));
+        obj.set_ai_state(AIState::Constructing);
+        obj.status.moving = false;
+        obj.dozer_dock_action = Some(obj.get_position());
+    }
+
+    logic.update_construction(&[pad_id], 1.0);
+    let progress = logic
+        .host_object(pad_id)
+        .unwrap()
+        .construction_percent;
+    // 10s * 30 = 300 frames * 2.0 handicap = 600 frames → 30/600 = 0.05 / sec.
+    assert!(
+        (progress - 0.05).abs() < 0.001,
+        "hq-mzfv5: handicap BUILDTIME must scale dozer construction, got {progress}"
+    );
+}
+
+#[test]
+fn construction_complete_end_dock_uses_stored_action() {
+    // hq-pogoh: complete END is ACTION + 5 cells, not the dozer's current pose.
+    use crate::game_logic::host_repair::dozer_complete_end_dock;
+    use crate::game_logic::{KindOf, Player, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "P0", true));
+
+    let mut pad = ThingTemplate::new("EndDockPad");
+    pad.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(1_000.0);
+    pad.build_time = 10.0;
+    logic.templates.insert("EndDockPad".into(), pad);
+
+    let mut dozer_tpl = ThingTemplate::new("EndDockDozer");
+    dozer_tpl
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Dozer)
+        .set_health(200.0);
+    logic.templates.insert("EndDockDozer".into(), dozer_tpl);
+
+    let pad_id = logic
+        .create_object_for_player("EndDockPad", 0, Vec3::ZERO)
+        .expect("pad");
+    let dozer = logic
+        .create_object_for_player("EndDockDozer", 0, Vec3::new(200.0, 0.0, 0.0))
+        .expect("dozer");
+    logic.dozer_new_task_build(dozer, pad_id);
+    let action = logic
+        .host_object(dozer)
+        .and_then(|d| d.dozer_dock_action)
+        .expect("ACTION");
+    let off_line = Vec3::new(0.0, 0.0, 80.0);
+    {
+        let obj = logic.host_object_mut(pad_id).expect("pad");
+        obj.set_status_under_construction(true);
+        obj.construction_percent = 1.0;
+        obj.builder_id = Some(dozer);
+    }
+    {
+        let obj = logic.host_object_mut(dozer).expect("dozer");
+        obj.set_position(off_line);
+        obj.set_target(Some(pad_id));
+        obj.set_ai_state(AIState::Constructing);
+        obj.status.moving = false;
+    }
+
+    logic.update_construction(&[pad_id], 1.0);
+    let dz = logic.host_object(dozer).expect("dz");
+    let dest = dz
+        .movement
+        .path
+        .last()
+        .copied()
+        .or(dz.requested_destination)
+        .expect("END destination");
+    let expected = dozer_complete_end_dock(Some(action), off_line, Vec3::ZERO);
+    assert!(
+        (dest - expected).length() < 2.0,
+        "hq-pogoh: END must come from stored ACTION, dest={dest:?} expected={expected:?}"
+    );
+}
+
+
+#[test]
 fn selected_general_start_binds_exact_template_and_rejects_late_invalid_identity() {
     let selected = PlayerTemplateIdentity::from_exact_name("FactionAmericaAirForceGeneral")
         .expect("retail Air Force General PlayerTemplate");

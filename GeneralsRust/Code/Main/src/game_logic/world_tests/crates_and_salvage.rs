@@ -356,44 +356,68 @@ fn resolve_host_team_name_covers_cpp_aliases() {
 }
 
 #[test]
-fn create_object_inherits_team_defaults_when_proto_set() {
-    use gamelogic::team::{get_team_factory, AttitudeType};
-    // Seed America prototype with Aggressive initial attitude + priority name.
+fn inherit_uses_named_team_proto_not_faction() {
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    use gamelogic::common::well_known_keys::key_team_aggressiveness;
+    use gamelogic::common::{AsciiString, Dict};
+    use gamelogic::team::get_team_factory;
+
     {
         let Ok(mut factory) = get_team_factory().lock() else {
-            // factory unavailable in this env — skip soft
             return;
         };
-        // Try create or mutate existing America prototype.
-        if let Some(proto) = factory.find_team_prototype("America") {
-            // TeamPrototype may be behind Arc - try interior mut if available
-            // Fail-open: if immutable Arc, still exercise create path.
-            let _ = proto.get_initial_team_attitude();
-            let _ = AttitudeType::Normal;
-        } else {
-            let _ = factory; // cannot seed without API
-        }
+        let mut named = Dict::new();
+        named.set_int(key_team_aggressiveness(), 2);
+        let _ = factory.init_team(
+            AsciiString::from("AmericaTeamRangersInherit"),
+            AsciiString::from("PlyrAmerica"),
+            false,
+            Some(&named),
+        );
+        // Faction protos as Sleep so a USA/America lookup would apply -2.
+        let mut faction = Dict::new();
+        faction.set_int(key_team_aggressiveness(), -2);
+        let _ = factory.init_team(
+            AsciiString::from("America"),
+            AsciiString::from("PlyrAmerica"),
+            true,
+            Some(&faction),
+        );
+        let _ = factory.init_team(
+            AsciiString::from("USA"),
+            AsciiString::from("PlyrAmerica"),
+            true,
+            Some(&faction),
+        );
     }
+
     let mut logic = GameLogic::new();
-    // Ensure a minimal infantry template exists.
-    let mut t = ThingTemplate::new("AmericaRanger");
+    let mut t = ThingTemplate::new("AmericaRangerNamedAtt");
     t.add_kind_of(KindOf::Infantry);
-    logic.templates.insert("AmericaRanger".into(), t);
-    let id = logic
-        .create_object(
-            "AmericaRanger",
-            crate::game_logic::Team::USA,
-            glam::Vec3::new(10.0, 0.0, 10.0),
-        )
-        .expect("spawn");
-    // After create, inherit was called — default Normal is fine if proto unset.
-    assert!(logic.objects.contains_key(&id));
-    // Direct inherit with mocked attitude via set then re-inherit no-op on non-zero.
-    logic.set_unit_attitude(id, 2);
+    let id = ObjectId(4101);
+    let mut o = Object::new(t, id, Team::USA);
+    o.team_instance_name = "AmericaTeamRangersInherit".into();
+    logic.objects.insert(id, o);
+
     logic.inherit_team_ai_defaults(id);
     assert_eq!(
         logic.objects[&id].ai_attitude, 2,
+        "named team proto Aggressive must win over faction Sleep"
+    );
+
+    logic.set_unit_attitude(id, -1);
+    logic.inherit_team_ai_defaults(id);
+    assert_eq!(
+        logic.objects[&id].ai_attitude, -1,
         "re-inherit must not clobber scripted attitude"
+    );
+
+    if let Some(obj) = logic.objects.get_mut(&id) {
+        obj.set_team(Team::USA);
+    }
+    assert_eq!(
+        logic.objects[&id].ai_attitude, 2,
+        "C++ setTeam reapplies named team proto attitude"
     );
 }
 

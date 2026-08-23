@@ -793,13 +793,10 @@ impl GameLogic {
             }
         }
 
-        // C++ Relationship is not equivalent to `team != team`: map/civilian
-        // objects are neutral, not enemies.  WeaponSet rejects a non-enemy
-        // FROM_PLAYER target unless it is a non-allied mine or
-        // OBJECT_STATUS_SCRIPT_TARGETABLE (map `objectTargetable`).
-        // That script-status channel is not fully modeled; leftover catalog
-        // and retail treat non-allied neutrals (tech oil, civilian cars,
-        // angry mobs) as player-targetable when a weapon can hit them.
+        // C++ WeaponSet.cpp:529-543 / leftover weapon_set_able.rs:301-311:
+        // CMD_FROM_PLAYER non-force attack on a non-enemy is NOT_POSSIBLE
+        // unless the victim is a non-allied mine or SCRIPT_TARGETABLE
+        // (map `objectTargetable` / leftover_sa `Player Targetable`).
         let is_mine = victim.is_kind_of(KindOf::Mine)
             || victim.is_kind_of(KindOf::DemoTrap)
             || victim.is_disarmable_mine();
@@ -807,11 +804,11 @@ impl GameLogic {
             return CanAttackResult::NotPossible;
         }
         if !enemies && !force && !(is_mine && !allies) && from_player {
-            if victim.is_kind_of(KindOf::Unattackable) {
+            if !victim.is_script_targetable() {
                 return CanAttackResult::NotPossible;
             }
-            // Fall through to weapon Anti* legality (C++ SCRIPT_TARGETABLE residual).
         }
+
 
         // C++ Object::isAbleToAttack (Object.cpp:3167) consults
         // ContainModule::isPassengerAllowedToFire(id). TransportContain is
@@ -1745,4 +1742,114 @@ mod get_able_weapon_parity {
     }
 }
 
+
+
+    #[test]
+    fn player_attack_rejects_neutral_without_script_targetable() {
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("TgtAtk");
+        at.add_kind_of(KindOf::Infantry);
+        logic.objects.insert(ObjectId(4201), {
+            let mut o = Object::new(at, ObjectId(4201), Team::USA);
+            o.set_position(Vec3::ZERO);
+            o.weapon = Some(Weapon {
+                range: 100.0,
+                damage: 10.0,
+                ..Default::default()
+            });
+            o
+        });
+        let mut nt = ThingTemplate::new("CivInfantry");
+        nt.add_kind_of(KindOf::Infantry);
+        nt.add_kind_of(KindOf::Attackable);
+        logic.objects.insert(ObjectId(4202), {
+            let mut o = Object::new(nt, ObjectId(4202), Team::Neutral);
+            o.set_position(Vec3::new(10.0, 0.0, 0.0));
+            o
+        });
+        assert_eq!(
+            logic.get_able_to_attack_specific_object(
+                ObjectId(4201),
+                ObjectId(4202),
+                AbleToAttackType::NewTarget,
+                true,
+            ),
+            CanAttackResult::NotPossible,
+            "CMD_FROM_PLAYER must reject neutrals without SCRIPT_TARGETABLE"
+        );
+        assert_eq!(
+            logic.get_able_to_attack_specific_object(
+                ObjectId(4201),
+                ObjectId(4202),
+                AbleToAttackType::NewTarget,
+                false,
+            ),
+            CanAttackResult::Possible,
+            "AI/script attacks ignore SCRIPT_TARGETABLE"
+        );
+        logic
+            .objects
+            .get_mut(&ObjectId(4202))
+            .unwrap()
+            .apply_object_panel_flag("Player Targetable", true);
+        assert_eq!(
+            logic.get_able_to_attack_specific_object(
+                ObjectId(4201),
+                ObjectId(4202),
+                AbleToAttackType::NewTarget,
+                true,
+            ),
+            CanAttackResult::Possible,
+            "leftover_sa objectTargetable must admit player attack on neutrals"
+        );
+        logic
+            .objects
+            .get_mut(&ObjectId(4202))
+            .unwrap()
+            .set_script_targetable(false);
+        assert_eq!(
+            logic.get_able_to_attack_specific_object(
+                ObjectId(4201),
+                ObjectId(4202),
+                AbleToAttackType::NewTargetForced,
+                true,
+            ),
+            CanAttackResult::Possible,
+            "force attack still ignores SCRIPT_TARGETABLE"
+        );
+    }
+
+    #[test]
+    fn player_attack_allows_non_allied_mine_without_script_targetable() {
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("MineAtk");
+        at.add_kind_of(KindOf::Infantry);
+        logic.objects.insert(ObjectId(4211), {
+            let mut o = Object::new(at, ObjectId(4211), Team::USA);
+            o.set_position(Vec3::ZERO);
+            o.weapon = Some(Weapon {
+                range: 100.0,
+                damage: 10.0,
+                ..Default::default()
+            });
+            o
+        });
+        let mut mt = ThingTemplate::new("DemoTrap");
+        mt.add_kind_of(KindOf::Mine);
+        logic.objects.insert(ObjectId(4212), {
+            let mut o = Object::new(mt, ObjectId(4212), Team::Neutral);
+            o.set_position(Vec3::new(10.0, 0.0, 0.0));
+            o
+        });
+        assert_eq!(
+            logic.get_able_to_attack_specific_object(
+                ObjectId(4211),
+                ObjectId(4212),
+                AbleToAttackType::NewTarget,
+                true,
+            ),
+            CanAttackResult::Possible,
+            "non-allied mines stay player-targetable without SCRIPT_TARGETABLE"
+        );
+    }
 

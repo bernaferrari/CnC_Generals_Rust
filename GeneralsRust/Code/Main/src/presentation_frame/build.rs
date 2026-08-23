@@ -858,6 +858,7 @@ impl PresentationFrame {
                 masked: obj.status.masked,
                 unattackable: obj.is_kind_of(KindOf::Unattackable),
                 is_force_attackable: obj.is_kind_of(KindOf::ForceAttackable),
+                always_selectable: obj.is_kind_of(KindOf::AlwaysSelectable),
 
                 is_crate: obj.is_kind_of(KindOf::Crate)
                     || logic.host_money_crates.contains(obj.id),

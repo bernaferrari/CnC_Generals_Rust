@@ -225,6 +225,19 @@ impl GameLogic {
             }
         }
 
+        if leftover_object_script_targetable(id)
+            || get_bool(well_known_keys::key_object_targetable()) == Some(true)
+        {
+            if let Some(created) = self.objects.get_mut(&id) {
+                created.set_script_targetable(true);
+            }
+        } else if get_bool(well_known_keys::key_object_targetable()) == Some(false) {
+            if let Some(created) = self.objects.get_mut(&id) {
+                created.set_script_targetable(false);
+            }
+        }
+
+
         if let Some(visual_range) = get_int(well_known_keys::key_object_visual_range()) {
             if let Some(created) = self.objects.get_mut(&id) {
                 created.vision_range = (visual_range as f32).max(0.0);
@@ -1057,6 +1070,13 @@ impl GameLogic {
                     Vec3::new(info.to_left.x, info.to_left.z, info.to_left.y),
                     Vec3::new(info.to_right.x, info.to_right.z, info.to_right.y),
                     destroyed,
+                );
+                self.pathfinding_system.grid.bind_bridge_layer_object_id(
+                    Vec3::new(info.from_left.x, info.from_left.z, info.from_left.y),
+                    Vec3::new(info.from_right.x, info.from_right.z, info.from_right.y),
+                    Vec3::new(info.to_left.x, info.to_left.z, info.to_left.y),
+                    Vec3::new(info.to_right.x, info.to_right.z, info.to_right.y),
+                    info.bridge_object_id,
                 );
             });
         }

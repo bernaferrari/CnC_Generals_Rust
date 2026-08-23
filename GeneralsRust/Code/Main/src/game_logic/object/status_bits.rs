@@ -238,6 +238,17 @@ impl Object {
         self.script_unstealthed = v;
     }
 
+    /// C++ `OBJECT_STATUS_SCRIPT_TARGETABLE` (map `objectTargetable`).
+    pub fn is_script_targetable(&self) -> bool {
+        self.script_targetable || leftover_object_script_targetable(self.id)
+    }
+
+    /// C++ `setScriptStatus(OBJECT_STATUS_SCRIPT_TARGETABLE)`.
+    pub fn set_script_targetable(&mut self, v: bool) {
+        self.script_targetable = v;
+    }
+
+
 
     /// C++ `ActiveBody::isIndestructible`.
     pub fn is_indestructible(&self) -> bool {
@@ -308,6 +319,7 @@ impl Object {
             "powered" => self.set_script_underpowered(!new_val),
             "unsellable" => self.set_script_unsellable(new_val),
             "indestructible" => self.set_indestructible(new_val),
+            "playertargetable" => self.set_script_targetable(new_val),
             _ => {}
         }
     }
@@ -903,3 +915,14 @@ impl Object {
         self.record_host_ai_mood();
     }
 }
+
+/// Drain leftover `OBJECT_STATUS_SCRIPT_TARGETABLE` (map `objectTargetable` /
+/// leftover_sa `Player Targetable` / OCL DeliverPayload transport).
+pub fn leftover_object_script_targetable(id: ObjectId) -> bool {
+    gamelogic::object::registry::OBJECT_REGISTRY
+        .with_object(id.0, |obj| {
+            obj.test_script_status_bit(gamelogic::object::ObjectScriptStatusBit::ScriptTargetable)
+        })
+        .unwrap_or(false)
+}
+

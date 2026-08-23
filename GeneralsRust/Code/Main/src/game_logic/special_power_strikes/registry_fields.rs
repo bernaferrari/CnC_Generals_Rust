@@ -1284,7 +1284,16 @@ impl HostSpecialPowerStrikeRegistry {
                 .iter()
                 .find(|(id, _, _, _)| *id == field.source_object)
             {
+                let first_bind = !field.source_axis_set;
                 field.bind_source_axis(*pos);
+                if first_bind {
+                    spawn_particle_outer_node_flares(
+                        field.source_object,
+                        *pos,
+                        field.outer_intensity,
+                    );
+                    play_particle_beam_launch_fx(*pos);
+                }
             }
         }
     }

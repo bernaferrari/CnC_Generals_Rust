@@ -440,6 +440,11 @@ impl GameLogic {
                     obj.loco_appearance,
                     LocomotorAppearance::Hover | LocomotorAppearance::Wings
                 );
+                // C++ moveTowardsPositionClimb latches FLAG_CLIMBING on real
+                // goal Z (host Y). Flattening that Y made dz==0 so CLIMBER
+                // never slowed or reversed (Locomotor.cpp:1711-1739).
+                let keep_goal_y = z_motive
+                    || matches!(obj.loco_appearance, LocomotorAppearance::Climber);
                 let close_enough = host_close_enough_dist(obj);
                 let close_enough_sanity =
                     4.0 * crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
@@ -509,9 +514,9 @@ impl GameLogic {
                         obj.crusher_level,
                     );
                     let mut target = lead;
-                    // Ground locos keep XZ march; Z-motive keeps lead Y so
-                    // preferredHeight can rise over hills (Locomotor.cpp:2300).
-                    if !z_motive {
+                    // Ground locos keep XZ march; Z-motive / Climber keep lead Y
+                    // so preferredHeight can rise and climb can latch on dz.
+                    if !keep_goal_y {
                         target.y = current_pos.y;
                     }
                     obj.movement.target_position = Some(target);
@@ -685,7 +690,7 @@ impl GameLogic {
                                     obj.movement.current_path_index += 1;
                                     let mut next =
                                         obj.movement.path[obj.movement.current_path_index];
-                                    if !z_motive {
+                                    if !keep_goal_y {
                                         next.y = obj.get_position().y;
                                     }
                                     obj.movement.target_position = Some(next);
@@ -714,19 +719,17 @@ impl GameLogic {
                                 }
                             }
                         }
-                        if !obj.no_slow_down_as_approaching_dest {
-                            speed = obj.apply_cpp_approach_brake(
-                                on_path_dist,
-                                obj.movement.velocity.length(),
-                                speed,
-                                self.frame,
-                            );
-                        }
                         let wheeled = matches!(
                             obj.loco_appearance,
                             LocomotorAppearance::WheelsFour | LocomotorAppearance::Motorcycle
                         );
-                        let mut move_backwards = false;
+                        // Climber descent already set obj.moving_backwards
+                        // (update_climber_flags). Leftover dir_sign=-1: face
+                        // away and drive reverse toward the goal.
+                        let mut move_backwards = matches!(
+                            obj.loco_appearance,
+                            LocomotorAppearance::Climber
+                        ) && obj.moving_backwards;
                         if wheeled {
                             // C++ Locomotor.cpp:1292-1323 reverse / 3pt + turn-speed cap.
                             let actual_stopped = obj.movement.velocity.x.abs() < 1e-4
@@ -766,6 +769,10 @@ impl GameLogic {
                                     }
                                 }
                             }
+                            // C++ Locomotor.cpp:1316-1323 SMALL_TURN cap on
+                            // desiredSpeed BEFORE approach-brake (:1393-1430).
+                            // Once IS_BRAKING latches, goalSpeed is actual-braking
+                            // and must not recap to turnSpeed (hq-7soel).
                             let turn_speed = obj.wheeled_turn_speed_floor();
                             if delta.abs() > std::f32::consts::PI / 20.0 && speed > turn_speed {
                                 speed = turn_speed;
@@ -814,6 +821,14 @@ impl GameLogic {
                                 Self::stamp_object_airborne_target(obj, ground_y);
                                 break 'unit;
                             }
+                        }
+                        if !obj.no_slow_down_as_approaching_dest {
+                            speed = obj.apply_cpp_approach_brake(
+                                on_path_dist,
+                                obj.movement.velocity.length(),
+                                speed,
+                                self.frame,
+                            );
                         }
                         // C++ Locomotor.cpp:2344-2361 ULTRA_ACCURATE slide-into-place.
                         // Appearance 2D (rotate + motive Euler) is skipped when
@@ -930,7 +945,7 @@ impl GameLogic {
                             } else {
                                 obj.movement.current_path_index += 1;
                                 let mut next = obj.movement.path[obj.movement.current_path_index];
-                                if !z_motive {
+                                if !keep_goal_y {
                                     next.y = obj.get_position().y;
                                 }
                                 obj.movement.target_position = Some(next);
@@ -938,20 +953,33 @@ impl GameLogic {
                         }
                     } else {
                         // Already on target (zero horizontal delta) — still hold height.
-                        Self::apply_live_handle_behavior_z(obj, surface_y, None);
-                        if matches!(
-                            obj.loco_appearance,
-                            LocomotorAppearance::Hover
-                                | LocomotorAppearance::Wings
-                                | LocomotorAppearance::Thrust
-                        ) {
+                        // C++ locoUpdate_maintainCurrentPosition: appearance
+                        // then handleBehaviorZ (Locomotor.cpp:2433-2474).
+                        if matches!(obj.loco_appearance, LocomotorAppearance::Wings) {
                             if obj.holds_air_position_when_idle() {
                                 obj.maintain_pos_valid = false;
                             }
                             let _ = obj.loco_maintain_current_position(surface_y, dt);
+                            let sy = obj.leftover_surface_ht(surface_y);
+                            Self::apply_live_handle_behavior_z(
+                                obj,
+                                sy,
+                                obj.maintain_pos.map(|p| p.y),
+                            );
                         } else {
-                            obj.movement.velocity = Vec3::ZERO;
-                            obj.record_host_movement();
+                            Self::apply_live_handle_behavior_z(obj, surface_y, None);
+                            if matches!(
+                                obj.loco_appearance,
+                                LocomotorAppearance::Hover | LocomotorAppearance::Thrust
+                            ) {
+                                if obj.holds_air_position_when_idle() {
+                                    obj.maintain_pos_valid = false;
+                                }
+                                let _ = obj.loco_maintain_current_position(surface_y, dt);
+                            } else {
+                                obj.movement.velocity = Vec3::ZERO;
+                                obj.record_host_movement();
+                            }
                         }
                         if obj.movement.path.is_empty()
                             || obj.movement.current_path_index + 1 >= obj.movement.path.len()
@@ -967,15 +995,23 @@ impl GameLogic {
                         }
                     }
                 } else {
-                    // Idle hover / wings: C++ locoUpdate_maintainCurrentPosition.
-                    Self::apply_live_handle_behavior_z(obj, surface_y, None);
-                    if matches!(
-                        obj.loco_appearance,
-                        LocomotorAppearance::Hover
-                            | LocomotorAppearance::Wings
-                            | LocomotorAppearance::Thrust
-                    ) {
+                    // Idle hover / wings: C++ appearance then handleBehaviorZ.
+                    if matches!(obj.loco_appearance, LocomotorAppearance::Wings) {
                         let _ = obj.loco_maintain_current_position(surface_y, dt);
+                        let sy = obj.leftover_surface_ht(surface_y);
+                        Self::apply_live_handle_behavior_z(
+                            obj,
+                            sy,
+                            obj.maintain_pos.map(|p| p.y),
+                        );
+                    } else {
+                        Self::apply_live_handle_behavior_z(obj, surface_y, None);
+                        if matches!(
+                            obj.loco_appearance,
+                            LocomotorAppearance::Hover | LocomotorAppearance::Thrust
+                        ) {
+                            let _ = obj.loco_maintain_current_position(surface_y, dt);
+                        }
                     }
                 }
                 Self::stamp_object_airborne_target(obj, ground_y);
@@ -1791,6 +1827,115 @@ mod tests {
         assert!(
             scale < 0.05,
             "slope 15 must divide speed by 60, scale={scale}"
+        );
+    }
+
+    /// hq-tb3v5: path lead must keep goal Y so FLAG_CLIMBING latches.
+    #[test]
+    fn climber_path_lead_keeps_goal_y_and_latches_climbing() {
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let mut logic = GameLogic::new();
+        let id = ObjectId(95021);
+        let mut unit = {
+            let mut tmpl = ThingTemplate::new("RedGuardClimberPath");
+            tmpl.add_kind_of(KindOf::Infantry);
+            Object::new(tmpl, id, Team::USA)
+        };
+        unit.loco_appearance = LocomotorAppearance::Climber;
+        unit.loco_behavior_z = LocomotorBehaviorZ::NoZMotiveForce;
+        unit.set_position(Vec3::new(0.0, 20.0, 0.0));
+        unit.ground_height = 20.0;
+        unit.movement.max_speed = 30.0;
+        unit.movement.acceleration = 10_000.0;
+        unit.no_slow_down_as_approaching_dest = true;
+        unit.set_status_moving(true);
+        let start = Vec3::new(0.0, 20.0, 0.0);
+        let goal = Vec3::new(40.0, 0.0, 0.0);
+        unit.movement.path = vec![start, goal];
+        unit.movement.current_path_index = 1;
+        unit.movement.target_position = Some(goal);
+        logic.objects.insert(id, unit);
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("climber");
+        let stored_y = obj
+            .movement
+            .target_position
+            .expect("climber must keep a goal")
+            .y;
+        assert!(
+            stored_y < 1.0,
+            "climber path lead must not flatten goal Y, stored_y={stored_y}"
+        );
+        assert!(
+            obj.is_climbing,
+            " |dz| > PATHFIND_CELL_SIZE_F must latch FLAG_CLIMBING"
+        );
+    }
+
+    /// hq-tb3v5: descent while CLIMBING faces away and drives reverse toward goal.
+    #[test]
+    fn climber_descent_reverses_toward_goal() {
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let mut logic = GameLogic::new();
+        let gw = logic.pathfinding_system.grid.width().max(0) as u32;
+        let gh = logic.pathfinding_system.grid.height().max(0) as u32;
+        assert!(gw > 0 && gh > 0, "host grid must exist for height samples");
+        // Sit just before a cell boundary so the 1-unit climb probe crosses
+        // into a lower cell (cache is per-cell; leftover samples terrain).
+        let start = Vec3::new(3.5, 20.0, 0.0);
+        let goal = Vec3::new(43.5, 0.0, 0.0);
+        let start_cell = logic.pathfinding_system.grid.world_to_grid(start);
+        let mut heights = vec![5.0; gw as usize * gh as usize];
+        if start_cell.x >= 0
+            && start_cell.y >= 0
+            && (start_cell.x as u32) < gw
+            && (start_cell.y as u32) < gh
+        {
+            heights[(start_cell.y as u32 * gw + start_cell.x as u32) as usize] = 20.0;
+        }
+        assert!(logic.restore_terrain_heights_from_grid(gw, gh, &heights));
+
+        let id = ObjectId(95022);
+        let mut unit = {
+            let mut tmpl = ThingTemplate::new("RedGuardClimberDescent");
+            tmpl.add_kind_of(KindOf::Infantry);
+            Object::new(tmpl, id, Team::USA)
+        };
+        unit.loco_appearance = LocomotorAppearance::Climber;
+        unit.loco_behavior_z = LocomotorBehaviorZ::NoZMotiveForce;
+        // Height-map interpolation at a cell edge can report ground << 20 and
+        // trip treatAsAirborne (~0.64wu). Motive still applies on the cliff.
+        unit.allow_motive_force_while_airborne = true;
+        unit.set_position(start);
+        // Already facing away so angleCoeff is 0 and reverse drive is live
+        // this frame (Locomotor.cpp:1760-1774).
+        unit.set_orientation(std::f32::consts::PI);
+        unit.ground_height = 20.0;
+        unit.movement.max_speed = 30.0;
+        unit.movement.acceleration = 10_000.0;
+        unit.movement.turn_rate = 0.0;
+        unit.no_slow_down_as_approaching_dest = true;
+        unit.set_status_moving(true);
+        unit.movement.path = vec![start, goal];
+        unit.movement.current_path_index = 1;
+        unit.movement.target_position = Some(goal);
+        logic.objects.insert(id, unit);
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("climber");
+        assert!(obj.is_climbing, "descent goal must latch FLAG_CLIMBING");
+        assert!(
+            obj.moving_backwards,
+            "ground 1wu ahead lower must set MOVING_BACKWARDS"
+        );
+        assert!(
+            obj.movement.velocity.x > 1.0,
+            "reverse drive must back toward +X goal, vel={:?}",
+            obj.movement.velocity
+        );
+        assert!(
+            obj.get_orientation().abs() > 2.5,
+            "descent must keep facing away from the goal, yaw={}",
+            obj.get_orientation()
         );
     }
 
@@ -2981,6 +3126,87 @@ mod tests {
             "Thrust march must apply 3D motive"
         );
     }
+
+    /// hq-7soel: SMALL_TURN must not recap goalSpeed after IS_BRAKING overwrite.
+    #[test]
+    fn wheeled_small_turn_does_not_recap_after_approach_brake() {
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let mut logic = GameLogic::new();
+        let id = ObjectId(98231);
+        let mut truck = {
+            let mut tmpl = ThingTemplate::new("HumveeSmallTurnBrake");
+            tmpl.add_kind_of(KindOf::Vehicle);
+            Object::new(tmpl, id, Team::USA)
+        };
+        truck.set_position(Vec3::ZERO);
+        truck.set_orientation(0.0);
+        truck.loco_appearance = LocomotorAppearance::WheelsFour;
+        truck.min_turn_speed = 0.0;
+        truck.movement.max_speed = 40.0;
+        truck.movement.acceleration = 10_000.0;
+        truck.movement.turn_rate = std::f32::consts::PI;
+        truck.movement.velocity = Vec3::new(30.0, 0.0, 0.0);
+        truck.braking = 5.0;
+        truck.is_braking = true;
+        truck.donut_timer = u32::MAX;
+        // ~12° heading error: SMALL_TURN (9°) applies, 15° look-ahead does not.
+        truck.movement.target_position = Some(Vec3::new(50.0, 0.0, -10.63));
+        truck.set_status_moving(true);
+        logic.objects.insert(id, truck);
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("truck");
+        let speed = obj.movement.velocity.length();
+        let turn_floor = 10.0; // maxSpeed/4
+        assert!(
+            obj.is_braking,
+            "close-in wheeled approach must keep IS_BRAKING"
+        );
+        assert!(
+            speed > turn_floor + 5.0,
+            "braking goalSpeed (actual-braking≈25) must not recap to turnSpeed=10, speed={speed}"
+        );
+    }
+
+    /// hq-xlays: idle Wings lift off terrain, not own altitude.
+    #[test]
+    fn wings_idle_maintain_z_uses_terrain_not_own_altitude() {
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let mut logic = GameLogic::new();
+        let id = ObjectId(98232);
+        let mut jet = {
+            let mut tmpl = ThingTemplate::new("AmericaJetRaptorIdleZ");
+            tmpl.add_kind_of(KindOf::Aircraft);
+            Object::new(tmpl, id, Team::USA)
+        };
+        jet.set_position(Vec3::new(0.0, 50.0, 0.0));
+        jet.ground_height = 0.0;
+        jet.loco_appearance = LocomotorAppearance::Wings;
+        jet.loco_behavior_z = LocomotorBehaviorZ::SurfaceRelativeHeight;
+        jet.loco_preferred_height = 20.0;
+        jet.loco_preferred_height_damping = 1.0;
+        jet.max_lift = 20.0;
+        jet.physics_mass = 1.0;
+        jet.min_speed = 10.0;
+        jet.circling_radius = 40.0;
+        jet.motive_frames_remaining = 4;
+        jet.movement.max_speed = 40.0;
+        // Idle: no target. C++ maintain then handleBehaviorZ(terrain).
+        logic.objects.insert(id, jet);
+        for _ in 0..8 {
+            logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        }
+        let obj = logic.objects.get(&id).expect("jet");
+        let y = obj.get_position().y;
+        assert!(
+            y < 50.0,
+            "idle Wings must descend toward PreferredHeight+terrain=20, not climb via own_y, y={y}"
+        );
+        assert!(
+            y > 5.0,
+            "must not slam to ground; y={y}"
+        );
+    }
+
 
 
     }

@@ -11,10 +11,11 @@
 //! - `FindPosByPathDistance` (~1355-1482)
 //! - `createCarriages` / `getPulled` / `updatePositionTrackDistance`
 //!
-//! Fail-closed: not full collide crush / xfer.
+//! Fail-closed: not full collide crush / xfer. Collide audio is C++
+//! `playImpactSound` (bounce / TrainMeatyHit / TrainBigMetalHit / TrainSmallMetalHit).
 
 use super::ObjectId;
-use crate::game_logic::{AudioEventRequest, GameLogic, Team};
+use crate::game_logic::{AudioEventRequest, GameLogic, KindOf, Team};
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
@@ -44,15 +45,171 @@ pub const RAILROAD_UNHITCH_FRAMES: i32 = 2;
 pub const RAILROAD_RUNNING_SOUND: &str = "TrainRunning";
 /// C++ `m_whistleSound` retail `TrainWhistle`.
 pub const RAILROAD_WHISTLE_SOUND: &str = "TrainWhistle";
-/// C++ `m_clicketyClackSound` retail `TrainClickety`.
 pub const RAILROAD_CLICKETY_SOUND: &str = "TrainClickety";
+/// Leftover INI `MeatyBounceSound` retail `TrainMeatyHit`.
+pub const RAILROAD_MEATY_SOUND: &str = "TrainMeatyHit";
+/// Leftover INI `BigMetalBounceSound` retail `TrainBigMetalHit`.
+pub const RAILROAD_BIG_METAL_SOUND: &str = "TrainBigMetalHit";
+/// Leftover INI `SmallMetalBounceSound` retail `TrainSmallMetalHit`.
+pub const RAILROAD_SMALL_METAL_SOUND: &str = "TrainSmallMetalHit";
+/// Leftover `RailroadBehaviorModuleData::kill_speed_min` default.
+pub const RAILROAD_KILL_SPEED_MIN: f32 = 1.0;
+/// Leftover `running_garrison_speed_max` default.
+pub const RAILROAD_RUNNING_GARRISON_SPEED_MAX: f32 = 1.0;
+/// Leftover / C++ `NORMAL_VEL_Z` in `playImpactSound`.
+const RAILROAD_NORMAL_VEL_Z: f32 = 0.25;
+/// Leftover / C++ `NORMAL_MASS` in `playImpactSound`.
+const RAILROAD_NORMAL_MASS: f32 = 50.0;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct RailroadAudioCue {
-    event_name: &'static str,
+    event_name: String,
     looping: bool,
     stop: bool,
     position: Option<Vec3>,
+    player_index: Option<i32>,
+    /// C++ `AudioEventRTS::setVolume` residual (impact only).
+    volume: Option<f32>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RailroadCollideSnap {
+    id: ObjectId,
+    waiting_in_wings: bool,
+    end_of_line: bool,
+    is_locomotive: bool,
+    conductor_state: HostConductorState,
+    speed: f32,
+    hitch_radius: f32,
+}
+
+/// C++ `RailroadBehavior::playImpactSound` event pick.
+/// Victim bounce sound wins; else KindOf: Infantry → Meaty,
+/// HugeVehicle||Structure → BigMetal, Vehicle → SmallMetal.
+pub fn leftover_railroad_impact_event_name(
+    bounce_sound: &str,
+    infantry: bool,
+    huge_vehicle: bool,
+    structure: bool,
+    vehicle: bool,
+) -> Option<String> {
+    if !bounce_sound.is_empty() {
+        return Some(bounce_sound.to_string());
+    }
+    if infantry {
+        Some(RAILROAD_MEATY_SOUND.to_string())
+    } else if huge_vehicle || structure {
+        Some(RAILROAD_BIG_METAL_SOUND.to_string())
+    } else if vehicle {
+        Some(RAILROAD_SMALL_METAL_SOUND.to_string())
+    } else {
+        None
+    }
+}
+
+pub fn leftover_railroad_impact_volume(vel_len: f32, victim_mass: f32, has_physics: bool) -> f32 {
+    let mut vel = RAILROAD_NORMAL_VEL_Z;
+    let mut mass = RAILROAD_NORMAL_MASS;
+    if has_physics {
+        vel += vel_len;
+        mass += victim_mass;
+        vel *= 0.5;
+        mass *= 0.5;
+    }
+    vel = vel.clamp(0.0, RAILROAD_NORMAL_VEL_Z);
+    mass = mass.clamp(0.0, RAILROAD_NORMAL_MASS);
+    let mut volume = leftover_normalize_to_range(
+        leftover_mu_law(vel, RAILROAD_NORMAL_VEL_Z, 500.0),
+        -1.0,
+        1.0,
+        0.25,
+        1.0,
+    );
+    volume *= leftover_normalize_to_range(
+        leftover_mu_law(mass, RAILROAD_NORMAL_MASS, 500.0),
+        -1.0,
+        1.0,
+        0.25,
+        1.0,
+    );
+    volume
+}
+
+fn leftover_normalize_to_range(
+    value: f32,
+    in_min: f32,
+    in_max: f32,
+    out_min: f32,
+    out_max: f32,
+) -> f32 {
+    if (in_max - in_min).abs() < f32::EPSILON {
+        return out_min;
+    }
+    let t = (value - in_min) / (in_max - in_min);
+    out_min + (out_max - out_min) * t
+}
+
+fn leftover_mu_law(value: f32, max_value: f32, mu: f32) -> f32 {
+    let normalized = value / max_value.max(0.0001);
+    let numerator = (1.0 + mu * normalized.abs()).ln();
+    let denominator = (1.0 + mu).ln();
+    normalized.signum() * (numerator / denominator)
+}
+
+fn leftover_railroad_faction_structure(obj: &crate::game_logic::Object) -> bool {
+    // Leftover on_collide: FSPower / Factory / Defense / FSTechnology / RebuildHole.
+    obj.is_kind_of(KindOf::FSPower)
+        || obj.is_kind_of(KindOf::FSWarFactory)
+        || obj.is_kind_of(KindOf::FSBarracks)
+        || obj.is_kind_of(KindOf::FSAirfield)
+        || obj.is_kind_of(KindOf::FSBaseDefense)
+        || obj.is_kind_of(KindOf::FSTechnology)
+        || obj.template_name.to_ascii_lowercase().contains("rebuildhole")
+}
+
+fn leftover_railroad_demo_trap(obj: &crate::game_logic::Object) -> bool {
+    obj.is_kind_of(KindOf::DemoTrap)
+}
+
+/// Leftover `on_collide` sites that call `play_impact_sound`.
+fn leftover_railroad_should_play_impact(
+    is_locomotive: bool,
+    conductor: HostConductorState,
+    speed: f32,
+    victim_is_structure: bool,
+    victim_is_faction: bool,
+    victim_is_demo_trap: bool,
+    victim_contained_by_train: bool,
+    victim_entering_train: bool,
+    victim_dead: bool,
+) -> bool {
+    if victim_is_structure && victim_is_faction {
+        return true;
+    }
+    if victim_is_structure && victim_is_demo_trap {
+        return true;
+    }
+    if conductor == HostConductorState::WaitAtStation
+        && speed < RAILROAD_RUNNING_GARRISON_SPEED_MAX
+        && victim_entering_train
+    {
+        return false;
+    }
+    if victim_contained_by_train {
+        return false;
+    }
+    if conductor == HostConductorState::WaitAtStation
+        || (conductor == HostConductorState::Coast
+            && speed < RAILROAD_RUNNING_GARRISON_SPEED_MAX)
+        || !is_locomotive
+    {
+        return false;
+    }
+    if victim_dead {
+        return false;
+    }
+    // Leftover kill-speed path kills without play_impact_sound.
+    speed < RAILROAD_KILL_SPEED_MIN
 }
 
 
@@ -346,10 +503,12 @@ impl HostRailroadCar {
         }
         self.running_sound_playing = true;
         self.pending_audio.push(RailroadAudioCue {
-            event_name: RAILROAD_RUNNING_SOUND,
+            event_name: RAILROAD_RUNNING_SOUND.to_string(),
             looping: true,
             stop: false,
             position: None,
+            player_index: None,
+            volume: None,
         });
     }
 
@@ -359,15 +518,35 @@ impl HostRailroadCar {
         }
         self.running_sound_playing = false;
         self.pending_audio.push(RailroadAudioCue {
-            event_name: RAILROAD_RUNNING_SOUND,
+            event_name: RAILROAD_RUNNING_SOUND.to_string(),
             looping: true,
             stop: true,
             position: None,
+            player_index: None,
+            volume: None,
         });
     }
 
     fn take_pending_audio(&mut self) -> Vec<RailroadAudioCue> {
         std::mem::take(&mut self.pending_audio)
+    }
+
+    /// C++ `RailroadBehavior::playImpactSound` → pending TheAudio cue.
+    fn play_impact_sound(
+        &mut self,
+        event_name: String,
+        position: Vec3,
+        player_index: Option<i32>,
+        volume: f32,
+    ) {
+        self.pending_audio.push(RailroadAudioCue {
+            event_name,
+            looping: false,
+            stop: false,
+            position: Some(position),
+            player_index,
+            volume: Some(volume),
+        });
     }
 
     /// C++ locomotive conductor block inside `RailroadBehavior::update`.
@@ -394,10 +573,12 @@ impl HostRailroadCar {
                 } else if self.wait_at_station_timer == self.wait_at_station_time / 4 {
                     // C++ :719-721 whistle at wait/4.
                     self.pending_audio.push(RailroadAudioCue {
-                        event_name: RAILROAD_WHISTLE_SOUND,
+                        event_name: RAILROAD_WHISTLE_SOUND.to_string(),
                         looping: false,
                         stop: false,
                         position: None,
+                        player_index: None,
+                        volume: None,
                     });
                 }
             }
@@ -477,10 +658,12 @@ impl HostRailroadCar {
                     // C++ :1451-1455 clickety at pose, volume speed/10 (pose only).
                     if !self.in_tunnel {
                         self.pending_audio.push(RailroadAudioCue {
-                            event_name: RAILROAD_CLICKETY_SOUND,
+                            event_name: RAILROAD_CLICKETY_SOUND.to_string(),
                             looping: false,
                             stop: false,
                             position: Some(pos),
+                            player_index: None,
+                            volume: None,
                         });
                     }
                 }
@@ -529,6 +712,21 @@ impl HostRailroadRegistry {
     /// Replace a car after save/load. C++ `RailroadBehavior::xfer` v3.
     pub fn restore_car(&mut self, car: HostRailroadCar) {
         self.cars.insert(car.object_id, car);
+    }
+
+    fn collide_snaps(&self) -> Vec<RailroadCollideSnap> {
+        self.cars
+            .values()
+            .map(|c| RailroadCollideSnap {
+                id: c.object_id,
+                waiting_in_wings: c.waiting_in_wings,
+                end_of_line: c.end_of_line,
+                is_locomotive: c.is_locomotive,
+                conductor_state: c.conductor_state,
+                speed: c.speed,
+                hitch_radius: c.hitch_radius,
+            })
+            .collect()
     }
 
     fn drain_audio(&mut self) -> Vec<(ObjectId, RailroadAudioCue)> {
@@ -914,15 +1112,22 @@ impl GameLogic {
             self.make_a_wall_out_of_this_train(head, true);
         }
 
+        // C++ RailroadBehavior::onCollide → playImpactSound.
+        self.queue_railroad_collide_impact_audio();
+
         // C++ TheAudio add/remove on the locomotive / car pose.
         let audio = with_railroad_registry_mut(|reg| reg.drain_audio());
         for (id, cue) in audio {
             let pos = cue.position.or_else(|| {
                 self.objects.get(&id).map(|o| o.get_position())
             });
-            let mut req = AudioEventRequest::new(cue.event_name)
+            let priority = cue
+                .volume
+                .map(|vol| (64.0 + vol * 136.0).clamp(0.0, 255.0) as u8)
+                .unwrap_or(140);
+            let mut req = AudioEventRequest::new(&cue.event_name)
                 .with_object(id)
-                .with_priority(140);
+                .with_priority(priority);
             if let Some(pos) = pos {
                 req = req.with_position(pos);
             }
@@ -932,8 +1137,107 @@ impl GameLogic {
             if cue.stop {
                 req = req.stopping();
             }
+            if let Some(player_index) = cue.player_index {
+                req = req.with_player_index(player_index);
+            }
             self.queue_audio_event(req);
         }
+    }
+
+    /// C++ `RailroadBehavior::onCollide` sites that call `playImpactSound`.
+    fn queue_railroad_collide_impact_audio(&mut self) {
+        let snaps = with_railroad_registry(|reg| reg.collide_snaps());
+        let mut jobs: Vec<(ObjectId, String, Vec3, Option<i32>, f32)> = Vec::new();
+        for snap in snaps {
+            if snap.waiting_in_wings || snap.end_of_line {
+                continue;
+            }
+            let Some(train) = self.objects.get(&snap.id) else {
+                continue;
+            };
+            if !train.is_alive() {
+                continue;
+            }
+            let train_pos = train.get_position();
+            let us_r = snap.hitch_radius.max(train.physics_collide_circle_radius());
+            let victims: Vec<ObjectId> = self
+                .objects
+                .keys()
+                .copied()
+                .filter(|id| *id != snap.id)
+                .collect();
+            for vid in victims {
+                let Some(victim) = self.objects.get(&vid) else {
+                    continue;
+                };
+                if !victim.is_alive() {
+                    continue;
+                }
+                if victim.is_kind_of(KindOf::NoCollide) {
+                    continue;
+                }
+                let victim_is_rail = is_railroad_template(&victim.template_name)
+                    || with_railroad_registry(|r| r.get(vid).is_some());
+                if victim_is_rail {
+                    continue;
+                }
+                let them_r = victim.physics_collide_circle_radius();
+                let dist = xz_dist(train_pos, victim.get_position());
+                if (us_r + them_r) - dist + 1.0 <= 0.0 {
+                    continue;
+                }
+                let faction = leftover_railroad_faction_structure(victim);
+                let demo = leftover_railroad_demo_trap(victim);
+                let entering = victim.target == Some(snap.id);
+                let contained = victim.contained_by == Some(snap.id);
+                let dead = victim.status.effectively_dead;
+                if !leftover_railroad_should_play_impact(
+                    snap.is_locomotive,
+                    snap.conductor_state,
+                    snap.speed,
+                    victim.is_kind_of(KindOf::Structure),
+                    faction,
+                    demo,
+                    contained,
+                    entering,
+                    dead,
+                ) {
+                    continue;
+                }
+                let Some(event) = leftover_railroad_impact_event_name(
+                    &victim.bounce_sound_name,
+                    victim.is_kind_of(KindOf::Infantry),
+                    victim.is_kind_of(KindOf::HugeVehicle),
+                    victim.is_kind_of(KindOf::Structure),
+                    victim.is_kind_of(KindOf::Vehicle),
+                ) else {
+                    continue;
+                };
+                // C++ buildings typically lack PhysicsBehavior → max MuLaw volume.
+                let has_physics = !victim.is_kind_of(KindOf::Structure);
+                let vel = victim.movement.velocity;
+                let vel_len = (vel.x * vel.x + vel.y * vel.y + vel.z * vel.z).sqrt();
+                let volume = leftover_railroad_impact_volume(
+                    vel_len,
+                    victim.physics_mass,
+                    has_physics,
+                );
+                jobs.push((
+                    snap.id,
+                    event,
+                    victim.get_position(),
+                    victim.owner_player_id.map(|p| p as i32),
+                    volume,
+                ));
+            }
+        }
+        with_railroad_registry_mut(|reg| {
+            for (car_id, event, pos, player, volume) in jobs {
+                if let Some(car) = reg.get_mut(car_id) {
+                    car.play_impact_sound(event, pos, player, volume);
+                }
+            }
+        });
     }
 
     pub fn set_railroad_held(&mut self, id: ObjectId, held: bool) {
@@ -978,6 +1282,10 @@ pub fn honesty_railroad_residual_ok() -> bool {
         && RAILROAD_RUNNING_SOUND == "TrainRunning"
         && RAILROAD_WHISTLE_SOUND == "TrainWhistle"
         && RAILROAD_CLICKETY_SOUND == "TrainClickety"
+        && RAILROAD_MEATY_SOUND == "TrainMeatyHit"
+        && RAILROAD_BIG_METAL_SOUND == "TrainBigMetalHit"
+        && RAILROAD_SMALL_METAL_SOUND == "TrainSmallMetalHit"
+        && RAILROAD_KILL_SPEED_MIN == 1.0
         && is_railroad_locomotive_template("CivilianTrainEngine")
         && is_railroad_carriage_template("CivilianTrainCoalCar")
 }
@@ -1452,6 +1760,236 @@ mod tests {
                     && e.object_id == Some(id)
             }),
             "station depart must queue TrainRunning: {:?}",
+            logic.queued_audio_events
+        );
+        railroad_registry_reset();
+    }
+
+    fn spawn_victim(
+        logic: &mut GameLogic,
+        name: &str,
+        pos: Vec3,
+        kinds: &[KindOf],
+    ) -> ObjectId {
+        let mut tmpl = ThingTemplate::new(name);
+        for kind in kinds {
+            tmpl.add_kind_of(*kind);
+        }
+        tmpl.set_health(100.0);
+        logic.templates.insert(name.into(), tmpl);
+        let id = logic
+            .create_object(name, Team::USA, pos)
+            .expect("spawn victim");
+        if let Some(o) = logic.objects.get_mut(&id) {
+            o.construction_percent = 1.0;
+            o.status.under_construction = false;
+            o.owner_player_id = Some(3);
+            o.selection_radius = 8.0;
+        }
+        id
+    }
+
+    #[test]
+    fn leftover_impact_event_name_matches_cpp_kindof() {
+        assert_eq!(
+            leftover_railroad_impact_event_name("", true, false, false, false).as_deref(),
+            Some(RAILROAD_MEATY_SOUND)
+        );
+        assert_eq!(
+            leftover_railroad_impact_event_name("", false, false, false, true).as_deref(),
+            Some(RAILROAD_SMALL_METAL_SOUND)
+        );
+        assert_eq!(
+            leftover_railroad_impact_event_name("", false, true, false, true).as_deref(),
+            Some(RAILROAD_BIG_METAL_SOUND)
+        );
+        assert_eq!(
+            leftover_railroad_impact_event_name("", false, false, true, false).as_deref(),
+            Some(RAILROAD_BIG_METAL_SOUND)
+        );
+        assert_eq!(
+            leftover_railroad_impact_event_name("", false, false, false, false).as_deref(),
+            None
+        );
+        assert_eq!(
+            leftover_railroad_impact_event_name("VictimBounce", true, false, false, false)
+                .as_deref(),
+            Some("VictimBounce")
+        );
+        let vol = leftover_railroad_impact_volume(0.0, 1.0, true);
+        assert!(
+            (0.25..=1.0).contains(&vol),
+            "C++ MuLaw volume in [0.25, 1.0]: {vol}"
+        );
+    }
+
+    #[test]
+    fn collide_infantry_queues_leftover_meaty_hit() {
+        railroad_registry_reset();
+        let mut logic = GameLogic::new();
+        let loco = spawn_train(&mut logic, "CivilianTrainEngine", Vec3::ZERO);
+        inject_railroad_track(loco, straight_track(400.0, None));
+        let victim = spawn_victim(
+            &mut logic,
+            "AmericaRanger",
+            Vec3::ZERO,
+            &[KindOf::Infantry],
+        );
+        logic.update_railroads();
+        assert!(
+            logic.queued_audio_events.iter().any(|e| {
+                e.event_type == RAILROAD_MEATY_SOUND
+                    && e.object_id == Some(loco)
+                    && e.player_index == Some(3)
+                    && e.position.is_some()
+                    && !e.stop
+            }),
+            "sub-kill infantry collide must queue TrainMeatyHit: {:?}",
+            logic.queued_audio_events
+        );
+        let _ = victim;
+        railroad_registry_reset();
+    }
+
+    #[test]
+    fn collide_vehicle_queues_cpp_small_metal_hit() {
+        railroad_registry_reset();
+        let mut logic = GameLogic::new();
+        let loco = spawn_train(&mut logic, "CivilianTrainEngine", Vec3::ZERO);
+        inject_railroad_track(loco, straight_track(400.0, None));
+        let _victim = spawn_victim(
+            &mut logic,
+            "AmericaTankCrusader",
+            Vec3::ZERO,
+            &[KindOf::Vehicle],
+        );
+        logic.update_railroads();
+        assert!(
+            logic.queued_audio_events.iter().any(|e| {
+                e.event_type == RAILROAD_SMALL_METAL_SOUND && e.object_id == Some(loco)
+            }),
+            "vehicle collide must queue TrainSmallMetalHit: {:?}",
+            logic.queued_audio_events
+        );
+        railroad_registry_reset();
+    }
+
+    #[test]
+    fn collide_huge_vehicle_queues_cpp_big_metal_hit() {
+        railroad_registry_reset();
+        let mut logic = GameLogic::new();
+        let loco = spawn_train(&mut logic, "CivilianTrainEngine", Vec3::ZERO);
+        inject_railroad_track(loco, straight_track(400.0, None));
+        let _victim = spawn_victim(
+            &mut logic,
+            "ChinaTankOverlord",
+            Vec3::ZERO,
+            &[KindOf::Vehicle, KindOf::HugeVehicle],
+        );
+        logic.update_railroads();
+        assert!(
+            logic.queued_audio_events.iter().any(|e| {
+                e.event_type == RAILROAD_BIG_METAL_SOUND && e.object_id == Some(loco)
+            }),
+            "huge-vehicle collide must queue TrainBigMetalHit: {:?}",
+            logic.queued_audio_events
+        );
+        railroad_registry_reset();
+    }
+
+    #[test]
+    fn collide_faction_structure_queues_leftover_big_metal() {
+        railroad_registry_reset();
+        let mut logic = GameLogic::new();
+        let loco = spawn_train(&mut logic, "CivilianTrainEngine", Vec3::ZERO);
+        inject_railroad_track(loco, straight_track(400.0, None));
+        let _victim = spawn_victim(
+            &mut logic,
+            "AmericaPowerPlant",
+            Vec3::ZERO,
+            &[KindOf::Structure, KindOf::FSPower],
+        );
+        // Leftover faction path plays impact even at kill speed.
+        with_railroad_registry_mut(|reg| {
+            if let Some(car) = reg.get_mut(loco) {
+                car.speed = 3.0;
+            }
+        });
+        logic.update_railroads();
+        assert!(
+            logic.queued_audio_events.iter().any(|e| {
+                e.event_type == RAILROAD_BIG_METAL_SOUND && e.object_id == Some(loco)
+            }),
+            "faction structure collide must queue TrainBigMetalHit: {:?}",
+            logic.queued_audio_events
+        );
+        railroad_registry_reset();
+    }
+
+    #[test]
+    fn collide_bounce_sound_wins_over_kindof() {
+        railroad_registry_reset();
+        let mut logic = GameLogic::new();
+        let loco = spawn_train(&mut logic, "CivilianTrainEngine", Vec3::ZERO);
+        inject_railroad_track(loco, straight_track(400.0, None));
+        let victim = spawn_victim(
+            &mut logic,
+            "BounceRanger",
+            Vec3::ZERO,
+            &[KindOf::Infantry],
+        );
+        if let Some(o) = logic.objects.get_mut(&victim) {
+            o.bounce_sound_name = "VictimBounce".into();
+        }
+        logic.update_railroads();
+        assert!(
+            logic.queued_audio_events.iter().any(|e| {
+                e.event_type == "VictimBounce" && e.object_id == Some(loco)
+            }),
+            "leftover bounce sound must win: {:?}",
+            logic.queued_audio_events
+        );
+        assert!(
+            logic
+                .queued_audio_events
+                .iter()
+                .all(|e| e.event_type != RAILROAD_MEATY_SOUND),
+            "bounce must suppress Meaty: {:?}",
+            logic.queued_audio_events
+        );
+        railroad_registry_reset();
+    }
+
+    #[test]
+    fn collide_kill_speed_does_not_play_impact() {
+        railroad_registry_reset();
+        let mut logic = GameLogic::new();
+        let loco = spawn_train(&mut logic, "CivilianTrainEngine", Vec3::ZERO);
+        inject_railroad_track(loco, straight_track(400.0, None));
+        logic.update_railroads();
+        logic.queued_audio_events.clear();
+        with_railroad_registry_mut(|reg| {
+            if let Some(car) = reg.get_mut(loco) {
+                car.speed = RAILROAD_KILL_SPEED_MIN;
+                car.conductor_state = HostConductorState::Accelerate;
+            }
+        });
+        let loco_pos = logic.host_object(loco).unwrap().get_position();
+        let _victim = spawn_victim(
+            &mut logic,
+            "KillSpeedRanger",
+            loco_pos,
+            &[KindOf::Infantry],
+        );
+        logic.update_railroads();
+        assert!(
+            logic
+                .queued_audio_events
+                .iter()
+                .all(|e| e.event_type != RAILROAD_MEATY_SOUND
+                    && e.event_type != RAILROAD_BIG_METAL_SOUND
+                    && e.event_type != RAILROAD_SMALL_METAL_SOUND),
+            "leftover kill-speed path has no play_impact_sound: {:?}",
             logic.queued_audio_events
         );
         railroad_registry_reset();

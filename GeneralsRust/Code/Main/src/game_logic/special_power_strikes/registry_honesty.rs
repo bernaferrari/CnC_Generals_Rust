@@ -1482,6 +1482,16 @@ impl HostSpecialPowerStrikeRegistry {
                 field.laser_base_flare_created = fx.laser_base;
                 field.laser_base_intensity = fx.laser_base_intensity;
                 field.ground_to_orbit_laser_created = fx.ground_to_orbit;
+                let flare_origin = if field.source_axis_set {
+                    field.source_position
+                } else {
+                    field.position
+                };
+                spawn_particle_outer_node_flares(
+                    field.source_object,
+                    flare_origin,
+                    field.outer_intensity,
+                );
                 match next_status {
                     ParticleUplinkStatus::Postfire => {
                         field.postfire_applications = field.postfire_applications.saturating_add(1);
@@ -1516,6 +1526,12 @@ impl HostSpecialPowerStrikeRegistry {
                 field.next_launch_fx_frame = current_frame
                     .saturating_add(PARTICLE_LAUNCH_FX_INTERVAL_FRAMES)
                     .max(field.next_launch_fx_frame.saturating_add(1));
+                let origin = if field.source_axis_set {
+                    field.source_position
+                } else {
+                    field.position
+                };
+                play_particle_beam_launch_fx(origin);
             }
         }
     }

@@ -1529,28 +1529,20 @@ impl GameLogic {
                 (grounded, phase, is_cruise, producer, launch_fx, ignition_fx)
             };
             if launch_fx || ignition_fx {
-                let p = self
-                    .objects
-                    .get(&id)
-                    .map(|o| o.get_position())
-                    .unwrap_or(Vec3::ZERO);
-                let _ = self.combat_particles.spawn(
-                    CombatParticleKind::DeathExplosion,
-                    p,
-                    self.frame,
-                    Some(id),
-                    None,
-                );
+                // C++ NeutronMissileUpdate.cpp:226/241 FXList::doFXObj after
+                // the tilted transform is set. No invented DeathExplosion.
                 if launch_fx {
-                    let _ = crate::game_logic::dispatch_fx_list_at_pos(
+                    let _ = self.dispatch_fx_list_at_host_object(
                         crate::game_logic::host_neutron_missile_update::NEUTRON_LAUNCH_FX,
-                        p,
+                        id,
+                        None,
                     );
                 }
                 if ignition_fx {
-                    let _ = crate::game_logic::dispatch_fx_list_at_pos(
+                    let _ = self.dispatch_fx_list_at_host_object(
                         crate::game_logic::host_neutron_missile_update::NEUTRON_IGNITION_FX,
-                        p,
+                        id,
+                        None,
                     );
                 }
             }
@@ -1672,21 +1664,12 @@ impl GameLogic {
                 (grounded, ignition_fx, target, producer)
             };
             if ignition_fx {
-                let p = self
-                    .objects
-                    .get(&id)
-                    .map(|o| o.get_position())
-                    .unwrap_or(Vec3::ZERO);
-                let _ = self.combat_particles.spawn(
-                    CombatParticleKind::DeathExplosion,
-                    p,
-                    self.frame,
-                    Some(id),
-                    None,
-                );
-                let _ = crate::game_logic::dispatch_fx_list_at_pos(
+                // C++ MissileAIUpdate.cpp:451-474 doIgnitionState doFXObj.
+                // No invented DeathExplosion at ignition.
+                let _ = self.dispatch_fx_list_at_host_object(
                     crate::game_logic::special_power_strikes::SCUD_STORM_MISSILE_IGNITION_FX,
-                    p,
+                    id,
+                    None,
                 );
                 self.scud_storm_missile_flight_reg.record_ignition();
             } else if !grounded {

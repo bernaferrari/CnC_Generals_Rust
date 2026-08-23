@@ -397,6 +397,53 @@ fn live_host_script_unmanned_radar_stealth_apply() {
     assert!(OBJECT_REGISTRY.is_empty());
 }
 
+#[test]
+fn team_create_radar_event_uses_first_member_not_centroid() {
+    use crate::game_logic::host_radar::last_the_radar_event_host_position;
+    use gamelogic::object::registry::OBJECT_REGISTRY;
+    use gamelogic::scripting::{
+        request_host_script_radar_event, HostScriptRadarEventRequest,
+    };
+
+    OBJECT_REGISTRY.clear();
+    let _ = gamelogic::scripting::take_host_script_radar_event_requests();
+
+    let mut logic = GameLogic::new();
+    let mut tank = ThingTemplate::new("AmericaTankCrusader");
+    tank.set_health(400.0);
+    logic.templates.insert("AmericaTankCrusader".into(), tank);
+
+    let first = logic
+        .create_object("AmericaTankCrusader", Team::USA, Vec3::new(10.0, 0.0, 20.0))
+        .expect("first");
+    if let Some(o) = logic.host_object_mut(first) {
+        o.team_instance_name = "teamAmerica".into();
+    }
+    let second = logic
+        .create_object(
+            "AmericaTankCrusader",
+            Team::USA,
+            Vec3::new(110.0, 0.0, 220.0),
+        )
+        .expect("second");
+    if let Some(o) = logic.host_object_mut(second) {
+        o.team_instance_name = "teamAmerica".into();
+    }
+    assert!(first.0 < second.0, "first created must have the lower id");
+
+    request_host_script_radar_event(HostScriptRadarEventRequest::Team {
+        team: "teamAmerica".into(),
+        event_type: 4,
+    });
+    logic.apply_host_radar_event_script_requests();
+    let last = last_the_radar_event_host_position().expect("team radar ping");
+    assert!(
+        (last.x - 10.0).abs() < 0.1 && (last.z - 20.0).abs() < 0.1,
+        "TEAM_CREATE_RADAR_EVENT must ping first member, not centroid, got {last:?}"
+    );
+}
+
+
 
 #[test]
 fn live_host_team_hooks_add_member_and_notify_death_once() {

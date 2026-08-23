@@ -45,6 +45,39 @@ impl Object {
         }
     }
 
+    /// C++ `Object::setTeam` / leftover `apply_team_ai_profile`.
+    /// Attitude and attack priority come from the named Team prototype
+    /// (`AmericaTeamRangers`, `teamAmerica`), never the faction enum.
+    pub fn apply_named_team_ai_profile(&mut self, force_attitude: bool) {
+        let name = self.team_instance_name.trim();
+        if name.is_empty() {
+            return;
+        }
+        let Ok(factory) = gamelogic::team::get_team_factory().lock() else {
+            return;
+        };
+        let Some(proto) = factory.find_team_prototype(name) else {
+            return;
+        };
+        let prio_name = proto.get_attack_priority_name().as_str().to_string();
+        let initial_att_i8 = match proto.get_initial_team_attitude() {
+            gamelogic::team::AttitudeType::Sleep => -2i8,
+            gamelogic::team::AttitudeType::Passive => -1,
+            gamelogic::team::AttitudeType::Normal => 0,
+            gamelogic::team::AttitudeType::Alert => 1,
+            gamelogic::team::AttitudeType::Aggressive => 2,
+            gamelogic::team::AttitudeType::Invalid => 0,
+        };
+        drop(factory);
+        if self.attack_priority_set.is_none() && !prio_name.is_empty() {
+            self.attack_priority_set = Some(prio_name);
+        }
+        if force_attitude || (self.ai_attitude == 0 && initial_att_i8 != 0) {
+            self.set_ai_attitude_i8(initial_att_i8.clamp(-2, 2));
+        }
+    }
+
+
     /// Update team color (useful for changing allegiance)
     pub fn set_team(&mut self, team: Team) {
         let changed = self.team != team;
@@ -66,6 +99,8 @@ impl Object {
             // C++ Team::setControllingPlayer / Object::setTeam → handlePartitionCellMaintenance.
             self.handle_partition_cell_maintenance();
         }
+        // C++ Object.cpp:857-872 setTeam: ai->setAttitude(named proto).
+        self.apply_named_team_ai_profile(true);
     }
 
     /// Set faction presentation and exact controlling-player identity together.
@@ -84,6 +119,8 @@ impl Object {
             // C++ Object::setTeam then onCapture handlePartitionCellMaintenance.
             self.handle_partition_cell_maintenance();
         }
+        // C++ Object.cpp:857-872 setTeam: ai->setAttitude(named proto).
+        self.apply_named_team_ai_profile(true);
     }
 
     /// Check if this object is visible to a team (for fog of war / targeting UI).

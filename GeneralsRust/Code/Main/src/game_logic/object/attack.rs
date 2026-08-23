@@ -311,13 +311,13 @@ impl Object {
                 weapon.reloading_clip = false;
             }
             if let Some(weapon_name) = name {
+                let rof = self.weapon_bonus_fields().2;
                 if let Some(rolled) =
-                    crate::game_logic::weapon_bootstrap::host_delay_between_shots_secs_rolled(
+                    crate::game_logic::weapon_bootstrap::host_delay_between_shots_secs_with_rof(
                         weapon_name,
+                        rof,
                     )
                 {
-                    let rof = self.weapon_bonus_fields().2;
-                    let rolled = (rolled / rof.max(0.01)).max(0.0);
                     let nominal = self
                         .weapon_slot(slot)
                         .map(|weapon| self.live_reload_interval(weapon, Some(weapon_name), rof))
@@ -692,10 +692,10 @@ impl Object {
     /// DelayBetweenShots or ClipReloadTime, both scaled by RATE_OF_FIRE.
     ///
     /// Template delay is preferred so baked PRIMARY reload scalars are not
-    /// stacked with `weapon_bonus_fields` veterancy. Ready-checks use the
-    /// deterministic Min yardstick; per-shot GameLogicRandomValue(min, max)
-    /// is applied at fire (C++ `privateFireWeapon` / leftover
-    /// `get_delay_between_shots`).
+    /// stacked with `weapon_bonus_fields` veterancy. Ready-checks use leftover
+    /// `get_delay_between_shots` on the Min yardstick (no GameLogicRandomValue);
+    /// per-shot leftover roll + ROF floor is applied at fire (C++
+    /// `privateFireWeapon` / leftover `get_delay_between_shots`).
     pub(super) fn live_reload_interval(
         &self,
         weapon: &Weapon,
@@ -708,16 +708,21 @@ impl Object {
             == crate::game_logic::weapon_bootstrap::HostReloadType::Auto;
         let waiting_clip = weapon.reloading_clip
             || (auto_clip && weapon.clip_size > 0 && weapon.ammo == Some(0));
-        let base = if waiting_clip {
-            weapon.clip_reload_time
-        } else {
-            weapon_name
-                .and_then(
-                    crate::game_logic::weapon_bootstrap::host_delay_between_shots_secs_nominal,
+        if waiting_clip {
+            return (weapon.clip_reload_time / rof.max(0.01)).max(0.0);
+        }
+        if let Some(name) = weapon_name {
+            if let Some(secs) =
+                crate::game_logic::weapon_bootstrap::host_delay_between_shots_secs_nominal_with_rof(
+                    name, rof,
                 )
-                .unwrap_or(weapon.reload_time)
-        };
-        (base / rof.max(0.01)).max(0.0)
+            {
+                return secs;
+            }
+        }
+        // Fallback: leftover ROF floor on the baked yardstick (seconds → frames).
+        let frames = (weapon.reload_time * 30.0).round();
+        ((frames / rof.max(0.01)).floor() / 30.0).max(0.0)
     }
 
     /// C++ `Weapon::rebuildScatterTargets` — refill unused indices for this clip.

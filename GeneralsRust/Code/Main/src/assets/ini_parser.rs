@@ -890,6 +890,11 @@ pub struct ObjectDefinition {
     /// parsed last.
     pub locomotor_sets: Vec<LocomotorSetDefinition>,
 
+    /// Source-authored `Prerequisites` rows in declaration order.
+    /// Each Object/Science line is one leftover ProductionPrerequisite (AND).
+    pub prerequisite_lines: Vec<(String, String)>,
+
+
     /// Other attributes from INI
     pub attributes: HashMap<String, String>,
 }
@@ -1049,6 +1054,8 @@ impl ObjectDefinition {
             subdual_heal_rate_frames: None,
             subdual_heal_amount: None,
             locomotor_sets: Vec::new(),
+            prerequisite_lines: Vec::new(),
+
             attributes: HashMap::new(),
         }
     }
@@ -1261,6 +1268,10 @@ impl ObjectDefinition {
     pub fn apply_create_override_properties(&mut self, properties: &HashMap<String, String>) {
         let mut keys: Vec<&String> = properties.keys().collect();
         keys.sort();
+        if keys.iter().any(|key| leftover_prereq_field(key).is_some()) {
+            // C++ CREATE_OVERRIDES clears m_prereqInfo before re-parse.
+            self.prerequisite_lines.clear();
+        }
         for key in keys {
             let Some(value) = properties.get(key) else {
                 continue;
@@ -1275,6 +1286,14 @@ impl ObjectDefinition {
         if base.ends_with(".__body") || base.ends_with(".<raw>") {
             return;
         }
+        if let Some(field) = leftover_prereq_field(base) {
+            if field.eq_ignore_ascii_case("Object") || field.eq_ignore_ascii_case("Science") {
+                self.prerequisite_lines
+                    .push((field.to_string(), trimmed.to_string()));
+            }
+            return;
+        }
+
 
         if let Some((index, field)) = leftover_weapon_set_key(base) {
             while self.weapon_sets.len() <= index {
@@ -1429,6 +1448,15 @@ fn leftover_module_field_name(key: &str) -> Option<&str> {
 fn leftover_attribute_key(key: &str) -> String {
     key.rsplit(['.', '#']).next().unwrap_or(key).to_string()
 }
+
+fn leftover_prereq_field(key: &str) -> Option<&str> {
+    let base = key.split('#').next().unwrap_or(key);
+    let (prefix, field) = base.split_once('.')?;
+    prefix
+        .eq_ignore_ascii_case("Prerequisites")
+        .then_some(field)
+}
+
 
 impl LocomotorSetDefinition {
     fn from_leftover_row(value: &str) -> Self {
@@ -1700,6 +1728,8 @@ impl IniParser {
         let mut active_weapon_set_depth = 0usize;
         let mut active_armor_set: Option<usize> = None;
         let mut active_armor_set_depth = 0usize;
+        let mut active_prerequisites = false;
+
         let mut object_count = 0;
         for (index, line) in lines.iter().enumerate() {
             let trimmed = line.trim();
@@ -1740,6 +1770,8 @@ impl IniParser {
                 active_weapon_set_depth = 0;
                 active_armor_set = None;
                 active_armor_set_depth = 0;
+                active_prerequisites = false;
+
                 trace!("Found object: {}", current_object.as_ref().unwrap().name);
                 continue;
             }
@@ -1749,6 +1781,7 @@ impl IniParser {
                 if current_object.is_some()
                     && active_weapon_set.is_none()
                     && active_armor_set.is_none()
+                    && !active_prerequisites
                     && Self::is_object_terminator(&lines, index + 1)
                 {
                     if let Some(obj) = current_object.take() {
@@ -1763,6 +1796,8 @@ impl IniParser {
                     active_weapon_set_depth = 0;
                     active_armor_set = None;
                     active_armor_set_depth = 0;
+                    active_prerequisites = false;
+
                 } else {
                     if active_weapon_set.is_some() {
                         active_weapon_set_depth = active_weapon_set_depth.saturating_sub(1);
@@ -1778,6 +1813,11 @@ impl IniParser {
                         }
                         continue;
                     }
+                    if active_prerequisites {
+                        active_prerequisites = false;
+                        continue;
+                    }
+
                     // Nested block terminator.  A condition-state block closes
                     // before its Draw module; other nested Object blocks do
                     // not affect the currently retained Draw data.
@@ -1816,6 +1856,13 @@ impl IniParser {
                     active_condition_state = None;
                     continue;
                 }
+                if Self::is_prerequisites_header(trimmed) {
+                    active_prerequisites = true;
+                    active_draw_module = None;
+                    active_condition_state = None;
+                    continue;
+                }
+
 
 
                 // Object INI nested module headers have no `=`.  The parser
@@ -1890,6 +1937,16 @@ impl IniParser {
                     } else {
                         value
                     };
+                    if active_prerequisites {
+                        if key.eq_ignore_ascii_case("Object")
+                            || key.eq_ignore_ascii_case("Science")
+                        {
+                            obj.prerequisite_lines
+                                .push((key.to_string(), value.to_string()));
+                        }
+                        continue;
+                    }
+
 
                     // Parse specific fields
                     let lower_key = key.to_lowercase();
@@ -2290,6 +2347,15 @@ impl IniParser {
     fn is_object_header(line: &str) -> bool {
         Self::parse_object_header(line).is_some()
     }
+
+    fn is_prerequisites_header(line: &str) -> bool {
+        !line.contains('=')
+            && line
+                .split_whitespace()
+                .next()
+                .is_some_and(|head| head.eq_ignore_ascii_case("Prerequisites"))
+    }
+
 
     fn is_weapon_set_header(line: &str) -> bool {
         !line.contains('=')
@@ -3269,6 +3335,58 @@ End
             Some("STRUCTURE SELECTABLE")
         );
     }
+
+    #[test]
+    fn prerequisites_block_keeps_and_or_object_lines() {
+        let ini_content = r#"
+Object GLABlackMarket
+  KindOf = STRUCTURE
+  Prerequisites
+    Object = GLAPalace
+  End
+  BuildCost = 2500
+End
+Object AmericaStrategyCenter
+  KindOf = STRUCTURE
+  Prerequisites
+    Object = AmericaWarFactory AmericaAirfield
+    Object = AmericaCommandCenter
+  End
+End
+"#;
+        let mut parser = IniParser::new();
+        parser
+            .parse_ini_content(ini_content, "prereq_probe.ini")
+            .unwrap();
+        let market = parser.get_definition("GLABlackMarket").unwrap();
+        assert_eq!(
+            market.prerequisite_lines,
+            vec![("Object".to_string(), "GLAPalace".to_string())]
+        );
+        assert_eq!(
+            market.attributes.get("BuildCost").map(String::as_str),
+            Some("2500")
+        );
+        assert!(
+            !market.attributes.contains_key("Object"),
+            "Prerequisites Object must not leak into the lossy attribute map"
+        );
+        let strategy = parser.get_definition("AmericaStrategyCenter").unwrap();
+        assert_eq!(
+            strategy.prerequisite_lines,
+            vec![
+                (
+                    "Object".to_string(),
+                    "AmericaWarFactory AmericaAirfield".to_string()
+                ),
+                (
+                    "Object".to_string(),
+                    "AmericaCommandCenter".to_string()
+                ),
+            ]
+        );
+    }
+
 
     fn model_condition_bit(name: &str) -> u128 {
         let index =

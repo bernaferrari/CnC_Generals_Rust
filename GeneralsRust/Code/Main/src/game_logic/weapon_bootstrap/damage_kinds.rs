@@ -1,35 +1,46 @@
 use super::*;
 
-/// C++ Weapon.ini ShowsAmmoPips residual.
+/// C++ Weapon.ini ShowsAmmoPips / WeaponTemplate::m_isShowsAmmoPips.
+///
+/// Leftover store is source of truth. Default false when the template is
+/// missing — do not invent the flag from weapon-name substrings.
 pub fn host_shows_ammo_pips_for_weapon_name(name: &str) -> bool {
-    seed_shows_ammo_pips_for(name)
+    if name.is_empty() {
+        return false;
+    }
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    with_weapon_store(|store| {
+        store
+            .find_weapon_template(name)
+            .map(|weapon| weapon.is_shows_ammo_pips)
+    })
+    .ok()
+    .flatten()
+    .unwrap_or(false)
 }
 
-pub(super) fn seed_shows_ammo_pips_for(name: &str) -> bool {
-    let n = name.to_ascii_lowercase();
-    // Aircraft missile/clip residual + raptor/comet/aurora style.
-    (n.contains("raptor") && n.contains("missile"))
-        || (n.contains("mig") && n.contains("missile"))
-        || n.contains("stealthjet")
-        || n.contains("aurora")
-        || (n.contains("missile") && (n.contains("jet") || n.contains("aircraft")))
-        || n.contains("scud") && n.contains("launcher")
-}
 
-/// C++ Weapon.ini CapableOfFollowingWaypoints residual.
+/// C++ Weapon.ini CapableOfFollowingWaypoints / WeaponTemplate::m_capableOfFollowingWaypoint.
+///
+/// Leftover store is source of truth. Default false when the template is
+/// missing — do not invent the flag from weapon-name substrings.
 pub fn host_capable_of_following_waypoint_for_weapon_name(name: &str) -> bool {
-    seed_capable_of_following_waypoint_for(name)
+    if name.is_empty() {
+        return false;
+    }
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    with_weapon_store(|store| {
+        store
+            .find_weapon_template(name)
+            .map(|weapon| weapon.capable_of_following_waypoint)
+    })
+    .ok()
+    .flatten()
+    .unwrap_or(false)
 }
 
-pub(super) fn seed_capable_of_following_waypoint_for(name: &str) -> bool {
-    let n = name.to_ascii_lowercase();
-    // Cruise / guided residual weapons that C++ marks CapableOfFollowingWaypoints.
-    n.contains("scud")
-        || n.contains("tomahawk")
-        || n.contains("cruise")
-        || n.contains("particlecannon")
-        || n.contains("nuke") && n.contains("missile")
-}
 
 /// C++ Weapon.ini ProjectileStreamName residual.
 ///

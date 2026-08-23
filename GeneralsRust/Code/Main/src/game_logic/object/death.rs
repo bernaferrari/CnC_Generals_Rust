@@ -918,15 +918,23 @@ impl Object {
         kill_now
     }
 
-    fn dispatch_pending_topple_fx(&mut self, pos: glam::Vec3) {
-        let Some(td) = self.topple_data.as_mut() else {
-            return;
+    fn dispatch_pending_topple_fx(&mut self, _pos: glam::Vec3) {
+        let (topple, bounce) = {
+            let Some(td) = self.topple_data.as_mut() else {
+                return;
+            };
+            (td.take_pending_topple_fx(), td.take_pending_bounce_fx())
         };
-        if let Some(fx) = td.take_pending_topple_fx() {
-            let _ = crate::game_logic::dispatch_fx_list_at_pos(&fx, pos);
-        }
-        if let Some(fx) = td.take_pending_bounce_fx() {
-            let _ = crate::game_logic::dispatch_fx_list_at_pos(&fx, pos);
+        // C++ ToppleUpdate.cpp:189/324 FXList::doFXObj — tree transform,
+        // object-shroud, Sound player index.
+        for fx in [topple, bounce].into_iter().flatten() {
+            crate::game_logic::publish_host_fx_object(
+                self.id.0,
+                self.get_position(),
+                self.get_orientation(),
+                self.owner_player_id.map(|p| p as i32).unwrap_or(-1),
+            );
+            let _ = crate::game_logic::dispatch_fx_list_at_object(&fx, self.id.0, None);
         }
     }
 

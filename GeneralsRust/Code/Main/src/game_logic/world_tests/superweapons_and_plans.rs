@@ -5406,6 +5406,115 @@ fn script_skirmish_command_button_most_valuable_does_button_not_force_attack() {
     );
 }
 
+#[test]
+fn script_skirmish_attack_nearest_group_uses_relationship_and_cell_value() {
+    use crate::game_logic::AIState;
+    use crate::game_logic::partition_manager::PARTITION_CELL_SIZE_RESIDUAL;
+    use gamelogic::common::Relationship;
+    use gamelogic::scripting::request_host_skirmish_attack_nearest_group;
+
+    if let Ok(mut pm) = gamelogic::object::collide::partition_manager::PARTITION_MANAGER.write() {
+        pm.clear();
+    }
+    let _ = gamelogic::scripting::take_host_skirmish_attack_nearest_group_requests();
+
+    let mut logic = GameLogic::new();
+    logic.scripts_loaded = true;
+
+    let mut p0 = Player::new(0, Team::USA, "USA1", true);
+    let mut p1 = Player::new(1, Team::USA, "USA2", false);
+    let p_neutral = Player::new(3, Team::Neutral, "Neutral", false);
+    p0.set_map_relationship(1, Relationship::Enemies);
+    p1.set_map_relationship(0, Relationship::Enemies);
+    p0.resources.supplies = 100_000;
+    p1.resources.supplies = 100_000;
+    logic.add_player(p0);
+    logic.add_player(p1);
+    logic.add_player(p_neutral);
+
+    ensure_test_tank_template(&mut logic);
+    ensure_test_infantry_template(&mut logic);
+
+    let mut cheap = ThingTemplate::new("CheapHut");
+    cheap
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    cheap.build_cost.supplies = 30;
+    logic.templates.insert("CheapHut".into(), cheap);
+
+    let mut decoy = ThingTemplate::new("NeutralPalace");
+    decoy
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    decoy.build_cost.supplies = 5000;
+    logic.templates.insert("NeutralPalace".into(), decoy);
+
+    let attacker = logic
+        .create_object("TestTank", Team::USA, glam::Vec3::ZERO)
+        .expect("attacker");
+    if let Some(obj) = logic.host_object_mut(attacker) {
+        obj.team_instance_name = "teamAmerica".into();
+        obj.owner_player_id = Some(0);
+        obj.shroud_clearing_range = 0.0;
+    }
+
+    // Same-faction USA enemy pair in cell (5, 0). Each costs 30; aggregate 60 > 50.
+    // Off-corner so dest must be the cell corner, not an object pose.
+    let e1 = logic
+        .create_object("CheapHut", Team::USA, glam::Vec3::new(205.0, 0.0, 10.0))
+        .expect("e1");
+    let e2 = logic
+        .create_object("CheapHut", Team::USA, glam::Vec3::new(215.0, 0.0, 15.0))
+        .expect("e2");
+    for id in [e1, e2] {
+        if let Some(obj) = logic.host_object_mut(id) {
+            obj.owner_player_id = Some(1);
+            obj.partition_cash_value = 30;
+            obj.shroud_clearing_range = 0.0;
+        }
+    }
+
+    // Closer Neutral 5000-cost must be ignored (ALLOW_ENEMIES only).
+    let n = logic
+        .create_object(
+            "NeutralPalace",
+            Team::Neutral,
+            glam::Vec3::new(80.0, 0.0, 0.0),
+        )
+        .expect("neutral");
+    if let Some(obj) = logic.host_object_mut(n) {
+        obj.owner_player_id = Some(3);
+        obj.partition_cash_value = 5000;
+        obj.shroud_clearing_range = 0.0;
+    }
+
+    request_host_skirmish_attack_nearest_group("teamAmerica", 4, 50);
+    logic.evaluate_and_execute_scripts(0.0);
+
+    let after = logic.host_object(attacker).expect("attacker");
+    let dest = after
+        .requested_destination
+        .expect("attack-move dest");
+    let cell = PARTITION_CELL_SIZE_RESIDUAL;
+    assert!(
+        (dest.x - 5.0 * cell).abs() < 0.1 && (dest.z - 0.0).abs() < 0.1,
+        "must attack-move to enemy cell corner, not Neutral/object/origin, dest={dest:?}"
+    );
+    assert_ne!(
+        dest,
+        glam::Vec3::new(80.0, 0.0, 0.0),
+        "Neutral high-cost must not win ALLOW_ENEMIES"
+    );
+    assert!(
+        after.ai_state == AIState::AttackMoving || after.ai_state == AIState::Moving,
+        "team must attack-move, state={:?}",
+        after.ai_state
+    );
+}
+
+
 
 
 

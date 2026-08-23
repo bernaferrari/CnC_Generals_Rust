@@ -380,6 +380,11 @@ pub struct Object {
     /// C++ `OBJECT_STATUS_SCRIPT_UNSTEALTHED` — `NAMED/TEAM_SET_STEALTH_ENABLED`.
     #[serde(default)]
     pub script_unstealthed: bool,
+    /// C++ `OBJECT_STATUS_SCRIPT_TARGETABLE` / map `objectTargetable` /
+    /// leftover_sa `Player Targetable`.
+    #[serde(default)]
+    pub script_targetable: bool,
+
 
     /// C++ ActiveBody::m_indestructible (map objectIndestructible / UNIT INDESTRUCTIBLE).
     #[serde(default)]
@@ -3059,6 +3064,8 @@ pub use entity_lifecycle_tags::INVENTORY_TAGS;
 
 pub use barrels::WeaponBarrelState;
 pub use damage::{prime_live_damage_context, set_pending_damage_status_type};
+pub use status_bits::leftover_object_script_targetable;
+
 pub use visual::ObjectVisualInfo;
 pub use stealth::{
     capture_drawable_tint_envelope, drawable_disabled_dark_tint, drawable_explicit_fade_opacity,

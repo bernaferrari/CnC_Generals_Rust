@@ -825,10 +825,38 @@ impl Object {
         }
     }
 
-    /// C++ Object::onDisabledEdge. Disable does not turn Overcharge off;
-    /// EnergyBonus is folded out of the live power scan while `is_disabled`.
+    /// leftover `Object::on_disabled_edge` (object_upgrade.rs:278-319).
+    /// Applied RadarUpgrade calls Player::removeRadar/addRadar. Disable does
+    /// not turn Overcharge off; EnergyBonus is folded out of the live power
+    /// scan while `is_disabled`.
     fn on_disabled_edge(&mut self, becoming_disabled: bool) {
-        let _ = becoming_disabled;
+        use crate::game_logic::host_radar::{
+            leftover_on_disabled_edge_radar, leftover_radar_upgrade_is_applied,
+            record_leftover_radar_disabled_edge,
+        };
+        use crate::game_logic::host_upgrades::{
+            normalize_upgrade_identity, radar_provider_required_research_upgrade,
+            UPGRADE_CHINA_RADAR,
+        };
+
+        let required = radar_provider_required_research_upgrade(&self.template_name);
+        let tagged = required.is_some_and(|req| {
+            self.has_upgrade_tag(req)
+                || self.has_upgrade_tag(UPGRADE_CHINA_RADAR)
+                || self.applied_upgrades.iter().any(|name| {
+                    normalize_upgrade_identity(name).contains("chinaradar")
+                })
+        });
+        let applied = leftover_radar_upgrade_is_applied(&self.template_name, tagged);
+        if let Some(disable_proof) =
+            leftover_on_disabled_edge_radar(&self.template_name, applied)
+        {
+            record_leftover_radar_disabled_edge(
+                self.owner_player_id,
+                becoming_disabled,
+                disable_proof,
+            );
+        }
         // Intentionally keep `overcharge_enabled`. C++ OverchargeBehavior
         // stays active and continues DAMAGE_PENALTY; Energy::adjustPower
         // only mutates the player's pool.

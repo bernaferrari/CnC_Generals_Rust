@@ -2,7 +2,8 @@
 //!
 //! C++ writes PlayerList::xfer v1 / TeamFactory::xfer v1. Live used to emit
 //! NullSnapshot, so science hide/disable, team-relation overrides, build/radar
-//! script locks, and team OnCreate/OnDestroyed latches reset after load.
+//! script locks, team OnCreate/OnDestroyed latches, and leftover Team::xfer
+//! `entered_or_exited` / `check_enemy_sighted` reset after load.
 //!
 //! No WorldSnapshot version bump: pending bytes ride the named chunks.
 
@@ -18,7 +19,7 @@ pub const CHUNK_PLAYERS: &str = "CHUNK_Players";
 pub const CHUNK_TEAM_FACTORY: &str = "CHUNK_TeamFactory";
 
 const PLAYERS_CHUNK_VERSION: u8 = 3;
-const TEAM_FACTORY_CHUNK_VERSION: u8 = 2;
+const TEAM_FACTORY_CHUNK_VERSION: u8 = 3;
 const MAX_ATTACKED_BY: usize = 16;
 const MAX_GENERIC_SCRIPTS: usize = 16;
 
@@ -112,6 +113,10 @@ pub struct TeamRuntimePersist {
     pub recruitability_set: bool,
     pub recruitable: bool,
     pub state: String,
+    pub entered_or_exited: bool,
+    pub check_enemy_sighted: bool,
+    /// True when v3+ bytes carried the two leftover Team::xfer flags.
+    pub persist_edge_flags: bool,
     pub team_relations: Vec<TeamRelPersist>,
     pub player_relations: Vec<PlayerRelPersist>,
 }
@@ -133,6 +138,9 @@ impl Default for TeamRuntimePersist {
             recruitability_set: false,
             recruitable: false,
             state: String::new(),
+            entered_or_exited: false,
+            check_enemy_sighted: false,
+            persist_edge_flags: false,
             team_relations: Vec::new(),
             player_relations: Vec::new(),
         }
@@ -498,6 +506,10 @@ pub fn write_team_factory_block<W: Write + Seek>(
             map_xfer(xfer.xfer_int(&mut player_index))?;
             map_xfer(xfer.xfer_int(&mut relationship))?;
         }
+        let mut entered_or_exited = team.entered_or_exited;
+        let mut check_enemy_sighted = team.check_enemy_sighted;
+        map_xfer(xfer.xfer_bool(&mut entered_or_exited))?;
+        map_xfer(xfer.xfer_bool(&mut check_enemy_sighted))?;
     }
     Ok(())
 }
@@ -570,6 +582,11 @@ pub fn parse_team_factory_block(payload: &[u8]) -> SaveLoadResult<TeamFactoryChu
                     relationship,
                 });
             }
+        }
+        if version >= 3 {
+            map_xfer(xfer.xfer_bool(&mut team.entered_or_exited))?;
+            map_xfer(xfer.xfer_bool(&mut team.check_enemy_sighted))?;
+            team.persist_edge_flags = true;
         }
         teams.push(team);
     }
@@ -791,6 +808,9 @@ fn capture_team_factory_chunk() -> TeamFactoryChunkPersist {
             recruitability_set: team.is_recruitability_set(),
             recruitable: team.is_recruitable(),
             state: team.get_state().to_string(),
+            entered_or_exited: team.did_enter_or_exit(),
+            check_enemy_sighted: team.get_check_enemy_sighted(),
+            persist_edge_flags: true,
             team_relations: team
                 .team_relation_override_pairs()
                 .into_iter()
@@ -1037,6 +1057,12 @@ fn apply_teams_to_leftover(persist: &TeamFactoryChunkPersist) {
             team_persist.recruitable,
             &team_persist.state,
         );
+        if team_persist.persist_edge_flags {
+            team.restore_save_edge_flags(
+                team_persist.entered_or_exited,
+                team_persist.check_enemy_sighted,
+            );
+        }
         for rel in &team_persist.team_relations {
             let team_id = if rel.team_id != 0 {
                 rel.team_id
@@ -1125,6 +1151,9 @@ mod tests {
                 recruitability_set: true,
                 recruitable: false,
                 state: "Attacking".into(),
+                entered_or_exited: true,
+                check_enemy_sighted: true,
+                persist_edge_flags: true,
                 team_relations: vec![TeamRelPersist {
                     team_name: "TeamB".into(),
                     team_id: 8,
@@ -1180,6 +1209,9 @@ mod tests {
         assert_eq!(parsed_teams.teams[0].team_relations[0].relationship, 1);
         assert_eq!(parsed_teams.teams[0].player_relations[0].player_index, 2);
         assert_eq!(parsed_teams.teams[0].player_relations[0].relationship, 2);
+        assert!(parsed_teams.teams[0].entered_or_exited);
+        assert!(parsed_teams.teams[0].check_enemy_sighted);
+        assert!(parsed_teams.teams[0].persist_edge_flags);
         let _ = parsed_players;
     }
 

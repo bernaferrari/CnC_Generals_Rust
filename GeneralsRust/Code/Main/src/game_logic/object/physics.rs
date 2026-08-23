@@ -662,6 +662,11 @@ impl Object {
         leftover_highest_layer_height(self.get_position(), ground_y)
     }
 
+    /// C++ `Locomotor::getSurfaceHtAtPt` at the object's current XZ.
+    pub(crate) fn leftover_surface_ht(&self, ground_y: f32) -> f32 {
+        leftover_surface_ht_at_pt(self.get_position(), ground_y)
+    }
+
     /// C++ Locomotor::locoUpdate_maintainCurrentPosition residual.
     ///
     /// Stops horizontal motion for legs/treads/wheels; hover/wings need constant Z.
@@ -681,6 +686,8 @@ impl Object {
         match self.loco_appearance {
             LocomotorAppearance::Wings => {
                 self.motive_frames_remaining = MOTIVE_FRAMES_RESIDUAL.max(1);
+                // 2D circle only. C++ handleBehaviorZ runs after with
+                // getSurfaceHtAtPt (hq-xlays) — not own altitude.
                 self.maintain_position_wings(dt.max(1.0 / 30.0));
                 return true;
             }
@@ -1389,8 +1396,8 @@ impl Object {
         let p = self.get_position() + self.movement.velocity * dt;
         self.set_position(p);
         self.movement.target_position = None;
-        let gy = p.y;
-        let _ = self.handle_behavior_z(gy, Some(maintain.y));
+        // C++ maintainCurrentPositionWings is 2D circling only
+        // (Locomotor.cpp:2488-2524). handleBehaviorZ uses terrain.
     }
 
 
@@ -1844,6 +1851,7 @@ fn leftover_surface_ht_at_pt(pos: glam::Vec3, ground_y: f32) -> f32 {
         ground_y
     }
 }
+
 
 /// C++ `handleBehaviorZ` `Z_SMOOTH_RELATIVE_TO_HIGHEST_LAYER`
 /// (`Locomotor.cpp:2248-2285`): if leftover terrain has a bridge/wall

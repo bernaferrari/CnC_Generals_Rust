@@ -1608,6 +1608,10 @@ impl PresentationFrame {
                 &ent.template.name,
                 "FORCEATTACKABLE",
             ),
+            always_selectable: crate::game_logic::host_car_bomb::object_definition_has_kind(
+                &ent.template.name,
+                "ALWAYS_SELECTABLE",
+            ),
 
             is_crate: false,
             is_salvage_crate: false,

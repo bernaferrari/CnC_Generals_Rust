@@ -73,7 +73,7 @@ pub fn pick_object_id_along_camera_ray(
         .objects
         .iter()
         .filter_map(|object| {
-            if object.destroyed {
+            if UnitControlSystem::presentation_pick_skips_dead(object) {
                 return None;
             }
             // C++ CanSelectDrawable / SelectionInfo: fogged or undetected

@@ -788,7 +788,9 @@ impl GameLogic {
         )
     }
 
-    /// C++ ParachuteContain::onRemoving: skirmish AI → aiHunt, else Idle.
+    /// C++ ParachuteContain::onRemoving: skirmish AI → aiHunt; else
+    /// rider.producer (chute) → chute.producer (building) UseSpawnRallyPoint
+    /// → DefaultProductionExitUpdate::exitObjectViaDoor; else aiIdle.
     fn apply_parachute_land_ai(&mut self, rider_id: ObjectId) {
         let Some(rider) = self.objects.get(&rider_id) else {
             return;
@@ -802,6 +804,119 @@ impl GameLogic {
             .is_some();
         if skirmish {
             let _ = self.unit_command_patrol(rider_id);
+            return;
+        }
+
+        // C++: transport = rider->getProducerID(); building = transport->getProducerID().
+        let transport_id = rider.producer_id;
+        let building_id = transport_id.and_then(|tid| self.objects.get(&tid)?.producer_id);
+        let use_spawn = building_id.is_some_and(|bid| {
+            self.objects.get(&bid).is_some_and(|building| {
+                building
+                    .thing
+                    .template
+                    .production_exit_metadata
+                    .is_some_and(|exit| exit.use_spawn_rally_point)
+            })
+        });
+        if let Some(building_id) = building_id.filter(|_| use_spawn) {
+            self.exit_parachute_rider_via_spawn_rally(rider_id, building_id);
+            return;
+        }
+
+        // C++ riderAI->aiIdle(CMD_FROM_AI).
+        if let Some(r) = self.objects.get_mut(&rider_id) {
+            r.set_ai_state(AIState::Idle);
+            r.hunting = false;
+            r.target = None;
+            r.stop_moving();
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+                crate::game_logic::host_ai_decision_log::record_set_state(rider_id, 0);
+            }
+        }
+    }
+
+    /// C++ DefaultProductionExitUpdate::exitObjectViaDoor(rider, DOOR_1).
+    /// UnitCreatePoint + 2-cell natural rally + custom rally; ignore the producer.
+    fn exit_parachute_rider_via_spawn_rally(&mut self, rider_id: ObjectId, building_id: ObjectId) {
+        let Some(building) = self.objects.get(&building_id) else {
+            return;
+        };
+        let Some(exit) = building.thing.template.production_exit_metadata else {
+            return;
+        };
+        if !exit.use_spawn_rally_point {
+            return;
+        }
+        let prod_pos = building.get_position();
+        let forward = building.thing.get_direction_vector();
+        let orientation = building.get_orientation();
+        let custom_rally = building.building_data.as_ref().and_then(|b| b.rally_point);
+        let create = crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
+            prod_pos,
+            forward,
+            (
+                exit.unit_create_point[0],
+                exit.unit_create_point[1],
+                exit.unit_create_point[2],
+            ),
+        );
+        let create = glam::Vec3::new(create.x, 0.0, create.z);
+        let natural_pt = exit.natural_rally_point_with_path_offset(
+            crate::game_logic::host_ai_path_combat_residual_wave105::PATHFIND_CELL_SIZE_F,
+        );
+        let natural = crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
+            prod_pos,
+            forward,
+            (natural_pt[0], natural_pt[1], natural_pt[2]),
+        );
+        let natural = glam::Vec3::new(natural.x, 0.0, natural.z);
+
+        if let Some(unit) = self.objects.get_mut(&rider_id) {
+            unit.set_position(create);
+            unit.set_orientation(orientation);
+            crate::game_logic::host_ground_height_log::record(rider_id, 0.0, false);
+            if crate::gameworld_shadow::gameworld_movement_authority_live() {
+                crate::game_logic::host_move_log::record(
+                    rider_id,
+                    Some([create.x, create.y, create.z]),
+                );
+                unit.record_host_movement();
+            }
+        }
+
+        let mut exit_path = vec![natural];
+        if let Some(rally) = custom_rally {
+            exit_path.push(rally);
+        }
+        self.path_approach_with_state_ignoring(
+            rider_id,
+            exit_path[0],
+            AIState::Moving,
+            Some(building_id),
+        );
+        for &wp in exit_path.iter().skip(1) {
+            let already_at = self.objects.get(&rider_id).is_some_and(|unit| {
+                unit.movement
+                    .path
+                    .last()
+                    .is_some_and(|last| last.distance(wp) < 0.1)
+                    || unit
+                        .movement
+                        .target_position
+                        .is_some_and(|dest| dest.distance(wp) < 0.1)
+            });
+            if already_at {
+                if let Some(unit) = self.objects.get_mut(&rider_id) {
+                    unit.movement.path.push(wp);
+                    unit.movement.target_position = Some(wp);
+                }
+            } else {
+                let _ = self.append_unit_waypoint(rider_id, wp);
+            }
+        }
+        if let Some(unit) = self.objects.get_mut(&rider_id) {
+            unit.can_path_through_units = true;
         }
     }
 

@@ -679,6 +679,10 @@ pub struct RenderableObject {
     /// not Selectable.
     #[serde(default)]
     pub is_force_attackable: bool,
+    /// C++ `KINDOF_ALWAYS_SELECTABLE` frozen outside the compact 32-bit KindOf
+    /// bank. Dead UI-feedback / rubble stays clickable (SelectionXlat.cpp:113).
+    #[serde(default)]
+    pub always_selectable: bool,
 
     /// C++ `KINDOF_CRATE` frozen outside the compact 32-bit KindOf bank.
     /// Physical crate-click routing uses this instead of a template name.
