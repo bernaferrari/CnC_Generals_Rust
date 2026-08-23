@@ -2069,19 +2069,43 @@ impl ScriptActionDispatcher {
         let frames = self.get_int_param(action, 1)?;
         log::debug!("Unit '{}' guarding for {} frames", unit_name, frames);
 
+        // Live host objects are not in leftover OBJECT_REGISTRY. Queue
+        // C++ doUnitGuardForFramecount: NORMAL loco + aiGuardPosition(self).
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_hunt_guard(super::HostScriptHuntGuardRequest::NamedGuard {
+                unit: unit_name.clone(),
+            });
+        }
+
         let tracker = get_named_object_tracker();
         let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) else {
-            return Ok(ScriptActionResult::Success);
+            return if frames > 0 {
+                Ok(ScriptActionResult::Pending(frames as f32))
+            } else {
+                Ok(ScriptActionResult::Success)
+            };
         };
         let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            return Ok(ScriptActionResult::Success);
+            return if frames > 0 {
+                Ok(ScriptActionResult::Pending(frames as f32))
+            } else {
+                Ok(ScriptActionResult::Success)
+            };
         };
         let Ok(obj) = obj_arc.read() else {
-            return Ok(ScriptActionResult::Success);
+            return if frames > 0 {
+                Ok(ScriptActionResult::Pending(frames as f32))
+            } else {
+                Ok(ScriptActionResult::Success)
+            };
         };
         let pos = *obj.get_position();
         let Some(ai_arc) = obj.get_ai_update_interface() else {
-            return Ok(ScriptActionResult::Success);
+            return if frames > 0 {
+                Ok(ScriptActionResult::Pending(frames as f32))
+            } else {
+                Ok(ScriptActionResult::Success)
+            };
         };
         if let Ok(mut ai) = ai_arc.lock() {
             let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
@@ -2106,18 +2130,42 @@ impl ScriptActionDispatcher {
         let frames = self.get_int_param(action, 1)?;
         log::debug!("Unit '{}' idling for {} frames", unit_name, frames);
 
+        // Live host objects are not in leftover OBJECT_REGISTRY. Queue
+        // C++ doUnitIdleForFramecount: aiIdle(CMD_FROM_SCRIPT) + sequential timer.
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_idle(super::HostScriptIdleRequest::NamedStop {
+                unit: unit_name.clone(),
+            });
+        }
+
         let tracker = get_named_object_tracker();
         let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) else {
-            return Ok(ScriptActionResult::Success);
+            return if frames > 0 {
+                Ok(ScriptActionResult::Pending(frames as f32))
+            } else {
+                Ok(ScriptActionResult::Success)
+            };
         };
         let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            return Ok(ScriptActionResult::Success);
+            return if frames > 0 {
+                Ok(ScriptActionResult::Pending(frames as f32))
+            } else {
+                Ok(ScriptActionResult::Success)
+            };
         };
         let Ok(obj) = obj_arc.read() else {
-            return Ok(ScriptActionResult::Success);
+            return if frames > 0 {
+                Ok(ScriptActionResult::Pending(frames as f32))
+            } else {
+                Ok(ScriptActionResult::Success)
+            };
         };
         let Some(ai_arc) = obj.get_ai_update_interface() else {
-            return Ok(ScriptActionResult::Success);
+            return if frames > 0 {
+                Ok(ScriptActionResult::Pending(frames as f32))
+            } else {
+                Ok(ScriptActionResult::Success)
+            };
         };
         if let Ok(mut ai) = ai_arc.lock() {
             let idle_params =
@@ -2186,6 +2234,17 @@ impl ScriptActionDispatcher {
             object_type,
             trigger_name
         );
+
+        // Leftover partition / leftover crate objects are empty on the player path.
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_move_attack(
+                super::HostScriptMoveAttackRequest::NamedMoveTowardsNearest {
+                    unit: unit_name.clone(),
+                    object_type: object_type.clone(),
+                    trigger: trigger_name.clone(),
+                },
+            );
+        }
 
         let tracker = get_named_object_tracker();
         let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) else {

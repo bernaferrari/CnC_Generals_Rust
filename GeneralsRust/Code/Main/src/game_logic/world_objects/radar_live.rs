@@ -393,7 +393,8 @@ impl GameLogic {
         let observer_is_friendly = owner_is_ally || !local_active;
         radar_obj.is_enemy = !observer_is_friendly;
 
-        radar_obj.is_hero = obj.is_kind_of(KindOf::Hero);
+        radar_obj.is_hero = self.host_object_is_hero(obj);
+
         // C++ StealthDetectorUpdate DetectionRange (or VisionRange fallback).
         // RadarSystem::update_stealth_detection only reveals when these are set.
         radar_obj.can_detect_stealth = obj.is_detector;
@@ -705,6 +706,41 @@ mod tests {
             blip.drawable_hidden && blip.is_temporarily_hidden(),
             "hijacker/script-hidden drawable must drop off the radar"
         );
+    }
+
+    #[test]
+    fn host_radar_contained_hero_marks_container() {
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "USA", true));
+        let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");
+        humvee.add_kind_of(KindOf::Vehicle).set_health(200.0);
+        logic.templates.insert("AmericaVehicleHumvee".into(), humvee);
+        let mut burton = ThingTemplate::new("ColonelBurton");
+        burton
+            .add_kind_of(KindOf::Hero)
+            .add_kind_of(KindOf::Infantry)
+            .set_health(100.0);
+        logic.templates.insert("ColonelBurton".into(), burton);
+        let container = logic
+            .create_object_for_player("AmericaVehicleHumvee", 1, Vec3::new(2.0, 0.0, 2.0))
+            .expect("humvee");
+        let hero = logic
+            .create_object_for_player("ColonelBurton", 1, Vec3::new(2.0, 0.0, 2.0))
+            .expect("burton");
+        if let Some(obj) = logic.host_object_mut(container) {
+            obj.occupants.push(hero);
+        }
+        assert!(
+            logic.unit_is_hero(container),
+            "C++ Object::isHero walks contained KINDOF_HERO"
+        );
+        logic.host_radar_add_object(container);
+        let radar = get_radar_system().read().expect("radar");
+        let blip = radar
+            .get_all_objects()
+            .find(|o| o.object_id == container.0)
+            .expect("blip");
+        assert!(blip.is_hero, "Chinook/Humvee carrying Burton is a hero blip");
     }
 
     #[test]

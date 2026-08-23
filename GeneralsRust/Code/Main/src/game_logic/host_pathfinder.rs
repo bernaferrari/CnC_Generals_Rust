@@ -258,19 +258,25 @@ pub fn pathfinder_sniper_damage(has_ap_upgrade: bool) -> f32 {
 
 /// Maintain Pathfinder move-forbidden stealth residual.
 ///
-/// Returns `(should_be_stealthed, changed)` for honesty bookkeeping when cloak
-/// state flips due to MOVING / stop.
+/// Destalth only when leftover physics velocity exceeds leftover MoveThresholdSpeed
+/// (C++ StealthUpdate.cpp:389-392 / leftover `allowed_to_stealth_runtime`).
 pub fn pathfinder_stealth_desired(
     is_pathfinder: bool,
     innate_stealth: bool,
     stealth_breaks_on_move: bool,
     is_alive: bool,
-    is_moving_state: bool,
+    leftover_velocity: f32,
+    leftover_move_threshold_speed: f32,
 ) -> Option<bool> {
     if !is_pathfinder || !innate_stealth || !is_alive {
         return None;
     }
-    if stealth_breaks_on_move && is_moving_state {
+    if stealth_breaks_on_move
+        && gamelogic::stealth_update::leftover_not_while_moving_destalths(
+            leftover_velocity,
+            leftover_move_threshold_speed,
+        )
+    {
         Some(false)
     } else {
         Some(true)
@@ -283,14 +289,20 @@ pub fn pathfinder_stealth_while_attacking(
     innate_stealth: bool,
     is_alive: bool,
     is_attacking: bool,
-    is_moving: bool,
+    leftover_velocity: f32,
+    leftover_move_threshold_speed: f32,
 ) -> Option<bool> {
     if !is_pathfinder || !innate_stealth || !is_alive {
         return None;
     }
-    // Attack does not break stealth; move does.
+    // Attack does not break stealth; leftover velocity above MoveThresholdSpeed does.
     let _ = is_attacking;
-    if PATHFINDER_STEALTH_BREAKS_ON_MOVE && is_moving {
+    if PATHFINDER_STEALTH_BREAKS_ON_MOVE
+        && gamelogic::stealth_update::leftover_not_while_moving_destalths(
+            leftover_velocity,
+            leftover_move_threshold_speed,
+        )
+    {
         Some(false)
     } else {
         Some(true)
@@ -421,17 +433,22 @@ mod tests {
             Some(PATHFINDER_DETECTION_RANGE)
         );
         assert_eq!(
-            pathfinder_stealth_desired(true, true, true, true, true),
+            pathfinder_stealth_desired(true, true, true, true, 4.0, PATHFINDER_MOVE_THRESHOLD_SPEED),
             Some(false),
-            "moving pathfinder uncloaks"
+            "leftover velocity above MoveThresholdSpeed uncloaks"
         );
         assert_eq!(
-            pathfinder_stealth_desired(true, true, true, true, false),
+            pathfinder_stealth_desired(true, true, true, true, 2.0, PATHFINDER_MOVE_THRESHOLD_SPEED),
+            Some(true),
+            "leftover velocity below MoveThresholdSpeed stays cloaked"
+        );
+        assert_eq!(
+            pathfinder_stealth_desired(true, true, true, true, 0.0, PATHFINDER_MOVE_THRESHOLD_SPEED),
             Some(true),
             "idle pathfinder re-cloaks"
         );
         assert_eq!(
-            pathfinder_stealth_desired(false, true, true, true, false),
+            pathfinder_stealth_desired(false, true, true, true, 0.0, PATHFINDER_MOVE_THRESHOLD_SPEED),
             None
         );
     }
@@ -439,14 +456,28 @@ mod tests {
     #[test]
     fn pathfinder_stealth_while_attacking_residual() {
         assert_eq!(
-            pathfinder_stealth_while_attacking(true, true, true, true, false),
+            pathfinder_stealth_while_attacking(
+                true,
+                true,
+                true,
+                true,
+                0.0,
+                PATHFINDER_MOVE_THRESHOLD_SPEED,
+            ),
             Some(true),
             "attacking idle stays stealthed"
         );
         assert_eq!(
-            pathfinder_stealth_while_attacking(true, true, true, true, true),
+            pathfinder_stealth_while_attacking(
+                true,
+                true,
+                true,
+                true,
+                4.0,
+                PATHFINDER_MOVE_THRESHOLD_SPEED,
+            ),
             Some(false),
-            "attacking while moving uncloaks"
+            "attacking while leftover velocity exceeds MoveThresholdSpeed uncloaks"
         );
         assert!(!PATHFINDER_STEALTH_BREAKS_ON_ATTACK);
         assert!(PATHFINDER_STEALTH_BREAKS_ON_MOVE);

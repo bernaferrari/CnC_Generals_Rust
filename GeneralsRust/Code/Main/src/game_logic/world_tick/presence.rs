@@ -263,12 +263,18 @@ impl GameLogic {
     }
 
     /// C++ `isInSinglePlayerGame() && getPlayerType()==PLAYER_COMPUTER`.
+    /// Leftover `Player::kill_player` is RIGHT: only leftover Computer
+    /// resurrects (skip cash wipe). Neutral/civilian/human non-local stay dead.
     pub(crate) fn should_resurrect_sp_computer_player(&self, player_id: u32) -> bool {
-        matches!(self.game_mode, GameMode::SinglePlayer)
-            && self
-                .players
-                .get(&player_id)
-                .is_some_and(|p| !p.is_local && !p.is_observer)
+        if !matches!(self.game_mode, GameMode::SinglePlayer) {
+            return false;
+        }
+        let host_name = self
+            .players
+            .get(&player_id)
+            .map(|p| p.name.as_str())
+            .unwrap_or("");
+        leftover_player_type_is_computer(player_id, host_name)
     }
 
     pub(in super::super) fn convert_script_event(
@@ -318,6 +324,48 @@ impl GameLogic {
     }
 }
 
+/// Leftover `get_player_type() == PlayerType::Computer`. Missing leftover = no.
+fn leftover_player_type_is_computer(player_id: u32, host_name: &str) -> bool {
+    leftover_player_arc_for_host_slot(player_id, host_name)
+        .and_then(|arc| {
+            arc.read()
+                .ok()
+                .map(|guard| guard.get_player_type() == gamelogic::player::PlayerType::Computer)
+        })
+        .unwrap_or(false)
+}
+
+fn leftover_player_arc_for_host_slot(
+    player_id: u32,
+    host_name: &str,
+) -> Option<std::sync::Arc<std::sync::RwLock<gamelogic::player::Player>>> {
+    let Ok(list) = gamelogic::player::ThePlayerList().read() else {
+        return None;
+    };
+    let named = format!("player{player_id}");
+    if let Some(player) = list.find_player_by_name(&named) {
+        return Some(player);
+    }
+    if !host_name.is_empty() {
+        if let Some(player) = list.find_player_by_name(host_name) {
+            return Some(player);
+        }
+    }
+    if let Some(player) = list.get_player(player_id as gamelogic::player::PlayerIndex) {
+        return Some(std::sync::Arc::clone(player));
+    }
+    for arc in list.iter() {
+        if arc
+            .read()
+            .ok()
+            .is_some_and(|guard| guard.get_player_index() as u32 == player_id)
+        {
+            return Some(std::sync::Arc::clone(arc));
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -343,19 +391,51 @@ mod tests {
         );
     }
 
-    #[test]
-    fn sp_computer_kill_preserves_cash() {
+    struct LeftoverPlayersGuard;
+
+    impl Drop for LeftoverPlayersGuard {
+        fn drop(&mut self) {
+            if let Ok(mut list) = gamelogic::player::ThePlayerList().write() {
+                list.clear();
+            }
+        }
+    }
+
+    fn install_leftover_player(
+        id: u32,
+        player_type: gamelogic::player::PlayerType,
+    ) -> LeftoverPlayersGuard {
+        let mut leftover = gamelogic::player::Player::new(id as gamelogic::player::PlayerIndex);
+        leftover.set_display_name(format!("player{id}"));
+        leftover.set_player_type(player_type, false);
+        let arc = std::sync::Arc::new(std::sync::RwLock::new(leftover));
+        let mut list = gamelogic::player::ThePlayerList()
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
+        list.clear();
+        list.add_player(arc);
+        LeftoverPlayersGuard
+    }
+
+    fn host_sp_player_with_cash(id: u32, local: bool) -> (GameLogic, crate::game_logic::ObjectId) {
         let mut logic = GameLogic::new();
         logic.game_mode = GameMode::SinglePlayer;
-        let mut ai = Player::new(1, Team::GLA, "GLA", false);
-        ai.resources.supplies = 4_000;
-        logic.add_player(ai);
+        let mut player = Player::new(id, Team::GLA, "GLA", local);
+        player.resources.supplies = 4_000;
+        logic.add_player(player);
         let mut ranger = ThingTemplate::new("GLARebel");
         ranger.add_kind_of(KindOf::Infantry).set_health(100.0);
         logic.templates.insert("GLARebel".into(), ranger);
-        let id = logic
+        let obj_id = logic
             .create_object("GLARebel", Team::GLA, glam::Vec3::ZERO)
             .expect("unit");
+        (logic, obj_id)
+    }
+
+    #[test]
+    fn sp_computer_kill_preserves_cash() {
+        let _leftover = install_leftover_player(1, gamelogic::player::PlayerType::Computer);
+        let (mut logic, id) = host_sp_player_with_cash(1, false);
         logic.kill_player_for_victory(1);
         assert!(
             logic.host_object(id).is_none()
@@ -366,5 +446,29 @@ mod tests {
         let p = logic.get_player(1).expect("ai");
         assert!(p.is_alive, "C++ resurrects SP PLAYER_COMPUTER");
         assert_eq!(p.resources.supplies, 4_000, "SP AI keeps cash");
+    }
+
+    #[test]
+    fn sp_non_computer_non_local_kill_wipes_cash() {
+        for leftover_type in [
+            None,
+            Some(gamelogic::player::PlayerType::Human),
+            Some(gamelogic::player::PlayerType::Neutral),
+            Some(gamelogic::player::PlayerType::Observer),
+        ] {
+            let _leftover = leftover_type.map(|ty| install_leftover_player(1, ty));
+            let (mut logic, _) = host_sp_player_with_cash(1, false);
+            assert!(
+                !logic.should_resurrect_sp_computer_player(1),
+                "leftover {leftover_type:?} must not resurrect"
+            );
+            logic.kill_player_for_victory(1);
+            let p = logic.get_player(1).expect("slot");
+            assert!(!p.is_alive, "leftover {leftover_type:?} stays dead");
+            assert_eq!(
+                p.resources.supplies, 0,
+                "leftover {leftover_type:?} loses cash"
+            );
+        }
     }
 }

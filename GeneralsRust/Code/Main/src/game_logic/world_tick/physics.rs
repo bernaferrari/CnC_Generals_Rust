@@ -605,11 +605,32 @@ impl GameLogic {
         if !imm_ok {
             return false;
         }
-        if let Some(m) = self.objects.get_mut(&mover_id) {
-            if mover_para {
-                m.apply_parachute_building_bounce_out(imm_center, us_radius);
-                return true;
+        if mover_para {
+            // C++ PhysicsUpdate.cpp:1322-1332 / leftover physics_collide.rs:199-221:
+            // walk getContainedBy to the outermost container, jam THAT object
+            // (usually the chute) by 0.1*usRadius, scrubVelocity2D(0).
+            // ParachuteContain is not enclosing — bouncing the rider would pull
+            // them out of the harness.
+            let bounce_id = {
+                let mut bounce_id = mover_id;
+                let mut hops = 0u8;
+                while hops < 8 {
+                    let Some(next) = self.objects.get(&bounce_id).and_then(|o| o.contained_by)
+                    else {
+                        break;
+                    };
+                    if next == bounce_id {
+                        break;
+                    }
+                    bounce_id = next;
+                    hops += 1;
+                }
+                bounce_id
+            };
+            if let Some(bounce) = self.objects.get_mut(&bounce_id) {
+                bounce.apply_parachute_building_bounce_out(imm_center, us_radius);
             }
+            return true;
         }
         // C++ PhysicsUpdate.cpp:1353-1365 — fall-into-structure destroyObject
         // (weapon only if vehicle) before stiffness bounce.

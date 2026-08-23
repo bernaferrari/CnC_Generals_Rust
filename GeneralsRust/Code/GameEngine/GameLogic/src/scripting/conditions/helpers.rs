@@ -115,6 +115,10 @@ pub struct HostScriptQueryObject {
     pub warehouse_boxes: i32,
     /// C++ Object::isOffMap — PartitionFilterOnMap reject.
     pub off_map: bool,
+    /// C++ Object::getContainedBy id (0 = none) for TEAM_WAIT_FOR_NOT_CONTAINED.
+    pub contained_by: u32,
+    /// C++ AI_EXIT pretend-contained while evacuating (leftover Exit state).
+    pub ai_exiting: bool,
 
 
 
@@ -1208,6 +1212,36 @@ pub fn host_script_team_member_ids(team_name: &str) -> Vec<u32> {
     ids.dedup();
     ids
 }
+
+/// C++ `ScriptConditions::evaluateTeamIsContained` over host snapshot members.
+/// `getContainedBy() != NULL`, plus leftover Exit-state pretend-contained.
+pub fn host_eval_team_is_contained(team_name: &str, all_contained: bool) -> bool {
+    let members = host_script_team_member_ids(team_name);
+    if members.is_empty() {
+        return false;
+    }
+    let mut any_considered = false;
+    for id in members {
+        let Some(obj) = host_script_query_object_by_id(id) else {
+            continue;
+        };
+        let is_contained = obj.contained_by != 0 || obj.ai_exiting;
+        if is_contained {
+            if !all_contained {
+                return true;
+            }
+        } else if all_contained {
+            return false;
+        }
+        any_considered = true;
+    }
+    if any_considered {
+        all_contained
+    } else {
+        false
+    }
+}
+
 
 /// C++ ScriptConditions::evaluateSkirmishCommandButtonIsReady over the host
 /// snapshot. `None` when no snapshot is injected (leftover OBJECT_REGISTRY path).

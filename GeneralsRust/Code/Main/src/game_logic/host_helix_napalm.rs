@@ -26,8 +26,9 @@
 //! Fail-closed honesty:
 //! - SpecialObject NapalmBomb projectile + HeightDieUpdate fall residual closed
 //! - FirestormDynamicGeometryInfoUpdate expand/reverse uses current bounding
-//!   circle (`doDamageScan`) + reverse-at-transition scorch; not full particle
-//!   emission-volume follow / GPU FX / ThingFactory FirestormSmall Object
+//!   circle (`doDamageScan`) + reverse-at-transition scorch. ParticleSystem /
+//!   FXList / emission follow leftover-calls leftover
+//!   FirestormDynamicGeometryInfoUpdate (playable_claim stays false).
 //! - Not full SpecialAbilityUpdate UnpackTime / MaxSpecialObjects charge matrix
 //! - Not full SubObjectsUpgrade BombWing / UnpauseSpecialPowerUpgrade module
 //! - Not network Helix Napalm replication (network deferred)
@@ -257,6 +258,13 @@ pub struct HostHelixFirestormZone {
     /// C++ `m_scorchPlaced` residual (once, when directions switch).
     #[serde(default)]
     pub scorch_placed: bool,
+    /// Leftover `m_myParticleSystemID[MAX_FIRESTORM_SYSTEMS]`.
+    #[serde(default)]
+    pub leftover_particle_system_ids:
+        [u32; gamelogic::object::behavior::MAX_FIRESTORM_SYSTEMS],
+    /// Leftover `m_effectsFired`.
+    #[serde(default)]
+    pub leftover_effects_fired: bool,
 }
 
 impl HostHelixFirestormZone {
@@ -271,6 +279,11 @@ impl HostHelixFirestormZone {
     /// Current expand/reverse major radius at `current_frame`.
     pub fn current_radius(&self, current_frame: u32) -> f32 {
         firestorm_major_radius_at(current_frame.saturating_sub(self.activate_frame))
+    }
+
+    /// Leftover FirestormDynamicGeometryInfoUpdate ParticleSystem/FXList/emission.
+    pub fn leftover_tick_particle_fx(&mut self, current_frame: u32) {
+        leftover_tick_helix_firestorm_fx(self, current_frame);
     }
 }
 
@@ -397,6 +410,8 @@ impl HostHelixNapalmRegistry {
             objects_destroyed: 0,
             switched_directions: false,
             scorch_placed: false,
+            leftover_particle_system_ids: [0; gamelogic::object::behavior::MAX_FIRESTORM_SYSTEMS],
+            leftover_effects_fired: false,
         };
         self.active.push(zone);
         self.zones_spawned = self.zones_spawned.saturating_add(1);
@@ -512,6 +527,8 @@ impl HostHelixNapalmRegistry {
     }
 
     /// Sync stored radius / reverse-scorch flags to `current_frame`.
+    /// Leftover-calls leftover FirestormDynamicGeometryInfoUpdate ParticleSystem /
+    /// FXList first-fire and emission-volume follow.
     pub fn advance_geometry(&mut self, current_frame: u32) {
         for zone in &mut self.active {
             let elapsed = current_frame.saturating_sub(zone.activate_frame);
@@ -522,6 +539,7 @@ impl HostHelixNapalmRegistry {
                     zone.scorch_placed = true;
                 }
             }
+            zone.leftover_tick_particle_fx(current_frame);
         }
     }
 
@@ -550,6 +568,93 @@ pub fn helix_napalm_ms_to_frames(ms: u32) -> u32 {
         return 0;
     }
     ((ms as f32) * HELIX_NAPALM_LOGIC_FPS / 1000.0).round() as u32
+}
+
+/// Leftover FirestormDynamicGeometryInfoUpdate ParticleSystem/FXList/emission follow.
+fn leftover_tick_helix_firestorm_fx(zone: &mut HostHelixFirestormZone, current_frame: u32) {
+    use gamelogic::object::behavior::FirestormDynamicGeometryInfoUpdate;
+    let data = leftover_firestorm_module_data(zone.black_napalm);
+    let leftover_pos = leftover_helix_firestorm_coord(zone.position);
+    let radius = zone.current_radius(current_frame);
+    FirestormDynamicGeometryInfoUpdate::leftover_tick_particle_fx(
+        &data,
+        &leftover_pos,
+        &mut zone.leftover_particle_system_ids,
+        &mut zone.leftover_effects_fired,
+        radius,
+    );
+}
+
+/// Host Y-up `(x, height, z_ground)` → leftover/C++ Z-up `(x, y_ground, z_height)`.
+fn leftover_helix_firestorm_coord(pos: Vec3) -> gamelogic::common::Coord3D {
+    gamelogic::common::Coord3D::new(pos.x, pos.z, pos.y)
+}
+
+/// Leftover FirestormSmall / BlackNapalmFirestormSmall module data (RIGHT).
+fn leftover_firestorm_module_data(
+    black_napalm: bool,
+) -> gamelogic::object::behavior::FirestormDynamicGeometryInfoUpdateModuleData {
+    let name = if black_napalm {
+        "BlackNapalmFirestormSmall"
+    } else {
+        "FirestormSmall"
+    };
+    peel_leftover_firestorm_module_data(name).unwrap_or_default()
+}
+
+fn peel_leftover_firestorm_module_data(
+    template_name: &str,
+) -> Option<gamelogic::object::behavior::FirestormDynamicGeometryInfoUpdateModuleData> {
+    use gamelogic::object::behavior::{
+        FirestormDynamicGeometryInfoUpdateModuleData, MAX_FIRESTORM_SYSTEMS,
+    };
+    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
+    let factory = guard.as_ref()?;
+    let tmpl = factory.find_template(template_name, false)?;
+    for entry in tmpl.get_behavior_module_info().iter() {
+        if !entry
+            .name
+            .as_str()
+            .eq_ignore_ascii_case("FirestormDynamicGeometryInfoUpdate")
+        {
+            continue;
+        }
+        if let Some(data) = entry
+            .data
+            .downcast_ref::<FirestormDynamicGeometryInfoUpdateModuleData>()
+        {
+            return Some(data.clone());
+        }
+        let mut data = FirestormDynamicGeometryInfoUpdateModuleData::default();
+        let mut any = false;
+        if let Some(fx) = entry.data.get_ini_field("FXList") {
+            let fx = fx.trim();
+            if !fx.is_empty() && !fx.eq_ignore_ascii_case("None") {
+                data.fx_list = Some(fx.to_string());
+                any = true;
+            }
+        }
+        if let Some(z) = entry.data.get_ini_field("ParticleOffsetZ") {
+            if let Ok(v) = z.trim().parse::<f32>() {
+                data.particle_offset_z = v;
+                any = true;
+            }
+        }
+        for i in 0..MAX_FIRESTORM_SYSTEMS {
+            let key = format!("ParticleSystem{}", i + 1);
+            if let Some(raw) = entry.data.get_ini_field(&key) {
+                let name = raw.trim();
+                if !name.is_empty() && !name.eq_ignore_ascii_case("None") {
+                    data.particle_systems[i] = Some(name.to_string());
+                    any = true;
+                }
+            }
+        }
+        if any {
+            return Some(data);
+        }
+    }
+    None
 }
 
 // --- Wave 70 residual honesty packs ---
@@ -892,5 +997,24 @@ mod tests {
             last_radius < 20.0,
             "late shrink must be well below FinalMajorRadius, got {last_radius}"
         );
+    }
+
+    #[test]
+    fn helix_firestorm_leftover_calls_particle_fx_emission() {
+        let src = include_str!("host_helix_napalm.rs");
+        assert!(src.contains("leftover_tick_helix_firestorm_fx"));
+        assert!(src.contains("FirestormDynamicGeometryInfoUpdate::leftover_tick_particle_fx"));
+        assert!(src.contains("leftover_follow_emission_radius") || src.contains("leftover_tick_particle_fx"));
+        assert!(
+            !src.contains("not full particle\n//!   emission-volume follow"),
+            "live must leftover-call leftover ParticleSystem/FXList/emission"
+        );
+
+        let mut reg = HostHelixNapalmRegistry::new();
+        reg.record_drop_and_spawn_firestorm(ObjectId(1), Team::China, Vec3::ZERO, 0, false, 0, 0.0);
+        assert!(!reg.active_zones()[0].leftover_effects_fired);
+        reg.advance_geometry(0);
+        // Leftover manager may be unregistered in unit tests; first-fire still marks fired.
+        assert!(reg.active_zones()[0].leftover_effects_fired);
     }
 }

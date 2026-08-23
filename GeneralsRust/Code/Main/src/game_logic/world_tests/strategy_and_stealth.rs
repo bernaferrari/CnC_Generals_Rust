@@ -5373,12 +5373,86 @@ fn pathfinder_grant_does_not_recloak_while_moving() {
         o.set_status_stealthed(true);
         o.set_status_moving(true);
         o.set_ai_state(AIState::Moving);
+        // Leftover destalths only when leftover velocity > leftover MoveThresholdSpeed.
+        o.movement.velocity = Vec3::new(4.0, 0.0, 0.0);
+        o.invalidate_velocity_magnitude();
     }
     logic.frame = 1;
     logic.update_stealth_and_detection();
     assert!(
         !logic.host_object(pf).unwrap().status.stealthed,
-        "Pathfinder MOVING destalth must not be undone by grant recloak"
+        "Pathfinder leftover velocity destalth must not be undone by grant recloak"
+    );
+}
+
+#[test]
+fn pathfinder_move_order_below_threshold_stays_stealthed() {
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    let mut pf_tpl = ThingTemplate::new("AmericaInfantryPathfinder");
+    pf_tpl
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    logic
+        .templates
+        .insert("AmericaInfantryPathfinder".into(), pf_tpl);
+    let pf = logic
+        .create_object("AmericaInfantryPathfinder", Team::USA, Vec3::ZERO)
+        .expect("pf");
+    {
+        let o = logic.host_object_mut(pf).unwrap();
+        o.innate_stealth = true;
+        o.is_pathfinder_unit = true;
+        o.stealth_breaks_on_move = true;
+        o.stealth_delay_frames = 0;
+        o.set_status_stealthed(true);
+        o.set_status_moving(true);
+        o.set_ai_state(AIState::Moving);
+        o.movement.velocity = Vec3::new(2.0, 0.0, 0.0);
+        o.invalidate_velocity_magnitude();
+    }
+    logic.frame = 1;
+    logic.update_stealth_and_detection();
+    assert!(
+        logic.host_object(pf).unwrap().status.stealthed,
+        "Pathfinder stays cloaked while leftover velocity is below leftover MoveThresholdSpeed"
+    );
+}
+
+#[test]
+fn pathfinder_sliding_stop_above_threshold_destalths() {
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    let mut pf_tpl = ThingTemplate::new("AmericaInfantryPathfinder");
+    pf_tpl
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    logic
+        .templates
+        .insert("AmericaInfantryPathfinder".into(), pf_tpl);
+    let pf = logic
+        .create_object("AmericaInfantryPathfinder", Team::USA, Vec3::ZERO)
+        .expect("pf");
+    {
+        let o = logic.host_object_mut(pf).unwrap();
+        o.innate_stealth = true;
+        o.is_pathfinder_unit = true;
+        o.stealth_breaks_on_move = true;
+        o.stealth_delay_frames = 0;
+        o.set_status_stealthed(true);
+        o.set_status_moving(false);
+        o.set_ai_state(AIState::Idle);
+        // Sliding stop: leftover destalths while leftover velocity still exceeds 3.
+        o.movement.velocity = Vec3::new(4.0, 0.0, 0.0);
+        o.invalidate_velocity_magnitude();
+    }
+    logic.frame = 1;
+    logic.update_stealth_and_detection();
+    assert!(
+        !logic.host_object(pf).unwrap().status.stealthed,
+        "Pathfinder destalths on leftover velocity above MoveThresholdSpeed even when idle"
     );
 }
 

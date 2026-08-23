@@ -139,6 +139,11 @@ fn default_terrain_decal_none() -> u8 {
     8
 }
 
+/// C++ `LAYER_GROUND` (`PathfindLayerEnum::Ground = 1`).
+fn default_pathfind_layer_ground() -> u8 {
+    1
+}
+
 /// C++ `Drawable::xfer` overlay icon slot (name + keepTillFrame + Anim2D).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct DrawableOverlayIcon {
@@ -1065,6 +1070,11 @@ pub struct Object {
     /// Maximum health
     pub max_health: f32,
 
+    /// C++ `ActiveBody::m_initialHealth` (INI `InitialHealth`). Distinct from
+    /// current max. `setMaxHealth` overwrites this; `setInitialHealth` does not.
+    #[serde(default)]
+    pub initial_health: f32,
+
     /// Target location for ground attacks
     pub target_location: Option<Vec3>,
 
@@ -1356,6 +1366,9 @@ pub struct Object {
     /// C++ Locomotor::m_closeEnoughDist residual (`SET_STOPPING_DISTANCE`).
     #[serde(default)]
     pub close_enough_dist: Option<f32>,
+    /// Leftover `FLAG_CLOSE_ENOUGH_3D` / C++ `Locomotor::isCloseEnoughDist3D`.
+    #[serde(default)]
+    pub close_enough_dist_3d: bool,
     /// C++ AIUpdateInterface::setSurrendered residual.
     #[serde(default)]
     pub is_surrendered: bool,
@@ -1477,6 +1490,12 @@ pub struct Object {
     /// C++ OpenContain::m_whichExitPath (1-based ExitStart/End cycle).
     #[serde(default)]
     pub which_exit_path: u8,
+    /// C++ `Object::m_layer` — bridge/deck vs ground. Copied onto riders at exit.
+    #[serde(default = "default_pathfind_layer_ground")]
+    pub pathfind_layer: u8,
+    /// C++ `OpenContain::m_doorCloseCountdown` — frames until DOOR_1_CLOSING.
+    #[serde(default)]
+    pub door_close_countdown: u32,
 
 
     /// Applied upgrades keyed by upgrade template/tag name.
@@ -3112,7 +3131,11 @@ pub use entity_lifecycle_tags::INVENTORY_TAGS;
 
 pub use barrels::WeaponBarrelState;
 pub use damage::{prime_live_damage_context, set_pending_damage_status_type};
-pub use status_bits::leftover_object_script_targetable;
+pub use status_bits::{
+    drain_mask_deselects, leftover_object_is_hero, leftover_object_is_kind_of_hero,
+    leftover_object_script_targetable,
+};
+
 
 pub use visual::ObjectVisualInfo;
 pub use stealth::{

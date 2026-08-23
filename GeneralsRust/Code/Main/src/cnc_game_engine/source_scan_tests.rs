@@ -785,6 +785,25 @@ fn auto_dozer_structure_place_residual() {
 }
 
 #[test]
+fn sneak_attack_place_keeps_placement_angle() {
+    // C++ PlaceEventTranslator.cpp:226-229 appends placement angle on sneak-attack confirm.
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    let start = src.find("fn place_structure_from_ui").expect("place");
+    let end = src[start + 1..]
+        .find("\n    fn ")
+        .map(|i| start + 1 + i)
+        .unwrap_or(start + 4000);
+    let body = &src[start..end];
+    assert!(
+        body.contains("get_placement_angle")
+            && body.contains("LocationFacing")
+            && body.contains("SpecialPowerType::SneakAttack"),
+        "sneak-attack place must emit DoSpecialPower with placement facing"
+    );
+}
+
+
+#[test]
 fn deploy_d_key_not_shadowed_by_debug_defeat_residual() {
     let src = crate::cnc_game_engine::ENGINE_SRC;
     let start = src.find("fn handle_key_press").expect("handle_key_press");

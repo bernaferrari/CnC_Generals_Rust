@@ -120,6 +120,16 @@ impl AcademyStats {
         }
     }
 
+    /// C++ AcademyStats::m_researchedRadar.
+    pub fn has_researched_radar(&self) -> bool {
+        self.researched_radar
+    }
+
+    /// C++ AcademyStats::m_upgradesPurchased.
+    pub fn get_upgrades_purchased(&self) -> Int {
+        self.upgrades_purchased
+    }
+
     /// Record clearing a garrisoned building (matches C++ AcademyStats::recordClearedGarrisonedBuilding).
     pub fn record_cleared_garrisoned_building(&mut self) {
         self.cleared_garrisoned_buildings += 1;

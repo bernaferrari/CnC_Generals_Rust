@@ -1140,7 +1140,9 @@ impl GameLogic {
         {
             self.update_player_radar();
         }
+        self.drain_masked_object_selection();
         self.update_power_disabled_state();
+
 
         // -----------------------------------------------------------------------
         // Phase 11: Damage/Physics Resolution

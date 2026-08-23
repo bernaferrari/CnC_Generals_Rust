@@ -3033,7 +3033,7 @@ fn toxin_tractor_residual_stream_spray_and_death_field() {
         assert!(is_toxin_tractor_template(&t.template_name));
         let prim = t.weapon.as_ref().expect("stream");
         assert!((prim.damage - TOXIN_STREAM_DAMAGE).abs() < 0.01);
-        assert!((prim.range - 100.0).abs() < 1.0);
+        assert!((prim.range - 97.5).abs() < 1.0);
         assert!(t.secondary_weapon.is_some(), "spray secondary residual");
     }
 
@@ -3877,25 +3877,29 @@ fn pathfinder_residual_detect_stealth_and_sniper() {
         );
     }
 
-    // Move uncloaks; stop re-cloaks.
+    // Leftover destalths only when leftover velocity exceeds MoveThresholdSpeed.
     {
         let p = game_logic.host_object_mut(pf_id).unwrap();
         p.set_ai_state(AIState::Moving);
         p.set_status_moving(true);
         p.set_status_stealthed(true);
+        p.movement.velocity = Vec3::new(4.0, 0.0, 0.0);
+        p.invalidate_velocity_magnitude();
     }
     game_logic.update_stealth_and_detection();
     {
         let p = game_logic.host_object(pf_id).unwrap();
         assert!(
             !p.status.stealthed,
-            "pathfinder must uncloak while moving residual"
+            "pathfinder must uncloak when leftover velocity exceeds MoveThresholdSpeed"
         );
     }
     {
         let p = game_logic.host_object_mut(pf_id).unwrap();
         p.set_ai_state(AIState::Idle);
         p.set_status_moving(false);
+        p.movement.velocity = Vec3::ZERO;
+        p.invalidate_velocity_magnitude();
     }
     game_logic.update_stealth_and_detection();
     {

@@ -25,8 +25,8 @@ use game_engine::common::system::{Snapshotable, Xfer};
 use std::mem::size_of;
 use std::sync::{Arc, RwLock, Weak};
 
-const MAX_FIRESTORM_SYSTEMS: usize = 16;
-const INVALID_PARTICLE_SYSTEM_ID: u32 = 0;
+pub const MAX_FIRESTORM_SYSTEMS: usize = 16;
+pub const INVALID_PARTICLE_SYSTEM_ID: u32 = 0;
 
 /// INI-configurable data for FirestormDynamicGeometryInfoUpdate
 #[derive(Clone, Debug)]
@@ -231,6 +231,94 @@ impl FirestormDynamicGeometryInfoUpdate {
         })
     }
 
+    /// C++ `FirestormDynamicGeometryInfoUpdate.cpp:109-145`:
+    /// first-fire ParticleSystem1-16 at ground+ParticleOffsetZ and play FXList.
+    pub fn leftover_fire_effects_at(
+        data: &FirestormDynamicGeometryInfoUpdateModuleData,
+        object_pos: &Coord3D,
+        particle_system_ids: &mut [u32; MAX_FIRESTORM_SYSTEMS],
+    ) {
+        let terrain_height = if let Some(terrain) = TheTerrainLogic::get() {
+            terrain.get_height_at(object_pos.x, object_pos.y)
+        } else {
+            0.0
+        };
+        let effect_pos = Coord3D::new(
+            object_pos.x,
+            object_pos.y,
+            terrain_height + data.particle_offset_z,
+        );
+
+        if let Some(mgr) = TheParticleSystemManager::get() {
+            for i in 0..MAX_FIRESTORM_SYSTEMS {
+                if let Some(system_id) =
+                    mgr.create_particle_system(data.particle_systems[i].as_deref())
+                {
+                    particle_system_ids[i] = system_id;
+                    mgr.set_particle_system_position(system_id, &effect_pos);
+                }
+            }
+        }
+
+        if let Some(fx) = TheFXList::get() {
+            if let Some(fx_name) = &data.fx_list {
+                fx.do_fx_at_position(fx_name, &effect_pos);
+            }
+        }
+    }
+
+    /// C++ `FirestormDynamicGeometryInfoUpdate.cpp:152-167`:
+    /// each tick sets emission sphere/cylinder radius to current major radius.
+    pub fn leftover_follow_emission_radius(
+        particle_system_ids: &mut [u32; MAX_FIRESTORM_SYSTEMS],
+        major_radius: Real,
+    ) {
+        let Some(mgr) = TheParticleSystemManager::get() else {
+            return;
+        };
+        for i in 0..MAX_FIRESTORM_SYSTEMS {
+            if particle_system_ids[i] == INVALID_PARTICLE_SYSTEM_ID {
+                continue;
+            }
+            if mgr.find_particle_system(particle_system_ids[i]).is_some() {
+                let emission_type = mgr
+                    .get_particle_system_emission_volume_type(particle_system_ids[i])
+                    .unwrap_or(EmissionVolumeType::Sphere);
+                match emission_type {
+                    EmissionVolumeType::Sphere | EmissionVolumeType::None => {
+                        mgr.set_particle_system_emission_volume_sphere_radius(
+                            particle_system_ids[i],
+                            major_radius,
+                        );
+                    }
+                    EmissionVolumeType::Cylinder => {
+                        mgr.set_particle_system_emission_volume_cylinder_radius(
+                            particle_system_ids[i],
+                            major_radius,
+                        );
+                    }
+                }
+            } else {
+                particle_system_ids[i] = INVALID_PARTICLE_SYSTEM_ID;
+            }
+        }
+    }
+
+    /// Leftover ParticleSystem/FXList first-fire plus emission-volume follow.
+    pub fn leftover_tick_particle_fx(
+        data: &FirestormDynamicGeometryInfoUpdateModuleData,
+        object_pos: &Coord3D,
+        particle_system_ids: &mut [u32; MAX_FIRESTORM_SYSTEMS],
+        effects_fired: &mut bool,
+        major_radius: Real,
+    ) {
+        if !*effects_fired {
+            Self::leftover_fire_effects_at(data, object_pos, particle_system_ids);
+            *effects_fired = true;
+        }
+        Self::leftover_follow_emission_radius(particle_system_ids, major_radius);
+    }
+
     fn do_damage_scan(&mut self, object: &GameObject) {
         let pos = *object.get_position();
         let radius = object.get_geometry_info().get_bounding_circle_radius();
@@ -296,74 +384,16 @@ impl UpdateModuleInterface for FirestormDynamicGeometryInfoUpdate {
             return res;
         }
 
-        // Fired effects for the first time
-        if !self.effects_fired {
-            let pos = *obj.get_position();
-            let terrain_height = if let Some(terrain) = TheTerrainLogic::get() {
-                terrain.get_height_at(pos.x, pos.y)
-            } else {
-                0.0
-            };
-
-            let effect_pos = Coord3D::new(
-                pos.x,
-                pos.y,
-                terrain_height + self.module_data.particle_offset_z,
-            );
-
-            if let Some(mgr) = TheParticleSystemManager::get() {
-                for i in 0..MAX_FIRESTORM_SYSTEMS {
-                    if let Some(system_id) =
-                        mgr.create_particle_system(self.module_data.particle_systems[i].as_deref())
-                    {
-                        self.particle_system_ids[i] = system_id;
-                        mgr.set_particle_system_position(system_id, &effect_pos);
-                    }
-                }
-            }
-
-            if let Some(fx) = TheFXList::get() {
-                if let Some(fx_name) = &self.module_data.fx_list {
-                    fx.do_fx_at_position(fx_name, &effect_pos);
-                }
-            }
-
-            self.effects_fired = true;
-            // recordFirestormCreated would be here
-        }
-
-        // Update particle system radii
-        if let Some(mgr) = TheParticleSystemManager::get() {
-            let major_radius = obj.get_geometry_info().get_major_radius();
-            for i in 0..MAX_FIRESTORM_SYSTEMS {
-                if self.particle_system_ids[i] != INVALID_PARTICLE_SYSTEM_ID {
-                    if mgr
-                        .find_particle_system(self.particle_system_ids[i])
-                        .is_some()
-                    {
-                        let emission_type = mgr
-                            .get_particle_system_emission_volume_type(self.particle_system_ids[i])
-                            .unwrap_or(EmissionVolumeType::Sphere);
-                        match emission_type {
-                            EmissionVolumeType::Sphere | EmissionVolumeType::None => {
-                                mgr.set_particle_system_emission_volume_sphere_radius(
-                                    self.particle_system_ids[i],
-                                    major_radius,
-                                );
-                            }
-                            EmissionVolumeType::Cylinder => {
-                                mgr.set_particle_system_emission_volume_cylinder_radius(
-                                    self.particle_system_ids[i],
-                                    major_radius,
-                                );
-                            }
-                        }
-                    } else {
-                        self.particle_system_ids[i] = INVALID_PARTICLE_SYSTEM_ID;
-                    }
-                }
-            }
-        }
+        // Fired effects for the first time + emission-volume follow.
+        let pos = *obj.get_position();
+        let major_radius = obj.get_geometry_info().get_major_radius();
+        Self::leftover_tick_particle_fx(
+            &self.module_data,
+            &pos,
+            &mut self.particle_system_ids,
+            &mut self.effects_fired,
+            major_radius,
+        );
 
         // Place scorch mark when reversed
         if self.logic.switched_directions && !self.scorch_placed {

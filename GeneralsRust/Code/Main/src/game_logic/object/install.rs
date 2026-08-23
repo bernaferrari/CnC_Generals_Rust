@@ -829,7 +829,8 @@ impl Object {
     /// Applied RadarUpgrade calls Player::removeRadar/addRadar. Disable does
     /// not turn Overcharge off; EnergyBonus is folded out of the live power
     /// scan while `is_disabled`.
-    fn on_disabled_edge(&mut self, becoming_disabled: bool) {
+    pub(crate) fn on_disabled_edge(&mut self, becoming_disabled: bool) {
+
         use crate::game_logic::host_radar::{
             leftover_on_disabled_edge_radar, leftover_radar_upgrade_is_applied,
             record_leftover_radar_disabled_edge,
@@ -952,8 +953,10 @@ impl Object {
             parachute_initial_pitch_rate, parachute_initial_roll_rate,
         };
         self.set_status_parachute_open(true);
-        // C++ ParachuteContain.cpp:385 — opening chute sets CloseEnoughDist 10.
+        // C++ ParachuteContain.cpp:385-386 — opening chute sets CloseEnoughDist 10
+        // and CloseEnoughDist3D FALSE.
         self.close_enough_dist = Some(10.0);
+        self.close_enough_dist_3d = false;
         self.status.parachute_pitch = 0.0;
         self.status.parachute_roll = 0.0;
         self.status.parachute_pitch_rate = parachute_initial_pitch_rate();

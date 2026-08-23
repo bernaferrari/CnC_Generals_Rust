@@ -27,6 +27,11 @@ pub use ai_core::UnitAIUpdate;
 pub use identity::{Unit, UnitExt};
 pub use registry::{register_unit, unregister_unit, UnitRegistry};
 pub use types::{CombatMode, FormationType, MovementState, UnitOrder};
+pub use ai_path::{
+    leftover_compute_quick_path_coords, leftover_is_in_region_no_z,
+    leftover_should_force_direct_path_for_off_map_start,
+    leftover_should_use_direct_path_for_line_passable_non_final_goal,
+};
 
 #[cfg(test)]
 mod tests;

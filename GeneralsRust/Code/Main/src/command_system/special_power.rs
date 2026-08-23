@@ -245,6 +245,24 @@ pub(crate) fn leftover_special_power_is_location_target_only(
     gamelogic::action_manager::TheActionManager::special_power_is_location_target_only(leftover)
 }
 
+/// Leftover ActionManager::can_do_special_power type switch (no-option fire).
+/// C++ CommandXlat MSG_DO_SPECIAL_POWER when the button has neither
+/// NEED_OBJECT_TARGET nor NEED_TARGET_POS.
+pub(crate) fn leftover_special_power_is_no_target(power_type: &SpecialPowerType) -> bool {
+    let Some(name) =
+        crate::game_logic::host_special_power_enum_residual::host_command_power_cpp_enum_name(
+            power_type,
+        )
+    else {
+        return false;
+    };
+    let Some(leftover) = gamelogic::object::special_power_types::SpecialPowerType::from_str(name)
+    else {
+        return false;
+    };
+    gamelogic::action_manager::TheActionManager::special_power_is_no_target(leftover)
+}
+
 
 /// Resolve an exact retail `CommandButton.ini` `SpecialPower` name.
 ///

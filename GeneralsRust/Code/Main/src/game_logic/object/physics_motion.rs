@@ -570,15 +570,6 @@ impl Object {
         self.sync_shock_up_from_transform();
     }
 
-    /// C++ setAngles(yaw, 0, 0) after bounce: keep yaw, zero pitch/roll.
-    fn right_physics_pitch_roll(&mut self) {
-        let pos = self.get_position();
-        let yaw = self.get_orientation();
-        self.thing
-            .set_transform_matrix(glam::Mat4::from_translation(pos) * glam::Mat4::from_rotation_y(yaw));
-        self.shock_up_z = 1.0;
-    }
-
     /// Leftover handle_bounce first-righting (PhysicsUpdate.cpp:505-512):
     /// pitch = 0, roll = 0 or PI from current up so stun-kill still sees a flip.
     fn right_physics_pitch_keep_flip(&mut self) {
@@ -888,9 +879,12 @@ impl Object {
                 // Immediate integrate of bounce accel residual (C++ applies same frame).
                 self.integrate_physics_accel();
                 bounced = true;
-                // C++ testStunnedUnitForDestruction before gotBounceForce righting.
+                // C++ handleBounce (PhysicsUpdate.cpp:505-517) rights 0-or-PI
+                // then testStunned. Do not slam yaw-only here — leftover
+                // handle_bounce roll=PI must survive so stun-kill sees a flip
+                // and inverted wreck poses stick (hq-p6amn).
                 if !self.test_stunned_unit_for_destruction() && !self.status.destroyed {
-                    self.right_physics_pitch_roll();
+                    self.right_physics_pitch_keep_flip();
                 }
             }
         }
@@ -947,15 +941,19 @@ impl Object {
         self.shock_yaw_rate *= Self::BOUNCE_YPR_DAMPING;
         self.shock_pitch_rate *= Self::BOUNCE_YPR_DAMPING;
         self.shock_roll_rate *= Self::BOUNCE_YPR_DAMPING;
+        // C++ handleBounce vz<0: setAngles(yaw, 0, up>0 ? 0 : PI) before
+        // testStunnedUnitForDestruction. Yaw-only overwrite is leftover
+        // update_simple gotBounceForce — it must not run before the stun
+        // test, and leftover handle_bounce pose is the 0-or-PI roll.
+        if vy < 0.0 {
+            self.right_physics_pitch_keep_flip();
+        }
         if bounce_vy > 0.0 {
             self.movement.velocity.y = bounce_vy;
             // C++ testStunnedUnitForDestruction on successful bounce force.
             if self.test_stunned_unit_for_destruction() {
                 return 0.0;
             }
-            // C++ setAngles after bounce rights pitch/roll when not killed.
-            // Rates stay 0.7-damped (applyYPRDamping only).
-            self.right_physics_pitch_roll();
             return bounce_vy;
         }
         // C++ handleBounce bounceForce.z==0: setAllowBouncing(m_originalAllowBounce).

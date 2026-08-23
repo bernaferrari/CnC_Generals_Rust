@@ -702,7 +702,7 @@ impl GameLogic {
         let contact = weapon_name
             .map(crate::game_logic::weapon_bootstrap::host_is_contact_weapon_name)
             .unwrap_or(false)
-            || crate::game_logic::weapon_bootstrap::is_contact_weapon_range(weapon_range);
+            || crate::game_logic::weapon_bootstrap::is_contact_effective_range(weapon_range);
         if contact {
             return target_pos;
         }

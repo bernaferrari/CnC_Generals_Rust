@@ -5775,6 +5775,66 @@ fn hijack_guard_boards_enemy_vehicle() {
 }
 
 #[test]
+fn hijack_guard_inner_scan_skips_aircraft_and_drone() {
+    // C++ ActionManager::canHijackVehicle: not KINDOF_AIRCRAFT, not KINDOF_DRONE.
+    // Closest Comanche/drone must lose to a farther legal tank.
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut ht = ThingTemplate::new("Hijacker");
+    ht.add_kind_of(KindOf::Infantry);
+    ht.add_kind_of(KindOf::Attackable);
+    ht.enter_guard = true;
+    ht.hijack_guard = true;
+    let hid = ObjectId(4722);
+    let mut h = Object::new(ht, hid, Team::GLA);
+    h.set_position(glam::Vec3::ZERO);
+    logic.objects.insert(hid, h);
+
+    let mut at = ThingTemplate::new("Comanche");
+    at.add_kind_of(KindOf::Vehicle);
+    at.add_kind_of(KindOf::Aircraft);
+    at.add_kind_of(KindOf::Attackable);
+    let aid = ObjectId(4723);
+    let mut a = Object::new(at, aid, Team::USA);
+    a.set_position(glam::Vec3::new(15.0, 0.0, 0.0));
+    logic.objects.insert(aid, a);
+
+    let mut dt = ThingTemplate::new("BattleDrone");
+    dt.add_kind_of(KindOf::Vehicle);
+    dt.add_kind_of(KindOf::Drone);
+    dt.add_kind_of(KindOf::Attackable);
+    let did = ObjectId(4724);
+    let mut d = Object::new(dt, did, Team::USA);
+    d.set_position(glam::Vec3::new(20.0, 0.0, 0.0));
+    logic.objects.insert(did, d);
+
+    let mut vt = ThingTemplate::new("Humvee");
+    vt.add_kind_of(KindOf::Vehicle);
+    vt.add_kind_of(KindOf::Attackable);
+    let vid = ObjectId(4725);
+    let mut v = Object::new(vt, vid, Team::USA);
+    v.set_position(glam::Vec3::new(40.0, 0.0, 0.0));
+    logic.objects.insert(vid, v);
+
+    let found = logic.scan_guard_inner_target_for_test(
+        hid,
+        Team::GLA,
+        glam::Vec3::ZERO,
+        200.0,
+        false,
+        true,
+        true,
+        None,
+    );
+    assert_eq!(
+        found,
+        Some(vid),
+        "HijackGuard must skip aircraft/drone and pick the legal tank"
+    );
+}
+
+
+#[test]
 fn sleep_guard_range_is_zero_not_hardcoded_80() {
     use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     let mut logic = GameLogic::new();

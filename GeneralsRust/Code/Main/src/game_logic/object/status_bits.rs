@@ -315,8 +315,14 @@ impl Object {
     }
 
     /// C++ `setScriptStatus(OBJECT_STATUS_SCRIPT_DISABLED, disabled)`.
+    /// Leftover `Object::set_script_status` is RIGHT (partition dirty + setDisabled).
     pub fn set_script_disabled(&mut self, disabled: bool) {
-        self.set_status_disabled_script_disabled(disabled);
+        leftover_set_script_status(
+            self.id,
+            gamelogic::object::ObjectScriptStatusBit::ScriptDisabled,
+            disabled,
+        );
+        self.apply_script_status_disabled_side_effects(disabled);
     }
 
     pub fn is_script_underpowered(&self) -> bool {
@@ -324,8 +330,44 @@ impl Object {
     }
 
     /// C++ `setScriptStatus(OBJECT_STATUS_SCRIPT_UNPOWERED, underpowered)`.
+    /// Leftover `Object::set_script_status` is RIGHT (partition dirty + setDisabled).
     pub fn set_script_underpowered(&mut self, underpowered: bool) {
+        leftover_set_script_status(
+            self.id,
+            gamelogic::object::ObjectScriptStatusBit::ScriptUnderpowered,
+            underpowered,
+        );
+        self.apply_script_status_underpowered_side_effects(underpowered);
+    }
+
+    fn apply_script_status_disabled_side_effects(&mut self, disabled: bool) {
+        if self.status.disabled_script_disabled == disabled {
+            return;
+        }
+        let was_disabled = self.is_disabled();
+        self.set_status_disabled_script_disabled(disabled);
+        self.handle_partition_cell_maintenance();
+        let now_disabled = self.is_disabled();
+        if !was_disabled && now_disabled {
+            self.on_disabled_edge(true);
+        } else if was_disabled && !now_disabled {
+            self.on_disabled_edge(false);
+        }
+    }
+
+    fn apply_script_status_underpowered_side_effects(&mut self, underpowered: bool) {
+        if self.status.disabled_script_underpowered == underpowered {
+            return;
+        }
+        let was_disabled = self.is_disabled();
         self.set_status_disabled_script_underpowered(underpowered);
+        self.handle_partition_cell_maintenance();
+        let now_disabled = self.is_disabled();
+        if !was_disabled && now_disabled {
+            self.on_disabled_edge(true);
+        } else if was_disabled && !now_disabled {
+            self.on_disabled_edge(false);
+        }
     }
 
     pub fn is_held_disabled(&self) -> bool {
@@ -349,9 +391,15 @@ impl Object {
         }
     }
 
+    /// C++ `Object::maskObject` — leftover `mask_object` is RIGHT (MASKED + deselect).
     pub fn set_status_masked(&mut self, v: bool) {
+        leftover_mask_object(self.id, v);
         self.status.masked = v;
         crate::game_logic::host_status_log::record_masked(self.id, v);
+        if v {
+            self.deselect();
+            request_mask_deselect(self.id);
+        }
     }
 
     pub fn set_status_disguised(&mut self, v: bool) {
@@ -962,4 +1010,50 @@ pub fn leftover_object_script_targetable(id: ObjectId) -> bool {
         })
         .unwrap_or(false)
 }
+
+fn leftover_mask_object(id: ObjectId, mask: bool) {
+    let _ = gamelogic::object::registry::OBJECT_REGISTRY.with_object_mut(id.0, |obj| {
+        obj.mask_object(mask);
+    });
+}
+
+fn leftover_set_script_status(
+    id: ObjectId,
+    bit: gamelogic::object::ObjectScriptStatusBit,
+    set: bool,
+) {
+    let _ = gamelogic::object::registry::OBJECT_REGISTRY.with_object_mut(id.0, |obj| {
+        obj.set_script_status(bit, set);
+    });
+}
+
+/// Drain leftover `Object::is_hero` (contained KINDOF_HERO, else self).
+pub fn leftover_object_is_hero(id: ObjectId) -> bool {
+    gamelogic::object::registry::OBJECT_REGISTRY
+        .with_object(id.0, |obj| obj.is_hero())
+        .unwrap_or(false)
+}
+
+/// Drain leftover `is_kind_of(KINDOF_HERO)` for a contained occupant id.
+pub fn leftover_object_is_kind_of_hero(id: ObjectId) -> bool {
+    gamelogic::object::registry::OBJECT_REGISTRY
+        .with_object(id.0, |obj| obj.is_kind_of(gamelogic::common::KindOf::Hero))
+        .unwrap_or(false)
+}
+
+thread_local! {
+    static MASK_DESELECTS: std::cell::RefCell<Vec<ObjectId>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Queue a live player-list deselect for C++ `maskObject(TRUE)`.
+pub fn request_mask_deselect(id: ObjectId) {
+    MASK_DESELECTS.with(|q| q.borrow_mut().push(id));
+}
+
+/// Drain leftover `maskObject` deselects onto live player selection.
+pub fn drain_mask_deselects() -> Vec<ObjectId> {
+    MASK_DESELECTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
 

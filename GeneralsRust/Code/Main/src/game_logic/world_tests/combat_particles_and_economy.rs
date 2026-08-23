@@ -3088,7 +3088,7 @@ fn flashbang_upgrade_queue_complete_equips_ranger_secondary() {
         "expected RangerFlashBangGrenadeWeapon damage 35, got {}",
         secondary.damage
     );
-    assert!((secondary.range - 175.0).abs() < 0.1);
+    assert!((secondary.range - 172.5).abs() < 0.1);
 }
 
 /// Residual: SupplyLines QueueUpgrade → complete → supply center tagged.

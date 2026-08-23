@@ -166,6 +166,14 @@ impl GameLogic {
         }
     }
 
+    /// Drain leftover `maskObject` deselect onto live player selection.
+    pub fn drain_masked_object_selection(&mut self) {
+        for id in crate::game_logic::object::drain_mask_deselects() {
+            self.deselect_drawable(id);
+        }
+    }
+
+
     /// C++ `Drawable::onSelected` → `contain->clientVisibleContainedFlashAsSelected`.
     /// `OpenContain` default is empty. Overlord walks contained
     /// `KINDOF_PORTABLE_STRUCTURE`; Helix flashes `getPortableStructure()`.
@@ -2204,6 +2212,56 @@ mod select_object_cpp_parity_tests {
             "STEALTHLOOK_INVISIBLE must leftover-deselect"
         );
     }
+
+    #[test]
+    fn mask_object_deselects_like_cpp_mask_object() {
+        let mut logic = two_player_logic();
+        let unit = spawn(&mut logic, "SelectParityUnit", 0, 0.0);
+        logic.select_objects(0, vec![unit]);
+        assert!(logic.host_object(unit).expect("u").selected);
+        if let Some(obj) = logic.host_object_mut(unit) {
+            obj.set_status_masked(true);
+        }
+        logic.drain_masked_object_selection();
+        assert!(
+            logic.host_object(unit).expect("u").status.masked,
+            "maskObject sets OBJECT_STATUS_MASKED"
+        );
+        assert!(
+            !logic.host_object(unit).expect("u").selected,
+            "C++ maskObject deselects when masking"
+        );
+        assert!(
+            logic
+                .get_player(0)
+                .expect("p0")
+                .selected_objects
+                .is_empty(),
+            "deselectObject must drop the player list"
+        );
+    }
+
+    #[test]
+    fn is_hero_includes_contained_kindof_hero() {
+        let mut logic = two_player_logic();
+        ensure_tpl(
+            &mut logic,
+            "SelectParityHero",
+            &[KindOf::Infantry, KindOf::Selectable, KindOf::Hero],
+        );
+        let humvee = spawn(&mut logic, "SelectParityUnit", 0, 0.0);
+        let burton = spawn(&mut logic, "SelectParityHero", 0, 10.0);
+        assert!(logic.unit_is_hero(burton));
+        assert!(!logic.unit_is_hero(humvee));
+        if let Some(obj) = logic.host_object_mut(humvee) {
+            assert!(obj.add_occupant(burton));
+        }
+        assert!(
+            logic.unit_is_hero(humvee),
+            "C++ isHero is true when a contained occupant is KINDOF_HERO"
+        );
+    }
+
 
 
     #[test]

@@ -844,6 +844,54 @@ impl GameLogic {
                 );
             }
         }
+        // C++ ALIGNING_TURRETS + leftover isTurretInNaturalPosition → UNDEPLOY.
+        let aligning: Vec<ObjectId> = ids
+            .iter()
+            .copied()
+            .filter(|id| {
+                self.objects.get(id).is_some_and(|obj| {
+                    obj.deploy_style
+                        .as_ref()
+                        .is_some_and(|ds| ds.is_aligning_turrets())
+                })
+            })
+            .collect();
+        for id in aligning {
+            let started_pack = {
+                let Some(obj) = self.objects.get_mut(&id) else {
+                    continue;
+                };
+                let natural = crate::game_logic::host_deploy_style::leftover_host_turret_is_in_natural_position(
+                    obj.status.under_construction,
+                    obj.turret_angle_deg,
+                    obj.turret_pitch_deg,
+                    obj.turret_natural_angle_deg,
+                    obj.turret_natural_pitch_deg,
+                );
+                let Some(ds) = obj.deploy_style.as_mut() else {
+                    continue;
+                };
+                if ds.finish_aligning_turrets(frame, natural) {
+                    obj.set_deployed(false);
+                    obj.stop_moving();
+                    obj.set_status_moving(false);
+                    true
+                } else {
+                    false
+                }
+            };
+            if started_pack {
+                self.deploy_style_reg.record_undeploy();
+                self.queue_resolved_per_unit_sound(
+                    id,
+                    crate::game_logic::host_deploy_style::DEPLOY_STYLE_UNDEPLOY_AUDIO,
+                    true,
+                    false,
+                    None,
+                    150,
+                );
+            }
+        }
         // C++ setMyState stamps UNPACKING/PACKING/DEPLOYED on the drawable.
         for &id in &ids {
             let Some(obj) = self.objects.get_mut(&id) else {

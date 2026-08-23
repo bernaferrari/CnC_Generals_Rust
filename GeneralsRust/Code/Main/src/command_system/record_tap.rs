@@ -784,6 +784,16 @@ fn game_command_to_message(command: &GameCommand) -> Option<GameMessage> {
                     0,
                     0,
                 ),
+                PowerTarget::LocationFacing { pos, angle } => {
+                    GameMessageType::DoSpecialPowerAtLocation(
+                        power_id,
+                        coord_from_vec3(*pos),
+                        *angle,
+                        0,
+                        0,
+                        0,
+                    )
+                }
             }
         }
         DoWeapon {
@@ -947,9 +957,9 @@ fn game_message_to_host_command(message: &GameMessage) -> Option<GameCommand> {
             power_type: resolve_special(*power_id),
             target: PowerTarget::None,
         },
-        DoSpecialPowerAtLocation(power_id, coord, ..) => CommandType::DoSpecialPower {
+        DoSpecialPowerAtLocation(power_id, coord, angle, ..) => CommandType::DoSpecialPower {
             power_type: resolve_special(*power_id),
-            target: PowerTarget::Location(vec3_from_coord(coord)),
+            target: PowerTarget::from_location_and_angle(vec3_from_coord(coord), *angle),
         },
         DoSpecialPowerAtObject(power_id, target, ..) => CommandType::DoSpecialPower {
             power_type: resolve_special(*power_id),
@@ -1215,6 +1225,30 @@ mod tests {
             other => panic!("expected DoSpecialPower, got {other:?}"),
         }
     }
+
+    #[test]
+    fn special_power_location_facing_round_trip() {
+        let power = host_command(CommandType::DoSpecialPower {
+            power_type: SpecialPowerType::SneakAttack,
+            target: PowerTarget::LocationFacing {
+                pos: Vec3::new(15.0, 0.0, 4.0),
+                angle: 1.25,
+            },
+        });
+        let power_msg = game_command_to_message(&power).expect("facing special must record");
+        match game_message_to_host_command(&power_msg)
+            .expect("playback must restore facing")
+            .command_type
+        {
+            CommandType::DoSpecialPower { power_type, target } => {
+                assert_eq!(power_type, SpecialPowerType::SneakAttack);
+                assert!((target.location_pos().unwrap().x - 15.0).abs() < f32::EPSILON);
+                assert!((target.location_angle() - 1.25).abs() < 1.0e-5);
+            }
+            other => panic!("expected DoSpecialPower, got {other:?}"),
+        }
+    }
+
 
     #[test]
     fn apply_replay_new_game_posts_to_the_message_stream() {

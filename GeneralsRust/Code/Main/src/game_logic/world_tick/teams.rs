@@ -414,6 +414,7 @@ impl GameLogic {
         let team = me.team;
         let owner_player = me.owner_player_id;
         let owner_inst = me.team_instance_name.clone();
+        let owner_undetected = me.is_undetected_defector();
         let anchor = me
             .guard_retaliate_anchor
             .or(me.guard_position)
@@ -461,13 +462,13 @@ impl GameLogic {
                 owner_player,
                 &owner_inst,
                 team,
+                owner_undetected,
                 cand,
             );
             if enter_guard {
                 if hijack_guard {
                     if rel != Relationship::Enemies
-                        || !cand.is_kind_of(KindOf::Vehicle)
-                        || cand.status.hijacked
+                        || !self.can_hijack_vehicle(unit_id, cand)
                     {
                         continue;
                     }
@@ -2532,6 +2533,49 @@ mod tests {
             "Neutral civilians/tech must not be auto-acquired"
         );
     }
+
+    #[test]
+    fn guard_inner_skips_undetected_defector() {
+        // C++ lookForInnerTarget ALLOW_ENEMIES uses getRelationship.
+        let mut logic = GameLogic::new();
+        let gid = ObjectId(25130);
+        let def_id = ObjectId(25131);
+        let live = ObjectId(25132);
+        w25_spawn_fighter(&mut logic, gid, "W25GuardDef", Team::China, glam::Vec3::ZERO);
+        w25_spawn_fighter(
+            &mut logic,
+            def_id,
+            "W25FlashDefector",
+            Team::USA,
+            glam::Vec3::new(20.0, 0.0, 0.0),
+        );
+        if let Some(o) = logic.objects.get_mut(&def_id) {
+            o.begin_undetected_defection(0, 30, false);
+        }
+        w25_spawn_fighter(
+            &mut logic,
+            live,
+            "W25LiveEnemy",
+            Team::USA,
+            glam::Vec3::new(60.0, 0.0, 0.0),
+        );
+        let found = logic.scan_guard_inner_target_for_test(
+            gid,
+            Team::China,
+            glam::Vec3::ZERO,
+            200.0,
+            false,
+            false,
+            false,
+            None,
+        );
+        assert_eq!(
+            found,
+            Some(live),
+            "closer undetected defector must lose to farther Enemy"
+        );
+    }
+
 
     #[test]
     fn guard_retaliate_inner_skips_neutral_civilians() {

@@ -793,6 +793,20 @@ impl GameClient {
         // Wave 1115: sold residual after host overlay stamp (C++ OBJECT_STATUS_SOLD).
         drawable.set_presentation_sold(e.sold);
         Self::tick_presentation_specialized_draw_modules(e);
+        let visual = if e.visual_template_name.is_empty() {
+            e.template_name.as_str()
+        } else {
+            e.visual_template_name.as_str()
+        };
+        if leftover_science_model_data(visual).is_some()
+            && tick_live_host_science_model_hide(
+                visual,
+                leftover_science_model_data(visual).as_ref(),
+            )
+        {
+            // C++ W3DScienceModelDraw::doDrawModule setHidden(TRUE).
+            drawable.set_drawable_hidden(true);
+        }
 
     }
 

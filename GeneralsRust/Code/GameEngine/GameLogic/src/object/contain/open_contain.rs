@@ -69,6 +69,11 @@ thread_local! {
     static LAST_ON_REMOVING_TEMPLATE: RefCell<Option<LeftoverOnRemovingTemplateCall>> =
         RefCell::new(None);
 }
+thread_local! {
+    static LIVE_DOOR_CLOSE_COUNTDOWN: RefCell<HashMap<ObjectID, u32>> =
+        RefCell::new(HashMap::new());
+}
+
 
 
 const LEFTOVER_CONTAIN_MODULE_NAMES: &[&str] = &[
@@ -427,6 +432,131 @@ pub fn leftover_scatter_to_nearby_position_at(
         max_radius,
     }
 }
+
+/// C++ `OpenContainModuleData::m_doorOpenTime` default (`OpenContain.cpp:57`).
+pub const OPEN_CONTAIN_DEFAULT_DOOR_OPEN_TIME: u32 = 1;
+
+/// C++ `exitObjectViaDoor` / `OpenContain::update` door pulse.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LeftoverOpenContainDoorPulse {
+    pub countdown: u32,
+    /// clear `DOOR_1_CLOSING`, set `DOOR_1_OPENING`.
+    pub set_opening: bool,
+    /// clear `DOOR_1_OPENING`, set `DOOR_1_CLOSING`.
+    pub set_closing: bool,
+}
+
+/// C++ `m_doorCloseCountdown = m_doorOpenTime`; nonzero flashes OPENING.
+pub fn leftover_open_contain_start_exit_door(door_open_time: u32) -> LeftoverOpenContainDoorPulse {
+    LeftoverOpenContainDoorPulse {
+        countdown: door_open_time,
+        set_opening: door_open_time > 0,
+        set_closing: false,
+    }
+}
+
+/// C++ `OpenContain::update` door tick: decrement, close when it hits 0.
+pub fn leftover_open_contain_tick_exit_door(countdown: u32) -> LeftoverOpenContainDoorPulse {
+    if countdown == 0 {
+        return LeftoverOpenContainDoorPulse {
+            countdown: 0,
+            set_opening: false,
+            set_closing: false,
+        };
+    }
+    let next = countdown.saturating_sub(1);
+    LeftoverOpenContainDoorPulse {
+        countdown: next,
+        set_opening: false,
+        set_closing: next == 0,
+    }
+}
+
+fn leftover_contain_module_door_open_time(template_name: &str) -> Option<u32> {
+    if template_name.is_empty() {
+        return None;
+    }
+    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
+    let factory = guard.as_ref()?;
+    let tmpl = factory.find_template(template_name, false)?;
+    for entry in tmpl.get_behavior_module_info().iter() {
+        if !LEFTOVER_CONTAIN_MODULE_NAMES
+            .iter()
+            .any(|n| entry.name.as_str().eq_ignore_ascii_case(n))
+        {
+            continue;
+        }
+        if let Some(data) = entry.data.downcast_ref::<OpenContainModuleData>() {
+            return Some(data.door_open_time);
+        }
+        if let Some(raw) = entry.data.get_ini_field("DoorOpenTime") {
+            if let Ok(frames) = INI::parse_duration_unsigned_int(raw.trim()) {
+                return Some(frames);
+            }
+        }
+    }
+    None
+}
+
+/// Leftover ThingFactory `DoorOpenTime`, else C++ default 1 frame.
+pub fn leftover_open_contain_door_open_time(template_name: &str) -> u32 {
+    leftover_contain_module_door_open_time(template_name)
+        .unwrap_or(OPEN_CONTAIN_DEFAULT_DOOR_OPEN_TIME)
+}
+
+/// Live host: C++ `exitObjectViaDoor` door start with an explicit DoorOpenTime.
+pub fn leftover_open_contain_arm_exit_door(
+    object_id: ObjectID,
+    door_open_time: u32,
+) -> LeftoverOpenContainDoorPulse {
+    let pulse = leftover_open_contain_start_exit_door(door_open_time);
+    LIVE_DOOR_CLOSE_COUNTDOWN.with(|slot| {
+        let mut map = slot.borrow_mut();
+        if pulse.countdown == 0 {
+            map.remove(&object_id);
+        } else {
+            map.insert(object_id, pulse.countdown);
+        }
+    });
+    pulse
+}
+
+/// Leftover ThingFactory `DoorOpenTime` when present, else the live-host fallback.
+pub fn leftover_open_contain_resolved_door_open_time(template_name: &str, fallback: u32) -> u32 {
+    leftover_contain_module_door_open_time(template_name).unwrap_or(fallback)
+}
+
+/// Live host: C++ `exitObjectViaDoor` door start (countdown + OPENING).
+pub fn leftover_open_contain_open_exit_door(
+    object_id: ObjectID,
+    template_name: &str,
+) -> LeftoverOpenContainDoorPulse {
+    leftover_open_contain_arm_exit_door(
+        object_id,
+        leftover_open_contain_door_open_time(template_name),
+    )
+}
+
+/// Live host: C++ `OpenContain::update` door tick for every pending container.
+pub fn leftover_open_contain_update_exit_doors() -> Vec<(ObjectID, LeftoverOpenContainDoorPulse)> {
+    LIVE_DOOR_CLOSE_COUNTDOWN.with(|slot| {
+        let mut map = slot.borrow_mut();
+        let ids: Vec<ObjectID> = map.keys().copied().collect();
+        let mut pulses = Vec::with_capacity(ids.len());
+        for id in ids {
+            let countdown = map.get(&id).copied().unwrap_or(0);
+            let pulse = leftover_open_contain_tick_exit_door(countdown);
+            if pulse.countdown == 0 {
+                map.remove(&id);
+            } else {
+                map.insert(id, pulse.countdown);
+            }
+            pulses.push((id, pulse));
+        }
+        pulses
+    })
+}
+
 
 
 /// Configuration data for OpenContain module
@@ -1008,9 +1138,10 @@ impl OpenContain {
         self.monitor_condition_changes()?;
         let countdown = self.door_close_countdown.load(Ordering::Relaxed);
         if countdown > 0 {
-            let next = countdown.saturating_sub(1);
-            self.door_close_countdown.store(next, Ordering::Relaxed);
-            if next == 0 {
+            let pulse = leftover_open_contain_tick_exit_door(countdown);
+            self.door_close_countdown
+                .store(pulse.countdown, Ordering::Relaxed);
+            if pulse.set_closing {
                 let owner_id = self.get_object_id();
                 if owner_id != crate::common::INVALID_ID {
                     let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
@@ -1921,9 +2052,10 @@ impl OpenContain {
             return Ok(None);
         }
 
+        let pulse = leftover_open_contain_start_exit_door(self.module_data.door_open_time);
         self.door_close_countdown
-            .store(self.module_data.door_open_time, Ordering::Relaxed);
-        if self.module_data.door_open_time > 0 {
+            .store(pulse.countdown, Ordering::Relaxed);
+        if pulse.set_opening {
             let _ =
                 crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner_guard| {
                     let _ = owner_guard.clear_and_set_model_condition_flags(
@@ -3012,6 +3144,32 @@ mod tests {
 
         parse_door_open_time(&mut ini, &mut data, &["1.5s"]).expect("duration");
         assert_eq!(data.door_open_time, 45);
+    }
+
+    #[test]
+    fn leftover_open_contain_start_and_tick_match_cpp() {
+        let open = leftover_open_contain_start_exit_door(1);
+        assert_eq!(open.countdown, 1);
+        assert!(open.set_opening);
+        assert!(!open.set_closing);
+        let close = leftover_open_contain_tick_exit_door(open.countdown);
+        assert_eq!(close.countdown, 0);
+        assert!(close.set_closing);
+        assert!(!close.set_opening);
+        let zero = leftover_open_contain_start_exit_door(0);
+        assert_eq!(zero.countdown, 0);
+        assert!(!zero.set_opening);
+        assert!(!leftover_open_contain_tick_exit_door(0).set_closing);
+        assert_eq!(leftover_open_contain_door_open_time(""), 1);
+        assert_eq!(leftover_open_contain_resolved_door_open_time("", 0), 0);
+        assert_eq!(leftover_open_contain_resolved_door_open_time("", 7), 7);
+        let live = leftover_open_contain_open_exit_door(77, "");
+        assert_eq!(live, open);
+        let ticks = leftover_open_contain_update_exit_doors();
+        assert_eq!(ticks, vec![(77, close)]);
+        let armed = leftover_open_contain_arm_exit_door(88, 0);
+        assert!(!armed.set_opening);
+        assert_eq!(armed.countdown, 0);
     }
 
     #[test]

@@ -2182,7 +2182,7 @@ impl GameLogic {
                     let mut cur = object.health.current;
                     let mut maximum = object.health.maximum;
                     apply_drone_armor_health(kind, &mut max_h, &mut cur, &mut maximum);
-                    object.max_health = max_h;
+                    object.set_body_max_health(max_h);
                     object.record_host_max_health();
                     object.health.maximum = maximum;
                     object.health.current = cur;
@@ -3964,8 +3964,7 @@ impl GameLogic {
             } else {
                 old_max
             };
-            object.health.maximum = new_max;
-            object.max_health = new_max;
+            object.set_body_max_health(new_max);
             object.health.current = new_max * ratio;
             object.record_host_max_health();
         }

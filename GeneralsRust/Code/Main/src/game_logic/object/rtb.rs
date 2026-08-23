@@ -511,14 +511,14 @@ impl Object {
 
     fn slot_is_contact_weapon(&self, slot: u8) -> bool {
         use crate::game_logic::weapon_bootstrap::{
-            host_is_contact_weapon_name, is_contact_weapon_range,
+            host_is_contact_weapon_name, is_contact_effective_range,
         };
         let Some(weapon) = self.weapon_slot(slot) else {
             return false;
         };
         self.weapon_name_for_slot(slot)
             .is_some_and(host_is_contact_weapon_name)
-            || is_contact_weapon_range(weapon.range)
+            || is_contact_effective_range(weapon.range)
     }
 
     /// C++ Weapon.cpp:2161-2171 — try abutment 1, then 2 if out of max range.

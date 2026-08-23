@@ -1851,11 +1851,16 @@ impl CnCGameEngine {
                         .game_hud_mut()
                         .construction_panel
                         .clear_structure_placement();
+                    let placement_angle =
+                        game_client::helpers::TheInGameUI::get_placement_angle();
                     self.host_queue_and_process_command_silent(
                         crate::command_system::GameCommand {
                             command_type: crate::command_system::CommandType::DoSpecialPower {
                                 power_type: crate::command_system::SpecialPowerType::SneakAttack,
-                                target: crate::command_system::PowerTarget::Location(location),
+                                target: crate::command_system::PowerTarget::LocationFacing {
+                                    pos: location,
+                                    angle: placement_angle,
+                                },
                             },
                             player_id,
                             command_id: 0,
@@ -2241,15 +2246,12 @@ impl CnCGameEngine {
                 self.arm_radius_cursor_for_pending("COMBATDROP");
                 return;
             }
-            crate::command_system::CommandType::DoSpecialPower {
-                power_type:
-                    crate::command_system::SpecialPowerType::BattlePlanBombardment
-                    | crate::command_system::SpecialPowerType::BattlePlanHoldTheLine
-                    | crate::command_system::SpecialPowerType::BattlePlanSearchAndDestroy,
-                ..
-            } => {
-                // Strategy Center battle plans are immediate (no map click).
-                // Fall through to queue with resolved selection below.
+            crate::command_system::CommandType::DoSpecialPower { ref power_type, .. }
+                if crate::command_system::leftover_special_power_is_no_target(power_type) =>
+            {
+                // Leftover ActionManager::can_do_special_power / C++ CommandXlat
+                // no-option MSG_DO_SPECIAL_POWER. CIA, CommunicationsDownload,
+                // DetonateDirtyNuke, RemoteCharges detonate, BattlePlan*, Baikonur.
             }
             crate::command_system::CommandType::DoSpecialPower { power_type, .. } => {
                 // Resolve SW type from selected ready structure residual.
@@ -2297,6 +2299,27 @@ impl CnCGameEngine {
                 let Some(power) = resolved else {
                     return;
                 };
+                if crate::command_system::leftover_special_power_is_no_target(&power) {
+                    let player_id = self.local_player_id_for_ui();
+                    let selected = self.ui_selected_ids(player_id);
+                    if selected.is_empty() {
+                        return;
+                    }
+                    self.host_queue_and_process_command_silent(
+                        crate::command_system::GameCommand {
+                            command_type: crate::command_system::CommandType::DoSpecialPower {
+                                power_type: power,
+                                target: crate::command_system::PowerTarget::None,
+                            },
+                            player_id,
+                            command_id: 0,
+                            timestamp: std::time::SystemTime::now(),
+                            selected_units: selected,
+                            modifier_keys: crate::command_system::ModifierKeys::default(),
+                        },
+                    );
+                    return;
+                }
                 // Map before move into pending.  The same table also serves
                 // native ControlBar special-power requests, so faction module
                 // variants retain their authored radius cursor.
@@ -2542,6 +2565,10 @@ fn special_power_pending_options(power: &crate::command_system::SpecialPowerType
     use crate::command_system::SpecialPowerType as P;
     const NEED_ENEMY: u32 = 0x0000_0001;
     const NEED_POS: u32 = 0x0000_0020;
+    // Leftover ActionManager::can_do_special_power: no-option immediate fire.
+    if crate::command_system::leftover_special_power_is_no_target(power) {
+        return 0;
+    }
     match power {
         P::BlackLotusStealCash
         | P::BlackLotusDisableVehicle
@@ -2582,6 +2609,37 @@ mod tests {
                 max_shots_to_fire: 1,
                 target: crate::command_system::WeaponTarget::Location(click),
 }
+        );
+    }
+
+    #[test]
+    fn leftover_no_target_special_powers_do_not_invent_need_pos() {
+        use crate::command_system::SpecialPowerType as P;
+        const NEED_POS: u32 = 0x0000_0020;
+        for power in [
+            P::CiaIntelligence,
+            P::CommunicationsDownload,
+            P::DetonateDirtyNuke,
+            P::BurtonRemoteCharges,
+            P::DemoKellRemoteCharges,
+            P::BaikonurRocket,
+            P::BattlePlanBombardment,
+            P::BattlePlanHoldTheLine,
+            P::BattlePlanSearchAndDestroy,
+        ] {
+            assert_eq!(
+                special_power_pending_options(&power),
+                0,
+                "{power:?} leftover can_do_special_power is no-option"
+            );
+        }
+        assert_eq!(
+            special_power_pending_options(&P::SpySatellite) & NEED_POS,
+            NEED_POS
+        );
+        assert_eq!(
+            special_power_pending_options(&P::ParticleCannon) & NEED_POS,
+            NEED_POS
         );
     }
 

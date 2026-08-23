@@ -232,6 +232,9 @@ pub struct HostSneakAttackMission {
     #[serde(default)]
     pub source_owner_player_id: Option<u32>,
     pub target_position: Vec3,
+    /// C++ PlaceEvent `appendRealArgument(angle)` forwarded into OCL create.
+    #[serde(default)]
+    pub placement_angle: f32,
     pub activate_frame: u32,
     pub spawn_frame: u32,
     pub phase: HostSneakAttackPhase,
@@ -256,6 +259,7 @@ pub struct HostSneakAttackSpawnPlan {
     pub source_team: super::Team,
     pub source_owner_player_id: Option<u32>,
     pub target_position: Vec3,
+    pub placement_angle: f32,
     pub tunnel_template: String,
     pub shockwave_damage: f32,
     pub shockwave_radius: f32,
@@ -422,6 +426,7 @@ impl HostSneakAttackRegistry {
             target_position,
             activate_frame,
             tunnel_template,
+            0.0,
         )
     }
 
@@ -437,6 +442,7 @@ impl HostSneakAttackRegistry {
         target_position: Vec3,
         activate_frame: u32,
         tunnel_template: impl Into<String>,
+        placement_angle: f32,
     ) -> u32 {
         let id = self.next_id;
         self.next_id = self.next_id.saturating_add(1).max(1);
@@ -448,6 +454,7 @@ impl HostSneakAttackRegistry {
             source_team,
             source_owner_player_id,
             target_position,
+            placement_angle,
             activate_frame,
             spawn_frame,
             phase: HostSneakAttackPhase::Queued,
@@ -544,6 +551,7 @@ impl HostSneakAttackRegistry {
                 source_team: mission.source_team,
                 source_owner_player_id: mission.source_owner_player_id,
                 target_position: mission.target_position,
+                placement_angle: mission.placement_angle,
                 tunnel_template: mission.tunnel_template.clone(),
                 shockwave_damage: mission.kind.shockwave_damage(),
                 shockwave_radius: mission.kind.shockwave_radius(),
@@ -744,6 +752,27 @@ mod tests {
         assert_eq!(reg.shockwave_hit_count(), 2);
         assert_eq!(reg.pending_count(), 0);
     }
+
+    #[test]
+    fn queue_for_owner_keeps_placement_angle() {
+        let mut reg = HostSneakAttackRegistry::new();
+        let angle = std::f32::consts::FRAC_PI_2;
+        let id = reg.queue_for_owner(
+            HostSneakAttackKind::GLASneakAttack,
+            ObjectId(1),
+            Team::GLA,
+            Some(2),
+            Vec3::new(10.0, 0.0, 20.0),
+            0,
+            SNEAK_ATTACK_RESIDUAL_TEMPLATE,
+            angle,
+        );
+        assert!((reg.get(id).unwrap().placement_angle - angle).abs() < 1.0e-6);
+        let plans = reg.plan_due_spawns(SNEAK_ATTACK_SPAWN_DELAY_FRAMES);
+        assert_eq!(plans.len(), 1);
+        assert!((plans[0].placement_angle - angle).abs() < 1.0e-6);
+    }
+
 
     #[test]
     fn shockwave_radius_and_target_filter() {

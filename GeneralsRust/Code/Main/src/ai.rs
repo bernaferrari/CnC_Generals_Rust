@@ -980,8 +980,6 @@ impl AIPlayer {
 
         self.building_queue.clear();
         self.reset_base_defense_fan();
-        let mut sum = Vec3::ZERO;
-        let mut n = 0u32;
         for entry in marked {
             let mut pos = entry.position;
             pos.x -= build_pos.x;
@@ -1012,19 +1010,39 @@ impl AIPlayer {
             } else {
                 building.increment_num_rebuilds();
             }
-            sum += pos;
-            n = n.saturating_add(1);
             self.building_queue.push(building);
         }
-        if n > 0 {
-            self.base_center = sum / n as f32;
-            let mut radius = 1.0f32;
-            for b in &self.building_queue {
-                radius = radius.max((b.position - self.base_center).length());
-            }
-            self.base_radius = radius;
-        }
+        self.compute_center_and_radius_of_base(game_logic);
         true
+    }
+
+    /// C++ `AIPlayer::computeCenterAndRadiusOfBase`.
+    /// Leftover-calls leftover centroid + axis-abs + geom*0.4 hypot.
+    pub fn compute_center_and_radius_of_base(&mut self, game_logic: &GameLogic) {
+        let mut entries: Vec<(f32, f32, f32)> = Vec::new();
+        for building in &self.building_queue {
+            if building.template_name.is_empty() {
+                continue;
+            }
+            let Some(template) = game_logic.templates.get(&building.template_name) else {
+                continue;
+            };
+            let geom_r = if template.geometry_info.authored {
+                template.geometry_info.bounding_circle_radius()
+            } else {
+                0.0
+            };
+            entries.push((building.position.x, building.position.z, geom_r));
+        }
+        let (set, cx, cz, radius) =
+            gamelogic::ai::ai_player::leftover_compute_center_and_radius_of_base(&entries);
+        if set {
+            self.base_center = Vec3::new(cx, 0.0, cz);
+            self.base_radius = radius;
+        } else {
+            self.base_center = Vec3::ZERO;
+            self.base_radius = 0.0;
+        }
     }
 
     fn destroy_owned_command_center(&mut self, game_logic: &mut GameLogic) -> Option<Vec3> {
@@ -2144,6 +2162,9 @@ impl AIPlayer {
             }) {
                 continue;
             }
+            if !self.is_location_safe(game_logic, building.position, Some(template)) {
+                continue;
+            }
 
             if building.is_priority && !selected_priority {
                 selected = Some(index);
@@ -2197,13 +2218,6 @@ impl AIPlayer {
         minimum_cash: i32,
         thing_name: &str,
     ) -> bool {
-        let Some(warehouse_id) = self.find_supply_center(game_logic, minimum_cash) else {
-            return false;
-        };
-        let Some(warehouse) = game_logic.host_object(warehouse_id) else {
-            return false;
-        };
-        let warehouse_pos = warehouse.get_position();
         let is_cash = game_logic
             .templates
             .get(thing_name)
@@ -2211,6 +2225,22 @@ impl AIPlayer {
             .unwrap_or_else(|| {
                 thing_name.contains("SupplyCenter") || thing_name.contains("SupplyStash")
             });
+        // C++ always findSupplyCenter first; non-cash may then use m_curWarehouseID.
+        let mut warehouse_id = self.find_supply_center(game_logic, minimum_cash);
+        if !is_cash {
+            if let Some(id) = self.current_warehouse_id {
+                if game_logic.host_object(id).is_some() {
+                    warehouse_id = Some(id);
+                }
+            }
+        }
+        let Some(warehouse_id) = warehouse_id else {
+            return false;
+        };
+        let Some(warehouse) = game_logic.host_object(warehouse_id) else {
+            return false;
+        };
+        let warehouse_pos = warehouse.get_position();
         let mut offset = warehouse_pos - self.base_center;
         let mut radius = 30.0;
         if !is_cash {
@@ -2359,38 +2389,180 @@ impl AIPlayer {
     }
 
     /// C++ `AIPlayer::findSupplyCenter`.
-    pub(crate) fn find_supply_center(&self, game_logic: &GameLogic, minimum_cash: i32) -> Option<ObjectId> {
-        if let Some(id) = self.current_warehouse_id {
-            if game_logic.host_object(id).is_some() {
-                return Some(id);
-            }
-        }
-        let floor = minimum_cash.max(0) as u32;
-        let mut best: Option<(f32, ObjectId)> = None;
+    /// Leftover-calls leftover warehouse-dock / own cash-gen / 60/40 / cash-floor pick.
+    pub(crate) fn find_supply_center(
+        &self,
+        game_logic: &GameLogic,
+        minimum_cash: i32,
+    ) -> Option<ObjectId> {
+        let enemy_center = self
+            .enemy_structure_bounds_midpoint(game_logic)
+            .map(|p| (p.x, p.z));
+        let mut candidates: Vec<gamelogic::ai::ai_player::LeftoverSupplyCenterCandidate> =
+            Vec::new();
+        let mut own_cash_gens: Vec<gamelogic::ai::ai_player::LeftoverOwnedCashGenerator> =
+            Vec::new();
         for (&id, source) in game_logic.host_objects() {
             if !source.is_alive() {
                 continue;
             }
-            let is_source = source.is_kind_of(KindOf::SupplySource)
-                || source.is_kind_of(KindOf::Harvestable)
-                || source.is_kind_of(KindOf::Resource);
-            if !is_source {
-                continue;
+            if Self::is_host_cash_generator(source) && self.host_owned_by_us(source) {
+                let p = source.get_position();
+                own_cash_gens.push(gamelogic::ai::ai_player::LeftoverOwnedCashGenerator {
+                    x: p.x,
+                    y: p.z,
+                });
             }
-            if source.team != Team::Neutral && source.team != self.team {
-                continue;
-            }
-            let cash = source.stored_resources.supplies;
-            if cash < floor && cash < 100 {
-                continue;
-            }
-            let pos = source.get_position();
-            let dist = (pos - self.base_center).length_squared();
-            if best.map(|(d, _)| dist < d).unwrap_or(true) {
-                best = Some((dist, id));
-            }
+            let p = source.get_position();
+            candidates.push(gamelogic::ai::ai_player::LeftoverSupplyCenterCandidate {
+                id: id.0,
+                x: p.x,
+                y: p.z,
+                bounding_circle: Self::host_object_bounding_circle(source),
+                available_cash: source.stored_resources.supplies as i32,
+                is_structure: source.is_kind_of(KindOf::Structure),
+                is_supply_source: source.is_kind_of(KindOf::SupplySource),
+                has_warehouse_dock: source.thing.template.dock_kind == DockKind::SupplyWarehouse,
+                is_enemy: source.team != Team::Neutral
+                    && source.team != self.team
+                    && self.team != Team::Neutral,
+            });
         }
-        best.map(|(_, id)| id)
+        gamelogic::ai::ai_player::leftover_find_supply_center(
+            &candidates,
+            &own_cash_gens,
+            self.base_center.x,
+            self.base_center.z,
+            enemy_center,
+            minimum_cash,
+        )
+        .map(ObjectId)
+    }
+
+    fn host_object_bounding_circle(obj: &crate::game_logic::Object) -> f32 {
+        crate::game_logic::host_supply_gather::host_bounding_circle_radius(
+            obj.thing.template.geometry_info.authored,
+            obj.thing.template.geometry_info.bounding_circle_radius(),
+            obj.thing.geometry.radius.max(obj.selection_radius),
+        )
+    }
+
+    fn host_owned_by_us(&self, obj: &crate::game_logic::Object) -> bool {
+        match obj.owner_player_id {
+            Some(pid) => pid == self.player_id,
+            None => obj.team == self.team,
+        }
+    }
+
+    fn is_host_cash_generator(obj: &crate::game_logic::Object) -> bool {
+        obj.is_kind_of(KindOf::SupplyCenter) || obj.is_kind_of(KindOf::FSSupplyCenter)
+    }
+
+    fn own_cash_generator_near(
+        &self,
+        game_logic: &GameLogic,
+        warehouse_pos: Vec3,
+        radius: f32,
+    ) -> bool {
+        game_logic.host_objects().values().any(|cand| {
+            if !cand.is_alive() || !Self::is_host_cash_generator(cand) || !self.host_owned_by_us(cand)
+            {
+                return false;
+            }
+            let other_r = Self::host_object_bounding_circle(cand);
+            let limit = radius + other_r;
+            let p = cand.get_position();
+            let dx = p.x - warehouse_pos.x;
+            let dz = p.z - warehouse_pos.z;
+            dx * dx + dz * dz <= limit * limit
+        })
+    }
+
+    fn enemy_structure_bounds_midpoint(&self, game_logic: &GameLogic) -> Option<Vec3> {
+        let enemy_team = self.skirmish_enemy_team(game_logic)?;
+        let mut lo_x = f32::MAX;
+        let mut lo_z = f32::MAX;
+        let mut hi_x = f32::MIN;
+        let mut hi_z = f32::MIN;
+        let mut any = false;
+        for obj in game_logic.host_objects().values() {
+            if !obj.is_alive() || obj.team != enemy_team || !obj.is_kind_of(KindOf::Structure) {
+                continue;
+            }
+            let p = obj.get_position();
+            lo_x = lo_x.min(p.x);
+            lo_z = lo_z.min(p.z);
+            hi_x = hi_x.max(p.x);
+            hi_z = hi_z.max(p.z);
+            any = true;
+        }
+        any.then_some(Vec3::new((lo_x + hi_x) * 0.5, 0.0, (lo_z + hi_z) * 0.5))
+    }
+
+    /// C++ `AIPlayer::isLocationSafe`.
+    /// Leftover-calls leftover AIData radius + enemy/alive/stealth/harvester/dozer filters.
+    pub fn is_location_safe(
+        &self,
+        game_logic: &GameLogic,
+        pos: Vec3,
+        template: Option<&ThingTemplate>,
+    ) -> bool {
+        let Some(template) = template else {
+            return false;
+        };
+        let template_r = if template.geometry_info.authored {
+            template.geometry_info.bounding_circle_radius()
+        } else {
+            0.0
+        };
+        let radius = gamelogic::ai::ai_player::leftover_is_location_safe_radius(
+            Self::aidata_supply_center_safe_radius(),
+            template_r,
+        );
+        let candidates = game_logic.host_objects().values().map(|other| {
+            let p = other.get_position();
+            gamelogic::ai::ai_player::LeftoverLocationSafeCandidate {
+                x: p.x,
+                y: p.z,
+                is_destroyed: other.status.destroyed,
+                is_effectively_dead: other.status.effectively_dead || !other.is_alive(),
+                is_harvester: other.is_kind_of(KindOf::Harvester),
+                is_dozer: other.is_kind_of(KindOf::Dozer),
+                stealthed: other.status.stealthed,
+                detected: other.status.detected,
+                disguised: other.status.disguised,
+                is_enemy: other.team != self.team && other.team != Team::Neutral,
+                is_bridge: other.is_kind_of(KindOf::Bridge),
+                is_bridge_tower: other.is_kind_of(KindOf::BridgeTower),
+            }
+        });
+        gamelogic::ai::ai_player::leftover_is_location_safe(pos.x, pos.z, radius, candidates)
+    }
+
+    /// C++ `AIPlayer::isSupplySourceSafe` — find + isLocationSafe.
+    pub fn is_supply_source_safe(&self, game_logic: &GameLogic, min_supplies: i32) -> bool {
+        let Some(warehouse_id) = self.find_supply_center(game_logic, min_supplies) else {
+            return true;
+        };
+        let Some(warehouse) = game_logic.host_object(warehouse_id) else {
+            return true;
+        };
+        let template = game_logic.templates.get(&warehouse.template_name);
+        self.is_location_safe(game_logic, warehouse.get_position(), template)
+    }
+
+    fn aidata_supply_center_safe_radius() -> Option<f32> {
+        let store = game_engine::common::ini::get_ai_data_store();
+        if let Some(radius) = store.get_active().map(|d| d.supply_center_safe_radius) {
+            return Some(radius);
+        }
+        drop(store);
+        gamelogic::ai::THE_AI.read().ok().and_then(|ai| {
+            ai.get_ai_data()
+                .read()
+                .ok()
+                .map(|d| d.supply_center_safe_radius)
+        })
     }
 
     /// C++ `AIPlayer::isSupplySourceAttacked`.
@@ -9016,9 +9188,11 @@ mod cpp_parity_tests {
         player.resources.supplies = 10_000;
         logic.add_player(player);
         let mut pile = crate::game_logic::ThingTemplate::new("SupplyWarehouse");
-        pile.add_kind_of(crate::game_logic::KindOf::Harvestable)
+        pile.add_kind_of(crate::game_logic::KindOf::Structure)
+            .add_kind_of(crate::game_logic::KindOf::Harvestable)
             .add_kind_of(crate::game_logic::KindOf::Resource)
             .add_kind_of(crate::game_logic::KindOf::SupplySource);
+        pile.dock_kind = crate::game_logic::DockKind::SupplyWarehouse;
         logic.templates.insert("SupplyWarehouse".into(), pile);
         let mut sc = crate::game_logic::ThingTemplate::new("AmericaSupplyCenter");
         sc.add_kind_of(crate::game_logic::KindOf::Structure)
@@ -10985,6 +11159,215 @@ mod cpp_parity_tests {
             ally_obj.move_away_from,
             Some(mover),
             "idle ally on the dest line must aiMoveAwayFromUnit"
+        );
+    }
+
+    #[test]
+    fn compute_center_and_radius_pads_geom_point_four() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut pad = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
+        pad.add_kind_of(crate::game_logic::KindOf::Structure)
+            .add_kind_of(crate::game_logic::KindOf::CommandCenter);
+        pad.geometry_info.authored = true;
+        pad.geometry_info.geom_type = crate::game_logic::HostGeometryType::Cylinder;
+        pad.geometry_info.major_radius = 50.0;
+        logic.templates.insert("AmericaCommandCenter".into(), pad);
+
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        ai.add_building("AmericaCommandCenter", Vec3::new(0.0, 0.0, 0.0), 1);
+        ai.add_building("AmericaCommandCenter", Vec3::new(100.0, 0.0, 0.0), 1);
+        ai.compute_center_and_radius_of_base(&logic);
+
+        assert!(
+            (ai.base_center.x - 50.0).abs() < 0.01 && ai.base_center.z.abs() < 0.01,
+            "centroid of build-list XY: {:?}",
+            ai.base_center
+        );
+        // Raw max pad dist is 50. C++ adds geom*0.4 (=20) on each axis → 70.
+        assert!(
+            (ai.base_radius - 70.0).abs() < 0.01,
+            "radius must include geom*0.4, got {}",
+            ai.base_radius
+        );
+    }
+
+    fn insert_warehouse_template(logic: &mut crate::game_logic::GameLogic, name: &str) {
+        let mut pile = crate::game_logic::ThingTemplate::new(name);
+        pile.add_kind_of(crate::game_logic::KindOf::Structure)
+            .add_kind_of(crate::game_logic::KindOf::SupplySource);
+        pile.dock_kind = crate::game_logic::DockKind::SupplyWarehouse;
+        logic.templates.insert(name.into(), pile);
+    }
+
+    #[test]
+    fn find_supply_center_uses_warehouse_dock_and_cash_gen_and_sixty_forty() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        logic.add_player(crate::game_logic::Player::new(1, Team::USA, "USA AI", false));
+        logic.add_player(crate::game_logic::Player::new(2, Team::China, "China", true));
+        insert_warehouse_template(&mut logic, "SupplyWarehouse");
+        let mut sc = crate::game_logic::ThingTemplate::new("AmericaSupplyCenter");
+        sc.add_kind_of(crate::game_logic::KindOf::Structure)
+            .add_kind_of(crate::game_logic::KindOf::SupplyCenter);
+        logic.templates.insert("AmericaSupplyCenter".into(), sc);
+
+        let bare = {
+            let mut t = crate::game_logic::ThingTemplate::new("BarePile");
+            t.add_kind_of(crate::game_logic::KindOf::SupplySource)
+                .add_kind_of(crate::game_logic::KindOf::Harvestable);
+            t
+        };
+        logic.templates.insert("BarePile".into(), bare);
+        let bare_id = logic
+            .create_object("BarePile", Team::Neutral, Vec3::new(10.0, 0.0, 0.0))
+            .expect("bare");
+        if let Some(obj) = logic.host_object_mut(bare_id) {
+            obj.stored_resources.supplies = 9_000;
+        }
+
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        ai.base_center = Vec3::ZERO;
+        ai.enemy_player_id = Some(2);
+        assert!(
+            ai.find_supply_center(&logic, 100).is_none(),
+            "no SupplyWarehouseDockUpdate → skip"
+        );
+
+        let near = logic
+            .create_object("SupplyWarehouse", Team::Neutral, Vec3::new(80.0, 0.0, 0.0))
+            .expect("near");
+        if let Some(obj) = logic.host_object_mut(near) {
+            obj.stored_resources.supplies = 5_000;
+        }
+        let far = logic
+            .create_object("SupplyWarehouse", Team::Neutral, Vec3::new(400.0, 0.0, 0.0))
+            .expect("far");
+        if let Some(obj) = logic.host_object_mut(far) {
+            obj.stored_resources.supplies = 5_000;
+        }
+        assert_eq!(ai.find_supply_center(&logic, 100), Some(near));
+
+        let own = logic
+            .create_object("AmericaSupplyCenter", Team::USA, Vec3::new(80.0, 0.0, 0.0))
+            .expect("own SC");
+        if let Some(obj) = logic.host_object_mut(own) {
+            obj.owner_player_id = Some(1);
+        }
+        assert_eq!(
+            ai.find_supply_center(&logic, 100),
+            Some(far),
+            "own cash-gen within CLOSE_DIST skips the near warehouse"
+        );
+
+        logic.destroy_object(own);
+        logic.destroy_object(near);
+        // Warehouse at 100 is closer to the China structure midpoint (0) than
+        // to our base at 1000 under the 60/40 expansion gate.
+        if let Some(obj) = logic.host_object_mut(far) {
+            obj.set_position(Vec3::new(100.0, 0.0, 0.0));
+        }
+        let enemy_cc = {
+            let mut t = crate::game_logic::ThingTemplate::new("ChinaCommandCenter");
+            t.add_kind_of(crate::game_logic::KindOf::Structure)
+                .add_kind_of(crate::game_logic::KindOf::CommandCenter);
+            t
+        };
+        logic.templates.insert("ChinaCommandCenter".into(), enemy_cc);
+        let _ = logic
+            .create_object("ChinaCommandCenter", Team::China, Vec3::ZERO)
+            .expect("enemy CC");
+        ai.base_center = Vec3::new(1000.0, 0.0, 0.0);
+        assert!(
+            ai.find_supply_center(&logic, 100).is_none(),
+            "60/40 closer to enemy structure bounds than to us"
+        );
+    }
+
+    #[test]
+    fn find_supply_center_halves_cash_floor_then_stops_at_one_hundred() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        insert_warehouse_template(&mut logic, "SupplyWarehouse");
+        let id = logic
+            .create_object("SupplyWarehouse", Team::Neutral, Vec3::new(50.0, 0.0, 0.0))
+            .expect("wh");
+        if let Some(obj) = logic.host_object_mut(id) {
+            obj.stored_resources.supplies = 150;
+        }
+        let ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        assert!(
+            ai.find_supply_center(&logic, 200).is_none(),
+            "C++ do/while: fail at 200, halve to 100, stop without another pass"
+        );
+        assert_eq!(ai.find_supply_center(&logic, 140), Some(id));
+    }
+
+    #[test]
+    fn is_location_safe_rejects_enemies_not_harvesters_or_undetected_stealth() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut pad = crate::game_logic::ThingTemplate::new("AmericaSupplyCenter");
+        pad.add_kind_of(crate::game_logic::KindOf::Structure)
+            .add_kind_of(crate::game_logic::KindOf::SupplyCenter);
+        pad.geometry_info.authored = true;
+        pad.geometry_info.major_radius = 10.0;
+        logic.templates.insert("AmericaSupplyCenter".into(), pad);
+
+        let mut ranger = crate::game_logic::ThingTemplate::new("ChinaInfantryRedguard");
+        ranger
+            .add_kind_of(crate::game_logic::KindOf::Infantry)
+            .set_health(100.0);
+        logic.templates.insert("ChinaInfantryRedguard".into(), ranger);
+
+        let mut harvester = crate::game_logic::ThingTemplate::new("AmericaVehicleChinook");
+        harvester
+            .add_kind_of(crate::game_logic::KindOf::Harvester)
+            .add_kind_of(crate::game_logic::KindOf::Aircraft)
+            .set_health(200.0);
+        logic.templates.insert("AmericaVehicleChinook".into(), harvester);
+
+        let mut dozer = crate::game_logic::ThingTemplate::new("ChinaVehicleDozer");
+        dozer
+            .add_kind_of(crate::game_logic::KindOf::Dozer)
+            .add_kind_of(crate::game_logic::KindOf::Vehicle)
+            .set_health(200.0);
+        logic.templates.insert("ChinaVehicleDozer".into(), dozer);
+
+        let template = logic
+            .templates
+            .get("AmericaSupplyCenter")
+            .cloned();
+        let pos = Vec3::ZERO;
+        let ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        assert!(!ai.is_location_safe(&logic, pos, None));
+        assert!(ai.is_location_safe(&logic, pos, template.as_ref()));
+
+        let enemy = logic
+            .create_object("ChinaInfantryRedguard", Team::China, pos)
+            .expect("enemy");
+        assert!(!ai.is_location_safe(&logic, pos, template.as_ref()));
+
+        if let Some(obj) = logic.host_object_mut(enemy) {
+            obj.status.stealthed = true;
+            obj.status.detected = false;
+            obj.status.disguised = false;
+        }
+        assert!(
+            ai.is_location_safe(&logic, pos, template.as_ref()),
+            "stealthed-unless-detected must not fail safety"
+        );
+        if let Some(obj) = logic.host_object_mut(enemy) {
+            obj.status.detected = true;
+        }
+        assert!(!ai.is_location_safe(&logic, pos, template.as_ref()));
+
+        logic.destroy_object(enemy);
+        let _ = logic
+            .create_object("AmericaVehicleChinook", Team::China, pos)
+            .expect("harvester");
+        let _ = logic
+            .create_object("ChinaVehicleDozer", Team::China, pos)
+            .expect("dozer");
+        assert!(
+            ai.is_location_safe(&logic, pos, template.as_ref()),
+            "C++ rejects HARVESTER and DOZER from the safety scan"
         );
     }
 

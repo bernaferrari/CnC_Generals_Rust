@@ -4170,6 +4170,7 @@ fn plant_start_range_requires_approach_los() {
 }
 
 /// C++ ActionManager charge cases reject KINDOF_BRIDGE / BRIDGE_TOWER.
+/// Tank Hunter TNT is a separate leftover arm that allows Structure (bridges).
 #[test]
 fn burton_and_tnt_plant_reject_bridges() {
     use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
@@ -4266,8 +4267,8 @@ fn burton_and_tnt_plant_reject_bridges() {
     });
     game_logic.process_commands();
     assert!(
-        game_logic.pending_special_ability(hunter_id).is_none(),
-        "Tank Hunter TNT must not queue a plant on a bridge"
+        game_logic.pending_special_ability(hunter_id).is_some(),
+        "Tank Hunter TNT must queue a leftover-legal plant on a bridge"
     );
 
     game_logic.queue_pending_special_ability(
@@ -4283,7 +4284,26 @@ fn burton_and_tnt_plant_reject_bridges() {
     game_logic.update_ai(&[burton_id, bridge_id], 1.0 / 30.0);
     assert!(
         game_logic.pending_special_ability(burton_id).is_none(),
-        "plant tick must abort a charge already queued on a bridge"
+        "plant tick must abort a Burton charge already queued on a bridge"
+    );
+
+    game_logic.queue_pending_special_ability(
+        hunter_id,
+        crate::game_logic::PendingSpecialAbility::PlantTimedDemoCharge {
+            target_id: bridge_id,
+        },
+    );
+    if let Some(hunter) = game_logic.host_object_mut(hunter_id) {
+        hunter.set_ai_state(AIState::SpecialAbility);
+        hunter.target = Some(bridge_id);
+    }
+    game_logic.update_ai(&[hunter_id, bridge_id], 1.0 / 30.0);
+    assert!(
+        game_logic.pending_special_ability(hunter_id).is_some()
+            || game_logic
+                .tank_hunter_tnt_last_plant_frame(hunter_id)
+                .is_some(),
+        "Tank Hunter plant tick must not abort a leftover-legal bridge"
     );
 }
 

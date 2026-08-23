@@ -247,6 +247,12 @@ impl RenderPipeline {
                     }
                 }
             }
+            #[cfg(feature = "game_client")]
+            if game_client::core::game_client::presentation_specialized_draw_snapshot(object_id.0)
+                .is_some_and(|spec| spec.is_science_hidden())
+            {
+                continue;
+            }
 
 
             alive_objects += 1;

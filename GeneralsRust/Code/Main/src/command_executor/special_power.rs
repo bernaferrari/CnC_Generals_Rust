@@ -82,15 +82,27 @@ fn leftover_can_do_special_power_at_location(
     )
 }
 
-/// C++ ActionManager.cpp:1597-1626 `canDoSpecialPowerAtObject` leftover arms.
+/// C++ ActionManager::canDoSpecialPower leftover type switch (no-option fire).
+fn leftover_can_do_special_power(power_type: &SpecialPowerType) -> bool {
+    crate::command_system::leftover_special_power_is_no_target(power_type)
+}
+
+/// C++ ActionManager.cpp:1558-1626 `canDoSpecialPowerAtObject` leftover replay.
 /// Dual-world leftover Objects are empty on the live player path, so this
-/// replays the same match using host relationship + KindOf.
+/// replays the dead / FOGGED preamble then the type match using host
+/// relationship + KindOf.
 fn leftover_can_do_special_power_at_object(
     power_type: &SpecialPowerType,
     relationship: gamelogic::common::Relationship,
     target_is_vehicle: bool,
+    target_dead: bool,
+    target_shrouded_for_action: bool,
 ) -> bool {
     use gamelogic::common::Relationship;
+    // C++ ActionManager.cpp:1569-1590 — after module/ready, before the type switch.
+    if target_dead || target_shrouded_for_action {
+        return false;
+    }
     match power_type {
         // C++ SPECIAL_BATTLESHIP_BOMBARDMENT: relationship != ALLIES.
         SpecialPowerType::BattleshipBombardment => relationship != Relationship::Allies,
@@ -99,6 +111,10 @@ fn leftover_can_do_special_power_at_object(
         | SpecialPowerType::LaserGuidedHowitzer => {
             target_is_vehicle && relationship == Relationship::Enemies
         }
+        // Leftover can_do_special_power_at_object plant path (RemoteCharges).
+        SpecialPowerType::DemoKellRemoteCharges | SpecialPowerType::BurtonRemoteCharges => true,
+        // Leftover can_do_special_power no-target types: at_object is FALSE.
+        _ if leftover_can_do_special_power(power_type) => false,
         _ => !crate::command_system::leftover_special_power_is_location_target_only(power_type),
     }
 }
@@ -123,6 +139,24 @@ fn leftover_object_click_relationship(
         Relationship::Enemies
     }
 }
+
+/// Live replay of leftover `can_do_special_power_at_object` using host
+/// relationship, KindOf, dead, and `is_object_shrouded_for_action`.
+fn leftover_object_click_allowed(
+    logic: &GameLogic,
+    unit: &crate::game_logic::Object,
+    target: &crate::game_logic::Object,
+    power_type: &SpecialPowerType,
+) -> bool {
+    leftover_can_do_special_power_at_object(
+        power_type,
+        leftover_object_click_relationship(logic, unit, target),
+        target.is_kind_of(KindOf::Vehicle),
+        !target.is_alive(),
+        logic.is_object_shrouded_for_action(unit, target),
+    )
+}
+
 
 impl<'a> CommandExecutor<'a> {
     /// C++ AIGroup::groupOverrideSpecialPowerDestination residual.
@@ -272,7 +306,7 @@ impl<'a> CommandExecutor<'a> {
                 return CommandResult::InvalidTarget;
             }
         }
-        if let PowerTarget::Location(loc) = target {
+        if let Some(loc) = target.location_pos() {
             if !loc.x.is_finite() || !loc.y.is_finite() || !loc.z.is_finite() {
                 return CommandResult::InvalidLocation;
             }
@@ -289,8 +323,23 @@ impl<'a> CommandExecutor<'a> {
                 .map(|id| id as i32)
                 .unwrap_or(-1)
             };
-            if !leftover_can_do_special_power_at_location(power_type, *loc, player_index) {
+            if !leftover_can_do_special_power_at_location(power_type, loc, player_index) {
                 return CommandResult::InvalidLocation;
+            }
+        }
+
+        // C++ AIGroup::groupDoSpecialPower leftover canDoSpecialPower.
+        // Leftover no-target powers fire on None; leftover at_object is FALSE
+        // except RemoteCharges plant.
+        if leftover_can_do_special_power(power_type) {
+            if let PowerTarget::Object(_) = target {
+                if !matches!(
+                    *power_type,
+                    SpecialPowerType::DemoKellRemoteCharges
+                        | SpecialPowerType::BurtonRemoteCharges
+                ) {
+                    return CommandResult::InvalidTarget;
+                }
             }
         }
 
@@ -299,6 +348,7 @@ impl<'a> CommandExecutor<'a> {
         // CarpetBomb/ArtilleryBarrage/CruiseMissile).
         let target_position: Option<Vec3> = match target {
             PowerTarget::Location(loc) => Some(*loc),
+            PowerTarget::LocationFacing { pos, .. } => Some(*pos),
             PowerTarget::Object(id) => self
                 .game_logic
                 .host_object(*id)
@@ -364,14 +414,27 @@ impl<'a> CommandExecutor<'a> {
                 return CommandResult::InvalidTarget;
             };
             let any = casters.iter().copied().any(|unit_id| {
-                matches!(
-                    self.execute_capture_building_for_power(
-                        &[unit_id],
-                        *target_id,
-                        Some(capture_power),
+                let allowed = match (
+                    self.game_logic.host_object(unit_id),
+                    self.game_logic.host_object(*target_id),
+                ) {
+                    (Some(unit), Some(tgt)) => leftover_object_click_allowed(
+                        self.game_logic,
+                        unit,
+                        tgt,
+                        power_type,
                     ),
-                    CommandResult::Success
-                )
+                    _ => false,
+                };
+                allowed
+                    && matches!(
+                        self.execute_capture_building_for_power(
+                            &[unit_id],
+                            *target_id,
+                            Some(capture_power),
+                        ),
+                        CommandResult::Success
+                    )
             });
             return if any {
                 // C++ CommandXlat.cpp:637-651 MSG_DO_SPECIAL_POWER* InitiateSound.
@@ -394,10 +457,23 @@ impl<'a> CommandExecutor<'a> {
                 return CommandResult::InvalidTarget;
             };
             let any = casters.iter().copied().any(|unit_id| {
-                matches!(
-                    self.execute_hacker_disable_building(&[unit_id], *target_id),
-                    CommandResult::Success
-                )
+                let allowed = match (
+                    self.game_logic.host_object(unit_id),
+                    self.game_logic.host_object(*target_id),
+                ) {
+                    (Some(unit), Some(tgt)) => leftover_object_click_allowed(
+                        self.game_logic,
+                        unit,
+                        tgt,
+                        power_type,
+                    ),
+                    _ => false,
+                };
+                allowed
+                    && matches!(
+                        self.execute_hacker_disable_building(&[unit_id], *target_id),
+                        CommandResult::Success
+                    )
             });
             return if any {
                 self.play_special_power_initiate_sound(&casters, power_type);
@@ -423,10 +499,11 @@ impl<'a> CommandExecutor<'a> {
                     self.game_logic.host_object(unit_id),
                     self.game_logic.host_object(*tid),
                 ) {
-                    (Some(unit), Some(tgt)) => leftover_can_do_special_power_at_object(
+                    (Some(unit), Some(tgt)) => leftover_object_click_allowed(
+                        self.game_logic,
+                        unit,
+                        tgt,
                         power_type,
-                        leftover_object_click_relationship(self.game_logic, unit, tgt),
-                        tgt.is_kind_of(KindOf::Vehicle),
                     ),
                     _ => false,
                 };
@@ -647,6 +724,11 @@ impl<'a> CommandExecutor<'a> {
                             continue;
                         }
                     }
+                    PowerTarget::LocationFacing { pos, .. } => {
+                        if !self.game_logic.activate_baikonur_detonation(unit_id, *pos) {
+                            continue;
+                        }
+                    }
                     PowerTarget::None => {
                         if !self.game_logic.activate_baikonur_launch_door(unit_id) {
                             continue;
@@ -840,7 +922,12 @@ impl<'a> CommandExecutor<'a> {
                 } else if *power_type == SpecialPowerType::SneakAttack {
                     if self
                         .game_logic
-                        .queue_sneak_attack(power_type, unit_id, pos)
+                        .queue_sneak_attack_facing(
+                            power_type,
+                            unit_id,
+                            pos,
+                            target.location_angle(),
+                        )
                         .is_none()
                     {
                         continue;
@@ -1160,15 +1247,12 @@ impl<'a> CommandExecutor<'a> {
         let Some(target) = self.game_logic.host_object(target_id) else {
             return false;
         };
-        if !crate::game_logic::host_hero_abilities::leftover_charge_plant_target_ok(
+        if !crate::game_logic::host_hero_abilities::leftover_tank_hunter_tnt_target_ok(
             target.is_alive(),
-            target.is_kind_of(KindOf::Bridge),
-            target.is_kind_of(KindOf::BridgeTower),
             target.is_kind_of(KindOf::Structure),
             target.is_kind_of(KindOf::Vehicle),
-        ) || target.is_kind_of(KindOf::Aircraft)
-            || target.status.airborne_target
-        {
+            target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target,
+        ) {
             return false;
         }
         let target_pos = target.get_position();
@@ -1668,121 +1752,428 @@ mod can_use_special_power_caster_filter_tests {
     fn leftover_object_click_gates_match_action_manager() {
         use crate::command_system::SpecialPowerType;
         use gamelogic::common::Relationship;
-        use super::{
-            leftover_can_do_special_power_at_object,
+        use super::leftover_can_do_special_power_at_object;
+
+        let click = |power: SpecialPowerType, rel: Relationship, vehicle: bool| {
+            leftover_can_do_special_power_at_object(&power, rel, vehicle, false, false)
         };
 
+        assert!(!click(
+            SpecialPowerType::BattleshipBombardment,
+            Relationship::Allies,
+            false,
+        ));
+        assert!(click(
+            SpecialPowerType::BattleshipBombardment,
+            Relationship::Enemies,
+            false,
+        ));
+        assert!(click(
+            SpecialPowerType::BattleshipBombardment,
+            Relationship::Neutral,
+            false,
+        ));
+        assert!(click(
+            SpecialPowerType::MissileDefenderLaserGuided,
+            Relationship::Enemies,
+            true,
+        ));
+        assert!(click(
+            SpecialPowerType::LaserGuidedHowitzer,
+            Relationship::Enemies,
+            true,
+        ));
+        assert!(!click(
+            SpecialPowerType::MissileDefenderLaserGuided,
+            Relationship::Enemies,
+            false,
+        ));
+        assert!(!click(
+            SpecialPowerType::MissileDefenderLaserGuided,
+            Relationship::Allies,
+            true,
+        ));
+        assert!(!click(
+            SpecialPowerType::MissileDefenderLaserGuided,
+            Relationship::Neutral,
+            true,
+        ));
+        assert!(!click(
+            SpecialPowerType::Frenzy,
+            Relationship::Allies,
+            false,
+        ));
+        assert!(!click(
+            SpecialPowerType::Airstrike,
+            Relationship::Enemies,
+            false,
+        ));
+        assert!(!click(
+            SpecialPowerType::DaisyCutter,
+            Relationship::Enemies,
+            false,
+        ));
+        assert!(!click(
+            SpecialPowerType::Paradrop,
+            Relationship::Neutral,
+            false,
+        ));
+        assert!(!click(
+            SpecialPowerType::CrateDrop,
+            Relationship::Enemies,
+            false,
+        ));
+        assert!(!click(
+            SpecialPowerType::ParticleCannon,
+            Relationship::Enemies,
+            false,
+        ));
+        assert!(!click(
+            SpecialPowerType::NuclearMissile,
+            Relationship::Enemies,
+            false,
+        ));
+        assert!(!click(
+            SpecialPowerType::LeafletDrop,
+            Relationship::Enemies,
+            false,
+        ));
+        assert!(!click(
+            SpecialPowerType::GpsScrambler,
+            Relationship::Enemies,
+            false,
+        ));
+        assert!(!click(
+            SpecialPowerType::EmergencyRepair,
+            Relationship::Allies,
+            true,
+        ));
+        assert!(!click(
+            SpecialPowerType::SneakAttack,
+            Relationship::Enemies,
+            false,
+        ));
+        assert!(!click(
+            SpecialPowerType::Ambush,
+            Relationship::Enemies,
+            false,
+        ));
+        assert!(!click(
+            SpecialPowerType::CleanupArea,
+            Relationship::Neutral,
+            false,
+        ));
+        assert!(!click(
+            SpecialPowerType::TankParadrop,
+            Relationship::Enemies,
+            true,
+        ));
+        assert!(!click(
+            SpecialPowerType::CiaIntelligence,
+            Relationship::Enemies,
+            false,
+        ));
+        assert!(!click(
+            SpecialPowerType::CommunicationsDownload,
+            Relationship::Enemies,
+            false,
+        ));
+        assert!(!click(
+            SpecialPowerType::DetonateDirtyNuke,
+            Relationship::Enemies,
+            false,
+        ));
+        assert!(!click(
+            SpecialPowerType::BaikonurRocket,
+            Relationship::Enemies,
+            false,
+        ));
+        assert!(super::leftover_can_do_special_power(
+            &SpecialPowerType::CiaIntelligence
+        ));
+        assert!(super::leftover_can_do_special_power(
+            &SpecialPowerType::CommunicationsDownload
+        ));
+        assert!(super::leftover_can_do_special_power(
+            &SpecialPowerType::DetonateDirtyNuke
+        ));
+        assert!(super::leftover_can_do_special_power(
+            &SpecialPowerType::BurtonRemoteCharges
+        ));
+        assert!(super::leftover_can_do_special_power(
+            &SpecialPowerType::BaikonurRocket
+        ));
+        assert!(!super::leftover_can_do_special_power(
+            &SpecialPowerType::SpySatellite
+        ));
+        let empty = Vec3::new(10.0, 0.0, 10.0);
+        assert!(!super::leftover_can_do_special_power_at_location(
+            &SpecialPowerType::CiaIntelligence,
+            empty,
+            0,
+        ));
+        assert!(!super::leftover_can_do_special_power_at_location(
+            &SpecialPowerType::CommunicationsDownload,
+            empty,
+            0,
+        ));
+        assert!(!super::leftover_can_do_special_power_at_location(
+            &SpecialPowerType::DetonateDirtyNuke,
+            empty,
+            0,
+        ));
+        assert!(!super::leftover_can_do_special_power_at_location(
+            &SpecialPowerType::BurtonRemoteCharges,
+            empty,
+            0,
+        ));
+        assert!(super::leftover_can_do_special_power_at_location(
+            &SpecialPowerType::BaikonurRocket,
+            empty,
+            0,
+        ));
+
+        // C++ ActionManager.cpp:1569-1590 dead / FOGGED preamble before type switch.
         assert!(!leftover_can_do_special_power_at_object(
             &SpecialPowerType::BattleshipBombardment,
-            Relationship::Allies,
+            Relationship::Enemies,
+            false,
+            true,
             false,
         ));
+        assert!(!leftover_can_do_special_power_at_object(
+            &SpecialPowerType::BattleshipBombardment,
+            Relationship::Enemies,
+            false,
+            false,
+            true,
+        ));
+        assert!(!leftover_can_do_special_power_at_object(
+            &SpecialPowerType::MissileDefenderLaserGuided,
+            Relationship::Enemies,
+            true,
+            false,
+            true,
+        ));
+        assert!(!leftover_can_do_special_power_at_object(
+            &SpecialPowerType::CashHack,
+            Relationship::Enemies,
+            false,
+            false,
+            true,
+        ));
+        assert!(!leftover_can_do_special_power_at_object(
+            &SpecialPowerType::Defector,
+            Relationship::Enemies,
+            true,
+            true,
+            false,
+        ));
+        assert!(!leftover_can_do_special_power_at_object(
+            &SpecialPowerType::TankHunterTnt,
+            Relationship::Enemies,
+            true,
+            false,
+            true,
+        ));
+        assert!(leftover_can_do_special_power_at_object(
+            &SpecialPowerType::TankHunterTnt,
+            Relationship::Enemies,
+            true,
+            false,
+            false,
+        ));
+        assert!(!leftover_can_do_special_power_at_object(
+            &SpecialPowerType::RangerCaptureBuilding,
+            Relationship::Enemies,
+            false,
+            false,
+            true,
+        ));
+        assert!(!leftover_can_do_special_power_at_object(
+            &SpecialPowerType::HackerDisableBuilding,
+            Relationship::Enemies,
+            false,
+            false,
+            true,
+        ));
+
         assert!(leftover_can_do_special_power_at_object(
             &SpecialPowerType::BattleshipBombardment,
             Relationship::Enemies,
             false,
-        ));
-        assert!(leftover_can_do_special_power_at_object(
-            &SpecialPowerType::BattleshipBombardment,
-            Relationship::Neutral,
             false,
-        ));
-        assert!(leftover_can_do_special_power_at_object(
-            &SpecialPowerType::MissileDefenderLaserGuided,
-            Relationship::Enemies,
-            true,
-        ));
-        assert!(leftover_can_do_special_power_at_object(
-            &SpecialPowerType::LaserGuidedHowitzer,
-            Relationship::Enemies,
-            true,
-        ));
-        assert!(!leftover_can_do_special_power_at_object(
-            &SpecialPowerType::MissileDefenderLaserGuided,
-            Relationship::Enemies,
             false,
-        ));
-        assert!(!leftover_can_do_special_power_at_object(
-            &SpecialPowerType::MissileDefenderLaserGuided,
-            Relationship::Allies,
-            true,
-        ));
-        assert!(!leftover_can_do_special_power_at_object(
-            &SpecialPowerType::MissileDefenderLaserGuided,
-            Relationship::Neutral,
-            true,
-        ));
-        assert!(!leftover_can_do_special_power_at_object(
-            &SpecialPowerType::Frenzy,
-            Relationship::Allies,
-            false,
-        ));
-        assert!(!leftover_can_do_special_power_at_object(
-            &SpecialPowerType::Airstrike,
-            Relationship::Enemies,
-            false,
-        ));
-        assert!(!leftover_can_do_special_power_at_object(
-            &SpecialPowerType::DaisyCutter,
-            Relationship::Enemies,
-            false,
-        ));
-        assert!(!leftover_can_do_special_power_at_object(
-            &SpecialPowerType::Paradrop,
-            Relationship::Neutral,
-            false,
-        ));
-        assert!(!leftover_can_do_special_power_at_object(
-            &SpecialPowerType::CrateDrop,
-            Relationship::Enemies,
-            false,
-        ));
-        assert!(!leftover_can_do_special_power_at_object(
-            &SpecialPowerType::ParticleCannon,
-            Relationship::Enemies,
-            false,
-        ));
-        assert!(!leftover_can_do_special_power_at_object(
-            &SpecialPowerType::NuclearMissile,
-            Relationship::Enemies,
-            false,
-        ));
-        assert!(!leftover_can_do_special_power_at_object(
-            &SpecialPowerType::LeafletDrop,
-            Relationship::Enemies,
-            false,
-        ));
-        assert!(!leftover_can_do_special_power_at_object(
-            &SpecialPowerType::GpsScrambler,
-            Relationship::Enemies,
-            false,
-        ));
-        assert!(!leftover_can_do_special_power_at_object(
-            &SpecialPowerType::EmergencyRepair,
-            Relationship::Allies,
-            true,
-        ));
-        assert!(!leftover_can_do_special_power_at_object(
-            &SpecialPowerType::SneakAttack,
-            Relationship::Enemies,
-            false,
-        ));
-        assert!(!leftover_can_do_special_power_at_object(
-            &SpecialPowerType::Ambush,
-            Relationship::Enemies,
-            false,
-        ));
-        assert!(!leftover_can_do_special_power_at_object(
-            &SpecialPowerType::CleanupArea,
-            Relationship::Neutral,
-            false,
-        ));
-        assert!(!leftover_can_do_special_power_at_object(
-            &SpecialPowerType::TankParadrop,
-            Relationship::Enemies,
-            true,
         ));
     }
+
+    /// C++ ActionManager.cpp:1569-1590: human object-target specials refuse
+    /// FOGGED ghosts before the type switch. Capture / Hacker early returns
+    /// share the same leftover preamble.
+    #[test]
+    fn object_target_click_rejects_fogged_ghost() {
+        use crate::command_system::PowerTarget;
+        use crate::game_logic::KindOf;
+        use gamelogic::common::ObjectShroudStatus;
+        use gamelogic::system::shroud_manager::get_shroud_manager;
+
+        let _lock = crate::fow_rendering::shroud_test_isolation_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        {
+            let mut shroud = get_shroud_manager().lock().expect("shroud");
+            shroud.clear_all();
+        }
+
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::China, "HqA76exHuman", true));
+        logic.add_player(Player::new(1, Team::USA, "HqA76exEnemy", false));
+        if let Some(p) = logic.get_player_mut(1) {
+            p.resources.supplies = 8_000;
+        }
+
+        let mut cash_mod = test_module(SpecialPowerType::CashHack, "SuperweaponCashHack");
+        cash_mod.reload_time_frames = 7_200;
+        let mut ship_mod = test_module(
+            SpecialPowerType::BattleshipBombardment,
+            "SpecialPowerBattleshipBombardment",
+        );
+        ship_mod.module_kind = SpecialPowerModuleKind::FireWeaponPower;
+        ship_mod.reload_time_frames = 300;
+        let mut tnt_mod = test_module(
+            SpecialPowerType::TankHunterTnt,
+            "SpecialAbilityTankHunterTNTAttack",
+        );
+        tnt_mod.module_kind = SpecialPowerModuleKind::SpecialAbility;
+        tnt_mod.reload_time_frames = 225;
+        tnt_mod.update_module_starts_attack = true;
+
+        let mut cc = ThingTemplate::new("HqA76exChinaCC");
+        cc.set_health(5000.0);
+        cc.add_kind_of(KindOf::Structure);
+        cc.special_power_modules.push(cash_mod);
+        logic.templates.insert("HqA76exChinaCC".into(), cc);
+
+        let mut ship = ThingTemplate::new("HqA76exBattleship");
+        ship.set_health(2000.0);
+        ship.add_kind_of(KindOf::Vehicle);
+        ship.special_power_modules.push(ship_mod);
+        logic.templates.insert("HqA76exBattleship".into(), ship);
+
+        let mut hunter = ThingTemplate::new("ChinaInfantryTankHunter");
+        hunter.set_health(100.0);
+        hunter.add_kind_of(KindOf::Infantry);
+        hunter.special_power_modules.push(tnt_mod);
+        logic
+            .templates
+            .insert("ChinaInfantryTankHunter".into(), hunter);
+
+        let mut depot = ThingTemplate::new("HqA76exDepot");
+        depot.set_health(2000.0);
+        depot
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSSupplyCenter);
+        depot.capturable = true;
+        logic.templates.insert("HqA76exDepot".into(), depot);
+
+        let mut tank = ThingTemplate::new("HqA76exTank");
+        tank.set_health(400.0);
+        tank.add_kind_of(KindOf::Vehicle);
+        logic.templates.insert("HqA76exTank".into(), tank);
+
+        let caster = logic
+            .create_object_for_player("HqA76exChinaCC", 0, Vec3::ZERO)
+            .expect("cc");
+        let ship_id = logic
+            .create_object_for_player("HqA76exBattleship", 0, Vec3::new(10.0, 0.0, 0.0))
+            .expect("ship");
+        let hunter_id = logic
+            .create_object_for_player("ChinaInfantryTankHunter", 0, Vec3::new(20.0, 0.0, 0.0))
+            .expect("hunter");
+        let depot_id = logic
+            .create_object_for_player("HqA76exDepot", 1, Vec3::new(80.0, 0.0, 0.0))
+            .expect("depot");
+        let tank_id = logic
+            .create_object_for_player("HqA76exTank", 1, Vec3::new(90.0, 0.0, 0.0))
+            .expect("tank");
+
+        {
+            let mut shroud = get_shroud_manager().lock().expect("shroud");
+            shroud.set_host_object_shroud_status(0, depot_id.0, ObjectShroudStatus::Fogged);
+            shroud.set_host_object_shroud_status(0, tank_id.0, ObjectShroudStatus::Fogged);
+        }
+
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_special_power(
+                    &[caster],
+                    &SpecialPowerType::CashHack,
+                    &PowerTarget::Object(depot_id),
+                ),
+                CommandResult::InvalidCommand,
+                "FOGGED supply ghost must refuse CashHack"
+            );
+            assert_eq!(
+                exec.execute_special_power(
+                    &[ship_id],
+                    &SpecialPowerType::BattleshipBombardment,
+                    &PowerTarget::Object(tank_id),
+                ),
+                CommandResult::InvalidCommand,
+                "FOGGED tank ghost must refuse Battleship"
+            );
+            assert_eq!(
+                exec.execute_special_power(
+                    &[hunter_id],
+                    &SpecialPowerType::TankHunterTnt,
+                    &PowerTarget::Object(tank_id),
+                ),
+                CommandResult::InvalidCommand,
+                "FOGGED tank ghost must refuse Tank Hunter TNT"
+            );
+        }
+        assert!(
+            logic.is_special_power_ready_for(caster, &SpecialPowerType::CashHack),
+            "FOGGED CashHack click must not consume charge"
+        );
+        assert!(
+            logic.is_special_power_ready_for(ship_id, &SpecialPowerType::BattleshipBombardment),
+            "FOGGED Battleship click must not consume charge"
+        );
+        assert!(
+            logic.pending_special_ability(hunter_id).is_none(),
+            "FOGGED TNT click must not queue a plant"
+        );
+
+        {
+            let mut shroud = get_shroud_manager().lock().expect("shroud");
+            shroud.set_host_object_shroud_status(0, depot_id.0, ObjectShroudStatus::Clear);
+            shroud.set_host_object_shroud_status(0, tank_id.0, ObjectShroudStatus::Clear);
+        }
+
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_special_power(
+                    &[caster],
+                    &SpecialPowerType::CashHack,
+                    &PowerTarget::Object(depot_id),
+                ),
+                CommandResult::Success,
+                "CLEAR depot must accept CashHack"
+            );
+        }
+        assert!(
+            !logic.is_special_power_ready_for(caster, &SpecialPowerType::CashHack),
+            "valid CLEAR CashHack must consume the charge"
+        );
+
+        if let Ok(mut shroud) = get_shroud_manager().lock() {
+            shroud.clear_all();
+        }
+    }
+
 
     #[test]
     fn location_power_unit_click_leftover_gates_shroud() {

@@ -1,17 +1,22 @@
-//! Persist leftover Object / Weapon / TurretAI / Stealth / OpenContain clocks.
+//! Persist leftover Object / Weapon / TurretAI / Stealth / OpenContain / AIUpdate clocks.
 //!
 //! C++ `Object::xfer` writes vision/shroud ranges, DISABLED_HELD,
 //! `m_singleUseCommandUsed`, `m_indicatorColor`, `m_weaponBonusCondition`,
-//! `m_smcUntil`, `m_isReceivingDifficultyBonus`, and v9 `m_safeOcclusionFrame`.
-//! `Weapon::xfer` writes `m_whenPreAttackFinished`, `m_maxShotCount`, and
-//! `m_scatterTargetsUnused`. `TurretAI::xfer` v2 writes
-//! angle/pitch/target/hold/enabled/state. `StealthUpdate::xfer` v2 writes
-//! `m_framesGranted`. `OpenContain::xfer` v2 writes `m_whichExitPath`.
+//! `m_smcUntil`, `m_isReceivingDifficultyBonus`, v9 `m_safeOcclusionFrame`,
+//! and `m_healthBoxOffset`. `Weapon::xfer` writes `m_whenPreAttackFinished`,
+//! `m_maxShotCount`, `m_scatterTargetsUnused`, and `m_lastFireFrame`.
+//! `TurretAI::xfer` v2 writes angle/pitch/target/hold/enabled/state.
+//! `StealthUpdate::xfer` v2 writes `m_framesGranted`. `OpenContain::xfer` v2
+//! writes `m_whichExitPath`. `AIUpdateInterface::xfer` writes
+//! `m_isRecruitable`, `m_nextEnemyScanTime`, and `m_ignoreCollisionsUntil`.
 //! Leftover xfer already matches those tables. Live stores the same residual
-//! on host `Object` but ObjectSnapshot never wrote cheer/`SPECIAL_CHEERING`,
-//! mid-clip scatter unused, HORDE/ENTHUSIASTIC/SUBLIMINAL bits, or
-//! `safe_occlusion_frame` — load dropped mid-cheer pose, repeated scatter
-//! offsets, horde/speaker ROF, and garrison-exit occlusion delay.
+//! on host `Object` / `GameLogic` scan maps but ObjectSnapshot never wrote
+//! cheer/`SPECIAL_CHEERING`, mid-clip scatter unused, HORDE/ENTHUSIASTIC/
+//! SUBLIMINAL bits, `safe_occlusion_frame`, `health_box_offset`,
+//! `last_fire_frame`, per-object `is_recruitable`, guard/hunt scan clocks,
+//! or `ignore_collisions_until_frame` — load snapped the Angry Mob bar to
+//! the nexus, recloaked a frame early, unlocked script-locked recruits,
+//! re-scanned every guard/hunt unit, and re-blocked mid-bump movers.
 //!
 //! Append a tagged suffix after the historical v9 contain/producer payload
 //! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
@@ -23,7 +28,7 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const OXOB_MAGIC: &[u8; 4] = b"OXOB";
-const OXOB_VERSION: u32 = 3;
+const OXOB_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ObjectXferPersistPayload {
@@ -38,6 +43,11 @@ struct ObjectXferPersistPayloadV1 {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ObjectXferPersistPayloadV2 {
     objects: Vec<ObjectXferPersistV2>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct ObjectXferPersistPayloadV3 {
+    objects: Vec<ObjectXferPersistV3>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,6 +90,12 @@ struct ObjectXferPersist {
     weapon_bonus_enthusiastic: bool,
     weapon_bonus_subliminal: bool,
     safe_occlusion_frame: u32,
+    health_box_offset: [f32; 3],
+    last_fire_frame: u32,
+    is_recruitable: bool,
+    guard_next_enemy_scan: Option<u32>,
+    hunt_next_enemy_scan: Option<u32>,
+    ignore_collisions_until_frame: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -157,6 +173,48 @@ struct ObjectXferPersistV2 {
     weapon_bonus_subliminal: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ObjectXferPersistV3 {
+    object_id: u32,
+    disabled_held: bool,
+    single_use_command_used: bool,
+    ai_attitude: i8,
+    custom_indicator_color: Option<u32>,
+    vision_range: f32,
+    shroud_clearing_range: f32,
+    shroud_range: f32,
+    pre_attack_ready_at: f32,
+    pre_attack_target: Option<u32>,
+    consecutive_shot_target: Option<u32>,
+    max_shots_to_fire: i32,
+    turret_angle_deg: f32,
+    turret_pitch_deg: f32,
+    turret_idle_scan_next_frame: u32,
+    turret_idle_scanning: bool,
+    turret_idle_scan_desired_angle_deg: f32,
+    turret_idle_scan_index: u32,
+    turret_holding: bool,
+    turret_hold_until_frame: u32,
+    turret_idle_recentering: bool,
+    turret_mood_target: bool,
+    turret_target_id: Option<u32>,
+    turret_force_attacking: bool,
+    turret_enabled: bool,
+    turret_substate: u8,
+    turret_rotating: bool,
+    temporary_stealth_expires_frame: u32,
+    weapon_bonus_solo: u8,
+    which_exit_path: u8,
+    cheer_timer: f32,
+    special_cheering: bool,
+    weapon_scatter_targets_unused: [Vec<i32>; 3],
+    weapon_scatter_targets_inited: [bool; 3],
+    weapon_bonus_horde: bool,
+    weapon_bonus_enthusiastic: bool,
+    weapon_bonus_subliminal: bool,
+    safe_occlusion_frame: u32,
+}
+
 impl From<ObjectXferPersistV1> for ObjectXferPersist {
     fn from(v1: ObjectXferPersistV1) -> Self {
         Self {
@@ -198,6 +256,12 @@ impl From<ObjectXferPersistV1> for ObjectXferPersist {
             weapon_bonus_enthusiastic: false,
             weapon_bonus_subliminal: false,
             safe_occlusion_frame: 0,
+            health_box_offset: [0.0; 3],
+            last_fire_frame: 0,
+            is_recruitable: true,
+            guard_next_enemy_scan: None,
+            hunt_next_enemy_scan: None,
+            ignore_collisions_until_frame: 0,
         }
     }
 }
@@ -243,6 +307,63 @@ impl From<ObjectXferPersistV2> for ObjectXferPersist {
             weapon_bonus_enthusiastic: v2.weapon_bonus_enthusiastic,
             weapon_bonus_subliminal: v2.weapon_bonus_subliminal,
             safe_occlusion_frame: 0,
+            health_box_offset: [0.0; 3],
+            last_fire_frame: 0,
+            is_recruitable: true,
+            guard_next_enemy_scan: None,
+            hunt_next_enemy_scan: None,
+            ignore_collisions_until_frame: 0,
+        }
+    }
+}
+
+impl From<ObjectXferPersistV3> for ObjectXferPersist {
+    fn from(v3: ObjectXferPersistV3) -> Self {
+        Self {
+            object_id: v3.object_id,
+            disabled_held: v3.disabled_held,
+            single_use_command_used: v3.single_use_command_used,
+            ai_attitude: v3.ai_attitude,
+            custom_indicator_color: v3.custom_indicator_color,
+            vision_range: v3.vision_range,
+            shroud_clearing_range: v3.shroud_clearing_range,
+            shroud_range: v3.shroud_range,
+            pre_attack_ready_at: v3.pre_attack_ready_at,
+            pre_attack_target: v3.pre_attack_target,
+            consecutive_shot_target: v3.consecutive_shot_target,
+            max_shots_to_fire: v3.max_shots_to_fire,
+            turret_angle_deg: v3.turret_angle_deg,
+            turret_pitch_deg: v3.turret_pitch_deg,
+            turret_idle_scan_next_frame: v3.turret_idle_scan_next_frame,
+            turret_idle_scanning: v3.turret_idle_scanning,
+            turret_idle_scan_desired_angle_deg: v3.turret_idle_scan_desired_angle_deg,
+            turret_idle_scan_index: v3.turret_idle_scan_index,
+            turret_holding: v3.turret_holding,
+            turret_hold_until_frame: v3.turret_hold_until_frame,
+            turret_idle_recentering: v3.turret_idle_recentering,
+            turret_mood_target: v3.turret_mood_target,
+            turret_target_id: v3.turret_target_id,
+            turret_force_attacking: v3.turret_force_attacking,
+            turret_enabled: v3.turret_enabled,
+            turret_substate: v3.turret_substate,
+            turret_rotating: v3.turret_rotating,
+            temporary_stealth_expires_frame: v3.temporary_stealth_expires_frame,
+            weapon_bonus_solo: v3.weapon_bonus_solo,
+            which_exit_path: v3.which_exit_path,
+            cheer_timer: v3.cheer_timer,
+            special_cheering: v3.special_cheering,
+            weapon_scatter_targets_unused: v3.weapon_scatter_targets_unused,
+            weapon_scatter_targets_inited: v3.weapon_scatter_targets_inited,
+            weapon_bonus_horde: v3.weapon_bonus_horde,
+            weapon_bonus_enthusiastic: v3.weapon_bonus_enthusiastic,
+            weapon_bonus_subliminal: v3.weapon_bonus_subliminal,
+            safe_occlusion_frame: v3.safe_occlusion_frame,
+            health_box_offset: [0.0; 3],
+            last_fire_frame: 0,
+            is_recruitable: true,
+            guard_next_enemy_scan: None,
+            hunt_next_enemy_scan: None,
+            ignore_collisions_until_frame: 0,
         }
     }
 }
@@ -271,7 +392,7 @@ pub fn apply_from_lifecycle_tail(
     };
     let mut rest = suffix;
     let version = take_u32(&mut rest)?;
-    if version != 1 && version != 2 && version != OXOB_VERSION {
+    if version != 1 && version != 2 && version != 3 && version != OXOB_VERSION {
         return Err(SaveLoadError::Corrupted(format!(
             "unknown OXOB suffix version {version}"
         )));
@@ -291,6 +412,12 @@ pub fn apply_from_lifecycle_tail(
         }
     } else if version == 2 {
         let old: ObjectXferPersistPayloadV2 = bincode::deserialize(encoded)
+            .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
+        ObjectXferPersistPayload {
+            objects: old.objects.into_iter().map(ObjectXferPersist::from).collect(),
+        }
+    } else if version == 3 {
+        let old: ObjectXferPersistPayloadV3 = bincode::deserialize(encoded)
             .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
         ObjectXferPersistPayload {
             objects: old.objects.into_iter().map(ObjectXferPersist::from).collect(),
@@ -348,12 +475,20 @@ fn capture(game_logic: &GameLogic) -> ObjectXferPersistPayload {
             weapon_bonus_enthusiastic: object.weapon_bonus_enthusiastic,
             weapon_bonus_subliminal: object.weapon_bonus_subliminal,
             safe_occlusion_frame: object.safe_occlusion_frame,
+            health_box_offset: object.health_box_offset,
+            last_fire_frame: object.last_fire_frame,
+            is_recruitable: object.is_recruitable,
+            guard_next_enemy_scan: game_logic.guard_next_enemy_scan.get(id).copied(),
+            hunt_next_enemy_scan: game_logic.hunt_next_enemy_scan.get(id).copied(),
+            ignore_collisions_until_frame: object.ignore_collisions_until_frame,
         });
     }
     ObjectXferPersistPayload { objects }
 }
 
 fn reset_object_xfer(game_logic: &mut GameLogic) {
+    game_logic.guard_next_enemy_scan.clear();
+    game_logic.hunt_next_enemy_scan.clear();
     let ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
     for id in ids {
         let Some(object) = game_logic.host_object_mut(id) else {
@@ -388,52 +523,66 @@ fn reset_object_xfer(game_logic: &mut GameLogic) {
         object.weapon_bonus_horde = false;
         object.weapon_bonus_enthusiastic = false;
         object.weapon_bonus_subliminal = false;
+        object.health_box_offset = [0.0; 3];
+        object.last_fire_frame = 0;
+        object.is_recruitable = true;
+        object.ignore_collisions_until_frame = 0;
     }
 }
 
 fn apply_payload(game_logic: &mut GameLogic, payload: ObjectXferPersistPayload) {
     for entry in payload.objects {
-        let Some(object) = game_logic.host_object_mut(ObjectId(entry.object_id)) else {
-            continue;
-        };
-        object.status.disabled_held = entry.disabled_held;
-        object.single_use_command_used = entry.single_use_command_used;
-        object.ai_attitude = entry.ai_attitude;
-        object.custom_indicator_color = entry.custom_indicator_color;
-        object.vision_range = entry.vision_range;
-        object.shroud_clearing_range = entry.shroud_clearing_range;
-        object.shroud_range = entry.shroud_range;
-        object.pre_attack_ready_at = entry.pre_attack_ready_at;
-        object.pre_attack_target = entry.pre_attack_target.map(ObjectId);
-        object.consecutive_shot_target = entry.consecutive_shot_target.map(ObjectId);
-        object.max_shots_to_fire = entry.max_shots_to_fire;
-        object.turret_angle_deg = entry.turret_angle_deg;
-        object.turret_pitch_deg = entry.turret_pitch_deg;
-        object.turret_idle_scan_next_frame = entry.turret_idle_scan_next_frame;
-        object.turret_idle_scanning = entry.turret_idle_scanning;
-        object.turret_idle_scan_desired_angle_deg = entry.turret_idle_scan_desired_angle_deg;
-        object.turret_idle_scan_index = entry.turret_idle_scan_index;
-        object.turret_holding = entry.turret_holding;
-        object.turret_hold_until_frame = entry.turret_hold_until_frame;
-        object.turret_idle_recentering = entry.turret_idle_recentering;
-        object.turret_mood_target = entry.turret_mood_target;
-        object.turret_target_id = entry.turret_target_id.map(ObjectId);
-        object.turret_force_attacking = entry.turret_force_attacking;
-        object.turret_enabled = entry.turret_enabled;
-        object.turret_substate = TurretSubState::from_ordinal(entry.turret_substate);
-        object.turret_rotating = entry.turret_rotating;
-        object.temporary_stealth_expires_frame = entry.temporary_stealth_expires_frame;
-        object.weapon_bonus_solo = entry.weapon_bonus_solo;
-        object.is_receiving_difficulty_bonus = entry.weapon_bonus_solo != 0;
-        object.which_exit_path = entry.which_exit_path;
-        object.cheer_timer = entry.cheer_timer;
-        set_object_special_cheering(object, entry.special_cheering);
-        object.weapon_scatter_targets_unused = entry.weapon_scatter_targets_unused;
-        object.weapon_scatter_targets_inited = entry.weapon_scatter_targets_inited;
-        object.weapon_bonus_horde = entry.weapon_bonus_horde;
-        object.weapon_bonus_enthusiastic = entry.weapon_bonus_enthusiastic;
-        object.weapon_bonus_subliminal = entry.weapon_bonus_subliminal;
-        object.safe_occlusion_frame = entry.safe_occlusion_frame;
+        let id = ObjectId(entry.object_id);
+        if let Some(object) = game_logic.host_object_mut(id) {
+            object.status.disabled_held = entry.disabled_held;
+            object.single_use_command_used = entry.single_use_command_used;
+            object.ai_attitude = entry.ai_attitude;
+            object.custom_indicator_color = entry.custom_indicator_color;
+            object.vision_range = entry.vision_range;
+            object.shroud_clearing_range = entry.shroud_clearing_range;
+            object.shroud_range = entry.shroud_range;
+            object.pre_attack_ready_at = entry.pre_attack_ready_at;
+            object.pre_attack_target = entry.pre_attack_target.map(ObjectId);
+            object.consecutive_shot_target = entry.consecutive_shot_target.map(ObjectId);
+            object.max_shots_to_fire = entry.max_shots_to_fire;
+            object.turret_angle_deg = entry.turret_angle_deg;
+            object.turret_pitch_deg = entry.turret_pitch_deg;
+            object.turret_idle_scan_next_frame = entry.turret_idle_scan_next_frame;
+            object.turret_idle_scanning = entry.turret_idle_scanning;
+            object.turret_idle_scan_desired_angle_deg = entry.turret_idle_scan_desired_angle_deg;
+            object.turret_idle_scan_index = entry.turret_idle_scan_index;
+            object.turret_holding = entry.turret_holding;
+            object.turret_hold_until_frame = entry.turret_hold_until_frame;
+            object.turret_idle_recentering = entry.turret_idle_recentering;
+            object.turret_mood_target = entry.turret_mood_target;
+            object.turret_target_id = entry.turret_target_id.map(ObjectId);
+            object.turret_force_attacking = entry.turret_force_attacking;
+            object.turret_enabled = entry.turret_enabled;
+            object.turret_substate = TurretSubState::from_ordinal(entry.turret_substate);
+            object.turret_rotating = entry.turret_rotating;
+            object.temporary_stealth_expires_frame = entry.temporary_stealth_expires_frame;
+            object.weapon_bonus_solo = entry.weapon_bonus_solo;
+            object.is_receiving_difficulty_bonus = entry.weapon_bonus_solo != 0;
+            object.which_exit_path = entry.which_exit_path;
+            object.cheer_timer = entry.cheer_timer;
+            set_object_special_cheering(object, entry.special_cheering);
+            object.weapon_scatter_targets_unused = entry.weapon_scatter_targets_unused;
+            object.weapon_scatter_targets_inited = entry.weapon_scatter_targets_inited;
+            object.weapon_bonus_horde = entry.weapon_bonus_horde;
+            object.weapon_bonus_enthusiastic = entry.weapon_bonus_enthusiastic;
+            object.weapon_bonus_subliminal = entry.weapon_bonus_subliminal;
+            object.safe_occlusion_frame = entry.safe_occlusion_frame;
+            object.health_box_offset = entry.health_box_offset;
+            object.last_fire_frame = entry.last_fire_frame;
+            object.is_recruitable = entry.is_recruitable;
+            object.ignore_collisions_until_frame = entry.ignore_collisions_until_frame;
+        }
+        if let Some(next) = entry.guard_next_enemy_scan {
+            game_logic.guard_next_enemy_scan.insert(id, next);
+        }
+        if let Some(next) = entry.hunt_next_enemy_scan {
+            game_logic.hunt_next_enemy_scan.insert(id, next);
+        }
     }
  }
 
@@ -524,7 +673,13 @@ mod tests {
             object.weapon_bonus_enthusiastic = true;
             object.weapon_bonus_subliminal = true;
             object.safe_occlusion_frame = 12_345;
+            object.health_box_offset = [12.5, -3.0, 4.25];
+            object.last_fire_frame = 4_200;
+            object.is_recruitable = false;
+            object.ignore_collisions_until_frame = 88;
         }
+        source.guard_next_enemy_scan.insert(id, 310);
+        source.hunt_next_enemy_scan.insert(id, 640);
 
         let builder = super::super::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
@@ -575,6 +730,21 @@ mod tests {
         assert!(loaded.weapon_bonus_enthusiastic);
         assert!(loaded.weapon_bonus_subliminal);
         assert_eq!(loaded.safe_occlusion_frame, 12_345);
+        assert_eq!(loaded.health_box_offset, [12.5, -3.0, 4.25]);
+        assert_eq!(loaded.last_fire_frame, 4_200);
+        assert!(
+            !loaded.is_recruitable,
+            "m_isRecruitable=false must survive load"
+        );
+        assert_eq!(loaded.ignore_collisions_until_frame, 88);
+        assert_eq!(
+            restored.guard_next_enemy_scan.get(&id).copied(),
+            Some(310)
+        );
+        assert_eq!(
+            restored.hunt_next_enemy_scan.get(&id).copied(),
+            Some(640)
+        );
     }
 
     #[test]
@@ -607,7 +777,13 @@ mod tests {
             object.weapon_bonus_horde = true;
             object.weapon_bonus_enthusiastic = true;
             object.weapon_bonus_subliminal = true;
+            object.health_box_offset = [1.0, 2.0, 3.0];
+            object.last_fire_frame = 99;
+            object.is_recruitable = false;
+            object.ignore_collisions_until_frame = 44;
         }
+        logic.guard_next_enemy_scan.insert(id, 12);
+        logic.hunt_next_enemy_scan.insert(id, 24);
         apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
         let object = logic.host_object(id).expect("unit");
         assert!(!object.status.disabled_held);
@@ -627,6 +803,15 @@ mod tests {
         assert!(!object.weapon_bonus_horde);
         assert!(!object.weapon_bonus_enthusiastic);
         assert!(!object.weapon_bonus_subliminal);
+        assert_eq!(object.health_box_offset, [0.0, 0.0, 0.0]);
+        assert_eq!(object.last_fire_frame, 0);
+        assert!(
+            object.is_recruitable,
+            "absent OXOB resets m_isRecruitable to leftover default true"
+        );
+        assert_eq!(object.ignore_collisions_until_frame, 0);
+        assert!(logic.guard_next_enemy_scan.is_empty());
+        assert!(logic.hunt_next_enemy_scan.is_empty());
     }
 
     #[test]
@@ -790,5 +975,159 @@ mod tests {
             object.safe_occlusion_frame, 777,
             "absent OXOB must not wipe template/garrison occlusion clock"
         );
+    }
+
+    #[test]
+    fn oxob_round_trips_health_box_last_fire_recruit_scan_ignore() {
+        let mut source = GameLogic::new();
+        source.templates.insert(
+            "AmericaInfantryRanger".to_string(),
+            ThingTemplate::new("AmericaInfantryRanger"),
+        );
+        source.add_player(Player::new(0, Team::USA, "USA", true));
+        let id = source
+            .create_object("AmericaInfantryRanger", Team::USA, Vec3::ZERO)
+            .expect("unit");
+        {
+            let object = source.host_object_mut(id).expect("unit");
+            object.health_box_offset = [8.0, 20.0, -1.5];
+            object.last_fire_frame = 77;
+            object.is_recruitable = false;
+            object.ignore_collisions_until_frame = 150;
+        }
+        source.guard_next_enemy_scan.insert(id, 90);
+        source.hunt_next_enemy_scan.insert(id, 120);
+
+        let mut bytes = Vec::new();
+        append_to_lifecycle_tail(&mut bytes, &source);
+        assert!(find_oxob_suffix(&bytes).is_some());
+
+        let mut dest = GameLogic::new();
+        dest.templates = source.templates.clone();
+        dest.add_player(Player::new(0, Team::USA, "USA", true));
+        let dest_id = dest
+            .create_object("AmericaInfantryRanger", Team::USA, Vec3::ZERO)
+            .expect("dest unit");
+        {
+            let object = dest.host_object_mut(dest_id).expect("dest");
+            object.health_box_offset = [99.0, 99.0, 99.0];
+            object.last_fire_frame = 1;
+            object.is_recruitable = true;
+            object.ignore_collisions_until_frame = 3;
+        }
+        dest.guard_next_enemy_scan.insert(dest_id, 1);
+        dest.hunt_next_enemy_scan.insert(dest_id, 2);
+        apply_from_lifecycle_tail(&bytes, &mut dest).expect("apply");
+
+        let loaded = dest.host_object(dest_id).expect("loaded");
+        assert_eq!(
+            loaded.health_box_offset,
+            [8.0, 20.0, -1.5],
+            "m_healthBoxOffset must survive load"
+        );
+        assert_eq!(
+            loaded.last_fire_frame, 77,
+            "Weapon::m_lastFireFrame must survive load"
+        );
+        assert!(
+            !loaded.is_recruitable,
+            "AIUpdateInterface::m_isRecruitable=false must survive load"
+        );
+        assert_eq!(
+            loaded.ignore_collisions_until_frame, 150,
+            "m_ignoreCollisionsUntil must survive load"
+        );
+        assert_eq!(
+            dest.guard_next_enemy_scan.get(&dest_id).copied(),
+            Some(90),
+            "AIGuardIdleState scan clock must survive load"
+        );
+        assert_eq!(
+            dest.hunt_next_enemy_scan.get(&dest_id).copied(),
+            Some(120),
+            "AIHuntState scan clock must survive load"
+        );
+    }
+
+    #[test]
+    fn oxob_v3_suffix_defaults_new_leftover_fields() {
+        let v3 = ObjectXferPersistPayloadV3 {
+            objects: vec![ObjectXferPersistV3 {
+                object_id: 1,
+                disabled_held: false,
+                single_use_command_used: false,
+                ai_attitude: 0,
+                custom_indicator_color: None,
+                vision_range: 150.0,
+                shroud_clearing_range: 150.0,
+                shroud_range: 0.0,
+                pre_attack_ready_at: 0.0,
+                pre_attack_target: None,
+                consecutive_shot_target: None,
+                max_shots_to_fire: -1,
+                turret_angle_deg: 0.0,
+                turret_pitch_deg: 0.0,
+                turret_idle_scan_next_frame: 0,
+                turret_idle_scanning: false,
+                turret_idle_scan_desired_angle_deg: 0.0,
+                turret_idle_scan_index: 0,
+                turret_holding: false,
+                turret_hold_until_frame: 0,
+                turret_idle_recentering: false,
+                turret_mood_target: false,
+                turret_target_id: None,
+                turret_force_attacking: false,
+                turret_enabled: true,
+                turret_substate: 0,
+                turret_rotating: false,
+                temporary_stealth_expires_frame: 0,
+                weapon_bonus_solo: 0,
+                which_exit_path: 0,
+                cheer_timer: 0.0,
+                special_cheering: false,
+                weapon_scatter_targets_unused: Default::default(),
+                weapon_scatter_targets_inited: [false; 3],
+                weapon_bonus_horde: false,
+                weapon_bonus_enthusiastic: false,
+                weapon_bonus_subliminal: false,
+                safe_occlusion_frame: 12,
+            }],
+        };
+        let encoded = bincode::serialize(&v3).expect("v3 encode");
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(OXOB_MAGIC);
+        append_u32(&mut bytes, 3);
+        append_u32(&mut bytes, encoded.len() as u32);
+        bytes.extend_from_slice(&encoded);
+
+        let mut dest = GameLogic::new();
+        dest.templates.insert(
+            "AmericaInfantryRanger".to_string(),
+            ThingTemplate::new("AmericaInfantryRanger"),
+        );
+        dest.add_player(Player::new(0, Team::USA, "USA", true));
+        let dest_id = dest
+            .create_object("AmericaInfantryRanger", Team::USA, Vec3::ZERO)
+            .expect("dest unit");
+        assert_eq!(dest_id.0, 1);
+        {
+            let object = dest.host_object_mut(dest_id).expect("dest");
+            object.health_box_offset = [5.0, 5.0, 5.0];
+            object.last_fire_frame = 9;
+            object.is_recruitable = false;
+            object.ignore_collisions_until_frame = 11;
+        }
+        dest.guard_next_enemy_scan.insert(dest_id, 4);
+        dest.hunt_next_enemy_scan.insert(dest_id, 5);
+        apply_from_lifecycle_tail(&bytes, &mut dest).expect("apply v3");
+
+        let loaded = dest.host_object(dest_id).expect("loaded");
+        assert_eq!(loaded.safe_occlusion_frame, 12);
+        assert_eq!(loaded.health_box_offset, [0.0, 0.0, 0.0]);
+        assert_eq!(loaded.last_fire_frame, 0);
+        assert!(loaded.is_recruitable);
+        assert_eq!(loaded.ignore_collisions_until_frame, 0);
+        assert!(dest.guard_next_enemy_scan.is_empty());
+        assert!(dest.hunt_next_enemy_scan.is_empty());
     }
 }

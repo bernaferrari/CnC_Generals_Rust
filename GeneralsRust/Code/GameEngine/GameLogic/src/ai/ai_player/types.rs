@@ -71,6 +71,199 @@ pub const SUPPLY_CENTER_CLOSE_DIST: f32 = 200.0;
 /// Huge distance constant for enemy prioritization (C++ HUGE_DIST)
 pub const HUGE_DIST: f32 = 100000.0;
 
+/// C++ `AIPlayer::isLocationSafe` scan candidate (host leftover-call).
+#[derive(Debug, Clone, Copy)]
+pub struct LeftoverLocationSafeCandidate {
+    pub x: f32,
+    pub y: f32,
+    pub is_destroyed: bool,
+    pub is_effectively_dead: bool,
+    pub is_harvester: bool,
+    pub is_dozer: bool,
+    pub stealthed: bool,
+    pub detected: bool,
+    pub disguised: bool,
+    pub is_enemy: bool,
+    pub is_bridge: bool,
+    pub is_bridge_tower: bool,
+}
+
+/// C++ `TheAI->getAiData()->m_supplyCenterSafeRadius` + template bounding circle.
+/// Leftover fallback is `SUPPLY_CENTER_SAFE_RADIUS` (100) when AIData is missing or ≤0.
+pub fn leftover_is_location_safe_radius(
+    aidata_supply_center_safe_radius: Option<f32>,
+    template_bounding_circle: f32,
+) -> f32 {
+    let mut radius = aidata_supply_center_safe_radius
+        .filter(|r| *r > 0.0)
+        .unwrap_or(SUPPLY_CENTER_SAFE_RADIUS);
+    radius += template_bounding_circle;
+    radius
+}
+
+/// C++ `AIPlayer::isLocationSafe` partition filters. True → enemy blocks placement.
+pub fn leftover_is_location_safe_enemy_blocks(c: &LeftoverLocationSafeCandidate) -> bool {
+    // PartitionFilterAlive
+    if c.is_destroyed || c.is_effectively_dead {
+        return false;
+    }
+    // PartitionFilterRejectByKindOf harvester/dozer
+    if c.is_harvester || c.is_dozer {
+        return false;
+    }
+    // PartitionFilterRejectByObjectStatus stealthed (unless detected/disguised)
+    if c.stealthed && !c.detected && !c.disguised {
+        return false;
+    }
+    // PartitionFilterPlayerAffiliation: enemies only
+    if !c.is_enemy {
+        return false;
+    }
+    // PartitionFilterInsignificantBuildings(true, false)
+    if c.is_bridge || c.is_bridge_tower {
+        return false;
+    }
+    true
+}
+
+/// C++ `AIPlayer::isLocationSafe`. Leftover partition range is center-to-center.
+/// Any filtered enemy inside `radius` → unsafe.
+pub fn leftover_is_location_safe(
+    pos_x: f32,
+    pos_y: f32,
+    radius: f32,
+    candidates: impl IntoIterator<Item = LeftoverLocationSafeCandidate>,
+) -> bool {
+    let radius_sqr = radius * radius;
+    for c in candidates {
+        let dx = c.x - pos_x;
+        let dy = c.y - pos_y;
+        if dx * dx + dy * dy > radius_sqr {
+            continue;
+        }
+        if leftover_is_location_safe_enemy_blocks(&c) {
+            return false;
+        }
+    }
+    true
+}
+
+/// C++ `AIPlayer::findSupplyCenter` warehouse snapshot (host leftover-call).
+#[derive(Debug, Clone, Copy)]
+pub struct LeftoverSupplyCenterCandidate {
+    pub id: u32,
+    pub x: f32,
+    pub y: f32,
+    pub bounding_circle: f32,
+    pub available_cash: i32,
+    pub is_structure: bool,
+    pub is_supply_source: bool,
+    pub has_warehouse_dock: bool,
+    pub is_enemy: bool,
+}
+
+/// Owned `KINDOF_CASH_GENERATOR` near a warehouse (host leftover-call).
+#[derive(Debug, Clone, Copy)]
+pub struct LeftoverOwnedCashGenerator {
+    pub x: f32,
+    pub y: f32,
+}
+
+/// C++ `boxes * TheGlobalData->m_baseValuePerSupplyBox`.
+pub fn leftover_warehouse_available_cash(boxes: i32) -> i32 {
+    boxes * BASE_VALUE_PER_SUPPLY_BOX
+}
+
+/// C++ `AIPlayer::findSupplyCenter` pick: warehouse dock, skip ENEMIES, skip own
+/// cash-gen within `SUPPLY_CENTER_CLOSE_DIST` + bounding circle, skip 60/40
+/// closer to enemy structure-bounds midpoint, closest to `m_baseCenter`,
+/// halve cash floor until ≤ 100.
+pub fn leftover_find_supply_center(
+    candidates: &[LeftoverSupplyCenterCandidate],
+    own_cash_gens: &[LeftoverOwnedCashGenerator],
+    base_x: f32,
+    base_y: f32,
+    enemy_center: Option<(f32, f32)>,
+    minimum_cash: i32,
+) -> Option<u32> {
+    let mut cash_floor = minimum_cash.max(0);
+    loop {
+        let mut best: Option<(f32, u32)> = None;
+        for c in candidates {
+            if !c.is_structure || !c.is_supply_source || !c.has_warehouse_dock {
+                continue;
+            }
+            if c.is_enemy {
+                continue;
+            }
+            if c.available_cash < cash_floor {
+                continue;
+            }
+            let radius = SUPPLY_CENTER_CLOSE_DIST + c.bounding_circle;
+            let already_have = own_cash_gens.iter().any(|g| {
+                let dx = g.x - c.x;
+                let dy = g.y - c.y;
+                dx * dx + dy * dy <= radius * radius
+            });
+            if already_have {
+                continue;
+            }
+            let dx = c.x - base_x;
+            let dy = c.y - base_y;
+            let dist_sqr = dx * dx + dy * dy;
+            if let Some((ex, ey)) = enemy_center {
+                let edx = c.x - ex;
+                let edy = c.y - ey;
+                let enemy_dist_sqr = edx * edx + edy * edy;
+                // C++: closer than 60/40 to enemy than to us → skip
+                if dist_sqr * 0.4 > enemy_dist_sqr * 0.6 {
+                    continue;
+                }
+            }
+            if best.as_ref().map_or(true, |(bd, _)| dist_sqr < *bd) {
+                best = Some((dist_sqr, c.id));
+            }
+        }
+        if let Some((_, id)) = best {
+            return Some(id);
+        }
+        // C++: minimumCash /= 2; while (minimumCash > 100)
+        cash_floor /= 2;
+        if cash_floor <= 100 {
+            break;
+        }
+    }
+    None
+}
+
+/// C++ `AIPlayer::computeCenterAndRadiusOfBase`.
+/// Entries are `(x, y, bounding_circle)`. Radius is hypot of axis-abs + geom*0.4.
+/// Returns `(center_set, center_x, center_y, radius)`.
+pub fn leftover_compute_center_and_radius_of_base(
+    entries: &[(f32, f32, f32)],
+) -> (bool, f32, f32, f32) {
+    if entries.is_empty() {
+        return (false, 0.0, 0.0, 0.0);
+    }
+    let n = entries.len() as f32;
+    let cx = entries.iter().map(|e| e.0).sum::<f32>() / n;
+    let cy = entries.iter().map(|e| e.1).sum::<f32>() / n;
+    let mut max_rad_sqr = 0.0_f32;
+    for &(x, y, bounding) in entries {
+        let bldg_radius = bounding * 0.4;
+        let mut dx = (x - cx).abs();
+        let mut dy = (y - cy).abs();
+        dx += bldg_radius;
+        dy += bldg_radius;
+        let rad_sqr = dx * dx + dy * dy;
+        if rad_sqr > max_rad_sqr {
+            max_rad_sqr = rad_sqr;
+        }
+    }
+    (true, cx, cy, max_rad_sqr.sqrt())
+}
+
+
 /// AI Player implementation
 #[derive(Debug)]
 pub struct AIPlayer {

@@ -353,14 +353,22 @@ impl GameLogic {
     /// Leftover `Object::relationship_to` / C++ `PartitionFilterRelationship`.
     /// Owner ids use leftover `object_relationship`. Missing owners keep the
     /// faction residual, but Neutral is never Enemies (`ALLOW_ENEMIES`).
+    /// C++ `Object::getRelationship` undetected-defector overrides apply first.
     pub(crate) fn host_guard_leftover_relationship(
         &self,
         owner_player: Option<u32>,
         owner_inst: &str,
         owner_team: Team,
+        owner_undetected_defector: bool,
         cand: &Object,
     ) -> gamelogic::common::Relationship {
         use gamelogic::common::Relationship;
+        if owner_undetected_defector {
+            return Relationship::Neutral;
+        }
+        if cand.is_undetected_defector() {
+            return Relationship::Allies;
+        }
         match (owner_player, cand.owner_player_id) {
             (Some(_), Some(_)) => Self::object_relationship_from_owners(
                 &self.players,
@@ -409,7 +417,7 @@ impl GameLogic {
             }
         }
         let (world_min, world_max) = self.world_bounds();
-        let (owner_off, owner_player, owner_inst) = self
+        let (owner_off, owner_player, owner_inst, owner_undetected) = self
             .objects
             .get(&object_id)
             .map(|o| {
@@ -417,9 +425,10 @@ impl GameLogic {
                     host_same_map_status_off(o.get_position(), world_min, world_max),
                     o.owner_player_id,
                     o.team_instance_name.clone(),
+                    o.is_undetected_defector(),
                 )
             })
-            .unwrap_or((false, None, String::new()));
+            .unwrap_or((false, None, String::new(), false));
         let radius_sq = acquire_radius * acquire_radius;
         let mut best: Option<(ObjectId, f32)> = None;
         for (cand_id, cand) in self.objects.iter() {
@@ -447,13 +456,13 @@ impl GameLogic {
                 owner_player,
                 &owner_inst,
                 team,
+                owner_undetected,
                 cand,
             );
             if enter_guard {
                 if hijack_guard {
                     if rel != Relationship::Enemies
-                        || !cand.is_kind_of(KindOf::Vehicle)
-                        || cand.is_hijacked()
+                        || !self.can_hijack_vehicle(object_id, cand)
                     {
                         continue;
                     }
@@ -3616,6 +3625,7 @@ impl GameLogic {
         // C++ OpenContain::update zeros m_playerEnteredMask every logic frame
         // after scripts have already sampled last frame's enter pulse.
         self.clear_open_contain_player_who_entered();
+        self.update_open_contain_exit_doors();
 
 
 
@@ -5708,29 +5718,46 @@ impl GameLogic {
                         continue;
                     }
 
-                    // Burton/TNT plant: C++ ActionManager rejects dead / Bridge /
-                    // BridgeTower and requires Structure or ground Vehicle.
+                    // Burton timed/remote/Helix: leftover can_place_special_object_charge
+                    // rejects dead / Bridge / BridgeTower. Tank Hunter TNT is the
+                    // leftover Structure-or-(Vehicle && !Aircraft) arm — bridges legal.
                     if matches!(
                         ability,
                         PendingSpecialAbility::PlantTimedDemoCharge { .. }
                             | PendingSpecialAbility::PlantRemoteDemoCharge { .. }
-                    ) && !crate::game_logic::host_hero_abilities::leftover_charge_plant_target_ok(
-                        target_alive,
-                        self.objects.get(&special_target_id).is_some_and(|t| {
-                            t.is_kind_of(KindOf::Bridge)
-                        }),
-                        self.objects.get(&special_target_id).is_some_and(|t| {
-                            t.is_kind_of(KindOf::BridgeTower)
-                        }),
-                        target_is_structure,
-                        target_is_vehicle && !target_is_airborne,
-                    )
-                    {
-                        self.pending_special_abilities.remove(&object_id);
-                        if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_target(None);
+                    ) {
+                        let is_tank_hunter = self.objects.get(&object_id).is_some_and(|o| {
+                            crate::game_logic::host_tank_hunter::is_tank_hunter_template(
+                                &o.template_name,
+                            )
+                        });
+                        let plant_ok = if is_tank_hunter {
+                            crate::game_logic::host_hero_abilities::leftover_tank_hunter_tnt_target_ok(
+                                target_alive,
+                                target_is_structure,
+                                target_is_vehicle,
+                                target_is_airborne,
+                            )
+                        } else {
+                            crate::game_logic::host_hero_abilities::leftover_charge_plant_target_ok(
+                                target_alive,
+                                self.objects.get(&special_target_id).is_some_and(|t| {
+                                    t.is_kind_of(KindOf::Bridge)
+                                }),
+                                self.objects.get(&special_target_id).is_some_and(|t| {
+                                    t.is_kind_of(KindOf::BridgeTower)
+                                }),
+                                target_is_structure,
+                                target_is_vehicle && !target_is_airborne,
+                            )
+                        };
+                        if !plant_ok {
+                            self.pending_special_abilities.remove(&object_id);
+                            if let Some(obj) = self.objects.get_mut(&object_id) {
+                                obj.set_target(None);
+                            }
+                            continue;
                         }
-                        continue;
                     }
 
                     // Black Lotus cash hack: enemy cash-generator structures only.

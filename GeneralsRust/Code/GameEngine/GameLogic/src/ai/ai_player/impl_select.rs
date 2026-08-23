@@ -729,10 +729,7 @@ impl AIPlayer {
         };
 
         // Pass 1: centroid of valid build-list locations.
-        let mut total_x = 0.0_f32;
-        let mut total_y = 0.0_f32;
-        let mut num_bldg = 0i32;
-        let mut entries: Vec<(Coord3D, f32)> = Vec::new(); // pos + geom radius
+        let mut entries: Vec<(f32, f32, f32)> = Vec::new();
         let mut cur = player_guard.get_build_list();
         while let Some(info) = cur {
             let name = info.get_template_name().to_string();
@@ -745,46 +742,23 @@ impl AIPlayer {
                 continue;
             };
             let pos = *info.get_location();
-            total_x += pos.x;
-            total_y += pos.y;
-            num_bldg += 1;
             let geom_r = template
                 .get_template_geometry_info()
-                .get_bounding_circle_radius()
-                * 0.4;
-            entries.push((pos, geom_r));
+                .get_bounding_circle_radius();
+            entries.push((pos.x, pos.y, geom_r));
             cur = info.get_next();
         }
 
-        self.base_center_set = num_bldg > 0;
-        if num_bldg > 0 {
-            self.base_center =
-                Coord3D::new(total_x / num_bldg as f32, total_y / num_bldg as f32, 0.0);
+        // leftover helper: centroid + |dx|+geom*0.4 hypot into max_rad_sqr
+        let (set, cx, cy, radius) = leftover_compute_center_and_radius_of_base(&entries);
+        self.base_center_set = set;
+        if set {
+            self.base_center = Coord3D::new(cx, cy, 0.0);
+            self.base_radius = radius;
         } else {
             self.base_center = Coord3D::new(0.0, 0.0, 0.0);
             self.base_radius = 0.0;
-            return Ok(());
         }
-
-        // Pass 2: max radSqr with axis-abs + geom padding (C++).
-        let mut max_rad_sqr = 0.0_f32;
-        for (pos, bldg_radius) in entries {
-            let mut dx = pos.x - self.base_center.x;
-            let mut dy = pos.y - self.base_center.y;
-            if dx < 0.0 {
-                dx = -dx;
-            }
-            if dy < 0.0 {
-                dy = -dy;
-            }
-            dx += bldg_radius;
-            dy += bldg_radius;
-            let rad_sqr = dx * dx + dy * dy;
-            if rad_sqr > max_rad_sqr {
-                max_rad_sqr = rad_sqr;
-            }
-        }
-        self.base_radius = max_rad_sqr.sqrt();
         Ok(())
     }
 

@@ -409,6 +409,16 @@ mod tests {
             infer_presentation_draw_module_names("OCL_GenericTankDebris", &[]),
             vec!["W3DDebrisDraw".to_string()]
         );
+        assert_eq!(
+            infer_presentation_draw_module_names("CivilianPoliceCar", &[]),
+            vec!["W3DPoliceCarDraw".to_string()]
+        );
+        assert!(
+            PresentationSpecializedDrawKind::from_module_name("W3DPoliceCarDraw")
+                == Some(PresentationSpecializedDrawKind::PoliceCar)
+                && PresentationSpecializedDrawKind::from_module_name("W3DScienceModelDraw")
+                    == Some(PresentationSpecializedDrawKind::ScienceModel)
+        );
         let snap = PresentationSpecializedDrawSnapshot {
             kind: PresentationSpecializedDrawKind::Tank,
             module_name: "W3DTankDraw".into(),
@@ -419,6 +429,7 @@ mod tests {
             debris_state: 0,
             debris_anim_time: 0.0,
             model_name: String::new(),
+            science_hidden: false,
         };
         assert_eq!(snap.tread_uv_for_mesh("AV.TREADSL"), Some([0.25, 0.0]));
         assert_eq!(snap.tread_uv_for_mesh("AV.TREADSR"), Some([0.75, 0.0]));

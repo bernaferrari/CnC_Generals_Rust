@@ -47,7 +47,7 @@ fn ranger_residual_rifle_and_flashbang_splash() {
             "base rifle damage residual 5, got {}",
             w.damage
         );
-        assert!((w.range - RANGER_RIFLE_RANGE).abs() < 1.0);
+        assert!((w.range - (RANGER_RIFLE_RANGE - 2.5)).abs() < 1.0);
         assert!(
             (w.reload_time - (3.0 / 30.0)).abs() < 0.05,
             "base rifle reload residual ~0.1s (3 frames), got {}",
@@ -63,8 +63,8 @@ fn ranger_residual_rifle_and_flashbang_splash() {
             "flashbang primary damage residual 35, got {}",
             s.damage
         );
-        assert!((s.range - 175.0).abs() < 1.0);
-        assert!((s.min_range - 20.0).abs() < 0.5);
+        assert!((s.range - 172.5).abs() < 1.0);
+        assert!((s.min_range - 17.5).abs() < 0.5);
     }
 
     // Rifle residual vs vehicle: force primary by making secondary not ready
@@ -639,10 +639,10 @@ fn rpg_trooper_residual_rocket_and_ap_rockets() {
         assert!(is_rpg_trooper_template(&rpg.template_name));
         let w = rpg.weapon.as_ref().expect("RPG residual");
         assert!((w.damage - RPG_TROOPER_DAMAGE).abs() < 0.5);
-        assert!((w.range - RPG_TROOPER_RANGE).abs() < 1.0);
+        assert!((w.range - (RPG_TROOPER_RANGE - 2.5)).abs() < 1.0);
         assert!(w.can_target_air && w.can_target_ground);
         assert!((w.reload_time - 1.0).abs() < 0.05);
-        assert!((w.min_range - 5.0).abs() < 0.1);
+        assert!((w.min_range - 2.5).abs() < 0.1);
     }
 
     // AP Rockets residual: damage × 1.25 → 50.
@@ -900,12 +900,12 @@ fn missile_defender_residual_missile_and_laser_guided() {
         assert!(is_missile_defender_template(&md.template_name));
         let w = md.weapon.as_ref().expect("primary missile residual");
         assert!((w.damage - MISSILE_DEFENDER_DAMAGE).abs() < 0.5);
-        assert!((w.range - MISSILE_DEFENDER_PRIMARY_RANGE).abs() < 1.0);
+        assert!((w.range - (MISSILE_DEFENDER_PRIMARY_RANGE - 2.5)).abs() < 1.0);
         assert!(w.can_target_air && w.can_target_ground);
         assert!((w.reload_time - 1.0).abs() < 0.05);
         let sw = md.secondary_weapon.as_ref().expect("laser guided residual");
         assert!((sw.damage - MISSILE_DEFENDER_DAMAGE).abs() < 0.5);
-        assert!((sw.range - MISSILE_DEFENDER_LASER_RANGE).abs() < 1.0);
+        assert!((sw.range - (MISSILE_DEFENDER_LASER_RANGE - 2.5)).abs() < 1.0);
         assert!((sw.reload_time - 0.5).abs() < 0.05);
         assert!(sw.can_target_air && sw.can_target_ground);
     }
@@ -1012,7 +1012,7 @@ fn missile_defender_residual_missile_and_laser_guided() {
         assert_eq!(md.target, Some(far_enemy));
         if let Some(sw) = md.secondary_weapon.as_ref() {
             assert!(
-                (sw.range - MISSILE_DEFENDER_LASER_RANGE).abs() < 1.0,
+                (sw.range - (MISSILE_DEFENDER_LASER_RANGE - 2.5)).abs() < 1.0,
                 "laser range residual 300"
             );
         }
@@ -3010,7 +3010,7 @@ fn dragon_tank_residual_flame_and_black_napalm() {
             "dragon flame dmg 10, got {}",
             prim.damage
         );
-        assert!((prim.range - DRAGON_RANGE).abs() < 1.0);
+        assert!((prim.range - (DRAGON_RANGE - 2.5)).abs() < 1.0);
     }
 
     // BlackNapalm residual upgrade → higher primary damage.
@@ -3182,7 +3182,7 @@ fn gattling_tank_residual_ramp_fire_rate_and_aa() {
         assert!(is_gattling_tank_template(&g.template_name));
         let prim = g.weapon.as_ref().expect("ground gun");
         assert!((prim.damage - GATTLING_GROUND_DAMAGE).abs() < 0.01);
-        assert!((prim.range - GATTLING_GROUND_RANGE).abs() < 1.0);
+        assert!((prim.range - (GATTLING_GROUND_RANGE - 2.5)).abs() < 1.0);
         assert!(prim.can_target_ground);
         assert!(!prim.can_target_air);
         let sec = g.secondary_weapon.as_ref().expect("aa gun");
@@ -4617,7 +4617,7 @@ fn minigunner_residual_gun_ramp_aa_horde_and_chain_guns() {
         assert!(is_minigunner_template(&mg.template_name));
         let prim = mg.weapon.as_ref().expect("ground gun");
         assert!((prim.damage - MINIGUNNER_GROUND_DAMAGE).abs() < 0.5);
-        assert!((prim.range - MINIGUNNER_GROUND_RANGE).abs() < 1.0);
+        assert!((prim.range - (MINIGUNNER_GROUND_RANGE - 2.5)).abs() < 1.0);
         assert!(prim.can_target_ground && !prim.can_target_air);
         let sec = mg.secondary_weapon.as_ref().expect("aa gun");
         assert!(sec.can_target_air && !sec.can_target_ground);

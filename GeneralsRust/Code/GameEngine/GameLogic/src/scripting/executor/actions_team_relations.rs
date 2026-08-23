@@ -861,6 +861,13 @@ impl ScriptActionDispatcher {
         let frames = self.get_int_param(action, 1)?;
         log::debug!("Team '{}' guarding for {} frames", team_name, frames);
 
+        // Unused C++ helper is not dispatched, but leftover-queue if called.
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_hunt_guard(super::HostScriptHuntGuardRequest::TeamGuard {
+                team: team_name.clone(),
+            });
+        }
+
         // C++ parity: issue guard-at-current-position to each member.
         if let Ok(mut factory) = get_team_factory().lock() {
             if let Some(team_arc) = factory.find_team(&team_name) {
@@ -903,6 +910,16 @@ impl ScriptActionDispatcher {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         let frames = self.get_int_param(action, 1)?;
         log::debug!("Team '{}' idling for {} frames", team_name, frames);
+
+        // Live host objects are not in leftover OBJECT_REGISTRY. Queue
+        // C++ doTeamIdleForFramecount: groupIdle(CMD_FROM_SCRIPT) + sequential timer.
+        // TEAM_GUARD_FOR_FRAMECOUNT also dispatches here (C++ executeAction).
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_idle(super::HostScriptIdleRequest::TeamStop {
+                team: team_name.clone(),
+                disband: false,
+            });
+        }
 
         // C++ parity: idle the team through an AI group.
         if let Ok(group_arc) = self.create_ai_group_from_team(&team_name) {
@@ -1571,6 +1588,9 @@ impl ScriptActionDispatcher {
             .and_then(|team_arc| team_arc.read().ok().map(|team| team.get_members().to_vec()))
             .unwrap_or_default();
         if members.is_empty() {
+            if crate::scripting::host_script_query_has_any() {
+                return crate::scripting::host_eval_team_is_contained(team_name, all_contained);
+            }
             return false;
         }
 
@@ -1605,10 +1625,16 @@ impl ScriptActionDispatcher {
         }
 
         if any_considered {
-            all_contained
-        } else {
-            false
+            return all_contained;
         }
+
+        // Leftover TeamFactory members are live host ids, but leftover
+        // OBJECT_REGISTRY is empty so find_object_by_id misses. Use the
+        // host snapshot census (contained_by / ai_exiting).
+        if crate::scripting::host_script_query_has_any() {
+            return crate::scripting::host_eval_team_is_contained(team_name, all_contained);
+        }
+        false
     }
 
     pub(crate) fn do_team_move_towards_nearest_object_type(
@@ -1624,6 +1650,17 @@ impl ScriptActionDispatcher {
             object_type,
             trigger_name
         );
+
+        // Leftover partition / leftover crate objects are empty on the player path.
+        if super::dual_world_registry_unavailable() {
+            super::request_host_script_move_attack(
+                super::HostScriptMoveAttackRequest::TeamMoveTowardsNearest {
+                    team: self.resolve_team_name_token(&team_name),
+                    object_type: object_type.clone(),
+                    trigger: trigger_name.clone(),
+                },
+            );
+        }
 
         let team_name = self.resolve_team_name_token(&team_name);
         let (members, estimate_team_pos) = if let Ok(mut factory_guard) = get_team_factory().lock()

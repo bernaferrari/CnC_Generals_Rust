@@ -134,16 +134,21 @@ use gamelogic::helpers::{
     TheGameLogic, TheScriptEngine,
 };
 use gamelogic::object::draw::{
-    prune_live_host_tread_debris, prune_live_host_truck_dust, tick_live_host_tread_debris,
-    tick_live_host_truck_dust, TruckDrawLivePhysics, W3DDebrisDraw, W3DDebrisDrawModuleData,
-    W3DLaserDraw, W3DLaserDrawModuleData, W3DModelDraw, W3DModelDrawModuleData,
-    W3DOverlordAircraftDraw, W3DOverlordAircraftDrawModuleData, W3DOverlordTankDraw,
-    W3DOverlordTankDrawModuleData, W3DOverlordTruckDraw, W3DOverlordTruckDrawModuleData,
-    W3DTankDraw, W3DTankDrawModuleData, W3DTankTruckDraw, W3DTankTruckDrawModuleData,
-    W3DTreeDraw, W3DTreeDrawModuleData, W3DTruckDraw, W3DTruckDrawModuleData,
+    leftover_science_model_data, prune_live_host_police_car_light, prune_live_host_tread_debris,
+    prune_live_host_truck_dust, tick_live_host_police_car_light, tick_live_host_science_model_hide,
+    tick_live_host_tread_debris, tick_live_host_truck_dust, TruckDrawLivePhysics, W3DDebrisDraw,
+    W3DDebrisDrawModuleData, W3DLaserDraw, W3DLaserDrawModuleData, W3DModelDraw,
+    W3DModelDrawModuleData, W3DOverlordAircraftDraw, W3DOverlordAircraftDrawModuleData,
+    W3DOverlordTankDraw, W3DOverlordTankDrawModuleData, W3DOverlordTruckDraw,
+    W3DOverlordTruckDrawModuleData, W3DPoliceCarDraw, W3DPoliceCarDrawModuleData,
+    W3DScienceModelDraw, W3DScienceModelDrawModuleData, W3DTankDraw, W3DTankDrawModuleData,
+    W3DTankTruckDraw, W3DTankTruckDrawModuleData, W3DTreeDraw, W3DTreeDrawModuleData,
+    W3DTruckDraw, W3DTruckDrawModuleData,
 };
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::object::update::{
+    leftover_template_uses_animated_particle_sys_bones,
+    prune_live_host_animated_particle_sys_bones, tick_live_host_animated_particle_sys_bones,
     AnimatedParticleSysBoneClientUpdateModule, BeaconClientUpdateModule, SwayClientUpdateModule,
 };
 use gamelogic::object::Object as GameLogicObject;
