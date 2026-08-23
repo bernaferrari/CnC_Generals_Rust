@@ -1017,12 +1017,6 @@ impl GameLogic {
             });
 
             if let Some(target_id) = target_id {
-                let crawler_pos = self
-                    .objects
-                    .get(&crawler_id)
-                    .map(|c| c.get_position())
-                    .unwrap_or(Vec3::ZERO);
-
                 for (idx, mid_raw) in members.iter().copied().enumerate() {
                     let mid = ObjectId(mid_raw);
                     let Some(member) = self.objects.get(&mid) else {
@@ -1037,39 +1031,24 @@ impl GameLogic {
                     let healthy =
                         is_assault_member_healthy(member.health.current, member.health.maximum);
                     let is_new = member_new.get(idx).copied().unwrap_or(false);
+                    let already_enter = matches!(member.ai_state, AIState::Entering);
 
                     if contained {
                         // C++: healthy contained eject only when !m_newMember.
+                        // aiExit → OpenContain ExitStart/End walk, not a 6wu pop.
                         if healthy && !is_new {
-                            if let Some(c) = self.objects.get_mut(&crawler_id) {
-                                c.remove_occupant(mid);
-                            }
-                            if let Some(unit) = self.objects.get_mut(&mid) {
-                                unit.set_contained_by(None);
-                                let offset = Vec3::new(6.0, 0.0, 0.0);
-                                unit.set_position(crawler_pos + offset);
-                            }
-                            if self.apply_engagement_decision_aware(mid, target_id) {
-                                self.troop_crawler.record_healthy_redeploy();
-                            }
+                            self.assault_transport_ai_exit(mid, crawler_id);
+                            self.troop_crawler.record_healthy_redeploy();
                         }
                         continue;
                     }
 
                     if wounded {
-                        if let Some(c) = self.objects.get_mut(&crawler_id) {
-                            if !c.occupants.contains(&mid) && c.can_contain() {
-                                let _ = c.add_occupant(mid);
-                            }
+                        // C++: wounded uncontained members aiEnter unless already AI_ENTER.
+                        if !already_enter {
+                            self.assault_transport_ai_enter(mid, crawler_id);
+                            self.troop_crawler.record_wounded_retrieve();
                         }
-                        if let Some(unit) = self.objects.get_mut(&mid) {
-                            unit.set_contained_by(Some(crawler_id));
-                            unit.stop_moving();
-                            unit.target = None;
-                            unit.set_status_attacking(false);
-                            unit.set_position(crawler_pos);
-                        }
-                        self.troop_crawler.record_wounded_retrieve();
                         continue;
                     }
 
@@ -1237,14 +1216,14 @@ impl GameLogic {
 
     /// C++ retrieveMembers: outside members `aiEnter` the crawler.
     pub fn assault_transport_retrieve_members(&mut self, crawler_id: ObjectId) {
-        let (members, crawler_pos) = {
+        let members = {
             let Some(c) = self.objects.get(&crawler_id) else {
                 return;
             };
             let Some(a) = c.assault_transport.as_ref() else {
                 return;
             };
-            (a.member_ids.clone(), c.get_position())
+            a.member_ids.clone()
         };
         for mid_raw in members {
             let mid = ObjectId(mid_raw);
@@ -1257,18 +1236,45 @@ impl GameLogic {
             if member.contained_by == Some(crawler_id) {
                 continue;
             }
-            if let Some(c) = self.objects.get_mut(&crawler_id) {
-                if !c.occupants.contains(&mid) && c.can_contain() {
-                    let _ = c.add_occupant(mid);
-                }
+            // C++: skip if already AI_ENTER. Never teleport-board.
+            if matches!(member.ai_state, AIState::Entering) {
+                continue;
             }
-            if let Some(unit) = self.objects.get_mut(&mid) {
-                unit.set_contained_by(Some(crawler_id));
-                unit.stop_moving();
-                unit.target = None;
-                unit.set_status_attacking(false);
-                unit.set_position(crawler_pos);
-            }
+            self.assault_transport_ai_enter(mid, crawler_id);
+        }
+    }
+
+    /// C++ `ai->aiExit(transport, CMD_FROM_AI)` — ExitStart/End walk.
+    fn assault_transport_ai_exit(&mut self, member_id: ObjectId, crawler_id: ObjectId) {
+        use crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
+
+        if let Some(c) = self.objects.get_mut(&crawler_id) {
+            c.remove_occupant(member_id);
+        }
+        let _ = self.unit_command_exit_via_open_contain(member_id, crawler_id);
+        if let Some(unit) = self.objects.get_mut(&member_id) {
+            unit.last_command_source = HUNT_CMD_FROM_AI;
+        }
+    }
+
+    /// C++ `ai->aiEnter(transport, CMD_FROM_AI)` — walk to hull, board on arrival.
+    fn assault_transport_ai_enter(&mut self, member_id: ObjectId, crawler_id: ObjectId) {
+        use crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
+
+        let crawler_pos = self.objects.get(&crawler_id).map(|c| c.get_position());
+        let _ = self.unit_command_order_enter(member_id, crawler_id);
+        if let Some(unit) = self.objects.get_mut(&member_id) {
+            unit.target = Some(crawler_id);
+            unit.set_status_attacking(false);
+            unit.last_command_source = HUNT_CMD_FROM_AI;
+        }
+        if let Some(pos) = crawler_pos {
+            self.path_approach_with_state_ignoring(
+                member_id,
+                pos,
+                AIState::Entering,
+                Some(crawler_id),
+            );
         }
     }
 

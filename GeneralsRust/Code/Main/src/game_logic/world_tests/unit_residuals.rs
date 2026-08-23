@@ -2217,6 +2217,7 @@ fn troop_crawler_residual_assault_deploy_unloads_and_attacks() {
     );
 }
 
+/// hq-pnfl4: wounded retrieve is aiEnter; healthy re-eject is ExitStart/End walk.
 #[test]
 fn troop_crawler_assault_keeps_wounded_and_retrieves_outside() {
     let mut game_logic = GameLogic::new();
@@ -2290,34 +2291,79 @@ fn troop_crawler_assault_keeps_wounded_and_retrieves_outside() {
         "wounded stays aboard"
     );
 
-    // Wound the outside healthy fighter → retrieve.
+    // Wound the outside healthy fighter → aiEnter walk, not teleport-board.
+    let outside_pos = game_logic
+        .host_object(healthy_id)
+        .map(|u| u.get_position())
+        .unwrap_or(Vec3::ZERO);
     {
         let h = game_logic.host_object_mut(healthy_id).unwrap();
         h.health.current = 30.0;
     }
     game_logic.tick_assault_transport_updates();
-    assert_eq!(
-        game_logic
-            .host_object(healthy_id)
-            .and_then(|u| u.contained_by),
-        Some(crawler_id),
-        "wounded outside member retrieved"
-    );
+    {
+        let h = game_logic.host_object(healthy_id).expect("wounded walker");
+        assert!(
+            h.contained_by.is_none(),
+            "wounded retrieve must not teleport-board"
+        );
+        assert_eq!(
+            h.ai_state,
+            AIState::Entering,
+            "wounded retrieve issues aiEnter"
+        );
+        assert_eq!(h.target, Some(crawler_id));
+        assert!(
+            (h.get_position() - outside_pos).length() < 0.5,
+            "aiEnter must not snap the fighter onto the hull"
+        );
+    }
     assert!(game_logic.honesty_troop_crawler_wounded_retrieve_ok());
+    // Second tick must not re-issue (already AI_ENTER).
+    let retrieves = game_logic.troop_crawler.wounded_retrieves;
+    game_logic.tick_assault_transport_updates();
+    assert_eq!(
+        game_logic.troop_crawler.wounded_retrieves, retrieves,
+        "already-Entering members skip a second aiEnter"
+    );
 
-    // Full heal aboard → re-exit.
+    // Complete the board, then full heal → aiExit walk (not 6wu pop).
+    {
+        let c = game_logic.host_object_mut(crawler_id).unwrap();
+        assert!(c.add_occupant(healthy_id));
+    }
     {
         let h = game_logic.host_object_mut(healthy_id).unwrap();
+        h.set_contained_by(Some(crawler_id));
+        h.set_ai_state(AIState::Idle);
         h.health.current = 100.0;
     }
     game_logic.tick_assault_transport_updates();
-    assert!(
-        game_logic
-            .host_object(healthy_id)
-            .map(|u| u.contained_by.is_none())
-            .unwrap_or(false),
-        "full health re-exits to fight"
-    );
+    {
+        let crawler_pos = game_logic
+            .host_object(crawler_id)
+            .map(|c| c.get_position())
+            .unwrap_or(Vec3::ZERO);
+        let h = game_logic.host_object(healthy_id).expect("re-exit");
+        assert!(
+            h.contained_by.is_none(),
+            "full health re-exits to fight"
+        );
+        assert_eq!(
+            h.ai_state,
+            AIState::Moving,
+            "healthy eject must walk ExitStart/End"
+        );
+        assert!(
+            (h.get_position() - crawler_pos).length() < 1.0,
+            "ExitStart is the hull, not a 6wu teleport"
+        );
+        let dest = h.movement.target_position.expect("ExitEnd dest");
+        assert!(
+            (dest - crawler_pos).length() > 6.5,
+            "ExitEnd is past the old 6wu pop: dest={dest:?}"
+        );
+    }
     assert!(game_logic.troop_crawler.healthy_redeploys > 0);
 }
 
@@ -2493,13 +2539,19 @@ fn troop_crawler_target_death_retrieves_members() {
 
     game_logic.destroy_object(enemy);
     game_logic.tick_assault_transport_updates();
-    assert_eq!(
-        game_logic
-            .host_object(healthy_id)
-            .and_then(|u| u.contained_by),
-        Some(crawler_id),
-        "attack-object target death must retrieveMembers"
-    );
+    {
+        let h = game_logic.host_object(healthy_id).expect("retrieve");
+        assert!(
+            h.contained_by.is_none(),
+            "retrieveMembers must not teleport-board"
+        );
+        assert_eq!(
+            h.ai_state,
+            AIState::Entering,
+            "attack-object target death must retrieveMembers via aiEnter"
+        );
+        assert_eq!(h.target, Some(crawler_id));
+    }
 }
 
 /// hq-tk45t: attack-move continues toward the goal when the target dies.
@@ -2588,13 +2640,97 @@ fn troop_crawler_stop_retrieves_members() {
     );
 
     assert!(game_logic.unit_command_stop(crawler_id));
+    {
+        let h = game_logic.host_object(healthy_id).expect("stop retrieve");
+        assert!(
+            h.contained_by.is_none(),
+            "Stop retrieveMembers must not teleport-board"
+        );
+        assert_eq!(
+            h.ai_state,
+            AIState::Entering,
+            "Stop on the crawler must retrieveMembers via aiEnter"
+        );
+        assert_eq!(h.target, Some(crawler_id));
+    }
+}
+
+/// hq-pnfl4: Troop Crawler assault never teleports infantry on retrieve or re-eject.
+#[test]
+fn troop_crawler_assault_walks_enter_and_exit() {
+    let mut game_logic = GameLogic::new();
+    ensure_test_infantry_template(&mut game_logic);
+    ensure_test_tank_template(&mut game_logic);
+    ensure_test_player_for_team(&mut game_logic, Team::China);
+
+    let crawler_id = create_test_troop_crawler(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+    strip_troop_crawler_payload(&mut game_logic, crawler_id);
+    let fighter = game_logic
+        .create_object("TestInfantry", Team::China, Vec3::new(1.0, 0.0, 0.0))
+        .expect("fighter");
+    {
+        let h = game_logic.host_object_mut(fighter).unwrap();
+        h.health.maximum = 100.0;
+        h.health.current = 100.0;
+    }
+    {
+        let c = game_logic.host_object_mut(crawler_id).unwrap();
+        assert!(c.add_occupant(fighter));
+    }
+    {
+        let h = game_logic.host_object_mut(fighter).unwrap();
+        h.set_contained_by(Some(crawler_id));
+    }
+    let enemy = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+        .expect("enemy");
     assert_eq!(
-        game_logic
-            .host_object(healthy_id)
-            .and_then(|u| u.contained_by),
-        Some(crawler_id),
-        "Stop on the crawler must retrieveMembers"
+        game_logic.apply_troop_crawler_assault_deploy_for_test(crawler_id, enemy),
+        1
     );
+
+    let ring_pos = game_logic
+        .host_object(fighter)
+        .map(|u| u.get_position())
+        .unwrap_or(Vec3::ZERO);
+    {
+        let h = game_logic.host_object_mut(fighter).unwrap();
+        h.health.current = 20.0;
+    }
+    game_logic.tick_assault_transport_updates();
+    {
+        let h = game_logic.host_object(fighter).expect("enter walk");
+        assert!(h.contained_by.is_none());
+        assert_eq!(h.ai_state, AIState::Entering);
+        assert_eq!(h.target, Some(crawler_id));
+        assert!(
+            (h.get_position() - ring_pos).length() < 0.5,
+            "wounded retrieve must not snap to hull"
+        );
+    }
+
+    {
+        let c = game_logic.host_object_mut(crawler_id).unwrap();
+        assert!(c.add_occupant(fighter));
+    }
+    {
+        let h = game_logic.host_object_mut(fighter).unwrap();
+        h.set_contained_by(Some(crawler_id));
+        h.set_ai_state(AIState::Idle);
+        h.health.current = 100.0;
+    }
+    game_logic.tick_assault_transport_updates();
+    let crawler_pos = game_logic
+        .host_object(crawler_id)
+        .map(|c| c.get_position())
+        .unwrap_or(Vec3::ZERO);
+    let h = game_logic.host_object(fighter).expect("exit walk");
+    assert!(h.contained_by.is_none());
+    assert_eq!(h.ai_state, AIState::Moving);
+    assert!((h.get_position() - crawler_pos).length() < 1.0);
+    assert!((h.get_position() - (crawler_pos + Vec3::new(6.0, 0.0, 0.0))).length() > 1.0);
+    let dest = h.movement.target_position.expect("ExitEnd");
+    assert!((dest - crawler_pos).length() > 6.5);
 }
 
 

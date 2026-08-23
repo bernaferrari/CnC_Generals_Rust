@@ -473,4 +473,20 @@ impl Team {
             .as_ref()
             .and_then(|relations| relations.get(&player_index).copied())
     }
+
+    /// Snapshot `m_teamRelations` for Team::xfer / CHUNK_TeamFactory.
+    pub fn team_relation_override_pairs(&self) -> Vec<(TeamID, Relationship)> {
+        self.team_relations
+            .as_ref()
+            .map(|relations| relations.map.iter().map(|(&id, &rel)| (id, rel)).collect())
+            .unwrap_or_default()
+    }
+
+    /// Snapshot `m_playerRelations` for Team::xfer / CHUNK_TeamFactory.
+    pub fn player_relation_override_pairs(&self) -> Vec<(Int, Relationship)> {
+        self.player_relations
+            .as_ref()
+            .map(|relations| relations.iter().map(|(&idx, &rel)| (idx, rel)).collect())
+            .unwrap_or_default()
+    }
 }

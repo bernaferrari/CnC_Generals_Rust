@@ -651,6 +651,22 @@ impl PathfindingGrid {
         }
     }
 
+    /// C++ `PathfindCell::removeObstacle` (AIPathfind.cpp:1473-1483).
+    pub fn clear_cell_obstacle_owned(&mut self, pos: GridPos, object_id: u32) -> bool {
+        if self.cell_type(pos) == PathfindCellType::Rubble {
+            self.set_cell_type(pos, PathfindCellType::Clear);
+        }
+        let Some((id, _, _)) = self.obstacle_owner(pos) else {
+            return false;
+        };
+        if id != object_id {
+            return false;
+        }
+        self.set_cell_type(pos, PathfindCellType::Clear);
+        true
+    }
+
+
     fn obstacle_owner(&self, pos: GridPos) -> Option<(u32, Option<u32>, Option<Team>)> {
         let idx = self.bit_index(pos)?;
         let id = *self.occ_obstacle_id.get(idx)?;
@@ -1058,6 +1074,134 @@ impl PathfindingGrid {
             None
         }
     }
+
+    /// C++ `internal_classifyObjectFootprint` (AIPathfind.cpp:4175).
+    /// `createAWallFromMyFootprint` / `removeWallFromMyFootprint` — no structure/mobile skip.
+    pub fn internal_classify_object_footprint(
+        &mut self,
+        obj: &Object,
+        insert: bool,
+    ) -> Option<(GridPos, GridPos)> {
+        let geom = obj.thing.template.geometry_info;
+        let pos = obj.get_position();
+        let is_transparent = obj.is_kind_of(KindOf::CanSeeThrough);
+        let mut lo = GridPos::new(i32::MAX, i32::MAX);
+        let mut hi = GridPos::new(i32::MIN, i32::MIN);
+        let mut did = false;
+        let stamp = |grid: &mut Self, cell: GridPos, lo: &mut GridPos, hi: &mut GridPos| {
+            if !grid.is_valid_pos(cell) {
+                return false;
+            }
+            let changed = if insert {
+                grid.set_cell_obstacle_owned(
+                    cell,
+                    false,
+                    is_transparent,
+                    obj.id.0,
+                    obj.owner_player_id,
+                    Some(obj.team),
+                );
+                true
+            } else {
+                grid.clear_cell_obstacle_owned(cell, obj.id.0)
+            };
+            if changed {
+                Self::expand_stamp_bounds(lo, hi, cell);
+            }
+            changed
+        };
+        let geom_type = if geom.authored {
+            geom.geom_type
+        } else {
+            crate::game_logic::HostGeometryType::Cylinder
+        };
+        let major = if geom.authored && geom.major_radius > 0.0 {
+            geom.major_radius
+        } else {
+            obj.selection_radius.max(self.grid_size * 0.5)
+        };
+        let minor = if geom.authored && geom.minor_radius > 0.0 {
+            geom.minor_radius
+        } else {
+            major
+        };
+        match geom_type {
+            crate::game_logic::HostGeometryType::Box => {
+                let angle = obj.get_orientation();
+                let (s, c) = angle.sin_cos();
+                let step = self.grid_size * 0.5;
+                let ydx = s * step;
+                let ydy = -c * step;
+                let xdx = c * step;
+                let xdy = s * step;
+                let num_steps_x = ((2.0 * major / step).ceil() as i32).max(1);
+                let num_steps_y = ((2.0 * minor / step).ceil() as i32).max(1);
+                let mut tl_x = pos.x - major * c - minor * s;
+                let mut tl_z = pos.z + minor * c - major * s;
+                for _iy in 0..num_steps_y {
+                    let mut x = tl_x;
+                    let mut z = tl_z;
+                    for _ix in 0..num_steps_x {
+                        let cell = self.classify_world_to_cell(x, z);
+                        if stamp(self, cell, &mut lo, &mut hi) {
+                            did = true;
+                        }
+                        x += xdx;
+                        z += xdy;
+                    }
+                    tl_x += ydx;
+                    tl_z += ydy;
+                }
+            }
+            crate::game_logic::HostGeometryType::Sphere
+            | crate::game_logic::HostGeometryType::Cylinder => {
+                let size = major / self.grid_size + 0.4;
+                let r2 = size * size;
+                let center_x = (pos.x - self.origin.x) / self.grid_size;
+                let center_y = (pos.z - self.origin.z) / self.grid_size;
+                let top_left_x = ((pos.x - self.origin.x - major) / self.grid_size + 0.5)
+                    .floor() as i32
+                    - 1;
+                let top_left_y = ((pos.z - self.origin.z - major) / self.grid_size + 0.5)
+                    .floor() as i32
+                    - 1;
+                let bottom_right_x = top_left_x + (2.0 * size) as i32 + 2;
+                let bottom_right_y = top_left_y + (2.0 * size) as i32 + 2;
+                for j in top_left_y..bottom_right_y {
+                    for i in top_left_x..bottom_right_x {
+                        let dx = i as f32 + 0.5 - center_x;
+                        let dy = j as f32 + 0.5 - center_y;
+                        if dx * dx + dy * dy > r2 {
+                            continue;
+                        }
+                        if stamp(self, GridPos::new(i, j), &mut lo, &mut hi) {
+                            did = true;
+                        }
+                    }
+                }
+            }
+        }
+        if did {
+            Some((lo, hi))
+        } else {
+            None
+        }
+    }
+
+    /// C++ `Pathfinder::createAWallFromMyFootprint`.
+    pub fn create_wall_from_object(&mut self, obj: &Object) -> Option<(GridPos, GridPos)> {
+        let bounds = self.internal_classify_object_footprint(obj, true)?;
+        self.refresh_pinched_bounds(bounds.0, bounds.1);
+        Some(bounds)
+    }
+
+    /// C++ `Pathfinder::removeWallFromMyFootprint`.
+    pub fn remove_wall_from_object(&mut self, obj: &Object) -> Option<(GridPos, GridPos)> {
+        let bounds = self.internal_classify_object_footprint(obj, false)?;
+        self.refresh_pinched_bounds(bounds.0, bounds.1);
+        Some(bounds)
+    }
+
 
     /// C++ never-remove: re-OR BLAST_CRATER cells after terrain/object rebuild.
     fn restamp_permanent_blast_craters(
@@ -6467,6 +6611,21 @@ impl PathfindingSystem {
             self.grid.rebuild_path_zones();
         }
     }
+
+    /// C++ `Pathfinder::createAWallFromMyFootprint` — trains are mobile vehicles.
+    pub fn create_wall_from_object(&mut self, obj: &Object) {
+        if self.grid.create_wall_from_object(obj).is_some() {
+            self.grid.rebuild_path_zones();
+        }
+    }
+
+    /// C++ `Pathfinder::removeWallFromMyFootprint`.
+    pub fn remove_wall_from_object(&mut self, obj: &Object) {
+        if self.grid.remove_wall_from_object(obj).is_some() {
+            self.grid.rebuild_path_zones();
+        }
+    }
+
 
 
     /// C++ `Pathfinder::addWallPiece` from a live host object.
@@ -12278,6 +12437,34 @@ mod tests {
             "crusher must path across a fence-divided pocket"
         );
     }
+
+    /// hq-w1rig: createAWall rasters mobile vehicles that classify_object_footprint skips.
+    #[test]
+    fn create_wall_from_object_stamps_mobile_vehicle() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut sys = PathfindingSystem::new(200.0, 200.0);
+        let mut tmpl = ThingTemplate::new("CivilianTrainEngine");
+        tmpl.add_kind_of(KindOf::Vehicle);
+        let mut train = Object::new(tmpl, ObjectId(7), Team::USA);
+        train.set_position(Vec3::new(80.0, 0.0, 80.0));
+        train.selection_radius = 15.0;
+        assert!(
+            sys.grid.classify_object_footprint(&train, false).is_none(),
+            "regular classify must still skip mobile vehicles"
+        );
+        sys.create_wall_from_object(&train);
+        let cell = sys.grid.world_to_grid(train.get_position());
+        assert!(
+            sys.grid.is_static_blocked(cell),
+            "createAWall must stamp a locomotive footprint"
+        );
+        sys.remove_wall_from_object(&train);
+        assert!(
+            !sys.grid.is_static_blocked(cell),
+            "removeWall must undo the locomotive stamp"
+        );
+    }
+
 
 
 

@@ -280,6 +280,7 @@ pub enum HostScriptRadarEventRequest {
 /// Live host drain: NAMED/TEAM SET_STEALTH_ENABLED.
 /// C++ `ScriptActions::doNamedEnableStealth` / `doTeamEnableStealth`
 /// (`setScriptStatus(OBJECT_STATUS_SCRIPT_UNSTEALTHED, !enabled)`).
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostScriptStealthEnabledRequest {
     Named { unit: String, enabled: bool },
     Team { team: String, enabled: bool },

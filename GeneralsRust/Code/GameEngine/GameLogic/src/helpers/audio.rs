@@ -652,7 +652,7 @@ mod leftover_the_audio_tests {
 
     #[test]
     fn host_snapshot_resolver_uses_host_height() {
-        use crate::common::audio::AudioEventOwnerResolver;
+        use super::AudioEventOwnerResolver;
         crate::scripting::clear_host_script_query_snapshot();
         crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
             objects: vec![crate::scripting::HostScriptQueryObject {

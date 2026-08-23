@@ -4320,9 +4320,10 @@ impl AIPlayer {
         if instances >= proto.get_max_instances() {
             return false;
         }
-        if self.team_queue.iter().any(|t| t.name == team_name)
-            || self.team_ready_queue.iter().any(|t| t.name == team_name)
-        {
+        // C++ AIPlayer.cpp:1487-1492 — only iterate_TeamBuildQueue.
+        // Ready-queue teams are idle / 60s force, not a "currently building" veto.
+        // countTeamInstances() >= maxInstances is the only instance cap.
+        if self.team_queue.iter().any(|t| t.name == team_name) {
             return false;
         }
         drop(guard);
@@ -7527,6 +7528,58 @@ mod cpp_parity_tests {
         );
         clear_player_team_prototypes();
     }
+
+    #[test]
+    fn is_a_good_idea_does_not_reject_ready_queue_team() {
+        // C++ isAGoodIdeaToBuildTeam (AIPlayer.cpp:1487-1492) only walks
+        // iterate_TeamBuildQueue. A maxInstances>1 copy may start while the
+        // first sits idle in TeamReadyQueue (up to 60s force).
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
+        player.resources.supplies = 50_000;
+        player.set_can_build_units(true);
+        logic.add_player(player);
+        let mut ranger = crate::game_logic::ThingTemplate::new("AmericaInfantryRanger");
+        ranger
+            .add_kind_of(crate::game_logic::KindOf::Infantry)
+            .set_cost(225, 0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".into(), ranger);
+        let mut barracks = crate::game_logic::ThingTemplate::new("AmericaBarracks");
+        barracks
+            .add_kind_of(crate::game_logic::KindOf::Structure)
+            .add_kind_of(crate::game_logic::KindOf::FSBarracks)
+            .set_cost(500, 0);
+        logic.templates.insert("AmericaBarracks".into(), barracks);
+        let _ = logic.create_object("AmericaBarracks", Team::USA, Vec3::ZERO);
+
+        install_player_team_prototype(1, "HQ_Auf59_ReadyOk", &[(1, 1, "AmericaInfantryRanger")], 20);
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        ai.team_ready_queue.push_back(AITeamQueue::new(
+            "HQ_Auf59_ReadyOk".into(),
+            vec![AIWorkOrder::new("AmericaInfantryRanger".into(), 1, 20)],
+            false,
+            0,
+        ));
+        assert!(
+            ai.is_a_good_idea_to_build_team(&logic, "HQ_Auf59_ReadyOk"),
+            "ready-queue copy must not veto a second maxInstances>1 start"
+        );
+
+        ai.team_queue.push_back(AITeamQueue::new(
+            "HQ_Auf59_ReadyOk".into(),
+            vec![AIWorkOrder::new("AmericaInfantryRanger".into(), 1, 20)],
+            false,
+            0,
+        ));
+        assert!(
+            !ai.is_a_good_idea_to_build_team(&logic, "HQ_Auf59_ReadyOk"),
+            "TeamBuildQueue still vetoes a prototype already under construction"
+        );
+        clear_player_team_prototypes();
+    }
+
 
 
     #[test]

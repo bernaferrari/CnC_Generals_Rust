@@ -1225,8 +1225,8 @@ fn detonate_and_harvester_select_residual() {
     assert!(
         src.contains("fn select_all_harvesters")
             && src.contains("select_all_harvesters()")
-            && src.contains("No harvesters found"),
-        "Ctrl+Shift+I must select harvesters residual"
+            && !src.contains("No harvesters found"),
+        "Ctrl+Shift+I must select harvesters residual without HUD toast"
     );
 }
 
@@ -1368,8 +1368,8 @@ fn return_supplies_and_select_structures_residual() {
     assert!(
         src.contains("fn select_all_friendly_structures")
             && src.contains("select_all_friendly_structures()")
-            && src.contains("No structures found"),
-        "Ctrl+Alt+S must select all structures residual"
+            && !src.contains("No structures found"),
+        "Ctrl+Alt+S must select all structures residual without HUD toast"
     );
     let cs = crate::command_system::COMMAND_SYSTEM_SRC;
     assert!(
@@ -1432,8 +1432,8 @@ fn idle_harvesters_and_cancel_all_production_residual() {
     assert!(
         src.contains("fn select_idle_harvesters")
             && src.contains("select_idle_harvesters()")
-            && src.contains("No idle harvesters"),
-        "Ctrl+Alt+I must select idle harvesters residual"
+            && !src.contains("No idle harvesters"),
+        "Ctrl+Alt+I must select idle harvesters residual without HUD toast"
     );
     assert!(
         src.contains("fn cancel_all_selected_production")
@@ -1453,9 +1453,9 @@ fn guard_radius_and_combat_select_residual() {
     let src = crate::cnc_game_engine::ENGINE_SRC;
     assert!(
         src.contains("fn adjust_selected_guard_radius")
-            && src.contains("Guard radius:")
+            && !src.contains("Guard radius:")
             && src.contains("adjust_selected_guard_radius(15.0)"),
-        "Alt+[ ] must adjust guard radius residual"
+        "Alt+[ ] must adjust guard radius residual without HUD toast"
     );
     assert!(
         src.contains("fn select_all_friendly_combat")
@@ -1470,15 +1470,15 @@ fn clear_path_and_damaged_unit_cycle_residual() {
     let src = crate::cnc_game_engine::ENGINE_SRC;
     assert!(
         src.contains("fn clear_selected_path_waypoints")
-            && src.contains("Path cleared")
+            && !src.contains("Path cleared")
             && src.contains("clear_selected_path_waypoints()"),
-        "Alt+Z must clear path waypoints residual"
+        "Alt+Z must clear path waypoints residual without HUD toast"
     );
     assert!(
         src.contains("fn cycle_damaged_unit_selection")
-            && src.contains("No damaged units")
+            && !src.contains("Damaged unit selected")
             && src.contains("cycle_damaged_unit_selection(1)"),
-        "Ctrl+Alt+Up/Down must cycle damaged units residual"
+        "Ctrl+Alt+Up/Down must cycle damaged units residual without HUD toast"
     );
 }
 
@@ -1603,6 +1603,28 @@ fn hq_0djue_hotkey_selection_residuals_must_not_invent_english_hud_toasts() {
         assert!(
             !src.contains(toast),
             "hq-0djue: invented English HUD toast must stay gone: {toast}"
+        );
+    }
+}
+
+#[test]
+fn hq_siwjj_selection_residuals_must_not_invent_english_hud_toasts() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    for toast in [
+        "No harvesters found",
+        "Selected {} harvesters",
+        "No idle harvesters",
+        "Selected {} idle harvesters",
+        "Construction tab:",
+        "No structures found",
+        "Selected {} structures",
+        "Path cleared",
+        "Damaged unit selected",
+        "Guard radius:",
+    ] {
+        assert!(
+            !src.contains(toast),
+            "hq-siwjj: invented English HUD toast must stay gone: {toast}"
         );
     }
 }

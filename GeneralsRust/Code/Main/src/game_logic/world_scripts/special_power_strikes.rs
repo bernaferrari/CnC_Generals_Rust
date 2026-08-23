@@ -1841,8 +1841,8 @@ impl GameLogic {
     /// C++ SpectreHowitzerShell ThingFactory Object residual (orbit howitzer ticks).
     pub fn spawn_spectre_howitzer_shell_objects_for_new_spawns(&mut self) {
         use crate::game_logic::special_power_strikes::{
-            SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES, SPECTRE_HOWITZER_SHELL_MAX_HEALTH,
-            SPECTRE_HOWITZER_SHELL_OBJECT,
+            SPECTRE_HOWITZER_FIRE_SOUND, SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES,
+            SPECTRE_HOWITZER_SHELL_MAX_HEALTH, SPECTRE_HOWITZER_SHELL_OBJECT,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
@@ -1864,6 +1864,19 @@ impl GameLogic {
             .frame
             .saturating_add(SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES.max(1));
         for (source, team, pos) in pending {
+            // C++ SpectreGunshipUpdate.cpp:585-586 — HowitzerFireSound on the
+            // gunship after createAndFireTempWeapon (StrategyCenter_ArtilleryRound).
+            let gunship_pos = self
+                .objects
+                .get(&source)
+                .map(|o| o.get_position())
+                .unwrap_or(pos);
+            self.queue_audio_event(
+                AudioEventRequest::new(SPECTRE_HOWITZER_FIRE_SOUND)
+                    .with_object(source)
+                    .with_position(gunship_pos)
+                    .with_priority(150),
+            );
             if let Some(oid) = self.create_object(SPECTRE_HOWITZER_SHELL_OBJECT, team, pos) {
                 if let Some(o) = self.objects.get_mut(&oid) {
                     o.spectre_howitzer_shell = true;

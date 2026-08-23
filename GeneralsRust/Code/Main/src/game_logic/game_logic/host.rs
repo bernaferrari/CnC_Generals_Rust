@@ -1060,7 +1060,7 @@ pub struct GameLogic {
     pub(crate) combat_system: CombatSystem,
 
     /// Pathfinding system for parallel path computation
-    pub(super) pathfinding_system: PathfindingSystem,
+    pub(crate) pathfinding_system: PathfindingSystem,
 
     /// AI Management System
     pub(super) ai_manager: AIManager,
