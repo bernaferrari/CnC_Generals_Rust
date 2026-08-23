@@ -359,66 +359,73 @@ impl Object {
         let at_self = name
             .map(crate::game_logic::weapon_bootstrap::host_damage_dealt_at_self_position_for_weapon_name)
             .unwrap_or(false);
-        super::combat::queue_projectile(super::combat::PendingProjectile {
-            shooter_id,
-            shooter_pos,
-            source_context: Some(super::combat::ProjectileLaunchContext {
-                source_team: self.team,
-                source_owner_player_id: self.owner_player_id,
-                source_veterancy: veterancy,
-                source_orientation: self.get_orientation(),
-                source_velocity: self.movement.velocity,
-            }),
-            // C++ DamageDealtAtSelfPosition: damageID=INVALID, damagePos=source.
-            target_id: if at_self { None } else { Some(target_id) },
-            target_pos: if at_self { Some(shooter_pos) } else { None },
-            damage: weapon_damage,
-            speed: weapon_speed,
-            splash_radius: weapon_splash,
-            is_homing: weapon_homing,
-            damage_type: weapon_dtype,
-            death_type: crate::game_logic::host_armor_residual::resolve_host_death_type(
-                name,
-                weapon_dtype,
-            ),
-            projectile_object_name,
-            projectile_lifecycle: None,
-            fire_fx_name,
-            fire_ocl_name,
-            detonation_fx_name,
-            detonation_ocl_name,
-            exhaust_name,
-            secondary_damage,
-            secondary_damage_radius,
-            shock_wave_amount,
-            shock_wave_radius,
-            shock_wave_taper_off,
-            radius_damage_affects,
-            projectile_collides,
-            // C++ ScatterRadius + ScatterRadiusVsInfantry residual.
-            scatter_radius,
-            scatter_table_offset,
-            min_weapon_speed: speed_peel.min_weapon_speed,
-            scale_weapon_speed: speed_peel.scale_weapon_speed,
-            attack_range: if speed_peel.attack_range > 0.0 {
-                speed_peel.attack_range
-            } else {
-                fallback_range
-            },
-            min_attack_range: if speed_peel.min_attack_range > 0.0 {
-                speed_peel.min_attack_range
-            } else {
-                fallback_min_range
-            },
-            historic_weapon_key: fire_weapon_name.clone().unwrap_or_default(),
-            historic_bonus_time_frames: historic_bonus.time_frames,
-            historic_bonus_count: historic_bonus.count,
-            historic_bonus_radius: historic_bonus.radius,
-            historic_bonus_weapon: historic_bonus.bonus_weapon,
-            die_on_detonate: name
-                .map(crate::game_logic::weapon_bootstrap::host_die_on_detonate_for_weapon_name)
-                .unwrap_or(false),
-        });
+        // C++ Weapon.cpp:998-1075 / leftover handle_projectileless_flight_damage:
+        // empty ProjectileObject is hitscan or delayed store damage, never a
+        // flying CombatSystem dummy that can collide mid-flight.
+        if leftover_projectile_object_is_empty(&projectile_object_name) {
+            self.queue_leftover_projectileless_flight_damage(name, target_id);
+        } else {
+            super::combat::queue_projectile(super::combat::PendingProjectile {
+                shooter_id,
+                shooter_pos,
+                source_context: Some(super::combat::ProjectileLaunchContext {
+                    source_team: self.team,
+                    source_owner_player_id: self.owner_player_id,
+                    source_veterancy: veterancy,
+                    source_orientation: self.get_orientation(),
+                    source_velocity: self.movement.velocity,
+                }),
+                // C++ DamageDealtAtSelfPosition: damageID=INVALID, damagePos=source.
+                target_id: if at_self { None } else { Some(target_id) },
+                target_pos: if at_self { Some(shooter_pos) } else { None },
+                damage: weapon_damage,
+                speed: weapon_speed,
+                splash_radius: weapon_splash,
+                is_homing: weapon_homing,
+                damage_type: weapon_dtype,
+                death_type: crate::game_logic::host_armor_residual::resolve_host_death_type(
+                    name,
+                    weapon_dtype,
+                ),
+                projectile_object_name,
+                projectile_lifecycle: None,
+                fire_fx_name,
+                fire_ocl_name,
+                detonation_fx_name,
+                detonation_ocl_name,
+                exhaust_name,
+                secondary_damage,
+                secondary_damage_radius,
+                shock_wave_amount,
+                shock_wave_radius,
+                shock_wave_taper_off,
+                radius_damage_affects,
+                projectile_collides,
+                // C++ ScatterRadius + ScatterRadiusVsInfantry residual.
+                scatter_radius,
+                scatter_table_offset,
+                min_weapon_speed: speed_peel.min_weapon_speed,
+                scale_weapon_speed: speed_peel.scale_weapon_speed,
+                attack_range: if speed_peel.attack_range > 0.0 {
+                    speed_peel.attack_range
+                } else {
+                    fallback_range
+                },
+                min_attack_range: if speed_peel.min_attack_range > 0.0 {
+                    speed_peel.min_attack_range
+                } else {
+                    fallback_min_range
+                },
+                historic_weapon_key: fire_weapon_name.clone().unwrap_or_default(),
+                historic_bonus_time_frames: historic_bonus.time_frames,
+                historic_bonus_count: historic_bonus.count,
+                historic_bonus_radius: historic_bonus.radius,
+                historic_bonus_weapon: historic_bonus.bonus_weapon,
+                die_on_detonate: name
+                    .map(crate::game_logic::weapon_bootstrap::host_die_on_detonate_for_weapon_name)
+                    .unwrap_or(false),
+            });
+        }
         // C++ fireWeaponTemplate LeechRange activate residual.
         self.activate_leech_range_for_slot(slot);
         self.record_shot_at_target(target_id);
@@ -763,8 +770,92 @@ impl Object {
         Some(glam::Vec2::new(offset_x * scalar, offset_y * scalar))
     }
 
+    /// C++ Weapon.cpp:998-1075 — leftover delayed-damage path for empty ProjectileObject.
+    fn queue_leftover_projectileless_flight_damage(
+        &self,
+        weapon_name: Option<&str>,
+        target_id: ObjectId,
+    ) {
+        let Some(name) = weapon_name.filter(|n| !n.trim().is_empty()) else {
+            return;
+        };
+        let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+        let Some(template) = gamelogic::weapon::with_weapon_store(|store| {
+            store.find_weapon_template(name).cloned()
+        })
+        .ok()
+        .flatten() else {
+            return;
+        };
+        let speed = template.weapon_speed.max(template.min_weapon_speed);
+        let source = leftover_coord_from_host(self.get_position());
+        let target = self.leftover_projectileless_target_pos(target_id);
+        let bonus = self.leftover_weapon_bonus_snapshot();
+        let weapon = gamelogic::Weapon::new(template, gamelogic::WeaponSlotType::Primary);
+        if let Err(err) = weapon.handle_projectileless_flight_damage(
+            self.id.0,
+            &source,
+            Some(target_id.0),
+            &target,
+            speed,
+            &bonus,
+            true,
+        ) {
+            log::warn!(
+                "leftover projectileless delayed damage failed for '{name}' (source {}): {err:?}",
+                self.id.0
+            );
+        }
+    }
+
+    fn leftover_projectileless_target_pos(
+        &self,
+        target_id: ObjectId,
+    ) -> gamelogic::common::Coord3D {
+        if let Some(arc) = gamelogic::helpers::TheGameLogic::find_object_by_id(target_id.0) {
+            if let Ok(guard) = arc.read() {
+                return *guard.get_position();
+            }
+        }
+        if let Some(pos) = gamelogic::object::registry::OBJECT_REGISTRY
+            .with_object(target_id.0, |obj| *obj.get_position())
+        {
+            return pos;
+        }
+        if let Some(loc) = self.target_location {
+            return leftover_coord_from_host(loc);
+        }
+        if let Some(prev) = self.prev_victim_pos {
+            return leftover_coord_from_host(prev);
+        }
+        leftover_coord_from_host(self.get_position())
+    }
+
+    fn leftover_weapon_bonus_snapshot(&self) -> gamelogic::WeaponBonus {
+        use gamelogic::weapon::WeaponBonusField::{Damage, PreAttack, Radius, Range, RateOfFire};
+        let (dmg, rng, rof, pre, rad) = self.weapon_bonus_fields();
+        let mut bonus = gamelogic::WeaponBonus::new();
+        bonus.set_field(Damage, dmg);
+        bonus.set_field(Range, rng);
+        bonus.set_field(RateOfFire, rof);
+        bonus.set_field(PreAttack, pre);
+        bonus.set_field(Radius, rad);
+        bonus
+    }
+
 
 }
+
+fn leftover_projectile_object_is_empty(name: &str) -> bool {
+    let n = name.trim();
+    n.is_empty() || n.eq_ignore_ascii_case("NONE")
+}
+
+fn leftover_coord_from_host(pos: Vec3) -> gamelogic::common::Coord3D {
+    // Live host Y-up → leftover C++ Z-up (same as collide_dispatch).
+    gamelogic::common::Coord3D::new(pos.x, pos.z, pos.y)
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -813,8 +904,8 @@ mod tests {
 
     #[test]
     fn fire_at_keeps_gattling_store_type() {
-        // C++ Weapon.ini DamageType GATTLING through fire_at → PendingProjectile.
-        // Pre-fix: map_store_damage_type collapsed Gattling to Bullet.
+        // GattlingTankGun is projectileless (empty ProjectileObject).
+        // C++/leftover hitscan: leftover handle_projectileless, no dummy projectile.
         crate::game_logic::combat::clear_pending_projectile_queue_for_test();
         let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
         let mut tmpl = ThingTemplate::new("ChinaTankGattling");
@@ -828,11 +919,63 @@ mod tests {
             range: 150.0,
             last_fire_time: -10.0,
             ..Weapon::default()
-});
+        });
         assert!(atk.fire_at(ObjectId(2), 1.0));
         assert_eq!(
             crate::game_logic::combat::last_pending_projectile_damage_type_for_test(),
-            Some(crate::game_logic::combat::DamageType::Gattling)
+            None,
+            "projectileless Gattling must not spawn a dummy CombatSystem projectile"
+        );
+        crate::game_logic::combat::clear_pending_projectile_queue_for_test();
+    }
+
+    #[test]
+    fn fire_at_projectileless_queues_leftover_delayed_damage() {
+        // C++ Weapon.cpp:1055-1063 / leftover handle_projectileless_flight_damage:
+        // travel frames >= 1 queues WeaponStore::set_delayed_damage.
+        crate::game_logic::combat::clear_pending_projectile_queue_for_test();
+        let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+        const NAME: &str = "__RustLiveProjectilelessDelay";
+        let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
+            let mut template = gamelogic::weapon::WeaponTemplate::new(NAME.to_string());
+            template.weapon_speed = 10.0;
+            template.min_weapon_speed = 0.0;
+            template.projectile_name.clear();
+            template.primary_damage = 20.0;
+            template.attack_range = 200.0;
+            store.add_weapon_template(template);
+        });
+        let mut tmpl = ThingTemplate::new("DelayShooter");
+        tmpl.set_primary_weapon_name(NAME);
+        tmpl.set_health(100.0);
+        tmpl.add_kind_of(KindOf::Attackable);
+        let mut atk = Object::new(tmpl, ObjectId(1), Team::USA);
+        atk.set_position(Vec3::ZERO);
+        atk.prev_victim_pos = Some(Vec3::new(100.0, 0.0, 0.0));
+        atk.weapon = Some(Weapon {
+            damage: 20.0,
+            range: 200.0,
+            projectile_speed: 10.0,
+            last_fire_time: -10.0,
+            ..Weapon::default()
+        });
+        assert!(atk.fire_at(ObjectId(2), 1.0));
+        assert_eq!(
+            crate::game_logic::combat::last_pending_projectile_damage_type_for_test(),
+            None,
+            "projectileless fire must not queue a dummy CombatSystem projectile"
+        );
+        let snaps = gamelogic::weapon::with_weapon_store(|store| {
+            store.delayed_damage_snapshot_residual()
+        })
+        .expect("leftover WeaponStore");
+        assert!(
+            snaps.iter().any(|snap| {
+                snap.weapon_name == NAME
+                    && snap.delay_source_id == 1
+                    && snap.delay_intended_victim_id == 2
+            }),
+            "leftover WeaponStore must queue delayed damage: {snaps:?}"
         );
         crate::game_logic::combat::clear_pending_projectile_queue_for_test();
     }

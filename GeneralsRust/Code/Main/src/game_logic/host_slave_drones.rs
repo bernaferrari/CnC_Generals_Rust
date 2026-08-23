@@ -146,6 +146,9 @@ pub const BATTLE_DRONE_REPAIR_MAX_WELD_MS: u32 = 500;
 pub const BATTLE_DRONE_REPAIR_WELDING_SYS: &str = "BlueSparks";
 /// Retail RepairWeldingFXBone residual.
 pub const BATTLE_DRONE_REPAIR_WELDING_FX_BONE: &str = "Muzzle02";
+/// MiscAudio.ini slot; queue `resolve_misc_audio_event` playable name, not this token.
+pub const BATTLE_DRONE_REPAIR_SPARKS_AUDIO: &str = "RepairSparks";
+
 
 // --- Wave 61 SlavedUpdate wander residual (shared Scout/Hellfire/Battle) ---
 
@@ -558,6 +561,16 @@ pub fn battle_drone_weld_close_enough(distance_to_master: f32) -> bool {
     distance_to_master >= 0.0 && distance_to_master < BATTLE_DRONE_WELD_CLOSE_ENOUGH
 }
 
+/// C++ weld audio pose: pristine bone local + object position, else object position.
+/// `bone_host_local` is host Y-up (leftover/C++ Z-up converted at the lookup site).
+pub fn battle_drone_weld_pose(drone_pos: Vec3, bone_host_local: Option<Vec3>) -> Vec3 {
+    match bone_host_local {
+        Some(local) => drone_pos + local,
+        None => drone_pos,
+    }
+}
+
+
 /// C++ `RepairStates` (`SlavedUpdate.h:102-111`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BattleDroneRepairState {
@@ -577,6 +590,8 @@ pub struct BattleDroneWeldState {
     pub frames_to_wait: i32,
     pub repair_state: BattleDroneRepairState,
     pub repairing: bool,
+    /// Leftover `spawn_welding_fx` this tick (Welding enter, RepairWeldingSys set).
+    pub weld_fx_this_tick: bool,
 }
 
 impl BattleDroneWeldState {
@@ -586,6 +601,7 @@ impl BattleDroneWeldState {
             self.repair_state = BattleDroneRepairState::None;
             self.frames_to_wait = (SLAVE_DRONE_LOGIC_FPS / 4.0) as i32;
             self.repairing = false;
+            self.weld_fx_this_tick = false;
         }
     }
 
@@ -594,6 +610,7 @@ impl BattleDroneWeldState {
     /// Returns whether this frame applies `RepairRatePerSecond` healing
     /// (`closeEnough && m_repairing` — `SlavedUpdate.cpp:480`).
     pub fn tick(&mut self, close_enough: bool) -> bool {
+        self.weld_fx_this_tick = false;
         if self.frames_to_wait > 0 {
             self.frames_to_wait -= 1;
         }
@@ -629,6 +646,7 @@ impl BattleDroneWeldState {
     }
 
     /// C++ `setRepairState` (`SlavedUpdate.cpp:541-647`) without arm FX / spot hop.
+    /// Welding enter (not Ready→Extending) latches leftover `spawn_welding_fx`.
     fn set_repair_state(&mut self, desired: BattleDroneRepairState) {
         if desired == self.repair_state {
             return;
@@ -666,6 +684,9 @@ impl BattleDroneWeldState {
                     self.frames_to_wait =
                         slave_drone_ms_to_frames(BATTLE_DRONE_REPAIR_MIN_WELD_MS) as i32;
                     self.repairing = true;
+                    if !BATTLE_DRONE_REPAIR_WELDING_SYS.is_empty() {
+                        self.weld_fx_this_tick = true;
+                    }
                 }
             }
             BattleDroneRepairState::None
@@ -877,6 +898,7 @@ pub fn honesty_slave_drones_repair_residual_ok() -> bool {
         && BATTLE_DRONE_REPAIR_MAX_WELD_MS == 500
         && BATTLE_DRONE_REPAIR_WELDING_SYS == "BlueSparks"
         && BATTLE_DRONE_REPAIR_WELDING_FX_BONE == "Muzzle02"
+        && BATTLE_DRONE_REPAIR_SPARKS_AUDIO == "RepairSparks"
         && battle_drone_should_repair_master(true, 50.0, true, 10.0)
         && !battle_drone_should_repair_master(true, 80.0, true, 10.0)
         && battle_drone_weld_close_enough(11.9)
@@ -885,7 +907,28 @@ pub fn honesty_slave_drones_repair_residual_ok() -> bool {
         && {
             let mut weld = BattleDroneWeldState::default();
             // Instant first frame must not heal — unpack/ready/extend first.
-            !weld.tick(true)
+            !weld.tick(true) && !weld.weld_fx_this_tick
+        }
+        && {
+            let mut weld = BattleDroneWeldState::default();
+            let mut sparked = false;
+            for _ in 0..64 {
+                let _ = weld.tick(true);
+                if weld.weld_fx_this_tick {
+                    sparked = weld.repair_state == BattleDroneRepairState::Welding
+                        && weld.repairing;
+                    break;
+                }
+            }
+            sparked
+        }
+        && {
+            let origin = Vec3::new(1.0, 2.0, 3.0);
+            battle_drone_weld_pose(origin, None) == origin
+                && (battle_drone_weld_pose(origin, Some(Vec3::new(4.0, 5.0, 6.0)))
+                    - Vec3::new(5.0, 7.0, 9.0))
+                    .length()
+                    < 0.01
         }
         && (battle_drone_repair_amount_for_frame(1.0) - 10.0).abs() < 0.01
         && (BATTLE_DRONE_GUN_DAMAGE - 1.0).abs() < 0.01

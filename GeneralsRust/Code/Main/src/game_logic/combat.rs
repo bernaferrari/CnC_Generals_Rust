@@ -818,6 +818,163 @@ pub struct CombatSystem {
 static PENDING_PROJECTILES: std::sync::Mutex<Vec<PendingProjectile>> =
     std::sync::Mutex::new(Vec::new());
 
+/// C++ `WeaponTemplate::getProjectileTemplate()==NULL` (empty / `NONE`).
+fn is_projectileless_object_name(name: &str) -> bool {
+    let n = name.trim();
+    n.is_empty() || n.eq_ignore_ascii_case("NONE")
+}
+
+fn host_vec_to_leftover_coord(pos: Vec3) -> gamelogic::common::Coord3D {
+    gamelogic::common::Coord3D::new(pos.x, pos.z, pos.y)
+}
+
+/// Live-host delayed damage for projectileless finite-speed weapons.
+/// Leftover `WeaponStore::m_weaponDDI` is the C++ queue; this applies HP on
+/// live objects because leftover `dealDamageInternal` looks up leftover
+/// GameObjects that the player path does not own.
+#[derive(Debug, Clone)]
+struct LiveProjectilelessDelayedDamage {
+    when: u32,
+    pending: PendingProjectile,
+    damage_pos: Vec3,
+    damage_id: Option<ObjectId>,
+}
+
+static LIVE_PROJECTILELESS_DELAYED: std::sync::Mutex<Vec<LiveProjectilelessDelayedDamage>> =
+    std::sync::Mutex::new(Vec::new());
+
+fn leftover_weapon_is_laser(weapon_name: &str) -> bool {
+    let name = weapon_name.trim();
+    if name.is_empty() {
+        return false;
+    }
+    let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+    if !crate::game_logic::weapon_bootstrap::host_laser_name_for_weapon_name(name).is_empty() {
+        return true;
+    }
+    gamelogic::weapon::with_weapon_store(|store| {
+        store
+            .find_weapon_template_ci(name)
+            .map(|template| template.is_laser())
+            .unwrap_or(false)
+    })
+    .unwrap_or(false)
+}
+
+fn leftover_set_delayed_damage(
+    weapon_name: &str,
+    pos: Vec3,
+    when: u32,
+    source_id: ObjectId,
+    victim_id: ObjectId,
+) {
+    let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+    let key = weapon_name.trim();
+    let coord = host_vec_to_leftover_coord(pos);
+    let bonus = gamelogic::weapon::WeaponBonus::default();
+    let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
+        if let Some(template) = store.find_weapon_template_ci(key).cloned() {
+            store.set_delayed_damage_from_template(
+                &template,
+                &coord,
+                when,
+                source_id.0,
+                victim_id.0,
+                &bonus,
+            );
+            return;
+        }
+        let mut template = gamelogic::weapon::WeaponTemplate::new(if key.is_empty() {
+            "Projectileless".to_string()
+        } else {
+            key.to_string()
+        });
+        template.projectile_name.clear();
+        store.set_delayed_damage_from_template(
+            &template,
+            &coord,
+            when,
+            source_id.0,
+            victim_id.0,
+            &bonus,
+        );
+    });
+}
+
+fn queue_live_projectileless_delayed(
+    when: u32,
+    pending: PendingProjectile,
+    damage_pos: Vec3,
+    damage_id: Option<ObjectId>,
+) {
+    if let Ok(mut queue) = LIVE_PROJECTILELESS_DELAYED.lock() {
+        queue.push(LiveProjectilelessDelayedDamage {
+            when,
+            pending,
+            damage_pos,
+            damage_id,
+        });
+    }
+}
+
+/// C++ `Weapon.cpp:998-1075` projectileless fire: lasers and sub-frame travel
+/// deal damage now; otherwise leftover `setDelayedDamage` + live apply later.
+fn handle_projectileless_pending(
+    pending: &PendingProjectile,
+    damage_pos: Vec3,
+    damage_id: Option<ObjectId>,
+    flight_speed: f32,
+) {
+    let delay_in_frames = if flight_speed > 0.0 && !Projectile::is_instant_speed(flight_speed) {
+        pending.shooter_pos.distance(damage_pos) / flight_speed
+    } else {
+        0.0
+    };
+    let now = crate::game_logic::host_historic_bonus::logic_frame();
+    let laser = leftover_weapon_is_laser(&pending.historic_weapon_key);
+    if laser || delay_in_frames < 1.0 {
+        queue_live_projectileless_delayed(now, pending.clone(), damage_pos, damage_id);
+        return;
+    }
+    let delay_whole_frames = delay_in_frames.ceil() as u32;
+    let when = now.saturating_add(delay_whole_frames);
+    leftover_set_delayed_damage(
+        &pending.historic_weapon_key,
+        damage_pos,
+        when,
+        pending.shooter_id,
+        damage_id.unwrap_or(ObjectId(0)),
+    );
+    queue_live_projectileless_delayed(when, pending.clone(), damage_pos, damage_id);
+}
+
+/// Apply leftover delayed-damage entries whose frame has arrived to live objects.
+pub fn apply_ready_projectileless_delayed_damage(
+    combat: &mut CombatSystem,
+    objects: &mut HashMap<ObjectId, Object>,
+    current_frame: u32,
+    players: Option<&HashMap<u32, crate::game_logic::Player>>,
+) {
+    let ready = if let Ok(mut queue) = LIVE_PROJECTILELESS_DELAYED.lock() {
+        let mut ready = Vec::new();
+        let mut i = 0;
+        while i < queue.len() {
+            if queue[i].when <= current_frame {
+                ready.push(queue.remove(i));
+            } else {
+                i += 1;
+            }
+        }
+        ready
+    } else {
+        Vec::new()
+    };
+    for shot in ready {
+        combat.apply_projectileless_delayed_shot(&shot, objects, players);
+    }
+}
+
+
 /// Data needed to spawn a projectile (enqueued by Object::fire_at).
 ///
 /// C++ executes `FireOCL` synchronously while the firing object still exists.
@@ -988,6 +1145,31 @@ pub fn last_pending_projectile_secondary_damage_for_test() -> Option<f32> {
         .ok()
         .and_then(|q| q.last().map(|p| p.secondary_damage))
 }
+
+/// Test helper: leftover WeaponStore delayed-damage queue length.
+#[cfg(test)]
+pub fn leftover_delayed_damage_count_for_test() -> usize {
+    let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+    gamelogic::weapon::with_weapon_store(|store| store.get_delayed_damage_count()).unwrap_or(0)
+}
+
+/// Test helper: live projectileless delayed-damage queue length.
+#[cfg(test)]
+pub fn live_projectileless_delayed_count_for_test() -> usize {
+    LIVE_PROJECTILELESS_DELAYED
+        .lock()
+        .map(|q| q.len())
+        .unwrap_or(0)
+}
+
+/// Test helper: clear live projectileless delayed-damage queue.
+#[cfg(test)]
+pub fn clear_live_projectileless_delayed_for_test() {
+    if let Ok(mut q) = LIVE_PROJECTILELESS_DELAYED.lock() {
+        q.clear();
+    }
+}
+
 
 /// C++ `TheTerrainLogic->getBridgeAttackPoints` nearer end (Weapon.cpp:819-831).
 pub fn nearer_live_bridge_attack_point(from: glam::Vec3, victim: &Object) -> glam::Vec3 {
@@ -1164,6 +1346,15 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
                 crate::game_logic::weapon_bootstrap::host_scaled_weapon_speed(&peel, range_2d)
                     .max(0.0);
         }
+
+        // C++ fireWeaponTemplate: no ProjectileObject → leftover delayed damage
+        // (or same-frame dealDamageInternal). Do not spawn a CombatSystem
+        // dummy that can collide mid-flight.
+        if is_projectileless_object_name(&p.projectile_object_name) {
+            handle_projectileless_pending(&p, target_pos, fire_target_id, flight_speed);
+            continue;
+        }
+
 
         let weapon = Weapon {
             damage: p.damage,
@@ -1951,8 +2142,31 @@ impl CombatSystem {
             }
         }
 
-        // Process damage events
-        for hit in &damage_events {
+        self.apply_damage_events(&damage_events, objects, players);
+
+
+        // Remove expired/hit projectiles.  Under coupled GameWorld flight
+        // authority, publish an explicit inactive residual here: a later
+        // active-only snapshot cannot otherwise tell the shadow that a host
+        // KILL_SELF delay (or ordinary impact) has actually completed.
+        for proj_id in &projectiles_to_remove {
+            if self.projectiles.remove(proj_id).is_some()
+                && crate::gameworld_shadow::gameworld_projectile_authority_live()
+            {
+                crate::game_logic::host_projectile_log::record_retired(proj_id.0);
+            }
+        }
+
+        projectiles_to_remove
+    }
+
+    fn apply_damage_events(
+        &mut self,
+        damage_events: &[DamageEvent],
+        objects: &mut HashMap<ObjectId, Object>,
+        players: Option<&HashMap<u32, crate::game_logic::Player>>,
+    ) {
+        for hit in damage_events {
             match hit {
                 DamageEvent::Direct {
                     target_id,
@@ -1962,8 +2176,6 @@ impl CombatSystem {
                     shooter_id,
                     ..
                 } => {
-                    // C++ MissileAIUpdate `m_noDamage`: diverted decoy detonations deal no HP.
-                    // Report/seek happens at launch + decoy-timer expiry, not impact.
                     crate::game_logic::object::prime_live_damage_context(
                         objects.get(shooter_id),
                         None,
@@ -2009,11 +2221,6 @@ impl CombatSystem {
                     radius_damage_angle,
                     ..
                 } => {
-                    // C++ dealDamageInternal (Weapon.cpp:1438):
-                    //   FROM_BOUNDINGSPHERE_3D dist <= primaryRadius → primaryDamage
-                    //   else within max(primary, secondary) → secondaryDamage
-                    // Primary victim skips RadiusDamageAffects (Weapon.cpp:1316-1375).
-                    // No distance falloff of the amount; only ShockWave tapers.
                     let splash_fx_source = objects.get(shooter_id).map(
                         crate::game_logic::host_transition_damage_fx::snapshot_damage_fx_source,
                     );
@@ -2044,19 +2251,21 @@ impl CombatSystem {
                             && *vid == *shooter_id;
                         if !is_primary && !kills_self {
                             let airborne = obj.is_significantly_above_terrain();
-                            let same_tmpl = crate::game_logic::weapon_bootstrap::splash_templates_equivalent(
-                                shooter_template,
-                                &obj.template_name,
-                            );
-                            // C++ curVictim->getRelationship(source) (Weapon.cpp:1360).
+                            let same_tmpl =
+                                crate::game_logic::weapon_bootstrap::splash_templates_equivalent(
+                                    shooter_template,
+                                    &obj.template_name,
+                                );
                             let relationship = match players {
-                                Some(map) => crate::game_logic::GameLogic::object_relationship_from_owners(
-                                    map,
-                                    obj.owner_player_id,
-                                    &obj.team_instance_name,
-                                    *shooter_owner_player_id,
-                                    shooter_team_instance_name,
-                                ),
+                                Some(map) => {
+                                    crate::game_logic::GameLogic::object_relationship_from_owners(
+                                        map,
+                                        obj.owner_player_id,
+                                        &obj.team_instance_name,
+                                        *shooter_owner_player_id,
+                                        shooter_team_instance_name,
+                                    )
+                                }
                                 None => gamelogic::common::Relationship::Neutral,
                             };
                             let allowed =
@@ -2073,8 +2282,6 @@ impl CombatSystem {
                                 continue;
                             }
                         }
-                        // Leftover deal_damage_internal / C++ Weapon.cpp:1393-1408:
-                        // allowed_angle < PI → skip victims outside the firer's facing cone.
                         if !leftover_radius_damage_cone_allows(
                             *radius_damage_angle,
                             shooter_pos,
@@ -2108,10 +2315,6 @@ impl CombatSystem {
                                 self.queue_under_attack_if_dealt(*vid, *damage_type, hp_lost);
                             }
                         }
-                        // C++ Object.cpp:1801-1835: attemptDamage applies PhysicsBehavior
-                        // shock / random rotation / setStunned / STUNNED_FLAILING.
-                        // Live projectile splash must use apply_shock_wave_impulse, not a
-                        // one-frame XZ position nudge.
                         if shock_amt > 0.0 && shock_r > 0.0 {
                             let origin = shooter_pos.unwrap_or(*position);
                             if let Some(force) =
@@ -2130,21 +2333,86 @@ impl CombatSystem {
                 }
             }
         }
-
-        // Remove expired/hit projectiles.  Under coupled GameWorld flight
-        // authority, publish an explicit inactive residual here: a later
-        // active-only snapshot cannot otherwise tell the shadow that a host
-        // KILL_SELF delay (or ordinary impact) has actually completed.
-        for proj_id in &projectiles_to_remove {
-            if self.projectiles.remove(proj_id).is_some()
-                && crate::gameworld_shadow::gameworld_projectile_authority_live()
-            {
-                crate::game_logic::host_projectile_log::record_retired(proj_id.0);
-            }
-        }
-
-        projectiles_to_remove
     }
+
+    fn apply_projectileless_delayed_shot(
+        &mut self,
+        shot: &LiveProjectilelessDelayedDamage,
+        objects: &mut HashMap<ObjectId, Object>,
+        players: Option<&HashMap<u32, crate::game_logic::Player>>,
+    ) {
+        let p = &shot.pending;
+        let mut proj = Projectile::new(
+            ObjectId(0),
+            p.shooter_pos,
+            shot.damage_pos,
+            p.damage,
+            p.damage_type,
+            p.shooter_id,
+            shot.damage_id,
+        );
+        proj.death_type = p.death_type;
+        proj.explosion_radius = p.splash_radius.max(0.0);
+        proj.secondary_damage = p.secondary_damage;
+        proj.secondary_damage_radius = p.secondary_damage_radius;
+        proj.shock_wave_amount = p.shock_wave_amount;
+        proj.shock_wave_radius = p.shock_wave_radius;
+        proj.shock_wave_taper_off = p.shock_wave_taper_off;
+        proj.radius_damage_affects = p.radius_damage_affects;
+        proj.source_team = p
+            .source_context
+            .map(|c| c.source_team)
+            .unwrap_or(crate::game_logic::Team::Neutral);
+        proj.source_owner_player_id = p
+            .source_context
+            .and_then(|c| c.source_owner_player_id)
+            .or_else(|| objects.get(&p.shooter_id).and_then(|o| o.owner_player_id));
+        proj.source_team_instance_name = objects
+            .get(&p.shooter_id)
+            .map(|o| o.team_instance_name.clone())
+            .unwrap_or_default();
+        proj.source_veterancy = p
+            .source_context
+            .map(|c| c.source_veterancy)
+            .unwrap_or(crate::game_logic::VeterancyLevel::Rookie);
+        proj.historic_weapon_key = p.historic_weapon_key.clone();
+        proj.historic_bonus_time_frames = p.historic_bonus_time_frames;
+        proj.historic_bonus_count = p.historic_bonus_count;
+        proj.historic_bonus_radius = p.historic_bonus_radius;
+        proj.historic_bonus_weapon = p.historic_bonus_weapon.clone();
+        proj.detonation_fx_name = p.detonation_fx_name.clone();
+        proj.detonation_ocl_name = p.detonation_ocl_name.clone();
+
+        Self::maybe_record_historic_bonus(&proj, shot.damage_pos, objects);
+        let mut events = Vec::new();
+        if proj.explosion_radius > 0.0 || proj.secondary_damage_radius > 0.0 {
+            events.push(Self::splash_area_event(&proj, objects, shot.damage_pos));
+        } else if let Some(target_id) = shot.damage_id {
+            events.push(DamageEvent::Direct {
+                target_id,
+                position: shot.damage_pos,
+                damage: proj.damage,
+                damage_type: proj.damage_type,
+                death_type: proj.death_type,
+                shooter_id: proj.shooter_id,
+            });
+        }
+        if !proj.detonation_fx_name.is_empty() || !proj.detonation_ocl_name.is_empty() {
+            self.impact_fx.push(ProjectileImpactFx {
+                position: shot.damage_pos,
+                shooter_id: proj.shooter_id,
+                target_id: shot.damage_id,
+                detonation_fx_name: proj.detonation_fx_name.clone(),
+                detonation_ocl_name: proj.detonation_ocl_name.clone(),
+                source_team: proj.source_team,
+                source_veterancy: proj.source_veterancy,
+                source_orientation: 0.0,
+                source_velocity: Vec3::ZERO,
+            });
+        }
+        self.apply_damage_events(&events, objects, players);
+    }
+
 
     /// Check if projectile collides with something
     fn check_projectile_collision(
@@ -4210,7 +4478,8 @@ mod tests {
             is_homing: false,
             damage_type: DamageType::Bullet,
             death_type: crate::game_logic::host_usa_pilot::HostDeathType::Normal,
-            projectile_object_name: String::new(),
+            projectile_object_name: "GenericTankShell".into(),
+
             projectile_lifecycle: None,
             fire_fx_name: String::new(),
             fire_ocl_name: String::new(),
@@ -4280,7 +4549,8 @@ mod tests {
             is_homing: false,
             damage_type: DamageType::Explosive,
             death_type: crate::game_logic::host_usa_pilot::HostDeathType::Normal,
-            projectile_object_name: String::new(),
+            projectile_object_name: "GenericTankShell".into(),
+
             projectile_lifecycle: None,
             fire_fx_name: String::new(),
             fire_ocl_name: String::new(),
@@ -4332,7 +4602,8 @@ mod tests {
             is_homing: false,
             damage_type: DamageType::Explosive,
             death_type: crate::game_logic::host_usa_pilot::HostDeathType::Normal,
-            projectile_object_name: String::new(),
+            projectile_object_name: "GenericTankShell".into(),
+
             projectile_lifecycle: None,
             fire_fx_name: String::new(),
             fire_ocl_name: String::new(),
@@ -4370,6 +4641,217 @@ mod tests {
             snaps2[0].speed
         );
     }
+
+    fn projectileless_pending(
+        speed: f32,
+        target_pos: Vec3,
+        historic_weapon_key: &str,
+    ) -> PendingProjectile {
+        PendingProjectile {
+            shooter_id: ObjectId(501),
+            shooter_pos: Vec3::ZERO,
+            source_context: Some(ProjectileLaunchContext {
+                source_team: Team::USA,
+                source_owner_player_id: Some(1),
+                source_veterancy: crate::game_logic::VeterancyLevel::Rookie,
+                source_orientation: 0.0,
+                source_velocity: Vec3::ZERO,
+            }),
+            target_id: Some(ObjectId(502)),
+            target_pos: Some(target_pos),
+            damage: 40.0,
+            speed,
+            splash_radius: 0.0,
+            is_homing: false,
+            damage_type: DamageType::Bullet,
+            death_type: crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            projectile_object_name: String::new(),
+            projectile_lifecycle: None,
+            fire_fx_name: String::new(),
+            fire_ocl_name: String::new(),
+            detonation_fx_name: String::new(),
+            detonation_ocl_name: String::new(),
+            exhaust_name: String::new(),
+            secondary_damage: 0.0,
+            secondary_damage_radius: 0.0,
+            shock_wave_amount: 0.0,
+            shock_wave_radius: 0.0,
+            shock_wave_taper_off: 0.0,
+            radius_damage_affects:
+                crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
+                    | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
+            projectile_collides: crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT,
+            scatter_radius: 0.0,
+            scatter_table_offset: None,
+            min_weapon_speed: 0.0,
+            scale_weapon_speed: false,
+            attack_range: 200.0,
+            min_attack_range: 0.0,
+            historic_weapon_key: historic_weapon_key.into(),
+            historic_bonus_time_frames: 0,
+            historic_bonus_count: 0,
+            historic_bonus_radius: 0.0,
+            historic_bonus_weapon: String::new(),
+            die_on_detonate: false,
+        }
+    }
+
+    #[test]
+    fn projectileless_finite_speed_queues_leftover_delayed_damage() {
+        ensure_unit_test_direct_damage();
+        clear_pending_projectile_queue_for_test();
+        clear_live_projectileless_delayed_for_test();
+        crate::game_logic::host_historic_bonus::set_logic_frame(20);
+        let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+        const NAME: &str = "Hq0c9b4CombatRifleDelayed";
+        let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
+            let mut template = gamelogic::weapon::WeaponTemplate::new(NAME.to_string());
+            template.weapon_speed = 10.0;
+            template.projectile_name.clear();
+            template.primary_damage = 40.0;
+            store.add_weapon_template(template);
+        });
+        let leftover_before = leftover_delayed_damage_count_for_test();
+
+        let mut objects = HashMap::new();
+        objects.insert(
+            ObjectId(502),
+            make_obj(
+                "GLARebel",
+                ObjectId(502),
+                Team::GLA,
+                Vec3::new(100.0, 0.0, 0.0),
+                &[KindOf::Infantry, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        let hp0 = objects.get(&ObjectId(502)).unwrap().health.current;
+        let mut combat = CombatSystem::new();
+        queue_projectile_direct(projectileless_pending(
+            10.0,
+            Vec3::new(100.0, 0.0, 0.0),
+            NAME,
+        ));
+        drain_pending_projectiles(&mut combat, &objects);
+        assert_eq!(
+            combat.projectile_count(),
+            0,
+            "projectileless fire must not spawn a dummy CombatSystem projectile"
+        );
+        assert!(
+            leftover_delayed_damage_count_for_test() > leftover_before,
+            "leftover WeaponStore setDelayedDamage must be queued"
+        );
+        assert_eq!(live_projectileless_delayed_count_for_test(), 1);
+
+        apply_ready_projectileless_delayed_damage(&mut combat, &mut objects, 20, None);
+        let hp_mid = objects.get(&ObjectId(502)).unwrap().health.current;
+        assert_eq!(hp_mid, hp0, "damage waits travel frames");
+
+        apply_ready_projectileless_delayed_damage(&mut combat, &mut objects, 30, None);
+        let hp1 = objects.get(&ObjectId(502)).unwrap().health.current;
+        assert!(
+            hp1 < hp0 - 1.0,
+            "leftover delayed damage must apply on the live host ({hp0}->{hp1})"
+        );
+        assert_eq!(live_projectileless_delayed_count_for_test(), 0);
+        clear_pending_projectile_queue_for_test();
+        clear_live_projectileless_delayed_for_test();
+    }
+
+    #[test]
+    fn projectileless_subframe_delay_applies_same_frame() {
+        ensure_unit_test_direct_damage();
+        clear_pending_projectile_queue_for_test();
+        clear_live_projectileless_delayed_for_test();
+        crate::game_logic::host_historic_bonus::set_logic_frame(7);
+        let leftover_before = leftover_delayed_damage_count_for_test();
+
+        let mut objects = HashMap::new();
+        objects.insert(
+            ObjectId(502),
+            make_obj(
+                "GLARebel",
+                ObjectId(502),
+                Team::GLA,
+                Vec3::new(5.0, 0.0, 0.0),
+                &[KindOf::Infantry, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        let hp0 = objects.get(&ObjectId(502)).unwrap().health.current;
+        let mut combat = CombatSystem::new();
+        queue_projectile_direct(projectileless_pending(
+            10.0,
+            Vec3::new(5.0, 0.0, 0.0),
+            "Hq0c9b4CombatRifleNow",
+        ));
+        drain_pending_projectiles(&mut combat, &objects);
+        assert_eq!(combat.projectile_count(), 0);
+        assert_eq!(
+            leftover_delayed_damage_count_for_test(),
+            leftover_before,
+            "sub-frame travel must dealDamageInternal now, not setDelayedDamage"
+        );
+        apply_ready_projectileless_delayed_damage(&mut combat, &mut objects, 7, None);
+        let hp1 = objects.get(&ObjectId(502)).unwrap().health.current;
+        assert!(hp1 < hp0 - 1.0, "sub-frame projectileless must apply now");
+        clear_pending_projectile_queue_for_test();
+        clear_live_projectileless_delayed_for_test();
+    }
+
+    #[test]
+    fn fire_at_projectileless_weapon_skips_dummy_projectile() {
+        ensure_unit_test_direct_damage();
+        clear_pending_projectile_queue_for_test();
+        clear_live_projectileless_delayed_for_test();
+        crate::game_logic::host_historic_bonus::set_logic_frame(3);
+        let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+        const NAME: &str = "Hq0c9b4CombatRifleFireAt";
+        let leftover_before = leftover_delayed_damage_count_for_test();
+        let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
+            let mut template = gamelogic::weapon::WeaponTemplate::new(NAME.to_string());
+            template.weapon_speed = 10.0;
+            template.projectile_name.clear();
+            template.primary_damage = 15.0;
+            store.add_weapon_template(template);
+        });
+
+        let mut tmpl = ThingTemplate::new("Hq0c9b4Shooter");
+        tmpl.set_primary_weapon_name(NAME);
+        tmpl.set_health(100.0);
+        tmpl.add_kind_of(KindOf::Infantry);
+        tmpl.add_kind_of(KindOf::Attackable);
+        let mut atk = Object::new(tmpl, ObjectId(1), Team::USA);
+        atk.weapon = Some(Weapon {
+            damage: 15.0,
+            range: 200.0,
+            projectile_speed: 10.0,
+            last_fire_time: -10.0,
+            ..Weapon::default()
+        });
+        assert!(atk.fire_at(ObjectId(2), 1.0));
+        let mut combat = CombatSystem::new();
+        let mut objects = HashMap::new();
+        objects.insert(
+            ObjectId(2),
+            make_obj(
+                "GLARebel",
+                ObjectId(2),
+                Team::GLA,
+                Vec3::new(100.0, 0.0, 0.0),
+                &[KindOf::Infantry, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        drain_pending_projectiles(&mut combat, &objects);
+
+        assert_eq!(combat.projectile_count(), 0);
+        assert!(leftover_delayed_damage_count_for_test() > leftover_before);
+        clear_pending_projectile_queue_for_test();
+        clear_live_projectileless_delayed_for_test();
+    }
+
 
     #[test]
     fn missile_ai_ignition_fx_plays_on_delay_zero_and_after_delay() {

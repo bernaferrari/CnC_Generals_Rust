@@ -950,6 +950,48 @@ impl GameLogic {
             .flatten()
     }
 
+    /// C++ `isObjectShroudedForAction` (`ActionManager.cpp:76-102`).
+    /// Human controlling player, impetus not `CMD_FROM_SCRIPT`, target
+    /// `getShroudedStatus >= OBJECTSHROUD_FOGGED`. Live host is the player
+    /// path, so command source is FromPlayer.
+    pub(crate) fn is_object_shrouded_for_action(&self, source: &Object, target: &Object) -> bool {
+        let Some(player_id) = self.player_owner_for_host_object(source) else {
+            return false;
+        };
+        if !self.player_is_human(player_id) {
+            return false;
+        }
+        // Leftover `Object::getShroudedStatus` (Object.cpp:1778-1788).
+        if target.get_template().always_visible || target.contained_by.is_some() {
+            return false;
+        }
+        let Ok(shroud) = gamelogic::system::shroud_manager::get_shroud_manager().lock() else {
+            return false;
+        };
+        match shroud.get_host_object_shroud_status(player_id, target.id.0) {
+            Some(status) => {
+                (status as u8) >= (gamelogic::common::ObjectShroudStatus::Fogged as u8)
+            }
+            None => false,
+        }
+    }
+
+    /// ID wrapper so command-executor recrew can apply the same C++ gate.
+    pub(crate) fn is_enter_target_shrouded_for_action(
+        &self,
+        source_id: ObjectId,
+        target_id: ObjectId,
+    ) -> bool {
+        let Some(source) = self.host_object(source_id) else {
+            return false;
+        };
+        let Some(target) = self.host_object(target_id) else {
+            return false;
+        };
+        self.is_object_shrouded_for_action(source, target)
+    }
+
+
     /// Authoritative C++ `ActionManager::canEnterObject(..., CHECK_CAPACITY)`
     /// subset used by normal player Enter.  Pilot recrew is intentionally
     /// handled by the specialized executor path before this generic container
@@ -964,6 +1006,11 @@ impl GameLogic {
         let Some(target) = self.host_object(target_id) else {
             return false;
         };
+
+        // C++ ActionManager.cpp:519-521 — leftover can_enter_object.
+        if self.is_object_shrouded_for_action(unit, target) {
+            return false;
+        }
 
         // C++ GarrisonContain::isValidContainerFor — health <= 0 or
         // BODY_REALLYDAMAGED unless KINDOF_GARRISONABLE_UNTIL_DESTROYED.
@@ -3045,5 +3092,118 @@ mod can_use_special_power_module_gate_tests {
             !logic.is_special_power_ready_for(id, &SpecialPowerType::ParticleCannon),
             "C++ Player iterators skip OBJECT_STATUS_UNDER_CONSTRUCTION"
         );
+    }
+}
+
+#[cfg(test)]
+mod human_enter_fog_gate_tests {
+    use super::*;
+    use crate::game_logic::{ContainAdmission, ContainModuleKind, ContainModuleMetadata};
+    use gamelogic::common::ObjectShroudStatus;
+    use gamelogic::system::shroud_manager::get_shroud_manager;
+
+    fn garrison_template(name: &str) -> ThingTemplate {
+        let mut t = ThingTemplate::new(name);
+        t.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(1000.0);
+        t.contain_module = ContainModuleMetadata {
+            kind: ContainModuleKind::Garrison,
+            slots: Some(5),
+            admission: ContainAdmission::InfantryOnly,
+            is_enclosing_container: true,
+            ..ContainModuleMetadata::default()
+        };
+        t
+    }
+
+    fn infantry_template(name: &str) -> ThingTemplate {
+        let mut t = ThingTemplate::new(name);
+        t.add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(120.0);
+        t.transport_slot_count = Some(1);
+        t
+    }
+
+    fn set_target_shroud(player_id: u32, object_id: ObjectId, status: ObjectShroudStatus) {
+        let mut mgr = get_shroud_manager().lock().expect("shroud");
+        mgr.set_host_object_shroud_status(player_id, object_id.0, status);
+    }
+
+    /// C++ `isObjectShroudedForAction`: human + not FromScript + shroud >= Fogged.
+    #[test]
+    fn human_enter_rejects_fogged_or_shrouded_container() {
+        let _lock = crate::fow_rendering::shroud_test_isolation_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "HqSb42vHuman", true));
+        logic.add_player(Player::new(2, Team::China, "HqSb42vAi", false));
+        logic
+            .templates
+            .insert("HqSb42vBunker".into(), garrison_template("HqSb42vBunker"));
+        logic
+            .templates
+            .insert("HqSb42vRanger".into(), infantry_template("HqSb42vRanger"));
+
+        let bunker = logic
+            .create_object_for_player("HqSb42vBunker", 1, glam::Vec3::ZERO)
+            .expect("bunker");
+        let ranger = logic
+            .create_object_for_player("HqSb42vRanger", 1, glam::Vec3::new(4.0, 0.0, 0.0))
+            .expect("ranger");
+        let ai_bunker = logic
+            .create_object_for_player("HqSb42vBunker", 2, glam::Vec3::new(40.0, 0.0, 0.0))
+            .expect("ai bunker");
+        let ai_ranger = logic
+            .create_object_for_player("HqSb42vRanger", 2, glam::Vec3::new(44.0, 0.0, 0.0))
+            .expect("ai ranger");
+
+        assert!(
+            logic.can_unit_enter_normal_target(ranger, bunker),
+            "uninitialized shroud must fail-open like missing PartitionData"
+        );
+
+        set_target_shroud(1, bunker, ObjectShroudStatus::Clear);
+        assert!(
+            logic.can_unit_enter_normal_target(ranger, bunker),
+            "CLEAR container stays enterable"
+        );
+        set_target_shroud(1, bunker, ObjectShroudStatus::PartialClear);
+        assert!(
+            logic.can_unit_enter_normal_target(ranger, bunker),
+            "PARTIAL_CLEAR is below Fogged"
+        );
+
+        set_target_shroud(1, bunker, ObjectShroudStatus::Fogged);
+        assert!(
+            !logic.can_unit_enter_normal_target(ranger, bunker),
+            "human Enter must reject FOGGED garrison"
+        );
+        set_target_shroud(1, bunker, ObjectShroudStatus::Shrouded);
+        assert!(
+            !logic.can_unit_enter_normal_target(ranger, bunker),
+            "human Enter must reject SHROUDED garrison"
+        );
+
+        set_target_shroud(2, ai_bunker, ObjectShroudStatus::Fogged);
+        assert!(
+            logic.can_unit_enter_normal_target(ai_ranger, ai_bunker),
+            "computer player skips the human fog gate"
+        );
+
+        if let Some(b) = logic.host_object_mut(bunker) {
+            b.thing.template.always_visible = true;
+        }
+        set_target_shroud(1, bunker, ObjectShroudStatus::Fogged);
+        assert!(
+            logic.can_unit_enter_normal_target(ranger, bunker),
+            "AlwaysVisible getShroudedStatus is CLEAR"
+        );
+
+        set_target_shroud(1, bunker, ObjectShroudStatus::Clear);
+        set_target_shroud(2, ai_bunker, ObjectShroudStatus::Clear);
     }
 }

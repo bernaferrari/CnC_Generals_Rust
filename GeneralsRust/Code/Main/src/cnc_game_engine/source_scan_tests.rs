@@ -1335,14 +1335,14 @@ fn on_screen_select_and_camera_follow_residual() {
     assert!(
         src.contains("fn select_all_friendly_on_screen")
             && src.contains("select_all_friendly_on_screen()")
-            && src.contains("No units on screen"),
-        "Ctrl+Alt+A must select on-screen friendlies residual"
+            && !src.contains("No units on screen"),
+        "Ctrl+Alt+A must select on-screen friendlies residual without HUD toast"
     );
     assert!(
         src.contains("fn toggle_camera_follow_selection")
-            && src.contains("Camera follow on")
+            && !src.contains("Camera follow on")
             && src.contains("eq_ignore_ascii_case(\"f\")"),
-        "Alt+F must toggle camera follow residual"
+        "Alt+F must toggle camera follow residual without HUD toast"
     );
     let gl = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
     assert!(
@@ -1460,8 +1460,8 @@ fn guard_radius_and_combat_select_residual() {
     assert!(
         src.contains("fn select_all_friendly_combat")
             && src.contains("select_all_friendly_combat()")
-            && src.contains("No combat units"),
-        "Ctrl+Alt+Q must select combat units residual"
+            && !src.contains("No combat units"),
+        "Ctrl+Alt+Q must select combat units residual without HUD toast"
     );
 }
 
@@ -1488,14 +1488,14 @@ fn moving_select_and_health_bars_residual() {
     assert!(
         src.contains("fn select_all_friendly_moving")
             && src.contains("select_all_friendly_moving()")
-            && src.contains("No moving units"),
-        "Ctrl+Alt+M must select moving units residual"
+            && !src.contains("No moving units"),
+        "Ctrl+Alt+M must select moving units residual without HUD toast"
     );
     assert!(
         src.contains("fn toggle_health_bars_hotkey")
-            && src.contains("Health bars: ON")
+            && !src.contains("Health bars: ON")
             && src.contains("show_health_bars"),
-        "Alt+H must toggle health bars residual"
+        "Alt+H must toggle health bars residual without HUD toast"
     );
 }
 
@@ -1505,14 +1505,14 @@ fn attacking_select_and_stop_all_residual() {
     assert!(
         src.contains("fn select_all_friendly_attacking")
             && src.contains("select_all_friendly_attacking()")
-            && src.contains("No attacking units"),
-        "Ctrl+Alt+T must select attacking units residual"
+            && !src.contains("No attacking units"),
+        "Ctrl+Alt+T must select attacking units residual without HUD toast"
     );
     assert!(
         src.contains("fn stop_all_friendly_units")
             && src.contains("stop_all_friendly_units()")
-            && src.contains("Stopped"),
-        "Ctrl+Shift+. must stop all friendlies residual"
+            && !src.contains("No units to stop"),
+        "Ctrl+Shift+. must stop all friendlies residual without HUD toast"
     );
 }
 
@@ -1520,20 +1520,20 @@ fn debug_producer_and_guarding_select_residual() {
     let src = crate::cnc_game_engine::ENGINE_SRC;
     assert!(
         src.contains("fn toggle_debug_info_hotkey")
-            && src.contains("Debug overlay: ON"),
-        "debug overlay residual helper must remain (not bound to retail Ctrl+F1)"
+            && !src.contains("Debug overlay: ON"),
+        "debug overlay residual helper must remain (not bound to retail Ctrl+F1) without HUD toast"
     );
     assert!(
         src.contains("fn cycle_busy_producer_selection")
-            && src.contains("No busy producers")
+            && !src.contains("Busy producer selected")
             && src.contains("cycle_busy_producer_selection(1)"),
-        "Ctrl+Alt+P must cycle busy producers residual"
+        "Ctrl+Alt+P must cycle busy producers residual without HUD toast"
     );
     assert!(
         src.contains("fn select_all_friendly_guarding")
             && src.contains("select_all_friendly_guarding()")
-            && src.contains("No guarding units"),
-        "Ctrl+Alt+G must select guarding units residual"
+            && !src.contains("No guarding units"),
+        "Ctrl+Alt+G must select guarding units residual without HUD toast"
     );
 }
 
@@ -1551,8 +1551,8 @@ fn center_selection_and_constructing_workers_residual() {
     assert!(
         src.contains("fn select_all_constructing_workers")
             && src.contains("select_all_constructing_workers()")
-            && src.contains("No constructing workers"),
-        "Ctrl+Alt+B must select constructing workers residual"
+            && !src.contains("No constructing workers"),
+        "Ctrl+Alt+B must select constructing workers residual without HUD toast"
     );
 }
 
@@ -1630,25 +1630,83 @@ fn hq_siwjj_selection_residuals_must_not_invent_english_hud_toasts() {
 }
 
 #[test]
+fn hq_43rto_selection_residuals_must_not_invent_english_hud_toasts() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    for toast in [
+        "No attacking units",
+        "Selected {} attacking",
+        "No units to stop",
+        "Stopped {} units",
+        "No moving units",
+        "Selected {} moving",
+        "No occupied transports",
+        "Selected {} occupied transports",
+        "Attack lines: ON",
+        "Attack lines: OFF",
+        "Move lines: ON",
+        "Move lines: OFF",
+        "No garrisoned structures",
+        "Selected {} garrisoned",
+        "FPS counter: ON",
+        "FPS counter: OFF",
+        "No control groups",
+        "Control group {group_num} empty",
+        "No stealthed units",
+        "Selected {} stealthed",
+        "No veteran units",
+        "Selected {} veterans",
+        "No docked aircraft",
+        "Selected {} docked aircraft",
+        "Debug overlay: ON",
+        "Debug overlay: OFF",
+        "Busy producer selected",
+        "Ready special power selected",
+        "No patrolling units",
+        "Selected {} patrolling",
+        "No gathering units",
+        "Selected {} gathering",
+        "No guarding units",
+        "Selected {} guarding",
+        "No combat units",
+        "Selected {} combat units",
+        "No units on screen",
+        "Selected {} on screen",
+        "No constructing workers",
+        "Selected {} constructing",
+        "Camera follow off",
+        "Camera follow on",
+        "Select a unit to follow",
+        "Health bars: ON",
+        "Health bars: OFF",
+        "Control group {group_num}",
+    ] {
+        assert!(
+            !src.contains(toast),
+            "hq-43rto: invented English HUD toast must stay gone: {toast}"
+        );
+    }
+}
+
+#[test]
 fn patrol_gather_and_ready_sw_residual() {
     let src = crate::cnc_game_engine::ENGINE_SRC;
     assert!(
         src.contains("fn select_all_friendly_patrolling")
             && src.contains("select_all_friendly_patrolling()")
-            && src.contains("No patrolling units"),
-        "Ctrl+Alt+Y must select patrolling residual"
+            && !src.contains("No patrolling units"),
+        "Ctrl+Alt+Y must select patrolling residual without HUD toast"
     );
     assert!(
         src.contains("fn select_all_friendly_gathering")
             && src.contains("select_all_friendly_gathering()")
-            && src.contains("No gathering units"),
-        "Ctrl+Alt+H must select gathering residual"
+            && !src.contains("No gathering units"),
+        "Ctrl+Alt+H must select gathering residual without HUD toast"
     );
     assert!(
         src.contains("fn cycle_ready_special_power_structure")
-            && src.contains("No ready special powers")
+            && !src.contains("Ready special power selected")
             && src.contains("cycle_ready_special_power_structure(1)"),
-        "Ctrl+Alt+V must cycle ready SW residual"
+        "Ctrl+Alt+V must cycle ready SW residual without HUD toast"
     );
 }
 
@@ -1657,21 +1715,21 @@ fn fps_veterans_and_docked_aircraft_residual() {
     let src = crate::cnc_game_engine::ENGINE_SRC;
     assert!(
         src.contains("fn toggle_fps_counter_hotkey")
-            && src.contains("FPS counter: ON")
-            && src.contains("NamedKey::F2) if ctrl_down"),
-        "Ctrl+F2 must toggle FPS residual"
+            && !src.contains("FPS counter: ON")
+            && src.contains("self.show_fps = !self.show_fps"),
+        "Ctrl+F2 FPS residual helper must remain without HUD toast"
     );
     assert!(
         src.contains("fn select_all_friendly_veterans")
-            && src.contains("No veteran units")
+            && !src.contains("No veteran units")
             && src.contains("select_all_friendly_veterans()"),
-        "Ctrl+Alt+E must select veterans residual"
+        "Ctrl+Alt+E must select veterans residual without HUD toast"
     );
     assert!(
         src.contains("fn select_all_docked_aircraft")
-            && src.contains("No docked aircraft")
+            && !src.contains("No docked aircraft")
             && src.contains("select_all_docked_aircraft()"),
-        "Ctrl+Alt+W must select docked aircraft residual"
+        "Ctrl+Alt+W must select docked aircraft residual without HUD toast"
     );
 }
 
@@ -1681,14 +1739,14 @@ fn control_group_cycle_and_stealth_select_residual() {
     assert!(
         src.contains("fn cycle_control_group_selection")
             && src.contains("cycle_control_group_selection")
-            && src.contains("No control groups"),
-        "Ctrl+Shift+Tab must cycle control groups residual"
+            && !src.contains("No control groups"),
+        "Ctrl+Shift+Tab must cycle control groups residual without HUD toast"
     );
     assert!(
         src.contains("fn select_all_friendly_stealthed")
             && src.contains("select_all_friendly_stealthed()")
-            && src.contains("No stealthed units"),
-        "Ctrl+Alt+K must select stealthed residual"
+            && !src.contains("No stealthed units"),
+        "Ctrl+Alt+K must select stealthed residual without HUD toast"
     );
 }
 
@@ -1697,17 +1755,16 @@ fn move_lines_and_garrisoned_select_residual() {
     let src = crate::cnc_game_engine::ENGINE_SRC;
     assert!(
         src.contains("fn toggle_move_lines_hotkey")
-            && src.contains("Move lines: ON")
+            && !src.contains("Move lines: ON")
             && src.contains("show_move_lines")
-            && src.contains("NamedKey::F3) if ctrl_down")
             && src.contains("self.show_move_lines,"),
-        "Ctrl+F3 must toggle move lines residual"
+        "Ctrl+F3 move-lines residual helper must remain without HUD toast"
     );
     assert!(
         src.contains("fn select_all_garrisoned_structures")
-            && src.contains("No garrisoned structures")
+            && !src.contains("No garrisoned structures")
             && src.contains("select_all_garrisoned_structures()"),
-        "Ctrl+Alt+U must select garrisoned structures residual"
+        "Ctrl+Alt+U must select garrisoned structures residual without HUD toast"
     );
 }
 
@@ -2145,17 +2202,16 @@ fn attack_lines_and_occupied_transports_residual() {
     let src = crate::cnc_game_engine::ENGINE_SRC;
     assert!(
         src.contains("fn toggle_attack_lines_hotkey")
-            && src.contains("Attack lines: ON")
+            && !src.contains("Attack lines: ON")
             && src.contains("show_attack_lines")
-            && src.contains("NamedKey::F4) if ctrl_down")
             && src.contains("self.show_attack_lines,"),
-        "Ctrl+F4 must toggle attack lines residual"
+        "Ctrl+F4 attack-lines residual helper must remain without HUD toast"
     );
     assert!(
         src.contains("fn select_all_occupied_transports")
-            && src.contains("No occupied transports")
+            && !src.contains("No occupied transports")
             && src.contains("select_all_occupied_transports()"),
-        "Ctrl+Alt+J must select occupied transports residual"
+        "Ctrl+Alt+J must select occupied transports residual without HUD toast"
     );
 }
 

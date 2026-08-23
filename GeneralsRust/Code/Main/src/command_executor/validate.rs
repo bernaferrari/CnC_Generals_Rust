@@ -55,6 +55,12 @@ impl<'a> CommandExecutor<'a> {
         let Some(target) = self.game_logic.host_object(target_id) else {
             return false;
         };
+        // C++ canEnterObject applies isObjectShroudedForAction before unmanned
+        // / pilot recrew special cases (`ActionManager.cpp:519-560`).
+        if self.game_logic.is_object_shrouded_for_action(unit, target) {
+            return false;
+        }
+
 
         if !unit.is_alive()
             || !target.is_alive()

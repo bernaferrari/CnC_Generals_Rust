@@ -73,14 +73,9 @@ pub const DISABLE_VEHICLE_HACK_DURATION_FRAMES: u32 =
 /// Audio residual when a vehicle pilot is sniped (host-side cue name).
 pub const SNIPE_VEHICLE_AUDIO: &str = "UnitSniped";
 
-/// Audio residual when Black Lotus completes cash steal.
-pub const STEAL_CASH_AUDIO: &str = "BlackLotusStealCash";
+/// C++ `SpecialAbilityUpdate` INI `TriggerSound` for Lotus steal/disable/capture.
+/// Cash/disable/capture cases add EVA + floating text only — no extra SFX names.
 
-/// Audio residual when Black Lotus completes vehicle disable hack.
-pub const DISABLE_VEHICLE_HACK_AUDIO: &str = "BlackLotusDisableVehicle";
-
-/// Audio residual when Black Lotus completes building capture.
-pub const CAPTURE_BUILDING_AUDIO: &str = "BlackLotusCaptureBuilding";
 
 // --- Special power template names residual ---
 
@@ -771,6 +766,18 @@ pub fn leftover_sa_timings(kind: LeftoverSaKind) -> LeftoverSaTimings {
     }
 }
 
+/// C++ `SpecialAbilityUpdateModuleData::m_triggerSound` (INI `TriggerSound`).
+/// Retail Lotus steal/disable author `BlackLotusTrigger`. Plant/laser omit it.
+pub fn leftover_sa_trigger_sound(kind: LeftoverSaKind) -> Option<&'static str> {
+    match kind {
+        LeftoverSaKind::StealCash | LeftoverSaKind::DisableVehicle => Some(LOTUS_TRIGGER_SOUND),
+        LeftoverSaKind::PlantTimed | LeftoverSaKind::PlantRemote | LeftoverSaKind::LaserGuided => {
+            None
+        }
+    }
+}
+
+
 /// Persistent leftover SpecialAbilityUpdate channel (steal/disable/plant/laser).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct LeftoverSaChannel {
@@ -1334,6 +1341,17 @@ mod tests {
         assert!((laser.start_range - 200.0).abs() < 0.01);
         assert!((laser.abort_range - 250.0).abs() < 0.01);
         assert!(leftover_sa_need_to_face());
+        assert_eq!(
+            leftover_sa_trigger_sound(LeftoverSaKind::StealCash),
+            Some(LOTUS_TRIGGER_SOUND)
+        );
+        assert_eq!(
+            leftover_sa_trigger_sound(LeftoverSaKind::DisableVehicle),
+            Some(LOTUS_TRIGGER_SOUND)
+        );
+        assert_eq!(leftover_sa_trigger_sound(LeftoverSaKind::PlantTimed), None);
+        assert_eq!(leftover_sa_trigger_sound(LeftoverSaKind::LaserGuided), None);
+
         // C++ ActionManager.cpp:1944-1950 KILLPILOT weapon range 225, not radii+4.
         assert!(leftover_snipe_in_killpilot_range(
             Vec3::new(200.0, 0.0, 0.0),

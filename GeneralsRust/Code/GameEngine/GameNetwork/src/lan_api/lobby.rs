@@ -1478,7 +1478,6 @@ mod tests {
     use crate::lan_api::{lan_event_channel, LanEventReceiver, LanEventSender, LanMessageType};
     use crate::security::encryption::{self, EncryptedPacket};
     use crate::security::SecurityManager;
-    use crate::transport::Transport;
     use crate::DiscoveryConfig;
     use rustls::crypto::ring;
     use std::net::{IpAddr, Ipv4Addr};
@@ -1566,8 +1565,7 @@ mod tests {
         security: Arc<SecurityManager>,
         local_id: u8,
     ) -> NetworkResult<Arc<RwLock<ConnectionManager>>> {
-        let transport = Arc::new(Transport::new().await?);
-        let mut manager = ConnectionManager::new_with_transport(transport).await?;
+        let mut manager = ConnectionManager::new().await?;
         manager.set_security_manager(security);
         manager.configure_local_endpoint(local_id, true, true);
         Ok(Arc::new(RwLock::new(manager)))

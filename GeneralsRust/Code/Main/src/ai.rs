@@ -553,6 +553,11 @@ impl AIPlayer {
             cur_left_flank_right_defense_angle: self.cur_left_flank_right_defense_angle,
             cur_right_flank_left_defense_angle: self.cur_right_flank_left_defense_angle,
             cur_right_flank_right_defense_angle: self.cur_right_flank_right_defense_angle,
+            building_rebuild_counts: self
+                .building_queue
+                .iter()
+                .map(|building| building.rebuild_count)
+                .collect(),
         }
     }
 
@@ -600,6 +605,15 @@ impl AIPlayer {
         self.cur_left_flank_right_defense_angle = persist.cur_left_flank_right_defense_angle;
         self.cur_right_flank_left_defense_angle = persist.cur_right_flank_left_defense_angle;
         self.cur_right_flank_right_defense_angle = persist.cur_right_flank_right_defense_angle;
+        // Leftover Player::xfer remaining num_rebuilds. Write spent count only;
+        // do not rebuild the INI layout or clear object/under-construction fields.
+        for (building, remaining) in self
+            .building_queue
+            .iter_mut()
+            .zip(persist.building_rebuild_counts)
+        {
+            building.rebuild_count = remaining;
+        }
     }
 
     pub fn clear_queue_persist(&mut self) {
@@ -6698,7 +6712,9 @@ impl AIManager {
     ///
     /// Keeps registration, difficulty, `is_active`, personality, and base layout
     /// template names. Drops stale object/factory IDs so rebuild soup can run
-    /// again without burning `max_rebuilds`, and reopens early-base timers.
+    /// again, and reopens early-base timers. Remaining rebuilds
+    /// (`AIBuildingInfo.rebuild_count`) stay — leftover `BuildListInfo.num_rebuilds`
+    /// is persisted, not reset on rebind.
     pub fn rebind_after_world_reset(&mut self) {
         log::info!(
             "AI Manager: rebinding {} AI player(s) after world reset",
@@ -6706,10 +6722,9 @@ impl AIManager {
         );
         for ai_player in self.ai_players.values_mut() {
             for building in &mut ai_player.building_queue {
-                // Map load clears objects; this is not a combat loss — restore rebuild budget.
+                // Map load clears objects; this is not a combat loss. Keep remaining rebuilds.
                 building.object_id = None;
                 building.is_built = false;
-                building.rebuild_count = 0;
             }
             for team in &mut ai_player.team_queue {
                 team.completed = false;
@@ -9328,17 +9343,23 @@ mod cpp_parity_tests {
     }
 
     #[test]
-    fn rebind_after_world_reset_keeps_difficulty_active_and_restores_rebuild_budget() {
+    fn rebind_after_world_reset_keeps_difficulty_active_and_remaining_rebuilds() {
         let mut mgr = AIManager::new();
         mgr.add_ai_player(1, Team::GLA, AIDifficulty::Hard);
         mgr.set_ai_active(1, true);
-        {
+        let spent = {
             let ai = mgr.ai_players.get_mut(&1).expect("ai");
             if let Some(b) = ai.building_queue.first_mut() {
                 b.object_id = Some(ObjectId(42));
                 b.rebuild_count = b.max_rebuilds;
                 b.is_built = true;
+                b.rebuild_count
+            } else {
+                0
             }
+        };
+        {
+            let ai = mgr.ai_players.get_mut(&1).expect("ai");
             ai.defensive_units.push(ObjectId(7));
             ai.attack_in_progress = true;
         }
@@ -9352,7 +9373,7 @@ mod cpp_parity_tests {
         assert!(!ai.attack_in_progress);
         let b = ai.building_queue.first().expect("layout retained");
         assert!(b.object_id.is_none());
-        assert_eq!(b.rebuild_count, 0);
+        assert_eq!(b.rebuild_count, spent);
         assert!(!b.is_built);
         assert!(!b.template_name.is_empty());
     }

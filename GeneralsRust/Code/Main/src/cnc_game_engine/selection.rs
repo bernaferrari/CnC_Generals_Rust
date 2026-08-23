@@ -1161,17 +1161,11 @@ impl CnCGameEngine {
         let ids: Vec<crate::game_logic::ObjectId> =
             frame.alive_selectable_friendly_attacking_ids(team);
         if ids.is_empty() {
-            let msg = "No attacking units";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
         // Wave 583: selection residual via host_set_selection.
         self.host_set_selection(self.current_player_id, ids);
         self.play_sound_effect(SoundType::Select);
-        let msg = format!("Selected {} attacking", self.selected_objects.len());
-        self.game_hud.push_info_message(&msg);
-        self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
 
     /// Issue Stop to all friendly mobile units residual (Ctrl+Alt+S is structures).
@@ -1226,9 +1220,6 @@ impl CnCGameEngine {
         let team = frame.local_team();
         let ids = frame.alive_friendly_stoppable_ids(team);
         if ids.is_empty() {
-            let msg = "No units to stop";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
         self.host_queue_command(crate::command_system::GameCommand {
@@ -1244,9 +1235,6 @@ impl CnCGameEngine {
             },
         });
         self.host_process_commands_with_command_sound();
-        let msg = format!("Stopped {} units", ids.len());
-        self.game_hud.push_info_message(&msg);
-        self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
 
     pub(super) fn select_all_friendly_moving(&mut self) {
@@ -1258,17 +1246,11 @@ impl CnCGameEngine {
         let ids: Vec<crate::game_logic::ObjectId> =
             frame.alive_selectable_friendly_moving_ids(team);
         if ids.is_empty() {
-            let msg = "No moving units";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
         // Wave 583: selection residual via host_set_selection.
         self.host_set_selection(self.current_player_id, ids);
         self.play_sound_effect(SoundType::Select);
-        let msg = format!("Selected {} moving", self.selected_objects.len());
-        self.game_hud.push_info_message(&msg);
-        self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
     /// Select friendly transports currently carrying units residual (Ctrl+Alt+J).
     pub(super) fn select_all_occupied_transports(&mut self) {
@@ -1281,44 +1263,21 @@ impl CnCGameEngine {
             frame.alive_selectable_friendly_occupied_transport_ids(team);
         ids.dedup();
         if ids.is_empty() {
-            let msg = "No occupied transports";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
         // Wave 583: selection residual via host_set_selection.
         self.host_set_selection(self.current_player_id, ids);
         self.play_sound_effect(SoundType::Select);
-        let msg = format!(
-            "Selected {} occupied transports",
-            self.selected_objects.len()
-        );
-        self.game_hud.push_info_message(&msg);
-        self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
 
     /// Toggle attack-order line drawing residual (Ctrl+F4).
     pub(super) fn toggle_attack_lines_hotkey(&mut self) {
         self.show_attack_lines = !self.show_attack_lines;
-        let msg = if self.show_attack_lines {
-            "Attack lines: ON"
-        } else {
-            "Attack lines: OFF"
-        };
-        self.game_hud.push_info_message(msg);
-        self.ui_manager.game_hud_mut().push_info_message(msg);
     }
 
     /// Toggle movement path line drawing residual (Ctrl+F3).
     pub(super) fn toggle_move_lines_hotkey(&mut self) {
         self.show_move_lines = !self.show_move_lines;
-        let msg = if self.show_move_lines {
-            "Move lines: ON"
-        } else {
-            "Move lines: OFF"
-        };
-        self.game_hud.push_info_message(msg);
-        self.ui_manager.game_hud_mut().push_info_message(msg);
     }
 
     /// Select structures that currently hold garrisoned units residual (Ctrl+Alt+U).
@@ -1338,28 +1297,15 @@ impl CnCGameEngine {
         };
         ids.sort_by_key(|id| id.0);
         if ids.is_empty() {
-            let msg = "No garrisoned structures";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
         // Wave 583: selection residual via host_set_selection.
         self.host_set_selection(self.current_player_id, ids);
         self.play_sound_effect(SoundType::Select);
-        let msg = format!("Selected {} garrisoned", self.selected_objects.len());
-        self.game_hud.push_info_message(&msg);
-        self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
 
     pub(super) fn toggle_fps_counter_hotkey(&mut self) {
         self.show_fps = !self.show_fps;
-        let msg = if self.show_fps {
-            "FPS counter: ON"
-        } else {
-            "FPS counter: OFF"
-        };
-        self.game_hud.push_info_message(msg);
-        self.ui_manager.game_hud_mut().push_info_message(msg);
     }
 
     /// Select all friendly veteran+ units residual (Ctrl+Alt+E).
@@ -1375,9 +1321,6 @@ impl CnCGameEngine {
             .collect();
         groups.sort();
         if groups.is_empty() {
-            let msg = "No control groups";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
         let current = self
@@ -1409,18 +1352,12 @@ impl CnCGameEngine {
         };
         let selection = frame.filter_live_squad_ids(&stored, true);
         if selection.is_empty() {
-            let msg = format!("Control group {group_num} empty");
-            self.game_hud.push_info_message(&msg);
-            self.ui_manager.game_hud_mut().push_info_message(&msg);
             return;
         }
         // Wave 583: selection residual via host_set_selection.
         self.host_set_selection(self.current_player_id, selection);
         self.last_control_group_select = Some((group_num, Instant::now()));
         self.play_sound_effect(SoundType::Select);
-        let msg = format!("Control group {group_num}");
-        self.game_hud.push_info_message(&msg);
-        self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
 
     /// Select all friendly effectively stealthed units residual (Ctrl+Alt+K).
@@ -1433,17 +1370,11 @@ impl CnCGameEngine {
         let ids: Vec<crate::game_logic::ObjectId> =
             frame.alive_selectable_friendly_stealthed_ids(team);
         if ids.is_empty() {
-            let msg = "No stealthed units";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
         // Wave 583: selection residual via host_set_selection.
         self.host_set_selection(self.current_player_id, ids);
         self.play_sound_effect(SoundType::Select);
-        let msg = format!("Selected {} stealthed", self.selected_objects.len());
-        self.game_hud.push_info_message(&msg);
-        self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
 
     pub(super) fn select_all_friendly_veterans(&mut self) {
@@ -1456,17 +1387,11 @@ impl CnCGameEngine {
         let ids: Vec<crate::game_logic::ObjectId> =
             frame.alive_selectable_friendly_veteran_ids(team);
         if ids.is_empty() {
-            let msg = "No veteran units";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
         // Wave 583: selection residual via host_set_selection.
         self.host_set_selection(self.current_player_id, ids);
         self.play_sound_effect(SoundType::Select);
-        let msg = format!("Selected {} veterans", self.selected_objects.len());
-        self.game_hud.push_info_message(&msg);
-        self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
 
     /// Select aircraft currently docked/parked residual (Ctrl+Alt+W).
@@ -1479,28 +1404,15 @@ impl CnCGameEngine {
         let ids: Vec<crate::game_logic::ObjectId> =
             frame.alive_selectable_friendly_docked_aircraft_ids(team);
         if ids.is_empty() {
-            let msg = "No docked aircraft";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
         // Wave 583: selection residual via host_set_selection.
         self.host_set_selection(self.current_player_id, ids);
         self.play_sound_effect(SoundType::Select);
-        let msg = format!("Selected {} docked aircraft", self.selected_objects.len());
-        self.game_hud.push_info_message(&msg);
-        self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
 
     pub(super) fn toggle_debug_info_hotkey(&mut self) {
         self.show_debug_info = !self.show_debug_info;
-        let msg = if self.show_debug_info {
-            "Debug overlay: ON"
-        } else {
-            "Debug overlay: OFF"
-        };
-        self.game_hud.push_info_message(msg);
-        self.ui_manager.game_hud_mut().push_info_message(msg);
     }
 
     /// Cycle friendly producers with a non-empty queue residual (Ctrl+Alt+P).
@@ -1543,9 +1455,6 @@ impl CnCGameEngine {
             self.camera_target.x = clamped.x;
             self.camera_target.z = clamped.z;
         }
-        let msg = "Busy producer selected";
-        self.game_hud.push_info_message(msg);
-        self.ui_manager.game_hud_mut().push_info_message(msg);
     }
 
     /// Select all friendly units currently guarding residual (Ctrl+Alt+G).
@@ -1560,17 +1469,11 @@ impl CnCGameEngine {
         let ids: Vec<crate::game_logic::ObjectId> =
             frame.alive_selectable_friendly_patrolling_ids(team);
         if ids.is_empty() {
-            let msg = "No patrolling units";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
         // Wave 583: selection residual via host_set_selection.
         self.host_set_selection(self.current_player_id, ids);
         self.play_sound_effect(SoundType::Select);
-        let msg = format!("Selected {} patrolling", self.selected_objects.len());
-        self.game_hud.push_info_message(&msg);
-        self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
 
     /// Select all friendly units currently gathering residual (Ctrl+Alt+H).
@@ -1583,17 +1486,11 @@ impl CnCGameEngine {
         let ids: Vec<crate::game_logic::ObjectId> =
             frame.alive_selectable_friendly_gathering_ids(team);
         if ids.is_empty() {
-            let msg = "No gathering units";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
         // Wave 583: selection residual via host_set_selection.
         self.host_set_selection(self.current_player_id, ids);
         self.play_sound_effect(SoundType::Select);
-        let msg = format!("Selected {} gathering", self.selected_objects.len());
-        self.game_hud.push_info_message(&msg);
-        self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
 
     /// Cycle structures with ready special power residual (Ctrl+Alt+V).
@@ -1636,9 +1533,6 @@ impl CnCGameEngine {
             self.camera_target.x = clamped.x;
             self.camera_target.z = clamped.z;
         }
-        let msg = "Ready special power selected";
-        self.game_hud.push_info_message(msg);
-        self.ui_manager.game_hud_mut().push_info_message(msg);
     }
 
     pub(super) fn select_all_friendly_guarding(&mut self) {
@@ -1650,28 +1544,15 @@ impl CnCGameEngine {
         let ids: Vec<crate::game_logic::ObjectId> =
             frame.alive_selectable_friendly_guarding_ids(team);
         if ids.is_empty() {
-            let msg = "No guarding units";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
         // Wave 583: selection residual via host_set_selection.
         self.host_set_selection(self.current_player_id, ids);
         self.play_sound_effect(SoundType::Select);
-        let msg = format!("Selected {} guarding", self.selected_objects.len());
-        self.game_hud.push_info_message(&msg);
-        self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
 
     pub(super) fn toggle_health_bars_hotkey(&mut self) {
         self.show_health_bars = !self.show_health_bars;
-        let msg = if self.show_health_bars {
-            "Health bars: ON"
-        } else {
-            "Health bars: OFF"
-        };
-        self.game_hud.push_info_message(msg);
-        self.ui_manager.game_hud_mut().push_info_message(msg);
     }
 
     pub(super) fn select_all_friendly_combat(&mut self) {
@@ -1683,17 +1564,11 @@ impl CnCGameEngine {
         let ids: Vec<crate::game_logic::ObjectId> =
             frame.alive_selectable_friendly_combat_ids(team);
         if ids.is_empty() {
-            let msg = "No combat units";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
         // Wave 583: selection residual via host_set_selection.
         self.host_set_selection(self.current_player_id, ids);
         self.play_sound_effect(SoundType::Select);
-        let msg = format!("Selected {} combat units", self.selected_objects.len());
-        self.game_hud.push_info_message(&msg);
-        self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
 
     pub(super) fn select_all_friendly_on_screen(&mut self) {
@@ -1707,17 +1582,11 @@ impl CnCGameEngine {
         let radius = (180.0 * self.camera_zoom.max(0.5)).clamp(120.0, 600.0);
         let selection = frame.alive_selectable_friendly_near(team, center, radius);
         if selection.is_empty() {
-            let msg = "No units on screen";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
         // Wave 583: selection residual via host_set_selection.
         self.host_set_selection(self.current_player_id, selection);
         self.play_sound_effect(SoundType::Select);
-        let msg = format!("Selected {} on screen", self.selected_objects.len());
-        self.game_hud.push_info_message(&msg);
-        self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
 
     /// Select friendly dozers/workers currently constructing residual (Ctrl+Alt+B).
@@ -1730,17 +1599,11 @@ impl CnCGameEngine {
         let ids: Vec<crate::game_logic::ObjectId> =
             frame.alive_selectable_friendly_constructing_worker_ids(team);
         if ids.is_empty() {
-            let msg = "No constructing workers";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
         // Wave 583: selection residual via host_set_selection.
         self.host_set_selection(self.current_player_id, ids);
         self.play_sound_effect(SoundType::Select);
-        let msg = format!("Selected {} constructing", self.selected_objects.len());
-        self.game_hud.push_info_message(&msg);
-        self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
 
     pub(super) fn toggle_camera_follow_selection(&mut self) {
@@ -1751,22 +1614,13 @@ impl CnCGameEngine {
         let follow_active = self.presentation_or_boot_camera_follow_active();
         if follow_active {
             self.host_set_camera_follow_object(None);
-            let msg = "Camera follow off";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
         let id = self.ui_selection_seed_id();
         let Some(id) = id else {
-            let msg = "Select a unit to follow";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         };
         self.host_set_camera_follow_object(Some(id));
-        let msg = "Camera follow on";
-        self.game_hud.push_info_message(msg);
-        self.ui_manager.game_hud_mut().push_info_message(msg);
     }
 
     /// Retail SELECT_ALL (KEY_Q) residual.
