@@ -11,10 +11,10 @@
 //! - `FindPosByPathDistance` (~1355-1482)
 //! - `createCarriages` / `getPulled` / `updatePositionTrackDistance`
 //!
-//! Fail-closed: not full collide crush / audio / pathfinder wall / xfer.
+//! Fail-closed: not full collide crush / xfer.
 
 use super::ObjectId;
-use crate::game_logic::{GameLogic, Team};
+use crate::game_logic::{AudioEventRequest, GameLogic, Team};
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
@@ -40,6 +40,21 @@ pub const RAILROAD_STOP_SPEED: f32 = 0.1;
 pub const RAILROAD_DEFAULT_HITCH_RADIUS: f32 = 20.0;
 /// C++ `FRAMES_UNPULLED_LONG_ENOUGH_TO_UNHITCH`.
 pub const RAILROAD_UNHITCH_FRAMES: i32 = 2;
+/// C++ `RailroadBehaviorModuleData::m_runningSound` retail `TrainRunning`.
+pub const RAILROAD_RUNNING_SOUND: &str = "TrainRunning";
+/// C++ `m_whistleSound` retail `TrainWhistle`.
+pub const RAILROAD_WHISTLE_SOUND: &str = "TrainWhistle";
+/// C++ `m_clicketyClackSound` retail `TrainClickety`.
+pub const RAILROAD_CLICKETY_SOUND: &str = "TrainClickety";
+
+#[derive(Debug, Clone, Copy)]
+struct RailroadAudioCue {
+    event_name: &'static str,
+    looping: bool,
+    stop: bool,
+    position: Option<Vec3>,
+}
+
 
 const FACADE_HANDLE: u32 = 0x00_FACADE;
 
@@ -275,6 +290,11 @@ pub struct HostRailroadCar {
     pub wait_at_station_time: i32,
     pub carriage_template_names: Vec<String>,
     pub track: Option<HostTrainTrack>,
+    /// C++ `m_runningSound.isCurrentlyPlaying()`.
+    #[serde(default)]
+    pub running_sound_playing: bool,
+    #[serde(skip)]
+    pending_audio: Vec<RailroadAudioCue>,
 }
 
 impl HostRailroadCar {
@@ -307,6 +327,8 @@ impl HostRailroadCar {
             wait_at_station_time: RAILROAD_WAIT_AT_STATION_FRAMES,
             carriage_template_names: Vec::new(),
             track: None,
+            running_sound_playing: false,
+            pending_audio: Vec::new(),
         }
     }
 
@@ -316,6 +338,36 @@ impl HostRailroadCar {
         car.is_lead_carriage = false;
         car.conductor_state = HostConductorState::Coast;
         car
+    }
+
+    fn play_running(&mut self) {
+        if self.running_sound_playing {
+            return;
+        }
+        self.running_sound_playing = true;
+        self.pending_audio.push(RailroadAudioCue {
+            event_name: RAILROAD_RUNNING_SOUND,
+            looping: true,
+            stop: false,
+            position: None,
+        });
+    }
+
+    fn stop_running(&mut self) {
+        if !self.running_sound_playing {
+            return;
+        }
+        self.running_sound_playing = false;
+        self.pending_audio.push(RailroadAudioCue {
+            event_name: RAILROAD_RUNNING_SOUND,
+            looping: true,
+            stop: true,
+            position: None,
+        });
+    }
+
+    fn take_pending_audio(&mut self) -> Vec<RailroadAudioCue> {
+        std::mem::take(&mut self.pending_audio)
     }
 
     /// C++ locomotive conductor block inside `RailroadBehavior::update`.
@@ -337,6 +389,16 @@ impl HostRailroadCar {
                 if self.wait_at_station_timer <= 0 && !self.held {
                     self.conductor_state = HostConductorState::Accelerate;
                     self.speed = RAILROAD_STATION_DEPART_SPEED * self.direction;
+                    // C++ :713 depart → m_runningSound.
+                    self.play_running();
+                } else if self.wait_at_station_timer == self.wait_at_station_time / 4 {
+                    // C++ :719-721 whistle at wait/4.
+                    self.pending_audio.push(RailroadAudioCue {
+                        event_name: RAILROAD_WHISTLE_SOUND,
+                        looping: false,
+                        stop: false,
+                        position: None,
+                    });
                 }
             }
             HostConductorState::Accelerate => {
@@ -347,6 +409,8 @@ impl HostRailroadCar {
                 } else if self.speed < -self.speed_max {
                     self.speed = -self.speed_max;
                 }
+                // C++ :739-740 restart running if not already playing.
+                self.play_running();
             }
             HostConductorState::Coast => {
                 self.speed *= self.friction;
@@ -356,36 +420,68 @@ impl HostRailroadCar {
 
     /// C++ lead-carriage `trackDistance += speed` + station sniff.
     pub fn advance_along_track(&mut self) -> Option<Vec3> {
-        let track = self.track.as_ref()?;
+        if self.track.is_none() {
+            return None;
+        }
         if self.is_lead_carriage {
             if self.conductor_state == HostConductorState::Coast {
                 self.speed *= self.friction;
+                // C++ :766 lead-carriage coast removes the running handle.
+                self.stop_running();
             }
+            let (is_looping, length) = self
+                .track
+                .as_ref()
+                .map(|t| (t.is_looping, t.length))
+                .unwrap_or((false, 0.0));
             self.track_distance += self.speed;
-            if track.is_looping && track.length > 0.0 {
-                while self.track_distance > track.length {
-                    self.track_distance -= track.length;
+            if is_looping && length > 0.0 {
+                while self.track_distance > length {
+                    self.track_distance -= length;
                 }
                 while self.track_distance < 0.0 {
-                    self.track_distance += track.length;
+                    self.track_distance += length;
                 }
             }
         }
-        let (pos, waiting, end, handle) = find_pos_by_path_distance(track, self.track_distance);
+        let track_distance = self.track_distance;
+        let (pos, waiting, end, handle) = {
+            let track = self.track.as_ref()?;
+            find_pos_by_path_distance(track, track_distance)
+        };
         self.waiting_in_wings = waiting;
         self.end_of_line = end;
         if let Some(handle) = handle {
-            if self.is_locomotive && handle != self.current_point_handle {
-                if let Some(pt) = track.points.iter().find(|p| p.handle == handle) {
+            let edge = handle != self.current_point_handle;
+            if edge {
+                let pt = self
+                    .track
+                    .as_ref()
+                    .and_then(|t| t.points.iter().find(|p| p.handle == handle).cloned());
+                if let Some(pt) = pt {
                     self.in_tunnel = pt.is_tunnel_or_bridge;
-                    if pt.is_station || pt.is_disembark {
-                        self.conductor_state = HostConductorState::ApplyBrakes;
-                        self.disembark = pt.is_disembark;
-                    } else if pt.is_ping_pong && self.most_recent_special_handle != handle {
-                        self.most_recent_special_handle = handle;
-                        self.conductor_state = HostConductorState::ApplyBrakes;
-                        self.disembark = false;
-                        self.direction = -self.direction;
+                    if self.is_locomotive {
+                        if pt.is_station || pt.is_disembark {
+                            self.conductor_state = HostConductorState::ApplyBrakes;
+                            self.disembark = pt.is_disembark;
+                            // C++ :1432/:1438 station / disembark stop running.
+                            self.stop_running();
+                        } else if pt.is_ping_pong && self.most_recent_special_handle != handle {
+                            self.most_recent_special_handle = handle;
+                            self.conductor_state = HostConductorState::ApplyBrakes;
+                            self.disembark = false;
+                            self.stop_running();
+                            self.direction = -self.direction;
+                        }
+                    }
+                    // C++ :1451-1455 clickety at pose, volume speed/10 (pose only).
+                    if !self.in_tunnel {
+                        self.pending_audio.push(RailroadAudioCue {
+                            event_name: RAILROAD_CLICKETY_SOUND,
+                            looping: false,
+                            stop: false,
+                            position: Some(pos),
+                        });
                     }
                 }
                 self.current_point_handle = handle;
@@ -433,6 +529,15 @@ impl HostRailroadRegistry {
     /// Replace a car after save/load. C++ `RailroadBehavior::xfer` v3.
     pub fn restore_car(&mut self, car: HostRailroadCar) {
         self.cars.insert(car.object_id, car);
+    }
+
+    fn drain_audio(&mut self) -> Vec<(ObjectId, RailroadAudioCue)> {
+        let mut out = Vec::new();
+        for car in self.cars.values_mut() {
+            let id = car.object_id;
+            out.extend(car.take_pending_audio().into_iter().map(|cue| (id, cue)));
+        }
+        out
     }
 
 }
@@ -701,6 +806,7 @@ impl GameLogic {
             .collect();
 
         let mut poses: Vec<(ObjectId, Vec3, f32)> = Vec::new();
+        let mut wall_ops: Vec<(ObjectId, bool)> = Vec::new();
         for loco_id in loco_ids {
             with_railroad_registry_mut(|reg| {
                 if let Some(track) = loco_tracks
@@ -714,14 +820,16 @@ impl GameLogic {
                         }
                     }
                 }
-                let (pos, heading, mut pull_dist, pull_speed, pull_dir, mut next, track) = {
+                let (pos, heading, mut pull_dist, pull_speed, pull_dir, mut next, track, before, after) = {
                     let Some(loco) = reg.get_mut(loco_id) else {
                         return;
                     };
                     if loco.track.is_none() {
                         return;
                     }
+                    let before = loco.conductor_state;
                     loco.tick_conductor();
+                    let after = loco.conductor_state;
                     let Some(pos) = loco.advance_along_track() else {
                         return;
                     };
@@ -741,8 +849,19 @@ impl GameLogic {
                         loco.direction,
                         loco.trailer_id,
                         loco.track.clone(),
+                        before,
+                        after,
                     )
                 };
+                if before != HostConductorState::WaitAtStation
+                    && after == HostConductorState::WaitAtStation
+                {
+                    wall_ops.push((loco_id, true));
+                } else if before == HostConductorState::WaitAtStation
+                    && after != HostConductorState::WaitAtStation
+                {
+                    wall_ops.push((loco_id, false));
+                }
                 poses.push((loco_id, pos, heading));
                 reg.moved_count = reg.moved_count.saturating_add(1);
 
@@ -782,11 +901,38 @@ impl GameLogic {
             });
         }
 
+        for (head, on) in wall_ops.iter().copied().filter(|(_, on)| !*on) {
+            self.make_a_wall_out_of_this_train(head, false);
+        }
         for (id, pos, heading) in poses {
             if let Some(obj) = self.objects.get_mut(&id) {
                 obj.set_position(pos);
                 obj.set_orientation(heading);
             }
+        }
+        for (head, on) in wall_ops.iter().copied().filter(|(_, on)| *on) {
+            self.make_a_wall_out_of_this_train(head, true);
+        }
+
+        // C++ TheAudio add/remove on the locomotive / car pose.
+        let audio = with_railroad_registry_mut(|reg| reg.drain_audio());
+        for (id, cue) in audio {
+            let pos = cue.position.or_else(|| {
+                self.objects.get(&id).map(|o| o.get_position())
+            });
+            let mut req = AudioEventRequest::new(cue.event_name)
+                .with_object(id)
+                .with_priority(140);
+            if let Some(pos) = pos {
+                req = req.with_position(pos);
+            }
+            if cue.looping {
+                req = req.looping();
+            }
+            if cue.stop {
+                req = req.stopping();
+            }
+            self.queue_audio_event(req);
         }
     }
 
@@ -797,6 +943,29 @@ impl GameLogic {
             }
         });
     }
+
+    /// C++ `RailroadBehavior::makeAWallOutOfThisTrain` — recurse trailer hitch.
+    fn make_a_wall_out_of_this_train(&mut self, head: ObjectId, on: bool) {
+        let mut chain = Vec::new();
+        let mut next = Some(head);
+        with_railroad_registry(|reg| {
+            while let Some(id) = next {
+                chain.push(id);
+                next = reg.get(id).and_then(|c| c.trailer_id);
+            }
+        });
+        for id in chain {
+            let Some(obj) = self.objects.get(&id) else {
+                continue;
+            };
+            if on {
+                self.pathfinding_system.create_wall_from_object(obj);
+            } else {
+                self.pathfinding_system.remove_wall_from_object(obj);
+            }
+        }
+    }
+
 }
 
 /// Honesty: C++ defaults and live tick symbol exist.
@@ -806,6 +975,9 @@ pub fn honesty_railroad_residual_ok() -> bool {
         && RAILROAD_BRAKING == 0.99
         && RAILROAD_WAIT_AT_STATION_FRAMES == 150
         && RAILROAD_UNHITCH_FRAMES == 2
+        && RAILROAD_RUNNING_SOUND == "TrainRunning"
+        && RAILROAD_WHISTLE_SOUND == "TrainWhistle"
+        && RAILROAD_CLICKETY_SOUND == "TrainClickety"
         && is_railroad_locomotive_template("CivilianTrainEngine")
         && is_railroad_carriage_template("CivilianTrainCoalCar")
 }
@@ -865,7 +1037,7 @@ mod tests {
         tmpl.add_kind_of(KindOf::Vehicle).set_health(1000.0);
         logic.templates.insert(name.into(), tmpl);
         let id = logic
-            .create_object(name, Team::America, pos)
+            .create_object(name, Team::USA, pos)
             .expect("spawn railroad object");
         if let Some(o) = logic.objects.get_mut(&id) {
             o.construction_percent = 1.0;
@@ -873,6 +1045,19 @@ mod tests {
         }
         id
     }
+
+    fn wall_blocked(logic: &GameLogic, id: ObjectId) -> bool {
+        let Some(obj) = logic.host_object(id) else {
+            return false;
+        };
+        let cell = logic
+            .pathfinding_system
+            .grid
+            .world_to_grid(obj.get_position());
+        logic.pathfinding_system.grid.is_static_blocked(cell)
+    }
+
+
 
     /// C++ RailroadBehavior::update: locomotive advances trackDistance by speed.
     #[test]
@@ -894,6 +1079,16 @@ mod tests {
         assert!(car.track_distance > 0.0);
         assert!(car.speed > 0.0);
         assert_eq!(car.conductor_state, HostConductorState::Accelerate);
+        assert!(
+            logic.queued_audio_events.iter().any(|e| {
+                e.event_type == RAILROAD_RUNNING_SOUND
+                    && e.is_looping
+                    && !e.stop
+                    && e.object_id == Some(id)
+            }),
+            "Accelerate must queue TrainRunning: {:?}",
+            logic.queued_audio_events
+        );
     }
 
     #[test]
@@ -950,6 +1145,10 @@ mod tests {
                 if car.conductor_state == HostConductorState::WaitAtStation {
                     saw_wait = true;
                     assert!(car.speed.abs() < RAILROAD_STOP_SPEED + 0.01);
+                    assert!(
+                        wall_blocked(&logic, id),
+                        "createAWall must stamp the stopped locomotive"
+                    );
                     break;
                 }
             }
@@ -961,7 +1160,64 @@ mod tests {
         let car = railroad_car(id).unwrap();
         assert_eq!(car.conductor_state, HostConductorState::Accelerate);
         assert!(car.speed.abs() > 0.0, "must depart after WaitAtStationTime");
+        assert!(
+            !wall_blocked(&logic, id),
+            "removeWall must clear the locomotive on depart"
+        );
     }
+
+    /// hq-w1rig: hitch chain is stamped at station and cleared on depart.
+    #[test]
+    fn station_stop_stamps_train_and_carriage_wall() {
+        railroad_registry_reset();
+        let mut logic = GameLogic::new();
+        let loco = spawn_train(&mut logic, "CivilianTrainEngine", Vec3::new(0.0, 0.0, 0.0));
+        let car = spawn_train(
+            &mut logic,
+            "CivilianTrainCoalCar",
+            Vec3::new(-10.0, 0.0, 0.0),
+        );
+        inject_railroad_track(loco, straight_track(80.0, Some(40.0)));
+        with_railroad_registry_mut(|reg| {
+            let loco_car = reg.ensure_car(loco, true);
+            loco_car.wait_at_station_time = 8;
+            loco_car.braking = 0.8;
+        });
+        let mut saw_wait = false;
+        for _ in 0..200 {
+            logic.update_railroads();
+            if railroad_car(loco)
+                .map(|c| c.conductor_state == HostConductorState::WaitAtStation)
+                .unwrap_or(false)
+            {
+                saw_wait = true;
+                assert!(wall_blocked(&logic, loco), "loco wall at station");
+                assert!(
+                    wall_blocked(&logic, car),
+                    "carriage wall via makeAWall recurse"
+                );
+                break;
+            }
+        }
+        assert!(saw_wait, "must stop at station");
+        for _ in 0..20 {
+            logic.update_railroads();
+        }
+        assert_eq!(
+            railroad_car(loco).unwrap().conductor_state,
+            HostConductorState::Accelerate
+        );
+        assert!(
+            !wall_blocked(&logic, loco),
+            "removeWall on station depart"
+        );
+        assert!(
+            !wall_blocked(&logic, car),
+            "carriage wall must clear on depart"
+        );
+        railroad_registry_reset();
+    }
+
 
     #[test]
     fn script_set_train_held_blocks_station_departure() {
@@ -1079,5 +1335,125 @@ mod tests {
         assert!(honesty_railroad_residual_ok());
         assert!(!is_railroad_locomotive_template("AmericaVehicleChinook"));
         assert!(!is_railroad_template("RailedTransport"));
+    }
+
+    /// Conductor audio without GameLogic: whistle at wait/4, running on depart.
+    #[test]
+    fn conductor_audio_cues_match_cpp_handles() {
+        let mut car = HostRailroadCar::new_locomotive(ObjectId(1));
+        car.conductor_state = HostConductorState::WaitAtStation;
+        car.wait_at_station_time = 8;
+        car.wait_at_station_timer = 3;
+        car.tick_conductor();
+        let cues = car.take_pending_audio();
+        assert!(
+            cues.iter()
+                .any(|c| c.event_name == RAILROAD_WHISTLE_SOUND && !c.stop),
+            "wait/4 whistle: {cues:?}"
+        );
+        car.tick_conductor();
+        car.tick_conductor();
+        let cues = car.take_pending_audio();
+        assert!(
+            cues.iter()
+                .any(|c| c.event_name == RAILROAD_RUNNING_SOUND && c.looping && !c.stop),
+            "depart running: {cues:?}"
+        );
+        assert!(car.running_sound_playing);
+        car.tick_conductor();
+        let cues = car.take_pending_audio();
+        assert!(
+            cues.iter()
+                .all(|c| c.event_name != RAILROAD_RUNNING_SOUND || c.stop),
+            "no restart: {cues:?}"
+        );
+
+        let mut car = HostRailroadCar::new_locomotive(ObjectId(2));
+        car.track = Some(straight_track(400.0, None));
+        car.running_sound_playing = true;
+        let pos = car.advance_along_track().expect("pos");
+        let cues = car.take_pending_audio();
+        assert!(
+            cues.iter().any(|c| {
+                c.event_name == RAILROAD_CLICKETY_SOUND && c.position == Some(pos)
+            }),
+            "clickety at pose: {cues:?}"
+        );
+    }
+
+    /// C++ :713/:721/:739-740/:1451-1455 Running / Whistle / Clickety.
+    #[test]
+    fn locomotive_queues_running_whistle_and_clickety() {
+        railroad_registry_reset();
+        let mut logic = GameLogic::new();
+        let id = spawn_train(&mut logic, "CivilianTrainEngine", Vec3::ZERO);
+        inject_railroad_track(id, straight_track(400.0, None));
+        logic.update_railroads();
+        assert!(
+            logic.queued_audio_events.iter().any(|e| {
+                e.event_type == RAILROAD_RUNNING_SOUND
+                    && e.is_looping
+                    && !e.stop
+                    && e.object_id == Some(id)
+            }),
+            "depart/accelerate must queue TrainRunning: {:?}",
+            logic.queued_audio_events
+        );
+        assert!(
+            logic.queued_audio_events.iter().any(|e| {
+                e.event_type == RAILROAD_CLICKETY_SOUND
+                    && e.object_id == Some(id)
+                    && e.position.is_some()
+                    && !e.is_looping
+            }),
+            "track-joint edge must queue TrainClickety at pose: {:?}",
+            logic.queued_audio_events
+        );
+        logic.queued_audio_events.clear();
+        logic.update_railroads();
+        assert!(
+            logic
+                .queued_audio_events
+                .iter()
+                .all(|e| e.event_type != RAILROAD_RUNNING_SOUND || e.stop),
+            "already-playing running must not restart: {:?}",
+            logic.queued_audio_events
+        );
+
+        railroad_registry_reset();
+        let mut logic = GameLogic::new();
+        let id = spawn_train(&mut logic, "CivilianTrainEngine", Vec3::ZERO);
+        inject_railroad_track(id, straight_track(80.0, Some(40.0)));
+        with_railroad_registry_mut(|reg| {
+            let car = reg.ensure_car(id, true);
+            car.conductor_state = HostConductorState::WaitAtStation;
+            car.wait_at_station_time = 8;
+            car.wait_at_station_timer = 3;
+            car.held = false;
+            car.running_sound_playing = true;
+            car.track_data_loaded = true;
+        });
+        logic.update_railroads();
+        assert!(
+            logic.queued_audio_events.iter().any(|e| {
+                e.event_type == RAILROAD_WHISTLE_SOUND && e.object_id == Some(id) && !e.stop
+            }),
+            "wait/4 must queue TrainWhistle: {:?}",
+            logic.queued_audio_events
+        );
+        logic.queued_audio_events.clear();
+        logic.update_railroads();
+        logic.update_railroads();
+        assert!(
+            logic.queued_audio_events.iter().any(|e| {
+                e.event_type == RAILROAD_RUNNING_SOUND
+                    && e.is_looping
+                    && !e.stop
+                    && e.object_id == Some(id)
+            }),
+            "station depart must queue TrainRunning: {:?}",
+            logic.queued_audio_events
+        );
+        railroad_registry_reset();
     }
 }

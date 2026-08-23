@@ -1051,4 +1051,42 @@ mod tests {
         );
     }
 
+    #[test]
+    fn restore_save_script_state_keeps_team_state_string() {
+        let mut team = Team::new(AsciiString::from("StateTeam"), 1);
+        team.set_state(AsciiString::from("Attacking"));
+        team.restore_save_script_state(
+            false,
+            true,
+            false,
+            false,
+            false,
+            0,
+            0,
+            None,
+            &[true; MAX_GENERIC_SCRIPTS],
+            false,
+            false,
+            "Retreating",
+        );
+        assert_eq!(team.get_state().as_str(), "Retreating");
+        assert!(team.is_active());
+        assert!(!team.is_created());
+    }
+
+    #[test]
+    fn team_relation_override_pairs_round_trip_team_and_player_maps() {
+        let mut team = Team::new(AsciiString::from("RelTeam"), 1);
+        team.set_override_team_relationship(8, Relationship::Neutral);
+        team.set_override_player_relationship(2, Relationship::Allies);
+        assert_eq!(
+            team.team_relation_override_pairs(),
+            vec![(8, Relationship::Neutral)]
+        );
+        assert_eq!(
+            team.player_relation_override_pairs(),
+            vec![(2, Relationship::Allies)]
+        );
+    }
+
 }

@@ -17,8 +17,8 @@ use std::sync::Mutex;
 pub const CHUNK_PLAYERS: &str = "CHUNK_Players";
 pub const CHUNK_TEAM_FACTORY: &str = "CHUNK_TeamFactory";
 
-const PLAYERS_CHUNK_VERSION: u8 = 2;
-const TEAM_FACTORY_CHUNK_VERSION: u8 = 1;
+const PLAYERS_CHUNK_VERSION: u8 = 3;
+const TEAM_FACTORY_CHUNK_VERSION: u8 = 2;
 const MAX_ATTACKED_BY: usize = 16;
 const MAX_GENERIC_SCRIPTS: usize = 16;
 
@@ -65,6 +65,7 @@ pub struct PlayerRuntimePersist {
     pub kind_of_changes: Vec<KindOfChangePersist>,
     pub units_should_hunt: bool,
     pub current_selection: Vec<u32>,
+    pub did_preorder: bool,
 }
 
 impl Default for PlayerRuntimePersist {
@@ -90,6 +91,7 @@ impl Default for PlayerRuntimePersist {
             kind_of_changes: Vec::new(),
             units_should_hunt: false,
             current_selection: Vec::new(),
+            did_preorder: false,
         }
     }
 }
@@ -109,6 +111,9 @@ pub struct TeamRuntimePersist {
     pub generic_script_attempts: Vec<bool>,
     pub recruitability_set: bool,
     pub recruitable: bool,
+    pub state: String,
+    pub team_relations: Vec<TeamRelPersist>,
+    pub player_relations: Vec<PlayerRelPersist>,
 }
 
 impl Default for TeamRuntimePersist {
@@ -127,6 +132,9 @@ impl Default for TeamRuntimePersist {
             generic_script_attempts: vec![true; MAX_GENERIC_SCRIPTS],
             recruitability_set: false,
             recruitable: false,
+            state: String::new(),
+            team_relations: Vec::new(),
+            player_relations: Vec::new(),
         }
     }
 }
@@ -303,6 +311,8 @@ fn write_player_entry<W: Write + Seek>(
         let mut value = *id;
         map_xfer(xfer.xfer_unsigned_int(&mut value))?;
     }
+    let mut did_preorder = player.did_preorder;
+    map_xfer(xfer.xfer_bool(&mut did_preorder))?;
     Ok(())
 }
 
@@ -386,6 +396,9 @@ fn parse_player_entry(
             player.current_selection.push(id);
         }
     }
+    if version >= 3 {
+        map_xfer(xfer.xfer_bool(&mut player.did_preorder))?;
+    }
     Ok(player)
 }
 
@@ -465,6 +478,26 @@ pub fn write_team_factory_block<W: Write + Seek>(
         let mut recruitable = team.recruitable;
         map_xfer(xfer.xfer_bool(&mut recruitability_set))?;
         map_xfer(xfer.xfer_bool(&mut recruitable))?;
+        let mut state = team.state.clone();
+        map_xfer(xfer.xfer_ascii_string(&mut state))?;
+        let mut team_rel_count = team.team_relations.len() as u16;
+        map_xfer(xfer.xfer_unsigned_short(&mut team_rel_count))?;
+        for rel in &team.team_relations {
+            let mut rel_name = rel.team_name.clone();
+            let mut rel_team_id = rel.team_id;
+            let mut relationship = rel.relationship;
+            map_xfer(xfer.xfer_ascii_string(&mut rel_name))?;
+            map_xfer(xfer.xfer_unsigned_int(&mut rel_team_id))?;
+            map_xfer(xfer.xfer_int(&mut relationship))?;
+        }
+        let mut player_rel_count = team.player_relations.len() as u16;
+        map_xfer(xfer.xfer_unsigned_short(&mut player_rel_count))?;
+        for rel in &team.player_relations {
+            let mut player_index = rel.player_index;
+            let mut relationship = rel.relationship;
+            map_xfer(xfer.xfer_int(&mut player_index))?;
+            map_xfer(xfer.xfer_int(&mut relationship))?;
+        }
     }
     Ok(())
 }
@@ -508,6 +541,36 @@ pub fn parse_team_factory_block(payload: &[u8]) -> SaveLoadResult<TeamFactoryChu
         }
         map_xfer(xfer.xfer_bool(&mut team.recruitability_set))?;
         map_xfer(xfer.xfer_bool(&mut team.recruitable))?;
+        if version >= 2 {
+            map_xfer(xfer.xfer_ascii_string(&mut team.state))?;
+            let mut team_rel_count = 0u16;
+            map_xfer(xfer.xfer_unsigned_short(&mut team_rel_count))?;
+            for _ in 0..team_rel_count {
+                let mut team_name = String::new();
+                let mut team_id = 0u32;
+                let mut relationship = 0i32;
+                map_xfer(xfer.xfer_ascii_string(&mut team_name))?;
+                map_xfer(xfer.xfer_unsigned_int(&mut team_id))?;
+                map_xfer(xfer.xfer_int(&mut relationship))?;
+                team.team_relations.push(TeamRelPersist {
+                    team_name,
+                    team_id,
+                    relationship,
+                });
+            }
+            let mut player_rel_count = 0u16;
+            map_xfer(xfer.xfer_unsigned_short(&mut player_rel_count))?;
+            for _ in 0..player_rel_count {
+                let mut player_index = 0i32;
+                let mut relationship = 0i32;
+                map_xfer(xfer.xfer_int(&mut player_index))?;
+                map_xfer(xfer.xfer_int(&mut relationship))?;
+                team.player_relations.push(PlayerRelPersist {
+                    player_index,
+                    relationship,
+                });
+            }
+        }
         teams.push(team);
     }
     Ok(TeamFactoryChunkPersist {
@@ -542,6 +605,7 @@ fn capture_leftover_players() -> Vec<PlayerRuntimePersist> {
             cash_bounty_percent: player.get_cash_bounty(),
             units_should_hunt: player.get_units_should_hunt(),
             current_selection: player.get_current_selection_ids(),
+            did_preorder: player.did_player_preorder(),
             ..PlayerRuntimePersist::default()
         };
         persist.sciences = player
@@ -693,6 +757,7 @@ fn capture_players_chunk(game_logic: Option<&GameLogic>) -> PlayersChunkPersist 
             .iter()
             .map(|id| id.0)
             .collect();
+        slot.did_preorder = player.did_preorder;
     }
     persist
 }
@@ -725,6 +790,24 @@ fn capture_team_factory_chunk() -> TeamFactoryChunkPersist {
             generic_script_attempts,
             recruitability_set: team.is_recruitability_set(),
             recruitable: team.is_recruitable(),
+            state: team.get_state().to_string(),
+            team_relations: team
+                .team_relation_override_pairs()
+                .into_iter()
+                .map(|(team_id, relationship)| TeamRelPersist {
+                    team_name: String::new(),
+                    team_id,
+                    relationship: relationship_to_i32(relationship),
+                })
+                .collect(),
+            player_relations: team
+                .player_relation_override_pairs()
+                .into_iter()
+                .map(|(player_index, relationship)| PlayerRelPersist {
+                    player_index,
+                    relationship: relationship_to_i32(relationship),
+                })
+                .collect(),
         });
     }
     TeamFactoryChunkPersist {
@@ -819,6 +902,7 @@ fn apply_player_to_live(game_logic: &mut GameLogic, persist: &PlayerRuntimePersi
         .copied()
         .map(ObjectId)
         .collect();
+    player.did_preorder = persist.did_preorder;
 
     player.kind_of_production_cost_changes.clear();
     for entry in &persist.kind_of_changes {
@@ -887,6 +971,7 @@ fn apply_player_to_leftover(persist: &PlayerRuntimePersist) {
         persist.radar_disabled,
     );
     player.set_cash_bounty(persist.cash_bounty_percent);
+    player.set_is_preorder(persist.did_preorder);
     player.restore_units_should_hunt(persist.units_should_hunt);
     player.set_currently_selected_ai_group(None);
     for &id in &persist.current_selection {
@@ -950,7 +1035,34 @@ fn apply_teams_to_leftover(persist: &TeamFactoryChunkPersist) {
             &team_persist.generic_script_attempts,
             team_persist.recruitability_set,
             team_persist.recruitable,
+            &team_persist.state,
         );
+        for rel in &team_persist.team_relations {
+            let team_id = if rel.team_id != 0 {
+                rel.team_id
+            } else if !rel.team_name.trim().is_empty() {
+                factory
+                    .find_team_instances(&rel.team_name)
+                    .into_iter()
+                    .next()
+                    .and_then(|other| other.read().ok().map(|guard| guard.get_id()))
+                    .unwrap_or(0)
+            } else {
+                0
+            };
+            if team_id != 0 {
+                team.set_override_team_relationship(
+                    team_id,
+                    leftover_relationship_from_i32(rel.relationship),
+                );
+            }
+        }
+        for rel in &team_persist.player_relations {
+            team.set_override_player_relationship(
+                rel.player_index,
+                leftover_relationship_from_i32(rel.relationship),
+            );
+        }
     }
 }
 
@@ -985,6 +1097,7 @@ mod tests {
             cash_bounty_percent: 0.2,
             units_should_hunt: true,
             current_selection: vec![11, 22],
+            did_preorder: true,
             ..PlayerRuntimePersist::default()
         };
         player.team_relations.push(TeamRelPersist {
@@ -1011,6 +1124,16 @@ mod tests {
                 generic_script_attempts: vec![false; MAX_GENERIC_SCRIPTS],
                 recruitability_set: true,
                 recruitable: false,
+                state: "Attacking".into(),
+                team_relations: vec![TeamRelPersist {
+                    team_name: "TeamB".into(),
+                    team_id: 8,
+                    relationship: 1,
+                }],
+                player_relations: vec![PlayerRelPersist {
+                    player_index: 2,
+                    relationship: 2,
+                }],
             }],
         };
         teams.teams[0].generic_script_attempts[0] = true;
@@ -1039,6 +1162,7 @@ mod tests {
         assert!(parsed_players.players[0].attacked_by[2]);
         assert!(parsed_players.players[0].units_should_hunt);
         assert_eq!(parsed_players.players[0].current_selection, [11, 22]);
+        assert!(parsed_players.players[0].did_preorder);
 
         let mut teams_only = Cursor::new(Vec::<u8>::new());
         {
@@ -1051,6 +1175,11 @@ mod tests {
         assert_eq!(parsed_teams.teams[0].destroy_threshold, -1);
         assert!(parsed_teams.teams[0].see_enemy);
         assert_eq!(parsed_teams.teams[0].current_waypoint_id, 9);
+        assert_eq!(parsed_teams.teams[0].state, "Attacking");
+        assert_eq!(parsed_teams.teams[0].team_relations[0].team_id, 8);
+        assert_eq!(parsed_teams.teams[0].team_relations[0].relationship, 1);
+        assert_eq!(parsed_teams.teams[0].player_relations[0].player_index, 2);
+        assert_eq!(parsed_teams.teams[0].player_relations[0].relationship, 2);
         let _ = parsed_players;
     }
 
@@ -1068,6 +1197,7 @@ mod tests {
         usa.set_attacked_by(3);
         usa.units_should_hunt = true;
         usa.selected_objects = vec![ObjectId(11), ObjectId(22)];
+        usa.did_preorder = true;
         logic.add_player(usa);
 
         stamp_from_live(&logic);
@@ -1090,5 +1220,6 @@ mod tests {
             player.selected_objects,
             vec![ObjectId(11), ObjectId(22)]
         );
+        assert!(player.did_preorder);
     }
 }

@@ -995,16 +995,10 @@ impl CnCGameEngine {
         let ids: Vec<crate::game_logic::ObjectId> =
             frame.alive_selectable_friendly_harvester_ids(team);
         if ids.is_empty() {
-            let msg = "No harvesters found";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
         // Wave 583: selection residual via host_set_selection.
         self.host_set_selection(self.current_player_id, ids);
-        let msg = format!("Selected {} harvesters", self.selected_objects.len());
-        self.game_hud.push_info_message(&msg);
-        self.ui_manager.game_hud_mut().push_info_message(&msg);
         self.play_sound_effect(SoundType::Select);
     }
 
@@ -1018,17 +1012,11 @@ impl CnCGameEngine {
         let ids: Vec<crate::game_logic::ObjectId> =
             frame.alive_selectable_friendly_idle_harvester_ids(team);
         if ids.is_empty() {
-            let msg = "No idle harvesters";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
         // Wave 583: selection residual via host_set_selection.
         self.host_set_selection(self.current_player_id, ids);
         self.play_sound_effect(SoundType::Select);
-        let msg = format!("Selected {} idle harvesters", self.selected_objects.len());
-        self.game_hud.push_info_message(&msg);
-        self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
 
     /// Cycle construction panel tab residual (`[` / `]`).
@@ -1049,17 +1037,6 @@ impl CnCGameEngine {
         let next = (((idx + delta) % n) + n) % n;
         let tab = tabs[next as usize];
         self.game_hud.construction_panel.force_tab(tab);
-        let label = match tab {
-            ConstructionTab::Buildings => "Buildings",
-            ConstructionTab::Infantry => "Infantry",
-            ConstructionTab::Vehicles => "Vehicles",
-            ConstructionTab::Aircraft => "Aircraft",
-            ConstructionTab::NavalUnits => "Naval",
-            ConstructionTab::SuperWeapons => "Superweapons",
-        };
-        let msg = format!("Construction tab: {label}");
-        self.game_hud.push_info_message(&msg);
-        self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
 
     /// Select friendly units near camera (on-screen residual, Ctrl+Alt+A).
@@ -1083,17 +1060,11 @@ impl CnCGameEngine {
         }
         ids.sort_by_key(|id| id.0);
         if ids.is_empty() {
-            let msg = "No structures found";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
         // Wave 583: selection residual via host_set_selection.
         self.host_set_selection(self.current_player_id, ids);
         self.play_sound_effect(SoundType::Select);
-        let msg = format!("Selected {} structures", self.selected_objects.len());
-        self.game_hud.push_info_message(&msg);
-        self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
 
     /// Adjust guard radius on selected guarding units residual (Alt+[ / ]).
@@ -1119,9 +1090,6 @@ impl CnCGameEngine {
             any = true;
         }
         if any {
-            let msg = "Path cleared";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             self.play_sound_effect(SoundType::Command);
         }
     }
@@ -1166,9 +1134,6 @@ impl CnCGameEngine {
             self.camera_target.x = clamped.x;
             self.camera_target.z = clamped.z;
         }
-        let msg = "Damaged unit selected";
-        self.game_hud.push_info_message(msg);
-        self.ui_manager.game_hud_mut().push_info_message(msg);
     }
 
     pub(super) fn adjust_selected_guard_radius(&mut self, delta: f32) {
@@ -1177,19 +1142,8 @@ impl CnCGameEngine {
         if selected.is_empty() {
             return;
         }
-        let mut any = false;
-        let mut last_r = 0.0_f32;
         for id in selected {
-            if let Some(r) = self.host_adjust_unit_guard_radius(id, delta) {
-                last_r = r;
-                any = true;
-            }
-        }
-
-        if any {
-            let msg = format!("Guard radius: {last_r:.0}");
-            self.game_hud.push_info_message(&msg);
-            self.ui_manager.game_hud_mut().push_info_message(&msg);
+            let _ = self.host_adjust_unit_guard_radius(id, delta);
         }
     }
 

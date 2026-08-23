@@ -253,7 +253,8 @@ fn baikonur_launch_door_and_detonation() {
 #[test]
 fn spectre_orbit_spawns_howitzer_shell_objects() {
     use crate::game_logic::special_power_strikes::{
-        SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES, SPECTRE_HOWITZER_SHELL_OBJECT,
+        SPECTRE_HOWITZER_FIRE_SOUND, SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES,
+        SPECTRE_HOWITZER_SHELL_OBJECT,
     };
     use crate::game_logic::KindOf;
     let mut logic = GameLogic::new();
@@ -284,6 +285,15 @@ fn spectre_orbit_spawns_howitzer_shell_objects() {
         .special_power_strikes
         .record_orbit_tick_complete(field_id, 0.0, 0, 0, logic.frame);
     logic.spawn_spectre_howitzer_shell_objects_for_new_spawns();
+    assert!(
+        logic.queued_audio_events.iter().any(|e| {
+            e.event_type == SPECTRE_HOWITZER_FIRE_SOUND
+                && e.object_id == Some(caster)
+                && !e.stop
+        }),
+        "howitzer volley must queue HowitzerFireSound on the gunship: {:?}",
+        logic.queued_audio_events
+    );
     assert!(logic
         .special_power_strikes
         .honesty_howitzer_shell_object_spawn_ok());

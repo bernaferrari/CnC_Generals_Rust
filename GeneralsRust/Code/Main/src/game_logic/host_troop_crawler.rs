@@ -25,7 +25,7 @@
 //!   (`host_heal::update_transport_health_regen`); not DamagePercentToUnits matrix
 //! - Not full IR detector FX / IRParticleSys bones
 //! - Not network transport / deploy replication (network deferred)
-//! - Wounded-retrieve residual is host-simplified (instant enter/exit, no path AI)
+//! - AssaultTransportAIUpdate wounded retrieve / healthy eject use aiEnter / aiExit walks
 
 use super::Weapon;
 use serde::{Deserialize, Serialize};

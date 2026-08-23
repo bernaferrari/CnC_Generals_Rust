@@ -269,6 +269,7 @@ impl Team {
         generic_attempts: &[Bool],
         recruitability_set: Bool,
         recruitable: Bool,
+        state: &str,
     ) {
         self.created = created;
         self.active = active;
@@ -283,6 +284,7 @@ impl Team {
         }
         self.recruitability_set = recruitability_set;
         self.recruitable = recruitable;
+        self.state = state.to_string().into();
     }
 
 
