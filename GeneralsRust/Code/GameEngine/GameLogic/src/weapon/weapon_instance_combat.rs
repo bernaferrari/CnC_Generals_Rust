@@ -35,7 +35,7 @@ use super::store::with_weapon_store_mut;
 use super::weapon_instance::Weapon;
 
 impl Weapon {
-    pub(crate) fn handle_projectileless_flight_damage(
+    pub fn handle_projectileless_flight_damage(
         &self,
         source_obj_id: ObjectId,
         source_pos: &Coord3D,

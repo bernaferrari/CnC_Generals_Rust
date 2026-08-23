@@ -922,11 +922,15 @@ impl GameLogic {
     ///
     /// C++ `SlavedUpdate::doRepairLogic` (`SlavedUpdate.cpp:413-495`): heal only
     /// when `distSqr < 12*12` and `m_repairing` after the first weld spark.
+    /// Welding enter queues leftover MiscAudio RepairSparks at the weld pose
+    /// (`SlavedUpdate.cpp:601-627` / leftover `spawn_welding_fx`).
     /// Fail-closed: not full arm pack/unpack weld FX / RepairMinAltitude matrix.
     pub fn update_battle_drone_repair_residual(&mut self, dt: f32) {
         use crate::game_logic::host_slave_drones::{
             battle_drone_repair_amount_for_frame, battle_drone_should_idle_repair_master,
-            battle_drone_weld_close_enough, is_battle_drone_template,
+            battle_drone_weld_close_enough, battle_drone_weld_pose, is_battle_drone_template,
+            BATTLE_DRONE_REPAIR_SPARKS_AUDIO, BATTLE_DRONE_REPAIR_WELDING_FX_BONE,
+            BATTLE_DRONE_REPAIR_WELDING_SYS,
         };
 
         // C++ doRepairLogic heals TheGameLogic->findObjectByID(m_slaver) only.
@@ -976,8 +980,31 @@ impl GameLogic {
                 continue;
             }
             let close = battle_drone_weld_close_enough(dist);
-            let weld = self.battle_drone_weld_states.entry(drone_id).or_default();
-            if !weld.tick(close) || heal <= 0.0 {
+            let (heal_now, play_sparks) = {
+                let weld = self.battle_drone_weld_states.entry(drone_id).or_default();
+                let heal_now = weld.tick(close);
+                (heal_now, weld.weld_fx_this_tick)
+            };
+            if play_sparks && !BATTLE_DRONE_REPAIR_WELDING_SYS.is_empty() {
+                let bone = self.objects.get(&drone_id).and_then(|drone| {
+                    gamelogic::object::draw::lookup_pristine_bone_translation(
+                        drone.thing.template.get_model_name(),
+                        drone.thing.template.asset_scale,
+                        BATTLE_DRONE_REPAIR_WELDING_FX_BONE,
+                    )
+                    .map(|c| glam::Vec3::new(c.x, c.z, c.y))
+                });
+                let pose = battle_drone_weld_pose(dpos, bone);
+                let event = crate::game_logic::host_economy_log::resolve_misc_audio_event(
+                    BATTLE_DRONE_REPAIR_SPARKS_AUDIO,
+                );
+                self.queue_audio_event(
+                    AudioEventRequest::new(&event)
+                        .with_object(drone_id)
+                        .with_position(pose),
+                );
+            }
+            if !heal_now || heal <= 0.0 {
                 continue;
             }
             if let Some(master) = self.objects.get_mut(&slaver_id) {

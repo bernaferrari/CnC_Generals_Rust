@@ -2,8 +2,6 @@ use crate::connection::ConnectionManager;
 use crate::error::{NetworkError, NetworkResult};
 use crate::security::encryption::{self, EncryptedPacket, EncryptionProvider};
 use crate::security::SecurityManager;
-#[cfg(test)]
-use crate::transport::Transport;
 use std::net::SocketAddr;
 use std::sync::{Arc, Weak};
 use tokio::sync::RwLock;
@@ -304,11 +302,9 @@ mod tests {
             .await
             .expect("confirm exchange");
 
-        let mut manager = ConnectionManager::new_with_transport(Arc::new(
-            Transport::new().await.expect("transport"),
-        ))
-        .await
-        .expect("connection manager");
+        let mut manager = ConnectionManager::new()
+            .await
+            .expect("connection manager");
         manager.set_security_manager(local.clone());
         manager.register_test_peer(REMOTE_ID, sample_addr()).await;
 

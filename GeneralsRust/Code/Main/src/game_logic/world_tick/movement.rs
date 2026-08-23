@@ -1105,12 +1105,20 @@ impl GameLogic {
 
     /// Drain global fire-spawn queue into host CombatSystem (fire-spawn authority apply).
     pub(crate) fn drain_pending_projectiles_into_combat(&mut self) {
+        crate::game_logic::host_historic_bonus::set_logic_frame(self.frame);
         crate::game_logic::combat::drain_pending_projectiles(
             &mut self.combat_system,
             &self.objects,
         );
+        crate::game_logic::combat::apply_ready_projectileless_delayed_damage(
+            &mut self.combat_system,
+            &mut self.objects,
+            self.frame,
+            Some(&self.players),
+        );
         self.execute_pending_weapon_fire_ocls();
     }
+
 
     /// Hit-only projectile pass after GameWorld flight integrate writeback.
     pub(crate) fn resolve_projectiles_hits_only(&mut self) -> Vec<ObjectId> {

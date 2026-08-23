@@ -1662,6 +1662,13 @@ pub struct ThingTemplate {
     /// `SpecialAbilityUpdate::PackSound` for the capture module.
     #[serde(default)]
     pub capture_pack_sound: Option<String>,
+    /// `SpecialAbilityUpdate::TriggerSound` for the capture module.
+    #[serde(default)]
+    pub capture_trigger_sound: Option<String>,
+    /// `SpecialAbilityUpdate::TriggerSound` for leftover steal/disable modules.
+    #[serde(default)]
+    pub leftover_sa_trigger_sound: Option<String>,
+
 
 
     pub special_power_cooldown: f32,
@@ -1986,6 +1993,9 @@ impl ThingTemplate {
             capture_pack_unpack_variation_factor: 0.0,
             capture_unpack_sound: None,
             capture_pack_sound: None,
+            capture_trigger_sound: None,
+            leftover_sa_trigger_sound: None,
+
 
             special_power_cooldown: 10.0,
 

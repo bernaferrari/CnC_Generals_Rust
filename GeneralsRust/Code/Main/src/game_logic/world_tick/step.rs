@@ -808,12 +808,18 @@ impl GameLogic {
 
         // Projectiles: drain global fire queue into host CombatSystem and step.
         // Sole ownership — engine must not maintain a second mid-frame CombatSystem.
+        crate::game_logic::host_historic_bonus::set_logic_frame(self.frame);
         {
             let objects = &self.objects;
-            // drain needs &HashMap - self.objects is that
             crate::game_logic::combat::drain_pending_projectiles(&mut self.combat_system, objects);
-            crate::game_logic::host_historic_bonus::set_logic_frame(self.frame);
         }
+        crate::game_logic::combat::apply_ready_projectileless_delayed_damage(
+            &mut self.combat_system,
+            &mut self.objects,
+            self.frame,
+            Some(&self.players),
+        );
+
         // C++ Weapon::fireWeaponTemplate runs FireOCL at shot acceptance,
         // independently of whether the projectile later finds a target.
         self.execute_pending_weapon_fire_ocls();
@@ -1169,6 +1175,12 @@ impl GameLogic {
         // -----------------------------------------------------------------------
         // C++: TheWeaponStore->UPDATE();
         // Process delayed weapon damage that is now ready.
+        crate::game_logic::combat::apply_ready_projectileless_delayed_damage(
+            &mut self.combat_system,
+            &mut self.objects,
+            self.frame,
+            Some(&self.players),
+        );
         if let Err(e) = with_weapon_store_mut(|store| store.update()) {
             // "not initialized" is expected before map load; skip silently
             let err_str = e.to_string();
@@ -1176,6 +1188,7 @@ impl GameLogic {
                 log::warn!("Weapon store update failed: {}", e);
             }
         }
+
 
         // -----------------------------------------------------------------------
         // Phase 14b: Locomotor Store Update (C++ line 3768)

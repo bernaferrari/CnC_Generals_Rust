@@ -284,9 +284,10 @@ pub use super::host_helix_napalm::{
     UPGRADE_HELIX_NAPALM_BOMB,
 };
 pub use super::host_hero_abilities::{
-    HostHeroAbilityRegistry, DISABLE_VEHICLE_HACK_AUDIO, DISABLE_VEHICLE_HACK_DURATION_FRAMES,
-    SNIPE_VEHICLE_AUDIO, STEAL_CASH_AUDIO, STEAL_CASH_DEFAULT_AMOUNT,
+    HostHeroAbilityRegistry, DISABLE_VEHICLE_HACK_DURATION_FRAMES, SNIPE_VEHICLE_AUDIO,
+    STEAL_CASH_DEFAULT_AMOUNT,
 };
+
 pub use super::host_humvee::{
     is_humvee_template, HUMVEE_MISSILE_WEAPON_AIR, HUMVEE_TRANSPORT_SLOTS,
 };

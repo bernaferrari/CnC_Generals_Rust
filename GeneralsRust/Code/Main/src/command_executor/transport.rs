@@ -137,7 +137,11 @@ impl<'a> CommandExecutor<'a> {
                             .game_logic
                             .can_execute_infantry_unmanned_recrew(unit_id, target_id))
             });
-            if !unmanned_recrew && !self.can_issue_enter(unit_id, target_id) {
+            if self
+                .game_logic
+                .is_enter_target_shrouded_for_action(unit_id, target_id)
+                || (!unmanned_recrew && !self.can_issue_enter(unit_id, target_id))
+            {
                 continue;
             }
 

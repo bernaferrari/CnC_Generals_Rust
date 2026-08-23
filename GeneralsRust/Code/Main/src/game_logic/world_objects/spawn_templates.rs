@@ -515,6 +515,8 @@ impl GameLogic {
         Self::apply_authored_special_power_module_metadata(&mut template, definition);
         Self::apply_authored_hacker_disable_building_metadata(&mut template, definition);
         Self::apply_authored_charge_plant_metadata(&mut template, definition);
+        Self::apply_authored_leftover_sa_trigger_sound(&mut template, definition);
+
 
         Self::apply_authored_overcharge_metadata(&mut template, definition);
         Self::apply_authored_power_plant_update_metadata(&mut template, definition);
@@ -3114,6 +3116,42 @@ impl GameLogic {
         }
     }
 
+    /// C++ `SpecialAbilityUpdateModuleData::m_triggerSound` (INI `TriggerSound`).
+    /// Retail Lotus steal/disable author `BlackLotusTrigger`.
+    fn apply_authored_leftover_sa_trigger_sound(
+        template: &mut ThingTemplate,
+        definition: &ObjectDefinition,
+    ) {
+        template.leftover_sa_trigger_sound = None;
+        for module in &definition.behavior_modules {
+            if !module
+                .class_name
+                .eq_ignore_ascii_case("SpecialAbilityUpdate")
+            {
+                continue;
+            }
+            let Some(power) = module
+                .attribute("SpecialPowerTemplate")
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+            else {
+                continue;
+            };
+            let lower = power.to_ascii_lowercase();
+            if !(lower.contains("stealcash") || lower.contains("disablevehicle")) {
+                continue;
+            }
+            if let Some(sound) = module
+                .attribute("TriggerSound")
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                template.leftover_sa_trigger_sound = Some(sound.to_string());
+            }
+        }
+    }
+
+
     /// Retain the exact StealthUpdate friendly opacity bounds used by
     /// C++ `StealthUpdate::getFriendlyOpacity`. Missing fields retain the
     /// module-data defaults; malformed present values fail closed to those
@@ -3617,6 +3655,9 @@ impl GameLogic {
                 template.capture_pack_unpack_variation_factor = 0.0;
                 template.capture_unpack_sound = None;
                 template.capture_pack_sound = None;
+                template.capture_trigger_sound = None;
+
+
 
                 return;
             }
@@ -3633,6 +3674,9 @@ impl GameLogic {
         template.capture_pack_unpack_variation_factor = 0.0;
         template.capture_unpack_sound = None;
         template.capture_pack_sound = None;
+        template.capture_trigger_sound = None;
+
+
 
         if power == CapturePowerKind::None {
             return;
@@ -3689,6 +3733,12 @@ impl GameLogic {
                     .map(str::trim)
                     .filter(|value| !value.is_empty())
                     .map(str::to_string);
+                template.capture_trigger_sound = module
+                    .attribute("TriggerSound")
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string);
+
 
             } else if module
                 .class_name
@@ -3820,6 +3870,8 @@ impl GameLogic {
                 Self::apply_authored_special_power_module_metadata(template, &definition);
                 Self::apply_authored_hacker_disable_building_metadata(template, &definition);
                 Self::apply_authored_charge_plant_metadata(template, &definition);
+                Self::apply_authored_leftover_sa_trigger_sound(template, &definition);
+
 
                 Self::apply_authored_overcharge_metadata(template, &definition);
                 Self::apply_authored_power_plant_update_metadata(template, &definition);
@@ -4056,6 +4108,8 @@ impl GameLogic {
         Self::apply_authored_special_power_module_metadata(template, definition);
         Self::apply_authored_hacker_disable_building_metadata(template, definition);
         Self::apply_authored_charge_plant_metadata(template, definition);
+        Self::apply_authored_leftover_sa_trigger_sound(template, definition);
+
         Self::apply_authored_overcharge_metadata(template, definition);
         Self::apply_authored_power_plant_update_metadata(template, definition);
         Self::apply_authored_temporary_weapon_behavior_metadata(template, definition);

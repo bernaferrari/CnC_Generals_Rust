@@ -725,6 +725,40 @@ impl GameLogic {
         );
     }
 
+    /// C++ `triggerAbilityEffect` TheAudio add of INI `TriggerSound`
+    /// (`SpecialAbilityUpdate.cpp:1267-1269`; leftover
+    /// `special_ability_update.rs:1196-1204`) with the source object ID.
+    fn leftover_sa_play_trigger_sound(&mut self, object_id: ObjectId, name: &str) {
+        if name.is_empty() {
+            return;
+        }
+        // Leftover `special_ability_update.rs:1196-1204` TheAudio add with object ID.
+        // Live drain (`play_sound_through_the_audio_at`) is leftover TheAudio add.
+        self.queue_object_named_audio(object_id, name, 160, false, false);
+    }
+
+
+    fn leftover_sa_queue_trigger_sound(
+        &mut self,
+        object_id: ObjectId,
+        kind: crate::game_logic::host_hero_abilities::LeftoverSaKind,
+    ) {
+        let authored = self
+            .objects
+            .get(&object_id)
+            .and_then(|object| object.thing.template.leftover_sa_trigger_sound.clone())
+            .filter(|name| !name.is_empty());
+        let name = authored.or_else(|| {
+            crate::game_logic::host_hero_abilities::leftover_sa_trigger_sound(kind)
+                .map(str::to_string)
+        });
+        let Some(name) = name else {
+            return;
+        };
+        self.leftover_sa_play_trigger_sound(object_id, &name);
+    }
+
+
     /// C++ `SpecialAbilityUpdate` PackSound / UnpackSound / PrepSoundLoop.
     fn queue_object_named_audio(
         &mut self,
@@ -823,6 +857,32 @@ impl GameLogic {
                 .with_priority(150),
         );
     }
+
+    /// C++ `triggerAbilityEffect` INI `TriggerSound` on the capturer.
+    /// Authored first; Lotus falls back to retail `BlackLotusTrigger`.
+    fn queue_capture_trigger_sound(
+        &mut self,
+        object_id: ObjectId,
+        power: crate::game_logic::CapturePowerKind,
+    ) {
+        let authored = self
+            .objects
+            .get(&object_id)
+            .and_then(|object| object.thing.template.capture_trigger_sound.clone())
+            .filter(|name| !name.is_empty());
+        let name = authored.or_else(|| {
+            if matches!(power, crate::game_logic::CapturePowerKind::BlackLotus) {
+                Some(crate::game_logic::host_hero_abilities::LOTUS_TRIGGER_SOUND.to_string())
+            } else {
+                None
+            }
+        });
+        let Some(name) = name else {
+            return;
+        };
+        self.leftover_sa_play_trigger_sound(object_id, &name);
+    }
+
 
     /// C++ `startPacking(success)` VoiceCaptureBuildingComplete / VoiceTaskComplete.
     /// Never queues the slot token; skip when the authored event is empty.
@@ -5249,6 +5309,10 @@ impl GameLogic {
                         object_id,
                         Self::award_xp_for_capture_trigger(capture_power),
                     );
+                    // C++ `triggerAbilityEffect` always plays INI TriggerSound
+                    // (`SpecialAbilityUpdate.cpp:1267-1269`) before the switch.
+                    self.queue_capture_trigger_sound(object_id, capture_power);
+
 
                     let did_capture =
                         if self.can_unit_capture_building(object_id, capture_target_id, false) {
@@ -5354,15 +5418,8 @@ impl GameLogic {
                         }
                         if capture_power == crate::game_logic::CapturePowerKind::BlackLotus {
                             self.hero_abilities.record_building_capture();
-                            self.queue_audio_event(
-                                AudioEventRequest::new(
-                                    crate::game_logic::host_hero_abilities::CAPTURE_BUILDING_AUDIO,
-                                )
-                                .with_object(object_id)
-                                .with_position(position)
-                                .with_priority(160),
-                            );
                         }
+
                         if capture_power == crate::game_logic::CapturePowerKind::BlackLotus {
                             if let Some(object) = self.objects.get_mut(&object_id) {
                                 // C++ triggerAbilityEffect restarts only the
@@ -5680,7 +5737,10 @@ impl GameLogic {
                             dt,
                         ) {
                             LeftoverSaTick::Waiting | LeftoverSaTick::Finished => continue,
-                            LeftoverSaTick::Trigger => {}
+                            LeftoverSaTick::Trigger => {
+                                self.leftover_sa_queue_trigger_sound(object_id, kind);
+                            }
+
                         }
                     }
 
@@ -6179,16 +6239,9 @@ impl GameLogic {
                                     special_target_id,
                                     stolen,
                                 );
-                                self.queue_audio_event(
-                                    AudioEventRequest::new(
-                                        crate::game_logic::host_hero_abilities::STEAL_CASH_AUDIO,
-                                    )
-                                    .with_object(object_id)
-                                    .with_position(position)
-                                    .with_priority(160),
-                                );
                                 let msg =
                                     localization::localize("hud.cash_hack.complete", "Cash stolen");
+
                                 self.queue_radar_message_for_team(team, msg);
                             }
                             if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -6336,14 +6389,6 @@ impl GameLogic {
                             }
                             self.leftover_kill_special_objects(object_id);
                             self.hero_abilities.record_vehicle_disable();
-                            self.queue_audio_event(
-                                AudioEventRequest::new(
-                                    crate::game_logic::host_hero_abilities::DISABLE_VEHICLE_HACK_AUDIO,
-                                )
-                                .with_object(special_target_id)
-                                .with_position(target_position)
-                                .with_priority(170),
-                            );
                             let msg = localization::localize(
                                 "hud.vehicle_hack.disabled",
                                 "Vehicle disabled",

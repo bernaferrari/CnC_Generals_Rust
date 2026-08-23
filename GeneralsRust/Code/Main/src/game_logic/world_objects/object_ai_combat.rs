@@ -119,7 +119,10 @@ impl GameLogic {
                             is_homing: false,
                             damage_type: crate::game_logic::combat::DamageType::Bullet,
                             death_type: crate::game_logic::host_usa_pilot::HostDeathType::Normal,
-                            projectile_object_name: String::new(),
+                            projectile_object_name: wname
+                                .map(crate::game_logic::weapon_bootstrap::host_projectile_name_for_weapon_name)
+                                .unwrap_or_default(),
+
                             projectile_lifecycle: None,
                             fire_fx_name: wname
                                 .map(|name| {

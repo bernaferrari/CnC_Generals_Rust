@@ -3864,6 +3864,78 @@ fn leftover_lotus_unpack_sets_model_and_unpack_sound() {
     );
 }
 
+/// C++ `triggerAbilityEffect` plays INI `TriggerSound` (`BlackLotusTrigger`),
+/// not invented `BlackLotusStealCash` / `BlackLotusDisableVehicle` names.
+#[test]
+fn leftover_sa_trigger_queues_ini_trigger_sound() {
+    use crate::game_logic::host_hero_abilities::LOTUS_TRIGGER_SOUND;
+    let mut game_logic = GameLogic::new();
+    ensure_test_black_lotus_template(&mut game_logic);
+    if let Some(template) = game_logic.templates.get_mut("ChinaInfantryBlackLotus") {
+        template.leftover_sa_trigger_sound = Some(LOTUS_TRIGGER_SOUND.to_string());
+    }
+    ensure_test_structure_template(&mut game_logic);
+    ensure_test_player_for_team(&mut game_logic, Team::China);
+    ensure_test_player_for_team(&mut game_logic, Team::GLA);
+    {
+        let victim = game_logic
+            .get_player_mut_by_team(Team::GLA)
+            .expect("GLA player");
+        victim.resources.supplies = 5_000;
+    }
+    let lotus_id = game_logic
+        .create_object(
+            "ChinaInfantryBlackLotus",
+            Team::China,
+            Vec3::new(100.0, 0.0, 0.0),
+        )
+        .expect("lotus");
+    let target_id = game_logic
+        .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("supply");
+    game_logic.queue_command(crate::command_system::GameCommand {
+        command_type: crate::command_system::CommandType::StealCashHack { target_id },
+        player_id: 1,
+        command_id: 1,
+        timestamp: std::time::SystemTime::now(),
+        selected_units: vec![lotus_id],
+        modifier_keys: crate::command_system::ModifierKeys::default(),
+    });
+    game_logic.process_commands();
+    {
+        let lotus = game_logic.host_object_mut(lotus_id).expect("lotus");
+        lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
+        lotus.set_ai_state(AIState::SpecialAbility);
+        lotus.target = Some(target_id);
+    }
+    game_logic.update_ai(&[lotus_id, target_id], 1.0 / 60.0);
+    game_logic.update_ai(&[lotus_id, target_id], 1.0);
+    game_logic.update_ai(&[lotus_id, target_id], 7.0);
+    game_logic.queued_audio_events.clear();
+    game_logic.update_ai(&[lotus_id, target_id], 6.0);
+    assert!(
+        game_logic
+            .queued_audio_events
+            .iter()
+            .any(|event| event.event_type == LOTUS_TRIGGER_SOUND),
+        "leftover_sa trigger must queue INI TriggerSound BlackLotusTrigger, got {:?}",
+        game_logic
+            .queued_audio_events
+            .iter()
+            .map(|event| event.event_type.as_str())
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        game_logic.queued_audio_events.iter().all(|event| {
+            event.event_type != "BlackLotusStealCash"
+                && event.event_type != "BlackLotusDisableVehicle"
+                && event.event_type != "BlackLotusCaptureBuilding"
+        }),
+        "leftover_sa trigger must not invent cash/disable/capture SFX names"
+    );
+}
+
+
 /// C++ initiateIntentToDoSpecialPower onExit siblings — no leftover hot-swap.
 #[test]
 fn leftover_sa_hot_swap_aborts_in_flight_channel() {
