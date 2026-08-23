@@ -253,6 +253,8 @@ pub struct HostLocomotorBinding {
     pub apply_2d_friction_when_airborne: bool,
     /// C++ LocomotorTemplate::m_allowMotiveForceWhileAirborne.
     pub allow_motive_force_while_airborne: bool,
+    /// C++ LocomotorTemplate::m_locomotorWorksWhenDead.
+    pub locomotor_works_when_dead: bool,
     /// C++ LocomotorTemplate::m_airborneTargetingHeight (INT_MAX if omitted).
     pub airborne_targeting_height: i32,
     pub can_move_backward: bool,
@@ -901,6 +903,7 @@ fn host_locomotor_binding_from_template(t: &LocomotorTemplate) -> Option<HostLoc
         extra_2d_friction: t.extra_2d_friction,
         apply_2d_friction_when_airborne: t.apply_2d_friction_when_airborne,
         allow_motive_force_while_airborne: t.allow_motive_force_while_airborne,
+        locomotor_works_when_dead: t.locomotor_works_when_dead,
         airborne_targeting_height: if t.airborne_targeting_height == 0 {
             i32::MAX
         } else {
@@ -973,6 +976,7 @@ pub fn apply_host_locomotor_binding(
     object.loco_extra_2d_friction = binding.extra_2d_friction;
     object.loco_apply_2d_friction_airborne = binding.apply_2d_friction_when_airborne;
     object.allow_motive_force_while_airborne = binding.allow_motive_force_while_airborne;
+    object.locomotor_works_when_dead = binding.locomotor_works_when_dead;
     object.airborne_targeting_height = binding.airborne_targeting_height;
     object.can_move_backward = binding.can_move_backward;
     object.downhill_only = binding.downhill_only;
@@ -1028,6 +1032,7 @@ fn same_host_locomotor_behavior(left: &HostLocomotorBinding, right: &HostLocomot
         && left.extra_2d_friction == right.extra_2d_friction
         && left.apply_2d_friction_when_airborne == right.apply_2d_friction_when_airborne
         && left.allow_motive_force_while_airborne == right.allow_motive_force_while_airborne
+        && left.locomotor_works_when_dead == right.locomotor_works_when_dead
         && left.airborne_targeting_height == right.airborne_targeting_height
         && left.can_move_backward == right.can_move_backward
         && left.downhill_only == right.downhill_only
@@ -1741,6 +1746,47 @@ mod tests {
 
         let mut changed = binding;
         changed.ultra_accurate_slide_factor += 1.0;
+        assert!(!same_host_locomotor_behavior(&binding, &changed));
+    }
+
+    #[test]
+    fn locomotor_works_when_dead_binds_and_applies() {
+        let mut properties = HashMap::new();
+        properties.insert("Speed".to_string(), "80".to_string());
+        properties.insert("Surfaces".to_string(), "AIR".to_string());
+        properties.insert("LocomotorWorksWhenDead".to_string(), "Yes".to_string());
+        let authored = parse_locomotor_template_definition("DeadJetLoco", &properties)
+            .expect("parse LocomotorWorksWhenDead");
+        assert!(authored.locomotor_works_when_dead);
+        let binding =
+            host_locomotor_binding_from_template(&authored).expect("bind works-when-dead");
+        assert!(binding.locomotor_works_when_dead);
+
+        let mut tmpl = ThingTemplate::new("DeadJetProbe");
+        tmpl.add_kind_of(KindOf::Aircraft);
+        let mut obj = Object::new(tmpl, ObjectId(2), Team::USA);
+        assert!(!obj.locomotor_works_when_dead);
+        apply_host_locomotor_binding(&mut obj, &binding);
+        assert!(obj.locomotor_works_when_dead);
+        obj.health.current = 0.0;
+        assert!(!obj.is_alive());
+        assert!(
+            !obj.host_skip_dead_locomotor(),
+            "authored dead locos keep motive"
+        );
+
+        let omitted = parse_locomotor_template_definition("GroundDeadNo", &{
+            let mut p = HashMap::new();
+            p.insert("Speed".to_string(), "20".to_string());
+            p.insert("Surfaces".to_string(), "GROUND".to_string());
+            p
+        })
+        .expect("parse omitted works-when-dead");
+        let omitted_binding =
+            host_locomotor_binding_from_template(&omitted).expect("bind omitted");
+        assert!(!omitted_binding.locomotor_works_when_dead);
+        let mut changed = binding;
+        changed.locomotor_works_when_dead = false;
         assert!(!same_host_locomotor_behavior(&binding, &changed));
     }
 

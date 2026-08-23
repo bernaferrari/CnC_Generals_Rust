@@ -12,11 +12,16 @@
 //!
 //! - Crush sweep: authored CrushingWeaponName (`ToppledStructureWeapon`) at
 //!   25/25 spacing (C++ `doDamageLine`), plus CrushingFX at each fire point
+//! - Leftover ToppleStartFX / ToppleDelayFX / ToppleDoneFX / AngleFX dispatch
+//!   (`doFXPos` start+delay, `doFXObj` done+angle)
+
 //!
 //! Fail-closed:
 //! - Not full OCL rubble / BoneFX / DieMux death-type filters
 
 use serde::{Deserialize, Serialize};
+use glam::Vec3;
+
 
 /// C++ TOPPLE_ACCELERATION_FACTOR
 pub const STRUCTURE_TOPPLE_ACCEL_FACTOR: f32 = 0.02;
@@ -74,6 +79,17 @@ pub enum HostStructureToppleState {
     Done = 4,
 }
 
+/// Leftover StructureTopple FXList event queued for live dispatch.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct StructureToppleFxEvent {
+    pub name: String,
+    /// `true` = leftover/C++ `doFXObj` (Done/Angle); `false` = `doFXPos` (Start/Delay).
+    pub at_object: bool,
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+}
+
 /// Per-structure StructureToppleUpdate residual.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostStructureToppleData {
@@ -115,6 +131,46 @@ pub struct HostStructureToppleData {
     /// Building yaw used for C++ facingWidth projection.
     #[serde(default)]
     pub orientation: f32,
+    /// Building world pose for Start/Delay FX (`doFXPos`).
+    #[serde(default)]
+    pub building_x: f32,
+    #[serde(default)]
+    pub building_y: f32,
+    #[serde(default)]
+    pub building_z: f32,
+    /// Authored leftover `ToppleStartFX`.
+    #[serde(default)]
+    pub topple_start_fx: String,
+    /// Authored leftover `ToppleDelayFX`.
+    #[serde(default)]
+    pub topple_delay_fx: String,
+    /// Authored leftover `ToppleDoneFX`.
+    #[serde(default)]
+    pub topple_done_fx: String,
+    /// Authored leftover `AngleFX` (radians, FXList name).
+    #[serde(default)]
+    pub angle_fx: Vec<(f32, String)>,
+    #[serde(default)]
+    pub min_burst_delay: u32,
+    #[serde(default)]
+    pub max_burst_delay: u32,
+    #[serde(default)]
+    pub next_burst_frame: u32,
+    #[serde(default)]
+    pub delay_burst_x: f32,
+    #[serde(default)]
+    pub delay_burst_y: f32,
+    #[serde(default)]
+    pub delay_burst_z: f32,
+    #[serde(default)]
+    pub start_fx_played: bool,
+    #[serde(default)]
+    pub done_fx_played: bool,
+    #[serde(default)]
+    pub last_polled_angle: f32,
+    #[serde(default)]
+    pub pending_fx: Vec<StructureToppleFxEvent>,
+
 }
 
 impl Default for HostStructureToppleData {
@@ -140,6 +196,24 @@ impl Default for HostStructureToppleData {
             major_radius: 0.0,
             minor_radius: 0.0,
             orientation: 0.0,
+            building_x: 0.0,
+            building_y: 0.0,
+            building_z: 0.0,
+            topple_start_fx: String::new(),
+            topple_delay_fx: String::new(),
+            topple_done_fx: String::new(),
+            angle_fx: Vec::new(),
+            min_burst_delay: 0,
+            max_burst_delay: 0,
+            next_burst_frame: 0,
+            delay_burst_x: 0.0,
+            delay_burst_y: 0.0,
+            delay_burst_z: 0.0,
+            start_fx_played: false,
+            done_fx_played: false,
+            last_polled_angle: 0.0,
+            pending_fx: Vec::new(),
+
         }
     }
 }
@@ -179,12 +253,24 @@ impl HostStructureToppleData {
         self.lean_radians = 0.0;
         self.last_crushed_location = 0.0;
         self.structural_integrity = STRUCTURE_TOPPLE_INTEGRITY_DEFAULT;
+        self.start_fx_played = false;
+        self.done_fx_played = false;
+        self.last_polled_angle = 0.0;
+        self.pending_fx.clear();
         self.state = HostStructureToppleState::WaitingForStart;
+        self.refresh_delay_burst_location();
+        self.poll_fx(current_frame);
     }
 
     /// One logic frame. Returns true when topple completes (doToppleDoneStuff).
     pub fn tick(&mut self, current_frame: u32) -> bool {
-        match self.state {
+        if matches!(
+            self.state,
+            HostStructureToppleState::Standing | HostStructureToppleState::Done
+        ) {
+            return false;
+        }
+        let done = match self.state {
             HostStructureToppleState::Standing | HostStructureToppleState::Done => false,
             HostStructureToppleState::WaitingForStart => {
                 if current_frame >= self.topple_start_frame {
@@ -195,8 +281,9 @@ impl HostStructureToppleData {
             }
             HostStructureToppleState::Toppling => {
                 let integrity_term = (1.0 - self.structural_integrity).max(0.0);
-                let topple_acceleration =
-                    STRUCTURE_TOPPLE_ACCEL_FACTOR * self.accumulated_angle.sin() * integrity_term;
+                let topple_acceleration = STRUCTURE_TOPPLE_ACCEL_FACTOR
+                    * self.accumulated_angle.sin()
+                    * integrity_term;
                 // C++ also accelerates from rest: give a small kick if still zero.
                 let accel = if self.topple_velocity <= 1e-6 && self.accumulated_angle <= 1e-6 {
                     STRUCTURE_TOPPLE_ACCEL_FACTOR * 0.05
@@ -224,11 +311,13 @@ impl HostStructureToppleData {
             HostStructureToppleState::WaitingForDone => {
                 if current_frame >= self.done_frame {
                     self.state = HostStructureToppleState::Done;
-                    return true;
+                    true
+                } else {
+                    false
                 }
-                false
             }
-        }
+        };
+        done
     }
 }
 
@@ -249,11 +338,63 @@ pub fn is_structure_topple_candidate(template_name: &str, is_structure: bool) ->
     true
 }
 
-/// Authored StructureToppleUpdate CrushingWeaponName + CrushingFX from leftover ThingFactory.
+/// Authored StructureToppleUpdate crush + leftover Start/Delay/Done/Angle FX.
 #[derive(Debug, Clone, Default)]
 pub struct AuthoredStructureTopplePeel {
     pub weapon: String,
     pub fx: String,
+    pub start_fx: String,
+    pub delay_fx: String,
+    pub done_fx: String,
+    pub angle_fx: Vec<(f32, String)>,
+    pub min_burst_delay: u32,
+    pub max_burst_delay: u32,
+}
+
+fn leftover_fx_list_name(list: &Option<std::sync::Arc<gamelogic::effects::FXList>>) -> String {
+    list.as_ref()
+        .map(|fx| fx.name().trim().to_string())
+        .filter(|n| !n.is_empty() && !n.eq_ignore_ascii_case("none"))
+        .unwrap_or_default()
+}
+
+fn parse_ini_u32_field(raw: &str) -> u32 {
+    raw.split_whitespace()
+        .find(|t| *t != "=")
+        .and_then(|t| t.parse().ok())
+        .unwrap_or(0)
+}
+
+fn parse_ini_angle_fx_field(raw: &str) -> Vec<(f32, String)> {
+    let toks: Vec<&str> = raw
+        .split_whitespace()
+        .filter(|t| *t != "=")
+        .collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i + 1 < toks.len() {
+        if let Ok(deg) = toks[i].parse::<f32>() {
+            let name = toks[i + 1].trim();
+            if !name.is_empty() && !name.eq_ignore_ascii_case("none") {
+                out.push((deg * std::f32::consts::PI / 180.0, name.to_string()));
+            }
+            i += 2;
+        } else {
+            i += 1;
+        }
+    }
+    out
+}
+
+impl AuthoredStructureTopplePeel {
+    fn has_any(&self) -> bool {
+        !self.weapon.is_empty()
+            || !self.fx.is_empty()
+            || !self.start_fx.is_empty()
+            || !self.delay_fx.is_empty()
+            || !self.done_fx.is_empty()
+            || !self.angle_fx.is_empty()
+    }
 }
 
 pub fn leftover_structure_topple_module_peel(
@@ -275,36 +416,81 @@ pub fn leftover_structure_topple_module_peel(
             .downcast_ref::<gamelogic::object::behavior::StructureToppleUpdateModuleData>(
             )
         {
-            let weapon = data.crushing_weapon_name.as_str().trim().to_string();
-            let fx = data
-                .crushing_fx_list
-                .as_ref()
-                .map(|fx| fx.name().to_string())
-                .unwrap_or_default();
-            if weapon.is_empty() && fx.is_empty() {
+            let peel = AuthoredStructureTopplePeel {
+                weapon: data.crushing_weapon_name.as_str().trim().to_string(),
+                fx: leftover_fx_list_name(&data.crushing_fx_list),
+                start_fx: leftover_fx_list_name(&data.topple_start_fx_list),
+                delay_fx: leftover_fx_list_name(&data.topple_delay_fx_list),
+                done_fx: leftover_fx_list_name(&data.topple_done_fx_list),
+                angle_fx: data
+                    .angle_fx
+                    .iter()
+                    .filter_map(|info| {
+                        let name = leftover_fx_list_name(&info.fx_list);
+                        if name.is_empty() {
+                            None
+                        } else {
+                            Some((info.angle, name))
+                        }
+                    })
+                    .collect(),
+                min_burst_delay: data.min_topple_burst_delay,
+                max_burst_delay: data.max_topple_burst_delay,
+            };
+            if !peel.has_any() {
                 return None;
             }
-            return Some(AuthoredStructureTopplePeel { weapon, fx });
+            return Some(peel);
         }
-        let weapon = entry
-            .data
-            .get_ini_field("CrushingWeaponName")
-            .unwrap_or("")
-            .trim()
-            .to_string();
-        let fx = entry
-            .data
-            .get_ini_field("CrushingFX")
-            .unwrap_or("")
-            .trim()
-            .to_string();
-        if weapon.is_empty() && fx.is_empty() {
+        let peel = AuthoredStructureTopplePeel {
+            weapon: entry
+                .data
+                .get_ini_field("CrushingWeaponName")
+                .unwrap_or("")
+                .trim()
+                .to_string(),
+            fx: entry
+                .data
+                .get_ini_field("CrushingFX")
+                .unwrap_or("")
+                .trim()
+                .to_string(),
+            start_fx: entry
+                .data
+                .get_ini_field("ToppleStartFX")
+                .unwrap_or("")
+                .trim()
+                .to_string(),
+            delay_fx: entry
+                .data
+                .get_ini_field("ToppleDelayFX")
+                .unwrap_or("")
+                .trim()
+                .to_string(),
+            done_fx: entry
+                .data
+                .get_ini_field("ToppleDoneFX")
+                .unwrap_or("")
+                .trim()
+                .to_string(),
+            angle_fx: parse_ini_angle_fx_field(
+                entry.data.get_ini_field("AngleFX").unwrap_or(""),
+            ),
+            min_burst_delay: parse_ini_u32_field(
+                entry.data.get_ini_field("MinToppleBurstDelay").unwrap_or(""),
+            ),
+            max_burst_delay: parse_ini_u32_field(
+                entry.data.get_ini_field("MaxToppleBurstDelay").unwrap_or(""),
+            ),
+        };
+        if !peel.has_any() {
             return None;
         }
-        return Some(AuthoredStructureTopplePeel { weapon, fx });
+        return Some(peel);
     }
     None
 }
+
 
 
 /// World-space crush sample from structure topple sweep.
@@ -387,6 +573,174 @@ impl HostStructureToppleData {
         self.orientation = orientation;
         self.facing_width = self.crush_facing_width();
     }
+
+    /// Stamp world pose used by leftover `doFXPos` Start/Delay.
+    pub fn bind_world_pos(&mut self, x: f32, y: f32, z: f32) {
+        self.building_x = x;
+        self.building_y = y;
+        self.building_z = z;
+    }
+
+    /// Bind leftover ToppleStart/Delay/Done/AngleFX + burst delay.
+    pub fn bind_topple_fx(&mut self, peel: &AuthoredStructureTopplePeel) {
+        if !peel.start_fx.is_empty() {
+            self.topple_start_fx = peel.start_fx.clone();
+        }
+        if !peel.delay_fx.is_empty() {
+            self.topple_delay_fx = peel.delay_fx.clone();
+        }
+        if !peel.done_fx.is_empty() {
+            self.topple_done_fx = peel.done_fx.clone();
+        }
+        if !peel.angle_fx.is_empty() {
+            self.angle_fx = peel.angle_fx.clone();
+        }
+        self.min_burst_delay = peel.min_burst_delay;
+        self.max_burst_delay = peel.max_burst_delay;
+    }
+
+    fn refresh_delay_burst_location(&mut self) {
+        let avg = if self.major_radius > 1e-6 || self.minor_radius > 1e-6 {
+            (self.major_radius + self.minor_radius) * 0.5
+        } else {
+            self.facing_width
+        };
+        let explosion_r = avg * 0.90;
+        self.delay_burst_x = self.building_x + explosion_r * self.dir_x;
+        self.delay_burst_z = self.building_z + explosion_r * self.dir_y;
+        self.delay_burst_y = self.building_y;
+    }
+
+    fn burst_delay_frames(&self, frame: u32) -> u32 {
+        let lo = self.min_burst_delay;
+        let hi = self.max_burst_delay.max(lo);
+        if hi <= lo {
+            lo
+        } else {
+            lo + (frame.wrapping_mul(1_103_515_245).wrapping_add(12_345) % (hi - lo + 1))
+        }
+    }
+
+    fn queue_pos_fx(&mut self, name: &str, x: f32, y: f32, z: f32) {
+        let name = name.trim();
+        if name.is_empty() || name.eq_ignore_ascii_case("none") {
+            return;
+        }
+        self.pending_fx.push(StructureToppleFxEvent {
+            name: name.to_string(),
+            at_object: false,
+            x,
+            y,
+            z,
+        });
+    }
+
+    fn queue_obj_fx(&mut self, name: &str) {
+        let name = name.trim();
+        if name.is_empty() || name.eq_ignore_ascii_case("none") {
+            return;
+        }
+        self.pending_fx.push(StructureToppleFxEvent {
+            name: name.to_string(),
+            at_object: true,
+            x: self.building_x,
+            y: self.building_y,
+            z: self.building_z,
+        });
+    }
+
+    fn queue_angle_crossings(&mut self, cur_angle: f32, new_angle: f32) {
+        for (angle, name) in &self.angle_fx.clone() {
+            if *angle > cur_angle && *angle <= new_angle {
+                self.queue_obj_fx(name);
+            }
+        }
+    }
+
+    /// Leftover `do_topple_start_fx` / delay burst / `do_angle_fx` / Done FX.
+    pub fn poll_fx(&mut self, current_frame: u32) {
+        if self.state == HostStructureToppleState::Standing {
+            return;
+        }
+        let just_started = !self.start_fx_played;
+        if just_started {
+            self.queue_pos_fx(
+                &self.topple_start_fx.clone(),
+                self.building_x,
+                self.building_y,
+                self.building_z,
+            );
+            self.start_fx_played = true;
+            self.next_burst_frame = current_frame.saturating_add(self.burst_delay_frames(current_frame));
+            self.last_polled_angle = self.accumulated_angle;
+        }
+        if !just_started
+            && matches!(
+                self.state,
+                HostStructureToppleState::WaitingForStart | HostStructureToppleState::Toppling
+            )
+            && current_frame >= self.next_burst_frame
+        {
+            self.queue_pos_fx(
+                &self.topple_delay_fx.clone(),
+                self.delay_burst_x,
+                self.delay_burst_y,
+                self.delay_burst_z,
+            );
+            self.next_burst_frame =
+                current_frame.saturating_add(self.burst_delay_frames(current_frame));
+        }
+        if matches!(
+            self.state,
+            HostStructureToppleState::Toppling
+                | HostStructureToppleState::WaitingForDone
+                | HostStructureToppleState::Done
+        ) {
+            let new_angle = self.accumulated_angle;
+            self.queue_angle_crossings(self.last_polled_angle, new_angle);
+            self.last_polled_angle = new_angle;
+        }
+        if matches!(
+            self.state,
+            HostStructureToppleState::WaitingForDone | HostStructureToppleState::Done
+        ) && !self.done_fx_played
+        {
+            self.queue_obj_fx(&self.topple_done_fx.clone());
+            self.done_fx_played = true;
+        }
+    }
+
+    pub fn take_pending_fx(&mut self) -> Vec<StructureToppleFxEvent> {
+        std::mem::take(&mut self.pending_fx)
+    }
+
+    /// Leftover `TheFXList` Start/Delay `doFXPos` + Done/Angle `doFXObj`.
+    pub fn dispatch_pending_fx(
+        &mut self,
+        object_id: u32,
+        object_pos: Vec3,
+        orientation: f32,
+        player_index: i32,
+    ) {
+        let events = self.take_pending_fx();
+        for ev in events {
+            if ev.at_object {
+                crate::game_logic::publish_host_fx_object(
+                    object_id,
+                    object_pos,
+                    orientation,
+                    player_index,
+                );
+                let _ = crate::game_logic::dispatch_fx_list_at_object(&ev.name, object_id, None);
+            } else {
+                let _ = crate::game_logic::dispatch_fx_list_at_pos(
+                    &ev.name,
+                    Vec3::new(ev.x, ev.y, ev.z),
+                );
+            }
+        }
+    }
+
 
     /// C++ applyCrushingDamage / doDamageLine via leftover 25/25 sweep.
     /// Updates `last_crushed_location`. Empty if theta above ceiling or no weapon.
@@ -520,4 +874,73 @@ mod tests {
         assert_eq!(t.state, HostStructureToppleState::Done);
         assert!((t.lean_radians - std::f32::consts::FRAC_PI_2).abs() < 1e-3);
     }
+
+    #[test]
+    fn leftover_start_delay_done_angle_fx_queue() {
+        let mut t = HostStructureToppleData::default();
+        t.topple_start_fx = "FX_ToppleStart".into();
+        t.topple_delay_fx = "FX_ToppleDelay".into();
+        t.topple_done_fx = "FX_ToppleDone".into();
+        t.angle_fx = vec![(0.2, "FX_ToppleAngle".into())];
+        t.min_burst_delay = 0;
+        t.max_burst_delay = 0;
+        t.bind_world_pos(10.0, 1.0, 20.0);
+        t.begin(0, 1.0, 0.0, 0);
+        let start = t.take_pending_fx();
+        assert!(
+            start.iter().any(|e| e.name == "FX_ToppleStart" && !e.at_object),
+            "leftover do_topple_start_fx is doFXPos: {start:?}"
+        );
+        assert!(
+            !start.iter().any(|e| e.name == "FX_ToppleDelay"),
+            "delay burst waits for first update"
+        );
+        let _ = t.tick(0);
+        t.poll_fx(0);
+        let delay = t.take_pending_fx();
+        assert!(
+            delay.iter().any(|e| e.name == "FX_ToppleDelay" && !e.at_object),
+            "leftover do_topple_delay_burst_fx is doFXPos: {delay:?}"
+        );
+        t.state = HostStructureToppleState::Toppling;
+        t.accumulated_angle = 0.25;
+        t.poll_fx(1);
+        let angle = t.take_pending_fx();
+        assert!(
+            angle.iter().any(|e| e.name == "FX_ToppleAngle" && e.at_object),
+            "leftover do_angle_fx is doFXObj: {angle:?}"
+        );
+        t.state = HostStructureToppleState::WaitingForDone;
+        t.accumulated_angle = std::f32::consts::FRAC_PI_2;
+        t.poll_fx(2);
+        let done = t.take_pending_fx();
+        assert!(
+            done.iter().any(|e| e.name == "FX_ToppleDone" && e.at_object),
+            "leftover ToppleDoneFX is doFXObj: {done:?}"
+        );
+    }
+
+    #[test]
+    fn live_death_path_dispatches_leftover_topple_fx() {
+        let death = include_str!("object/death.rs");
+        assert!(
+            death.contains("bind_topple_fx"),
+            "begin must bind leftover Start/Delay/Done/AngleFX"
+        );
+        assert!(
+            death.contains("dispatch_pending_structure_topple_fx"),
+            "live begin/tick must leftover-dispatch queued FX"
+        );
+        assert!(
+            death.contains("poll_structure_topple_fx"),
+            "coupled-shadow path must poll leftover topple FX"
+        );
+        let tick = include_str!("world_tick/ai.rs");
+        assert!(
+            tick.contains("poll_structure_topple_fx"),
+            "world tick must drain leftover topple FX under dual-peel"
+        );
+
+    }
+
 }

@@ -696,10 +696,22 @@ fn play_fx_when_stealthed_uses_the_retail_weapon_field() {
         "DragonTankFlameWeapon"
     ));
     assert!(host_allow_attack_garrisoned_for_weapon_name(
-        "AmericaRangerFlashBangGrenade"
+        RANGER_SECONDARY_WEAPON
+    ));
+    assert!(!host_allow_attack_garrisoned_for_weapon_name(
+        RANGER_PRIMARY_WEAPON
     ));
     assert!(!host_allow_attack_garrisoned_for_weapon_name(
         "AmericaTankCrusaderGun"
+    ));
+    assert!(host_weapon_is_kill_garrisoned_damage(
+        MICROWAVE_BUILDING_CLEARER_WEAPON
+    ));
+    assert!(!host_weapon_is_kill_garrisoned_damage(
+        RANGER_PRIMARY_WEAPON
+    ));
+    assert!(!host_weapon_is_kill_garrisoned_damage(
+        "DragonTankFlameWeapon"
     ));
 }
 #[test]

@@ -103,6 +103,7 @@ impl GameWorldShadow {
     }
 
     /// Wave 779: FWWDB onDamage reaction sole-emit after GW applied damage.
+    /// Leftover/C++ fire every qualifying damage event with no 1-frame debounce.
     pub(super) fn try_fwwd_reaction_for_host(
         &mut self,
         host: ObjectId,
@@ -112,7 +113,6 @@ impl GameWorldShadow {
         use crate::game_logic::host_enum_table_residual::{
             host_calc_body_damage_state, HostBodyDamageType,
         };
-        use crate::game_logic::host_fire_weapon_when_damaged::FWWDB_REACTION_DEBOUNCE_FRAMES;
         let Some(eid) = self.entity_for_host(host) else {
             return;
         };
@@ -120,11 +120,6 @@ impl GameWorldShadow {
             return;
         };
         if !e.fwwd_active || actual_damage < e.fwwd_damage_amount {
-            return;
-        }
-        if e.fwwd_last_reaction_frame > 0
-            && frame.saturating_sub(e.fwwd_last_reaction_frame) < FWWDB_REACTION_DEBOUNCE_FRAMES
-        {
             return;
         }
         let max_h = e.max_health.max(e.health).max(1.0);

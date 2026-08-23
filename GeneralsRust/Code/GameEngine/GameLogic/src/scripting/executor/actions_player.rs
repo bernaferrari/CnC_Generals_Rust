@@ -429,6 +429,15 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         log::debug!("Player '{}' garrisoning all buildings", player_name);
+        if super::dual_world_registry_unavailable() {
+            crate::scripting::request_host_script_garrison_enter(
+                crate::scripting::HostScriptGarrisonEnterExitRequest::PlayerGarrisonAll {
+                    player: player_name,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let object_ids = player_list()
             .read()
@@ -470,6 +479,15 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         log::debug!("Player '{}' exiting all buildings", player_name);
+        if super::dual_world_registry_unavailable() {
+            crate::scripting::request_host_script_garrison_enter(
+                crate::scripting::HostScriptGarrisonEnterExitRequest::PlayerExitAll {
+                    player: player_name,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let object_ids = player_list()
             .read()

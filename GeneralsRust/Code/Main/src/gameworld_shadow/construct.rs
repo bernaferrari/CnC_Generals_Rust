@@ -1460,6 +1460,7 @@ impl GameWorldShadow {
                     e.wander_width_factor = obj.wander_width_factor;
                     e.loco_apply_2d_friction_airborne = obj.loco_apply_2d_friction_airborne;
                     e.allow_motive_force_while_airborne = obj.allow_motive_force_while_airborne;
+                    e.locomotor_works_when_dead = obj.locomotor_works_when_dead;
                     e.loco_extra_2d_friction = obj.loco_extra_2d_friction;
                     e.loco_preferred_height = obj.loco_preferred_height;
                     e.loco_preferred_height_damping = obj.loco_preferred_height_damping;

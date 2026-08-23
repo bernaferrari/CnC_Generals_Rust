@@ -23,7 +23,7 @@ use thiserror::Error;
 
 #[path = "weapon_set_able.rs"]
 mod weapon_set_able;
-pub use weapon_set_able::get_victim_anti_mask;
+pub use weapon_set_able::{apparent_controller_blocks_player, get_victim_anti_mask};
 
 /// Wave 419: host-only path has no dual-world factory objects.
 #[inline]
@@ -1184,6 +1184,31 @@ impl WeaponSet {
     }
 }
 
+/// C++ WeaponSet.cpp:853-856 — skip a slot that would do no damage unless
+/// the authored type is DAMAGE_UNRESISTABLE.
+#[inline]
+pub fn choose_best_eliminates_zero_damage(
+    damage: f32,
+    damage_type: crate::damage::DamageType,
+) -> bool {
+    damage <= 0.0 && damage_type != crate::damage::DamageType::Unresistable
+}
+
+/// C++ WeaponSet.cpp:847-851 — an aiming turret slot is demoted to backup.
+#[inline]
+pub fn choose_best_ready_after_turret_aim(
+    status_ready: bool,
+    turret_aiming_at_target: bool,
+) -> bool {
+    status_ready && !turret_aiming_at_target
+}
+
+/// C++ WeaponSet.cpp:928-937 — unready-but-valid backup wins when no slot is READY.
+#[inline]
+pub fn choose_best_uses_backup(found_ready: bool, found_backup: bool) -> bool {
+    !found_ready && found_backup
+}
+
 impl Default for WeaponSet {
     fn default() -> Self {
         Self::new()
@@ -1473,5 +1498,35 @@ mod tests {
             WeaponLockType::NotLocked
         );
         assert!(!weapon_set.is_current_weapon_locked());
+    }
+
+    #[test]
+    fn choose_best_zero_damage_gate_keeps_unresistable() {
+        assert!(choose_best_eliminates_zero_damage(
+            0.0,
+            crate::damage::DamageType::Explosion
+        ));
+        assert!(!choose_best_eliminates_zero_damage(
+            0.0,
+            crate::damage::DamageType::Unresistable
+        ));
+        assert!(!choose_best_eliminates_zero_damage(
+            1.0,
+            crate::damage::DamageType::Explosion
+        ));
+    }
+
+    #[test]
+    fn choose_best_turret_aim_demotes_ready() {
+        assert!(choose_best_ready_after_turret_aim(true, false));
+        assert!(!choose_best_ready_after_turret_aim(true, true));
+        assert!(!choose_best_ready_after_turret_aim(false, false));
+    }
+
+    #[test]
+    fn choose_best_backup_tier_when_no_ready() {
+        assert!(choose_best_uses_backup(false, true));
+        assert!(!choose_best_uses_backup(true, true));
+        assert!(!choose_best_uses_backup(false, false));
     }
 }

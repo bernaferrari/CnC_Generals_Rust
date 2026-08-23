@@ -250,6 +250,15 @@ impl<'a> CommandExecutor<'a> {
                     {
                         return false;
                     }
+                    // C++ ProductionUpdate::queueUpgrade — STOP cheaters:
+                    // Object::canProduceUpgrade CommandSet walk.
+                    if !crate::game_logic::host_upgrades::object_can_produce_upgrade(
+                        source,
+                        upgrade_name,
+                    ) {
+                        return false;
+                    }
+
                     true
                 });
             if !producer_ok {

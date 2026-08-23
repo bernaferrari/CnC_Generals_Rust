@@ -116,6 +116,8 @@ impl SnapshotBuilder {
                 super::stealth_grant_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
                 super::weapon_leech_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
                 super::score_keeper_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::garrison_firepoint_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::stealth_detector_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
 
 
 
@@ -441,6 +443,14 @@ impl SnapshotBuilder {
             super::persist_v18::restore_persist_v18(&snapshot.persist_v18, game_logic);
         }
         super::hotkey_squad_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::garrison_firepoint_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::stealth_detector_persist::apply_from_lifecycle_tail(
             &snapshot.lifecycle_tail,
             game_logic,
         )?;

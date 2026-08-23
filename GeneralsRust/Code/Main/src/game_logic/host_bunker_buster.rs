@@ -192,9 +192,9 @@ pub fn is_kill_garrisoned_clearer(template_name: &str) -> bool {
         || n.contains("flame")
 }
 
-/// Weapon-name residual for AllowAttackGarrisonedBldgs / KILL_GARRISONED clearers.
+/// Weapon-name residual for leftover DamageType=KILL_GARRISONED clearers.
 pub fn is_kill_garrisoned_clearer_weapon(weapon_name: &str) -> bool {
-    crate::game_logic::weapon_bootstrap::host_allow_attack_garrisoned_for_weapon_name(weapon_name)
+    crate::game_logic::weapon_bootstrap::host_weapon_is_kill_garrisoned_damage(weapon_name)
 }
 
 /// Slot-aware residual: bunker-buster full bust (kill occupants + bunker mult damage).
@@ -402,8 +402,9 @@ mod tests {
         assert!(is_kill_garrisoned_clearer("AmericaTankDragon"));
         assert!(is_kill_garrisoned_clearer("GLAVehicleToxinTractor"));
         assert!(is_kill_garrisoned_clearer("AmericaInfantryRanger"));
-        assert!(is_kill_garrisoned_clearer_weapon("DragonTankFlameWeapon"));
-        assert!(is_kill_garrisoned_clearer_weapon("ToxinSprayWeapon"));
+        // Occupant-kill is leftover DamageType=KILL_GARRISONED, not AllowAttack.
+        assert!(!is_kill_garrisoned_clearer_weapon("DragonTankFlameWeapon"));
+        assert!(!is_kill_garrisoned_clearer_weapon("ToxinSprayWeapon"));
         assert!(is_kill_garrisoned_clearer_weapon(
             "MicrowaveTankBuildingClearer"
         ));

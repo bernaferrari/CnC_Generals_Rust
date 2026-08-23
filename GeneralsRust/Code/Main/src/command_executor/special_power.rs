@@ -82,6 +82,48 @@ fn leftover_can_do_special_power_at_location(
     )
 }
 
+/// C++ ActionManager.cpp:1597-1626 `canDoSpecialPowerAtObject` leftover arms.
+/// Dual-world leftover Objects are empty on the live player path, so this
+/// replays the same match using host relationship + KindOf.
+fn leftover_can_do_special_power_at_object(
+    power_type: &SpecialPowerType,
+    relationship: gamelogic::common::Relationship,
+    target_is_vehicle: bool,
+) -> bool {
+    use gamelogic::common::Relationship;
+    match power_type {
+        // C++ SPECIAL_BATTLESHIP_BOMBARDMENT: relationship != ALLIES.
+        SpecialPowerType::BattleshipBombardment => relationship != Relationship::Allies,
+        // C++ SPECIAL_MISSILE_DEFENDER_LASER_GUIDED_MISSILES: VEHICLE && ENEMIES.
+        SpecialPowerType::MissileDefenderLaserGuided
+        | SpecialPowerType::LaserGuidedHowitzer => {
+            target_is_vehicle && relationship == Relationship::Enemies
+        }
+        _ => true,
+    }
+}
+
+/// C++ `Object::getRelationship` for the leftover object-click gate.
+/// Owner map / alliance_team wins when both sides have owners; otherwise
+/// leftover team fallback (same team ALLIES, Neutral team NEUTRAL, else ENEMIES).
+fn leftover_object_click_relationship(
+    logic: &GameLogic,
+    source: &crate::game_logic::Object,
+    target: &crate::game_logic::Object,
+) -> gamelogic::common::Relationship {
+    use gamelogic::common::Relationship;
+    if source.owner_player_id.is_some() && target.owner_player_id.is_some() {
+        return logic.object_relationship(source, target);
+    }
+    if source.team == target.team {
+        Relationship::Allies
+    } else if source.team == Team::Neutral || target.team == Team::Neutral {
+        Relationship::Neutral
+    } else {
+        Relationship::Enemies
+    }
+}
+
 impl<'a> CommandExecutor<'a> {
     /// C++ AIGroup::groupOverrideSpecialPowerDestination residual.
     pub(crate) fn execute_override_special_power_destination(
@@ -350,6 +392,25 @@ impl<'a> CommandExecutor<'a> {
             if !ready {
                 continue;
             }
+            // C++ ActionManager::canDoSpecialPowerAtObject leftover click gates.
+            // Battleship is not consume_at_prep — refuse before spending charge.
+            if let PowerTarget::Object(tid) = target {
+                let allowed = match (
+                    self.game_logic.host_object(unit_id),
+                    self.game_logic.host_object(*tid),
+                ) {
+                    (Some(unit), Some(tgt)) => leftover_can_do_special_power_at_object(
+                        power_type,
+                        leftover_object_click_relationship(self.game_logic, unit, tgt),
+                        tgt.is_kind_of(KindOf::Vehicle),
+                    ),
+                    _ => false,
+                };
+                if !allowed {
+                    continue;
+                }
+            }
+
 
             // C++ markSpecialPowerTriggered is startPreparation, after
             // unpack/face/range. Steal/disable leftover must not consume on click.
@@ -1577,6 +1638,209 @@ mod can_use_special_power_caster_filter_tests {
             .fire_weapon_power
             .as_ref()
             .is_some_and(|r| r.target_object_id == Some(tgt_id) && !r.has_location));
+    }
+
+    #[test]
+    fn leftover_object_click_gates_match_action_manager() {
+        use crate::command_system::SpecialPowerType;
+        use gamelogic::common::Relationship;
+        use super::{
+            leftover_can_do_special_power_at_object,
+        };
+
+        assert!(!leftover_can_do_special_power_at_object(
+            &SpecialPowerType::BattleshipBombardment,
+            Relationship::Allies,
+            false,
+        ));
+        assert!(leftover_can_do_special_power_at_object(
+            &SpecialPowerType::BattleshipBombardment,
+            Relationship::Enemies,
+            false,
+        ));
+        assert!(leftover_can_do_special_power_at_object(
+            &SpecialPowerType::BattleshipBombardment,
+            Relationship::Neutral,
+            false,
+        ));
+        assert!(leftover_can_do_special_power_at_object(
+            &SpecialPowerType::MissileDefenderLaserGuided,
+            Relationship::Enemies,
+            true,
+        ));
+        assert!(leftover_can_do_special_power_at_object(
+            &SpecialPowerType::LaserGuidedHowitzer,
+            Relationship::Enemies,
+            true,
+        ));
+        assert!(!leftover_can_do_special_power_at_object(
+            &SpecialPowerType::MissileDefenderLaserGuided,
+            Relationship::Enemies,
+            false,
+        ));
+        assert!(!leftover_can_do_special_power_at_object(
+            &SpecialPowerType::MissileDefenderLaserGuided,
+            Relationship::Allies,
+            true,
+        ));
+        assert!(!leftover_can_do_special_power_at_object(
+            &SpecialPowerType::MissileDefenderLaserGuided,
+            Relationship::Neutral,
+            true,
+        ));
+        assert!(leftover_can_do_special_power_at_object(
+            &SpecialPowerType::Frenzy,
+            Relationship::Allies,
+            false,
+        ));
+    }
+
+    #[test]
+    fn battleship_object_click_rejects_allies_without_consuming() {
+        use crate::command_system::PowerTarget;
+        use crate::game_logic::KindOf;
+
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "USA", true));
+
+        let mut ship_mod = test_module(
+            SpecialPowerType::BattleshipBombardment,
+            "SpecialPowerBattleshipBombardment",
+        );
+        ship_mod.module_kind = SpecialPowerModuleKind::FireWeaponPower;
+        ship_mod.reload_time_frames = 300;
+
+        let mut ship = ThingTemplate::new("HqI9iw1Battleship");
+        ship.set_health(2000.0);
+        ship.add_kind_of(KindOf::Vehicle);
+        ship.special_power_modules.push(ship_mod);
+        logic.templates.insert("HqI9iw1Battleship".into(), ship);
+
+        let mut tgt = ThingTemplate::new("HqI9iw1Ally");
+        tgt.set_health(400.0);
+        tgt.add_kind_of(KindOf::Vehicle);
+        logic.templates.insert("HqI9iw1Ally".into(), tgt);
+
+        let ship_id = logic
+            .create_object_for_player("HqI9iw1Battleship", 0, Vec3::ZERO)
+            .expect("ship");
+        let ally_id = logic
+            .create_object_for_player("HqI9iw1Ally", 0, Vec3::new(80.0, 0.0, 0.0))
+            .expect("ally");
+
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_special_power(
+                    &[ship_id],
+                    &SpecialPowerType::BattleshipBombardment,
+                    &PowerTarget::Object(ally_id),
+                ),
+                CommandResult::InvalidCommand,
+                "C++ ActionManager refuses allied battleship object clicks"
+            );
+        }
+        let ship = logic.host_object(ship_id).expect("ship");
+        assert!(ship.fire_weapon_power.is_none());
+        assert!(
+            logic.is_special_power_ready_for(ship_id, &SpecialPowerType::BattleshipBombardment),
+            "illegal ally click must not start recharge"
+        );
+    }
+
+    #[test]
+    fn laser_object_click_requires_enemy_vehicle() {
+        use crate::command_system::PowerTarget;
+        use crate::game_logic::host_missile_defender::{
+            missile_defender_laser_guided_weapon, missile_defender_primary_weapon,
+        };
+        use crate::game_logic::KindOf;
+        use gamelogic::common::Relationship;
+
+        let mut logic = GameLogic::new();
+        let mut usa = Player::new(0, Team::USA, "USA", true);
+        let mut gla = Player::new(1, Team::GLA, "GLA", false);
+        usa.set_map_relationship(1, Relationship::Enemies);
+        gla.set_map_relationship(0, Relationship::Enemies);
+        logic.add_player(usa);
+        logic.add_player(gla);
+
+        let mut laser_mod = test_module(
+            SpecialPowerType::MissileDefenderLaserGuided,
+            "SpecialAbilityMissileDefenderLaserGuidedMissiles",
+        );
+        laser_mod.module_kind = SpecialPowerModuleKind::SpecialAbility;
+
+        let mut md = ThingTemplate::new("AmericaInfantryMissileDefender");
+        md.set_health(100.0);
+        md.add_kind_of(KindOf::Infantry);
+        md.special_power_modules.push(laser_mod);
+        logic
+            .templates
+            .insert("AmericaInfantryMissileDefender".into(), md);
+
+        let mut tank = ThingTemplate::new("Hq4jxbcEnemyTank");
+        tank.set_health(400.0);
+        tank.add_kind_of(KindOf::Vehicle);
+        logic.templates.insert("Hq4jxbcEnemyTank".into(), tank);
+
+        let mut rebel = ThingTemplate::new("Hq4jxbcRebel");
+        rebel.set_health(100.0);
+        rebel.add_kind_of(KindOf::Infantry);
+        logic.templates.insert("Hq4jxbcRebel".into(), rebel);
+
+        let mut ally_t = ThingTemplate::new("Hq4jxbcAllyTank");
+        ally_t.set_health(400.0);
+        ally_t.add_kind_of(KindOf::Vehicle);
+        logic.templates.insert("Hq4jxbcAllyTank".into(), ally_t);
+
+        let md_id = logic
+            .create_object_for_player("AmericaInfantryMissileDefender", 0, Vec3::ZERO)
+            .expect("md");
+        if let Some(o) = logic.host_object_mut(md_id) {
+            o.weapon = Some(missile_defender_primary_weapon());
+            o.secondary_weapon = Some(missile_defender_laser_guided_weapon());
+        }
+        let enemy_tank = logic
+            .create_object_for_player("Hq4jxbcEnemyTank", 1, Vec3::new(40.0, 0.0, 0.0))
+            .expect("enemy tank");
+        let enemy_inf = logic
+            .create_object_for_player("Hq4jxbcRebel", 1, Vec3::new(50.0, 0.0, 0.0))
+            .expect("rebel");
+        let ally_tank = logic
+            .create_object_for_player("Hq4jxbcAllyTank", 0, Vec3::new(60.0, 0.0, 0.0))
+            .expect("ally tank");
+
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_special_power(
+                    &[md_id],
+                    &SpecialPowerType::MissileDefenderLaserGuided,
+                    &PowerTarget::Object(enemy_inf),
+                ),
+                CommandResult::InvalidCommand,
+                "leftover ActionManager refuses infantry laser lock"
+            );
+            assert_eq!(
+                exec.execute_special_power(
+                    &[md_id],
+                    &SpecialPowerType::MissileDefenderLaserGuided,
+                    &PowerTarget::Object(ally_tank),
+                ),
+                CommandResult::InvalidCommand,
+                "leftover ActionManager refuses allied laser lock"
+            );
+            assert_eq!(
+                exec.execute_special_power(
+                    &[md_id],
+                    &SpecialPowerType::MissileDefenderLaserGuided,
+                    &PowerTarget::Object(enemy_tank),
+                ),
+                CommandResult::Success,
+                "leftover ActionManager allows enemy vehicle laser lock"
+            );
+        }
     }
 }
 

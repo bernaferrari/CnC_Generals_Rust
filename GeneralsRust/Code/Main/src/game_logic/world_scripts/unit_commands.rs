@@ -2011,6 +2011,12 @@ impl GameLogic {
         {
             return false;
         }
+        // C++ ProductionUpdate::queueUpgrade — STOP cheaters:
+        // Object::canProduceUpgrade CommandSet walk.
+        if !crate::game_logic::host_upgrades::object_can_produce_upgrade(obj, upgrade_name) {
+            return false;
+        }
+
         let Some(building) = obj.building_data.as_mut() else {
             return false;
         };
@@ -2520,5 +2526,30 @@ mod tests {
         assert_eq!(audio.rider_template, "KICK_RANGER");
         assert_eq!(audio.rider_id, ranger.0);
     }
+
+    #[test]
+    fn add_upgrade_to_queue_refuses_command_set_without_button() {
+        let mut logic = GameLogic::new();
+        let mut tmpl = ThingTemplate::new("AmericaBarracks");
+        tmpl.add_kind_of(KindOf::Structure).set_health(1000.0);
+        logic.templates.insert("AmericaBarracks".into(), tmpl);
+        let id = logic
+            .create_object("AmericaBarracks", Team::USA, glam::Vec3::ZERO)
+            .expect("barracks");
+        let cost = Resources {
+            supplies: 800,
+            power: 0,
+        };
+        assert!(
+            !logic.unit_command_building_add_upgrade_to_queue(
+                id,
+                "Upgrade_AmericaSupplyLines",
+                30.0,
+                cost,
+            ),
+            "C++ canProduceUpgrade refuses SupplyLines at Barracks"
+        );
+    }
+
 
 }

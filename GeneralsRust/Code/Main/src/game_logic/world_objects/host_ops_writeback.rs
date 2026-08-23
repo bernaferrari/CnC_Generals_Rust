@@ -143,6 +143,29 @@ impl GameLogic {
         );
     }
 
+    /// C++ `TheInGameUI->deselectDrawable` for one host object.
+    pub fn deselect_drawable(&mut self, id: ObjectId) {
+        if let Some(obj) = self.objects.get_mut(&id) {
+            obj.deselect();
+        }
+        for player in self.players.values_mut() {
+            player.selected_objects.retain(|&x| x != id);
+        }
+    }
+
+    /// Drain leftover `updateHiddenStatus` onto live player selection.
+    pub fn drain_hidden_drawable_selection(&mut self) {
+        let hidden: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, obj)| obj.drawable_is_effectively_hidden())
+            .map(|(&id, _)| id)
+            .collect();
+        for id in hidden {
+            self.deselect_drawable(id);
+        }
+    }
+
     /// C++ `Drawable::onSelected` → `contain->clientVisibleContainedFlashAsSelected`.
     /// `OpenContain` default is empty. Overlord walks contained
     /// `KINDOF_PORTABLE_STRUCTURE`; Helix flashes `getPortableStructure()`.
@@ -2145,6 +2168,43 @@ mod select_object_cpp_parity_tests {
         );
         assert!(logic.host_object(theirs).expect("theirs").selected);
     }
+
+    #[test]
+    fn hidden_drawable_deselects_like_cpp_update_hidden_status() {
+        let mut logic = two_player_logic();
+        let unit = spawn(&mut logic, "SelectParityUnit", 0, 0.0);
+        logic.select_objects(0, vec![unit]);
+        assert!(logic.host_object(unit).expect("u").selected);
+        if let Some(obj) = logic.host_object_mut(unit) {
+            obj.set_drawable_hidden(true);
+        }
+        logic.drain_hidden_drawable_selection();
+        assert!(
+            !logic.host_object(unit).expect("u").selected,
+            "C++ updateHiddenStatus deselects a hidden drawable"
+        );
+        assert!(
+            logic
+                .get_player(0)
+                .expect("p0")
+                .selected_objects
+                .is_empty(),
+            "TheInGameUI->deselectDrawable must drop the player list"
+        );
+
+        if let Some(obj) = logic.host_object_mut(unit) {
+            obj.set_drawable_hidden(false);
+            obj.select();
+            obj.camo_stealth_look = 5;
+            obj.update_drawable_hidden_status();
+        }
+        logic.drain_hidden_drawable_selection();
+        assert!(
+            !logic.host_object(unit).expect("u").selected,
+            "STEALTHLOOK_INVISIBLE must leftover-deselect"
+        );
+    }
+
 
     #[test]
     fn select_object_list_loops_every_player_in_mask() {

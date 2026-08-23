@@ -638,8 +638,10 @@ impl Object {
         if self.immune_to_falling_damage || self.is_kind_of(KindOf::Projectile) {
             return 0.0;
         }
-        // netSpeed = -activeVelZ - minFall (C++ Z-up); host Y-up equivalent.
-        let net_speed = (-impact_vy) - self.min_fall_speed_for_damage;
+        // Leftover/C++: netSpeed = -activeVelZ - height_to_speed(minFallHeight).
+        // Host Y-up. Compare leftover default ~2.385, not live sqrt(80).
+        let min_fall = Self::leftover_compare_min_fall_speed(self.min_fall_speed_for_damage);
+        let net_speed = (-impact_vy) - min_fall;
         if net_speed <= 0.0 {
             return 0.0;
         }
@@ -706,10 +708,8 @@ impl Object {
         self.apply_ypr_damping(Self::BOUNCE_YPR_DAMPING);
         if vy < 0.0 {
             // Leftover handle_bounce vz<0: pitch=0, roll=0 or PI from up.
-            // End-of-update setAngles(yaw,0,0) is after stun-kill in the caller.
+            // Rates stay 0.7-damped (C++ applyYPRDamping only).
             self.right_physics_pitch_keep_flip();
-            self.shock_pitch_rate = 0.0;
-            self.shock_roll_rate = 0.0;
         }
         if desired_accel_y > 0.0 {
             // C++ bounceForce.z = mass * desiredAccelZ
@@ -771,15 +771,24 @@ impl Object {
 
         self.ground_height = ground_y;
 
-        // C++ PhysicsUpdate.cpp:630 applyGravitationalForces every update.
+        // C++ PhysicsUpdate.cpp:626-636 applyGravitationalForces every update
+        // unless DISABLED_HELD (gated above). No aircraft exception.
         // Stun tick already applies leftover gravity while IS_STUNNED.
+        // Living Z-motive units already Euler'd lift+gravity in
+        // apply_live_handle_behavior_z when host march ran (hq-g8oig).
+        // Dead / disabled skip doLocomotor, so they still need gravity here.
         if self.shock_stun_frames == 0 {
-            let flying_loco_aircraft = (self.is_kind_of(KindOf::Aircraft)
-                || self.object_type == ObjectType::Aircraft)
-                && self.status.airborne_target
-                && !self.allow_to_fall
-                && !self.shock_was_airborne;
-            if !flying_loco_aircraft {
+            let host_live_y_euler_already =
+                !crate::gameworld_shadow::gameworld_movement_authority_live()
+                    && !self.is_disabled()
+                    && !self.host_skip_dead_locomotor()
+                    && matches!(
+                        self.loco_behavior_z,
+                        LocomotorBehaviorZ::SurfaceRelativeHeight
+                            | LocomotorBehaviorZ::SmoothRelativeToHighestLayer
+                            | LocomotorBehaviorZ::AbsoluteHeight
+                    );
+            if !host_live_y_euler_already {
                 self.apply_gravitational_forces();
                 self.movement.velocity.y += self.physics_accel.y;
                 self.physics_accel.y = 0.0;
@@ -944,15 +953,13 @@ impl Object {
             if self.test_stunned_unit_for_destruction() {
                 return 0.0;
             }
-            // Right the object residual: keep yaw, zero pitch/roll presentation rates.
-            self.shock_pitch_rate = 0.0;
-            self.shock_roll_rate = 0.0;
             // C++ setAngles after bounce rights pitch/roll when not killed.
+            // Rates stay 0.7-damped (applyYPRDamping only).
             self.right_physics_pitch_roll();
             return bounce_vy;
         }
-        // Bounce complete — restore original allow (host: off).
-        self.shock_allow_bounce = false;
+        // C++ handleBounce bounceForce.z==0: setAllowBouncing(m_originalAllowBounce).
+        self.shock_allow_bounce = self.original_allow_bounce;
         self.record_host_bounce_land();
         0.0
     }

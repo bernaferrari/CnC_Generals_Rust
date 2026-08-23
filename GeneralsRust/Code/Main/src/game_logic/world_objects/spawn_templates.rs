@@ -120,6 +120,34 @@ fn leftover_thing_template_for_prereq(
     factory.find_template(name, false)
 }
 
+/// Leftover `parseHeightToSpeed` / `height_to_speed`: `sqrt(|2*g*h|)`.
+/// A leftover factory parse that ran before GameData Gravity (g=-1) stores
+/// `sqrt(80)` — treat that as unparsed and re-convert with leftover gravity.
+fn leftover_g1_min_fall_speed() -> f32 {
+    (2.0 * 40.0_f32).sqrt()
+}
+
+fn leftover_min_fall_is_gravity_aware(speed: f32) -> bool {
+    speed.is_finite() && speed > 0.0 && (speed - leftover_g1_min_fall_speed()).abs() > 1e-2
+}
+
+fn leftover_physics_min_fall_speed_for_damage(name: &str) -> Option<f32> {
+    let leftover = leftover_thing_template_for_prereq(name)?;
+    for entry in leftover.get_behavior_module_info().iter() {
+        if !entry.name.as_str().eq_ignore_ascii_case("PhysicsBehavior") {
+            continue;
+        }
+        if let Some(data) = entry
+            .data
+            .downcast_ref::<gamelogic::object::behavior::PhysicsBehaviorModuleData>()
+        {
+            return Some(data.min_fall_speed_for_damage);
+        }
+    }
+    None
+}
+
+
 /// Leftover factory `m_prereqInfo` wins; else leftover parse_prerequisites_block.
 fn apply_production_prerequisites_from_definition(
     template: &mut crate::game_logic::ThingTemplate,
@@ -1219,6 +1247,18 @@ impl GameLogic {
             game_engine::common::system::kind_of::KindOfMask::from_string(token).is_some()
         }
 
+        /// C++ GarrisonContain / TransportContain / MobNexusContain ctors
+        /// (and leftover Defaults) set `m_allowInsideKindOf = KINDOF_INFANTRY`.
+        /// HelixContain inherits the TransportContain module-data ctor.
+        /// Plain OpenContain still defaults allow-everything.
+        fn leftover_unauthored_allow_inside_is_infantry(class_name: &str) -> bool {
+            class_name.eq_ignore_ascii_case("GarrisonContain")
+                || class_name.eq_ignore_ascii_case("TransportContain")
+                || class_name.eq_ignore_ascii_case("HelixContain")
+                || class_name.eq_ignore_ascii_case("MobNexusContain")
+        }
+
+
         fn parse_leftover_kind_of_mask(raw: Option<&str>) -> u128 {
             let Some(raw) = raw else {
                 return 0;
@@ -1227,6 +1267,18 @@ impl GameLogic {
             KindOfMask::parse_ini(KindOfMask::empty(), raw)
                 .map(|mask| mask.bits())
                 .unwrap_or(0)
+        }
+
+        fn parse_leftover_allow_inside_kind_of(
+            module: &crate::assets::BehaviorModuleDefinition,
+        ) -> u128 {
+            match module.attribute("AllowInsideKindOf") {
+                Some(raw) => parse_leftover_kind_of_mask(Some(raw)),
+                None if leftover_unauthored_allow_inside_is_infantry(&module.class_name) => {
+                    game_engine::common::system::kind_of::KindOfMask::INFANTRY.bits()
+                }
+                None => 0,
+            }
         }
 
         fn parse_admission(module: &crate::assets::BehaviorModuleDefinition) -> ContainAdmission {
@@ -1255,7 +1307,14 @@ impl GameLogic {
                     };
                 }
             }
-            let mut allowed = [true, true, true]; // infantry, vehicle, aircraft
+            // Un-authored AllowInsideKindOf: leftover/C++ Infantry-only for
+            // Garrison/Transport/MobNexus. OpenContain stays AnyMobile.
+            let mut allowed =
+                if leftover_unauthored_allow_inside_is_infantry(&module.class_name) {
+                    [true, false, false]
+                } else {
+                    [true, true, true] // infantry, vehicle, aircraft
+                };
             if let Some(raw) = module.attribute("AllowInsideKindOf") {
                 allowed = [false, false, false];
                 for token in raw
@@ -1655,9 +1714,7 @@ impl GameLogic {
                     weapon_bonus_passed_to_passengers: false,
                     enter_sound: parse_contain_audio_event(module, "EnterSound"),
                     exit_sound: parse_contain_audio_event(module, "ExitSound"),
-                    allow_inside_kind_of: parse_leftover_kind_of_mask(
-                        module.attribute("AllowInsideKindOf"),
-                    ),
+                    allow_inside_kind_of: parse_leftover_allow_inside_kind_of(module),
                     forbid_inside_kind_of: parse_leftover_kind_of_mask(
                         module.attribute("ForbidInsideKindOf"),
                     ),
@@ -3511,11 +3568,20 @@ impl GameLogic {
         {
             template.kill_when_resting_on_ground = v;
         }
-        if let Some(h) = module
+        // Leftover parseHeightToSpeed: min_fall = sqrt(|2 * leftover_gravity * h|).
+        // Default height 40 → ~2.385 at retail Gravity -64/900, not sqrt(80).
+        if let Some(speed) = leftover_physics_min_fall_speed_for_damage(&template.name)
+            .or_else(|| leftover_physics_min_fall_speed_for_damage(&definition.name))
+            .filter(|v| leftover_min_fall_is_gravity_aware(*v))
+        {
+            template.min_fall_speed_for_damage = speed;
+        } else if let Some(h) = module
             .attribute("MinFallHeightForDamage")
             .and_then(parse_real)
         {
-            template.min_fall_speed_for_damage = (2.0 * h.abs()).sqrt();
+            template.min_fall_speed_for_damage = Object::height_to_fall_speed(h);
+        } else {
+            template.min_fall_speed_for_damage = Object::min_fall_speed_for_damage();
         }
         if let Some(f) = module
             .attribute("FallHeightDamageFactor")
@@ -7986,6 +8052,164 @@ End
             "Overlord HUGE_VEHICLE must be forbidden"
         );
     }
+
+    #[test]
+    fn unauthored_garrison_transport_default_infantry_only_not_any_mobile() {
+        use crate::game_logic::{ContainAdmission, ContainModuleKind};
+        use game_engine::common::system::kind_of::KindOfMask;
+        use glam::Vec3;
+
+        // C++ GarrisonContain.cpp / TransportContain.cpp / MobNexusContain.cpp
+        // ctors and leftover Defaults: allow_inside = KINDOF_INFANTRY.
+        // Un-authored AllowInsideKindOf must not become AnyMobile.
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(
+                r#"
+Object ProbeDefaultGarrison
+  Type = Structure
+  KindOf = STRUCTURE SELECTABLE
+  Behavior = GarrisonContain ModuleTag_Garrison
+    ContainMax = 5
+  End
+End
+Object ProbeDefaultTransport
+  Type = Vehicle
+  KindOf = VEHICLE SELECTABLE TRANSPORT
+  TransportSlotCount = 1
+  Behavior = TransportContain ModuleTag_Transport
+    Slots = 5
+  End
+End
+Object ProbeDefaultCave
+  Type = Structure
+  KindOf = STRUCTURE SELECTABLE
+  Behavior = CaveContain ModuleTag_Cave
+    ContainMax = 10
+    CaveIndex = 0
+  End
+End
+Object ProbeDefaultRanger
+  Type = Infantry
+  KindOf = INFANTRY SELECTABLE
+  TransportSlotCount = 1
+  Body = ActiveBody ModuleTag_01
+    MaxHealth = 100.0
+  End
+End
+Object ProbeDefaultHumvee
+  Type = Vehicle
+  KindOf = VEHICLE SELECTABLE
+  TransportSlotCount = 1
+  Body = ActiveBody ModuleTag_01
+    MaxHealth = 200.0
+  End
+End
+"#,
+                "unauthored_allow_inside_kindof_probe.ini",
+            )
+            .expect("parse unauthored allow-inside probe");
+
+        let garrison = GameLogic::build_template_from_object_definition(
+            "ProbeDefaultGarrison",
+            parser
+                .get_definition("ProbeDefaultGarrison")
+                .expect("garrison"),
+            None,
+        );
+        assert_eq!(garrison.contain_module.kind, ContainModuleKind::Garrison);
+        assert_eq!(
+            garrison.contain_module.admission,
+            ContainAdmission::InfantryOnly
+        );
+        assert_eq!(
+            garrison.contain_module.allow_inside_kind_of,
+            KindOfMask::INFANTRY.bits()
+        );
+
+        let transport = GameLogic::build_template_from_object_definition(
+            "ProbeDefaultTransport",
+            parser
+                .get_definition("ProbeDefaultTransport")
+                .expect("transport"),
+            None,
+        );
+        assert_eq!(transport.contain_module.kind, ContainModuleKind::Transport);
+        assert_eq!(
+            transport.contain_module.admission,
+            ContainAdmission::InfantryOnly
+        );
+        assert_eq!(
+            transport.contain_module.allow_inside_kind_of,
+            KindOfMask::INFANTRY.bits()
+        );
+
+        let cave = GameLogic::build_template_from_object_definition(
+            "ProbeDefaultCave",
+            parser.get_definition("ProbeDefaultCave").expect("cave"),
+            None,
+        );
+        assert_eq!(cave.contain_module.kind, ContainModuleKind::Cave);
+        assert_eq!(cave.contain_module.admission, ContainAdmission::AnyMobile);
+        assert_eq!(cave.contain_module.allow_inside_kind_of, 0);
+
+        let ranger = GameLogic::build_template_from_object_definition(
+            "ProbeDefaultRanger",
+            parser.get_definition("ProbeDefaultRanger").expect("ranger"),
+            None,
+        );
+        let humvee = GameLogic::build_template_from_object_definition(
+            "ProbeDefaultHumvee",
+            parser.get_definition("ProbeDefaultHumvee").expect("humvee"),
+            None,
+        );
+
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "USA", true));
+        logic
+            .templates
+            .insert("ProbeDefaultGarrison".to_string(), garrison);
+        logic
+            .templates
+            .insert("ProbeDefaultTransport".to_string(), transport);
+        logic
+            .templates
+            .insert("ProbeDefaultRanger".to_string(), ranger);
+        logic
+            .templates
+            .insert("ProbeDefaultHumvee".to_string(), humvee);
+
+        let bunker = logic
+            .create_object_for_player("ProbeDefaultGarrison", 1, Vec3::ZERO)
+            .expect("garrison");
+        let truck = logic
+            .create_object_for_player("ProbeDefaultTransport", 1, Vec3::ZERO)
+            .expect("transport");
+        let infantry = logic
+            .create_object_for_player("ProbeDefaultRanger", 1, Vec3::ZERO)
+            .expect("ranger");
+        let vehicle = logic
+            .create_object_for_player("ProbeDefaultHumvee", 1, Vec3::ZERO)
+            .expect("humvee");
+
+        assert!(
+            logic.can_unit_enter_normal_target(infantry, bunker),
+            "Infantry must enter un-authored GarrisonContain"
+        );
+        assert!(
+            !logic.can_unit_enter_normal_target(vehicle, bunker),
+            "Vehicle must not enter un-authored GarrisonContain"
+        );
+        assert!(
+            logic.can_unit_enter_normal_target(infantry, truck),
+            "Infantry must enter un-authored TransportContain"
+        );
+        assert!(
+            !logic.can_unit_enter_normal_target(vehicle, truck),
+            "Vehicle must not enter un-authored TransportContain"
+        );
+    }
+
 
     #[test]
     fn garrison_initial_roster_parses_template_and_count() {

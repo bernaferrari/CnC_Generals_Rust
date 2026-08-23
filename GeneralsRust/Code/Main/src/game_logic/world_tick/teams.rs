@@ -5,10 +5,18 @@ use super::super::*;
 /// C++ `PATHFIND_CELL_SIZE_F`.
 const HOST_WANDER_CELL: f32 = 10.0;
 
-/// C++ `AIWanderInPlaceState` origin + current hop.
+/// C++ `AIWanderInPlaceState` origin + current hop + leftover repulsor timer.
 struct HostWanderInPlace {
     origin: glam::Vec3,
     hop: glam::Vec3,
+    timer: i32,
+    wait_frames: i32,
+}
+
+/// C++ `AIWanderState` / `AIPanicState` leftover-bail timer while following a path.
+struct HostWanderPath {
+    timer: i32,
+    wait_frames: i32,
 }
 
 fn wander_in_place_sessions() -> &'static std::sync::Mutex<std::collections::HashMap<u32, HostWanderInPlace>> {
@@ -24,6 +32,72 @@ fn wander_in_place_lock(
     wander_in_place_sessions()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn wander_path_sessions() -> &'static std::sync::Mutex<std::collections::HashMap<u32, HostWanderPath>>
+{
+    static SESSIONS: std::sync::LazyLock<
+        std::sync::Mutex<std::collections::HashMap<u32, HostWanderPath>>,
+    > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+    &SESSIONS
+}
+
+fn wander_path_lock() -> std::sync::MutexGuard<'static, std::collections::HashMap<u32, HostWanderPath>>
+{
+    wander_path_sessions()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Leftover `AIWanderState::update_group_offset` / `AIPanicState::update_group_offset`.
+/// C++ `m_groupOffset = GameLogicRandomValue(-delta,delta)*PATHFIND_CELL_SIZE_F`
+/// with `delta = floor(WanderWidthFactor+0.5).max(1)` when factor > 0.
+fn leftover_wander_group_offset(wander_width_factor: f32) -> glam::Vec2 {
+    if wander_width_factor <= 0.0 {
+        return glam::Vec2::ZERO;
+    }
+    let mut delta = (wander_width_factor + 0.5).floor() as i32;
+    if delta < 1 {
+        delta = 1;
+    }
+    let x = game_engine::common::random_value::get_game_logic_random_value(-delta, delta) as f32
+        * HOST_WANDER_CELL;
+    let y = game_engine::common::random_value::get_game_logic_random_value(-delta, delta) as f32
+        * HOST_WANDER_CELL;
+    glam::Vec2::new(x, y)
+}
+
+fn leftover_apply_wander_group_offset(pos: glam::Vec3, offset: glam::Vec2) -> glam::Vec3 {
+    glam::Vec3::new(pos.x + offset.x, pos.y, pos.z + offset.y)
+}
+
+/// C++ `m_waitFrames = 10 + (getID() & 0x7)`.
+fn leftover_wander_wait_frames(id: ObjectId) -> i32 {
+    10 + ((id.0 & 0x7) as i32)
+}
+
+/// C++ timer starts 0; first update decrements then scans.
+fn leftover_wander_tick_timer(can_be_repulsed: bool, timer: i32, wait_frames: i32) -> (i32, bool) {
+    if !can_be_repulsed {
+        return (timer, false);
+    }
+    let t = timer - 1;
+    if t < 0 {
+        (wait_frames, true)
+    } else {
+        (t, false)
+    }
+}
+
+/// Leftover `THE_AI.find_closest_repulsor` then live leftover-faithful host port.
+fn leftover_wander_has_repulsor(logic: &GameLogic, id: ObjectId, vision: f32) -> bool {
+    let leftover_hit = gamelogic::ai::THE_AI
+        .read()
+        .ok()
+        .and_then(|ai| ai.find_closest_repulsor(id.0, vision).ok())
+        .flatten()
+        .is_some();
+    leftover_hit || logic.find_closest_repulsor(id, vision).is_some()
 }
 
 /// C++ `AIWanderInPlaceState::chooseNewGoal` delta (cells).
@@ -332,11 +406,14 @@ impl GameLogic {
         inner > 0.0 && dx * dx + dz * dz > inner * inner
     }
 
-    /// C++ AIGuardRetaliate lookForInnerTarget — enemies, reject buildings
-    /// except base defenses / garrisoned attackers / computer-owned scans.
+    /// C++ AIGuardRetaliate lookForInnerTarget — leftover `ALLOW_ENEMIES`,
+    /// reject buildings except base defenses / garrisoned attackers /
+    /// computer-owned scans.
     fn scan_guard_retaliate_inner(&self, unit_id: ObjectId) -> Option<ObjectId> {
         let me = self.objects.get(&unit_id)?;
         let team = me.team;
+        let owner_player = me.owner_player_id;
+        let owner_inst = me.team_instance_name.clone();
         let anchor = me
             .guard_retaliate_anchor
             .or(me.guard_position)
@@ -379,15 +456,23 @@ impl GameLogic {
             if d_sq > radius_sq {
                 continue;
             }
+            use gamelogic::common::Relationship;
+            let rel = self.host_guard_leftover_relationship(
+                owner_player,
+                &owner_inst,
+                team,
+                cand,
+            );
             if enter_guard {
                 if hijack_guard {
-                    if !cand.is_targetable_by_enemy_of(team)
+                    if rel != Relationship::Enemies
                         || !cand.is_kind_of(KindOf::Vehicle)
                         || cand.status.hijacked
                     {
                         continue;
                     }
-                } else if cand.team != Team::Neutral || !self.can_unit_enter_normal_target(unit_id, *cid)
+                } else if rel != Relationship::Neutral
+                    || !self.can_unit_enter_normal_target(unit_id, *cid)
                 {
                     continue;
                 }
@@ -395,7 +480,7 @@ impl GameLogic {
                 if !self.host_reject_buildings_allows(unit_id, cand) {
                     continue;
                 }
-                if !cand.is_targetable_by_enemy_of(team) {
+                if rel != Relationship::Enemies {
                     continue;
                 }
                 if !matches!(
@@ -1251,40 +1336,164 @@ impl GameLogic {
     }
 
     /// C++ `aiWander` / `aiPanic` follow the waypoint path as individuals.
+    /// Leftover `update_group_offset` spreads the issued dest by WanderWidthFactor.
     fn host_wander_issue_path(&mut self, id: ObjectId, waypoints: &[glam::Vec3]) {
         if waypoints.is_empty() {
             return;
         }
-        let goal = *waypoints.last().unwrap();
-        let via = &waypoints[..waypoints.len().saturating_sub(1)];
+        wander_in_place_lock().remove(&id.0);
+        let offset = self
+            .host_object(id)
+            .map(|obj| leftover_wander_group_offset(obj.wander_width_factor))
+            .unwrap_or(glam::Vec2::ZERO);
+        let offset_pts: Vec<glam::Vec3> = waypoints
+            .iter()
+            .copied()
+            .map(|p| leftover_apply_wander_group_offset(p, offset))
+            .collect();
+        let goal = *offset_pts.last().unwrap();
+        let via = &offset_pts[..offset_pts.len().saturating_sub(1)];
         let _ = self.unit_command_waypoint_path_prep(id, false);
         let _ = self.assign_unit_path(id, goal, via);
+        wander_path_lock().insert(
+            id.0,
+            HostWanderPath {
+                timer: 0,
+                wait_frames: leftover_wander_wait_frames(id),
+            },
+        );
     }
 
     /// C++ `AIWanderInPlaceState::chooseNewGoal` — loco radius, re-pick each hop.
     fn host_wander_in_place(&mut self, id: ObjectId, origin: glam::Vec3) {
+        wander_path_lock().remove(&id.0);
         let dest = match self.host_object(id) {
             Some(obj) => host_wander_choose_hop(obj, origin),
             None => origin,
         };
-        wander_in_place_lock().insert(id.0, HostWanderInPlace { origin, hop: dest });
+        wander_in_place_lock().insert(
+            id.0,
+            HostWanderInPlace {
+                origin,
+                hop: dest,
+                timer: 0,
+                wait_frames: leftover_wander_wait_frames(id),
+            },
+        );
         if host_wander_horiz_dist_sq(dest, origin) > 0.25 {
             let _ = self.unit_command_move_to(id, dest);
         }
     }
 
-    /// C++ `AIWanderInPlaceState::update`: never leave until told; re-pick when hop ends.
+    /// Leftover wander/panic `find_closest_repulsor` → `STATE_FAILURE`
+    /// (`AI_MOVE_AWAY_FROM_REPULSORS`). Does not require Idle.
+    fn host_wander_fail_to_repulse(&mut self, unit_id: ObjectId) -> bool {
+        let vision = {
+            let Some(u) = self.objects.get(&unit_id) else {
+                return false;
+            };
+            if !u.is_alive() || u.status.destroyed {
+                return false;
+            }
+            if !u.is_kind_of(KindOf::CanBeRepulsed) {
+                return false;
+            }
+            u.vision_range
+        };
+        let Some((rep_id, _)) = self.find_closest_repulsor(unit_id, vision) else {
+            return false;
+        };
+        let Some(rep_pos) = self.objects.get(&rep_id).map(|r| r.get_position()) else {
+            return false;
+        };
+        if let Some(u) = self.objects.get_mut(&unit_id) {
+            crate::game_logic::host_upgrade_module_residuals::apply_choose_locomotor_set(
+                u,
+                crate::game_logic::host_upgrade_module_residuals::HostLocomotorSetKind::Panic,
+                true,
+            );
+            u.ai_move_away_from_unit(rep_id, rep_pos);
+            let dest = u.move_away_destination.unwrap_or(rep_pos);
+            let _ = u.begin_request_safe_path(rep_id, dest, self.frame);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// C++ `AIWanderInPlaceState::update` + wander/panic leftover-bail on repulsors.
     fn tick_host_wander_in_place(&mut self) {
-        let sessions: Vec<(u32, glam::Vec3, glam::Vec3)> = wander_in_place_lock()
+        let mut flee = Vec::new();
+
+        let path_sessions: Vec<(u32, i32, i32)> = wander_path_lock()
             .iter()
-            .map(|(&id, session)| (id, session.origin, session.hop))
+            .map(|(&id, session)| (id, session.timer, session.wait_frames))
+            .collect();
+        if !path_sessions.is_empty() {
+            let mut path_drop = Vec::new();
+            let mut path_timers = Vec::new();
+            for (raw, timer, wait) in path_sessions {
+                let id = ObjectId(raw);
+                let Some(obj) = self.host_object(id) else {
+                    path_drop.push(raw);
+                    continue;
+                };
+                if !obj.is_alive() {
+                    path_drop.push(raw);
+                    continue;
+                }
+                if !matches!(obj.ai_state, AIState::Idle | AIState::Moving) {
+                    path_drop.push(raw);
+                    continue;
+                }
+                let can_be = obj.is_kind_of(KindOf::CanBeRepulsed);
+                let vision = obj.vision_range;
+                let (new_timer, scan) = leftover_wander_tick_timer(can_be, timer, wait);
+                if scan && leftover_wander_has_repulsor(self, id, vision) {
+                    path_drop.push(raw);
+                    flee.push(raw);
+                    continue;
+                }
+                let stopped = !obj.status.moving && obj.movement.target_position.is_none();
+                if stopped && matches!(obj.ai_state, AIState::Idle) {
+                    path_drop.push(raw);
+                    continue;
+                }
+                path_timers.push((raw, new_timer));
+            }
+            let mut map = wander_path_lock();
+            for raw in path_drop {
+                map.remove(&raw);
+            }
+            for (raw, timer) in path_timers {
+                if let Some(session) = map.get_mut(&raw) {
+                    session.timer = timer;
+                }
+            }
+        }
+
+        let sessions: Vec<(u32, glam::Vec3, glam::Vec3, i32, i32)> = wander_in_place_lock()
+            .iter()
+            .map(|(&id, session)| {
+                (
+                    id,
+                    session.origin,
+                    session.hop,
+                    session.timer,
+                    session.wait_frames,
+                )
+            })
             .collect();
         if sessions.is_empty() {
+            for raw in flee {
+                let _ = self.host_wander_fail_to_repulse(ObjectId(raw));
+            }
             return;
         }
         let mut drop = Vec::new();
         let mut reissue = Vec::new();
-        for (raw, origin, hop) in sessions {
+        let mut keep_timers = Vec::new();
+        for (raw, origin, hop, timer, wait) in sessions {
             let id = ObjectId(raw);
             let Some(obj) = self.host_object(id) else {
                 drop.push(raw);
@@ -1298,6 +1507,14 @@ impl GameLogic {
                 drop.push(raw);
                 continue;
             }
+            let can_be = obj.is_kind_of(KindOf::CanBeRepulsed);
+            let vision = obj.vision_range;
+            let (new_timer, scan) = leftover_wander_tick_timer(can_be, timer, wait);
+            if scan && leftover_wander_has_repulsor(self, id, vision) {
+                drop.push(raw);
+                flee.push(raw);
+                continue;
+            }
             if let Some(dest) = obj.requested_destination.or(obj.movement.target_position) {
                 if host_wander_horiz_dist_sq(dest, hop) > (3.0 * HOST_WANDER_CELL).powi(2) {
                     drop.push(raw);
@@ -1308,7 +1525,15 @@ impl GameLogic {
             let near = host_wander_horiz_dist_sq(pos, hop) <= HOST_WANDER_CELL * HOST_WANDER_CELL;
             let stopped = !obj.status.moving && obj.movement.target_position.is_none();
             if near || (stopped && matches!(obj.ai_state, AIState::Idle)) {
-                reissue.push((raw, origin, host_wander_choose_hop(obj, origin)));
+                reissue.push((
+                    raw,
+                    origin,
+                    host_wander_choose_hop(obj, origin),
+                    new_timer,
+                    wait,
+                ));
+            } else {
+                keep_timers.push((raw, new_timer));
             }
         }
         {
@@ -1316,20 +1541,30 @@ impl GameLogic {
             for raw in drop {
                 map.remove(&raw);
             }
-            for (raw, origin, hop) in &reissue {
+            for (raw, origin, hop, timer, wait) in &reissue {
                 map.insert(
                     *raw,
                     HostWanderInPlace {
                         origin: *origin,
                         hop: *hop,
+                        timer: *timer,
+                        wait_frames: *wait,
                     },
                 );
             }
+            for (raw, timer) in keep_timers {
+                if let Some(session) = map.get_mut(&raw) {
+                    session.timer = timer;
+                }
+            }
         }
-        for (raw, origin, hop) in reissue {
+        for (raw, origin, hop, _, _) in reissue {
             if host_wander_horiz_dist_sq(hop, origin) > 0.25 {
                 let _ = self.unit_command_move_to(ObjectId(raw), hop);
             }
+        }
+        for raw in flee {
+            let _ = self.host_wander_fail_to_repulse(ObjectId(raw));
         }
     }
 
@@ -1824,6 +2059,18 @@ impl GameLogic {
         wander_in_place_lock().get(&id.0).map(|session| session.hop)
     }
 
+    pub fn test_host_wander_issue_path(&mut self, id: ObjectId, waypoints: &[glam::Vec3]) {
+        self.host_wander_issue_path(id, waypoints);
+    }
+
+    pub fn test_wander_path_active(&self, id: ObjectId) -> bool {
+        wander_path_lock().contains_key(&id.0)
+    }
+
+    pub fn test_wander_in_place_active(&self, id: ObjectId) -> bool {
+        wander_in_place_lock().contains_key(&id.0)
+    }
+
     pub fn scan_guard_retaliate_inner_for_test(&self, unit_id: ObjectId) -> Option<ObjectId> {
         self.scan_guard_retaliate_inner(unit_id)
     }
@@ -1906,6 +2153,157 @@ mod tests {
         obj.cur_locomotor_name = None;
         obj.jet_ai.cur_locomotor_set = None;
         assert_eq!(host_wander_about_point_delta(&obj), 3);
+    }
+
+    #[test]
+    fn leftover_wander_group_offset_zero_when_factor_non_positive() {
+        assert_eq!(leftover_wander_group_offset(0.0), glam::Vec2::ZERO);
+        assert_eq!(leftover_wander_group_offset(-1.0), glam::Vec2::ZERO);
+    }
+
+    #[test]
+    fn leftover_wander_group_offset_is_cell_multiples_within_delta() {
+        let factor = 2.0_f32;
+        let delta = (factor + 0.5).floor() as i32;
+        let offset = leftover_wander_group_offset(factor);
+        let cell = HOST_WANDER_CELL;
+        for component in [offset.x, offset.y] {
+            let cells = component / cell;
+            assert!(
+                (cells - cells.round()).abs() < 1.0e-4,
+                "offset {component} must be a PATHFIND_CELL_SIZE_F multiple"
+            );
+            assert!(
+                cells.abs() <= delta as f32 + 1.0e-4,
+                "offset {component} outside leftover delta {delta}"
+            );
+        }
+    }
+
+    #[test]
+    fn host_wander_issue_path_offsets_goal_by_wander_width_factor() {
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "USA", true));
+        let id = spawn_wander_civilian(&mut logic, "CivilianInfantryWanderWidth");
+        let goal = glam::Vec3::new(400.0, 0.0, 500.0);
+        let via = glam::Vec3::new(250.0, 0.0, 350.0);
+
+        if let Some(obj) = logic.host_object_mut(id) {
+            obj.wander_width_factor = 0.0;
+            obj.movement.max_speed = 5.0;
+        }
+        logic.test_host_wander_issue_path(id, &[via, goal]);
+        let exact = logic
+            .host_object(id)
+            .and_then(|o| o.movement.target_position)
+            .expect("zero-factor dest");
+        assert!(
+            host_wander_horiz_dist_sq(exact, goal) < 0.01,
+            "WanderWidthFactor 0 must keep the exact leftover goal, got {exact:?}"
+        );
+
+        if let Some(obj) = logic.host_object_mut(id) {
+            obj.wander_width_factor = 2.0;
+        }
+        let seed = game_engine::common::random_value::get_game_logic_random_seed_state();
+        let expected = leftover_wander_group_offset(2.0);
+        game_engine::common::random_value::set_game_logic_random_seed_state(seed);
+        logic.test_host_wander_issue_path(id, &[via, goal]);
+        let dest = logic
+            .host_object(id)
+            .and_then(|o| o.movement.target_position)
+            .expect("offset dest");
+        let want = leftover_apply_wander_group_offset(goal, expected);
+        assert!(
+            host_wander_horiz_dist_sq(dest, want) < 0.01,
+            "leftover group offset dest {dest:?} != {want:?} (offset {expected:?})"
+        );
+        assert!(logic.test_wander_path_active(id));
+    }
+
+    fn spawn_flagged_repulsor(logic: &mut GameLogic, id: ObjectId, pos: glam::Vec3) {
+        let mut tmpl = ThingTemplate::new("WanderRepulsorThreat");
+        tmpl.add_kind_of(KindOf::Infantry);
+        tmpl.add_kind_of(KindOf::Attackable);
+        let mut enemy = crate::game_logic::object::Object::new(tmpl, id, Team::GLA);
+        enemy.set_position(pos);
+        enemy.set_status_repulsor(true);
+        logic.objects.insert(id, enemy);
+    }
+
+    #[test]
+    fn wander_in_place_leftover_bails_on_repulsor_mid_hop() {
+        register_wander_loco("WanderHumanLocomotorBail", 50.0);
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "USA", true));
+        logic.set_enable_repulsors(true);
+        let id = spawn_wander_civilian(&mut logic, "CivilianInfantryWanderBail");
+        assert!(logic.apply_unit_locomotor_set(id, "wander"));
+        let origin = logic.host_object(id).unwrap().get_position();
+        if let Some(obj) = logic.host_object_mut(id) {
+            obj.vision_range = 200.0;
+            obj.movement.max_speed = 5.0;
+        }
+        logic.test_host_wander_in_place(id, origin);
+        let hop = logic
+            .test_wander_in_place_hop(id)
+            .expect("wander session started");
+        if let Some(obj) = logic.host_object_mut(id) {
+            obj.set_ai_state(AIState::Moving);
+            obj.status.moving = true;
+            obj.movement.target_position = Some(hop);
+            obj.requested_destination = Some(hop);
+        }
+        spawn_flagged_repulsor(
+            &mut logic,
+            ObjectId(4229),
+            glam::Vec3::new(origin.x + 20.0, 0.0, origin.z),
+        );
+
+        logic.test_tick_host_wander_in_place();
+        assert!(
+            !logic.test_wander_in_place_active(id),
+            "leftover find_closest_repulsor must drop mid-hop wander"
+        );
+        let civ = logic.host_object(id).expect("civ");
+        assert_eq!(civ.move_away_from, Some(ObjectId(4229)));
+        assert!(civ.move_away_frames > 0);
+        assert!(civ.is_panicking, "leftover-bail must enter MOVE_AWAY_FROM_REPULSORS");
+    }
+
+    #[test]
+    fn wander_path_leftover_bails_on_repulsor_mid_hop() {
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "USA", true));
+        logic.set_enable_repulsors(true);
+        let id = spawn_wander_civilian(&mut logic, "CivilianInfantryWanderPathBail");
+        if let Some(obj) = logic.host_object_mut(id) {
+            obj.vision_range = 200.0;
+            obj.movement.max_speed = 5.0;
+            obj.wander_width_factor = 0.0;
+        }
+        let origin = logic.host_object(id).unwrap().get_position();
+        let goal = glam::Vec3::new(origin.x + 200.0, origin.y, origin.z);
+        logic.test_host_wander_issue_path(id, &[goal]);
+        assert!(logic.test_wander_path_active(id));
+        if let Some(obj) = logic.host_object_mut(id) {
+            obj.set_ai_state(AIState::Moving);
+            obj.status.moving = true;
+        }
+        spawn_flagged_repulsor(
+            &mut logic,
+            ObjectId(4230),
+            glam::Vec3::new(origin.x + 15.0, 0.0, origin.z),
+        );
+
+        logic.test_tick_host_wander_in_place();
+        assert!(
+            !logic.test_wander_path_active(id),
+            "mid-hop path wander must leftover-bail on repulsor"
+        );
+        let civ = logic.host_object(id).expect("civ");
+        assert_eq!(civ.move_away_from, Some(ObjectId(4230)));
+        assert!(civ.is_panicking);
     }
 
     fn w25_guard_weapon() -> crate::game_logic::Weapon {
@@ -2069,6 +2467,109 @@ mod tests {
             "C++ lookForInnerTarget returns false after stamp+scan_rate"
         );
     }
+
+    #[test]
+    fn guard_inner_skips_neutral_civilians_and_tech() {
+        // C++ PartitionFilterRelationship ALLOW_ENEMIES: Neutral is never
+        // auto-acquired. is_targetable_by_enemy_of(team) used to treat
+        // Neutral != China as hostile.
+        let mut logic = GameLogic::new();
+        let gid = ObjectId(25120);
+        let civ = ObjectId(25121);
+        let derrick = ObjectId(25122);
+        let enemy = ObjectId(25123);
+        w25_spawn_fighter(&mut logic, gid, "W25GuardN", Team::China, glam::Vec3::ZERO);
+        w25_spawn_fighter(
+            &mut logic,
+            civ,
+            "W25Civilian",
+            Team::Neutral,
+            glam::Vec3::new(12.0, 0.0, 0.0),
+        );
+        w25_spawn_fighter(
+            &mut logic,
+            derrick,
+            "W25OilDerrick",
+            Team::Neutral,
+            glam::Vec3::new(18.0, 0.0, 0.0),
+        );
+        w25_spawn_fighter(
+            &mut logic,
+            enemy,
+            "W25Ranger",
+            Team::USA,
+            glam::Vec3::new(50.0, 0.0, 0.0),
+        );
+        let found = logic.scan_guard_inner_target_for_test(
+            gid,
+            Team::China,
+            glam::Vec3::ZERO,
+            200.0,
+            false,
+            false,
+            false,
+            None,
+        );
+        assert_eq!(
+            found,
+            Some(enemy),
+            "closer Neutral civilian/tech must not beat farther Enemy"
+        );
+        logic.objects.remove(&enemy);
+        let only_neutral = logic.scan_guard_inner_target_for_test(
+            gid,
+            Team::China,
+            glam::Vec3::ZERO,
+            200.0,
+            false,
+            false,
+            false,
+            None,
+        );
+        assert_eq!(
+            only_neutral,
+            None,
+            "Neutral civilians/tech must not be auto-acquired"
+        );
+    }
+
+    #[test]
+    fn guard_retaliate_inner_skips_neutral_civilians() {
+        let mut logic = GameLogic::new();
+        let id = ObjectId(25124);
+        let civ = ObjectId(25125);
+        let enemy = ObjectId(25126);
+        w25_spawn_fighter(&mut logic, id, "W25RetN", Team::USA, glam::Vec3::ZERO);
+        if let Some(o) = logic.objects.get_mut(&id) {
+            o.guard_retaliate_anchor = Some(glam::Vec3::ZERO);
+        }
+        w25_spawn_fighter(
+            &mut logic,
+            civ,
+            "W25RetCiv",
+            Team::Neutral,
+            glam::Vec3::new(10.0, 0.0, 0.0),
+        );
+        w25_spawn_fighter(
+            &mut logic,
+            enemy,
+            "W25RetEnemy",
+            Team::GLA,
+            glam::Vec3::new(40.0, 0.0, 0.0),
+        );
+        assert_eq!(
+            logic.scan_guard_retaliate_inner_for_test(id),
+            Some(enemy),
+            "retaliate inner must leftover-filter Enemies, not Neutral"
+        );
+        logic.objects.remove(&enemy);
+        assert_eq!(
+            logic.scan_guard_retaliate_inner_for_test(id),
+            None,
+            "Neutral civilian must not be retaliate-acquired"
+        );
+    }
+
 
     #[test]
     fn guard_retaliate_inner_skips_off_map_and_uses_2d() {

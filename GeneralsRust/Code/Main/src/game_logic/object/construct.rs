@@ -776,6 +776,8 @@ impl Object {
             physics_accel: glam::Vec3::ZERO,
             motive_frames_remaining: 0,
             waiting_for_path: false,
+            do_final_position: false,
+            final_position: glam::Vec3::ZERO,
             ignored_obstacle_id: None,
             move_away_from: None,
             move_away_frames: 0,
@@ -800,6 +802,7 @@ impl Object {
             braking: 99999.0,
             loco_apply_2d_friction_airborne: false,
             allow_motive_force_while_airborne: false,
+            locomotor_works_when_dead: false,
             airborne_targeting_height: i32::MAX,
             loco_extra_2d_friction: 0.0,
             physics_turning: PhysicsTurningType::TurnNone,
@@ -1665,6 +1668,8 @@ impl Object {
             physics_accel: glam::Vec3::ZERO,
             motive_frames_remaining: 0,
             waiting_for_path: false,
+            do_final_position: false,
+            final_position: glam::Vec3::ZERO,
             ignored_obstacle_id: None,
             move_away_from: None,
             move_away_frames: 0,
@@ -1689,6 +1694,7 @@ impl Object {
             braking: 99999.0,
             loco_apply_2d_friction_airborne: false,
             allow_motive_force_while_airborne: false,
+            locomotor_works_when_dead: false,
             airborne_targeting_height: i32::MAX,
             loco_extra_2d_friction: 0.0,
             physics_turning: PhysicsTurningType::TurnNone,
@@ -2305,6 +2311,12 @@ impl Object {
             return false;
         }
         true
+    }
+
+    /// C++ `AIUpdate.cpp:2134` — skip `doLocomotor` only when dead AND
+    /// `!LocomotorWorksWhenDead` (falling jets / parachute locos keep motive).
+    pub fn host_skip_dead_locomotor(&self) -> bool {
+        !self.is_alive() && !self.locomotor_works_when_dead
     }
 
     pub fn get_health_percentage(&self) -> f32 {

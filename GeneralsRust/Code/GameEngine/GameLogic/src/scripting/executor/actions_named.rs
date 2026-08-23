@@ -17,6 +17,16 @@ impl ScriptActionDispatcher {
         let unit_name = self.get_string_param(action, 0)?;
         let target_name = self.get_string_param(action, 1)?;
         log::info!("Unit '{}' entering '{}'", unit_name, target_name);
+        if super::dual_world_registry_unavailable() {
+            crate::scripting::request_host_script_garrison_enter(
+                crate::scripting::HostScriptGarrisonEnterExitRequest::NamedEnter {
+                    unit: unit_name,
+                    dest: target_name,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         // Look up both objects
         let tracker = get_named_object_tracker();
@@ -60,6 +70,15 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         log::info!("Unit '{}' exiting all contained", unit_name);
+        if super::dual_world_registry_unavailable() {
+            crate::scripting::request_host_script_garrison_enter(
+                crate::scripting::HostScriptGarrisonEnterExitRequest::NamedExitAll {
+                    unit: unit_name,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         // Look up object and issue Evacuate command
         let tracker = get_named_object_tracker();
@@ -521,6 +540,16 @@ impl ScriptActionDispatcher {
             unit_name,
             building_name
         );
+        if super::dual_world_registry_unavailable() {
+            crate::scripting::request_host_script_garrison_enter(
+                crate::scripting::HostScriptGarrisonEnterExitRequest::NamedGarrisonSpecific {
+                    unit: unit_name,
+                    building: building_name,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let tracker = get_named_object_tracker();
         let Ok(Some(unit_id)) = tracker.get_object_id(&unit_name) else {
@@ -587,6 +616,15 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         log::debug!("Unit '{}' garrisoning nearest building", unit_name);
+        if super::dual_world_registry_unavailable() {
+            crate::scripting::request_host_script_garrison_enter(
+                crate::scripting::HostScriptGarrisonEnterExitRequest::NamedGarrisonNearest {
+                    unit: unit_name,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let tracker = get_named_object_tracker();
         let Ok(Some(unit_id)) = tracker.get_object_id(&unit_name) else {
@@ -674,6 +712,15 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         log::debug!("Unit '{}' exiting building", unit_name);
+        if super::dual_world_registry_unavailable() {
+            crate::scripting::request_host_script_garrison_enter(
+                crate::scripting::HostScriptGarrisonEnterExitRequest::NamedExitBuilding {
+                    unit: unit_name,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let tracker = get_named_object_tracker();
         let Ok(Some(unit_id)) = tracker.get_object_id(&unit_name) else {

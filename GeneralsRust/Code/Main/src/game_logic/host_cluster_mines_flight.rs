@@ -9,6 +9,8 @@
 //! - Spawn ChinaJetCargoPlane transport residual toward target
 //! - Drop ClusterMinesBomb near DeliveryDistance
 //! - Bomb falls; on ground impact places mine ring via host_mines residual
+//! - Leftover GenerateMinefieldBehavior GenerationFX at place (`do_fx_at_position`)
+
 //!
 //! Fail-closed: not full pathfinder / SmartBorder minefield matrix.
 
@@ -23,6 +25,65 @@ use crate::game_logic::host_mines::{
 
 /// Retail Payload residual alias.
 pub const CLUSTER_MINES_BOMB_OBJECT: &str = CLUSTER_MINES_BOMB_TEMPLATE;
+/// Retail ClusterMinesBomb `GenerationFX` residual.
+pub const CLUSTER_MINES_GENERATION_FX: &str = "WeaponFX_ClusterMineImpact";
+
+/// Leftover `GenerateMinefieldBehavior.generation_fx` on ClusterMinesBomb.
+pub fn leftover_cluster_mines_generation_fx(template_name: &str) -> Option<String> {
+    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
+    let factory = guard.as_ref()?;
+    let tmpl = factory.find_template(template_name, false)?;
+    for entry in tmpl.get_behavior_module_info().iter() {
+        if !entry
+            .name
+            .as_str()
+            .eq_ignore_ascii_case("GenerateMinefieldBehavior")
+        {
+            continue;
+        }
+        if let Some(data) = entry
+            .data
+            .downcast_ref::<gamelogic::object::behavior::GenerateMinefieldBehaviorModuleData>(
+            )
+        {
+            let name = data
+                .generation_fx
+                .as_deref()
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if name.is_empty() || name.eq_ignore_ascii_case("none") {
+                return None;
+            }
+            return Some(name);
+        }
+        let name = entry
+            .data
+            .get_ini_field("GenerationFX")
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if name.is_empty() || name.eq_ignore_ascii_case("none") {
+            return None;
+        }
+        return Some(name);
+    }
+    None
+}
+
+/// Authored leftover GenerationFX, else retail `WeaponFX_ClusterMineImpact`.
+pub fn cluster_mines_generation_fx_name() -> String {
+    leftover_cluster_mines_generation_fx(CLUSTER_MINES_BOMB_OBJECT)
+        .filter(|n| !n.is_empty() && !n.eq_ignore_ascii_case("none"))
+        .unwrap_or_else(|| CLUSTER_MINES_GENERATION_FX.to_string())
+}
+
+/// Leftover `play_fx` / `TheFXList::do_fx_at_position` of authored GenerationFX.
+pub fn play_cluster_mines_generation_fx(pos: Vec3) -> bool {
+    let name = cluster_mines_generation_fx_name();
+    crate::game_logic::dispatch_fx_list_at_pos(&name, pos)
+}
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostClusterMinesFlightData {
@@ -164,6 +225,7 @@ pub fn honesty_cluster_mines_flight_residual_ok() -> bool {
         && CLUSTER_MINE_NUM_VIRTUAL == 8
         && CLUSTER_MINES_VIEW_OBJECT_DURATION_FRAMES == 900
         && (CLUSTER_MINES_VIEW_OBJECT_RANGE - 250.0).abs() < 0.01
+        && CLUSTER_MINES_GENERATION_FX == "WeaponFX_ClusterMineImpact"
 }
 
 #[cfg(test)]
@@ -217,4 +279,23 @@ mod tests {
         }
         assert!(left && destroyed, "C++ HeadOffMap+CleanUp after delivery, pos={pos:?}");
     }
+
+    #[test]
+    fn generation_fx_is_leftover_cluster_mine_impact() {
+        assert_eq!(CLUSTER_MINES_GENERATION_FX, "WeaponFX_ClusterMineImpact");
+        assert_eq!(
+            cluster_mines_generation_fx_name(),
+            "WeaponFX_ClusterMineImpact"
+        );
+        let place = include_str!("world_scripts/stealth_mines.rs");
+        assert!(
+            place.contains("play_cluster_mines_generation_fx"),
+            "leftover GenerationFX must play on place_cluster_mines_unvaried"
+        );
+        assert!(
+            place.contains("do_fx_at_position") || place.contains("play_cluster_mines_generation_fx"),
+            "leftover play_fx is TheFXList::do_fx_at_position"
+        );
+    }
+
 }

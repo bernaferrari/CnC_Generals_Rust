@@ -50,9 +50,10 @@ pub mod tunnel_contain;
 // Re-export main types for easy access
 pub use cave_contain::{CaveContain, CaveContainModuleData};
 pub use garrison_contain::{
-    garrison_heal_single_amount, named_evac_disposition, record_named_evac_disposition,
-    EvacDisposition, GarrisonContain, GarrisonContainModuleData, GarrisonPointCondition,
-    GarrisonPointData, InitialRoster, StationPointData,
+    garrison_heal_single_amount, garrison_hide_returns_original_controller,
+    named_evac_disposition, record_named_evac_disposition, EvacDisposition, GarrisonContain,
+    GarrisonContainModuleData, GarrisonPointCondition, GarrisonPointData, InitialRoster,
+    StationPointData,
 };
 pub use heal_contain::{HealContain, HealContainModuleData};
 pub use helix_contain::{HelixContain, HelixContainModuleData};

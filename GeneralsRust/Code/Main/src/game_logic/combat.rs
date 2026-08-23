@@ -1746,6 +1746,28 @@ impl CombatSystem {
         });
     }
 
+    /// C++ `FXList::doFXObj(d->m_garrisonHitKillFX, other, NULL)` on the
+    /// building. Must not go through `ProjectileImpactFx` / Weapon.cpp
+    /// `doFXPos` detonation (shooter matrix + overrideRadius).
+    fn play_garrison_hit_kill_fx(
+        objects: &HashMap<ObjectId, Object>,
+        building_id: ObjectId,
+        fx_name: &str,
+    ) {
+        if fx_name.is_empty() {
+            return;
+        }
+        if let Some(building) = objects.get(&building_id) {
+            crate::game_logic::publish_host_fx_object(
+                building_id.0,
+                building.get_position(),
+                building.get_orientation(),
+                building.owner_player_id.map(|p| p as i32).unwrap_or(-1),
+            );
+        }
+        let _ = crate::game_logic::dispatch_fx_list_at_object(fx_name, building_id.0, None);
+    }
+
 
 
 
@@ -1964,31 +1986,19 @@ impl CombatSystem {
                 }
                 if let Some(sid) = hit_structure {
                     if let Some(flight) = projectile.flight.clone() {
-                        if let Some(center) =
-                            crate::game_logic::weapon_bootstrap::apply_garrison_hit_kill(
+                        if crate::game_logic::weapon_bootstrap::apply_garrison_hit_kill(
+                            objects,
+                            sid,
+                            projectile.shooter_id,
+                            &flight,
+                        )
+                        .is_some()
+                        {
+                            Self::play_garrison_hit_kill_fx(
                                 objects,
                                 sid,
-                                projectile.shooter_id,
-                                &flight,
-                            )
-                        {
-                            let fx_name = flight.garrison_hit_kill_fx().to_string();
-                            if !fx_name.is_empty() {
-                                self.impact_fx.push(ProjectileImpactFx {
-                                    position: center,
-                                    shooter_id: projectile.shooter_id,
-                                    target_id: Some(sid),
-                                    detonation_fx_name: fx_name,
-                                    detonation_ocl_name: String::new(),
-                                    source_team: projectile.source_team,
-                                    source_veterancy: projectile.source_veterancy,
-                                    source_orientation: projectile
-                                        .velocity
-                                        .z
-                                        .atan2(projectile.velocity.x),
-                                    source_velocity: projectile.velocity,
-                                });
-                            }
+                                flight.garrison_hit_kill_fx(),
+                            );
                             projectiles_to_remove.push(proj_id);
                             continue;
                         }
@@ -2036,31 +2046,19 @@ impl CombatSystem {
                         let distance = projectile.position.distance(target.get_position());
                         if distance <= 5.0 {
                             if let Some(flight) = projectile.flight.clone() {
-                                if let Some(center) =
-                                    crate::game_logic::weapon_bootstrap::apply_garrison_hit_kill(
+                                if crate::game_logic::weapon_bootstrap::apply_garrison_hit_kill(
+                                    objects,
+                                    target_id,
+                                    projectile.shooter_id,
+                                    &flight,
+                                )
+                                .is_some()
+                                {
+                                    Self::play_garrison_hit_kill_fx(
                                         objects,
                                         target_id,
-                                        projectile.shooter_id,
-                                        &flight,
-                                    )
-                                {
-                                    let fx_name = flight.garrison_hit_kill_fx().to_string();
-                                    if !fx_name.is_empty() {
-                                        self.impact_fx.push(ProjectileImpactFx {
-                                            position: center,
-                                            shooter_id: projectile.shooter_id,
-                                            target_id: Some(target_id),
-                                            detonation_fx_name: fx_name,
-                                            detonation_ocl_name: String::new(),
-                                            source_team: projectile.source_team,
-                                            source_veterancy: projectile.source_veterancy,
-                                            source_orientation: projectile
-                                                .velocity
-                                                .z
-                                                .atan2(projectile.velocity.x),
-                                            source_velocity: projectile.velocity,
-                                        });
-                                    }
+                                        flight.garrison_hit_kill_fx(),
+                                    );
                                     projectiles_to_remove.push(proj_id);
                                     continue;
                                 }
@@ -3607,6 +3605,101 @@ mod tests {
         assert_eq!(fx[0].detonation_fx_name, "FX_GenericTankShellDetonation");
         assert_eq!(fx[0].detonation_ocl_name, "OCL_FireFieldSmall");
         assert_eq!(fx[0].target_id, Some(target));
+    }
+
+    #[test]
+    fn garrison_hit_kill_fx_uses_do_fx_obj_not_detonation_pos() {
+        let mut combat = CombatSystem::new();
+        let mut objects = HashMap::new();
+        let shooter = ObjectId(1);
+        let building = ObjectId(2);
+        let occupant = ObjectId(3);
+
+        let mut rider = Object::new_simple(
+            occupant,
+            crate::game_logic::ObjectType::Infantry,
+            "GLARebel".to_string(),
+        );
+        rider.set_position(Vec3::new(5.0, 0.0, 0.0));
+        objects.insert(occupant, rider);
+
+        let mut bunker = Object::new_simple(
+            building,
+            crate::game_logic::ObjectType::Building,
+            "CivilianBuilding".to_string(),
+        );
+        bunker.set_position(Vec3::new(5.0, 0.0, 0.0));
+        bunker.thing.template.contain_module.kind =
+            crate::game_logic::ContainModuleKind::Garrison;
+        bunker.thing.template.garrison_contain_max = Some(5);
+        let mut bd = crate::game_logic::buildings::BuildingData::new(
+            crate::game_logic::buildings::BuildingType::Bunker,
+        );
+        bd.garrisoned_units = vec![occupant];
+        bunker.building_data = Some(bd);
+        objects.insert(building, bunker);
+
+        let pid = combat.fire_projectile_ex(
+            Vec3::ZERO,
+            Vec3::new(5.0, 0.0, 0.0),
+            &Weapon {
+                damage: 10.0,
+                range: 100.0,
+                min_range: 0.0,
+                reload_time: 1.0,
+                last_fire_time: 0.0,
+                ammo: None,
+                clip_size: 0,
+                clip_reload_time: 0.0,
+                can_target_air: true,
+                can_target_ground: true,
+                projectile_speed: 0.0,
+                pre_attack_delay: 0.0,
+                splash_radius: 0.0,
+                suspend_fx_frame: 0,
+                reloading_clip: false,
+                last_bonus_rof: 0.0,
+            },
+            shooter,
+            Some(building),
+            0.0,
+            false,
+        );
+        if let Some(p) = combat.projectile_mut(pid) {
+            p.flight = Some(
+                crate::game_logic::weapon_bootstrap::HostProjectileFlight::Dumb(
+                    crate::game_logic::weapon_bootstrap::HostDumbProjectileFlight {
+                        garrison_hit_kill_count: 1,
+                        garrison_hit_kill_fx: "FX_FlashBang".into(),
+                        ..Default::default()
+                    },
+                ),
+            );
+            p.detonation_fx_name = "FX_ShouldNotPlay".into();
+        }
+        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects);
+        assert_eq!(
+            combat.projectile_count(),
+            0,
+            "garrison clear must consume the projectile without detonation"
+        );
+        let fx = combat.take_impact_fx();
+        assert!(
+            fx.is_empty(),
+            "GarrisonHitKillFX must not queue Weapon.cpp detonation pos form, got {fx:?}"
+        );
+        let rider = objects.get(&occupant).expect("occupant");
+        assert!(
+            !rider.is_alive(),
+            "GarrisonHitKillCount must still kill the occupant"
+        );
+        assert!(
+            objects
+                .get(&building)
+                .expect("building")
+                .contained_units()
+                .is_empty()
+        );
     }
 
     #[test]

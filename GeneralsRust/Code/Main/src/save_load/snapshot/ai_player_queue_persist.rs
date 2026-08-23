@@ -5,15 +5,17 @@
 //! readyToBuild flags, teamTimer/structureTimer/buildDelay/teamDelay, warehouse
 //! ID, repair-dozer, and structuresToRepair. Leftover `team_in_queue.rs` /
 //! `work_order.rs` already match that table. C++ / leftover `Player::xfer` also
-//! writes each `BuildListInfo.num_rebuilds` remaining count and
-//! `BuildListInfo.object_timestamp` rebuild-delay clock. Live spends remaining
-//! rebuilds as `AIBuildingInfo.rebuild_count` and the clock as
-//! `AIBuildingInfo.destroyed_at_time`.
+//! writes each `BuildListInfo.num_rebuilds` remaining count,
+//! `BuildListInfo.object_timestamp` rebuild-delay clock, `m_objectID`,
+//! `m_underConstruction`, and `m_priorityBuild`. Live spends remaining rebuilds
+//! as `AIBuildingInfo.rebuild_count`, the clock as `destroyed_at_time`, and the
+//! pad binding as `object_id` / `is_built` / `is_priority`.
 //!
 //! Append a tagged suffix after the historical v9 contain/producer payload
 //! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
-//! Restore writes queues/clocks, remaining rebuild counts, and rebuild-delay
-//! timestamps only; it never re-runs selectTeamToBuild or rebuilds the INI layout.
+//! Restore writes queues/clocks, remaining rebuild counts, rebuild-delay
+//! timestamps, and pad object bindings; it never re-runs selectTeamToBuild or
+//! rebuilds the INI layout.
 
 use crate::ai::{AITeamQueue, AIWorkOrder};
 use crate::game_logic::{GameLogic, ObjectId};
@@ -21,7 +23,8 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const AITQ_MAGIC: &[u8; 4] = b"AITQ";
-const AITQ_VERSION: u32 = 4;
+const AITQ_VERSION: u32 = 5;
+const AITQ_VERSION_V4: u32 = 4;
 const AITQ_VERSION_V3: u32 = 3;
 const AITQ_VERSION_V2: u32 = 2;
 const AITQ_VERSION_V1: u32 = 1;
@@ -44,6 +47,11 @@ struct AIPlayerQueuePersistPayloadV2 {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct AIPlayerQueuePersistPayloadV3 {
     players: Vec<AIPlayerQueuePersistV3>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct AIPlayerQueuePersistPayloadV4 {
+    players: Vec<AIPlayerQueuePersistV4>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,6 +84,12 @@ pub struct AIPlayerQueuePersist {
     pub building_rebuild_counts: Vec<u32>,
     /// Live `AIBuildingInfo.destroyed_at_time` per pad, leftover object_timestamp.
     pub building_destroyed_at_times: Vec<Option<f32>>,
+    /// Live `AIBuildingInfo.object_id` per pad, leftover `BuildListInfo.object_id`.
+    pub building_object_ids: Vec<Option<u32>>,
+    /// Live `AIBuildingInfo.is_built` per pad, leftover `!under_construction` when bound.
+    pub building_is_built: Vec<bool>,
+    /// Live `AIBuildingInfo.is_priority` per pad, leftover `priority_build`.
+    pub building_is_priority: Vec<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -155,6 +169,36 @@ struct AIPlayerQueuePersistV3 {
     building_rebuild_counts: Vec<u32>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AIPlayerQueuePersistV4 {
+    player_id: u32,
+    team_queue: Vec<AITeamQueuePersist>,
+    team_ready_queue: Vec<AITeamQueuePersist>,
+    next_building_time: f32,
+    next_team_queue_time: f32,
+    next_team_time: f32,
+    team_seconds: f32,
+    last_update_time: f32,
+    current_warehouse_id: Option<u32>,
+    repair_dozer: Option<u32>,
+    repair_dozer_origin: [f32; 3],
+    structures_to_repair: Vec<u32>,
+    dozer_queued_for_repair: bool,
+    dozer_is_repairing: bool,
+    last_bridge_repair_time: f32,
+    skillset_selector: i32,
+    cur_front_base_defense: i32,
+    cur_flank_base_defense: i32,
+    cur_front_left_defense_angle: f32,
+    cur_front_right_defense_angle: f32,
+    cur_left_flank_left_defense_angle: f32,
+    cur_left_flank_right_defense_angle: f32,
+    cur_right_flank_left_defense_angle: f32,
+    cur_right_flank_right_defense_angle: f32,
+    building_rebuild_counts: Vec<u32>,
+    building_destroyed_at_times: Vec<Option<f32>>,
+}
+
 impl From<AIPlayerQueuePersistV1> for AIPlayerQueuePersist {
     fn from(old: AIPlayerQueuePersistV1) -> Self {
         Self {
@@ -184,6 +228,9 @@ impl From<AIPlayerQueuePersistV1> for AIPlayerQueuePersist {
             cur_right_flank_right_defense_angle: 0.0,
             building_rebuild_counts: Vec::new(),
             building_destroyed_at_times: Vec::new(),
+            building_object_ids: Vec::new(),
+            building_is_built: Vec::new(),
+            building_is_priority: Vec::new(),
         }
     }
 }
@@ -217,6 +264,9 @@ impl From<AIPlayerQueuePersistV2> for AIPlayerQueuePersist {
             cur_right_flank_right_defense_angle: old.cur_right_flank_right_defense_angle,
             building_rebuild_counts: Vec::new(),
             building_destroyed_at_times: Vec::new(),
+            building_object_ids: Vec::new(),
+            building_is_built: Vec::new(),
+            building_is_priority: Vec::new(),
         }
     }
 }
@@ -250,6 +300,45 @@ impl From<AIPlayerQueuePersistV3> for AIPlayerQueuePersist {
             cur_right_flank_right_defense_angle: old.cur_right_flank_right_defense_angle,
             building_rebuild_counts: old.building_rebuild_counts,
             building_destroyed_at_times: Vec::new(),
+            building_object_ids: Vec::new(),
+            building_is_built: Vec::new(),
+            building_is_priority: Vec::new(),
+        }
+    }
+}
+
+impl From<AIPlayerQueuePersistV4> for AIPlayerQueuePersist {
+    fn from(old: AIPlayerQueuePersistV4) -> Self {
+        Self {
+            player_id: old.player_id,
+            team_queue: old.team_queue,
+            team_ready_queue: old.team_ready_queue,
+            next_building_time: old.next_building_time,
+            next_team_queue_time: old.next_team_queue_time,
+            next_team_time: old.next_team_time,
+            team_seconds: old.team_seconds,
+            last_update_time: old.last_update_time,
+            current_warehouse_id: old.current_warehouse_id,
+            repair_dozer: old.repair_dozer,
+            repair_dozer_origin: old.repair_dozer_origin,
+            structures_to_repair: old.structures_to_repair,
+            dozer_queued_for_repair: old.dozer_queued_for_repair,
+            dozer_is_repairing: old.dozer_is_repairing,
+            last_bridge_repair_time: old.last_bridge_repair_time,
+            skillset_selector: old.skillset_selector,
+            cur_front_base_defense: old.cur_front_base_defense,
+            cur_flank_base_defense: old.cur_flank_base_defense,
+            cur_front_left_defense_angle: old.cur_front_left_defense_angle,
+            cur_front_right_defense_angle: old.cur_front_right_defense_angle,
+            cur_left_flank_left_defense_angle: old.cur_left_flank_left_defense_angle,
+            cur_left_flank_right_defense_angle: old.cur_left_flank_right_defense_angle,
+            cur_right_flank_left_defense_angle: old.cur_right_flank_left_defense_angle,
+            cur_right_flank_right_defense_angle: old.cur_right_flank_right_defense_angle,
+            building_rebuild_counts: old.building_rebuild_counts,
+            building_destroyed_at_times: old.building_destroyed_at_times,
+            building_object_ids: Vec::new(),
+            building_is_built: Vec::new(),
+            building_is_priority: Vec::new(),
         }
     }
 }
@@ -382,6 +471,7 @@ pub fn apply_from_lifecycle_tail(
     let mut rest = suffix;
     let version = take_u32(&mut rest)?;
     if version != AITQ_VERSION
+        && version != AITQ_VERSION_V4
         && version != AITQ_VERSION_V3
         && version != AITQ_VERSION_V2
         && version != AITQ_VERSION_V1
@@ -412,6 +502,12 @@ pub fn apply_from_lifecycle_tail(
     } else if version == AITQ_VERSION_V3 {
         let old: AIPlayerQueuePersistPayloadV3 = bincode::deserialize(encoded)
             .map_err(|err| SaveLoadError::Corrupted(format!("AITQ v3 payload decode: {err}")))?;
+        AIPlayerQueuePersistPayload {
+            players: old.players.into_iter().map(AIPlayerQueuePersist::from).collect(),
+        }
+    } else if version == AITQ_VERSION_V4 {
+        let old: AIPlayerQueuePersistPayloadV4 = bincode::deserialize(encoded)
+            .map_err(|err| SaveLoadError::Corrupted(format!("AITQ v4 payload decode: {err}")))?;
         AIPlayerQueuePersistPayload {
             players: old.players.into_iter().map(AIPlayerQueuePersist::from).collect(),
         }
@@ -574,6 +670,9 @@ mod tests {
             skillset_selector: 2,
             building_rebuild_counts: vec![2, 1, 0],
             building_destroyed_at_times: vec![Some(12.5), None, Some(3.0)],
+            building_object_ids: vec![Some(factory.0), None, Some(dozer.0)],
+            building_is_built: vec![true, false, false],
+            building_is_priority: vec![false, true, false],
         }]);
 
         let builder = SnapshotBuilder::new();
@@ -630,6 +729,15 @@ mod tests {
             &row.building_destroyed_at_times[..3],
             &[Some(12.5), None, Some(3.0)]
         );
+        assert!(row.building_object_ids.len() >= 3);
+        assert_eq!(
+            &row.building_object_ids[..3],
+            &[Some(factory.0), None, Some(dozer.0)]
+        );
+        assert!(row.building_is_built.len() >= 3);
+        assert_eq!(&row.building_is_built[..3], &[true, false, false]);
+        assert!(row.building_is_priority.len() >= 3);
+        assert_eq!(&row.building_is_priority[..3], &[false, true, false]);
     }
 
     #[test]
@@ -835,6 +943,10 @@ mod tests {
             row.building_destroyed_at_times.iter().all(|stamp| stamp.is_none()),
             "v2 saves have no rebuild-delay clock table"
         );
+        assert!(
+            row.building_object_ids.iter().all(|id| id.is_none()),
+            "v2 saves have no pad object-id table"
+        );
     }
 
     #[test]
@@ -898,6 +1010,172 @@ mod tests {
         assert!(
             row.building_destroyed_at_times.iter().all(|stamp| stamp.is_none()),
             "v3 saves have no rebuild-delay clock table"
+        );
+        assert!(
+            row.building_object_ids.iter().all(|id| id.is_none()),
+            "v3 saves have no pad object-id table"
+        );
+    }
+
+    #[test]
+    fn snapshot_round_trips_build_list_object_binding() {
+        let mut source = china_ai_logic();
+        source.templates.insert(
+            "ChinaPowerPlant".into(),
+            ThingTemplate::new("ChinaPowerPlant"),
+        );
+        let plant = source
+            .create_object(
+                "ChinaPowerPlant",
+                Team::China,
+                Vec3::new(-50.0, 0.0, 0.0),
+            )
+            .expect("power plant");
+        if let Some(object) = source.host_object_mut(plant) {
+            object.status.under_construction = true;
+        }
+        let mut rows = source.capture_ai_player_queue_persist();
+        {
+            let row = rows
+                .iter_mut()
+                .find(|row| row.player_id == 1)
+                .expect("china persist row");
+            assert!(
+                row.building_object_ids.len() >= 3,
+                "layout pads exist to bind"
+            );
+            // China layout: [CC, Supply, Power, Barracks, Factory, Propaganda, Airfield]
+            row.building_object_ids[2] = Some(plant.0);
+            row.building_is_built[2] = false;
+            row.building_is_priority[1] = true;
+            row.building_is_built[0] = true;
+        }
+        source.apply_ai_player_queue_persist(rows);
+
+        let builder = SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
+        let mut restored = china_ai_logic();
+        restored.templates = source.templates.clone();
+        builder
+            .restore_from_snapshot(&snapshot, &mut restored)
+            .expect("restore");
+
+        let row = restored
+            .capture_ai_player_queue_persist()
+            .into_iter()
+            .find(|row| row.player_id == 1)
+            .expect("restored row");
+        assert_eq!(row.building_object_ids[2], Some(plant.0));
+        assert!(!row.building_is_built[2]);
+        assert!(row.building_is_priority[1]);
+        assert!(row.building_is_built[0]);
+        assert!(
+            restored
+                .host_object(plant)
+                .is_some_and(|object| object.status.under_construction),
+            "scaffold status must survive so resume_interrupted_construction can find it"
+        );
+    }
+
+    #[test]
+    fn v4_suffix_loads_timestamps_and_leaves_bindings_empty() {
+        let mut logic = china_ai_logic();
+        let v4 = AIPlayerQueuePersistPayloadV4 {
+            players: vec![AIPlayerQueuePersistV4 {
+                player_id: 1,
+                team_queue: vec![AITeamQueuePersist {
+                    name: "LegacyV4".into(),
+                    team_id: Some(7),
+                    work_orders: Vec::new(),
+                    priority_build: false,
+                    frame_started: 0,
+                    completed: false,
+                    execute_actions: false,
+                    sent_to_start_location: false,
+                    activated: false,
+                    reinforcement: false,
+                    reinforcement_id: None,
+                }],
+                team_ready_queue: Vec::new(),
+                next_building_time: 4.0,
+                next_team_queue_time: 1.0,
+                next_team_time: 2.0,
+                team_seconds: 10.0,
+                last_update_time: 0.0,
+                current_warehouse_id: None,
+                repair_dozer: None,
+                repair_dozer_origin: [0.0, 0.0, 0.0],
+                structures_to_repair: Vec::new(),
+                dozer_queued_for_repair: false,
+                dozer_is_repairing: false,
+                last_bridge_repair_time: -1.0,
+                skillset_selector: 0,
+                cur_front_base_defense: 1,
+                cur_flank_base_defense: 0,
+                cur_front_left_defense_angle: 0.0,
+                cur_front_right_defense_angle: 0.0,
+                cur_left_flank_left_defense_angle: 0.0,
+                cur_left_flank_right_defense_angle: 0.0,
+                cur_right_flank_left_defense_angle: 0.0,
+                cur_right_flank_right_defense_angle: 0.0,
+                building_rebuild_counts: vec![2, 1],
+                building_destroyed_at_times: vec![Some(9.0), None],
+            }],
+        };
+        let encoded = bincode::serialize(&v4).expect("encode v4");
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(AITQ_MAGIC);
+        append_u32(&mut bytes, AITQ_VERSION_V4);
+        append_u32(&mut bytes, encoded.len() as u32);
+        bytes.extend_from_slice(&encoded);
+        apply_from_lifecycle_tail(&bytes, &mut logic).expect("apply v4");
+        let row = logic
+            .capture_ai_player_queue_persist()
+            .into_iter()
+            .find(|row| row.player_id == 1)
+            .expect("row");
+        assert_eq!(row.team_queue[0].name, "LegacyV4");
+        assert_eq!(&row.building_rebuild_counts[..2], &[2, 1]);
+        assert_eq!(row.building_destroyed_at_times[0], Some(9.0));
+        assert!(
+            row.building_object_ids.iter().all(|id| id.is_none()),
+            "v4 saves have no pad object-id table"
+        );
+        assert!(
+            row.building_is_built.iter().all(|built| !*built),
+            "v4 saves have no is_built table"
+        );
+        assert!(
+            row.building_is_priority.iter().all(|priority| !*priority),
+            "v4 saves have no priority stamp table"
+        );
+    }
+
+    #[test]
+    fn retain_drops_stale_pad_object_ids() {
+        let mut logic = china_ai_logic();
+        let mut rows = logic.capture_ai_player_queue_persist();
+        {
+            let row = rows
+                .iter_mut()
+                .find(|row| row.player_id == 1)
+                .expect("row");
+            row.building_object_ids[0] = Some(9999);
+            row.building_is_built[0] = true;
+        }
+        logic.apply_ai_player_queue_persist(rows);
+        let row = logic
+            .capture_ai_player_queue_persist()
+            .into_iter()
+            .find(|row| row.player_id == 1)
+            .expect("row");
+        assert!(
+            row.building_object_ids[0].is_none(),
+            "missing world objects must not stay bound after retain"
+        );
+        assert!(
+            !row.building_is_built[0],
+            "stale binding must not keep is_built"
         );
     }
 

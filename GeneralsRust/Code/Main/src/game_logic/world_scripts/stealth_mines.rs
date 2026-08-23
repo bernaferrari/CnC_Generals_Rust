@@ -973,6 +973,13 @@ impl GameLogic {
             return;
         }
 
+        // Leftover StealthDetectorUpdate::update clears IR grids at each scan
+        // wake, then re-creates them for every in-range detected target.
+        {
+            let scanning: Vec<ObjectId> = detectors.iter().map(|d| d.0).collect();
+            self.clear_detector_ir_grids_for(&scanning);
+        }
+
 
         // Collect stealthed targets first to avoid borrow conflicts.
         let stealthed_ids: Vec<ObjectId> = self
@@ -1091,11 +1098,18 @@ impl GameLogic {
                     if detected_by_troop_crawler {
                         self.troop_crawler.record_detect();
                     }
-                    // C++ StealthDetectorUpdate.cpp:292-308 IR grid on newly spotted.
-                    self.spawn_detector_ir_grid_at(s_pos);
                     // C++ StealthDetectorUpdate.cpp:199-260 radar/audio/message.
                     // Hero Enemy*/Own* EVA is inside doFeedback (tryEvent 10s).
                     self.fire_stealth_discover_feedback(sid, &spotting_detectors);
+                }
+                // C++ StealthDetectorUpdate.cpp:292-308 / leftover: IR grid is
+                // outside the !was_detected feedback gate — every scan refresh.
+                for det_id in &spotting_detectors {
+                    let Some(det_y) = detectors.iter().find(|d| d.0 == *det_id).map(|d| d.3.y)
+                    else {
+                        continue;
+                    };
+                    self.spawn_detector_ir_grid_at(s_pos, det_y, *det_id);
                 }
             }
         }
@@ -1325,13 +1339,32 @@ impl GameLogic {
         }
     }
 
-    /// C++ StealthDetectorUpdate.cpp:292-308 IR grid on a newly spotted target.
-    fn spawn_detector_ir_grid_at(&mut self, pos: Vec3) {
+    /// Leftover StealthDetectorUpdate::clear_grid_particles at each scan wake.
+    fn clear_detector_ir_grids_for(&mut self, detector_ids: &[ObjectId]) {
+        use crate::game_logic::host_radar_stealth_vision_residual::DETECTOR_IR_GRID_PARTICLE;
+        let stale: Vec<u32> = self
+            .combat_particles
+            .active_systems()
+            .filter(|e| {
+                e.template_name == DETECTOR_IR_GRID_PARTICLE
+                    && e.source_object
+                        .is_some_and(|src| detector_ids.contains(&src))
+            })
+            .map(|e| e.id)
+            .collect();
+        for id in stale {
+            self.combat_particles.deactivate(id);
+        }
+    }
+
+    /// C++ StealthDetectorUpdate.cpp:292-308 IR grid each DetectionRate scan.
+    /// Host Y-up: snap XZ %12, height = detector Y + 17 (C++ detector z + 17).
+    fn spawn_detector_ir_grid_at(&mut self, pos: Vec3, detector_y: f32, detector_id: ObjectId) {
         use crate::game_logic::combat_particles::CombatParticleKind;
         use crate::game_logic::host_radar_stealth_vision_residual::DETECTOR_IR_GRID_PARTICLE;
         let grid = Vec3::new(
             pos.x - pos.x.rem_euclid(12.0),
-            pos.y + 17.0,
+            detector_y + 17.0,
             pos.z - pos.z.rem_euclid(12.0),
         );
         let _ = self.combat_particles.spawn_named(
@@ -1339,7 +1372,7 @@ impl GameLogic {
             DETECTOR_IR_GRID_PARTICLE,
             grid,
             self.frame,
-            None,
+            Some(detector_id),
             None,
         );
     }
@@ -1415,12 +1448,19 @@ impl GameLogic {
                 hint,
             );
             if let Some(obj) = self.objects.get_mut(&id) {
+                // Leftover StealthUpdate.cpp:666-670 pulse for every enabled
+                // non-mine, non-disguise-transition module (not just Camo Netting).
+                if !is_camo_netting_structure_template(&obj.template_name) {
+                    obj.apply_stealth_update_pulse();
+                }
                 let look_u8 = look.as_u8();
                 let look_changed = obj.camo_stealth_look != look_u8;
                 obj.camo_stealth_look = look_u8;
                 if look_changed {
                     // C++ setStealthLook writes m_secondMaterialPassOpacity only on change.
                     obj.camo_heat_vision_opacity = hv;
+                    // C++ setStealthLook(STEALTHLOOK_INVISIBLE) → updateHiddenStatus.
+                    obj.update_drawable_hidden_status();
                 } else if hint {
                     // C++ hintDetectableWhileUnstealthed re-arms 1.0 each destalth update.
                     obj.camo_heat_vision_opacity = hv;
@@ -1432,6 +1472,7 @@ impl GameLogic {
                 obj.record_host_vision_camo();
             }
         }
+        self.drain_hidden_drawable_selection();
     }
 
 
@@ -1741,6 +1782,12 @@ impl GameLogic {
         use crate::game_logic::host_mines::{
             cluster_smart_border_positions, CLUSTER_MINES_MINE_TEMPLATE,
         };
+        // Leftover GenerateMinefieldBehavior::place_mines play_fx GenerationFX
+        // at the bomb/object center (`TheFXList::do_fx_at_position`).
+        let _ = crate::game_logic::host_cluster_mines_flight::play_cluster_mines_generation_fx(
+            center,
+        );
+
         let positions = cluster_smart_border_positions(center);
         let mut ids = Vec::with_capacity(positions.len());
         for pos in positions {

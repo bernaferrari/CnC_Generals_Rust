@@ -61,10 +61,11 @@ pub use w3d_tracer_draw::{W3DTracerDraw, W3DTracerDrawModuleData};
 pub use w3d_tree_draw::{W3DTreeDraw, W3DTreeDrawModuleData};
 pub use w3d_prop_draw::{W3DPropDraw, W3DPropDrawModuleData};
 pub use client_visual::{
-    object_should_animate, preload_draw_asset, register_preload_asset_hook,
-    register_terrain_decal_client, register_terrain_track_client, register_texture_aspect_hook,
-    terrain_decal_client, terrain_decal_texture_name, terrain_track_client, texture_aspect_ratio,
-    TerrainDecalClient, TerrainDecalDesc, TerrainTrackClient,
+    leftover_hidden_status_deselects, object_should_animate, object_should_animate_flags,
+    preload_draw_asset, register_preload_asset_hook, register_terrain_decal_client,
+    register_terrain_track_client, register_texture_aspect_hook, terrain_decal_client,
+    terrain_decal_texture_name, terrain_track_client, texture_aspect_ratio, TerrainDecalClient,
+    TerrainDecalDesc, TerrainTrackClient,
 };
 pub use w3d_truck_draw::{
     prune_live_host_truck_dust, tick_live_host_truck_dust, TruckDrawLivePhysics, W3DTruckDraw,

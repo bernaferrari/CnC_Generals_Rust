@@ -335,6 +335,7 @@ fn viewer_relative_stealth_matches_cxx_allies_and_inactive_local_rules() {
         object.owner_player_id = Some(owner);
         object.status.stealthed = true;
         object.status.detected = false;
+        object.apply_stealth_update_pulse();
     }
 
     let active = PresentationFrame::build_from_logic(&logic, 0);
@@ -364,15 +365,14 @@ fn viewer_relative_stealth_matches_cxx_allies_and_inactive_local_rules() {
         .iter()
         .find(|input| input.id == allied_id)
         .expect("allied translucent input");
-    let expected_allied = crate::game_logic::friendly_stealth_pulse_opacity(
-        0.5,
-        allied_id.0,
-        active.frame.0,
-    );
+    let expected_allied = logic
+        .host_object(allied_id)
+        .map(|o| o.camo_friendly_opacity)
+        .unwrap_or(1.0);
     assert!(
         (allied_input.fow_visibility.visibility_alpha - 1.0).abs() < f32::EPSILON
             && (allied_input.presentation_opacity - expected_allied).abs() < 0.001,
-        "C++ VISIBLE_FRIENDLY pulses FriendlyOpacityMin toward 1.0"
+        "C++ VISIBLE_FRIENDLY uses host StealthUpdate pulse opacity"
     );
 
     logic
@@ -386,15 +386,14 @@ fn viewer_relative_stealth_matches_cxx_allies_and_inactive_local_rules() {
         .into_iter()
         .find(|input| input.id == allied_id)
         .expect("detected friendly stealth remains renderable");
-    let expected_detected = crate::game_logic::friendly_stealth_pulse_opacity(
-        0.5,
-        allied_id.0,
-        detected_frame.frame.0,
-    );
+    let expected_detected = logic
+        .host_object(allied_id)
+        .map(|o| o.camo_friendly_opacity)
+        .unwrap_or(1.0);
     assert!(
         (detected_input.fow_visibility.visibility_alpha - 1.0).abs() < f32::EPSILON
             && (detected_input.presentation_opacity - expected_detected).abs() < 0.001,
-        "C++ VISIBLE_FRIENDLY_DETECTED keeps the same friendly pulse"
+        "C++ VISIBLE_FRIENDLY_DETECTED keeps the same host pulse"
     );
 
     let mut dead_enemy = active_enemy.clone();

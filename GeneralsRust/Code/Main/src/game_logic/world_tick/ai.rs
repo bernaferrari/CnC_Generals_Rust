@@ -320,6 +320,7 @@ impl GameLogic {
             if let Some(obj) = self.objects.get_mut(&object_id) {
                 obj.poll_slow_death_phase_fx(self.frame);
                 obj.poll_structure_collapse_phase_fx(self.frame);
+                obj.poll_structure_topple_fx(self.frame);
             }
             self.sync_helicopter_attach_particle(object_id);
             // Wave 777: under coupled shadow, StructureTopple crush sweep is owned by

@@ -1187,7 +1187,7 @@ impl GameLogic {
         }
 
         for req in gamelogic::scripting::take_host_script_stopping_distance_requests() {
-            let (ids, distance) = match req {
+            let (mut ids, distance) = match req {
                 HostScriptStoppingDistanceRequest::Named { unit, distance } => (
                     self.host_object_id_by_script_name(&unit)
                         .into_iter()
@@ -1201,7 +1201,18 @@ impl GameLogic {
             if distance < 0.5 {
                 continue;
             }
+            // C++ doSetStoppingDistance: team member list order. Live HashMap
+            // iteration is not stable; ObjectId is spawn/join order.
+            ids.sort_by_key(|id| id.0);
             for id in ids {
+                let Some(obj) = self.objects.get(&id) else {
+                    continue;
+                };
+                // C++ `if (!aiUpdate || !aiUpdate->getCurLocomotor()) { return; }`
+                // — first structure/hulk aborts, later members keep old dist.
+                if !Self::host_script_member_has_cur_locomotor(obj) {
+                    break;
+                }
                 if let Some(obj) = self.objects.get_mut(&id) {
                     obj.close_enough_dist = Some(distance);
                 }
@@ -3726,6 +3737,424 @@ impl GameLogic {
         });
     }
 
+    /// C++ `getAIUpdateInterface` + `getCurLocomotor`. Structures have no
+    /// current locomotor; generic test scouts without KindOf still stamp.
+    fn host_script_member_has_cur_locomotor(obj: &crate::game_logic::object::Object) -> bool {
+        use crate::game_logic::KindOf;
+        !obj.is_kind_of(KindOf::Structure)
+    }
+
+    /// C++ enter/garrison/exit family live drain (`aiEnter` / `aiEvacuate` / `aiExit`).
+    pub fn apply_host_garrison_enter_exit_script_requests(&mut self) {
+        use gamelogic::scripting::HostScriptGarrisonEnterExitRequest;
+        for req in gamelogic::scripting::take_host_script_garrison_enter_requests() {
+            match req {
+                HostScriptGarrisonEnterExitRequest::NamedEnter { unit, dest } => {
+                    let Some(unit_id) = self.host_object_id_by_script_name(&unit) else {
+                        continue;
+                    };
+                    let Some(dest_id) = self.host_object_id_by_script_name(&dest) else {
+                        continue;
+                    };
+                    self.host_script_ai_enter(unit_id, dest_id);
+                }
+                HostScriptGarrisonEnterExitRequest::TeamEnter { team, dest } => {
+                    let Some(dest_id) = self.host_object_id_by_script_name(&dest) else {
+                        continue;
+                    };
+                    let members = self.host_script_garrison_team_member_ids(&team);
+                    for id in members {
+                        self.host_script_ai_enter(id, dest_id);
+                    }
+                }
+                HostScriptGarrisonEnterExitRequest::NamedExitAll { unit } => {
+                    let Some(id) = self.host_object_id_by_script_name(&unit) else {
+                        continue;
+                    };
+                    self.host_script_ai_evacuate(id);
+                }
+                HostScriptGarrisonEnterExitRequest::TeamExitAll { team } => {
+                    for id in self.host_script_garrison_team_member_ids(&team) {
+                        self.host_script_ai_evacuate(id);
+                    }
+                }
+                HostScriptGarrisonEnterExitRequest::TeamGarrisonSpecific { team, building } => {
+                    let Some(building_id) = self.host_object_id_by_script_name(&building) else {
+                        continue;
+                    };
+                    let members = self.host_script_garrison_team_member_ids(&team);
+                    let player_id = members
+                        .first()
+                        .and_then(|id| self.host_object(*id).and_then(|o| o.owner_player_id));
+                    if !self.host_script_building_can_garrison(building_id, player_id) {
+                        continue;
+                    }
+                    for id in members {
+                        self.host_script_ai_enter(id, building_id);
+                    }
+                }
+                HostScriptGarrisonEnterExitRequest::ExitSpecificBuilding { building } => {
+                    let Some(id) = self.host_object_id_by_script_name(&building) else {
+                        continue;
+                    };
+                    if !self
+                        .host_object(id)
+                        .is_some_and(|o| o.is_kind_of(crate::game_logic::KindOf::Structure))
+                    {
+                        continue;
+                    }
+                    self.host_script_ai_evacuate(id);
+                }
+                HostScriptGarrisonEnterExitRequest::TeamGarrisonNearest { team } => {
+                    self.host_script_team_garrison_nearest(&team);
+                }
+                HostScriptGarrisonEnterExitRequest::TeamExitAllBuildings { team } => {
+                    for id in self.host_script_garrison_team_member_ids(&team) {
+                        self.host_script_ai_exit(id);
+                    }
+                }
+                HostScriptGarrisonEnterExitRequest::NamedGarrisonSpecific { unit, building } => {
+                    let Some(unit_id) = self.host_object_id_by_script_name(&unit) else {
+                        continue;
+                    };
+                    let Some(building_id) = self.host_object_id_by_script_name(&building) else {
+                        continue;
+                    };
+                    let player_id = self.host_object(unit_id).and_then(|o| o.owner_player_id);
+                    if !self.host_script_building_can_garrison(building_id, player_id) {
+                        continue;
+                    }
+                    self.host_script_ai_enter(unit_id, building_id);
+                }
+                HostScriptGarrisonEnterExitRequest::NamedGarrisonNearest { unit } => {
+                    self.host_script_named_garrison_nearest(&unit);
+                }
+                HostScriptGarrisonEnterExitRequest::NamedExitBuilding { unit } => {
+                    let Some(id) = self.host_object_id_by_script_name(&unit) else {
+                        continue;
+                    };
+                    self.host_script_ai_exit(id);
+                }
+                HostScriptGarrisonEnterExitRequest::PlayerGarrisonAll { player } => {
+                    self.host_script_player_garrison_all(&player);
+                }
+                HostScriptGarrisonEnterExitRequest::PlayerExitAll { player } => {
+                    self.host_script_player_exit_all(&player);
+                }
+            }
+        }
+    }
+
+    fn host_script_garrison_team_member_ids(&self, team: &str) -> Vec<ObjectId> {
+        let mut ids = self.host_script_team_member_ids(team);
+        ids.sort_by_key(|id| id.0);
+        ids
+    }
+
+    fn host_script_contain_slots_available(obj: &crate::game_logic::object::Object) -> i32 {
+        if let Some(bd) = obj.building_data.as_ref() {
+            return bd.max_garrison as i32 - bd.garrisoned_units.len() as i32;
+        }
+        let max = obj.max_transport as i32;
+        if max > 0 {
+            return max - obj.occupants.len() as i32;
+        }
+        0
+    }
+
+    fn host_script_building_can_garrison(
+        &self,
+        building_id: ObjectId,
+        player_id: Option<u32>,
+    ) -> bool {
+        use crate::game_logic::KindOf;
+        let Some(building) = self.host_object(building_id) else {
+            return false;
+        };
+        if !building.is_kind_of(KindOf::Structure)
+            || !building.is_alive()
+            || building.status.destroyed
+        {
+            return false;
+        }
+        if Self::host_script_contain_slots_available(building) <= 0 {
+            return false;
+        }
+        if building.player_who_entered.is_empty() {
+            return true;
+        }
+        let Some(pid) = player_id else {
+            return false;
+        };
+        self.players.get(&pid).is_some_and(|p| {
+            building
+                .player_who_entered
+                .eq_ignore_ascii_case(&p.name)
+        })
+    }
+
+    fn host_script_ai_enter(&mut self, unit: ObjectId, dest: ObjectId) {
+        use crate::game_logic::AIState;
+        let Some(pos) = self.host_object(dest).map(|obj| obj.get_position()) else {
+            return;
+        };
+        self.host_object_leave_group(unit);
+        let _ = self.apply_unit_locomotor_set(unit, "normal");
+        let _ = self.unit_command_stop_moving_order_target(unit, Some(dest));
+        if !self.unit_command_path_with_state_ignoring(
+            unit,
+            pos,
+            AIState::Entering,
+            Some(dest),
+        ) {
+            if let Some(obj) = self.host_object_mut(unit) {
+                obj.ignored_obstacle_id = Some(dest);
+                obj.set_ai_state(AIState::Entering);
+            }
+        }
+    }
+
+    fn host_script_ai_evacuate(&mut self, id: ObjectId) {
+        self.host_object_leave_group(id);
+        let _ = self.apply_unit_locomotor_set(id, "normal");
+        let _ = self.evacuate_container_now(id, false);
+    }
+
+    fn host_script_ai_exit(&mut self, id: ObjectId) {
+        self.host_object_leave_group(id);
+        let _ = self.apply_unit_locomotor_set(id, "normal");
+        let Some(cid) = self.host_object(id).and_then(|obj| obj.contained_by) else {
+            return;
+        };
+        let pos = self
+            .host_object(cid)
+            .map(|obj| obj.get_position())
+            .unwrap_or(glam::Vec3::ZERO);
+        let _ = self.unit_command_exit_drop(id, pos);
+    }
+
+    fn host_script_is_garrison_nearest_candidate(
+        &self,
+        building: &crate::game_logic::object::Object,
+        leader_off_map: bool,
+        leader_is_hacker: bool,
+        player_id: Option<u32>,
+    ) -> bool {
+        use crate::game_logic::host_deliver_payload::is_off_map_default_residual;
+        use crate::game_logic::KindOf;
+        if !building.is_alive() || building.status.destroyed {
+            return false;
+        }
+        if is_off_map_default_residual(building.get_position()) != leader_off_map {
+            return false;
+        }
+        let is_internet = building.is_kind_of(KindOf::FSInternetCenter);
+        if leader_is_hacker {
+            if !is_internet {
+                return false;
+            }
+        } else if is_internet || !building.is_kind_of(KindOf::Structure) {
+            return false;
+        }
+        if Self::host_script_contain_slots_available(building) <= 0 {
+            return false;
+        }
+        if !leader_is_hacker && !building.player_who_entered.is_empty() {
+            let Some(pid) = player_id else {
+                return false;
+            };
+            if !self.players.get(&pid).is_some_and(|p| {
+                building
+                    .player_who_entered
+                    .eq_ignore_ascii_case(&p.name)
+            }) {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn host_script_team_garrison_nearest(&mut self, team: &str) {
+        use crate::game_logic::host_deliver_payload::is_off_map_default_residual;
+        use crate::game_logic::KindOf;
+        let members = self.host_script_garrison_team_member_ids(team);
+        let Some(&leader_id) = members.first() else {
+            return;
+        };
+        let Some((leader_pos, leader_off_map, leader_is_hacker, player_id)) =
+            self.host_object(leader_id).map(|obj| {
+                (
+                    obj.get_position(),
+                    is_off_map_default_residual(obj.get_position()),
+                    obj.is_kind_of(KindOf::MoneyHacker),
+                    obj.owner_player_id,
+                )
+            })
+        else {
+            return;
+        };
+        let mut buildings: Vec<(f32, ObjectId)> = self
+            .objects
+            .values()
+            .filter(|obj| obj.id != leader_id)
+            .filter(|obj| {
+                self.host_script_is_garrison_nearest_candidate(
+                    obj,
+                    leader_off_map,
+                    leader_is_hacker,
+                    player_id,
+                )
+            })
+            .map(|obj| {
+                let pos = obj.get_position();
+                let dx = pos.x - leader_pos.x;
+                let dy = pos.y - leader_pos.y;
+                let dz = pos.z - leader_pos.z;
+                (dx * dx + dy * dy + dz * dz, obj.id)
+            })
+            .collect();
+        buildings.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        let mut member_idx = 0usize;
+        for (_, building_id) in buildings {
+            let slots = self
+                .host_object(building_id)
+                .map(Self::host_script_contain_slots_available)
+                .unwrap_or(0);
+            if slots <= 0 {
+                continue;
+            }
+            let mut filled = 0i32;
+            while filled < slots && member_idx < members.len() {
+                let member_id = members[member_idx];
+                member_idx += 1;
+                let ok = self.host_object(member_id).is_some_and(|obj| {
+                    obj.is_kind_of(KindOf::Infantry) && !obj.is_kind_of(KindOf::NoGarrison)
+                });
+                if !ok {
+                    continue;
+                }
+                self.host_script_ai_enter(member_id, building_id);
+                filled += 1;
+            }
+            if member_idx >= members.len() {
+                break;
+            }
+        }
+    }
+
+    fn host_script_named_garrison_nearest(&mut self, unit: &str) {
+        use crate::game_logic::host_deliver_payload::is_off_map_default_residual;
+        use crate::game_logic::KindOf;
+        let Some(unit_id) = self.host_object_id_by_script_name(unit) else {
+            return;
+        };
+        let Some((unit_pos, unit_off_map, unit_is_hacker, player_id)) =
+            self.host_object(unit_id).map(|obj| {
+                (
+                    obj.get_position(),
+                    is_off_map_default_residual(obj.get_position()),
+                    obj.is_kind_of(KindOf::MoneyHacker),
+                    obj.owner_player_id,
+                )
+            })
+        else {
+            return;
+        };
+        let mut best: Option<(f32, ObjectId)> = None;
+        for obj in self.objects.values() {
+            if obj.id == unit_id {
+                continue;
+            }
+            if !self.host_script_is_garrison_nearest_candidate(
+                obj,
+                unit_off_map,
+                unit_is_hacker,
+                player_id,
+            ) {
+                continue;
+            }
+            let pos = obj.get_position();
+            let dx = pos.x - unit_pos.x;
+            let dy = pos.y - unit_pos.y;
+            let dz = pos.z - unit_pos.z;
+            let dist = dx * dx + dy * dy + dz * dz;
+            if best.is_none_or(|(best_dist, _)| dist < best_dist) {
+                best = Some((dist, obj.id));
+            }
+        }
+        let Some((_, building_id)) = best else {
+            return;
+        };
+        self.host_script_ai_enter(unit_id, building_id);
+    }
+
+    fn host_script_player_garrison_all(&mut self, player: &str) {
+        use crate::game_logic::KindOf;
+        let Some(pid) = self.host_player_id_for_script_token(player) else {
+            return;
+        };
+        let unit_ids: Vec<ObjectId> = self
+            .objects
+            .values()
+            .filter(|obj| {
+                obj.is_alive()
+                    && !obj.status.destroyed
+                    && obj.owner_player_id == Some(pid)
+                    && !obj.is_kind_of(KindOf::Structure)
+                    && obj.is_kind_of(KindOf::Infantry)
+                    && !obj.is_kind_of(KindOf::NoGarrison)
+            })
+            .map(|obj| obj.id)
+            .collect();
+        for unit_id in unit_ids {
+            let Some(unit_pos) = self.host_object(unit_id).map(|obj| obj.get_position()) else {
+                continue;
+            };
+            let mut best: Option<(f32, ObjectId)> = None;
+            for obj in self.objects.values() {
+                if obj.id == unit_id {
+                    continue;
+                }
+                if !self.host_script_building_can_garrison(obj.id, Some(pid)) {
+                    continue;
+                }
+                let pos = obj.get_position();
+                let dx = pos.x - unit_pos.x;
+                let dy = pos.y - unit_pos.y;
+                let dz = pos.z - unit_pos.z;
+                let dist = dx * dx + dy * dy + dz * dz;
+                if best.is_none_or(|(best_dist, _)| dist < best_dist) {
+                    best = Some((dist, obj.id));
+                }
+            }
+            let Some((_, building_id)) = best else {
+                continue;
+            };
+            self.host_script_ai_enter(unit_id, building_id);
+        }
+    }
+
+    fn host_script_player_exit_all(&mut self, player: &str) {
+        use crate::game_logic::KindOf;
+        let Some(pid) = self.host_player_id_for_script_token(player) else {
+            return;
+        };
+        let ids: Vec<ObjectId> = self
+            .objects
+            .values()
+            .filter(|obj| {
+                obj.is_alive()
+                    && !obj.status.destroyed
+                    && obj.owner_player_id == Some(pid)
+                    && obj.is_kind_of(KindOf::Structure)
+            })
+            .map(|obj| obj.id)
+            .collect();
+        for id in ids {
+            self.host_script_ai_evacuate(id);
+        }
+    }
+
     /// C++ `ScriptEngine::getTeamNamed` / leftover `TeamFactory::find_team`.
     /// First leftover instance members, else live `team_instance_name` — never faction Team.
     fn host_script_hunt_guard_team_member_ids(&self, team_name: &str) -> Vec<ObjectId> {
@@ -4179,6 +4608,7 @@ impl GameLogic {
 
         self.apply_host_move_attack_script_requests();
         self.apply_host_hunt_guard_script_requests();
+        self.apply_host_garrison_enter_exit_script_requests();
         self.apply_host_idle_script_requests();
         self.apply_host_kill_delete_damage_script_requests();
 

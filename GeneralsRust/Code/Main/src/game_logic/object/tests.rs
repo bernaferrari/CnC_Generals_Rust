@@ -4167,8 +4167,11 @@ fn shock_fall_damage_splats_on_hard_landing() {
     use crate::game_logic::combat::DamageType;
     use crate::game_logic::host_enum_table_residual::{host_model_condition_has, MC_BIT_SPLATTED};
     use crate::game_logic::host_usa_pilot::HostDeathType;
-    // height_to_speed(40) with |g|=1 → sqrt(80) ≈ 8.94
-    assert!((Object::min_fall_speed_for_damage() - (80.0f32).sqrt()).abs() < 1e-3);
+    // leftover height_to_speed(40) with retail |g|=64/900 → ~2.385, not sqrt(80).
+    let leftover_min = Object::min_fall_speed_for_damage();
+    assert!((leftover_min - Object::height_to_fall_speed(40.0)).abs() < 1e-3);
+    assert!(leftover_min > 2.0 && leftover_min < 3.0);
+    assert!((leftover_min - (80.0f32).sqrt()).abs() > 1.0);
     let mut tmpl = ThingTemplate::new("SplatVic");
     tmpl.add_kind_of(KindOf::Vehicle);
     tmpl.max_health = 50.0;
@@ -4183,7 +4186,7 @@ fn shock_fall_damage_splats_on_hard_landing() {
     o.movement.velocity = glam::Vec3::new(0.0, -20.0, 0.0);
     let dmg = o.apply_shock_fall_damage(-20.0);
     assert!(dmg > 0.0, "expected fall damage, got {dmg}");
-    // net = 20 - sqrt(80) ≈ 11.06 → kills 50hp unit with mass1 factor1? 11 < 50 so wounded
+    // net = 20 - leftover ~2.385 ≈ 17.6 → wounds 50hp unit with mass1 factor1
     assert!(o.health.current < 50.0);
     // Stronger impact to splat.
     o.health.current = 5.0;
@@ -4298,15 +4301,115 @@ fn shock_applies_random_rotation_and_optional_freefall_bit() {
             MC_BIT_FREEFALL
         ));
     }
-    // Structure stick-to-ground: no rotation.
+    // C++ applyRandomRotation: only STICK_TO_GROUND skips tumble.
     let mut st = ThingTemplate::new("RotStruct");
     st.add_kind_of(KindOf::Structure);
     let mut s = Object::new(st, ObjectId(8), Team::USA);
     let s0 = s.get_orientation();
     s.apply_shock_random_rotation(123);
-    assert!((s.get_orientation() - s0).abs() < 1e-6);
-    assert_eq!(s.shock_yaw_rate, 0.0);
+    let struct_tumbled = (s.get_orientation() - s0).abs() > 1e-6
+        || s.shock_yaw_rate.abs() > 1e-6
+        || s.shock_pitch_rate.abs() > 1e-6;
+    assert!(struct_tumbled, "structure without stick must tumble");
+    assert!(
+        s.apply_shock_wave_impulse(glam::Vec3::new(4.0, 8.0, 0.0)),
+        "structure with PhysicsBehavior still takes shock"
+    );
+
+    let mut it = ThingTemplate::new("RotInf");
+    it.add_kind_of(KindOf::Infantry);
+    let mut inf = Object::new(it, ObjectId(81), Team::USA);
+    inf.stick_to_ground = false;
+    let i0 = inf.get_orientation();
+    inf.apply_shock_random_rotation(123);
+    let inf_tumbled = (inf.get_orientation() - i0).abs() > 1e-6
+        || inf.shock_yaw_rate.abs() > 1e-6
+        || inf.shock_pitch_rate.abs() > 1e-6;
+    assert!(inf_tumbled, "infantry without stick must tumble");
+
+    let mut stuck_t = ThingTemplate::new("RotStuck");
+    stuck_t.add_kind_of(KindOf::Infantry);
+    let mut stuck = Object::new(stuck_t, ObjectId(82), Team::USA);
+    stuck.stick_to_ground = true;
+    let st0 = stuck.get_orientation();
+    stuck.apply_shock_random_rotation(123);
+    assert!((stuck.get_orientation() - st0).abs() < 1e-6);
+    assert_eq!(stuck.shock_yaw_rate, 0.0);
 }
+#[test]
+fn handle_shock_ground_bounce_restores_original_allow_bounce() {
+    let mut tmpl = ThingTemplate::new("StunBounceAllow");
+    tmpl.add_kind_of(KindOf::Vehicle);
+    let mut o = Object::new(tmpl, ObjectId(91), Team::USA);
+    o.shock_allow_bounce = true;
+    o.original_allow_bounce = true;
+    o.movement.velocity = glam::Vec3::ZERO;
+    let bounced = o.handle_shock_ground_bounce(0.0, -0.1, 0.0);
+    assert_eq!(bounced, 0.0);
+    assert!(
+        o.shock_allow_bounce,
+        "zero-force stun bounce must restore authored AllowBouncing"
+    );
+
+    let mut authored_off = Object::new(
+        {
+            let mut t = ThingTemplate::new("StunBounceOff");
+            t.add_kind_of(KindOf::Vehicle);
+            t
+        },
+        ObjectId(92),
+        Team::USA,
+    );
+    authored_off.shock_allow_bounce = true;
+    authored_off.original_allow_bounce = false;
+    authored_off.movement.velocity = glam::Vec3::ZERO;
+    let bounced_off = authored_off.handle_shock_ground_bounce(0.0, -0.1, 0.0);
+    assert_eq!(bounced_off, 0.0);
+    assert!(
+        !authored_off.shock_allow_bounce,
+        "zero-force stun bounce must restore authored AllowBouncing=No"
+    );
+}
+
+#[test]
+fn bounce_damps_pitch_roll_rates_not_zero() {
+    let mut tmpl = ThingTemplate::new("BounceDamp");
+    tmpl.add_kind_of(KindOf::Vehicle);
+    let mut o = Object::new(tmpl, ObjectId(93), Team::USA);
+    o.set_position(glam::Vec3::new(0.0, 2.0, 0.0));
+    o.shock_allow_bounce = true;
+    o.shock_yaw_rate = 1.0;
+    o.shock_pitch_rate = 1.0;
+    o.shock_roll_rate = 1.0;
+    o.movement.velocity = glam::Vec3::new(0.0, -4.0, 0.0);
+    o.immune_to_falling_damage = true;
+    assert!(o.compute_ground_bounce_force(2.0, -0.1, 0.0).is_some());
+    assert!((o.shock_yaw_rate - 0.7).abs() < 1e-5);
+    assert!((o.shock_pitch_rate - 0.7).abs() < 1e-5);
+    assert!((o.shock_roll_rate - 0.7).abs() < 1e-5);
+
+    let mut s = Object::new(
+        {
+            let mut t = ThingTemplate::new("StunDamp");
+            t.add_kind_of(KindOf::Vehicle);
+            t
+        },
+        ObjectId(94),
+        Team::USA,
+    );
+    s.set_position(glam::Vec3::new(0.0, 2.0, 0.0));
+    s.shock_allow_bounce = true;
+    s.shock_yaw_rate = 1.0;
+    s.shock_pitch_rate = 1.0;
+    s.shock_roll_rate = 1.0;
+    s.movement.velocity = glam::Vec3::new(0.0, -4.0, 0.0);
+    s.immune_to_falling_damage = true;
+    assert!(s.handle_shock_ground_bounce(2.0, -0.1, 0.0) > 0.0);
+    assert!((s.shock_yaw_rate - 0.7).abs() < 1e-5);
+    assert!((s.shock_pitch_rate - 0.7).abs() < 1e-5);
+    assert!((s.shock_roll_rate - 0.7).abs() < 1e-5);
+}
+
 #[test]
 fn shock_stun_blocks_attack_fire_and_flail_move() {
     let mut tmpl = ThingTemplate::new("StunBlock");
@@ -4992,5 +5095,103 @@ fn live_host_script_visual_status_apply() {
         "NAMED_FLASH uses getIndicatorColor"
     );
     assert!(OBJECT_REGISTRY.is_empty());
+}
+
+fn make_ground_unit(name: &str, id: u32, kind: KindOf) -> Object {
+    let mut t = ThingTemplate::new(name);
+    t.add_kind_of(kind);
+    let mut o = Object::new(t, ObjectId(id), Team::USA);
+    o.set_orientation(0.0);
+    o.set_position(glam::Vec3::ZERO);
+    o
+}
+
+#[test]
+fn dead_without_works_when_dead_skips_locomotor() {
+    let mut jet = make_ground_unit("DeadSkipJet", 6101, KindOf::Aircraft);
+    jet.health.current = 0.0;
+    assert!(jet.host_skip_dead_locomotor());
+    jet.locomotor_works_when_dead = true;
+    assert!(!jet.host_skip_dead_locomotor());
+}
+
+#[test]
+fn blocked_by_ignores_near_goal_and_reverse() {
+    let mut tank = make_ground_unit("NearGoalTank", 6102, KindOf::Vehicle);
+    tank.movement.target_position = Some(glam::Vec3::new(5.0, 0.0, 0.0));
+    let mut inf = make_ground_unit("NearGoalInf", 6103, KindOf::Infantry);
+    inf.set_position(glam::Vec3::new(2.0, 0.0, 0.0));
+    assert!(
+        !tank.ai_blocked_by(&inf, true),
+        "within one pathfind cell of the goal is not blocked"
+    );
+
+    tank.movement.target_position = Some(glam::Vec3::new(40.0, 0.0, 0.0));
+    tank.moving_backwards = true;
+    assert!(
+        !tank.ai_blocked_by(&inf, true),
+        "reversing units skip blockedBy"
+    );
+}
+
+#[test]
+fn blocked_by_same_cell_uses_path_priority() {
+    let mut dozer = make_ground_unit("PrioDozer", 6104, KindOf::Dozer);
+    let mut inf = make_ground_unit("PrioInf", 6105, KindOf::Infantry);
+    // Same cell (dsqr ~ 0).
+    dozer.set_position(glam::Vec3::new(0.0, 0.0, 0.0));
+    inf.set_position(glam::Vec3::new(0.0, 0.0, 0.0));
+    assert!(
+        dozer.ai_blocked_by(&inf, true),
+        "dozer has higher path priority so is blocked (lowest priority wins)"
+    );
+    assert!(
+        !inf.ai_blocked_by(&dozer, true),
+        "infantry yields the stacked cell"
+    );
+}
+
+#[test]
+fn blocked_by_off_angle_higher_priority_yields() {
+    let mut dozer = make_ground_unit("OffAngleDozer", 6106, KindOf::Dozer);
+    let mut truck = make_ground_unit("OffAngleTruck", 6107, KindOf::Vehicle);
+    dozer.set_position(glam::Vec3::ZERO);
+    dozer.set_orientation(0.0);
+    dozer.movement.velocity = glam::Vec3::new(8.0, 0.0, 0.0);
+    // Off-angle closer pair: headings still overlap (dot>0) and distance shrinks.
+    truck.set_position(glam::Vec3::new(4.0, 0.0, 8.0));
+    truck.set_orientation((-0.6f32).atan2(0.8));
+    truck.movement.velocity = glam::Vec3::new(6.4, 0.0, -4.8);
+    assert!(
+        !dozer.ai_blocked_by(&truck, true),
+        "higher-priority dozer yields leftover off-angle heading"
+    );
+    assert!(
+        truck.ai_blocked_by(&dozer, true),
+        "lower-priority truck stays blocked on leftover off-angle close"
+    );
+}
+
+#[test]
+fn blocked_speed_applies_formation_crowd_factor() {
+    let mut a = make_ground_unit("FormA", 6108, KindOf::Vehicle);
+    let mut b = make_ground_unit("FormB", 6109, KindOf::Vehicle);
+    a.set_position(glam::Vec3::ZERO);
+    a.set_orientation(0.0);
+    b.set_position(glam::Vec3::new(10.0, 0.0, 0.0));
+    b.set_orientation(0.0);
+    b.movement.velocity = glam::Vec3::new(10.0, 0.0, 0.0);
+    let raw = a.calculate_max_blocked_speed(&b);
+    a.formation_id = 7;
+    b.formation_id = 7;
+    let crowded = a.calculate_max_blocked_speed(&b);
+    assert!(
+        (raw - 10.0).abs() < 1e-4,
+        "unformed blocked speed is away_speed, got {raw}"
+    );
+    assert!(
+        (crowded - 5.5).abs() < 1e-4,
+        "same formation scales blocked speed by 0.55, got {crowded}"
+    );
 }
 

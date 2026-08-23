@@ -311,21 +311,9 @@ impl PresentationFrame {
                     self.frame.0,
                 );
                 if self.local_viewer_uses_friendly_stealth_look(object) {
-                    let is_mine = object.has_mine
-                        || object
-                            .kind_of
-                            .iter()
-                            .any(|k| matches!(k, KindOf::Mine | KindOf::DemoTrap));
-                    let stealth = if is_mine {
-                        object.camo_friendly_opacity.clamp(0.0, 1.0)
-                    } else {
-                        crate::game_logic::friendly_stealth_pulse_opacity(
-                            object.friendly_stealth_opacity,
-                            object.id.0,
-                            self.frame.0,
-                        )
-                    };
-                    input.presentation_opacity = stealth;
+                    // Leftover setEffectiveOpacity result lives on the host
+                    // (SetVisionCamo / camo_friendly_opacity), including mines.
+                    input.presentation_opacity = object.camo_friendly_opacity.clamp(0.0, 1.0);
                 }
                 let is_mine = object.has_mine
                     || object

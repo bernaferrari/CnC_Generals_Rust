@@ -5318,6 +5318,7 @@ fn drain_script_act_b_queues() {
     let _ = gamelogic::scripting::take_host_script_stopping_distance_requests();
     let _ = gamelogic::scripting::take_host_script_force_select_requests();
     let _ = gamelogic::scripting::take_host_script_player_misc_requests();
+    let _ = gamelogic::scripting::take_host_script_garrison_enter_requests();
 }
 
 #[test]
@@ -5415,6 +5416,213 @@ fn live_set_stopping_distance_drains_and_arrives_at_scripted_band() {
         Some(25.0),
         "C++ ignores stoppingDistance < 0.5"
     );
+    assert!(OBJECT_REGISTRY.is_empty());
+}
+
+#[test]
+fn live_set_stopping_distance_aborts_at_first_member_without_locomotor() {
+    use gamelogic::object::registry::OBJECT_REGISTRY;
+    use gamelogic::scripting::{
+        request_host_script_stopping_distance, HostScriptStoppingDistanceRequest,
+    };
+
+    OBJECT_REGISTRY.clear();
+    drain_script_act_b_queues();
+
+    let mut logic = GameLogic::new();
+    let mut bunker_t = ThingTemplate::new("StopDistBunker");
+    bunker_t.add_kind_of(KindOf::Structure);
+    bunker_t.set_health(400.0);
+    logic.templates.insert("StopDistBunker".into(), bunker_t);
+    let mut ranger_t = ThingTemplate::new("StopDistRanger");
+    ranger_t.add_kind_of(KindOf::Infantry);
+    ranger_t.set_health(100.0);
+    logic.templates.insert("StopDistRanger".into(), ranger_t);
+
+    // Lower ObjectId first: C++ team-list order / live sort-by-id.
+    let bunker = logic
+        .create_object("StopDistBunker", Team::USA, Vec3::ZERO)
+        .expect("bunker");
+    let ranger = logic
+        .create_object(
+            "StopDistRanger",
+            Team::USA,
+            Vec3::new(10.0, 0.0, 0.0),
+        )
+        .expect("ranger");
+    if let Some(o) = logic.host_object_mut(bunker) {
+        o.team_instance_name = "TeamA".into();
+    }
+    if let Some(o) = logic.host_object_mut(ranger) {
+        o.team_instance_name = "TeamA".into();
+        o.close_enough_dist = Some(1.0);
+    }
+
+    request_host_script_stopping_distance(HostScriptStoppingDistanceRequest::Team {
+        team: "TeamA".into(),
+        distance: 25.0,
+    });
+    logic.scripts_loaded = true;
+    logic.evaluate_and_execute_scripts(0.0);
+
+    assert_eq!(
+        logic.host_object(bunker).expect("bunker").close_enough_dist,
+        None,
+        "C++ returns at first member without locomotor"
+    );
+    assert_eq!(
+        logic.host_object(ranger).expect("ranger").close_enough_dist,
+        Some(1.0),
+        "members after the first structure keep the old closeEnoughDist"
+    );
+    assert!(OBJECT_REGISTRY.is_empty());
+}
+
+#[test]
+fn live_named_enter_and_exit_all_drain_ai_enter_evacuate() {
+    use crate::game_logic::AIState;
+    use gamelogic::object::registry::OBJECT_REGISTRY;
+    use gamelogic::scripting::{
+        request_host_script_garrison_enter, take_host_script_garrison_enter_requests,
+        HostScriptGarrisonEnterExitRequest,
+    };
+
+    OBJECT_REGISTRY.clear();
+    let _ = take_host_script_garrison_enter_requests();
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(1, Team::USA, "PlyrAmerica", true));
+    let mut ranger = ThingTemplate::new("GarrEnterRanger");
+    ranger.add_kind_of(KindOf::Infantry);
+    ranger.set_health(100.0);
+    logic.templates.insert("GarrEnterRanger".into(), ranger);
+    let mut humvee = ThingTemplate::new("GarrEnterHumvee");
+    humvee.add_kind_of(KindOf::Vehicle);
+    humvee.add_kind_of(KindOf::Transport);
+    humvee.set_health(400.0);
+    logic.templates.insert("GarrEnterHumvee".into(), humvee);
+
+    let infantry = logic
+        .create_object(
+            "GarrEnterRanger",
+            Team::USA,
+            Vec3::new(50.0, 0.0, 50.0),
+        )
+        .expect("infantry");
+    if let Some(obj) = logic.host_object_mut(infantry) {
+        obj.name = "NamedRanger".into();
+        obj.owner_player_id = Some(1);
+    }
+    let transport = logic
+        .create_object(
+            "GarrEnterHumvee",
+            Team::USA,
+            Vec3::new(80.0, 0.0, 50.0),
+        )
+        .expect("transport");
+    if let Some(obj) = logic.host_object_mut(transport) {
+        obj.name = "NamedHumvee".into();
+        obj.owner_player_id = Some(1);
+        obj.max_transport = 8;
+    }
+
+    request_host_script_garrison_enter(HostScriptGarrisonEnterExitRequest::NamedEnter {
+        unit: "NamedRanger".into(),
+        dest: "NamedHumvee".into(),
+    });
+    logic.apply_host_garrison_enter_exit_script_requests();
+
+    let infantry_after = logic.host_object(infantry).expect("infantry after enter");
+    assert_eq!(
+        infantry_after.target,
+        Some(transport),
+        "NAMED_ENTER_NAMED must leftover-drain aiEnter"
+    );
+    assert_eq!(infantry_after.ai_state, AIState::Entering);
+
+    if let Some(obj) = logic.host_object_mut(transport) {
+        obj.occupants.push(infantry);
+    }
+    if let Some(obj) = logic.host_object_mut(infantry) {
+        obj.set_contained_by(Some(transport));
+        obj.set_ai_state(AIState::Idle);
+        obj.target = None;
+    }
+
+    request_host_script_garrison_enter(HostScriptGarrisonEnterExitRequest::NamedExitAll {
+        unit: "NamedHumvee".into(),
+    });
+    logic.apply_host_garrison_enter_exit_script_requests();
+
+    let infantry_after_exit = logic.host_object(infantry).expect("infantry after exit");
+    assert!(
+        infantry_after_exit.contained_by.is_none(),
+        "NAMED_EXIT_ALL must leftover-drain aiEvacuate"
+    );
+    assert!(OBJECT_REGISTRY.is_empty());
+}
+
+#[test]
+fn live_team_garrison_specific_building_drains_ai_enter() {
+    use crate::game_logic::AIState;
+    use crate::game_logic::{BuildingData, BuildingType};
+    use gamelogic::object::registry::OBJECT_REGISTRY;
+    use gamelogic::scripting::{
+        request_host_script_garrison_enter, take_host_script_garrison_enter_requests,
+        HostScriptGarrisonEnterExitRequest,
+    };
+
+    OBJECT_REGISTRY.clear();
+    let _ = take_host_script_garrison_enter_requests();
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(1, Team::USA, "PlyrAmerica", true));
+    let mut ranger = ThingTemplate::new("GarrBunkRanger");
+    ranger.add_kind_of(KindOf::Infantry);
+    ranger.set_health(100.0);
+    logic.templates.insert("GarrBunkRanger".into(), ranger);
+    let mut bunker_t = ThingTemplate::new("GarrBunk");
+    bunker_t.add_kind_of(KindOf::Structure);
+    bunker_t.set_health(800.0);
+    logic.templates.insert("GarrBunk".into(), bunker_t);
+
+    let infantry = logic
+        .create_object(
+            "GarrBunkRanger",
+            Team::USA,
+            Vec3::new(20.0, 0.0, 20.0),
+        )
+        .expect("infantry");
+    if let Some(obj) = logic.host_object_mut(infantry) {
+        obj.owner_player_id = Some(1);
+        obj.team_instance_name = "USA_Infantry".into();
+    }
+    let bunker = logic
+        .create_object("GarrBunk", Team::USA, Vec3::new(60.0, 0.0, 20.0))
+        .expect("bunker");
+    if let Some(obj) = logic.host_object_mut(bunker) {
+        obj.name = "NamedBunker".into();
+        obj.owner_player_id = Some(1);
+        let mut bd = BuildingData::new(BuildingType::Bunker);
+        bd.max_garrison = 5;
+        obj.building_data = Some(bd);
+    }
+
+    request_host_script_garrison_enter(
+        HostScriptGarrisonEnterExitRequest::TeamGarrisonSpecific {
+            team: "USA_Infantry".into(),
+            building: "NamedBunker".into(),
+        },
+    );
+    logic.apply_host_garrison_enter_exit_script_requests();
+
+    let infantry_after = logic.host_object(infantry).expect("infantry after");
+    assert_eq!(
+        infantry_after.target,
+        Some(bunker),
+        "TEAM_GARRISON_SPECIFIC_BUILDING must leftover-drain aiEnter"
+    );
+    assert_eq!(infantry_after.ai_state, AIState::Entering);
     assert!(OBJECT_REGISTRY.is_empty());
 }
 

@@ -15,6 +15,15 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.get_string_param(action, 0)?;
         log::info!("Team '{}' garrisoning nearest building", team_name);
+        if super::dual_world_registry_unavailable() {
+            crate::scripting::request_host_script_garrison_enter(
+                crate::scripting::HostScriptGarrisonEnterExitRequest::TeamGarrisonNearest {
+                    team: team_name,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let Some(team_arc) = self.get_team_by_name(&team_name).ok() else {
             return Ok(ScriptActionResult::Success);

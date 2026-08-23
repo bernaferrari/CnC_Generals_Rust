@@ -5399,6 +5399,72 @@ fn disguise_halfpoint_queues_started_sound_and_fx() {
     );
 }
 
+#[test]
+fn detector_ir_grid_refreshes_on_already_detected_scan() {
+    use crate::game_logic::host_radar_stealth_vision_residual::DETECTOR_IR_GRID_PARTICLE;
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(2, Team::GLA, "GLA", false));
+    ensure_test_infantry_template(&mut logic);
+
+    let stealth = logic
+        .create_object("TestInfantry", Team::GLA, Vec3::new(25.0, 0.0, 13.0))
+        .expect("stealthed");
+    {
+        let s = logic.host_object_mut(stealth).unwrap();
+        s.set_status_stealthed(true);
+        s.set_status_detected(false);
+    }
+
+    let detector = logic
+        .create_object("TestInfantry", Team::USA, Vec3::new(0.0, 5.0, 0.0))
+        .expect("detector");
+    if let Some(o) = logic.host_object_mut(detector) {
+        o.is_detector = true;
+        o.detection_range = 80.0;
+        o.detection_rate_frames = 0;
+    }
+
+    logic.frame = 1;
+    logic.update_stealth_and_detection();
+    assert!(logic.host_object(stealth).unwrap().status.detected);
+    let first: Vec<_> = logic
+        .combat_particles()
+        .active_systems()
+        .filter(|s| s.template_name == DETECTOR_IR_GRID_PARTICLE)
+        .cloned()
+        .collect();
+    assert_eq!(first.len(), 1, "first DetectionRate scan must spawn IRDetectGrid");
+    assert_eq!(first[0].source_object, Some(detector));
+    assert!(
+        (first[0].position - Vec3::new(24.0, 22.0, 12.0)).length() < 0.01,
+        "grid snaps XZ %12 and uses detector Y+17, got {:?}",
+        first[0].position
+    );
+    let first_id = first[0].id;
+    let first_frame = first[0].spawned_frame;
+
+    logic.frame = 2;
+    logic.update_stealth_and_detection();
+    let second: Vec<_> = logic
+        .combat_particles()
+        .active_systems()
+        .filter(|s| s.template_name == DETECTOR_IR_GRID_PARTICLE)
+        .cloned()
+        .collect();
+    assert_eq!(
+        second.len(),
+        1,
+        "leftover clears then re-creates IRDetectGrid each already-detected scan"
+    );
+    assert_ne!(
+        second[0].id, first_id,
+        "already-detected scan must leftover-refresh IRDetectGrid, not keep first spawn"
+    );
+    assert_eq!(second[0].spawned_frame, 2);
+    assert_eq!(first_frame, 1);
+}
+
 
 
 

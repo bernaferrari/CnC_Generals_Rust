@@ -844,6 +844,24 @@ impl GameLogic {
             }
         }
 
+        // C++ WeaponSet.cpp:552-571 / leftover apparent_controller_blocks_player.
+        // FROM_PLAYER non-force: hide-garrison apparent controller (original
+        // civilian/tech owner) that is not ENEMIES blocks unless SCRIPT_TARGETABLE.
+        if !force {
+            let r = if owner_relationship_known {
+                owner_relationship
+            } else if allies {
+                gamelogic::common::Relationship::Allies
+            } else if enemies {
+                gamelogic::common::Relationship::Enemies
+            } else {
+                gamelogic::common::Relationship::Neutral
+            };
+            if self.host_apparent_controller_blocks_player(source, victim, from_player, r) {
+                return CanAttackResult::NotPossible;
+            }
+        }
+
         // Weapon legality / range residual.
         let result =
             self.get_able_to_use_weapon_against_target(unit_id, Some(victim_id), None, attack_type);
@@ -858,6 +876,98 @@ impl GameLogic {
             }
         }
         result
+    }
+
+    /// C++ WeaponSet.cpp:552-571 — leftover `apparent_controller_blocks_player`.
+    fn host_apparent_controller_blocks_player(
+        &self,
+        source: &Object,
+        victim: &Object,
+        from_player: bool,
+        source_to_victim: gamelogic::common::Relationship,
+    ) -> bool {
+        let Some(_source_player_id) = self.host_controlling_player_id(source) else {
+            return false;
+        };
+        let Some(apparent_team) = self.host_contain_apparent_controller_team(source, victim) else {
+            return false;
+        };
+        let source_to_apparent = self.host_source_team_to_apparent_default(source, apparent_team);
+        gamelogic::weapon::apparent_controller_blocks_player(
+            true,
+            source_to_apparent,
+            from_player,
+            victim.is_script_targetable(),
+            source_to_victim,
+        )
+    }
+
+    fn host_controlling_player_id(&self, obj: &Object) -> Option<u32> {
+        obj.owner_player_id.or_else(|| {
+            self.players
+                .values()
+                .find(|p| p.team == obj.team)
+                .map(|p| p.id)
+        })
+    }
+
+    /// Leftover GarrisonContain / CaveContain `getApparentControllingPlayer`.
+    /// OpenContain default is NULL.
+    fn host_contain_apparent_controller_team(
+        &self,
+        source: &Object,
+        victim: &Object,
+    ) -> Option<Team> {
+        let garrison = victim.is_garrison_contain();
+        let cave = victim.is_cave_style_container();
+        if !garrison && !cave {
+            return None;
+        }
+        if garrison {
+            let hide = victim
+                .building_data
+                .as_ref()
+                .is_some_and(|bd| bd.hide_garrisoned_state);
+            let original = victim.building_data.as_ref().and_then(|bd| bd.original_team);
+            let current_to_observer = match (
+                self.host_controlling_player_id(victim),
+                self.host_controlling_player_id(source),
+            ) {
+                (Some(cur), Some(obs)) => self.player_relationship(cur, obs),
+                _ => gamelogic::common::Relationship::Neutral,
+            };
+            if gamelogic::object::contain::garrison_hide_returns_original_controller(
+                hide,
+                original.is_some(),
+                self.host_controlling_player_id(victim).is_some(),
+                self.host_controlling_player_id(source).is_some(),
+                current_to_observer,
+            ) {
+                return original;
+            }
+        }
+        Some(victim.team)
+    }
+
+    /// C++ `source->getTeam()->getRelationship(apparent->getDefaultTeam())`.
+    fn host_source_team_to_apparent_default(
+        &self,
+        source: &Object,
+        apparent_team: Team,
+    ) -> gamelogic::common::Relationship {
+        let apparent_owner = self
+            .players
+            .values()
+            .find(|p| p.team == apparent_team)
+            .map(|p| p.id);
+        match (self.host_controlling_player_id(source), apparent_owner) {
+            (Some(src), Some(app)) => self.player_relationship(src, app),
+            _ if source.team == apparent_team => gamelogic::common::Relationship::Allies,
+            _ if source.team == Team::Neutral || apparent_team == Team::Neutral => {
+                gamelogic::common::Relationship::Neutral
+            }
+            _ => gamelogic::common::Relationship::Enemies,
+        }
     }
 
     /// C++ WeaponSet::getAbleToUseWeaponAgainstTarget residual.
@@ -1850,6 +1960,127 @@ mod get_able_weapon_parity {
             ),
             CanAttackResult::Possible,
             "non-allied mines stay player-targetable without SCRIPT_TARGETABLE"
+        );
+    }
+
+    #[test]
+    fn player_attack_rejects_hidden_garrison_without_script_targetable() {
+        use crate::game_logic::{
+            BuildingData, BuildingType, ContainModuleKind, ContainModuleMetadata, Player,
+        };
+        let mut logic = GameLogic::new();
+        let mut usa = Player::new(0, Team::USA, "USA", true);
+        usa.alliance_team = 1;
+        let mut gla = Player::new(1, Team::GLA, "GLA", false);
+        gla.alliance_team = 2;
+        let civ = Player::new(9, Team::Neutral, "Civilian", false);
+        logic.add_player(usa);
+        logic.add_player(gla);
+        logic.add_player(civ);
+
+        let mut at = ThingTemplate::new("HideAtk");
+        at.add_kind_of(KindOf::Infantry);
+        logic.objects.insert(ObjectId(4301), {
+            let mut o = Object::new(at, ObjectId(4301), Team::USA);
+            o.set_position(Vec3::ZERO);
+            o.owner_player_id = Some(0);
+            o.weapon = Some(Weapon {
+                range: 100.0,
+                damage: 10.0,
+                ..Default::default()
+            });
+            o
+        });
+
+        let mut bunker = ThingTemplate::new("CivBunkerHide");
+        bunker.add_kind_of(KindOf::Structure);
+        bunker.add_kind_of(KindOf::Attackable);
+        bunker.contain_module = ContainModuleMetadata {
+            kind: ContainModuleKind::Garrison,
+            slots: Some(5),
+            is_enclosing_container: true,
+            ..Default::default()
+        };
+        logic.objects.insert(ObjectId(4302), {
+            let mut o = Object::new(bunker, ObjectId(4302), Team::Neutral);
+            o.set_position(Vec3::new(10.0, 0.0, 0.0));
+            let mut bd = BuildingData::new(BuildingType::Bunker);
+            bd.max_garrison = 5;
+            bd.original_team = Some(Team::Neutral);
+            bd.hide_garrisoned_state = true;
+            o.building_data = Some(bd);
+            o.set_team_and_owner(Team::GLA, Some(1));
+            o
+        });
+
+        assert_eq!(
+            logic.get_able_to_attack_specific_object(
+                ObjectId(4301),
+                ObjectId(4302),
+                AbleToAttackType::NewTarget,
+                true,
+            ),
+            CanAttackResult::NotPossible,
+            "FROM_PLAYER must reject hide-garrison whose apparent controller is the original non-enemy owner"
+        );
+        assert_eq!(
+            logic.get_able_to_attack_specific_object(
+                ObjectId(4301),
+                ObjectId(4302),
+                AbleToAttackType::NewTarget,
+                false,
+            ),
+            CanAttackResult::Possible,
+            "AI/script attacks ignore apparent-controller hide"
+        );
+        assert_eq!(
+            logic.get_able_to_attack_specific_object(
+                ObjectId(4301),
+                ObjectId(4302),
+                AbleToAttackType::NewTargetForced,
+                true,
+            ),
+            CanAttackResult::Possible,
+            "force attack skips leftover apparent_controller_blocks_player"
+        );
+        logic
+            .objects
+            .get_mut(&ObjectId(4302))
+            .unwrap()
+            .apply_object_panel_flag("Player Targetable", true);
+        assert_eq!(
+            logic.get_able_to_attack_specific_object(
+                ObjectId(4301),
+                ObjectId(4302),
+                AbleToAttackType::NewTarget,
+                true,
+            ),
+            CanAttackResult::Possible,
+            "SCRIPT_TARGETABLE admits player attack on hidden garrison"
+        );
+        logic
+            .objects
+            .get_mut(&ObjectId(4302))
+            .unwrap()
+            .set_script_targetable(false);
+        if let Some(bd) = logic
+            .objects
+            .get_mut(&ObjectId(4302))
+            .unwrap()
+            .building_data
+            .as_mut()
+        {
+            bd.hide_garrisoned_state = false;
+        }
+        assert_eq!(
+            logic.get_able_to_attack_specific_object(
+                ObjectId(4301),
+                ObjectId(4302),
+                AbleToAttackType::NewTarget,
+                true,
+            ),
+            CanAttackResult::Possible,
+            "visible occupant-owned garrison stays player-attackable"
         );
     }
 

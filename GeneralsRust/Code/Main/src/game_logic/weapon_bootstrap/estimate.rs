@@ -93,22 +93,9 @@ pub fn host_weapon_is_sniper_damage(name: &str) -> bool {
         || (n.contains("sniper") && !n.contains("snipe"))
 }
 
-/// C++ `WeaponTemplate::m_allowAttackGarrisonedBldgs`.
+/// C++ `WeaponTemplate::m_allowAttackGarrisonedBldgs` (estimate-only).
 pub fn host_weapon_allows_attack_garrisoned_bldgs(name: &str) -> bool {
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
-    let from_store = with_weapon_store(|store| {
-        store
-            .find_weapon_template(name)
-            .map(|wt| wt.allow_attack_garrisoned_bldgs)
-    })
-    .ok()
-    .flatten();
-    if let Some(flag) = from_store {
-        return flag;
-    }
-    let n = name.to_ascii_lowercase();
-    n.contains("microwave") || n.contains("flashbang") || n.contains("cleargarrison")
+    host_allow_attack_garrisoned_for_weapon_name(name)
 }
 
 /// Build the weapon snapshot from a live slot name and primary damage.

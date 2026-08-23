@@ -679,6 +679,12 @@ pub struct Object {
     /// C++ AIUpdate m_waitingForPath residual.
     #[serde(default)]
     pub waiting_for_path: bool,
+    /// C++ AIUpdate `m_doFinalPosition` — leftover NONE-goal settle.
+    #[serde(default)]
+    pub do_final_position: bool,
+    /// C++ AIUpdate `m_finalPosition` (host Y-up).
+    #[serde(default)]
+    pub final_position: glam::Vec3,
     /// C++ AIUpdateInterface::m_ignoreObstacleID residual.
     #[serde(default)]
     pub ignored_obstacle_id: Option<ObjectId>,
@@ -751,6 +757,9 @@ pub struct Object {
     /// C++ LocomotorTemplate::m_allowMotiveForceWhileAirborne residual.
     #[serde(default)]
     pub allow_motive_force_while_airborne: bool,
+    /// C++ LocomotorTemplate::m_locomotorWorksWhenDead residual.
+    #[serde(default)]
+    pub locomotor_works_when_dead: bool,
     /// C++ LocomotorTemplate::m_airborneTargetingHeight residual (INT_MAX if omitted).
     #[serde(default = "default_airborne_targeting_height")]
     pub airborne_targeting_height: i32,
@@ -2976,7 +2985,7 @@ fn default_invalid_vel_mag() -> f32 {
 }
 
 fn default_min_fall_speed_for_damage() -> f32 {
-    (2.0 * 40.0_f32).sqrt()
+    Object::min_fall_speed_for_damage()
 }
 fn default_fall_height_damage_factor() -> f32 {
     1.0
@@ -3071,10 +3080,11 @@ pub use stealth::{
     capture_drawable_tint_envelope, drawable_disabled_dark_tint, drawable_explicit_fade_opacity,
     drawable_status_tint_rgb, friendly_stealth_pulse_opacity, is_live_stealth_black_market,
     order_idle_enemies_on_reveal, restore_drawable_tint_envelope, sample_drawable_status_tint,
-    stealth_second_material_pass_opacity, DrawableTintEnvelopePersist, DRAWABLE_FADE_IN,
-    DRAWABLE_FADE_NONE, DRAWABLE_FADE_OUT, MATERIAL_PASS_OPACITY_FADE_SCALAR, SOUND_STEALTH_OFF,
-    SOUND_STEALTH_ON, TINT_DISABLED_ATTACK_FRAMES, TINT_DISABLED_COLOR, TINT_FRENZY_COLOR,
-    TINT_FRENZY_COLOR_INFANTRY, TINT_SUBDUAL_ATTACK_FRAMES, TINT_SUBDUAL_COLOR,
+    stealth_second_material_pass_opacity, stealth_update_pulse_opacity,
+    DrawableTintEnvelopePersist, DRAWABLE_FADE_IN, DRAWABLE_FADE_NONE, DRAWABLE_FADE_OUT,
+    MATERIAL_PASS_OPACITY_FADE_SCALAR, SOUND_STEALTH_OFF, SOUND_STEALTH_ON,
+    STEALTH_UPDATE_PULSE_PHASE_RATE, TINT_DISABLED_ATTACK_FRAMES, TINT_DISABLED_COLOR,
+    TINT_FRENZY_COLOR, TINT_FRENZY_COLOR_INFANTRY, TINT_SUBDUAL_ATTACK_FRAMES, TINT_SUBDUAL_COLOR,
     VERY_TRANSPARENT_MATERIAL_PASS_OPACITY,
 };
 #[cfg(test)]

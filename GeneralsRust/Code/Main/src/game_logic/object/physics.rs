@@ -31,13 +31,10 @@ impl Object {
     ///
     /// Adds random yaw/pitch/roll rates and immediately kicks orientation yaw
     /// so the tumble is observable without a full rigid-body integrator.
-    /// C++ PhysicsUpdate.cpp:357-358: STICK_TO_GROUND early-return (infantry
-    /// slide upright; no tumble rates, no ALLOW_BOUNCE from this path).
+    /// C++ PhysicsUpdate.cpp:357-358: STICK_TO_GROUND early-return only.
+    /// Infantry/Structure still tumble unless that flag is set.
     pub fn apply_shock_random_rotation(&mut self, seed: u32) {
-        if self.stick_to_ground
-            || self.is_kind_of(KindOf::Infantry)
-            || self.is_kind_of(KindOf::Structure)
-        {
+        if self.stick_to_ground {
             return;
         }
         use crate::game_logic::host_rng_residual::pure_logic_random_real;
@@ -74,9 +71,7 @@ impl Object {
         if self.is_kind_of(KindOf::Projectile) || self.object_type == ObjectType::Projectile {
             return false;
         }
-        if self.is_kind_of(KindOf::Structure) {
-            return false;
-        }
+        // C++ Object.cpp:1806-1832: no Infantry/Structure skip before applyShock.
         // C++ applyShock: scale by (1 - clamp(shockResistance, 0, 1)), then
         // applyForce divides by getMass(). Resistance >= 1 yields zero toss.
         let resisted =
@@ -141,6 +136,20 @@ impl Object {
         Self::height_to_fall_speed(40.0)
     }
 
+    /// Leftover `height_to_speed(40)` with leftover/retail gravity (~2.385).
+    /// Remaps the old live g=1 default `sqrt(80)` so tosses can splat.
+    pub(super) fn leftover_compare_min_fall_speed(stored: f32) -> f32 {
+        let leftover_default = Self::min_fall_speed_for_damage();
+        if !stored.is_finite() || stored <= 0.0 {
+            return leftover_default;
+        }
+        if (stored - (80.0f32).sqrt()).abs() < 1e-2 {
+            leftover_default
+        } else {
+            stored
+        }
+    }
+
     /// C++ falling-damage residual when leaving airborne for ground.
     ///
     /// `impact_vy` is world-Y velocity at impact (negative when falling).
@@ -169,11 +178,22 @@ impl Object {
         glam::Vec2::new(x, z)
     }
 
-    /// C++ AIUpdateInterface::blockedBy residual (simplified geometry).
+    /// C++ AIUpdateInterface::blockedBy (AIUpdate.cpp:1272-1376).
     ///
-    /// Fail-closed vs full pathfind goal cell / path priority matrix.
-    /// `is_ally` is the crusher's `getRelationship == ALLIES` (Object.cpp:1096).
+    /// Near-goal, reverse, path-priority, and off-angle yield match leftover
+    /// `collision_system` / C++. Infantry-infantry still uses C++ `dot<=0.25`
+    /// (not leftover always-false). `is_ally` is the crusher's
+    /// `getRelationship == ALLIES` (Object.cpp:1096).
     pub fn ai_blocked_by(&self, other: &Object, is_ally: bool) -> bool {
+        if let Some(goal) = self.host_blocked_by_goal() {
+            let us = self.get_position();
+            let dx = (goal.x - us.x).abs();
+            let dz = (goal.z - us.z).abs();
+            if dx < PATHFIND_CELL_SIZE_F_RESIDUAL && dz < PATHFIND_CELL_SIZE_F_RESIDUAL {
+                return false;
+            }
+        }
+
         if self.can_crush_or_squish(other, is_ally) {
             return false;
         }
@@ -182,15 +202,15 @@ impl Object {
         if !other_ground {
             return false;
         }
+        if self.moving_backwards {
+            return false;
+        }
+
         let us = self.get_position();
         let them = other.get_position();
         let dx = them.x - us.x;
         let dz = them.z - us.z; // host XZ ground plane (C++ XY)
         let dsqr = dx * dx + dz * dz;
-        // Same-cell residual: path priority by ObjectId.
-        if dsqr < PATHFIND_CELL_SIZE_F_RESIDUAL * PATHFIND_CELL_SIZE_F_RESIDUAL * 0.0001 {
-            return self.id.0 > other.id.0; // higher id = lower priority loses
-        }
 
         let our_dir = self.unit_direction_vector_2d();
         let their_dir = other.unit_direction_vector_2d();
@@ -204,8 +224,15 @@ impl Object {
             return false;
         }
 
+        // Same-cell: C++ hasHigherPathPriority (dozer > vehicle > infantry,
+        // then heading, then lower ObjectId).
+        if dsqr < PATHFIND_CELL_SIZE_F_RESIDUAL * PATHFIND_CELL_SIZE_F_RESIDUAL * 0.0001 {
+            return self.has_higher_path_priority(other);
+        }
+
         // Relative angle of other from us along our facing.
         let collision_angle = self.relative_angle_2d_to(them);
+        let other_angle = other.relative_angle_2d_to(us);
         let mut angle_limit = std::f32::consts::FRAC_PI_4; // 45 deg
         let other_moving = other.movement.velocity.length_squared() > 0.01;
         if !other_moving {
@@ -220,8 +247,22 @@ impl Object {
             if dir_dot <= 0.0 {
                 return false;
             }
-            // Off-angle residual: not blocked unless head-on closing.
-            return false;
+            if other_moving && (other_angle > angle_limit || other_angle < -angle_limit) {
+                // C++ uses pos-otherPos (self-other) plus heading delta.
+                let sep_x = us.x - them.x;
+                let sep_z = us.z - them.z;
+                let adjust_dx = sep_x + our_dir.x - their_dir.x;
+                let adjust_dz = sep_z + our_dir.y - their_dir.y;
+                if dsqr > adjust_dx * adjust_dx + adjust_dz * adjust_dz {
+                    if self.has_higher_path_priority(other) {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+            } else {
+                return false;
+            }
         }
 
         // Long blocked + opposite heading: pass through residual.
@@ -230,6 +271,58 @@ impl Object {
         }
 
         !other.status.destroyed && other.is_alive()
+    }
+
+    /// C++ AIUpdateInterface::hasHigherPathPriority (AIUpdate.cpp:1191-1228).
+    fn has_higher_path_priority(&self, other: &Object) -> bool {
+        let self_dozer = self.is_kind_of(crate::game_logic::KindOf::Dozer);
+        let other_dozer = other.is_kind_of(crate::game_logic::KindOf::Dozer);
+        if self_dozer && !other_dozer {
+            return true;
+        }
+        if !self_dozer && other_dozer {
+            return false;
+        }
+        let self_vehicle = self.is_kind_of(crate::game_logic::KindOf::Vehicle);
+        let other_inf = other.is_kind_of(crate::game_logic::KindOf::Infantry);
+        if self_vehicle && other_inf {
+            return true;
+        }
+        if self.is_kind_of(crate::game_logic::KindOf::Infantry)
+            && other.is_kind_of(crate::game_logic::KindOf::Vehicle)
+        {
+            return false;
+        }
+
+        let our_dir = self.unit_direction_vector_2d();
+        let their_dir = other.unit_direction_vector_2d();
+        if our_dir.x * their_dir.x + our_dir.y * their_dir.y <= 0.0 {
+            return self.id.0 < other.id.0;
+        }
+        let us = self.get_position();
+        let them = other.get_position();
+        let combined_x = our_dir.x + their_dir.x;
+        let combined_z = our_dir.y + their_dir.y;
+        let vx = them.x - us.x;
+        let vz = them.z - us.z;
+        let dot_product = combined_x * vx + combined_z * vz;
+        if dot_product > 0.0 {
+            return false;
+        }
+        if dot_product < 0.0 {
+            return true;
+        }
+        self.id.0 < other.id.0
+    }
+
+    /// Leftover / C++ path destination used by the near-goal ignore.
+    fn host_blocked_by_goal(&self) -> Option<glam::Vec3> {
+        self.movement
+            .path
+            .last()
+            .copied()
+            .or(self.movement.target_position)
+            .or(self.requested_destination)
     }
 
     /// C++ AIUpdateInterface::calculateMaxBlockedSpeed residual.
@@ -257,8 +350,11 @@ impl Object {
         if toward <= 0.0 {
             return self.cur_max_blocked_speed;
         }
-        let max_speed = away_speed / toward;
-        // Formation crowd residual not wired — fail-closed skip 0.55 factor.
+        let mut max_speed = away_speed / toward;
+        // C++ AIUpdate.cpp:1262-1265: formation members do not crowd.
+        if self.formation_id != 0 && self.formation_id == other.formation_id {
+            max_speed *= 0.55;
+        }
         if max_speed > self.cur_max_blocked_speed {
             return self.cur_max_blocked_speed;
         }

@@ -2005,11 +2005,13 @@ impl GameLogic {
                                 };
                             } else {
                                 // Bunker Buster residual: kill garrisoned occupants + amplify bunker damage.
-                                // KILL_GARRISONED residual: microwave-style kill floor(damage) occupants.
+                                // KILL_GARRISONED residual: leftover store DamageType only
+                                // (C++ ActiveBody.cpp:421-460). AllowAttackGarrisonedBldgs is
+                                // estimate-only and must not skip structure HP.
                                 let (bunker_buster_hit, kill_garrisoned_hit) = {
                                     use crate::game_logic::host_bunker_buster::{
-                                        is_bunker_buster_carrier, is_kill_garrisoned_clearer,
-                                        should_apply_bunker_buster, should_apply_kill_garrisoned,
+                                        is_bunker_buster_carrier, should_apply_bunker_buster,
+                                        should_apply_kill_garrisoned,
                                         UPGRADE_AMERICA_BUNKER_BUSTERS,
                                     };
                                     let target_is_structure = self
@@ -2027,13 +2029,9 @@ impl GameLogic {
                                                 );
                                             let carrier =
                                                 is_bunker_buster_carrier(&a.template_name);
-                                            let wname = a.weapon_name_for_slot(slot);
-                                            let clearer = is_kill_garrisoned_clearer(
-                                                &a.template_name,
-                                            ) || wname
-                                                .map(
-                                                    crate::game_logic::host_bunker_buster::is_kill_garrisoned_clearer_weapon,
-                                                )
+                                            let kill_garrisoned = a
+                                                .weapon_name_for_slot(slot)
+                                                .map(crate::game_logic::weapon_bootstrap::host_weapon_is_kill_garrisoned_damage)
                                                 .unwrap_or(false);
                                             (
                                                 should_apply_bunker_buster(
@@ -2042,7 +2040,7 @@ impl GameLogic {
                                                     target_is_structure,
                                                 ),
                                                 should_apply_kill_garrisoned(
-                                                    clearer,
+                                                    kill_garrisoned,
                                                     target_is_structure,
                                                 ),
                                             )

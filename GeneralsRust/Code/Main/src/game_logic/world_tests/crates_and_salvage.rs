@@ -2775,6 +2775,40 @@ fn compute_ground_bounce_force_rights_tilted_unflipped_body() {
         );
     }
 
+    /// hq-g8oig: C++ PhysicsUpdate always applyGravitationalForces unless HELD.
+    /// Dead / lose-lift Z-motive aircraft must fall (no flying skip).
+    #[test]
+    fn tick_physics_motion_step_flying_aircraft_without_lift_falls() {
+        use crate::game_logic::{
+            KindOf, LocomotorBehaviorZ, Object, ObjectId, Team, ThingTemplate,
+        };
+        use glam::Vec3;
+        let mut t = ThingTemplate::new("RaptorFall");
+        t.add_kind_of(KindOf::Aircraft);
+        let mut o = Object::new(t, ObjectId(934), Team::USA);
+        o.set_position(Vec3::new(0.0, 20.0, 0.0));
+        o.movement.velocity = Vec3::ZERO;
+        o.status.airborne_target = true;
+        o.allow_to_fall = false;
+        o.shock_was_airborne = false;
+        o.max_lift = 0.0;
+        o.loco_behavior_z = LocomotorBehaviorZ::SurfaceRelativeHeight;
+        o.health.current = 0.0;
+        assert!(o.host_skip_dead_locomotor());
+        let _ = o.tick_physics_motion_step(0.0);
+        assert!(
+            o.movement.velocity.y < -0.01,
+            "lose-lift aircraft must get leftover gravity; vel.y={}",
+            o.movement.velocity.y
+        );
+        assert!(
+            o.get_position().y < 20.0,
+            "lose-lift aircraft must fall; y={}",
+            o.get_position().y
+        );
+    }
+
+
 #[test]
 fn stick_to_ground_snaps_when_not_falling() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};

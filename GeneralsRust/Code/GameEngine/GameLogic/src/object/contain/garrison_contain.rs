@@ -109,6 +109,71 @@ pub fn garrison_heal_single_amount(
     }
 }
 
+/// C++ `GarrisonContain::getApparentControllingPlayer` hide path
+/// (`GarrisonContain.cpp:1171-1175`).
+///
+/// When `m_hideGarrisonedStateFromNonallies` and the current controller is
+/// not ALLIES to the observer's default team, non-allies see the original
+/// (civilian/tech) team controller instead of the occupant.
+#[inline]
+pub fn garrison_hide_returns_original_controller(
+    hide_garrisoned_state_from_non_allies: bool,
+    has_original_team: bool,
+    has_current_controller: bool,
+    has_observing_player: bool,
+    current_controller_to_observer_default: Relationship,
+) -> bool {
+    hide_garrisoned_state_from_non_allies
+        && has_original_team
+        && has_current_controller
+        && has_observing_player
+        && current_controller_to_observer_default != Relationship::Allies
+}
+
+#[cfg(test)]
+mod garrison_hide_apparent_tests {
+    use super::*;
+
+    #[test]
+    fn hide_returns_original_for_non_allied_observer() {
+        assert!(garrison_hide_returns_original_controller(
+            true,
+            true,
+            true,
+            true,
+            Relationship::Neutral,
+        ));
+        assert!(garrison_hide_returns_original_controller(
+            true,
+            true,
+            true,
+            true,
+            Relationship::Enemies,
+        ));
+        assert!(!garrison_hide_returns_original_controller(
+            true,
+            true,
+            true,
+            true,
+            Relationship::Allies,
+        ));
+        assert!(!garrison_hide_returns_original_controller(
+            false,
+            true,
+            true,
+            true,
+            Relationship::Neutral,
+        ));
+        assert!(!garrison_hide_returns_original_controller(
+            true,
+            false,
+            true,
+            true,
+            Relationship::Neutral,
+        ));
+    }
+}
+
 /// Configuration data for GarrisonContain module
 #[derive(Debug, Clone)]
 pub struct GarrisonContainModuleData {
@@ -1137,7 +1202,13 @@ impl GarrisonContain {
                             .ok()
                             .map(|guard| guard.get_relationship_with_team(&observer_team_guard))
                             .unwrap_or(Relationship::Neutral);
-                        if !matches!(relation, Relationship::Allies) {
+                        if garrison_hide_returns_original_controller(
+                            true,
+                            true,
+                            true,
+                            true,
+                            relation,
+                        ) {
                             if let Ok(original_guard) = original_team.upgrade()?.read() {
                                 if let Some(controller_id) =
                                     original_guard.get_controlling_player_id()

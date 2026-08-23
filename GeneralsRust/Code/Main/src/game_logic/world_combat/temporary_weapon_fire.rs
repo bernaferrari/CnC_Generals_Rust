@@ -20,21 +20,28 @@ impl GameLogic {
         actual_damage: f32,
         damage_type_ordinal: u32,
     ) -> u32 {
-        let Some(plan) = self.damaged_reaction_plan(source, actual_damage, damage_type_ordinal)
-        else {
-            return 0;
-        };
-        self.force_fire_temporary_runtime(source, plan)
+        // C++ Object::onDamage delivers to every damage module; leftover
+        // FireWeaponWhenDamagedBehavior::on_damage fires each instance whose
+        // reaction weapon is READY_TO_FIRE. Do not stop at the first ready.
+        let plans = self.damaged_reaction_plan(source, actual_damage, damage_type_ordinal);
+        let mut hits = 0u32;
+        for plan in plans {
+            hits = hits.saturating_add(self.force_fire_temporary_runtime(source, plan));
+        }
+        hits
     }
 
     pub(in super::super) fn execute_temporary_weapon_continuous(
         &mut self,
         source: ObjectId,
     ) -> u32 {
-        let Some(plan) = self.damaged_continuous_plan(source) else {
-            return 0;
-        };
-        self.force_fire_temporary_runtime(source, plan)
+        // C++ UpdateModule::update walks every instance independently.
+        let plans = self.damaged_continuous_plan(source);
+        let mut hits = 0u32;
+        for plan in plans {
+            hits = hits.saturating_add(self.force_fire_temporary_runtime(source, plan));
+        }
+        hits
     }
 
     pub(in super::super) fn execute_temporary_weapon_on_die(&mut self, source: ObjectId) -> u32 {
@@ -74,18 +81,22 @@ impl GameLogic {
         }
     }
 
-    fn damaged_reaction_plan(
+    pub(in super::super) fn damaged_reaction_plan(
         &mut self,
         source: ObjectId,
         actual_damage: f32,
         damage_type_ordinal: u32,
-    ) -> Option<TemporaryWeaponRuntimeKey> {
-        let (object_tags, player_tags) = self.fire_when_owned_upgrade_tags(source)?;
-        let object = self.objects.get_mut(&source)?;
+    ) -> Vec<TemporaryWeaponRuntimeKey> {
+        let Some((object_tags, player_tags)) = self.fire_when_owned_upgrade_tags(source) else {
+            return Vec::new();
+        };
+        let Some(object) = self.objects.get_mut(&source) else {
+            return Vec::new();
+        };
         let body = body_state_of(object);
         let logic_frame = self.frame;
         let owned = owned_upgrade_tag_refs(&object_tags, &player_tags);
-        let mut chosen = None;
+        let mut chosen = Vec::new();
         for (runtime, metadata) in object.temporary_weapon_runtime.damaged.iter_mut().zip(
             object
                 .thing
@@ -119,20 +130,23 @@ impl GameLogic {
             if promote_temporary_weapon_status(weapon, logic_frame)
                 == TemporaryWeaponStatus::ReadyToFire
             {
-                chosen = Some(key);
-                break;
+                chosen.push(key);
             }
         }
         chosen
     }
 
-    fn damaged_continuous_plan(&mut self, source: ObjectId) -> Option<TemporaryWeaponRuntimeKey> {
-        let (object_tags, player_tags) = self.fire_when_owned_upgrade_tags(source)?;
-        let object = self.objects.get_mut(&source)?;
+    pub(in super::super) fn damaged_continuous_plan(&mut self, source: ObjectId) -> Vec<TemporaryWeaponRuntimeKey> {
+        let Some((object_tags, player_tags)) = self.fire_when_owned_upgrade_tags(source) else {
+            return Vec::new();
+        };
+        let Some(object) = self.objects.get_mut(&source) else {
+            return Vec::new();
+        };
         let body = body_state_of(object);
         let logic_frame = self.frame;
         let owned = owned_upgrade_tag_refs(&object_tags, &player_tags);
-        let mut chosen = None;
+        let mut chosen = Vec::new();
         for (runtime, metadata) in object.temporary_weapon_runtime.damaged.iter_mut().zip(
             object
                 .thing
@@ -160,8 +174,7 @@ impl GameLogic {
             if promote_temporary_weapon_status(weapon, logic_frame)
                 == TemporaryWeaponStatus::ReadyToFire
             {
-                chosen = Some(key);
-                break;
+                chosen.push(key);
             }
         }
         chosen

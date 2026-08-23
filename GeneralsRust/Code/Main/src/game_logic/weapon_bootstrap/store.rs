@@ -1056,6 +1056,10 @@ pub(super) fn seed_known_host_weapons() -> usize {
         t.weapon_speed = seed.weapon_speed;
         t.damage_type = seed_damage_type_for(seed.name, seed.weapon_speed);
         t.death_type = seed_death_type_for(seed.name, t.damage_type);
+        t.allow_attack_garrisoned_bldgs = seed.name == DRAGON_TANK_FLAME_WEAPON
+            || seed.name == DRAGON_TANK_FLAME_WEAPON_UPGRADED
+            || seed.name == RANGER_SECONDARY_WEAPON
+            || seed.name == MICROWAVE_BUILDING_CLEARER_WEAPON;
         {
             let fs = seed_fire_sound_for(seed.name);
             if !fs.is_empty() {

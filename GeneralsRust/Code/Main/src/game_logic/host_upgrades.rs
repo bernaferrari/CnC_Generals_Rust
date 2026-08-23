@@ -24,6 +24,7 @@
 //! matrix (Chinook 60), or multiplayer upgrade replication.
 //! WorkerShoes residual lives in `host_gla_worker` (speed + supply boost 8).
 
+use crate::game_logic::object::Object;
 use super::{ObjectId, Team};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -184,6 +185,165 @@ pub fn upgrade_mux_target_ids<T: Copy>(
         owner_ids.into_iter().collect()
     }
 }
+
+/// C++ `Object::canProduceUpgrade` (`Object.cpp:6093-6106`).
+///
+/// `TheControlBar->findCommandSet(getCommandSetString())`, then each of
+/// `MAX_COMMANDS_PER_SET` slots via `getCommandButton(i)` (which consults
+/// `GameLogic::findControlBarOverride`). True only if that button's
+/// `getUpgradeTemplate()` / INI `Upgrade =` matches the requested upgrade.
+///
+/// Missing catalog (headless tests): residual producer-name table for known
+/// retail upgrades; unmapped test upgrades fail-open so existing harnesses
+/// keep working.
+pub fn object_can_produce_upgrade(object: &Object, upgrade_name: &str) -> bool {
+    let upgrade_name = upgrade_name.trim();
+    if upgrade_name.is_empty() {
+        return false;
+    }
+    match command_set_has_upgrade_button(object, upgrade_name) {
+        Some(ok) => ok,
+        None => residual_command_set_allows_upgrade(object, upgrade_name),
+    }
+}
+
+fn host_object_command_set_name(object: &Object) -> Option<String> {
+    if let Some(cs) = object
+        .command_set_override
+        .as_deref()
+        .filter(|s| !s.is_empty())
+    {
+        return Some(cs.to_string());
+    }
+    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
+    let factory = guard.as_ref()?;
+    let tmpl = factory.find_template(&object.template_name, false)?;
+    let cs = tmpl.get_command_set_string();
+    let s = cs.as_str();
+    if s.is_empty() {
+        None
+    } else {
+        Some(s.to_string())
+    }
+}
+
+fn upgrade_names_match(button_upgrade: &str, requested: &str) -> bool {
+    button_upgrade.eq_ignore_ascii_case(requested)
+        || normalize_upgrade_identity(button_upgrade) == normalize_upgrade_identity(requested)
+}
+
+fn leftover_command_set_has_upgrade(set_name: &str, upgrade_name: &str) -> Option<bool> {
+    let bridge = gamelogic::control_bar::get_control_bar_bridge()?;
+    let set = bridge.find_command_set_by_name(set_name)?;
+    for index in 0..gamelogic::command_button::MAX_COMMANDS_PER_SET {
+        let Some(button) = set.get_command_button(index) else {
+            continue;
+        };
+        if let Some(template) = button.get_upgrade_template() {
+            if upgrade_names_match(template.get_name().as_str(), upgrade_name) {
+                return Some(true);
+            }
+        }
+        if ini_button_upgrade_matches(&button.name, upgrade_name) {
+            return Some(true);
+        }
+    }
+    Some(false)
+}
+
+fn ini_button_upgrade_matches(button_name: &str, upgrade_name: &str) -> bool {
+    let Some(bar) = game_engine::common::ini::ini_command_button::get_control_bar() else {
+        return false;
+    };
+    let Some(button) = bar.find_command_button_resolved(button_name) else {
+        return false;
+    };
+    !button.upgrade.is_empty() && upgrade_names_match(&button.upgrade, upgrade_name)
+}
+
+fn ini_command_set_has_upgrade(set_name: &str, upgrade_name: &str) -> Option<bool> {
+    let manager = game_engine::common::ini::ini_command_set::get_command_set_manager()?;
+    let set = manager.find_command_set_resolved(set_name).or_else(|| {
+        manager
+            .iter_resolved_sets()
+            .into_iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case(set_name))
+            .map(|(_, set)| set)
+    })?;
+    let bar = game_engine::common::ini::ini_command_button::get_control_bar()?;
+    let mut slots: Vec<Option<String>> = (0..gamelogic::command_button::MAX_COMMANDS_PER_SET)
+        .map(|i| set.get_button_at_position(i).cloned())
+        .collect();
+    if let Ok(logic) = gamelogic::system::game_logic::lock_game_logic() {
+        for (i, slot) in slots.iter_mut().enumerate() {
+            match logic.find_control_bar_override(set_name, i as i32) {
+                None => {}
+                Some(None) => *slot = None,
+                Some(Some(name)) => *slot = Some(name.to_string()),
+            }
+        }
+    }
+    for slot in slots {
+        let Some(btn_name) = slot else {
+            continue;
+        };
+        let Some(button) = bar.find_command_button_resolved(&btn_name) else {
+            continue;
+        };
+        if !button.upgrade.is_empty() && upgrade_names_match(&button.upgrade, upgrade_name) {
+            return Some(true);
+        }
+    }
+    Some(false)
+}
+
+fn command_set_has_upgrade_button(object: &Object, upgrade_name: &str) -> Option<bool> {
+    let set_name = host_object_command_set_name(object)?;
+    if let Some(ok) = leftover_command_set_has_upgrade(&set_name, upgrade_name) {
+        if ok {
+            return Some(true);
+        }
+        if let Some(true) = ini_command_set_has_upgrade(&set_name, upgrade_name) {
+            return Some(true);
+        }
+        return Some(false);
+    }
+    ini_command_set_has_upgrade(&set_name, upgrade_name)
+}
+
+/// Residual CommandSet owners used when the parsed catalog is unavailable.
+pub fn residual_upgrade_command_set_producers(upgrade_name: &str) -> &'static [&'static str] {
+    let n = normalize_upgrade_identity(upgrade_name);
+    if n.contains("supplylines") {
+        &["AmericaSupplyCenter", "ChinaSupplyCenter", "GLASupplyStash"]
+    } else if n.contains("capture") {
+        &[
+            "AmericaBarracks",
+            "ChinaBarracks",
+            "GLABarracks",
+        ]
+    } else if n.contains("advancedtraining") {
+        &["AmericaStrategyCenter"]
+    } else if n.contains("nationalism") {
+        &["ChinaPropagandaCenter"]
+    } else if n.contains("apbullets") {
+        &["GLAPalace"]
+    } else {
+        &[]
+    }
+}
+
+fn residual_command_set_allows_upgrade(object: &Object, upgrade_name: &str) -> bool {
+    let preferred = residual_upgrade_command_set_producers(upgrade_name);
+    if preferred.is_empty() {
+        return true;
+    }
+    preferred.iter().any(|name| {
+        object.template_name.eq_ignore_ascii_case(name)
+            || object.get_template().name.eq_ignore_ascii_case(name)
+    })
+}
+
 
 /// China CommandCenter RadarUpgrade is TriggeredBy `Upgrade_ChinaRadar`.
 /// America CC / GLA RadarVan use GrantUpgradeCreate and need no research.
@@ -1647,11 +1807,7 @@ pub fn camo_netting_friendly_opacity(stealthed: bool, detected: bool) -> f32 {
 /// that factor into FriendlyOpacityMin..Max so cloaked structures pulse between
 /// **50%** and **100%**. Returns `(opacity, next_phase)`.
 pub fn camo_netting_pulse_opacity(phase: f32) -> (f32, f32) {
-    let t = 0.5 + 0.5 * phase.sin(); // 0..1
-    let opacity = CAMO_NETTING_FRIENDLY_OPACITY_MIN
-        + (CAMO_NETTING_FRIENDLY_OPACITY_MAX - CAMO_NETTING_FRIENDLY_OPACITY_MIN) * t;
-    let next_phase = phase + CAMO_NETTING_OPACITY_PULSE_PHASE_RATE;
-    (opacity, next_phase)
+    crate::game_logic::object::stealth_update_pulse_opacity(phase, CAMO_NETTING_FRIENDLY_OPACITY_MIN)
 }
 
 // --- CamoNetting sub-object net mesh residual (presentation state, not GPU) ---
@@ -2239,3 +2395,55 @@ mod camo_netting_and_gamma_tests {
         assert_eq!(e.residual_research_frames, e.retail_research_frames);
     }
 }
+
+#[cfg(test)]
+mod can_produce_upgrade_tests {
+    use super::*;
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+
+    fn structure(name: &str, id: u32) -> Object {
+        let mut template = ThingTemplate::new(name);
+        template
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        Object::new(template, ObjectId(id), Team::USA)
+    }
+
+    #[test]
+    fn supply_center_can_produce_supply_lines_residual() {
+        let producer = structure("AmericaSupplyCenter", 1);
+        assert!(object_can_produce_upgrade(
+            &producer,
+            UPGRADE_AMERICA_SUPPLY_LINES
+        ));
+    }
+
+    #[test]
+    fn barracks_cannot_produce_supply_lines_residual() {
+        let barracks = structure("AmericaBarracks", 2);
+        assert!(
+            !object_can_produce_upgrade(&barracks, UPGRADE_AMERICA_SUPPLY_LINES),
+            "C++ canProduceUpgrade refuses a CommandSet that has no SupplyLines button"
+        );
+    }
+
+    #[test]
+    fn barracks_can_produce_capture_residual() {
+        let barracks = structure("AmericaBarracks", 3);
+        assert!(object_can_produce_upgrade(
+            &barracks,
+            UPGRADE_AMERICA_RANGER_CAPTURE
+        ));
+    }
+
+    #[test]
+    fn unmapped_test_upgrade_fails_open_without_catalog() {
+        let barracks = structure("TestBarracks", 4);
+        assert!(
+            object_can_produce_upgrade(&barracks, UPGRADE_AMERICA_FLASHBANG),
+            "headless TestBarracks + unmapped FlashBang keeps existing harnesses"
+        );
+    }
+}
+

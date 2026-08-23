@@ -1805,6 +1805,90 @@ fn wave_guide_starts_disabled_until_dam_die() {
     assert!(!logic.objects.get(&wg_id).unwrap().status.disabled_default);
 }
 
+#[test]
+fn wave_guide_plays_dambreak_loop_and_random_splash() {
+    // C++ WaveGuideUpdate.cpp:138-140 startMoving TheAudio LoopingSound;
+    // :790-795 splash roll GameLogicRandomValue(1,100) > frequency.
+    use crate::game_logic::host_wave_guide::{
+        WAVE_LOOPING_SOUND, WAVE_RANDOM_SPLASH_FREQUENCY, WAVE_RANDOM_SPLASH_SOUND,
+    };
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    game_engine::common::random_value::init_random_with_seed(1);
+    let mut logic = GameLogic::new();
+    let mut dam = ThingTemplate::new("Dam");
+    dam.set_health(1000.0);
+    dam.add_kind_of(KindOf::Structure);
+    logic.templates.insert("Dam".into(), dam);
+    let mut wg = ThingTemplate::new("WaveGuide");
+    wg.set_health(1.0);
+    wg.add_kind_of(KindOf::WaveGuide);
+    logic.templates.insert("WaveGuide".into(), wg);
+    let dam_id = logic
+        .create_object("Dam", Team::Neutral, glam::Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let wg_id = logic
+        .create_object("WaveGuide", Team::Neutral, glam::Vec3::new(500.0, 0.0, 0.0))
+        .unwrap();
+    logic
+        .objects
+        .get_mut(&wg_id)
+        .unwrap()
+        .status
+        .disabled_default = true;
+    logic.objects.get_mut(&wg_id).unwrap().set_orientation(0.0);
+    logic.queued_audio_events.clear();
+    logic.update_wave_guides();
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .all(|e| e.event_type != WAVE_LOOPING_SOUND
+                && e.event_type != WAVE_RANDOM_SPLASH_SOUND),
+        "disabled waveguide must stay silent: {:?}",
+        logic.queued_audio_events
+    );
+    logic.mark_object_for_destruction(dam_id, None);
+    // Simulate WaveGuide1 last waypoint so dest-check does not eat the wave
+    // on the first moving tick (C++ PATH_EXTRA_DISTANCE).
+    if let Some(wg) = logic
+        .objects
+        .get_mut(&wg_id)
+        .and_then(|o| o.wave_guide_data.as_mut())
+    {
+        wg.final_destination = Some((5000.0, 0.0));
+        wg.initialized = true;
+    }
+    let _ = WAVE_RANDOM_SPLASH_FREQUENCY;
+    logic.queued_audio_events.clear();
+    let mut saw_loop = false;
+    let mut saw_splash = false;
+    for _ in 0..80 {
+        logic.frame = logic.frame.saturating_add(1);
+        logic.update_wave_guides();
+        if logic.queued_audio_events.iter().any(|e| {
+            e.event_type == WAVE_LOOPING_SOUND && e.object_id == Some(wg_id) && e.is_looping
+        }) {
+            saw_loop = true;
+        }
+        if logic.queued_audio_events.iter().any(|e| {
+            e.event_type == WAVE_RANDOM_SPLASH_SOUND && e.object_id == Some(wg_id) && !e.is_looping
+        }) {
+            saw_splash = true;
+        }
+    }
+    assert!(
+        saw_loop,
+        "startMoving must leftover-play DamBreakWaveLoop: {:?}",
+        logic.queued_audio_events
+    );
+    assert!(
+        saw_splash,
+        "moving tick must leftover-play WaveRandomSplash at leftover frequency: {:?}",
+        logic.queued_audio_events
+    );
+}
+
+
 
 #[test]
 fn jet_slow_death_defers_destroy() {

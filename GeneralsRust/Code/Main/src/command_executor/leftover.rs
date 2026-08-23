@@ -1233,8 +1233,9 @@ fn live_beacon_hide(logic: &mut GameLogic, id: ObjectId) {
     let pos = logic.host_object(id).map(|o| o.get_position());
     if let Some(obj) = logic.host_object_mut(id) {
         // C++ BeaconClientUpdate::hideBeacon: setDrawableHidden + no shadows.
-        obj.drawable_hidden = true;
+        obj.set_drawable_hidden(true);
     }
+    logic.deselect_drawable(id);
     if let Some(pos) = pos {
         logic.note_beacon_removed_at(pos);
     }

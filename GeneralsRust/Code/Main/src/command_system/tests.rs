@@ -1831,6 +1831,44 @@ fn queue_upgrade_requires_constructed_building_source() {
 }
 
 #[test]
+fn queue_upgrade_refuses_command_set_without_upgrade_button() {
+    use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+
+    let system = CommandSystem::new();
+    let mut game_logic = GameLogic::new();
+    let mut player = Player::new(0, Team::USA, "USA", true);
+    player.resources.supplies = 5000;
+    game_logic.add_player(player);
+
+    let mut template = ThingTemplate::new("AmericaBarracks");
+    template
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    game_logic.add_object(Object::new(template, ObjectId(501), Team::USA));
+
+    let command = GameCommand {
+        command_type: CommandType::QueueUpgrade {
+            upgrade_name: "Upgrade_AmericaSupplyLines".to_string(),
+        },
+        player_id: 0,
+        command_id: 40,
+        timestamp: SystemTime::now(),
+        selected_units: vec![ObjectId(501)],
+        modifier_keys: ModifierKeys::default(),
+    };
+    assert_eq!(
+        system.execute_command(&command, &mut game_logic),
+        CommandResult::InvalidCommand,
+        "Barracks CommandSet has no SupplyLines button"
+    );
+    let player_after = game_logic.get_player(0).expect("player");
+    assert_eq!(player_after.effective_supplies(), 5000);
+    assert!(!player_after.has_queued_upgrade("Upgrade_AmericaSupplyLines"));
+}
+
+
+#[test]
 fn queued_upgrade_completes_during_simulation_update() {
     use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
 
