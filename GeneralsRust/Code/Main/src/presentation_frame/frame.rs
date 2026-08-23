@@ -222,6 +222,9 @@ pub struct PresentationFrame {
     /// LOOK_TOWARD ease-in/out seconds.
     #[serde(default)]
     pub camera_look_toward_ease: (f32, f32),
+    /// LOOK_TOWARD_WAYPOINT reverseRotation — long-way yaw (±2π).
+    #[serde(default)]
+    pub camera_look_toward_reverse_rotation: bool,
     /// LOCK_TETHER play radius. None means LOCK_FOLLOW.
     #[serde(default)]
     pub camera_tether_play: Option<f32>,

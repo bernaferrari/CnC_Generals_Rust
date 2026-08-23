@@ -264,6 +264,9 @@ fn write_kind_of_variant(kind_of: KindOf) -> u8 {
         KindOf::Inert => 80,
         // Append-only: KINDOF_BLAST_CRATER permanent pathfind footprints.
         KindOf::BlastCrater => 81,
+        // Append-only: KINDOF_HUGE_VEHICLE Combat Chinook ForbidInsideKindOf.
+        KindOf::HugeVehicle => 82,
+
 
 
     }
@@ -352,6 +355,8 @@ fn read_kind_of_variant(variant: u8) -> SaveLoadResult<KindOf> {
         79 => Ok(KindOf::ClearedByBuild),
         80 => Ok(KindOf::Inert),
         81 => Ok(KindOf::BlastCrater),
+        82 => Ok(KindOf::HugeVehicle),
+
 
 
 

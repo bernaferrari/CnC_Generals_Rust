@@ -1666,7 +1666,7 @@ impl GameLogic {
         for req in gamelogic::scripting::take_host_script_hunt_guard_requests() {
             match req {
                 HostScriptHuntGuardRequest::TeamHunt { team } => {
-                    for id in self.host_script_team_member_ids(&team) {
+                    for id in self.host_script_hunt_guard_team_member_ids(&team) {
                         let _ = self.unit_command_patrol(id);
                     }
                 }
@@ -1678,8 +1678,8 @@ impl GameLogic {
                     let _ = self.unit_command_patrol(id);
                 }
                 HostScriptHuntGuardRequest::TeamGuard { team } => {
-                    // C++ doTeamGuard: every member with AIUpdateInterface.
-                    let members = self.host_script_team_member_ids(&team);
+                    // C++ doTeamGuard: leftover getTeamNamed instance, every member with AI.
+                    let members = self.host_script_hunt_guard_team_member_ids(&team);
                     for id in members {
                         if !self.host_script_unit_can_guard(id) {
                             continue;
@@ -1734,6 +1734,8 @@ impl GameLogic {
                         .map(|obj| obj.id)
                         .collect();
                     for id in ids {
+                        // C++ Player::setUnitsShouldHunt: leaveGroup then aiHunt.
+                        self.host_object_leave_group(id);
                         let _ = self.unit_command_patrol(id);
                     }
                 }
@@ -3315,23 +3317,125 @@ impl GameLogic {
 
     /// C++ `ScriptActions::doTeamHuntWithCommandButton` live drain.
     fn host_script_team_hunt_with_command_button(&mut self, team: &str, button: &str) {
-        let mut ids = self.host_script_team_member_ids(team);
-        if ids.is_empty() {
-            ids = gamelogic::team::get_team_factory()
-                .lock()
-                .ok()
-                .and_then(|factory| factory.find_team_instances(team).into_iter().next())
-                .and_then(|arc| arc.read().ok().map(|tg| tg.get_members().to_vec()))
-                .unwrap_or_default()
-                .into_iter()
-                .map(|id| ObjectId(id))
-                .collect();
+        // C++ findCommandButton + command-type switch before any unit is armed.
+        // Leftover `command_button_is_hunt_capable` is the same gate.
+        if !Self::leftover_command_button_is_hunt_capable(button) {
+            return;
         }
+        let ids = self.host_script_hunt_guard_team_member_ids(team);
         let button = if button.is_empty() { None } else { Some(button) };
         for id in ids {
             if self.unit_can_team_hunt_with_command_button(id, button) {
                 let _ = self.start_command_button_hunt_named(id, button);
             }
+        }
+    }
+
+    /// C++ `Object::leaveGroup` before PLAYER_HUNT `aiHunt`.
+    /// Live formation_id is the AIGroup/formation membership leftover `group_id` maps to.
+    fn host_object_leave_group(&mut self, id: ObjectId) {
+        if let Some(unit) = self.objects.get_mut(&id) {
+            if unit.formation_id != 0 || unit.formation_offset != glam::Vec2::ZERO {
+                unit.set_formation(0, glam::Vec2::ZERO);
+            }
+        }
+        let _ = gamelogic::object::registry::OBJECT_REGISTRY.with_object_mut(id.0, |obj| {
+            obj.leave_group();
+        });
+    }
+
+    /// C++ `ScriptEngine::getTeamNamed` / leftover `TeamFactory::find_team`.
+    /// First leftover instance members, else live `team_instance_name` — never faction Team.
+    fn host_script_hunt_guard_team_member_ids(&self, team_name: &str) -> Vec<ObjectId> {
+        let needle = team_name.trim();
+        if needle.is_empty() {
+            return Vec::new();
+        }
+        let leftover_ids: Vec<ObjectId> = gamelogic::team::get_team_factory()
+            .lock()
+            .ok()
+            .and_then(|mut factory| {
+                factory.find_team(needle).and_then(|team| {
+                    team.read().ok().map(|tg| tg.get_members().to_vec())
+                })
+            })
+            .unwrap_or_default()
+            .into_iter()
+            .map(ObjectId)
+            .filter(|id| {
+                self.objects
+                    .get(id)
+                    .is_some_and(|o| o.is_alive() && !o.status.destroyed)
+            })
+            .collect();
+        if !leftover_ids.is_empty() {
+            return leftover_ids;
+        }
+        self.host_script_team_census_member_ids(needle)
+            .into_iter()
+            .map(ObjectId)
+            .filter(|id| {
+                self.objects
+                    .get(&id)
+                    .is_some_and(|o| o.is_alive() && !o.status.destroyed)
+            })
+            .collect()
+    }
+
+    /// Leftover `command_button_is_hunt_capable` + C++ findCommandButton NULL → no-op.
+    fn leftover_command_button_is_hunt_capable(ability: &str) -> bool {
+        if ability.is_empty() {
+            return false;
+        }
+        if let Some(bar) = gamelogic::control_bar::get_control_bar_bridge() {
+            if let Some(btn) = bar.find_command_button_by_name(ability) {
+                return Self::leftover_command_type_is_hunt_capable(
+                    btn.get_command_type(),
+                    btn.get_special_power_template().is_some(),
+                    btn.get_options_bits(),
+                );
+            }
+        }
+        if let Some(bar) = game_engine::common::ini::ini_command_button::get_control_bar() {
+            if let Some(btn) = bar.find_command_button_resolved(ability) {
+                return Self::leftover_command_type_is_hunt_capable(
+                    gamelogic::command_button::map_gui_command_to_command_type(&btn.command),
+                    btn.get_special_power_template().is_some(),
+                    btn.options_bits,
+                );
+            }
+            if !bar.get_button_names().is_empty() {
+                return false;
+            }
+        }
+        false
+    }
+
+    /// Leftover `ScriptActionDispatcher::command_button_is_hunt_capable` switch.
+    fn leftover_command_type_is_hunt_capable(
+        command_type: gamelogic::commands::command::CommandType,
+        has_special_power_template: bool,
+        options_bits: u32,
+    ) -> bool {
+        use gamelogic::commands::command::CommandType;
+        use gamelogic::object::update::special_power_update::SpecialPowerCommandOption;
+        match command_type {
+            CommandType::DoSpecialPower => {
+                if !has_special_power_template {
+                    return false;
+                }
+                let options = SpecialPowerCommandOption::from_bits_truncate(options_bits);
+                options.intersects(
+                    SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT
+                        | SpecialPowerCommandOption::NEED_TARGET_NEUTRAL_OBJECT
+                        | SpecialPowerCommandOption::NEED_TARGET_ALLY_OBJECT,
+                )
+            }
+            CommandType::SwitchWeapons
+            | CommandType::DoAttackObject
+            | CommandType::Enter
+            | CommandType::ConvertToCarbomb => true,
+            _ => false,
         }
     }
 
@@ -3979,6 +4083,7 @@ impl GameLogic {
             .into_iter()
             .last()
         {
+            self.begin_script_camera_zoom(last.duration_seconds);
             self.pending_camera_zoom = Some(last);
         }
 
@@ -3988,6 +4093,7 @@ impl GameLogic {
             .into_iter()
             .last()
         {
+            self.begin_script_camera_pitch(last.duration_seconds);
             self.pending_camera_pitch = Some(last);
         }
 
@@ -3999,6 +4105,7 @@ impl GameLogic {
         {
             // C++ rotateCamera replaces any current animation. FREEZE_ANGLE only
             // pins the in-flight move/path and must not swallow later rotates.
+            self.begin_script_camera_rotate(last.duration_seconds);
             self.pending_camera_rotate = Some(last);
         }
 
@@ -4010,6 +4117,9 @@ impl GameLogic {
         {
             let remaining = self.script_camera_remaining_seconds();
             let max_zoom = (320.0 + 300.0) / 320.0;
+            if remaining > 0.0 {
+                self.begin_script_camera_zoom(remaining);
+            }
             self.pending_camera_zoom = Some(CameraZoomRequest {
                 zoom: last.zoom * max_zoom,
                 duration_seconds: remaining,
@@ -4025,6 +4135,9 @@ impl GameLogic {
             .last()
         {
             let remaining = self.script_camera_remaining_seconds();
+            if remaining > 0.0 {
+                self.begin_script_camera_pitch(remaining);
+            }
             self.pending_camera_pitch = Some(CameraPitchRequest {
                 pitch: last.pitch,
                 duration_seconds: remaining,
@@ -4070,7 +4183,11 @@ impl GameLogic {
             .into_iter()
             .last()
         {
+            // C++ rotateCameraTowardPosition: m_doingMoveCameraOnWaypointPath = false.
+            self.script_camera_move_to = None;
+            self.script_camera_path = None;
             self.pending_camera_rotate = None;
+            self.begin_script_camera_rotate(last.duration_seconds);
             self.pending_camera_look_toward = Some(last);
         }
         if let Some(last) = self
@@ -4079,10 +4196,20 @@ impl GameLogic {
             .into_iter()
             .last()
         {
-            if let Some(obj) = self.objects.get(&ObjectId(last.object_id)) {
+            if let Some(position) = self
+                .objects
+                .get(&ObjectId(last.object_id))
+                .map(|obj| obj.get_position())
+            {
+                // C++ rotateCameraTowardObject: m_doingMoveCameraOnWaypointPath = false.
+                self.script_camera_move_to = None;
+                self.script_camera_path = None;
                 self.pending_camera_rotate = None;
+                self.begin_script_camera_rotate(
+                    last.duration_seconds + last.hold_seconds.max(0.0),
+                );
                 self.pending_camera_look_toward = Some(CameraLookTowardWaypointRequest {
-                    position: obj.get_position(),
+                    position,
                     duration_seconds: last.duration_seconds,
                     ease_in_seconds: last.ease_in_seconds,
                     ease_out_seconds: last.ease_out_seconds,
@@ -4527,8 +4654,8 @@ impl GameLogic {
             self.mission_scripts.set_camera_movement_finished(false);
             self.script_camera_path = Some(move_state);
         } else {
-            self.mission_scripts.set_camera_movement_finished(true);
             self.script_camera_path = None;
+            self.mark_script_camera_movement_maybe_finished();
             self.script_broadcasts.push(ScriptBroadcast {
                 text: format!("Camera path '{}' not found", request.waypoint),
                 expires_at: self.sim_time_seconds + SCRIPT_BROADCAST_DURATION,
@@ -4559,7 +4686,93 @@ impl GameLogic {
         self.script_camera_move_to.as_ref().map(|m| m.final_focus())
     }
 
+    fn script_camera_orientation_duration(seconds: f32) -> f32 {
+        if seconds > 0.0 {
+            seconds
+        } else {
+            1.0 / 30.0
+        }
+    }
+
+    pub(in super::super) fn is_script_camera_movement_finished_now(&self) -> bool {
+        self.script_camera_move_to.is_none()
+            && self.script_camera_path.is_none()
+            && !self.script_camera_has_orientation_motion()
+    }
+
+    fn script_camera_has_orientation_motion(&self) -> bool {
+        self.script_camera_rotate_remaining > 0.0
+            || self.script_camera_zoom_remaining > 0.0
+            || self.script_camera_pitch_remaining > 0.0
+    }
+
+    pub(super) fn clear_script_camera_orientation_remaining(&mut self) {
+        self.script_camera_rotate_remaining = 0.0;
+        self.script_camera_zoom_remaining = 0.0;
+        self.script_camera_pitch_remaining = 0.0;
+        self.script_camera_freeze_time = false;
+    }
+
+    fn begin_script_camera_rotate(&mut self, duration_seconds: f32) {
+        self.script_camera_rotate_remaining =
+            Self::script_camera_orientation_duration(duration_seconds);
+        self.mission_scripts.set_camera_movement_finished(false);
+    }
+
+    fn begin_script_camera_zoom(&mut self, duration_seconds: f32) {
+        self.script_camera_zoom_remaining =
+            Self::script_camera_orientation_duration(duration_seconds);
+        self.mission_scripts.set_camera_movement_finished(false);
+    }
+
+    fn begin_script_camera_pitch(&mut self, duration_seconds: f32) {
+        self.script_camera_pitch_remaining =
+            Self::script_camera_orientation_duration(duration_seconds);
+        self.mission_scripts.set_camera_movement_finished(false);
+    }
+
+    fn mark_script_camera_movement_maybe_finished(&mut self) {
+        if self.is_script_camera_movement_finished_now() {
+            self.mission_scripts.set_camera_movement_finished(true);
+            self.script_camera_freeze_time = false;
+            self.script_camera_freeze_time_armed = false;
+        } else {
+            self.mission_scripts.set_camera_movement_finished(false);
+        }
+    }
+
+    fn tick_script_camera_orientation(&mut self, dt: f32) {
+        let dt = dt.max(0.0);
+        if dt <= 0.0 {
+            return;
+        }
+        let had = self.script_camera_has_orientation_motion();
+        if self.script_camera_rotate_remaining > 0.0 {
+            self.script_camera_rotate_remaining =
+                (self.script_camera_rotate_remaining - dt).max(0.0);
+        }
+        if self.script_camera_zoom_remaining > 0.0 {
+            self.script_camera_zoom_remaining = (self.script_camera_zoom_remaining - dt).max(0.0);
+        }
+        if self.script_camera_pitch_remaining > 0.0 {
+            self.script_camera_pitch_remaining =
+                (self.script_camera_pitch_remaining - dt).max(0.0);
+        }
+        if had && !self.script_camera_has_orientation_motion() {
+            self.mark_script_camera_movement_maybe_finished();
+        }
+    }
+
     pub(in super::super) fn script_camera_remaining_seconds(&self) -> f32 {
+        // C++ cameraModFinalZoom/Pitch: remaining rotate frames first, then path/move.
+        if self.script_camera_rotate_remaining > 0.0 {
+            return self.script_camera_rotate_remaining;
+        }
+        if let Some(rotate) = self.pending_camera_rotate.as_ref() {
+            if rotate.duration_seconds > 0.0 {
+                return rotate.duration_seconds;
+            }
+        }
         if let Some(move_to) = self.script_camera_move_to.as_ref() {
             return move_to.remaining_time_seconds();
         }
@@ -4596,6 +4809,8 @@ impl GameLogic {
     }
 
     pub(in super::super) fn apply_script_camera_mod_freeze_time(&mut self) {
+        // C++ cameraModFreezeTime: m_freezeTimeForCameraMovement = true.
+        self.script_camera_freeze_time = true;
         let mut applied = false;
         if let Some(move_to) = self.script_camera_move_to.as_mut() {
             move_to.set_freeze_time(true);
@@ -4603,6 +4818,9 @@ impl GameLogic {
         }
         if let Some(path) = self.script_camera_path.as_mut() {
             path.set_freeze_time(true);
+            applied = true;
+        }
+        if self.script_camera_has_orientation_motion() {
             applied = true;
         }
         if !applied {
@@ -4716,6 +4934,7 @@ impl GameLogic {
         self.pending_script_fps_limit = Some(request.fps);
     }
     pub(in super::super) fn update_script_camera(&mut self, dt: f32) {
+        self.tick_script_camera_orientation(dt);
         if let Some(object_id) = self.script_look_toward_object_id {
             if let Some(obj) = self.objects.get(&ObjectId(object_id)) {
                 if let Some(look) = self.pending_camera_look_toward.as_mut() {
@@ -4762,7 +4981,7 @@ impl GameLogic {
             if finished {
                 self.request_camera_focus(focus);
                 self.script_camera_move_to = None;
-                self.mission_scripts.set_camera_movement_finished(true);
+                self.mark_script_camera_movement_maybe_finished();
                 return;
             }
             if focus != Vec3::ZERO || look.is_some() {
@@ -4802,14 +5021,16 @@ impl GameLogic {
             }
         });
         let Some((finished, focus, look, remaining)) = path_step else {
-            self.mission_scripts.set_camera_movement_finished(true);
+            if !self.is_script_camera_movement_finished_now() {
+                self.mission_scripts.set_camera_movement_finished(false);
+            }
             return;
         };
         self.mission_scripts.set_camera_movement_finished(false);
         if finished {
             self.request_camera_focus(focus);
             self.script_camera_path = None;
-            self.mission_scripts.set_camera_movement_finished(true);
+            self.mark_script_camera_movement_maybe_finished();
             return;
         }
         if focus != Vec3::ZERO || look.is_some() {

@@ -597,12 +597,14 @@ impl GameLogic {
         self.pending_camera_zoom_reset_duration = 0.0;
         self.pending_camera_zoom_reset_ease_in = 0.0;
         self.pending_camera_zoom_reset_ease_out = 0.0;
+        self.clear_script_camera_orientation_remaining();
     }
 
     /// C++ `W3DView::lookAt`: drop rotate + waypoint path + scripted lock.
     pub fn cancel_scripted_camera_from_player_look_at(&mut self) {
         self.clear_in_flight_scripted_camera_move();
         self.pending_camera_rotate = None;
+        self.clear_script_camera_orientation_remaining();
     }
 
     /// C++ player `TheTacticalView->lookAt`: cancel then queue the snap.
@@ -741,6 +743,12 @@ impl GameLogic {
         &self,
     ) -> Option<&crate::game_logic::mission_scripts::CameraLookTowardWaypointRequest> {
         self.pending_camera_look_toward.as_ref()
+    }
+
+    pub fn set_pending_camera_look_toward_reverse_rotation(&mut self, reverse: bool) {
+        if let Some(req) = self.pending_camera_look_toward.as_mut() {
+            req.reverse_rotation = reverse;
+        }
     }
 
     pub fn peek_pending_camera_slave_enable(
@@ -1020,7 +1028,8 @@ impl GameLogic {
     }
 
     pub fn is_script_camera_time_frozen(&self) -> bool {
-        self.script_camera_move_to
+        let move_or_path = self
+            .script_camera_move_to
             .as_ref()
             .map(|move_to| move_to.freeze_time())
             .unwrap_or(false)
@@ -1028,7 +1037,13 @@ impl GameLogic {
                 .script_camera_path
                 .as_ref()
                 .map(|path| path.freeze_time())
-                .unwrap_or(false)
+                .unwrap_or(false);
+        if move_or_path {
+            return true;
+        }
+        // C++ GameLogic: isTimeFrozen() && !isCameraMovementFinished()
+        // (rotate/zoom/pitch/look-toward count as unfinished).
+        self.script_camera_freeze_time && !self.is_script_camera_movement_finished_now()
     }
 
     pub fn take_camera_zoom_reset(&mut self) -> bool {

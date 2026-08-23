@@ -181,9 +181,12 @@ impl GameLogic {
         if !unit.is_alive() {
             return false;
         }
-        let mode = button
-            .and_then(hunt_mode_from_button_name)
-            .or_else(|| hunt_mode_from_template(&unit.template_name));
+        // C++ doTeamHuntWithCommandButton has no template-name fallback.
+        // Named button: leftover hunt_mode_from_button_name only; miss is a no-op.
+        let mode = match button {
+            Some(name) => hunt_mode_from_button_name(name),
+            None => hunt_mode_from_template(&unit.template_name),
+        };
         let Some(mode) = mode else {
             return false;
         };

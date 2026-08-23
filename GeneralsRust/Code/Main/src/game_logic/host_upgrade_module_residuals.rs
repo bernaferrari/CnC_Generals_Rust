@@ -148,9 +148,9 @@ pub fn unpause_power_for_upgrade(upgrade: &str) -> Option<SpecialPowerType> {
         return Some(SpecialPowerType::HelixNapalmBomb);
     }
     if n.contains("helixnuke") || n.contains("helix_nuke") {
-        // Nuke general helix bomb residual maps to nuclear family if dedicated
-        // variant missing — host uses NuclearMissile strike path residual.
-        return Some(SpecialPowerType::NuclearMissile);
+        // C++ UnpauseSpecialPowerUpgrade matches SpecialPowerTemplate
+        // Nuke_SpecialAbilityHelixNukeBomb — not the NuclearMissile SW.
+        return Some(SpecialPowerType::HelixNukeBomb);
     }
     None
 }
@@ -177,6 +177,7 @@ pub fn power_starts_paused(power: &SpecialPowerType) -> bool {
             | SpecialPowerType::RebelCaptureBuilding
             | SpecialPowerType::RadarScan
             | SpecialPowerType::HelixNapalmBomb
+            | SpecialPowerType::HelixNukeBomb
     )
 }
 
@@ -814,6 +815,19 @@ mod tests {
         assert_eq!(
             unpause_power_for_upgrade("Upgrade_GLARadarVanScan"),
             Some(SpecialPowerType::RadarScan)
+        );
+        assert_eq!(
+            unpause_power_for_upgrade("Upgrade_HelixNapalmBomb"),
+            Some(SpecialPowerType::HelixNapalmBomb)
+        );
+        assert_eq!(
+            unpause_power_for_upgrade("Nuke_Upgrade_HelixNukeBomb"),
+            Some(SpecialPowerType::HelixNukeBomb)
+        );
+        assert!(power_starts_paused(&SpecialPowerType::HelixNukeBomb));
+        assert_ne!(
+            unpause_power_for_upgrade("Nuke_Upgrade_HelixNukeBomb"),
+            Some(SpecialPowerType::NuclearMissile)
         );
     }
 

@@ -1433,10 +1433,11 @@ impl CnCGameEngine {
             self.screen_shake_angle_sin = 0.0;
         }
 
-        if dt > 0.0 {
-            for shaker in &mut self.script_camera_shakers {
-                shaker.elapsed_seconds += dt.max(0.0);
-            }
+        // C++ W3DView::update: CameraShakerSystem.Timestep(1/30) once per present.
+        // Do not use visual_dt — at 60 fps that halves the envelope/omega sweep.
+        const SCRIPT_CAMERA_SHAKER_STEP: f32 = 1.0 / 30.0;
+        for shaker in &mut self.script_camera_shakers {
+            shaker.elapsed_seconds += SCRIPT_CAMERA_SHAKER_STEP;
         }
         self.script_camera_shakers
             .retain(|s| s.elapsed_seconds < s.duration_seconds);
@@ -1444,9 +1445,9 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         {
             // C++ W3DView::update: offset = intensity*(cos,sin), intensity *= 0.75,
-            // flip sign. Leftover GameClient::update is not on the live tick.
-            game_client::display::view::with_tactical_view(|view| {
-                view.tick_impulse_shake();
+            // flip sign. Leftover update_effects (presentation shell) already ticks
+            // the thread-local View once per InGame frame; only sample the offset here.
+            game_client::display::view::with_tactical_view_ref(|view| {
                 let impulse = view.impulse_shake_offset();
                 offset.x += impulse.x;
                 offset.z += impulse.y;
@@ -2356,10 +2357,28 @@ End
             "script shakers must not translate the look-at"
         );
         assert!(
-            body.contains("tick_impulse_shake"),
-            "live host must damp leftover ViewShake each InGame frame"
+            body.contains("impulse_shake_offset") && !body.contains("tick_impulse_shake"),
+            "live host must apply leftover ViewShake offset after the presentation-shell tick, not decay it a second time"
         );
     }
+
+    #[test]
+    fn script_camera_shaker_steps_one_thirtieth_per_present() {
+        let src = include_str!("start_game.rs");
+        let start = src
+            .find("fn update_script_camera_shake")
+            .expect("update_script_camera_shake");
+        let body = &src[start..start + 900];
+        assert!(
+            body.contains("1.0 / 30.0"),
+            "C++ CameraShakerSystem.Timestep is 1/30 per present"
+        );
+        assert!(
+            !body.contains("elapsed_seconds += dt"),
+            "script shaker must not advance by visual_dt"
+        );
+    }
+
 
     #[test]
     fn script_camera_pitch_writes_fx_pitch_not_orbit() {

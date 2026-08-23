@@ -897,13 +897,22 @@ fn host_locomotor_binding_from_template(t: &LocomotorTemplate) -> Option<HostLoc
         },
         can_move_backward: t.can_move_backward,
         downhill_only: t.downhill_only,
-        max_lift: t.lift * FPS * FPS,
+        // Common already stored Lift/LiftDamaged as parseAccelerationReal (/900).
+        // handleBehaviorZ / calcLiftToUseAtPt are dt-less per-frame Euler, so
+        // do not inflate back to per-sec² (C++ Locomotor.cpp:428-437).
+        max_lift: t.lift,
         max_lift_damaged: if t.lift_damaged >= 0.0 {
-            t.lift_damaged * FPS * FPS
+            t.lift_damaged
         } else {
-            t.lift * FPS * FPS
+            t.lift
         },
-        speed_limit_z: t.speed_limit_z,
+        // Common stores SpeedLimitZ as raw dist/sec; leftover ini_bridge
+        // applies parseVelocityReal (÷30). Omitted BIGNUM stays unconverted.
+        speed_limit_z: if t.speed_limit_z >= 1_000_000.0 {
+            999_999.0
+        } else {
+            t.speed_limit_z / FPS
+        },
         preferred_height: t.preferred_height,
         preferred_height_damping: t.preferred_height_damping,
         circling_radius: t.circling_radius,
@@ -1602,6 +1611,55 @@ mod tests {
         let authored_binding =
             host_locomotor_binding_from_template(&authored).expect("bind authored height");
         assert_eq!(authored_binding.airborne_targeting_height, 30);
+    }
+
+    #[test]
+    fn lift_and_speed_limit_z_bind_per_frame_units() {
+        let mut properties = HashMap::new();
+        properties.insert("Speed".to_string(), "20".to_string());
+        properties.insert("Surfaces".to_string(), "AIR".to_string());
+        properties.insert("Lift".to_string(), "90".to_string());
+        properties.insert("LiftDamaged".to_string(), "45".to_string());
+        properties.insert("SpeedLimitZ".to_string(), "30".to_string());
+        let authored = parse_locomotor_template_definition("HoverLift", &properties)
+            .expect("parse hover lift locomotor");
+        assert!(
+            (authored.lift - 0.1).abs() < 1e-6,
+            "Common stores Lift/900, got {}",
+            authored.lift
+        );
+        let binding =
+            host_locomotor_binding_from_template(&authored).expect("bind hover lift");
+        assert!(
+            (binding.max_lift - 0.1).abs() < 1e-6,
+            "live lift must stay per-frame², not *900, got {}",
+            binding.max_lift
+        );
+        assert!(
+            (binding.max_lift_damaged - 0.05).abs() < 1e-6,
+            "live liftDamaged must stay per-frame², got {}",
+            binding.max_lift_damaged
+        );
+        assert!(
+            (binding.speed_limit_z - 1.0).abs() < 1e-6,
+            "SpeedLimitZ must be parseVelocityReal (÷30), got {}",
+            binding.speed_limit_z
+        );
+
+        let omitted = parse_locomotor_template_definition("NoZLimit", &{
+            let mut p = HashMap::new();
+            p.insert("Speed".to_string(), "20".to_string());
+            p.insert("Surfaces".to_string(), "GROUND".to_string());
+            p
+        })
+        .expect("parse omitted SpeedLimitZ");
+        let omitted_binding =
+            host_locomotor_binding_from_template(&omitted).expect("bind omitted z limit");
+        assert!(
+            (omitted_binding.speed_limit_z - 999_999.0).abs() < 1e-3,
+            "omitted SpeedLimitZ stays BIGNUM, got {}",
+            omitted_binding.speed_limit_z
+        );
     }
 
     #[test]

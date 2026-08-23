@@ -385,12 +385,23 @@ pub fn attach_particle_system_to_object(name: &str, object_id: ObjectID) -> Opti
     attach_particle_system_to_object_local(name, object_id, None, None)
 }
 
-/// C++ create + attachToObject + optional `setPosition` (local) + `setSystemLifetime`.
+/// C++ create + `setPosition` (local) + `attachToObject` + optional lifetime.
 pub fn attach_particle_system_to_object_local(
     name: &str,
     object_id: ObjectID,
     local_pos: Option<&Coord3D>,
     lifetime_frames: Option<u32>,
+) -> Option<u32> {
+    attach_particle_system_to_object_local_oriented(name, object_id, local_pos, lifetime_frames, 0.0)
+}
+
+/// C++ `W3DModelDraw.cpp:2604-2611`: setPosition, rotateLocalTransformZ, attach.
+pub fn attach_particle_system_to_object_local_oriented(
+    name: &str,
+    object_id: ObjectID,
+    local_pos: Option<&Coord3D>,
+    lifetime_frames: Option<u32>,
+    local_z_rot: Real,
 ) -> Option<u32> {
     if name.is_empty() {
         return None;
@@ -398,10 +409,13 @@ pub fn attach_particle_system_to_object_local(
     let manager = get_particle_system_manager()?;
     let template_id = manager.find_template(name)?;
     let system_id = manager.create_particle_system(template_id)?;
-    manager.attach_particle_system_to_object(system_id, object_id);
     if let Some(pos) = local_pos {
         manager.set_particle_system_position(system_id, pos);
     }
+    if local_z_rot != 0.0 {
+        manager.rotate_particle_system_local_transform_z(system_id, local_z_rot);
+    }
+    manager.attach_particle_system_to_object(system_id, object_id);
     if let Some(frames) = lifetime_frames {
         manager.set_particle_system_lifetime(system_id, frames);
     }

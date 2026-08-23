@@ -327,7 +327,7 @@ impl CnCGameEngine {
                     duration_seconds: pres.camera_look_toward_duration,
                     ease_in_seconds: ease_in,
                     ease_out_seconds: ease_out,
-                    reverse_rotation: false,
+                    reverse_rotation: pres.camera_look_toward_reverse_rotation,
                 });
             }
         }
@@ -2929,6 +2929,23 @@ mod superweapon_countdown_tests {
         assert_eq!(superweapon_countdown_text(90.0), "1:30");
         assert_eq!(superweapon_countdown_text(5.9), "0:05");
         assert_ne!(superweapon_countdown_text(0.0), "READY");
+    }
+
+    #[test]
+    fn look_toward_drain_forwards_frozen_reverse_rotation() {
+        let src = include_str!("camera_drain.rs");
+        let start = src
+            .find("if let Some(look) = pres.camera_look_toward")
+            .expect("look-toward drain");
+        let body = &src[start..src.len().min(start + 700)];
+        assert!(
+            body.contains("reverse_rotation: pres.camera_look_toward_reverse_rotation"),
+            "LOOK_TOWARD_WAYPOINT reverseRotation must survive presentation drain"
+        );
+        assert!(
+            !body.contains("reverse_rotation: false"),
+            "must not hardcode reverse_rotation false at presentation drain"
+        );
     }
 }
 

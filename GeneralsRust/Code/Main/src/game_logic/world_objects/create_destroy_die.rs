@@ -2625,7 +2625,7 @@ impl GameLogic {
             // C++ DozerAIUpdate.cpp:1692-1699 flattenTerrain + Z snap + addObjectToPathfindMap.
             self.flatten_and_snap_construction(id);
             self.block_structure_object_path(id);
-            self.move_objects_for_construction(position, 12.0, None);
+            let _ = self.move_objects_for_construction(position, 12.0, None);
             if let Some(obj) = self.objects.get(&id) {
                 if obj.is_kind_of(KindOf::WalkOnTopOfWall) {
                     self.pathfinding_system.add_wall_piece_from_object(obj);
@@ -3062,6 +3062,10 @@ impl GameLogic {
 
         if let Some(obj) = self.objects.get_mut(&id) {
             obj.unstamp_partition_value_threat();
+            // C++ BoneFXUpdate dtor / onDelete: killRunningParticleSystems.
+            if let Some(bfx) = obj.bone_fx_damage.as_mut() {
+                bfx.stop_all_bone_fx();
+            }
         }
         // C++ BridgeTowerBehavior::onDie kills the span; BridgeBehavior::onDie
         // kills towers. Keep the husk so rubble stays repairable.
@@ -3889,7 +3893,7 @@ impl GameLogic {
         let already = self
             .objects
             .get(&object_id)
-            .map(|object| object.weapon_bonus_solo != 0)
+            .map(|object| object.is_receiving_difficulty_bonus)
             .unwrap_or(false);
         if apply == already {
             return;
@@ -3925,7 +3929,9 @@ impl GameLogic {
             difficulty,
         );
         if let Some(object) = self.objects.get_mut(&object_id) {
-            // C++ setWeaponBonusCondition even when healthFactor == 1.0 (Normal).
+            // C++ setReceivingDifficultyBonus then setWeaponBonusCondition
+            // even when healthFactor == 1.0 (Normal).
+            object.is_receiving_difficulty_bonus = apply;
             object.weapon_bonus_solo = if apply { solo } else { 0 };
             if (health_factor - 1.0).abs() <= f32::EPSILON {
                 return;

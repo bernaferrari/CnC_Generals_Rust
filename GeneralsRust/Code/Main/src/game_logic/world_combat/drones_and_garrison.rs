@@ -2304,6 +2304,7 @@ impl GameLogic {
             .objects
             .get(&object_id)
             .and_then(|obj| obj.thing.template.hacker_disable_building.clone());
+        let handled_hdb = hacker_disable.is_some();
         if let Some(metadata) = hacker_disable {
             let owner_id = self
                 .objects
@@ -2338,25 +2339,72 @@ impl GameLogic {
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return;
         };
-        if obj.thing.template.capture_starts_paused {
-            if let Some(power) = obj.thing.template.capture_power.special_power_type() {
-                obj.pause_special_power_countdown(&power, true);
-            }
-        }
-        let name = obj.template_name.to_ascii_lowercase();
-        let candidates = [P::RadarScan, P::HelixNapalmBomb];
-        for power in candidates {
-            if !power_starts_paused(&power) {
+        // C++ SpecialPowerModule ctor: startPowerRecharge (pre-built, non-SharedNSync)
+        // then pauseCountdown(TRUE) once when StartsPaused. Pause is a refcount —
+        // a second pause here or in SpecialPowerCreate leaves the upgrade unpause
+        // one short. Nuke Helix maps to HelixNukeBomb, not HelixNapalmBomb.
+        let under_construction = obj.status.under_construction;
+        let mut planned: Vec<(P, Option<u32>, bool)> = Vec::new();
+        let already = |planned: &[(P, Option<u32>, bool)], power: &P| {
+            planned.iter().any(|(existing, _, _)| existing == power)
+        };
+
+        for module in &obj.thing.template.special_power_modules {
+            if !module.starts_paused {
                 continue;
             }
-            let relevant = match power {
-                P::RadarScan => name.contains("radarvan") || name.contains("radar_van"),
-                P::HelixNapalmBomb => name.contains("helix"),
-                _ => false,
+            let Some(power) = module.command_power.clone() else {
+                continue;
             };
-            if relevant {
-                obj.pause_special_power_countdown(&power, true);
+            if handled_hdb && matches!(power, P::HackerDisableBuilding) {
+                continue;
             }
+            if already(&planned, &power) {
+                continue;
+            }
+            planned.push((
+                power,
+                Some(module.reload_time_frames),
+                module.shared_n_sync,
+            ));
+        }
+
+        if obj.thing.template.capture_starts_paused {
+            if let Some(power) = obj.thing.template.capture_power.special_power_type() {
+                if !already(&planned, &power) {
+                    planned.push((power, None, false));
+                }
+            }
+        }
+
+        let name = obj.template_name.to_ascii_lowercase();
+        if power_starts_paused(&P::RadarScan)
+            && (name.contains("radarvan") || name.contains("radar_van"))
+            && !already(&planned, &P::RadarScan)
+        {
+            planned.push((P::RadarScan, None, false));
+        }
+        let helix_bomb_planned =
+            already(&planned, &P::HelixNapalmBomb) || already(&planned, &P::HelixNukeBomb);
+        if name.contains("helix") && !helix_bomb_planned {
+            let power = if name.contains("nuke") {
+                P::HelixNukeBomb
+            } else {
+                P::HelixNapalmBomb
+            };
+            if power_starts_paused(&power) {
+                planned.push((power, None, false));
+            }
+        }
+
+        for (power, frames, shared_n_sync) in planned {
+            if !under_construction && !shared_n_sync {
+                match frames {
+                    Some(frames) => obj.start_power_recharge_with_frames(&power, frames),
+                    None => obj.start_power_recharge(&power),
+                }
+            }
+            obj.pause_special_power_countdown(&power, true);
         }
     }
 

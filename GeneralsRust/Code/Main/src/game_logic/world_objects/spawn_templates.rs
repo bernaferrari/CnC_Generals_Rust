@@ -258,6 +258,26 @@ fn unshroud_stale_host_partition_covers(
     }
 }
 
+/// C++ `PartitionData::getShroudedStatus` mixes footprint cells painted by
+/// `doShroudReveal`'s DiscreteCircle lookers. Leftover `ShroudManager` is
+/// that store; `PARTITION_MANAGER` still walks a square `r²` disk.
+fn leftover_discrete_circle_looker_cell(
+    shroud_mgr: &gamelogic::system::shroud_manager::ShroudManager,
+    player_id: u32,
+    cx: i32,
+    cz: i32,
+    cell_size: f32,
+) -> gamelogic::system::shroud_manager::ShroudState {
+    let half = cell_size * 0.5;
+    let world = gamelogic::common::Coord3D::new(
+        cx as f32 * cell_size + half,
+        cz as f32 * cell_size + half,
+        0.0,
+    );
+    shroud_mgr.get_shroud_state(player_id, &world)
+}
+
+
 
 
 impl GameLogic {
@@ -1107,6 +1127,9 @@ impl GameLogic {
         if has_kind("blast_crater") {
             template.add_kind_of(KindOf::BlastCrater);
         }
+        if has_kind("huge_vehicle") {
+            template.add_kind_of(KindOf::HugeVehicle);
+        }
     }
 
 
@@ -1145,9 +1168,24 @@ impl GameLogic {
         }
 
 
-        /// Decode only the mobile-kind masks represented by the live Rust
-        /// object model.  A mask that needs a missing kind is fail-closed;
-        /// this is preferable to accepting a tank in an infantry-only cabin.
+        /// Decode leftover `AllowInsideKindOf` / `ForbidInsideKindOf` KindOf
+        /// masks.  Infantry / Vehicle / Aircraft drive the coarse admission
+        /// enum.  Other leftover-known bits (HUGE_VEHICLE, STRUCTURE, …) stay
+        /// on the module mask and must not fail-close Enter.
+        fn leftover_kind_token_known(token: &str) -> bool {
+            game_engine::common::system::kind_of::KindOfMask::from_string(token).is_some()
+        }
+
+        fn parse_leftover_kind_of_mask(raw: Option<&str>) -> u128 {
+            let Some(raw) = raw else {
+                return 0;
+            };
+            use game_engine::common::system::kind_of::KindOfMask;
+            KindOfMask::parse_ini(KindOfMask::empty(), raw)
+                .map(|mask| mask.bits())
+                .unwrap_or(0)
+        }
+
         fn parse_admission(module: &crate::assets::BehaviorModuleDefinition) -> ContainAdmission {
             fn tokenize(raw: &str) -> Vec<&str> {
                 raw.split(|ch: char| ch.is_ascii_whitespace() || matches!(ch, ',' | '|'))
@@ -1185,10 +1223,8 @@ impl GameLogic {
                         "INFANTRY" => allowed[0] = true,
                         "VEHICLE" => allowed[1] = true,
                         "AIRCRAFT" => allowed[2] = true,
-                        // Rust has no portable-structure source path and
-                        // normal Enter independently rejects structures.
-                        "PORTABLE_STRUCTURE" | "STRUCTURE" => {}
                         "ALL" => allowed = [true, true, true],
+                        other if leftover_kind_token_known(other) => {}
                         _ => return ContainAdmission::Unsupported,
                     }
                 }
@@ -1202,8 +1238,7 @@ impl GameLogic {
                         "INFANTRY" => allowed[0] = false,
                         "VEHICLE" => allowed[1] = false,
                         "AIRCRAFT" => allowed[2] = false,
-                        // These kinds are already rejected by normal Enter.
-                        "PORTABLE_STRUCTURE" | "STRUCTURE" => {}
+                        other if leftover_kind_token_known(other) => {}
                         _ => return ContainAdmission::Unsupported,
                     }
                 }
@@ -1577,6 +1612,12 @@ impl GameLogic {
                     weapon_bonus_passed_to_passengers: false,
                     enter_sound: parse_contain_audio_event(module, "EnterSound"),
                     exit_sound: parse_contain_audio_event(module, "ExitSound"),
+                    allow_inside_kind_of: parse_leftover_kind_of_mask(
+                        module.attribute("AllowInsideKindOf"),
+                    ),
+                    forbid_inside_kind_of: parse_leftover_kind_of_mask(
+                        module.attribute("ForbidInsideKindOf"),
+                    ),
                 };
                 // Retail gives an object one active normal contain interface.
                 // A malformed/custom stack is not safely representable here;
@@ -4473,8 +4514,13 @@ impl GameLogic {
         use crate::game_logic::partition_coi::{
             cells_touched_for_footprint, mix_object_shroud_from_cells, HostPartitionFootprint,
         };
-        use game_engine::common::system::radar::CellShroudStatus;
         use gamelogic::common::{Relationship, types::ObjectShroudStatus};
+        use gamelogic::system::shroud_manager::ShroudState;
+
+        let leftover_cell_size = shroud_mgr
+            .grid_dimensions()
+            .map(|(_, _, s)| s)
+            .unwrap_or(40.0);
 
         let object_snaps: Vec<_> = self
             .objects
@@ -4527,11 +4573,17 @@ impl GameLogic {
                 let mut shrouded_cells = 0usize;
                 let mut fogged_cells = 0usize;
                 for &(cx, cz) in &cells {
-                    match gamelogic::object::partition_cell_shroud_status(pid as i32, cx, cz)
-                    {
-                        CellShroudStatus::Shrouded => shrouded_cells += 1,
-                        CellShroudStatus::Fogged => fogged_cells += 1,
-                        CellShroudStatus::Clear => {}
+                    // Leftover DiscreteCircle lookers, not PARTITION_MANAGER square disk.
+                    match leftover_discrete_circle_looker_cell(
+                        &shroud_mgr,
+                        pid,
+                        cx,
+                        cz,
+                        leftover_cell_size,
+                    ) {
+                        ShroudState::Hidden => shrouded_cells += 1,
+                        ShroudState::Explored => fogged_cells += 1,
+                        ShroudState::Visible => {}
                     }
                 }
                 let ever = shroud_mgr.host_object_ever_seen(pid, id.0);
@@ -7608,6 +7660,148 @@ End
     }
 
     #[test]
+    fn chinook_forbid_huge_vehicle_does_not_fail_close_enter() {
+        use crate::game_logic::{ContainAdmission, ContainModuleKind};
+        use game_engine::common::system::kind_of::KindOfMask;
+        use glam::Vec3;
+
+        // C++ OpenContain.cpp:856-866 + TransportContain.cpp:136-193:
+        // AllowInsideKindOf = INFANTRY VEHICLE,
+        // ForbidInsideKindOf = AIRCRAFT HUGE_VEHICLE.
+        // Infantry and Humvees board; Overlord (HUGE_VEHICLE) does not.
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(
+                r#"
+Object ProbeCombatChinook
+  Type = Vehicle
+  KindOf = VEHICLE SELECTABLE TRANSPORT
+  TransportSlotCount = 1
+  Body = ActiveBody ModuleTag_01
+    MaxHealth = 300.0
+  End
+  Behavior = TransportContain ModuleTag_01
+    Slots = 8
+    AllowInsideKindOf = INFANTRY VEHICLE
+    ForbidInsideKindOf = AIRCRAFT HUGE_VEHICLE
+  End
+End
+Object ProbeChinookRanger
+  Type = Infantry
+  KindOf = INFANTRY SELECTABLE
+  TransportSlotCount = 1
+  Body = ActiveBody ModuleTag_01
+    MaxHealth = 100.0
+  End
+End
+Object ProbeChinookHumvee
+  Type = Vehicle
+  KindOf = VEHICLE SELECTABLE
+  TransportSlotCount = 1
+  Body = ActiveBody ModuleTag_01
+    MaxHealth = 200.0
+  End
+End
+Object ProbeChinookOverlord
+  Type = Vehicle
+  KindOf = VEHICLE SELECTABLE HUGE_VEHICLE
+  TransportSlotCount = 1
+  Body = ActiveBody ModuleTag_01
+    MaxHealth = 1100.0
+  End
+End
+"#,
+                "chinook_huge_vehicle_enter.ini",
+            )
+            .expect("parse chinook huge-vehicle probe");
+
+        let chinook = GameLogic::build_template_from_object_definition(
+            "ProbeCombatChinook",
+            parser
+                .get_definition("ProbeCombatChinook")
+                .expect("chinook"),
+            None,
+        );
+        assert_eq!(chinook.contain_module.kind, ContainModuleKind::Transport);
+        assert_eq!(
+            chinook.contain_module.admission,
+            ContainAdmission::InfantryOrVehicle
+        );
+        assert_ne!(
+            chinook.contain_module.forbid_inside_kind_of & KindOfMask::HUGE_VEHICLE.bits(),
+            0,
+            "ForbidInsideKindOf HUGE_VEHICLE must survive parse"
+        );
+
+        let ranger = GameLogic::build_template_from_object_definition(
+            "ProbeChinookRanger",
+            parser
+                .get_definition("ProbeChinookRanger")
+                .expect("ranger"),
+            None,
+        );
+        let humvee = GameLogic::build_template_from_object_definition(
+            "ProbeChinookHumvee",
+            parser
+                .get_definition("ProbeChinookHumvee")
+                .expect("humvee"),
+            None,
+        );
+        let overlord = GameLogic::build_template_from_object_definition(
+            "ProbeChinookOverlord",
+            parser
+                .get_definition("ProbeChinookOverlord")
+                .expect("overlord"),
+            None,
+        );
+        assert!(
+            overlord.is_kind_of(crate::game_logic::KindOf::HugeVehicle),
+            "Overlord KindOf HUGE_VEHICLE must be retained"
+        );
+
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "USA", true));
+        logic
+            .templates
+            .insert("ProbeCombatChinook".to_string(), chinook);
+        logic
+            .templates
+            .insert("ProbeChinookRanger".to_string(), ranger);
+        logic
+            .templates
+            .insert("ProbeChinookHumvee".to_string(), humvee);
+        logic
+            .templates
+            .insert("ProbeChinookOverlord".to_string(), overlord);
+
+        let bird = logic
+            .create_object_for_player("ProbeCombatChinook", 1, Vec3::ZERO)
+            .expect("chinook");
+        let infantry = logic
+            .create_object_for_player("ProbeChinookRanger", 1, Vec3::ZERO)
+            .expect("ranger");
+        let vehicle = logic
+            .create_object_for_player("ProbeChinookHumvee", 1, Vec3::ZERO)
+            .expect("humvee");
+        let huge = logic
+            .create_object_for_player("ProbeChinookOverlord", 1, Vec3::ZERO)
+            .expect("overlord");
+
+        assert!(
+            logic.can_unit_enter_normal_target(infantry, bird),
+            "Ranger must board Chinook"
+        );
+        assert!(
+            logic.can_unit_enter_normal_target(vehicle, bird),
+            "Humvee must board Chinook"
+        );
+        assert!(
+            !logic.can_unit_enter_normal_target(huge, bird),
+            "Overlord HUGE_VEHICLE must be forbidden"
+        );
+    }
+
+    #[test]
     fn garrison_initial_roster_parses_template_and_count() {
         let mut parser = crate::assets::IniParser::new();
         parser
@@ -7940,6 +8134,63 @@ End
             );
         }
     }
+
+    /// hq-rxwoc: object FOW mix reads leftover DiscreteCircle looker cells,
+    /// not PARTITION_MANAGER's square `±ceil(r/40)` + world `r²` reject.
+    #[test]
+    fn object_fow_mix_reads_leftover_discrete_circle_not_square() {
+        use gamelogic::common::types::ObjectShroudStatus;
+        use gamelogic::system::shroud_manager::get_shroud_manager;
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "USA", true));
+        logic.add_player(Player::new(2, Team::China, "China", false));
+
+        let mut looker = ThingTemplate::new("CircleLooker");
+        looker.sight_range = 100.0;
+        looker.shroud_clearing_range = 240.0;
+        logic.templates.insert("CircleLooker".into(), looker);
+
+        let mut scout = ThingTemplate::new("RimScout");
+        scout.add_kind_of(KindOf::Infantry).set_health(80.0);
+        scout.geometry_info = crate::game_logic::HostGeometryInfo {
+            geom_type: crate::game_logic::HostGeometryType::Sphere,
+            is_small: true,
+            height: 2.0,
+            major_radius: 1.0,
+            minor_radius: 1.0,
+            authored: true,
+        };
+        logic.templates.insert("RimScout".into(), scout);
+
+        {
+            let shroud = get_shroud_manager();
+            let mut mgr = shroud.lock().expect("shroud");
+            mgr.init_shroud_grid(512.0, 512.0);
+        }
+
+        let _looker_id = logic
+            .create_object_for_player("CircleLooker", 1, Vec3::new(0.0, 0.0, 0.0))
+            .expect("looker");
+        // Cell (5, 3): DiscreteCircle radius 6 includes the y=3 span x=±5.
+        // Square world r² from (0,0) with r=240 excludes cell-center (220,140).
+        let rim_id = logic
+            .create_object_for_player("RimScout", 2, Vec3::new(210.0, 0.0, 130.0))
+            .expect("rim");
+
+        logic.update_main_crate_vision();
+        {
+            let shroud = get_shroud_manager();
+            let mgr = shroud.lock().expect("shroud");
+            assert_eq!(
+                mgr.get_host_object_shroud_status(1, rim_id.0),
+                Some(ObjectShroudStatus::Clear),
+                "rim cell on leftover DiscreteCircle must be CLEAR, not square-disk SHROUDED"
+            );
+        }
+    }
+
 
     #[test]
     fn looker_mask_uses_player_relationship_and_unlook_persist_150() {

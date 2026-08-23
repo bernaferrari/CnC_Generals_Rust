@@ -4381,7 +4381,7 @@ fn deliver_payload_parachute_directly_arms_landing_override() {
 fn parachute_landing_override_steers_xz() {
     use crate::game_logic::host_car_bomb::HIJACKER_PARACHUTE_NAME;
     use crate::game_logic::host_usa_pilot::PARACHUTE_OPEN_DIST;
-    use crate::game_logic::{KindOf, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     if !logic.templates.contains_key(HIJACKER_PARACHUTE_NAME) {
         let mut ct = ThingTemplate::new(HIJACKER_PARACHUTE_NAME);
@@ -4401,7 +4401,37 @@ fn parachute_landing_override_steers_xz() {
         .expect("chute");
     {
         let c = logic.objects.get_mut(&chute_id).unwrap();
+        c.max_transport = 1;
         c.apply_eject_parachuting();
+    }
+    // C++ empty AmericaParachute dies in update; fixture needs a living rider.
+    if !logic.templates.contains_key("AmericaInfantryRanger") {
+        let mut rt = ThingTemplate::new("AmericaInfantryRanger");
+        rt.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".to_string(), rt);
+    }
+    let rider_id = logic
+        .create_object(
+            "AmericaInfantryRanger",
+            Team::USA,
+            glam::Vec3::new(0.0, start_y, 0.0),
+        )
+        .expect("rider");
+    {
+        let c = logic.objects.get_mut(&chute_id).unwrap();
+        if !c.enter_transport(rider_id) {
+            if !c.occupants.contains(&rider_id) {
+                c.occupants.push(rider_id);
+            }
+        }
+    }
+    {
+        let r = logic.objects.get_mut(&rider_id).unwrap();
+        r.set_contained_by(Some(chute_id));
+        r.apply_eject_parachuting();
+        r.set_position(glam::Vec3::new(0.0, start_y, 0.0));
     }
     let dest = glam::Vec3::new(100.0, 0.0, 50.0);
     assert!(logic.set_parachute_override_destination(chute_id, dest));

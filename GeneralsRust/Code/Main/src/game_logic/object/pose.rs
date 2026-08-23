@@ -818,6 +818,7 @@ impl Object {
                     );
             }
             if let Some(bfx) = self.bone_fx_damage.as_mut() {
+                bfx.stamp_last_damage_type(self.last_damage_info_type);
                 let _ = bfx.on_body_damage_state_change(&self.template_name, old_state, state);
             }
         }
@@ -825,8 +826,11 @@ impl Object {
             self.ensure_transition_damage_fx();
             if let Some(cfg) = self.transition_damage_fx.as_ref() {
                 if let Some(ev) =
-                    crate::game_logic::host_transition_damage_fx::on_body_damage_state_change(
-                        cfg, old_state, state,
+                    crate::game_logic::host_transition_damage_fx::on_body_damage_state_change_for_damage(
+                        cfg,
+                        old_state,
+                        state,
+                        self.last_damage_info_type.map(|d| d.to_store()),
                     )
                 {
                     self.pending_transition_damage_fx.push(ev);
@@ -908,6 +912,7 @@ impl Object {
                     );
             }
             if let Some(bfx) = self.bone_fx_damage.as_mut() {
+                bfx.stamp_last_damage_type(self.last_damage_info_type);
                 let _ = bfx.on_body_damage_state_change(&self.template_name, old_state, state);
             }
         }
@@ -916,8 +921,11 @@ impl Object {
             self.ensure_transition_damage_fx();
             if let Some(cfg) = self.transition_damage_fx.as_ref() {
                 if let Some(ev) =
-                    crate::game_logic::host_transition_damage_fx::on_body_damage_state_change(
-                        cfg, old_state, state,
+                    crate::game_logic::host_transition_damage_fx::on_body_damage_state_change_for_damage(
+                        cfg,
+                        old_state,
+                        state,
+                        self.last_damage_info_type.map(|d| d.to_store()),
                     )
                 {
                     self.pending_transition_damage_fx.push(ev);

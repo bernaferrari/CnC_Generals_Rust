@@ -436,7 +436,14 @@ impl VictoryConditions {
             let state = PlayerArmyState::from_objects(objects, player, unique_owner);
             if self.is_defeated(state) {
                 if self.defeated_players.insert(player_id) {
-                    self.defeat_events.push(player_id);
+                    // C++ VictoryConditions.cpp:168-196 — mark m_isDefeated and
+                    // killPlayer even on frames 0-1. Reveal / GUI message /
+                    // GUIMessageReceived only when TheGameLogic->getFrame() > 1
+                    // so army-less start sides stay silent (leftover
+                    // impl_update.rs:1474).
+                    if frame > 1 {
+                        self.defeat_events.push(player_id);
+                    }
                     self.pending_kills.push(player_id);
                     mark_leftover_player_defeated(player_id, player);
                 }
@@ -1116,6 +1123,62 @@ mod tests {
         assert!(vc.take_pending_kills().is_empty());
         vc.reset();
     }
+
+    #[test]
+    fn early_frame_defeat_marks_and_kills_without_announce() {
+        // C++ VictoryConditions.cpp:168-196 — frames 0-1 still set
+        // m_isDefeated + killPlayer; HUD/reveal/audio wait for frame > 1.
+        let mut players = HashMap::new();
+        players.insert(0, player(0, Team::USA, 1));
+        players.insert(1, player(1, Team::GLA, 2));
+        let mut objects = HashMap::new();
+        let (a, oa) = obj(1, 0, Team::USA, &[KindOf::Infantry]);
+        objects.insert(a, oa);
+
+        for frame in [0u32, 1] {
+            let mut vc = VictoryConditions::new();
+            let outcome = vc.evaluate(&players, &objects, frame, GameMode::Skirmish);
+            assert!(
+                matches!(outcome, Some(VictoryCondition::Winner(0))),
+                "frame {frame} still ends the match, got {outcome:?}"
+            );
+            assert!(
+                vc.peek_defeat_events().is_empty(),
+                "frame {frame} must not emit GUI:PlayerHasBeenDefeated"
+            );
+            assert!(
+                vc.take_pending_kills().contains(&1),
+                "frame {frame} still killPlayer()s the army-less side"
+            );
+            vc.reset();
+        }
+
+        let mut late = VictoryConditions::new();
+        let late_outcome = late.evaluate(&players, &objects, 2, GameMode::Skirmish);
+        assert!(
+            matches!(late_outcome, Some(VictoryCondition::Winner(0))),
+            "frame 2 still ends the match, got {late_outcome:?}"
+        );
+        assert!(
+            late.peek_defeat_events().contains(&1),
+            "frame > 1 announces the newly defeated side"
+        );
+        assert!(late.take_pending_kills().contains(&1));
+        late.reset();
+
+        // Frame-0 mark sticks; later ticks must not announce a start-empty side.
+        let mut sticky = VictoryConditions::new();
+        sticky.evaluate(&players, &objects, 0, GameMode::Skirmish);
+        assert!(sticky.peek_defeat_events().is_empty());
+        let _ = sticky.take_pending_kills();
+        sticky.evaluate(&players, &objects, 8, GameMode::Skirmish);
+        assert!(
+            sticky.peek_defeat_events().is_empty(),
+            "already-marked start-empty side stays silent after frame > 1"
+        );
+        sticky.reset();
+    }
+
 
 }
 

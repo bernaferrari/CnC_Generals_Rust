@@ -573,13 +573,24 @@ fn status_damage_peels() {
     assert!(!host_weapon_is_status_damage("AmericaTankCrusaderGun"));
 }
 #[test]
-fn die_on_detonate_seeds() {
-    assert!(host_die_on_detonate_for_weapon_name("ScudMissileWeapon"));
-    assert!(host_die_on_detonate_for_weapon_name("TomahawkMissile"));
+fn die_on_detonate_reads_store_not_name_seed() {
+    ensure_host_weapon_store();
+    const NAME: &str = "HuntMissileCallsOnDieWeapon";
+    let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
+        let mut template = WeaponTemplate::new(NAME.to_string());
+        template.die_on_detonate = true;
+        store.add_weapon_template(template);
+    });
+    assert!(host_die_on_detonate_for_weapon_name(NAME));
     assert!(!host_die_on_detonate_for_weapon_name(
         "AmericaTankCrusaderGun"
     ));
+    // Name seed must not invent MissileCallsOnDie when the store field is false.
+    assert!(!host_die_on_detonate_for_weapon_name(
+        "NotInStoreTomahawkMissile"
+    ));
 }
+
 #[test]
 fn projectile_stream_name_seeds() {
     assert_eq!(

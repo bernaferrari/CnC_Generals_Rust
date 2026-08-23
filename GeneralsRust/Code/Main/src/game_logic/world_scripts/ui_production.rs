@@ -888,44 +888,71 @@ impl GameLogic {
         false
     }
 
-    /// C++ BuildAssistant::moveObjectsForConstruction — scatter allied mobiles.
+    /// C++ BuildAssistant::moveObjectsForConstruction — leftover bool contract.
+    /// FALSE when any footprint occupant is an enemy or cannot be scooted
+    /// (no AI / not mobile). Mines, inert, ALWAYS_SELECTABLE, and removable
+    /// occupants are skipped. Allied/neutral mobiles are issued an aside.
     pub(crate) fn move_objects_for_construction(
         &mut self,
         location: glam::Vec3,
         place_r: f32,
         builder_id: Option<ObjectId>,
-    ) {
+    ) -> bool {
+        use game_engine::common::system::kind_of::KindOfMask;
         let builder = builder_id.and_then(|id| self.objects.get(&id)).cloned();
+        let player_id = builder.as_ref().and_then(|b| b.owner_player_id);
+        // Leftover `hypot(major,minor)*1.4` scoot radius.
+        let aside_r = place_r * 1.4;
+        let mut any_unmovables = false;
         let mut to_move: Vec<(ObjectId, glam::Vec3)> = Vec::new();
         for (id, obj) in self.objects.iter() {
             if builder_id == Some(*id) || !obj.is_alive() {
                 continue;
             }
-            if obj.is_kind_of(KindOf::Structure)
-                || obj.is_kind_of(KindOf::Immobile)
-                || obj.is_kind_of(KindOf::Mine)
+            let leftover = leftover_kindof_bits(&obj.template_name);
+            if obj.is_kind_of(KindOf::Mine)
+                || obj.is_kind_of(KindOf::Inert)
+                || leftover & (KindOfMask::MINE.bits() | KindOfMask::INERT.bits()) != 0
             {
                 continue;
             }
-            if obj.is_disabled() || !obj.can_move() || obj.status.using_ability {
+            if obj.is_kind_of(KindOf::AlwaysSelectable)
+                || leftover & KindOfMask::ALWAYS_SELECTABLE.bits() != 0
+                || self.occupant_is_removable_for_construction(obj)
+            {
                 continue;
-            }
-            if let Some(b) = &builder {
-                if self.object_relationship(b, obj) == gamelogic::common::Relationship::Enemies {
-                    continue;
-                }
             }
             let p = obj.get_position();
             let r = Self::structure_place_radius(obj);
             let dx = p.x - location.x;
             let dz = p.z - location.z;
-            if dx * dx + dz * dz < (place_r + r) * (place_r + r) {
+            if dx * dx + dz * dz >= (place_r + r) * (place_r + r) {
+                continue;
+            }
+            // Leftover `object_relationship_enemy` — C++ ENEMIES are unmovable.
+            let enemy = if let Some(b) = &builder {
+                self.object_relationship(b, obj) == gamelogic::common::Relationship::Enemies
+            } else if let Some(pid) = player_id {
+                obj.owner_player_id
+                    .is_some_and(|oid| self.player_relationship(pid, oid) == gamelogic::common::Relationship::Enemies)
+            } else {
+                false
+            };
+            if enemy {
+                any_unmovables = true;
+                continue;
+            }
+            // Leftover `move_object_aside`: C++ getAIUpdateInterface().
+            // Live `is_mobile` is the host stand-in for getAI() (physics.rs).
+            if leftover_has_ai_update(&obj.template_name).unwrap_or(false) || obj.is_mobile() {
                 let dir = if dx * dx + dz * dz < 0.01 {
                     glam::Vec3::new(1.0, 0.0, 0.0)
                 } else {
                     glam::Vec3::new(dx, 0.0, dz).normalize_or_zero()
                 };
-                to_move.push((*id, location + dir * (place_r + r + 8.0)));
+                to_move.push((*id, location + dir * aside_r.max(place_r + r + 8.0)));
+            } else {
+                any_unmovables = true;
             }
         }
         for (id, dest) in to_move {
@@ -933,6 +960,42 @@ impl GameLogic {
                 obj.set_destination(dest);
             }
         }
+        !any_unmovables
+    }
+
+    /// C++ `Player::getPlayerType()==PLAYER_HUMAN`. Leftover PlayerList wins;
+    /// host `is_local` is the live stand-in when leftover is unbound.
+    pub(crate) fn player_is_human(&self, player_id: u32) -> bool {
+        if let Some(name) = self.players.get(&player_id).map(|p| p.name.clone()) {
+            if let Some(human) = leftover_player_is_human(player_id, &name) {
+                return human;
+            }
+        } else if let Some(human) = leftover_player_is_human(player_id, "") {
+            return human;
+        }
+        self.players
+            .get(&player_id)
+            .map(|p| p.is_local)
+            .unwrap_or(false)
+    }
+
+    /// C++ BuildAssistant::isRemovableForConstruction.
+    fn occupant_is_removable_for_construction(&self, obj: &Object) -> bool {
+        use game_engine::common::system::kind_of::KindOfMask;
+        if obj.is_kind_of(KindOf::Inert) {
+            return false;
+        }
+        let leftover = leftover_kindof_bits(&obj.template_name);
+        if leftover & KindOfMask::INERT.bits() != 0 {
+            return false;
+        }
+        if obj.is_kind_of(KindOf::Shrubbery) || obj.is_kind_of(KindOf::ClearedByBuild) {
+            return true;
+        }
+        if leftover & (KindOfMask::SHRUBBERY.bits() | KindOfMask::CLEARED_BY_BUILD.bits()) != 0 {
+            return true;
+        }
+        obj.status.effectively_dead
     }
 
     /// C++ DozerAIUpdate.cpp:1692-1696 flattenTerrain + getGroundHeight Z snap.
@@ -1972,6 +2035,36 @@ impl GameLogic {
     pub fn honesty_stealth_fighter_science_ok(&self) -> bool {
         self.stealth_fighter_science.honesty_ok()
     }
+}
+
+fn leftover_kindof_bits(template_name: &str) -> u128 {
+    leftover_thing_template(template_name)
+        .map(|tmpl| tmpl.get_kindof_bits())
+        .unwrap_or(0)
+}
+
+fn leftover_has_ai_update(template_name: &str) -> Option<bool> {
+    let tmpl = leftover_thing_template(template_name)?;
+    Some(tmpl.get_behavior_module_info().iter().any(|entry| {
+        let name = entry.name.as_str();
+        name.eq_ignore_ascii_case("AIUpdateInterface")
+            || name.eq_ignore_ascii_case("AIUpdate")
+            || name.to_ascii_lowercase().ends_with("aiupdate")
+    }))
+}
+
+fn leftover_player_is_human(player_id: u32, host_name: &str) -> Option<bool> {
+    let list = gamelogic::player::ThePlayerList().read().ok()?;
+    let named = format!("player{player_id}");
+    let arc = list.find_player_by_name(&named).or_else(|| {
+        if host_name.is_empty() {
+            None
+        } else {
+            list.find_player_by_name(host_name)
+        }
+    })?;
+    let guard = arc.read().ok()?;
+    Some(guard.get_player_type() == gamelogic::player::PlayerType::Human)
 }
 
 fn leftover_thing_template(

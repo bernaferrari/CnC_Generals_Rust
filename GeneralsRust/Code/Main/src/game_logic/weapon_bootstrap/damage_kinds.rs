@@ -93,21 +93,23 @@ pub(super) fn seed_projectile_stream_name_for(name: &str) -> String {
     String::new()
 }
 
-/// C++ Weapon.ini MissileCallsOnDie / DieOnDetonate residual.
+/// C++ Weapon.ini MissileCallsOnDie / WeaponTemplate::m_dieOnDetonate.
+///
+/// Leftover store is source of truth. Default false when the template is
+/// missing — do not invent the flag from weapon-name substrings.
 pub fn host_die_on_detonate_for_weapon_name(name: &str) -> bool {
-    seed_die_on_detonate_for(name)
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    with_weapon_store(|store| {
+        store
+            .find_weapon_template(name)
+            .map(|weapon| weapon.die_on_detonate)
+    })
+    .ok()
+    .flatten()
+    .unwrap_or(false)
 }
 
-pub(super) fn seed_die_on_detonate_for(name: &str) -> bool {
-    let n = name.to_ascii_lowercase();
-    // Retail missiles that call onDie after detonation residual.
-    (n.contains("scud") && n.contains("missile"))
-        || n.contains("tomahawk")
-        || (n.contains("rocket") && (n.contains("buggy") || n.contains("missile")))
-        || n.contains("stinger") && n.contains("missile")
-        || n.contains("patriot") && n.contains("missile")
-        || n.contains("inferno") && n.contains("cannon")
-}
 
 /// C++ Weapon.ini DamageType=STATUS residual.
 pub fn host_weapon_is_status_damage(name: &str) -> bool {

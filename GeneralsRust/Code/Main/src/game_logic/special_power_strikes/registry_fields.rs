@@ -47,6 +47,17 @@ impl HostSpecialPowerStrikeRegistry {
         &self.neutron_slow_death_meta
     }
 
+    pub fn neutron_slow_death_fields(
+        &self,
+    ) -> &[crate::game_logic::host_neutron_missile_slow_death::HostNeutronMissileSlowDeathData]
+    {
+        &self.neutron_slow_death_fields
+    }
+
+    pub fn neutron_slow_death_next_id(&self) -> u32 {
+        self.next_neutron_slow_death_id
+    }
+
     pub fn neutron_slow_death_fields_mut_for_tick(
         &mut self,
     ) -> Vec<crate::game_logic::host_neutron_missile_slow_death::HostNeutronMissileSlowDeathData>
@@ -61,6 +72,21 @@ impl HostSpecialPowerStrikeRegistry {
         >,
         metas: Vec<HostNeutronSlowDeathMeta>,
     ) {
+        self.neutron_slow_death_fields = fields;
+        self.neutron_slow_death_meta = metas;
+    }
+
+    pub fn restore_neutron_slow_death_persist(
+        &mut self,
+        next_id: u32,
+        spawned_total: u32,
+        fields: Vec<
+            crate::game_logic::host_neutron_missile_slow_death::HostNeutronMissileSlowDeathData,
+        >,
+        metas: Vec<HostNeutronSlowDeathMeta>,
+    ) {
+        self.next_neutron_slow_death_id = next_id;
+        self.neutron_slow_death_spawned_total = spawned_total;
         self.neutron_slow_death_fields = fields;
         self.neutron_slow_death_meta = metas;
     }

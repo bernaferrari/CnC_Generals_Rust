@@ -2116,6 +2116,10 @@ impl PresentationFrame {
                 .peek_pending_camera_look_toward()
                 .map(|l| (l.ease_in_seconds, l.ease_out_seconds))
                 .unwrap_or((0.0, 0.0)),
+            camera_look_toward_reverse_rotation: logic
+                .peek_pending_camera_look_toward()
+                .map(|l| l.reverse_rotation)
+                .unwrap_or(false),
             camera_tether_play: logic.peek_camera_tether_play(),
             camera_slave_enable: logic
                 .peek_pending_camera_slave_enable()

@@ -2557,6 +2557,46 @@ mod tests {
         );
     }
 
+    #[test]
+    fn game_state_header_writes_empty_campaign_and_invalid_mission() {
+        // C++ GameState.cpp:1632-1638: no current campaign → empty side + -1.
+        let mut payload = Vec::new();
+        {
+            let mut cursor = Cursor::new(&mut payload);
+            let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
+            write_cpp_game_state_header(
+                &mut xfer,
+                &SaveGameInfo {
+                    filename: "skirmish".into(),
+                    display_name: "Skirmish".into(),
+                    description: "Skirmish".into(),
+                    map_name: "Maps\\Alpine Assault.map".into(),
+                    campaign_side: None,
+                    mission_number: None,
+                    save_date: UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000),
+                    game_version: "1.04".into(),
+                    play_time: std::time::Duration::from_secs(0),
+                    difficulty: GameDifficulty::Medium,
+                    save_type: SaveFileType::Normal,
+                },
+            )
+            .expect("encode empty campaign header");
+        }
+
+        let mut bytes = Vec::new();
+        bytes.push(CHUNK_GAME_STATE.len() as u8);
+        bytes.extend_from_slice(CHUNK_GAME_STATE.as_bytes());
+        bytes.extend_from_slice(&(payload.len() as i32).to_le_bytes());
+        bytes.extend_from_slice(&payload);
+        bytes.push(SAVE_FILE_EOF.len() as u8);
+        bytes.extend_from_slice(SAVE_FILE_EOF.as_bytes());
+
+        let info = SaveFileManager::read_named_chunk_save_info(&bytes)
+            .expect("empty campaign header must list");
+        assert_eq!(info.campaign_side.as_deref(), None);
+        assert_eq!(info.mission_number, None);
+    }
+
     fn cpp_game_logic_xfer_with_objects() -> Vec<u8> {
         // Minimal C++ GameLogic::xfer (GameLogic.cpp:4666-4696): version 10,
         // frame, object TOC with one template, objectCount=1. Host bincode

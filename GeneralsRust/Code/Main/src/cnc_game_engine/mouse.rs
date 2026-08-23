@@ -20,6 +20,9 @@ pub(super) const W3D_MIN_ZOOM: f32 = 0.2;
 pub(super) const W3D_MAX_ZOOM: f32 = 1.3;
 /// C++ `PATHFIND_CELL_SIZE_F`.
 pub(super) const PATHFIND_CELL_SIZE_F: f32 = 10.0;
+/// C++ `W3DView::scrollBy` `SCROLL_RESOLUTION`.
+const SCROLL_RESOLUTION: f32 = 250.0;
+
 /// C++ CameraShakerSystem axis caps (radians).
 pub(super) const SHAKE_AXIS_PITCH: f32 = 7.5 * std::f32::consts::PI / 180.0;
 pub(super) const SHAKE_AXIS_YAW: f32 = 15.0 * std::f32::consts::PI / 180.0;
@@ -246,6 +249,25 @@ fn lookat_has_mouse_moved_recently(frame: u32) -> bool {
     let last = if last > frame { 0 } else { last };
     last + game_engine::common::game_common::LOGICFRAMES_PER_SECOND as u32 >= frame
 }
+
+/// C++ `W3DView::scrollBy` (1779-1823): `end.Y += dy * SCROLL_RESOLUTION * aspect`
+/// where `aspect = getWidth()/getHeight()`. Vertical screen delta is pre-multiplied
+/// by tactical-view aspect before the world conversion.
+fn lookat_scroll_world_delta(
+    screen_scroll: Vec2,
+    forward: Vec3,
+    right: Vec3,
+    camera_height: f32,
+    view_aspect: f32,
+) -> Vec3 {
+    if screen_scroll.length_squared() <= f32::EPSILON {
+        return Vec3::ZERO;
+    }
+    let scale = camera_height.max(1.0) / SCROLL_RESOLUTION;
+    let aspect = view_aspect.max(0.01);
+    (right * screen_scroll.x + forward * (-screen_scroll.y * aspect)) * scale
+}
+
 
 /// C++ `W3DView::calcCameraConstraints` inset: |center-95%| pick at ground Y.
 pub(super) fn w3d_camera_constraint_offset(
@@ -2560,6 +2582,7 @@ impl CnCGameEngine {
 
         // C++ W3DView.cpp:1779 scrollBy unprojects screen corners
         // (SCROLL_RESOLUTION=250). World step grows with camera height.
+        // Vertical screen delta is pre-multiplied by view aspect.
         let mut forward = self.camera_target - self.camera_position;
         forward.y = 0.0;
         if forward.length_squared() <= f32::EPSILON {
@@ -2570,8 +2593,9 @@ impl CnCGameEngine {
         let height = (self.camera_position - self.camera_target)
             .length()
             .max(1.0);
-        let scale = height / 250.0;
-        ((right * screen_scroll.x) + (forward * -screen_scroll.y)) * scale
+        let (view_w, view_h) = self.tactical_viewport_size();
+        let aspect = view_w / view_h.max(1.0);
+        lookat_scroll_world_delta(screen_scroll, forward, right, height, aspect)
     }
 
     /// C++ View::zoomIn/Out: change height-above-ground by 10wu per detent
@@ -2705,6 +2729,13 @@ impl CnCGameEngine {
         // C++ SelectionXlat.cpp:425-446 + HintSpy.cpp:26-35 — hover always
         // posts MSG_MOUSEOVER_* even when the cursor icon is unchanged.
         self.sync_ingame_mouseover_hint();
+        // C++ InGameUI.cpp:2462 — replayed SELECTING/ARROW stays put until
+        // the viewer moves the mouse (LookAtXlat hasMouseMovedRecently).
+        if crate::command_system::host_recorder_is_playback()
+            && !lookat_has_mouse_moved_recently(self.frame_counter)
+        {
+            return;
+        }
         use winit::window::CursorIcon;
         let (name, icon) = self.resolve_context_cursor_icon();
         if self.last_context_cursor == Some(name) {
@@ -2714,8 +2745,16 @@ impl CnCGameEngine {
         self.window.set_cursor(icon);
     }
 
+
     /// C++ HintSpy::translate MSG_MOUSEOVER_DRAWABLE_HINT / LOCATION_HINT.
     fn sync_ingame_mouseover_hint(&mut self) {
+        // C++ InGameUI.cpp:2462 — playback keeps SELECTING/ARROW until the
+        // viewer moves the mouse (LookAtXlat hasMouseMovedRecently, 1s).
+        #[cfg(feature = "game_client")]
+        self.game_client.feed_look_at_replay_hover_gate(
+            crate::command_system::host_recorder_is_playback(),
+            lookat_has_mouse_moved_recently(self.frame_counter),
+        );
         // C++ SelectionXlat.cpp:429 hardcodes getPickTypesForContext(true).
         let hover = self.host_pick_hover_object_at_cursor();
         match hover {
@@ -4994,6 +5033,54 @@ mod camera_pick_tests {
             "ray through an elevated unit must land past the XY origin, got {hit:?}"
         );
     }
+
+    #[test]
+    fn vertical_pan_uses_display_aspect_boost() {
+        // C++ W3DView.cpp:1796-1798 — 1920x1080 with 80% tactical frac → 2.222.
+        let forward = Vec3::new(0.0, 0.0, 1.0);
+        let right = Vec3::new(1.0, 0.0, 0.0);
+        let aspect = 1920.0 / 864.0;
+        let dx = lookat_scroll_world_delta(Vec2::new(1.0, 0.0), forward, right, 250.0, aspect);
+        let dy = lookat_scroll_world_delta(Vec2::new(0.0, 1.0), forward, right, 250.0, aspect);
+        assert!((dx.x - 1.0).abs() < 1.0e-5, "horizontal step {dx:?}");
+        assert!(
+            (dy.z + aspect).abs() < 1.0e-5,
+            "vertical step must be aspect-boosted, got {dy:?}"
+        );
+        assert!(
+            dy.length() > dx.length() * 2.0,
+            "retail vertical pan is faster than horizontal by view aspect"
+        );
+    }
+
+    #[test]
+    fn replay_hover_feeds_has_mouse_moved_recently_gate() {
+        let src = include_str!("mouse.rs");
+        let start = src
+            .find("fn sync_ingame_mouseover_hint")
+            .expect("sync_ingame_mouseover_hint");
+        let end = src[start + 1..]
+            .find("\n    fn ")
+            .map(|i| start + 1 + i)
+            .unwrap_or(start + 600);
+        let body = &src[start..end];
+        let feed_at = body
+            .find("feed_look_at_replay_hover_gate")
+            .expect("must stamp leftover InGameUI playback/moved-recently");
+        let hint_at = body
+            .find("create_mouseover_hint")
+            .expect("must still post mouseover hint");
+        assert!(
+            feed_at < hint_at,
+            "C++ InGameUI.cpp:2462 gate must be fed before createMouseoverHint"
+        );
+        assert!(
+            body.contains("host_recorder_is_playback")
+                && body.contains("lookat_has_mouse_moved_recently"),
+            "live host owns both playback and LookAt 1s window"
+        );
+    }
+
 
 
 

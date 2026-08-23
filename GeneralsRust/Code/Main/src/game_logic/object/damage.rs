@@ -235,7 +235,7 @@ impl Object {
             self.status.pending_kill_garrisoned =
                 self.status.pending_kill_garrisoned.saturating_add(kills);
             if damage > 0.0 {
-                self.stamp_last_damage_cpp(source, false);
+                self.stamp_last_damage_cpp(source, false, damage_type);
             }
             let fx_type = fx_override.unwrap_or(damage_type);
             let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
@@ -270,6 +270,8 @@ impl Object {
             if amount > 0.0 {
                 let now = crate::game_logic::host_historic_bonus::logic_frame();
                 self.last_healing_timestamp = Some(now);
+                self.last_damage_info_type =
+                    Some(crate::game_logic::combat::DamageType::Healing);
                 if is_bridge {
                     let max_health = self.health.maximum.max(self.max_health).max(1.0);
                     crate::game_logic::host_bridge_behavior::record_mirror(
@@ -319,7 +321,7 @@ impl Object {
                             true,
                             damage_type.to_store() as u32,
                         );
-                        self.stamp_last_damage_cpp(source, false);
+                        self.stamp_last_damage_cpp(source, false, damage_type);
                         let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
                             self, fx_type, damage.max(0.0),
                         );
@@ -329,7 +331,7 @@ impl Object {
                     self.rider_change_scuttled_on_frame =
                         self.rider_change_scuttled_on_frame.max(1);
                     if damage > 0.0 {
-                        self.stamp_last_damage_cpp(source, false);
+                        self.stamp_last_damage_cpp(source, false, damage_type);
                     }
                     let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
                         self, fx_type, damage.max(0.0),
@@ -344,7 +346,7 @@ impl Object {
                 self.set_team(crate::game_logic::Team::Neutral);
             }
             if damage > 0.0 {
-                self.stamp_last_damage_cpp(source, false);
+                self.stamp_last_damage_cpp(source, false, damage_type);
             }
             let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
                 self, fx_type, damage.max(0.0),
@@ -366,7 +368,7 @@ impl Object {
             );
             self.apply_subdual_damage(typed);
             if typed > 0.0 {
-                self.stamp_last_damage_cpp(source, false);
+                self.stamp_last_damage_cpp(source, false, damage_type);
             }
             let fx_type = fx_override.unwrap_or(damage_type);
             let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
@@ -394,7 +396,7 @@ impl Object {
                 }
             }
             if amount > 0.0 {
-                self.stamp_last_damage_cpp(source, false);
+                self.stamp_last_damage_cpp(source, false, damage_type);
             }
             let fx_type = fx_override.unwrap_or(damage_type);
             let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
@@ -578,7 +580,7 @@ impl Object {
         // after armor+scalar. Same-or-next-frame prefers VEHICLE/INFANTRY/faction
         // structure over projectiles; 0-amount crush FX does not stamp.
         if actual_damage > 0.0 || destroyed {
-            self.stamp_last_damage_cpp(source, destroyed);
+            self.stamp_last_damage_cpp(source, destroyed, damage_type);
         }
         crate::game_logic::host_damage_log::record_typed(
             self.id,
@@ -844,17 +846,22 @@ impl Object {
     fn stamp_last_damage_always(&mut self, _source: Option<ObjectId>) {
         let frame = crate::game_logic::host_historic_bonus::logic_frame();
         // C++ lastDamageInfo.m_damageType = HEALING so Guard/stealth skip the healer.
-        // Live host has no last-type field — clear source so a medic is not the nemesis,
-        // but still forget the prior attacker (ActiveBody.cpp:817-820).
         self.last_damage_source = None;
         self.last_damage_source_preferred = false;
         self.last_damage_timestamp = Some(frame);
+        self.last_damage_info_type = Some(crate::game_logic::combat::DamageType::Healing);
     }
 
     /// C++ ActiveBody.cpp:501-572 lastDamageInfo: amount>0 or kill, after armor.
     /// Same-or-next-frame overwrites only if new source exists and (old is gone
     /// or new is VEHICLE/INFANTRY/faction structure).
-    fn stamp_last_damage_cpp(&mut self, source: Option<ObjectId>, preferred: bool) {
+    fn stamp_last_damage_cpp(
+        &mut self,
+        source: Option<ObjectId>,
+        preferred: bool,
+        damage_type: crate::game_logic::combat::DamageType,
+    ) {
+        self.last_damage_info_type = Some(damage_type);
         let frame = crate::game_logic::host_historic_bonus::logic_frame();
         let same_or_next = self.last_damage_timestamp == Some(frame)
             || self.last_damage_timestamp == Some(frame.saturating_sub(1));

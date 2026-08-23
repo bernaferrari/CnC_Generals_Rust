@@ -4167,6 +4167,79 @@ fn america_parachute_land_releases_hijacker() {
 }
 
 #[test]
+fn america_parachute_empty_dies_midair_after_rider_loss() {
+    use crate::game_logic::host_car_bomb::HIJACKER_PARACHUTE_NAME;
+    use crate::game_logic::host_usa_pilot::{
+        PARACHUTE_OPEN_DIST, significantly_above_terrain_threshold,
+    };
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    if !logic.templates.contains_key(HIJACKER_PARACHUTE_NAME) {
+        let mut ct = ThingTemplate::new(HIJACKER_PARACHUTE_NAME);
+        ct.add_kind_of(KindOf::Vehicle).set_health(1.0);
+        logic
+            .templates
+            .insert(HIJACKER_PARACHUTE_NAME.to_string(), ct);
+    }
+    let high = (PARACHUTE_OPEN_DIST + significantly_above_terrain_threshold()).max(180.0);
+    let chute_id = logic
+        .create_object(
+            HIJACKER_PARACHUTE_NAME,
+            Team::USA,
+            glam::Vec3::new(0.0, high, 0.0),
+        )
+        .expect("chute");
+    let mut rt = ThingTemplate::new("AmericaInfantryRanger");
+    rt.add_kind_of(KindOf::Infantry).set_health(100.0);
+    let hid = ObjectId(6621);
+    logic.objects.insert(hid, Object::new(rt, hid, Team::USA));
+    {
+        let c = logic.objects.get_mut(&chute_id).unwrap();
+        c.max_transport = 1;
+        c.apply_eject_parachuting();
+        if !c.enter_transport(hid) {
+            if !c.occupants.contains(&hid) {
+                c.occupants.push(hid);
+            }
+        }
+    }
+    {
+        let h = logic.objects.get_mut(&hid).unwrap();
+        h.set_contained_by(Some(chute_id));
+        h.apply_eject_parachuting();
+        h.set_position(glam::Vec3::new(0.0, high, 0.0));
+    }
+    logic.tick_eject_parachute_residual(chute_id);
+    assert!(
+        logic.objects[&chute_id].is_alive() && !logic.objects[&chute_id].status.destroyed,
+        "occupied chute must stay alive mid-air"
+    );
+
+    // Shoot the rider, not the chute — C++ containCount==0 kill is altitude-independent.
+    {
+        let h = logic.objects.get_mut(&hid).unwrap();
+        h.health.current = 0.0;
+        h.status.destroyed = true;
+        h.status.effectively_dead = true;
+    }
+    logic.tick_eject_parachute_residual(chute_id);
+    let chute_gone = logic
+        .objects
+        .get(&chute_id)
+        .map(|c| !c.is_alive() || c.status.destroyed)
+        .unwrap_or(true);
+    assert!(
+        chute_gone,
+        "empty AmericaParachute must die mid-air after losing rider"
+    );
+    assert!(
+        logic.objects[&chute_id].get_position().y > 1.0,
+        "kill must not wait for ground contact"
+    );
+}
+
+
+#[test]
 fn hijack_destroys_rider_when_no_eject() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut logic = GameLogic::new();

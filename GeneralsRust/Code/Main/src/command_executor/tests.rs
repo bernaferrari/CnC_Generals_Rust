@@ -4924,8 +4924,10 @@ fn execute_build_clears_removable_and_map_trees() {
 
 #[test]
 fn execute_build_clears_kindof_not_name_substrings() {
+    use super::CommandExecutor;
     use crate::command_system::CommandResult;
-    use crate::game_logic::{KindOf, Object, ObjectId, Player, Team, ThingTemplate};
+    use crate::game_logic::{GameLogic, KindOf, Object, ObjectId, Player, Team, ThingTemplate};
+    use glam::Vec3;
 
     let mut logic = GameLogic::new();
     let mut player = Player::new(0, Team::USA, "USA", true);
@@ -4963,7 +4965,7 @@ fn execute_build_clears_kindof_not_name_substrings() {
     let mut named_tree_t = ThingTemplate::new("AmericaTreeDummy");
     named_tree_t.set_health(10.0);
     let mut named_tree = Object::new(named_tree_t, ObjectId(9203), Team::Neutral);
-    named_tree.set_position(Vec3::new(82.0, 0.0, 80.0));
+    named_tree.set_position(Vec3::new(400.0, 0.0, 400.0));
     logic.objects.insert(ObjectId(9203), named_tree);
 
     let mut inert_t = ThingTemplate::new("TreeDebrisRubble");
@@ -4994,6 +4996,77 @@ fn execute_build_clears_kindof_not_name_substrings() {
         inert.is_alive() && !inert.status.destroyed,
         "KINDOF_INERT must not be removable for construction"
     );
+}
+
+#[test]
+fn execute_build_refuses_human_on_unmovables() {
+    use super::CommandExecutor;
+    use crate::command_system::CommandResult;
+    use crate::game_logic::{GameLogic, KindOf, Object, ObjectId, Player, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut player = Player::new(0, Team::USA, "USA", true);
+    player.resources.supplies = 10_000;
+    logic.add_player(player);
+
+    let mut barracks = ThingTemplate::new("TestUnmovableBarracks");
+    barracks
+        .add_kind_of(KindOf::Structure)
+        .set_cost(50, 0)
+        .set_health(1_000.0);
+    logic
+        .templates
+        .insert("TestUnmovableBarracks".into(), barracks);
+
+    let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
+    dozer_t
+        .add_kind_of(KindOf::Dozer)
+        .add_kind_of(KindOf::Vehicle)
+        .set_health(200.0);
+    logic
+        .templates
+        .insert("AmericaVehicleDozer".into(), dozer_t.clone());
+    let mut dozer = Object::new(dozer_t, ObjectId(9301), Team::USA);
+    dozer.set_position(Vec3::new(40.0, 0.0, 80.0));
+    dozer.owner_player_id = Some(0);
+    logic.objects.insert(ObjectId(9301), dozer);
+
+    // Neutral, no AI / not mobile — leftover moveObjects returns FALSE.
+    let mut crate_t = ThingTemplate::new("UnmovableCrate");
+    crate_t.set_health(10.0);
+    let mut crate_obj = Object::new(crate_t, ObjectId(9302), Team::Neutral);
+    crate_obj.set_position(Vec3::new(80.0, 0.0, 80.0));
+    logic.objects.insert(ObjectId(9302), crate_obj);
+
+    let site = Vec3::new(80.0, 0.0, 80.0);
+    let money_before = logic
+        .get_player(0)
+        .map(|p| p.resources.supplies)
+        .unwrap_or(0);
+    let result = {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        exec.execute_build(&[ObjectId(9301)], "TestUnmovableBarracks", site, 0.0)
+    };
+    assert_eq!(
+        result,
+        CommandResult::InvalidLocation,
+        "hq-ys09u: human buildObjectNow must refuse when leftover moveObjects is FALSE"
+    );
+    let money_after = logic
+        .get_player(0)
+        .map(|p| p.resources.supplies)
+        .unwrap_or(0);
+    assert_eq!(money_before, money_after, "human must not be charged");
+    assert!(
+        !logic
+            .objects
+            .values()
+            .any(|o| o.template_name == "TestUnmovableBarracks"),
+        "no structure on un-scootable occupants"
+    );
+    let crate_obj = logic.host_object(ObjectId(9302)).expect("crate");
+    assert!(crate_obj.is_alive() && !crate_obj.status.destroyed);
 }
 
 #[test]

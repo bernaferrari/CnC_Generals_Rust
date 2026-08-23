@@ -1564,13 +1564,13 @@ impl GameLogic {
         let mut best: Option<(u32, bool, ObjectId)> = None;
         if let Some(tid) = obj.dozer_task_build_target {
             let frame = obj.dozer_task_build_order_frame;
-            if best.is_none_or(|(f, _, _)| frame >= f) {
+            if best.is_none_or(|(f, _, _)| frame > f) {
                 best = Some((frame, false, tid));
             }
         }
         if let Some(tid) = obj.dozer_task_repair_target {
             let frame = obj.dozer_task_repair_order_frame;
-            if best.is_none_or(|(f, _, _)| frame >= f) {
+            if best.is_none_or(|(f, _, _)| frame > f) {
                 best = Some((frame, true, tid));
             }
         }
@@ -2333,6 +2333,73 @@ mod leftover_dispatch_tests {
         assert_eq!(dz.ai_state, AIState::Constructing);
         assert_eq!(dz.target, Some(scaffold));
         assert_eq!(dz.dozer_task_build_target, Some(scaffold));
+    }
+
+    #[test]
+    fn same_frame_build_repair_tie_resumes_build() {
+        // hq-ylhfz: C++ getMostRecentCommand uses `order_frame > mostRecentFrame`,
+        // so BUILD (walked first) wins a same-frame BUILD+REPAIR tie.
+        use crate::game_logic::ThingTemplate;
+        let mut logic = GameLogic::new();
+        logic.frame = 10;
+        logic
+            .get_players_mut()
+            .insert(0, Player::new(0, Team::USA, "P0", true));
+        let mut dozer_tpl = ThingTemplate::new("DozerSameFrameTie");
+        dozer_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Dozer)
+            .add_kind_of(KindOf::Worker)
+            .set_health(300.0);
+        logic
+            .templates
+            .insert("DozerSameFrameTie".into(), dozer_tpl);
+        let mut bld = ThingTemplate::new("ScaffoldSameFrameTie");
+        bld.add_kind_of(KindOf::Structure).set_health(500.0);
+        logic
+            .templates
+            .insert("ScaffoldSameFrameTie".into(), bld.clone());
+        logic
+            .templates
+            .insert("DamagedSameFrameTie".into(), bld);
+        let dozer = logic
+            .create_object_for_player("DozerSameFrameTie", 0, Vec3::ZERO)
+            .expect("dozer");
+        let scaffold = logic
+            .create_object_for_player("ScaffoldSameFrameTie", 0, Vec3::new(20.0, 0.0, 0.0))
+            .expect("scaffold");
+        let damaged = logic
+            .create_object_for_player("DamagedSameFrameTie", 0, Vec3::new(40.0, 0.0, 0.0))
+            .expect("damaged");
+        {
+            let sc = logic.host_object_mut(scaffold).expect("sc");
+            sc.status.under_construction = true;
+            sc.builder_id = Some(dozer);
+        }
+        {
+            let dmg = logic.host_object_mut(damaged).expect("dmg");
+            let _ = dmg.take_damage(200.0);
+        }
+        logic.dozer_new_task_build(dozer, scaffold);
+        logic.dozer_new_task_repair(dozer, damaged);
+        {
+            let dz = logic.host_object(dozer).expect("dz");
+            assert_eq!(dz.dozer_task_build_order_frame, dz.dozer_task_repair_order_frame);
+            assert_eq!(dz.dozer_task_build_target, Some(scaffold));
+            assert_eq!(dz.dozer_task_repair_target, Some(damaged));
+        }
+        if let Some(dz) = logic.host_object_mut(dozer) {
+            dz.set_target(None);
+            dz.set_ai_state(AIState::Idle);
+        }
+        assert!(
+            logic.dozer_idle_resume_pending_build(dozer),
+            "hq-ylhfz: same-frame BUILD+REPAIR must resume BUILD"
+        );
+        let dz = logic.host_object(dozer).expect("dz");
+        assert_eq!(dz.ai_state, AIState::Constructing);
+        assert_eq!(dz.target, Some(scaffold));
     }
 
     #[test]

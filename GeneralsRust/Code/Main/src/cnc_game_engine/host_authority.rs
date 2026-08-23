@@ -1022,20 +1022,16 @@ impl CnCGameEngine {
         let difficulty = Self::map_ai_difficulty_to_save(self.presentation_or_boot_ai_difficulty());
         let play_time =
             std::time::Duration::from_secs_f32(self.presentation_or_boot_total_play_time());
-        let team_name = if let Some(pres) = self.last_presentation_frame.as_ref() {
-            pres.local_team.get_name().to_string()
-        } else {
-            self.ui_local_player_team_name()
-                .unwrap_or_else(|| "Neutral".to_string())
-        };
+        let (campaign_side, mission_number) =
+            crate::save_load::campaign_header_from_campaign_manager();
 
         SaveGameInfo {
             filename: slot.to_string(),
             display_name: display_name.to_string(),
             description: description.to_string(),
             map_name,
-            campaign_side: Some(team_name),
-            mission_number: None,
+            campaign_side,
+            mission_number,
             save_date: SystemTime::now(),
             game_version: env!("CARGO_PKG_VERSION").to_string(),
             play_time,

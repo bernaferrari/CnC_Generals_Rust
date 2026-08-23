@@ -1312,7 +1312,10 @@ impl GameLogic {
                 if module.shared_n_sync {
                     shared_ready.push(power.clone());
                 }
-                if module.starts_paused {
+                // C++ SpecialPowerCreate::onBuildComplete → onSpecialPowerCreation
+                // pauseCountdown(TRUE). Units without that Create module only get
+                // the ctor pause from init_starts_paused_special_powers.
+                if module.starts_paused && obj.thing.template.has_special_power_create {
                     obj.pause_special_power_countdown(power, true);
                 }
             }

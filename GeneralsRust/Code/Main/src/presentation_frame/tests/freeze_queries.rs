@@ -1437,6 +1437,7 @@ fn presentation_feeds_camera_controls() {
     logic.queue_pending_camera_pitch(-0.2, 0.8);
     logic.queue_pending_camera_rotate(1.0, 2.0);
     logic.queue_pending_camera_look_toward(glam::Vec3::new(10.0, 0.0, 20.0), 1.0);
+    logic.set_pending_camera_look_toward_reverse_rotation(true);
     logic.queue_pending_camera_slave_enable("AmericaSpyDrone", "Bone01");
     logic.queue_pending_camera_slave_disable();
     logic.upsert_script_named_timer("TimerA", "00:30", true);
@@ -1448,6 +1449,7 @@ fn presentation_feeds_camera_controls() {
     assert_eq!(frame.camera_pitch, Some((-0.2, 0.8)));
     assert_eq!(frame.camera_rotate, Some((1.0, 2.0)));
     assert_eq!(frame.camera_look_toward, Some([10.0, 0.0, 20.0]));
+    assert!(frame.camera_look_toward_reverse_rotation);
     assert_eq!(
         frame
             .camera_slave_enable

@@ -12,6 +12,36 @@ fn default_death_types() -> u32 {
     gamelogic::damage::DEATH_TYPE_FLAGS_ALL
 }
 
+fn default_veterancy_levels() -> u32 {
+    gamelogic::object::die::VETERANCY_LEVEL_FLAGS_ALL
+}
+
+fn leftover_status_mask(bits: u64) -> gamelogic::object::die::ObjectStatusMask {
+    gamelogic::object::die::ObjectStatusMask::from_bits_truncate(bits)
+}
+
+pub fn leftover_veterancy_from_host(
+    level: crate::game_logic::VeterancyLevel,
+) -> gamelogic::common::VeterancyLevel {
+    match level {
+        crate::game_logic::VeterancyLevel::Rookie => gamelogic::common::VeterancyLevel::Regular,
+        crate::game_logic::VeterancyLevel::Veteran => gamelogic::common::VeterancyLevel::Veteran,
+        crate::game_logic::VeterancyLevel::Elite => gamelogic::common::VeterancyLevel::Elite,
+        crate::game_logic::VeterancyLevel::Heroic => gamelogic::common::VeterancyLevel::Heroic,
+    }
+}
+
+fn leftover_death_from_host(death_type: HostDeathType) -> gamelogic::damage::DeathType {
+    gamelogic::damage::DeathType::from_u32(death_type.ordinal() as u32)
+}
+
+fn parse_leftover_flag_tokens(raw: &str) -> Vec<&str> {
+    raw.split(|c: char| c == ',' || c.is_whitespace())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostFxListDieData {
     pub death_fx: Option<String>,
@@ -27,6 +57,15 @@ pub struct HostFxListDieData {
     /// C++ `DieMuxData::m_deathTypes` (`DEATH_TYPE_FLAGS_ALL` default).
     #[serde(default = "default_death_types")]
     pub death_types: u32,
+    /// C++ `DieMuxData::m_veterancyLevels` (`VETERANCY_LEVEL_FLAGS_ALL` default).
+    #[serde(default = "default_veterancy_levels")]
+    pub veterancy_levels: u32,
+    /// C++ `DieMuxData::m_exemptStatus` bits (any set → skip).
+    #[serde(default)]
+    pub exempt_status: u64,
+    /// C++ `DieMuxData::m_requiredStatus` bits (all required).
+    #[serde(default)]
+    pub required_status: u64,
     /// Additional authored `FXListDie` modules on the same template.
     #[serde(default)]
     pub more: Vec<HostFxListDieData>,
@@ -43,6 +82,9 @@ impl Default for HostFxListDieData {
             upgrade_active: true,
             conflicts_with: Vec::new(),
             death_types: default_death_types(),
+            veterancy_levels: default_veterancy_levels(),
+            exempt_status: 0,
+            required_status: 0,
             more: Vec::new(),
             fired: false,
         }
@@ -66,16 +108,40 @@ impl HostFxListDieData {
             })
     }
 
-    /// C++ `getDeathTypeFlag` — `1UL << (dt - 1)` (NORMAL wraps to bit 31).
-    pub fn death_type_allowed(&self, death_type: HostDeathType) -> bool {
-        let shift = (death_type.ordinal() as u32).wrapping_sub(1) & 31;
-        (self.death_types & (1u32 << shift)) != 0
+    /// C++ `DieMuxData::isDieApplicable` using leftover death/vet/status masks.
+    pub fn leftover_die_mux_allows(
+        &self,
+        death_type: HostDeathType,
+        veterancy: gamelogic::common::VeterancyLevel,
+        status_bits: u64,
+    ) -> bool {
+        if !gamelogic::damage::get_death_type_flag(
+            self.death_types,
+            leftover_death_from_host(death_type),
+        ) {
+            return false;
+        }
+        if !gamelogic::object::die::get_veterancy_level_flag(self.veterancy_levels, veterancy) {
+            return false;
+        }
+        let obj_status = leftover_status_mask(status_bits);
+        let exempt = leftover_status_mask(self.exempt_status);
+        let required = leftover_status_mask(self.required_status);
+        if !exempt.is_empty() && obj_status.intersects(exempt) {
+            return false;
+        }
+        if !required.is_empty() && !obj_status.contains(required) {
+            return false;
+        }
+        true
     }
 
     fn try_fire_self(
         &mut self,
         owned_upgrades: &[String],
         death_type: HostDeathType,
+        veterancy: gamelogic::common::VeterancyLevel,
+        status_bits: u64,
     ) -> Option<(Option<String>, Option<String>)> {
         if self.fired {
             return None;
@@ -83,7 +149,7 @@ impl HostFxListDieData {
         if !self.upgrade_active {
             return None;
         }
-        if !self.death_type_allowed(death_type) {
+        if !self.leftover_die_mux_allows(death_type, veterancy, status_bits) {
             return None;
         }
         if self.conflicts_with_owned(owned_upgrades) {
@@ -102,12 +168,28 @@ impl HostFxListDieData {
         owned_upgrades: &[String],
         death_type: HostDeathType,
     ) -> Vec<(Option<String>, Option<String>)> {
+        self.collect_applicable_mux(
+            owned_upgrades,
+            death_type,
+            gamelogic::common::VeterancyLevel::Regular,
+            0,
+        )
+    }
+
+    pub fn collect_applicable_mux(
+        &mut self,
+        owned_upgrades: &[String],
+        death_type: HostDeathType,
+        veterancy: gamelogic::common::VeterancyLevel,
+        status_bits: u64,
+    ) -> Vec<(Option<String>, Option<String>)> {
         let mut out = Vec::new();
-        if let Some(hit) = self.try_fire_self(owned_upgrades, death_type) {
+        if let Some(hit) = self.try_fire_self(owned_upgrades, death_type, veterancy, status_bits) {
             out.push(hit);
         }
         for extra in &mut self.more {
-            if let Some(hit) = extra.try_fire_self(owned_upgrades, death_type) {
+            if let Some(hit) = extra.try_fire_self(owned_upgrades, death_type, veterancy, status_bits)
+            {
                 out.push(hit);
             }
         }
@@ -121,6 +203,18 @@ impl HostFxListDieData {
         death_type: HostDeathType,
     ) -> Option<(Option<String>, Option<String>)> {
         self.collect_applicable(owned_upgrades, death_type)
+            .into_iter()
+            .next()
+    }
+
+    pub fn on_die_mux(
+        &mut self,
+        owned_upgrades: &[String],
+        death_type: HostDeathType,
+        veterancy: gamelogic::common::VeterancyLevel,
+        status_bits: u64,
+    ) -> Option<(Option<String>, Option<String>)> {
+        self.collect_applicable_mux(owned_upgrades, death_type, veterancy, status_bits)
             .into_iter()
             .next()
     }
@@ -177,6 +271,29 @@ pub fn fx_list_die_from_behavior_attrs(attrs: &[(&str, &str)]) -> HostFxListDieD
         death_types: get("DeathTypes")
             .map(parse_death_types)
             .unwrap_or_else(default_death_types),
+        veterancy_levels: get("VeterancyLevels")
+            .map(|raw| {
+                let tokens = parse_leftover_flag_tokens(raw);
+                gamelogic::object::die::parse_veterancy_level_flags_tokens(&tokens)
+                    .unwrap_or_else(|_| default_veterancy_levels())
+            })
+            .unwrap_or_else(default_veterancy_levels),
+        exempt_status: get("ExemptStatus")
+            .and_then(|raw| {
+                let tokens = parse_leftover_flag_tokens(raw);
+                gamelogic::object::die::parse_object_status_mask_tokens(&tokens)
+                    .ok()
+                    .map(|mask| mask.bits())
+            })
+            .unwrap_or(0),
+        required_status: get("RequiredStatus")
+            .and_then(|raw| {
+                let tokens = parse_leftover_flag_tokens(raw);
+                gamelogic::object::die::parse_object_status_mask_tokens(&tokens)
+                    .ok()
+                    .map(|mask| mask.bits())
+            })
+            .unwrap_or(0),
         more: Vec::new(),
         fired: false,
     }
@@ -310,6 +427,9 @@ mod tests {
         assert!(d.starts_active);
         assert!(d.upgrade_active);
         assert_eq!(d.death_types, default_death_types());
+        assert_eq!(d.veterancy_levels, default_veterancy_levels());
+        assert_eq!(d.exempt_status, 0);
+        assert_eq!(d.required_status, 0);
     }
 
     #[test]
@@ -334,5 +454,83 @@ mod tests {
         assert!(d.on_die(&[], HostDeathType::Burned).is_none());
         let (fx, _) = d.on_die(&[], HostDeathType::Crushed).unwrap();
         assert_eq!(fx.as_deref(), Some("FX_CrushInfantry"));
+    }
+
+    #[test]
+    fn leftover_exempt_status_skips_burned() {
+        let mut d = fx_list_die_from_behavior_attrs(&[
+            ("DeathFX", "FX_NormalDie"),
+            ("ExemptStatus", "BURNED"),
+        ]);
+        assert_ne!(d.exempt_status, 0);
+        let burned = leftover_status_mask(d.exempt_status).bits();
+        assert!(d
+            .on_die_mux(
+                &[],
+                HostDeathType::Normal,
+                gamelogic::common::VeterancyLevel::Regular,
+                burned,
+            )
+            .is_none());
+        let (fx, _) = d
+            .on_die_mux(
+                &[],
+                HostDeathType::Normal,
+                gamelogic::common::VeterancyLevel::Regular,
+                0,
+            )
+            .unwrap();
+        assert_eq!(fx.as_deref(), Some("FX_NormalDie"));
+    }
+
+    #[test]
+    fn leftover_veterancy_levels_filter() {
+        let mut d = fx_list_die_from_behavior_attrs(&[
+            ("DeathFX", "FX_VetDie"),
+            ("VeterancyLevels", "NONE +VETERAN"),
+        ]);
+        assert!(d
+            .on_die_mux(
+                &[],
+                HostDeathType::Normal,
+                gamelogic::common::VeterancyLevel::Regular,
+                0,
+            )
+            .is_none());
+        let (fx, _) = d
+            .on_die_mux(
+                &[],
+                HostDeathType::Normal,
+                gamelogic::common::VeterancyLevel::Veteran,
+                0,
+            )
+            .unwrap();
+        assert_eq!(fx.as_deref(), Some("FX_VetDie"));
+    }
+
+    #[test]
+    fn leftover_required_status_needs_all_bits() {
+        let mut d = fx_list_die_from_behavior_attrs(&[
+            ("DeathFX", "FX_RequiredDie"),
+            ("RequiredStatus", "BURNED"),
+        ]);
+        assert!(d
+            .on_die_mux(
+                &[],
+                HostDeathType::Normal,
+                gamelogic::common::VeterancyLevel::Regular,
+                0,
+            )
+            .is_none());
+        let required = leftover_status_mask(d.required_status).bits();
+        let (fx, _) = d
+            .on_die_mux(
+                &[],
+                HostDeathType::Normal,
+                gamelogic::common::VeterancyLevel::Regular,
+                required,
+            )
+            .unwrap();
+        assert_eq!(fx.as_deref(), Some("FX_RequiredDie"));
     }
 }

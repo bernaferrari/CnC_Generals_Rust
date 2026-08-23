@@ -663,10 +663,7 @@ impl SaveLoadMenu {
                 display_name: Self::list_display_label(save),
                 timestamp: save.save_date,
                 map_name: save.map_name.clone(),
-                faction: save
-                    .campaign_side
-                    .clone()
-                    .unwrap_or_else(|| "Skirmish".to_string()),
+                faction: save.campaign_side.clone().unwrap_or_default(),
                 mission: save.mission_number.map(|n| format!("Mission {}", n)),
                 save_type: save.save_type,
             });
@@ -691,6 +688,15 @@ impl SaveLoadMenu {
         } else {
             save.map_name.clone()
         }
+    }
+
+    /// C++ `GameState::xfer` v2 header: empty campaign side + no mission
+    /// when `TheCampaignManager` has no current campaign.
+    fn list_campaign_columns(save: &crate::save_load::SaveGameInfo) -> (String, Option<String>) {
+        (
+            save.campaign_side.clone().unwrap_or_default(),
+            save.mission_number.map(|n| format!("Mission {}", n)),
+        )
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
@@ -879,7 +885,9 @@ impl Renderable for SaveLoadMenu {
                     selected_marker
                 );
                 println!("     {}", save_entry.map_name);
-                println!("     Faction: {}", save_entry.faction);
+                if !save_entry.faction.is_empty() {
+                    println!("     Faction: {}", save_entry.faction);
+                }
 
                 if let Some(mission) = &save_entry.mission {
                     println!("     Mission: {}", mission);
@@ -1099,6 +1107,37 @@ mod tests {
         assert!(rendered.contains(&date));
         assert!(rendered.contains("rgb(200,255,200)"));
         assert_eq!(menu.save_files[0].save_type, SaveFileType::Mission);
+    }
+
+    #[test]
+    fn list_campaign_columns_empty_without_campaign() {
+        let campaign = crate::save_load::SaveGameInfo {
+            filename: "camp".into(),
+            display_name: "camp".into(),
+            description: "camp".into(),
+            map_name: "Alpine".into(),
+            campaign_side: Some("America".into()),
+            mission_number: Some(2),
+            save_date: SystemTime::UNIX_EPOCH,
+            game_version: String::new(),
+            play_time: std::time::Duration::ZERO,
+            difficulty: crate::save_load::GameDifficulty::Medium,
+            save_type: SaveFileType::Normal,
+        };
+        let skirmish = crate::save_load::SaveGameInfo {
+            campaign_side: None,
+            mission_number: None,
+            ..campaign.clone()
+        };
+        assert_eq!(
+            SaveLoadMenu::list_campaign_columns(&campaign),
+            ("America".into(), Some("Mission 2".into()))
+        );
+        assert_eq!(
+            SaveLoadMenu::list_campaign_columns(&skirmish),
+            (String::new(), None),
+            "non-campaign header must not invent a faction label"
+        );
     }
 
 }

@@ -276,6 +276,10 @@ pub enum KindOf {
     /// that also skip the airborne height gate. Gameplay-only: the compact
     /// presentation KindOf bank is full.
     BlastCrater,
+    /// C++ `KINDOF_HUGE_VEHICLE` (KindOf.h:35). Overlord / Helix class.
+    /// Gameplay-only: the compact presentation KindOf bank is full.
+    HugeVehicle,
+
 
 }
 
@@ -309,6 +313,8 @@ impl KindOf {
             "CLEARED_BY_BUILD" | "CLEAREDBYBUILD" => Some(Self::ClearedByBuild),
             "INERT" => Some(Self::Inert),
             "BLAST_CRATER" | "BLASTCRATER" => Some(Self::BlastCrater),
+            "HUGE_VEHICLE" | "HUGEVEHICLE" => Some(Self::HugeVehicle),
+
 
             "DRONE" => Some(Self::Drone),
             _ => None,
@@ -847,6 +853,11 @@ mod tests {
             KindOf::from_ini_token("BLAST_CRATER"),
             Some(KindOf::BlastCrater)
         );
+        assert_eq!(
+            KindOf::from_ini_token("HUGE_VEHICLE"),
+            Some(KindOf::HugeVehicle)
+        );
+
 
         assert_eq!(KindOf::from_ini_token("FS_FACTORY"), None);
     }
