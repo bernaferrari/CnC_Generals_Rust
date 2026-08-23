@@ -1237,6 +1237,22 @@ impl GameClient {
         }
     }
 
+    /// C++ InGameUI.cpp:2462 — TheRecorder playback + LookAtXlat
+    /// `hasMouseMovedRecently`. Live host owns both signals and must stamp
+    /// leftover InGameUI before `create_mouseover_hint`.
+    pub fn feed_look_at_replay_hover_gate(
+        &mut self,
+        playback: bool,
+        mouse_moved_recently: bool,
+    ) {
+        if let Some(ui) = &self.subsystem_manager.in_game_ui {
+            if let Ok(mut guard) = ui.lock() {
+                guard.set_recorder_playback_active(playback);
+                guard.set_look_at_mouse_moved_recently(mouse_moved_recently);
+            }
+        }
+    }
+
 
     /// Shell/presentation client tick without dual-world OBJECT_REGISTRY drawable bind.
     ///

@@ -1083,6 +1083,28 @@ impl GameLogic {
         }
     }
 
+    pub fn capture_ai_player_queue_persist(
+        &self,
+    ) -> Vec<crate::save_load::snapshot::ai_player_queue_persist::AIPlayerQueuePersist> {
+        self.ai_manager.capture_queue_persist()
+    }
+
+    pub fn apply_ai_player_queue_persist(
+        &mut self,
+        rows: Vec<crate::save_load::snapshot::ai_player_queue_persist::AIPlayerQueuePersist>,
+    ) {
+        self.ai_manager.apply_queue_persist(rows);
+        let valid_object_ids: std::collections::HashSet<ObjectId> =
+            self.objects.keys().copied().collect();
+        for ai_player in self.ai_manager.ai_players.values_mut() {
+            ai_player.retain_queue_object_ids(&valid_object_ids);
+        }
+    }
+
+    pub fn clear_ai_player_queue_persist(&mut self) {
+        self.ai_manager.clear_queue_persist();
+    }
+
     /// Number of registered host AI players.
     pub fn host_ai_player_count(&self) -> usize {
         self.ai_manager.ai_players.len()

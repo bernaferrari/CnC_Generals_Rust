@@ -309,10 +309,7 @@ impl Object {
                 self.loco_appearance,
                 LocomotorAppearance::WheelsFour | LocomotorAppearance::Motorcycle
             ) {
-                let mut turn_speed = self.min_turn_speed;
-                if turn_speed < desired_speed / 4.0 {
-                    turn_speed = desired_speed / 4.0;
-                }
+                let turn_speed = self.wheeled_turn_speed_floor();
                 let small_turn = std::f32::consts::PI / 20.0;
                 if angle_diff.abs() > small_turn && desired_speed > turn_speed {
                     desired_speed = turn_speed;

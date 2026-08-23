@@ -66,6 +66,22 @@ impl<'a> CommandExecutor<'a> {
                 return CommandResult::InvalidLocation;
             }
 
+            // C++ BuildAssistant.cpp:333-343 — clear removable, then
+            // moveObjectsForConstruction. Human owners abort (no charge, no
+            // structure) when leftover/C++ would return FALSE.
+            self.clear_removable_for_construction(location, orientation, template_name);
+            let place_r = self
+                .game_logic
+                .structure_place_radius_for_template(template_name);
+            if !self.game_logic.move_objects_for_construction(
+                location,
+                place_r,
+                Some(unit_id),
+            ) && self.game_logic.player_is_human(self.current_player_id)
+            {
+                return CommandResult::InvalidLocation;
+            }
+
             {
                 let Some(player) = self.game_logic.get_player_mut(self.current_player_id) else {
                     continue;
@@ -75,11 +91,6 @@ impl<'a> CommandExecutor<'a> {
                     return CommandResult::InvalidCommand;
                 }
             }
-
-            // C++ BuildAssistant.cpp:333-334 / :1365-1383
-            // clearRemovableForConstruction + removeTreesAndPropsForConstruction
-            // before the structure is created so trees do not sit inside it.
-            self.clear_removable_for_construction(location, orientation, template_name);
 
             let building_id = self.game_logic.create_object_under_construction_for_player(
                 template_name,
@@ -96,15 +107,6 @@ impl<'a> CommandExecutor<'a> {
                 }
                 return CommandResult::InvalidCommand;
             };
-            // C++ BuildAssistant::moveObjectsForConstruction (BuildAssistant.cpp:642+).
-            let place_r = self
-                .game_logic
-                .structure_place_radius_for_template(template_name);
-            self.game_logic.move_objects_for_construction(
-                location,
-                place_r,
-                Some(unit_id),
-            );
             if orientation.abs() > f32::EPSILON {
                 // Wave 233: orientation stamp via GameLogic authority API.
                 let _ = self
@@ -330,6 +332,19 @@ impl<'a> CommandExecutor<'a> {
         ) {
             return CommandResult::InvalidLocation;
         }
+        // C++ BuildAssistant.cpp:333-343 — same human refuse as buildObjectNow.
+        self.clear_removable_for_construction(location, orientation, template_name);
+        let place_r = self
+            .game_logic
+            .structure_place_radius_for_template(template_name);
+        if !self.game_logic.move_objects_for_construction(
+            location,
+            place_r,
+            Some(builder_id),
+        ) && self.game_logic.player_is_human(self.current_player_id)
+        {
+            return CommandResult::InvalidLocation;
+        }
         {
             let Some(player) = self.game_logic.get_player_mut(self.current_player_id) else {
                 return CommandResult::InvalidCommand;
@@ -338,7 +353,6 @@ impl<'a> CommandExecutor<'a> {
                 return CommandResult::InvalidCommand;
             }
         }
-        self.clear_removable_for_construction(location, orientation, template_name);
         let Some(building_id) = self
             .game_logic
             .create_object_under_construction_for_player(
@@ -355,14 +369,6 @@ impl<'a> CommandExecutor<'a> {
             }
             return CommandResult::InvalidCommand;
         };
-        let place_r = self
-            .game_logic
-            .structure_place_radius_for_template(template_name);
-        self.game_logic.move_objects_for_construction(
-            location,
-            place_r,
-            Some(builder_id),
-        );
         if orientation.abs() > f32::EPSILON {
             let _ = self
                 .game_logic

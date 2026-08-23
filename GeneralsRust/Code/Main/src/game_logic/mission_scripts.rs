@@ -1028,18 +1028,24 @@ impl MissionScriptHooks {
     }
 
     pub fn push_camera_zoom(&self, request: CameraZoomRequest) {
+        self.camera_movement_finished
+            .store(false, Ordering::Relaxed);
         if let Ok(mut queue) = self.camera_zoom_requests.lock() {
             queue.push(request);
         }
     }
 
     pub fn push_camera_pitch(&self, request: CameraPitchRequest) {
+        self.camera_movement_finished
+            .store(false, Ordering::Relaxed);
         if let Ok(mut queue) = self.camera_pitch_requests.lock() {
             queue.push(request);
         }
     }
 
     pub fn push_camera_rotate(&self, request: CameraRotateRequest) {
+        self.camera_movement_finished
+            .store(false, Ordering::Relaxed);
         if let Ok(mut queue) = self.camera_rotate_requests.lock() {
             queue.push(request);
         }
@@ -1109,12 +1115,16 @@ impl MissionScriptHooks {
     }
 
     pub fn push_camera_look_toward_object(&self, request: CameraLookTowardObjectRequest) {
+        self.camera_movement_finished
+            .store(false, Ordering::Relaxed);
         if let Ok(mut queue) = self.camera_look_toward_object_requests.lock() {
             queue.push(request);
         }
     }
 
     pub fn push_camera_look_toward_waypoint(&self, request: CameraLookTowardWaypointRequest) {
+        self.camera_movement_finished
+            .store(false, Ordering::Relaxed);
         if let Ok(mut queue) = self.camera_look_toward_waypoint_requests.lock() {
             queue.push(request);
         }

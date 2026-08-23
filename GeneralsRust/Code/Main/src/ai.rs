@@ -483,6 +483,130 @@ impl AIPlayer {
         self.team_seconds = delay.max(0) as f32;
     }
 
+    pub fn capture_queue_persist(
+        &self,
+    ) -> crate::save_load::snapshot::ai_player_queue_persist::AIPlayerQueuePersist {
+        use crate::save_load::snapshot::ai_player_queue_persist::{
+            AIPlayerQueuePersist, AITeamQueuePersist,
+        };
+        AIPlayerQueuePersist {
+            player_id: self.player_id,
+            team_queue: self.team_queue.iter().map(AITeamQueuePersist::from_live).collect(),
+            team_ready_queue: self
+                .team_ready_queue
+                .iter()
+                .map(AITeamQueuePersist::from_live)
+                .collect(),
+            next_building_time: self.next_building_time,
+            next_team_queue_time: self.next_team_queue_time,
+            next_team_time: self.next_team_time,
+            team_seconds: self.team_seconds,
+            last_update_time: self.last_update_time,
+            current_warehouse_id: self.current_warehouse_id.map(|id| id.0),
+            repair_dozer: self.repair_dozer.map(|id| id.0),
+            repair_dozer_origin: [
+                self.repair_dozer_origin.x,
+                self.repair_dozer_origin.y,
+                self.repair_dozer_origin.z,
+            ],
+            structures_to_repair: self.structures_to_repair.iter().map(|id| id.0).collect(),
+            dozer_queued_for_repair: self.dozer_queued_for_repair,
+            dozer_is_repairing: self.dozer_is_repairing,
+            last_bridge_repair_time: self.last_bridge_repair_time,
+            skillset_selector: self.skillset_selector,
+        }
+    }
+
+    pub fn apply_queue_persist(
+        &mut self,
+        persist: crate::save_load::snapshot::ai_player_queue_persist::AIPlayerQueuePersist,
+    ) {
+        use crate::save_load::snapshot::ai_player_queue_persist::AITeamQueuePersist;
+        self.team_queue = persist
+            .team_queue
+            .into_iter()
+            .map(AITeamQueuePersist::into_live)
+            .collect();
+        self.team_ready_queue = persist
+            .team_ready_queue
+            .into_iter()
+            .map(AITeamQueuePersist::into_live)
+            .collect();
+        self.next_building_time = persist.next_building_time;
+        self.next_team_queue_time = persist.next_team_queue_time;
+        self.next_team_time = persist.next_team_time;
+        self.team_seconds = persist.team_seconds;
+        self.last_update_time = persist.last_update_time;
+        self.current_warehouse_id = persist.current_warehouse_id.map(ObjectId);
+        self.repair_dozer = persist.repair_dozer.map(ObjectId);
+        self.repair_dozer_origin = glam::Vec3::new(
+            persist.repair_dozer_origin[0],
+            persist.repair_dozer_origin[1],
+            persist.repair_dozer_origin[2],
+        );
+        self.structures_to_repair = persist
+            .structures_to_repair
+            .into_iter()
+            .map(ObjectId)
+            .collect();
+        self.dozer_queued_for_repair = persist.dozer_queued_for_repair;
+        self.dozer_is_repairing = persist.dozer_is_repairing;
+        self.last_bridge_repair_time = persist.last_bridge_repair_time;
+        self.skillset_selector = persist.skillset_selector;
+    }
+
+    pub fn clear_queue_persist(&mut self) {
+        self.team_queue.clear();
+        self.team_ready_queue.clear();
+        self.next_building_time = 0.0;
+        self.next_team_queue_time = 0.0;
+        self.next_team_time = 0.0;
+        self.current_warehouse_id = None;
+        self.repair_dozer = None;
+        self.structures_to_repair.clear();
+        self.dozer_queued_for_repair = false;
+        self.dozer_is_repairing = false;
+        self.last_bridge_repair_time = -1.0;
+        self.skillset_selector = INVALID_SKILLSET_SELECTION;
+    }
+
+    pub fn retain_queue_object_ids(&mut self, valid: &std::collections::HashSet<ObjectId>) {
+        self.structures_to_repair.retain(|id| valid.contains(id));
+        if self.repair_dozer.is_some_and(|id| !valid.contains(&id)) {
+            self.repair_dozer = None;
+        }
+        if self
+            .current_warehouse_id
+            .is_some_and(|id| !valid.contains(&id))
+        {
+            self.current_warehouse_id = None;
+        }
+        for team in self
+            .team_queue
+            .iter_mut()
+            .chain(self.team_ready_queue.iter_mut())
+        {
+            if team
+                .reinforcement_id
+                .is_some_and(|id| !valid.contains(&id))
+            {
+                team.reinforcement_id = None;
+            }
+            for order in &mut team.work_orders {
+                if order.factory_id.is_some_and(|id| !valid.contains(&id)) {
+                    order.factory_id = None;
+                }
+                if order
+                    .supply_center_id
+                    .is_some_and(|id| !valid.contains(&id))
+                {
+                    order.supply_center_id = None;
+                }
+                order.observed_unit_ids.retain(|id| valid.contains(id));
+            }
+        }
+    }
+
 
     /// Relocate base center and re-seed the structure build queue at the new site.
     ///
@@ -6078,6 +6202,36 @@ impl AIManager {
 
         // Let the first post-load logic frame rebuild actions immediately.
         self.last_update_time = -1.0;
+    }
+
+    pub fn capture_queue_persist(
+        &self,
+    ) -> Vec<crate::save_load::snapshot::ai_player_queue_persist::AIPlayerQueuePersist> {
+        let mut player_ids: Vec<u32> = self.ai_players.keys().copied().collect();
+        player_ids.sort_unstable();
+        player_ids
+            .into_iter()
+            .filter_map(|player_id| self.ai_players.get(&player_id))
+            .map(AIPlayer::capture_queue_persist)
+            .collect()
+    }
+
+    pub fn apply_queue_persist(
+        &mut self,
+        rows: Vec<crate::save_load::snapshot::ai_player_queue_persist::AIPlayerQueuePersist>,
+    ) {
+        for row in rows {
+            let Some(ai) = self.ai_players.get_mut(&row.player_id) else {
+                continue;
+            };
+            ai.apply_queue_persist(row);
+        }
+    }
+
+    pub fn clear_queue_persist(&mut self) {
+        for ai in self.ai_players.values_mut() {
+            ai.clear_queue_persist();
+        }
     }
 
     fn difficulty_name(value: AIDifficulty) -> &'static str {

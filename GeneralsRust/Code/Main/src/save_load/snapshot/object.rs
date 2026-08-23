@@ -281,6 +281,9 @@ pub struct ObjectStatusSnapshot {
     /// C++ StatusDamageHelper::m_frameToHeal (absolute expiry frame).
     #[serde(default)]
     pub faerie_fire_until_frame: u32,
+    /// C++ DISABLED_HELD (`Object.cpp:4150` disabled mask). Script NAMED_SET_HELD.
+    #[serde(default)]
+    pub disabled_held: bool,
 }
 
 impl Default for ObjectStatusSnapshot {
@@ -341,6 +344,7 @@ impl Default for ObjectStatusSnapshot {
             parachute_landing_override_set: false,
             faerie_fire: false,
             faerie_fire_until_frame: 0,
+            disabled_held: false,
         }
     }
 }
@@ -1206,6 +1210,8 @@ impl XferData for ObjectStatusSnapshot {
         xfer.xfer_bool(&mut self.faerie_fire)?;
         xfer.xfer_marker_label("FaerieFireUntilFrame")?;
         xfer.xfer_u32(&mut self.faerie_fire_until_frame)?;
+        xfer.xfer_marker_label("DisabledHeld")?;
+        xfer.xfer_bool(&mut self.disabled_held)?;
         Ok(())
     }
 }

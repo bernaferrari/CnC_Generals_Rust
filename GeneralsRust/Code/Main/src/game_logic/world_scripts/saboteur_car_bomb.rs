@@ -356,7 +356,8 @@ impl GameLogic {
     ///
     /// Also drives HijackerUpdate PutInContainer AmericaParachute residual:
     /// chute Object sinks, riders sync position, ground collide → removeAllContained
-    /// + kill chute (C++ ParachuteContain::onCollide).
+    /// + kill chute (C++ ParachuteContain::onCollide). Empty `containCount==0`
+    /// kills the chute mid-air (C++ ParachuteContain::update).
     /// Fail-closed: not full bone PARA_COG / DeliverPayload matrix.
     pub(crate) fn tick_eject_parachute_residual(&mut self, pilot_id: ObjectId) {
         use crate::game_logic::host_car_bomb::HIJACKER_PARACHUTE_NAME;
@@ -570,7 +571,7 @@ impl GameLogic {
             }
         }
 
-        // C++ ParachuteContain::onCollide(null): removeAllContained + kill chute.
+        // C++ ParachuteContain::onCollide(null): removeAllContained.
         if is_chute && landed {
             for rid in &riders_to_release {
                 if let Some(chute) = self.objects.get_mut(&pilot_id) {
@@ -607,21 +608,60 @@ impl GameLogic {
             for rid in &riders_to_release {
                 self.apply_parachute_land_ai(*rid);
             }
-
-            // Kill AmericaParachute (SlowDeath residual → destroy).
-            if let Some(chute) = self.objects.get_mut(&pilot_id) {
-                chute.clear_eject_parachuting();
-                let hp = chute.health.current.max(1.0);
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    crate::game_logic::host_damage_log::record(pilot_id, hp, None, true);
-                } else {
-                    chute.health.current = 0.0;
-                }
-                chute.status.destroyed = true;
-            }
-            self.mark_object_for_destruction(pilot_id, None);
             // Hijacker airborne PutInContainer land honesty.
             self.car_bomb.record_airborne_parachute_land();
+        }
+
+        // C++ ParachuteContain::update (ParachuteContain.cpp:411-413):
+        // "If we have lost our passenger for whatever reason, die early."
+        // Leftover parachute_contain.rs:853-855 — altitude-independent empty kill
+        // after OpenContain sweep, before water slop. HELD skips the kill
+        // (C++ update returns before the empty-count check).
+        if is_chute {
+            let ids = self
+                .objects
+                .get(&pilot_id)
+                .map(|c| c.contained_units())
+                .unwrap_or_default();
+            for rid in ids {
+                let gone = self
+                    .objects
+                    .get(&rid)
+                    .map(|o| !o.is_alive())
+                    .unwrap_or(true);
+                if gone {
+                    if let Some(chute) = self.objects.get_mut(&pilot_id) {
+                        let _ = chute.exit_transport(rid);
+                    }
+                    if let Some(r) = self.objects.get_mut(&rid) {
+                        if r.contained_by == Some(pilot_id) {
+                            r.set_contained_by(None);
+                        }
+                    }
+                }
+            }
+            let held = self
+                .objects
+                .get(&pilot_id)
+                .is_some_and(|c| c.status.disabled_held);
+            let empty = self
+                .objects
+                .get(&pilot_id)
+                .map(|c| c.contained_units().is_empty())
+                .unwrap_or(true);
+            if !held && empty {
+                if let Some(chute) = self.objects.get_mut(&pilot_id) {
+                    chute.clear_eject_parachuting();
+                    let hp = chute.health.current.max(1.0);
+                    if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                        crate::game_logic::host_damage_log::record(pilot_id, hp, None, true);
+                    } else {
+                        chute.health.current = 0.0;
+                    }
+                    chute.status.destroyed = true;
+                }
+                self.mark_object_for_destruction(pilot_id, None);
+            }
         }
 
         if just_opened {

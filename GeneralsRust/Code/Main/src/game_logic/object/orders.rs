@@ -1633,6 +1633,14 @@ impl Object {
             .template
             .contain_module
             .weapon_bonus_passed_to_passengers = crate::game_logic::host_combat_chinook::COMBAT_CHINOOK_WEAPON_BONUS_PASSED_TO_PASSENGERS;
+        {
+            use game_engine::common::system::kind_of::KindOfMask;
+            let contain = &mut self.thing.template.contain_module;
+            contain.allow_inside_kind_of =
+                KindOfMask::INFANTRY.bits() | KindOfMask::VEHICLE.bits();
+            contain.forbid_inside_kind_of =
+                KindOfMask::AIRCRAFT.bits() | KindOfMask::HUGE_VEHICLE.bits();
+        }
         // Combat Chinook KindOf includes CAN_ATTACK residual (vanilla Chinook does not).
         self.thing.template.add_kind_of(KindOf::Attackable);
         let p = self.get_position();
@@ -1653,6 +1661,14 @@ impl Object {
         self.max_transport = crate::game_logic::host_combat_chinook::COMBAT_CHINOOK_TRANSPORT_SLOTS;
         self.passengers_allowed_to_fire = false;
         self.armed_riders_upgrade_weapon_set = false;
+        {
+            use game_engine::common::system::kind_of::KindOfMask;
+            let contain = &mut self.thing.template.contain_module;
+            contain.allow_inside_kind_of =
+                KindOfMask::INFANTRY.bits() | KindOfMask::VEHICLE.bits();
+            contain.forbid_inside_kind_of =
+                KindOfMask::AIRCRAFT.bits() | KindOfMask::HUGE_VEHICLE.bits();
+        }
         let p = self.get_position();
         if self.chinook_ai.is_none() {
             self.chinook_ai = Some(

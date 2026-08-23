@@ -46,11 +46,37 @@ pub struct HostBoneFxSlot {
 }
 
 /// Authored per-state 8-bone tables from leftover BoneFXUpdate INI parse.
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct HostBoneFxAuthored {
     pub fx: [[Option<HostBoneFxSlot>; BONE_FX_MAX_BONES]; BODY_DAMAGE_TYPE_COUNT],
     pub ocl: [[Option<HostBoneFxSlot>; BONE_FX_MAX_BONES]; BODY_DAMAGE_TYPE_COUNT],
     pub psys: [[Option<HostBoneFxSlot>; BONE_FX_MAX_BONES]; BODY_DAMAGE_TYPE_COUNT],
+    /// C++ `m_damageFXTypes` (default ALL).
+    #[serde(default = "all_damage_type_bits")]
+    pub damage_fx_types: u64,
+    /// C++ `m_damageOCLTypes` (default ALL).
+    #[serde(default = "all_damage_type_bits")]
+    pub damage_ocl_types: u64,
+    /// C++ `m_damageParticleTypes` (default ALL).
+    #[serde(default = "all_damage_type_bits")]
+    pub damage_particle_types: u64,
+}
+
+fn all_damage_type_bits() -> u64 {
+    gamelogic::damage::DamageTypeFlags::all_flags().bits()
+}
+
+impl Default for HostBoneFxAuthored {
+    fn default() -> Self {
+        Self {
+            fx: Default::default(),
+            ocl: Default::default(),
+            psys: Default::default(),
+            damage_fx_types: all_damage_type_bits(),
+            damage_ocl_types: all_damage_type_bits(),
+            damage_particle_types: all_damage_type_bits(),
+        }
+    }
 }
 
 impl HostBoneFxAuthored {
@@ -91,6 +117,15 @@ pub struct HostBoneFxDamageData {
     next_ps_frame: [[i32; BONE_FX_MAX_BONES]; BODY_DAMAGE_TYPE_COUNT],
     #[serde(default)]
     cur_state: u8,
+    /// C++ `BoneFXUpdate::m_active` — first `update` calls `initTimes`.
+    #[serde(default)]
+    active: bool,
+    /// Leftover `DamageType` ordinal of last body damage (None = no lastDamageInfo).
+    #[serde(default)]
+    last_damage_type: Option<u32>,
+    /// C++ `m_particleSystemIDs` leftover client ids.
+    #[serde(default)]
+    particle_system_ids: Vec<u32>,
 }
 
 fn unset_schedule() -> [[i32; BONE_FX_MAX_BONES]; BODY_DAMAGE_TYPE_COUNT] {
@@ -108,10 +143,12 @@ impl Default for HostBoneFxDamageData {
             next_ocl_frame: unset_schedule(),
             next_ps_frame: unset_schedule(),
             cur_state: 0,
+            active: false,
+            last_damage_type: None,
+            particle_system_ids: Vec::new(),
         }
     }
 }
-
 impl HostBoneFxDamageData {
     pub fn from_authored(authored: HostBoneFxAuthored) -> Self {
         Self {
@@ -137,20 +174,73 @@ impl HostBoneFxDamageData {
             return None;
         }
         let now = crate::game_logic::host_historic_bonus::logic_frame() as i32;
+        // C++ changeBodyDamageState: set state, killRunningParticleSystems, initTimes.
         self.cur_state = new_state.ordinal();
+        self.kill_running_particle_systems();
         self.init_times(now);
+        self.active = true;
         self.transitions = self.transitions.saturating_add(1);
         self.tick_due(now, old_state, new_state);
         self.pending.last().cloned()
     }
 
+    /// C++ `BoneFXUpdate::update` — first call inits Pristine times.
     pub fn tick(&mut self, now: i32) {
+        if !self.active {
+            self.init_times(now);
+            self.active = true;
+        }
         let state = state_from_ordinal(self.cur_state);
         self.tick_due(now, state, state);
     }
 
     pub fn drain_pending(&mut self) -> Vec<HostBoneFxEvent> {
         std::mem::take(&mut self.pending)
+    }
+
+    /// C++ `BoneFXUpdate::stopAllBoneFX`.
+    pub fn stop_all_bone_fx(&mut self) {
+        self.next_fx_frame = unset_schedule();
+        self.next_ocl_frame = unset_schedule();
+        self.next_ps_frame = unset_schedule();
+        self.kill_running_particle_systems();
+    }
+
+    /// C++ `lastDamageInfo->in.m_damageType` stamp.
+    pub fn stamp_last_damage_type(
+        &mut self,
+        dtype: Option<crate::game_logic::combat::DamageType>,
+    ) {
+        self.last_damage_type = dtype.map(|d| d.to_store() as u32);
+    }
+
+    pub fn track_particle(&mut self, id: u32) {
+        if id != 0 {
+            self.particle_system_ids.push(id);
+        }
+    }
+    pub fn running_particle_count(&self) -> usize {
+        self.particle_system_ids.len()
+    }
+
+
+    /// C++ `BoneFXUpdate::killRunningParticleSystems`.
+    pub fn kill_running_particle_systems(&mut self) {
+        if let Some(manager) = gamelogic::helpers::TheParticleSystemManager::get() {
+            for id in self.particle_system_ids.drain(..) {
+                manager.destroy_particle_system(id);
+            }
+        } else {
+            self.particle_system_ids.clear();
+        }
+    }
+
+    fn damage_type_allowed(&self, flags: u64) -> bool {
+        let Some(ordinal) = self.last_damage_type else {
+            return true;
+        };
+        let mask = gamelogic::damage::DamageTypeFlags::from_bits_truncate(flags);
+        mask.contains_damage_type(gamelogic::damage::DamageType::from_u32(ordinal))
     }
 
     fn init_times(&mut self, now: i32) {
@@ -178,7 +268,9 @@ impl HostBoneFxDamageData {
         for i in 0..BONE_FX_MAX_BONES {
             if due(self.next_fx_frame[idx][i], now) {
                 if let Some(slot) = self.authored.fx[idx][i].clone() {
-                    self.push_fire(old_state, new_state, &slot, FireKind::Fx);
+                    if self.damage_type_allowed(self.authored.damage_fx_types) {
+                        self.push_fire(old_state, new_state, &slot, FireKind::Fx);
+                    }
                     self.next_fx_frame[idx][i] = next_after_fire(&slot, now);
                 } else {
                     self.next_fx_frame[idx][i] = -1;
@@ -186,7 +278,9 @@ impl HostBoneFxDamageData {
             }
             if due(self.next_ocl_frame[idx][i], now) {
                 if let Some(slot) = self.authored.ocl[idx][i].clone() {
-                    self.push_fire(old_state, new_state, &slot, FireKind::Ocl);
+                    if self.damage_type_allowed(self.authored.damage_ocl_types) {
+                        self.push_fire(old_state, new_state, &slot, FireKind::Ocl);
+                    }
                     self.next_ocl_frame[idx][i] = next_after_fire(&slot, now);
                 } else {
                     self.next_ocl_frame[idx][i] = -1;
@@ -194,7 +288,9 @@ impl HostBoneFxDamageData {
             }
             if due(self.next_ps_frame[idx][i], now) {
                 if let Some(slot) = self.authored.psys[idx][i].clone() {
-                    self.push_fire(old_state, new_state, &slot, FireKind::Psys);
+                    if self.damage_type_allowed(self.authored.damage_particle_types) {
+                        self.push_fire(old_state, new_state, &slot, FireKind::Psys);
+                    }
                     self.next_ps_frame[idx][i] = next_after_fire(&slot, now);
                 } else {
                     self.next_ps_frame[idx][i] = -1;
@@ -314,6 +410,108 @@ pub fn wants_bone_fx(template_name: &str) -> bool {
 }
 
 pub fn peel_authored_bone_fx(template_name: &str) -> Option<HostBoneFxAuthored> {
+    if let Some(authored) = peel_leftover_factory_bone_fx(template_name) {
+        return Some(authored);
+    }
+    peel_asset_manager_bone_fx(template_name)
+}
+
+fn peel_leftover_factory_bone_fx(template_name: &str) -> Option<HostBoneFxAuthored> {
+    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
+    let factory = guard.as_ref()?;
+    let tmpl = factory.find_template(template_name, false)?;
+    for entry in tmpl.get_behavior_module_info().iter() {
+        if !entry.name.as_str().eq_ignore_ascii_case("BoneFXUpdate") {
+            continue;
+        }
+        if let Some(data) = entry
+            .data
+            .downcast_ref::<gamelogic::object::update::bone_fx_update::BoneFXUpdateModuleData>()
+        {
+            if let Some(authored) = authored_from_leftover_module_data(data) {
+                return Some(authored);
+            }
+        }
+        let mut authored = HostBoneFxAuthored::default();
+        if let Some(raw) = entry.data.get_ini_field("DamageFXTypes") {
+            authored.damage_fx_types = parse_damage_type_flags_attr(raw).bits();
+        }
+        if let Some(raw) = entry.data.get_ini_field("DamageOCLTypes") {
+            authored.damage_ocl_types = parse_damage_type_flags_attr(raw).bits();
+        }
+        if let Some(raw) = entry.data.get_ini_field("DamageParticleTypes") {
+            authored.damage_particle_types = parse_damage_type_flags_attr(raw).bits();
+        }
+        let mut any = false;
+        for slot in 1..=BONE_FX_MAX_BONES {
+            for (prefix, state) in FX_PREFIX {
+                if let Some(raw) = entry.data.get_ini_field(&format!("{prefix}{slot}")) {
+                    if let Ok(info) = parse_fx_list_attr(raw) {
+                        if let Some(s) = slot_from_leftover_fx(info) {
+                            authored.fx[state][slot - 1] = Some(s);
+                            any = true;
+                        }
+                    }
+                }
+            }
+            for (prefix, state) in OCL_PREFIX {
+                if let Some(raw) = entry.data.get_ini_field(&format!("{prefix}{slot}")) {
+                    if let Ok(info) = parse_ocl_attr(raw) {
+                        if let Some(s) = slot_from_leftover_ocl(info) {
+                            authored.ocl[state][slot - 1] = Some(s);
+                            any = true;
+                        }
+                    }
+                }
+            }
+            for (prefix, state) in PSYS_PREFIX {
+                if let Some(raw) = entry.data.get_ini_field(&format!("{prefix}{slot}")) {
+                    if let Ok(info) = parse_particle_attr(raw) {
+                        if let Some(s) = slot_from_leftover_psys(info) {
+                            authored.psys[state][slot - 1] = Some(s);
+                            any = true;
+                        }
+                    }
+                }
+            }
+        }
+        if any {
+            return Some(authored);
+        }
+    }
+    None
+}
+
+fn authored_from_leftover_module_data(
+    data: &gamelogic::object::update::bone_fx_update::BoneFXUpdateModuleData,
+) -> Option<HostBoneFxAuthored> {
+    let mut authored = HostBoneFxAuthored {
+        damage_fx_types: data.damage_fx_types.bits(),
+        damage_ocl_types: data.damage_ocl_types.bits(),
+        damage_particle_types: data.damage_particle_types.bits(),
+        ..HostBoneFxAuthored::default()
+    };
+    let mut any = false;
+    for state in 0..BODY_DAMAGE_TYPE_COUNT {
+        for i in 0..BONE_FX_MAX_BONES {
+            if let Some(s) = slot_from_leftover_fx(data.fx_list[state][i].clone()) {
+                authored.fx[state][i] = Some(s);
+                any = true;
+            }
+            if let Some(s) = slot_from_leftover_ocl(data.ocl[state][i].clone()) {
+                authored.ocl[state][i] = Some(s);
+                any = true;
+            }
+            if let Some(s) = slot_from_leftover_psys(data.particle_system[state][i].clone()) {
+                authored.psys[state][i] = Some(s);
+                any = true;
+            }
+        }
+    }
+    any.then_some(authored)
+}
+
+fn peel_asset_manager_bone_fx(template_name: &str) -> Option<HostBoneFxAuthored> {
     let manager = crate::assets::get_asset_manager()?;
     let manager = manager.lock().ok()?;
     let definition = manager.get_object_definition(template_name)?;
@@ -322,6 +520,15 @@ pub fn peel_authored_bone_fx(template_name: &str) -> Option<HostBoneFxAuthored> 
         .iter()
         .find(|m| m.class_name.eq_ignore_ascii_case("BoneFXUpdate"))?;
     let mut authored = HostBoneFxAuthored::default();
+    if let Some(raw) = module.attribute("DamageFXTypes") {
+        authored.damage_fx_types = parse_damage_type_flags_attr(raw).bits();
+    }
+    if let Some(raw) = module.attribute("DamageOCLTypes") {
+        authored.damage_ocl_types = parse_damage_type_flags_attr(raw).bits();
+    }
+    if let Some(raw) = module.attribute("DamageParticleTypes") {
+        authored.damage_particle_types = parse_damage_type_flags_attr(raw).bits();
+    }
     let mut any = false;
     for slot in 1..=BONE_FX_MAX_BONES {
         for (prefix, state) in FX_PREFIX {
@@ -356,6 +563,47 @@ pub fn peel_authored_bone_fx(template_name: &str) -> Option<HostBoneFxAuthored> 
         }
     }
     any.then_some(authored)
+}
+
+/// Leftover `parse_damage_type_flags` (BoneFXUpdate.cpp INI Damage*Types).
+fn parse_damage_type_flags_attr(raw: &str) -> gamelogic::damage::DamageTypeFlags {
+    use gamelogic::damage::{DamageType, DamageTypeFlags};
+    use std::str::FromStr;
+    let mut flags = DamageTypeFlags::empty();
+    let mut any = false;
+    for token in raw.split_whitespace() {
+        for entry in token.split(',').map(str::trim).filter(|t| !t.is_empty()) {
+            any = true;
+            if entry.eq_ignore_ascii_case("ALL") {
+                flags = DamageTypeFlags::all_flags();
+                continue;
+            }
+            if entry.eq_ignore_ascii_case("NONE") {
+                flags = DamageTypeFlags::empty();
+                continue;
+            }
+            let (remove, name) = if let Some(stripped) = entry.strip_prefix('-') {
+                (true, stripped.trim())
+            } else if let Some(stripped) = entry.strip_prefix('+') {
+                (false, stripped.trim())
+            } else {
+                (false, entry)
+            };
+            if let Ok(damage_type) = DamageType::from_str(name) {
+                let flag = DamageTypeFlags::from_bits_truncate(1 << damage_type as u64);
+                if remove {
+                    flags.remove(flag);
+                } else {
+                    flags.insert(flag);
+                }
+            }
+        }
+    }
+    if any {
+        flags
+    } else {
+        DamageTypeFlags::all_flags()
+    }
 }
 
 fn slot_from_leftover_fx(
@@ -436,6 +684,7 @@ pub fn bone_world_pos(origin: Vec3, yaw: f32, model: &str, scale: f32, bone: &st
 }
 
 /// Play leftover-authored FXList / OCL / PSys at the bone.
+/// Returns leftover particle-system id when a PSys was attached (C++ `m_particleSystemIDs`).
 pub fn play_bone_fx_event(
     ev: &HostBoneFxEvent,
     owner: u32,
@@ -443,7 +692,8 @@ pub fn play_bone_fx_event(
     yaw: f32,
     model: &str,
     scale: f32,
-) {
+    drawable_hidden: bool,
+) -> Option<u32> {
     let local = bone_local_pos(model, scale, &ev.bone);
     let world = rotate_yaw_host(origin, yaw, local);
     if let Some(fx) = ev.fx_list.as_deref() {
@@ -454,16 +704,25 @@ pub fn play_bone_fx_event(
             ocl, owner, world,
         );
     }
-    if let Some(ps) = ev.particle_system.as_deref() {
-        crate::game_logic::publish_host_fx_object(owner, origin, yaw, -1);
-        let cpp_local = host_local_to_cpp(local);
-        let _ = gamelogic::helpers::attach_particle_system_to_object_local(
-            ps,
-            owner,
-            Some(&cpp_local),
-            None,
-        );
+    let Some(ps) = ev.particle_system.as_deref() else {
+        return None;
+    };
+    crate::game_logic::publish_host_fx_object(owner, origin, yaw, -1);
+    let cpp_local = host_local_to_cpp(local);
+    let leftover_id = gamelogic::helpers::attach_particle_system_to_object_local(
+        ps,
+        owner,
+        Some(&cpp_local),
+        None,
+    )?;
+    // Leftover `do_particle_system_at_bone`: hidden drawable destroys the system.
+    if drawable_hidden {
+        if let Some(manager) = gamelogic::helpers::TheParticleSystemManager::get() {
+            manager.destroy_particle_system(leftover_id);
+        }
+        return None;
     }
+    Some(leftover_id)
 }
 
 #[cfg(test)]
@@ -530,5 +789,99 @@ mod tests {
         assert!(!src.contains("ToxinLeakBonePSys"));
         assert!(!src.contains("ScudSmokeBonePSys"));
         assert!(!src.contains("StructureDamageBonePSys"));
+    }
+
+    fn pristine_fx_slot() -> HostBoneFxAuthored {
+        let mut authored = HostBoneFxAuthored::default();
+        authored.fx[HostBodyDamageType::Pristine.ordinal() as usize][0] = Some(HostBoneFxSlot {
+            bone: "Smoke01".into(),
+            only_once: true,
+            delay_min: 0.0,
+            delay_max: 0.0,
+            name: "FX_BuildingIdleSmoke".into(),
+        });
+        authored
+    }
+
+    #[test]
+    fn first_tick_inits_and_fires_pristine_slots() {
+        let mut d = HostBoneFxDamageData::from_authored(pristine_fx_slot());
+        d.tick(10);
+        let pending = d.drain_pending();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].fx_list.as_deref(), Some("FX_BuildingIdleSmoke"));
+        assert_eq!(pending[0].bone, "Smoke01");
+    }
+
+    #[test]
+    fn damage_fx_types_gate_skips_fire() {
+        use crate::game_logic::combat::DamageType;
+        let mut authored = damaged_fx_slot();
+        authored.damage_fx_types = parse_damage_type_flags_attr("FLAME").bits();
+        let mut d = HostBoneFxDamageData::from_authored(authored);
+        d.stamp_last_damage_type(Some(DamageType::Bullet));
+        assert!(d
+            .on_body_damage_state_change(
+                "GLAVehicleScudLauncher",
+                HostBodyDamageType::Pristine,
+                HostBodyDamageType::Damaged,
+            )
+            .is_none());
+        assert!(d.drain_pending().is_empty());
+    }
+
+    #[test]
+    fn damage_fx_types_gate_allows_matching_type() {
+        use crate::game_logic::combat::DamageType;
+        let mut authored = damaged_fx_slot();
+        authored.damage_fx_types = parse_damage_type_flags_attr("FLAME").bits();
+        let mut d = HostBoneFxDamageData::from_authored(authored);
+        d.stamp_last_damage_type(Some(DamageType::Flame));
+        let ev = d
+            .on_body_damage_state_change(
+                "GLAVehicleScudLauncher",
+                HostBodyDamageType::Pristine,
+                HostBodyDamageType::Damaged,
+            )
+            .expect("flame-gated fx");
+        assert_eq!(ev.fx_list.as_deref(), Some("FX_ScudLauncherDamageTransition"));
+    }
+
+    #[test]
+    fn state_change_kills_tracked_particles() {
+        let mut d = HostBoneFxDamageData::from_authored(damaged_fx_slot());
+        d.track_particle(42);
+        d.track_particle(43);
+        let _ = d.on_body_damage_state_change(
+            "GLAVehicleScudLauncher",
+            HostBodyDamageType::Pristine,
+            HostBodyDamageType::Damaged,
+        );
+        assert_eq!(d.running_particle_count(), 0);
+        let _ = d.drain_pending();
+        d.stop_all_bone_fx();
+        d.tick(99);
+        assert!(d.drain_pending().is_empty());
+    }
+
+    #[test]
+    fn destroy_and_collapse_call_stop_all_bone_fx() {
+        let die = include_str!("world_objects/create_destroy_die.rs");
+        assert!(die.contains("bfx.stop_all_bone_fx()"));
+        let death = include_str!("object/death.rs");
+        assert!(death.contains("bfx.stop_all_bone_fx()"));
+        let tick = include_str!("world_tick/ai.rs");
+        assert!(tick.contains("stamp_last_damage_type(o.last_damage_info_type)"));
+        assert!(!tick.contains("stamp_last_damage_type(o.last_damage_fx_done)"));
+        let pose = include_str!("object/pose.rs");
+        assert!(pose.contains("stamp_last_damage_type(self.last_damage_info_type)"));
+        assert!(!pose.contains("stamp_last_damage_type(self.last_damage_fx_done)"));
+    }
+    #[test]
+    fn damage_type_flags_parse_all_minus() {
+        use gamelogic::damage::DamageType;
+        let flags = parse_damage_type_flags_attr("ALL -HEALING");
+        assert!(flags.contains_damage_type(DamageType::Flame));
+        assert!(!flags.contains_damage_type(DamageType::Healing));
     }
 }

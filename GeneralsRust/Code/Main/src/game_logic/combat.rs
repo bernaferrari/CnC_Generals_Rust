@@ -1450,11 +1450,8 @@ impl CombatSystem {
             position,
             damage: projectile.damage,
             damage_type: projectile.damage_type,
-            death_type: if projectile.die_on_detonate {
-                crate::game_logic::host_usa_pilot::HostDeathType::Detonated
-            } else {
-                projectile.death_type
-            },
+            death_type: projectile.death_type,
+
             radius: projectile.explosion_radius,
             shooter_id: projectile.shooter_id,
             secondary_damage: projectile.secondary_damage,
@@ -1477,6 +1474,62 @@ impl CombatSystem {
             primary_victim: projectile.target_id,
         }
     }
+
+    /// C++ MissileAIUpdate::detonate: after handleProjectileDetonation, MissileCallsOnDie
+    /// applies UNRESISTABLE / DETONATED / maxHealth to the **projectile** so its Die
+    /// modules run. Victim splash keeps the weapon DeathType.
+    fn queue_missile_calls_on_die(
+        impact_fx: &mut Vec<ProjectileImpactFx>,
+        projectile: &Projectile,
+    ) {
+        if !projectile.die_on_detonate {
+            return;
+        }
+        let name = projectile.projectile_object_name.trim();
+        if name.is_empty() {
+            return;
+        }
+        let mut fx_name = String::new();
+        if let Some(mut fx) =
+            crate::game_logic::host_fx_list_die::fx_list_die_config_for_template(name)
+        {
+            let hits = fx.collect_applicable(
+                &[],
+                crate::game_logic::host_usa_pilot::HostDeathType::Detonated,
+            );
+            if let Some((Some(name), _)) = hits.into_iter().next() {
+                fx_name = name;
+            }
+        }
+        let ocl_name =
+            crate::game_logic::host_create_object_die::create_object_die_config_for_template(name)
+                .and_then(|mut cod| {
+                    let _ = cod.on_die();
+                    if cod.ocl_name.trim().is_empty() {
+                        None
+                    } else {
+                        Some(cod.ocl_name)
+                    }
+                })
+                .unwrap_or_default();
+        if fx_name.is_empty() && ocl_name.is_empty() {
+            return;
+        }
+        impact_fx.push(ProjectileImpactFx {
+            position: projectile.position,
+            shooter_id: projectile.shooter_id,
+            target_id: projectile.target_id,
+            detonation_fx_name: fx_name,
+            detonation_ocl_name: ocl_name,
+            source_team: projectile.source_team,
+            source_veterancy: projectile.source_veterancy,
+            source_orientation: projectile.velocity.z.atan2(projectile.velocity.x),
+            source_velocity: projectile.velocity,
+        });
+    }
+
+
+
 
     /// Projectile step with optional America Countermeasures diversion residual.
     pub fn update_projectiles_with_countermeasures(
@@ -1595,6 +1648,9 @@ impl CombatSystem {
                                 source_velocity: projectile.velocity,
                             });
                         }
+                        Self::queue_missile_calls_on_die(&mut self.impact_fx, projectile);
+
+
                         if step == ProjectileStep::Detonate {
                             projectiles_to_remove.push(proj_id);
                         }
@@ -1729,11 +1785,8 @@ impl CombatSystem {
                             position: impact,
                             damage: projectile.damage,
                             damage_type: projectile.damage_type,
-                            death_type: if projectile.die_on_detonate {
-                                crate::game_logic::host_usa_pilot::HostDeathType::Detonated
-                            } else {
-                                projectile.death_type
-                            },
+                            death_type: projectile.death_type,
+
                             shooter_id: projectile.shooter_id,
                         });
                     }
@@ -1752,6 +1805,9 @@ impl CombatSystem {
                             source_velocity: projectile.velocity,
                         });
                     }
+                    Self::queue_missile_calls_on_die(&mut self.impact_fx, projectile);
+
+
                     projectiles_to_remove.push(proj_id);
                     continue;
                 }
@@ -1803,11 +1859,8 @@ impl CombatSystem {
                                     position: impact,
                                     damage: projectile.damage,
                                     damage_type: projectile.damage_type,
-                                    death_type: if projectile.die_on_detonate {
-                                        crate::game_logic::host_usa_pilot::HostDeathType::Detonated
-                                    } else {
-                                        projectile.death_type
-                                    },
+                                    death_type: projectile.death_type,
+
                                     shooter_id: projectile.shooter_id,
                                 });
                             }
@@ -1829,6 +1882,9 @@ impl CombatSystem {
                                     source_velocity: projectile.velocity,
                                 });
                             }
+                            Self::queue_missile_calls_on_die(&mut self.impact_fx, projectile);
+
+
                             projectiles_to_remove.push(proj_id);
                         }
                     }
@@ -1859,6 +1915,9 @@ impl CombatSystem {
                                 source_velocity: projectile.velocity,
                             });
                         }
+                        Self::queue_missile_calls_on_die(&mut self.impact_fx, projectile);
+
+
                         projectiles_to_remove.push(proj_id);
                     }
                 }
@@ -2068,11 +2127,8 @@ impl CombatSystem {
                         position: projectile.position,
                         damage: projectile.damage,
                         damage_type: projectile.damage_type,
-                        death_type: if projectile.die_on_detonate {
-                            crate::game_logic::host_usa_pilot::HostDeathType::Detonated
-                        } else {
-                            projectile.death_type
-                        },
+                        death_type: projectile.death_type,
+
                     });
                 }
             }
@@ -2085,11 +2141,8 @@ impl CombatSystem {
                 position: projectile.target_position,
                 damage: projectile.damage,
                 damage_type: projectile.damage_type,
-                death_type: if projectile.die_on_detonate {
-                    crate::game_logic::host_usa_pilot::HostDeathType::Detonated
-                } else {
-                    projectile.death_type
-                },
+                death_type: projectile.death_type,
+
                 radius: projectile.explosion_radius,
                 shooter_id: projectile.shooter_id,
             });
@@ -3207,6 +3260,69 @@ mod tests {
         assert_eq!(fx[0].detonation_ocl_name, "OCL_FireFieldSmall");
         assert_eq!(fx[0].target_id, Some(target));
     }
+
+    #[test]
+    fn missile_calls_on_die_fires_missile_fx_not_victim_death() {
+        let mut combat = CombatSystem::new();
+        let mut objects = HashMap::new();
+        let shooter = ObjectId(1);
+        let target = ObjectId(2);
+        let mut t = Object::new_simple(
+            target,
+            crate::game_logic::ObjectType::Infantry,
+            "GLARebel".to_string(),
+        );
+        t.set_position(Vec3::new(5.0, 0.0, 0.0));
+        t.health.current = 1.0;
+        t.health.maximum = 1.0;
+        objects.insert(target, t);
+
+        let pid = combat.fire_projectile_ex(
+            Vec3::ZERO,
+            Vec3::new(5.0, 0.0, 0.0),
+            &Weapon {
+                damage: 50.0,
+                range: 100.0,
+                min_range: 0.0,
+                reload_time: 1.0,
+                last_fire_time: 0.0,
+                ammo: None,
+                clip_size: 0,
+                clip_reload_time: 0.0,
+                can_target_air: true,
+                can_target_ground: true,
+                projectile_speed: 0.0,
+                pre_attack_delay: 0.0,
+                splash_radius: 0.0,
+                suspend_fx_frame: 0,
+                reloading_clip: false,
+                last_bonus_rof: 0.0,
+            },
+            shooter,
+            Some(target),
+            0.0,
+            false,
+        );
+        if let Some(p) = combat.projectile_mut(pid) {
+            p.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Exploded;
+            p.die_on_detonate = true;
+            p.projectile_object_name = "ScudStormMissile".into();
+        }
+        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects);
+        let victim = objects.get(&target).expect("victim");
+        assert_eq!(
+            victim.status.death_type,
+            crate::game_logic::host_usa_pilot::HostDeathType::Exploded,
+            "MissileCallsOnDie must not remap victim DeathType"
+        );
+        let fx = combat.take_impact_fx();
+        assert!(
+            fx.iter()
+                .any(|ev| ev.detonation_fx_name == "FX_ScudMissileDie"),
+            "missile FXListDie must fire on die_on_detonate, got {fx:?}"
+        );
+    }
+
 
     #[test]
     fn pending_projectile_preserves_exhaust_and_frozen_fire_effect_context() {

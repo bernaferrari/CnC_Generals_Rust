@@ -561,11 +561,11 @@ pub struct GameLogic {
 
     /// Host China FireWall / Firestorm residual (Dragon Tank line of fire zones).
     /// FireWallSegment OCL spawn + InchForwardLocomotor crawl residual closed.
-    pub(super) fire_walls: crate::game_logic::host_firewall::HostFireWallRegistry,
+    pub(crate) fire_walls: crate::game_logic::host_firewall::HostFireWallRegistry,
 
     /// Host China Inferno Cannon residual fire zones (FireFieldSmall DoT).
     /// Fail-closed: not full InfernoTankShell projectile / OCL_FireFieldSmall object spawn.
-    pub(super) inferno_fire_zones:
+    pub(crate) inferno_fire_zones:
         crate::game_logic::host_inferno_cannon::HostInfernoFireZoneRegistry,
 
     /// Host America Aurora dive bomb residual (delayed FuelAir / AuroraBomb area damage).
@@ -1234,6 +1234,14 @@ pub struct GameLogic {
     pub(super) script_default_camera_angle: f32,
     pub(super) script_default_camera_max_height: f32,
     pub(super) script_camera_freeze_time_armed: bool,
+    /// C++ `W3DView::m_freezeTimeForCameraMovement`.
+    pub(super) script_camera_freeze_time: bool,
+    /// Remaining scripted rotate / look-toward seconds (survives presentation take).
+    pub(super) script_camera_rotate_remaining: f32,
+    /// Remaining scripted zoom seconds (survives presentation take).
+    pub(super) script_camera_zoom_remaining: f32,
+    /// Remaining scripted pitch seconds (survives presentation take).
+    pub(super) script_camera_pitch_remaining: f32,
     pub(super) script_camera_freeze_angle_armed: bool,
     pub(super) script_camera_pending_final_speed_multiplier: Option<f32>,
     pub(super) script_camera_pending_rolling_average_frames: Option<i32>,

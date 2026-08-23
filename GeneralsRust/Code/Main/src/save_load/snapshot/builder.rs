@@ -107,6 +107,13 @@ impl SnapshotBuilder {
                 super::projectile_stream_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
                 super::transport_exit_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
                 super::bridge_behavior_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::object_xfer_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::ai_player_queue_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::inferno_fire_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::firewall_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::neutron_slow_death_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::turret_aim_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::stealth_grant_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
 
 
 
@@ -385,6 +392,34 @@ impl SnapshotBuilder {
             &snapshot.lifecycle_tail,
             game_logic,
         )?;
+        super::object_xfer_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::ai_player_queue_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::inferno_fire_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::firewall_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::neutron_slow_death_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::turret_aim_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::stealth_grant_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
 
 
 
@@ -631,6 +666,7 @@ impl SnapshotBuilder {
             parachute_landing_override_set: object.status.parachute_landing_override_set,
             faerie_fire: object.status.faerie_fire,
             faerie_fire_until_frame: object.faerie_fire_until_frame,
+            disabled_held: object.status.disabled_held,
         }
     }
 

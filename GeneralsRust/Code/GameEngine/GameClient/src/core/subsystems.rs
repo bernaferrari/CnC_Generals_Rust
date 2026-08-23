@@ -1367,6 +1367,10 @@ pub struct InGameUISubsystem {
     max_select_count: i32,
     pending_special_power: Option<PendingSpecialPower>,
     pending_command: Option<PendingCommand>,
+    /// C++ TheRecorder->getMode() == RECORDERMODETYPE_PLAYBACK.
+    recorder_playback_active: bool,
+    /// C++ TheLookAtTranslator->hasMouseMovedRecently().
+    look_at_mouse_moved_recently: bool,
 }
 
 impl InGameUISubsystem {
@@ -1605,6 +1609,16 @@ impl InGameUISubsystem {
         self.presentation_local_team_name = team_name.into();
     }
 
+    /// C++ InGameUI.cpp:2462 host-feed — leftover InGameUI setters.
+    pub fn set_recorder_playback_active(&mut self, active: bool) {
+        self.recorder_playback_active = active;
+    }
+
+    pub fn set_look_at_mouse_moved_recently(&mut self, moved_recently: bool) {
+        self.look_at_mouse_moved_recently = moved_recently;
+    }
+
+
     pub fn presentation_local_team_name(&self) -> &str {
         &self.presentation_local_team_name
     }
@@ -1618,6 +1632,10 @@ impl InGameUISubsystem {
     /// C++ HintSpy.cpp:26-35 — live host hover tooltip from presentation catalog.
     pub fn create_mouseover_hint(&mut self, drawable_id: Option<u32>, is_location_hint: bool) {
         if self.tooltips_disabled_until > TheGameLogic::get_frame() {
+            return;
+        }
+        // C++ InGameUI.cpp:2462 — playback keeps hover until the viewer moves.
+        if self.recorder_playback_active && !self.look_at_mouse_moved_recently {
             return;
         }
         let _ = crate::gui::ingame_ui::InGameUI::apply_catalog_mouseover_tooltip(

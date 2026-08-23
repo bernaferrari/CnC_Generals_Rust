@@ -109,6 +109,13 @@ mod point_defense_persist;
 mod projectile_stream_persist;
 mod transport_exit_persist;
 mod bridge_behavior_persist;
+mod object_xfer_persist;
+pub(crate) mod ai_player_queue_persist;
+mod inferno_fire_persist;
+mod firewall_persist;
+mod neutron_slow_death_persist;
+mod turret_aim_persist;
+mod stealth_grant_persist;
 
 
 mod particle_system_save;
@@ -227,6 +234,13 @@ pub const SNAPSHOT_SRC: &str = concat!(
     include_str!("projectile_stream_persist.rs"),
     include_str!("transport_exit_persist.rs"),
     include_str!("bridge_behavior_persist.rs"),
+    include_str!("object_xfer_persist.rs"),
+    include_str!("ai_player_queue_persist.rs"),
+    include_str!("inferno_fire_persist.rs"),
+    include_str!("firewall_persist.rs"),
+    include_str!("neutron_slow_death_persist.rs"),
+    include_str!("turret_aim_persist.rs"),
+    include_str!("stealth_grant_persist.rs"),
 
 
     include_str!("particle_system_save.rs"),

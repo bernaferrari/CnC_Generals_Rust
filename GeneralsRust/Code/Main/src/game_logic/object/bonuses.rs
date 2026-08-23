@@ -25,19 +25,24 @@ impl Object {
         );
     }
 
-    /// Apply temporary Frenzy residual (C++ Object::doTempWeaponBonus FRENZY_*).
-    /// Refresh extends the timer if a later expiry is provided; keeps higher level.
+    /// Apply temporary Frenzy residual (C++ `TempWeaponBonusHelper::doTempWeaponBonus`).
+    ///
+    /// FRENZY_ONE / TWO / THREE are distinct conditions. A later pulse **replaces**
+    /// the level (downgrade included) and **always** writes `until_frame` (shorten
+    /// included). Same-level re-apply only resets the timer — leftover
+    /// `do_temp_weapon_bonus` (`temp_weapon_bonus_helper.rs`).
     pub fn apply_weapon_bonus_frenzy(&mut self, level: u8, until_frame: u32) {
         let lvl = level.clamp(1, 3);
+        // Leftover: if current_bonus != bonus { clear_temp_weapon_bonus(); }
+        // then always set current_bonus + frame_to_remove = now + duration.
+        if self.weapon_bonus_frenzy && self.weapon_bonus_frenzy_level != lvl {
+            self.weapon_bonus_frenzy = false;
+            self.weapon_bonus_frenzy_level = 0;
+            self.weapon_bonus_frenzy_until_frame = 0;
+        }
         self.weapon_bonus_frenzy = true;
-        if lvl > self.weapon_bonus_frenzy_level {
-            self.weapon_bonus_frenzy_level = lvl;
-        } else if self.weapon_bonus_frenzy_level == 0 {
-            self.weapon_bonus_frenzy_level = lvl;
-        }
-        if until_frame > self.weapon_bonus_frenzy_until_frame {
-            self.weapon_bonus_frenzy_until_frame = until_frame;
-        }
+        self.weapon_bonus_frenzy_level = lvl;
+        self.weapon_bonus_frenzy_until_frame = until_frame;
         self.record_host_weapon_bonus();
     }
 

@@ -164,6 +164,52 @@ fn object_status_bits_survive_snapshot_restore() {
     assert!(loaded.is_script_unstealthed());
 }
 
+
+/// C++ Object::xfer DISABLED_HELD + AIUpdateInterface::m_attitude.
+#[test]
+fn script_held_and_attitude_survive_snapshot_restore() {
+    let mut source = GameLogic::new();
+    source
+        .templates
+        .insert("Ranger".to_string(), ThingTemplate::new("Ranger"));
+    source.add_player(Player::new(1, Team::USA, "PlayerOne", true));
+    let object_id = source
+        .create_object("Ranger", Team::USA, Vec3::new(5.0, 0.0, 5.0))
+        .expect("create held unit");
+    {
+        let object = source.host_object_mut(object_id).expect("created object");
+        object.set_status_disabled_held(true);
+        object.ai_attitude = -1; // Passive
+        object.is_receiving_difficulty_bonus = true;
+        object.weapon_bonus_solo = 16;
+    }
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder
+        .create_world_snapshot(&source)
+        .expect("snapshot");
+    let captured = snapshot.objects.get(&object_id).expect("object in snapshot");
+    assert!(captured.status.disabled_held);
+
+    let mut restored = GameLogic::new();
+    restored.templates = source.templates.clone();
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .expect("restore");
+    let loaded = restored.host_object(object_id).expect("restored object");
+    assert!(
+        loaded.status.disabled_held,
+        "script DISABLED_HELD must survive load"
+    );
+    assert!(!loaded.can_move());
+    assert_eq!(loaded.ai_attitude, -1, "Passive attitude must survive load");
+    assert!(
+        loaded.is_receiving_difficulty_bonus,
+        "difficulty latch must survive load"
+    );
+    assert_eq!(loaded.weapon_bonus_solo, 16);
+}
+
 #[test]
 fn omitted_object_status_bits_default_inactive() {
     let status = ObjectStatusSnapshot::default();
@@ -185,6 +231,7 @@ fn omitted_object_status_bits_default_inactive() {
     assert!(!status.parachute_landing_override_set);
     assert!(!status.faerie_fire);
     assert_eq!(status.faerie_fire_until_frame, 0);
+    assert!(!status.disabled_held);
 }
 
 

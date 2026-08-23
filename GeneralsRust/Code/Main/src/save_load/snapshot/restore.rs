@@ -347,6 +347,7 @@ impl SnapshotBuilder {
         object.status.parachute_landing_override_set = status.parachute_landing_override_set;
         object.status.faerie_fire = status.faerie_fire;
         object.faerie_fire_until_frame = status.faerie_fire_until_frame;
+        object.status.disabled_held = status.disabled_held;
 
         object.ai_state = if status.destroyed {
             AIState::Idle

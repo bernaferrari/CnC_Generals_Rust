@@ -107,6 +107,41 @@ fn last_cave_destroy_caves_in_instead_of_eject() {
 }
 
 #[test]
+fn occupant_death_leaves_cave_system_pool_and_reverts_team() {
+    // C++ Object.cpp:720-728 onDestroy → CaveContain::removeFromContain
+    // tracker remove then onRemoving LastEmpty.
+    let mut logic = GameLogic::new();
+    ensure_infantry(&mut logic);
+    let a = create_cave(&mut logic, "CaveOccDieA", Vec3::ZERO, 7);
+    let b = create_cave(&mut logic, "CaveOccDieB", Vec3::new(40.0, 0.0, 0.0), 7);
+    let unit = logic
+        .create_object("AmericaInfantryRanger", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+        .expect("ranger");
+    let (ok, ev) = logic.cave_system.record_enter(7, unit, a, Team::USA);
+    assert!(ok);
+    logic.apply_cave_capture_event(7, ev);
+    assert_eq!(logic.host_object(a).unwrap().team, Team::USA);
+    assert_eq!(logic.host_object(b).unwrap().team, Team::USA);
+    if let Some(u) = logic.host_object_mut(unit) {
+        u.set_contained_by(Some(a));
+        u.health.current = 0.0;
+        u.status.destroyed = true;
+    }
+    if let Some(c) = logic.host_object_mut(a) {
+        let _ = c.add_occupant(unit);
+    }
+    logic.mark_object_for_destruction(unit, None);
+    logic.process_destroy_list();
+    assert!(
+        !logic.cave_system.is_in_network(7, unit),
+        "dying occupant must leave CaveSystem pool"
+    );
+    assert_eq!(logic.cave_system.contain_count(7), 0);
+    assert_eq!(logic.host_object(a).unwrap().team, Team::Neutral);
+    assert_eq!(logic.host_object(b).unwrap().team, Team::Neutral);
+}
+
+#[test]
 fn ini_cave_index_registers_on_create() {
     // C++ CaveContain::onCreate copies CaveIndex; onBuildComplete registers.
     let mut logic = GameLogic::new();

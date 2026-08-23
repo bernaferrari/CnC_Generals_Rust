@@ -179,7 +179,10 @@ impl GameLogic {
             historic_bonus_count: 0,
             historic_bonus_radius: 0.0,
             historic_bonus_weapon: String::new(),
-            die_on_detonate: false,
+            die_on_detonate: wname
+                .map(crate::game_logic::weapon_bootstrap::host_die_on_detonate_for_weapon_name)
+                .unwrap_or(false),
+
         });
                     }
                 }

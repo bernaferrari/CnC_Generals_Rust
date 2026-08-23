@@ -35,10 +35,112 @@ fn unpause_special_power_upgrade_enables_capture() {
         .copied()
         .unwrap_or(0.0);
     assert!(
-        rem <= 0.0,
-        "C++ unpause of a ready power stays ready, rem={rem}"
+        (rem - 15.0).abs() < 0.01,
+        "C++ unpause keeps ctor ReloadTime (15000ms), rem={rem}"
     );
 }
+
+#[test]
+fn helix_nuke_unpause_hits_helix_nuke_bomb_not_nuclear_missile() {
+    use crate::command_system::SpecialPowerType;
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut t = ThingTemplate::new("Nuke_ChinaVehicleHelix");
+    t.set_health(300.0);
+    t.add_kind_of(KindOf::Vehicle);
+    logic.templates.insert("Nuke_ChinaVehicleHelix".into(), t);
+    let id = logic
+        .create_object("Nuke_ChinaVehicleHelix", Team::China, glam::Vec3::ZERO)
+        .unwrap();
+    let obj = logic.objects.get(&id).unwrap();
+    assert_eq!(
+        obj.special_power_paused
+            .get(&SpecialPowerType::HelixNukeBomb)
+            .copied()
+            .unwrap_or(0),
+        1,
+        "ctor StartsPaused must pause HelixNukeBomb once"
+    );
+    assert!(
+        !obj.is_special_power_countdown_paused(&SpecialPowerType::NuclearMissile),
+        "unpause path must not park NuclearMissile on a Helix"
+    );
+    assert!(
+        !obj.is_special_power_countdown_paused(&SpecialPowerType::HelixNapalmBomb),
+        "Nuke Helix must not pause the napalm bomb a Nuke general cannot unpause"
+    );
+    let rem = obj
+        .special_power_cooldowns
+        .get(&SpecialPowerType::HelixNukeBomb)
+        .copied()
+        .unwrap_or(0.0);
+    assert!(
+        (rem - 10.0).abs() < 0.01,
+        "ctor startPowerRecharge must arm 10000ms ReloadTime, rem={rem}"
+    );
+    logic.apply_upgrade_to_object(id, "Nuke_Upgrade_HelixNukeBomb");
+    let obj = logic.objects.get(&id).unwrap();
+    assert!(!obj.is_special_power_countdown_paused(&SpecialPowerType::HelixNukeBomb));
+    let rem = obj
+        .special_power_cooldowns
+        .get(&SpecialPowerType::HelixNukeBomb)
+        .copied()
+        .unwrap_or(0.0);
+    assert!(
+        (rem - 10.0).abs() < 0.01,
+        "unpause must keep remaining ReloadTime, rem={rem}"
+    );
+}
+
+#[test]
+fn starts_paused_module_and_capture_flag_do_not_double_pause() {
+    use crate::command_system::SpecialPowerType;
+    use crate::game_logic::{
+        CapturePowerKind, KindOf, SpecialPowerModuleKind, SpecialPowerModuleMetadata, Team,
+        ThingTemplate,
+    };
+    let mut logic = GameLogic::new();
+    let mut t = ThingTemplate::new("AmericaInfantryRanger");
+    t.set_health(100.0);
+    t.add_kind_of(KindOf::Infantry);
+    t.capture_power = CapturePowerKind::Ranger;
+    t.capture_starts_paused = true;
+    t.capture_upgrade_trigger = Some("Upgrade_InfantryCaptureBuilding".to_string());
+    t.special_power_modules
+        .push(SpecialPowerModuleMetadata {
+            source_index: 0,
+            module_tag: Some("ModuleTag_Capture".into()),
+            module_kind: SpecialPowerModuleKind::SpecialAbility,
+            special_power_template: "SpecialAbilityRangerCaptureBuilding".into(),
+            special_power_template_id: 1,
+            command_power: Some(SpecialPowerType::RangerCaptureBuilding),
+            reload_time_frames: 450,
+            required_science: None,
+            public_timer: false,
+            shared_n_sync: false,
+            shortcut_power: false,
+            update_module_starts_attack: true,
+            starts_paused: true,
+            scripted_special_power_only: false,
+        });
+    logic.templates.insert("AmericaInfantryRanger".into(), t);
+    let id = logic
+        .create_object("AmericaInfantryRanger", Team::USA, glam::Vec3::ZERO)
+        .unwrap();
+    let obj = logic.objects.get(&id).unwrap();
+    assert_eq!(
+        obj.special_power_paused
+            .get(&SpecialPowerType::RangerCaptureBuilding)
+            .copied()
+            .unwrap_or(0),
+        1,
+        "ctor + SpecialPowerCreate must not stack StartsPaused"
+    );
+    logic.apply_upgrade_to_object(id, "Upgrade_InfantryCaptureBuilding");
+    let obj = logic.objects.get(&id).unwrap();
+    assert!(!obj.is_special_power_countdown_paused(&SpecialPowerType::RangerCaptureBuilding));
+}
+
 
 #[test]
 fn defector_special_power_defects_enemy() {

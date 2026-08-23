@@ -361,11 +361,18 @@ impl GameLogic {
             }
             // C++ TransitionDamageFX + FXListDie → FXList::doFXObj / doFXPos.
             {
-                let pos = self
+                let (pos, yaw, model, scale) = self
                     .objects
                     .get(&object_id)
-                    .map(|o| o.get_position())
-                    .unwrap_or(glam::Vec3::ZERO);
+                    .map(|o| {
+                        (
+                            o.get_position(),
+                            o.get_orientation(),
+                            o.thing.template.get_model_name().to_string(),
+                            o.thing.template.asset_scale,
+                        )
+                    })
+                    .unwrap_or((glam::Vec3::ZERO, 0.0, String::new(), 1.0));
                 let (transition_evs, death_fx, death_audio, death_audio_stop, death_killer) =
                     if let Some(o) = self.objects.get_mut(&object_id) {
                         let te = o.take_pending_transition_damage_fx();
@@ -419,10 +426,13 @@ impl GameLogic {
                         }
                     }
                     if !ev.particles.is_empty() {
-                        let ids = crate::game_logic::host_transition_damage_fx::spawn_transition_particles(
+                        let ids = crate::game_logic::host_transition_damage_fx::spawn_transition_particles_at_pose(
                             &mut self.combat_particles,
                             &ev.particles,
                             pos,
+                            yaw,
+                            &model,
+                            scale,
                             self.frame,
                             object_id,
                         );
@@ -472,10 +482,17 @@ impl GameLogic {
                         o.get_orientation(),
                         o.thing.template.get_model_name().to_string(),
                         o.thing.template.asset_scale,
+                        o.drawable_hidden,
                     )
                 });
                 let events = if let Some(o) = self.objects.get_mut(&object_id) {
+                    if o.bone_fx_damage.is_none() {
+                        o.bone_fx_damage = crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData::from_template(
+                            &o.template_name,
+                        );
+                    }
                     if let Some(bfx) = o.bone_fx_damage.as_mut() {
+                        bfx.stamp_last_damage_type(o.last_damage_info_type);
                         bfx.tick(self.frame as i32);
                         bfx.drain_pending()
                     } else {
@@ -484,16 +501,25 @@ impl GameLogic {
                 } else {
                     Vec::new()
                 };
-                if let Some((origin, yaw, model, scale)) = pose {
+                if let Some((origin, yaw, model, scale, hidden)) = pose {
                     for ev in events {
-                        crate::game_logic::host_bone_fx_damage::play_bone_fx_event(
-                            &ev,
-                            object_id.0,
-                            origin,
-                            yaw,
-                            &model,
-                            scale,
-                        );
+                        let leftover_id =
+                            crate::game_logic::host_bone_fx_damage::play_bone_fx_event(
+                                &ev,
+                                object_id.0,
+                                origin,
+                                yaw,
+                                &model,
+                                scale,
+                                hidden,
+                            );
+                        if let Some(id) = leftover_id {
+                            if let Some(o) = self.objects.get_mut(&object_id) {
+                                if let Some(bfx) = o.bone_fx_damage.as_mut() {
+                                    bfx.track_particle(id);
+                                }
+                            }
+                        }
                     }
                 }
             }

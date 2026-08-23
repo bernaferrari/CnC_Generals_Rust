@@ -1276,6 +1276,40 @@ fn bone_fx_fires_on_body_damage_worsen() {
 }
 
 #[test]
+fn bone_fx_pristine_slots_fire_without_state_change() {
+    use crate::game_logic::host_bone_fx_damage::{
+        HostBoneFxAuthored, HostBoneFxDamageData, HostBoneFxSlot,
+    };
+    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+    let mut t = ThingTemplate::new("GLAVehicleScudLauncher");
+    t.set_health(1000.0);
+    t.add_kind_of(KindOf::Vehicle);
+    let mut o = Object::new(t, ObjectId(104), Team::GLA);
+    let mut authored = HostBoneFxAuthored::default();
+    authored.fx[HostBodyDamageType::Pristine.ordinal() as usize][0] = Some(HostBoneFxSlot {
+        bone: "FXBone01".into(),
+        only_once: true,
+        delay_min: 0.0,
+        delay_max: 0.0,
+        name: "FX_ScudLauncherPristine".into(),
+    });
+    o.bone_fx_damage = Some(HostBoneFxDamageData::from_authored(authored));
+    o.health.current = 1000.0;
+    o.health.maximum = 1000.0;
+    o.body_damage_state = HostBodyDamageType::Pristine;
+    if let Some(bfx) = o.bone_fx_damage.as_mut() {
+        bfx.tick(10);
+    }
+    assert_eq!(
+        o.bone_fx_damage
+            .as_ref()
+            .and_then(|b| b.last_fx.as_deref()),
+        Some("FX_ScudLauncherPristine"),
+        "C++ BoneFXUpdate ctor BODY_PRISTINE; first update fires authored pristine slots"
+    );
+}
+
+#[test]
 fn crush_die_sets_model_condition_bits() {
     use crate::game_logic::host_neutron_missile_slow_death::{
         MC_BIT_BACKCRUSHED, MC_BIT_FRONTCRUSHED,
@@ -1631,6 +1665,28 @@ fn fx_list_die_extra_module_uses_last_damage_source() {
     let (fx, _) = o.take_pending_death_fx_audio();
     assert_eq!(fx.as_deref(), Some("FX_VehicleDie"));
     assert_eq!(o.last_damage_source, Some(ObjectId(99)));
+}
+
+#[test]
+fn fx_list_die_exempt_status_skips_burned_object() {
+    use crate::game_logic::host_status_bits_upgrade::object_status_mask_from_names;
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut t = ThingTemplate::new("AmericaTankCrusader");
+    t.set_health(100.0);
+    t.add_kind_of(KindOf::Vehicle);
+    let mut o = Object::new(t, ObjectId(3), Team::USA);
+    o.fx_list_die = Some(fx_list_die_from_behavior_attrs_for_test());
+    o.object_status_bits = object_status_mask_from_names(&["BURNED"]);
+    o.fire_fx_list_die();
+    let (fx, _) = o.take_pending_death_fx_audio();
+    assert!(fx.is_none(), "ExemptStatus BURNED must skip FXListDie");
+}
+
+fn fx_list_die_from_behavior_attrs_for_test() -> crate::game_logic::host_fx_list_die::HostFxListDieData {
+    crate::game_logic::host_fx_list_die::fx_list_die_from_behavior_attrs(&[
+        ("DeathFX", "FX_NormalDie"),
+        ("ExemptStatus", "BURNED"),
+    ])
 }
 
 
@@ -3849,6 +3905,48 @@ fn stunned_off_map_cliff_water_kills_without_loco() {
     h.cell_is_cliff = true;
     h.locomotor_surfaces |= LOCO_SURFACE_CLIFF;
     assert!(!h.test_stunned_unit_for_destruction());
+}
+
+#[test]
+fn stunned_ai_less_debris_keeps_tumbling_on_cliff_water() {
+    use crate::game_logic::host_deliver_payload::RESIDUAL_MAP_EXTENT_MAX_X;
+
+    let mut debris_t = ThingTemplate::new("GenericDebris");
+    let mut debris = Object::new(debris_t, ObjectId(351), Team::Neutral);
+    debris.shock_stun_frames = 20;
+    debris.cell_is_cliff = true;
+    debris.set_position(glam::Vec3::ZERO);
+    assert!(!debris.has_ai_update_interface());
+    assert!(!debris.test_stunned_unit_for_destruction());
+    assert!(!debris.status.destroyed);
+
+    debris.cell_is_cliff = false;
+    debris.cell_is_underwater = true;
+    assert!(!debris.test_stunned_unit_for_destruction());
+    assert!(!debris.status.destroyed);
+
+    let mut crate_t = ThingTemplate::new("SalvageCrate");
+    crate_t.add_kind_of(KindOf::Crate);
+    let mut crate_obj = Object::new(crate_t, ObjectId(352), Team::Neutral);
+    crate_obj.shock_stun_frames = 20;
+    crate_obj.cell_is_cliff = true;
+    crate_obj.cell_is_underwater = true;
+    crate_obj.set_position(glam::Vec3::ZERO);
+    assert!(!crate_obj.has_ai_update_interface());
+    assert!(!crate_obj.test_stunned_unit_for_destruction());
+    assert!(!crate_obj.status.destroyed);
+
+    // C++ still kills AI-less stunned debris when upside-down or off-map.
+    debris.cell_is_underwater = false;
+    debris.apply_physics_ypr(0.0, 0.0, std::f32::consts::PI);
+    assert!(debris.test_stunned_unit_for_destruction());
+    assert!(debris.status.destroyed);
+
+    let mut off = Object::new(ThingTemplate::new("GenericDebris"), ObjectId(353), Team::Neutral);
+    off.shock_stun_frames = 20;
+    off.set_position(glam::Vec3::new(RESIDUAL_MAP_EXTENT_MAX_X + 50.0, 0.0, 0.0));
+    assert!(off.test_stunned_unit_for_destruction());
+    assert!(off.status.destroyed);
 }
 
 #[test]

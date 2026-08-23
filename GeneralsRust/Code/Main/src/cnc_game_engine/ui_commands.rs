@@ -1840,9 +1840,6 @@ impl CnCGameEngine {
                 .game_hud_mut()
                 .construction_panel
                 .arm_structure_placement(template_name.to_string());
-            let msg = "Select a dozer or worker to build";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
 
@@ -1991,9 +1988,6 @@ impl CnCGameEngine {
             builders
         };
         if units.is_empty() {
-            let msg = "Select a dozer or worker to build wall";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
 
@@ -2011,9 +2005,6 @@ impl CnCGameEngine {
             selected_units: units,
             modifier_keys: crate::command_system::ModifierKeys::default(),
         });
-        let msg = "Wall line ordered";
-        self.game_hud.push_info_message(msg);
-        self.ui_manager.game_hud_mut().push_info_message(msg);
     }
 
     /// Cancel production queue head on selected producers residual (Delete key).
@@ -2037,9 +2028,6 @@ impl CnCGameEngine {
         }
         if any {
             self.play_sound_effect(SoundType::Command);
-            let msg = "Canceled production";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
         }
         any
     }

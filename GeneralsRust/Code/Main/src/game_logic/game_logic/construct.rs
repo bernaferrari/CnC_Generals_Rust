@@ -601,6 +601,10 @@ impl GameLogic {
             script_default_camera_angle: 0.0,
             script_default_camera_max_height: 1.0,
             script_camera_freeze_time_armed: false,
+            script_camera_freeze_time: false,
+            script_camera_rotate_remaining: 0.0,
+            script_camera_zoom_remaining: 0.0,
+            script_camera_pitch_remaining: 0.0,
             script_camera_freeze_angle_armed: false,
             script_camera_pending_final_speed_multiplier: None,
             script_camera_pending_rolling_average_frames: None,
@@ -1189,6 +1193,10 @@ impl GameLogic {
         self.script_default_camera_angle = 0.0;
         self.script_default_camera_max_height = 1.0;
         self.script_camera_freeze_time_armed = false;
+        self.script_camera_freeze_time = false;
+        self.script_camera_rotate_remaining = 0.0;
+        self.script_camera_zoom_remaining = 0.0;
+        self.script_camera_pitch_remaining = 0.0;
         self.script_camera_freeze_angle_armed = false;
         self.script_camera_pending_final_speed_multiplier = None;
         self.script_camera_pending_rolling_average_frames = None;

@@ -2379,6 +2379,12 @@ pub struct Object {
     /// 16..=21 match C++ discriminants (ALLOW_DEMORALIZE off).
     #[serde(default)]
     pub weapon_bonus_solo: u8,
+    /// C++ `Object::m_isReceivingDifficultyBonus` (Object.cpp:4410 v5).
+    /// Distinct from `weapon_bonus_solo` bits so load can restore the latch
+    /// without re-running `friend_applyDifficultyBonusesForObject`.
+    #[serde(default)]
+    pub is_receiving_difficulty_bonus: bool,
+
 
     /// Residual sight-range scale currently applied for SearchAndDestroy (1.0 = none).
     #[serde(default = "default_one_f32")]
@@ -2604,6 +2610,9 @@ pub struct Object {
     /// C++ ActiveBody `m_lastDamageFXDone` (doDamageFX per-type throttle).
     #[serde(default)]
     pub last_damage_fx_done: Option<crate::game_logic::combat::DamageType>,
+    /// C++ `BodyModule::getLastDamageInfo()->in.m_damageType`.
+    #[serde(default)]
+    pub last_damage_info_type: Option<crate::game_logic::combat::DamageType>,
     /// C++ ActiveBody `m_nextDamageFXTime` (logic frame; throttle gate).
     #[serde(default)]
     pub next_damage_fx_time: u32,

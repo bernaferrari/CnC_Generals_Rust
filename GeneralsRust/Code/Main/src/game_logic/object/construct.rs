@@ -465,7 +465,9 @@ impl Object {
             keep_object_die: None,
             wave_guide_data: None,
             fire_weapon_when_dead_fired: false,
-            bone_fx_damage: None,
+            bone_fx_damage: crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData::from_template(
+                &template_name,
+            ),
             poisoned_behavior: None,
             defection_helper: None,
             fire_weapon_power: None,
@@ -1062,6 +1064,8 @@ impl Object {
             weapon_bonus_battle_plan_search_and_destroy: false,
             weapon_bonus_drone_spotting: false,
             weapon_bonus_solo: 0,
+            is_receiving_difficulty_bonus: false,
+
 
             battle_plan_sight_scalar_applied: 1.0,
             continuous_fire_consecutive: 0,
@@ -1126,6 +1130,7 @@ impl Object {
             last_damage_timestamp: None,
             last_healing_timestamp: None,
             last_damage_fx_done: None,
+            last_damage_info_type: None,
             next_damage_fx_time: 0,
             last_damage_source_preferred: false,
             kill_experience_awarded: false,
@@ -1346,7 +1351,9 @@ impl Object {
             keep_object_die: None,
             wave_guide_data: None,
             fire_weapon_when_dead_fired: false,
-            bone_fx_damage: None,
+            bone_fx_damage: crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData::from_template(
+                &template_name,
+            ),
             poisoned_behavior: None,
             defection_helper: None,
             fire_weapon_power: None,
@@ -1943,6 +1950,8 @@ impl Object {
             weapon_bonus_battle_plan_search_and_destroy: false,
             weapon_bonus_drone_spotting: false,
             weapon_bonus_solo: 0,
+            is_receiving_difficulty_bonus: false,
+
 
             battle_plan_sight_scalar_applied: 1.0,
             continuous_fire_consecutive: 0,
@@ -2007,6 +2016,7 @@ impl Object {
             last_damage_timestamp: None,
             last_healing_timestamp: None,
             last_damage_fx_done: None,
+            last_damage_info_type: None,
             next_damage_fx_time: 0,
             last_damage_source_preferred: false,
             kill_experience_awarded: false,

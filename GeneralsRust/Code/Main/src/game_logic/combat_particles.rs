@@ -886,7 +886,6 @@ impl CombatParticleRegistry {
         kind: CombatParticleKind,
         lifetime: Option<u32>,
     ) -> Option<u32> {
-        let template_name = usable_particle_template_name(template_name)?;
         Some(spawn_attached_system(
             self,
             kind,
@@ -897,6 +896,7 @@ impl CombatParticleRegistry {
             local,
             frame,
             lifetime,
+            0.0,
         ))
     }
 
@@ -933,7 +933,7 @@ impl CombatParticleRegistry {
             self.deactivate(id);
         }
         for (bone, system) in wanted {
-            let local = particle_sys_bone_local(&pose, &bone);
+            let (local, z_rot) = particle_sys_bone_pose(&pose, &bone);
             let world = rotate_yaw_host(position, pose.yaw, local);
             let existing = self.systems.values().find_map(|entry| {
                 (entry.active
@@ -947,16 +947,21 @@ impl CombatParticleRegistry {
                     entry.attach_offset = local;
                     entry.position = world;
                 }
+                // C++ rotateLocalTransformZ is incremental (Rotate_Z). Apply once
+                // at spawn only — re-applying every sync_live_state_particles tick
+                // would spin exhaust/stacks.
             } else {
-                let _ = self.attach_named_to_object_local(
+                let _ = spawn_attached_system(
+                    self,
+                    CombatParticleKind::ParticleSysBone,
+                    &system,
                     owner,
                     position,
                     pose.yaw,
                     local,
                     frame,
-                    &system,
-                    CombatParticleKind::ParticleSysBone,
                     None,
+                    z_rot,
                 );
             }
         }
@@ -1368,12 +1373,17 @@ fn rotate_yaw_host(origin: Vec3, yaw: f32, local: Vec3) -> Vec3 {
 }
 
 fn particle_sys_bone_local(pose: &BodyAutoParticlePose<'_>, bone: &str) -> Vec3 {
+    particle_sys_bone_pose(pose, bone).0
+}
+
+/// C++ `getPristineBonePositions` + `Matrix3D::Get_Z_Rotation`.
+fn particle_sys_bone_pose(pose: &BodyAutoParticlePose<'_>, bone: &str) -> (Vec3, f32) {
     if bone.is_empty() || bone.eq_ignore_ascii_case("none") || pose.model.is_empty() {
-        return Vec3::ZERO;
+        return (Vec3::ZERO, 0.0);
     }
-    gamelogic::object::draw::lookup_pristine_bone_translation(pose.model, pose.scale, bone)
-        .map(cpp_bone_to_host_local)
-        .unwrap_or(Vec3::ZERO)
+    gamelogic::object::draw::lookup_pristine_bone_pose(pose.model, pose.scale, bone)
+        .map(|(translation, z_rot)| (cpp_bone_to_host_local(translation), z_rot))
+        .unwrap_or((Vec3::ZERO, 0.0))
 }
 
 fn body_prefix_bone_locals(model: &str, scale: f32, prefix: &str, max: usize) -> Vec<Vec3> {
@@ -1419,6 +1429,7 @@ fn spawn_attached_system(
     local: Vec3,
     frame: u32,
     lifetime: Option<u32>,
+    local_z_rot: f32,
 ) -> u32 {
     let world = rotate_yaw_host(origin, yaw, local);
     let id = registry.next_id;
@@ -1426,11 +1437,13 @@ fn spawn_attached_system(
     crate::game_logic::publish_host_fx_object(owner.0, origin, yaw, -1);
 
     let cpp_local = host_local_to_cpp(local);
-    let leftover_id = gamelogic::helpers::attach_particle_system_to_object_local(
+    // C++ W3DModelDraw.cpp:2604-2611 setPosition then rotateLocalTransformZ then attach.
+    let leftover_id = gamelogic::helpers::attach_particle_system_to_object_local_oriented(
         template,
         owner.0,
         Some(&cpp_local),
         lifetime,
+        local_z_rot,
     );
     if let Some(client_id) = leftover_id {
         registry.client_system_ids.insert(client_id);
@@ -1502,6 +1515,7 @@ fn spawn_body_systems_on_bones(
             bone_locals[bone_index],
             frame,
             None,
+            0.0,
         );
     }
 }
@@ -2222,6 +2236,25 @@ mod tests {
             (fire.position - fire_bone).length() > 0.5,
             "world translation follow would stay at {:?}",
             fire_bone
+        );
+    }
+
+    #[test]
+    fn particle_sys_bone_applies_leftover_z_rotation() {
+        let src = include_str!("combat_particles.rs");
+        assert!(src.contains("lookup_pristine_bone_pose"));
+        assert!(src.contains("particle_sys_bone_pose"));
+        assert!(src.contains("attach_particle_system_to_object_local_oriented"));
+        // Incremental Rotate_Z must not run on already-attached systems.
+        let sync = src
+            .split("pub fn sync_particle_sys_bones")
+            .nth(1)
+            .and_then(|s| s.split("pub fn replace_body_auto_particles").next())
+            .expect("sync_particle_sys_bones");
+        assert!(
+            !sync.contains("rotate_leftover_particle_local_z")
+                && !sync.contains("rotate_particle_system_local_transform_z"),
+            "existing ParticleSysBone systems must not accumulate Z rotation"
         );
     }
 }

@@ -4439,6 +4439,11 @@ impl GameLogic {
                         .get(&object_id)
                         .map(|o| o.is_kind_of(KindOf::Aircraft))
                         .unwrap_or(false);
+                    let unit_is_huge_vehicle = self
+                        .objects
+                        .get(&object_id)
+                        .map(|o| o.is_kind_of(KindOf::HugeVehicle))
+                        .unwrap_or(false);
                     if !normal_enter && (container_is_tunnel_network || container_is_cave) {
                         // TunnelContain residual: reject aircraft only.
                         if unit_is_aircraft {
@@ -4465,7 +4470,10 @@ impl GameLogic {
                         continue;
                     }
                     // Combat Chinook ForbidInsideKindOf = AIRCRAFT HUGE_VEHICLE residual.
-                    if !normal_enter && container_is_combat_chinook && unit_is_aircraft {
+                    if !normal_enter
+                        && container_is_combat_chinook
+                        && (unit_is_aircraft || unit_is_huge_vehicle)
+                    {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.stop_moving();
                             obj.set_target(None);

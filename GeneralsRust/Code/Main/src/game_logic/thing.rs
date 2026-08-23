@@ -96,9 +96,9 @@ impl ContainModuleKind {
 }
 
 /// The subset of C++ `AllowInsideKindOf`/`ForbidInsideKindOf` that the active
-/// Rust object model can represent without guessing.  An unrepresentable mask
-/// is deliberately `Unsupported`, which prevents the physical Enter path from
-/// advertising or accepting a container it cannot validate faithfully.
+/// Rust object model can represent without guessing.  Leftover-known KindOf
+/// bits such as `HUGE_VEHICLE` stay on the module mask and are applied by
+/// leftover OpenContain algebra.  An unrepresentable name is `Unsupported`.
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ContainAdmission {
@@ -261,6 +261,13 @@ pub struct ContainModuleMetadata {
     /// C++ `OpenContainModuleData::m_exitSound` (INI `ExitSound`).
     #[serde(default)]
     pub exit_sound: String,
+    /// Leftover `OpenContainModuleData::allow_inside_kind_of` (C++ KindOf mask).
+    /// Zero means leftover OpenContain's "no allow restriction" path.
+    #[serde(default)]
+    pub allow_inside_kind_of: u128,
+    /// Leftover `OpenContainModuleData::forbid_inside_kind_of` (C++ KindOf mask).
+    #[serde(default)]
+    pub forbid_inside_kind_of: u128,
 }
 
 
@@ -327,6 +334,8 @@ impl Default for ContainModuleMetadata {
             weapon_bonus_passed_to_passengers: false,
             enter_sound: String::new(),
             exit_sound: String::new(),
+            allow_inside_kind_of: 0,
+            forbid_inside_kind_of: 0,
         }
     }
 }
@@ -372,6 +381,19 @@ impl ContainModuleMetadata {
                 && rider.active_locomotor_name.is_some()
                 && rider.template_matches(template_name)
         })
+    }
+
+    /// Leftover `OpenContain::is_valid_container_for` KindOf mask algebra.
+    /// C++ `isAnyKindOf(allow) == FALSE || isAnyKindOf(forbid) == TRUE`.
+    #[inline]
+    pub fn leftover_kind_masks_admit(&self, obj_kind: u128) -> bool {
+        if self.allow_inside_kind_of != 0 && (obj_kind & self.allow_inside_kind_of) == 0 {
+            return false;
+        }
+        if (obj_kind & self.forbid_inside_kind_of) != 0 {
+            return false;
+        }
+        true
     }
 }
 

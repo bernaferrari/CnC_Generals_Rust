@@ -56,6 +56,9 @@ struct ObjectAiOrderPersist {
     queue_for_path_frames: u32,
     group_speed_factor: f32,
     pending_path: Option<PendingPathPersist>,
+    /// C++ `AIUpdateInterface::m_attitude` (Sleep=-2 … Aggressive=2).
+    #[serde(default)]
+    ai_attitude: i8,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -140,7 +143,8 @@ fn capture(game_logic: &GameLogic) -> AiTeamPersistPayload {
             || object.is_safe_path
             || !object.pending_waypoint_labels.is_empty()
             || !object.completed_waypoint_labels.is_empty()
-            || pending_path.is_some();
+            || pending_path.is_some()
+            || object.ai_attitude != 0;
         if !interesting {
             continue;
         }
@@ -160,6 +164,7 @@ fn capture(game_logic: &GameLogic) -> AiTeamPersistPayload {
             completed_waypoint_labels: object.completed_waypoint_labels.clone(),
             queue_for_path_frames: object.queue_for_path_frames,
             group_speed_factor: object.group_speed_factor,
+            ai_attitude: object.ai_attitude,
             pending_path,
         });
     }
@@ -211,6 +216,7 @@ fn apply_payload(game_logic: &mut GameLogic, payload: AiTeamPersistPayload) {
         object.completed_waypoint_labels = order.completed_waypoint_labels;
         object.queue_for_path_frames = order.queue_for_path_frames;
         object.group_speed_factor = order.group_speed_factor;
+        object.ai_attitude = order.ai_attitude;
     }
     game_logic.restore_pending_host_paths(pending);
 }
@@ -428,5 +434,30 @@ mod tests {
         assert_eq!(queued[0].unit_id, id);
         assert_eq!(queued[0].destination, dest);
         assert_eq!(queued[0].waypoints, via);
+    }
+
+    #[test]
+    fn snapshot_round_trips_script_sleep_attitude() {
+        let mut source = ranger_logic();
+        let id = source
+            .create_object("Ranger", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("ranger");
+        if let Some(obj) = source.host_object_mut(id) {
+            // C++ AttitudeType::SLEEP = -2.
+            obj.ai_attitude = -2;
+        }
+
+        let builder = SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
+        let mut restored = ranger_logic();
+        restored.templates = source.templates.clone();
+        builder
+            .restore_from_snapshot(&snapshot, &mut restored)
+            .expect("restore");
+        let loaded = restored.host_object(id).expect("restored ranger");
+        assert_eq!(
+            loaded.ai_attitude, -2,
+            "script Sleep attitude must survive load"
+        );
     }
 }

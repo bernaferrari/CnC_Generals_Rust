@@ -246,9 +246,14 @@ impl GameLogic {
             {
                 let from = obj.get_position();
                 let original = obj.movement.path.clone();
-                if let Some(path) =
-                    self.pathfinding_system
-                        .patch_path(from, &original, surfaces, is_crusher)
+                if let Some(path) = self.pathfinding_system.patch_path(
+                    from,
+                    &original,
+                    surfaces,
+                    is_crusher,
+                    &self.objects,
+                    Some(id),
+                )
                 {
                     repaths.push((id, path));
                 }
@@ -616,18 +621,7 @@ impl GameLogic {
                                 obj.braking_factor = 1.0;
                             }
                         }
-                        const PATHFIND_CLOSE_ENOUGH: f32 = 1.0;
-                        if dist > on_path_dist && on_path_dist > PATHFIND_CLOSE_ENOUGH {
-                            on_path_dist = dist;
-                        }
-                        if dist > on_path_dist {
-                            let projectile = obj.is_kind_of(KindOf::Projectile)
-                                || obj.object_type == crate::game_logic::ObjectType::Projectile;
-                            if !projectile && dist > 2.0 * on_path_dist {
-                                obj.is_braking = true;
-                            }
-                            on_path_dist = dist;
-                        }
+                        on_path_dist = obj.raise_on_path_dist_to_goal(dist, on_path_dist);
                         // C++ getIsDownhillOnly: refuse uphill goals (Locomotor.cpp:1596-1598).
                         if obj.downhill_only_blocks_goal(current_pos.y, target_pos.y) {
                             obj.movement.velocity = Vec3::ZERO;
@@ -709,10 +703,7 @@ impl GameLogic {
                                     }
                                 }
                             }
-                            let mut turn_speed = obj.min_turn_speed;
-                            if turn_speed < speed / 4.0 {
-                                turn_speed = speed / 4.0;
-                            }
+                            let turn_speed = obj.wheeled_turn_speed_floor();
                             if delta.abs() > std::f32::consts::PI / 20.0 && speed > turn_speed {
                                 speed = turn_speed;
                             }
@@ -1804,9 +1795,63 @@ mod tests {
         };
         jet.loco_appearance = LocomotorAppearance::Wings;
         jet.is_braking = true;
+        jet.min_speed = 10.0;
+        jet.braking = 10.0;
+        jet.movement.max_speed = 40.0;
         let goal = jet.apply_cpp_approach_brake(1.0, 40.0, 40.0, 0);
-        assert!(!jet.is_braking, "wings never brake");
-        assert!((goal - 40.0).abs() < 1e-5);
+        assert!(!jet.is_braking, "wings never latch IS_BRAKING");
+        assert!(
+            (goal - 10.0).abs() < 1e-5,
+            "wings must floor to minSpeed on approach, got {goal}"
+        );
+        let cruise = jet.apply_cpp_approach_brake(200.0, 40.0, 40.0, 0);
+        assert!(
+            (cruise - 40.0).abs() < 1e-5,
+            "wings keep cruise when outside slowDownDist, got {cruise}"
+        );
+    }
+
+    #[test]
+    fn path_raise_latches_is_braking_at_2x_before_raise() {
+        let mut tank = {
+            let mut tmpl = ThingTemplate::new("Crusader");
+            tmpl.add_kind_of(KindOf::Vehicle);
+            Object::new(tmpl, ObjectId(9507), Team::USA)
+        };
+        tank.loco_appearance = LocomotorAppearance::Treads;
+        let raised = tank.raise_on_path_dist_to_goal(80.0, 10.0);
+        assert!(
+            tank.is_braking,
+            "dist 80 > 2*on_path 10 must latch IS_BRAKING (Locomotor.cpp:980-992)"
+        );
+        assert!((raised - 80.0).abs() < 1e-5);
+
+        let mut proj = {
+            let mut tmpl = ThingTemplate::new("Missile");
+            tmpl.add_kind_of(KindOf::Projectile);
+            Object::new(tmpl, ObjectId(9508), Team::USA)
+        };
+        proj.object_type = crate::game_logic::ObjectType::Projectile;
+        let proj_raised = proj.raise_on_path_dist_to_goal(80.0, 10.0);
+        assert!(!proj.is_braking, "projectiles must not 2x-latch IS_BRAKING");
+        assert!((proj_raised - 80.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn wheeled_min_turn_speed_floor_uses_max_speed() {
+        let mut truck = {
+            let mut tmpl = ThingTemplate::new("Humvee");
+            tmpl.add_kind_of(KindOf::Vehicle);
+            Object::new(tmpl, ObjectId(9509), Team::USA)
+        };
+        truck.loco_appearance = LocomotorAppearance::WheelsFour;
+        truck.min_turn_speed = 0.0;
+        truck.movement.max_speed = 40.0;
+        let floor = truck.wheeled_turn_speed_floor();
+        assert!(
+            (floor - 10.0).abs() < 1e-5,
+            "floor is maxSpeed/4=10, not reduced desiredSpeed/4, got {floor}"
+        );
     }
 
     #[test]
@@ -2281,7 +2326,7 @@ mod tests {
         let _ = tank.apply_cpp_approach_brake(200.0, 30.0, 30.0, 0);
         assert!(
             !tank.is_braking,
-            "mid-path distAlongPath must clear IS_BRAKING (Locomotor.cpp:941-946)"
+            "treads unlatch when on_path > 2*slowDownDist (Locomotor.cpp:1200-1203)"
         );
     }
 

@@ -545,21 +545,11 @@ impl GameStateManager {
     }
 
     fn get_campaign_side(&self) -> Option<String> {
-        self.campaign_manager
-            .try_lock()
-            .ok()
-            .and_then(|campaign_manager| {
-                campaign_manager
-                    .current_campaign_side_name()
-                    .map(str::to_string)
-            })
+        crate::save_load::campaign_header_from_campaign_manager().0
     }
 
     fn get_mission_number(&self) -> Option<u32> {
-        self.campaign_manager
-            .try_lock()
-            .ok()
-            .and_then(|campaign_manager| campaign_manager.current_mission_number())
+        crate::save_load::campaign_header_from_campaign_manager().1
     }
 
     fn cleanup_auto_saves(&mut self) -> SaveLoadResult<()> {

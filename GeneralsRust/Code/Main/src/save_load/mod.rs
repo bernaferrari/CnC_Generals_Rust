@@ -124,6 +124,29 @@ pub fn format_mission_save_description(
     )
 }
 
+/// C++ `GameState::xfer` v2 header refresh (`GameState.cpp:1614-1640`).
+/// Campaign side is `TheCampaignManager` campaign `m_name`; mission number is
+/// 0-based `getCurrentMissionNumber()`. No campaign → empty + INVALID.
+pub fn campaign_header_from_campaign_manager() -> (Option<String>, Option<u32>) {
+    #[cfg(feature = "game_client")]
+    {
+        let manager = game_client::gui::campaign_manager::get_campaign_manager();
+        let Some(campaign) = manager.get_current_campaign() else {
+            return (None, None);
+        };
+        let side = campaign.name.clone();
+        let number = manager.get_current_mission_number();
+        (
+            if side.is_empty() { None } else { Some(side) },
+            number.filter(|&n| n >= 0).map(|n| n as u32),
+        )
+    }
+    #[cfg(not(feature = "game_client"))]
+    {
+        (None, None)
+    }
+}
+
 /// C++ `PopupSaveLoad::setEditDescription` map-leaf strip (`PopupSaveLoad.cpp:438-452`).
 pub fn normalize_default_save_description_from_map_name(mut default_desc: String) -> String {
     if let Some(pos) = default_desc.rfind('\\') {
@@ -516,6 +539,53 @@ mod tests {
         assert_eq!(info.save_type, SaveFileType::Normal);
         assert_eq!(info.campaign_side.as_deref(), Some("America"));
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn campaign_header_reads_campaign_manager_or_invalid() {
+        // C++ GameState.cpp:1614-1640 refreshes v2 header from TheCampaignManager.
+        let previous = {
+            let manager = game_client::gui::campaign_manager::get_campaign_manager();
+            (
+                manager.get_current_campaign().map(|c| c.name.clone()),
+                manager.get_current_mission().map(|m| m.name.clone()),
+            )
+        };
+
+        {
+            let mut manager = game_client::gui::campaign_manager::get_campaign_manager();
+            manager.set_campaign("");
+        }
+        assert_eq!(
+            campaign_header_from_campaign_manager(),
+            (None, None),
+            "no campaign must write empty side + INVALID_MISSION_NUMBER"
+        );
+
+        {
+            let mut manager = game_client::gui::campaign_manager::get_campaign_manager();
+            let campaign = manager.new_campaign("W31SaveDAmerica".to_string());
+            campaign.first_mission = "m1".to_string();
+            let first = campaign.new_mission("M1".to_string());
+            first.next_mission = "m2".to_string();
+            campaign.new_mission("M2".to_string());
+            manager.set_campaign("W31SaveDAmerica");
+            manager.goto_next_mission();
+        }
+        let (side, number) = campaign_header_from_campaign_manager();
+        assert_eq!(side.as_deref(), Some("w31savedamerica"));
+        assert_eq!(number, Some(1), "mission index is 0-based like C++");
+
+        {
+            let mut manager = game_client::gui::campaign_manager::get_campaign_manager();
+            match previous {
+                (Some(campaign), Some(mission)) => {
+                    manager.set_campaign_and_mission(&campaign, &mission);
+                }
+                (Some(campaign), None) => manager.set_campaign(&campaign),
+                _ => manager.set_campaign(""),
+            }
+        }
     }
     #[test]
     fn snapshot_version_starts_at_one_like_cpp_placeholder() {

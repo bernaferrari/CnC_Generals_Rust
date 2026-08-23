@@ -961,10 +961,33 @@ impl Object {
         (self.locomotor_surfaces & surface) != 0
     }
 
+    /// C++ `Object::getAI() != NULL` residual.
+    ///
+    /// Leftover thing-factory AIUpdate module when the template is loaded;
+    /// else combat/mobile heuristic so infantry/vehicles still gate without INI.
+    pub fn has_ai_update_interface(&self) -> bool {
+        match leftover_stun_template_has_ai_update(&self.template_name) {
+            Some(has) => has,
+            None => {
+                if self.is_kind_of(KindOf::Mine)
+                    || self.is_kind_of(KindOf::Projectile)
+                    || self.is_kind_of(KindOf::Crate)
+                {
+                    return false;
+                }
+                if self.is_kind_of(KindOf::Structure) || self.is_kind_of(KindOf::Immobile) {
+                    return self.can_attack() || self.weapon.is_some();
+                }
+                self.is_mobile()
+            }
+        }
+    }
+
     /// C++ PhysicsBehavior::testStunnedUnitForDestruction residual.
     ///
     /// Called on bounce. Kills when upside-down, off-map, cliff without cliff
-    /// locomotor, or underwater without water locomotor.
+    /// locomotor, or underwater without water locomotor. Cliff/water kills
+    /// require AIUpdateInterface (C++ PhysicsUpdate.cpp:1777-1779).
     pub fn test_stunned_unit_for_destruction(&mut self) -> bool {
         if !self.is_shock_stunned() || self.status.destroyed {
             return false;
@@ -978,6 +1001,10 @@ impl Object {
         let pos = self.get_position();
         if crate::game_logic::host_deliver_payload::is_off_map_default_residual(pos) {
             return self.kill_from_stun_destruction();
+        }
+        // C++ AIUpdateInterface *aiInt = obj->getAI(); if (!aiInt) return;
+        if !self.has_ai_update_interface() {
+            return false;
         }
         // C++ isCliffCell && !hasLocomotorForSurface(CLIFF).
         if self.cell_is_cliff && !self.has_locomotor_for_surface(LOCO_SURFACE_CLIFF) {
@@ -1197,6 +1224,8 @@ impl Object {
 
     /// C++ appearance-specific approach brake (not dest=0 `dist/dt` snap).
     ///
+    /// - Wings: clear IS_BRAKING then floor to minSpeed via Other
+    ///   (`Locomotor.cpp:1046-1050`, `:1859-1860`, `:2368-2374`).
     /// - Legs/climber/other/hover/thrust: `calcSlowDownDist` → minSpeed, no IS_BRAKING
     ///   (`Locomotor.cpp:1648-1653`, `:2368-2374`). Only treads/wheels set the pose cheat.
     /// - Treads: `(actual/1.5)*(actual/braking)` + squared `braking_factor`.
@@ -1214,21 +1243,19 @@ impl Object {
         let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
 
         if matches!(self.loco_appearance, LocomotorAppearance::Wings) {
+            // C++ Locomotor.cpp:1046-1050 clears IS_BRAKING for LOCO_WINGS,
+            // then moveTowardsPositionWings delegates to Other which still
+            // floors to minSpeed (Locomotor.cpp:2368-2374).
             self.is_braking = false;
-            return desired_speed;
         }
         if self.no_slow_down_as_approaching_dest {
             return desired_speed;
         }
 
         let braking = self.braking.max(1.0e-3);
-        // C++ Locomotor.cpp:941-946 — far from dest clears IS_BRAKING.
-        let max_speed = self.effective_max_speed();
-        let dist_to_stop = (max_speed / braking) * max_speed / 2.0;
-        if on_path_dist > cell && on_path_dist > dist_to_stop {
-            self.is_braking = false;
-            self.braking_factor = 1.0;
-        }
+        // Far-from-goal IS_BRAKING clear (Locomotor.cpp:941-946) lives in
+        // locoUpdate *before* the 2× path-raise. Do not repeat it here on the
+        // already-raised on_path or the latch is killed the same frame.
         let mut goal_speed = desired_speed;
 
         match self.loco_appearance {
@@ -1301,7 +1328,7 @@ impl Object {
                 }
             }
             _ => {
-                // Legs / climber / hover / other / thrust: desired = minSpeed.
+                // Legs / climber / hover / other / thrust / wings: desired = minSpeed.
                 // C++ never sets IS_BRAKING here (Locomotor.cpp:1648-1653, 2368-2374).
                 let floor = self.min_speed.max(0.0);
                 let slow = crate::game_logic::calc_slow_down_dist(actual_speed, floor, braking);
@@ -1311,6 +1338,32 @@ impl Object {
             }
         }
         goal_speed
+    }
+
+    /// C++ `locoUpdate_moveTowardsPosition` (Locomotor.cpp:980-992): one raise.
+    /// Latch `IS_BRAKING` when Euclidean 2D exceeds 2× remaining path, then raise.
+    pub fn raise_on_path_dist_to_goal(&mut self, dist_2d: f32, on_path_dist: f32) -> f32 {
+        if dist_2d > on_path_dist {
+            let projectile = self.is_kind_of(KindOf::Projectile)
+                || self.object_type == ObjectType::Projectile;
+            if !projectile && dist_2d > 2.0 * on_path_dist {
+                self.is_braking = true;
+            }
+            dist_2d
+        } else {
+            on_path_dist
+        }
+    }
+
+    /// C++ `moveTowardsPositionWheels` (Locomotor.cpp:1283-1286): floor is
+    /// damage-condition `maxSpeed/4`, not the already-reduced desiredSpeed.
+    pub fn wheeled_turn_speed_floor(&self) -> f32 {
+        let mut turn_speed = self.min_turn_speed;
+        let max_speed = self.effective_max_speed();
+        if turn_speed < max_speed / 4.0 {
+            turn_speed = max_speed / 4.0;
+        }
+        turn_speed
     }
 
     /// C++ braking pose cheat (`Locomotor.cpp:1092-1138`): snap XY (3D for
@@ -1355,4 +1408,22 @@ impl Object {
             )
         }
     }
+}
+
+/// C++ leftover `get_ai_update_interface().is_some()` via thing-factory modules.
+fn leftover_stun_template_has_ai_update(template_name: &str) -> Option<bool> {
+    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
+    let factory = guard.as_ref()?;
+    let tmpl = factory.find_template(template_name, false)?;
+    Some(
+        tmpl.get_behavior_module_info()
+            .iter()
+            .any(|entry| leftover_stun_module_is_ai_update(entry.name.as_str())),
+    )
+}
+
+fn leftover_stun_module_is_ai_update(name: &str) -> bool {
+    name.eq_ignore_ascii_case("AIUpdateInterface")
+        || name.eq_ignore_ascii_case("AIUpdate")
+        || name.to_ascii_lowercase().ends_with("aiupdate")
 }

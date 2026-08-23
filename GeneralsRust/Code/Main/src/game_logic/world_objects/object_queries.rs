@@ -1045,6 +1045,29 @@ impl GameLogic {
                 crate::game_logic::ContainAdmission::Unsupported => return false,
             }
 
+            // Leftover OpenContain::is_valid_container_for KindOf algebra.
+            // Forbid HUGE_VEHICLE rejects Overlord/Helix without fail-closing
+            // infantry / ordinary vehicle Enter.
+            if !target
+                .thing
+                .template
+                .contain_module
+                .leftover_kind_masks_admit(unit.kind_of_cpp_mask())
+            {
+                return false;
+            }
+            if target.is_combat_chinook_style_container()
+                && !crate::game_logic::host_combat_chinook::combat_chinook_allows_rider(
+                    unit.is_kind_of(KindOf::Infantry),
+                    unit.is_kind_of(KindOf::Vehicle),
+                    unit.is_kind_of(KindOf::Aircraft),
+                    unit.is_kind_of(KindOf::HugeVehicle),
+                )
+            {
+                return false;
+            }
+
+
             // C++ ActionManager.cpp:656-675: a different player may Enter a
             // non-faction container when every occupant is KINDOF_STEALTH_GARRISON.
             // Mixed / regular occupants and faction structures still reject.

@@ -273,6 +273,12 @@ impl GameLogic {
                     let exit_at = obj.contained_by.unwrap_or(event.id);
                     let _ = self.tunnel_network.record_exit(player_id, event.id, exit_at);
                 }
+                // C++ CaveContain::removeFromContain (CaveContain.cpp:54-83) on
+                // occupant death: tracker remove then onRemoving (LastEmpty).
+                if self.cave_system.index_holding_unit(event.id).is_some() {
+                    let exit_at = obj.contained_by.unwrap_or(event.id);
+                    let _ = self.exit_cave_unit(event.id, exit_at);
+                }
                 self.host_radar_remove_object(event.id);
                 crate::game_logic::host_destroy_log::record(event.id);
                 // Wave 681: mid-frame GameWorld Destroy while coupled shadow tick is live.

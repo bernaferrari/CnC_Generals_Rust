@@ -29,6 +29,9 @@ impl Object {
         // Mid delay residual (average of 15–30).
         data.begin(current_frame, 22);
         self.structure_collapse_data = Some(data);
+        if let Some(bfx) = self.bone_fx_damage.as_mut() {
+            bfx.stop_all_bone_fx();
+        }
         self.selected = false;
         self.status.selected = false;
         self.set_ai_state(crate::game_logic::AIState::Idle);
@@ -145,6 +148,9 @@ impl Object {
         }
         data.begin(current_frame, dx, dz, 0);
         self.structure_topple_data = Some(data);
+        if let Some(bfx) = self.bone_fx_damage.as_mut() {
+            bfx.stop_all_bone_fx();
+        }
         // C++ marks AI dead and deselects while building is still "alive" for fall.
         self.selected = false;
         self.status.selected = false;
@@ -551,7 +557,10 @@ impl Object {
         let Some(fx) = self.fx_list_die.as_mut() else {
             return;
         };
-        let hits = fx.collect_applicable(&upgrades, death_type);
+        let leftover_vet =
+            crate::game_logic::host_fx_list_die::leftover_veterancy_from_host(self.experience.level);
+        let leftover_status = self.object_status_bits;
+        let hits = fx.collect_applicable_mux(&upgrades, death_type, leftover_vet, leftover_status);
         for (i, (f, a)) in hits.into_iter().enumerate() {
             if i == 0 {
                 if self.pending_death_fx.is_none() {

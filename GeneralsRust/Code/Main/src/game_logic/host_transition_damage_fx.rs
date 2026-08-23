@@ -12,9 +12,9 @@
 //! - Template peels for DamagedFXList / SoundOnDamaged / VoiceFear
 //!
 //! Fail-closed:
-//! - Bone-local offsets stored; drawable bone lookup is identity residual
+//! - Bone-local offsets resolved via leftover pristine bones when present
 //! - Particle IDs tracked so previous-state systems are destroyed
-//! - Not full DamageTypeFlags restriction matrix
+//! - Leftover DamageFXTypes / DamageOCLTypes / DamageParticleTypes gate play
 
 use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
 use crate::game_logic::ObjectId;
@@ -25,7 +25,72 @@ use std::collections::HashMap;
 /// C++ BODYDAMAGETYPE_COUNT residual (Pristine/Damaged/ReallyDamaged/Rubble).
 pub const TRANSITION_DAMAGE_FX_SLOTS: usize = 4;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+fn default_leftover_damage_type_flags() -> u64 {
+    gamelogic::damage::DAMAGE_TYPE_FLAGS_ALL.bits()
+}
+
+fn leftover_damage_type_flags(bits: u64) -> gamelogic::damage::DamageTypeFlags {
+    gamelogic::damage::DamageTypeFlags::from_bits_truncate(bits)
+}
+
+/// C++ `lastDamageInfo == NULL || getDamageTypeFlag(mask, lastDamage)`.
+pub fn leftover_should_play_for_damage_type(
+    mask_bits: u64,
+    last_damage: Option<gamelogic::damage::DamageType>,
+) -> bool {
+    match last_damage {
+        Some(info) => {
+            gamelogic::damage::get_damage_type_flag(leftover_damage_type_flags(mask_bits), info)
+        }
+        None => true,
+    }
+}
+
+/// Leftover `parse_damage_type_flags` (starts empty; ALL/NONE/+/- names).
+fn parse_leftover_damage_type_flags(raw: &str) -> Option<u64> {
+    use std::str::FromStr;
+    let tokens: Vec<&str> = raw
+        .split(|c: char| c == ',' || c.is_whitespace())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
+    if tokens.is_empty() {
+        return None;
+    }
+    let mut flags = gamelogic::damage::DamageTypeFlags::empty();
+    for token in tokens {
+        for entry in token.split(',').map(str::trim).filter(|t| !t.is_empty()) {
+            if entry.eq_ignore_ascii_case("ALL") {
+                flags = gamelogic::damage::DamageTypeFlags::all_flags();
+                continue;
+            }
+            if entry.eq_ignore_ascii_case("NONE") {
+                flags = gamelogic::damage::DamageTypeFlags::empty();
+                continue;
+            }
+            let (remove, name) = if let Some(stripped) = entry.strip_prefix('-') {
+                (true, stripped.trim())
+            } else if let Some(stripped) = entry.strip_prefix('+') {
+                (false, stripped.trim())
+            } else {
+                (false, entry)
+            };
+            if let Ok(damage_type) = gamelogic::damage::DamageType::from_str(name) {
+                let flag = gamelogic::damage::DamageTypeFlags::from_bits_truncate(
+                    1 << damage_type as u64,
+                );
+                if remove {
+                    flags.remove(flag);
+                } else {
+                    flags.insert(flag);
+                }
+            }
+        }
+    }
+    Some(flags.bits())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostTransitionDamageFxData {
     /// First authored FXList residual keyed by body state ordinal (0..3).
     pub fx_for_state: [Option<String>; TRANSITION_DAMAGE_FX_SLOTS],
@@ -44,6 +109,32 @@ pub struct HostTransitionDamageFxData {
     /// Live attached combat-particle ids per body state.
     #[serde(default)]
     pub attached_ids: [Vec<u32>; TRANSITION_DAMAGE_FX_SLOTS],
+    /// C++ `m_damageFXTypes` leftover mask (ALL default).
+    #[serde(default = "default_leftover_damage_type_flags")]
+    pub damage_fx_types: u64,
+    /// C++ `m_damageOCLTypes` leftover mask (ALL default).
+    #[serde(default = "default_leftover_damage_type_flags")]
+    pub damage_ocl_types: u64,
+    /// C++ `m_damageParticleTypes` leftover mask (ALL default).
+    #[serde(default = "default_leftover_damage_type_flags")]
+    pub damage_particle_types: u64,
+}
+
+impl Default for HostTransitionDamageFxData {
+    fn default() -> Self {
+        Self {
+            fx_for_state: Default::default(),
+            audio_for_state: Default::default(),
+            enabled: false,
+            fx_lists_for_state: Default::default(),
+            ocl_for_state: Default::default(),
+            particles_for_state: Default::default(),
+            attached_ids: Default::default(),
+            damage_fx_types: default_leftover_damage_type_flags(),
+            damage_ocl_types: default_leftover_damage_type_flags(),
+            damage_particle_types: default_leftover_damage_type_flags(),
+        }
+    }
 }
 
 /// C++ `FXDamageParticleSystemInfo` residual.
@@ -173,7 +264,16 @@ pub fn transition_event(
     old_state: HostBodyDamageType,
     new_state: HostBodyDamageType,
 ) -> Option<HostTransitionDamageFxEvent> {
-    on_body_damage_state_change(data, old_state, new_state).and_then(|ev| {
+    transition_event_for_damage(data, old_state, new_state, None)
+}
+
+pub fn transition_event_for_damage(
+    data: &HostTransitionDamageFxData,
+    old_state: HostBodyDamageType,
+    new_state: HostBodyDamageType,
+    last_damage: Option<gamelogic::damage::DamageType>,
+) -> Option<HostTransitionDamageFxEvent> {
+    on_body_damage_state_change_for_damage(data, old_state, new_state, last_damage).and_then(|ev| {
         if ev.fx_name.is_none()
             && ev.audio_name.is_none()
             && ev.extra_fx_names.is_empty()
@@ -194,17 +294,41 @@ pub fn on_body_damage_state_change(
     old_state: HostBodyDamageType,
     new_state: HostBodyDamageType,
 ) -> Option<HostTransitionDamageFxEvent> {
+    on_body_damage_state_change_for_damage(data, old_state, new_state, None)
+}
+
+pub fn on_body_damage_state_change_for_damage(
+    data: &HostTransitionDamageFxData,
+    old_state: HostBodyDamageType,
+    new_state: HostBodyDamageType,
+    last_damage: Option<gamelogic::damage::DamageType>,
+) -> Option<HostTransitionDamageFxEvent> {
     if !data.enabled || old_state == new_state {
         return None;
     }
     let worse = is_condition_worse(new_state, old_state);
     let idx = new_state.ordinal() as usize;
+    let play_fx = leftover_should_play_for_damage_type(data.damage_fx_types, last_damage);
+    let play_ocl = leftover_should_play_for_damage_type(data.damage_ocl_types, last_damage);
+    let play_psys = leftover_should_play_for_damage_type(data.damage_particle_types, last_damage);
     let (mut fx_lists, audio, ocl_names, particles) = if worse && idx < TRANSITION_DAMAGE_FX_SLOTS {
         (
-            authored_fx_lists_for_state(data, idx),
+            if play_fx {
+                authored_fx_lists_for_state(data, idx)
+            } else {
+                Vec::new()
+            },
             data.audio_for_state[idx].clone(),
-            data.ocl_for_state[idx].clone(),
-            data.particles_for_state[idx].clone(),
+            if play_ocl {
+                data.ocl_for_state[idx].clone()
+            } else {
+                Vec::new()
+            },
+            if play_psys {
+                data.particles_for_state[idx].clone()
+            } else {
+                Vec::new()
+            },
         )
     } else {
         (Vec::new(), None, Vec::new(), Vec::new())
@@ -351,6 +475,21 @@ fn overlay_authored_transition_slots(data: &mut HostTransitionDamageFxData, name
                 data.ocl_for_state[idx] = parsed;
             }
         }
+        if let Some(raw) = module.attribute("DamageFXTypes") {
+            if let Some(bits) = parse_leftover_damage_type_flags(raw) {
+                data.damage_fx_types = bits;
+            }
+        }
+        if let Some(raw) = module.attribute("DamageOCLTypes") {
+            if let Some(bits) = parse_leftover_damage_type_flags(raw) {
+                data.damage_ocl_types = bits;
+            }
+        }
+        if let Some(raw) = module.attribute("DamageParticleTypes") {
+            if let Some(bits) = parse_leftover_damage_type_flags(raw) {
+                data.damage_particle_types = bits;
+            }
+        }
     }
 }
 
@@ -482,7 +621,133 @@ pub fn parse_transition_particle_attr(raw: &str) -> Option<HostTransitionParticl
     })
 }
 
-/// C++ createParticleSystem + attachToObject for DamagedParticleSystemN.
+/// Leftover `TransitionDamageFX::get_local_effect_pos` (pristine bone or loc).
+fn leftover_local_effect_pos(
+    particle: &HostTransitionParticle,
+    drawable: Option<&gamelogic::object::drawable::Drawable>,
+) -> gamelogic::common::Coord3D {
+    let loc = gamelogic::common::Coord3D::new(particle.loc[0], particle.loc[1], particle.loc[2]);
+    let Some(bone) = particle.bone.as_deref() else {
+        return loc;
+    };
+    let Some(drawable) = drawable else {
+        return loc;
+    };
+    if !particle.random_bone {
+        let positions = drawable.get_pristine_bone_positions(bone, 0, 1);
+        if let Some(pos) = positions.first() {
+            return *pos;
+        }
+        return loc;
+    }
+    const MAX_BONES: usize = 32;
+    let positions = drawable.get_pristine_bone_positions(bone, 1, MAX_BONES);
+    if positions.is_empty() {
+        return loc;
+    }
+    let pick = gamelogic::common::game_logic_random_value(0, positions.len() as u32 - 1) as usize;
+    positions[pick]
+}
+
+fn leftover_to_host_local(pos: gamelogic::common::Coord3D) -> glam::Vec3 {
+    glam::Vec3::new(pos.x, pos.z, pos.y)
+}
+
+fn leftover_local_effect_pos_live(
+    particle: &HostTransitionParticle,
+    drawable: Option<&gamelogic::object::drawable::Drawable>,
+    model: &str,
+    scale: f32,
+) -> gamelogic::common::Coord3D {
+    if drawable.is_some() {
+        return leftover_local_effect_pos(particle, drawable);
+    }
+    let loc = gamelogic::common::Coord3D::new(particle.loc[0], particle.loc[1], particle.loc[2]);
+    let Some(bone) = particle.bone.as_deref() else {
+        return loc;
+    };
+    if model.is_empty() {
+        return loc;
+    }
+    if !particle.random_bone {
+        return gamelogic::object::draw::lookup_pristine_bone_translation(model, scale, bone)
+            .unwrap_or(loc);
+    }
+    let mut positions = Vec::new();
+    for i in 1..=32 {
+        let name = format!("{bone}{i:02}");
+        match gamelogic::object::draw::lookup_pristine_bone_translation(model, scale, &name) {
+            Some(pos) => positions.push(pos),
+            None => break,
+        }
+    }
+    if positions.is_empty() {
+        return loc;
+    }
+    let pick = gamelogic::common::game_logic_random_value(0, positions.len() as u32 - 1) as usize;
+    positions[pick]
+}
+
+/// Live-host pose: leftover drawable bones, else model/scale pristine lookup.
+pub fn spawn_transition_particles_at_pose(
+    registry: &mut crate::game_logic::combat_particles::CombatParticleRegistry,
+    particles: &[HostTransitionParticle],
+    position: glam::Vec3,
+    yaw: f32,
+    model: &str,
+    scale: f32,
+    frame: u32,
+    owner: crate::game_logic::ObjectId,
+) -> Vec<u32> {
+    let leftover_owner = gamelogic::helpers::TheGameLogic::find_object_by_id(owner.0);
+    let leftover_guard = leftover_owner.as_ref().and_then(|h| h.read().ok());
+    let leftover_yaw = leftover_guard
+        .as_ref()
+        .map(|obj| obj.get_orientation())
+        .unwrap_or(yaw);
+    let mut ids = Vec::new();
+    for p in particles {
+        if p.name.is_empty() || p.name.eq_ignore_ascii_case("none") {
+            continue;
+        }
+        let leftover_local = leftover_local_effect_pos_live(p, None, model, scale);
+        let host_local = leftover_to_host_local(leftover_local);
+        if let Some(id) = registry.attach_named_to_object_local(
+            owner,
+            position,
+            leftover_yaw,
+            host_local,
+            frame,
+            &p.name,
+            crate::game_logic::combat_particles::CombatParticleKind::DeathSmoke,
+            None,
+        ) {
+            ids.push(id);
+            continue;
+        }
+        let (sin, cos) = leftover_yaw.sin_cos();
+        let world = glam::Vec3::new(
+            position.x + host_local.x * cos - host_local.z * sin,
+            position.y + host_local.y,
+            position.z + host_local.x * sin + host_local.z * cos,
+        );
+        let id = registry.spawn(
+            crate::game_logic::combat_particles::CombatParticleKind::DeathSmoke,
+            world,
+            frame,
+            Some(owner),
+            None,
+        );
+        if let Some(entry) = registry.get_mut(id) {
+            entry.template_name = p.name.clone();
+            entry.attach_offset = host_local;
+        }
+        ids.push(id);
+    }
+    ids
+}
+
+/// C++ createParticleSystem + setPosition(local) + attachToObject.
 pub fn spawn_transition_particles(
     registry: &mut crate::game_logic::combat_particles::CombatParticleRegistry,
     particles: &[HostTransitionParticle],
@@ -490,25 +755,7 @@ pub fn spawn_transition_particles(
     frame: u32,
     owner: crate::game_logic::ObjectId,
 ) -> Vec<u32> {
-    let mut ids = Vec::new();
-    for p in particles {
-        if p.name.is_empty() || p.name.eq_ignore_ascii_case("none") {
-            continue;
-        }
-        let loc = glam::Vec3::new(position.x + p.loc[0], position.y + p.loc[1], position.z + p.loc[2]);
-        let id = registry.spawn(
-            crate::game_logic::combat_particles::CombatParticleKind::DeathSmoke,
-            loc,
-            frame,
-            Some(owner),
-            None,
-        );
-        if let Some(entry) = registry.get_mut(id) {
-            entry.template_name = p.name.clone();
-        }
-        ids.push(id);
-    }
-    ids
+    spawn_transition_particles_at_pose(registry, particles, position, 0.0, "", 1.0, frame, owner)
 }
 
 /// C++ `ActiveBody.cpp` `#define YELLOW_DAMAGE_PERCENT (0.25f)`.
@@ -1007,5 +1254,70 @@ mod tests {
         assert!(!voice_fear_should_play(20.0, 10.0, 100.0, 0));
         assert!(!voice_fear_should_play(80.0, 40.0, 100.0, 0));
         assert!(!voice_fear_should_play(40.0, 0.0, 100.0, 0));
+    }
+
+    #[test]
+    fn leftover_damage_fx_types_gate_fx_not_ocl() {
+        let mut d = HostTransitionDamageFxData::vehicle_residual();
+        let damaged = HostBodyDamageType::Damaged.ordinal() as usize;
+        d.fx_lists_for_state[damaged] = vec!["FX_AuthoredDamaged".into()];
+        d.ocl_for_state[damaged] = vec!["OCL_AuthoredDebris".into()];
+        d.particles_for_state[damaged] = vec![HostTransitionParticle {
+            name: "BuildingDamageSmoke".into(),
+            bone: Some("Smoke01".into()),
+            loc: [0.0, 0.0, 8.0],
+            random_bone: false,
+        }];
+        d.damage_fx_types = parse_leftover_damage_type_flags("FLAME").expect("flame mask");
+        d.damage_ocl_types = default_leftover_damage_type_flags();
+        d.damage_particle_types = parse_leftover_damage_type_flags("FLAME").expect("flame mask");
+        let explosion = transition_event_for_damage(
+            &d,
+            HostBodyDamageType::Pristine,
+            HostBodyDamageType::Damaged,
+            Some(gamelogic::damage::DamageType::Explosion),
+        )
+        .expect("ocl still plays");
+        assert!(explosion.fx_name.is_none());
+        assert!(explosion.particles.is_empty());
+        assert_eq!(explosion.ocl_names, vec!["OCL_AuthoredDebris".to_string()]);
+        let flame = transition_event_for_damage(
+            &d,
+            HostBodyDamageType::Pristine,
+            HostBodyDamageType::Damaged,
+            Some(gamelogic::damage::DamageType::Flame),
+        )
+        .expect("flame plays fx");
+        assert_eq!(flame.fx_name.as_deref(), Some("FX_AuthoredDamaged"));
+        assert_eq!(flame.particles.len(), 1);
+        assert_eq!(flame.ocl_names, vec!["OCL_AuthoredDebris".to_string()]);
+    }
+
+    #[test]
+    fn leftover_loc_swaps_z_up_onto_host_y_up() {
+        let p = HostTransitionParticle {
+            name: "BuildingDamageSmoke".into(),
+            bone: None,
+            loc: [1.0, 2.0, 8.0],
+            random_bone: false,
+        };
+        let leftover = leftover_local_effect_pos(&p, None);
+        assert_eq!(leftover.x, 1.0);
+        assert_eq!(leftover.y, 2.0);
+        assert_eq!(leftover.z, 8.0);
+        let host = leftover_to_host_local(leftover);
+        assert_eq!(host, glam::Vec3::new(1.0, 8.0, 2.0));
+        let mut registry = crate::game_logic::combat_particles::CombatParticleRegistry::new();
+        let ids = spawn_transition_particles(
+            &mut registry,
+            &[p],
+            glam::Vec3::new(10.0, 0.0, 4.0),
+            1,
+            crate::game_logic::ObjectId(7),
+        );
+        assert_eq!(ids.len(), 1);
+        let entry = registry.get(ids[0]).expect("spawned");
+        assert_eq!(entry.attach_offset, glam::Vec3::new(1.0, 8.0, 2.0));
+        assert!((entry.position - glam::Vec3::new(11.0, 8.0, 6.0)).length() < 0.01);
     }
 }

@@ -691,6 +691,11 @@ fn context_mouse_cursor_residual() {
         "C++ SelectionXlat posts MSG_MOUSEOVER_* even when the cursor icon is unchanged"
     );
     assert!(
+        body.contains("host_recorder_is_playback")
+            && body.contains("lookat_has_mouse_moved_recently"),
+        "replay hover must keep SELECTING/ARROW until the viewer moves"
+    );
+    assert!(
         src.contains("\"AttackObj\"")
             && src.contains("\"Build\"")
             && src.contains("\"InvalidBuild\"")
@@ -758,9 +763,12 @@ fn create_mouseover_hint_sets_cursor_tooltip_for_named_object_under_cursor() {
 fn auto_dozer_structure_place_residual() {
     let src = crate::cnc_game_engine::ENGINE_SRC;
     assert!(
-        src.contains("fn find_nearest_friendly_dozer")
-            && src.contains("Select a dozer or worker to build"),
+        src.contains("fn find_nearest_friendly_dozer"),
         "structure place must auto-pick nearest dozer residual"
+    );
+    assert!(
+        !src.contains("Select a dozer or worker to build"),
+        "hq-8955d: no-builder place must not invent a HUD toast"
     );
     let start = src.find("fn place_structure_from_ui").expect("place");
     let end = src[start + 1..]
@@ -1193,9 +1201,13 @@ fn wall_line_drag_placement_residual() {
     assert!(
         src.contains("fn is_wall_structure_template")
             && src.contains("fn place_wall_line_from_ui")
-            && src.contains("DozerConstructLine")
-            && src.contains("Wall line ordered"),
+            && src.contains("DozerConstructLine"),
         "wall/fence drag must issue DozerConstructLine residual"
+    );
+    assert!(
+        !src.contains("Wall line ordered")
+            && !src.contains("Select a dozer or worker to build wall"),
+        "hq-8955d: wall place/success must not invent HUD toasts"
     );
 }
 
@@ -1240,9 +1252,12 @@ fn delete_cancel_production_and_combat_drop_residual() {
     let src = crate::cnc_game_engine::ENGINE_SRC;
     assert!(
         src.contains("fn cancel_selected_production_queue_head")
-            && src.contains("Canceled production")
             && src.contains("NamedKey::Delete"),
         "Delete must cancel production queue head residual"
+    );
+    assert!(
+        !src.contains("Canceled production"),
+        "hq-8955d: Delete cancel must not invent a HUD toast"
     );
     assert!(
         src.contains("PendingMapCommand::CombatDrop")

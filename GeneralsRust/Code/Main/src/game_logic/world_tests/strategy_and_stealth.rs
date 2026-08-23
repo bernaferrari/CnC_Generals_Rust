@@ -243,6 +243,174 @@ fn camera_mod_freeze_time_marks_simulation_as_frozen() {
 }
 
 #[test]
+fn camera_mod_freeze_time_and_finished_include_rotate_zoom_pitch() {
+    let mut game_logic = GameLogic::new();
+    game_logic.scripts_loaded = true;
+
+    game_logic.mission_scripts.push_camera_mod_freeze_time();
+    game_logic.evaluate_and_execute_scripts(0.0);
+    assert!(
+        !game_logic.is_script_camera_time_frozen(),
+        "freeze time should not freeze sim until rotate/zoom/pitch starts"
+    );
+    assert!(game_logic.mission_scripts.is_camera_movement_finished());
+
+    game_logic
+        .mission_scripts
+        .push_camera_rotate(CameraRotateRequest {
+            rotations: 0.5,
+            duration_seconds: 1.0,
+            ease_in_seconds: 0.0,
+            ease_out_seconds: 0.0,
+        });
+    game_logic.evaluate_and_execute_scripts(0.0);
+    assert!(
+        game_logic.is_script_camera_time_frozen(),
+        "FREEZE_TIME + ROTATE_CAMERA must freeze sim"
+    );
+    assert!(
+        !game_logic.mission_scripts.is_camera_movement_finished(),
+        "CAMERA_MOVEMENT_FINISHED must be false during rotate"
+    );
+
+    for _ in 0..40 {
+        game_logic.update_script_camera(1.0 / 30.0);
+    }
+    assert!(
+        !game_logic.is_script_camera_time_frozen(),
+        "freeze must clear when rotate finishes"
+    );
+    assert!(game_logic.mission_scripts.is_camera_movement_finished());
+
+    game_logic
+        .mission_scripts
+        .push_camera_zoom(CameraZoomRequest {
+            zoom: 1.1,
+            duration_seconds: 0.5,
+            ease_in_seconds: 0.0,
+            ease_out_seconds: 0.0,
+        });
+    game_logic.evaluate_and_execute_scripts(0.0);
+    assert!(
+        !game_logic.mission_scripts.is_camera_movement_finished(),
+        "CAMERA_MOVEMENT_FINISHED must be false during zoom"
+    );
+    for _ in 0..20 {
+        game_logic.update_script_camera(1.0 / 30.0);
+    }
+    assert!(game_logic.mission_scripts.is_camera_movement_finished());
+}
+
+#[test]
+fn camera_look_toward_cancels_in_flight_move() {
+    let mut game_logic = GameLogic::new();
+    game_logic.scripts_loaded = true;
+
+    game_logic
+        .mission_scripts
+        .push_camera_move_to(CameraMoveToRequest {
+            position: Vec3::new(200.0, 0.0, 120.0),
+            seconds: 4.0,
+            camera_stutter_seconds: 0.0,
+            ease_in_seconds: 0.0,
+            ease_out_seconds: 0.0,
+        });
+    game_logic.evaluate_and_execute_scripts(0.0);
+    assert!(game_logic.script_camera_move_to_target().is_some());
+
+    game_logic
+        .mission_scripts
+        .push_camera_look_toward_waypoint(CameraLookTowardWaypointRequest {
+            position: Vec3::new(10.0, 0.0, 40.0),
+            duration_seconds: 2.0,
+            ease_in_seconds: 0.0,
+            ease_out_seconds: 0.0,
+            reverse_rotation: false,
+        });
+    game_logic.evaluate_and_execute_scripts(0.0);
+
+    assert!(
+        game_logic.script_camera_move_to_target().is_none(),
+        "LOOK_TOWARD must cancel the in-flight MOVE_CAMERA_TO"
+    );
+    let look = game_logic
+        .peek_pending_camera_look_toward()
+        .cloned()
+        .expect("look toward should remain queued");
+    assert_eq!(look.position, Vec3::new(10.0, 0.0, 40.0));
+    assert!(
+        !game_logic.mission_scripts.is_camera_movement_finished(),
+        "look-toward is a rotate and must keep movement unfinished"
+    );
+
+    game_logic.update_script_camera(1.0 / 30.0);
+    assert!(
+        game_logic.script_camera_move_to_target().is_none(),
+        "update must not revive the cancelled move"
+    );
+    let look = game_logic
+        .peek_pending_camera_look_toward()
+        .cloned()
+        .expect("look toward must not be overwritten by travel look");
+    assert_eq!(look.position, Vec3::new(10.0, 0.0, 40.0));
+}
+
+#[test]
+fn camera_mod_final_zoom_uses_remaining_rotate_time() {
+    let mut game_logic = GameLogic::new();
+    game_logic.scripts_loaded = true;
+
+    game_logic
+        .mission_scripts
+        .push_camera_rotate(CameraRotateRequest {
+            rotations: 0.25,
+            duration_seconds: 3.0,
+            ease_in_seconds: 0.0,
+            ease_out_seconds: 0.0,
+        });
+    game_logic
+        .mission_scripts
+        .push_camera_mod_final_zoom(CameraModFinalZoomRequest {
+            zoom: 0.8,
+            ease_in: 0.0,
+            ease_out: 0.0,
+        });
+    game_logic
+        .mission_scripts
+        .push_camera_mod_final_pitch(CameraModFinalPitchRequest {
+            pitch: 1.1,
+            ease_in: 0.0,
+            ease_out: 0.0,
+        });
+    game_logic.evaluate_and_execute_scripts(0.0);
+
+    let remaining = game_logic.script_camera_remaining_seconds();
+    assert!(
+        (remaining - 3.0).abs() < 0.001,
+        "standalone ROTATE_CAMERA remaining must be the rotate duration, got {remaining}"
+    );
+    let zoom = game_logic
+        .peek_pending_camera_zoom()
+        .cloned()
+        .expect("mod final zoom should ease, not snap");
+    assert!(
+        (zoom.duration_seconds - 3.0).abs() < 0.001,
+        "CAMERA_MOD_SET_FINAL_ZOOM must use remaining rotate time, got {}",
+        zoom.duration_seconds
+    );
+    let pitch = game_logic
+        .peek_pending_camera_pitch()
+        .cloned()
+        .expect("mod final pitch should ease, not snap");
+    assert!(
+        (pitch.duration_seconds - 3.0).abs() < 0.001,
+        "CAMERA_MOD_SET_FINAL_PITCH must use remaining rotate time, got {}",
+        pitch.duration_seconds
+    );
+}
+
+
+#[test]
 fn post_ai_commands_flushed_inside_game_logic() {
     // Structural: AI-phase command flush lives in world_tick/step.rs after update_ai.
     // C++ GameLogic::update drains TheCommandList after TheAI->UPDATE (GameLogic.cpp).
