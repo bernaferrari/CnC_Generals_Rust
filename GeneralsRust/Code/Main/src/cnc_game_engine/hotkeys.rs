@@ -424,9 +424,7 @@ impl CnCGameEngine {
                         },
                     );
                     self.host_process_commands_with_command_sound();
-                    let msg = "Force-attack ground";
-                    self.game_hud.push_info_message(msg);
-                    self.ui_manager.game_hud_mut().push_info_message(msg);
+                    // C++ CommandXlat MSG_DO_FORCE_ATTACK_GROUND is silent.
                 }
             }
             Key::Named(NamedKey::Delete) => {
@@ -703,13 +701,7 @@ impl CnCGameEngine {
             {
                 // Sticky waypoint mode residual (Alt still force-on while held).
                 self.sticky_waypoint_mode = !self.sticky_waypoint_mode;
-                let msg = if self.sticky_waypoint_mode {
-                    "Waypoint mode: ON"
-                } else {
-                    "Waypoint mode: OFF"
-                };
-                self.game_hud.push_info_message(msg);
-                self.ui_manager.game_hud_mut().push_info_message(msg);
+                // C++ CommandXlat MSG_META_BEGIN/END_WAYPOINTS is hold-Alt, silent.
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("q")
@@ -1036,13 +1028,7 @@ impl CnCGameEngine {
                 // Sticky auto-attack residual (Ctrl+Shift+A): RMB move becomes attack-move.
                 // Stored on engine; MouseCommandContext path honors via force AttackMove.
                 self.sticky_auto_attack = !self.sticky_auto_attack;
-                let msg = if self.sticky_auto_attack {
-                    "Auto-attack: ON"
-                } else {
-                    "Auto-attack: OFF"
-                };
-                self.game_hud.push_info_message(msg);
-                self.ui_manager.game_hud_mut().push_info_message(msg);
+                // C++ has no Auto-attack HUD overlay; leftover is silent.
             }
             Key::Named(NamedKey::F9) => {
                 // Retail CommandMap TOGGLE_CONTROL_BAR KEY_F9 residual.
@@ -1212,16 +1198,7 @@ impl CnCGameEngine {
         };
         self.chat_panel.set_local_player_name(&name);
         self.chat_panel.set_target(target);
-        if self.chat_panel.open() {
-            let label = match target {
-                crate::ui::ChatTarget::All => "Chat (All)",
-                crate::ui::ChatTarget::Allies => "Chat (Allies)",
-                crate::ui::ChatTarget::Player(_) => "Chat (Whisper)",
-            };
-            self.game_hud.push_info_message(label);
-            self.ui_manager.game_hud_mut().push_info_message(label);
-            info!("Opened {label}");
-        }
+        let _ = self.chat_panel.open();
     }
 
     pub(super) fn route_key_to_chat_panel(&mut self, key: &Key) -> bool {
@@ -1540,16 +1517,11 @@ impl CnCGameEngine {
         let path = dir.join(format!("screenshot_{stamp}.png"));
         match ww3d_engine::make_screenshot(&path) {
             Ok(()) => {
-                let msg = format!("Screenshot: {}", path.display());
-                self.game_hud.push_info_message(&msg);
-                self.ui_manager.game_hud_mut().push_info_message(&msg);
-                info!("{msg}");
+                // C++ CommandXlat MSG_META_TAKE_SCREENSHOT only takeScreenShot().
+                info!("screenshot written to {}", path.display());
             }
             Err(err) => {
-                let msg = format!("Screenshot failed: {err:?}");
-                self.game_hud.push_info_message(&msg);
-                self.ui_manager.game_hud_mut().push_info_message(&msg);
-                warn!("{msg}");
+                warn!("screenshot failed: {err:?}");
             }
         }
     }
@@ -1558,14 +1530,7 @@ impl CnCGameEngine {
     pub(super) fn toggle_diplomacy_panel_hotkey(&mut self) {
         self.sync_diplomacy_panel_from_world();
         self.diplomacy_panel.toggle();
-        let msg = if self.diplomacy_panel.is_active() {
-            "Diplomacy panel opened"
-        } else {
-            "Diplomacy panel closed"
-        };
-        self.game_hud.push_info_message(msg);
-        self.ui_manager.game_hud_mut().push_info_message(msg);
-        info!("{msg}");
+        // C++ CommandXlat MSG_META_DIPLOMACY only ToggleDiplomacy(FALSE).
     }
 
     pub(super) fn sync_diplomacy_panel_from_world(&mut self) {

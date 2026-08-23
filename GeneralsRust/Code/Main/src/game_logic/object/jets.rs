@@ -446,6 +446,9 @@ impl Object {
     pub fn apply_taxiing_locomotor_set(&mut self) {
         self.jet_ai.allow_air_loco = false;
         self.choose_jet_locomotor_set("SET_TAXIING");
+        // C++ JetOrHeliTaxiState::onEnter setAllowInvalidPosition
+        // (JetAIUpdate.cpp:617) so stall/runway cells skip 3x3 shove.
+        self.set_allow_invalid_position(true);
     }
 
     /// C++ takeoff/airborne `friend_setAllowAirLoco(true)` + NORMAL/SUPERSONIC.
@@ -746,8 +749,9 @@ impl Object {
             self.max_lift = self.jet_ai.takeoff_max_lift;
         }
         self.apply_airborne_locomotor_set();
-        // C++ JetTakeoffOrLandingState::onExit (JetAIUpdate.cpp:886-887).
+        // C++ JetTakeoffOrLandingState::onExit (JetAIUpdate.cpp:886-887, :662-663).
         self.set_precise_z_and_ultra_accurate(false);
+        self.set_allow_invalid_position(false);
         let _ = self.enable_jet_afterburners(false);
         self.jet_ai.taxi_to_takeoff = false;
         self.jet_ai.takeoff_runway_start = None;

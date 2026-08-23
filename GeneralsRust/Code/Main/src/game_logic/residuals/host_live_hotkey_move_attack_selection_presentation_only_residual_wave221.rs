@@ -102,7 +102,7 @@ pub fn honesty_hotkey_move_attack_selection_presentation_only_source() -> bool {
             "Wave 221: selection via presentation-first ui_selected_ids",
         ),
         (
-            "Force-attack ground",
+            "ForceAttackGround",
             "Wave 221: selection via presentation-first ui_selected_ids",
         ),
     ];

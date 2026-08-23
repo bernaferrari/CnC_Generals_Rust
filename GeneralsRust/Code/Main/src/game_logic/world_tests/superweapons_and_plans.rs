@@ -5736,3 +5736,105 @@ fn attack_ground_damages_enemy_near_impact_point() {
         "ground attack should damage units near impact point"
     );
 }
+
+/// C++ BattlePlanUpdate TRANSITIONSTATUS_ACTIVE SearchAndDestroy idle loop.
+#[test]
+fn search_and_destroy_active_queues_and_stops_idle_loop() {
+    use crate::game_logic::host_strategy_center::{
+        HostBattlePlan, BATTLE_PLAN_SEARCH_AND_DESTROY_IDLE_AUDIO,
+    };
+
+    let mut game_logic = GameLogic::new();
+    let mut sc_template = ThingTemplate::new("AmericaStrategyCenter");
+    sc_template
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSStrategyCenter)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(1500.0);
+    game_logic
+        .templates
+        .insert("AmericaStrategyCenter".to_string(), sc_template);
+    if !game_logic.players.contains_key(&0) {
+        game_logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+    }
+
+    let sc_id = game_logic
+        .create_object("AmericaStrategyCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("strategy center");
+    assert!(game_logic.activate_battle_plan(
+        0,
+        HostBattlePlan::SearchAndDestroy,
+        Some(sc_id),
+    ));
+    game_logic.queued_audio_events.clear();
+    advance_battle_plan_door_to_active(&mut game_logic);
+    assert!(
+        game_logic.queued_audio_events.iter().any(|e| {
+            e.event_type == BATTLE_PLAN_SEARCH_AND_DESTROY_IDLE_AUDIO
+                && e.object_id == Some(sc_id)
+                && e.is_looping
+                && !e.stop
+        }),
+        "ACTIVE SearchAndDestroy must start idle loop: {:?}",
+        game_logic.queued_audio_events
+    );
+
+    game_logic.queued_audio_events.clear();
+    assert!(game_logic.activate_battle_plan(0, HostBattlePlan::Bombardment, Some(sc_id),));
+    assert!(
+        game_logic.queued_audio_events.iter().any(|e| {
+            e.event_type == BATTLE_PLAN_SEARCH_AND_DESTROY_IDLE_AUDIO
+                && e.object_id == Some(sc_id)
+                && e.stop
+        }),
+        "leaving SearchAndDestroy must stop idle loop: {:?}",
+        game_logic.queued_audio_events
+    );
+}
+
+/// C++ MissileLauncherBuildingUpdate DOOR_OPEN DoorOpenIdleAudio.
+#[test]
+fn scud_storm_door_open_queues_idle_loop() {
+
+    let mut game_logic = GameLogic::new();
+    let mut t = ThingTemplate::new("GLAScudStorm");
+    t.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(2000.0);
+    game_logic.templates.insert("GLAScudStorm".to_string(), t);
+    ensure_test_player_for_team(&mut game_logic, Team::GLA);
+
+    let id = game_logic
+        .create_object("GLAScudStorm", Team::GLA, Vec3::ZERO)
+        .expect("scud");
+    game_logic.frame = 0;
+    if let Some(o) = game_logic.host_object_mut(id) {
+        o.set_status_under_construction(false);
+        o.construction_percent = 1.0;
+    }
+    game_logic.update_ai(&[id], 1.0 / 30.0);
+    {
+        let o = game_logic.objects.get_mut(&id).expect("scud after tick");
+        let data = o
+            .missile_launcher_building
+            .as_mut()
+            .expect("missile launcher door SM");
+        data.pending_idle_audio = Some("ScudStormIdleLoop".to_string());
+        data.stop_idle_audio = false;
+    }
+    game_logic.queued_audio_events.clear();
+    game_logic.frame = 1;
+    game_logic.update_ai(&[id], 1.0 / 30.0);
+    assert!(
+        game_logic.queued_audio_events.iter().any(|e| {
+            e.event_type == "ScudStormIdleLoop"
+                && e.object_id == Some(id)
+                && e.is_looping
+                && !e.stop
+        }),
+        "DOOR_OPEN must queue ScudStormIdleLoop: {:?}",
+        game_logic.queued_audio_events
+    );
+}

@@ -468,6 +468,27 @@ impl GameLogic {
         true
     }
 
+    /// C++ `BattlePlanUpdate::setStatus` SearchAndDestroy idle loop.
+    /// Play on TRANSITIONSTATUS_ACTIVE; remove when leaving ACTIVE.
+    fn queue_search_and_destroy_idle_audio(&mut self, center_id: ObjectId, stop: bool) {
+        use crate::game_logic::host_strategy_center::BATTLE_PLAN_SEARCH_AND_DESTROY_IDLE_AUDIO;
+        let pos = self
+            .objects
+            .get(&center_id)
+            .map(|o| o.get_position())
+            .unwrap_or(Vec3::ZERO);
+        let mut req = AudioEventRequest::new(BATTLE_PLAN_SEARCH_AND_DESTROY_IDLE_AUDIO)
+            .with_object(center_id)
+            .with_position(pos)
+            .with_priority(170);
+        if stop {
+            req = req.stopping();
+        } else {
+            req = req.looping();
+        }
+        self.queue_audio_event(req);
+    }
+
     /// Tick BattlePlanUpdate pack/unpack door residual (AnimationTime frames).
     ///
     /// Advances OPENING → WAITING_TO_CLOSE (BecameActive → setBattlePlan) and
@@ -538,14 +559,28 @@ impl GameLogic {
                         false, // paralyze only on NONE
                     );
                     self.battle_plans.record_delayed_active_apply();
+                    if plan == crate::game_logic::host_strategy_center::HostBattlePlan::SearchAndDestroy
+                    {
+                        self.queue_search_and_destroy_idle_audio(center_id, false);
+                    }
                 }
                 HostBattlePlanDoorEvent::BeganPacking {
                     center_id,
                     player_id,
                 } => {
                     // C++ setStatus(PACKING) → setBattlePlan(NONE) + paralyzeTroop.
+                    let stop_idle = self
+                        .battle_plans
+                        .door_state_for_center(center_id)
+                        .and_then(|s| s.door_plan)
+                        == Some(
+                            crate::game_logic::host_strategy_center::HostBattlePlan::SearchAndDestroy,
+                        );
                     self.apply_battle_plan_set_battle_plan(player_id, None, Some(center_id), true);
                     self.battle_plans.record_pack_clear();
+                    if stop_idle {
+                        self.queue_search_and_destroy_idle_audio(center_id, true);
+                    }
                 }
                 HostBattlePlanDoorEvent::BeganRecenter { .. } => {
                     // Counter already recorded in begin_door_residual.
@@ -1248,8 +1283,18 @@ impl GameLogic {
                     player_id: pid,
                 } => {
                     // Immediate pack clear + paralyze (setBattlePlan NONE).
+                    let stop_idle = self
+                        .battle_plans
+                        .door_state_for_center(cid)
+                        .and_then(|s| s.door_plan)
+                        == Some(
+                            crate::game_logic::host_strategy_center::HostBattlePlan::SearchAndDestroy,
+                        );
                     self.apply_battle_plan_set_battle_plan(pid, None, Some(cid), true);
                     self.battle_plans.record_pack_clear();
+                    if stop_idle {
+                        self.queue_search_and_destroy_idle_audio(cid, true);
+                    }
                 }
                 HostBattlePlanDoorEvent::BeganRecenter { .. } => {
                     // Counter recorded in begin_door_residual.

@@ -36,6 +36,12 @@ impl GameLogic {
             let mut pending_stump: Option<(String, glam::Vec3, f32, bool)> = None;
             let mut defector_audio: Vec<String> = Vec::new();
             let mut disguise_halfpoint: Option<(glam::Vec3, bool, bool)> = None;
+            let mut missile_idle_audio: Option<(
+                Option<String>,
+                bool,
+                Option<String>,
+                glam::Vec3,
+            )> = None;
             let height_die_terrain = {
                 let (pos, ground, name) = match self.objects.get(&object_id) {
                     Some(o) => (o.get_position(), o.ground_height, o.template_name.clone()),
@@ -170,7 +176,15 @@ impl GameLogic {
                     }
                 }
                 // C++ MissileLauncherBuildingUpdate::update (ready-frame door SM).
-                obj.tick_missile_launcher_building(self.frame);
+                let ml_pos = obj.get_position();
+                let (play, stop) = obj.tick_missile_launcher_building(self.frame);
+                if play.is_some() || stop {
+                    let stop_name = obj
+                        .missile_launcher_building
+                        .as_ref()
+                        .and_then(|d| d.ini.open_idle_audio.clone());
+                    missile_idle_audio = Some((play, stop, stop_name, ml_pos));
+                }
                 // Wave 761: continuous-fire coast + repulsor expire peel under coupled.
                 // Wave 761: CF coast + repulsor peel under coupled.
                 // Wave 765: subdual heal owned by GW when coupled.
@@ -305,6 +319,7 @@ impl GameLogic {
             }
             if let Some(obj) = self.objects.get_mut(&object_id) {
                 obj.poll_slow_death_phase_fx(self.frame);
+                obj.poll_structure_collapse_phase_fx(self.frame);
             }
             self.sync_helicopter_attach_particle(object_id);
             // Wave 777: under coupled shadow, StructureTopple crush sweep is owned by
@@ -535,6 +550,30 @@ impl GameLogic {
                         .with_object(object_id)
                         .with_priority(80),
                 );
+            }
+            if let Some((play, stop, stop_name, pos)) = missile_idle_audio {
+                if let Some(name) = play {
+                    if !name.is_empty() {
+                        self.queue_audio_event(
+                            AudioEventRequest::new(&name)
+                                .with_object(object_id)
+                                .with_position(pos)
+                                .with_priority(160)
+                                .looping(),
+                        );
+                    }
+                }
+                if stop {
+                    if let Some(name) = stop_name.filter(|n| !n.is_empty()) {
+                        self.queue_audio_event(
+                            AudioEventRequest::new(&name)
+                                .with_object(object_id)
+                                .with_position(pos)
+                                .with_priority(160)
+                                .stopping(),
+                        );
+                    }
+                }
             }
             if let Some((pos, gaining, has_victim)) = disguise_halfpoint {
                 use crate::game_logic::host_bomb_truck_disguise::{

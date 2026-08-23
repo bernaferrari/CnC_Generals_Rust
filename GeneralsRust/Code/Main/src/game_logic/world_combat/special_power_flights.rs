@@ -2847,15 +2847,18 @@ impl GameLogic {
         }
 
         // Track assault members (outside + still-contained wounded) for retrieve residual.
+        // Preserve Attack / AttackMove flags from the player's prior order.
         if let Some(crawler) = self.objects.get_mut(&crawler_id) {
             for occ in crawler.occupants.iter() {
                 if !outside_members.contains(&occ.0) {
                     outside_members.push(occ.0);
                 }
             }
-            crawler.assault_transport = Some(HostAssaultTransportState::begin(
+            let prev = crawler.assault_transport.clone();
+            crawler.assault_transport = Some(HostAssaultTransportState::begin_from(
                 target_id.0,
                 outside_members,
+                prev.as_ref(),
             ));
         }
 

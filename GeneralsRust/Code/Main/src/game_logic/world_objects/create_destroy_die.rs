@@ -3071,6 +3071,8 @@ impl GameLogic {
     }
 
     pub(crate) fn mark_object_for_destruction(&mut self, id: ObjectId, killer: Option<Team>) {
+        // C++ AssaultTransportAIUpdate::update isEffectivelyDead → giveFinalOrders.
+        self.assault_transport_give_final_orders(id);
         // C++ AIUpdate dtor / setCurrentVictim(NULL) + turret nuke on death.
         self.drop_jet_targeters_on_attack_exit(id);
         self.stop_move_loop_sound(id);

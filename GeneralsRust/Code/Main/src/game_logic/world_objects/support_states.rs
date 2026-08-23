@@ -451,6 +451,7 @@ impl GameLogic {
             object.set_target(None);
             clear_raising_flag_model(object);
         }
+        self.stop_lotus_prep_sound_loop(object_id);
         self.leftover_sa_set_pack_model(object_id, false, false, false);
         // C++ shouldAbort: aiIdle(CMD_FROM_AI) then onExit. Pack-abort
         // without a replacement order must leave the source Idle.
@@ -468,6 +469,7 @@ impl GameLogic {
             object.set_target(None);
             clear_raising_flag_model(object);
         }
+        self.stop_lotus_prep_sound_loop(object_id);
         self.leftover_sa_set_pack_model(object_id, false, false, false);
         // C++ handlePackingProcessing pack-complete → finishAbility → aiIdle.
         self.set_ai_state_decision_aware(object_id, AIState::Idle);
@@ -482,6 +484,7 @@ impl GameLogic {
             object.set_status_using_ability(false);
             clear_raising_flag_model(object);
         }
+        self.stop_lotus_prep_sound_loop(object_id);
         self.leftover_sa_set_pack_model(object_id, false, false, false);
         self.hero_abilities.clear_capture_flash(object_id);
     }
@@ -722,6 +725,68 @@ impl GameLogic {
         );
     }
 
+    /// C++ `SpecialAbilityUpdate` PackSound / UnpackSound / PrepSoundLoop.
+    fn queue_object_named_audio(
+        &mut self,
+        object_id: ObjectId,
+        name: &str,
+        priority: u8,
+        looping: bool,
+        stop: bool,
+    ) {
+        if name.is_empty() {
+            return;
+        }
+        let mut req = AudioEventRequest::new(name)
+            .with_object(object_id)
+            .with_priority(priority);
+        if stop {
+            req = req.stopping();
+        } else if looping {
+            req = req.looping();
+        }
+        self.queue_audio_event(req);
+    }
+
+    fn queue_hacker_disable_pack_unpack_sound(&mut self, object_id: ObjectId, packing: bool) {
+        let name = if packing {
+            crate::game_logic::host_hacker_disable::HACKER_DISABLE_PACK_SOUND
+        } else {
+            crate::game_logic::host_hacker_disable::HACKER_DISABLE_UNPACK_SOUND
+        };
+        self.queue_object_named_audio(object_id, name, 150, false, false);
+    }
+
+    fn queue_hacker_disable_prep_sound_loop(&mut self, object_id: ObjectId) {
+        self.queue_object_named_audio(
+            object_id,
+            crate::game_logic::host_hacker_disable::HACKER_DISABLE_PREP_SOUND_LOOP,
+            140,
+            true,
+            false,
+        );
+    }
+
+    fn stop_hacker_disable_prep_sound_loop(&mut self, object_id: ObjectId) {
+        self.queue_object_named_audio(
+            object_id,
+            crate::game_logic::host_hacker_disable::HACKER_DISABLE_PREP_SOUND_LOOP,
+            140,
+            false,
+            true,
+        );
+    }
+
+    fn stop_lotus_prep_sound_loop(&mut self, object_id: ObjectId) {
+        self.queue_object_named_audio(
+            object_id,
+            crate::game_logic::host_hero_abilities::LOTUS_PREP_SOUND_LOOP,
+            140,
+            false,
+            true,
+        );
+    }
+
     /// C++ `SpecialAbilityUpdate::startUnpacking` / `startPacking` audio.
     /// Authored PackSound/UnpackSound first; Lotus falls back to retail
     /// `BlackLotusPack` / `BlackLotusUnpack` when the module omitted them.
@@ -830,6 +895,7 @@ impl GameLogic {
         power: crate::game_logic::CapturePowerKind,
         success: bool,
     ) {
+        self.stop_lotus_prep_sound_loop(object_id);
         self.leftover_sa_set_pack_model(object_id, false, true, false);
         self.queue_capture_pack_unpack_sound(object_id, power, true);
         if success {
@@ -978,6 +1044,7 @@ impl GameLogic {
 
 
     pub(crate) fn abort_leftover_sa_channel_on_new_order(&mut self, object_id: ObjectId) {
+        self.stop_lotus_prep_sound_loop(object_id);
         self.leftover_kill_special_objects(object_id);
         self.hero_abilities.take_leftover_channel(object_id);
         self.leftover_sa_set_pack_model(object_id, false, false, false);
@@ -1587,12 +1654,12 @@ impl GameLogic {
         channel.special_object_id = special_object_id;
         self.hero_abilities.set_leftover_channel(object_id, channel);
         if matches!(kind, LeftoverSaKind::StealCash | LeftoverSaKind::DisableVehicle) {
-            self.queue_audio_event(
-                AudioEventRequest::new(
-                    crate::game_logic::host_hero_abilities::LOTUS_PREP_SOUND_LOOP,
-                )
-                .with_object(object_id)
-                .with_priority(140),
+            self.queue_object_named_audio(
+                object_id,
+                crate::game_logic::host_hero_abilities::LOTUS_PREP_SOUND_LOOP,
+                140,
+                true,
+                false,
             );
         }
         true
@@ -1827,6 +1894,7 @@ impl GameLogic {
         pack_ms: u32,
     ) {
         use crate::game_logic::host_hero_abilities::{LeftoverSaChannel, LeftoverSaPhase};
+        self.stop_lotus_prep_sound_loop(object_id);
         self.leftover_kill_special_objects(object_id);
         if pack_ms == 0 {
             self.hero_abilities.take_leftover_channel(object_id);
@@ -2494,6 +2562,13 @@ impl GameLogic {
                 prep_frames,
                 crate::game_logic::host_hero_abilities::LOTUS_CAPTURE_SPECIAL_OBJECT,
             );
+            self.queue_object_named_audio(
+                object_id,
+                crate::game_logic::host_hero_abilities::LOTUS_PREP_SOUND_LOOP,
+                140,
+                true,
+                false,
+            );
         }
         // C++ startPreparation markSpecialPowerTriggered → ScriptEngine TRIGGERED.
         self.notify_script_engine_special_power_event(object_id, &power_type, true, false);
@@ -2508,6 +2583,7 @@ impl GameLogic {
     /// `IS_USING_ABILITY` state in one place so a later command cannot inherit
     /// an old physical channel.
     fn finish_hacker_disable_building_channel(&mut self, object_id: ObjectId) {
+        self.stop_hacker_disable_prep_sound_loop(object_id);
         self.leftover_kill_special_objects(object_id);
         self.pending_special_abilities.remove(&object_id);
         if let Some(object) = self.objects.get_mut(&object_id) {
@@ -2529,6 +2605,7 @@ impl GameLogic {
         target_id: ObjectId,
         pack_time_ms: u32,
     ) {
+        self.stop_hacker_disable_prep_sound_loop(object_id);
         self.leftover_kill_special_objects(object_id);
         let mut finish_now = false;
         let pack_time_ms = self
@@ -2558,6 +2635,9 @@ impl GameLogic {
             }
         } else {
             finish_now = true;
+        }
+        if !finish_now {
+            self.queue_hacker_disable_pack_unpack_sound(object_id, true);
         }
         if finish_now || pack_time_ms == 0 {
             self.finish_hacker_disable_building_channel(object_id);
@@ -2713,6 +2793,7 @@ impl GameLogic {
         self.hero_abilities.record_leftover_infiltration();
         // C++ startPreparation: UNPACKING → FIRING_A (hacker typing / microwave).
         self.leftover_sa_set_pack_model(object_id, false, false, true);
+        self.queue_hacker_disable_prep_sound_loop(object_id);
         let power = metadata.command_power();
         self.notify_script_engine_special_power_event(object_id, &power, true, false);
         let Some(object) = self.objects.get_mut(&object_id) else {
@@ -2941,6 +3022,8 @@ impl GameLogic {
                                 ));
                             object.set_status_using_ability(false);
                             object.set_ai_state(AIState::SpecialAbility);
+                            drop(object);
+                            self.queue_hacker_disable_pack_unpack_sound(object_id, false);
                         }
                     }
 

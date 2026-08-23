@@ -545,6 +545,14 @@ impl AIPlayer {
             dozer_is_repairing: self.dozer_is_repairing,
             last_bridge_repair_time: self.last_bridge_repair_time,
             skillset_selector: self.skillset_selector,
+            cur_front_base_defense: self.cur_front_base_defense,
+            cur_flank_base_defense: self.cur_flank_base_defense,
+            cur_front_left_defense_angle: self.cur_front_left_defense_angle,
+            cur_front_right_defense_angle: self.cur_front_right_defense_angle,
+            cur_left_flank_left_defense_angle: self.cur_left_flank_left_defense_angle,
+            cur_left_flank_right_defense_angle: self.cur_left_flank_right_defense_angle,
+            cur_right_flank_left_defense_angle: self.cur_right_flank_left_defense_angle,
+            cur_right_flank_right_defense_angle: self.cur_right_flank_right_defense_angle,
         }
     }
 
@@ -584,6 +592,14 @@ impl AIPlayer {
         self.dozer_is_repairing = persist.dozer_is_repairing;
         self.last_bridge_repair_time = persist.last_bridge_repair_time;
         self.skillset_selector = persist.skillset_selector;
+        self.cur_front_base_defense = persist.cur_front_base_defense;
+        self.cur_flank_base_defense = persist.cur_flank_base_defense;
+        self.cur_front_left_defense_angle = persist.cur_front_left_defense_angle;
+        self.cur_front_right_defense_angle = persist.cur_front_right_defense_angle;
+        self.cur_left_flank_left_defense_angle = persist.cur_left_flank_left_defense_angle;
+        self.cur_left_flank_right_defense_angle = persist.cur_left_flank_right_defense_angle;
+        self.cur_right_flank_left_defense_angle = persist.cur_right_flank_left_defense_angle;
+        self.cur_right_flank_right_defense_angle = persist.cur_right_flank_right_defense_angle;
     }
 
     pub fn clear_queue_persist(&mut self) {
@@ -599,6 +615,14 @@ impl AIPlayer {
         self.dozer_is_repairing = false;
         self.last_bridge_repair_time = -1.0;
         self.skillset_selector = INVALID_SKILLSET_SELECTION;
+        self.cur_front_base_defense = 0;
+        self.cur_flank_base_defense = 0;
+        self.cur_front_left_defense_angle = 0.0;
+        self.cur_front_right_defense_angle = 0.0;
+        self.cur_left_flank_left_defense_angle = 0.0;
+        self.cur_left_flank_right_defense_angle = 0.0;
+        self.cur_right_flank_left_defense_angle = 0.0;
+        self.cur_right_flank_right_defense_angle = 0.0;
     }
 
     pub fn retain_queue_object_ids(&mut self, valid: &std::collections::HashSet<ObjectId>) {
@@ -3006,9 +3030,23 @@ impl AIPlayer {
         let _ = completed_teams;
     }
 
-    /// Estimate average unit-cost residual for a named host team composition.
-    /// C++ uses (min+max)/2 from TeamPrototype; host work-orders use fixed counts.
+    /// C++ `isPossibleToBuildTeam` unit-cost residual:
+    /// `cost += thingCost * ((minUnits+maxUnits)/2.0f)` then Int-truncate.
     fn estimate_team_unit_cost(&self, game_logic: &GameLogic, team_name: &str) -> u32 {
+        let units = Self::prototype_unit_infos(team_name);
+        if !units.is_empty() {
+            let mut cost: i32 = 0;
+            for (name, min_u, max_u) in units {
+                let unit_cost = game_logic
+                    .templates
+                    .get(&name)
+                    .map(|t| t.build_cost.supplies)
+                    .unwrap_or(0) as i32;
+                // C++: cost += thingCost * ((maxUnits+minUnits)/2.0f);
+                cost += (unit_cost as f32 * ((max_u as f32 + min_u as f32) / 2.0)) as i32;
+            }
+            return cost.max(0) as u32;
+        }
         let orders = self.create_work_orders_for_team(team_name);
         let mut cost = 0u32;
         for order in orders {
@@ -3022,6 +3060,24 @@ impl AIPlayer {
         cost
     }
 
+    /// AIData `TeamResourcesToStart` (`m_teamResourcesToBuild`). Store first,
+    /// leftover `THE_AI`, then the retail 0.1 residual.
+    fn team_resources_to_start_frac() -> f32 {
+        let from_store = game_engine::common::ini::get_ai_data_store()
+            .get_active()
+            .map(|d| d.team_resources_to_build);
+        let leftover = gamelogic::ai::THE_AI.read().ok().and_then(|ai| {
+            ai.get_ai_data()
+                .read()
+                .ok()
+                .map(|d| d.team_resources_to_build)
+        });
+        from_store
+            .or(leftover)
+            .filter(|m| *m > 0.0)
+            .unwrap_or(Self::TEAM_RESOURCES_TO_START)
+    }
+
     /// C++ `isPossibleToBuildTeam` money residual:
     /// `cost *= m_teamResourcesToBuild` then require `money >= cost`.
     fn can_afford_team_start(&self, game_logic: &GameLogic, team_name: &str) -> bool {
@@ -3029,7 +3085,8 @@ impl AIPlayer {
             return false;
         };
         let full = self.estimate_team_unit_cost(game_logic, team_name) as f32;
-        let required = (full * Self::TEAM_RESOURCES_TO_START).ceil() as u32;
+        // C++: `cost *= m_teamResourcesToBuild` (Int *= Real truncates).
+        let required = (full * Self::team_resources_to_start_frac()) as u32;
         player.resources.supplies >= required
     }
 
@@ -4220,12 +4277,13 @@ impl AIPlayer {
             self.placement_rng.next_int(0, (hi.len() as i32) - 1) as usize
         };
         let name = &hi[which.min(hi.len() - 1)];
-        if !self.is_possible_to_build_team(game_logic, name) {
+        // C++ `buildSpecificAITeam(teamProto, false)` — auto pick is low
+        // priority. Work orders come from TeamPrototype min/max split
+        // (optional max-min, then required min including 0), not invented
+        // max-as-required compositions.
+        if !self.build_specific_ai_team(game_logic, name, false) {
             return false;
         }
-        let team_queue = self.create_team_queue(name, current_time);
-        self.team_queue.push_back(team_queue);
-        self.activity_count = self.activity_count.saturating_add(1);
         log::debug!("AI Player {} queued team: {}", self.player_id, name);
         true
     }
@@ -4887,19 +4945,6 @@ impl AIPlayer {
         }
     }
 
-    /// Create team production queue
-    fn create_team_queue(&self, team_name: &str, current_time: f32) -> AITeamQueue {
-        let work_orders = self.create_work_orders_for_team(team_name);
-        let mut team = AITeamQueue::new(
-            team_name.to_string(),
-            work_orders,
-            false,
-            (current_time * LOGIC_FRAMES_PER_SECOND) as u32,
-        );
-        team.execute_actions = Self::prototype_execute_actions_on_create(team_name);
-        Self::bind_inactive_team_handle(&mut team);
-        team
-    }
 
     /// Create work orders for a specific team type.
     ///
@@ -5233,25 +5278,38 @@ impl AIPlayer {
     /// C++ `isPossibleToBuildTeam` factory residual (requireIdleFactory=true):
     /// every unit type has a factory, and at least one factory is idle.
     fn team_factories_ready(&self, game_logic: &GameLogic, team_name: &str) -> bool {
-        let orders = self.create_work_orders_for_team(team_name);
-        if orders.is_empty() {
+        let names = self.team_unit_template_names(game_logic, team_name);
+        if names.is_empty() {
             return false;
         }
         let mut any_idle = false;
-        for order in &orders {
+        for name in &names {
             // Must have some factory that can produce this unit (busy ok for existence).
-            if Self::find_factory_for_unit_ex(game_logic, &order.template_name, self.team, true)
-                .is_none()
-            {
+            if Self::find_factory_for_unit_ex(game_logic, name, self.team, true).is_none() {
                 return false;
             }
-            if Self::find_factory_for_unit_ex(game_logic, &order.template_name, self.team, false)
-                .is_some()
-            {
+            if Self::find_factory_for_unit_ex(game_logic, name, self.team, false).is_some() {
                 any_idle = true;
             }
         }
         any_idle
+    }
+
+    /// Prototype unit templates when present; invented compositions only as
+    /// a fallback for scripted alias names that have no TeamPrototype units.
+    fn team_unit_template_names(&self, game_logic: &GameLogic, team_name: &str) -> Vec<String> {
+        let units = Self::prototype_unit_infos(team_name);
+        if !units.is_empty() {
+            return units
+                .into_iter()
+                .filter(|(name, _, _)| self.unit_template_known(game_logic, name))
+                .map(|(name, _, _)| name)
+                .collect();
+        }
+        self.create_work_orders_for_team(team_name)
+            .into_iter()
+            .map(|order| order.template_name)
+            .collect()
     }
 
     /// Minimum seconds between host AI **attack re-evaluations**.
@@ -5286,7 +5344,7 @@ impl AIPlayer {
     pub const TEAMS_WEALTHY_RATE: f32 = 2.0;
     /// TeamsPoorRate.
     pub const TEAMS_POOR_RATE: f32 = 0.6;
-    /// TeamResourcesToStart fraction residual (documented; full team cost gate unported).
+    /// Retail AIData `TeamResourcesToStart` fallback when leftover AIData is unset.
     pub const TEAM_RESOURCES_TO_START: f32 = 0.1;
 
     /// Evaluate opportunities to attack enemies (strength-threshold + C++-aligned spacing).
@@ -7032,6 +7090,76 @@ impl AIManager {
 mod cpp_parity_tests {
     use super::*;
 
+    fn install_player_team_prototype(
+        leftover_index: i32,
+        team_name: &str,
+        units: &[(i32, i32, &'static str)],
+        priority: i32,
+    ) {
+        use std::sync::{Arc, RwLock};
+        let _ = gamelogic::scripting::engine::initialize_script_engine();
+        if let Ok(guard) = gamelogic::scripting::engine::get_script_engine().read() {
+            if let Some(engine) = guard.as_ref() {
+                let mut or_c = gamelogic::scripting::OrCondition::new();
+                or_c.set_first_and_condition(Some(Box::new(gamelogic::scripting::Condition::new(
+                    gamelogic::scripting::ConditionType::ConditionTrue,
+                ))));
+                let mut script = gamelogic::scripting::Script::new();
+                script.set_name("AlwaysBuild".into());
+                script.condition = Some(Box::new(or_c));
+                let mut list = gamelogic::scripting::ScriptList::new();
+                list.append_script(Box::new(script));
+                let _ = engine
+                    .set_script_list_for_player(leftover_index as usize, Some(Box::new(list)));
+            }
+        }
+        let proto_arc = {
+            let mut tf = gamelogic::team::get_team_factory()
+                .lock()
+                .expect("team factory");
+            let mut proto = gamelogic::team::TeamPrototype::new(team_name.into());
+            proto.set_production_priority(priority);
+            proto.set_production_condition("AlwaysBuild".into());
+            proto.set_max_instances(8);
+            for (i, (min_u, max_u, thing)) in units.iter().enumerate() {
+                proto.set_units_info(
+                    i,
+                    gamelogic::team::CreateUnitsInfo {
+                        min_units: *min_u,
+                        max_units: *max_u,
+                        unit_thing_name: thing,
+                    },
+                );
+            }
+            tf.replace_team_prototype(proto);
+            tf.find_team_prototype(team_name).expect("registered proto")
+        };
+        let mut list = gamelogic::player::player_list()
+            .write()
+            .expect("player list");
+        list.clear();
+        for i in 0..=leftover_index {
+            let p = Arc::new(RwLock::new(gamelogic::player::Player::new(i)));
+            if i == leftover_index {
+                if let Ok(mut pg) = p.write() {
+                    pg.set_can_build_units(true);
+                    pg.add_team_to_list(proto_arc.clone());
+                }
+            }
+            list.add_player(p);
+        }
+    }
+
+    fn clear_player_team_prototypes() {
+        if let Ok(mut factory) = gamelogic::team::get_team_factory().lock() {
+            factory.reset();
+        }
+        if let Ok(mut list) = gamelogic::player::player_list().write() {
+            list.clear();
+        }
+    }
+
+
     #[test]
     fn ai_default_base_inside_build_edge_residual() {
         // Default synthetic world is 512² centered at origin; MinDistFromEdge=30.
@@ -7206,7 +7334,7 @@ mod cpp_parity_tests {
 
     #[test]
     fn aidata_team_resources_to_start_gates_queue() {
-        // C++ isPossibleToBuildTeam: required = ceil(unit_cost_sum * TeamResourcesToStart).
+        // C++ isPossibleToBuildTeam: required = trunc(unit_cost_sum * TeamResourcesToStart).
         assert!((AIPlayer::TEAM_RESOURCES_TO_START - 0.1).abs() < 1e-5);
         let mut logic = crate::game_logic::GameLogic::new();
         // Seed templates with known build costs.
@@ -7225,7 +7353,7 @@ mod cpp_parity_tests {
         // USA_BasicForce = 2*Ranger + 1*Humvee = 2*225 + 700 = 1150; *0.1 = 115.
         let full = ai.estimate_team_unit_cost(&logic, "USA_BasicForce");
         assert_eq!(full, 1150);
-        let required = (full as f32 * AIPlayer::TEAM_RESOURCES_TO_START).ceil() as u32;
+        let required = (full as f32 * AIPlayer::TEAM_RESOURCES_TO_START) as u32;
         assert_eq!(required, 115);
 
         let mut player = crate::game_logic::Player::new(1, Team::USA, "USA", true);
@@ -7239,6 +7367,167 @@ mod cpp_parity_tests {
         assert!(!ai.is_possible_to_build_team(&logic, "USA_BasicForce"));
         assert!(!ai.should_build_new_team(&logic));
     }
+
+    #[test]
+    fn select_team_to_build_calls_build_specific_ai_team() {
+        let src = include_str!("ai.rs");
+        let i = src
+            .find("/// C++ `AIPlayer::selectTeamToBuild`")
+            .expect("selectTeamToBuild");
+        let window = &src[i..src.len().min(i + 2500)];
+        assert!(
+            window.contains("build_specific_ai_team(game_logic, name, false)")
+                && !window.contains("create_team_queue"),
+            "auto selectTeamToBuild must use leftover-right buildSpecificAITeam"
+        );
+    }
+
+    #[test]
+    fn estimate_team_unit_cost_averages_min_max() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut ranger = crate::game_logic::ThingTemplate::new("AmericaInfantryRanger");
+        ranger.set_cost(200, 0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".into(), ranger);
+        if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
+            let mut proto = gamelogic::team::TeamPrototype::new("HQ_AvgCost".into());
+            proto.set_units_info(
+                0,
+                gamelogic::team::CreateUnitsInfo {
+                    min_units: 1,
+                    max_units: 3,
+                    unit_thing_name: "AmericaInfantryRanger",
+                },
+            );
+            tf.replace_team_prototype(proto);
+        }
+        let ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        // C++ (min+max)/2 * cost = (1+3)/2 * 200 = 400, not max-as-required 600.
+        assert_eq!(ai.estimate_team_unit_cost(&logic, "HQ_AvgCost"), 400);
+        if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
+            tf.reset();
+        }
+    }
+
+    #[test]
+    fn build_specific_ai_team_splits_optional_and_required() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
+        player.resources.supplies = 50_000;
+        player.set_can_build_units(true);
+        logic.add_player(player);
+        let mut ranger = crate::game_logic::ThingTemplate::new("AmericaInfantryRanger");
+        ranger
+            .add_kind_of(crate::game_logic::KindOf::Infantry)
+            .set_cost(225, 0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".into(), ranger);
+        let mut barracks = crate::game_logic::ThingTemplate::new("AmericaBarracks");
+        barracks
+            .add_kind_of(crate::game_logic::KindOf::Structure)
+            .add_kind_of(crate::game_logic::KindOf::FSBarracks)
+            .set_cost(500, 0);
+        logic.templates.insert("AmericaBarracks".into(), barracks);
+        let _ = logic.create_object("AmericaBarracks", Team::USA, Vec3::ZERO);
+        if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
+            let mut proto = gamelogic::team::TeamPrototype::new("HQ_SplitTeam".into());
+            proto.set_units_info(
+                0,
+                gamelogic::team::CreateUnitsInfo {
+                    min_units: 1,
+                    max_units: 4,
+                    unit_thing_name: "AmericaInfantryRanger",
+                },
+            );
+            tf.replace_team_prototype(proto);
+        }
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        assert!(ai.build_specific_ai_team(&mut logic, "HQ_SplitTeam", false));
+        let team = ai.team_queue.front().expect("queued");
+        let required: Vec<_> = team
+            .work_orders
+            .iter()
+            .filter(|order| order.is_required)
+            .collect();
+        let optional: Vec<_> = team
+            .work_orders
+            .iter()
+            .filter(|order| !order.is_required)
+            .collect();
+        assert_eq!(required.len(), 1);
+        assert_eq!(required[0].num_required, 1);
+        assert_eq!(optional.len(), 1);
+        assert_eq!(optional[0].num_required, 3);
+        if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
+            tf.reset();
+        }
+    }
+
+
+    #[test]
+    fn select_team_to_build_splits_min_max_not_max_as_required() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
+        player.resources.supplies = 50_000;
+        player.set_can_build_units(true);
+        logic.add_player(player);
+        let mut ranger = crate::game_logic::ThingTemplate::new("AmericaInfantryRanger");
+        ranger
+            .add_kind_of(crate::game_logic::KindOf::Infantry)
+            .set_cost(225, 0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".into(), ranger);
+        let mut barracks = crate::game_logic::ThingTemplate::new("AmericaBarracks");
+        barracks
+            .add_kind_of(crate::game_logic::KindOf::Structure)
+            .add_kind_of(crate::game_logic::KindOf::FSBarracks)
+            .set_cost(500, 0);
+        logic.templates.insert("AmericaBarracks".into(), barracks);
+        let _ = logic.create_object("AmericaBarracks", Team::USA, Vec3::ZERO);
+
+        install_player_team_prototype(1, "HQ_MinMaxTeam", &[(1, 4, "AmericaInfantryRanger")], 20);
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        assert!(
+            ai.select_team_to_build(&mut logic, 0.0),
+            "auto-select must queue the leftover player prototype"
+        );
+        let team = ai.team_queue.front().expect("queued team");
+        assert_eq!(team.name, "HQ_MinMaxTeam");
+        let required: Vec<_> = team
+            .work_orders
+            .iter()
+            .filter(|order| order.is_required)
+            .collect();
+        let optional: Vec<_> = team
+            .work_orders
+            .iter()
+            .filter(|order| !order.is_required)
+            .collect();
+        assert_eq!(required.len(), 1, "required minUnits stub: {required:?}");
+        assert_eq!(required[0].num_required, 1);
+        assert_eq!(optional.len(), 1, "optional max-min: {optional:?}");
+        assert_eq!(optional[0].num_required, 3);
+        assert!(
+            !team
+                .work_orders
+                .iter()
+                .any(|order| order.is_required && order.num_required == 4),
+            "must not invent max-as-required work orders: {:?}",
+            team.work_orders
+                .iter()
+                .map(|order| (
+                    order.template_name.as_str(),
+                    order.num_required,
+                    order.is_required
+                ))
+                .collect::<Vec<_>>()
+        );
+        clear_player_team_prototypes();
+    }
+
 
     #[test]
     fn aidata_team_factory_idle_gate() {
@@ -7295,7 +7584,6 @@ mod cpp_parity_tests {
         }
         assert!(ai.team_factories_ready(&logic, "USA_BasicForce"));
         assert!(ai.is_possible_to_build_team(&logic, "USA_BasicForce"));
-        assert!(ai.should_build_new_team(&logic));
 
         // Busy both factories → not ready (requireIdleFactory residual).
         if let Some(o) = logic.host_object_mut(barracks_id) {
@@ -7342,7 +7630,6 @@ mod cpp_parity_tests {
             }
         }
         assert!(ai.team_factories_ready(&logic, "USA_BasicForce"));
-        assert!(ai.should_build_new_team(&logic));
     }
 
     #[test]
@@ -7399,6 +7686,16 @@ mod cpp_parity_tests {
         let war_factory_id = logic
             .create_object("AmericaWarFactory", Team::USA, Vec3::new(64.0, 0.0, 0.0))
             .expect("constructed war factory");
+        install_player_team_prototype(
+            1,
+            "USA_BasicForce",
+            &[
+                (2, 2, "AmericaInfantryRanger"),
+                (1, 1, "AmericaVehicleHumvee"),
+            ],
+            10,
+        );
+
 
         let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
         ai.update_military_management(&mut logic, 0.0);
@@ -7449,7 +7746,11 @@ mod cpp_parity_tests {
         let ranger_order = ai
             .team_queue
             .front()
-            .and_then(|team| team.work_orders.first())
+            .and_then(|team| {
+                team.work_orders
+                    .iter()
+                    .find(|order| order.template_name == "AmericaInfantryRanger")
+            })
             .expect("BasicForce Ranger work order remains active");
         assert_eq!(ranger_order.num_completed, 1);
         assert_eq!(ranger_order.queued_count, 1);
@@ -7473,6 +7774,7 @@ mod cpp_parity_tests {
                 .map(|building| building.production_queue.len()),
             Some(1)
         );
+        clear_player_team_prototypes();
     }
 
     #[test]

@@ -369,6 +369,9 @@ pub fn honesty_troop_crawler_residual_pack_ok() -> bool {
         && honesty_troop_crawler_body_residual_ok()
 }
 
+/// C++ AssaultTransportAIUpdate `MAX_TRANSPORT_SLOTS`.
+pub const ASSAULT_TRANSPORT_MAX_SLOTS: usize = 10;
+
 /// C++ AssaultTransportAIUpdate per-transport residual state.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct HostAssaultTransportState {
@@ -378,23 +381,124 @@ pub struct HostAssaultTransportState {
     pub member_ids: Vec<u32>,
     /// Parallel to member_ids: currently returning for heal.
     pub member_healing: Vec<bool>,
+    /// C++ m_newMember — occupants added after assault starts stay aboard.
+    #[serde(default)]
+    pub member_new: Vec<bool>,
     /// Assault order is active.
     pub active: bool,
+    /// C++ m_isAttackMove.
+    #[serde(default)]
+    pub is_attack_move: bool,
+    /// C++ m_isAttackObject.
+    #[serde(default)]
+    pub is_attack_object: bool,
+    /// C++ m_attackMoveGoalPos (x, y, z).
+    #[serde(default)]
+    pub attack_move_goal_pos: [f32; 3],
+    /// C++ m_newOccupantsAreNewMembers.
+    #[serde(default)]
+    pub new_occupants_are_new_members: bool,
+    /// C++ giveFinalOrders already ran (`UPDATE_SLEEP_FOREVER`).
+    #[serde(default)]
+    pub final_orders_given: bool,
 }
 
 impl HostAssaultTransportState {
     pub fn begin(target: u32, members: Vec<u32>) -> Self {
+        Self::begin_from(target, members, None)
+    }
+
+    /// `beginAssault` plus preserved Attack / AttackMove flags from `aiDoCommand`.
+    pub fn begin_from(target: u32, members: Vec<u32>, prev: Option<&Self>) -> Self {
         let n = members.len();
+        let (is_attack_move, is_attack_object, goal) = match prev {
+            Some(p) if p.is_attack_move || p.is_attack_object => {
+                (p.is_attack_move, p.is_attack_object, p.attack_move_goal_pos)
+            }
+            _ => (false, true, [0.0; 3]),
+        };
         Self {
             designated_target: Some(target),
             member_ids: members,
             member_healing: vec![false; n],
+            member_new: vec![false; n],
             active: true,
+            is_attack_move,
+            is_attack_object,
+            attack_move_goal_pos: goal,
+            // Subsequent boarders are new until the next Attack / AttackMove.
+            new_occupants_are_new_members: true,
+            final_orders_given: false,
         }
     }
 
     pub fn clear(&mut self) {
         *self = Self::default();
+    }
+
+    /// C++ `aiDoCommand` Attack: reset new-member latch so a fresh order can eject.
+    /// Keep designated target so an in-range crawler ejects next tick
+    /// (C++ dummy DEPLOY weapon would re-fire `beginAssault`).
+    pub fn on_player_attack(&mut self) {
+        for flag in &mut self.member_new {
+            *flag = false;
+        }
+        self.new_occupants_are_new_members = false;
+        self.is_attack_object = true;
+        self.is_attack_move = false;
+        self.active = true;
+        self.final_orders_given = false;
+    }
+
+    /// C++ `aiDoCommand` AttackMove: same new-member reset plus goal.
+    pub fn on_player_attack_move(&mut self, pos: [f32; 3]) {
+        for flag in &mut self.member_new {
+            *flag = false;
+        }
+        self.new_occupants_are_new_members = false;
+        self.is_attack_move = true;
+        self.is_attack_object = false;
+        self.attack_move_goal_pos = pos;
+        self.active = true;
+        self.final_orders_given = false;
+    }
+
+    pub fn is_new_member(&self, idx: usize) -> bool {
+        self.member_new.get(idx).copied().unwrap_or(false)
+    }
+
+    /// C++ `add_new_members` slot append.
+    pub fn try_add_member(&mut self, id: u32, wounded: bool) -> bool {
+        if self.member_ids.contains(&id) {
+            return false;
+        }
+        if self.member_ids.len() >= ASSAULT_TRANSPORT_MAX_SLOTS {
+            return false;
+        }
+        self.member_ids.push(id);
+        self.member_healing.push(wounded);
+        self.member_new.push(self.new_occupants_are_new_members);
+        true
+    }
+
+    /// C++ compact-from-end member prune.
+    pub fn remove_member_at(&mut self, i: usize) {
+        let last = self.member_ids.len().saturating_sub(1);
+        if i > last {
+            return;
+        }
+        if i != last {
+            self.member_ids[i] = self.member_ids[last];
+            if i < self.member_healing.len() && last < self.member_healing.len() {
+                self.member_healing[i] = self.member_healing[last];
+            }
+            if i < self.member_new.len() && last < self.member_new.len() {
+                self.member_new[i] = self.member_new[last];
+            }
+        }
+        self.member_ids.pop();
+        self.member_healing.truncate(self.member_ids.len());
+        self.member_new.truncate(self.member_ids.len());
     }
 }
 
@@ -502,4 +606,27 @@ mod tests {
         assert!(honesty_troop_crawler_body_residual_ok());
         assert!(honesty_troop_crawler_residual_pack_ok());
     }
+
+    #[test]
+    fn new_members_and_order_flags() {
+        let mut s = HostAssaultTransportState::begin(7, vec![1, 2]);
+        assert!(s.is_attack_object);
+        assert!(!s.is_attack_move);
+        assert!(!s.is_new_member(0));
+        assert!(s.new_occupants_are_new_members);
+        assert!(s.try_add_member(3, false));
+        assert!(s.is_new_member(2));
+        s.on_player_attack();
+        assert!(!s.is_new_member(2));
+        assert!(!s.new_occupants_are_new_members);
+        s.on_player_attack_move([10.0, 0.0, 20.0]);
+        assert!(s.is_attack_move);
+        assert!(!s.is_attack_object);
+        assert_eq!(s.attack_move_goal_pos, [10.0, 0.0, 20.0]);
+        let next = HostAssaultTransportState::begin_from(9, vec![4], Some(&s));
+        assert!(next.is_attack_move);
+        assert_eq!(next.attack_move_goal_pos, [10.0, 0.0, 20.0]);
+        assert!(!next.is_new_member(0));
+    }
+
 }

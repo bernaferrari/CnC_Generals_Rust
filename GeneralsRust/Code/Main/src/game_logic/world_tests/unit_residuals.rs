@@ -420,6 +420,140 @@ fn hacker_disable_building_uses_typed_persistent_channel_and_packs_on_relation_l
     assert_eq!(finished.target, None);
 }
 
+/// C++ SpecialAbilityUpdate PackSound / UnpackSound / PrepSoundLoop on HDB.
+#[test]
+fn hacker_disable_building_queues_pack_unpack_prep_audio() {
+    use crate::game_logic::host_hacker_disable::{
+        HACKER_DISABLE_PACK_SOUND, HACKER_DISABLE_PREP_SOUND_LOOP, HACKER_DISABLE_UNPACK_SOUND,
+    };
+    use crate::game_logic::{HackerDisableBuildingMetadata, HackerDisableChannelPhase, Player};
+
+    let mut game_logic = GameLogic::new();
+    game_logic.add_player(Player::new(0, Team::USA, "USA", false));
+    game_logic.add_player(Player::new(1, Team::GLA, "GLA", false));
+    ensure_test_structure_template(&mut game_logic);
+
+    let mut hacker_tpl = crate::game_logic::ThingTemplate::new("TypedHackerDisableAudio");
+    hacker_tpl
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(100.0);
+    hacker_tpl.hacker_disable_building = Some(HackerDisableBuildingMetadata {
+        special_power_template: "SpecialAbilityHackerDisableBuilding".to_string(),
+        update_module_starts_attack: true,
+        starts_paused: false,
+        scripted_special_power_only: false,
+        reload_time_frames: 0,
+        required_science: None,
+        shared_n_sync: false,
+        start_ability_range: 150.0,
+        ability_abort_range: 10_000_000.0,
+        approach_requires_los: true,
+        unpack_time_ms: 1_000,
+        preparation_time_ms: 1_000,
+        persistent_prep_time_ms: 333,
+        effect_duration_ms: 2_000,
+        pack_time_ms: 1_000,
+        pack_unpack_variation_factor: 0.0,
+        persistence_requires_recharge: false,
+    });
+    game_logic
+        .templates
+        .insert("TypedHackerDisableAudio".to_string(), hacker_tpl);
+
+    let hacker_id = game_logic
+        .create_object_for_player("TypedHackerDisableAudio", 0, Vec3::new(10.0, 0.0, 0.0))
+        .expect("typed hacker");
+    let target_id = game_logic
+        .create_object_for_player("TestBuilding", 1, Vec3::ZERO)
+        .expect("enemy building");
+
+    game_logic.queue_command(crate::command_system::GameCommand {
+        command_type: crate::command_system::CommandType::HackerDisableBuilding { target_id },
+        player_id: 0,
+        command_id: 1,
+        timestamp: std::time::SystemTime::now(),
+        selected_units: vec![hacker_id],
+        modifier_keys: crate::command_system::ModifierKeys::default(),
+    });
+    game_logic.process_commands();
+    game_logic.queued_audio_events.clear();
+    game_logic.update_ai(&[hacker_id, target_id], 1.0 / 60.0);
+    game_logic.update_ai(&[hacker_id, target_id], 1.0);
+    assert_eq!(
+        game_logic
+            .host_object(hacker_id)
+            .and_then(|source| source.hacker_disable_channel)
+            .expect("unpack channel")
+            .phase,
+        HackerDisableChannelPhase::Unpacking
+    );
+    assert!(
+        game_logic.queued_audio_events.iter().any(|e| {
+            e.event_type == HACKER_DISABLE_UNPACK_SOUND && e.object_id == Some(hacker_id)
+        }),
+        "startUnpacking must queue HackerUnpack: {:?}",
+        game_logic.queued_audio_events
+    );
+
+    game_logic.queued_audio_events.clear();
+    game_logic.update_ai(&[hacker_id, target_id], 1.0);
+    assert_eq!(
+        game_logic
+            .host_object(hacker_id)
+            .and_then(|source| source.hacker_disable_channel)
+            .expect("prep channel")
+            .phase,
+        HackerDisableChannelPhase::Preparing
+    );
+    assert!(
+        game_logic.queued_audio_events.iter().any(|e| {
+            e.event_type == HACKER_DISABLE_PREP_SOUND_LOOP
+                && e.object_id == Some(hacker_id)
+                && e.is_looping
+                && !e.stop
+        }),
+        "startPreparation must queue HackerPrepLoop: {:?}",
+        game_logic.queued_audio_events
+    );
+
+    game_logic
+        .get_player_mut(0)
+        .expect("source player")
+        .alliance_team = 7;
+    game_logic
+        .get_player_mut(1)
+        .expect("target player")
+        .alliance_team = 7;
+    game_logic.queued_audio_events.clear();
+    game_logic.update_ai(&[hacker_id, target_id], 1.0 / 30.0);
+    assert_eq!(
+        game_logic
+            .host_object(hacker_id)
+            .and_then(|source| source.hacker_disable_channel)
+            .expect("packing channel")
+            .phase,
+        HackerDisableChannelPhase::Packing
+    );
+    assert!(
+        game_logic.queued_audio_events.iter().any(|e| {
+            e.event_type == HACKER_DISABLE_PREP_SOUND_LOOP
+                && e.object_id == Some(hacker_id)
+                && e.stop
+        }),
+        "endPreparation must stop HackerPrepLoop: {:?}",
+        game_logic.queued_audio_events
+    );
+    assert!(
+        game_logic.queued_audio_events.iter().any(|e| {
+            e.event_type == HACKER_DISABLE_PACK_SOUND && e.object_id == Some(hacker_id)
+        }),
+        "startPacking must queue HackerPack: {:?}",
+        game_logic.queued_audio_events
+    );
+}
+
 /// A Hacker-looking basename is never HDB authority without the exact paired
 /// parsed modules.  This catches the old active string fallback in both the
 /// command executor and the generic support-state branch.
@@ -2186,6 +2320,283 @@ fn troop_crawler_assault_keeps_wounded_and_retrieves_outside() {
     );
     assert!(game_logic.troop_crawler.healthy_redeploys > 0);
 }
+
+fn strip_troop_crawler_payload(game_logic: &mut GameLogic, crawler_id: ObjectId) {
+    let old_occ = game_logic
+        .host_object(crawler_id)
+        .map(|c| c.contained_units())
+        .unwrap_or_default();
+    for oid in old_occ {
+        if let Some(c) = game_logic.host_object_mut(crawler_id) {
+            c.remove_occupant(oid);
+        }
+        if let Some(u) = game_logic.host_object_mut(oid) {
+            u.set_contained_by(None);
+        }
+        game_logic.destroy_object(oid);
+    }
+}
+
+/// hq-6u2ps: crawler death transfers the assault order as CMD_FROM_PLAYER.
+#[test]
+fn troop_crawler_death_gives_final_orders() {
+    use crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_PLAYER;
+
+    let mut game_logic = GameLogic::new();
+    ensure_test_infantry_template(&mut game_logic);
+    ensure_test_tank_template(&mut game_logic);
+    ensure_test_player_for_team(&mut game_logic, Team::China);
+
+    let crawler_id = create_test_troop_crawler(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+    strip_troop_crawler_payload(&mut game_logic, crawler_id);
+    let healthy_id = game_logic
+        .create_object("TestInfantry", Team::China, Vec3::new(1.0, 0.0, 0.0))
+        .expect("healthy");
+    {
+        let h = game_logic.host_object_mut(healthy_id).unwrap();
+        h.health.maximum = 100.0;
+        h.health.current = 100.0;
+    }
+    {
+        let c = game_logic.host_object_mut(crawler_id).unwrap();
+        assert!(c.add_occupant(healthy_id));
+    }
+    {
+        let h = game_logic.host_object_mut(healthy_id).unwrap();
+        h.set_contained_by(Some(crawler_id));
+    }
+    let enemy = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+        .expect("enemy");
+
+    assert_eq!(
+        game_logic.apply_troop_crawler_assault_deploy_for_test(crawler_id, enemy),
+        1
+    );
+    game_logic.destroy_object(crawler_id);
+    let member = game_logic.host_object(healthy_id).expect("member");
+    assert_eq!(
+        member.last_command_source, HUNT_CMD_FROM_PLAYER,
+        "giveFinalOrders must stamp CMD_FROM_PLAYER"
+    );
+    assert!(
+        member.target == Some(enemy)
+            || matches!(member.ai_state, AIState::Attacking | AIState::AttackMoving),
+        "dead crawler hands the assault attack to the squad"
+    );
+}
+
+/// hq-jilpa: occupants added after assault starts stay aboard until a new attack.
+#[test]
+fn troop_crawler_new_members_do_not_eject_until_new_attack() {
+    let mut game_logic = GameLogic::new();
+    ensure_test_infantry_template(&mut game_logic);
+    ensure_test_tank_template(&mut game_logic);
+    ensure_test_player_for_team(&mut game_logic, Team::China);
+
+    let crawler_id = create_test_troop_crawler(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+    strip_troop_crawler_payload(&mut game_logic, crawler_id);
+    let fighter_id = game_logic
+        .create_object("TestInfantry", Team::China, Vec3::new(1.0, 0.0, 0.0))
+        .expect("fighter");
+    let extra_id = game_logic
+        .create_object("TestInfantry", Team::China, Vec3::new(2.0, 0.0, 0.0))
+        .expect("extra");
+    for id in [fighter_id, extra_id] {
+        let u = game_logic.host_object_mut(id).unwrap();
+        u.health.maximum = 100.0;
+        u.health.current = 100.0;
+    }
+    {
+        let c = game_logic.host_object_mut(crawler_id).unwrap();
+        assert!(c.add_occupant(fighter_id));
+    }
+    {
+        let h = game_logic.host_object_mut(fighter_id).unwrap();
+        h.set_contained_by(Some(crawler_id));
+    }
+    let enemy = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+        .expect("enemy");
+    assert_eq!(
+        game_logic.apply_troop_crawler_assault_deploy_for_test(crawler_id, enemy),
+        1
+    );
+
+    {
+        let c = game_logic.host_object_mut(crawler_id).unwrap();
+        assert!(c.add_occupant(extra_id));
+    }
+    {
+        let e = game_logic.host_object_mut(extra_id).unwrap();
+        e.set_contained_by(Some(crawler_id));
+    }
+    game_logic.tick_assault_transport_updates();
+    assert_eq!(
+        game_logic
+            .host_object(extra_id)
+            .and_then(|u| u.contained_by),
+        Some(crawler_id),
+        "new members stay aboard during the current assault"
+    );
+
+    game_logic.assault_transport_on_player_attack(crawler_id);
+    game_logic.tick_assault_transport_updates();
+    assert!(
+        game_logic
+            .host_object(extra_id)
+            .map(|u| u.contained_by.is_none())
+            .unwrap_or(false),
+        "a fresh attack order ejects the boarded extras"
+    );
+}
+
+/// hq-tk45t: attack-object target death retrieves outside members.
+#[test]
+fn troop_crawler_target_death_retrieves_members() {
+    let mut game_logic = GameLogic::new();
+    ensure_test_infantry_template(&mut game_logic);
+    ensure_test_tank_template(&mut game_logic);
+    ensure_test_player_for_team(&mut game_logic, Team::China);
+
+    let crawler_id = create_test_troop_crawler(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+    strip_troop_crawler_payload(&mut game_logic, crawler_id);
+    let healthy_id = game_logic
+        .create_object("TestInfantry", Team::China, Vec3::new(1.0, 0.0, 0.0))
+        .expect("healthy");
+    {
+        let h = game_logic.host_object_mut(healthy_id).unwrap();
+        h.health.maximum = 100.0;
+        h.health.current = 100.0;
+    }
+    {
+        let c = game_logic.host_object_mut(crawler_id).unwrap();
+        assert!(c.add_occupant(healthy_id));
+    }
+    {
+        let h = game_logic.host_object_mut(healthy_id).unwrap();
+        h.set_contained_by(Some(crawler_id));
+    }
+    let enemy = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+        .expect("enemy");
+    assert_eq!(
+        game_logic.apply_troop_crawler_assault_deploy_for_test(crawler_id, enemy),
+        1
+    );
+    assert!(
+        game_logic
+            .host_object(healthy_id)
+            .map(|u| u.contained_by.is_none())
+            .unwrap_or(false)
+    );
+
+    game_logic.destroy_object(enemy);
+    game_logic.tick_assault_transport_updates();
+    assert_eq!(
+        game_logic
+            .host_object(healthy_id)
+            .and_then(|u| u.contained_by),
+        Some(crawler_id),
+        "attack-object target death must retrieveMembers"
+    );
+}
+
+/// hq-tk45t: attack-move continues toward the goal when the target dies.
+#[test]
+fn troop_crawler_attack_move_continues_after_target_death() {
+    let mut game_logic = GameLogic::new();
+    ensure_test_infantry_template(&mut game_logic);
+    ensure_test_tank_template(&mut game_logic);
+    ensure_test_player_for_team(&mut game_logic, Team::China);
+
+    let crawler_id = create_test_troop_crawler(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+    strip_troop_crawler_payload(&mut game_logic, crawler_id);
+    let healthy_id = game_logic
+        .create_object("TestInfantry", Team::China, Vec3::new(1.0, 0.0, 0.0))
+        .expect("healthy");
+    {
+        let h = game_logic.host_object_mut(healthy_id).unwrap();
+        h.health.maximum = 100.0;
+        h.health.current = 100.0;
+    }
+    {
+        let c = game_logic.host_object_mut(crawler_id).unwrap();
+        assert!(c.add_occupant(healthy_id));
+    }
+    {
+        let h = game_logic.host_object_mut(healthy_id).unwrap();
+        h.set_contained_by(Some(crawler_id));
+    }
+    let enemy = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+        .expect("enemy");
+    game_logic.assault_transport_on_player_attack_move(crawler_id, Vec3::new(80.0, 0.0, 0.0));
+    assert_eq!(
+        game_logic.apply_troop_crawler_assault_deploy_for_test(crawler_id, enemy),
+        1
+    );
+
+    game_logic.destroy_object(enemy);
+    game_logic.tick_assault_transport_updates();
+    let crawler = game_logic.host_object(crawler_id).expect("crawler");
+    assert!(
+        matches!(crawler.ai_state, AIState::AttackMoving),
+        "attack-move assault continues toward the goal after the target dies"
+    );
+    assert!(
+        game_logic
+            .host_object(healthy_id)
+            .map(|u| u.contained_by.is_none())
+            .unwrap_or(false),
+        "attack-move does not retrieveMembers on target death"
+    );
+}
+
+/// hq-tk45t: Stop/Idle on the crawler calls the squad back aboard.
+#[test]
+fn troop_crawler_stop_retrieves_members() {
+    let mut game_logic = GameLogic::new();
+    ensure_test_infantry_template(&mut game_logic);
+    ensure_test_tank_template(&mut game_logic);
+    ensure_test_player_for_team(&mut game_logic, Team::China);
+
+    let crawler_id = create_test_troop_crawler(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+    strip_troop_crawler_payload(&mut game_logic, crawler_id);
+    let healthy_id = game_logic
+        .create_object("TestInfantry", Team::China, Vec3::new(1.0, 0.0, 0.0))
+        .expect("healthy");
+    {
+        let h = game_logic.host_object_mut(healthy_id).unwrap();
+        h.health.maximum = 100.0;
+        h.health.current = 100.0;
+    }
+    {
+        let c = game_logic.host_object_mut(crawler_id).unwrap();
+        assert!(c.add_occupant(healthy_id));
+    }
+    {
+        let h = game_logic.host_object_mut(healthy_id).unwrap();
+        h.set_contained_by(Some(crawler_id));
+    }
+    let enemy = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+        .expect("enemy");
+    assert_eq!(
+        game_logic.apply_troop_crawler_assault_deploy_for_test(crawler_id, enemy),
+        1
+    );
+
+    assert!(game_logic.unit_command_stop(crawler_id));
+    assert_eq!(
+        game_logic
+            .host_object(healthy_id)
+            .and_then(|u| u.contained_by),
+        Some(crawler_id),
+        "Stop on the crawler must retrieveMembers"
+    );
+}
+
 
 /// Residual: vehicles rejected from Troop Crawler (AllowInsideKindOf=INFANTRY).
 #[test]

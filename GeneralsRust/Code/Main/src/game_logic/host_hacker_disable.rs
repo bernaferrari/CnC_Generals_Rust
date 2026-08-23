@@ -22,8 +22,9 @@
 //! - Target filters: enemy structure, not under construction, not already hacked
 //!
 //! Fail-closed honesty:
-//! - Not full SpecialAbilityUpdate continuous BinaryDataStream bone-attach matrix
-//! - Not full PrepSoundLoop audio stream
+//! - Live host queues PackSound / UnpackSound / PrepSoundLoop (HackerPack /
+//!   HackerUnpack / HackerPrepLoop) on the HDB channel; leftover TheAudio
+//!   still never runs on live host objects
 //! - Not full CashHackSpecialPower victim money clamp / floating text path
 //! - Not network disable-building replication (network deferred)
 

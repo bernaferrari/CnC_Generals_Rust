@@ -708,6 +708,7 @@ impl GameLogic {
                 } else if let Some(jet) = self.objects.get_mut(&jet_id) {
                     jet.set_ai_state(AIState::Idle);
                     jet.set_precise_z_and_ultra_accurate(false);
+                    jet.set_allow_invalid_position(false);
                     jet.status.airborne_target = true;
                     jet.set_status_moving(false);
                     jet.movement.path.clear();
@@ -751,6 +752,7 @@ impl GameLogic {
             jet.set_ai_state(AIState::Docked);
             jet.set_status_moving(false);
             jet.set_precise_z_and_ultra_accurate(false);
+            jet.set_allow_invalid_position(false);
             jet.status.airborne_target = false;
             jet.target = None;
             jet.movement.path.clear();
@@ -2703,6 +2705,7 @@ impl GameLogic {
             jet.apply_taxiing_locomotor_set();
             // C++ JetOrHeliTaxiState / JetTakeoffOrLandingState::onExit.
             jet.set_precise_z_and_ultra_accurate(false);
+            jet.set_allow_invalid_position(false);
             jet.target = None;
             jet.movement.path.clear();
             jet.movement.current_path_index = 0;

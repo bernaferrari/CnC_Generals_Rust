@@ -772,10 +772,12 @@ impl BehaviorModuleDefinition {
             .find_map(|(key, value)| key.eq_ignore_ascii_case(name).then_some(value.as_str()))
     }
 
-    /// C++ SlowDeath `FX`/`OCL`/`Weapon` may appear once per phase; HashMap last-wins
-    /// would drop INITIAL when FINAL follows. Concatenate with newlines.
+    /// C++ SlowDeath `FX`/`OCL`/`Weapon` and StructureCollapse `FXList` may
+    /// appear once per phase; HashMap last-wins would drop INITIAL when FINAL
+    /// follows. Concatenate with newlines.
     fn insert_attribute(&mut self, key: String, value: String) {
         let repeatable = key.eq_ignore_ascii_case("FX")
+            || key.eq_ignore_ascii_case("FXList")
             || key.eq_ignore_ascii_case("OCL")
             || key.eq_ignore_ascii_case("Weapon");
         if repeatable {

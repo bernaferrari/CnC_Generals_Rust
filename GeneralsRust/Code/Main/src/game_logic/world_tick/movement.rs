@@ -403,7 +403,7 @@ impl GameLogic {
                         gamelogic::ai::pathfind_complete::SURFACE_GROUND
                     };
                     let air = (surfaces & gamelogic::ai::pathfind_complete::SURFACE_AIR) != 0;
-                    if !air {
+                    if !air && !obj.allow_invalid_position {
                         let pos = obj.get_position();
                         if !valid_movement_terrain_at(&self.pathfinding_system.grid, surfaces, pos)
                             && try_fix_invalid_position_3x3(
@@ -592,6 +592,9 @@ impl GameLogic {
                         let dist = horiz(current_pos, flat_target);
                         // C++ Path::computePointOnPath distAlongPath (AIPathfind.cpp:997)
                         // then locoUpdate_moveTowardsPosition raise (Locomotor.cpp:980-992).
+                        // Hover / !ground / aircraft use computeFlightDistToGoal
+                        // (AIUpdate.cpp:2412-2466) so dogleg winding does not
+                        // brake Comanche/Chinook/Helix early.
                         let path_for_dist = if obj.movement.path.is_empty() {
                             None
                         } else {
@@ -600,12 +603,21 @@ impl GameLogic {
                                     [obj.movement.current_path_index.saturating_sub(1)..],
                             )
                         };
+                        let treat_as_aircraft = !crate::game_logic::PathfindingGrid::is_doing_ground_movement(obj)
+                            || matches!(obj.loco_appearance, LocomotorAppearance::Hover);
                         let mut on_path_dist = path_for_dist
                             .map(|wps| {
-                                crate::game_logic::PathfindingSystem::dist_along_path(
-                                    current_pos,
-                                    wps,
-                                )
+                                if treat_as_aircraft {
+                                    crate::game_logic::PathfindingSystem::compute_flight_dist_to_goal(
+                                        current_pos,
+                                        wps,
+                                    )
+                                } else {
+                                    crate::game_logic::PathfindingSystem::dist_along_path(
+                                        current_pos,
+                                        wps,
+                                    )
+                                }
                             })
                             .unwrap_or(dist);
                         // C++ Locomotor.cpp:941-946 — far-from-goal IS_BRAKING
@@ -2372,6 +2384,34 @@ mod tests {
         );
     }
 
+    /// hq-wwtka: hover/air flight-dist is projected remaining, not closest-point winding.
+    #[test]
+    fn flight_dist_to_goal_does_not_snap_to_later_dogleg() {
+        let path = [
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(100.0, 0.0, 0.0),
+            Vec3::new(100.0, 0.0, 100.0),
+        ];
+        let corner_cut = Vec3::new(50.0, 0.0, 50.0);
+        let winding = crate::game_logic::PathfindingSystem::dist_along_path(corner_cut, &path);
+        let flight = crate::game_logic::PathfindingSystem::compute_flight_dist_to_goal(
+            corner_cut,
+            &path,
+        );
+        assert!(
+            (winding - 150.0).abs() < 0.5,
+            "closest-point winding must stay 150, got {winding}"
+        );
+        assert!(
+            (flight - 100.0).abs() < 0.5,
+            "computeFlightDistToGoal must be 50+50=100, got {flight}"
+        );
+        assert!(
+            flight + 40.0 < winding,
+            "flight remaining {flight} must be shorter than winding {winding}"
+        );
+    }
+
     #[test]
     fn approach_brake_does_not_trigger_mid_long_path() {
         let mut tank = {
@@ -2488,6 +2528,57 @@ mod tests {
             (obj.get_position().x - 50.0).abs() < 0.01,
             "locoUpdate returns without 2D march, pos={:?}",
             obj.get_position()
+        );
+    }
+
+    /// hq-i4tcw: ALLOW_INVALID_POSITION skips fixInvalidPosition 3x3 shove.
+    #[test]
+    fn allow_invalid_position_skips_3x3_shove() {
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let mut logic = GameLogic::new();
+        let water = logic
+            .pathfinding_system
+            .grid
+            .world_to_grid(Vec3::new(50.0, 0.0, 50.0));
+        logic.pathfinding_system.grid.set_cell_type(
+            water,
+            gamelogic::ai::pathfind_astar::PathfindCellType::Water,
+        );
+        logic.pathfinding_system.grid.set_cell_type(
+            GridPos::new(water.x - 1, water.y),
+            gamelogic::ai::pathfind_astar::PathfindCellType::Water,
+        );
+        let id = ObjectId(9721);
+        let mut unit = ranger_at(9721, Vec3::new(50.0, 0.0, 50.0));
+        unit.locomotor_surfaces = gamelogic::ai::pathfind_complete::SURFACE_GROUND;
+        unit.movement.target_position = Some(Vec3::new(80.0, 0.0, 50.0));
+        unit.movement.velocity = Vec3::ZERO;
+        unit.set_allow_invalid_position(true);
+        logic.objects.insert(id, unit);
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("unit");
+        assert!(
+            obj.get_position().x > 50.01 || obj.movement.velocity.x > 0.0,
+            "ALLOW_INVALID_POSITION must continue 2D motive, not 3x3-return, pos={:?} vel={:?}",
+            obj.get_position(),
+            obj.movement.velocity
+        );
+    }
+
+    /// hq-i4tcw: AIEnterState sets ALLOW_INVALID_POSITION; exit clears it.
+    #[test]
+    fn enter_state_sets_allow_invalid_position() {
+        let mut unit = ranger_at(9722, Vec3::ZERO);
+        assert!(!unit.allow_invalid_position);
+        unit.set_ai_state(AIState::Entering);
+        assert!(
+            unit.allow_invalid_position,
+            "AIEnterState::onEnter setAllowInvalidPosition(true)"
+        );
+        unit.set_ai_state(AIState::Idle);
+        assert!(
+            !unit.allow_invalid_position,
+            "AIEnterState::onExit setAllowInvalidPosition(false)"
         );
     }
 
@@ -2740,6 +2831,34 @@ mod tests {
         assert!(
             (y - 30.0).abs() > 1.0,
             "must not teleport to preferred+surface=30; y={}",
+            y
+        );
+        assert!(
+            y > 0.5 && y <= 5.5,
+            "one Euler step is lift-limited (maxLift=5), y={}",
+            y
+        );
+    }
+
+    /// hq-0rri4: AbsoluteHeight Y is lift+Euler, not preferred-height snap.
+    #[test]
+    fn absolute_height_is_lift_not_kinematic_snap() {
+        let mut tmpl = ThingTemplate::new("ComancheAbs");
+        tmpl.add_kind_of(KindOf::Aircraft);
+        let mut heli = Object::new(tmpl, ObjectId(9821), Team::USA);
+        heli.set_position(Vec3::new(0.0, 0.0, 0.0));
+        heli.loco_behavior_z = LocomotorBehaviorZ::AbsoluteHeight;
+        heli.loco_appearance = LocomotorAppearance::Wings;
+        heli.loco_preferred_height = 10.0;
+        heli.loco_preferred_height_damping = 1.0;
+        heli.max_lift = 5.0;
+        heli.physics_mass = 1.0;
+        heli.physics_accel = Vec3::ZERO;
+        GameLogic::apply_live_handle_behavior_z_for_test(&mut heli, 20.0, None);
+        let y = heli.get_position().y;
+        assert!(
+            (y - 10.0).abs() > 1.0,
+            "must not teleport to preferredHeight=10; y={}",
             y
         );
         assert!(
